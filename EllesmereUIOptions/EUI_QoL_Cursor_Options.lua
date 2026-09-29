@@ -93,25 +93,6 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  MakeCogBtn helper
-    ---------------------------------------------------------------------------
-    local function MakeCogBtn(rgn, showFn, anchorTo, iconPath)
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", anchorTo or rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints()
-        cogTex:SetTexture(iconPath or EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(self) showFn(self) end)
-        return cogBtn
-    end
-
-    ---------------------------------------------------------------------------
     --  Ring texture dropdown values (shared by GCD + Cast)
     ---------------------------------------------------------------------------
     local ringTexValues = { normal = "Ring Normal", light = "Ring Light", thin = "Ring Thin", heavy = "Ring Heavy", thick = "Ring Thick" }
@@ -298,7 +279,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Combat Only
+        -- Combat Only ---- Center Reticle
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Combat Only",
               tooltip="Only shows the cursor circle while you are in combat.",
@@ -309,7 +290,14 @@ initFrame:SetScript("OnEvent", function(self)
                 if _G._ECL_ApplyCombatOnlyEvents then _G._ECL_ApplyCombatOnlyEvents() end
                 if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
               end },
-            { type="label", text="" }
+            { type="toggle", text="Center Reticle",
+              tooltip="Adds a small filled dot at the center of the cursor circle. Uses the same color and opacity as the circle.",
+              getValue=function() local p = DB(); return p and p.reticle or false end,
+              setValue=function(v)
+                local p = DB(); if not p then return end
+                p.reticle = v
+                RefreshAddon()
+              end }
         );  y = y - h
         end   -- close Cursor Circle hidden-while-disabled gate
 
@@ -582,37 +570,22 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Inline cog on Enable Cast Bar Circle for "Show Spark"
-        if not EllesmereUI._prebuilding then
-            local leftRgn = row._leftRegion
-            local _, cogShowFn = EllesmereUI.BuildCogPopup({
-                title = "Cast Bar Settings",
-                rows = {
-                    { type="toggle", label="Show Spark",
-                      get=function()
-                        local c = Cast_DB()
-                        return c.sparkEnabled ~= false
-                      end,
-                      set=function(v)
-                        Cast_DB().sparkEnabled = v
-                        RefreshCast()
-                      end },
-                },
-            })
-            local cogBtn = MakeCogBtn(leftRgn, cogShowFn)
-            local function UpdateCastCog()
-                if not Cast_DB().enabled then
-                    cogBtn:SetAlpha(0.15)
-                    cogBtn:EnableMouse(false)
-                    cogBtn._disabledTooltip = "Cast Bar Circle"
-                else
-                    cogBtn:SetAlpha(0.4)
-                    cogBtn:EnableMouse(true)
-                    cogBtn._disabledTooltip = nil
-                end
-            end
-            UpdateCastCog()
-            EllesmereUI.RegisterWidgetRefresh(UpdateCastCog)
-        end
+        EllesmereUI.BuildInlineCog(row._leftRegion, {
+            title = "Cast Bar Settings",
+            disabled = function() return not Cast_DB().enabled end,
+            disabledTooltip = "Cast Bar Circle",
+            rows = {
+                { type="toggle", label="Show Spark",
+                  get=function()
+                    local c = Cast_DB()
+                    return c.sparkEnabled ~= false
+                  end,
+                  set=function(v)
+                    Cast_DB().sparkEnabled = v
+                    RefreshCast()
+                  end },
+            },
+        })
 
         -- Rows below are HIDDEN entirely while the Cast Bar Circle is off
         -- (the toggle's DependentSetValue forces the rebuild on flips).

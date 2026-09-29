@@ -2,16 +2,21 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --------------------------------------------------------------------------------
 --  Character Sheet Socket Panel
 --
---  A single bare row of socket icons in the blank strip along the bottom
---  edge of the EUI-skinned character sheet, right-aligned. Each icon is one
+--  A bounded row of socket icons in the blank strip along the bottom
+--  edge of the EUI-skinned character sheet, right-aligned. Under the stock
+--  styles (Blizzard / Classic) it hangs below Blizzard's sheet instead, a
+--  plate in the bottom tabs' own art at the bottom-right corner, with
+--  Blizzard's item-button, menu and page-arrow art. Each icon is one
 --  socket on a currently-equipped item:
 --  filled sockets paint the gem, empty sockets paint the empty-socket texture.
 --  Clicking a socket opens a flyout of socketable bag gems; clicking a gem
 --  socket-sequences it into that exact socket index.
 --
 --  Zero cost when the sheet is closed: everything is built lazily on first
---  show, and WoW events are registered only while the panel is visible.
---  Zero taint: all UI frames are ours; Blizzard frames are HookScript-only;
+--  show, and WoW events are registered only while the Character tab is
+--  shown (plus one ADDON_LOADED that waits for the socketing UI).
+--  Zero taint: all UI frames are ours; Blizzard frames are HookScript-only
+--  apart from the sanctioned SetUIPanelAttribute seat on ItemSocketingFrame;
 --  no custom keys are written onto Blizzard-owned frames.
 --------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
@@ -25,26 +30,39 @@ local ClickSocketBtn   = (CIS and CIS.ClickSocketButton) or _G.ClickSocketButton
 local AcceptSocketsFn  = (CIS and CIS.AcceptSockets)   or _G.AcceptSockets
 local CloseSocketFn    = (CIS and CIS.CloseSocketInfo) or _G.CloseSocketInfo
 local SocketInvItem    = (CIS and CIS.SocketInventoryItem) or _G.SocketInventoryItem
+local GetNewSocketInfoFn = (CIS and CIS.GetNewSocketInfo) or _G.GetNewSocketInfo
 local GetItemNumSockets = C_Item and C_Item.GetItemNumSockets
 local GetItemGemFn     = C_Item and C_Item.GetItemGem
 local GetItemStatsFn   = C_Item and C_Item.GetItemStats
 local GetInfoInstant   = C_Item and C_Item.GetItemInfoInstant
 local GetIconByID      = C_Item and C_Item.GetItemIconByID
-local GetItemCountFn   = (C_Item and C_Item.GetItemCount) or _G.GetItemCount
+local GetItemCountFn   = C_Item.GetItemCount
 local CClear           = _G.ClearCursor
 local CHasItem         = _G.CursorHasItem
 
--- Constants
+-- Constants. SIZE, PAD, PAGE_BUTTON_W, EDGE_X, ICON_Y, FLY_PAD and
+-- FLY_BOTTOM hold the EllesmereUI look's layout; the bootstrap swaps in the
+-- stock plate's values once, at login, when the latched sheet style is
+-- Blizzard or Classic (STOCK), before anything is built.
 local SIZE       = 28
 local PAD        = 4
+local MAX_SOCKET_ICONS = 6
+local PAGE_BUTTON_W = 12
+local EDGE_X     = 0    -- padding between the panel's edges and its first/last icon
+local ICON_Y     = 0    -- vertical offset of the icon row inside the panel
+local FLY_PAD    = 4    -- flyout row inset (left, right, top)
+local FLY_BOTTOM = 4    -- flyout space below the last row
+local MIN_W      = 0    -- narrowest panel (the stock plate's two tab end caps)
+local STOCK      = false
 local ROW_H      = 20   -- gem flyout row height
 local FLYOUT_W   = 240
 local MAX_FLYOUT_ROWS = 12   -- flyout caps here; extra gems scroll with the wheel
 local GEM_CLASS  = (Enum and Enum.ItemClass and Enum.ItemClass.Gem) or 3
 local EMPTY_SOCKET_TEX = "Interface\\ItemSocketingFrame\\UI-EmptySocket-Prismatic"
 
--- Inventory slots that can carry sockets (skip Body/Relic/Tabard/Shirt).
-local SLOTS = { 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 }
+-- Character-sheet order: left column, right column, then weapons.
+-- Skip shirt/tabard; each item's sockets stay in socket-index order.
+local SLOTS = { 1, 2, 3, 15, 5, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17 }
 
 -- State (all plain Lua tables / our own frames -- nothing lives on Blizzard frames)
 local sockets   = {}      -- ordered list of { slot, socketIndex, gemLink, emptyName }
@@ -54,6 +72,7 @@ local relevantItems = {}  -- itemID -> true for equipped socketed items + their 
 local gemRows   = {}      -- pooled flyout rows
 local pending   = nil     -- in-flight socket action
 local panel               -- the panel frame
+local seasonPanel         -- optional vault / Midnight folio shortcuts
 local flyout              -- the gem flyout frame
 local catcher             -- full-screen click-catcher behind the flyout
 local evtFrame            -- our event frame
@@ -63,6 +82,8 @@ local gemDirty = true
 local pendingGemLoads = {} -- itemID -> true: bag gems whose data load we requested
 local socketLoadRequested = {} -- gem itemID -> true: equipped-gem data loads we requested
 local activeIcon = nil    -- icon whose flyout is currently open
+local socketPage = 0
+local prevPage, nextPage
 local flyoutScroll = 0    -- top gem index offset when the gem list overflows MAX_FLYOUT_ROWS
 local flyoutHoverMode = false -- flyout opened by hovering an empty socket (auto-closes on leave)
 local ourSession = false  -- a socketing session WE opened is (or may still be) live
@@ -189,20 +210,43 @@ end
 --  Socket action sequence (event-driven, no timers)
 --------------------------------------------------------------------------------
 
-local function SafeCloseSession()
-    if CloseSocketFn then CloseSocketFn() end
-    -- Fallback for a missing/renamed close API (the probed name is a silent no-op then,
-    -- which left the session window lingering open and empty after a strip replace):
-    -- hide the panel; the window's own OnHide handler ends the session. The window
-    -- itself stays fully visible/interactive while it exists -- an invisible live
-    -- session would block gem clicks with no way for the user to close it.
+-- Seat the socketing window beside the sheet. It is registered as a "left"
+-- panel that outranks the character sheet (pushable 0 against the sheet's 3),
+-- so showing it shoves the sheet into the center slot and back again on
+-- close: a whole-screen shuffle for every strip action. Ranked equal to the
+-- sheet, the panel manager seats it in the center slot next to the sheet
+-- instead, for strip actions and manual sessions alike. Panel attributes are
+-- the sanctioned insecure-to-secure channel, so this taints nothing.
+local socketWindowSeated = false
+local function SeatSocketWindow()
+    if socketWindowSeated then return true end
     local f = _G.ItemSocketingFrame
-    if f and f:IsShown() and not InCombatLockdown() and HideUIPanel then
-        HideUIPanel(f)
+    if not (f and _G.SetUIPanelAttribute) then return false end
+    socketWindowSeated = true
+    _G.SetUIPanelAttribute(f, "pushable", 3)
+    return true
+end
+
+-- End a socketing session the way the player does: hide the window. Its own
+-- OnHide handler closes the session, which is the one and only CloseSocketInfo
+-- call and SOCKET_INFO_CLOSE for it; calling CloseSocketInfo here as well ends
+-- the session a second time, nested inside that handler. The window is never
+-- made invisible: when it cannot be hidden (combat) it stays on screen so the
+-- player can close it by hand.
+local function SafeCloseSession()
+    local f = _G.ItemSocketingFrame
+    if f and f:IsShown() then
+        if not InCombatLockdown() and HideUIPanel then
+            HideUIPanel(f)
+        end
+    elseif CloseSocketFn then
+        -- No window on screen: close the bare session directly.
+        CloseSocketFn()
     end
 end
 
 local RebuildSockets   -- forward declaration
+local LayoutSockets
 local CloseFlyout      -- forward declaration
 local OpenFlyout       -- forward declaration
 local MaybeCloseHoverFlyout -- forward declaration
@@ -217,12 +261,18 @@ local function DoSocket(targetSlot, socketIndex, gemItemID)
     end
     if CHasItem and CHasItem() then return end            -- don't hijack a held item
     if ItemSocketingFrame and ItemSocketingFrame:IsShown() then
+        if pending then
+            -- Our previous action is still completing (waiting for its result);
+            -- it closes the window itself. Ending it now would cut the
+            -- socketing short.
+            return
+        end
         if ourSession then
-            -- Leftover window from our own previous action (the accept event never
-            -- closed it): end it now so socketing is not silently dead until the user
-            -- closes it by hand. Never reopen in the same click -- the old session's
-            -- SOCKET_INFO_CLOSE would wipe the new pending mid-flight. The flyout stays
-            -- open; the next gem click goes through cleanly.
+            -- Leftover window from our own completed action (its result event
+            -- never closed it): end it now so socketing is not silently dead
+            -- until the user closes it by hand. Never reopen in the same click --
+            -- the old session's SOCKET_INFO_CLOSE would wipe the new pending
+            -- mid-flight. The flyout stays open; the next gem click goes through.
             SafeCloseSession()
         end
         return   -- manual session: never hijack
@@ -234,21 +284,25 @@ local function DoSocket(targetSlot, socketIndex, gemItemID)
     CloseFlyout()
 end
 
--- Runs once inside SOCKET_INFO_UPDATE after the session is ready.
+-- Accept exactly once, and only after the session reports the placed gem as
+-- the socket's new gem (the same condition that enables the window's own
+-- Apply button); an accept issued before that does nothing. Updates after the
+-- accept (the refresh that follows the result) change nothing here.
+local function AcceptPlacedGem()
+    if not pending or pending.accepted then return end
+    local name = GetNewSocketInfoFn and GetNewSocketInfoFn(pending.socketIndex)
+    if name then
+        pending.accepted = true
+        if AcceptSocketsFn then AcceptSocketsFn() end
+    end
+end
+
+-- Runs inside SOCKET_INFO_UPDATE: places the gem once the session is ready,
+-- then accepts once the placement is reported.
 local function OnSocketInfoUpdate()
     if not pending then return end
     if pending.acted then
-        -- Session updates keep firing after we act (notably when the picked-up
-        -- gem lands in the socket UI). If the first AcceptSockets raced ahead
-        -- of the gem registering, no SOCKET_INFO_ACCEPT ever comes and the
-        -- window sits open waiting for a manual Socket click -- re-issue the
-        -- accept (a no-op when nothing is pending in the UI), bounded so a
-        -- genuinely unacceptable state cannot loop.
-        local n = pending.reaccepts or 0
-        if n < 3 and AcceptSocketsFn then
-            pending.reaccepts = n + 1
-            AcceptSocketsFn()
-        end
+        AcceptPlacedGem()
         return
     end
     local nSock = GetNumSockets and GetNumSockets()
@@ -270,8 +324,10 @@ local function OnSocketInfoUpdate()
     end
     if ClickSocketBtn then ClickSocketBtn(pending.socketIndex) end
     if CClear then CClear() end
-    if AcceptSocketsFn then AcceptSocketsFn() end
-    -- Do not force-close: let Blizzard own success/confirmation dialogs.
+    -- The placement may already be reported (an update fired inside the
+    -- click); otherwise the next SOCKET_INFO_UPDATE accepts it. Confirmation
+    -- dialogs (binding, refunds) stay Blizzard's: the window is open for them.
+    AcceptPlacedGem()
 end
 
 --------------------------------------------------------------------------------
@@ -300,11 +356,27 @@ local function PaintFilledIcon(btn, gemLink)
 
     -- Rarity border (default silver; upgrades async once item data loads).
     local rarity = 2
+    local known = false
     if C_Item and C_Item.GetItemInfo then
         local _, _, r = C_Item.GetItemInfo(gemLink)
-        if r then rarity = r end
+        if r then rarity = r; known = true end
     end
-    if PP and PP.SetBorderColor then
+    if STOCK then
+        -- Blizzard's item-button rule: a quality-tinted frame, none for a
+        -- quality the color manager has no color for, and none until the
+        -- gem's data has loaded (the load result repaints it).
+        local qb = btn.qualityBorder
+        local c = known and ColorManager and ColorManager.GetColorDataForBagItemQuality
+            and ColorManager.GetColorDataForBagItemQuality(rarity)
+        if qb then
+            if c then
+                qb:SetVertexColor(c.r, c.g, c.b, 1)
+                qb:Show()
+            else
+                qb:Hide()
+            end
+        end
+    elseif PP and PP.SetBorderColor then
         PP.SetBorderColor(btn, GemBorderColor(rarity))
     end
 end
@@ -316,6 +388,11 @@ local function PaintEmptyIcon(btn)
     icon:SetTexture(nil)
     if icon.SetVertexColor then icon:SetVertexColor(1, 1, 1, 1) end
     icon:SetTexture(EMPTY_SOCKET_TEX)
+    if STOCK then
+        btn:SetAlpha(1)
+        if btn.qualityBorder then btn.qualityBorder:Hide() end
+        return
+    end
     btn:SetAlpha(0.85)
     if PP and PP.SetBorderColor then
         PP.SetBorderColor(btn, 1, 1, 1, 0.4)
@@ -381,27 +458,48 @@ local function StartSlotGlow(slotID)
     G.StartGlow(slotGlow, 6, w, 1, 1, 1, nil, h)
 end
 
-local function AcquireIcon(i)
-    local btn = iconPool[i]
-    if btn then return btn end
-
-    btn = CreateFrame("Button", nil, panel)
+-- Both bottom strips share the socket icon's size, border and hover treatment.
+local function CreatePanelIcon(parent)
+    local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(SIZE, SIZE)
 
     local icon = btn:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints(btn)
-    -- Standard icon zoom: crop the baked-in dark edge ring off icon art.
-    icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
     btn.icon = icon
 
-    if PP and PP.CreateBorder then
-        PP.CreateBorder(btn, 1, 1, 1, 0.4, 1, "OVERLAY", 7)
+    if STOCK then
+        -- Blizzard's item-button look: the icon uncropped, a quality-tinted
+        -- WhiteIconFrame (painted per socket) and the square ADD highlight.
+        local qb = btn:CreateTexture(nil, "OVERLAY")
+        qb:SetAllPoints(btn)
+        qb:SetTexture("Interface\\Common\\WhiteIconFrame")
+        qb:Hide()
+        btn.qualityBorder = qb
+        local hov = btn:CreateTexture(nil, "HIGHLIGHT")
+        hov:SetAllPoints(btn)
+        hov:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+        hov:SetBlendMode("ADD")
+    else
+        -- Standard icon zoom: crop the baked-in dark edge ring off icon art.
+        icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
+
+        if PP and PP.CreateBorder then
+            PP.CreateBorder(btn, 1, 1, 1, 0.4, 1, "OVERLAY", 7)
+        end
+
+        -- Hover wash
+        local hov = btn:CreateTexture(nil, "HIGHLIGHT")
+        hov:SetAllPoints(btn)
+        hov:SetColorTexture(1, 1, 1, 0.1)
     end
 
-    -- Hover wash
-    local hov = btn:CreateTexture(nil, "HIGHLIGHT")
-    hov:SetAllPoints(btn)
-    hov:SetColorTexture(1, 1, 1, 0.1)
+    return btn
+end
+
+local function AcquireIcon(i)
+    local btn = iconPool[i]
+    if btn then return btn end
+    btn = CreatePanelIcon(panel)
 
     btn:SetScript("OnEnter", function(self)
         local rec = self.euiSock
@@ -430,21 +528,17 @@ local function AcquireIcon(i)
             GameTooltip:Show()
         else
             -- Empty socket: plain-text hint uses the EUI widget tooltip.
-            if EllesmereUI and EllesmereUI.ShowWidgetTooltip then
-                EllesmereUI.ShowWidgetTooltip(self,
-                    EllesmereUI.L(rec.emptyName or "Empty Socket")
-                        .. EllesmereUI.L("\nPick a gem from the list to socket it."),
-                    { anchor = "right" })
-            end
+            EllesmereUI.ShowWidgetTooltip(self,
+                EllesmereUI.L(rec.emptyName or "Empty Socket")
+                    .. EllesmereUI.L("\nPick a gem from the list to socket it."),
+                { anchor = "right" })
         end
     end)
     btn:SetScript("OnLeave", function()
         StopSlotGlow()
         MaybeCloseHoverFlyout()
         GameTooltip:Hide()
-        if EllesmereUI and EllesmereUI.HideWidgetTooltip then
-            EllesmereUI.HideWidgetTooltip()
-        end
+        EllesmereUI.HideWidgetTooltip()
     end)
     btn:SetScript("OnClick", function(self)
         local rec = self.euiSock
@@ -563,7 +657,95 @@ RebuildSockets = function()
         end
     end
 
+    LayoutSockets()
+end
+
+local function ChangeSocketPage(delta)
+    local last = math.max(0, math.ceil(#sockets / (MAX_SOCKET_ICONS - 1)) - 1)
+    local page = math.max(0, math.min(last, socketPage + delta))
+    if page == socketPage then return end
+    CloseFlyout()
+    StopSlotGlow()
+    GameTooltip:Hide()
+    EllesmereUI.HideWidgetTooltip()
+    socketPage = page
+    LayoutSockets()
+end
+
+local function BuildPageButton(text, delta, tip)
+    local btn = CreateFrame("Button", nil, panel)
+    if STOCK then
+        -- The gear flyout's own page arrows; their disabled art shows the ends.
+        local art = (delta < 0) and "Interface\\Buttons\\UI-SpellbookIcon-PrevPage"
+            or "Interface\\Buttons\\UI-SpellbookIcon-NextPage"
+        btn:SetSize(PAGE_BUTTON_W, PAGE_BUTTON_W)
+        btn:SetNormalTexture(art .. "-Up")
+        btn:SetPushedTexture(art .. "-Down")
+        btn:SetDisabledTexture(art .. "-Disabled")
+        btn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+    else
+        btn:SetSize(PAGE_BUTTON_W, SIZE)
+        local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        label:SetAllPoints(btn)
+        label:SetText(text)
+    end
+    btn:SetScript("OnClick", function() ChangeSocketPage(delta) end)
+    btn:SetScript("OnEnter", function(self)
+        EllesmereUI.ShowWidgetTooltip(self, tip)
+    end)
+    btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+    return btn
+end
+
+LayoutSockets = function()
     if not panel then return end
+
+    panel:ClearAllPoints()
+    if seasonPanel and seasonPanel:IsShown() then
+        local gap = STOCK and 12 or PAD -- stock tab art overhangs both plates
+        panel:SetPoint(STOCK and "TOPRIGHT" or "BOTTOMRIGHT", seasonPanel,
+            STOCK and "TOPLEFT" or "BOTTOMLEFT", -gap, 0)
+    elseif STOCK then
+        panel:SetPoint("TOPRIGHT", CharacterFrame, "BOTTOMRIGHT", -15, 2)
+    else
+        panel:SetPoint("BOTTOMRIGHT", CharacterFrame, "BOTTOMRIGHT", -10, 6)
+    end
+
+    -- Season shortcuts only move the strip; its original capacity is unchanged.
+    local count = #sockets
+    local paged = count > MAX_SOCKET_ICONS
+    -- Reserve one icon's width for the arrows. On the EllesmereUI look that
+    -- keeps the strip no wider than the six-socket layout, including on the
+    -- last page; the stock plate's larger arrows make its paged plate wider.
+    local perPage = paged and (MAX_SOCKET_ICONS - 1) or MAX_SOCKET_ICONS
+    local last = math.max(0, math.ceil(count / perPage) - 1)
+    socketPage = math.min(socketPage, last)
+    local first = socketPage * perPage
+    local visible = math.min(perPage, count - first)
+    if activeIcon then
+        local old = activeIcon.euiSock
+        local keep = false
+        for i = 1, visible do
+            local rec = sockets[first + i]
+            if activeIcon == iconPool[i] and old and old.slot == rec.slot
+                and old.socketIndex == rec.socketIndex then keep = true; break end
+        end
+        if not keep then CloseFlyout(); StopSlotGlow() end
+    end
+    if paged and not prevPage then
+        prevPage = BuildPageButton("<", -1, EllesmereUI.L("Previous sockets"))
+        nextPage = BuildPageButton(">", 1, EllesmereUI.L("Next sockets"))
+        prevPage:SetPoint("LEFT", panel, "LEFT", EDGE_X, ICON_Y)
+        nextPage:SetPoint("RIGHT", panel, "RIGHT", -EDGE_X, ICON_Y)
+    end
+    if prevPage then
+        prevPage:SetShown(paged)
+        nextPage:SetShown(paged)
+        prevPage:SetEnabled(socketPage > 0)
+        nextPage:SetEnabled(socketPage < last)
+        prevPage:SetAlpha((STOCK or socketPage > 0) and 1 or 0.3)
+        nextPage:SetAlpha((STOCK or socketPage < last) and 1 or 0.3)
+    end
 
     -- Hide all pooled icons first.
     for _, btn in ipairs(iconPool) do
@@ -571,18 +753,26 @@ RebuildSockets = function()
         btn.euiSock = nil
     end
 
-    local count = #sockets
+    -- The durability footer label sits beside this strip on the EllesmereUI
+    -- sheet only (the stock styles move that label to the stats header).
     if count == 0 then
         panel:Hide()
-        if EllesmereUI and EllesmereUI._updateCharSheetDurability then
+        if not STOCK and EllesmereUI and EllesmereUI._updateCharSheetDurability then
             EllesmereUI._updateCharSheetDurability()
         end
         return
     end
 
-    -- One row, never wraps; the panel's right edge stays pinned so the row
-    -- grows leftward into the strip.
-    for i, rec in ipairs(sockets) do
+    -- Arrows (one each side when paged) + icons + edge padding. On the
+    -- EllesmereUI look the two arrows fill exactly one icon slot, so this is
+    -- the original six-slot width. A plate kept wider by MIN_W centres the row.
+    local contentW = 2 * EDGE_X + (paged and 2 * (PAGE_BUTTON_W + PAD) or 0)
+        + (paged and perPage or visible) * (SIZE + PAD) - PAD
+    local panelW = math.max(MIN_W, contentW)
+    local shift = (panelW - contentW) / 2
+
+    for i = 1, visible do
+        local rec = sockets[first + i]
         local btn = AcquireIcon(i)
         btn.euiSock = rec
         if rec.gemLink then
@@ -591,13 +781,14 @@ RebuildSockets = function()
             PaintEmptyIcon(btn)
         end
         btn:ClearAllPoints()
-        btn:SetPoint("LEFT", panel, "LEFT", (i - 1) * (SIZE + PAD), 0)
+        btn:SetPoint("LEFT", panel, "LEFT",
+            shift + EDGE_X + (paged and (PAGE_BUTTON_W + PAD) or 0) + (i - 1) * (SIZE + PAD), ICON_Y)
         btn:Show()
     end
 
-    panel:SetWidth(count * (SIZE + PAD) - PAD)
+    panel:SetWidth(panelW)
     panel:Show()
-    if EllesmereUI and EllesmereUI._updateCharSheetDurability then
+    if not STOCK and EllesmereUI and EllesmereUI._updateCharSheetDurability then
         EllesmereUI._updateCharSheetDurability()
     end
 end
@@ -618,7 +809,7 @@ local function AcquireGemRow(i)
     icon:SetPoint("LEFT", row, "LEFT", 2, 0)
     row.icon = icon
 
-    local fontPath = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin")) or STANDARD_TEXT_FONT
+    local fontPath = (EllesmereUI.GetFontPath("blizzardSkin")) or STANDARD_TEXT_FONT
     local label = row:CreateFontString(nil, "OVERLAY")
     label:SetFont(fontPath, 11, "")
     label:SetPoint("LEFT", icon, "RIGHT", 5, 0)
@@ -634,7 +825,13 @@ local function AcquireGemRow(i)
 
     local hov = row:CreateTexture(nil, "HIGHLIGHT")
     hov:SetAllPoints(row)
-    hov:SetColorTexture(1, 1, 1, 0.1)
+    if STOCK then
+        -- Blizzard's menu row highlight.
+        hov:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+        hov:SetBlendMode("ADD")
+    else
+        hov:SetColorTexture(1, 1, 1, 0.1)
+    end
 
     row:SetScript("OnEnter", function(self)
         if not self.gemLink then return end
@@ -681,8 +878,8 @@ local function PopulateFlyout()
         row.gemItemID = nil
         row.gemLink = nil
         row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", flyout, "TOPLEFT", 4, -4)
-        row:SetPoint("TOPRIGHT", flyout, "TOPRIGHT", -4, -4)
+        row:SetPoint("TOPLEFT", flyout, "TOPLEFT", FLY_PAD, -FLY_PAD)
+        row:SetPoint("TOPRIGHT", flyout, "TOPRIGHT", -FLY_PAD, -FLY_PAD)
         row:Show()
         shown = 1
     else
@@ -706,14 +903,14 @@ local function PopulateFlyout()
             row.gemItemID = g.itemID
             row.gemLink = g.link
             row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", flyout, "TOPLEFT", 4, -4 - (vis - 1) * ROW_H)
-            row:SetPoint("TOPRIGHT", flyout, "TOPRIGHT", -4, -4 - (vis - 1) * ROW_H)
+            row:SetPoint("TOPLEFT", flyout, "TOPLEFT", FLY_PAD, -FLY_PAD - (vis - 1) * ROW_H)
+            row:SetPoint("TOPRIGHT", flyout, "TOPRIGHT", -FLY_PAD, -FLY_PAD - (vis - 1) * ROW_H)
             row:Show()
             shown = vis
         end
     end
 
-    flyout:SetHeight(8 + shown * ROW_H)
+    flyout:SetHeight(FLY_PAD + FLY_BOTTOM + shown * ROW_H)
 end
 
 local function BuildFlyout()
@@ -735,10 +932,18 @@ local function BuildFlyout()
     flyout:Hide()
 
     local bg = flyout:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(flyout)
-    bg:SetColorTexture(0.06, 0.06, 0.06, 0.95)
-    if PP and PP.CreateBorder then
-        PP.CreateBorder(flyout, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 1)
+    if STOCK then
+        -- Blizzard's dropdown menu background, placed as its menus place it.
+        bg:SetAtlas("common-dropdown-bg")
+        bg:SetPoint("TOPLEFT", flyout, "TOPLEFT", -10, 3)
+        bg:SetPoint("BOTTOMRIGHT", flyout, "BOTTOMRIGHT", 10, -3)
+        bg:SetAlpha(0.925)
+    else
+        bg:SetAllPoints(flyout)
+        bg:SetColorTexture(0.06, 0.06, 0.06, 0.95)
+        if PP and PP.CreateBorder then
+            PP.CreateBorder(flyout, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 1)
+        end
     end
 
     -- Mouse-enabled so the hover-opened flyout can watch its own OnLeave; also
@@ -782,13 +987,19 @@ OpenFlyout = function(iconBtn, targetSlot, targetSocketIndex, hoverMode)
     PopulateFlyout()
 
     -- Anchor below the icon, flip upward if it would clip the screen bottom.
+    -- The stock plate extends below its icons: drop past its bottom edge so
+    -- the menu does not cover the tab art.
     flyout:ClearAllPoints()
     local h = flyout:GetHeight()
     local btnBottom = iconBtn:GetBottom() or 0
-    if (btnBottom - h - 6) < 0 then
+    local drop = 0
+    if STOCK and panel then
+        drop = btnBottom - (panel:GetBottom() or btnBottom)
+    end
+    if (btnBottom - drop - h - 6) < 0 then
         flyout:SetPoint("BOTTOMLEFT", iconBtn, "TOPLEFT", 0, 4)
     else
-        flyout:SetPoint("TOPLEFT", iconBtn, "BOTTOMLEFT", 0, -4)
+        flyout:SetPoint("TOPLEFT", iconBtn, "BOTTOMLEFT", 0, -4 - drop)
     end
 
     -- Always start in pass-through state: an ESCAPE-close leaves propagate
@@ -843,6 +1054,8 @@ local SHOWN_EVENTS = {
     "SOCKET_INFO_UPDATE",
     "SOCKET_INFO_ACCEPT",
     "SOCKET_INFO_CLOSE",
+    "SOCKET_INFO_SUCCESS",
+    "SOCKET_INFO_FAILURE",
     "BAG_UPDATE_DELAYED",
     "ITEM_DATA_LOAD_RESULT",
 }
@@ -876,17 +1089,23 @@ local function OnEvent(self, event, arg1)
         RebuildSockets()
     elseif event == "SOCKET_INFO_UPDATE" then
         OnSocketInfoUpdate()
-    elseif event == "SOCKET_INFO_ACCEPT" or event == "SOCKET_INFO_CLOSE" then
+    elseif event == "SOCKET_INFO_ACCEPT" then
+        -- The accept is in flight: the window disables its sockets and the
+        -- result follows as SOCKET_INFO_SUCCESS or SOCKET_INFO_FAILURE. The
+        -- session stays open until then.
+    elseif event == "SOCKET_INFO_SUCCESS" or event == "SOCKET_INFO_FAILURE" then
+        -- Our action is complete either way: close the window the way the
+        -- player would (its OnHide ends the session). A manual session is never
+        -- touched. The strip repaints on ITEM_CHANGED / BAG_UPDATE_DELAYED.
         local ours = pending ~= nil
         pending = nil
-        if event == "SOCKET_INFO_CLOSE" then ourSession = false end
+        gemDirty = true
+        if ours then SafeCloseSession() end
+    elseif event == "SOCKET_INFO_CLOSE" then
+        pending = nil
+        ourSession = false
         gemDirty = true
         RebuildSockets()
-        -- End the session we opened once the gem is applied; the socketing
-        -- window hides itself in response (never touch a manual session).
-        if event == "SOCKET_INFO_ACCEPT" and ours then
-            SafeCloseSession()
-        end
     elseif event == "BAG_UPDATE_DELAYED" then
         gemDirty = true
         -- The socketed gem just left the bags; refresh the equipped row too,
@@ -911,6 +1130,12 @@ local function OnEvent(self, event, arg1)
         end
     elseif event == "PLAYER_REGEN_DISABLED" then
         CloseFlyout()
+    elseif event == "ADDON_LOADED" then
+        -- The socketing UI just loaded: seat its window before its first show.
+        if arg1 == "Blizzard_ItemSocketingUI" then
+            SeatSocketWindow()
+            self:UnregisterEvent("ADDON_LOADED")
+        end
     end
 end
 
@@ -918,31 +1143,252 @@ end
 --  Build + lifecycle
 --------------------------------------------------------------------------------
 
-local function BuildPanel()
-    if built then return end
-
-    -- Bare row of icons in the blank strip along the sheet's bottom edge,
-    -- right-aligned. No header, no backdrop -- just the gems. Anchoring to
+local function CreatePanelFrame(name)
+    -- EllesmereUI look: a bare row of icons in the blank strip along the
+    -- sheet's bottom edge, right-aligned, no header or backdrop. Anchoring to
     -- CharacterFrame directly (not a skin frame) means the panel builds fine
     -- on the very first open after login, before the skin's lazy layout runs.
-    panel = CreateFrame("Frame", "EUI_CharSheet_SocketPanel", CharacterFrame)
+    local panel = CreateFrame("Frame", name, CharacterFrame)
     panel:ClearAllPoints()
-    panel:SetPoint("BOTTOMRIGHT", CharacterFrame, "BOTTOMRIGHT", -10, 6)
-    panel:SetSize(SIZE, SIZE)
-    panel:SetFrameLevel(55)
+    if STOCK then
+        -- Stock styles: hung below the sheet's bottom-right corner, mirroring
+        -- the bottom tabs at the bottom-left (TOPLEFT +11, +2), in their
+        -- inactive tab art placed exactly as PanelTabButtonTemplate places it.
+        -- The top 2px tuck under the sheet's metal edge, which draws above.
+        panel:SetPoint("TOPRIGHT", CharacterFrame, "BOTTOMRIGHT", -15, 2)
+        -- The plate is the tab art stretched 6px taller than its atlas so the
+        -- icons get breathing room; the side pieces keep their atlas width, the
+        -- centre band stretches (it is uniform across). The row (ICON_Y)
+        -- centres on the part below the tuck.
+        local lInfo = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("uiframe-tab-left")
+        local rInfo = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("uiframe-tab-right")
+        local artH = (lInfo and lInfo.height and lInfo.height > 0) and lInfo.height or 32
+        panel:SetSize(SIZE, artH + 6)
+        panel:SetFrameLevel(CharacterFrame:GetFrameLevel() + 4)
+        -- The plate hangs outside the sheet, where nothing below catches the
+        -- mouse: it takes clicks across its whole painted tab (the art overhangs
+        -- 3px left, 7px right) so a near-miss on a socket never reaches the world.
+        panel:EnableMouse(true)
+        panel:SetHitRectInsets(-3, -7, 0, 0)
+        local lW = (lInfo and lInfo.width) or 12
+        local rW = (rInfo and rInfo.width) or 12
+        -- Narrower than this and the end caps overlap (the centre band inverts).
+        MIN_W = lW + rW - 10
+        local left = panel:CreateTexture(nil, "BACKGROUND")
+        left:SetAtlas("uiframe-tab-left")
+        left:SetWidth(lW)
+        left:SetPoint("TOPLEFT", panel, "TOPLEFT", -3, 0)
+        left:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", -3, 0)
+        local right = panel:CreateTexture(nil, "BACKGROUND")
+        right:SetAtlas("uiframe-tab-right")
+        right:SetWidth(rW)
+        right:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 7, 0)
+        right:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 7, 0)
+        local mid = panel:CreateTexture(nil, "BACKGROUND")
+        mid:SetAtlas("_uiframe-tab-center")
+        mid:SetPoint("TOPLEFT", left, "TOPRIGHT")
+        mid:SetPoint("BOTTOMRIGHT", right, "BOTTOMLEFT")
+    else
+        panel:SetPoint("BOTTOMRIGHT", CharacterFrame, "BOTTOMRIGHT", -10, 6)
+        panel:SetSize(SIZE, SIZE)
+        panel:SetFrameLevel(55)
+    end
+
+    return panel
+end
+
+--------------------------------------------------------------------------------
+--  Optional season shortcuts (no frames or events until first enabled show)
+--------------------------------------------------------------------------------
+
+local function IsMidnightSeason()
+    -- The display season can belong to a different expansion than the client
+    -- or the player's account. Unknown season data must not expose the folio.
+    return C_SeasonInfo and C_SeasonInfo.GetCurrentDisplaySeasonExpansion
+        and LE_EXPANSION_MIDNIGHT ~= nil
+        and C_SeasonInfo.GetCurrentDisplaySeasonExpansion() == LE_EXPANSION_MIDNIGHT
+end
+
+local function FolioUnlocked()
+    return C_PlayerInfo and C_PlayerInfo.IsExpansionLandingPageUnlockedForPlayer
+        and C_PlayerInfo.IsExpansionLandingPageUnlockedForPlayer(LE_EXPANSION_MIDNIGHT)
+end
+
+local function OpenSeasonShortcut(self)
+    if InCombatLockdown() then
+        if UIErrorsFrame then
+            UIErrorsFrame:AddMessage(_G.ERR_NOT_IN_COMBAT or "Can't do that in combat.", 1, 0.1, 0.1)
+        end
+        return
+    end
+    if self.isFolio then
+        if not IsMidnightSeason() or not FolioUnlocked() then return end
+        -- Blizzard's own landing button toggles only once the overlay is applied.
+        local page = _G.ExpansionLandingPage
+        if page and ToggleExpansionLandingPage and page:IsOverlayApplied() then
+            ToggleExpansionLandingPage()
+        end
+    else
+        if not C_AddOns.IsAddOnLoaded("Blizzard_WeeklyRewards") then
+            C_AddOns.LoadAddOn("Blizzard_WeeklyRewards")
+        end
+        -- Toggle directly so UIPanel management does not close the character sheet.
+        local vault = _G.WeeklyRewardsFrame
+        if vault then vault:SetShown(not vault:IsShown()) end
+    end
+end
+
+local function CreateSeasonIcon(isFolio)
+    local btn = CreatePanelIcon(seasonPanel)
+    btn.isFolio = isFolio
+    if isFolio then
+        btn.icon:SetAtlas("midnight-landingbutton-up")
+    else
+        -- Thalassian Token of Merit, shared by Midnight seasons 1 and 2.
+        btn.icon:SetTexture("Interface\\Icons\\INV_Misc_AzsharaCoin2")
+    end
+    if STOCK then
+        btn.qualityBorder:SetVertexColor(0.75, 0.75, 0.75, 1)
+        btn.qualityBorder:Show()
+    elseif PP and PP.SetBorderColor then
+        PP.SetBorderColor(btn, GemBorderColor(2))
+    end
+    btn:RegisterForClicks("LeftButtonUp")
+    btn:SetScript("OnClick", OpenSeasonShortcut)
+    btn:SetScript("OnEnter", function(self)
+        self.tooltipShown = true
+        local text = self.isFolio and EllesmereUI.L("Omnium Folio") or EllesmereUI.L("Great Vault")
+        if self.isFolio and not FolioUnlocked() then
+            text = text .. "\n" .. EllesmereUI.L("Unlock the Omnium Folio to use this shortcut.")
+        end
+        EllesmereUI.ShowWidgetTooltip(self, text, { anchor = "right" })
+    end)
+    local function HideTooltip(self)
+        if self.tooltipShown then
+            self.tooltipShown = nil
+            EllesmereUI.HideWidgetTooltip()
+        end
+    end
+    btn:SetScript("OnLeave", HideTooltip)
+    btn:SetScript("OnHide", HideTooltip)
+    return btn
+end
+
+local RefreshSeasonPanel
+-- Event frame of the season plate: registered only while the sheet is open with
+-- Season Panel on (late season data, and the folio's unlock while it is locked).
+local seasonWatch
+
+local function OnSeasonEvent()
+    local wasShown = seasonPanel and seasonPanel:IsShown() or false
+    local oldWidth = wasShown and seasonPanel:GetWidth()
+    RefreshSeasonPanel()
+    local shown = seasonPanel and seasonPanel:IsShown() or false
+    if shown ~= wasShown or (shown and seasonPanel:GetWidth() ~= oldWidth) then
+        if panel and panel:IsShown() then LayoutSockets() end
+        if not STOCK and EllesmereUI._updateCharSheetDurability then
+            EllesmereUI._updateCharSheetDurability()
+        end
+    end
+end
+
+local function SeasonWatch(on)
+    if on == (seasonWatch and seasonWatch.on or false) then return end
+    if not seasonWatch then
+        seasonWatch = CreateFrame("Frame")
+        seasonWatch:SetScript("OnEvent", OnSeasonEvent)
+    end
+    seasonWatch.on = on
+    if on then
+        seasonWatch:RegisterEvent("PLAYER_ENTERING_WORLD")
+        seasonWatch:RegisterEvent("MYTHIC_PLUS_CURRENT_AFFIX_UPDATE")
+    else
+        seasonWatch:UnregisterAllEvents()
+    end
+end
+
+RefreshSeasonPanel = function()
+    local db = EllesmereUIDB
+    local on = (db and db.charSheetSeasonPanel ~= false
+        and db.themedCharacterSheet ~= false
+        and not EllesmereUI.BlizzWindowSkinsKilled()
+        and PaperDollFrame and PaperDollFrame:IsVisible()) and true or false
+    SeasonWatch(on)
+    -- The vault is its own opt-in (Great Vault Shortcut, in the Season Panel
+    -- cog); the folio shows in a Midnight season. Nothing to offer = no plate.
+    local vault = on and db.charSheetSeasonVault == true
+    local folio = on and IsMidnightSeason() and true or false
+    if not (vault or folio) then
+        if seasonWatch then seasonWatch:UnregisterEvent("QUEST_LOG_UPDATE") end
+        if seasonPanel then seasonPanel:Hide() end
+        return
+    end
+    if not seasonPanel then seasonPanel = CreatePanelFrame("EUI_CharSheet_SeasonPanel") end
+    if vault and not seasonPanel.vault then seasonPanel.vault = CreateSeasonIcon(false) end
+    if folio and not seasonPanel.folio then seasonPanel.folio = CreateSeasonIcon(true) end
+    local unlocked = folio and FolioUnlocked() and true or false
+    -- The unlock quest is the one live change left once season data is in, and
+    -- it never reverts: watch the quest log only while a locked folio shows.
+    if folio and not unlocked then
+        seasonWatch:RegisterEvent("QUEST_LOG_UPDATE")
+    else
+        seasonWatch:UnregisterEvent("QUEST_LOG_UPDATE")
+    end
+    if vault ~= seasonPanel.lastVault or folio ~= seasonPanel.lastFolio
+        or unlocked ~= seasonPanel.lastUnlocked then
+        seasonPanel.lastVault, seasonPanel.lastFolio, seasonPanel.lastUnlocked = vault, folio, unlocked
+        local n = (vault and 1 or 0) + (folio and 1 or 0)
+        local contentW = 2 * EDGE_X + n * SIZE + (n - 1) * PAD
+        local panelW = math.max(MIN_W, contentW)
+        -- A plate kept wider by MIN_W centres the row, as the socket strip does.
+        local x = (panelW - contentW) / 2 + EDGE_X
+        if seasonPanel.vault then
+            seasonPanel.vault:SetShown(vault)
+            if vault then
+                seasonPanel.vault:ClearAllPoints()
+                seasonPanel.vault:SetPoint("LEFT", seasonPanel, "LEFT", x, ICON_Y)
+                x = x + SIZE + PAD
+            end
+        end
+        if seasonPanel.folio then
+            seasonPanel.folio:SetShown(folio)
+            if folio then
+                seasonPanel.folio:ClearAllPoints()
+                seasonPanel.folio:SetPoint("LEFT", seasonPanel, "LEFT", x, ICON_Y)
+                seasonPanel.folio:SetAlpha(unlocked and 1 or 0.4)
+            end
+        end
+        seasonPanel:SetWidth(panelW)
+    end
+    seasonPanel:Show()
+end
+
+local function BuildPanel()
+    if built then return end
+    panel = CreatePanelFrame("EUI_CharSheet_SocketPanel")
 
     if not evtFrame then
         evtFrame = CreateFrame("Frame")
         evtFrame:SetScript("OnEvent", OnEvent)
     end
 
+    -- The socketing UI loads on demand: seat its window now if it is already
+    -- here, otherwise the moment it loads (one event, dropped once it fires).
+    if _G.SetUIPanelAttribute and not SeatSocketWindow() then
+        evtFrame:RegisterEvent("ADDON_LOADED")
+    end
+
     built = true
 end
 
 local function OnPaperDollShow()
+    RefreshSeasonPanel()
     if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
     if EllesmereUIDB and EllesmereUIDB.charSheetSocketPanel == false then
         if panel then panel:Hide() end
+        if not STOCK and EllesmereUI._updateCharSheetDurability then
+            EllesmereUI._updateCharSheetDurability()
+        end
         return
     end
     if not built then BuildPanel() end
@@ -964,15 +1410,22 @@ local function OnHideAll()
     CloseFlyout()
     UnregisterShownEvents()
     if panel then panel:Hide() end
+    if seasonPanel then seasonPanel:Hide() end
+    SeasonWatch(false)
 end
 
 -- Live apply from the options toggle (no reload).
 local function RefreshFromOptions()
-    if not (PaperDollFrame and PaperDollFrame:IsShown()) then return end
+    RefreshSeasonPanel()
+    if not (PaperDollFrame and PaperDollFrame:IsVisible()) then return end
+    if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
     if EllesmereUIDB and EllesmereUIDB.charSheetSocketPanel == false then
         CloseFlyout()
         UnregisterShownEvents()
         if panel then panel:Hide() end
+        if not STOCK and EllesmereUI._updateCharSheetDurability then
+            EllesmereUI._updateCharSheetDurability()
+        end
     else
         if not built then BuildPanel() end
         if panel then
@@ -989,6 +1442,17 @@ end
 local boot = CreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:SetScript("OnEvent", function()
+    -- WoW Forever: part of the character sheet makeover, which stands down
+    -- there (EllesmereUIBlizzardSkin_CharacterSheetForever.lua owns the sheet).
+    if EllesmereUI and EllesmereUI.IS_FOREVER then return end
+    -- Stock character sheet styles (Style page, latched for the session):
+    -- the strip hangs below Blizzard's sheet as a tab-art plate. Layout values
+    -- switch here, before the lazy build reads them.
+    STOCK = (ns.CharSheetStock and ns.CharSheetStock()) and true or false
+    if STOCK then
+        SIZE, PAD, PAGE_BUTTON_W, EDGE_X, ICON_Y = 26, 4, 20, 10, 4
+        FLY_PAD, FLY_BOTTOM = 8, 15
+    end
     if EllesmereUI then
         EllesmereUI._refreshCharSheetSocketPanel = RefreshFromOptions
     end

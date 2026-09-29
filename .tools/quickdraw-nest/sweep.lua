@@ -19,7 +19,7 @@ local min, max, abs, floor, ceil, sqrt = math.min, math.max, math.abs,
 -- Mirrors the module's own constants. Keep them in step: the sweep is what
 -- REGION_MAX is derived FROM, so a harness left at a different value proves
 -- something about a build that does not exist.
-local MAX_SLOTS, MAX_CHILDREN, MAX_CHILD_ROWS, REGION_MAX = 16, 8, 4, 14
+local MAX_SLOTS, MAX_CHILDREN, MAX_CHILD_ROWS, REGION_MAX = 20, 8, 4, 14
 local NEST_BAND_DEFAULT = 40
 local PaletteView = {}
 local DEFAULTS = { iconSize = 40, fanGap = 10, nestScale = 0.8,

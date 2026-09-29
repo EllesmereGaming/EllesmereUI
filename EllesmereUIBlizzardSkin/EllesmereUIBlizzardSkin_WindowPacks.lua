@@ -18,52 +18,18 @@ local GetFFD = WSkin.GetFFD
 local FFD = WSkin.FFD
 local SolidTex = WSkin.SolidTex
 
+-- LOCAL LIMIT: Lua 5.1 allows 200 ACTIVE locals per function, and this file's
+-- main chunk is one function. Going over is a compile error that takes every
+-- pack in the file down with it. So each pack lives in its own do...end block:
+-- its locals are released when the block closes, and the packs no longer add
+-- up. Only the core aliases above and the few helpers shared ACROSS packs sit
+-- outside a block (right after their section header, before its `do`). A new
+-- helper goes inside its pack's block; hoist it out only once a later pack
+-- actually calls it.
+
 -------------------------------------------------------------------------------
 --  Collections (Mounts / Pets / Toys / Heirlooms / Appearances / Campsites)
 -------------------------------------------------------------------------------
-local PREVIEW_JOURNALS = { WarbandSceneJournal = true }  -- texture previews are content
-
--- Tabs whose filter dropdown height should track the search box beside it.
-local MATCH_FILTER_HEIGHT = {
-    MountJournal = true, HeirloomsJournal = true, WardrobeCollectionFrame = true,
-}
-
--- Collected-count bar (Appearances/Heirlooms/Toys): 2px taller, non-fill
--- regions faded, flat accent fill (Blizzard's fill kept as driver, re-textured),
--- dark trough, white text, VISIBLE themed border (a black BorderRegion would
--- vanish on the dark backplate).
-local function SkinCollectionsProgressBar(pb)
-    if not pb then return end
-    local pd = GetFFD(pb)
-    if not pd.heightBumped then
-        pd.heightBumped = true
-        pb:SetHeight(pb:GetHeight() + 2)
-    end
-    if pb.border and pb.border.SetAlpha then pb.border:SetAlpha(0) end
-    local fill = pb.GetStatusBarTexture and pb:GetStatusBarTexture()
-    for i = 1, select("#", pb:GetRegions()) do
-        local r = select(i, pb:GetRegions())
-        if r and r ~= fill and r ~= pd.bg and r.IsObjectType then
-            if r:IsObjectType("Texture") and r:GetDrawLayer() ~= "HIGHLIGHT" then
-                r:SetAlpha(0)
-            elseif r:IsObjectType("FontString") then
-                WSkin.White(r)
-            end
-        end
-    end
-    if pb.SetStatusBarTexture then
-        pb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-        WSkin.ApplyBarFill(pb)
-    end
-    if not pd.bg then
-        local trough = pb:CreateTexture(nil, "BACKGROUND", nil, -1)
-        trough:SetColorTexture(0.12, 0.12, 0.12, 0.85)
-        trough:SetAllPoints(pb)
-        pd.bg = trough
-    end
-    WSkin.AddBorder(pb)
-end
-
 -- Collection-tab filter dropdown: pins "Filter" left of the arrow (as on
 -- achievement/housing/professions filters). Appearances' FilterButton
 -- re-anchors or re-creates its label on tab-show, so SetPoint is hooked
@@ -107,8 +73,9 @@ local function SkinFilterResetX(rb, host)
     if not rb or rb:IsForbidden() then return end
     local rd = GetFFD(rb)
     if rd.x then return end
-    for i = 1, select("#", rb:GetRegions()) do
-        local r = select(i, rb:GetRegions())
+    local regions = { rb:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
     end
     for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture" }) do
@@ -124,6 +91,51 @@ local function SkinFilterResetX(rb, host)
     rd.x = x
     rb:HookScript("OnEnter", function() x:SetVertexColor(1, 1, 1, 1) end)
     rb:HookScript("OnLeave", function() x:SetVertexColor(1, 1, 1, 0.9) end)
+end
+
+do
+local PREVIEW_JOURNALS = { WarbandSceneJournal = true }  -- texture previews are content
+
+-- Tabs whose filter dropdown height should track the search box beside it.
+local MATCH_FILTER_HEIGHT = {
+    MountJournal = true, HeirloomsJournal = true, WardrobeCollectionFrame = true,
+}
+
+-- Collected-count bar (Appearances/Heirlooms/Toys): 2px taller, non-fill
+-- regions faded, flat accent fill (Blizzard's fill kept as driver, re-textured),
+-- dark trough, white text, VISIBLE themed border (a black BorderRegion would
+-- vanish on the dark backplate).
+local function SkinCollectionsProgressBar(pb)
+    if not pb then return end
+    local pd = GetFFD(pb)
+    if not pd.heightBumped then
+        pd.heightBumped = true
+        pb:SetHeight(pb:GetHeight() + 2)
+    end
+    if pb.border and pb.border.SetAlpha then pb.border:SetAlpha(0) end
+    local fill = pb.GetStatusBarTexture and pb:GetStatusBarTexture()
+    local regions = { pb:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
+        if r and r ~= fill and r ~= pd.bg and r.IsObjectType then
+            if r:IsObjectType("Texture") and r:GetDrawLayer() ~= "HIGHLIGHT" then
+                r:SetAlpha(0)
+            elseif r:IsObjectType("FontString") then
+                WSkin.White(r)
+            end
+        end
+    end
+    if pb.SetStatusBarTexture then
+        pb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+        WSkin.ApplyBarFill(pb)
+    end
+    if not pd.bg then
+        local trough = pb:CreateTexture(nil, "BACKGROUND", nil, -1)
+        trough:SetColorTexture(0.12, 0.12, 0.12, 0.85)
+        trough:SetAllPoints(pb)
+        pd.bg = trough
+    end
+    WSkin.AddBorder(pb)
 end
 
 local _mountRowHook = false
@@ -278,8 +290,9 @@ local function Skin_Collections()
     end
     local ploadBorder = _G.PetJournalLoadoutBorder
     if ploadBorder and ploadBorder.GetRegions then
-        for ri = 1, select("#", ploadBorder:GetRegions()) do
-            local r = select(ri, ploadBorder:GetRegions())
+        local regions = { ploadBorder:GetRegions() }
+        for ri = 1, #regions do
+            local r = regions[ri]
             if r and r.SetAlpha and r.IsObjectType and r:IsObjectType("Texture") then
                 r:SetAlpha(0.25)
             end
@@ -310,10 +323,12 @@ WSkin.RegisterWindow({
     addons = { Blizzard_Collections = true },
     apply = Skin_Collections,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Talents & Spellbook (PlayerSpellsFrame)
 -------------------------------------------------------------------------------
+do
 -- Blizzard re-raises the spellbook parchment backplate + gilded item frame on
 -- every populate/mouseover, so re-fade in post-hooks. Visual-only (SetAlpha),
 -- never the item's own alpha knobs or click path.
@@ -339,8 +354,9 @@ local function FadeSpellItemsIn(frame, depth)
     if not frame or depth > 10 or not frame.GetChildren or frame:IsForbidden() then return end
     if depth > 0 and WSkin.IsForeignFrame(frame) then return end
     if frame.Backplate and frame.Button then FadeSpellItem(frame) end
-    for i = 1, select("#", frame:GetChildren()) do
-        FadeSpellItemsIn(select(i, frame:GetChildren()), depth + 1)
+    local children = { frame:GetChildren() }
+    for i = 1, #children do
+        FadeSpellItemsIn(children[i], depth + 1)
     end
 end
 
@@ -351,15 +367,17 @@ local function DimTalentArt(host, depth)
     depth = depth or 0
     if not host or depth > 2 or not host.GetRegions or host:IsForbidden() then return end
     if depth > 0 and WSkin.IsForeignFrame(host) then return end
-    for i = 1, select("#", host:GetRegions()) do
-        local r = select(i, host:GetRegions())
+    local regions = { host:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r.IsObjectType and r:IsObjectType("Texture") and r:GetDrawLayer() == "BACKGROUND" then
             local a = r:GetAlpha() or 1
             if a > 0.75 then r:SetAlpha(0.75) end
         end
     end
-    for i = 1, select("#", host:GetChildren()) do
-        DimTalentArt(select(i, host:GetChildren()), depth + 1)
+    local children = { host:GetChildren() }
+    for i = 1, #children do
+        DimTalentArt(children[i], depth + 1)
     end
 end
 
@@ -374,8 +392,9 @@ local function SkinSpellBookChrome(sb)
     if pc and pc.PageText then WSkin.Font(pc.PageText); WSkin.White(pc.PageText) end
     -- The divider is an anonymous non-OVERLAY texture region on the view.
     local function SweepDeco(host)
-        for i = 1, select("#", host:GetRegions()) do
-            local r = select(i, host:GetRegions())
+        local regions = { host:GetRegions() }
+        for i = 1, #regions do
+            local r = regions[i]
             if r and r.IsObjectType then
                 if r:IsObjectType("FontString") then
                     WSkin.Font(r)
@@ -658,44 +677,11 @@ WSkin.RegisterWindow({
     addons = { Blizzard_PlayerSpells = true },
     apply = Skin_PlayerSpells,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Adventure Guide (EncounterJournal)
 -------------------------------------------------------------------------------
-local EJ_ART_MATCH = {
-    "journalbg", "ui-ej-cataclysm", "abilitytextbg", "paperoverlay",
-    "activities-background", "adventureguide-pane",
-}
-local function ejKeepTex(hay)
-    if not hay then return false end
-    if WSkin.TexIsIcon(hay) then return true end
-    if hay:find("ui-ej-lorebg", 1, true) then return true end   -- instance picture
-    if hay:find("ui-ej-boss", 1, true) then return true end     -- boss render
-    if hay:find("ui-ej-icons", 1, true) then return true end
-    return false
-end
-local function FadeEJArt(frame, depth)
-    depth = depth or 0
-    if not frame or depth > 11 or not frame.GetRegions or frame:IsForbidden() then return end
-    if WSkin.IsArtExempt(frame) then return end
-    if depth > 0 and WSkin.IsForeignFrame(frame) then return end
-    local mybg = FFD[frame] and FFD[frame].bg
-    for i = 1, select("#", frame:GetRegions()) do
-        local r = select(i, frame:GetRegions())
-        if r and r ~= mybg and r.IsObjectType and r:IsObjectType("Texture") and (r:GetAlpha() or 0) > 0 then
-            local hay = WSkin.TexHay(r)
-            if hay and not ejKeepTex(hay) then
-                for _, m in ipairs(EJ_ART_MATCH) do
-                    if hay:find(m, 1, true) then r:SetAlpha(0); break end
-                end
-            end
-        end
-    end
-    for i = 1, select("#", frame:GetChildren()) do
-        FadeEJArt(select(i, frame:GetChildren()), depth + 1)
-    end
-end
-
 -- Some Blizzard text bakes a |cff000000 black or |cff414141 grey run INTO the
 -- string (gossip/quest titles, reward/greeting blurbs); SetTextColor cannot
 -- lighten those, the embedded run wins. Rewrite only those two tones in place,
@@ -728,8 +714,9 @@ local function WhitenTextIn(frame, depth)
     depth = depth or 0
     if not frame or depth > 9 or frame:IsForbidden() then return end
     if frame.GetRegions then
-        for i = 1, select("#", frame:GetRegions()) do
-            local r = select(i, frame:GetRegions())
+        local regions = { frame:GetRegions() }
+        for i = 1, #regions do
+            local r = regions[i]
             if r and r.IsObjectType and r:IsObjectType("FontString") and r.SetTextColor then
                 r:SetTextColor(1, 1, 1)
                 RecolorLinks(r)
@@ -738,8 +725,9 @@ local function WhitenTextIn(frame, depth)
         end
     end
     if frame.GetChildren then
-        for i = 1, select("#", frame:GetChildren()) do
-            local c = select(i, frame:GetChildren())
+        local children = { frame:GetChildren() }
+        for i = 1, #children do
+            local c = children[i]
             if c and not WSkin.IsForeignFrame(c, frame) then
                 if c.GetObjectType and c:GetObjectType() == "SimpleHTML" and c.SetTextColor then
                     for _, el in ipairs({ "P", "H1", "H2", "H3" }) do
@@ -749,6 +737,43 @@ local function WhitenTextIn(frame, depth)
                 WhitenTextIn(c, depth + 1)
             end
         end
+    end
+end
+
+do
+local EJ_ART_MATCH = {
+    "journalbg", "ui-ej-cataclysm", "abilitytextbg", "paperoverlay",
+    "activities-background", "adventureguide-pane",
+}
+local function ejKeepTex(hay)
+    if not hay then return false end
+    if WSkin.TexIsIcon(hay) then return true end
+    if hay:find("ui-ej-lorebg", 1, true) then return true end   -- instance picture
+    if hay:find("ui-ej-boss", 1, true) then return true end     -- boss render
+    if hay:find("ui-ej-icons", 1, true) then return true end
+    return false
+end
+local function FadeEJArt(frame, depth)
+    depth = depth or 0
+    if not frame or depth > 11 or not frame.GetRegions or frame:IsForbidden() then return end
+    if WSkin.IsArtExempt(frame) then return end
+    if depth > 0 and WSkin.IsForeignFrame(frame) then return end
+    local mybg = FFD[frame] and FFD[frame].bg
+    local regions = { frame:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
+        if r and r ~= mybg and r.IsObjectType and r:IsObjectType("Texture") and (r:GetAlpha() or 0) > 0 then
+            local hay = WSkin.TexHay(r)
+            if hay and not ejKeepTex(hay) then
+                for _, m in ipairs(EJ_ART_MATCH) do
+                    if hay:find(m, 1, true) then r:SetAlpha(0); break end
+                end
+            end
+        end
+    end
+    local children = { frame:GetChildren() }
+    for i = 1, #children do
+        FadeEJArt(children[i], depth + 1)
     end
 end
 
@@ -946,8 +971,9 @@ end
 local function FlattenBossButtons(frame, depth)
     depth = depth or 0
     if not frame or depth > 8 or frame:IsForbidden() or not frame.GetChildren then return end
-    for i = 1, select("#", frame:GetChildren()) do
-        local c = select(i, frame:GetChildren())
+    local children = { frame:GetChildren() }
+    for i = 1, #children do
+        local c = children[i]
         if c and not WSkin.IsForeignFrame(c, frame) then
             if c.creature and (c.text or c.name) and c.GetObjectType and c:GetObjectType() == "Button" then
                 SkinBossButton(c)
@@ -992,8 +1018,9 @@ local function SkinInstanceButton(btn)
     if btn.bgImage then keep[btn.bgImage] = true end
     if d.frameArt then keep[d.frameArt] = true end
     if d.hover then keep[d.hover] = true end
-    for j = 1, select("#", btn:GetRegions()) do
-        local r = select(j, btn:GetRegions())
+    local regions = { btn:GetRegions() }
+    for j = 1, #regions do
+        local r = regions[j]
         if r and not keep[r] and r.IsObjectType and r:IsObjectType("Texture") then
             r:SetAlpha(0.5)
         end
@@ -1008,8 +1035,9 @@ end
 local function FlattenInstanceButtons(frame, depth)
     depth = depth or 0
     if not frame or depth > 8 or frame:IsForbidden() or not frame.GetChildren then return end
-    for i = 1, select("#", frame:GetChildren()) do
-        local c = select(i, frame:GetChildren())
+    local children = { frame:GetChildren() }
+    for i = 1, #children do
+        local c = children[i]
         if c and not WSkin.IsForeignFrame(c, frame) then
             if c.bgImage and c.name and c.GetObjectType and c:GetObjectType() == "Button" then
                 SkinInstanceButton(c)
@@ -1071,8 +1099,9 @@ local function SkinSideTab(tab, index)
     -- Pin the glyph to its original anchor (no nudge: icons read off-center).
     -- Blizzard re-seats it on click/selection, so the pin re-asserts synchronously
     -- inside that SetPoint (reentry-guarded); single-point regions only, all-points state textures left alone.
-    for j = 1, select("#", tab:GetRegions()) do
-        local r = select(j, tab:GetRegions())
+    local regions = { tab:GetRegions() }
+    for j = 1, #regions do
+        local r = regions[j]
         if r and r ~= d.hover and r.IsObjectType and r:IsObjectType("Texture")
            and r.GetNumPoints and r:GetNumPoints() == 1 then
             local rd = GetFFD(r)
@@ -1131,8 +1160,9 @@ end
 local function FlattenLootRows(frame, depth)
     depth = depth or 0
     if not frame or depth > 8 or frame:IsForbidden() or not frame.GetChildren then return end
-    for i = 1, select("#", frame:GetChildren()) do
-        local c = select(i, frame:GetChildren())
+    local children = { frame:GetChildren() }
+    for i = 1, #children do
+        local c = children[i]
         if c and not WSkin.IsForeignFrame(c, frame) then
             if c.bossTexture and c.slot and c.GetObjectType and c:GetObjectType() == "Button" then
                 SkinLootRow(c)
@@ -1181,8 +1211,9 @@ end
 local function SkinAbilityHeaders(frame, depth)
     depth = depth or 0
     if not frame or depth > 9 or frame:IsForbidden() or not frame.GetChildren then return end
-    for i = 1, select("#", frame:GetChildren()) do
-        local c = select(i, frame:GetChildren())
+    local children = { frame:GetChildren() }
+    for i = 1, #children do
+        local c = children[i]
         if c and not WSkin.IsForeignFrame(c, frame) then
             if c.descriptionBG and c.descriptionBG.SetAlpha then c.descriptionBG:SetAlpha(0) end
             if c.descriptionBGBottom and c.descriptionBGBottom.SetAlpha then c.descriptionBGBottom:SetAlpha(0) end
@@ -1233,8 +1264,9 @@ local function SkinAbilityHeaders(frame, depth)
                 local hl = b.GetHighlightTexture and b:GetHighlightTexture()
                 if hl and not keep[hl] and hl.SetAlpha then hl:SetAlpha(0) end
                 -- Glow lives on a child frame found by name (parentKey varies).
-                for j = 1, select("#", b:GetChildren()) do
-                    local ch = select(j, b:GetChildren())
+                local children2 = { b:GetChildren() }
+                for j = 1, #children2 do
+                    local ch = children2[j]
                     if ch and ch.GetName then
                         local nm = ch:GetName()
                         if nm and nm:find("Glow", 1, true) and ch.SetAlpha then
@@ -1296,8 +1328,9 @@ end
 -- per refresh pass in case Blizzard re-asserts.
 local function RestyleInstanceScene(isel)
     if not isel then return end
-    for i = 1, select("#", isel:GetRegions()) do
-        local r = select(i, isel:GetRegions())
+    local regions = { isel:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r.IsObjectType and r:IsObjectType("Texture") and r:GetDrawLayer() == "BACKGROUND" then
             local a = r:GetAlpha() or 1
             if a > 0.5 then r:SetAlpha(0.25) end
@@ -1345,8 +1378,9 @@ local function RestyleGreatVaultButton(gv)
             swapped = true
         end
     end
-    for j = 1, select("#", gv:GetRegions()) do
-        local r = select(j, gv:GetRegions())
+    local regions = { gv:GetRegions() }
+    for j = 1, #regions do
+        local r = regions[j]
         if r and r.IsObjectType and r:IsObjectType("Texture") then
             local hay = WSkin.TexHay(r)
             if hay and hay:find("vault", 1, true) then
@@ -1394,8 +1428,9 @@ local function SkinCreatureButtons()
     -- its portrait is the info-named Creature texture.
     local info = _G.EncounterJournalEncounterFrameInfo
     if info then
-        for i = 1, select("#", info:GetChildren()) do
-            local ch = select(i, info:GetChildren())
+        local children = { info:GetChildren() }
+        for i = 1, #children do
+            local ch = children[i]
             if ch and ch.CircleMask and not GetFFD(ch).ring then
                 local creature = _G.EncounterJournalEncounterFrameInfoCreature
                 if creature and creature.GetParent and creature:GetParent() ~= ch then
@@ -1743,10 +1778,12 @@ WSkin.RegisterWindow({
     addons = { Blizzard_EncounterJournal = true },
     apply = Skin_EncounterJournal,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Professions Book (ProfessionsBookFrame)
 -------------------------------------------------------------------------------
+do
 local PROF_FRAMES = { "PrimaryProfession1", "PrimaryProfession2",
                       "SecondaryProfession1", "SecondaryProfession2", "SecondaryProfession3" }
 
@@ -2105,8 +2142,9 @@ local function Skin_ProfessionsBook()
         host = host or f
         depth = depth or 0
         if depth > 3 or not host.GetChildren then return end
-        for i = 1, select("#", host:GetChildren()) do
-            local c = select(i, host:GetChildren())
+        local children = { host:GetChildren() }
+        for i = 1, #children do
+            local c = children[i]
             if c and not WSkin.IsForeignFrame(c, host) and c.GetObjectType and c:GetObjectType() == "Button" then
                 if not GetFFD(c).moved then
                     local nt = c.GetNormalTexture and c:GetNormalTexture()
@@ -2146,11 +2184,13 @@ WSkin.RegisterWindow({
     addons = { Blizzard_ProfessionsBook = true },
     apply = Skin_ProfessionsBook,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Archaeology (ArchaeologyFrame). Opened from the professions book, so it
 --  rides the professionsbook style key.
 -------------------------------------------------------------------------------
+do
 local function Skin_Archaeology()
     local f = _G.ArchaeologyFrame
     if not f then return end
@@ -2208,8 +2248,9 @@ local function Skin_Archaeology()
                     if ic and ic.SetAlpha then ic:SetAlpha(0) end
                     -- Spare OUR pieces by identity: the arrow path resolves to a fileID later, so name matching is unreliable.
                     local own = GetFFD(pb)
-                    for i = 1, select("#", pb:GetRegions()) do
-                        local r = select(i, pb:GetRegions())
+                    local regions = { pb:GetRegions() }
+                    for i = 1, #regions do
+                        local r = regions[i]
                         if r and r ~= own.arrow and r ~= own.bg and r ~= own.hover
                             and r.IsObjectType and r:IsObjectType("Texture")
                             and r:GetDrawLayer() ~= "HIGHLIGHT" then
@@ -2257,8 +2298,9 @@ local function Skin_Archaeology()
             if t and t.SetAlpha then t:SetAlpha(0) end
         end
         local fill = arb.GetStatusBarTexture and arb:GetStatusBarTexture()
-        for i = 1, select("#", arb:GetRegions()) do
-            local r = select(i, arb:GetRegions())
+        local regions = { arb:GetRegions() }
+        for i = 1, #regions do
+            local r = regions[i]
             if r and r ~= fill and r ~= abd.bg and r.IsObjectType
                 and r:IsObjectType("Texture")
                 and r:GetDrawLayer() ~= "HIGHLIGHT" then
@@ -2276,8 +2318,9 @@ local function Skin_Archaeology()
             abd.bg = trough
             WSkin.BorderRegion(arb, trough)
         end
-        for i = 1, select("#", arb:GetRegions()) do
-            local r = select(i, arb:GetRegions())
+        local regions2 = { arb:GetRegions() }
+        for i = 1, #regions2 do
+            local r = regions2[i]
             if r and r.IsObjectType and r:IsObjectType("FontString") then
                 WSkin.White(r)
             end
@@ -2294,6 +2337,7 @@ WSkin.RegisterWindow({
     addons = { Blizzard_ArchaeologyUI = true },
     apply = Skin_Archaeology,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Guild & Communities (CommunitiesFrame)
@@ -2306,8 +2350,9 @@ local function SkinGuildCheck(cb)
     local d = GetFFD(cb)
     if d.custom then return end
     d.custom = true
-    for i = 1, select("#", cb:GetRegions()) do
-        local r = select(i, cb:GetRegions())
+    local regions = { cb:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r.IsObjectType and r:IsObjectType("Texture") and r.SetTexture then
             r:SetTexture("")
         end
@@ -2346,6 +2391,77 @@ local function SkinGuildCheck(cb)
     if lbl then WSkin.White(lbl) end
 end
 
+-- Side tab (Chat/Roster/Benefits/Info): square the icon, drop the gold ring.
+local function SquareTabIcon(tab)
+    if not tab then return end
+    local d = GetFFD(tab)
+    local icon = tab.Icon
+    local overlay = tab.IconOverlay
+    if icon then
+        WSkin.SquareIcon(icon)
+        if icon.SetDrawLayer then icon:SetDrawLayer("ARTWORK") end
+    end
+    if tab.GetRegions then
+        local regions = { tab:GetRegions() }
+        for i = 1, #regions do
+            local r = regions[i]
+            if r and r ~= icon and r ~= overlay and r ~= d.hover and r.IsObjectType
+               and r:IsObjectType("Texture") and r.SetAlpha then
+                r:SetAlpha(0)
+            end
+        end
+    end
+    for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetCheckedTexture", "GetHighlightTexture" }) do
+        local fn = tab[g]; local t = fn and fn(tab)
+        if t and t.SetAlpha then t:SetAlpha(0) end
+    end
+end
+
+-- Guild dialog popouts (member detail, request-to-join): chrome lives in child
+-- FRAMES ("BG"/"Border" wrappers holding the bg + nine-slice), invisible to
+-- the keyed art sweeps, so flatten to a house panel.
+local function ApplyGuildPopup(pop, d)
+    WSkin.FadeRegions(pop, d.bg and { [d.bg] = true })
+    if pop.NineSlice then WSkin.FadeNineSlice(pop.NineSlice) end
+    for _, k in ipairs({ "BG", "Border" }) do
+        local piece = pop[k]
+        if piece then
+            if piece.IsObjectType and piece:IsObjectType("Texture") then
+                piece:SetAlpha(0)
+            else
+                WSkin.FadeRegions(piece)
+                if piece.NineSlice then WSkin.FadeNineSlice(piece.NineSlice) end
+                WSkin.Register(piece, true)
+            end
+        end
+    end
+    local bg = d.bg
+    if not bg then
+        bg = pop:CreateTexture(nil, "BACKGROUND", nil, -6)
+        d.bg = bg
+    end
+    bg:SetColorTexture(0.05, 0.05, 0.05, 0.95)
+    bg:SetAllPoints(pop)
+    WSkin.AddBorder(pop)
+    WSkin.Register(pop, true)
+    if pop.CloseButton then WSkin.CloseButton(pop.CloseButton) end
+    local regions = { pop:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
+        if r and r.IsObjectType and r:IsObjectType("FontString") then
+            WSkin.Font(r)
+            WSkin.White(r)
+        end
+    end
+end
+
+local function SkinGuildPopup(pop)
+    -- Some same-named globals are functions until their dialog exists.
+    if type(pop) ~= "table" or not pop.IsForbidden or pop:IsForbidden() then return end
+    WSkin.CompleteSetup(pop, "popupSkinned", ApplyGuildPopup)
+end
+
+do
 -- Max/Min glyph matching the transmog / dressing-room look: quest-tracker
 -- collapse/expand chevron (up = maximize/Expand, down = minimize/Collapse),
 -- desaturated white at 0.75, brightening on hover.
@@ -2435,71 +2551,6 @@ local function SkinCommunityEntry(entry)
     end
 end
 
--- Side tab (Chat/Roster/Benefits/Info): square the icon, drop the gold ring.
-local function SquareTabIcon(tab)
-    if not tab then return end
-    local d = GetFFD(tab)
-    local icon = tab.Icon
-    local overlay = tab.IconOverlay
-    if icon then
-        WSkin.SquareIcon(icon)
-        if icon.SetDrawLayer then icon:SetDrawLayer("ARTWORK") end
-    end
-    if tab.GetRegions then
-        for i = 1, select("#", tab:GetRegions()) do
-            local r = select(i, tab:GetRegions())
-            if r and r ~= icon and r ~= overlay and r ~= d.hover and r.IsObjectType
-               and r:IsObjectType("Texture") and r.SetAlpha then
-                r:SetAlpha(0)
-            end
-        end
-    end
-    for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetCheckedTexture", "GetHighlightTexture" }) do
-        local fn = tab[g]; local t = fn and fn(tab)
-        if t and t.SetAlpha then t:SetAlpha(0) end
-    end
-end
-
--- Guild dialog popouts (member detail, request-to-join): chrome lives in child
--- FRAMES ("BG"/"Border" wrappers holding the bg + nine-slice), invisible to
--- the keyed art sweeps, so flatten to a house panel.
-local function SkinGuildPopup(pop)
-    -- Frames only: some same-named globals are FUNCTIONS (the create-dialog
-    -- name resolves to one).
-    if type(pop) ~= "table" or not pop.IsForbidden or pop:IsForbidden() then return end
-    local d = GetFFD(pop)
-    if d.popupSkinned then return end
-    d.popupSkinned = true
-    WSkin.FadeRegions(pop)
-    if pop.NineSlice then WSkin.FadeNineSlice(pop.NineSlice) end
-    for _, k in ipairs({ "BG", "Border" }) do
-        local piece = pop[k]
-        if piece then
-            if piece.IsObjectType and piece:IsObjectType("Texture") then
-                piece:SetAlpha(0)
-            else
-                WSkin.FadeRegions(piece)
-                if piece.NineSlice then WSkin.FadeNineSlice(piece.NineSlice) end
-                WSkin.Register(piece, true)
-            end
-        end
-    end
-    local bg = pop:CreateTexture(nil, "BACKGROUND", nil, -6)
-    bg:SetColorTexture(0.05, 0.05, 0.05, 0.95)
-    bg:SetAllPoints(pop)
-    d.bg = bg
-    WSkin.AddBorder(pop)
-    WSkin.Register(pop, true)
-    if pop.CloseButton then WSkin.CloseButton(pop.CloseButton) end
-    for i = 1, select("#", pop:GetRegions()) do
-        local r = select(i, pop:GetRegions())
-        if r and r.IsObjectType and r:IsObjectType("FontString") then
-            WSkin.Font(r)
-            WSkin.White(r)
-        end
-    end
-end
-
 -- Popup inputs get 6px of left padding: the BOX edge moves left (left-edge
 -- anchors shift, or centered fixed-width boxes widen +6 and recenter), with a
 -- matching text inset so the text's on-screen start is unchanged.
@@ -2548,12 +2599,173 @@ local function PopupEditBox(eb)
 end
 
 local _guildNewsHook = false
+
+-- Only named controls belong to this skin. In particular, never discover
+-- buttons by walking the member ScrollBox or its pooled rows.
+local GUILD_CONTROL_HOSTS = {
+    "CommunitiesControlFrame", "GuildMemberDetailFrame", "InvitationFrame",
+    "ClubFinderInvitationFrame", "TicketFrame", "GuildFinderFrame",
+    "CommunityFinderFrame", "NotificationSettingsDialog",
+}
+local GUILD_BUTTON_KEYS = {
+    "InviteButton", "GuildLogButton", "GuildControlButton", "GuildRecruitmentButton",
+    "CommunitiesSettingsButton", "RemoveButton", "GroupInviteButton",
+    "AcceptButton", "DeclineButton", "ApplyButton", "FindAGuildButton",
+    "OkayButton", "AllButton", "NoneButton",
+}
+local GUILD_TAB_KEYS = { "ChatTab", "RosterTab", "GuildBenefitsTab", "GuildInfoTab" }
+local function SkinGuildControlHost(host)
+    if not host then return end
+    for _, key in ipairs(GUILD_BUTTON_KEYS) do
+        if host[key] then WSkin.Button(host[key]) end
+    end
+    if host.ScrollBar then WSkin.ScrollBar(host.ScrollBar) end
+    if host.RankDropdown then WSkin.Dropdown(host.RankDropdown) end
+    if host.InsetFrame then WSkin.Inset(host.InsetFrame) end
+end
+local function SkinGuildControls(f)
+    SkinGuildControlHost(f)
+    for _, key in ipairs(GUILD_CONTROL_HOSTS) do SkinGuildControlHost(f[key]) end
+    if f.Chat then SkinGuildControlHost(f.Chat) end
+    if f.MemberList and f.MemberList.ScrollBar then WSkin.ScrollBar(f.MemberList.ScrollBar) end
+    if f.CommunitiesList and f.CommunitiesList.ScrollBar then WSkin.ScrollBar(f.CommunitiesList.ScrollBar) end
+end
+
+local function SkinGuildDialogs(f)
+    SkinGuildPopup(f.GuildMemberDetailFrame)
+    SkinGuildPopup(_G.CommunitiesAddDialog)
+    SkinGuildPopup(_G.CommunitiesCreateCommunityDialog)
+    -- Add/Create Community dialogs: their globals are NOT live frames at addon
+    -- load (the real frame appears when the dialog first opens), so catch it
+    -- from StaticPopupSpecial_Show, which receives the frame itself. The BG is
+    -- a layout-KIT frame whose chrome pieces are not plain regions, so
+    -- container alpha suppresses all of it at once.
+    if type(_G.StaticPopupSpecial_Show) == "function" and not GetFFD(f).addDlgHook then
+        GetFFD(f).addDlgHook = true
+        local wanted = {
+            CommunitiesAddDialog = true,
+            CommunitiesCreateCommunityDialog = true,
+        }
+        hooksecurefunc("StaticPopupSpecial_Show", WSkin.WindowCallback("guild", function(dlg)
+            if type(dlg) ~= "table" or not dlg.GetName then return end
+            local ok, nm2 = pcall(dlg.GetName, dlg)
+            if not ok or not nm2 or not wanted[nm2] then return end
+            SkinGuildPopup(dlg)
+            local d2 = GetFFD(dlg)
+            if dlg.BG and not d2.bgKilled then
+                d2.bgKilled = true
+                pcall(dlg.BG.SetAlpha, dlg.BG, 0)
+            end
+            for _, k in ipairs({ "InviteLinkBox", "NameEdit", "ShortNameEdit" }) do
+                if dlg[k] then PopupEditBox(dlg[k]) end
+            end
+            if dlg.JoinButton then
+                WSkin.Button(dlg.JoinButton)
+                local jfs = dlg.JoinButton.Text
+                    or (dlg.JoinButton.GetFontString and dlg.JoinButton:GetFontString())
+                if jfs then WSkin.White(jfs) end
+            end
+        end))
+    end
+    -- Community settings dialog (name/description/MOTD editor).
+    local csd = _G.CommunitiesSettingsDialog
+    if csd and type(csd) == "table" and not GetFFD(csd).csdSkinned then
+        GetFFD(csd).csdSkinned = true
+        SkinGuildPopup(csd)
+        for _, k in ipairs({ "Accept", "AcceptButton", "Cancel", "CancelButton",
+                             "Delete", "DeleteButton", "ChangeAvatarButton" }) do
+            local b = csd[k]
+            if b and b.GetObjectType and b:GetObjectType() == "Button" then
+                WSkin.Button(b)
+                local bfs = b.GetFontString and b:GetFontString()
+                if bfs then WSkin.White(bfs) end
+            end
+        end
+        for _, k in ipairs({ "NameEdit", "ShortNameEdit" }) do
+            if csd[k] then PopupEditBox(csd[k]) end
+        end
+        for _, k in ipairs({ "ClubFocusDropdown", "LookingForDropdown", "LanguageDropdown" }) do
+            if csd[k] then WSkin.Dropdown(csd[k]) end
+        end
+        WSkin.ScrollBarsIn(csd)
+    end
+    -- Guild recruitment settings dialog ("List My Guild in Guild Finder"):
+    -- parented INSIDE CommunitiesFrame like EditStreamDialog, so the art sweeps strip
+    -- its DialogBorderDark BG and it renders see-through without the house popup pass.
+    local rd = f.RecruitmentDialog
+    if rd and not GetFFD(rd).rdSkinned then
+        GetFFD(rd).rdSkinned = true
+        SkinGuildPopup(rd)
+        -- Blizzard pins this to the SCREEN (UIParent), nowhere near a
+        -- repositioned Communities window; dock it to the panel's right edge
+        -- instead (nothing re-anchors it at runtime). 38 = the 32px side tabs
+        -- riding that edge + a 6px gap.
+        rd:ClearAllPoints()
+        rd:SetPoint("TOPLEFT", f, "TOPRIGHT", 38, 0)
+        -- Docked to the panel it can leave the screen, so clamp.
+        rd:SetClampedToScreen(true)
+        for _, k in ipairs({ "Accept", "Cancel" }) do
+            local b = rd[k]
+            if b and b.GetObjectType and b:GetObjectType() == "Button" then
+                WSkin.Button(b)
+                local bfs = b.GetFontString and b:GetFontString()
+                if bfs then WSkin.White(bfs) end
+            end
+        end
+        for _, k in ipairs({ "ClubFocusDropdown", "LookingForDropdown", "LanguageDropdown" }) do
+            if rd[k] then WSkin.Dropdown(rd[k]) end
+        end
+        WSkin.ScrollBarsIn(rd)
+    end
+    -- Create/Edit Channel dialog: parented INSIDE CommunitiesFrame, so the recursive
+    -- Bg-family art sweeps reach it and strip its fill (standalone UIParent dialogs are
+    -- untouched). The house popup pass restores a backdrop.
+    local esd = f.EditStreamDialog
+    if esd and not GetFFD(esd).esdSkinned then
+        GetFFD(esd).esdSkinned = true
+        SkinGuildPopup(esd)
+        for _, k in ipairs({ "Accept", "AcceptButton", "Cancel", "CancelButton",
+                             "Delete", "DeleteButton" }) do
+            local b = esd[k]
+            if b and b.GetObjectType and b:GetObjectType() == "Button" then
+                WSkin.Button(b)
+                local bfs = b.GetFontString and b:GetFontString()
+                if bfs then WSkin.White(bfs) end
+            end
+        end
+        if esd.NameEdit then PopupEditBox(esd.NameEdit) end
+        if esd.Description then PopupEditBox(esd.Description) end
+        local modCheck = esd.TypeCheckBox or esd.ModeratorsOnlyCheckBox
+            or esd.ModeratorsOnlyCheckbox
+        if modCheck then SkinGuildCheck(modCheck) end
+    end
+    -- Notification settings dialog (chat bell): house popup + its extras.
+    local nsd = f.NotificationSettingsDialog
+    if nsd then
+        SkinGuildPopup(nsd)
+        if nsd.Selector then
+            WSkin.FadeRegions(nsd.Selector)
+            WSkin.Register(nsd.Selector, true)
+            for _, k in ipairs({ "OkayButton", "AllButton", "NoneButton" }) do
+                if nsd.Selector[k] then WSkin.Button(nsd.Selector[k]) end
+            end
+        end
+        for _, k in ipairs({ "OkayButton", "AllButton", "NoneButton" }) do
+            if nsd[k] then WSkin.Button(nsd[k]) end
+        end
+        if nsd.CommunitiesListDropdown then WSkin.Dropdown(nsd.CommunitiesListDropdown) end
+        WSkin.ScrollBarsIn(nsd)
+    end
+end
+
 local function Skin_Guild()
     local f = _G.CommunitiesFrame
     if not f then return end
+    local state = GetFFD(f)
+    if state.refreshGuild then state.refreshGuild(); return end
     WSkin.Shell("guild", f)
     WSkin.RemovePortrait(f)
-    WSkin.CommonChrome(f)
+    WSkin.CommonChrome(f, nil, true)
     if f.NineSlice then WSkin.FadeNineSlice(f.NineSlice) end
     if f.PortraitOverlay then
         WSkin.FadeRegions(f.PortraitOverlay)
@@ -2585,7 +2797,7 @@ local function Skin_Guild()
     -- along wherever Blizzard's display-mode layout seats the tab. Tab size,
     -- icon anchors and the native tab chain are never touched. Only the root
     -- tab re-anchors (flush to the window edge); the others chain to it.
-    for _, k in ipairs({ "ChatTab", "RosterTab", "GuildBenefitsTab", "GuildInfoTab" }) do
+    for _, k in ipairs(GUILD_TAB_KEYS) do
         local tab = f[k]
         if tab and not tab:IsForbidden() then
             SquareTabIcon(tab)
@@ -2609,8 +2821,7 @@ local function Skin_Guild()
             -- Tighter icon zoom than the standard crop, re-applied per pass:
             -- SquareTabIcon resets it to the 0.08 standard above.
             if icon and icon.SetTexCoord then icon:SetTexCoord(0.12, 0.88, 0.12, 0.88) end
-            local enabled = not tab.IsEnabled or tab:IsEnabled()
-            tab:SetAlpha(enabled and 1 or 0.5)
+            tab:SetAlphaFromBoolean(tab:IsEnabled(), 1, 0.5)
             -- Chain gap 10px tighter (one-shot): the native anchor to the
             -- previous tab is kept, only its y offset closes.
             if k ~= "ChatTab" and not td.gapAdj then
@@ -2833,8 +3044,9 @@ local function Skin_Guild()
             if t and t.SetTexture then t:SetTexture("") end
         end
         if list.FilligreeOverlay then
-            for i = 1, select("#", list.FilligreeOverlay:GetRegions()) do
-                local r = select(i, list.FilligreeOverlay:GetRegions())
+            local regions = { list.FilligreeOverlay:GetRegions() }
+            for i = 1, #regions do
+                local r = regions[i]
                 if r and r.IsObjectType and r:IsObjectType("Texture") and r.SetTexture then
                     r:SetTexture("")
                 end
@@ -2859,6 +3071,7 @@ local function Skin_Guild()
                 end
             end
         end
+        SkinCommunityEntry = WSkin.WindowCallback("guild", SkinCommunityEntry)
         local sb = list.ScrollBox
         if sb then
             if sb.ForEachFrame then pcall(sb.ForEachFrame, sb, SkinCommunityEntry) end
@@ -2937,130 +3150,7 @@ local function Skin_Guild()
         end
     end
     if ml and ml.ShowOfflineButton then SkinGuildCheck(ml.ShowOfflineButton) end
-    SkinGuildPopup(f.GuildMemberDetailFrame)
-    SkinGuildPopup(_G.CommunitiesAddDialog)
-    SkinGuildPopup(_G.CommunitiesCreateCommunityDialog)
-    -- Add/Create Community dialogs: their globals are NOT live frames at addon
-    -- load (the real frame appears when the dialog first opens), so catch it
-    -- from StaticPopupSpecial_Show, which receives the frame itself. The BG is
-    -- a layout-KIT frame whose chrome pieces are not plain regions, so
-    -- container alpha suppresses all of it at once.
-    if type(_G.StaticPopupSpecial_Show) == "function" and not GetFFD(f).addDlgHook then
-        GetFFD(f).addDlgHook = true
-        local wanted = {
-            CommunitiesAddDialog = true,
-            CommunitiesCreateCommunityDialog = true,
-        }
-        hooksecurefunc("StaticPopupSpecial_Show", function(dlg)
-            if type(dlg) ~= "table" or not dlg.GetName then return end
-            local ok, nm2 = pcall(dlg.GetName, dlg)
-            if not ok or not nm2 or not wanted[nm2] then return end
-            SkinGuildPopup(dlg)
-            local d2 = GetFFD(dlg)
-            if dlg.BG and not d2.bgKilled then
-                d2.bgKilled = true
-                pcall(dlg.BG.SetAlpha, dlg.BG, 0)
-            end
-            for _, k in ipairs({ "InviteLinkBox", "NameEdit", "ShortNameEdit" }) do
-                if dlg[k] then PopupEditBox(dlg[k]) end
-            end
-            if dlg.JoinButton then
-                WSkin.Button(dlg.JoinButton)
-                local jfs = dlg.JoinButton.Text
-                    or (dlg.JoinButton.GetFontString and dlg.JoinButton:GetFontString())
-                if jfs then WSkin.White(jfs) end
-            end
-        end)
-    end
-    -- Community settings dialog (name/description/MOTD editor).
-    local csd = _G.CommunitiesSettingsDialog
-    if csd and type(csd) == "table" and not GetFFD(csd).csdSkinned then
-        GetFFD(csd).csdSkinned = true
-        SkinGuildPopup(csd)
-        for _, k in ipairs({ "Accept", "AcceptButton", "Cancel", "CancelButton",
-                             "Delete", "DeleteButton", "ChangeAvatarButton" }) do
-            local b = csd[k]
-            if b and b.GetObjectType and b:GetObjectType() == "Button" then
-                WSkin.Button(b)
-                local bfs = b.GetFontString and b:GetFontString()
-                if bfs then WSkin.White(bfs) end
-            end
-        end
-        for _, k in ipairs({ "NameEdit", "ShortNameEdit" }) do
-            if csd[k] then PopupEditBox(csd[k]) end
-        end
-        for _, k in ipairs({ "ClubFocusDropdown", "LookingForDropdown", "LanguageDropdown" }) do
-            if csd[k] then WSkin.Dropdown(csd[k]) end
-        end
-        WSkin.ScrollBarsIn(csd)
-    end
-    -- Guild recruitment settings dialog ("List My Guild in Guild Finder"):
-    -- parented INSIDE CommunitiesFrame like EditStreamDialog, so the art sweeps strip
-    -- its DialogBorderDark BG and it renders see-through without the house popup pass.
-    local rd = f.RecruitmentDialog
-    if rd and not GetFFD(rd).rdSkinned then
-        GetFFD(rd).rdSkinned = true
-        SkinGuildPopup(rd)
-        -- Blizzard pins this to the SCREEN (UIParent), nowhere near a
-        -- repositioned Communities window; dock it to the panel's right edge
-        -- instead (nothing re-anchors it at runtime). 38 = the 32px side tabs
-        -- riding that edge + a 6px gap.
-        rd:ClearAllPoints()
-        rd:SetPoint("TOPLEFT", f, "TOPRIGHT", 38, 0)
-        -- Docked to the panel it can leave the screen, so clamp.
-        rd:SetClampedToScreen(true)
-        for _, k in ipairs({ "Accept", "Cancel" }) do
-            local b = rd[k]
-            if b and b.GetObjectType and b:GetObjectType() == "Button" then
-                WSkin.Button(b)
-                local bfs = b.GetFontString and b:GetFontString()
-                if bfs then WSkin.White(bfs) end
-            end
-        end
-        for _, k in ipairs({ "ClubFocusDropdown", "LookingForDropdown", "LanguageDropdown" }) do
-            if rd[k] then WSkin.Dropdown(rd[k]) end
-        end
-        WSkin.ScrollBarsIn(rd)
-    end
-    -- Create/Edit Channel dialog: parented INSIDE CommunitiesFrame, so the recursive
-    -- Bg-family art sweeps reach it and strip its fill (standalone UIParent dialogs are
-    -- untouched). The house popup pass restores a backdrop.
-    local esd = f.EditStreamDialog
-    if esd and not GetFFD(esd).esdSkinned then
-        GetFFD(esd).esdSkinned = true
-        SkinGuildPopup(esd)
-        for _, k in ipairs({ "Accept", "AcceptButton", "Cancel", "CancelButton",
-                             "Delete", "DeleteButton" }) do
-            local b = esd[k]
-            if b and b.GetObjectType and b:GetObjectType() == "Button" then
-                WSkin.Button(b)
-                local bfs = b.GetFontString and b:GetFontString()
-                if bfs then WSkin.White(bfs) end
-            end
-        end
-        if esd.NameEdit then PopupEditBox(esd.NameEdit) end
-        if esd.Description then PopupEditBox(esd.Description) end
-        local modCheck = esd.TypeCheckBox or esd.ModeratorsOnlyCheckBox
-            or esd.ModeratorsOnlyCheckbox
-        if modCheck then SkinGuildCheck(modCheck) end
-    end
-    -- Notification settings dialog (chat bell): house popup + its extras.
-    local nsd = f.NotificationSettingsDialog
-    if nsd then
-        SkinGuildPopup(nsd)
-        if nsd.Selector then
-            WSkin.FadeRegions(nsd.Selector)
-            WSkin.Register(nsd.Selector, true)
-            for _, k in ipairs({ "OkayButton", "AllButton", "NoneButton" }) do
-                if nsd.Selector[k] then WSkin.Button(nsd.Selector[k]) end
-            end
-        end
-        for _, k in ipairs({ "OkayButton", "AllButton", "NoneButton" }) do
-            if nsd[k] then WSkin.Button(nsd[k]) end
-        end
-        if nsd.CommunitiesListDropdown then WSkin.Dropdown(nsd.CommunitiesListDropdown) end
-        WSkin.ScrollBarsIn(nsd)
-    end
+    SkinGuildDialogs(f)
     -- Ticket frame (community invite ticket pane): inset chrome off.
     local tkf = f.TicketFrame
     if tkf then
@@ -3089,8 +3179,9 @@ local function Skin_Guild()
         if not cd then return end
         WSkin.FadeRegions(cd)
         WSkin.Register(cd, true)
-        for i = 1, select("#", cd:GetChildren()) do
-            local col = select(i, cd:GetChildren())
+        local children = { cd:GetChildren() }
+        for i = 1, #children do
+            local col = children[i]
             if col and col.GetObjectType and col:GetObjectType() == "Button" then
                 local d2 = GetFFD(col)
                 if not d2.bg then
@@ -3114,6 +3205,7 @@ local function Skin_Guild()
             end
         end
     end
+    SkinRosterColumns = WSkin.WindowCallback("guild", SkinRosterColumns)
     SkinRosterColumns()
     -- Re-skin roster columns on Blizzard's rebuild (per club / view change) via
     -- hooksecurefunc on the list refresh. NEVER HookScript the secure ColumnDisplay: an
@@ -3221,14 +3313,16 @@ local function Skin_Guild()
                 if row.Icon then WSkin.SquareIcon(row.Icon, row) end
                 WSkin.Register(row, keep)
             end
-            for i = 1, select("#", row:GetRegions()) do
-                local r = select(i, row:GetRegions())
+            local regions = { row:GetRegions() }
+            for i = 1, #regions do
+                local r = regions[i]
                 if r and r.IsObjectType and r:IsObjectType("FontString") then
                     WSkin.Font(r)
                     WSkin.White(r)
                 end
             end
         end
+        SkinBenefitRow = WSkin.WindowCallback("guild", SkinBenefitRow)
         for _, sec in ipairs({ gb.Perks, gb.Rewards }) do
             if sec then
                 WSkin.FadeRegions(sec)
@@ -3278,8 +3372,9 @@ local function Skin_Guild()
             -- "Guild Reputation" label + on-bar text in white house font.
             for _, host2 in ipairs({ gb.FactionFrame, rep }) do
                 if host2 and host2.GetRegions then
-                    for i = 1, select("#", host2:GetRegions()) do
-                        local r = select(i, host2:GetRegions())
+                    local regions = { host2:GetRegions() }
+                    for i = 1, #regions do
+                        local r = regions[i]
                         if r and r.IsObjectType and r:IsObjectType("FontString") then
                             WSkin.Font(r)
                             WSkin.White(r)
@@ -3288,6 +3383,7 @@ local function Skin_Guild()
                 end
             end
         end
+        FlattenRepBar = WSkin.WindowCallback("guild", FlattenRepBar)
         FlattenRepBar()
         if not GetFFD(gb).repHook then
             GetFFD(gb).repHook = true
@@ -3355,8 +3451,9 @@ local function Skin_Guild()
         TreatClose(gl.CloseButton)
         TreatClose(_G[n .. "Close"])
         TreatClose(_G[n .. "CloseButton"])
-        for i = 1, select("#", gl:GetChildren()) do
-            local ch = select(i, gl:GetChildren())
+        local children = { gl:GetChildren() }
+        for i = 1, #children do
+            local ch = children[i]
             if ch and not WSkin.IsForeignFrame(ch, gl)
                and ch.GetObjectType and ch:GetObjectType() == "Button" then
                 TreatClose(ch)
@@ -3399,6 +3496,7 @@ local function Skin_Guild()
             end
         end
     end
+    SkinGuildLog = WSkin.WindowCallback("guild", SkinGuildLog)
     SkinGuildLog()
     if logBtn and not GetFFD(logBtn).logHook then
         GetFFD(logBtn).logHook = true
@@ -3415,8 +3513,9 @@ local function Skin_Guild()
         local afs = atc.GetFontString and atc:GetFontString()
         if afs then labels[afs] = true end
         if atc.Text and atc.Text.SetTextColor then labels[atc.Text] = true end
-        for i = 1, select("#", atc:GetRegions()) do
-            local r = select(i, atc:GetRegions())
+        local regions = { atc:GetRegions() }
+        for i = 1, #regions do
+            local r = regions[i]
             if r and r.IsObjectType and r:IsObjectType("FontString") then
                 labels[r] = true
             end
@@ -3448,8 +3547,9 @@ local function Skin_Guild()
             if arrow.IsObjectType and not arrow:IsObjectType("Texture") then
                 tex = nil
                 if arrow.GetRegions then
-                    for i = 1, select("#", arrow:GetRegions()) do
-                        local r = select(i, arrow:GetRegions())
+                    local regions2 = { arrow:GetRegions() }
+                    for i = 1, #regions2 do
+                        local r = regions2[i]
                         if r and r.IsObjectType and r:IsObjectType("Texture") then
                             tex = r
                             break
@@ -3557,24 +3657,61 @@ local function Skin_Guild()
     for _, k in ipairs({ "Inset", "LeftInset", "RightInset" }) do
         if f[k] then WSkin.Inset(f[k]) end
     end
-    WSkin.FadeKeyedArt(f)
-    WSkin.ButtonsIn(f)
-    WSkin.ScrollBarsIn(f)
-    WSkin.PagingIn(f)
-    WSkin.HookShow(f, WSkin.Debounce(function()
-        if f:IsVisible() then Skin_Guild(); WSkin.Restrip(); WSkin.UpdateAllTabs() end
-    end))
+    SkinGuildControls(f)
+    local function RefreshGuild()
+        if not f:IsVisible() then return end
+        SkinGuildDialogs(f)
+        SkinGuildLog()
+        SkinGuildControls(f)
+        SkinRosterColumns()
+        -- State-dependent tab opacity remains Blizzard-driven. Do not branch
+        -- on the enabled state: it can be secret under forced restrictions.
+        for _, key in ipairs(GUILD_TAB_KEYS) do
+            local tab = f[key]
+            if tab then tab:SetAlphaFromBoolean(tab:IsEnabled(), 1, 0.5) end
+        end
+        WSkin.Restrip("guild")
+        -- The guild tabs are display-mode buttons, not PanelTemplates tabs, so
+        -- the engine's SetTab/UpdateTabs hooks never refresh their active
+        -- visual; the reopen pass has to (O(skinned tabs), one pass per show).
+        WSkin.UpdateAllTabs()
+    end
+    state.refreshGuild = WSkin.WindowCallback("guild", RefreshGuild)
+    WSkin.HookShow(f, WSkin.Debounce(state.refreshGuild))
 end
+
+Skin_Guild = WSkin.WindowCallback("guild", Skin_Guild)
 
 WSkin.RegisterWindow({
     key = "guild",
     addons = { Blizzard_Communities = true },
     apply = Skin_Guild,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Calendar (CalendarFrame)
 -------------------------------------------------------------------------------
+-- Shift a frame up by dyUp px, preserving EVERY anchor point (one-shot): a
+-- single-point reseat would width-collapse a multi-anchored frame.
+local function CalReseat(frame, dyUp)
+    if not frame then return end
+    local d = GetFFD(frame)
+    if d.reseated then return end
+    local n = frame:GetNumPoints() or 0
+    if n < 1 then return end
+    local pts = {}
+    for i = 1, n do
+        local p, rel, rp, x, y = frame:GetPoint(i)
+        if not p then return end
+        pts[i] = { p, rel, rp, x or 0, (y or 0) + dyUp }
+    end
+    d.reseated = true
+    frame:ClearAllPoints()
+    for i = 1, #pts do local t = pts[i]; frame:SetPoint(t[1], t[2], t[3], t[4], t[5]) end
+end
+
+do
 local _calendarHook = false
 local function SkinCalendarDays()
     for i = 1, 42 do
@@ -3593,25 +3730,6 @@ local function SkinCalendarDays()
             end
         end
     end
-end
-
--- Shift a frame up by dyUp px, preserving EVERY anchor point (one-shot): a
--- single-point reseat would width-collapse a multi-anchored frame.
-local function CalReseat(frame, dyUp)
-    if not frame then return end
-    local d = GetFFD(frame)
-    if d.reseated then return end
-    local n = frame:GetNumPoints() or 0
-    if n < 1 then return end
-    local pts = {}
-    for i = 1, n do
-        local p, rel, rp, x, y = frame:GetPoint(i)
-        if not p then return end
-        pts[i] = { p, rel, rp, x or 0, (y or 0) + dyUp }
-    end
-    d.reseated = true
-    frame:ClearAllPoints()
-    for i = 1, #pts do local t = pts[i]; frame:SetPoint(t[1], t[2], t[3], t[4], t[5]) end
 end
 
 local function Skin_Calendar()
@@ -3711,8 +3829,9 @@ local function Skin_Calendar()
             -- Title down 5px (find the header's title FontString).
             local titleFS = (cef.Header and cef.Header.Text) or _G.CalendarCreateEventTitle
             if not titleFS and cef.Header and cef.Header.GetRegions then
-                for i = 1, select("#", cef.Header:GetRegions()) do
-                    local r = select(i, cef.Header:GetRegions())
+                local regions = { cef.Header:GetRegions() }
+                for i = 1, #regions do
+                    local r = regions[i]
                     if r and r.GetObjectType and r:GetObjectType() == "FontString" then titleFS = r; break end
                 end
             end
@@ -3766,8 +3885,9 @@ local function Skin_Calendar()
             -- Title down 8px (header title FontString).
             local titleFS = (pf.Header and pf.Header.Text) or _G.CalendarEventPickerFrameTitle or pf.Title
             if not titleFS and pf.Header and pf.Header.GetRegions then
-                for i = 1, select("#", pf.Header:GetRegions()) do
-                    local r = select(i, pf.Header:GetRegions())
+                local regions = { pf.Header:GetRegions() }
+                for i = 1, #regions do
+                    local r = regions[i]
                     if r and r.GetObjectType and r:GetObjectType() == "FontString" then titleFS = r; break end
                 end
             end
@@ -3793,15 +3913,18 @@ WSkin.RegisterWindow({
     addons = { Blizzard_Calendar = true },
     apply = Skin_Calendar,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Achievements (AchievementFrame)
 -------------------------------------------------------------------------------
+do
 -- White house-font text on a frame's direct FontString regions.
 local function AchWhiteTexts(host)
     if not host or not host.GetRegions then return end
-    for i = 1, select("#", host:GetRegions()) do
-        local r = select(i, host:GetRegions())
+    local regions = { host:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r.IsObjectType and r:IsObjectType("FontString") then
             WSkin.Font(r)
             WSkin.White(r)
@@ -3815,8 +3938,9 @@ local function AchWhiteTextsIn(host, depth)
     if depth > 0 and WSkin.IsForeignFrame(host) then return end
     AchWhiteTexts(host)
     if not host.GetChildren then return end
-    for i = 1, select("#", host:GetChildren()) do
-        AchWhiteTextsIn(select(i, host:GetChildren()), depth + 1)
+    local children = { host:GetChildren() }
+    for i = 1, #children do
+        AchWhiteTextsIn(children[i], depth + 1)
     end
 end
 
@@ -3929,8 +4053,9 @@ end
 -- Kill every Blizzard TEXTURE on the row (keyed + anon), sparing our bg+hover
 -- and all fontstrings. NineSlice is a child FRAME, not a direct region: kill it whole (alpha inherits to Center+edges).
 local function KillAchRowArt(row, d)
-    for i = 1, select("#", row:GetRegions()) do
-        local r = select(i, row:GetRegions())
+    local regions = { row:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r ~= d.bg and r ~= d.hover and r.IsObjectType and r:IsObjectType("Texture") then
             KillTex(r)
         end
@@ -4176,8 +4301,9 @@ local function Skin_Achievements()
                                 "AchievementFrameComparison" }) do
             local sub = _G[name]
             if sub then
-                for i = 1, select("#", sub:GetChildren()) do
-                    local c = select(i, sub:GetChildren())
+                local children = { sub:GetChildren() }
+                for i = 1, #children do
+                    local c = children[i]
                     if c and c.NineSlice and not WSkin.IsForeignFrame(c, sub) then
                         WSkin.FadeNineSlice(c.NineSlice)
                         WSkin.FadeRegions(c)
@@ -4531,6 +4657,7 @@ WSkin.RegisterWindow({
     addons = { Blizzard_AchievementUI = true },
     apply = Skin_Achievements,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Mail (MailFrame + OpenMailFrame)
@@ -4562,8 +4689,9 @@ local function SkinLabeledPageButton(btn, ch, extraX)
     -- Per-pass: hide label font strings AND plain texture regions -- merchant
     -- buttons carry box art as anonymous regions PageButton's Normal/Pushed/
     -- Highlight fade never touches. Our arrow/fill/hover spared by identity.
-    for i = 1, select("#", btn:GetRegions()) do
-        local r = select(i, btn:GetRegions())
+    local regions = { btn:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r ~= pd.arrow and r ~= pd.bg and r ~= pd.hover and r.IsObjectType
            and (r:IsObjectType("FontString") or r:IsObjectType("Texture")) then
             r:SetAlpha(0)
@@ -4596,6 +4724,7 @@ local function SkinMailItemButton(b, quality)
     if icon then WSkin.SquareIcon(icon, b, quality) end
 end
 
+do
 -- Inbox row: parchment gone, flat block, white sender/subject, squared icon.
 local function SkinMailRow(row)
     if not row or row:IsForbidden() then return end
@@ -4649,8 +4778,9 @@ end
 -- Blizzard's number font (SetFont here is clobbered) and the house-cut/commission red.
 local function SkinMoneyFrameText(mf)
     if not mf or mf:IsForbidden() then return end
-    for i = 1, select("#", mf:GetRegions()) do
-        local r = select(i, mf:GetRegions())
+    local regions = { mf:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r.IsObjectType and r:IsObjectType("FontString") then SkinInvoiceFS(r) end
     end
 end
@@ -4808,8 +4938,9 @@ local function Skin_Mail()
             local countFS = a.Count or (a.GetName and _G[a:GetName() .. "Count"])
             local countText = countFS and countFS.GetText and countFS:GetText()
             if countText and countText ~= "" and countText ~= "0" then
-                for j = 1, select("#", a:GetRegions()) do
-                    local r = select(j, a:GetRegions())
+                local regions = { a:GetRegions() }
+                for j = 1, #regions do
+                    local r = regions[j]
                     if r and r:IsObjectType("Texture") and r.GetDrawLayer and r.GetTexture then
                         local layer = ({r:GetDrawLayer()})[1]
                         if (layer == "ARTWORK" or layer == "OVERLAY") and r:GetTexture() then
@@ -4829,16 +4960,18 @@ local function Skin_Mail()
                     -- Our themed bg is a direct region: sweeps below must never
                     -- fade it, or the slot loses its backdrop on set/clear.
                     if not texture then
-                        for j = 1, select("#", self:GetRegions()) do
-                            local r = select(j, self:GetRegions())
+                        local regions = { self:GetRegions() }
+                        for j = 1, #regions do
+                            local r = regions[j]
                             if r and r ~= d.bg and r:IsObjectType("Texture") then
                                 r:SetAlpha(0)
                             end
                         end
                         return
                     end
-                    for j = 1, select("#", self:GetRegions()) do
-                        local r = select(j, self:GetRegions())
+                    local regions = { self:GetRegions() }
+                    for j = 1, #regions do
+                        local r = regions[j]
                         if r and r ~= d.bg and r:IsObjectType("Texture") then
                             local match = (r.GetTexture and r:GetTexture() == texture) or (r.GetAtlas and r:GetAtlas() == texture)
                             if match then
@@ -4897,12 +5030,14 @@ WSkin.RegisterWindow({
     addons = { Blizzard_MailFrame = true },
     apply = Skin_Mail,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Catalyst / Item Interaction (ItemInteractionFrame)
 --  Chrome only: the input slot's green "+" is its NormalAtlas, so the item
 --  slots stay stock.
 -------------------------------------------------------------------------------
+do
 local function Skin_Catalyst()
     local f = _G.ItemInteractionFrame
     if not f then return end
@@ -4935,30 +5070,35 @@ WSkin.RegisterWindow({
     addons = { Blizzard_ItemInteractionUI = true },
     apply = Skin_Catalyst,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Gem Socketing (ItemSocketingFrame)
 -------------------------------------------------------------------------------
+do
 local function SkinSocket(btn)
     if not btn or btn:IsForbidden() then return end
     local d = GetFFD(btn)
     -- Lock detection every pass: lock state changes per inspected item; LOCKED sockets keep ALL Blizzard art (closed ring + padlock).
     local isLocked = false
-    for i = 1, select("#", btn:GetRegions()) do
-        local r = select(i, btn:GetRegions())
+    local regions = { btn:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r.IsObjectType and r:IsObjectType("Texture") then
             local hay = WSkin.TexHay(r)
             if hay and hay:find("lock", 1, true) then isLocked = true break end
         end
     end
     local kids = {}
-    for i = 1, select("#", btn:GetChildren()) do
-        local c = select(i, btn:GetChildren())
+    local children = { btn:GetChildren() }
+    for i = 1, #children do
+        local c = children[i]
         if c and c.SetAlpha then
             kids[#kids + 1] = c
             if not isLocked and c.GetRegions then
-                for j = 1, select("#", c:GetRegions()) do
-                    local r2 = select(j, c:GetRegions())
+                local regions2 = { c:GetRegions() }
+                for j = 1, #regions2 do
+                    local r2 = regions2[j]
                     if r2 and r2.IsObjectType and r2:IsObjectType("Texture") then
                         local hay2 = WSkin.TexHay(r2)
                         if hay2 and hay2:find("lock", 1, true) then isLocked = true break end
@@ -4970,8 +5110,9 @@ local function SkinSocket(btn)
     local nt = btn.GetNormalTexture and btn:GetNormalTexture()
     if isLocked then
         -- Un-stripped: the whole locked presentation stays Blizzard's.
-        for i = 1, select("#", btn:GetRegions()) do
-            local r = select(i, btn:GetRegions())
+        local regions2 = { btn:GetRegions() }
+        for i = 1, #regions2 do
+            local r = regions2[i]
             if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(1) end
         end
         for _, c in ipairs(kids) do c:SetAlpha(1) end
@@ -4984,8 +5125,9 @@ local function SkinSocket(btn)
         for _, c in ipairs(kids) do
             local spare = (c == btn.BracketFrame)
             if not spare and c.GetRegions then
-                for j = 1, select("#", c:GetRegions()) do
-                    local r2 = select(j, c:GetRegions())
+                local regions2 = { c:GetRegions() }
+                for j = 1, #regions2 do
+                    local r2 = regions2[j]
                     if r2 and r2.IsObjectType and r2:IsObjectType("Texture")
                         and not WSkin.TexHay(r2) then
                         local tx = r2.GetTexture and r2:GetTexture()
@@ -5008,8 +5150,9 @@ local function SkinSocket(btn)
     -- anything protruding past the edges fades (rects only exist while shown; update-pass re-runs catch it).
     local bl, br2 = btn:GetLeft(), btn:GetRight()
     if bl and br2 then
-        for i = 1, select("#", btn:GetRegions()) do
-            local r = select(i, btn:GetRegions())
+        local regions2 = { btn:GetRegions() }
+        for i = 1, #regions2 do
+            local r = regions2[i]
             if r and r.IsObjectType and r:IsObjectType("Texture") then
                 local rl, rr = r:GetLeft(), r:GetRight()
                 if rl and rr and (rl < bl - 6 or rr > br2 + 6) then
@@ -5182,6 +5325,7 @@ WSkin.RegisterWindow({
     addons = { Blizzard_ItemSocketingUI = true },
     apply = Skin_Socket,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Reputation & Currency tabs (CharacterFrame sub-panes). Rides the charsheet
@@ -5189,10 +5333,12 @@ WSkin.RegisterWindow({
 --  chrome/backdrops belong to CharacterSheet). Taint: currency transfer log
 --  toggle never restyled (breaks transfers); scrollbar work is texture-only.
 -------------------------------------------------------------------------------
+do
 local function RCWhiteTextsIn(host)
     if not host or not host.GetRegions then return end
-    for i = 1, select("#", host:GetRegions()) do
-        local r = select(i, host:GetRegions())
+    local regions = { host:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r.IsObjectType and r:IsObjectType("FontString") then
             WSkin.Font(r)
             WSkin.White(r)
@@ -5268,8 +5414,9 @@ local function SkinRCRow(child, isCurrency)
                         t:SetAlpha(0)
                     end
                 end
-                for i = 1, select("#", tcb:GetRegions()) do
-                    local r = select(i, tcb:GetRegions())
+                local regions = { tcb:GetRegions() }
+                for i = 1, #regions do
+                    local r = regions[i]
                     if r and r ~= glyph and r.IsObjectType and r:IsObjectType("Texture") then
                         if expanded == nil and r.GetAtlas then
                             expanded = classify(r:GetAtlas())
@@ -5384,6 +5531,9 @@ local function HookRCScrollBox(box, isCurrency)
 end
 
 local function Skin_RepCurrency()
+    -- Stock character sheet styles (Style page) keep Blizzard's whole sheet,
+    -- these tabs included.
+    if ns.CharSheetStock and ns.CharSheetStock() then return end
     local rep = _G.ReputationFrame
     if rep then
         if rep.filterDropdown then WSkin.Dropdown(rep.filterDropdown) end
@@ -5439,8 +5589,9 @@ local function Skin_RepCurrency()
                     end
                 end
             end
-            for i = 1, select("#", pop:GetRegions()) do
-                local r = select(i, pop:GetRegions())
+            local regions = { pop:GetRegions() }
+            for i = 1, #regions do
+                local r = regions[i]
                 if r and r.IsObjectType and r:IsObjectType("FontString") then
                     WSkin.Font(r); WSkin.White(r)
                 end
@@ -5472,11 +5623,13 @@ WSkin.RegisterWindow({
     addons = { Blizzard_TokenUI = true },
     apply = Skin_RepCurrency,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Housing Dashboard. Chrome only by request: shell backdrop/border, top bar,
 --  title, close button. Dashboard CONTENT (house info, catalog, initiatives) stays 100% stock.
 -------------------------------------------------------------------------------
+do
 local function Skin_Housing()
     local f = _G.HousingDashboardFrame
     if not f then return end
@@ -5603,6 +5756,7 @@ WSkin.RegisterWindow({
     addons = { Blizzard_HousingDashboard = true },
     apply = Skin_Housing,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Profession Crafting window (recipe list, schematic form, specializations,
@@ -5613,8 +5767,9 @@ local function SkinProfMaxMin(btn, atlas)
     if not btn or GetFFD(btn).mm then return end
     if not (C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas)) then return end
     GetFFD(btn).mm = true
-    for i = 1, select("#", btn:GetRegions()) do
-        local r = select(i, btn:GetRegions())
+    local regions = { btn:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
     end
     for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture",
@@ -5632,6 +5787,7 @@ local function SkinProfMaxMin(btn, atlas)
     btn:HookScript("OnLeave", function() glyph:SetVertexColor(1, 1, 1, 0.75) end)
 end
 
+do
 -- Profession rank bar (crafting page + order view): house trough+border behind Blizzard's own fill (fill itself is kept).
 local function ProfFlatBar(bar)
     if not bar then return end
@@ -5667,8 +5823,9 @@ local function ProfFlatBar(bar)
     if edb and not GetFFD(edb).arrow then
         local ed = GetFFD(edb)
         ed.arrow = true
-        for i = 1, select("#", edb:GetRegions()) do
-            local r = select(i, edb:GetRegions())
+        local regions = { edb:GetRegions() }
+        for i = 1, #regions do
+            local r = regions[i]
             if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
         end
         for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture",
@@ -5756,8 +5913,9 @@ local function SkinOrderColumns(cd)
     if not cd then return end
     WSkin.FadeRegions(cd)
     WSkin.Register(cd, true)
-    for i = 1, select("#", cd:GetChildren()) do
-        local col = select(i, cd:GetChildren())
+    local children = { cd:GetChildren() }
+    for i = 1, #children do
+        local col = children[i]
         if col and col.GetObjectType and col:GetObjectType() == "Button" then
             local d2 = GetFFD(col)
             if not d2.bg then
@@ -6098,8 +6256,9 @@ local function Skin_Professions()
                 end
                 -- Trailing count in accent: display-time recolor, skipped if text already carries a color code.
                 local fs
-                for i = 1, select("#", ord:GetRegions()) do
-                    local r = select(i, ord:GetRegions())
+                local regions = { ord:GetRegions() }
+                for i = 1, #regions do
+                    local r = regions[i]
                     if r and r.IsObjectType and r:IsObjectType("FontString") then
                         fs = r
                         break
@@ -6210,6 +6369,7 @@ WSkin.RegisterWindow({
     addons = { Blizzard_Professions = true },
     apply = Skin_Professions,
 })
+end
 
 -------------------------------------------------------------------------------
 --  World Map & Quest Log: flat window chrome, nav bar strip, quest log panel,
@@ -6218,6 +6378,7 @@ WSkin.RegisterWindow({
 --  command button, map overlay buttons (tracking/pin/floor) and pooled quest
 --  rows stay stock. Visual-only throughout.
 -------------------------------------------------------------------------------
+do
 -- Quest log side tabs: guild sidebar-tab treatment (squared icon on a
 -- black-bordered box, 10% hover, 0.12-0.88 icon crop per pass, half alpha when disabled, no active overlay).
 local function SkinMapSideTab(tab)
@@ -6254,8 +6415,9 @@ local function SkinQuestHeader(btn, kind)
     if not btn or btn:IsForbidden() then return end
     local withCard = kind == "campaign"
     local d = GetFFD(btn)
-    for i = 1, select("#", btn:GetRegions()) do
-        local r = select(i, btn:GetRegions())
+    local regions = { btn:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r ~= d.plate and r ~= d.hover and r ~= d.card
             and r ~= d.divider
             and r.IsObjectType and r:IsObjectType("Texture") then
@@ -6873,6 +7035,7 @@ WSkin.RegisterWindow({
     addons = { Blizzard_WorldMap = true },
     apply = Skin_WorldMap,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Micro Menu & Bags. The glyph IS the button's Normal/Pushed/Disabled atlas,
@@ -6881,6 +7044,7 @@ WSkin.RegisterWindow({
 --  combat-guarded. Blizzard container frames are skipped entirely when the
 --  EllesmereUI Bags addon is active (they never show).
 -------------------------------------------------------------------------------
+do
 local MICRO_BUTTONS = {
     "CharacterMicroButton", "ProfessionMicroButton", "PlayerSpellsMicroButton",
     "AchievementMicroButton", "QuestLogMicroButton", "GuildMicroButton",
@@ -6956,27 +7120,29 @@ local function Skin_MicroMenu()
     end
 end
 
+-- WoW Forever keeps Blizzard's micro menu art (user decision): the pack is not
+-- registered there, so nothing above runs and the UpdateMicroButtons hook is
+-- never installed. The options card is dropped on that client to match.
+if not EllesmereUI.IS_FOREVER then
 WSkin.RegisterWindow({
     key = "micromenu",
     apply = function()
         -- Micro buttons are secure: if this runs mid-combat (reload during a fight), defer the pass to end of combat.
         if InCombatLockdown() then
-            local w = CreateFrame("Frame")
-            w:RegisterEvent("PLAYER_REGEN_ENABLED")
-            w:SetScript("OnEvent", function(self)
-                self:UnregisterAllEvents()
-                pcall(Skin_MicroMenu)
-            end)
+            ns.CombatQueue.Defer("MicroMenuSkin", function() pcall(Skin_MicroMenu) end)
             return
         end
         pcall(Skin_MicroMenu)
     end,
 })
+end -- not IS_FOREVER
+end
 
 -------------------------------------------------------------------------------
 --  Dressing Room (DressUpFrame). Chrome + action buttons; the 3D model scene
 --  and custom-set detail panel stay stock content.
 -------------------------------------------------------------------------------
+do
 local _dressHooked = false
 local function Skin_DressUp()
     local f = _G.DressUpFrame
@@ -7074,8 +7240,9 @@ local function Skin_DressUp()
             local keep = {}
             if dp.BlackBackground then keep[dp.BlackBackground] = true end
             if dp.ClassBackground then keep[dp.ClassBackground] = true end
-            for i = 1, select("#", dp:GetRegions()) do
-                local r = select(i, dp:GetRegions())
+            local regions = { dp:GetRegions() }
+            for i = 1, #regions do
+                local r = regions[i]
                 if r and not keep[r] and r.IsObjectType and r:IsObjectType("Texture") then
                     local layer = r:GetDrawLayer()
                     if layer == "OVERLAY" or layer == "BORDER" then r:SetAlpha(0) end
@@ -7105,11 +7272,13 @@ WSkin.RegisterWindow({
     key = "dressup",
     apply = Skin_DressUp,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Transmogrifier (TransmogFrame). Chrome + action controls; the model,
 --  transmog slot buttons and embedded appearance list stay stock content.
 -------------------------------------------------------------------------------
+do
 local _transmogHooked = false
 local function Skin_Transmog()
     local f = _G.TransmogFrame
@@ -7169,8 +7338,9 @@ local function Skin_Transmog()
     local wc = f.WardrobeCollection
     if wc then
         if wc.TabHeaders then
-            for i = 1, select("#", wc.TabHeaders:GetChildren()) do
-                local tab = select(i, wc.TabHeaders:GetChildren())
+            local children = { wc.TabHeaders:GetChildren() }
+            for i = 1, #children do
+                local tab = children[i]
                 if tab and tab.GetObjectType and tab:GetObjectType() == "Button" then
                     WSkin.Tab(tab)
                     -- Blizzard's active-line effect is a SelectedHighlight
@@ -7250,11 +7420,13 @@ WSkin.RegisterWindow({
     addons = { Blizzard_Transmog = true },
     apply = Skin_Transmog,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Merchant (MerchantFrame). Shell + tabs + item tiles as flat cards (mail-row
 --  treatment); repair/sell-junk icon buttons and the buyback money display stay stock content.
 -------------------------------------------------------------------------------
+do
 -- Hide Blizzard's native pagination and 10-slot grid permanently, via the
 -- achievements-pack Kill pattern: a reentry-safe hooksecurefunc re-hiding on
 -- every Blizzard Show (MerchantFrame_Update re-Shows tiles each pass), NEVER a
@@ -7709,8 +7881,9 @@ local function SkinMerchantIconButton(btn)
         local t = btn[g] and btn[g](btn)
         if t and t ~= icon and t.SetAlpha then t:SetAlpha(0) end
     end
-    for i = 1, select("#", btn:GetRegions()) do
-        local r = select(i, btn:GetRegions())
+    local regions = { btn:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r ~= icon and r ~= d.bg and r ~= d.hover
            and r.IsObjectType and r:IsObjectType("Texture") then
             r:SetAlpha(0)
@@ -7819,6 +7992,7 @@ WSkin.RegisterWindow({
     key = "merchant",
     apply = Skin_Merchant,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Merchant item-level overlay (QoL, independent of the Merchant reskin). Item
@@ -7827,6 +8001,7 @@ WSkin.RegisterWindow({
 --  slot index as their ID (set by MerchantFrame_Update), so the link resolves
 --  straight from GetMerchantItemLink.
 -------------------------------------------------------------------------------
+do
 local MERCHANT_ILVL_WEAPON = Enum.ItemClass.Weapon
 local MERCHANT_ILVL_ARMOR  = Enum.ItemClass.Armor
 
@@ -7865,8 +8040,8 @@ local function UpdateMerchantItemLevels()
                     else
                         fs:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
                     end
-                    local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
-                    local flag = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE"
+                    local path = (EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+                    local flag = (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE"
                     fs:SetFont(path, 12, flag)
                     GetFFD(btn).merchantILvl = fs
                 end
@@ -7880,14 +8055,8 @@ local function UpdateMerchantItemLevels()
                         if ilvl and ilvl > 0 then
                             fs:SetText(ilvl)
                             local quality = select(3, C_Item.GetItemInfo(link))
-                            local r, g, b = 1, 1, 1
-                            if EllesmereUI.GetItemLevelColor then
-                                local c = EllesmereUI.GetItemLevelColor(link, quality)
-                                if c then r, g, b = c.r or 1, c.g or 1, c.b or 1 end
-                            elseif quality then
-                                r, g, b = C_Item.GetItemQualityColor(quality)
-                            end
-                            fs:SetTextColor(r, g, b, 1)
+                            local c = EllesmereUI.GetItemLevelColor(link, quality)
+                            fs:SetTextColor(c.r or 1, c.g or 1, c.b or 1, 1)
                         end
                     end
                 end
@@ -7944,12 +8113,14 @@ mILvlBoot:SetScript("OnEvent", function(_, event)
         UpdateMerchantItemLevels()
     end
 end)
+end
 
 -------------------------------------------------------------------------------
 --  Class / Profession Trainer (ClassTrainerFrame, Blizzard_TrainerUI). Flat
 --  chrome, squared skill-row icons, flat train button. Native availability
 --  text color is KEPT (green/red/gray), never forced white, as with rarity.
 -------------------------------------------------------------------------------
+do
 -- One skill row: squared icon, font-only text (Blizzard's availability color
 -- kept), box art off, flat selection + hover washes.
 local function SkinTrainerRow(row)
@@ -8063,6 +8234,7 @@ WSkin.RegisterWindow({
     addons = { Blizzard_TrainerUI = true },
     apply = Skin_Trainer,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Delves Companion (Blizzard_DelvesCompanionConfiguration LoD addon):
@@ -8070,6 +8242,7 @@ WSkin.RegisterWindow({
 --  "Show Abilities" button, and the paginated ability-list popout. Both frames
 --  live in the same addon and share the "delves" winKey.
 -------------------------------------------------------------------------------
+do
 -- One pooled option-slot flyout button: drop the gold border, square the icon.
 local function SkinDelvesOptionButton(btn)
     if not btn or btn:IsForbidden() then return end
@@ -8182,10 +8355,12 @@ WSkin.RegisterWindow({
     addons = { Blizzard_DelvesCompanionConfiguration = true },
     apply = Skin_DelvesCompanion,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Gossip (GossipFrame) -- NPC dialog window. Base UI, always loaded.
 -------------------------------------------------------------------------------
+do
 local function SkinGossipOption(btn)
     if not btn or btn:IsForbidden() then return end
     -- Recolor ONLY: gossip text keeps Blizzard's native font (color-only widget font policy). Never WSkin.Font here.
@@ -8275,6 +8450,7 @@ WSkin.RegisterWindow({
     key = "gossip",
     apply = Skin_Gossip,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Quest (QuestFrame): the NPC quest dialog (detail/progress/reward/greeting
@@ -8282,6 +8458,7 @@ WSkin.RegisterWindow({
 --  faded parchment, yellow headers+white body, flat action buttons. Helpers
 --  are NESTED to keep the file's chunk-local count under the Lua 5.1 cap.
 -------------------------------------------------------------------------------
+do
 local _questHooked = false
 local function Skin_Quest()
     local f = _G.QuestFrame
@@ -8556,11 +8733,13 @@ WSkin.RegisterWindow({
     key = "quest",
     apply = Skin_Quest,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Inspect Recipe (InspectRecipeFrame, Blizzard_Professions): the small recipe
 --  preview from a linked recipe / inspected crafter.
 -------------------------------------------------------------------------------
+do
 local _inspectRecipeHooked = false
 local function Skin_InspectRecipe()
     local f = _G.InspectRecipeFrame
@@ -8587,6 +8766,7 @@ WSkin.RegisterWindow({
     addons = { Blizzard_Professions = true },
     apply = Skin_InspectRecipe,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Auction House (AuctionHouseFrame, Blizzard_AuctionHouseUI): shell, tabs,
@@ -8595,6 +8775,7 @@ WSkin.RegisterWindow({
 --  icons and item-display buttons stay stock content. Visual-only throughout
 --  (alpha/FFD); the commerce paths are NEVER touched.
 -------------------------------------------------------------------------------
+do
 local _ahHooked = false
 local function Skin_AuctionHouse()
     local f = _G.AuctionHouseFrame
@@ -8697,8 +8878,9 @@ local function Skin_AuctionHouse()
             sd.strip:SetPoint("TOPLEFT", anchorTo, "TOPLEFT", wl0 - al0, ay)
             sd.strip:SetPoint("TOPRIGHT", anchorTo, "TOPLEFT", wr0 - al0, ay)
         end
-        for i = 1, select("#", hc:GetChildren()) do
-            local col = select(i, hc:GetChildren())
+        local children = { hc:GetChildren() }
+        for i = 1, #children do
+            local col = children[i]
             if col and col.GetObjectType and col:GetObjectType() == "Button" then
                 local hd = GetFFD(col)
                 if not hd.bg then
@@ -8746,8 +8928,9 @@ local function Skin_AuctionHouse()
         if rb and not GetFFD(rb).glyph
            and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("UI-RefreshButton") then
             local d = GetFFD(rb)
-            for i = 1, select("#", rb:GetRegions()) do
-                local r = select(i, rb:GetRegions())
+            local regions = { rb:GetRegions() }
+            for i = 1, #regions do
+                local r = regions[i]
                 if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
             end
             for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture",
@@ -8872,8 +9055,9 @@ local function Skin_AuctionHouse()
             local fd2 = GetFFD(fsb)
             if not fd2.favPinned then
                 fd2.favPinned = true
-                for i = 1, select("#", fsb:GetRegions()) do
-                    local r = select(i, fsb:GetRegions())
+                local regions = { fsb:GetRegions() }
+                for i = 1, #regions do
+                    local r = regions[i]
                     if r and r ~= fsb.Icon and r ~= fd2.bg and r ~= fd2.hover
                        and r.IsObjectType and r:IsObjectType("Texture") then
                         r:SetAlpha(0)
@@ -9321,8 +9505,9 @@ local function Skin_AuctionHouse()
                     if not row or (row.IsForbidden and row:IsForbidden()) then return end
                     if GetFFD(row).stretched then return end
                     GetFFD(row).stretched = true
-                    for i = 1, select("#", row:GetRegions()) do
-                        local r = select(i, row:GetRegions())
+                    local regions = { row:GetRegions() }
+                    for i = 1, #regions do
+                        local r = regions[i]
                         if r and r.IsObjectType and r:IsObjectType("Texture") then
                             r:ClearAllPoints()
                             r:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
@@ -9459,8 +9644,9 @@ local function Skin_AuctionHouse()
         if pb then
             local pd = GetFFD(pb)
             local fill = pb.GetStatusBarTexture and pb:GetStatusBarTexture()
-            for i = 1, select("#", pb:GetRegions()) do
-                local r = select(i, pb:GetRegions())
+            local regions = { pb:GetRegions() }
+            for i = 1, #regions do
+                local r = regions[i]
                 if r and r ~= fill and r ~= pd.bg and r.IsObjectType
                    and r:IsObjectType("Texture") and r:GetDrawLayer() ~= "HIGHLIGHT" then
                     r:SetAlpha(0)
@@ -9485,6 +9671,12 @@ local function Skin_AuctionHouse()
     -- engine's checks all miss and no tab reads as active. Sync the FFD
     -- selection override from the display mode instead (tab.displayMode
     -- compared by reference), refreshed on every SetDisplayMode.
+    -- Reassert Buy's own anchor before chaining Sell/Auctions off it below --
+    -- another addon can leave it repositioned after closing its own AH skin.
+    if _G.AuctionHouseFrameBuyTab then
+        _G.AuctionHouseFrameBuyTab:ClearAllPoints()
+        _G.AuctionHouseFrameBuyTab:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 20, -28)
+    end
     local ahTabs = {}
     for _, n in ipairs({ "AuctionHouseFrameBuyTab", "AuctionHouseFrameSellTab",
                          "AuctionHouseFrameAuctionsTab" }) do
@@ -9580,11 +9772,13 @@ WSkin.RegisterWindow({
     addons = { Blizzard_AuctionHouseUI = true },
     apply = Skin_AuctionHouse,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Macros (MacroFrame, Blizzard_MacroUI). Shell + tabs + action buttons +
 --  text/icon wells; the icon grid and selected-macro icon stay stock content.
 -------------------------------------------------------------------------------
+do
 -- Name-and-icon picker popup (IconSelectorPopupFrameTemplate): house panel,
 -- themed name input + buttons + type dropdown, white texts, icon grid slot art
 -- at 50% (matching the main selector grid).
@@ -9636,8 +9830,9 @@ local function Skin_MacroPopup()
             gd.iconDim = function()
                 if gBox.ForEachFrame and gBox:IsVisible() then
                     gBox:ForEachFrame(function(btn)
-                        for i = 1, select("#", btn:GetRegions()) do
-                            local r = select(i, btn:GetRegions())
+                        local regions = { btn:GetRegions() }
+                        for i = 1, #regions do
+                            local r = regions[i]
                             if r and r ~= btn.Icon and r ~= btn.Highlight
                                and r ~= btn.SelectedTexture
                                and r.IsObjectType and r:IsObjectType("Texture") then
@@ -9727,8 +9922,9 @@ local function Skin_Macros()
                 seld.iconDim = function()
                     if sBox.ForEachFrame and sBox:IsVisible() then
                         sBox:ForEachFrame(function(btn)
-                            for i = 1, select("#", btn:GetRegions()) do
-                                local r = select(i, btn:GetRegions())
+                            local regions = { btn:GetRegions() }
+                            for i = 1, #regions do
+                                local r = regions[i]
                                 if r and r ~= btn.Icon and r ~= btn.Highlight
                                    and r ~= btn.SelectedTexture
                                    and r.IsObjectType and r:IsObjectType("Texture") then
@@ -9816,6 +10012,7 @@ WSkin.RegisterWindow({
     addons = { Blizzard_MacroUI = true },
     apply = Skin_Macros,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Blizzard Options (SettingsPanel). Chrome only: shell, close X, search,
@@ -9825,6 +10022,7 @@ WSkin.RegisterWindow({
 --  TEXT button, so CommonChrome (which would X-glyph any .CloseButton) is NOT
 --  used here; the pieces run individually.
 -------------------------------------------------------------------------------
+do
 local _settingsHooked = false
 local function Skin_Settings()
     local f = _G.SettingsPanel
@@ -9864,8 +10062,9 @@ local function Skin_Settings()
         local td = GetFFD(t)
         if not td.pinned then
             td.pinned = true
-            for i = 1, select("#", t:GetRegions()) do
-                local r = select(i, t:GetRegions())
+            local regions = { t:GetRegions() }
+            for i = 1, #regions do
+                local r = regions[i]
                 if r and r ~= td.bg and r ~= td.activeHL and r ~= td.underline
                    and r.IsObjectType and r:IsObjectType("Texture") then
                     r:SetAlpha(0)
@@ -9962,12 +10161,14 @@ WSkin.RegisterWindow({
     key = "settings",
     apply = Skin_Settings,
 })
+end
 
 -------------------------------------------------------------------------------
 --  AddOn List (AddonList). Shell + buttons + dropdown/search + force-load
 --  checkbox; pooled rows get the house checkbox and white title from
 --  Blizzard's row initializer.
 -------------------------------------------------------------------------------
+do
 local _addonListHooked = false
 local function Skin_AddonList()
     local f = _G.AddonList
@@ -10065,6 +10266,7 @@ WSkin.RegisterWindow({
     key = "addonlist",
     apply = Skin_AddonList,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Crafting Orders, customer side (ProfessionsCustomerOrdersFrame,
@@ -10073,6 +10275,7 @@ WSkin.RegisterWindow({
 --  view, tile rail, AH search bar, per-list sort strips with full-height
 --  hovers, refresh glyph, state-aware action buttons, global-suffix money boxes.
 -------------------------------------------------------------------------------
+do
 local _craftHooked = false
 local function Skin_CraftOrders()
     local f = _G.ProfessionsCustomerOrdersFrame
@@ -10135,8 +10338,9 @@ local function Skin_CraftOrders()
             sd.strip:SetPoint("TOPLEFT", hc, "TOPLEFT", ll0 - hl0, 2)
             sd.strip:SetPoint("TOPRIGHT", hc, "TOPLEFT", lr0 - hl0, 2)
         end
-        for i = 1, select("#", hc:GetChildren()) do
-            local col = select(i, hc:GetChildren())
+        local children = { hc:GetChildren() }
+        for i = 1, #children do
+            local col = children[i]
             if col and col.GetObjectType and col:GetObjectType() == "Button" then
                 local hd = GetFFD(col)
                 if not hd.bg then
@@ -10172,8 +10376,9 @@ local function Skin_CraftOrders()
         if rb and not GetFFD(rb).glyph
            and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("UI-RefreshButton") then
             local d = GetFFD(rb)
-            for i = 1, select("#", rb:GetRegions()) do
-                local r = select(i, rb:GetRegions())
+            local regions = { rb:GetRegions() }
+            for i = 1, #regions do
+                local r = regions[i]
                 if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
             end
             for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture",
@@ -10592,12 +10797,14 @@ WSkin.RegisterWindow({
     addons = { Blizzard_ProfessionsCustomerOrders = true },
     apply = Skin_CraftOrders,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Item Upgrades (ItemUpgradeFrame, Blizzard_ItemUpgradeUI). Flat shell,
 --  squared upgrade slot, flat upgrade-track dropdown and action button, bottom
 --  currency strip stripped of its plate art.
 -------------------------------------------------------------------------------
+do
 local function Skin_ItemUpgrade()
     local f = _G.ItemUpgradeFrame
     if not f then return end
@@ -10627,7 +10834,8 @@ local function Skin_ItemUpgrade()
         if r.SetTexture then r:SetTexture("") end
         r:SetAlpha(0)
     end
-    for i = 1, select("#", f:GetRegions()) do KillArt(select(i, f:GetRegions())) end
+    local regions = { f:GetRegions() }
+    for i = 1, #regions do KillArt(regions[i]) end
     -- ItemUpgradeBg is its own keyed piece, so name it explicitly rather than leaving it to the region walk above.
     for _, k in ipairs({ "Bg", "TopBG", "BottomBG", "Background", "TopTileStreaks",
                          "ItemUpgradeBg" }) do
@@ -10635,8 +10843,9 @@ local function Skin_ItemUpgrade()
     end
     -- The nine-slice is part of the quality-tinted chrome too, so its pieces are CLEARED rather than just alpha'd.
     if f.NineSlice then
-        for i = 1, select("#", f.NineSlice:GetRegions()) do
-            KillArt(select(i, f.NineSlice:GetRegions()))
+        local regions2 = { f.NineSlice:GetRegions() }
+        for i = 1, #regions2 do
+            KillArt(regions2[i])
         end
     end
     if f.Inset then WSkin.Inset(f.Inset) end
@@ -10696,8 +10905,9 @@ local function Skin_ItemUpgrade()
         if host.NineSlice then WSkin.FadeNineSlice(host.NineSlice) end
         WSkin.Register(host, true)
         if not host.GetChildren then return end
-        for i = 1, select("#", host:GetChildren()) do
-            FadeArtTree(select(i, host:GetChildren()), depth + 1)
+        local children = { host:GetChildren() }
+        for i = 1, #children do
+            FadeArtTree(children[i], depth + 1)
         end
     end
     local pc = f.PlayerCurrencies or _G.ItemUpgradeFramePlayerCurrencies
@@ -10743,8 +10953,9 @@ local function Skin_ItemUpgrade()
         local fb, fw = Num(f:GetBottom()), Num(f:GetWidth())
         if not fb or not fw then return end
         if host.GetRegions then
-            for i = 1, select("#", host:GetRegions()) do
-                local r = select(i, host:GetRegions())
+            local regions2 = { host:GetRegions() }
+            for i = 1, #regions2 do
+                local r = regions2[i]
                 if r and not keepArt[r] and r.IsObjectType and r:IsObjectType("Texture")
                    and (r:GetAlpha() or 0) > 0 then
                     local rt, rw = Num(r:GetTop()), Num(r:GetWidth())
@@ -10753,8 +10964,9 @@ local function Skin_ItemUpgrade()
             end
         end
         if not host.GetChildren then return end
-        for i = 1, select("#", host:GetChildren()) do
-            FadeBottomPlates(select(i, host:GetChildren()), depth + 1)
+        local children = { host:GetChildren() }
+        for i = 1, #children do
+            FadeBottomPlates(children[i], depth + 1)
         end
     end
     FadeBottomPlates(f)
@@ -10795,6 +11007,7 @@ WSkin.RegisterWindow({
     addons = { Blizzard_ItemUpgradeUI = true },
     apply = Skin_ItemUpgrade,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Loot window (LootFrame). Base UI, always loaded. Portrait frame:
@@ -10802,6 +11015,7 @@ WSkin.RegisterWindow({
 --  item quality colors -- names and rarity subtext are re-fonted, never
 --  re-colored (same rule the merchant and trainer packs use).
 -------------------------------------------------------------------------------
+do
 local function Skin_Loot()
     local f = _G.LootFrame
     if not f then return end
@@ -10906,8 +11120,9 @@ local function Skin_Loot()
             local countFS = host.Count or host.count
                 or (host.GetName and host:GetName() and _G[host:GetName() .. "Count"])
             if host.GetRegions then
-                for i = 1, select("#", host:GetRegions()) do
-                    local r = select(i, host:GetRegions())
+                local regions = { host:GetRegions() }
+                for i = 1, #regions do
+                    local r = regions[i]
                     if r and r ~= countFS and r.IsObjectType and r:IsObjectType("FontString") then
                         WSkin.Font(r)
                     end
@@ -10983,6 +11198,7 @@ WSkin.RegisterWindow({
     key = "loot",
     apply = Skin_Loot,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Loot toasts (the "You received" alert popups). NOT a window: alert frames
@@ -10990,6 +11206,7 @@ WSkin.RegisterWindow({
 --  Frames are reached through the alert subsystems' object pools and re-skinned
 --  whenever a toast fires (idempotent + FFD-guarded).
 -------------------------------------------------------------------------------
+do
 local function Skin_LootToast()
     -- Native size/layout of the money toast template, captured from the first
     -- money toast seen; item toasts are resized/re-anchored to match (frame
@@ -11049,8 +11266,9 @@ local function Skin_LootToast()
             -- SetTexture "" then alpha 0), unrecoverable for a foreign frame.
             if depth > 0 and WSkin.IsForeignFrame(host) then return end
             if host.GetRegions then
-                for i = 1, select("#", host:GetRegions()) do
-                    local r = select(i, host:GetRegions())
+                local regions = { host:GetRegions() }
+                for i = 1, #regions do
+                    local r = regions[i]
                     if r and not keep[r] and r.IsObjectType and r:IsObjectType("Texture") then
                         if r.SetAtlas then r:SetAtlas("") end
                         if r.SetTexture then r:SetTexture("") end
@@ -11059,8 +11277,9 @@ local function Skin_LootToast()
                 end
             end
             if not host.GetChildren then return end
-            for i = 1, select("#", host:GetChildren()) do
-                KillArt(select(i, host:GetChildren()), depth + 1)
+            local children = { host:GetChildren() }
+            for i = 1, #children do
+                KillArt(children[i], depth + 1)
             end
         end
         KillArt(t)
@@ -11281,7 +11500,8 @@ local function Skin_LootToast()
             end
         end
         if af.GetChildren then
-            for i = 1, select("#", af:GetChildren()) do SkinToast(select(i, af:GetChildren())) end
+            local children = { af:GetChildren() }
+            for i = 1, #children do SkinToast(children[i]) end
         end
         -- The loot toast is parented to UIPARENT, not AlertFrame, and is
         -- anonymous (FULLSCREEN_DIALOG, carrying .Background+.ItemName), so
@@ -11303,8 +11523,9 @@ local function Skin_LootToast()
         local up = _G.UIParent
         if deep and up and up.GetChildren then
             local isSecret = issecretvalue
-            for i = 1, select("#", up:GetChildren()) do
-                local ch = select(i, up:GetChildren())
+            local children = { up:GetChildren() }
+            for i = 1, #children do
+                local ch = children[i]
                 if ch and ch.GetFrameStrata and ch.IsForbidden and not ch:IsForbidden() then
                     local strata, shown = ch:GetFrameStrata(), ch:IsShown()
                     if not (isSecret and (isSecret(strata) or isSecret(shown)))
@@ -11362,6 +11583,7 @@ WSkin.RegisterWindow({
     key = "loottoast",
     apply = Skin_LootToast,
 })
+end
 
 
 -------------------------------------------------------------------------------
@@ -11375,11 +11597,8 @@ WSkin.RegisterWindow({
 --  ENUMERATIVE on purpose: NO CommonChrome/ControlsIn/ButtonsIn/ScrollBarsIn
 --  sweeps anywhere, since those walk the frame tree into list content and the tab strip. Every target below is named.
 --
---  ONE file-scope local for the whole pack: this file's main chunk sits at Lua
---  5.1's hard 200-local ceiling, and a handful of loose constants/helpers is
---  enough to blow it. A do...end block does NOT help (block locals only
---  release register slots when the block closes, peak is unchanged).
---  Everything hangs off SP -- no new top-level locals.
+--  Helpers and constants hang off SP, inside this pack's own do...end block
+--  (see the note at the top of the file on the 200-local limit).
 -------------------------------------------------------------------------------
 do
 local SP = {
@@ -11483,6 +11702,10 @@ end
 function SP.Apply()
     local f = _G.SocialUIFrame
     if not f then return end
+    -- The Friends List stock styles (Style page) keep Blizzard's whole Social
+    -- window, its frame included; the Window Skins card is blocked meanwhile.
+    local fr = EllesmereUI._ModuleNS and EllesmereUI._ModuleNS.EllesmereUIFriends
+    if fr and fr.FR_Style and fr.FR_Style() ~= "eui" then return end
 
     WSkin.Shell("socialui", f)
     WSkin.RemovePortrait(f)
@@ -11587,9 +11810,8 @@ end
 --  groupinvite ("You have been invited to a group", both invite dialogs),
 --  readycheck (the ready prompt + the initiator's response list).
 --
---  ONE file-scope local for all four, same rule as the Social UI pack: this
---  file's main chunk sits at Lua 5.1's hard 200-local ceiling, and going over
---  is a COMPILE ERROR. Helpers and constants hang off LP; a do...end block buys no headroom on its own.
+--  Helpers and constants hang off LP, inside this block's do...end (see the
+--  note at the top of the file on the 200-local limit).
 -------------------------------------------------------------------------------
 do
 local LP = {
@@ -11649,8 +11871,9 @@ end
 -- overwritten. `skip` is a stack COUNT -- an outlined number font drawn over an icon, unreadable in the panel face.
 function LP.FontRegions(frame, skip)
     if not frame or not frame.GetRegions then return end
-    for i = 1, select("#", frame:GetRegions()) do
-        local r = select(i, frame:GetRegions())
+    local regions = { frame:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r ~= skip and r.IsObjectType and r:IsObjectType("FontString") then WSkin.Font(r) end
     end
 end
@@ -12018,6 +12241,27 @@ WSkin.RegisterWindow({
     end,
 })
 
+-- Blizzard's button label is auto-sized: the box is exactly the string width,
+-- so it carries no slack. At a fractional effective scale the stored width can
+-- land a float hair UNDER the string it holds (Accept 46.499996 for a 46.5px
+-- string, Decline a clean 48.0) and WoW breaks the last glyph onto a second
+-- line. Which strings land on an unlucky value follows the typeface, not the
+-- word length, so the global font swap decides who is hit. Pinning the label to
+-- the button gives it 118px instead of 47: centered text looks identical and
+-- can no longer wrap. One-shot per label.
+function LP.PinButtonLabel(b)
+    if not b or (b.IsForbidden and b:IsForbidden()) then return end
+    local fs = b.Text or (b.GetFontString and b:GetFontString())
+    if not fs then return end
+    local d = GetFFD(fs)
+    if d.labelPinned then return end
+    d.labelPinned = true
+    fs:ClearAllPoints()
+    fs:SetPoint("LEFT", b, "LEFT", 2, 0)
+    fs:SetPoint("RIGHT", b, "RIGHT", -2, 0)
+    if fs.SetWordWrap then fs:SetWordWrap(false) end
+end
+
 -------------------------------------------------------------------------------
 --  Group invite popups. Two frames, one setting, because they are one thing to
 --  the player: LFGListInviteDialog (premade-group leader accepted your
@@ -12045,8 +12289,9 @@ function LP.SkinInvite(fr, roleChecks)
     if not d.caret then
         d.caret = fr.RoleIcon or fr.Icon or fr.PortraitTexture
         if fr.GetRegions then
-            for i = 1, select("#", fr:GetRegions()) do
-                local r = select(i, fr:GetRegions())
+            local regions = { fr:GetRegions() }
+            for i = 1, #regions do
+                local r = regions[i]
                 if r and r ~= d.caret and r.IsObjectType and r:IsObjectType("Texture") then
                     local hay = WSkin.TexHay(r)
                     if hay and (WSkin.TexIsIcon(hay)
@@ -12070,6 +12315,7 @@ function LP.SkinInvite(fr, roleChecks)
         if b then
             WSkin.Button(b)
             WSkin.StateButtonLabel(b)
+            LP.PinButtonLabel(b)
         end
     end
     -- Templates naming their buttons globally rather than off the frame (LFGInvitePopupAcceptButton / ...DeclineButton).
@@ -12080,6 +12326,7 @@ function LP.SkinInvite(fr, roleChecks)
             if b then
                 WSkin.Button(b)
                 WSkin.StateButtonLabel(b)
+                LP.PinButtonLabel(b)
             end
         end
     end
@@ -12458,11 +12705,8 @@ end
 --  a DIFFERENT frame from the "delves" companion window further up) and
 --  playerchoice (the Abundance / "how will you aid" weekly choice windows).
 --
---  ONE file-scope local for all five, same rule as the Social UI and loot
---  packs above: this file's main chunk sits at Lua 5.1's hard 200-local
---  ceiling (9 spare as of 8.8.6) and going over is a COMPILE ERROR, not a
---  warning. Helpers and constants hang off HP; a do...end block buys no
---  headroom on its own.
+--  Helpers and constants hang off HP, inside this block's do...end (see the
+--  note at the top of the file on the 200-local limit).
 --
 --  WIDGET TREES ARE OFF LIMITS. The delve picker's "Map Properties" row
 --  (.DelveModifiersWidgetContainer) and its scenic backdrop

@@ -27,11 +27,12 @@ local min, max = math.min, math.max
 local sin, cos = _G.sin or math.sin, _G.cos or math.cos  -- WoW globals are degree-based
 local GetTime = GetTime
 local GetCursorPosition = GetCursorPosition
-local GetSpellCooldown = C_Spell and C_Spell.GetSpellCooldown or GetSpellCooldown
-local UnitCastingInfo = UnitCastingInfo or CastingInfo
-local UnitChannelInfo = UnitChannelInfo or ChannelInfo
+local GetSpellCooldown = C_Spell.GetSpellCooldown
+local GCD_SPELL = EllesmereUI.GCD_SPELL
+local UnitCastingInfo = UnitCastingInfo
+local UnitChannelInfo = UnitChannelInfo
 
-local f, t
+local f, t, reticle
 local lastX, lastY
 
 local lastScale, lastHex, lastTex, lastAlpha
@@ -91,15 +92,34 @@ local UpdateVisibility
 
 local lastUseClassColor
 
+local function CursorSize(p)
+    local size = floor((p.baseSize or DEF_BASESIZE) * (p.scale or DEF_SCALE) + 0.5)
+    if size < 8 then return 8 end
+    if size > 512 then return 512 end
+    return size
+end
+
+local function ApplyReticle(p, size, r, g, b, a)
+    if not reticle then return end
+    if not p.reticle then
+        reticle:Hide()
+        return
+    end
+    -- ~20% of the ring so the mask has enough pixels to stay circular.
+    local dot = max(4, floor(size * 0.2 + 0.5))
+    reticle:SetSize(dot, dot)
+    reticle:SetColorTexture(r, g, b, a)
+    reticle:Show()
+end
+
 local function Apply()
     if not f or not t then return end
     local p = ECL.db.profile
 
     local scale = p.scale or DEF_SCALE
+    local size = CursorSize(p)
     if scale ~= lastScale then
         lastScale = scale
-        local size = floor((p.baseSize or DEF_BASESIZE) * scale + 0.5)
-        if size < 8 then size = 8 elseif size > 512 then size = 512 end
         f:SetSize(size, size)
     end
 
@@ -110,10 +130,11 @@ local function Apply()
     -- changed. Accent mode also needs per-frame re-read since ELLESMERE_GREEN
     -- mutates in place when the user changes their accent color mid-session.
     local a = (p.alpha or 100) / 100
+    local r, g, b
     if hex ~= lastHex or p.useClassColor or p.useAccentColor or colorModeChanged or a ~= lastAlpha then
         lastHex = hex
         lastAlpha = a
-        local r, g, b = ResolveColor(p)
+        r, g, b = ResolveColor(p)
         t:SetVertexColor(r, g, b, a)
     end
 
@@ -125,6 +146,11 @@ local function Apply()
         local path = (ringKey and RING_TEXTURES[ringKey]) or RING_TEXTURES[tex] or TEX_CUSTOM
         t:SetTexture(path)
     end
+
+    -- Reticle is cheap and Apply() only runs on setting changes, so always
+    -- refresh it (toggle, scale, and color all land here).
+    if not r then r, g, b = ResolveColor(p) end
+    ApplyReticle(p, size, r, g, b, a)
 
     UpdateVisibility()
 end
@@ -382,6 +408,17 @@ local function CreateRing(parent, radius, ringTex, r, g, b, a)
         self:Show()
     end
 
+    -- Secret-value path: the engine draws the real cooldown from the duration
+    -- object; ceiling only bounds how long the ring frame stays shown
+    function ring:StartRingFromDuration(durObj, ceiling)
+        self.dur = 0
+        self.maxDur = ceiling
+        self._fg:Hide()
+        self._cd:SetCooldownFromDurationObject(durObj)
+        self._cd:Show()
+        self:Show()
+    end
+
     function ring:StopRing()
         self._cd:Hide()
         self._fg:Hide()
@@ -411,6 +448,25 @@ local gcdAttached = true  -- follows cursor by default
 local function GCD_DB()
     local p = ECL.db and ECL.db.profile
     return p and p.gcd or {}
+end
+
+-- Start the ring from the live GCD (does nothing when no GCD is running).
+-- Called from the cast events and from the combat-start visibility pass.
+local function ArmGCDRing()
+    if not gcdRing then return end
+    local cdData = GetSpellCooldown(GCD_SPELL)
+    if not cdData then return end
+    local d, s = cdData.duration, cdData.startTime
+    if issecretvalue(d) or issecretvalue(s) then
+        -- Restricted combat hides the numbers: hand the GCD's duration object to
+        -- the swipe (the Resource Bars GCD bar's native path). isActive is never
+        -- secret and skips a GCD that already ended (the SUCCEEDED of a hard cast).
+        if not cdData.isActive then return end
+        local durObj = C_Spell.GetSpellCooldownDuration(GCD_SPELL)
+        if durObj then gcdRing:StartRingFromDuration(durObj, 1.6) end
+    elseif d and d > 0 and d <= 1.6 and s and s > 0 then
+        gcdRing:StartRing(GetTime() - s, d)
+    end
 end
 
 local function CreateGCDCircle()
@@ -443,26 +499,24 @@ local function CreateGCDCircle()
         if g2.combatOnly and not InCombatLockdown() then return end
         -- On cancelled/failed/interrupted casts the GCD resets stop the ring
         if event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_STOP" then
-            local cdData = GetSpellCooldown(61304)
-            if not cdData or not cdData.duration or cdData.duration <= 0 or not cdData.startTime or cdData.startTime <= 0 then
+            local cdData = GetSpellCooldown(GCD_SPELL)
+            local stillActive = false
+            if cdData then
+                -- A secret read (restricted combat) keeps the ring: the GCD may still
+                -- be running (same rule as the Resource Bars GCD bar stop handler).
+                local d, s = cdData.duration, cdData.startTime
+                if issecretvalue(d) or issecretvalue(s) then
+                    stillActive = true
+                else
+                    stillActive = (d and d > 0 and s and s > 0) and true or false
+                end
+            end
+            if not stillActive then
                 gcdRing:StopRing()
             end
             return
         end
-        -- Query GCD via the reference spell; duration may be a secret number
-        -- so wrap the comparison in pcall to avoid taint errors
-        local cdData = GetSpellCooldown(61304)
-        if not cdData or not cdData.startTime then return end
-        local ok, elapsed, dur = pcall(function()
-            local d = cdData.duration
-            local s = cdData.startTime
-            if d and d > 0 and d <= 1.6 and s and s > 0 then
-                return GetTime() - s, d
-            end
-        end)
-        if ok and elapsed then
-            gcdRing:StartRing(elapsed, dur)
-        end
+        ArmGCDRing()
     end)
 
     gcdRoot:Hide()
@@ -568,7 +622,7 @@ UpdateVisibility = function()
         shouldShow = InCombatLockdown() and true or false
     end
     -- Standard visibility options (returns true if should HIDE)
-    if shouldShow and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(p) then
+    if shouldShow and EllesmereUI.CheckVisibilityOptions(p) then
         shouldShow = false
     end
     -- Standard visibility mode (mouseover treated as always for cursor)
@@ -628,6 +682,11 @@ UpdateVisibility = function()
                 gcdRoot:SetScript("OnUpdate", nil)
             else
                 gcdRoot:Show()
+                -- Combat Only: the pull cast lands before combat starts, so the
+                -- OnEvent gate dropped its GCD; pick up whatever of it remains
+                if g.combatOnly and gcdRing and gcdRing.maxDur <= 0 then
+                    ArmGCDRing()
+                end
                 -- Re-apply cursor tracking since cursor visibility may have changed.
                 -- Skip while unlocked: the mover owns position, and re-arming this
                 -- would fight it (see the same gate in ApplyGCDCircle).
@@ -1275,6 +1334,7 @@ function ECL:OnInitialize()
                     combatOnly = false,
                 },
                 trail = false,
+                reticle = false,
                 visibility       = "always",
                 visOnlyInstances = false,
                 visHideHousing   = false,
@@ -1318,9 +1378,7 @@ function ECL:OnInitialize()
     _G._ECL_Apply = Apply
     _G._ECL_UpdateVisibility = UpdateVisibility
     _G._ECL_ApplyCombatOnlyEvents = ApplyCombatOnlyEvents
-    if EllesmereUI and EllesmereUI.RegisterVisibilityUpdater then
-        EllesmereUI.RegisterVisibilityUpdater(UpdateVisibility)
-    end
+    EllesmereUI.RegisterVisibilityUpdater(UpdateVisibility)
     _G._ECL_ApplyGCDCircle = ApplyGCDCircle
     _G._ECL_ApplyCastCircle = ApplyCastCircle
     _G._ECL_RegisterUnlock = RegisterUnlockElements
@@ -1342,6 +1400,22 @@ function ECL:OnEnable()
     t:SetAllPoints(f)
     t:SetTexture(TEX_CUSTOM)
 
+    -- Center reticle: solid fill through the shared portrait circle mask,
+    -- same construction as the patch-notes sidebar dot.
+    reticle = f:CreateTexture(nil, "OVERLAY", nil, 1)
+    reticle:SetPoint("CENTER")
+    reticle:SetColorTexture(1, 1, 1, 1)
+    if reticle.SetSnapToPixelGrid then
+        reticle:SetSnapToPixelGrid(false)
+        reticle:SetTexelSnappingBias(0)
+    end
+    local reticleMask = f:CreateMaskTexture()
+    reticleMask:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\portraits\\circle_mask.tga",
+        "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    reticleMask:SetAllPoints(reticle)
+    reticle:AddMaskTexture(reticleMask)
+    reticle:Hide()
+
     -- No OnUpdate: the shared cursor service drives positioning. The frame
     -- is SHOWN by default and isVisible initializes TRUE, so the first
     -- UpdateVisibility never takes a show TRANSITION -- subscribe here
@@ -1354,15 +1428,13 @@ function ECL:OnEnable()
     -- before the core resolves the profile accent, so Apply() above painted
     -- the parse-time fallback and is never called again. Also covers a
     -- mid-session accent change, which nothing pushed to us before.
-    if EllesmereUI.RegAccent then
-        EllesmereUI.RegAccent({ type = "callback", fn = function()
-            local p = ECL.db and ECL.db.profile
-            if not p then return end
-            if p.useAccentColor then Apply() end
-            if p.gcd and p.gcd.useAccentColor then ApplyGCDCircle() end
-            if p.castCircle and p.castCircle.useAccentColor then ApplyCastCircle() end
-        end })
-    end
+    EllesmereUI.RegAccent({ type = "callback", fn = function()
+        local p = ECL.db and ECL.db.profile
+        if not p then return end
+        if p.useAccentColor then Apply() end
+        if p.gcd and p.gcd.useAccentColor then ApplyGCDCircle() end
+        if p.castCircle and p.castCircle.useAccentColor then ApplyCastCircle() end
+    end })
 
     -- Apply GCD / Cast circles (creates on demand only when enabled)
     C_Timer.After(0.5, function()

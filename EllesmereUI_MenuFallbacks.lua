@@ -50,9 +50,9 @@ local function ResolveTheme()
     T.bgR, T.bgG, T.bgB, T.bgA = 0.08, 0.08, 0.08, 0.92
     T.insetR, T.insetG, T.insetB, T.insetA = 0.04, 0.04, 0.04, 0.85
     T.brdR, T.brdG, T.brdB, T.brdA = 0.2, 0.2, 0.2, 1
-    T.fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin"))
+    T.fontPath = (EllesmereUI.GetFontPath("blizzardSkin"))
         or EllesmereUI._font or STANDARD_TEXT_FONT
-    T.fontFlag = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("blizzardSkin")) or ""
+    T.fontFlag = (EllesmereUI.GetFontOutlineFlag("blizzardSkin")) or ""
     T.fontShadow = (T.fontFlag == "")
         and (not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("blizzardSkin"))
 end
@@ -74,7 +74,7 @@ end
 
 local function MakeText(parent, size, r, g, b)
     local fs = parent:CreateFontString(nil, "OVERLAY")
-    if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, T.fontShadow) end
+    EllesmereUI.PrimeFontShadow(fs, T.fontShadow)
     fs:SetFont(T.fontPath, size, T.fontFlag or "")
     fs:SetTextColor(r or 1, g or 1, b or 1, 1)
     return fs
@@ -207,7 +207,7 @@ local function BuildList()
     ResolveTheme()
     local f = CreateFrame("Frame", "EllesmereUI_HouseVisitFrame", UIParent)
     f:SetFrameStrata("DIALOG")
-    f:SetScale((EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1)
+    f:SetScale((EllesmereUI.GetPopupScale()) or 1)
     f:SetWidth(FRAME_W)
     f:SetHeight(HEADER_H + 10 + MAX_ROWS * (ROW_H + ROW_GAP) + 6)
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
@@ -384,10 +384,18 @@ local function ModifyReopenedMenu(owner, rootDescription, contextData)
     local setFocus = SET_FOCUS or "Set Focus"
     local follow = FOLLOW or "Follow"
     local raidTarget = RAID_TARGET_ICON or "Raid Target Icon"
+    local trade = TRADE or "Trade"
+    local duel = DUEL or "Duel"
+    local petDuel = PET_BATTLE_PVP_DUEL or "Pet Battle Duel"
+    local achievements = COMPARE_ACHIEVEMENTS or "Compare Achievements"
     for _, d in rootDescription:EnumerateElementDescriptions() do
         local text = MenuUtil.GetElementText(d)
         if d.SetEnabled and (text == setFocus or text == follow or text == raidTarget
+                or text == trade or text == duel or text == petDuel or text == achievements
                 or (HOUSING_OK and text == viewHouses)) then
+            -- Range-gated entries call CheckInteractDistance from Blizzard's
+            -- enabled predicate. Disable them before that predicate can run in
+            -- this tainted reopen; normal secure menus keep their range checks.
             -- Protected from a tainted menu: throws (focus/follow, and every
             -- marker under Raid Target Icon -- SetRaidTarget) or poisons
             -- HouseListFrame for the session (View Houses; the docked button

@@ -5,6 +5,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Visually matches the Bags module with sidebar, search, and sorting
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
+local ns = select(2, ...)  -- helpers shared with EllesmereUIBags.lua (loaded first)
+local GetItemInfo = C_Item.GetItemInfo
+local GetItemInfoInstant = C_Item.GetItemInfoInstant
+local GetItemQualityColor = C_Item.GetItemQualityColor
 -- Profile access helper (DB created in EUI_Bags_Options.lua, loaded first per TOC)
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
@@ -31,10 +35,7 @@ local SIDEBAR_ICON_SIZE = 18
 local SIDEBAR_PAD = 2
 local COLUMNS     = 14
 local FIXED_H     = 500
-local SCROLLBAR_W = 4
 local SCROLLBAR_HIT_W = 16
-local SCROLL_STEP = 40
-local THUMB_MIN_H = 20
 
 -- Runtime state
 local _selectedView = 0   -- 0 = All Bank Tabs, -1 = OneBank, -2 = All Warbank, -3 = OneWarbank, >0 = tab index
@@ -52,11 +53,10 @@ local function GetBankSidebarWidth()
     return collapsed and SIDEBAR_W_COLLAPSED or SIDEBAR_W
 end
 
-local function GetFont() return (EUI.GetFontPath and EUI.GetFontPath("bags")) or "Fonts\\FRIZQT__.TTF" end
-local function GetOutline() return (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("bags")) or "" end
+local function GetFont() return EUI.GetFontPath("bags") end
 local function SetBankFont(fs, size)
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, true) end
-    fs:SetFont(GetFont(), size, GetOutline())
+    EllesmereUI.PrimeFontShadow(fs, true)
+    fs:SetFont(GetFont(), size, EUI.GetFontOutlineFlag("bags"))
 end
 local GetUpgradeTrack = EUI.GetUpgradeTrack
 local ITEM_CLASS_WEAPON = Enum.ItemClass.Weapon
@@ -78,32 +78,7 @@ local function GetAccentRGB()
     return 0.05, 0.82, 0.62
 end
 
--------------------------------------------------------------------------------
---  Helpers (duplicated from bags for self-contained file)
--------------------------------------------------------------------------------
-local function CreateInsetBorder(btn)
-    local PP = EUI and EUI.PP
-    local px = (PP and PP.mult) or 1
-    local WHITE = "Interface\\Buttons\\WHITE8X8"
-    local t = btn:CreateTexture(nil, "OVERLAY", nil, 2); t:SetTexture(WHITE)
-    t:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0); t:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0); t:SetHeight(px)
-    local b = btn:CreateTexture(nil, "OVERLAY", nil, 2); b:SetTexture(WHITE)
-    b:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0); b:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0); b:SetHeight(px)
-    local l = btn:CreateTexture(nil, "OVERLAY", nil, 2); l:SetTexture(WHITE)
-    l:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0); l:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0); l:SetWidth(px)
-    local r = btn:CreateTexture(nil, "OVERLAY", nil, 2); r:SetTexture(WHITE)
-    r:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0); r:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0); r:SetWidth(px)
-    btn._brdT, btn._brdB, btn._brdL, btn._brdR = t, b, l, r
-end
-
-local function SetInsetBorderColor(btn, cr, cg, cb, ca)
-    if btn._brdT then
-        btn._brdT:SetColorTexture(cr, cg, cb, ca)
-        btn._brdB:SetColorTexture(cr, cg, cb, ca)
-        btn._brdL:SetColorTexture(cr, cg, cb, ca)
-        btn._brdR:SetColorTexture(cr, cg, cb, ca)
-    end
-end
+local SetInsetBorderColor = ns.SetInsetBorderColor
 
 -------------------------------------------------------------------------------
 --  Bank Tab Discovery (Midnight 12.0+ uses CharacterBankTab / AccountBankTab enums)
@@ -227,7 +202,7 @@ bgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
 local bgOverlay = EUI_Bank:CreateTexture(nil, "BACKGROUND", nil, 1)
 bgOverlay:SetAllPoints()
 bgOverlay:SetColorTexture(0, 0, 0, 0.25)
-if EUI.MakeBorder then EUI.MakeBorder(EUI_Bank, 1, 1, 1, 0.15, EUI.PP) end
+EUI.MakeBorder(EUI_Bank, 1, 1, 1, 0.15, EUI.PP)
 
 -------------------------------------------------------------------------------
 --  Header
@@ -329,14 +304,15 @@ end
 
 sortBtn:SetScript("OnEnter", function(self)
     self.icon:SetAlpha(1)
-    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Sort Items") end
+    EUI.ShowWidgetTooltip(self, "Sort Items")
 end)
 sortBtn:SetScript("OnLeave", function(self)
     self.icon:SetAlpha(0.9)
-    if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+    EUI.HideWidgetTooltip()
 end)
 sortBtn:SetScript("OnClick", function()
     if bankSortLocked then return end
+    PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
     LockBankSort()
     -- Bank cleanup is Blizzard's, and it reads the same fill-direction setting
     -- the bags module's MultiBag sort uses. Right-to-left starts at the first
@@ -384,6 +360,134 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Bank bag slots (WoW Forever)
+--  Forever's character bank tabs are bag slots: a bought tab holds nothing
+--  until a bag is placed in it (Blizzard's Camelot BankFrame bag buttons).
+-------------------------------------------------------------------------------
+local RefreshBankBags
+if EUI.IS_FOREVER then
+    local BANK_BAG_SLOTS = Enum.BagIndex.Characterbanktab
+
+    local bagsWin = CreateFrame("Frame", nil, EUI_Bank)
+    bagsWin:Hide()
+    bagsWin:SetFrameLevel(EUI_Bank:GetFrameLevel() + 20)
+    bagsWin:EnableMouse(true)
+    bagsWin:SetClampedToScreen(true)
+    local winBg = bagsWin:CreateTexture(nil, "BACKGROUND")
+    winBg:SetAllPoints()
+    winBg:SetColorTexture(0.02, 0.02, 0.02, 0.95)
+    EUI.PanelPP.CreateBorder(bagsWin, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7)
+
+    local bagsBtn = CreateFrame("Button", nil, header)
+    bagsBtn:SetSize(24, 24)
+    bagsBtn:SetPoint("RIGHT", sortBtn, "LEFT", -6, 0)
+    bagsBtn.icon = bagsBtn:CreateTexture(nil, "ARTWORK")
+    bagsBtn.icon:SetAllPoints()
+    bagsBtn.icon:SetAtlas("bag-main")
+    bagsBtn.icon:SetAlpha(0.9)
+    bagsWin:SetPoint("BOTTOMRIGHT", bagsBtn, "TOPRIGHT", 0, 2)
+
+    bagsBtn:SetScript("OnEnter", function(self)
+        self.icon:SetAlpha(1)
+        if not bagsWin:IsShown() then EUI.ShowWidgetTooltip(self, "Show Bags") end
+    end)
+    bagsBtn:SetScript("OnLeave", function(self)
+        self.icon:SetAlpha(0.9)
+        EUI.HideWidgetTooltip()
+    end)
+    bagsBtn:SetScript("OnClick", function()
+        if bagsWin:IsShown() then
+            bagsWin:Hide()
+        else
+            EUI.HideWidgetTooltip()
+            bagsWin:Show()
+        end
+    end)
+
+    local function PickupBag(self)
+        if self.bought then C_Container.PickupContainerItem(BANK_BAG_SLOTS, self.bagSlot) end
+    end
+
+    local slots = {}
+    local function GetOrCreateBagSlot(idx)
+        if slots[idx] then return slots[idx] end
+        local btn = CreateFrame("Button", nil, bagsWin)
+        btn:SetSize(SLOT_SIZE, SLOT_SIZE)
+        btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        btn:RegisterForDrag("LeftButton")
+        btn.icon = btn:CreateTexture(nil, "ARTWORK")
+        btn.icon:SetAllPoints()
+        btn.Count = btn:CreateFontString(nil, "OVERLAY")
+        EllesmereUI.ApplyIconTextFont(btn.Count, GetFont(), BP().bagCountFontSize or 11, "bags")
+        btn.Count:SetPoint("BOTTOMRIGHT", -2, 2)
+        btn.Count:SetTextColor(1, 1, 1)
+        ns.CreateInsetBorder(btn)
+        btn:SetScript("OnClick", PickupBag)
+        btn:SetScript("OnDragStart", PickupBag)
+        btn:SetScript("OnReceiveDrag", PickupBag)
+        btn:SetScript("OnEnter", function(self)
+            SetInsetBorderColor(self, 1, 1, 1, 1)
+            if self.hasBag then
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetBagItem(BANK_BAG_SLOTS, self.bagSlot)
+                GameTooltip:Show()
+            else
+                EUI.ShowWidgetTooltip(self, self.bought and BANK_BAG or BANK_BAG_PURCHASE)
+            end
+        end)
+        btn:SetScript("OnLeave", function(self)
+            SetInsetBorderColor(self, self._bdrR, self._bdrG, self._bdrB, 1)
+            GameTooltip:Hide()
+            EUI.HideWidgetTooltip()
+        end)
+        slots[idx] = btn
+        return btn
+    end
+
+    RefreshBankBags = function()
+        if not bagsWin:IsShown() then return end
+        local maxBags = C_Bank.FetchMaxNumBankTabs(Enum.BankType.Character)
+        local bought = C_Bank.FetchPurchasedBankTabData(Enum.BankType.Character)
+        local z = BP().bagItemIconZoom or 0.08
+        local n = 0
+        -- Slot 1 is the bank itself; bag slots start at 2.
+        for bagSlot = 2, maxBags do
+            n = n + 1
+            local btn = GetOrCreateBagSlot(n)
+            btn.bagSlot = bagSlot
+            btn.bought = bought[bagSlot] ~= nil
+            local info = btn.bought and C_Container.GetContainerItemInfo(BANK_BAG_SLOTS, bagSlot)
+            btn.hasBag = info and true or false
+            btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+            btn.icon:SetTexture(info and info.iconFileID or "Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag")
+            btn.icon:SetDesaturated(not btn.bought)
+            btn.icon:SetAlpha(btn.bought and 1 or 0.35)
+            if info then
+                btn.Count:SetText(C_Container.GetContainerNumFreeSlots(Enum.BagIndex.CharacterBankTab_1 + bagSlot - 1))
+                btn.Count:Show()
+            else
+                btn.Count:Hide()
+            end
+            -- quality is nilable (item data not cached yet).
+            local q = info and info.quality
+            local c = q and q > 0 and ITEM_QUALITY_COLORS[q]
+            if c then
+                btn._bdrR, btn._bdrG, btn._bdrB = c.r, c.g, c.b
+            else
+                btn._bdrR, btn._bdrG, btn._bdrB = 0.25, 0.25, 0.25
+            end
+            SetInsetBorderColor(btn, btn._bdrR, btn._bdrG, btn._bdrB, 1)
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", bagsWin, "TOPLEFT", 10 + (n - 1) * (SLOT_SIZE + SPACING), -10)
+            btn:Show()
+        end
+        for i = n + 1, #slots do slots[i]:Hide() end
+        bagsWin:SetSize(math.max(n, 1) * (SLOT_SIZE + SPACING) + 16, SLOT_SIZE + 20)
+    end
+    bagsWin:SetScript("OnShow", RefreshBankBags)
+end
+
+-------------------------------------------------------------------------------
 --  Footer: Player Gold (left) + Warband Gold (right)
 -------------------------------------------------------------------------------
 do
@@ -423,12 +527,10 @@ do
     playerHitbox:SetFrameLevel(footer:GetFrameLevel() + 5)
     playerHitbox:EnableMouse(true)
     playerHitbox:SetScript("OnEnter", function(self)
-        if EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(self, "Player Gold")
-        end
+        EUI.ShowWidgetTooltip(self, "Player Gold")
     end)
     playerHitbox:SetScript("OnLeave", function()
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        EUI.HideWidgetTooltip()
     end)
 
     local warbandGold = footer:CreateFontString(nil, "OVERLAY")
@@ -442,12 +544,10 @@ do
     warbandHitbox:SetFrameLevel(footer:GetFrameLevel() + 5)
     warbandHitbox:EnableMouse(true)
     warbandHitbox:SetScript("OnEnter", function(self)
-        if EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(self, "Warband Gold")
-        end
+        EUI.ShowWidgetTooltip(self, "Warband Gold")
     end)
     warbandHitbox:SetScript("OnLeave", function()
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        EUI.HideWidgetTooltip()
     end)
 
     -- Withdraw / Deposit styled buttons (next to warband gold)
@@ -476,12 +576,12 @@ do
         btn:SetScript("OnEnter", function(self)
             self._label:SetTextColor(GOLD_R, GOLD_G, GOLD_B, 1)
             if PP and PP.SetBorderColor then PP.SetBorderColor(self, GOLD_R, GOLD_G, GOLD_B, 1) end
-            if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, EllesmereUI.L(tooltipText)) end
+            EUI.ShowWidgetTooltip(self, EllesmereUI.L(tooltipText))
         end)
         btn:SetScript("OnLeave", function(self)
             self._label:SetTextColor(GOLD_R, GOLD_G, GOLD_B, 0.8)
             if PP and PP.SetBorderColor then PP.SetBorderColor(self, GOLD_R, GOLD_G, GOLD_B, 0.8) end
-            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            EUI.HideWidgetTooltip()
         end)
         return btn
     end
@@ -618,7 +718,7 @@ local function EnsureBankTabConfigFrame()
     local bgOverlayBTC = EUI_BankTabConfigFrame:CreateTexture(nil, "BACKGROUND", nil, 1)
     bgOverlayBTC:SetAllPoints()
     bgOverlayBTC:SetColorTexture(0, 0, 0, 0.25)
-    if EUI.MakeBorder then EUI.MakeBorder(EUI_BankTabConfigFrame, 1, 1, 1, 0.15, EUI.PP) end
+    EUI.MakeBorder(EUI_BankTabConfigFrame, 1, 1, 1, 0.15, EUI.PP)
 
     -- Header
     local headerBTC = CreateFrame("Frame", nil, EUI_BankTabConfigFrame)
@@ -849,6 +949,8 @@ local function EnsureBankTabConfigFrame()
     cancelBTCBtn._label:SetText(EllesmereUI.L("Cancel"))
     cancelBTCBtn:SetScript("OnClick", function() EUI_BankTabConfigFrame:Hide() end)
     if EUI.MakeBorder then cancelBTCBtn._border = EUI.MakeBorder(cancelBTCBtn, 1, 1, 1, 0.5, EUI.PP) end
+    -- Controller cursor: Cancel finds this dialog's Cancel button.
+    if EUI.PadCP() then EUI_BankTabConfigFrame.CloseButton = cancelBTCBtn end
 
     function EUI_BankTabConfigFrame:OpenBankTabSettings(tabData, tabId)
         self:Hide()
@@ -936,50 +1038,8 @@ end
 
 -- Sidebar header: "Tabs" label + collapse arrow
 local SIDEBAR_HDR_H = 24
-local sidebarHdr = CreateFrame("Frame", nil, sidebar)
-sidebarHdr:SetHeight(SIDEBAR_HDR_H)
-sidebarHdr:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 0, 0)
-sidebarHdr:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
+local sidebarHdr, collapseBtn, UpdateBankCollapseArrow = ns.CreateSidebarHeader(sidebar, EllesmereUI.L("Tabs"), "bankSidebarCollapsed")
 
-sidebarHdr._label = sidebarHdr:CreateFontString(nil, "OVERLAY")
-SetBankFont(sidebarHdr._label, 10)
-sidebarHdr._label:SetPoint("LEFT", sidebarHdr, "LEFT", 8, 0)
-sidebarHdr._label:SetText(EllesmereUI.L("Tabs"))
-sidebarHdr._label:SetTextColor(0.5, 0.5, 0.5)
-
-local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.png"
-local collapseBtn = CreateFrame("Button", nil, sidebarHdr)
-collapseBtn:SetSize(12, 12)
-collapseBtn:SetPoint("RIGHT", sidebarHdr, "RIGHT", -6, 0)
-collapseBtn._icon = collapseBtn:CreateTexture(nil, "OVERLAY")
-collapseBtn._icon:SetAllPoints()
-collapseBtn._icon:SetTexture(ARROW_ICON)
-collapseBtn._icon:SetAlpha(0.4)
-
-local function UpdateBankCollapseArrow()
-    local collapsed = BP().bankSidebarCollapsed
-    collapseBtn:ClearAllPoints()
-    if collapsed then
-        collapseBtn._icon:SetRotation(math.pi)
-        collapseBtn:SetPoint("CENTER", sidebarHdr, "CENTER", 0, 0)
-    else
-        collapseBtn._icon:SetRotation(0)
-        collapseBtn:SetPoint("RIGHT", sidebarHdr, "RIGHT", -6, 0)
-    end
-end
-UpdateBankCollapseArrow()
-
-collapseBtn:SetScript("OnEnter", function(self)
-    self._icon:SetAlpha(0.9)
-    local collapsed = BP().bankSidebarCollapsed
-    if EUI.ShowWidgetTooltip then
-        EUI.ShowWidgetTooltip(self, collapsed and "Expand Sidebar" or "Collapse Sidebar")
-    end
-end)
-collapseBtn:SetScript("OnLeave", function(self)
-    self._icon:SetAlpha(0.4)
-    if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
-end)
 collapseBtn:SetScript("OnClick", function()
     -- Determine which edge to preserve based on screen position
     local center = EUI_Bank:GetCenter()
@@ -1039,139 +1099,9 @@ child:EnableMouse(false)
 sf:SetScrollChild(child)
 
 -- Track (always visible when content scrolls)
-local track = CreateFrame("Button", nil, EUI_Bank)
-track:SetWidth(SCROLLBAR_HIT_W)
+local track, thumb, UpdateThumb = ns.AttachGridScrollbar(EUI_Bank, sf, false, true)
 track:SetPoint("TOPRIGHT", EUI_Bank, "TOPRIGHT", -1, -(HEADER_H + 1))
 track:SetPoint("BOTTOMRIGHT", EUI_Bank, "BOTTOMRIGHT", -1, FOOTER_H)
-track:SetFrameLevel(sf:GetFrameLevel() + 5)
-
-local trackBg = track:CreateTexture(nil, "BACKGROUND")
-trackBg:SetWidth(SCROLLBAR_W)
-trackBg:SetPoint("TOP", track, "TOP", 0, 0)
-trackBg:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
-trackBg:SetPoint("RIGHT", track, "RIGHT", 0, 0)
-trackBg:SetColorTexture(1, 1, 1, 0.06)
-
--- Thumb
-local thumb = track:CreateTexture(nil, "ARTWORK")
-thumb:SetWidth(SCROLLBAR_W)
-thumb:SetColorTexture(1, 1, 1, 0.25)
-thumb:Hide()
-
-local _isDragging = false
-local _dragStartY = 0
-local _dragStartPct = 0
-
-local function GetScrollMetrics()
-    local scrollRange = sf:GetVerticalScrollRange()
-    if not scrollRange or scrollRange <= 0 then return nil end
-    local trackH = track:GetHeight()
-    local ext = sf:GetHeight() / (sf:GetHeight() + scrollRange)
-    local thumbH = math.max(THUMB_MIN_H, trackH * ext)
-    local maxTravel = trackH - thumbH
-    if maxTravel <= 0 then return nil end
-    local pct = sf:GetVerticalScroll() / scrollRange
-    return pct, thumbH, maxTravel, scrollRange
-end
-
-local function UpdateThumb()
-    local pct, thumbH, maxTravel = GetScrollMetrics()
-    if not pct then
-        thumb:Hide()
-        trackBg:Hide()
-        return
-    end
-    thumb:SetHeight(thumbH)
-    thumb:ClearAllPoints()
-    thumb:SetPoint("TOPRIGHT", track, "TOPRIGHT", 0, -(pct * maxTravel))
-    thumb:Show()
-    trackBg:Show()
-end
-
--- Mouse wheel on scroll frame
-sf:SetScript("OnMouseWheel", function(self, delta)
-    local scrollRange = sf:GetVerticalScrollRange()
-    if not scrollRange or scrollRange <= 0 then return end
-    local cur = self:GetVerticalScroll()
-    local newVal = math.max(0, math.min(scrollRange, cur - delta * SCROLL_STEP))
-    self:SetVerticalScroll(newVal)
-    UpdateThumb()
-end)
-
--- Mouse wheel on main bank frame (items might not cover full area)
-EUI_Bank:EnableMouseWheel(true)
-EUI_Bank:SetScript("OnMouseWheel", function(_, delta)
-    local scrollRange = sf:GetVerticalScrollRange()
-    if not scrollRange or scrollRange <= 0 then return end
-    local cur = sf:GetVerticalScroll()
-    local newVal = math.max(0, math.min(scrollRange, cur - delta * SCROLL_STEP))
-    sf:SetVerticalScroll(newVal)
-    UpdateThumb()
-end)
-
--- Thumb dragging (dragUpdate must be declared before OnMouseDown uses it)
-local dragUpdate = CreateFrame("Frame")
-dragUpdate:Hide()
-dragUpdate:SetScript("OnUpdate", function(self)
-    if not _isDragging then self:Hide(); return end
-    if not IsMouseButtonDown("LeftButton") then
-        _isDragging = false; self:Hide()
-        thumb:SetColorTexture(1, 1, 1, 0.25)
-        return
-    end
-    local pct, thumbH, maxTravel, scrollRange = GetScrollMetrics()
-    if not pct then _isDragging = false; self:Hide(); return end
-    local scale = track:GetEffectiveScale()
-    local _, cy = GetCursorPosition()
-    local deltaY = (_dragStartY - cy / scale)
-    local deltaPct = deltaY / maxTravel
-    local newPct = math.max(0, math.min(1, _dragStartPct + deltaPct))
-    sf:SetVerticalScroll(newPct * scrollRange)
-    UpdateThumb()
-end)
-
-track:RegisterForDrag("LeftButton")
-track:SetScript("OnMouseDown", function(_, button)
-    if button ~= "LeftButton" then return end
-    local pct, thumbH, maxTravel, scrollRange = GetScrollMetrics()
-    if not pct then return end
-
-    local scale = track:GetEffectiveScale()
-    local _, cy = GetCursorPosition()
-    local trackTop = track:GetTop() * scale
-    local cursorLocalY = (trackTop - cy) / scale
-
-    -- Check if cursor is on the thumb
-    local thumbTop = pct * maxTravel
-    local thumbBot = thumbTop + thumbH
-    if cursorLocalY >= thumbTop and cursorLocalY <= thumbBot then
-        -- Start drag from thumb
-        _isDragging = true
-        _dragStartY = cy / scale
-        _dragStartPct = pct
-        dragUpdate:Show()
-    else
-        -- Click on track: jump to position
-        local clickPct = math.max(0, math.min(1, (cursorLocalY - thumbH / 2) / maxTravel))
-        sf:SetVerticalScroll(clickPct * scrollRange)
-        UpdateThumb()
-        -- Start drag from new position
-        _isDragging = true
-        _dragStartY = cy / scale
-        _dragStartPct = clickPct
-        dragUpdate:Show()
-    end
-end)
-
-track:SetScript("OnMouseUp", function()
-    _isDragging = false
-end)
-
--- Hover effect on thumb
-track:SetScript("OnEnter", function() thumb:SetColorTexture(1, 1, 1, 0.4) end)
-track:SetScript("OnLeave", function()
-    if not _isDragging then thumb:SetColorTexture(1, 1, 1, 0.25) end
-end)
 
 EUI_Bank._scrollFrame = sf
 EUI_Bank._scrollChild = child
@@ -1208,6 +1138,22 @@ function EUI_Bank:GetSelectedTabBagID()
     if _selectedView <= 0 then return nil end
     local tab = _allTabs[_selectedView]
     return tab and tab.bagID or nil
+end
+
+--- Bags an Auto Split from srcBag may fill: the source tab first, then the
+--- other tabs of the same bank type. Character and warband slots never mix.
+function EUI_Bank:GetSplitTargetBags(srcBag)
+    local targets = { srcBag }
+    local isWarband = false
+    for _, tab in ipairs(_allTabs) do
+        if tab.bagID == srcBag then isWarband = tab.isWarband end
+    end
+    for _, tab in ipairs(_allTabs) do
+        if tab.bagID ~= srcBag and tab.isWarband == isWarband then
+            targets[#targets + 1] = tab.bagID
+        end
+    end
+    return targets
 end
 
 --- Returns true if the current view is any warband view (all warbank,
@@ -1260,36 +1206,6 @@ local function NotifyBankTypeForTSM()
         -- Dynamic lookup so the call goes through TSM's hooked wrapper.
         _G.Addon_SetBankType(bankType)
     end
-end
-
---- Find the first empty slot in a specific bank bag and deposit the cursor
---- item into it. If no empty slot, try stacking with an existing partial stack.
---- Returns true if placement was attempted, false if no space found.
-function EUI_Bank:DepositCursorItemIntoTab(bagID)
-    if not bagID then return false end
-    local numSlots = C_Container.GetContainerNumSlots(bagID)
-    if numSlots == 0 then return false end
-    -- Try stacking first (same itemID, not full stack)
-    local cursorType, cursorItemID = GetCursorInfo()
-    if cursorType ~= "item" or not cursorItemID then return false end
-    local maxStack = C_Item.GetItemMaxStackSizeByID(cursorItemID) or 1
-    if maxStack > 1 then
-        for slot = 1, numSlots do
-            local info = C_Container.GetContainerItemInfo(bagID, slot)
-            if info and info.itemID == cursorItemID and info.stackCount < maxStack then
-                C_Container.PickupContainerItem(bagID, slot)
-                return true
-            end
-        end
-    end
-    -- Then try first empty slot
-    for slot = 1, numSlots do
-        if not C_Container.GetContainerItemInfo(bagID, slot) then
-            C_Container.PickupContainerItem(bagID, slot)
-            return true
-        end
-    end
-    return false
 end
 
 -------------------------------------------------------------------------------
@@ -1460,6 +1376,10 @@ local function GetOrCreateBankSlot(idx)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
 
+    btn:HookScript("PostClick", function(self)
+        EUI_Bags.ShowStackSplitter(self, EUI_Bank:GetSplitTargetBags(self:GetParent():GetID()), EUI_Bank)
+    end)
+
     -- OnReceiveDrag: handles native Blizzard drags (shift-click pickup etc.)
     btn:SetScript("OnReceiveDrag", function(self)
         local bagID = self:GetParent():GetID()
@@ -1467,71 +1387,7 @@ local function GetOrCreateBankSlot(idx)
         C_Container.PickupContainerItem(bagID, slotID)
     end)
 
-    -- Hide template decorations
-    if btn.NewItemTexture then btn.NewItemTexture:Hide(); btn.NewItemTexture:SetAlpha(0) end
-    if btn.BattlepayItemTexture then btn.BattlepayItemTexture:Hide(); btn.BattlepayItemTexture:SetAlpha(0) end
-    if btn.flash then btn.flash:Hide(); btn.flash:SetAlpha(0) end
-    if btn.newitemglowAnim then btn.newitemglowAnim:Stop() end
-
-    btn:SetSize(SLOT_SIZE, SLOT_SIZE)
-    if btn.icon then local z = BP().bagItemIconZoom or 0.08; btn.icon:SetTexCoord(z, 1 - z, z, 1 - z) end
-
-    -- Remove highlight/pushed textures shape
-    local ht = btn.HighlightTexture or btn:GetHighlightTexture()
-    if ht then ht:SetTexture(nil); ht:SetColorTexture(1, 1, 1, 0.08); ht:ClearAllPoints(); ht:SetAllPoints(btn) end
-    local pt = btn.PushedTexture or btn:GetPushedTexture()
-    if pt then
-        pt:SetAtlas(nil)
-        pt:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\highlight-3.png")
-        pt:SetTexCoord(0, 1, 0, 1)
-        pt:ClearAllPoints(); pt:SetAllPoints(btn)
-        pt:SetVertexColor(0.973, 0.839, 0.604, 1)
-    end
-    if btn.NormalTexture then btn.NormalTexture:SetAlpha(0) end
-    if btn.IconBorder then btn.IconBorder:SetAlpha(0) end
-    if btn.icon and btn.IconMask then
-        btn.icon:RemoveMaskTexture(btn.IconMask)
-        btn.IconMask:Hide(); btn.IconMask:SetTexture(nil)
-        btn.IconMask:ClearAllPoints(); btn.IconMask:SetSize(0.001, 0.001)
-    end
-
-    CreateInsetBorder(btn)
-    SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
-
-    -- Text overlay above cooldown
-    local textOverlay = CreateFrame("Frame", nil, btn)
-    textOverlay:SetAllPoints()
-    textOverlay:SetFrameLevel((btn.Cooldown and btn.Cooldown:GetFrameLevel() or btn:GetFrameLevel()) + 2)
-    btn._textOverlay = textOverlay
-
-    local countSize = BP().bagCountFontSize or 11
-    local countFS = btn.Count
-    if countFS then
-        countFS:SetParent(textOverlay)
-        EllesmereUI.ApplyIconTextFont(countFS, GetFont(), countSize, "bags")
-        countFS:ClearAllPoints()
-        countFS:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
-    end
-
-    -- Item level text (top-left, gear only)
-    local ilvlSize = BP().itemlevelFontSize or 12
-    if not btn.ItemLevelText then
-        btn.ItemLevelText = textOverlay:CreateFontString(nil, "OVERLAY", nil, 7)
-        btn.ItemLevelText:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
-        btn.ItemLevelText:SetTextColor(1, 1, 1, 1)
-    end
-    btn.ItemLevelText:SetFont(GetFont(), ilvlSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
-    btn.ItemLevelText:SetText("")
-
-    -- Bind Type text (bottom-left)
-    if not btn.BindTypeText then
-        btn.BindTypeText = textOverlay:CreateFontString(nil, "OVERLAY", nil, 7)
-        btn.BindTypeText:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, 2)
-        btn.BindTypeText:SetTextColor(1, 1, 1, 1)
-    end
-    local bindTypeFontSize = BP().bagBindTypeFontSize or 11
-    btn.BindTypeText:SetFont(GetFont(), bindTypeFontSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
-    btn.BindTypeText:SetText("")
+    ns.SkinItemButton(btn, { flatHighlight = true })
 
     -- Empty bg
     btn._emptyBg = btn:CreateTexture(nil, "BACKGROUND", nil, 1)
@@ -1901,8 +1757,8 @@ local function RefreshBankTextSizes()
     local bindTypeSize = BP().bagBindTypeFontSize or 11
     for _, btn in pairs(_bankSlots) do
         if btn.Count then EllesmereUI.ApplyIconTextFont(btn.Count, GetFont(), countSize, "bags") end
-        if btn.ItemLevelText then btn.ItemLevelText:SetFont(GetFont(), ilvlSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
-        if btn.BindTypeText then btn.BindTypeText:SetFont(GetFont(), bindTypeSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
+        if btn.ItemLevelText then btn.ItemLevelText:SetFont(GetFont(), ilvlSize, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
+        if btn.BindTypeText then btn.BindTypeText:SetFont(GetFont(), bindTypeSize, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
     end
 end
 EUI_Bank.RefreshTextSizes = RefreshBankTextSizes
@@ -2330,6 +2186,8 @@ function EUI_Bank:RefreshBank()
     EUI_Bank._layoutGridW = gridW
 
     -- Shared slot render: updates a single button with item or empty state
+    -- One reused data table for third-party overlay painters (EUI_Bags.RunItemOverlays).
+    local overlayData = {}
     local function RenderSlotContent(btn, bagID, slot, cachedInfo)
         if btn.ProfessionQualityOverlay then btn.ProfessionQualityOverlay:SetAlpha(0) end
         if btn.IconOverlay then btn.IconOverlay:SetAlpha(0); btn.IconOverlay:Hide() end
@@ -2423,6 +2281,11 @@ function EUI_Bank:RefreshBank()
                             r, g, b = BP().itemlevelCustomColor.r, BP().itemlevelCustomColor.g, BP().itemlevelCustomColor.b
                         elseif rankText and rankText ~= "" and trackColor then
                             r, g, b = trackColor.r, trackColor.g, trackColor.b
+                        else
+                            local craftedColor = EUI.GetCraftedTrackColor(itemLink)
+                            if craftedColor then
+                                r, g, b = craftedColor.r, craftedColor.g, craftedColor.b
+                            end
                         end
                     end
                     if not r then
@@ -2439,6 +2302,11 @@ function EUI_Bank:RefreshBank()
                     btn.Cooldown:SetDrawEdge(true); btn.Cooldown:SetCooldown(cdS, cdD)
                 else btn.Cooldown:Clear() end
             end
+        end
+        if next(EUI_Bags.itemOverlayIcons) ~= nil then
+            overlayData.bag, overlayData.slot, overlayData.info = bagID, slot, info
+            overlayData.itemLink = info and C_Container.GetContainerItemLink(bagID, slot) or nil
+            EUI_Bags.RunItemOverlays(btn, overlayData)
         end
     end
 
@@ -2575,12 +2443,12 @@ function BuildBankSidebar()
                 EUI.ShowWidgetTooltip(self, (self._entryName or "?") .. " (" .. (self._entryCount or 0) .. ")" .. (showEditableTabTooltip and ("\n|cffdab842" .. BANK_TAB_TOOLTIP_CLICK_INSTRUCTION .. "|r") or ""))
             end
             if not (BP().bankSidebarCollapsed) and showEditableTabTooltip then
-                if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "|cffdab842" .. BANK_TAB_TOOLTIP_CLICK_INSTRUCTION .. "|r") end
+                EUI.ShowWidgetTooltip(self, "|cffdab842" .. BANK_TAB_TOOLTIP_CLICK_INSTRUCTION .. "|r")
             end
         end)
         btn:SetScript("OnLeave", function(self)
             if not self._isSelected then self._bg:SetColorTexture(1, 1, 1, 0) end
-            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            EUI.HideWidgetTooltip()
         end)
         btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         btn:SetScript("OnClick", function(self, button)
@@ -2697,7 +2565,9 @@ function BuildBankSidebar()
         if isAtlas and btn._icon.SetAtlas then
             btn._icon:SetAtlas(icon)
         else
-            btn._icon:SetTexture(icon)
+            -- Through the client icon map, like the bag window's sidebar: a
+            -- default the Forever client cannot draw takes its stand-in there.
+            btn._icon:SetTexture(EllesmereUI.ClientIcon(icon))
         end
         btn._icon:SetAlpha(isSelected and 1 or 0.75)
 
@@ -2949,6 +2819,7 @@ local function ScheduleBankRefresh()
         bankRefreshPending = false
         if EUI_Bank:IsVisible() then
             EUI_Bank:RefreshBank()
+            if RefreshBankBags then RefreshBankBags() end
         end
     end)
 end
@@ -2962,8 +2833,12 @@ eventFrame:RegisterEvent("BANK_TABS_CHANGED")
 eventFrame:RegisterEvent("BANK_TAB_SETTINGS_UPDATED")
 eventFrame:RegisterEvent("PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED")
 eventFrame:RegisterEvent("PLAYER_MONEY")
+if EUI.IS_FOREVER then eventFrame:RegisterEvent("BAG_CONTAINER_UPDATE") end
 eventFrame:SetScript("OnEvent", function(_, event)
     if event == "BANKFRAME_OPENED" then
+        -- WoW Forever's Gamepad interface style at login: Blizzard's bank
+        -- (left in place) carries the D-pad navigation; ours stays closed.
+        if ns.PadUIStandDown() then return end
         -- Detect portable warbank (AccountBanker = warband only, no character bank)
         _warbandOnly = C_PlayerInteractionManager
             and C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.AccountBanker)
@@ -2989,6 +2864,14 @@ eventFrame:SetScript("OnEvent", function(_, event)
         local bankScale = BP().bagScale or 1
         EUI_Bank:SetScale(bankScale)
         EUI_Bank:Show()
+        -- Controller cursor: scroll step buttons and a visible scrollbar,
+        -- built only once a controller is in use.
+        if EUI_Bank._padBuilt or EUI.PadInUse() then
+            EUI_Bank._padBuilt = true
+            local on = EUI.PadInUse()
+            track.PadSync(on)
+            ns.PadSidebarSync(sidebarHdr, sidebarSF, sidebarChild, "bankSidebarCollapsed", on)
+        end
         -- Auto-open bags alongside bank if not already visible
         if EUI_Bags and not EUI_Bags:IsVisible() then
             EUI_Bags:Show()
@@ -3015,11 +2898,13 @@ eventFrame:SetScript("OnEvent", function(_, event)
             if not EUI_Bank:IsVisible() then return end
             DiscoverBankTabs()
             EUI_Bank:RefreshBank()
+            if RefreshBankBags then RefreshBankBags() end
             EUI_Bank:UpdateFooterGold()
             if EUI_Bags and EUI_Bags.CaptureWarbandGold then EUI_Bags.CaptureWarbandGold() end
         end)
 
     elseif event == "BANKFRAME_CLOSED" then
+        if ns.PadUIStandDown() then return end  -- Forever Gamepad style: ours never opened
         _warbandOnly = false
         _lastTSMBankType = nil
         WipeTransferState()
@@ -3068,6 +2953,21 @@ eventFrame:SetScript("OnEvent", function(_, event)
             ScheduleBankRefresh()
         end
 
+    elseif event == "BAG_CONTAINER_UPDATE" then
+        -- Forever: a bag went into or came out of a bank bag slot, which adds or
+        -- removes that tab.
+        if EUI_Bank:IsVisible() then
+            local selTab = _selectedView > 0 and _allTabs[_selectedView]
+            DiscoverBankTabs()
+            if selTab then
+                _selectedView = BankDefaultsToOne() and -1 or 0
+                for i, tab in ipairs(_allTabs) do
+                    if tab.bagID == selTab.bagID then _selectedView = i; break end
+                end
+            end
+            ScheduleBankRefresh()
+        end
+
     elseif event == "PLAYER_MONEY" then
         if EUI_Bank:IsVisible() then
             EUI_Bank:UpdateFooterGold()
@@ -3106,6 +3006,11 @@ local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self)
     self:UnregisterAllEvents()
+    -- WoW Forever with the Gamepad interface style at login: Blizzard's bank
+    -- keeps the D-pad navigation, so it goes back under its own parent.
+    if EUI.IS_FOREVER and BankFrame and ns.PadUIStandDown() then
+        BankFrame:SetParent(UIParent)
+    end
     -- Apply default view based on setting
     if BankDefaultsToOne() then
         _selectedView = -1
@@ -3114,6 +3019,8 @@ loader:SetScript("OnEvent", function(self)
     if EUI and EUI.RegisterEscapeClose then
         EUI.RegisterEscapeClose(EUI_Bank)
     end
+    -- Controller cursor: Cancel finds the bank's close button.
+    if EUI.PadCP() then EUI_Bank.CloseButton = close end
 
     -- Auto-shift DressUpFrame to the right of the bank when both are open
     local dressUp = _G.DressUpFrame

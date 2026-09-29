@@ -247,8 +247,10 @@ function ns.EMB121_Sync(bar, pp, pc)
     -- the power type was Ebon Might. Push the border back on top, clearing the
     -- engine fill with a level of margin (the subtree is denied to us
     -- afterward, so its exact levels can't be read back). The countdown text
-    -- sits at fill+5, still above the border, as on the legacy path.
+    -- sits at fill+5, still above the border, as on the legacy path. Draw Above
+    -- GCD Bar stamps its own cover on the bar (_erbGcdCover): the higher wins, so
+    -- a power tick never lowers that lift.
     if bar.RaiseBorderAbove then
-        bar:RaiseBorderAbove(lvl + 3, pp and pp.borderBehind)
+        bar:RaiseBorderAbove(math.max(lvl + 3, bar._erbGcdCover or 0), pp and pp.borderBehind)
     end
 end

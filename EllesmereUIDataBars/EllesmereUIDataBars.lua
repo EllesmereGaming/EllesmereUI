@@ -13,7 +13,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 -- Block factories (clock, fps, ms, location, coords, gold, xprep, spec,
 -- profession, travel, micromenu, currency, spacer) live in
--- EllesmereUIDataBars_Blocks.lua and attach themselves to ns.BlockFactories.
+-- Blocks\*.lua (one file per block, shared helpers in Blocks\Shared.lua) and
+-- attach themselves to ns.BlockFactories.
 --
 -- API HANDOFF (everything the options file may call; nothing else):
 --   ns.GetProfile() -> profile
@@ -56,13 +57,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --       options page registers for that row (see _edbClickTargets).
 
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
+ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
 local WB = EllesmereUI.Lite.NewAddon("EllesmereUIDataBars")
 ns.WB = WB
 
--- Localized-ish string table shared with the blocks file.
+-- Localized-ish string table shared with the Blocks\ files (ns.L).
 local L = {
     LEFT_CLICK           = "|cffFFFFFFLeft Click:|r",
     RIGHT_CLICK          = "|cffFFFFFFRight Click:|r",
@@ -98,6 +100,8 @@ local L = {
     TOTAL                = "Total",
     WOW_TOKEN            = "WoW Token",
     OPEN_BAGS            = "Open Bags",
+    BAGS                 = "Bags",
+    FREE                 = "Free",
     OPEN_CURRENCIES      = "Open Currencies",
     RESET_SESSION        = "Reset Session",
     REMOVE_CHARACTER     = "Remove Character",
@@ -124,10 +128,13 @@ local L = {
     AUDIO_MUSIC          = "Music",
     AUDIO_AMBIENCE       = "Ambience",
     AUDIO_DIALOG         = "Dialog",
+    AUDIO_MUTE_HINT      = "Toggle Mute",
     AUDIO_SET_HINT       = "Set Volume",
     AUDIO_SCROLL_HINT    = "Adjust Volume",
-    AUDIO_INPUT_HINT     = "Set Exact Volume",
+    AUDIO_SHIFT_HINT     = "Hold Shift for 10% Steps",
+    AUDIO_MUTED          = "Muted",
     SCROLL_WHEEL         = "|cffFFFFFFScroll:|r",
+    DRAG_BAR             = "|cffFFFFFFDrag Bar:|r",
     CHANGE_LOADOUT       = "Change Loadout",
     OPEN_PROFESSION      = "Open Profession",
     OPEN_PROFESSION_BOOK = "Open Profession Book",
@@ -200,6 +207,7 @@ ns.BLOCK_TYPES = {
     { key = "location",   label = "Location" },
     { key = "coords",     label = "Coordinates" },
     { key = "gold",       label = "Gold" },
+    { key = "bags",       label = "Bags" },
     { key = "durability", label = "Durability" },
     { key = "combat",     label = "Combat Status" },
     { key = "xprep",      label = "XP / Reputation Bar" },
@@ -227,6 +235,7 @@ ns.BLOCK_DEFAULTS = {
     location   = { showIcon = true, showSubZone = true },
     coords     = { showIcon = true, precision = 0, hideInInstance = true },
     gold       = { showIcons = true, showBagSpace = false, showSmall = false, coinIcons = false, abbreviate = false, forceEnglishUnits = false },
+    bags       = { showIcon = true, value = "free", reagent = false, lowThreshold = 0 },
     durability = { showIcon = true },
     combat     = { onlyInCombat = false },
     xprep      = { mode = "auto" },
@@ -239,7 +248,7 @@ ns.BLOCK_DEFAULTS = {
                    pvp = true, housing = true, journal = true, pet = true, shop = true, help = true },
     currency   = { currencyId = nil, showIcon = true, showDescription = true },
     -- t1..t5 are TIER slots, not currency ids: a season swap replaces the ids
-    -- in the blocks file and the player's checklist selection still applies.
+    -- in Blocks\Shared.lua (CRESTS) and the player's checklist selection still applies.
     crests     = { t1 = true, t2 = true, t3 = true, t4 = true, t5 = true,
                    showIcons = true, separator = "slash", showSeasonProgress = false,
                    hideEmpty = false, reverse = false },
@@ -255,8 +264,21 @@ ns.BLOCK_DEFAULTS = {
     spacer     = {},
 }
 
--- Factories are registered by EllesmereUIDataBars_Blocks.lua.
+-- Factories are registered by Blocks\*.lua.
 ns.BlockFactories = {}
+
+-- WoW Forever has no Great Vault, no season crests and one spec per class with
+-- nothing to switch: those blocks leave the picker (BLOCK_TYPES), the add path
+-- refuses them (no default, so the Bottom Info Bar template skips its spec
+-- block) and their Blocks\*.lua files return before registering a factory, so
+-- a bar saved with one shows an empty slot there instead of erroring.
+if EllesmereUI.IS_FOREVER then
+    local FOREVER_OFF = { greatvault = true, crests = true, spec = true }
+    for i = #ns.BLOCK_TYPES, 1, -1 do
+        if FOREVER_OFF[ns.BLOCK_TYPES[i].key] then table.remove(ns.BLOCK_TYPES, i) end
+    end
+    for key in pairs(FOREVER_OFF) do ns.BLOCK_DEFAULTS[key] = nil end
+end
 
 local DeepCopy = EllesmereUI.Lite.DeepCopy
 
@@ -304,8 +326,7 @@ function ns.SetFont(fs, size, barCfg)
     -- SetShadowOffset does not render on 12.x; shadows must ride a FontObject.
     -- Prime BEFORE SetFont -- the inherited shadow survives the typeface call.
     if EllesmereUI.PrimeFontShadow then
-        local useShadow = flags == "" and EllesmereUI.GetFontUseShadow
-            and EllesmereUI.GetFontUseShadow()
+        local useShadow = flags == "" and EllesmereUI.GetFontUseShadow()
         EllesmereUI.PrimeFontShadow(fs, useShadow and true or false)
     end
     fs:SetFont(path, sz, flags)
@@ -396,23 +417,6 @@ function ns.MoneyTokens(amount, showSmall, coinIcons, coloured, abbreviate, forc
     return _moneyTokens
 end
 
-function ns.FormatMoneyPlain(amount, showSmall, coinIcons, abbreviate, forceEnglish)
-    amount = floor(abs(amount or 0))
-    local parts, foundGold = {}, false
-    for i, denom in ipairs(DENOMINATIONS) do
-        local val = floor(amount / denom.divisor)
-        amount = amount % denom.divisor
-        if i == 1 and val > 0 then
-            foundGold = true
-            parts[#parts + 1] = GoldDisplay(val, abbreviate, forceEnglish) .. CoinMarker(i, coinIcons, false)
-        elseif i > 1 and (not foundGold or showSmall ~= false) and (val > 0 or (i == 3 and #parts == 0)) then
-            parts[#parts + 1] = val .. CoinMarker(i, coinIcons, false)
-        end
-    end
-    if #parts > 0 then return tconcat(parts, " ") end
-    return "0" .. CoinMarker(3, coinIcons, false)
-end
-
 function ns.FormatMoney(amount, useColors, showSmall, coinIcons, abbreviate, forceEnglish)
     amount = floor(abs(amount or 0))
     local coloured = useColors ~= false
@@ -458,22 +462,9 @@ function ns.GetMSSuffix()  local s = MILLISECONDS_ABBR; if s then return s end r
 -------------------------------------------------------------------------------
 --  Combat deferral (last caller per key wins; runs on regen)
 -------------------------------------------------------------------------------
-do
-    local deferFrames = {}
-    function ns.DeferUntilOOC(key, fn)
-        if not InCombatLockdown() then fn(); return end
-        local f = deferFrames[key]
-        if not f then
-            f = CreateFrame("Frame")
-            deferFrames[key] = f
-        end
-        f._fn = fn
-        f:RegisterEvent("PLAYER_REGEN_ENABLED")
-        f:SetScript("OnEvent", function(self)
-            self:UnregisterAllEvents()
-            if self._fn then self._fn(); self._fn = nil end
-        end)
-    end
+function ns.DeferUntilOOC(key, fn)
+    if not InCombatLockdown() then fn(); return end
+    ns.CombatQueue.Defer(key, fn)
 end
 
 -------------------------------------------------------------------------------
@@ -577,8 +568,6 @@ function ns.CreateFramePool(frameType, parent, template)
             self._inactive[#self._inactive + 1] = f
         end
     end
-
-    function pool:GetActive() return self._active end
 
     return pool
 end
@@ -771,6 +760,10 @@ do
     -- to create/configure in or out of combat.
     local clickPool = {}
     local activeClicks = 0
+    -- Row the last Tip_AddClickable/Tip_AddClickableColumns call added: 0 when
+    -- that add was dropped or any other row was added since. The only row
+    -- Tip_SetRowWheel may attach to.
+    local clickRow = 0
 
     local function EnsureTip()
         if tip then return tip end
@@ -778,6 +771,10 @@ do
         tip:SetFrameStrata("TOOLTIP")
         tip:SetFrameLevel(TIP_LEVEL)
         tip:SetClampedToScreen(true)
+        -- Wheel sink: Tip_Show enables it only while a row takes the wheel, so the
+        -- gaps between those rows never scroll the camera. Off until then.
+        tip:SetScript("OnMouseWheel", function() end)
+        tip:EnableMouseWheel(false)
         tip:Hide()
         local bg = tip:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
@@ -918,6 +915,8 @@ do
             b:SetScript("OnClick", nil)
             b:SetScript("OnEnter", nil)
             b:SetScript("OnLeave", nil)
+            b:SetScript("OnMouseWheel", nil)
+            b:EnableMouseWheel(false)
         end
         activeClicks = 0
     end
@@ -990,6 +989,7 @@ do
         EnsureTip()
         owner = ownerFrame
         dataCount = 0
+        clickRow = 0
         forceInteractive = false
     end
 
@@ -999,6 +999,7 @@ do
     -- shortens instead of erroring. Add functions return true when added.
     function ns.Tip_AddLine(text, r, g, b)
         if not tip then return end
+        clickRow = 0
         if text ~= nil and issecretvalue(text) then return end
         -- Fixed UI strings resolve through the shared locale; dynamic content
         -- (names, numbers, already-localized strings) has no key, falls back unchanged.
@@ -1015,6 +1016,7 @@ do
         d.actionMacro = nil
         d._padBand = nil
         d.onClick = nil
+        d.onWheel = nil
         d.ncols = nil
         return true
     end
@@ -1030,6 +1032,7 @@ do
 
     function ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb)
         if not tip then return end
+        clickRow = 0
         if (left ~= nil and issecretvalue(left))
         or (right ~= nil and issecretvalue(right)) then return end
         left = EllesmereUI.L(left); right = EllesmereUI.L(right)   -- see Tip_AddLine
@@ -1046,6 +1049,7 @@ do
         d.actionMacro = nil
         d._padBand = nil
         d.onClick = nil
+        d.onWheel = nil
         d.ncols = nil
         return true
     end
@@ -1057,6 +1061,7 @@ do
     -- is copied, so callers may reuse one buffer for every row.
     function ns.Tip_AddColumns(left, tokens, lr, lg, lb)
         if not tip then return end
+        clickRow = 0
         if left ~= nil and issecretvalue(left) then return end
         local n = (tokens and #tokens) or 0
         for i = 1, n do
@@ -1074,6 +1079,7 @@ do
         d.actionMacro = nil
         d._padBand = nil
         d.onClick = nil
+        d.onWheel = nil
         -- nil, never 0: Tip_Show tests `if d.ncols`, and 0 is true in Lua, so a
         -- token-less row would reserve the right column and pad the tip by
         -- COL_GAP for content that never renders.
@@ -1127,6 +1133,7 @@ do
     function ns.Tip_AddClickable(left, right, onClick, lr, lg, lb, rr, rg, rb)
         if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and onClick then
             data[dataCount].onClick = onClick
+            clickRow = dataCount
         end
     end
 
@@ -1136,6 +1143,17 @@ do
     function ns.Tip_AddClickableColumns(left, tokens, onClick, lr, lg, lb)
         if ns.Tip_AddColumns(left, tokens, lr, lg, lb) and onClick then
             data[dataCount].onClick = onClick
+            clickRow = dataCount
+        end
+    end
+
+    -- Give the row the immediately preceding Tip_AddClickable (or
+    -- Tip_AddClickableColumns) call added a mouse wheel handler, onWheel(delta).
+    -- When that add was dropped (secret text) nothing is attached, never a
+    -- neighbouring row. Same unprotected-only contract as the onClick.
+    function ns.Tip_SetRowWheel(onWheel)
+        if clickRow > 0 then
+            data[clickRow].onWheel = onWheel
         end
     end
 
@@ -1354,6 +1372,7 @@ do
         -- Insecure clickable overlay (social/guild rows): callbacks are
         -- unprotected, so no combat guard. Rebuilt from scratch each show.
         HideClickButtons()
+        local anyWheel = false
         for i = 1, dataCount do
             local d = data[i]
             if d.onClick then
@@ -1362,8 +1381,16 @@ do
                 local cb = d.onClick
                 PlaceRowOverlay(b, i, innerW)
                 b:SetScript("OnClick", function(_, mouseButton) cb(mouseButton) end)
+                local wcb = d.onWheel
+                if wcb then
+                    anyWheel = true
+                    b:EnableMouseWheel(true)
+                    b:SetScript("OnMouseWheel", function(_, delta) wcb(delta) end)
+                end
             end
         end
+        -- The tip body swallows the wheel only while a row takes it (see EnsureTip).
+        tip:EnableMouseWheel(anyWheel)
 
         if forceInteractive then interactive = true end
         tip:EnableMouse(interactive)
@@ -1427,6 +1454,7 @@ do
         StopKeepAlive()
         interactive = false
         tip:EnableMouse(false)
+        tip:EnableMouseWheel(false)
         tip:Hide()
     end
 
@@ -1832,16 +1860,6 @@ local function MakeBarCtx(id)
         if c and c.thickness then return c.thickness end
         return 30
     end
-    function ctx.GetLengthPx()
-        local rec = live[id]
-        if rec and rec.bar then
-            if ctx.IsVertical() then return rec.bar:GetHeight() end
-            return rec.bar:GetWidth()
-        end
-        local c = ctx.cfg
-        if c and c.length then return c.length end
-        return 400
-    end
     function ctx.RequestLayout()
         ns.RequestLayout(id)
     end
@@ -2159,7 +2177,7 @@ end
 --- reads never, and an override of Never disables one whose scalar does not.
 function ns.VisIsNever(cfg)
     if not cfg then return true end
-    local ov = EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(cfg)
+    local ov = EllesmereUI.VisOverrideValue(cfg)
     if ov then return ov == "never" end
     return cfg.visibility == "never"
 end
@@ -2272,24 +2290,29 @@ function ns.ApplyBar(id)
 
     for i = 1, #cfg.blocks do
         local b = cfg.blocks[i]
-        local slot = EnsureSlot(rec, b)
-        ApplyBlockDecor(slot, b, cfg)
-        AnchorContent(slot, b, vertical, cfg)
-        local inst = rec.insts[b.id]
-        if not inst then
-            local factory = ns.BlockFactories[b.type]
-            if factory then
-                inst = factory(b, slot, slot._edbContent, rec.ctx)
-                if inst then
-                    inst._edbType = b.type
-                    rec.insts[b.id] = inst
-                    if inst.Enable then inst:Enable() end
+        -- WoW Forever: a saved block whose type has no factory there (a
+        -- retail-only block from an imported profile) builds no slot, so it
+        -- draws no background or hover region; the layout skips a missing slot.
+        if not (EllesmereUI.IS_FOREVER and not ns.BlockFactories[b.type]) then
+            local slot = EnsureSlot(rec, b)
+            ApplyBlockDecor(slot, b, cfg)
+            AnchorContent(slot, b, vertical, cfg)
+            local inst = rec.insts[b.id]
+            if not inst then
+                local factory = ns.BlockFactories[b.type]
+                if factory then
+                    inst = factory(b, slot, slot._edbContent, rec.ctx)
+                    if inst then
+                        inst._edbType = b.type
+                        rec.insts[b.id] = inst
+                        if inst.Enable then inst:Enable() end
+                    end
                 end
+            elseif wasDisabled then
+                -- Re-enabling a previously disabled bar: instance Enable is
+                -- idempotent (re-registers events + heartbeat under the same key).
+                if inst.Enable then inst:Enable() end
             end
-        elseif wasDisabled then
-            -- Re-enabling a previously disabled bar: instance Enable is
-            -- idempotent (re-registers events + heartbeat under the same key).
-            if inst.Enable then inst:Enable() end
         end
     end
 
@@ -2485,7 +2508,7 @@ do
             local rec = live[cfg.id]
             if rec and rec.enabled then
                 local vis
-                if EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(cfg) then
+                if EllesmereUI.CheckVisibilityOptions(cfg) then
                     vis = false
                 else
                     st.inCombat = _inCombat
@@ -3215,4 +3238,43 @@ end
 
 _G._EDB_RegisterUnlock = function()
     ns.RegisterAllUnlockElements()
+end
+
+-------------------------------------------------------------------------------
+--  Party Mode: spinning data bars. Each block orbits its own bar's centre,
+--  like the action bar spin. Driver, combat pause and rest tracking live in
+--  the shared engine (EllesmereUI.PartySpin_Create, EllesmereUI_PartyMode.lua).
+-------------------------------------------------------------------------------
+do
+    local groups = {}
+    local groupOf = setmetatable({}, { __mode = "k" })   -- bar rec -> reused group
+    EllesmereUI.PartySpin_Create({
+        target = "dataBars",
+        collect = function()
+            wipe(groups)
+            for _, rec in pairs(live) do
+                if rec.enabled and rec.bar and rec.slots then
+                    local grp = groupOf[rec]
+                    if not grp then
+                        grp = { frames = {} }
+                        groupOf[rec] = grp
+                    end
+                    grp.pivot = rec.bar
+                    local list = grp.frames
+                    wipe(list)
+                    for _, slot in pairs(rec.slots) do list[#list + 1] = slot end
+                    groups[#groups + 1] = grp
+                end
+            end
+            return groups
+        end,
+    })
+end
+
+-- Party Mode visibility axis (Visibility > Party Mode): no game event, so the
+-- core fires its own edge.
+if EllesmereUI.RegisterVisEdge then
+    EllesmereUI.RegisterVisEdge(function()
+        if ns.UpdateAllBarVisibility then ns.UpdateAllBarVisibility() end
+    end)
 end

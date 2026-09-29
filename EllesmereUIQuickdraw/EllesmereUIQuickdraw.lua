@@ -95,9 +95,9 @@ local MAX_PALETTES = 16
 -- 50-unit pitch, the thirteenth overlaps its neighbour. That is no longer the
 -- constraint: Menu Radius is a minimum now and the ring grows with the count
 -- (see PaletteView:Geom), so the cap answers to how many entries a person can
--- still aim at rather than to how many fit. Sixteen, which is where a full
--- circle gives each entry 22.5 degrees.
-local MAX_SLOTS = 16
+-- still aim at rather than to how many fit. Twenty, which is where a full
+-- circle gives each entry 18 degrees.
+local MAX_SLOTS = 20
 
 -- Entries a nested palette contributes through a HALO, which is eight fixed
 -- positions around a cell (see HALO_DIRS) and so cannot seat a ninth child
@@ -139,12 +139,12 @@ local MAX_CHILD_ROWS = 4
 -- ground this claim cannot be armed on anyway.
 --
 -- Derived by running .tools/quickdraw-nest over every block layout at
--- MAX_SLOTS: 330,692 arrangements -- 2 to 16 entries, every arrangement of up
+-- MAX_SLOTS: 500,308 arrangements -- 2 to 20 entries, every arrangement of up
 -- to four nesting ones (thinned evenly past 120 per shape), 1 to 16 children
--- each, auto and pinned columns, both nest styles. Fourteen covers all but 239
+-- each, auto and pinned columns, both nest styles. Fourteen covers all but 258
 -- of them; the worst single claim in the sweep comes to eighteen, and spending
 -- four more gates and eight more wrapped scripts on every claim to catch that
--- last 0.07 per cent is not the trade. Past the budget the tail is dropped,
+-- last 0.05 per cent is not the trade. Past the budget the tail is dropped,
 -- child-bearing pieces being written first, so a claim that does overflow loses
 -- ground between its entries rather than a child.
 --
@@ -634,14 +634,6 @@ local APPEARANCE_KEYS = {
 }
 ns.APPEARANCE_KEYS = APPEARANCE_KEYS
 
--- The overrides table for a palette, created on demand. Only the options page
--- writes here; everything else reads through the view below.
-function ns.PaletteAppearance(palette, create)
-    if not palette then return nil end
-    if not palette.appearance and create then palette.appearance = {} end
-    return palette.appearance
-end
-
 -- One READ-ONLY view per palette, with that palette's overrides in front of
 -- the profile. Handing this back as `p` is what let the whole renderer stay
 -- written as `p.layout`: the fallback lives in one metatable instead of at
@@ -1078,12 +1070,38 @@ ns.ProfessionPositionName = function(index, extra, specialization)
     return base
 end
 
+-- Store the stable outfitID; the secure action uses the reorderable index.
+function ns.OutfitInfo(slot)
+    local id = type(slot) == "table" and slot.id or slot
+    local info = type(id) == "number" and C_TransmogOutfitInfo.GetOutfitInfo(id)
+    return info and not info.isDisabled and info or nil
+end
+
+function ns.OutfitIcon(info)
+    local icon = info and info.icon
+    return icon ~= 0 and icon or nil
+end
+
+function ns.OutfitSlots()
+    local out = {}
+    for _, info in ipairs(C_TransmogOutfitInfo.GetOutfitsInfo() or {}) do
+        if not info.isDisabled then
+            out[#out + 1] = {
+                kind = "outfit", id = info.outfitID, name = info.name,
+                icon = ns.OutfitIcon(info) or { atlas = "poi-transmogrifier" },
+            }
+        end
+    end
+    return out
+end
+
 -------------------------------------------------------------------------------
 --  Interface panels: one entry per Blizzard panel, so the whole micro menu
 --  fits on a ring and costs one keybind. A panel with a micro button fires as
 --  "/click <button>", the click Blizzard's own menu makes: the macro runs
 --  untainted from the secure button, where an addon opening the frame from its
---  own Lua taints what it draws (EllesmereUIDataBars_Blocks.lua:4138). The five
+--  own Lua taints what it draws (see MM_MICRO_BUTTON_NAMES in
+--  EllesmereUIDataBars/Blocks/MicroMenu.lua). The five
 --  with no button to click fire from FireInsecure, out of combat only.
 -------------------------------------------------------------------------------
 do
@@ -1097,9 +1115,11 @@ do
     -- fire: the toggle for a panel with no button, called from FireInsecure.
     -- label: the client's own caption, by GLOBAL NAME rather than by value so
     --   no English one is baked in; first that answers wins, `default` last.
-    -- minor: left out of the preset menu. The panels run two past MAX_SLOTS on
-    --   a full client, and the Shop and Customer Support are the two a ring is
-    --   worth the least. Both are still in the picker.
+    -- minor: left out of the preset menu. The Shop and Customer Support are
+    --   the two a ring is worth the least; the preset stays at the sixteen a
+    --   ring reads best at (on WoW Forever too, where Talents has its own
+    --   entry and the Great Vault is unavailable) even though MAX_SLOTS now
+    --   seats the full set. Both are still in the picker.
     local PANELS = {
         { key = "character",   icon = ART .. "menu-character.png",
           button = "CharacterMicroButton",
@@ -1192,6 +1212,32 @@ do
           button = "HelpMicroButton",
           label = "HELP_BUTTON",                default = "Customer Support" },
     }
+
+    -- WoW Forever has no Great Vault content: its weekly rewards entry point
+    -- still loads there but only opens an empty window, so the vault entry
+    -- loses its toggle. PanelAvailable then answers no, which keeps it out of
+    -- the picker and the preset and makes it fire nothing, while a saved
+    -- vault slot still draws its own icon and name and goes dark under Hide
+    -- Unusable Entries like any other panel the client cannot open.
+    -- Forever also splits the spellbook and the talents into two micro
+    -- buttons. Its combined button still exists but opens on whichever tab
+    -- was last shown, so there the spellbook entry clicks the spellbook's own
+    -- button and a Talents entry follows it.
+    if EllesmereUI.IS_FOREVER then
+        for _, def in ipairs(PANELS) do
+            if def.key == "greatvault" then def.fire = nil end
+        end
+        for i, def in ipairs(PANELS) do
+            if def.key == "spellbook" then
+                def.button, def.label, def.default = "SpellbookMicroButton", "SPELLBOOK", "Spellbook"
+                tinsert(PANELS, i + 1, { key = "talents",
+                    icon = ART .. "menu-achievements.png",
+                    button = "TalentMicroButton",
+                    label = "TALENTS",                  default = "Talents" })
+                break
+            end
+        end
+    end
 
     local byKey = {}
     for _, def in ipairs(PANELS) do byKey[def.key] = def end
@@ -1480,6 +1526,8 @@ local function SlotUsable(slot)
         return SpellKnownHere(tonumber(slot.id))
     elseif k == "macro" then
         return GetMacroInfo(slot.name or slot.id) ~= nil
+    elseif k == "outfit" then
+        return ns.OutfitInfo(slot) ~= nil
     elseif k == "panel" then
         -- The one kind whose availability is the CLIENT's rather than the
         -- character's: Housing arrived in 12.0 and the Shop is not in every
@@ -1564,6 +1612,11 @@ local function ResolveAction(slot, p)
     elseif k == "toy" then
         if type(slot.id) ~= "number" then return nil end
         return "toy", "toy", slot.id
+
+    elseif k == "outfit" then
+        local info = ns.OutfitInfo(slot)
+        if not info then return nil end
+        return "outfit", "outfit-index", info.playerFacingOutfitIndex
 
     elseif k == "macro" then
         -- Stored by name so reordering the macro list doesn't repoint the
@@ -1840,6 +1893,11 @@ local function SlotDisplay(slot)
         local _, name, icon = C_ToyBox.GetToyInfo(slot.id)
         return icon or QUESTION_MARK, name or slot.name
 
+    elseif k == "outfit" then
+        local info = ns.OutfitInfo(slot)
+        return ns.OutfitIcon(info) or ns.OutfitIcon(slot) or QUESTION_MARK,
+               (info and info.name) or slot.name or "Outfit"
+
     elseif k == "macro" then
         local nameOrIndex = slot.name or slot.id
         local name, icon = GetMacroInfo(nameOrIndex)
@@ -2088,12 +2146,14 @@ local function SlotCooldown(slot)
     if not slot then return nil end
     local k = slot.kind
     if k == "spell" or k == "mount" or k == "dynamicrez"
-       or k == "dynamicprofession" then
+       or k == "dynamicprofession" or k == "outfit" then
         local id
         if k == "mount" then
             -- No falling back to slot.id here: that is a mountID, and looking
             -- a mountID up as a spellID reports some unrelated spell's cooldown.
             id = slot.spellID or select(2, C_MountJournal.GetMountInfoByID(slot.id))
+        elseif k == "outfit" then
+            id = Constants.TransmogOutfitDataConsts.EQUIP_TRANSMOG_OUTFIT_MANUAL_SPELL_ID
         else
             id = SlotSpellID(slot)
         end
@@ -2174,10 +2234,13 @@ local USABILITY_TINT = {
 -- C_Item.ItemHasRange and C_Item.IsItemInRange all carry no
 -- SecretWhenCooldownsRestricted flag in the generated documentation, unlike
 -- the cooldown and charge getters two functions up. So these results may be
--- branched on. Do not add a kind here without checking its getter the same
--- way -- a mount's usability, for one, has to come from the Mount Journal
--- rather than from its summon spell, which is not in the spellbook and
--- answers unusable for every mount.
+-- branched on. Secrecy is not protection, though: C_Item.IsItemInRange is
+-- additionally a PROTECTED call in combat and in protected instances against
+-- a unit the player cannot attack, so it sits behind the Range module's gate
+-- below. Do not add a kind here without checking its getter both ways -- a
+-- mount's usability, for one, has to come from the Mount Journal rather than
+-- from its summon spell, which is not in the spellbook and answers unusable
+-- for every mount.
 --
 -- Out of range OUTRANKS the other two, matching every action bar: a spell you
 -- cannot reach is the thing to say first, and it is the state a step forward
@@ -2206,13 +2269,20 @@ local function SlotUsability(slot)
 
     elseif k == "item" then
         if type(slot.id) ~= "number" then return nil end
-        if C_Item.ItemHasRange(slot.id)
+        -- Range against the target is a PROTECTED query in combat and in
+        -- protected instances when the target cannot be attacked; the Range
+        -- module owns that rule. Skipped = no range tint, usability still applies.
+        local allowed = EllesmereUI.ItemRangeChecksAllowed
+        if C_Item.ItemHasRange(slot.id) and allowed and allowed("target")
            and C_Item.IsItemInRange(slot.id, "target") == false then
             return "OUTOFRANGE"
         end
         local usable, noPower = C_Item.IsUsableItem(slot.id)
         if usable then return nil end
         return noPower and "NOPOWER" or "UNUSABLE"
+
+    elseif k == "outfit" then
+        return InCombatLockdown() and "UNUSABLE" or nil
     end
 
     return nil
@@ -2267,6 +2337,12 @@ local function SlotFromCursor()
     elseif cursorType == "battlepet" then
         if not a then return nil end
         return { kind = "battlepet", guid = a }
+
+    elseif cursorType == "outfit" then
+        local info = ns.OutfitInfo(a)
+        if not info then return nil end
+        return { kind = "outfit", id = info.outfitID,
+                 name = info.name, icon = ns.OutfitIcon(info) }
     end
 
     return nil
@@ -2477,13 +2553,12 @@ local function ApplyModuleFont(fs)
     if fs.eqdIconText and EllesmereUI.GetIconTextOutlineFlag then
         flags = EllesmereUI.GetIconTextOutlineFlag(FONT_KEY)
     else
-        flags = EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag(FONT_KEY) or ""
+        flags = EllesmereUI.GetFontOutlineFlag(FONT_KEY) or ""
     end
     -- Runtime SetShadowOffset no longer renders on 12.x; the shadow has to be
     -- carried by a FontObject, primed BEFORE the typeface call.
     if EllesmereUI.PrimeFontShadow then
-        local useShadow = flags == "" and EllesmereUI.GetFontUseShadow
-            and EllesmereUI.GetFontUseShadow()
+        local useShadow = flags == "" and EllesmereUI.GetFontUseShadow()
         EllesmereUI.PrimeFontShadow(fs, useShadow and true or false)
     end
     fs:SetFont(EllesmereUI.GetFontPath(FONT_KEY), size, flags)
@@ -2599,10 +2674,11 @@ local function CreateSlotWidget(view, index)
     AdoptFontString(w.count, true)
 
     -- "This world marker is on the ground right now", in the corner the count
-    -- does not use. Drawn above the border host so a selected entry does not
-    -- bury it. Shown only by PaletteView:MarkerPip, which is also what sizes
-    -- and colors it; created here unconditionally because a widget is reused
-    -- for whatever entry the next open puts in it.
+    -- does not use. Shown only by PaletteView:MarkerPip, which is also what
+    -- sizes and colors it, and which moves it onto a host frame the first time
+    -- the widget holds a marker entry (see there); created here unconditionally
+    -- because a widget is reused for whatever entry the next open puts in it.
+    -- It draws under the border host.
     w.markerPip = w:CreateTexture(nil, "OVERLAY", nil, 7)
     w.markerPip:SetTexture("Interface\\Buttons\\WHITE8X8")
     w.markerPip:SetPoint("TOPLEFT", w, "TOPLEFT", 2, -2)
@@ -3546,16 +3622,10 @@ end
 -- entry drawn farthest from the centre is half the palette out and not the
 -- whole of it. Measured over the whole count the strip was fitted to about
 -- twice its own drawn length -- the preview shrank its icons to half what the
--- panel had room for. The hover reach next door counts the same way.
+-- panel had room for.
 function ns.FanReach(count, iconSize, gap, decay)
     return FanOffset(count * 0.5, iconSize, gap, decay, FAN_EDIT_MIN_SCALE)
            + iconSize + iconSize * (SelectedZoom() - 1) * 0.5
-end
-
--- The same measurement for a hover fan, which is evenly spaced at full pitch
--- because its zoomed entry is drawn at 1.0 and must not overlap its neighbours.
-function ns.FanHoverReach(count, iconSize, gap)
-    return count * 0.5 * (iconSize + gap) + iconSize * 0.5 * SelectedZoom()
 end
 
 -- Position every widget from self.fanVisual, the CONTINUOUS centre. Called
@@ -5106,7 +5176,7 @@ function ns.CreatePaletteView(parent, opts)
 
     -- The palette's own entries exist from the outset; nested ones are made on
     -- demand, because most palettes hold none and a full set would be another
-    -- ninety-six frames per view.
+    -- MAX_SLOTS x MAX_CHILDREN frames per view.
     for i = 1, MAX_SLOTS do view.widgets[i] = CreateSlotWidget(view, i) end
 
     views[#views + 1] = view
@@ -5621,9 +5691,15 @@ end
 -- entry closes the menu (see the release handler), so a press never updates a
 -- pip the presser can still see.
 --
--- IsRaidMarkerActive is unrestricted and answers a plain bool -- it is neither
--- protected nor a secret value, unlike GetRaidTargetIndex beside it in the
--- documentation -- so this reads the same in combat as out of it.
+-- IsRaidMarkerActive answers a SECRET boolean during chat messaging lockdown
+-- (SecretInChatMessagingLockdown in RaidMarkersDocumentation.lua): on every
+-- dungeon and raid map, in or out of combat, and through boss encounters,
+-- keystones and PvP matches -- which is where a marker menu does most of its
+-- work. So the answer is never tested, compared or kept here. It goes
+-- straight into SetAlphaFromBoolean on the pip's host frame, which takes a
+-- secret from our code and lets the client resolve it; a plain answer takes
+-- the same call, so the pip is right in both states on one path. Nothing
+-- else about the pip (size, color, shown) depends on the answer.
 --
 -- Every other kind hides the pip rather than leaving it alone: one widget is
 -- reused for whatever the next open puts in it, and a stale pip would claim a
@@ -5667,8 +5743,7 @@ function PaletteView:MarkerPip(w, slot, iconSize)
             id = CycleNext(slot)
         end
     end
-    if not id or id < 1 or id > 8
-       or not IsRaidMarkerActive(WORLD_MARKER_ENGINE[id]) then
+    if not id or id < 1 or id > 8 then
         pip:Hide()
         return
     end
@@ -5682,6 +5757,18 @@ function PaletteView:MarkerPip(w, slot, iconSize)
         ar, ag, ab = EllesmereUI.ResolveActiveAccent()
     end
     pip:SetVertexColor(ar, ag, ab, 1)
+    -- Whether the marker is down reaches the screen through the host's alpha
+    -- alone (see above); the pip itself is shown for every marker entry. The
+    -- host is made the first time this widget holds a marker entry, at the
+    -- default child level: under the border host, where the pip always drew.
+    local host = w.markerPipHost
+    if not host then
+        host = CreateFrame("Frame", nil, w)
+        host:SetAllPoints(w)
+        w.markerPipHost = host
+        pip:SetParent(host)
+    end
+    host:SetAlphaFromBoolean(IsRaidMarkerActive(WORLD_MARKER_ENGINE[id]), 1, 0)
     pip:Show()
 end
 
@@ -7668,6 +7755,7 @@ local SNIPPET_PRE = [==[
     self:SetAttribute("macro", nil)
     self:SetAttribute("macrotext", nil)
     self:SetAttribute("toy", nil)
+    self:SetAttribute("outfit-index", nil)
     -- "action" is the marker sweep's key, and type="raidtarget" falls back to
     -- "toggle" when it is unset -- so a sweep left behind would turn the next
     -- raidtarget slot into a clear-all of the whole group.
@@ -7679,6 +7767,8 @@ local SNIPPET_PRE = [==[
     -- together.
     self:SetAttribute("action", nil)
     self:SetAttribute("marker", nil)
+    -- Do not toggle the active outfit off on a second press.
+    if t == "outfit" then self:SetAttribute("action", "change") end
 
     -- A cycling entry names a different marker on every press, and the position
     -- it has reached has to advance HERE: an insecure SetAttribute is refused
@@ -9426,6 +9516,8 @@ function SetEventsEnabled(on)
         -- PLAYER_REGEN_ENABLED like every other push.
         EQD:RegisterEvent("SPELLS_CHANGED", RequestPush)
         EQD:RegisterEvent("UPDATE_MACROS", RequestPush)
+        -- Re-resolve player-facing indexes after outfits change order.
+        EQD:RegisterEvent("TRANSMOG_OUTFITS_CHANGED", RequestPush)
         -- Which world markers are down, for a menu that is open while they
         -- move. That is SOMEBODY ELSE's doing: firing an entry closes the menu,
         -- so the presser never sees their own pip change. It is worth the one
@@ -9490,6 +9582,7 @@ function SetEventsEnabled(on)
         EQD:UnregisterEvent("PLAYER_ENTERING_WORLD")
         EQD:UnregisterEvent("SPELLS_CHANGED")
         EQD:UnregisterEvent("UPDATE_MACROS")
+        EQD:UnregisterEvent("TRANSMOG_OUTFITS_CHANGED")
         EQD:UnregisterEvent("RAID_TARGET_UPDATE")
         EQD:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     end

@@ -171,6 +171,53 @@ function Tick.NewAnimTicker(frame, fn, interval)
     return t
 end
 
+-- Combat deferral queue: "run once after combat ends" without one event frame per
+-- call site. Pass a frame created in the CALLER's main chunk (same attribution rule
+-- as NewDriver). Defer(key, fn) is idempotent per key: a pending key keeps its
+-- position and gets the new fn. Drains FIFO on PLAYER_REGEN_ENABLED; the set is
+-- swapped out first, so an fn may Defer again (next drain), and each fn is
+-- error-isolated. The event is registered only while something is pending, so idle
+-- is free. Callers keep their own InCombatLockdown() gate.
+local function QueueErrorHandler(err) return geterrorhandler()(err) end
+
+function EllesmereUI.NewCombatQueue(frame)
+    if not frame then frame = CreateFrame("Frame") end
+    local fns, index, count = {}, {}, 0
+    local q = {}
+
+    frame:SetScript("OnEvent", function(self)
+        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        local runFns, n = fns, count
+        fns, index, count = {}, {}, 0
+        for i = 1, n do
+            xpcall(runFns[i], QueueErrorHandler)
+        end
+    end)
+
+    function q.Defer(key, fn)
+        if not key or type(fn) ~= "function" then return end
+        local i = index[key]
+        if i then
+            fns[i] = fn
+            return
+        end
+        count = count + 1
+        fns[count] = fn
+        index[key] = count
+        if count == 1 then frame:RegisterEvent("PLAYER_REGEN_ENABLED") end
+    end
+
+    function q.Has(key)
+        return index[key] ~= nil
+    end
+
+    return q
+end
+
+-- The core's own queue. EllesmereUI_Startup.lua and EllesmereUI.lua load before
+-- this file, so they read it at the call, never as a load-time upvalue.
+EllesmereUI.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
+
 -- The shared driver: frame created here in the parent, so subscriber work is
 -- billed to the parent addon. Parent-owned subscribers only; children should
 -- carry their own NewDriver(frame) with a file-scope-created frame.

@@ -728,26 +728,6 @@ end
 
 -- (ns.GetTBBSpellPool removed -- TBB disabled pending rewrite)
 
---- Check if a cooldownID has a Blizzard CDM child (is "displayed")
-function ns.IsSpellDisplayedInCDM(barKey, cdID)
-    local BLIZZ_CDM_FRAMES = ns.BLIZZ_CDM_FRAMES
-    local blizzName = BLIZZ_CDM_FRAMES[barKey]
-    if not blizzName then return false end
-    local blizzFrame = _G[blizzName]
-    if not blizzFrame then return false end
-    for i = 1, blizzFrame:GetNumChildren() do
-        local child = select(i, blizzFrame:GetChildren())
-        if child then
-            local cid = child.cooldownID
-            if not cid and child.cooldownInfo then
-                cid = child.cooldownInfo.cooldownID
-            end
-            if cid == cdID then return true end
-        end
-    end
-    return false
-end
-
 --- One-time per-spec pass serving two purposes with the same logic: (1) legacy
 --- migration of pre-refactor "assignedSpells as content filter" on default
 --- CD/utility bars into the "ghost-bar diversion" model, preserving the
@@ -1615,12 +1595,6 @@ function ns.IsSpellKnownInCDM(spellID)
     return _knownSpellSet[spellID] == true
 end
 
-function ns.IsSpellInAnyCDMCategory(spellID)
-    if not spellID or spellID <= 0 then return false end
-    RebuildCDMSpellCaches()
-    return _allSpellSet[spellID] == true
-end
-
 --- Add a preset group to a bar. custom_buff bars: adds ALL spell IDs as plain
 --- entries (each gets its own C_UnitAuras check -- only the active variant
 --- shows). Other bars: adds primary ID with duration/group metadata.
@@ -1772,16 +1746,6 @@ function ns.AddTrackedBuffByCdID(barKey, cdID)
     return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
 end
 
-function ns.RemoveTrackedBuffCdID(barKey, cdID)
-    if type(cdID) ~= "number" then return false end
-    -- RemoveSpellFromBar doesn't itself trigger route/reanchor; caller must.
-    local removed = ns.RemoveSpellFromBar(barKey, ns.CdClaimMarker(cdID))
-    if not removed then return false end
-    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
-    if ns.QueueReanchor then ns.QueueReanchor() end
-    return true
-end
-
 --- Place a BUFF on a CD/utility bar. HOSTED: RebuildSpellRouteMap diverts its
 --- real Blizzard buff-viewer frame onto this bar; reanchor reparents it into
 --- the layout when active / a placeholder when inactive -- like the buffs bar,
@@ -1816,6 +1780,54 @@ function ns.AddBuffToCDUtilBar(barKey, spellID)
     return true
 end
 
+--- "Replace with Buff": name a tracked buff whose viewer frame takes this
+--- cooldown's slot while the aura is active (nil buffSID clears it). Per-spell
+--- only, in the cooldown family store, so it rides the spec/override capture
+--- like every other per-spell key. No marker and no hosted flag: the route
+--- map's Pass 3c diverts the buff and the collect pass swaps the frames. One
+--- buff may stand in for one cooldown per bar; the same buff on another entry
+--- is cleared here. buffCdID names a cd-claimed collided slot.
+function ns.SetCooldownBuffReplacement(barKey, targetSID, buffSID, buffCdID)
+    if type(targetSID) ~= "number" or targetSID <= 0 then return false end
+    if buffSID ~= nil and (type(buffSID) ~= "number" or buffSID <= 0) then return false end
+    local store = ns.GetSpellSettingsStore(barKey, true)
+    if not store then return false end
+    if buffSID then
+        for key, other in pairs(store) do
+            if key ~= targetSID and type(other) == "table" then
+                local oSid = rawget(other, "replaceBuffID")
+                local oCd = rawget(other, "replaceBuffCdID")
+                local same = (buffCdID and oCd == buffCdID)
+                    or (not buffCdID and not oCd and oSid and IsVariantOf(oSid, buffSID))
+                if same then
+                    other.replaceBuffID = nil
+                    other.replaceBuffCdID = nil
+                    if next(other) == nil then store[key] = nil end
+                end
+            end
+        end
+    end
+    local ss = store[targetSID]
+    if not ss then
+        if not buffSID then return true end
+        ss = {}
+        store[targetSID] = ss
+    end
+    ss.replaceBuffID = buffSID
+    ss.replaceBuffCdID = buffSID and buffCdID or nil
+    if next(ss) == nil then store[targetSID] = nil end
+    if buffSID then ns._cdmAnyBuffReplace = true end
+    ns._cdmResGen = (ns._cdmResGen or 0) + 1
+    ns._spellOrderDirty = true
+    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+    -- User-settings edge: the BuffIcon viewer's alpha vote now includes this
+    -- bar (BarUsesBuffViewer), so re-apply visibility here rather than wait
+    -- for the next combat/zone edge.
+    if ns.CDMApplyVisibility then ns.CDMApplyVisibility() end
+    if ns.QueueReanchor then ns.QueueReanchor() end
+    return true
+end
+
 --- Host a single collided-buff SLOT (cooldownID) on a CD/util bar. Same
 --- collision escape hatch as ns.AddTrackedBuffByCdID: two viewer slots can
 --- share one canonical spellID, so AddBuffToCDUtilBar's spellID-keyed
@@ -1834,16 +1846,6 @@ function ns.AddHostedBuffByCdID(barKey, cdID)
     -- own "c"..cooldownID key independently -- only the table's existence matters.
     sd.hostedBuffSpellIDs = sd.hostedBuffSpellIDs or {}
     return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
-end
-
-function ns.RemoveHostedBuffByCdID(barKey, cdID)
-    if type(cdID) ~= "number" then return false end
-    -- RemoveSpellFromBar doesn't itself trigger route/reanchor; caller must.
-    local removed = ns.RemoveSpellFromBar(barKey, ns.CdClaimMarker(cdID))
-    if not removed then return false end
-    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
-    if ns.QueueReanchor then ns.QueueReanchor() end
-    return true
 end
 
 --- Remove a tracked spell by index. Routes positive viewer spells to the
@@ -2027,9 +2029,7 @@ function ns.RemoveCDMBar(key)
             -- Deletion shifts every later bar's array index, so captured
             -- override paths into cdmBars.bars would point at the WRONG bars.
             -- Drop them all (users re-capture) -- honest beats corrupt.
-            if EllesmereUI.SpecOverrides_OnCDMBarsRestructured then
-                EllesmereUI.SpecOverrides_OnCDMBarsRestructured()
-            end
+            EllesmereUI.SpecOverrides_OnCDMBarsRestructured()
 
             -- Free all spells (don't ghost them): delete the bar's spell data
             -- from every spec of the ACTIVE profile only -- other profiles own
@@ -2045,9 +2045,7 @@ function ns.RemoveCDMBar(key)
                 end
             end
 
-            if EllesmereUI and EllesmereUI.UnregisterUnlockElement then
-                EllesmereUI:UnregisterUnlockElement("CDM_" .. key)
-            end
+            EllesmereUI:UnregisterUnlockElement("CDM_" .. key)
             -- Re-register remaining bars to update linkedKeys
             RegisterCDMUnlockElements()
             -- Reanchor so frames re-route to the ghost bar (or wherever)
@@ -2105,8 +2103,8 @@ function ns.PruneEquipmentBuffRows()
     -- Second proof source, viewer-independent: an EQUIPPED item vouches for
     -- its own use-spell (GetItemSpell). Covers rows whose native viewer entry
     -- is gone (untracked in Blizzard's CDM) while the item is still worn.
-    local gis = (C_Item and C_Item.GetItemSpell) or GetItemSpell
-    if gis and GetInventoryItemID then
+    local gis = C_Item.GetItemSpell
+    if GetInventoryItemID then
         for slot = 1, 19 do
             local itemID = GetInventoryItemID("player", slot)
             if itemID then

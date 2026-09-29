@@ -61,22 +61,7 @@ local function FormatTime(remaining)
     return format("%.1f", remaining)
 end
 
-local CDM_FONT_FALLBACK = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
-local function GetFont()
-    return (ns.GetCDMFont and ns.GetCDMFont()) or CDM_FONT_FALLBACK
-end
-local function GetOutline()
-    if EllesmereUI and EllesmereUI.GetFontOutlineFlag then
-        return EllesmereUI.GetFontOutlineFlag("cdm")
-    end
-    return "OUTLINE, SLUG"
-end
-local function SetFont(fs, size)
-    if not (fs and fs.SetFont) then return end
-    local useShadow = EllesmereUI and EllesmereUI.GetFontUseShadow and EllesmereUI.GetFontUseShadow("cdm")
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, useShadow) end
-    fs:SetFont(GetFont(), size, GetOutline())
-end
+local function SetFont(fs, size) EllesmereUI.ApplyModuleFont(fs, nil, size, "cdm") end
 
 local function SetTBBTextColor(fs, cfg, prefix)
     if not fs or not cfg then return end
@@ -243,6 +228,8 @@ local TBB_DEFAULT_BAR = {
     chargeHashLineWidth = 2,
     chargeHashLineR = 0, chargeHashLineG = 0,
     chargeHashLineB = 0, chargeHashLineA = 1,
+    chargeHashShade = false,      -- darken the partially recharged charge segment
+    chargeHashShadeAlpha = 0.5,   -- darkness of the partial-charge shade (0-1)
     texture   = "none",
     fillR = _classR, fillG = _classG, fillB = _classB, fillA = 1,
     bgR = 0, bgG = 0, bgB = 0, bgA = 0.4,
@@ -393,14 +380,7 @@ end
 --  system covers an empty slot.
 -------------------------------------------------------------------------------
 do
-    local function CopyEntry(v)
-        if type(v) ~= "table" then return v end
-        local t = {}
-        for k, x in pairs(v) do
-            t[k] = type(x) == "table" and CopyEntry(x) or x
-        end
-        return t
-    end
+    local CopyEntry = EllesmereUI.Lite.DeepCopy
 
     local function LiveStores(create)
         local db = EllesmereUIDB
@@ -441,13 +421,45 @@ do
         end
     end
 
+    -- A TBB child's Extra Width / Height rides its bucket beside its link (wmx /
+    -- hmx; liveField = the account store). The live stores can exist empty
+    -- (profile restores write them), so a missing bucket table is created only
+    -- once the store holds a TBB entry.
+    local function BankExtra(b, field, liveField)
+        local db = EllesmereUIDB
+        local store = db and db[liveField]
+        local dest = b[field]
+        if not dest then
+            if not store then return end
+            local any
+            for k in pairs(store) do
+                if type(k) == "string" and k:find("^TBB_%d+$") then any = true; break end
+            end
+            if not any then return end
+            dest = {}
+            b[field] = dest
+        end
+        BankOne(store, dest)
+    end
+
     local function Bank(profileName, specKey)
+        -- WoW Forever: never recreate a missing bucket here. The saved owner
+        -- can name a key the class no longer resolves to, and a recreated
+        -- bucket would steer which key the next session reads; a missing
+        -- bucket has nothing live to bank.
+        if EllesmereUI.IS_FOREVER then
+            local sp = profileName and specKey and ns.GetSpecProfilesForProfile
+                and ns.GetSpecProfilesForProfile(profileName)
+            if not (sp and sp[specKey]) then return end
+        end
         local b = Bucket(profileName, specKey, true)
         if not b then return end
         local an, wm, hm = LiveStores(false)
         BankOne(an, b.anchors)
         BankOne(wm, b.wm)
         BankOne(hm, b.hm)
+        BankExtra(b, "wmx", "unlockWidthMatchExtra")
+        BankExtra(b, "hmx", "unlockHeightMatchExtra")
     end
 
     -- Replace a live store's TBB child entries with a bucket table's.
@@ -465,6 +477,21 @@ do
         for slot, v in pairs(src) do
             store["TBB_" .. slot] = CopyEntry(v)
         end
+    end
+
+    -- Swap a bucket's extras into the account store: a spec without extras (no
+    -- wmx / hmx, or empty) clears every live TBB extra, and a missing store is
+    -- created only to hold one. NO_EXTRA is read-only (SwapOne never writes src).
+    local NO_EXTRA = {}
+    local function SwapExtra(liveField, src)
+        local db = EllesmereUIDB
+        local store = db[liveField]
+        if not store then
+            if not src or next(src) == nil then return end
+            store = {}
+            db[liveField] = store
+        end
+        SwapOne(store, src or NO_EXTRA)
     end
 
     local function SwapIn(profileName, specKey)
@@ -493,10 +520,24 @@ do
                     for _, slot in ipairs(drop) do set[slot] = nil end
                 end
             end
+            -- Extras seed and prune like their links.
+            BankExtra(b, "wmx", "unlockWidthMatchExtra")
+            BankExtra(b, "hmx", "unlockHeightMatchExtra")
+            local xsets = { b.wmx, b.hmx }
+            for i = 1, 2 do
+                local set = xsets[i]
+                if set then
+                    for slot in pairs(set) do
+                        if not bars[tonumber(slot)] then set[slot] = nil end
+                    end
+                end
+            end
         end
         SwapOne(an, b.anchors)
         SwapOne(wm, b.wm)
         SwapOne(hm, b.hm)
+        SwapExtra("unlockWidthMatchExtra", b.wmx)
+        SwapExtra("unlockHeightMatchExtra", b.hmx)
         -- Modules memoize views over the anchor DB (extent watch etc.).
         EllesmereUI._anchorLinksStamp = (EllesmereUI._anchorLinksStamp or 0) + 1
     end
@@ -525,6 +566,19 @@ do
     -- copies of whichever spec last saved unlock mode, so the active spec's own entries are re-asserted here.
     EllesmereUI._TBBRestoreUnlockLinks = function()
         ns.SyncTBBUnlockLinks(true)
+    end
+
+    -- Unlock Save & Exit: bank the active spec's live TBB links and extras into its
+    -- bucket (only while live belongs to it), so a profile restore before the next
+    -- bar build cannot swap an older bucket over them.
+    EllesmereUI._TBBBankUnlockLinks = function()
+        if not EllesmereUIDB then return end
+        local own = EllesmereUIDB._tbbLinkOwner
+        local profName = ns.GetActiveProfileName and ns.GetActiveProfileName()
+        local specKey  = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+        if own and own.profile == profName and own.spec == specKey then
+            Bank(profName, specKey)
+        end
     end
 end
 
@@ -714,9 +768,11 @@ function ns.AddBarToAllSpecs(srcIdx)
     end
 
     local added = 0
-    local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
+    -- WoW Forever: the class has no other spec to copy into (the store key it
+    -- runs on is the only one it reads).
+    local numSpecs = (not EllesmereUI.IS_FOREVER) and GetNumSpecializations and GetNumSpecializations() or 0
     for i = 1, numSpecs do
-        local specID = GetSpecializationInfo(i)
+        local specID = C_SpecializationInfo.GetSpecializationInfo(i)
         if specID then
             local key = tostring(specID)
             if key ~= activeKey then
@@ -754,7 +810,8 @@ function ns.AddBarToAllSpecs(srcIdx)
     end
 
     -- Mark broadcast so the button flips to "Remove..." in every spec; set even when added == 0 (all specs already held it).
-    local set = ns.GetActiveTBBBroadcastSet and ns.GetActiveTBBBroadcastSet()
+    -- WoW Forever copies nowhere (see above), so nothing is marked there.
+    local set = (not EllesmereUI.IS_FOREVER) and ns.GetActiveTBBBroadcastSet and ns.GetActiveTBBBroadcastSet()
     if set then
         local key = ns.TBBBroadcastKey(srcBar)
         if key then set[key] = true end
@@ -791,9 +848,9 @@ function ns.RemoveBarFromAllSpecs(srcIdx)
     end
 
     local removed = 0
-    local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
+    local numSpecs = (not EllesmereUI.IS_FOREVER) and GetNumSpecializations and GetNumSpecializations() or 0
     for i = 1, numSpecs do
-        local specID = GetSpecializationInfo(i)
+        local specID = C_SpecializationInfo.GetSpecializationInfo(i)
         if specID then
             local specKey = tostring(specID)
             if specKey ~= activeKey then
@@ -872,12 +929,18 @@ function _tbbWake.Sleep()
     _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
     _tbbWake:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     _tbbWake:RegisterEvent("PLAYER_REGEN_DISABLED")
+    -- A debuff the player left on a new target is live the moment it is selected, and
+    -- none of the player-scoped edges above can see that. Probe before waking.
+    _tbbWake:RegisterEvent("PLAYER_TARGET_CHANGED")
 end
 function _tbbWake.Wake()
     _tbbWake:UnregisterAllEvents()
     -- Stay subscribed to the aura edge while AWAKE: pool composition changes only on a
     -- player aura event or a pool Acquire (hooked separately), retiring the assignment memo.
     _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
+    -- Target changes rebind which auras the viewer's frames carry, so the awake branch
+    -- of OnEvent retires the assignment memo on this the same as any other non-aura edge.
+    _tbbWake:RegisterEvent("PLAYER_TARGET_CHANGED")
     _tbbWake._idleTicks = 0
     _tbbAssignDirty = true
     _tbbReflowDirty = true
@@ -887,6 +950,33 @@ end
 -- ticking, so this probe answers "could any bar be live?" WITHOUT waking: an active
 -- viewer frame, or a live player aura for a fallback-class config. Casts and combat
 -- entry skip the probe (rare at idle; the legitimate start edges the probe can't see).
+-- Cache names by configuration, retiring entries when their configuration is dropped.
+_tbbWake._targetNames = setmetatable({}, { __mode = "k" })
+function _tbbWake.GetTargetAura(cfg)
+    if not UnitExists("target") then return nil end
+    local names = _tbbWake._targetNames[cfg]
+    if not names then
+        names = {}
+        _tbbWake._targetNames[cfg] = names
+    end
+    if names.spellID ~= cfg.spellID then
+        names.spellID, names.name = cfg.spellID, nil
+    end
+    if names.baseSpellID ~= cfg.baseSpellID then
+        names.baseSpellID, names.baseName = cfg.baseSpellID, nil
+    end
+    if not names.name then names.name = C_Spell.GetSpellName(cfg.spellID) end
+    if not names.baseName and cfg.baseSpellID and cfg.baseSpellID > 0 then
+        names.baseName = C_Spell.GetSpellName(cfg.baseSpellID)
+    end
+    -- Ownership is filtered by the engine; never inspect a secret sourceUnit.
+    local filter = UnitIsFriend("player", "target") and "HELPFUL|PLAYER" or "HARMFUL|PLAYER"
+    local aura = names.name and C_UnitAuras.GetAuraDataBySpellName("target", names.name, filter)
+    if not aura and names.baseName and names.baseName ~= names.name then
+        aura = C_UnitAuras.GetAuraDataBySpellName("target", names.baseName, filter)
+    end
+    return aura
+end
 function _tbbWake.Probe()
     if ns._tbbPlaceholderMode then return true end
     local viewer = _G["BuffBarCooldownViewer"]
@@ -905,7 +995,8 @@ function _tbbWake.Probe()
                and cfg.spellID and cfg.spellID > 0 then
                 if C_UnitAuras.GetPlayerAuraBySpellID(cfg.spellID)
                    or (cfg.baseSpellID and cfg.baseSpellID > 0
-                       and C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)) then
+                       and C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID))
+                   or _tbbWake.GetTargetAura(cfg) then
                     return true
                 end
             end
@@ -936,7 +1027,8 @@ function _tbbWake.OnEvent(_, event, _, updateInfo)
         end
         return
     end
-    if event == "UNIT_AURA" and not _tbbWake.Probe() then return end
+    if (event == "UNIT_AURA" or event == "PLAYER_TARGET_CHANGED")
+       and not _tbbWake.Probe() then return end
     _tbbWake.Wake()
 end
 _tbbWake:SetScript("OnEvent", _tbbWake.OnEvent)
@@ -980,10 +1072,6 @@ function ns.TBBSetBarGroup(cfg, gid)
     cfg.groupId = gid
     -- Legacy mirror: older versions only know one group ("checked" bars).
     cfg.grouped = (gid ~= 0)
-end
-
-function ns.TBBBarGrouped(cfg)
-    return ns.TBBBarGroupID(cfg) ~= 0
 end
 
 -- Sorted list of group ids currently used by at least one bar.
@@ -1645,6 +1733,7 @@ local TBB_STYLE_KEYS = {
     "height", "width", "verticalOrientation", "reverseFill", "fillUp",
     "chargeHashLines", "chargeHashLineWidth",
     "chargeHashLineR", "chargeHashLineG", "chargeHashLineB", "chargeHashLineA",
+    "chargeHashShade", "chargeHashShadeAlpha",
     "texture", "strata",
     "fillColorMode", "fillR", "fillG", "fillB", "fillA",
     "bgR", "bgG", "bgB", "bgA",
@@ -1663,11 +1752,13 @@ local TBB_STYLE_KEYS = {
     "iconDisplay", "iconSize", "iconX", "iconY", "iconBorderSize",
     "stacksPosition", "stacksSize", "stacksX", "stacksY",
     "stacksTextR", "stacksTextG", "stacksTextB", "stacksTextA",
-    "borderSize", "borderTexture", "borderR", "borderG", "borderB",
+    "borderSize", "borderSizePx", "borderTexture", "borderR", "borderG", "borderB",
     "borderTextureOffset", "borderTextureOffsetY",
     "borderTextureShiftX", "borderTextureShiftY", "borderBehind",
-    "pandemicGlow", "pandemicGlowStyle", "pandemicGlowColor",
+    "stockBorderScale",
+    "pandemicGlow", "pandemicGlowStyle", "pandemicGlowColor", "pandemicGlowMode",
     "pandemicGlowLines", "pandemicGlowThickness", "pandemicGlowSpeed",
+    "pandemicGlowBackground", "pandemicGlowBackgroundColor",
 }
 -- Appended rather than spelled out: a lane added to the shared list is copied with the
 -- rest of the style instead of silently staying behind on the source bar.
@@ -1986,12 +2077,6 @@ function ns.PropagateTBBGroupSize(srcIdx, dim, value)
     _tbbGroupSizing = false
 end
 
-function ns.HasBuffBars()
-    if not ECME or not ECME.db then return false end
-    local tbb = ns.GetTrackedBuffBars()
-    return tbb and tbb.bars and #tbb.bars > 0
-end
-
 function ns.IsTBBRebuildPending() return _tbbRebuildPending end
 
 -- No-ops kept because options/main file may still reference them.
@@ -2048,12 +2133,12 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     wrapFrame._gradTex  = nil
 
     -- Text overlay: parented to wrapFrame (not bar) so bar's SetClipsChildren can't
-    -- chop text when font size exceeds bar height. Level sits above the border (bar+5
-    -- in ApplySettings, PP strips at +6) and the pandemic glow overlay (wrapFrame+7 =
-    -- bar+6), so timer/name/stacks render on top of both; keyed off bar so they track together.
+    -- chop text when font size exceeds bar height. Level sits above the border (bar+6
+    -- in ApplySettings, PP strips at +7) and the pandemic glow overlay (bar+8), so
+    -- timer/name/stacks render on top of both; keyed off bar so they track together.
     local textOverlay = CreateFrame("Frame", nil, wrapFrame)
     textOverlay:SetAllPoints(bar)
-    textOverlay:SetFrameLevel(bar:GetFrameLevel() + 7)
+    textOverlay:SetFrameLevel(bar:GetFrameLevel() + 9)
     wrapFrame._textOverlay = textOverlay
 
     -- Timer text
@@ -2097,12 +2182,12 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     bdrContainer:Hide()
     wrapFrame._barBorder = bdrContainer
 
-    -- Pandemic glow overlay above the border, whose PP strips draw at +6
-    -- (border frame +5 plus the +1 the strip container adds), so a thick border
-    -- cannot bury the edge-hugging glow.
+    -- Pandemic glow overlay above the border, whose PP strips draw at bar+7
+    -- (border frame +6 plus the +1 the strip container adds), so a border
+    -- cannot bury the edge-hugging glow (wrapFrame+9 = bar+8).
     local panGlow = CreateFrame("Frame", nil, wrapFrame)
     panGlow:SetAllPoints(wrapFrame)
-    panGlow:SetFrameLevel(wrapFrame:GetFrameLevel() + 7)
+    panGlow:SetFrameLevel(wrapFrame:GetFrameLevel() + 9)
     panGlow:SetAlpha(0)
     panGlow:EnableMouse(false)
     wrapFrame._pandemicGlowOverlay = panGlow
@@ -2156,11 +2241,13 @@ local function TBBMultiThresholdList(cfg)
     return list
 end
 
-local function ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, i, r, g, b, a, value)
+local function ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, i, r, g, b, a, value, blizzAtlas)
     overlay:SetStatusBarTexture(texPath)
     overlay:SetOrientation(orient)
     overlay:SetReverseFill(reverse)
     local tex = overlay:GetStatusBarTexture()
+    -- Blizzard Style: the segment takes the same atlas as the fill it covers.
+    if blizzAtlas then tex:SetAtlas("UI-HUD-CoolDownManager-Bar") end
     tex:SetVertexColor(r, g, b, a)
     tex:SetDrawLayer("ARTWORK", i)
     overlay:ClearAllPoints()
@@ -2191,7 +2278,7 @@ local function SetupTBBThresholdOverlay(bar, cfg)
             local overlay = EnsureTBBThresholdOverlay(bar, i)
             if not overlay then break end
             ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, i,
-                t.r or 0.8, t.g or 0.1, t.b or 0.1, t.a or 1, t.value or 5)
+                t.r or 0.8, t.g or 0.1, t.b or 0.1, t.a or 1, t.value or 5, bar._blizzFillAtlas)
             n = i
         end
     else
@@ -2200,7 +2287,7 @@ local function SetupTBBThresholdOverlay(bar, cfg)
             ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, 1,
                 cfg.stackThresholdR or 0.8, cfg.stackThresholdG or 0.1,
                 cfg.stackThresholdB or 0.1, cfg.stackThresholdA or 1,
-                cfg.stackThreshold or 5)
+                cfg.stackThreshold or 5, bar._blizzFillAtlas)
             n = 1
         end
     end
@@ -2366,12 +2453,14 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
     local lineA = cfg.chargeHashLineA
     if lineA == nil then lineA = 1 end
     local isVert = cfg.verticalOrientation and true or false
+    local reverse = cfg.reverseFill and true or false
     local effectiveScale = sb:GetEffectiveScale() or 1
     -- Also runs from the shared timer tick, so the cache stays SCALAR: synthesized table/string keys would allocate even on a cache hit.
     if bar._chargeHashLineCacheValid
        and bar._chargeHashLineMaxCharges == maxCharges
        and bar._chargeHashLineWidth == width
        and bar._chargeHashLineVertical == isVert
+       and bar._chargeHashLineReverse == reverse
        and bar._chargeHashLineBarW == barW
        and bar._chargeHashLineBarH == barH
        and bar._chargeHashLineScale == effectiveScale
@@ -2406,21 +2495,66 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
         ticks[#ticks + 1] = tick
     end
 
+    -- Divider boundary bars: hidden StatusBars frozen at value i of maxCharges (clean
+    -- constants). Their texture edges come from the same engine math as the charge hash
+    -- fill's live countTexture edge, so ticks centered here leave no sub-pixel sliver
+    -- beside the partial-charge shade at any bar width (a PP.Scale-snapped offset could
+    -- sit up to a physical pixel off that native edge and shimmer at unlucky widths).
+    local divBars = bar._chargeHashDivBars
+    if not divBars then divBars = {}; bar._chargeHashDivBars = divBars end
+    for i = 1, maxCharges - 1 do
+        local db2 = divBars[i]
+        if not db2 then
+            db2 = CreateFrame("StatusBar", nil, sb)
+            db2:SetAllPoints(sb)
+            db2:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+            local dt = db2:GetStatusBarTexture()
+            dt:SetSnapToPixelGrid(false)
+            dt:SetTexelSnappingBias(0)
+            db2:SetAlpha(0)
+            db2:EnableMouse(false)
+            divBars[i] = db2
+        end
+        db2:SetOrientation(isVert and "VERTICAL" or "HORIZONTAL")
+        db2:SetReverseFill(reverse)
+        db2:SetMinMaxValues(0, maxCharges)
+        db2:SetValue(i)
+        db2:Show()
+    end
+    for i = maxCharges, #divBars do divBars[i]:Hide() end
+
     local PP = EllesmereUI and EllesmereUI.PP
     local lineWidth = PP and PP.Scale(width) or width
+    local halfLine = lineWidth / 2
     for i = 1, maxCharges - 1 do
         local tick = ticks[i]
-        local frac = i / maxCharges
+        local divTex = divBars[i] and divBars[i]:GetStatusBarTexture()
         tick:SetColorTexture(lineR, lineG, lineB, lineA)
         tick:ClearAllPoints()
         if isVert then
-            local offset = PP and PP.Scale(barH * frac) or (barH * frac)
             tick:SetSize(barW, lineWidth)
-            tick:SetPoint("CENTER", sb, "BOTTOM", 0, offset)
+            if divTex then
+                if reverse then
+                    tick:SetPoint("TOP", divTex, "BOTTOM", 0, halfLine)
+                else
+                    tick:SetPoint("BOTTOM", divTex, "TOP", 0, -halfLine)
+                end
+            else
+                local offset = PP and PP.Scale(barH * (i / maxCharges)) or (barH * (i / maxCharges))
+                tick:SetPoint("CENTER", sb, "BOTTOM", 0, offset)
+            end
         else
-            local offset = PP and PP.Scale(barW * frac) or (barW * frac)
             tick:SetSize(lineWidth, barH)
-            tick:SetPoint("CENTER", sb, "LEFT", offset, 0)
+            if divTex then
+                if reverse then
+                    tick:SetPoint("RIGHT", divTex, "LEFT", halfLine, 0)
+                else
+                    tick:SetPoint("LEFT", divTex, "RIGHT", -halfLine, 0)
+                end
+            else
+                local offset = PP and PP.Scale(barW * (i / maxCharges)) or (barW * (i / maxCharges))
+                tick:SetPoint("CENTER", sb, "LEFT", offset, 0)
+            end
         end
         tick:Show()
     end
@@ -2429,6 +2563,7 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
     bar._chargeHashLineMaxCharges = maxCharges
     bar._chargeHashLineWidth = width
     bar._chargeHashLineVertical = isVert
+    bar._chargeHashLineReverse = reverse
     bar._chargeHashLineBarW = barW
     bar._chargeHashLineBarH = barH
     bar._chargeHashLineScale = effectiveScale
@@ -2455,12 +2590,18 @@ local function AnchorTBBSparkState(bar, anchor, isVert, reverse, flushToEdge)
        and bar._sparkAnchorBarH == barH then
         return
     end
+    -- Blizzard Style pip is an atlas: an 8-coord rotation would sample the
+    -- whole sheet, so its coords are left to the atlas (vertical bars keep the
+    -- upright pip).
+    -- The classic pip is the vanilla cast bar spark, a 32px square on a 13px
+    -- bar, scaled by the bar's thickness (the overlay clips it to the bar).
+    local classicSz = bar._classicSpark and ((isVert and barW or barH) * (32 / 13))
     if isVert then
-        spark:SetSize(barW, 8)
-        spark:SetTexCoord(0, 1, 1, 1, 0, 0, 1, 0)
+        if classicSz then spark:SetSize(classicSz, classicSz) else spark:SetSize(barW, 8) end
+        if not bar._blizzSpark then spark:SetTexCoord(0, 1, 1, 1, 0, 0, 1, 0) end
     else
-        spark:SetSize(8, barH)
-        spark:SetTexCoord(0, 0, 0, 1, 1, 0, 1, 1)
+        if classicSz then spark:SetSize(classicSz, classicSz) else spark:SetSize(8, barH) end
+        if not bar._blizzSpark then spark:SetTexCoord(0, 0, 0, 1, 1, 0, 1, 1) end
     end
     spark:ClearAllPoints()
     if isVert then
@@ -2484,6 +2625,84 @@ local function AnchorTBBSpark(bar, cfg, anchor, flushToEdge)
         cfg.reverseFill, flushToEdge)
 end
 
+-- Stock style icon art for a tracked bar's icon over the full spell art,
+-- sized to the icon square. Blizzard Style: the viewer's rounded mask and
+-- ring overlay (same proportional inset as the CDM icons). Classic WoW UI:
+-- the vanilla action button ring round the square icon, no mask. One-time
+-- structure, size-memoized geometry; never runs unless a style is on. On ns
+-- for the local cap.
+ns.ApplyTBBBlizzIconArt = function(bar, iSize)
+    local icon = bar._icon
+    local tex = icon and icon._tex
+    if not tex then return end
+    local classic = ns.CdmClassicBars()
+    if not bar._blizzIconOverlay then
+        tex:SetTexCoord(0, 1, 0, 1)
+        if not classic then
+            local mask = icon:CreateMaskTexture()
+            mask:SetAtlas(ns.CDM_BLIZZ_MASK)
+            mask:SetAllPoints(icon)
+            tex:AddMaskTexture(mask)
+            bar._blizzIconMask = mask
+        end
+        local ov = icon:CreateTexture(nil, "OVERLAY", nil, 5)
+        if classic then ov:SetTexture(ns.CDM_CLASSIC_RING) else ns.CdmStockAtlas(ov, ns.CDM_BLIZZ_OVERLAY, true) end
+        ov:SetSnapToPixelGrid(false)
+        ov:SetTexelSnappingBias(0)
+        bar._blizzIconOverlay = ov
+    end
+    -- The ring overhangs the bar, so the icon draws above the fill (the
+    -- viewer levels its icon above its bar the same way) and, under classic,
+    -- above the cast bar chrome (+6) whose end caps reach under it;
+    -- re-asserted here because a strata change collapses child levels.
+    if bar._bar then
+        local lvl = bar._bar:GetFrameLevel() + (classic and 7 or 3)
+        if icon:GetFrameLevel() ~= lvl then icon:SetFrameLevel(lvl) end
+    end
+    if bar._blizzIconSize ~= iSize then
+        bar._blizzIconSize = iSize
+        local ov = bar._blizzIconOverlay
+        if classic then
+            ns.CdmPlaceClassicRing(ov, icon, iSize, iSize)
+        else
+            ov:ClearAllPoints()
+            ov:SetPoint("TOPLEFT", icon, "TOPLEFT", -iSize * ns.CDM_BLIZZ_RING_X, iSize * ns.CDM_BLIZZ_RING_Y)
+            ov:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", iSize * ns.CDM_BLIZZ_RING_X, -iSize * ns.CDM_BLIZZ_RING_Y)
+        end
+    end
+end
+
+-- Classic WoW UI bar chrome: the vanilla cast bar frame (the shared
+-- nine-slice in EllesmereUI_ClassicArt.lua, caps and rims at the sheet's own
+-- pixel size, only the window stretching) laid over the tracked bar's fill on
+-- an art frame above the fill, its threshold overlays, spark, ticks and
+-- charge hash lines, below the texts and the icon. The frame's reach (14.5
+-- left and right, 12 above and 11 below the fill at full size) is fixed
+-- whatever the bar's size, scaled only by the bar's own Border Size
+-- percentage (`pct`, nil = the shared default), so a bar in a tight group
+-- never paints across its neighbour; a vertical bar turns the art a quarter
+-- turn counter-clockwise. One-time regions, geometry memoized by the seat.
+-- On ns for the local cap.
+ns.CDM_CLASSIC_BAR_SPARK  = "Interface\\CastingBar\\UI-CastingBar-Spark"
+ns.ApplyTBBClassicChrome = function(bar, sb, isVert, thick, pct)
+    local CF = EllesmereUI.ClassicFrame
+    if not CF then return end
+    local art = bar._classicArt
+    if not art then
+        art = CreateFrame("Frame", nil, bar)
+        art:SetAllPoints(sb)
+        art:EnableMouse(false)
+        bar._classicArt = art
+        bar._classicChrome = CF.Create(art, "OVERLAY", 0)
+    end
+    -- Above the fill, threshold overlays (+2), the spark's own host, ticks
+    -- (+4) and the charge hash lines (+5); below the icon (+7) and the text
+    -- overlay (+7). Re-asserted because a strata change collapses child levels.
+    local lvl = sb:GetFrameLevel() + 6
+    if art:GetFrameLevel() ~= lvl then art:SetFrameLevel(lvl) end
+    CF.Seat(bar._classicChrome, art, CF.ScaleK(pct), isVert)
+end
+
 -- Defined with the charge renderer below. ApplySettings calls it whenever a
 -- pooled bar frame is restyled so stale composite geometry cannot leak into a
 -- different bar after deletion, reordering or a tracking-type change.
@@ -2496,6 +2715,31 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     if not bar or not cfg then return end
     local sb = bar._bar
     if not sb then return end
+    -- Stock styles (Global Settings > Style) with every setting still
+    -- applied: Blizzard Style = the viewer's bar, background and pip art;
+    -- Classic WoW UI = the vanilla cast bar frame and spark round the user's
+    -- own fill and background. Reload-gated, so the per-bar one-time setup
+    -- below never has to be undone.
+    local blizzBar = ns.CdmBlizzBars()
+    local classicBar = ns.CdmClassicBars()
+    if blizzBar and not classicBar and not bar._blizzSpark and bar._spark then
+        bar._blizzSpark = true
+        bar._spark:SetAtlas("UI-HUD-CoolDownManager-Bar-Pip")
+        bar._spark:SetBlendMode("BLEND")
+    elseif classicBar and not bar._classicSpark and bar._spark then
+        bar._classicSpark = true
+        bar._spark:SetTexture(ns.CDM_CLASSIC_BAR_SPARK)
+        -- The vanilla spark stands taller than the bar: its host leaves the
+        -- clipping StatusBar for the wrap (same rect) so it can overhang, as
+        -- the cast bar's does; the strata block below levels it over the chrome.
+        local so = bar._sparkOverlay
+        if so then
+            so:SetParent(bar)
+            so:ClearAllPoints()
+            so:SetAllPoints(sb)
+            so:SetClipsChildren(false)
+        end
+    end
     if _restoreTBBNormalFill then _restoreTBBNormalFill(bar, cfg) end
 
     -- User-selectable strata for the whole bar (options setter keeps grouped bars
@@ -2520,8 +2764,10 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         -- Spark sits one level ABOVE the threshold overlays: at equal level it
         -- loses the tie to them (created lazily, so they win) and vanishes the
         -- moment a threshold is crossed. Ticks and charge hash lines shift up
-        -- in step to keep their order.
-        if bar._sparkOverlay then bar._sparkOverlay:SetFrameLevel(sb:GetFrameLevel() + 3) end
+        -- in step to keep their order. The classic spark rides above the
+        -- chrome instead, as the vanilla spark draws over its frame: sb+8, above
+        -- the pandemic glow (base+8), level with the text.
+        if bar._sparkOverlay then bar._sparkOverlay:SetFrameLevel(sb:GetFrameLevel() + (classicBar and 8 or 3)) end
         -- Tick overlay MUST be re-asserted here too: SetFrameStrata collapses descendant levels, so otherwise ticks land at a default level.
         if bar._tickOverlay then bar._tickOverlay:SetFrameLevel(sb:GetFrameLevel() + 4) end
         if bar._chargeHashOverlay then bar._chargeHashOverlay:SetFrameLevel(sb:GetFrameLevel() + 5) end
@@ -2530,8 +2776,9 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         -- ties, putting ticks ON TOP of the border. One level up keeps the border above
         -- ticks; charge hash lines tie it and win via later creation, as intended.
         if bar._barBorder then bar._barBorder:SetFrameLevel(base + 6) end
-        if bar._pandemicGlowOverlay then bar._pandemicGlowOverlay:SetFrameLevel(base + 7) end
-        if bar._textOverlay then bar._textOverlay:SetFrameLevel(sb:GetFrameLevel() + 7) end
+        -- Glow +8: the border's PP strips draw at +7 and would tie it; text stays on top.
+        if bar._pandemicGlowOverlay then bar._pandemicGlowOverlay:SetFrameLevel(base + 8) end
+        if bar._textOverlay then bar._textOverlay:SetFrameLevel(sb:GetFrameLevel() + 8) end
     end
 
     -- width/height are always VISUAL dimensions describing the bar's TOTAL footprint,
@@ -2587,7 +2834,18 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
 
     -- Texture
     local texPath = EllesmereUI.ResolveTexturePath(TBB_TEXTURES, cfg.texture or "none", "Interface\\Buttons\\WHITE8x8")
-    if bar._lastTexPath ~= texPath then
+    if blizzBar and not classicBar then
+        -- The viewer's bar atlas (tinted by Fill Color below). _lastTexPath
+        -- stays a real file path: the charge hash fill re-reads it. Classic
+        -- keeps the user's texture: its frame is chrome round the fill.
+        texPath = "Interface\\Buttons\\WHITE8x8"
+        if not bar._blizzFillAtlas then
+            sb:SetStatusBarTexture(texPath)
+            sb:GetStatusBarTexture():SetAtlas("UI-HUD-CoolDownManager-Bar")
+            bar._lastTexPath = texPath
+            bar._blizzFillAtlas = true
+        end
+    elseif bar._lastTexPath ~= texPath then
         sb:SetStatusBarTexture(texPath)
         bar._lastTexPath = texPath
     end
@@ -2603,12 +2861,28 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     bar._baseFillR, bar._baseFillG, bar._baseFillB, bar._baseFillA = fR, fG, fB, fA
 
     -- Background
-    if bar._bg then
+    if blizzBar and not classicBar then
+        -- The viewer's shadowed bar background overhangs the fill, so it lives
+        -- on the wrap (the StatusBar clips its own regions).
+        if bar._bg then bar._bg:Hide() end
+        local bbg = bar._blizzBg
+        if not bbg then
+            bbg = bar:CreateTexture(nil, "BACKGROUND")
+            bbg:SetAtlas("UI-HUD-CoolDownManager-Bar-BG")
+            -- Anchored once: the fill StatusBar is the bar's for life.
+            bbg:SetPoint("TOPLEFT", sb, "TOPLEFT", -2, 2)
+            bbg:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 4, -7)
+            bar._blizzBg = bbg
+        end
+        bbg:Show()
+    elseif bar._bg then
         bar._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgA or 0.4)
     end
+    -- Classic WoW UI: the vanilla cast bar frame over the fill and background.
+    if classicBar then ns.ApplyTBBClassicChrome(bar, sb, isVert, isVert and w or h, cfg.stockBorderScale) end
 
-    -- Gradient
-    if cfg.gradientEnabled then
+    -- Gradient (an EUI-look effect; the stock styles keep their flat fill)
+    if cfg.gradientEnabled and not blizzBar then
         local dir = cfg.gradientDir or "HORIZONTAL"
         fillTex:SetVertexColor(1, 1, 1, 0)
         if not bar._gradClip then
@@ -2752,6 +3026,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
                 bar._icon:SetPoint("TOPRIGHT", bar, "TOPRIGHT", 0, 0)
             end
         end
+        if blizzBar then ns.ApplyTBBBlizzIconArt(bar, iSize) end
         bar._icon:Show()
     elseif bar._icon then
         bar._icon:Hide()
@@ -2782,11 +3057,14 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         end
     end
 
-    -- Border (PP or textured via ApplyBorderStyle)
+    -- Border (PP or textured via ApplyBorderStyle; none under Blizzard Style)
     if bar._barBorder then
         bar._barBorder:SetAllPoints(bar)
-        local bSz = cfg.borderSize or 0
+        local bSz = blizzBar and 0 or (cfg.borderSize or 0)
         local textureKey = cfg.borderTexture or "solid"
+        -- Exact size (borderSizePx) for the bar's own step; a stock style forces 0 and stays legacy.
+        local edgePx
+        if not blizzBar then edgePx = EllesmereUI.BorderPx(cfg.borderSizePx, bSz, textureKey) end
         -- Border container is a child of the bar: +6 draws in front of the fill AND above
         -- the tick marks at sb+4 (=bar+5, which would tie and lose to the lazily-created
         -- tick overlay); "Show Behind" uses level-1. Set BEFORE ApplyBorderStyle so the textured backdrop inherits it.
@@ -2796,7 +3074,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
             cfg.borderR or 0, cfg.borderG or 0, cfg.borderB or 0, 1,
             textureKey, cfg.borderTextureOffset, cfg.borderTextureOffsetY,
             cfg.borderTextureShiftX, cfg.borderTextureShiftY,
-            "resourcebars", bSz)
+            "resourcebars", bSz, nil, edgePx)
     end
 
     -- Threshold overlay + tick marks
@@ -2816,6 +3094,42 @@ end
 -- Exposed for the options popout preview: preview bars are built and skinned by the SAME code as live bars, so the preview cannot drift from rendering.
 ns.CreateTBBBarFrame  = CreateTrackedBuffBarFrame
 ns.ApplyTBBBarSettings = ApplyTrackedBuffBarSettings
+
+-- The width and height a tracking bar's textured border draws OUTSIDE the bar,
+-- in bar units, for its unlock element's getMatchPad: exactly the arguments
+-- ApplyTrackedBuffBarSettings passes to ApplyBorderStyle (the numeric step as the
+-- "resourcebars" size key, alpha 1, no scale normalizing). nil under the stock
+-- styles (no EUI border) and for a border that draws nothing outside. `frame` is
+-- the bar: its effective scale (a position scale rides on it) is the grid the
+-- border's anchors snap to.
+function ns.TBBBorderMatchPad(cfg, frame)
+    if not cfg or not EllesmereUI.BorderMatchPad or ns.CdmBlizzBars() then return nil end
+    local bSz = cfg.borderSize or 0
+    local textureKey = cfg.borderTexture or "solid"
+    if textureKey == "solid" then return nil end
+    local es
+    if frame then
+        local ok, s = pcall(frame.GetEffectiveScale, frame)
+        if ok then es = s end
+    end
+    return EllesmereUI.BorderMatchPad(bSz, textureKey,
+        cfg.borderTextureOffset, cfg.borderTextureOffsetY,
+        cfg.borderTextureShiftX, cfg.borderTextureShiftY,
+        "resourcebars", bSz, EllesmereUI.BorderPx(cfg.borderSizePx, bSz, textureKey), nil, 1, es)
+end
+
+-- "TBB_" .. index and "TBBG_" .. group key, each built once, so the per-build
+-- pad notifier builds no strings.
+ns._tbbUKey = setmetatable({}, { __index = function(t, k)
+    local v = "TBB_" .. k
+    t[k] = v
+    return v
+end })
+ns._tbbgUKey = setmetatable({}, { __index = function(t, k)
+    local v = "TBBG_" .. k
+    t[k] = v
+    return v
+end })
 
 -------------------------------------------------------------------------------
 --  CDM Child Lookup
@@ -3382,6 +3696,141 @@ local function AssignFramesToConfigs(bars)
 end
 ns.AssignTBBFramesToConfigs = AssignFramesToConfigs
 
+-------------------------------------------------------------------------------
+--  Audio on Buff Gain / Loss for Tracking Bars
+--
+--  Same two keys as the CDM buff icons (buffActiveSoundKey / buffLostSoundKey,
+--  nil = silent), stored per bar config, and the same pipeline. Blizzard-tracked
+--  bars need no hook of their own: InstallBuffFrameHooks already puts the
+--  apply/remove alert hooks on both buff viewers' frames, and RecordBuffEdge
+--  asks ns.FindTBBSoundKey (ahead of the Buffs bar tiers for a Tracked Bars
+--  frame, after them for a buff icon frame). The self-timed presets have no
+--  Blizzard alert, so their timer edges call ns.TBBPresetSoundEdge. Bars that
+--  track a cooldown never cue. Everything here is ns.* on purpose: this file's
+--  local budget is nearly spent. Gated 0-cost on ns._tbbAnyBuffSound, the
+--  tracking-bar half of ns._cdmAnyBuffSound.
+-------------------------------------------------------------------------------
+
+-- Sound key for the tracking bar that owns this Blizzard frame / spell id.
+-- The current pairing names the exact bar (Eclipse-style shared slots), but
+-- only while it still fits the frame: the pool reuses frame objects across
+-- cooldown slots, and a relayout while the tick sleeps leaves the pairing
+-- stale. An id match covers a frame the pairing has not seen yet (its first
+-- activation). Presets cue from their own windows, never from an alert.
+-- Returns the key; false when the owning bar has a sound on its other edge
+-- only (this edge is its own silence, so no Buffs bar sound may stand in);
+-- nil when no bar has a say.
+function ns.FindTBBSoundKey(frame, sid, field)
+    if not (ECME and ECME.db) then ECME = ns.ECME end
+    local p = ECME and ECME.db and ECME.db.profile
+    if not p or (p.cdmBars and p.cdmBars.useBlizzardBuffBars) then return nil end
+    local tbb = ns.GetTrackedBuffBars()
+    local bars = tbb and tbb.bars
+    if not bars then return nil end
+    local cfg
+    if frame and _tbbAssignedFor == bars then
+        for c, f in pairs(_tbbAssignment) do
+            if f == frame then
+                if c.enabled ~= false and not c.popularKey and c.trackType ~= "cooldown" then
+                    local sc = _tbbStickyCdID[c]
+                    if (sc ~= nil and frame.cooldownID == sc) or CfgWantsSID(c, sid)
+                       or MatchFrameToConfig(frame, c) then
+                        cfg = c
+                    end
+                end
+                break
+            end
+        end
+    end
+    if not cfg then
+        for _, c in ipairs(bars) do
+            if c.enabled ~= false and not c.popularKey and CfgWantsSID(c, sid) then
+                cfg = c; break
+            end
+        end
+    end
+    if not cfg then return nil end
+    local key = cfg[field]
+    if key and key ~= "none" then return key end
+    local g, l = cfg.buffActiveSoundKey, cfg.buffLostSoundKey
+    if (g and g ~= "none") or (l and l ~= "none") then return false end
+    return nil
+end
+
+-- Any tracking bar in any spec of this profile with a gain or loss sound
+-- (feeds ns.RescanBuffSoundFlag). Cooldown-tracking bars never cue.
+function ns.TBBAnyBuffSound()
+    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+    if not sp then return false end
+    for _, prof in pairs(sp) do
+        local tbb = type(prof) == "table" and prof.trackedBuffBars
+        if type(tbb) == "table" and type(tbb.bars) == "table" then
+            for _, c in ipairs(tbb.bars) do
+                if c.trackType ~= "cooldown" then
+                    local g, l = c.buffActiveSoundKey, c.buffLostSoundKey
+                    if (g and g ~= "none") or (l and l ~= "none") then return true end
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- Tracking-bar sound enable (a bar's sound set in options, or the rescan
+-- finding one): flips both gates live and hooks the buff viewer frames already
+-- out of their pools, since pool Acquire only hooks while the gate is on. Both
+-- viewers: a bar's spell can live in either one.
+function ns.EnsureTBBSoundHooks()
+    ns._cdmAnyBuffSound = true
+    ns._tbbAnyBuffSound = true
+    local hook = ns.EnsureBuffSoundHook
+    if not hook then return end
+    local viewer = _G.BuffBarCooldownViewer
+    local pool = viewer and viewer.itemFramePool
+    if pool then
+        for frame in pool:EnumerateActive() do hook(frame) end
+    end
+    viewer = _G.BuffIconCooldownViewer
+    pool = viewer and viewer.itemFramePool
+    if pool then
+        for frame in pool:EnumerateActive() do hook(frame) end
+    end
+end
+
+-- [popularKey] = GetTime() a latched preset window ends at (loss still to cue).
+ns._tbbPresetLoss = {}
+
+-- Self-timed preset edge. The gain comes from the event that (re)starts the
+-- window (Sated rise, Time Spiral glow, potion cast), so a refresh cues again,
+-- and latches the loss at the window's end (expiry) while a bar of that preset
+-- has a loss sound. The tracking-bar tick fires the latch ahead of its
+-- visibility gates, so a bar parked at that moment still cues; a consumed
+-- Time Spiral cues from its glow hide, which clears the latch. One cue per
+-- edge: the throttle id is per preset, so with two bars of one preset only
+-- the first bar with a sound plays.
+function ns.TBBPresetSoundEdge(popularKey, gainEdge, expiry)
+    if not ns._tbbAnyBuffSound or not popularKey then return end
+    local latch = ns._tbbPresetLoss
+    -- Clear only a present entry: the tick calls in here while walking the latch table.
+    if latch[popularKey] then latch[popularKey] = nil end
+    if not (ECME and ECME.db) then ECME = ns.ECME end
+    local p = ECME and ECME.db and ECME.db.profile
+    if not p or (p.cdmBars and p.cdmBars.useBlizzardBuffBars) then return end
+    local tbb = ns.GetTrackedBuffBars()
+    local bars = tbb and tbb.bars
+    if not bars then return end
+    local field = gainEdge and "buffActiveSoundKey" or "buffLostSoundKey"
+    for _, cfg in ipairs(bars) do
+        if cfg.enabled ~= false and cfg.popularKey == popularKey
+           and cfg.trackType ~= "cooldown" then
+            local key = cfg[field]
+            if key and key ~= "none" then ns.PlayBuffSoundEdge(key, "tbb:" .. popularKey, gainEdge) end
+            local lost = cfg.buffLostSoundKey
+            if gainEdge and expiry and lost and lost ~= "none" then latch[popularKey] = expiry end
+        end
+    end
+end
+
 --- Frame-based check: is a spellID present in BuffBarCooldownViewer? Iterates the tiny pool
 --- (~3-5 frames), matching via MatchesSID across all fields (overrideSpellID, spellID, linkedSpellIDs).
 function ns.IsSpellInBuffBarViewer(spellID)
@@ -3606,29 +4055,6 @@ function ns.QueueTBBAutoAdd()
     end)
 end
 
---- Frame-based check: is a spellID present in Essential or Utility viewers? Same pattern as IsSpellInBuffBarViewer but for CD/Utility bars.
-function ns.IsSpellInCDUtilViewer(spellID)
-    if not spellID or spellID <= 0 then return false end
-    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-    if not gci then return false end
-    local viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer" }
-    for _, vName in ipairs(viewers) do
-        local viewer = _G[vName]
-        if viewer and viewer.itemFramePool then
-            for frame in viewer.itemFramePool:EnumerateActive() do
-                local cdID = frame.cooldownID
-                if cdID then
-                    local info = gci(cdID)
-                    if info and MatchesSID(info, spellID) then
-                        return true
-                    end
-                end
-            end
-        end
-    end
-    return false
-end
-
 -------------------------------------------------------------------------------
 --  Stacks Helper (reads Blizzard child Applications frame)
 -------------------------------------------------------------------------------
@@ -3736,9 +4162,9 @@ local function UpdatePandemic(bar, cfg)
     -- Glow always wraps the whole bar: the overlay covers the entire wrapFrame footprint, so an enabled icon is included rather than glowed alone.
     local glowTarget = bar._pandemicGlowOverlay
 
-    local style = cfg.pandemicGlowStyle or 1
-    -- Only pixel glow (1) and autocast (4) render on the bar rectangle
-    if style ~= 1 and style ~= 4 then style = 1 end
+    -- Bar rectangle: Pixel Glow or Auto-Cast Shine only (texture styles stretch);
+    -- any other stored style, and Blizzard Default (-1), render as Pixel Glow.
+    local style = ns.PG_TbbEffectiveStyle(cfg)
 
     -- Start/restart glow on style or target change
     if not bar._pandemicGlowActive or bar._pandemicGlowStyleIdx ~= style
@@ -3865,12 +4291,6 @@ local function MirrorEngineTimer(bar, cfg)
     return wrote
 end
 
---- Does a TBB config have a matching frame in BuffBarCooldownViewer? Uses FindChild
---- (frame-based MatchFrameToConfig) rather than spell-ID cache lookups, so it is robust against ID mismatches.
-local function IsTrackedInCDM(cfg)
-    return FindChild(cfg) ~= nil
-end
-
 -------------------------------------------------------------------------------
 --  Bloodlust / Heroism duration bar (debuff-driven, self-timed)
 --  The lust buff is cast by others and is secret, so it can't be mirrored from a
@@ -3939,6 +4359,7 @@ local function _ensureLustListener(enable)
                 if present and not _satedPresent and not isFull
                     and GetTime() >= _lustZoneGuard then
                     _lustExpiry = GetTime() + 40  -- rising edge: lust just went out
+                    ns.TBBPresetSoundEdge("bloodlust", true, _lustExpiry)
                     _satedSince = GetTime()
                     _tbbWake.Wake()  -- lust can come from other players: no local cast/aura edge is guaranteed
                     -- Drive Custom Auras (icon) lust displays sharing this edge.
@@ -3977,6 +4398,9 @@ function ns.UpdateLustListener()
         end
     end
     if not any and ns.AnyCustomAuraLust then any = ns.AnyCustomAuraLust() end
+    -- WoW Forever has no raid lust and no Sated debuff: a lust bar or icon saved
+    -- on another client stays dormant there and never arms the listener.
+    if EllesmereUI.IS_FOREVER then any = false end
     _ensureLustListener(any)
     -- Sibling preset listeners refresh from the same change sites: every add/remove/rebuild path already calls UpdateLustListener.
     if ns.UpdateTimeSpiralListener then ns.UpdateTimeSpiralListener() end
@@ -3996,6 +4420,7 @@ local _smoothBuffs, _smoothCooldowns = true, false
 local function _UpdateSelfTimedBar(bar, cfg, expiry, duration)
     local remaining = expiry - GetTime()
     if remaining <= 0 then
+        -- The loss cue comes from the preset's latch in the tick, shown or not.
         if bar:IsShown() then bar:Hide() end
         return
     end
@@ -4109,6 +4534,7 @@ local function _ensureTimeSpiralListener(enable)
                     if not TIME_SPIRAL_TRIGGERS[sid] then return end
                     if GetTime() < _ts.suppressUntil then return end
                     _ts.expiry = GetTime() + TIME_SPIRAL_DURATION  -- free move just granted
+                    ns.TBBPresetSoundEdge("timespiral", true, _ts.expiry)
                     _tbbWake.Wake()  -- glow edge is outside the sleeper's wake events
                     -- Drive Custom Auras (icon) displays sharing this edge.
                     if ns.SignalTimeSpiralCast then ns.SignalTimeSpiralCast() end
@@ -4120,6 +4546,7 @@ local function _ensureTimeSpiralListener(enable)
                     -- so an unrelated trigger's hide cannot fire spuriously.
                     if _ts.expiry > GetTime() then
                         _ts.expiry = 0
+                        ns.TBBPresetSoundEdge("timespiral", false)
                         if ns.SignalTimeSpiralEnd then ns.SignalTimeSpiralEnd() end
                     end
                 elseif event == "UNIT_SPELLCAST_SENT" then
@@ -4158,6 +4585,9 @@ function ns.UpdateTimeSpiralListener()
         end
     end
     if not any and ns.AnyCustomAuraTimeSpiral then any = ns.AnyCustomAuraTimeSpiral() end
+    -- WoW Forever has no Time Spiral: a bar or icon saved on another client stays
+    -- dormant there and never arms the glow listener.
+    if EllesmereUI.IS_FOREVER then any = false end
     _ensureTimeSpiralListener(any)
 end
 
@@ -4197,6 +4627,7 @@ local function _ensurePotionCastListener(enable)
                 local key = spellID and _potionTrigger[spellID]
                 if not key then return end
                 _potionExpiry[key] = GetTime() + (_potionDur[key] or 30)
+                ns.TBBPresetSoundEdge(key, true, _potionExpiry[key])
             end)
         end
         if not _potionActive then
@@ -4222,6 +4653,39 @@ function ns.UpdatePotionCastListener()
         end
     end
     _ensurePotionCastListener(any)
+end
+
+-- Can a sound set on this tracking bar ever play? Options-side predicate:
+-- cheap, allocation-free, secret-safe. Cooldown-tracking bars never cue. A
+-- preset cues from its own window, so only the self-timed ones count. Any
+-- other bar cues only through a Blizzard buff viewer's aura alert, so its
+-- spell has to be in the Tracked Bars or Tracked Buffs viewer: the bar's
+-- current pairing, or a live frame of either viewer whose spell the bar
+-- wants (the id match the alert path uses).
+function ns.TBB_BarCanCue(cfg)
+    if type(cfg) ~= "table" or cfg.trackType == "cooldown" then return false end
+    local pk = cfg.popularKey
+    if pk then
+        -- The lust and Time Spiral windows never open on WoW Forever (their
+        -- listeners stay off there), so only a cast-timed preset can cue.
+        if EllesmereUI.IS_FOREVER then return _potionDur[pk] ~= nil end
+        return pk == "bloodlust" or pk == "timespiral" or _potionDur[pk] ~= nil
+    end
+    -- A dirty map still holds the previous pass's pairings: trust it only once rebuilt.
+    if not _tbbAssignDirty and _tbbAssignment[cfg] then return true end
+    local GetCanonical = ns.GetCanonicalSpellIDForFrame
+    if not GetCanonical then return false end
+    for vi = 1, 2 do
+        local viewer
+        if vi == 1 then viewer = _G.BuffBarCooldownViewer else viewer = _G.BuffIconCooldownViewer end
+        local pool = viewer and viewer.itemFramePool
+        if pool then
+            for frame in pool:EnumerateActive() do
+                if CfgWantsSID(cfg, GetCanonical(frame)) then return true end
+            end
+        end
+    end
+    return false
 end
 
 -- True when v is a plain, readable number. A secret value fails BEFORE any type/comparison touches it; nil and non-numbers fail too.
@@ -4277,6 +4741,19 @@ local function _ensureTBBChargeHashFill(bar)
     fill:SetSnapToPixelGrid(false)
     fill:SetTexelSnappingBias(0)
     bar._chargeHashFillTexture = fill
+
+    -- Partial-charge shade: darkens the segment still recharging (the region between the
+    -- full-charge edge and the live progress edge). Its anchors ride the two invisible
+    -- status textures, so the region tracks secret-driven geometry with no Lua computation.
+    -- The hash tick lines center on divider bars whose texture edges come from the same
+    -- engine math as countTexture's edge, so the shade's leading edge always lands under
+    -- its divider line -- no sub-pixel sliver can open beside it at any bar width.
+    local shade = clip:CreateTexture(nil, "ARTWORK", nil, 2)
+    shade:SetColorTexture(0, 0, 0, 0.5)
+    shade:SetSnapToPixelGrid(false)
+    shade:SetTexelSnappingBias(0)
+    shade:Hide()
+    bar._chargeHashShadeTexture = shade
 end
 
 local function _styleTBBChargeHashFill(bar, cfg)
@@ -4306,6 +4783,7 @@ local function _styleTBBChargeHashFill(bar, cfg)
     end
 
     fill:SetTexture(texPath)
+    if bar._blizzFillAtlas then fill:SetAtlas("UI-HUD-CoolDownManager-Bar") end
     fill:ClearAllPoints()
     if gradientEnabled then
         -- Gradients stay mapped across the full bar and are revealed by the moving clip, matching the stock gradient path.
@@ -4394,6 +4872,10 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
     local reverse = cfg.reverseFill and true or false
     local orientation = isVert and "VERTICAL" or "HORIZONTAL"
     local barW, barH = sb:GetWidth(), sb:GetHeight()
+    -- The divider boundary bars the hash ticks anchor to are built and cache-gated
+    -- by ApplyTBBChargeHashLines, which runs earlier on the same tick; nothing here
+    -- reads them, so this per-tick path never touches them.
+
     -- Direct scalar comparisons name every geometry invalidator while keeping the steady-state update allocation-free.
     if not bar._chargeHashFillGeometryValid
        or bar._chargeHashFillMaxCharges ~= maxCharges
@@ -4447,6 +4929,31 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
                 clip:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
             end
         end
+
+        -- The shade spans from the full-charge boundary to the moving progress edge,
+        -- mirroring the clip's orientation/reverse geometry.
+        local shade = bar._chargeHashShadeTexture
+        if shade then
+            shade:ClearAllPoints()
+            if isVert then
+                if reverse then
+                    shade:SetPoint("TOPLEFT", countTexture, "BOTTOMLEFT", 0, 0)
+                    shade:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
+                else
+                    shade:SetPoint("BOTTOMLEFT", countTexture, "TOPLEFT", 0, 0)
+                    shade:SetPoint("TOPRIGHT", progressTexture, "TOPRIGHT", 0, 0)
+                end
+            else
+                if reverse then
+                    shade:SetPoint("TOPRIGHT", countTexture, "TOPLEFT", 0, 0)
+                    shade:SetPoint("BOTTOMLEFT", progressTexture, "BOTTOMLEFT", 0, 0)
+                else
+                    shade:SetPoint("TOPLEFT", countTexture, "TOPRIGHT", 0, 0)
+                    shade:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
+                end
+            end
+        end
+
         bar._chargeHashFillGeometryValid = true
         bar._chargeHashFillMaxCharges = maxCharges
         bar._chargeHashFillVertical = isVert
@@ -4474,6 +4981,24 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
     end
 
     _styleTBBChargeHashFill(bar, cfg)
+
+    -- Partial-charge shade state: scalar-cached so the steady-state tick is a no-op.
+    local shade = bar._chargeHashShadeTexture
+    if shade then
+        local shadeA = cfg.chargeHashShade == true
+            and (tonumber(cfg.chargeHashShadeAlpha) or 0.5) or 0
+        if shadeA > 1 then shadeA = 1 end
+        if shadeA > 0 then
+            if bar._chargeHashShadeAlpha ~= shadeA then
+                shade:SetColorTexture(0, 0, 0, shadeA)
+                bar._chargeHashShadeAlpha = shadeA
+            end
+            if not shade:IsShown() then shade:Show() end
+        elseif shade:IsShown() then
+            shade:Hide()
+        end
+    end
+
     local activating = not bar._chargeHashFillActive
     if activating then
         countBar:Show()
@@ -5020,13 +5545,12 @@ local function TBBFillVisState()
 end
 
 local function TBBVisibilityHides(cfg)
-    if EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(cfg) then
+    if EllesmereUI.CheckVisibilityOptions(cfg) then
         return true
     end
 
     local vis = cfg.barVisibility or "always"
-    local visExt = EllesmereUI.EvalVisibilityExtended
-        and EllesmereUI.EvalVisibilityExtended(cfg, "barVisibility", _tbbVisState, EllesmereUI.VIS_CAPS_DEFAULT)
+    local visExt = EllesmereUI.EvalVisibilityExtended(cfg, "barVisibility", _tbbVisState, EllesmereUI.VIS_CAPS_DEFAULT)
     if visExt ~= nil then return not visExt end
     if vis == "never" then return true end
     if vis == "in_combat" then return not _tbbVisState.inCombat end
@@ -5069,6 +5593,10 @@ function ns.UpdateTrackedBuffBarTimers()
     -- Liveness for the idle sleeper: set by any branch below that is actually animating or tracking something this tick.
     local tickLive = false
 
+    -- Resolved once per tick, not per bar: the bind-miss fallback below asks the target
+    -- for a debuff the player applied, and there is no point asking with nothing targeted.
+    local hasTarget = UnitExists and UnitExists("target") and true or false
+
     -- Profile-wide smooth-fill switches, resolved once per tick for every fill site (absent buffs key = enabled; absent cooldowns key = OFF).
     local sm
     do
@@ -5090,8 +5618,8 @@ function ns.UpdateTrackedBuffBarTimers()
 
     -- Self-heal placeholder mode when the user navigates away from Tracking Bars
     if ns._tbbPlaceholderMode then
-        local am = EllesmereUI and EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule()
-        local ap = EllesmereUI and EllesmereUI.GetActivePage and EllesmereUI:GetActivePage()
+        local am = EllesmereUI:GetActiveModule()
+        local ap = EllesmereUI:GetActivePage()
         if am ~= "EllesmereUICooldownManager" or ap ~= "Tracking Bars" then
             ns._tbbPlaceholderMode = false
             if ns.HideTBBPlaceholders then ns.HideTBBPlaceholders() end
@@ -5113,6 +5641,24 @@ function ns.UpdateTrackedBuffBarTimers()
 
     -- Visibility gate inputs, once per pass, only when some bar has a condition.
     if _anyVisCond then TBBFillVisState() end
+
+    -- Audio on Buff Loss for the self-timed presets: a latch the gain armed
+    -- fires at the window's end ahead of every visibility gate below, so a bar
+    -- parked at that moment (Only In Combat after combat drops) still cues.
+    -- The window has no end event, so a pending latch keeps the tick awake;
+    -- one found long past its end (the tick was parked) clears silently.
+    local lossLatch = ns._tbbPresetLoss
+    if next(lossLatch) then
+        local now = GetTime()
+        for pk, at in pairs(lossLatch) do
+            if now >= at then
+                lossLatch[pk] = nil
+                if now - at < 1 then ns.TBBPresetSoundEdge(pk, false) end
+            else
+                tickLive = true
+            end
+        end
+    end
 
     for i, cfg in ipairs(bars) do
         local bar = tbbFrames[i]
@@ -5178,6 +5724,14 @@ function ns.UpdateTrackedBuffBarTimers()
                 fbAura = C_UnitAuras.GetPlayerAuraBySpellID(cfg.spellID)
                 if not fbAura and cfg.baseSpellID and cfg.baseSpellID > 0 then
                     fbAura = C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)
+                end
+                -- Same net for a debuff the player put on the TARGET, which the queries
+                -- above can never see. Blizzard's viewer stalls exactly there after a
+                -- macro that clears and restores the target inside one frame: its
+                -- OnPlayerTargetChanged compares GUIDs, sees the same one it stored, and
+                -- never refreshes, so the item stays inactive until a real target switch.
+                if not fbAura and hasTarget then
+                    fbAura = _tbbWake.GetTargetAura(cfg)
                 end
                 -- Fallback driving means the viewer has not bound this aura yet, and
                 -- Blizzard's late-bind can land WITHOUT a fresh player aura event. Keep
@@ -5934,6 +6488,20 @@ function ns.BuildTrackedBuffBars()
 
     -- 12.1 engine-driven decimal timer text (nil on 12.0: module self-gates)
     if ns.TBBDecimals_Sync then ns.TBBDecimals_Sync() end
+
+    -- Match pads follow each bar's border settings: a bar or group whose pad
+    -- changed is re-pushed through its match once, deferred (compare-only here).
+    if EllesmereUI.MatchPadChanged then
+        for i = 1, #bars do
+            EllesmereUI.MatchPadChanged(ns._tbbUKey[i])
+        end
+        local greg = ns.GetTBBGlobalGroups and ns.GetTBBGlobalGroups()
+        if greg then
+            for gk in pairs(greg) do
+                EllesmereUI.MatchPadChanged(ns._tbbgUKey[gk])
+            end
+        end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -5979,6 +6547,13 @@ function ns.RegisterTBBUnlockElements()
                 -- driven by its own CDM sliders/dynamic content, so it should never be a sizing reference.
                 allowMatchSource  = true,
                 noSizeMatchTarget = true,
+                -- Outside reach of the bar's textured border: taken off a width /
+                -- height it is matched to, so what it draws is what matches.
+                getMatchPad = function()
+                    local t = ns.GetTrackedBuffBars()
+                    local c = t and t.bars and t.bars[idx]
+                    return ns.TBBBorderMatchPad(c, tbbFrames[idx])
+                end,
                 isHidden = function()
                     local t = ns.GetTrackedBuffBars()
                     local b = t and t.bars
@@ -6137,6 +6712,15 @@ function ns.RegisterTBBUnlockElements()
                 noResize = true,
                 allowMatchSource  = true,
                 noSizeMatchTarget = true,
+                -- The group anchor bar's border reach (its frame is the group's);
+                -- nil for a memberless spec's stand-in, which draws no border.
+                getMatchPad = function()
+                    local gid = ns.TBBLocalGidForGlobal(gk)
+                    local ai = gid and ns.TBBGroupAnchorIndex(gid)
+                    local t = ai and ns.GetTrackedBuffBars()
+                    local c = t and t.bars and t.bars[ai]
+                    return ns.TBBBorderMatchPad(c, ai and tbbFrames[ai])
+                end,
                 isHidden = function()
                     local gid = ns.TBBLocalGidForGlobal(gk)
                     return not gid or not ns.TBBGroupAnchorIndex(gid)

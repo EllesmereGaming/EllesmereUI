@@ -31,15 +31,7 @@ end
 --  Fonts (module surface "mythicTimer": family/outline/shadow are global,
 --  only sizes are per-bar settings).
 --------------------------------------------------------------------------------
-local FONT_FALLBACK = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
-local function SetFSFont(fs, size)
-    if not (fs and fs.SetFont) then return end
-    local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("mythicTimer")) or FONT_FALLBACK
-    local outline = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("mythicTimer")) or ""
-    local useShadow = EllesmereUI.GetFontUseShadow and EllesmereUI.GetFontUseShadow("mythicTimer")
-    if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, useShadow) end
-    fs:SetFont(path, size, outline)
-end
+local function SetFSFont(fs, size) EllesmereUI.ApplyModuleFont(fs, nil, size, "mythicTimer") end
 
 --------------------------------------------------------------------------------
 --  State: two bar objects, built lazily. `bars.target` / `bars.focus`.
@@ -255,8 +247,7 @@ local function StyleBar(bar)
     bar.iconFrame:SetWidth(showIcon and h or 0.001)
     bar.iconFrame:SetShown(showIcon)
 
-    local texPath = EllesmereUI.ResolveTexturePath
-        and EllesmereUI.ResolveTexturePath(ns.barTextures, cfg.texture or "none", "Interface\\Buttons\\WHITE8x8")
+    local texPath = EllesmereUI.ResolveTexturePath(ns.barTextures, cfg.texture or "none", "Interface\\Buttons\\WHITE8x8")
         or "Interface\\Buttons\\WHITE8x8"
     bar.sb:SetStatusBarTexture(texPath)
     local pp = EllesmereUI.PP
@@ -783,7 +774,7 @@ local function ShowInterruptedFlash(bar, interrupterGUID)
     if not ((issecretvalue and issecretvalue(protected)) or not protected) then return end
     bar._interrupted = true
     bar.flash:Show()
-    bar.name:SetText(EllesmereUI.L and EllesmereUI.L("Interrupted") or "Interrupted")
+    bar.name:SetText(EllesmereUI.L("Interrupted") or "Interrupted")
     bar.target:SetText("")
     bar.target:Hide()
     bar.timer:SetText("")
@@ -848,13 +839,26 @@ evt:SetScript("OnEvent", function(_, event, unit, ...)
         bar._kickGeoDirty = true
         UpdateCast(bar)
     elseif event == "UNIT_SPELLCAST_STOP"
-        or event == "UNIT_SPELLCAST_FAILED"
-        or event == "UNIT_SPELLCAST_EMPOWER_STOP" then
+        or event == "UNIT_SPELLCAST_FAILED" then
         UpdateCast(bar)
+    elseif event == "UNIT_SPELLCAST_EMPOWER_STOP" then
+        -- An interrupted empower carries the interrupter GUID as the 4th arg
+        -- after unit (castGUID, spellID, complete, interrupterGUID).
+        local _, _, _, interrupterGUID = ...
+        if type(interrupterGUID) ~= "nil" then
+            TeardownCast(bar)
+            if not bar._interrupted then ShowInterruptedFlash(bar, interrupterGUID) end
+        else
+            UpdateCast(bar)
+        end
     elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
         -- Direct teardown: in restricted execution UnitCastingInfo can return
         -- secret values (not nil) for a stale channel (nameplate lesson).
+        -- An interrupted channel carries the interrupter GUID as the 3rd arg
+        -- after unit (castGUID, spellID, interrupterGUID); nil on a natural end.
         TeardownCast(bar)
+        local _, _, interrupterGUID = ...
+        if not bar._interrupted then ShowInterruptedFlash(bar, interrupterGUID) end
     elseif event == "UNIT_SPELLCAST_INTERRUPTED" then
         local _, _, interrupterGUID = ...
         ShowInterruptedFlash(bar, interrupterGUID)

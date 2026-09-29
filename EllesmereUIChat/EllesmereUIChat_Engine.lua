@@ -154,6 +154,27 @@ end
 -- frame as its edit box shows and hides, and only that frame's text area moves.
 ECHAT.EngineLayoutWindow = LayoutWindowSMF
 
+-- Re-seat a window's text frame (and its scrollbar) at its creation offset
+-- above the panel after the panel's level moved. The stock styles need it:
+-- Blizzard's own chat background is revealed on the chat frame, which is
+-- toplevel and gets raised on interaction, so the text must follow the panel
+-- back above it. Compare-gated (write-free when settled).
+function ECHAT.EngineLevelWindow(cf)
+    local win = WINS[cf]
+    local d = CFD(cf)
+    if not (win and win.smf and d.bg) then return end
+    local want = d.bg:GetFrameLevel() + 4
+    if win.smf:GetFrameLevel() ~= want then win.smf:SetFrameLevel(want) end
+    if win.track and win.track:GetFrameLevel() ~= want + 2 then win.track:SetFrameLevel(want + 2) end
+end
+
+-- Whether a window's text is scrolled back (its thin scrollbar shows).
+function ECHAT.EngineIsScrolled(cf)
+    local w = WINS[cf]
+    local t = w and w.track
+    return (t and t:IsShown()) and true or false
+end
+
 -- Thin scrollbar: visible only while scrolled back (offset > 0) or dragging.
 -- Track/thumb are our frames; drag runs a temporary OnUpdate on the track
 -- that self-removes on release (no recurring work otherwise).
@@ -163,7 +184,12 @@ local function UpdateScrollbar(win)
     local range = smf:GetMaxScrollRange()
     local offset = smf:GetScrollOffset()
     local show = (offset > 0 or win.dragging) and range > 0
-    if track:IsShown() ~= show then track:SetShown(show) end
+    if track:IsShown() ~= show then
+        track:SetShown(show)
+        -- Stock sidebar: the scroll button flashes while scrolled back.
+        local fs = ECHAT.SB_FlashSync
+        if fs then fs() end
+    end
     if not show then return end
     local trackH = track:GetHeight()
     if not trackH or trackH <= 0 then return end
@@ -215,7 +241,9 @@ local function BuildScrollbar(win)
     track:SetFrameLevel(win.smf:GetFrameLevel() + 2)
     track:Hide()
     local thumb = track:CreateTexture(nil, "ARTWORK")
-    thumb:SetColorTexture(1, 1, 1, 0.27)
+    -- WoW Forever: a bronze thumb to match the kit's frame.
+    local fc = ns.ChatForever() and ECHAT.FV.thumb
+    if fc then thumb:SetColorTexture(fc[1], fc[2], fc[3], fc[4]) else thumb:SetColorTexture(1, 1, 1, 0.27) end
     thumb:SetWidth(4)
     thumb:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
     win.track, win.thumb = track, thumb
@@ -303,7 +331,6 @@ local function CreateWindowSMF(cf)
     -- altitude never affects input routing.
     smf:SetFrameLevel(d.bg:GetFrameLevel() + 4)
 
-    win.extraLines = 0
     WINS[cf] = win
     BuildScrollbar(win)
     smf:SetOnScrollChangedCallback(function() UpdateScrollbar(win) end)
@@ -475,21 +502,24 @@ local CHANNEL_ABBR_LOOKUP = {
 }
 
 -- World channels use hyperlink keyword "channel:<N>": 1=General, 2=Trade,
--- 22=LocalDefense, 23=WorldDefense, 26=LookingForGroup.
-local WORLD_CHANNEL_ABBR = {
+-- 22=LocalDefense, 23=WorldDefense, 26=LookingForGroup. By default they show
+-- their channel number (what "/1" types); the Use Letters cog option paints
+-- these letters instead. A number with no letter stays a number either way.
+local WORLD_CHANNEL_LETTERS = {
     ["1"]  = "Ge",
     ["2"]  = "T",
     ["22"] = "LD",
     ["23"] = "WD",
     ["26"] = "LFG",
 }
+local _abbrevLetters = false  -- Shortened Channel Names > Use Letters user setting
 
 local function ShortChannelReplacer(hyperlinkTarget)
     local abbr = CHANNEL_ABBR_LOOKUP[hyperlinkTarget:upper()]
     if not abbr then
         local channelNum = hyperlinkTarget:match("^channel:(%d+)$")
         if channelNum then
-            abbr = WORLD_CHANNEL_ABBR[channelNum] or channelNum
+            abbr = (_abbrevLetters and WORLD_CHANNEL_LETTERS[channelNum]) or channelNum
         end
     end
     if not abbr then return nil end
@@ -530,6 +560,9 @@ end
 
 function ECHAT.EngineSetChannelAbbrev(on)
     _abbrevOn = on == true
+end
+function ECHAT.EngineSetChannelAbbrevLetters(on)
+    _abbrevLetters = on == true
 end
 
 -------------------------------------------------------------------------------
@@ -838,9 +871,7 @@ local function EngineTail(cf, msg, r, g, b, chatTypeID, accessID, typeID, event,
         -- (window reset, a third-party Clear call, temp-window pool reuse),
         -- its count falls below ours the moment the next line lands. Both
         -- counts are cheap reads; the rebuild is deferred + coalesced.
-        -- extraLines is the session-history allowance: replayed lines exist
-        -- only on our side and must never read as divergence.
-        if cf:GetNumMessages() + (win.extraLines or 0) < win.smf:GetNumMessages() then
+        if cf:GetNumMessages() < win.smf:GetNumMessages() then
             if QueueDivergedRebuild then QueueDivergedRebuild(cf) end
         end
     end
@@ -904,9 +935,24 @@ local function ChatFrameWheel(cf, delta)
     end
 end
 
+-- Blizzard opens a new permanent window (ChatFrameUtil.PopOutChat) or a
+-- temporary whisper window by taking one it considers unopened and seeding it
+-- from the source frame inside its own copy loop: GetMessageInfo, compare the
+-- line's accessID, AddMessage, next line. An AddMessage hook taints the rest of
+-- that loop, so the NEXT GetMessageInfo answers with a secret accessID and the
+-- compare throws (ChatFrameUtil.lua:711) with the pop-out half done. Unopened
+-- frames therefore stay unbridged; the first integrate pass after Blizzard
+-- opens one installs the bridge and backfills our window from its buffer.
+local function IsChatFrameOpen(cf)
+    if cf.isTemporary then return cf.inUse == true end
+    local id = cf:GetID()
+    return id > 0 and FCF_IsChatWindowIndexActive(id)
+end
+
 local function InstallBridge(cf)
     local d = CFD(cf)
-    if d.bridged then return end
+    if d.bridged then return false end
+    if not IsChatFrameOpen(cf) then return false end
     d.bridged = true
     -- EngineTail's signature matches the hook's (self arrives as its cf);
     -- the trailing MessageFormatter argument is dropped by arity.
@@ -921,6 +967,7 @@ local function InstallBridge(cf)
     end
     cf:SetScript("OnMouseWheel", ChatFrameWheel)
     cf:EnableMouseWheel(true)
+    return true
 end
 
 -------------------------------------------------------------------------------
@@ -936,7 +983,6 @@ local function RebuildWindowFromBuffer(cf)
     if not win then return end
     local smf = win.smf
     smf:Clear()
-    win.extraLines = 0
     local n = cf:GetNumMessages()
     -- Stamp-all rebuilds stamp with each line's true arrival time: the SMF
     -- entry timestamp is GetTime()-domain (PackageEntry), converted here to
@@ -1000,13 +1046,16 @@ local function IntegrateChatFrame(cf)
         RebuildWindowFromBuffer(cf)
         return
     end
-    InstallBridge(cf)
-    -- extraLines allowance, same as the bridge tail's check: replayed
-    -- session-history lines exist only on our side, and the login full
-    -- passes re-integrate every frame right after the restore -- without
-    -- the allowance that read as a cleared buffer and wiped the replay.
+    -- A frame bridged only now was opened since the last pass (a pop-out, a
+    -- reused temporary window): its lines were copied in behind our back. The
+    -- empty check keeps a late bridge on a window we already render from
+    -- rebuilding it out from under the lines it is already showing.
+    if InstallBridge(cf) and win.smf:GetNumMessages() == 0 then
+        RebuildWindowFromBuffer(cf)
+        return
+    end
     local theirs = cf:GetNumMessages()
-    if theirs + (win.extraLines or 0) < win.smf:GetNumMessages() then
+    if theirs < win.smf:GetNumMessages() then
         RebuildWindowFromBuffer(cf)
     end
 end
@@ -1065,10 +1114,8 @@ function ECHAT.EngineUpdateCombatLogHost()
         end
         if win then
             win.smf:Show()
-            -- Same extraLines allowance as IntegrateChatFrame: replayed
-            -- lines on our side are not a cleared Blizzard buffer.
             local theirs = cf2:GetNumMessages()
-            if theirs + (win.extraLines or 0) < win.smf:GetNumMessages() then
+            if theirs < win.smf:GetNumMessages() then
                 RebuildWindowFromBuffer(cf2)
             end
         end
@@ -1115,7 +1162,7 @@ ECHAT.EngineQueueRebuildAll = QueueRebuildAll
 -- lines received while dormant. No-op while the state is unchanged, so the
 -- PEW edge and the per-message probe cost one comparison.
 EngineUpdateProtectedState = function()
-    local prot = (EUI.InProtectedInstance and EUI.InProtectedInstance()) and true or false
+    local prot = (EUI.InProtectedInstance()) and true or false
     if prot == _protActive then return end
     _protActive = prot
     QueueRebuildAll()
@@ -1198,33 +1245,34 @@ function ECHAT.EngineGetMessageLines(cf, out)
     return n
 end
 
--- Backfilled lines have no matching entry in the real chat frame, so a
--- click on one can't resolve to a real hyperlink target. Strip link escape
--- codes down to plain text to avoid handing a bad link to the click handler.
-local function StripHyperlinks(text)
+-- Battle.net links carry a session-scoped presence id, so a replayed one
+-- resolves against the NEW session's table and can act on a different friend
+-- (same trap as the |K protected-name tokens capture already substitutes).
+-- Every other link type -- items, spells, achievements, players -- resolves
+-- from stable ids and is replayed intact.
+local function StripBNetLinks(text)
     if type(text) ~= "string" then return text end
-    return text:gsub("|H.-|h(.-)|h", "%1")
+    return (text:gsub("|HBNplayer:.-|h(.-)|h", "%1"))
 end
 
--- Session history replay: push one restored line into a window's display.
--- The extraLines allowance keeps the divergence check from reading replayed
--- lines (which exist only on our side) as a cleared Blizzard buffer.
+-- Session history replay: push one restored line into BOTH surfaces.
+-- Blizzard's frame is not optional here: it owns the hyperlink hit-zones and
+-- it is the scroll authority the wheel drives, so a row missing from it had
+-- no working links and sat above the range the wheel can reach.
+-- BackFillMessage is one of the ScrollingMessageFrame methods Blizzard
+-- exposes to addons through the secure mixin, which elevates the call, so the
+-- replayed line is stored exactly as one of its own.
 function ECHAT.EngineBackfillLine(cf, text, r, g, b, id)
     local win = WINS[cf]
     if not win then return false end
     -- DisplayText keeps replayed history consistent with the current
     -- abbreviation setting; the scanner is idempotent on stored lines that
-    -- were captured already shortened.
-    local display = StripHyperlinks(DisplayText(text))
+    -- were captured already shortened. The SAME string lands on both
+    -- surfaces, which is what keeps the zones under the rendered glyphs.
+    local display = StripBNetLinks(DisplayText(text))
+    cf:BackFillMessage(display, r, g, b, id)
     win.smf:BackFillMessage(display, r, g, b, id)
-    win.extraLines = (win.extraLines or 0) + 1
     return true
-end
-
-function ECHAT.EngineNumMessages(cf)
-    local win = WINS[cf]
-    if not win then return 0 end
-    return win.smf:GetNumMessages()
 end
 
 -- Full-hide passthrough support: our display simply hides (a hidden frame

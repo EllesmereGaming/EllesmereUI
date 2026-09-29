@@ -3,13 +3,22 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUI_Lite.lua
 --  Lightweight replacement for AceAddon-3.0, AceEvent-3.0, and AceDB-3.0
 --  Zero-overhead event dispatch (direct frame handlers, no CallbackHandler)
---  Reads existing AceDB SavedVariables format — no migration needed
+--  Reads existing AceDB SavedVariables format -- no migration needed
 --------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
 local EUILite = {}
 EllesmereUI = EllesmereUI or {}
 EllesmereUI.Lite = EUILite
+
+-- WoW Forever (game type "camelot"): the 12.1 engine reporting a 1.60+ toc.
+-- Stamped by EllesmereUI_ClientGate.lua before any other file runs. Content
+-- that vanilla lacks gates on this, never on WOW_PROJECT_ID (Forever is
+-- classed as mainline on purpose).
+EllesmereUI.IS_FOREVER = (EUI_CLIENT_FOREVER == true)
+-- Global cooldown reference spell: Forever reports nothing on 61304 and uses
+-- Classic's 29515.
+EllesmereUI.GCD_SPELL = EllesmereUI.IS_FOREVER and 29515 or 61304
 
 -- The options-panel scale is exposed as a fixed-step dropdown ("EUI Options
 -- Panel Scale"), NOT a free slider, and its getValue matches exact percentages
@@ -201,15 +210,7 @@ end
 
 local function DeepCopy(src)
     if type(src) ~= "table" then return src end
-    local copy = {}
-    for k, v in pairs(src) do
-        if type(v) == "table" then
-            copy[k] = DeepCopy(v)
-        else
-            copy[k] = v
-        end
-    end
-    return copy
+    return CopyTable(src)
 end
 
 EUILite.DeepCopy = DeepCopy
@@ -487,6 +488,11 @@ lifecycleFrame:SetScript("OnEvent", function(self, event, arg1)
             if IS_STANDALONE then
                 _svLoaded = true
                 RerootPreSVDBs()
+                -- Runtime files can cache default fonts before this addon's
+                -- SavedVariables load. Resolve the saved choice when frames init.
+                if EllesmereUI.InvalidateFontCache then
+                    EllesmereUI.InvalidateFontCache()
+                end
             end
         elseif _dbGuardArmed and _parentDBRef and EllesmereUIDB ~= _parentDBRef then
             -- A stale SavedVariables copy from a child's WTF file replaced the central

@@ -30,6 +30,9 @@ initFrame:SetScript("OnEvent", function(self)
         if ECHAT.ApplyBackground  then ECHAT.ApplyBackground()  end
         if ECHAT.ApplyFonts       then ECHAT.ApplyFonts()       end
         if ECHAT.RefreshVisibility then ECHAT.RefreshVisibility() end
+        -- Reset Profile wipes the bubble settings too; without this the feature keeps
+        -- running with Blizzard's CVars still suppressed against settings that are gone.
+        if ns.ChatBubbles then ns.ChatBubbles.Refresh() end
     end
 
     local function BuildPage(pageName, parent, yOffset)
@@ -44,6 +47,23 @@ initFrame:SetScript("OnEvent", function(self)
         local isChat = pageName == "Chat"
         local isTabs = pageName == "Tabs"
         local isSidebar = pageName == "Sidebar"
+        local isBubbles = pageName == "Chat Bubbles"
+
+        -- Stock styles (Blizzard Style / Classic WoW UI) reveal Blizzard's own
+        -- chat frame art and input box: the panel background, panel border and
+        -- input layout rows only apply to the EllesmereUI look and hide there.
+        -- Blizzard Style also shows Blizzard's own tabs (no Tabs page; a deep
+        -- link lands on the banner alone); Classic keeps the tab typography.
+        local BS = EllesmereUI.BlizzStyle
+        local STOCK = BS and BS.Get("chat")
+        -- WoW Forever (Blizzard Style's Forever variant) draws its own panel,
+        -- input box and ghost tabs: the panel fill, input height and tab
+        -- typography come back; every other stock gate stays.
+        local FV = STOCK and BS.Forever("chat")
+        if isTabs and STOCK then
+            y = BS.Note(parent, y, "chat")
+            if BS.Active("chat") == "blizzard" and not FV then isTabs = false end
+        end
 
         if isChat then
 
@@ -52,6 +72,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- -- DISPLAY -----------------------------------------------------------
         _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
+        if BS then y = BS.Note(parent, y, "chat") end
 
         -- Row 1: Visibility (one control; no mouseover for chat frames) | Lock Main Chat Size
         _, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
@@ -74,7 +95,10 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row 2: Background Opacity (+ inline color swatch) | Background
         -- Texture (Unit Frames bar texture catalogue incl. SharedMedia, with
-        -- per-item texture preview backgrounds)
+        -- per-item texture preview backgrounds). Stock styles: Blizzard's own
+        -- background (its tab menu's Background swatch sets it); WoW Forever
+        -- fills its framed boxes with these.
+        if not STOCK or FV then
         if ECHAT.RefreshBgTextureCatalogue then ECHAT.RefreshBgTextureCatalogue() end
         local btValues, btOrder = {}, {}
         do
@@ -121,6 +145,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
         end
         y = y - h
+        end -- not STOCK or FV
 
         -- Row 3: Font (+ cog: Outline Mode) | Font Size
         do
@@ -137,7 +162,7 @@ initFrame:SetScript("OnEvent", function(self)
                           message     = "Font changed. A UI reload is needed to apply the new font.",
                           confirmText = "Reload Now",
                           cancelText  = "Later",
-                          onConfirm   = function() ReloadUI() end,
+                          reload      = true,
                       })
                   end },
                 { type="slider", text="Font Size",
@@ -166,7 +191,7 @@ initFrame:SetScript("OnEvent", function(self)
                     ["thick"]    = { text = "Thick Outline" },
                 }
                 local outlineOrder = { "__global", "none", "outline", "thick" }
-                local _, cogShow = EllesmereUI.BuildCogPopup({
+                EllesmereUI.BuildInlineCog(rrgn, {
                     title = "Font Settings",
                     rows = {
                         { type="dropdown", label="Outline Mode",
@@ -179,37 +204,19 @@ initFrame:SetScript("OnEvent", function(self)
                                   message     = "Outline mode changed. A UI reload is needed to apply.",
                                   confirmText = "Reload Now",
                                   cancelText  = "Later",
-                                  onConfirm   = function() ReloadUI() end,
+                                  reload      = true,
                               })
                           end },
                     },
                 })
-                local cogBtn = CreateFrame("Button", nil, rrgn)
-                cogBtn:SetSize(26, 26)
-                cogBtn:SetPoint("RIGHT", rrgn._lastInline or rrgn._control, "LEFT", -8, 0)
-                rrgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rrgn:GetFrameLevel() + 5)
-                cogBtn:SetAlpha(0.4)
-                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-                cogTex:SetAllPoints()
-                cogTex:SetTexture(EllesmereUI.COGS_ICON)
-                cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-                cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-                cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
             end
         end
         y = y - h
 
         -- Outer panel border. Without the extended background, visible tabs get
         -- matching individual borders instead of outlining empty tab-strip space.
-            local thicknessValues = {
-                none   = { text = "None" },
-                thin   = { text = "Thin" },
-                normal = { text = "Normal" },
-                heavy  = { text = "Heavy" },
-                strong = { text = "Strong" },
-            }
-            local thicknessOrder = { "none", "thin", "normal", "heavy", "strong" }
+        -- Stock styles: Blizzard's own frame border.
+        if not STOCK then
             local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
             local borderRow
             borderRow, h = W:DualRow(parent, y,
@@ -220,57 +227,71 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("panelBorderTexture", v)
                       Set("panelBorderOffsetX", nil); Set("panelBorderOffsetY", nil)
                       Set("panelBorderShiftX", nil); Set("panelBorderShiftY", nil)
+                      -- A style with a select colour (Pixels grey) seeds the custom
+                      -- colour; the colour mode is kept, every other style keeps its colour.
+                      local selC = EllesmereUI.GetBorderSelectColor(v)
+                      if selC then Set("panelBorderColor", selC) end
+                      -- A style pick lands on the style's default step, so an exact
+                      -- pixel size paired with the old step is cleared (false, not
+                      -- nil: the clear must travel through mirror sync).
+                      if Cfg("panelBorderThicknessPx") then Set("panelBorderThicknessPx", false) end
                       local defSize = EllesmereUI.GetBorderDefaultSize("chat", v)
                           or EllesmereUI.GetBorderTextureDefaultThickness(v)
+                      -- Unregistered SharedMedia borders default to the NUMBER 1; this key stores labels.
+                      if type(defSize) == "number" then defSize = EllesmereUI.BORDER_LABEL_OF_STEP[defSize] or "thin" end
                       if defSize then Set("panelBorderThickness", defSize) end
                       if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
-                      EllesmereUI:RefreshPage()
+                      -- Rebuild: the offset row below exists only for a textured style.
+                      EllesmereUI:RefreshPage(true)
                   end },
-                { type="dropdown", text="Border Size",
-                  values=thicknessValues, order=thicknessOrder,
-                  getValue=function() return Cfg("panelBorderThickness") or "none" end,
-                  setValue=function(v)
-                      Set("panelBorderThickness", v)
+                EllesmereUI.BorderPxSliderCfg{ text="Border Size",
+                  -- The step the panel renders with: its label as a step, anything unknown = thin.
+                  getStep=function() return EllesmereUI.BORDER_STEP_OF_LABEL[Cfg("panelBorderThickness") or "none"] or 1 end,
+                  setStep=function(step) Set("panelBorderThickness", EllesmereUI.BORDER_LABEL_OF_STEP[step]) end,
+                  getTex=function() return Cfg("panelBorderTexture") or "solid" end,
+                  getPx=function() return Cfg("panelBorderThicknessPx") end,
+                  setPx=function(v) Set("panelBorderThicknessPx", v) end,
+                  apply=function()
                       if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
                   end })
             y = y - h
 
-            -- Border offset dropdown on Border Style.
+            -- Width Offset | Height Offset: a textured style's outward offsets in their
+            -- own row (Solid has none). Same registry row the panel renders with:
+            -- "chat" + the thickness label as sizeKey.
+            do
+                local pTex = Cfg("panelBorderTexture")
+                if pTex and pTex ~= "" and pTex ~= "solid" then
+                    local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs{
+                        addonKey = "chat",
+                        getTex=function() return Cfg("panelBorderTexture") or "solid" end,
+                        getStep=function() return EllesmereUI.BORDER_STEP_OF_LABEL[Cfg("panelBorderThickness") or "none"] or 1 end,
+                        getSizeKey=function() return Cfg("panelBorderThickness") or "none" end,
+                        getPx=function() return Cfg("panelBorderThicknessPx") end,
+                        getX=function() return Cfg("panelBorderOffsetX") end,
+                        setX=function(v) Set("panelBorderOffsetX", v) end,
+                        getY=function() return Cfg("panelBorderOffsetY") end,
+                        setY=function(v) Set("panelBorderOffsetY", v) end,
+                        apply=function()
+                            if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+                        end }
+                    _, h = W:DualRow(parent, y, ocfgL, ocfgR)
+                    y = y - h
+                end
+            end
+
+            -- Border options cog on Border Style (Show Behind, shifts).
             do
                 local rgn = borderRow._leftRegion
-                local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Border Offset",
+                EllesmereUI.BuildInlineCog(rgn, {
+                    icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = rgn._control,
+                    title = "Border Options",
                     captureRegion = rgn,
                     rows = {
                         { type="toggle", label="Show Behind",
                           get=function() return Cfg("panelBorderBehind") or false end,
                           set=function(v)
                               Set("panelBorderBehind", v)
-                              if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
-                          end },
-                        { type="slider", label="Offset X", min=-10, max=10, step=1,
-                          get=function()
-                              local v = Cfg("panelBorderOffsetX")
-                              if v ~= nil then return v end
-                              return EllesmereUI.GetBorderDefaults("chat",
-                                  Cfg("panelBorderTexture") or "solid",
-                                  Cfg("panelBorderThickness") or "none")
-                          end,
-                          set=function(v)
-                              Set("panelBorderOffsetX", v)
-                              if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
-                          end },
-                        { type="slider", label="Offset Y", min=-10, max=10, step=1,
-                          get=function()
-                              local v = Cfg("panelBorderOffsetY")
-                              if v ~= nil then return v end
-                              local _, value = EllesmereUI.GetBorderDefaults("chat",
-                                  Cfg("panelBorderTexture") or "solid",
-                                  Cfg("panelBorderThickness") or "none")
-                              return value
-                          end,
-                          set=function(v)
-                              Set("panelBorderOffsetY", v)
                               if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
                           end },
                         { type="slider", label="Shift X", min=-10, max=10, step=1,
@@ -301,27 +322,6 @@ initFrame:SetScript("OnEvent", function(self)
                           end },
                     },
                 })
-                local cogBtn = CreateFrame("Button", nil, rgn)
-                cogBtn:SetSize(26, 26)
-                cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-                cogTex:SetAllPoints()
-                cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-                local function RefreshCog() cogBtn:SetAlpha(0.4) end
-                cogBtn:SetScript("OnEnter", function(self)
-                    self:SetAlpha(0.7)
-                end)
-                cogBtn:SetScript("OnLeave", function()
-                    EllesmereUI.HideWidgetTooltip()
-                    RefreshCog()
-                end)
-                cogBtn:SetScript("OnClick", function(self)
-                    cogShow(self)
-                end)
-                EllesmereUI.RegisterWidgetRefresh(RefreshCog)
-                RefreshCog()
             end
 
             -- Accent, custom, and class-color selectors beside Border Size.
@@ -397,6 +397,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(RefreshBorderSwatches)
                 RefreshBorderSwatches()
             end
+        end -- not STOCK
 
         -- -- IDLE FADE ---------------------------------------------------------
         _, h = W:SectionHeader(parent, "IDLE FADE", y); y = y - h
@@ -439,6 +440,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- -- SIDEBAR -----------------------------------------------------------
         if isSidebar then
         _, h = W:SectionHeader(parent, "SIDEBAR", y); y = y - h
+        if STOCK then y = BS.Note(parent, y, "chat") end
 
         -- Row 1: Sidebar Visibility (+ cog) | Sidebar Background
         local sidebarVisValues = {
@@ -474,16 +476,21 @@ initFrame:SetScript("OnEvent", function(self)
                   Set("sidebarVisibility", v)
                   if ECHAT.ApplySidebarVisibility then ECHAT.ApplySidebarVisibility() end
               end },
-            { type="toggle", text="Hide Sidebar Background",
+            -- Classic WoW UI and WoW Forever draw nothing behind the column;
+            -- Blizzard Style's column backdrop follows this toggle.
+            (function(cfg)
+                if STOCK and (BS.Active("chat") == "classic" or FV) then BS.Gate("chat", cfg) end
+                return cfg
+            end)({ type="toggle", text="Hide Sidebar Background",
               getValue=function() return Cfg("hideSidebarBg") or false end,
               setValue=function(v)
                   Set("hideSidebarBg", v)
                   if ECHAT.ApplySidebarBackground then ECHAT.ApplySidebarBackground() end
-              end })
+              end }))
         -- Cog for Sidebar Visibility
         if not EllesmereUI._prebuilding then
             local lrgn = sidebarRow._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(lrgn, {
                 title = "Sidebar Settings",
                 rows = {
                     { type="toggle", label="Show Sidebar on Right",
@@ -494,25 +501,15 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, lrgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
-            lrgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(lrgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
         y = y - h
 
         local sidebarLayoutRow
         sidebarLayoutRow, h = W:DualRow(parent, y,
             { type="slider", text="Sidebar Width", min=30, max=100, step=1,
-              getValue=function() return Cfg("sidebarWidth") or 40 end,
+              getValue=function()
+                  return Cfg("sidebarWidth") or (ECHAT.SidebarWidthDefault and ECHAT.SidebarWidthDefault() or 40)
+              end,
               setValue=function(v)
                   Set("sidebarWidth", v)
                   if ECHAT.ApplySidebarWidth then ECHAT.ApplySidebarWidth() end
@@ -528,7 +525,9 @@ initFrame:SetScript("OnEvent", function(self)
               end })
         if not EllesmereUI._prebuilding then
             local lrgn = sidebarLayoutRow._rightRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(lrgn, {
+                disabled = function() return not Cfg("sidebarSeparate") end,
+                disabledTooltip = "Separate Sidebar",
                 title="Separate Sidebar",
                 rows={
                     { type="slider", pixel=true, label="Sidebar Spacing",
@@ -541,22 +540,6 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, lrgn)
-            cogBtn:SetSize(26,26)
-            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
-            lrgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(lrgn:GetFrameLevel()+5)
-            local function UpdateCogAlpha()
-                cogBtn:SetAlpha(Cfg("sidebarSeparate") and 0.4 or 0.15)
-            end
-            UpdateCogAlpha(); EllesmereUI.RegisterWidgetRefresh(UpdateCogAlpha)
-            local cogTex = cogBtn:CreateTexture(nil,"OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter",function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave",function() UpdateCogAlpha() end)
-            cogBtn:SetScript("OnClick",function(s)
-                if Cfg("sidebarSeparate") then cogShow(s) end
-            end)
         end
         y = y - h
 
@@ -605,8 +588,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local iconOptionsRow
         iconOptionsRow, h = W:DualRow(parent, y,
-            { type="multiSwatch", text="Sidebar Icons Color",
-              swatches = MakeIconColorSwatches() },
+            -- The stock styles keep the stock column art (no tint).
+            EllesmereUI.BlizzStyle.Gate("chat", { type="multiSwatch", text="Sidebar Icons Color",
+              swatches = MakeIconColorSwatches() }),
             { type="dropdown", text="Sidebar Icons",
               values={ __placeholder = "..." }, order={ "__placeholder" },
               getValue=function() return "__placeholder" end,
@@ -640,7 +624,7 @@ initFrame:SetScript("OnEvent", function(self)
                             title="Reload Required",
                             message="A UI reload is needed to apply your sidebar icon changes.",
                             confirmText="Reload Now", cancelText="Later",
-                            onConfirm=function() ReloadUI() end,
+                            reload = true,
                         })
                     end,
                 })
@@ -671,30 +655,23 @@ initFrame:SetScript("OnEvent", function(self)
               end })
         if not EllesmereUI._prebuilding then
             local lrgn = sizeRow._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(lrgn, {
                 title = "Icon Settings",
                 rows = {
+                    -- The stock styles keep their own spacing (the visible
+                    -- gap between button art; Blizzard's packing by default).
                     { type="slider", pixel=true, label="Icon Spacing",
                       min = 0, max = 30, step = 1,
-                      get=function() return Cfg("sidebarIconSpacing") or 10 end,
+                      get=function()
+                          if STOCK then return Cfg("stockIconSpacing") or (ECHAT.SB_KIT and ECHAT.SB_KIT.gap) or 4 end
+                          return Cfg("sidebarIconSpacing") or 10
+                      end,
                       set=function(v)
-                          Set("sidebarIconSpacing", v)
+                          Set(STOCK and "stockIconSpacing" or "sidebarIconSpacing", v)
                           if ECHAT.ApplySidebarIcons then ECHAT.ApplySidebarIcons() end
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, lrgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
-            lrgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(lrgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
         -- "Reset" label next to the Free Move Icons toggle (only visible when enabled)
         if not EllesmereUI._prebuilding then
@@ -738,6 +715,10 @@ initFrame:SetScript("OnEvent", function(self)
         end -- isSidebar
 
         if isTabs then
+            -- Classic WoW UI (the vanilla tab sheet) and WoW Forever (the
+            -- bronze tab) paint at Blizzard's tab geometry: only the
+            -- TYPOGRAPHY section applies there.
+            if not STOCK then
             _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
 
             _, h = W:DualRow(parent, y,
@@ -757,7 +738,7 @@ initFrame:SetScript("OnEvent", function(self)
                           or (Cfg("sidebarVisibility") or "always") == "never"
                   end,
                   disabledTooltip=function()
-                      if Cfg("extendBgBehindTabs") then return "Tabs Inside Chat Panel" end
+                      if Cfg("extendBgBehindTabs") then return "This option requires Tabs Inside Chat Panel to be disabled" end
                       return "Sidebar Visibility"
                   end,
                   getValue=function() return Cfg("alignTabsToPanel") or false end,
@@ -770,7 +751,7 @@ initFrame:SetScript("OnEvent", function(self)
             _, h = W:DualRow(parent, y,
                 { type="slider", text="Tab Spacing", min=0, max=10, step=1,
                   disabled=function() return Cfg("extendBgBehindTabs") == true end,
-                  disabledTooltip="Tabs Inside Chat Panel",
+                  disabledTooltip="Tabs Inside Chat Panel", requireState="disabled",
                   getValue=function() return Cfg("tabSpacing") or 1 end,
                   setValue=function(v)
                       Set("tabSpacing", v)
@@ -778,7 +759,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
                 { type="slider", text="Bottom Spacing to Panel", min=0, max=20, step=1,
                   disabled=function() return Cfg("extendBgBehindTabs") == true end,
-                  disabledTooltip="Tabs Inside Chat Panel",
+                  disabledTooltip="Tabs Inside Chat Panel", requireState="disabled",
                   getValue=function() return Cfg("tabPadding") or 0 end,
                   setValue=function(v)
                       Set("tabPadding", v)
@@ -803,7 +784,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Cog on Inner Padding X: Tab Offset X (applies in both tab modes)
             if not EllesmereUI._prebuilding then
                 local rrgn = tabSizeRow._rightRegion
-                local _, cogShow = EllesmereUI.BuildCogPopup({
+                EllesmereUI.BuildInlineCog(rrgn, {
                     title = "Tab Layout",
                     rows = {
                         { type="slider", label="Tab Offset X",
@@ -815,20 +796,9 @@ initFrame:SetScript("OnEvent", function(self)
                           end },
                     },
                 })
-                local cogBtn = CreateFrame("Button", nil, rrgn)
-                cogBtn:SetSize(26, 26)
-                cogBtn:SetPoint("RIGHT", rrgn._lastInline or rrgn._control, "LEFT", -8, 0)
-                rrgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rrgn:GetFrameLevel() + 5)
-                cogBtn:SetAlpha(0.4)
-                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-                cogTex:SetAllPoints()
-                cogTex:SetTexture(EllesmereUI.COGS_ICON)
-                cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-                cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-                cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
             end
             y = y - h
+            end -- not STOCK (LAYOUT)
 
             _, h = W:SectionHeader(parent, "TYPOGRAPHY", y); y = y - h
             do
@@ -951,6 +921,7 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="multiSwatch", text="Tab Font Color Active", swatches=FontColorSwatch(true) })
             y = y - h
 
+            if not STOCK then
             _, h = W:SectionHeader(parent, "APPEARANCE", y); y = y - h
             -- The inactive background is a single custom color picker. The
             -- active background uses the common Custom, Accent, Class order;
@@ -1034,7 +1005,7 @@ initFrame:SetScript("OnEvent", function(self)
             local function AttachTabBgOpacityCog(rgn, active)
                 local key = active and "tabBackgroundColorActive" or "tabBackgroundColor"
                 local fallback = TAB_BG_FALLBACK[active]
-                local _, cogShow = EllesmereUI.BuildCogPopup({
+                EllesmereUI.BuildInlineCog(rgn, {
                     title=active and "Active Tab Background" or "Tab Background",
                     captureRegion=rgn,
                     rows={
@@ -1051,17 +1022,6 @@ initFrame:SetScript("OnEvent", function(self)
                           end },
                     },
                 })
-                local cogBtn = CreateFrame("Button", nil, rgn)
-                cogBtn:SetSize(26,26)
-                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rgn:GetFrameLevel()+5)
-                cogBtn:SetAlpha(0.4)
-                local tex = cogBtn:CreateTexture(nil,"OVERLAY")
-                tex:SetAllPoints(); tex:SetTexture(EllesmereUI.COGS_ICON)
-                cogBtn:SetScript("OnEnter",function(self) self:SetAlpha(0.7) end)
-                cogBtn:SetScript("OnLeave",function(self) self:SetAlpha(0.4) end)
-                cogBtn:SetScript("OnClick",function(self) cogShow(self) end)
             end
             if not EllesmereUI._prebuilding then
             AttachTabBgOpacityCog(tabBgRow._leftRegion, false)
@@ -1190,53 +1150,80 @@ initFrame:SetScript("OnEvent", function(self)
                 return "Sync Border with Chat Panel"
             end
             local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
-            local thicknessValues = {
-                none={text="None"}, thin={text="Thin"}, normal={text="Normal"},
-                heavy={text="Heavy"}, strong={text="Strong"},
-            }
             local borderRow
             borderRow, h = W:DualRow(parent, y,
                 { type="dropdown", text="Border Style",
-                  disabled=tabBordersDisabled, disabledTooltip=TabBorderDisabledTip,
+                  disabled=tabBordersDisabled, disabledTooltip=TabBorderDisabledTip, requireState="disabled",
                   values=texValues, order=texOrder,
                   getValue=function() return Cfg("tabBorderTexture") or "solid" end,
                   setValue=function(v)
                       Set("tabBorderTexture", v)
                       Set("tabBorderOffsetX", nil); Set("tabBorderOffsetY", nil)
                       Set("tabBorderShiftX", nil); Set("tabBorderShiftY", nil)
+                      -- A style with a select colour (Pixels grey) seeds the custom
+                      -- colour; the colour mode is kept, every other style keeps its colour.
+                      local selC = EllesmereUI.GetBorderSelectColor(v)
+                      if selC then Set("tabBorderColor", selC) end
+                      -- A style pick lands on the style's default step, so an exact
+                      -- pixel size paired with the old step is cleared (false, not
+                      -- nil: the clear must travel through mirror sync).
+                      if Cfg("tabBorderThicknessPx") then Set("tabBorderThicknessPx", false) end
                       local def = EllesmereUI.GetBorderDefaultSize("chat", v)
                           or EllesmereUI.GetBorderTextureDefaultThickness(v)
+                      -- Unregistered SharedMedia borders default to the NUMBER 1; this key stores labels.
+                      if type(def) == "number" then def = EllesmereUI.BORDER_LABEL_OF_STEP[def] or "thin" end
                       if def then Set("tabBorderThickness", def) end
                       if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
-                      EllesmereUI:RefreshPage()
+                      -- Rebuild: the offset row below exists only for a textured style.
+                      EllesmereUI:RefreshPage(true)
                   end },
-                { type="dropdown", text="Border Size",
-                  disabled=tabBordersDisabled, disabledTooltip=TabBorderDisabledTip,
-                  values=thicknessValues, order={"none","thin","normal","heavy","strong"},
-                  getValue=function() return Cfg("tabBorderThickness") or "none" end,
-                  setValue=function(v)
-                      Set("tabBorderThickness", v)
+                EllesmereUI.BorderPxSliderCfg{ text="Border Size",
+                  disabled=tabBordersDisabled, disabledTooltip=TabBorderDisabledTip, requireState="disabled",
+                  -- The step a tab renders with from its own keys: its label as a step, anything unknown = thin.
+                  getStep=function() return EllesmereUI.BORDER_STEP_OF_LABEL[Cfg("tabBorderThickness") or "none"] or 1 end,
+                  setStep=function(step) Set("tabBorderThickness", EllesmereUI.BORDER_LABEL_OF_STEP[step]) end,
+                  getTex=function() return Cfg("tabBorderTexture") or "solid" end,
+                  getPx=function() return Cfg("tabBorderThicknessPx") end,
+                  setPx=function(v) Set("tabBorderThicknessPx", v) end,
+                  apply=function()
                       if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
                   end })
             y = y - h
 
+            -- Width Offset | Height Offset: a textured tab style's outward offsets in
+            -- their own row (Solid has none). Same registry row a tab renders with
+            -- from its own keys: "chat" + the thickness label as sizeKey. Disabled
+            -- exactly like the Border Size slot.
+            do
+                local tTex = Cfg("tabBorderTexture")
+                if tTex and tTex ~= "" and tTex ~= "solid" then
+                    local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs{
+                        addonKey = "chat",
+                        disabled=tabBordersDisabled, disabledTooltip=TabBorderDisabledTip, requireState="disabled",
+                        getTex=function() return Cfg("tabBorderTexture") or "solid" end,
+                        getStep=function() return EllesmereUI.BORDER_STEP_OF_LABEL[Cfg("tabBorderThickness") or "none"] or 1 end,
+                        getSizeKey=function() return Cfg("tabBorderThickness") or "none" end,
+                        getPx=function() return Cfg("tabBorderThicknessPx") end,
+                        getX=function() return Cfg("tabBorderOffsetX") end,
+                        setX=function(v) Set("tabBorderOffsetX", v) end,
+                        getY=function() return Cfg("tabBorderOffsetY") end,
+                        setY=function(v) Set("tabBorderOffsetY", v) end,
+                        apply=function()
+                            if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
+                        end }
+                    _, h = W:DualRow(parent, y, ocfgL, ocfgR)
+                    y = y - h
+                end
+            end
+
             do
                 local rgn = borderRow._leftRegion
-                local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title="Tab Border Offset", captureRegion=rgn,
+                EllesmereUI.BuildInlineCog(rgn, {
+                    icon = EllesmereUI.DIRECTIONS_ICON, chain = false,
+                    disabled = tabBordersDisabled,
+                    disabledTooltip = TabBorderDisabledTip,
+                    title="Tab Border Options", captureRegion=rgn,
                     rows={
-                        { type="slider", label="Offset X", min=-10, max=10, step=1,
-                          get=function()
-                              local v=Cfg("tabBorderOffsetX"); if v~=nil then return v end
-                              return EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "none")
-                          end,
-                          set=function(v) Set("tabBorderOffsetX", v); ECHAT.ApplyTabBorders() end },
-                        { type="slider", label="Offset Y", min=-10, max=10, step=1,
-                          get=function()
-                              local v=Cfg("tabBorderOffsetY"); if v~=nil then return v end
-                              local _,d=EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "none"); return d
-                          end,
-                          set=function(v) Set("tabBorderOffsetY", v); ECHAT.ApplyTabBorders() end },
                         { type="slider", label="Shift X", min=-10, max=10, step=1,
                           get=function()
                               local v=Cfg("tabBorderShiftX"); if v~=nil then return v end
@@ -1251,18 +1238,6 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) Set("tabBorderShiftY", v == 0 and nil or v); ECHAT.ApplyTabBorders() end },
                     },
                 })
-                local btn = CreateFrame("Button", nil, rgn)
-                btn:SetSize(26,26); btn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-                btn:SetFrameLevel(rgn:GetFrameLevel()+5)
-                local tex = btn:CreateTexture(nil,"OVERLAY"); tex:SetAllPoints(); tex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-                local function Refresh() btn:SetAlpha(tabBordersDisabled() and 0.15 or 0.4) end
-                btn:SetScript("OnEnter", function(self)
-                    if tabBordersDisabled() then EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(TabBorderDisabledTip()))
-                    else self:SetAlpha(0.7) end
-                end)
-                btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip(); Refresh() end)
-                btn:SetScript("OnClick", function(self) if not tabBordersDisabled() then cogShow(self) end end)
-                EllesmereUI.RegisterWidgetRefresh(Refresh); Refresh()
             end
 
             if not EllesmereUI._prebuilding then
@@ -1339,12 +1314,25 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshActiveSwatch()
             end
             y = y - h
+            end -- not STOCK (APPEARANCE, BORDER)
         end -- isTabs
 
         if isChat then
         -- -- INPUT FIELD -------------------------------------------------------
         _, h = W:SectionHeader(parent, "INPUT FIELD", y); y = y - h
 
+        -- Stock styles keep Blizzard's own input box, its height and place.
+        -- WoW Forever's box is ours, always below: its height alone.
+        if not STOCK or FV then
+        local ebHeightCfg = { type="slider", text="Edit Box Height", min=10, max=60, step=1,
+              getValue=function() return Cfg("editBoxHeight") or 23 end,
+              setValue=function(v)
+                  Set("editBoxHeight", v)
+                  if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
+              end }
+        if FV then
+        _, h = W:DualRow(parent, y, ebHeightCfg, EllesmereUI.BlankRowCfg())
+        else
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Input on Top",
               getValue=function() return Cfg("inputOnTop") or false end,
@@ -1352,13 +1340,10 @@ initFrame:SetScript("OnEvent", function(self)
                   Set("inputOnTop", v)
                   if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
               end },
-            { type="slider", text="Edit Box Height", min=10, max=60, step=1,
-              getValue=function() return Cfg("editBoxHeight") or 23 end,
-              setValue=function(v)
-                  Set("editBoxHeight", v)
-                  if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
-              end })
+            ebHeightCfg)
+        end
         y = y - h
+        end -- not STOCK or FV
 
         do
             local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
@@ -1375,7 +1360,8 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="slider", text="Edit Box Font Size", min=8, max=24, step=1,
                   getValue=function()
                       if Cfg("editBoxFontSize") then return Cfg("editBoxFontSize") end
-                      local _, size = FCF_GetChatWindowInfo and FCF_GetChatWindowInfo(1)
+                      local size
+                      if FCF_GetChatWindowInfo then size = select(2, FCF_GetChatWindowInfo(1)) end
                       return size or 12
                   end,
                   setValue=function(v)
@@ -1407,7 +1393,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("hideTooltipOnHover", v) end })
         if not EllesmereUI._prebuilding then
             local lrgn = histRow._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(lrgn, {
                 title = "Session History",
                 rows = {
                     { type="slider", label="Max Lines to Keep",
@@ -1416,18 +1402,6 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) Set("persistChatHistoryMaxLines", v) end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, lrgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
-            lrgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(lrgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
         y = y - h
 
@@ -1435,8 +1409,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- (preview icon) doesn't pollute the shared tables.
         local whisperSoundValues = {}
         local whisperSoundPaths = ECHAT.WHISPER_SOUND_PATHS or {}
-        local whisperSoundNames = ECHAT.WHISPER_SOUND_NAMES or { none = "None" }
-        local whisperSoundOrder = ECHAT.WHISPER_SOUND_ORDER or { "none" }
+        local whisperSoundNames = ECHAT.WHISPER_SOUND_NAMES or { none = "Blizzard Default", mute = "None" }
+        local whisperSoundOrder = ECHAT.WHISPER_SOUND_ORDER or { "none", "mute" }
         for k, v in pairs(whisperSoundNames) do whisperSoundValues[k] = v end
         whisperSoundValues._menuOpts = {
             itemHeight = 26,
@@ -1448,7 +1422,7 @@ initFrame:SetScript("OnEvent", function(self)
                 return "common-icon-sound"
             end,
             iconPressedAtlas = function(key)
-                if key == "none" then return nil end
+                if not whisperSoundPaths[key] then return nil end
                 return "common-icon-sound-pressed"
             end,
             iconOnClick = function(key)
@@ -1459,19 +1433,27 @@ initFrame:SetScript("OnEvent", function(self)
         }
 
         -- Row 2: Hide Borders (+ inline inner-border swatches) | Whisper Sound
-        local extrasBorderRow
-        extrasBorderRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Hide Borders",
+        -- Stock styles draw none of these borders (Blizzard's frame border
+        -- is the border), so the toggle and its swatches are blocked there.
+        local hideBordersCfg = { type="toggle", text="Hide Borders",
               getValue=function() return Cfg("hideBorders") or false end,
               setValue=function(v)
                   Set("hideBorders", v)
                   if ECHAT.ApplyBorders then ECHAT.ApplyBorders() end
                   EllesmereUI:RefreshPage()
-              end },
+              end }
+        if BS then BS.Gate("chat", hideBordersCfg) end
+        local extrasBorderRow
+        extrasBorderRow, h = W:DualRow(parent, y,
+            hideBordersCfg,
             { type="dropdown", text="Whisper Sound",
+              tooltip="Blizzard Default keeps the game's whisper sound. Any other sound replaces it, and None plays no sound.",
               values=whisperSoundValues, order=whisperSoundOrder,
               getValue=function() return Cfg("whisperSoundKey") or "none" end,
-              setValue=function(v) Set("whisperSoundKey", v) end })
+              setValue=function(v)
+                  Set("whisperSoundKey", v)
+                  ECHAT.ApplyWhisperMute()
+              end })
         if not EllesmereUI._prebuilding then
             local rgn = extrasBorderRow._leftRegion
             local ctrl = rgn._control
@@ -1525,13 +1507,17 @@ initFrame:SetScript("OnEvent", function(self)
             swatch:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
             local function RefreshInner()
                 refreshSwatch(); refreshAccent()
-                local off = Cfg("hideBorders")
+                local off = Cfg("hideBorders") or STOCK
                 local mode = Cfg("innerBorderColorMode") or "custom"
                 swatch:SetAlpha(off and 0.3 or (mode == "custom" and 1 or 0.3))
                 accentSw:SetAlpha(off and 0.3 or (mode == "accent" and 1 or 0.3))
             end
             EllesmereUI.RegisterWidgetRefresh(RefreshInner)
             RefreshInner()
+            if BS then
+                BS.BlockInline("chat", swatch)
+                BS.BlockInline("chat", accentSw)
+            end
         end
         y = y - h
 
@@ -1574,15 +1560,17 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 4: Shortened Channel Names | Class Colored Names
-        _, h = W:DualRow(parent, y,
+        -- Row 4: Shortened Channel Names (+ Use Letters cog) | Class Colored Names
+        local abbrevRow
+        abbrevRow, h = W:DualRow(parent, y,
             { type="toggle", text="Shortened Channel Names",
-              tooltip="Abbreviates channel prefixes, like [Party] to [P] and [Guild] to [G].",
+              tooltip="Abbreviates channel prefixes, like [Party] to [P] and [Guild] to [G]; world channels show their number.",
               getValue=function() return Cfg("abbreviateChannels") == true end,
               setValue=function(v)
                   Set("abbreviateChannels", v)
                   if ECHAT.EngineSetChannelAbbrev then ECHAT.EngineSetChannelAbbrev(v) end
                   if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
+                  EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Class Colored Names",
               tooltip="Colors group and raid member names by their class when they appear in the text of Say, Yell, Party, and Raid messages.",
@@ -1592,21 +1580,306 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ApplyClassColorNames then ECHAT.ApplyClassColorNames(v) end
                   if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
               end })
+        if not EllesmereUI._prebuilding then
+            -- Cog: world channels as letters (the old Ge / T / LD / WD / LFG)
+            -- instead of their numbers. Dimmed and inert while the toggle is off.
+            local lrgn = abbrevRow._leftRegion
+            EllesmereUI.BuildInlineCog(lrgn, {
+                disabled = function() return Cfg("abbreviateChannels") ~= true end,
+                disabledTooltip = "Shortened Channel Names",
+                title = "Shortened Channel Names",
+                rows = {
+                    { type="toggle", label="Use Letters",
+                      tooltip="Shows General, Trade, Local Defense, World Defense and LFG as letters instead of their channel numbers.",
+                      get=function() return Cfg("abbreviateChannelLetters") == true end,
+                      set=function(v)
+                          Set("abbreviateChannelLetters", v)
+                          if ECHAT.EngineSetChannelAbbrevLetters then ECHAT.EngineSetChannelAbbrevLetters(v) end
+                          if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
+                      end },
+                },
+            })
+        end
         y = y - h
 
         end -- isChat
+
+        if isBubbles then
+
+        local function BBDB() return ECHAT.BubblesDB and ECHAT.BubblesDB() end
+        -- Same defaults table the renderer reads, so a widget can never offer a value the
+        -- bubble would not actually draw. Falling back per key also keeps a slider off nil
+        -- if a profile predates the setting and the merge has not run for it yet.
+        local function CBVal(key)
+            local db = BBDB()
+            local v = db and db[key]
+            if v ~= nil then return v end
+            local d = ECHAT.BubbleDefaults and ECHAT.BubbleDefaults()
+            return d and d[key]
+        end
+        -- Structural write: can change whether we draw at all, or which of Blizzard's
+        -- CVars we hold down, so it runs the renderer's full pass.
+        local function CBSet(key, v)
+            local db = BBDB()
+            if not db then return end
+            db[key] = v
+            if ns.ChatBubbles then ns.ChatBubbles.Refresh() end
+        end
+        -- Appearance write: nothing here can move a channel or one of Blizzard's CVars, so
+        -- it only re-styles what is already on screen. Worth the split because a slider
+        -- fires this per STEP while it is dragged, and the full pass re-diffs every event
+        -- registration and round-trips Blizzard's three switches every time.
+        local function CBSetStyle(key, v)
+            local db = BBDB()
+            if not db then return end
+            db[key] = v
+            local cb = ns.ChatBubbles
+            if not cb then return end
+            if cb.RefreshStyle then cb.RefreshStyle() else cb.Refresh() end
+        end
+        local function CBColor(key)
+            local c = CBVal(key)
+            if not c then return 1, 1, 1, 1 end
+            return c.r, c.g, c.b, c.a or 1
+        end
+        local function Off() return CBVal("enabled") ~= true end
+        local GATE = "Enable Chat Bubbles Customization"
+        -- The toggle's own label reads as an instruction; DisabledTooltip wraps whatever it
+        -- is handed in "This option requires %1$s to be enabled", which needs a plain noun.
+        local GATE_REQ = "Chat Bubbles"
+
+        -- Red warning banner: NOT a section header for what follows -- our own bubbles
+        -- never show inside instances, unconditionally, and that has to be visible before
+        -- the player reads any option below it, not styled as their category label.
+        -- Skipped while the search index prebuilds the page off screen: the banner carries
+        -- no setting to index and parent:GetWidth() is not meaningful there. The height
+        -- still comes off y in both passes, so everything below lands identically.
+        if not EllesmereUI._prebuilding then
+            local warnFrame = CreateFrame("Frame", nil, parent)
+            PP.Size(warnFrame, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, 30)
+            PP.Point(warnFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
+            local warnFS = EllesmereUI.MakeFont(warnFrame, 14, "", 1, 0.25, 0.25, 1)
+            warnFS:SetPoint("LEFT", warnFrame, "LEFT", 0, 0)
+            warnFS:SetText(EllesmereUI.L("Only works outside of Instances"))
+        end
+        y = y - 30
+
+        _, h = W:SectionHeader(parent, "DISPLAY", y);  y = y - h
+
+        local channelsRow
+        channelsRow, h = W:DualRow(parent, y,
+            { type="toggle", text=GATE,
+              tooltip="Restyle Blizzard's chat bubbles for the channels you pick beside this.\n\nEllesmereUI keeps Blizzard's bubbles switched on and draws over them, so every bubble stays where the game put it, including the one over your own head. Nameplates are not involved and do not need to be visible.\n\nChannels you leave off keep Blizzard's own look.",
+              getValue=function() return CBVal("enabled") == true end,
+              setValue=function(v)
+                if not v then
+                    CBSet("enabled", false)
+                    EllesmereUI:RefreshPage()
+                    return
+                end
+                local message = "EllesmereUI restyles Blizzard's chat bubbles and turns on the switches it needs. Party and Raid keep your current setting, and everything is put back when you turn this off."
+                EllesmereUI:ShowConfirmPopup({
+                    title = GATE,
+                    message = message,
+                    confirmText = "Enable",
+                    cancelText = "Cancel",
+                    onConfirm = function()
+                        CBSet("enabled", true)
+                        EllesmereUI:RefreshPage()
+                    end,
+                    onCancel = function() EllesmereUI:RefreshPage() end,
+                })
+              end },
+            { type="dropdown", text="Channels",
+              rawTooltip = true,
+              tooltip="Choose which channels get a bubble.\n\nSay, Yell, NPCs and Emotes share one Blizzard switch. It is turned on while at least one of the four is ticked, and put back the way you had it once you clear the last one. Party and Raid have switches of their own and start out matching what you already had, so no group bubbles turn up in a chat that had none.\n\nGuild is not offered: Blizzard draws no bubble for guild chat, and there is nothing for us to restyle.",
+              disabled = Off, disabledTooltip = GATE_REQ,
+              values={ __placeholder = "..." }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end,
+              setValue=function() end });  y = y - h
+
+        if not EllesmereUI._prebuilding then
+            local rgn = channelsRow._rightRegion
+            if rgn._control then rgn._control:Hide() end
+            local channelItems = {
+                { key="say",   label="Say" },
+                { key="yell",  label="Yell" },
+                { key="party", label="Party",
+                  tooltip="Uses Blizzard's own party switch, independent of the other channels. Instance chat, the one an LFG or LFR group talks in, is covered here too." },
+                { key="raid",  label="Raid",
+                  tooltip="Uses Blizzard's own raid switch, which it ships off. Ticking this turns that switch on, and it is put back the way you had it when you untick it or switch the feature off." },
+                { key="npc",   label="NPCs" },
+                { key="emote", label="Emotes" },
+            }
+            local chDD, chDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rgn, 240, rgn:GetFrameLevel() + 2,
+                channelItems,
+                function(k) return CBVal(k) == true end,
+                function(k, v) CBSet(k, v) end)
+            PP.Point(chDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = chDD
+            rgn._lastInline = nil
+
+            local chBlock = CreateFrame("Frame", nil, chDD)
+            chBlock:SetAllPoints()
+            chBlock:SetFrameLevel(chDD:GetFrameLevel() + 20)
+            chBlock:EnableMouse(true)
+            chBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(chDD, EllesmereUI.DisabledTooltip(GATE_REQ))
+            end)
+            chBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function chUpdateDisabled()
+                if Off() then chDD:SetAlpha(0.4); chBlock:Show()
+                else chDD:SetAlpha(1); chBlock:Hide() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(chDDRefresh)
+            EllesmereUI.RegisterWidgetRefresh(chUpdateDisabled)
+            chUpdateDisabled()
+        end
+
+        -- Structural, not appearance: it decides which of Blizzard's switches we hold and at
+        -- what value, so it takes the full pass. Half-empty right slot is allowed here because
+        -- this is the last row of its section.
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Hide Chat Bubbles in Instances",
+              tooltip="Switch Blizzard's chat bubbles off for as long as you are inside a dungeon, raid, scenario or battleground, and back on the way out.\n\nEllesmereUI never restyles bubbles inside an instance: the game's bubble frames are off limits to addons there. This decides whether Blizzard's own are visible at all.",
+              getValue=function() return CBVal("hideInInstances") == true end,
+              setValue=function(v) CBSet("hideInInstances", v) end,
+              disabled = Off, disabledTooltip = GATE_REQ },
+            { type="label", text="" });  y = y - h
+
+        _, h = W:SectionHeader(parent, "APPEARANCE", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Padding", min=2, max=24, step=1,
+              tooltip="Space between the text and the edge of the bubble.",
+              getValue=function() return CBVal("padding") end,
+              setValue=function(v) CBSetStyle("padding", v) end,
+              disabled = Off, disabledTooltip = GATE_REQ },
+            { type="slider", text="Maximum Width", min=120, max=500, step=10,
+              getValue=function() return CBVal("maxWidth") end,
+              setValue=function(v) CBSetStyle("maxWidth", v) end,
+              disabled = Off, disabledTooltip = GATE_REQ });  y = y - h
+
+        local fontBorderRow
+        fontBorderRow, h = W:DualRow(parent, y,
+            { type="slider", text="Font", min=8, max=24, step=1,
+              tooltip="Font size.",
+              getValue=function() return CBVal("fontSize") end,
+              setValue=function(v) CBSetStyle("fontSize", v) end,
+              disabled = Off, disabledTooltip = GATE_REQ },
+            { type="slider", text="Border", min=0, max=4, step=1,
+              tooltip="Border size. Set to 0 for no border.",
+              getValue=function() return CBVal("borderSize") end,
+              setValue=function(v) CBSetStyle("borderSize", v) end,
+              disabled = Off, disabledTooltip = GATE_REQ });  y = y - h
+
+        -- BuildInlineSwatches, not a hand-rolled BuildColorSwatch: it is the house form for
+        -- a swatch riding on a slider half (see the Chat page's own font row above). It
+        -- anchors through PP.Point, registers the swatch's refresh so a profile switch
+        -- repaints it, and builds the greyed-out block plus tooltip from opts.disabled.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineSwatches(fontBorderRow._leftRegion, {
+                { getValue = function() local r, g, b = CBColor("textColor"); return r, g, b, 1 end,
+                  setValue = function(r, g, b) CBSetStyle("textColor", { r=r, g=g, b=b }) end,
+                  -- Two reasons this swatch can be dead, so the tip is resolved per reason:
+                  -- the wrapper sentence fits the gate, but not "something else owns this".
+                  disabled = function() return Off() or CBVal("followBlizzardColor") == true end,
+                  disabledTooltip = function()
+                      if Off() then return GATE_REQ end
+                      return "Blizzard's own color is in use. Turn Follow Blizzard Default Color off in the cog to pick your own."
+                  end,
+                  rawTooltip = function() return not Off() end },
+            }, { disabled = Off, disabledTooltip = GATE_REQ })
+
+            -- Built AFTER the swatch on purpose: BuildInlineSwatches chains _lastInline, so a
+            -- cog made afterwards lands to its left rather than on top of it.
+            EllesmereUI.BuildInlineCog(fontBorderRow._leftRegion, {
+                disabled = Off,
+                disabledTooltip = GATE_REQ,
+                title = "Text Color",
+                rows = {
+                    { type = "toggle", label = "Follow Blizzard Default Color",
+                      get = function() return CBVal("followBlizzardColor") == true end,
+                      set = function(v)
+                          CBSetStyle("followBlizzardColor", v)
+                          EllesmereUI:RefreshPage()
+                      end },
+                },
+            })
+
+            EllesmereUI.BuildInlineSwatches(fontBorderRow._rightRegion, {
+                { getValue = function() return CBColor("borderColor") end,
+                  setValue = function(r, g, b, a) CBSetStyle("borderColor", { r=r, g=g, b=b, a=a }) end,
+                  hasAlpha = true },
+            }, { disabled = Off, disabledTooltip = GATE_REQ })
+        end
+
+        local bgRow
+        bgRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Background",
+              tooltip="Draw a filled background behind the text and border. Off draws the text and border on their own.",
+              getValue=function() return CBVal("background") ~= false end,
+              setValue=function(v) CBSetStyle("background", v); EllesmereUI:RefreshPage() end,
+              disabled = Off, disabledTooltip = GATE_REQ },
+            { type="slider", text="Vertical Offset", min=-80, max=80, step=2,
+              tooltip="Nudge the bubble up or down from where the game put it. Zero sits exactly on Blizzard's own position, which is already over the speaker's head.",
+              getValue=function() return CBVal("offsetY") end,
+              setValue=function(v) CBSetStyle("offsetY", v) end,
+              disabled = Off, disabledTooltip = GATE_REQ });  y = y - h
+
+        -- Colour and opacity are one swatch but two stored keys, so the write goes straight
+        -- to the DB rather than through CBSetStyle. rawTooltip keeps the sentence as written
+        -- instead of running it through DisabledTooltip's "This option requires" wrapper:
+        -- there is nothing to colour while the background is off, or the feature is.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineSwatches(bgRow._leftRegion, {
+                { getValue = function()
+                      local r, g, b = CBColor("bgColor")
+                      return r, g, b, CBVal("bgAlpha")
+                  end,
+                  setValue = function(r, g, b, a)
+                      local db = BBDB(); if not db then return end
+                      db.bgColor = { r=r, g=g, b=b }
+                      db.bgAlpha = a
+                      local cb = ns.ChatBubbles
+                      if not cb then return end
+                      if cb.RefreshStyle then cb.RefreshStyle() else cb.Refresh() end
+                  end,
+                  hasAlpha = true,
+                  disabled = function() return Off() or CBVal("background") == false end,
+                  disabledTooltip = "Turn Background on to set a color.",
+                  rawTooltip = true },
+            })
+        end
+
+        end -- isBubbles
 
         return math.abs(y)
     end
 
     _G._EBS_BuildChatPage = BuildPage
 
+    -- The bubble page is offered only while the module can both STORE and DRAW its settings.
+    -- The store alone is not enough: a .toc that lost the renderer's load line (an addon
+    -- update replacing the folder is all it takes) leaves every setting readable and nothing
+    -- listening to them, so the page would look healthy and do absolutely nothing.
+    -- Blizzard Style shows Blizzard's own chat tabs, which take none of the
+    -- Tabs page's settings, so the page is not offered there (WoW Forever
+    -- paints its own tabs with the Tabs page's typography).
+    local blizzTabsStyle = EllesmereUI.BlizzStyle and EllesmereUI.BlizzStyle.Active("chat") == "blizzard"
+        and not EllesmereUI.BlizzStyle.Forever("chat")
+    local chatPages = blizzTabsStyle and { "Chat", "Sidebar" } or { "Chat", "Tabs", "Sidebar" }
+    if ECHAT.BubblesDB and ECHAT.BubbleDefaults and ns.ChatBubbles then
+        chatPages[#chatPages + 1] = "Chat Bubbles"
+    end
+
     EllesmereUI:RegisterModule("EllesmereUIChat", {
         title       = "Chat",
         description = "Chat frame reskin, clickable URLs, copy chat, sidebar icons.",
-        pages       = { "Chat", "Tabs", "Sidebar" },
+        pages       = chatPages,
         buildPage   = function(pageName, p, yOffset) return BuildPage(pageName, p, yOffset) end,
-        searchTerms = "chat tabs border spacing background sidebar friends voice url copy whisper channel abbreviate shortened class color names timestamps timestamp all messages font size",
+        searchTerms = "chat tabs border spacing background sidebar friends voice url copy whisper channel abbreviate shortened class color names timestamps timestamp all messages font size bubbles bubble speech balloon nameplate",
         onReset = function()
             local d = _G._ECHAT_DB
             if d and d.ResetProfile then d:ResetProfile() end

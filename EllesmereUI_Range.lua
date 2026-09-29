@@ -83,18 +83,42 @@ end
 
 local DRUID_MELEE_FORMS = { [1] = true, [2] = true } -- Bear, Cat
 
+local EnsureLadder -- defined below; the WoW Forever caster cutoff reads the ladder
+
 -- Spec-derived attack cutoff, form check NOT included (that is the one live
 -- input; everything here only moves on spec/talent changes and is cached by
 -- Range_GetAttackCutoff below).
 local function SpecAttackCutoff(holyPaladinMelee)
     local _, classFile = UnitClass("player")
-    local specIndex = GetSpecialization()
-    local specID = specIndex and GetSpecializationInfo(specIndex)
+    local specIndex = C_SpecializationInfo.GetSpecialization()
+    local specID = specIndex and C_SpecializationInfo.GetSpecializationInfo(specIndex)
+    -- WoW Forever reports one class spec (1482-1491) whatever the player
+    -- plays, so the spec cannot tell caster from melee there. Casters (Druid,
+    -- Priest, Mage, Warlock, Shaman) take the longest harmful spellbook rung
+    -- (<= 40 yd), so the cutoff lands on a real spell (Wrath, Shadow Bolt,
+    -- Lightning Bolt) that Range_BeyondCutoff can probe directly, and follows
+    -- talent range extensions. Druid Cat and Bear Form get 5 from the live form
+    -- check in Range_GetAttackCutoff before this cached value is read.
+    -- Paladin, Hunter (min-range shots are excluded from the ladder), Warrior
+    -- and Rogue stay at 5.
+    if EllesmereUI.IS_FOREVER == true then
+        if classFile == "DRUID" or classFile == "PRIEST" or classFile == "MAGE" or classFile == "WARLOCK"
+            or classFile == "SHAMAN" then
+            EnsureLadder()
+            local best
+            for i = 1, #RG.ladder do
+                local r = RG.ladder[i].range
+                if r > 5 and r <= 40 then best = r end
+            end
+            if best then return best end
+        end
+        return 5
+    end
     if not specID then return 5 end
 
     if classFile == "DRUID" then
         if specID == 102 or specID == 105 then
-            return IsPlayerSpell(197488) and 45 or 40 -- Astral Influence
+            return C_SpellBook.IsSpellKnown(197488) and 45 or 40 -- Astral Influence
         end
         return 5
     elseif classFile == "DEMONHUNTER" then
@@ -128,7 +152,16 @@ function EllesmereUI.Range_GetAttackCutoff(customCutoff, holyPaladinMelee)
     end
 
     local _, classFile = UnitClass("player")
-    if classFile == "DRUID" and DRUID_MELEE_FORMS[GetShapeshiftForm()] then return 5 end
+    if classFile == "DRUID" then
+        -- WoW Forever orders the stance bar the vanilla way (Aquatic Form can sit
+        -- between Bear and Cat), so it checks the form ID: Cat 1, Bear 5, Dire Bear 8.
+        if EllesmereUI.IS_FOREVER == true then
+            local fid = GetShapeshiftFormID()
+            if fid == 1 or fid == 5 or fid == 8 then return 5 end
+        elseif DRUID_MELEE_FORMS[GetShapeshiftForm()] then
+            return 5
+        end
+    end
 
     if holyPaladinMelee then
         local v = RG.cutoffHolyMelee
@@ -171,6 +204,16 @@ local function BuildLadder()
                     and (not C_Spell.IsSpellHarmful or C_Spell.IsSpellHarmful(sid)) then
                     local sinfo = C_Spell.GetSpellInfo(sid)
                     local maxR = sinfo and sinfo.maxRange
+                    -- A charge/leap-style spell with a nonzero minRange answers
+                    -- IsSpellInRange false both beyond maxRange AND inside its
+                    -- own dead zone (e.g. a gap-closer unusable under ~8yd) --
+                    -- the ladder walk below treats any false as "beyond this
+                    -- rung," so such a spell would falsely fade a target
+                    -- standing well inside melee range. Exclude it; other
+                    -- spells sharing its maxRange rung are unaffected.
+                    if sinfo and sinfo.minRange and sinfo.minRange > 0 then
+                        maxR = nil
+                    end
                     if maxR and maxR > 0 and maxR <= 100 then
                         local rung = byRange[maxR]
                         if not rung then
@@ -189,7 +232,7 @@ local function BuildLadder()
     table.sort(RG.ladder, function(a, b) return a.range < b.range end)
 end
 
-local function EnsureLadder()
+EnsureLadder = function()
     if RG.dirty or not RG.ladderBuilt then BuildLadder() end
 end
 
@@ -238,13 +281,16 @@ end
 -- a restricted query degrades to nil (no display) instead of a blocked action.
 local function ItemChecksAllowed(unit)
     if not (InCombatLockdown()
-        or (EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance())) then
+        or (EllesmereUI.InProtectedInstance())) then
         return true
     end
     local can = UnitCanAttack("player", unit)
     if issecretvalue and issecretvalue(can) then return false end
     return can == true
 end
+-- Shared with any other item-range reader (Quickdraw's usability tint) so the
+-- protection rule lives in one place.
+EllesmereUI.ItemRangeChecksAllowed = ItemChecksAllowed
 
 -------------------------------------------------------------------------------
 --  Queries
@@ -301,8 +347,12 @@ local function ItemWalk(unit, stopRange)
         elseif res == false then
             answered = true
             minY = entry.range
+            -- Only stop once THIS entry actually answered: an unowned item
+            -- sitting exactly at stopRange answers nil, not false, and must
+            -- not silently truncate the walk before a farther rung the
+            -- player DOES own gets a chance to give a real verdict.
+            if stopRange and entry.range >= stopRange then break end
         end
-        if stopRange and entry.range >= stopRange then break end
     end
     if not answered then return nil end
     return minY, maxY
@@ -325,9 +375,12 @@ end
 
 -- Crosshair support: is the unit beyond `cutoff` yards? Probes the player's
 -- own harmful spells with ranges in [cutoff, cutoff+10] (the window keeps
--- outlier long-range utility spells from widening the answer), longest
--- first, first non-nil answer wins. Returns true/false, or nil when no
--- probe answered -- the caller falls back to the item ladder.
+-- outlier long-range utility spells from widening the answer), CLOSEST to
+-- cutoff first, first non-nil answer wins. Closest-first matters: a spell
+-- wider than cutoff answers in-range out to ITS OWN max and silently widens
+-- the cutoff -- a 40yd spell in a 30yd window answers true all the way to 40.
+-- Returns true/false, or nil when no probe answered -- the caller falls back
+-- to the item ladder.
 function EllesmereUI.Range_BeyondCutoff(unit, cutoff)
     if not unit or not UnitExists(unit) then return nil end
     if not (C_Spell and C_Spell.IsSpellInRange) then return nil end
@@ -337,10 +390,10 @@ function EllesmereUI.Range_BeyondCutoff(unit, cutoff)
         wipe(RG.probes)
         local maxWindow = cutoff + 10
         local ladder = RG.ladder
-        for i = #ladder, 1, -1 do -- ascending ladder walked backwards = longest first
+        for i = 1, #ladder do -- ascending ladder walked forwards = closest-to-cutoff first
             local rung = ladder[i]
-            if rung.range < cutoff then break end
-            if rung.range <= maxWindow then
+            if rung.range >= cutoff then
+                if rung.range > maxWindow then break end
                 local spells = rung.spells
                 for j = 1, #spells do
                     if #RG.probes >= MAX_PROBE_SPELLS then break end
@@ -374,6 +427,10 @@ function EllesmereUI.Range_IsBeyondAttackRange(unit, cutoff)
     end
     local minY, maxY = EllesmereUI.Range_ItemBracket(unit, cutoff)
     if minY == nil then return nil end
+    -- A bracket that straddles the cutoff (the first in-range rung sits past
+    -- it, the last out-of-range rung before it) cannot say which side the
+    -- unit is on: unknown, no fade, rather than a beyond guess.
+    if maxY and maxY > cutoff and minY < cutoff then return nil end
     return maxY == nil or maxY > cutoff
 end
 
@@ -408,7 +465,8 @@ function EllesmereUI.Range_SweepBeyond(unit, cutoff)
     end
     if beyond == nil and C_Item and C_Item.IsItemInRange and ItemChecksAllowed(unit) then
         local minY, maxY = ItemWalk(unit, cutoff)
-        if minY ~= nil then
+        -- Same straddle rule as Range_IsBeyondAttackRange: unknown, not beyond.
+        if minY ~= nil and not (maxY and maxY > cutoff and minY < cutoff) then
             beyond = maxY == nil or maxY > cutoff
         end
     end
