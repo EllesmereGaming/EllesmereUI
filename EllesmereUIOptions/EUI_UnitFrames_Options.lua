@@ -15033,7 +15033,6 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     local _displayHeaderBuilder
     local displayHeaderFixedH = 0
-    local BuildFoTToTOptions, BuildPetOptions, BuildBossOptions
 
     local function BuildFrameDisplayPage(pageName, parent, yOffset)
         -- Consume any pending unit selection from Element Options navigation
@@ -15137,13 +15136,13 @@ initFrame:SetScript("OnEvent", function(self)
         if selectedUnit == "player" or selectedUnit == "target" or selectedUnit == "focus" then
             y = BuildSharedSettings(parent, y)
         elseif selectedUnit == "targettarget" then
-            y = -BuildFoTToTOptions(W, parent, y, db.profile.targettarget, "targettarget")
+            y = -ns.UFO_BuildFoTToTOptions(W, parent, y, db.profile.targettarget, "targettarget")
         elseif selectedUnit == "focustarget" then
-            y = -BuildFoTToTOptions(W, parent, y, db.profile.focustarget, "focustarget")
+            y = -ns.UFO_BuildFoTToTOptions(W, parent, y, db.profile.focustarget, "focustarget")
         elseif selectedUnit == "pet" then
-            y = -BuildPetOptions(W, parent, y)
+            y = -ns.UFO_BuildPetOptions(W, parent, y)
         elseif selectedUnit == "boss" then
-            y = -BuildBossOptions(W, parent, y)
+            y = -ns.UFO_BuildBossOptions(W, parent, y)
         end
 
         -------------------------------------------------------------------
@@ -15354,11 +15353,11 @@ initFrame:SetScript("OnEvent", function(self)
         --  Route to mini builders
         -------------------------------------------------------------------
         if selectedMiniUnit == "targettarget" then
-            y = -BuildFoTToTOptions(W, parent, y, db.profile.targettarget, "targettarget")
+            y = -ns.UFO_BuildFoTToTOptions(W, parent, y, db.profile.targettarget, "targettarget")
         elseif selectedMiniUnit == "focustarget" then
-            y = -BuildFoTToTOptions(W, parent, y, db.profile.focustarget, "focustarget")
+            y = -ns.UFO_BuildFoTToTOptions(W, parent, y, db.profile.focustarget, "focustarget")
         elseif selectedMiniUnit == "pet" then
-            y = -BuildPetOptions(W, parent, y)
+            y = -ns.UFO_BuildPetOptions(W, parent, y)
         end
 
         -------------------------------------------------------------------
@@ -15438,7 +15437,7 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         --  Boss section
         -------------------------------------------------------------------
-        y = -BuildBossOptions(W, parent, y)
+        y = -ns.UFO_BuildBossOptions(W, parent, y)
 
         -------------------------------------------------------------------
         --  CLICK NAVIGATION  (mirrors the Mini Frames page)
@@ -15536,6 +15535,20 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end
     end)
+
+    -- Shared helpers for the mini and boss frame builders under
+    -- UnitFrames_Options\ (loaded before this file, read when a page builds).
+    ns._UFO_OptEnv = {
+        abs = abs, AddDarkModeBlock = AddDarkModeBlock, AttachDebuffModeWarn = AttachDebuffModeWarn,
+        AttachFrameSourceCog = AttachFrameSourceCog, buffAnchorOrder = buffAnchorOrder, buffAnchorValues = buffAnchorValues,
+        buffGrowthOrder = buffGrowthOrder, buffGrowthValues = buffGrowthValues, BuildApplyAllRow = BuildApplyAllRow,
+        BuildBarTexDropdown = BuildBarTexDropdown, BuildInactiveNotice = BuildInactiveNotice, classThemeSubOrder = classThemeSubOrder,
+        classThemeSubValues = classThemeSubValues, db = db, DebuffModeDropdownCfg = DebuffModeDropdownCfg,
+        healthTextOrder = healthTextOrder, healthTextOrderBoss = healthTextOrderBoss, healthTextValues = healthTextValues,
+        MINI_GROUP_ORDER = MINI_GROUP_ORDER, PP = PP, PromptReloadIfUnspawned = PromptReloadIfUnspawned,
+        RegisterWidgetRefresh = RegisterWidgetRefresh, ReloadAndUpdate = ReloadAndUpdate, SwapAuraSlot = SwapAuraSlot,
+        UpdatePreview = UpdatePreview,
+    }
 
     ---------------------------------------------------------------------------
     --  Player Aura Bars page (External Defensives lives inside it, as a

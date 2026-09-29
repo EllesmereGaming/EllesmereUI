@@ -1,3 +1,13 @@
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+-------------------------------------------------------------------------------
+--  UnitFrames_Options\MiniFrames_Options.lua
+--  Unit Frames options: Mini Frames and Boss Frames builders. Definitions
+--  only; the shared helpers come from ns._UFO_OptEnv (filled by
+--  EUI_UnitFrames_Options.lua).
+-------------------------------------------------------------------------------
+local ns = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
+if not ns then return end  -- module disabled: no options page
+
 ---------------------------------------------------------------------------
 --  Mini frame donor settings helper
 --  Returns the settings table from focus (if usable) target player. Routed
@@ -5,6 +15,8 @@
 --  can never disagree about which frame is on screen to inherit from.
 ---------------------------------------------------------------------------
 local function GetMiniDonorSettings()
+    local env = ns._UFO_OptEnv
+    local db = env.db
     return ns.GetMiniDonorSettings and ns.GetMiniDonorSettings() or db.profile.player
 end
 
@@ -12,6 +24,10 @@ end
 --  Shared mini frame settings builder
 ---------------------------------------------------------------------------
 local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enableRow, afterSizeRow, opts)
+    local env = ns._UFO_OptEnv
+    local AddDarkModeBlock, BuildBarTexDropdown, BuildInactiveNotice, PP = env.AddDarkModeBlock, env.BuildBarTexDropdown, env.BuildInactiveNotice, env.PP
+    local RegisterWidgetRefresh, ReloadAndUpdate, db, healthTextOrder = env.RegisterWidgetRefresh, env.ReloadAndUpdate, env.db, env.healthTextOrder
+    local healthTextOrderBoss, healthTextValues = env.healthTextOrderBoss, env.healthTextValues
     local _, h
     opts = opts or {}
 
@@ -1396,6 +1412,8 @@ end
 -- settings.portraitSide between "left" and "right" live; withArtStyle
 -- (Target of Target / Focus Target) adds the 2D / Class art choice.
 local function AttachPortraitSideCog(rgn, settingsTable, withArtStyle)
+    local env = ns._UFO_OptEnv
+    local ReloadAndUpdate, UpdatePreview, classThemeSubOrder, classThemeSubValues = env.ReloadAndUpdate, env.UpdatePreview, env.classThemeSubOrder, env.classThemeSubValues
     local rows = {
         { type="toggle", label="Portrait on Right",
           get=function() return (settingsTable.portraitSide or "left") == "right" end,
@@ -1464,7 +1482,10 @@ end
 -- Shared builder for the two independent mini frames (Target of Target,
 -- Focus Target). settingsTable/unitKey select which one; each renders its
 -- own single enable toggle + Show Portrait (right slot), Pet-style.
-BuildFoTToTOptions = function(W, parent, y, settingsTable, unitKey)
+function ns.UFO_BuildFoTToTOptions(W, parent, y, settingsTable, unitKey)
+    local env = ns._UFO_OptEnv
+    local AttachFrameSourceCog, BuildApplyAllRow, MINI_GROUP_ORDER, PromptReloadIfUnspawned = env.AttachFrameSourceCog, env.BuildApplyAllRow, env.MINI_GROUP_ORDER, env.PromptReloadIfUnspawned
+    local ReloadAndUpdate, abs, db = env.ReloadAndUpdate, env.abs, env.db
     settingsTable = settingsTable or db.profile.targettarget
     unitKey = unitKey or "targettarget"
     local enableText = (unitKey == "focustarget") and "Enable Focus Target" or "Enable Target of Target"
@@ -1527,7 +1548,10 @@ BuildFoTToTOptions = function(W, parent, y, settingsTable, unitKey)
     return abs(y)
 end
 
-BuildPetOptions = function(W, parent, y)
+function ns.UFO_BuildPetOptions(W, parent, y)
+    local env = ns._UFO_OptEnv
+    local AttachFrameSourceCog, BuildApplyAllRow, MINI_GROUP_ORDER, PromptReloadIfUnspawned = env.AttachFrameSourceCog, env.BuildApplyAllRow, env.MINI_GROUP_ORDER, env.PromptReloadIfUnspawned
+    local ReloadAndUpdate, UpdatePreview, abs, db = env.ReloadAndUpdate, env.UpdatePreview, env.abs, env.db
     local _, h
 
     _, h = BuildApplyAllRow(parent, y, MINI_GROUP_ORDER, "pet"); y = y - h
@@ -1650,7 +1674,12 @@ BuildPetOptions = function(W, parent, y)
     return abs(y)
 end
 
-BuildBossOptions = function(W, parent, y)
+function ns.UFO_BuildBossOptions(W, parent, y)
+    local env = ns._UFO_OptEnv
+    local AttachDebuffModeWarn, AttachFrameSourceCog, DebuffModeDropdownCfg, PP = env.AttachDebuffModeWarn, env.AttachFrameSourceCog, env.DebuffModeDropdownCfg, env.PP
+    local PromptReloadIfUnspawned, ReloadAndUpdate, SwapAuraSlot, abs = env.PromptReloadIfUnspawned, env.ReloadAndUpdate, env.SwapAuraSlot, env.abs
+    local buffAnchorOrder, buffAnchorValues, buffGrowthOrder, buffGrowthValues = env.buffAnchorOrder, env.buffAnchorValues, env.buffGrowthOrder, env.buffGrowthValues
+    local db = env.db
     local _, h
 
     -- Activate/Deactivate Boss Preview button (matches Party Mode's activate
