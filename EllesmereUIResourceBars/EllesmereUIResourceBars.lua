@@ -9639,7 +9639,7 @@ CheckCastRange =  function(castBarFrame)
 		end
 		
 		castBarFrame._rangeColorApplied = true
-        if castBarFrame._cstFillTex then
+        if castBarFrame._cstFillTex and castBarFrame._cstFillAlpha  then
             castBarFrame._cstFillTex:SetVertexColor(0.4, 0.4, 0.4, castBarFrame._cstFillAlpha)
         end
     else
@@ -9648,7 +9648,7 @@ CheckCastRange =  function(castBarFrame)
 		end
 		
 		castBarFrame._rangeColorApplied = false
-        if castBarFrame._cstFillTex and castBarFrame._cstFillAlpha then
+        if castBarFrame._cstFillTex then
 			BuildCastBarTexture()
         end
     end
@@ -9753,8 +9753,8 @@ UpdateCastBar = function(dt)
             end
         end
 
-        -- Apply empowered stage coloring if enabled (and in range if enabled otherwise it evaluates to nil)
-        if castBarFrame._empowering and castBarFrame._cstEmpStages and not castBarFrame._rangeColorApplied then
+        -- Apply empowered stage coloring if enabled (and in range if enabled)
+        if castBarFrame._empowering and castBarFrame._cstEmpStages and (castBarFrame._cstRangeCheck and not castBarFrame._rangeColorApplied) then
             local numStages = castBarFrame._numStages or 0
             local stage = GetCurrentEmpowerStage(progress, numStages)
             local r, g, b = GetEmpowerStageColor(stage, numStages)

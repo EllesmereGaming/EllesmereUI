@@ -936,8 +936,8 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
 	_, h = W:SectionHeader(parent, "RANGE", y)
 	y = y - h
 
-	local featureRow
-	featureRow, h = W:DualRow(parent, y, {
+	local rangeRow1
+	rangeRow1, h = W:DualRow(parent, y, {
 		type = "toggle",
 		text = "Range Check",
 		tooltip = "Turns the cast bar gray if Unit is out of range.",
