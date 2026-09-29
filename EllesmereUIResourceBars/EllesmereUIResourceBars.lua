@@ -1418,6 +1418,8 @@ local DEFAULTS = {
             showGCDBoundary   = false,
             gcdBoundaryR = 1.0, gcdBoundaryG = 0.82, gcdBoundaryB = 0.0, gcdBoundaryA = 0.95,
             coloredEmpowerStages = false,  -- Color empowered spells from red to green per stage
+			rangeCheck = false,
+			rangeUnit = "target",
             showTotalDuration = false,
             latencyEnabled    = false,
             latencyShowText   = false,
@@ -1617,7 +1619,8 @@ local RefreshAnchoredBarsForUnlockTarget
 
 -- Forward declarations
 local UpdateCastBar
-local BuildCastBar
+local BuildCastBar, BuildCastBarTexture
+local CheckCastRange
 local UpdateGCDBar
 local BuildGCDBar
 local OnCastStart, OnChannelStart, OnChannelUpdate, OnCastStop, OnEmpowerStart, OnEmpowerUpdate
@@ -8676,6 +8679,59 @@ function ns.ERB_ApplyBlizzCastChrome(cb, barW)
     end
 end
 
+BuildCastBarTexture = function()
+	local cb = ERB.db.profile.castBar
+	local fillOp = (cb.fillOpacity or 100) / 100
+	local fillTex = castBarFrame._bar:GetStatusBarTexture()
+
+	if blizzKit then
+		-- Blizzard Style: the fill atlas carries its own colour; only Fill Opacity applies.
+		fillTex:SetVertexColor(1, 1, 1, fillOp)
+		if castBarFrame._gradClip then castBarFrame._gradClip:Hide() end
+		castBarFrame._gradientFullBar = nil
+		castBarFrame._nameText:SetParent(castBarFrame._textFrame)
+		castBarFrame._timerText:SetParent(castBarFrame._textFrame)
+	elseif cb.gradientEnabled then
+		local dir = cb.gradientDir or "HORIZONTAL"
+
+		local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, 1
+		if cb.classColored then
+			local cc = CLASS_COLORS[cachedClass]
+			if cc then fR, fG, fB = cc[1], cc[2], cc[3] end
+		end
+		fillTex:SetVertexColor(1, 1, 1, 1)
+		fillTex:SetGradient(dir,
+			CreateColor(fR, fG, fB, fA * fillOp),
+			CreateColor(cb.gradientR, cb.gradientG, cb.gradientB, cb.gradientA * fillOp)
+		)
+
+		-- Hide the old clip-frame gradient if it exists from a prior session
+		if castBarFrame._gradClip then castBarFrame._gradClip:Hide() end
+		castBarFrame._gradientFullBar = nil
+
+		castBarFrame._nameText:SetParent(castBarFrame._textFrame)
+		castBarFrame._timerText:SetParent(castBarFrame._textFrame)
+	else
+		if castBarFrame._gradClip then
+			castBarFrame._gradClip:Hide()
+		end
+		castBarFrame._gradientFullBar = nil
+
+		castBarFrame._nameText:SetParent(castBarFrame._textFrame)
+		castBarFrame._timerText:SetParent(castBarFrame._textFrame)
+
+		do
+			local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, 1
+			if cb.classColored then
+				local cc = CLASS_COLORS[cachedClass]
+				if cc then fR, fG, fB = cc[1], cc[2], cc[3] end
+			end
+			fillTex:SetVertexColor(fR, fG, fB, fA * fillOp)
+		end
+	end
+end
+
+
 BuildCastBar = function()
     local cb = ERB.db.profile.castBar
     -- blizz = a stock style dictates the geometry (both stock styles);
@@ -9008,54 +9064,7 @@ BuildCastBar = function()
     -- Bar color / gradient. Fill Opacity multiplies into the fill alpha (solid
     -- color and both gradient endpoints), so the fill turns translucent without
     -- double-dimming through a separate region alpha.
-local fillTex = bar:GetStatusBarTexture()
-local fillOp = (cb.fillOpacity or 100) / 100
-
-if blizzKit then
-    -- Blizzard Style: the fill atlas carries its own colour; only Fill Opacity applies.
-    fillTex:SetVertexColor(1, 1, 1, fillOp)
-    if castBarFrame._gradClip then castBarFrame._gradClip:Hide() end
-    castBarFrame._gradientFullBar = nil
-    castBarFrame._nameText:SetParent(castBarFrame._textFrame)
-    castBarFrame._timerText:SetParent(castBarFrame._textFrame)
-elseif cb.gradientEnabled then
-    local dir = cb.gradientDir or "HORIZONTAL"
-
-    local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, 1
-    if cb.classColored then
-        local cc = CLASS_COLORS[cachedClass]
-        if cc then fR, fG, fB = cc[1], cc[2], cc[3] end
-    end
-    fillTex:SetVertexColor(1, 1, 1, 1)
-    fillTex:SetGradient(dir,
-        CreateColor(fR, fG, fB, fA * fillOp),
-        CreateColor(cb.gradientR, cb.gradientG, cb.gradientB, cb.gradientA * fillOp)
-    )
-
-    -- Hide the old clip-frame gradient if it exists from a prior session
-    if castBarFrame._gradClip then castBarFrame._gradClip:Hide() end
-    castBarFrame._gradientFullBar = nil
-
-    castBarFrame._nameText:SetParent(castBarFrame._textFrame)
-    castBarFrame._timerText:SetParent(castBarFrame._textFrame)
-else
-    if castBarFrame._gradClip then
-        castBarFrame._gradClip:Hide()
-    end
-    castBarFrame._gradientFullBar = nil
-
-    castBarFrame._nameText:SetParent(castBarFrame._textFrame)
-    castBarFrame._timerText:SetParent(castBarFrame._textFrame)
-
-    do
-        local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, 1
-        if cb.classColored then
-            local cc = CLASS_COLORS[cachedClass]
-            if cc then fR, fG, fB = cc[1], cc[2], cc[3] end
-        end
-        fillTex:SetVertexColor(fR, fG, fB, fA * fillOp)
-    end
-end
+	BuildCastBarTexture()
 
     local spark = castBarFrame._spark
     -- Blizzard Style: the stock pip replaces the spark art (once; the swap is
@@ -9616,6 +9625,35 @@ ns.ApplyCastTimer = function(kind)
     return true
 end
 
+CheckCastRange =  function(castBarFrame)
+	if not castBarFrame._cstRangeCheck then
+		return
+	end
+	
+    local spellID = castBarFrame._spellName
+	local rangeUnit = castBarFrame._cstRangeUnit
+    
+    if C_Spell.IsSpellInRange(spellID, rangeUnit) == false then
+		if castBarFrame._rangeColorApplied == true then
+			return
+		end
+		
+		castBarFrame._rangeColorApplied = true
+        if castBarFrame._cstFillTex then
+            castBarFrame._cstFillTex:SetVertexColor(0.4, 0.4, 0.4, castBarFrame._cstFillAlpha)
+        end
+    else
+		if castBarFrame._rangeColorApplied == false then
+			return
+		end
+		
+		castBarFrame._rangeColorApplied = false
+        if castBarFrame._cstFillTex and castBarFrame._cstFillAlpha then
+			BuildCastBarTexture()
+        end
+    end
+end
+
 UpdateCastBar = function(dt)
     if not castBarFrame then return end
     -- NEVER gate this on IsShown(): SetElementVisibility fades an idle cast bar to
@@ -9641,6 +9679,8 @@ UpdateCastBar = function(dt)
         castBarFrame._cstTotalMode  = cb.showTimer and cb.showTotalDuration
         castBarFrame._cstEmpStages  = cb.coloredEmpowerStages
         castBarFrame._cstFillAlpha  = (cb.fillOpacity or 100) / 100
+		castBarFrame._cstRangeCheck = cb.rangeCheck
+		castBarFrame._cstRangeUnit  = cb.rangeUnit
         -- The fill texture only changes on rebuild, so caching it here removes a
         -- GetStatusBarTexture call from the spark path below.
         castBarFrame._cstFillTex    = bar:GetStatusBarTexture()
@@ -9672,6 +9712,11 @@ UpdateCastBar = function(dt)
     local totalDurMode = castBarFrame._cstTotalMode
     -- Cache the " / X.X" suffix once per cast (total duration is constant)
     local totalSuffix = totalDurMode and castBarFrame._totalDurSuffix
+
+	-- Applies out of range color override (if enabled)
+	-- Since the empower color application appears to be on each tick
+	-- once the target gets back into range the empower color will get reapplied
+    CheckCastRange(castBarFrame)
 
     if castBarFrame._casting or castBarFrame._empowering then
         -- Safety: if cast/empower ran 1s past expected end, force stop.
@@ -9708,8 +9753,8 @@ UpdateCastBar = function(dt)
             end
         end
 
-        -- Apply empowered stage coloring if enabled
-        if castBarFrame._empowering and castBarFrame._cstEmpStages then
+        -- Apply empowered stage coloring if enabled (and in range if enabled otherwise it evaluates to nil)
+        if castBarFrame._empowering and castBarFrame._cstEmpStages and not castBarFrame._rangeColorApplied then
             local numStages = castBarFrame._numStages or 0
             local stage = GetCurrentEmpowerStage(progress, numStages)
             local r, g, b = GetEmpowerStageColor(stage, numStages)

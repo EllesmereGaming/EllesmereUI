@@ -932,6 +932,58 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
         "Latency Overlay"
     )
 
+	-- RANGE section
+	_, h = W:SectionHeader(parent, "RANGE", y)
+	y = y - h
+
+	local featureRow
+	featureRow, h = W:DualRow(parent, y, {
+		type = "toggle",
+		text = "Range Check",
+		tooltip = "Turns the cast bar gray if Unit is out of range.",
+		disabled = castOff,
+
+		getValue = function()
+			local p = DB()
+			return p and p.castBar and p.castBar.rangeCheck
+		end,
+
+		setValue = function(v)
+			local p = DB()
+			if not p then
+				return
+			end
+			p.castBar.rangeCheck = v
+			EllesmereUI:RefreshPage()
+		end,
+	}, {
+		type = "dropdown",
+		text = "Unit",
+		disabled = function()
+			local p = DB()
+			return castOff() or not (p and p.castBar.rangeCheck)
+		end,
+		disabledTooltip = "Requires range check to be enabled.",
+		values = { target = "Target", mouseover = "Mouseover" },
+		order = { "target", "mouseover" },
+		getValue = function()
+			local p = DB()
+			if not p or not p.castBar.rangeUnit then
+				return "target"
+			end
+			return p.castBar.rangeUnit or "target"
+		end,
+		setValue = function(v)
+			local p = DB()
+			if not p then
+				return
+			end
+			p.castBar.rangeUnit = v
+			EllesmereUI:RefreshPage()
+		end,
+	})
+	y = y - h
+
     -- Wire up click mappings for cast bar preview hit overlays (never from a hidden pre-build: the shared live table would end up pointing at off-screen rows)
     if not EllesmereUI._prebuilding then
         _clickMappings.castBar       = { section = castSection, target = classSizeRow }
