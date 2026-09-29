@@ -218,6 +218,7 @@ local defaults = {
         playerThreatNearAggroColor = { r = 0.81, g = 0.72, b = 0.19 },
         -- Threat % text on the target and focus frames (WoW Forever only).
         threatPctEnabled  = false,
+        threatPctFocus    = false,
         threatPctPosition = "CENTER",
         threatPctColorByThreat = true,
         threatPctSize     = 12,
@@ -9260,7 +9261,7 @@ if EllesmereUI.IS_FOREVER then
         if not (frame and frame._textOverlay) then return end
         local fs = frame._threatPctText
         local p = db.profile
-        if p.threatPctEnabled then
+        if p.threatPctEnabled and (unit == "target" or p.threatPctFocus) then
             local isTanking, status, pct = UnitDetailedThreatSituation("player", unit)
             if type(pct) == "number" and (issecretvalue(pct) or pct ~= 0) then
                 if not fs then

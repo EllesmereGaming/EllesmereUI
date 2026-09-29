@@ -7105,7 +7105,7 @@ initFrame:SetScript("OnEvent", function(self)
             local function pctOff() return noFrames() or not db.profile.threatPctEnabled end
             local function pctOffTip()
                 if noFrames() then return NO_FRAMES end
-                return "Show Threat % on Target & Focus"
+                return "Show Threat % on Target"
             end
             local function PctSet(key, v)
                 db.profile[key] = v
@@ -7118,8 +7118,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local pctRow
             pctRow, h = W:DualRow(parent, y,
-                { type="toggle", text="Show Threat % on Target & Focus",
-                  tooltip="Shows your threat percentage on the target and focus frames while you are in combat with that unit.",
+                { type="toggle", text="Show Threat % on Target",
+                  tooltip="Shows your threat percentage on the target frame while you are in combat with it. The cog adds the focus frame.",
                   disabled=function() return noFrames() and not db.profile.threatPctEnabled end,
                   disabledTooltip=NO_FRAMES,
                   getValue=function() return db.profile.threatPctEnabled end,
@@ -7134,6 +7134,16 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return db.profile.threatPctPosition end,
                   setValue=function(v) PctSet("threatPctPosition", v) end });  y = y - h
             if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(pctRow._leftRegion, {
+                    title = "Threat % Units",
+                    disabled = pctOff,
+                    disabledTooltip = pctOffTip,
+                    rows = {
+                        { type="toggle", label="Show on Focus",
+                          get=function() return db.profile.threatPctFocus end,
+                          set=function(v) PctSet("threatPctFocus", v) end },
+                    },
+                })
                 EllesmereUI.BuildInlineCog(pctRow._rightRegion, {
                     title = "Threat %",
                     disabled = pctOff,

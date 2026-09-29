@@ -311,6 +311,7 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                     },
                 })
             end
+            return row, pctOff, pctOffTip
         end
 
         if hasNP then
@@ -320,14 +321,27 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                 function() np.RefreshThreatPct() end)
         end
         if hasUF then
-            PctRow("Show on Target & Focus Frames",
-                "Shows your threat percentage on the target and focus frames while you are in combat with that unit.",
+            local row, pctOff, pctOffTip = PctRow("Show on Target Frame",
+                "Shows your threat percentage on the target frame while you are in combat with it. The cog adds the focus frame.",
                 function() return uf.db.profile end,
                 function(key, v)
                     if key == "threatPctEnabled" then uf.SetThreatPctEnabled(v) else uf.RefreshThreatPct() end
                 end,
                 function() return not (uf.frames.target or uf.frames.focus) end,
                 "This option requires an EllesmereUI Target or Focus frame.")
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(row._leftRegion, {
+                    title = "Threat % Units", disabled = pctOff, disabledTooltip = pctOffTip,
+                    rows = {
+                        { type = "toggle", label = "Show on Focus",
+                          get = function() return uf.db.profile.threatPctFocus end,
+                          set = function(v)
+                              uf.db.profile.threatPctFocus = v
+                              uf.RefreshThreatPct()
+                          end },
+                    },
+                })
+            end
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
