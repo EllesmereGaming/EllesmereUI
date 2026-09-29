@@ -4569,7 +4569,7 @@ local function BuildCogPopup(opts)
                 if w > maxLblW then maxLblW = w end
             elseif row.type == "dropdown" or row.type == "segmented" or row.type == "reordercheck" then
                 tmpFS:SetText(EllesmereUI.L(row.label))
-                local w = tmpFS:GetStringWidth() + ((row.type == "dropdown" and row.ddWidth) or COG_DD_W)
+                local w = tmpFS:GetStringWidth() + ((row.type ~= "segmented" and row.ddWidth) or COG_DD_W)
                 if w > maxDDNeed then maxDDNeed = w end
             end
         end
@@ -4796,9 +4796,23 @@ local function BuildCogPopup(opts)
                 lbl:SetText(EllesmereUI.L(row.label))
                 lbl:SetPoint('LEFT', pf, 'TOPLEFT', SIDE_PAD, curY - DROPDOWN_ROW_H / 2 - 1)
 
+                if row.tooltip then
+                    local hitFrame = CreateFrame("Frame", nil, pf)
+                    hitFrame:SetPoint("TOPLEFT", lbl, "TOPLEFT", -2, 2)
+                    hitFrame:SetPoint("BOTTOMRIGHT", lbl, "BOTTOMRIGHT", 2, -2)
+                    hitFrame:SetFrameLevel(pf:GetFrameLevel() + 3)
+                    hitFrame:EnableMouse(true)
+                    hitFrame:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(lbl, row.tooltip)
+                    end)
+                    hitFrame:SetScript("OnLeave", function()
+                        EllesmereUI.HideWidgetTooltip()
+                    end)
+                end
+
                 local items = type(row.items) == "function" and row.items() or row.items or {}
                 local ddBtn, refresh = EllesmereUI.BuildReorderCBDropdown(
-                    pf, COG_DD_W, pf:GetFrameLevel() + 2, items,
+                    pf, row.ddWidth or COG_DD_W, pf:GetFrameLevel() + 2, items,
                     row.get,
                     function(k, v)
                         row.set(k, v)
