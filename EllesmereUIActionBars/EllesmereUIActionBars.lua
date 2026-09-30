@@ -520,6 +520,11 @@ local defaults = {
         -- (default, unchanged behavior), 2 = flat tint over the whole button
         -- instead, 3 = both. The overlay leaves the button edge free for the
         -- proc glow, which is the point of offering it.
+        -- Optional custom Assisted Highlight glows are purely additive. A value
+        -- of 0 keeps the existing assistGlowStyle path and its current behavior.
+        assistGlowType = 0,
+        assistGlowColor = { r = 0.15, g = 0.5, b = 1 },
+        assistGlowUseClassColor = false,
         assistGlowStyle = 1,
         -- On Cropped bars, size the glow ring to the button's rectangle
         -- instead of scaling the square art by width. Off = today's ring.
