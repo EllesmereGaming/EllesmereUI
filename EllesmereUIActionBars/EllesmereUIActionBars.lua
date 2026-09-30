@@ -520,6 +520,11 @@ local defaults = {
         -- (default, unchanged behavior), 2 = flat tint over the whole button
         -- instead, 3 = both. The overlay leaves the button edge free for the
         -- proc glow, which is the point of offering it.
+        -- Optional custom Assisted Highlight glows are purely additive. A value
+        -- of 0 keeps the existing assistGlowStyle path and its current behavior.
+        assistGlowType = 0,
+        assistGlowColor = { r = 0.15, g = 0.5, b = 1 },
+        assistGlowUseClassColor = false,
         assistGlowStyle = 1,
         -- On Cropped bars, size the glow ring to the button's rectangle
         -- instead of scaling the square art by width. Off = today's ring.
@@ -12087,6 +12092,7 @@ end
 -- Loop glow types: the shared glow styles in their shared order (saved procGlowType
 -- values are shared indices).
 local LOOP_GLOW_TYPES = EllesmereUI.Glows.MakeView({ 1, 2, 3, 4, 5, 6, 7 }).list
+ns.LOOP_GLOW_TYPES = LOOP_GLOW_TYPES
 
 -- Proc start types: the initial burst animation
 local PROC_START_TYPES = {
@@ -12518,6 +12524,88 @@ do
         return hf
     end
 
+    -- Optional custom Assisted Highlight glows reuse the existing shared glow
+    -- engines, but remain completely separate from Custom Proc Glow profile state.
+    ns._AssistCustomGlowColor = function()
+        local p = EAB.db and EAB.db.profile
+        if p and p.assistGlowUseClassColor then
+            local _, class = UnitClass("player")
+            local cc = RAID_CLASS_COLORS[class]
+            if cc then return cc.r, cc.g, cc.b end
+            return 1, 1, 1
+        end
+        local c = (p and p.assistGlowColor) or { r = 0.15, g = 0.5, b = 1 }
+        return c.r or 0.15, c.g or 0.5, c.b or 1
+    end
+
+    ns._AssistCustomGlowStop = function(btn)
+        local fd = EFD(btn)
+        local wrapper = fd.assistGlowWrapper
+        if wrapper then
+            _G_Glows.StopAllGlows(wrapper)
+            wrapper:Hide()
+        end
+    end
+
+    ns._AssistCustomGlowStart = function(btn, loopIdx, cr, cg, cb, bW, bH)
+        local loopEntry = LOOP_GLOW_TYPES[loopIdx]
+        if not loopEntry then
+            ns._AssistCustomGlowStop(btn)
+            return false
+        end
+
+        local fd = EFD(btn)
+        if not fd.assistGlowWrapper then
+            local wrapper = CreateFrame("Frame", nil, btn)
+            wrapper:SetAllPoints(btn)
+            fd.assistGlowWrapper = wrapper
+        end
+
+        local wrapper = fd.assistGlowWrapper
+        wrapper:SetAllPoints(btn)
+        wrapper:SetFrameLevel(btn:GetFrameLevel() + 15)
+        wrapper:SetAlpha(1)
+
+        local wfd = EFD(wrapper)
+        if fd.shapeMask and fd.shapeApplied and fd.shapeMaskPath then
+            if not wfd.ownMask then wfd.ownMask = wrapper:CreateMaskTexture() end
+            wfd.ownMask:ClearAllPoints()
+            PP.Point(wfd.ownMask, "TOPLEFT", btn, "TOPLEFT", 1, -1)
+            PP.Point(wfd.ownMask, "BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
+            wfd.ownMask:SetTexture(fd.shapeMaskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            wfd.ownMask:Show()
+        elseif wfd.ownMask then
+            wfd.ownMask:Hide()
+        end
+
+        _G_Glows.StopAllGlows(wrapper)
+        wrapper:Show()
+
+        if loopEntry.procedural then
+            local N, th, period = 8, 2, 4
+            local lineLen = floor((bW + bH) * (2 / N - 0.1))
+            lineLen = min(lineLen, min(bW, bH))
+            if lineLen < 1 then lineLen = 1 end
+            _G_Glows.StartProceduralAnts(wrapper, N, th, period, lineLen, cr, cg, cb, bW, bH)
+        elseif loopEntry.buttonGlow then
+            _G_Glows.StartButtonGlow(wrapper, bW, cr, cg, cb, nil, bH)
+        elseif loopEntry.autocast then
+            _G_Glows.StartAutoCastShine(wrapper, bW, cr, cg, cb, 1.0, bH)
+        elseif loopEntry.shapeGlow then
+            local maskPath = fd.shapeMaskPath or SHAPE_MASKS[fd.shapeName or ""]
+            local borderPath = SHAPE_BORDERS[fd.shapeName or ""]
+            _G_Glows.StartShapeGlow(wrapper, min(bW, bH), cr, cg, cb, 1.20, {
+                maskPath = maskPath, borderPath = borderPath,
+                shapeMask = fd.shapeMask, anchorFrame = btn,
+            })
+        else
+            _G_Glows.StartFlipBookGlow(wrapper, bW, loopEntry, cr, cg, cb, bH)
+        end
+
+        if wfd.ownMask and wfd.ownMask:IsShown() then MaskFrameTextures(wrapper, wfd.ownMask) end
+        return true
+    end
+
     -- Ring teardown alone. Split out of AssistHide because AssistShow also
     -- needs it on its own: with the overlay style picked, or with Blizzard
     -- painting its own ring on a hovered button, our ring must go while the
@@ -12604,6 +12692,14 @@ do
     -- button that stops being the suggestion (or the CVar going off) must not
     -- leave it invisible for whoever shows it next.
     local function AssistHide(btn)
+        local fd = EFD(btn)
+        if fd.assistCustomActive then
+            ns._AssistCustomGlowStop(btn)
+            fd.assistCustomActive = nil
+            fd.assistCustomType = nil
+            fd.assistCustomW, fd.assistCustomH = nil, nil
+            fd.assistCustomR, fd.assistCustomG, fd.assistCustomB = nil, nil, nil
+        end
         ns._AssistRingHide(btn)
         ns._AssistOverlay(btn)
         local bf = btn.AssistedCombatHighlightFrame
@@ -12686,17 +12782,85 @@ do
     local function AssistShow(btn)
         local fd = EFD(btn)
         local p = EAB.db and EAB.db.profile
+        local customType = (p and p.assistGlowType) or 0
+        if customType < 1 or customType > #LOOP_GLOW_TYPES or not LOOP_GLOW_TYPES[customType] then
+            customType = 0
+        end
+
+        if customType > 0 then
+            local ov = fd.assistOverlay
+            if ov and ov:IsShown() then ns._AssistOverlay(btn) end
+            local hf = fd.assistHL
+            if hf and hf:IsShown() then ns._AssistRingHide(btn) end
+
+            local bf = btn.AssistedCombatHighlightFrame
+            if bf and bf:GetAlpha() ~= 0 then bf:SetAlpha(0) end
+
+            local cr, cg, cb = ns._AssistCustomGlowColor()
+            local bW, bH = btn:GetWidth() or 45, btn:GetHeight() or 45
+            if fd.assistCustomActive
+               and fd.assistCustomType == customType
+               and fd.assistCustomW == bW and fd.assistCustomH == bH
+               and fd.assistCustomR == cr and fd.assistCustomG == cg and fd.assistCustomB == cb
+               and fd.assistGlowWrapper and fd.assistGlowWrapper:IsShown() then
+                return
+            end
+
+            if ns._AssistCustomGlowStart(btn, customType, cr, cg, cb, bW, bH) then
+                fd.assistCustomActive = true
+                fd.assistCustomType = customType
+                fd.assistCustomW, fd.assistCustomH = bW, bH
+                fd.assistCustomR, fd.assistCustomG, fd.assistCustomB = cr, cg, cb
+            end
+            return
+        end
+
+        if fd.assistCustomActive then
+            ns._AssistCustomGlowStop(btn)
+            fd.assistCustomActive = nil
+            fd.assistCustomType = nil
+            fd.assistCustomW, fd.assistCustomH = nil, nil
+            fd.assistCustomR, fd.assistCustomG, fd.assistCustomB = nil, nil, nil
+            local bf = btn.AssistedCombatHighlightFrame
+            if bf and bf:GetAlpha() ~= 1 then bf:SetAlpha(1) end
+        end
+
         local style = (p and p.assistGlowStyle) or 1
 
-        -- Tint: always ours, Blizzard never paints one.
+        -- Explicit stock-sized Blizzard path.
+        if style == 0 then
+            ns._AssistOverlay(btn)
+            local bf = btn.AssistedCombatHighlightFrame
+            if bf and bf:GetAlpha() ~= 1 then bf:SetAlpha(1) end
+            if bf and bf:IsShown() then
+                ns._AssistRingHide(btn)
+                ns._AssistFit(btn, bf, false)
+                if bf:GetScale() ~= 1 then bf:SetScale(1) end
+                return
+            end
+
+            local hf = fd.assistHL
+            if not hf then
+                hf = AssistCreate(btn)
+                if not hf then return end
+                fd.assistHL = hf
+            end
+            ns._AssistFit(btn, hf, false)
+            if hf:GetScale() ~= 1 then hf:SetScale(1) end
+            hf:SetFrameLevel(btn:GetFrameLevel() + 15)
+            hf:Show()
+            if hf.Flipbook and hf.Flipbook.Anim then
+                if _assistInCombat then
+                    if not hf.Flipbook.Anim:IsPlaying() then hf.Flipbook.Anim:Play() end
+                elseif hf.Flipbook.Anim:IsPlaying() then
+                    hf.Flipbook.Anim:Stop()
+                end
+            end
+            return
+        end
+
         ns._AssistOverlay(btn, style)
 
-        -- Blizzard may show its own ring on a hovered button (candidate
-        -- re-add). Defer to it so two identical shines never stack, but keep it
-        -- scaled to our button size + outset. With the overlay-only style we
-        -- fade it rather than Hide() it: their manager re-shows it, so a Hide
-        -- would just be undone. Alpha is re-asserted on every pass, so it
-        -- self-corrects when the style changes back.
         local bf = btn.AssistedCombatHighlightFrame
         if bf and bf:IsShown() then
             ns._AssistRingHide(btn)
@@ -12719,17 +12883,13 @@ do
             if not hf then return end
             fd.assistHL = hf
         end
-        if not ns._AssistFit(btn, hf, fd.cropped) then
-            hf:SetScale(ns._AssistScale(btn))
-        end
-        -- Re-assert: bar layout can change the button's frame level after create.
+        if not ns._AssistFit(btn, hf, fd.cropped) then hf:SetScale(ns._AssistScale(btn)) end
         hf:SetFrameLevel(btn:GetFrameLevel() + 15)
         hf:Show()
         if hf.Flipbook and hf.Flipbook.Anim then
             if _assistInCombat then hf.Flipbook.Anim:Play() else hf.Flipbook.Anim:Stop() end
         end
     end
-
     -- The (spell) id a button currently represents, mirroring
     -- AssistedCombatManager:GetActionButtonSpellForAssistedHighlight.
     -- Attribute first: secure paging writes "action", the authoritative slot
