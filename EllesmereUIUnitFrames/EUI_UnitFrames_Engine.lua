@@ -24,7 +24,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  - Same-frame dedupe: each (frame, channel) paint is stamped with a global
 --    generation + GetTime pair; stacked triggers inside one frame collapse to
 --    one paint (heal prediction adds one trailing next-frame paint for a
---    deduped repeat, see predFlush).
+--    deduped repeat, see predFlush). The player's power value channel is
+--    never stamped: its events only mark the frame, and one flush pass
+--    paints it (see valFlush).
 -------------------------------------------------------------------------------
 
 local ADDON_NAME, ns = ...
@@ -98,9 +100,18 @@ local CHANNEL_EVENTS = {
 -- only while a setting turns them on. healpred = incoming heals: its own
 -- event plus the range and heal-absorb edges that change what it draws. The
 -- calculator clamps to maximum health, so current health is not an input.
+-- absglow = the Blizzard Glow Line's overshield flip: whether the shield
+-- exceeds missing health moves with current health too, so while a frame
+-- draws the line in a placement that reads it, health changes repaint the flip.
+-- powerval = the player's power value: UNIT_POWER_FREQUENT fires on every
+-- power change (UNIT_POWER_UPDATE is throttled), and moves only the bar value
+-- and the power text through the value flush below; the power channel keeps
+-- the full paint on its own events.
 local OPTIN_EVENTS = {
     healpred = { "UNIT_HEAL_PREDICTION", "UNIT_MAXHEALTH",
                  "UNIT_HEAL_ABSORB_AMOUNT_CHANGED", "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" },
+    absglow  = { "UNIT_HEALTH" },
+    powerval = { "UNIT_POWER_FREQUENT" },
 }
 
 -- Events consumed by the castbar channel; routed raw (event identity matters
@@ -436,6 +447,30 @@ predFlush:SetScript("OnUpdate", function(self)
     end
 end)
 
+-- Power value flush (the powerval channel): a matching UNIT_POWER_FREQUENT
+-- only marks its frame, and ONE pass after the frame's events have landed
+-- paints each marked frame from the live value, so a burst costs one value
+-- paint per rendered frame and the last change always reaches the bar. Its
+-- painter has its own slot (Engine.SetValuePainter), so the stamped repaints
+-- (RepaintAll) skip the channel: the full power and text paints cover it
+-- there. Idle while hidden.
+local valuePainter
+local valPending = {}    -- frame -> true
+local valFlush = CreateFrame("Frame")
+valFlush:Hide()
+valFlush:SetScript("OnUpdate", function(self)
+    self:Hide()
+    local fn = valuePainter
+    for frame in pairs(valPending) do
+        valPending[frame] = nil
+        if fn and frame:IsShown() then fn(frame, frame._euiUnit) end
+    end
+end)
+
+function Engine.SetValuePainter(fn)
+    valuePainter = fn
+end
+
 local function Paint(frame, channel, event)
     local fn = painters[channel]
     if not fn then return end
@@ -506,6 +541,19 @@ local function TrackerOnEvent(self, event, unitToken, ...)
             -- never deduped.
             local fn = painters[ch]
             if fn then fn(frame, frame._euiUnit, event, unitToken, ...) end
+        elseif ch == "powerval" then
+            -- Value route, filtered like Blizzard's resource display: only a
+            -- change of the power type the bar shows (the payload token
+            -- against the token the full power paint stashed; none stashed =
+            -- no filter) marks the frame for the value flush. The token is a
+            -- plain string per the API docs; a secret one passes uncompared.
+            local power = frame.Power
+            local want = power and power._euiPTok
+            local pt = ...
+            if want == nil or issecretvalue(pt) or pt == want then
+                valPending[frame] = true
+                valFlush:Show()
+            end
         else
             Paint(frame, ch, event)
         end
@@ -778,12 +826,15 @@ local function Frame_EnableElement(self, elementName)
     elseif channel then
         Paint(self, channel, "ForceUpdate")
     end
+    -- The player's power value channel follows the Power element.
+    if elementName == "Power" then ns.UF_PowerValSync(self) end
 end
 
 local function Frame_DisableElement(self, elementName)
     local off = self._euiElementsOff
     if not off then off = {}; self._euiElementsOff = off end
     off[elementName] = true
+    if elementName == "Power" then ns.UF_PowerValSync(self) end
 end
 
 --- Spawns one secure unit button. The caller styles it and attaches engine

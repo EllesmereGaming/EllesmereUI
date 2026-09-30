@@ -45,6 +45,28 @@ end
 function ns.GetCDMSpecInfo()
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     local result = {}
+    -- WoW Forever: one row for the player's class, keyed by the store key the
+    -- Cooldown Manager runs on.
+    if EllesmereUI.IS_FOREVER then
+        local key = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+        if not key then return result end
+        local token = select(2, UnitClass("player"))
+        local prof = sp and sp[key]
+        local hasData = false
+        if type(prof) == "table" then
+            if prof.barSpells and next(prof.barSpells) ~= nil then
+                hasData = true
+            elseif prof.trackedBuffBars and prof.trackedBuffBars.bars
+                   and #prof.trackedBuffBars.bars > 0 then
+                hasData = true
+            end
+        end
+        result[1] = {
+            key = key, name = EllesmereUI.ForeverClassName(token),
+            icon = EllesmereUI.ForeverClassIcon(token), hasData = hasData,
+        }
+        return result
+    end
     local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
     for i = 1, numSpecs do
         local specID, sName, _, sIcon = C_SpecializationInfo.GetSpecializationInfo(i)
@@ -87,6 +109,28 @@ function ns.GetAllCDMSpecInfo()
         if prof.trackedBuffBars and prof.trackedBuffBars.bars
            and #prof.trackedBuffBars.bars > 0 then return true end
         return false
+    end
+
+    -- WoW Forever: one row per class (the current class always, other classes
+    -- only with data), keyed by the store key that class uses.
+    if EllesmereUI.IS_FOREVER then
+        local classes = EllesmereUI.ForeverClasses()
+        for c = 1, #classes do
+            local token = classes[c]
+            local isCurrentClass = (token == curClassFile)
+            local key = isCurrentClass and ns.GetActiveSpecKey and ns.GetActiveSpecKey() or nil
+            if not key then
+                key = tostring(EllesmereUI.ForeverClassSpec(token, EllesmereUI.SpecHasStringEntry, sp, true))
+            end
+            local hasData = HasData(sp and sp[key])
+            if isCurrentClass or hasData then
+                result[#result + 1] = {
+                    key = key, name = EllesmereUI.ForeverClassName(token),
+                    icon = EllesmereUI.ForeverClassIcon(token), hasData = hasData,
+                }
+            end
+        end
+        return result
     end
 
     local numClasses = (GetNumClasses and GetNumClasses()) or 0
@@ -251,6 +295,18 @@ local function ApplyRPT(specProfiles, sourceSpecKey, targetSpecKey)
     if not srcProf then return end
     local tgtProf = specProfiles[targetSpecKey]
     if not tgtProf then
+        -- WoW Forever: a class reads its Forever spec key first, then its
+        -- retail specs in class order. A bucket created under any key other
+        -- than the one the class resolves to now would either take the class
+        -- over next session (an earlier key) or never be read (a later one),
+        -- so such targets are skipped; existing buckets still sync.
+        if EllesmereUI.IS_FOREVER then
+            local cls = EllesmereUI.SpecClassOf(tonumber(targetSpecKey))
+            if cls and EllesmereUI.ForeverClassSpecIDs(cls)
+               and tostring(EllesmereUI.ForeverClassSpec(cls, EllesmereUI.SpecHasStringEntry, specProfiles, true)) ~= targetSpecKey then
+                return
+            end
+        end
         -- Never-played target spec: it is born directly in the bar-filter v6
         -- model, so stamp it migrated. Otherwise the first time the player
         -- actually plays this spec, MigrateSpecToBarFilterModelV6 would see the

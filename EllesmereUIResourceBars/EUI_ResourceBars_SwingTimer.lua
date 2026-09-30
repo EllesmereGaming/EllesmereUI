@@ -106,25 +106,41 @@ end
 
 -- Secret values throw on comparison and on truth tests: every read from the
 -- swing API and from UnitAttackSpeed passes here before it is looked at, and a
--- restricted answer is treated as "no information" (no swing, no row, no
--- range verdict). Never infer an interval from restricted data.
+-- restricted answer is treated as "no information" (no swing, no range
+-- verdict, and a row keeps what was last known about it). Never infer an
+-- interval from restricted data.
 local function Plain(v)
     return not (issecretvalue and issecretvalue(v))
 end
 
 -- Blizzard's CanSwing: Main Hand always applies; Off Hand / Ranged only while
--- UnitAttackSpeed reports a positive speed for the slot.
+-- UnitAttackSpeed reports a positive speed for the slot. Those speeds are
+-- secret while unit stats are restricted (SecretWhenUnitStatsRestricted), and a
+-- haste proc's UNIT_ATTACK_SPEED lands right there in combat: that answer is
+-- nil ("unknown"), never "no weapon".
 local function CanSwing(swingType)
     if swingType == SWING.MainHand then return true end
     local _, oh, ranged = UnitAttackSpeed("player")
-    if swingType == SWING.OffHand then return Plain(oh) and type(oh) == "number" and oh > 0 end
-    if swingType == SWING.Ranged then return Plain(ranged) and type(ranged) == "number" and ranged > 0 end
-    return false
+    local speed
+    if swingType == SWING.OffHand then speed = oh
+    elseif swingType == SWING.Ranged then speed = ranged
+    else return false end
+    if not Plain(speed) then return nil end
+    return type(speed) == "number" and speed > 0
 end
 
--- A row is shown while its slot can swing and its toggle is on.
-local function RowWanted(def, cfg)
-    return CanSwing(def.type) and (not cfg or cfg[def.show] ~= false)
+-- A row is shown while its toggle is on and its slot can swing: the live answer
+-- when it is plain, else the last one known for that row (a swing of its type
+-- is proof too, see PLAYER_SWING). Nothing known yet reads as no row.
+local function RowWanted(def, cfg, row)
+    if cfg and cfg[def.show] == false then return false end
+    local can = CanSwing(def.type)
+    if can == nil then
+        can = row and row._canSwing or false
+    elseif row then
+        row._canSwing = can
+    end
+    return can
 end
 
 -- Rows the frame would stack right now (from the live rows once built, from the
@@ -467,6 +483,7 @@ local function Layout(cfg)
 end
 
 local function ApplyRowLook(row, cfg, w, h)
+    row._restyle = nil
     local PP = EllesmereUI.PP
     local bs = cfg.borderSize or 0
     local bdr = row._border
@@ -536,24 +553,39 @@ local function ApplyLook(cfg)
     for i = 1, #S.rows do ApplyRowLook(S.rows[i], cfg, w, h) end
 end
 
+-- Restyles the rows RefreshRows marked (see there).
+local function RestyleMarked(cfg)
+    local w, h = cfg.width or 220, cfg.height or 12
+    for i = 1, #S.rows do
+        local row = S.rows[i]
+        if row._restyle then ApplyRowLook(row, cfg, w, h) end
+    end
+end
+
 -- Show/hide rows to the weapon slots, then re-stack. Also the range-check
 -- registration: on for every shown row while the option is on, off otherwise
 -- (a combined off hand keeps its own: it still needs its swings, and its range
 -- dims its spark). Combine Hands merges the Off Hand row only while the Main
--- Hand row is shown too (ROWS puts Main Hand first). Returns the row whose
--- merge flipped: ST_Apply restyles every row once the frame is placed, the
--- weapon-slot events restyle just that one (an off hand equipped or dropped
--- mid-session takes the right look without an options apply).
+-- Hand row is shown too (ROWS puts Main Hand first). Marks the rows whose
+-- merge flipped or that just came back (styled while hidden at 0x0, their
+-- textured border never painted) and returns true when any was marked:
+-- ST_Apply restyles every row once the frame is placed, the events restyle
+-- just those (RestyleMarked), so an off hand equipped or dropped mid-session
+-- takes the right look without an options apply.
 local function RefreshRows(cfg)
     cfg = cfg or P()
     if not (cfg and S.built) then return end
     local wantRange = cfg.enabled and cfg.rangeCheck ~= false
-    local mhShown, flipped = false, nil
+    local mhShown, marked = false, false
     for i = 1, #S.rows do
         local row = S.rows[i]
         local def = row._def
-        local can = RowWanted(def, cfg)
+        local can = RowWanted(def, cfg, row)
         if can then
+            if not row:IsShown() then
+                row._restyle = true
+                marked = true
+            end
             row:Show()
         else
             row:Hide()
@@ -563,7 +595,8 @@ local function RefreshRows(cfg)
         local merged = (def.type == SWING.OffHand and can and mhShown and cfg.combineHands) and true or nil
         if merged ~= row._merged then
             row._merged = merged
-            flipped = row
+            row._restyle = true
+            marked = true
         end
         SetRangeCheck(def.type, wantRange and can)
     end
@@ -571,7 +604,7 @@ local function RefreshRows(cfg)
         EllesmereUI.NotifyElementResized(UNLOCK_KEY)
     end
     UpdateRangeAll()
-    return flipped
+    return marked
 end
 
 -- Position: the unlock anchor chain first, then a saved unlock position, then
@@ -608,7 +641,15 @@ shell:SetScript("OnEvent", function(self, event, a1, a2, a3)
         -- a1 = swingDuration, a2 = swingType
         if not (Plain(a1) and Plain(a2)) then return end
         local row = S.byType[a2]
-        if row and row:IsShown() then StartRow(row, a1, cfg) end
+        if row then
+            -- A swing proves its slot can swing: a row hidden only because its
+            -- speed read was restricted comes back with it.
+            if not row:IsShown() and not row._canSwing and cfg[row._def.show] ~= false then
+                row._canSwing = true
+                if RefreshRows(cfg) then RestyleMarked(cfg) end
+            end
+            if row:IsShown() then StartRow(row, a1, cfg) end
+        end
         PaintQueue(cfg)
     elseif event == "ACTIONBAR_UPDATE_STATE" then
         PaintQueue(cfg)
@@ -631,8 +672,7 @@ shell:SetScript("OnEvent", function(self, event, a1, a2, a3)
         UpdateRangeAll()
     else
         -- WEAPON_SLOT_CHANGED / UNIT_ATTACK_SPEED / PLAYER_ENTERING_WORLD
-        local flipped = RefreshRows(cfg)
-        if flipped then ApplyRowLook(flipped, cfg, cfg.width or 220, cfg.height or 12) end
+        if RefreshRows(cfg) then RestyleMarked(cfg) end
     end
 end)
 

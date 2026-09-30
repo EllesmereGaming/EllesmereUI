@@ -580,21 +580,72 @@ function ns.RefreshNPCOverlayStyle()
 end
 
 -------------------------------------------------------------------------------
+--  Class colours: the friendly bar, the name and the guild line
+-------------------------------------------------------------------------------
+-- The unit's class colour on the suite palette (custom class colours and Class
+-- Color Darken). Returns ok, r, g, b. A redacted class token takes the
+-- restricted-unit palette, else Blizzard's class colour; those r/g/b may be
+-- secret, so they only ever reach a setter. plainOnly refuses a redacted token
+-- instead, for callers that need numbers they can do arithmetic on.
+local function ClassRGB(unit, plainOnly)
+    local _, tok = UnitClass(unit)
+    if issecretvalue(tok) then
+        if plainOnly then return false end
+        local ok, r, g, b = EllesmereUI.GetClassColorForRestrictedUnit(unit, tok)
+        if ok then return true, r, g, b end
+        local c = C_ClassColor.GetClassColor(tok)
+        if c then return true, c:GetRGB() end
+        return false
+    end
+    if not tok then return false end
+    local c = EllesmereUI.GetClassColor(tok)
+    return true, c.r, c.g, c.b
+end
+
+-- Paints one full plate's bar and name. Players: the bar takes the class colour
+-- (Class Colored Health Bar) or friendlyBarColor, the name the class colour
+-- (Class Colored Names) or white; with Class Colored Health Bar on, a class that
+-- does not resolve paints both in the NPC colour. NPCs take the NPC colour. One
+-- UnitClass read at most.
+local function PaintFriendlyColors(plate, unit, fp)
+    if UnitIsPlayer(unit) then
+        local useClass = not fp or fp.classColorFriendly ~= false
+        local nameClass = fp and fp.friendlyNameClassColor
+        local ok, r, g, b
+        if useClass or nameClass then ok, r, g, b = ClassRGB(unit) end
+        if ok or not useClass then
+            if useClass then
+                plate.health:SetStatusBarColor(r, g, b)
+            else
+                local bc = (fp and fp.friendlyBarColor) or ns.defaults.friendlyBarColor
+                plate.health:SetStatusBarColor(bc.r, bc.g, bc.b)
+            end
+            if nameClass and ok then
+                plate.name:SetTextColor(r, g, b)
+            else
+                plate.name:SetTextColor(1, 1, 1)
+            end
+            return
+        end
+    end
+    local nr, ng, nb = GetFriendlyNPCColor()
+    plate.health:SetStatusBarColor(nr, ng, nb)
+    plate.name:SetTextColor(nr, ng, nb)
+end
+
+-------------------------------------------------------------------------------
 --  Below Name sub text: data + rendering (shared by both friendly modes)
 -------------------------------------------------------------------------------
 local SUB_TEXT_R, SUB_TEXT_G, SUB_TEXT_B = 0.8, 0.8, 0.8
 
 -- Effective sub text color: the unit's class color when Class Colored is
--- picked (a secret class token falls back to custom), else the custom color.
+-- picked (a secret class token falls back to custom: name-only mode builds a
+-- colour escape from these numbers), else the custom color.
 local function GetSubTextColor(unit)
     local fp = FP()
     if fp and fp.friendlyBelowNameClassColor then
-        local _, classToken = UnitClass(unit)
-        if classToken and not (issecretvalue and issecretvalue(classToken))
-            and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken] then
-            local cc = RAID_CLASS_COLORS[classToken]
-            return cc.r, cc.g, cc.b
-        end
+        local ok, r, g, b = ClassRGB(unit, true)
+        if ok then return r, g, b end
     end
     local c = fp and fp.friendlyBelowNameColor
     if c then return c.r or SUB_TEXT_R, c.g or SUB_TEXT_G, c.b or SUB_TEXT_B end
@@ -1032,6 +1083,8 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
                 PP.HideBorder(plate.health)
             end
         end
+        -- WoW Forever: the level box right of the bar, as on the enemy plates.
+        if ns._npForever then ns.NP_ApplyForeverLevelBox(plate, GetFriendlyHealthBarHeight()) end
     end
     function plate:ApplyBorderColor()
         if not PP then return end
@@ -1145,6 +1198,7 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     plate.leftArrow = plate:CreateTexture(nil, "OVERLAY")
     plate.leftArrow:SetTexture(ns.TARGET_ARROW_DIR .. _aSt.l .. ".png")
     plate.leftArrow:SetWidth(_aSt.w)
+    plate._arrowW = _aSt.w
     plate.leftArrow:SetPoint("TOP", plate.name, "LEFT", -(2 + _aSt.w / 2), 8)
     plate.leftArrow:SetPoint("BOTTOM", plate.name, "LEFT", -(2 + _aSt.w / 2), -8)
     plate.leftArrow:Hide()
@@ -1206,38 +1260,21 @@ function FriendlyFrame:SetUnit(unit, nameplate)
     self:RegisterUnitEvent("UNIT_HEALTH", unit)
     self:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
 
-    local _fp = FP()
-    local useClassColor = not _fp or _fp.classColorFriendly ~= false
-    local classColor
-    if UnitIsPlayer(unit) then
-        if useClassColor then
-            local _, classToken = UnitClass(unit)
-            if classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken] then
-                classColor = RAID_CLASS_COLORS[classToken]
-            end
-        else
-            local bc = (_fp and _fp.friendlyBarColor) or ns.defaults.friendlyBarColor
-            classColor = bc
-        end
-    end
-    if classColor then
-        self.health:SetStatusBarColor(classColor.r, classColor.g, classColor.b)
-        self.name:SetTextColor(1, 1, 1)
-    else
-        local nr, ng, nb = GetFriendlyNPCColor()
-        self.health:SetStatusBarColor(nr, ng, nb)
-        self.name:SetTextColor(nr, ng, nb)
-    end
+    PaintFriendlyColors(self, unit, FP())
 
     self:UpdateHealth()
     self:UpdateName()
     self:UpdateRaidIcon()
     ns.NP_FriendlyFactionRefresh(self)
-    self:ApplyTarget()
     -- Re-apply the enemy border settings every spawn: a pooled plate may have
     -- been released while the user changed the border size/color/toggle.
     if self.ApplyBorder then self:ApplyBorder() end
     if self.ApplyBorderColor then self:ApplyBorderColor() end
+    -- The base border is back: a recycled plate's target/hover border flags are stale.
+    -- ApplyTarget runs after the pair so a plate that spawns as your target keeps the
+    -- Target Border Effects instead of losing them to the base repaint.
+    self._targetBorderSized, self._fxBorderTinted = nil, nil
+    self:ApplyTarget()
     if ns.ApplyHealthBarTexture then ns.ApplyHealthBarTexture(self) end
 end
 
@@ -1388,11 +1425,50 @@ function FriendlyFrame:ApplyTarget()
         self.rightArrow:SetVertexColor(acr, acg, acb)
         self.leftArrow:SetSize(st.w, 16)
         self.rightArrow:SetSize(st.w, 16)
+        self._arrowW = st.w
     end
     self.leftArrow:SetShown(showArrows or false)
     self.rightArrow:SetShown(showArrows or false)
     -- Blizzard Style: stock selection ring / deselected overlay on friendly plates too.
     if ns.NP_Style and ns.NP_Style() == "blizzard" then ns.NP_ApplyBlizzSelection(self) end
+    -- Target Border Effects (friendlyTargetBorderFx, default off): the enemy plate's
+    -- target Border Size and Border Color channels, restored on untarget. The hover
+    -- effect's target-wins checks (ApplyHoverExtras) read _isTarget and
+    -- _targetBorderSized as on enemy plates; _isTarget is cached only while this
+    -- feature styles the plate; otherwise hover drives a friendly target's border. Off, only
+    -- a plate these flags mark is repainted (the hover Border Color restore included).
+    local fx = fp and fp.friendlyTargetBorderFx and isTarget or nil
+    self._isTarget = fx
+    if fx or self._targetBorderSized or self._fxBorderTinted then
+        local PP = EllesmereUI.PP
+        local tbsz
+        if fx and ns.GetTargetGlowBorderSize() then tbsz = ns.GetTargetBorderSizeValue() end
+        if tbsz then
+            if ns.IsCustomBorderEnabled() then
+                ns.ApplyCustomBorderStyle(self, tbsz)
+            elseif ns.IsBorderEnabled() then
+                PP.SetBorderSize(self.health, tbsz)
+            end
+            self._targetBorderSized = true
+        elseif self._targetBorderSized then
+            self._targetBorderSized = nil
+            self:ApplyBorder()
+        end
+        -- Colour after size: a rebuilt custom border takes the tint right after. A tint only.
+        if fx and ns.GetTargetGlowBorderColor() then
+            local bc = ns.GetTargetBorderColor()
+            if ns.IsCustomBorderEnabled() then
+                if not self._customBorder then ns.ApplyCustomBorderStyle(self) end
+                EllesmereUI.SetBorderStyleColor(self._customBorder, bc.r, bc.g, bc.b, 1)
+            else
+                PP.SetBorderColor(self.health, bc.r, bc.g, bc.b, 1)
+            end
+            self._fxBorderTinted = true
+        elseif self._fxBorderTinted then
+            self._fxBorderTinted = nil
+            self:ApplyBorderColor()
+        end
+    end
 end
 
 function FriendlyFrame:UNIT_HEALTH()  self:UpdateHealth() end
@@ -1551,13 +1627,28 @@ function ns.RefreshFriendlyPlateSize()
     -- Classic WoW UI: the vanilla border scales with the bar, so it re-seats
     -- with every size change (the seat memoizes, so an unchanged size is free).
     local classic = ns.NP_Classic()
+    local forever = ns.NP_Forever()
     for _, plate in pairs(friendlyPlates) do
         plate.health:SetSize(w, h)
         if classic then
             ns.NP_ApplyClassicHealthArt(plate, h)
             -- A side raid marker gaps off the border, which moved with it.
             plate:UpdateRaidIcon()
+        elseif forever then
+            -- WoW Forever: the level box follows the bar's height.
+            ns.NP_ApplyForeverLevelBox(plate, h)
         end
+    end
+end
+
+-- WoW Forever's Show Level Box flipped (ns.RefreshAllSettings): each shown
+-- friendly plate gains or parks its box, and a side raid marker re-gaps off
+-- the bar. A pooled plate catches up through its next ApplyBorder.
+function ns.NP_ForeverFriendlyBoxes()
+    local h = GetFriendlyHealthBarHeight()
+    for _, plate in pairs(friendlyPlates) do
+        ns.NP_ApplyForeverLevelBox(plate, h)
+        plate:UpdateRaidIcon()
     end
 end
 
@@ -1567,26 +1658,17 @@ function ns.RefreshFriendlyHealthText()
     end
 end
 
-function ns.RefreshFriendlyColors()
-    local _fp = FP()
-    local useClassColor = not _fp or _fp.classColorFriendly ~= false
-    local bc = (_fp and _fp.friendlyBarColor) or ns.defaults.friendlyBarColor
-    local nr, ng, nb = GetFriendlyNPCColor()
+-- Repaints every live full plate's bar and name (colour settings, the class
+-- palette, profile switches), the same way the spawn path paints them.
+-- paletteChanged: the class palette moved, so a Class Colored guild line
+-- (either friendly mode) is repainted too.
+function ns.RefreshFriendlyColors(paletteChanged)
+    local fp = FP()
     for unit, plate in pairs(friendlyPlates) do
-        if UnitIsPlayer(unit) then
-            if useClassColor then
-                local _, classToken = UnitClass(unit)
-                if classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken] then
-                    local cc = RAID_CLASS_COLORS[classToken]
-                    plate.health:SetStatusBarColor(cc.r, cc.g, cc.b)
-                end
-            else
-                plate.health:SetStatusBarColor(bc.r, bc.g, bc.b)
-            end
-        else
-            plate.health:SetStatusBarColor(nr, ng, nb)
-            plate.name:SetTextColor(nr, ng, nb)
-        end
+        PaintFriendlyColors(plate, unit, fp)
+    end
+    if paletteChanged and fp and fp.friendlyBelowNameClassColor then
+        ns.RefreshFriendlyBelowName()
     end
 end
 
@@ -1622,12 +1704,11 @@ end
 --  click hit-test rectangle to nothing via a large positive inset on every
 --  edge. An inset of 0 restores the natural (fully clickable) hit rect.
 --  The hit-test API is protected in combat, so we gate on InCombatLockdown and
---  retry once on combat end. The retry listener is only registered while a
---  change is actually pending, so this costs nothing when idle.
+--  retry once on combat end through the module combat queue, which costs
+--  nothing while no change is pending.
 -------------------------------------------------------------------------------
 local CLICK_THROUGH_INSET = 10000
 local clickThroughApplied = false
-local clickThroughRetry = CreateFrame("Frame")
 
 local function ApplyFriendlyClickThrough()
     if not (C_NamePlateManager and C_NamePlateManager.SetNamePlateHitTestInsets
@@ -1639,17 +1720,14 @@ local function ApplyFriendlyClickThrough()
     -- Never applied and feature is off: leave Blizzard's hit rect untouched.
     if not on and not clickThroughApplied then return end
     if InCombatLockdown() then
-        clickThroughRetry:RegisterEvent("PLAYER_REGEN_ENABLED")
+        ns.CombatQueue.Defer("FriendlyClickThrough", ApplyFriendlyClickThrough)
         return
     end
-    clickThroughRetry:UnregisterEvent("PLAYER_REGEN_ENABLED")
     local inset = on and CLICK_THROUGH_INSET or 0
     C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Friendly, inset, inset, inset, inset)
     clickThroughApplied = on
 end
 ns.UpdateFriendlyClickThrough = ApplyFriendlyClickThrough
-
-clickThroughRetry:SetScript("OnEvent", function() ApplyFriendlyClickThrough() end)
 
 -------------------------------------------------------------------------------
 --  Friendly player visibility CVars
@@ -1727,16 +1805,6 @@ local function RestoreFriendlyVis()
     end
 end
 
--- SetCVar on nameplate CVars is skipped in combat to avoid taint, so a zone
--- transition that lands mid-combat drops the whole visibility pass. Without a
--- retry that silently strands a follower-dungeon capture unclaimed and leaves
--- friendly plates hidden until the next transition, so re-run once combat ends.
-local visCVarRetry = CreateFrame("Frame")
-visCVarRetry:SetScript("OnEvent", function(self)
-    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-    ns.UpdateFriendlyNameplateSystem()
-end)
-
 -------------------------------------------------------------------------------
 --  System enable / disable  (called from toggle setValue and on login)
 -------------------------------------------------------------------------------
@@ -1758,7 +1826,6 @@ function ns.UpdateFriendlyNameplateSystem()
     -- Nameplate settings own them. Friendly NPC CVars are always managed because they
     -- have their own EUI toggle.
     if not InCombatLockdown() and SetCVar then
-        visCVarRetry:UnregisterEvent("PLAYER_REGEN_ENABLED")
         local fp = FP()
         local euiManagesPlayers = fp and (fp.showFriendlyPlayers ~= false)
         local _, iType = GetInstanceInfo()
@@ -1807,8 +1874,11 @@ function ns.UpdateFriendlyNameplateSystem()
             end
         end
     elseif SetCVar then
-        -- Skipped for combat: run the visibility pass again once it drops.
-        visCVarRetry:RegisterEvent("PLAYER_REGEN_ENABLED")
+        -- A zone transition that lands mid-combat drops the whole visibility
+        -- pass. Without a retry that silently strands a follower-dungeon
+        -- capture unclaimed and leaves friendly plates hidden until the next
+        -- transition, so re-run it once combat ends.
+        ns.CombatQueue.Defer("FriendlyVisibility", ns.UpdateFriendlyNameplateSystem)
     end
 
     if shouldEnable and not friendlyEnabled then
@@ -1865,14 +1935,15 @@ function ns.UpdateFriendlyNameplateSystem()
     -- Name-only font override: apply when name-only AND friendly plates are shown
     local _fp = FP()
     local showFriendly = _fp and _fp.showFriendlyPlayers ~= false
+    -- Class-colour CVar for the friendly player names Blizzard draws: every name
+    -- in name-only mode, the protected instance plates in full-plate mode. A
+    -- combat skip is caught by the visibility retry above.
+    if (nameOnly or shouldEnable) and not InCombatLockdown() then
+        pcall(SetCVar, "nameplateUseClassColorForFriendlyPlayerUnitNames", ns.FriendlyNameClassCVar(_fp))
+    end
     if nameOnly and showFriendly then
         ApplyFriendlyFontOverride()
         -- (nameplate sizing handled by Blizzard in name-only mode)
-        -- Set class-color CVar for Blizzard's name-only rendering
-        if SetCVar and not InCombatLockdown() then
-            local cc = (_fp and _fp.classColorFriendly ~= false) and 1 or 0
-            pcall(SetCVar, "nameplateUseClassColorForFriendlyPlayerUnitNames", cc)
-        end
         -- Sweep name-only plates. NPCs: suppress health bars and color names green,
         -- gated per-unit so Blizzard's "NPC Names" filter is respected -- widgets-only
         -- NPCs are left to Blizzard instead of getting our overlay. Players ride

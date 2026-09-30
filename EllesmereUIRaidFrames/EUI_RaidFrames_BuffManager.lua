@@ -21,6 +21,8 @@ local tonumber = tonumber
 local type     = type
 local CreateFrame   = CreateFrame
 local issecretvalue = issecretvalue
+-- WoW Forever: the preview's numbers follow the live frames (EllesmereUI_NumberFormat.lua).
+local AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
 local C_UnitAuras   = C_UnitAuras
 local C_Spell       = C_Spell
 local UnitExists    = UnitExists
@@ -307,6 +309,16 @@ local BORROW_SPECS = {
 -- BM_SpecKeyForSpecID (maintainer ruling 2026-08-13: Ret/Prot/Ele/Enh edit and
 -- render the shared All Non Healers/Aug bucket, not the borrowed healer's).
 local function CurrentSpecKey()
+    -- WoW Forever: the retail spec the class acts as in the Buff Manager,
+    -- resolved the same way (nil until the v2 file has loaded).
+    if EllesmereUI.IS_FOREVER then
+        local sid = ns.BM2_ForeverSpecID and ns.BM2_ForeverSpecID()
+        if not sid then return nil end
+        local borrow = BORROW_SPECS[sid]
+        if borrow then return borrow.source end
+        local spec = SPEC_BY_ID[sid]
+        return spec and spec.key or nil
+    end
     local specIdx = GetSpecialization and GetSpecialization()
     if not specIdx then return nil end
     local specID = GetSpecializationInfo and GetSpecializationInfo(specIdx)
@@ -332,6 +344,8 @@ end
 -- Shared by the Buff Manager v2 union, the Debuff Manager union and both
 -- pages' editing-spec rosters. nil specID = no bucket (no spec yet).
 function ns.BM_RoleBucketForSpecID(specID)
+    -- WoW Forever specs carry no role: no role bucket there.
+    if EllesmereUI.IS_FOREVER then return nil end
     if not specID then return nil end
     if SPEC_BY_ID[specID] then return "healers" end
     local role = GetSpecializationInfoByID and select(5, GetSpecializationInfoByID(specID))
@@ -389,7 +403,7 @@ ns.BM_GROUP_BUCKET_INFO = EllesmereUI.SPEC_GROUP_BUCKET_INFO
 -- unknown keys (nothing inherits there). Membership tests the SPEC (tracked
 -- or not), never the key shape: the Debuff Manager views healer specs
 -- through "spec<ID>" keys too.
-function ns.BM_InheritedGroupsFor(bucketKey)
+function ns.BM_InheritedGroupsFor(bucketKey, dmView)
     local hs = bucketKey and SPEC_BY_KEY[bucketKey]
     local sid = hs and hs.specID
     if not sid then
@@ -398,6 +412,10 @@ function ns.BM_InheritedGroupsFor(bucketKey)
     end
     if not sid then return nil end
     local out = { "allspecs" }
+    -- WoW Forever: a class renders All Specs and its own bucket only (no role
+    -- groups there, All Non Healers/Aug included), so it inherits All Specs
+    -- alone in the Buff and Debuff Manager views alike.
+    if EllesmereUI.IS_FOREVER then return out end
     if not SPEC_BY_ID[sid] then out[#out + 1] = "nonhealer" end
     local roleKey = ns.BM_RoleBucketForSpecID(sid)
     if roleKey then out[#out + 1] = roleKey end
@@ -751,13 +769,13 @@ local function ApplyEffectBorder(borderFrame, ind, r, g, b, a, w, h)
     local parent = borderFrame:GetParent()
     local baseLvl = (parent and parent:GetFrameLevel()) or borderFrame:GetFrameLevel()
     borderFrame:SetFrameLevel(baseLvl + 11)   -- default border level (matches creation)
-    if style == "dashed" and Glows and Glows.StartProceduralAnts then
+    if style == "dashed" then
         EllesmereUI.HideBorderStyle(borderFrame)
         Glows.StartProceduralAnts(borderFrame, ind.borderDashCount or 8, bw, nil, nil,
             r, g, b, nil, nil, nil, nil, nil, nil, true)
         Glows.SetProceduralAntsColor(borderFrame, r, g, b, a)
     else
-        if Glows and Glows.StopProceduralAnts then Glows.StopProceduralAnts(borderFrame) end
+        Glows.StopProceduralAnts(borderFrame)
         if EllesmereUI.ApplyBorderStyle then
             -- Solid takes width as literal pixels; textured styles index the edge-size map (steps 1-4 only), so cap to dodge the >4 fallback.
             local sz = (style == "solid") and bw or math.min(bw, 4)
@@ -775,8 +793,7 @@ end
 -- the C-side animated engine instead (identical in/out of secret; w/h come from OUR frame -- the engine never measures there).
 function ns.BM_ApplyEffectBorder(borderFrame, ind, r, g, b, a, w, h)
     local Glows = EllesmereUI.Glows
-    if w and (ind.borderStyle or "solid") == "dashed"
-        and Glows and Glows.StartAnimatedAnts then
+    if w and (ind.borderStyle or "solid") == "dashed" then
         EllesmereUI.HideBorderStyle(borderFrame)
         -- Same +11 as the static styles (this branch returns first): otherwise the host stays at slot+1, one level BELOW the health bar (unit+2).
         local parent = borderFrame:GetParent()
@@ -787,9 +804,7 @@ function ns.BM_ApplyEffectBorder(borderFrame, ind, r, g, b, a, w, h)
         return
     end
     -- Leaving dashed tears the animated march down (no-op if never armed).
-    if w and Glows and Glows.StopAnimatedAnts then
-        Glows.StopAnimatedAnts(borderFrame)
-    end
+    if w then Glows.StopAnimatedAnts(borderFrame) end
     ApplyEffectBorder(borderFrame, ind, r, g, b, a, w, h)
 end
 
@@ -1082,6 +1097,10 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
             if sid and GetSpecializationInfoByID then
                 local _, _, _, _, _, cf = GetSpecializationInfoByID(tonumber(sid))
                 edClass = cf
+            end
+            -- WoW Forever: no by-ID spec lookup; the class from the spec table.
+            if not edClass and sid and EllesmereUI.IS_FOREVER then
+                edClass = EllesmereUI.SpecClassOf(tonumber(sid))
             end
         end
         if not edClass then
@@ -1482,6 +1501,17 @@ end
 -- Page-level state (persists across setting changes within same page open)
 local selectedSpecKey = nil
 
+-- WoW Forever: the page opens on All Specs each time it is entered (a tab
+-- switch, or the panel opening on it); rebuilds while on it keep the pick.
+function ns.BM_EnterAllSpecs()
+    if not EllesmereUI.IS_FOREVER then return end
+    ns._bm2SpecInited = true
+    if selectedSpecKey == "allspecs" then return end
+    selectedSpecKey = "allspecs"
+    selectedIndicator = nil
+    ns._bm2InhSel = nil
+end
+
 -- Class token of the EDITED bucket (dropdown selection): healer keys map
 -- directly, "spec<ID>" keys resolve through the spec API, shared buckets
 -- (allspecs/nonhealer) have no single class -> nil (player-class fallback).
@@ -1494,6 +1524,8 @@ local function SelectedBucketClass()
         local _, _, _, _, _, cf = GetSpecializationInfoByID(tonumber(sid))
         return cf
     end
+    -- WoW Forever: no by-ID spec lookup; the class from the spec table.
+    if sid and EllesmereUI.IS_FOREVER then return EllesmereUI.SpecClassOf(tonumber(sid)) end
     return nil
 end
 -- selectedIndicator: forward-declared near preview hover/click handlers
@@ -1544,6 +1576,10 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
 
     local rawPowerH = (s.powerShowForHealer or s.powerShowForTank or s.powerShowForDPS) and (s.powerHeight or 4) or 0
     local rawTopBarH = s.topNameBarEnabled and (s.topNameBarHeight or 20) or 0
+    -- Show on Bottom: the bar takes the bottom edge, health starts at the top and
+    -- the power bar sits on the bar (as the live LayoutTopNameBar lays it out).
+    local rawBottomY = (s.topNameBarEnabled and s.topNameBarBottom == true) and rawTopBarH or 0
+    local healthTopY = (rawBottomY > 0) and 0 or -rawTopBarH
     local healthH = rawH - rawPowerH - rawTopBarH
 
     -- Health bar (matches the custom preview build exactly)
@@ -1552,8 +1588,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         or "Interface\\Buttons\\WHITE8X8"
     local health = CreateFrame("StatusBar", nil, pvFrame)
     health:SetFrameLevel(pvFrame:GetFrameLevel() + 2)
-    health:SetPoint("TOPLEFT", pvFrame, "TOPLEFT", 0, -rawTopBarH)
-    health:SetPoint("TOPRIGHT", pvFrame, "TOPRIGHT", 0, -rawTopBarH)
+    health:SetPoint("TOPLEFT", pvFrame, "TOPLEFT", 0, healthTopY)
+    health:SetPoint("TOPRIGHT", pvFrame, "TOPRIGHT", 0, healthTopY)
     health:SetHeight(healthH)
     health:SetStatusBarTexture(texPath)
     health:GetStatusBarTexture():SetHorizTile(false)
@@ -1565,7 +1601,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         local pvUniformRef = CreateFrame("Frame", nil, pvFrame)
         pvUniformRef:SetFrameLevel(health:GetFrameLevel())
         pvUniformRef:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
-        pvUniformRef:SetPoint("BOTTOMRIGHT", pvFrame, "BOTTOMRIGHT", 0, 0)
+        pvUniformRef:SetPoint("BOTTOMRIGHT", pvFrame, "BOTTOMRIGHT", 0, rawBottomY)
         health._euiUniformRef = pvUniformRef
         pvUniformRef._euiHealth = health
     end
@@ -1616,8 +1652,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
     if rawPowerH > 0 then
         local power = CreateFrame("StatusBar", nil, pvFrame)
         power:SetFrameLevel(pvFrame:GetFrameLevel() + 3)
-        power:SetPoint("BOTTOMLEFT", pvFrame, "BOTTOMLEFT", 0, 0)
-        power:SetPoint("BOTTOMRIGHT", pvFrame, "BOTTOMRIGHT", 0, 0)
+        power:SetPoint("BOTTOMLEFT", pvFrame, "BOTTOMLEFT", 0, rawBottomY)
+        power:SetPoint("BOTTOMRIGHT", pvFrame, "BOTTOMRIGHT", 0, rawBottomY)
         power:SetHeight(rawPowerH)
         power:SetStatusBarTexture(texPath)
         power:GetStatusBarTexture():SetHorizTile(false)
@@ -1702,7 +1738,15 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
     end
     local playerName = UnitName("player") or "Player"
     if Ambiguate then playerName = Ambiguate(playerName, "short") end
-    nameFS:SetText(playerName)
+    if ns.RF_FormatName then playerName = ns.RF_FormatName(playerName, s) end
+    -- Level Position "Attach to Name" (either format): the level in front of the name.
+    local lvlPos = s.levelTextPosition or ns.RF_LEVEL_DEFAULT
+    local lvlAttach = ns.RF_LEVEL_ATTACH[lvlPos]
+    if lvlAttach then
+        nameFS:SetFormattedText(lvlAttach[1], ns._RFPreviewLevel(), playerName)
+    else
+        nameFS:SetText(playerName)
+    end
     local nameMode = s.nameColorMode or "class"
     if nameMode == "accent" then
         local ar, ag, ab = EllesmereUI.ResolveActiveAccent()
@@ -1718,8 +1762,13 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
     if s.topNameBarEnabled then
         local tnb = CreateFrame("Frame", nil, pvFrame)
         tnb:SetFrameLevel(pvFrame:GetFrameLevel() + 4)
-        tnb:SetPoint("TOPLEFT", pvFrame, "TOPLEFT", 0, 0)
-        tnb:SetPoint("TOPRIGHT", pvFrame, "TOPRIGHT", 0, 0)
+        if rawBottomY > 0 then
+            tnb:SetPoint("BOTTOMLEFT", pvFrame, "BOTTOMLEFT", 0, 0)
+            tnb:SetPoint("BOTTOMRIGHT", pvFrame, "BOTTOMRIGHT", 0, 0)
+        else
+            tnb:SetPoint("TOPLEFT", pvFrame, "TOPLEFT", 0, 0)
+            tnb:SetPoint("TOPRIGHT", pvFrame, "TOPRIGHT", 0, 0)
+        end
         tnb:SetHeight(rawTopBarH)
         local tnbBg = tnb:CreateTexture(nil, "BACKGROUND")
         tnbBg:SetAllPoints()
@@ -1728,7 +1777,11 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         local tnbText = tnb:CreateFontString(nil, "OVERLAY")
         tnbText:SetFont(fontPath, s.topNameBarTextSize or 11, outline)
         tnbText:SetWordWrap(false)
-        tnbText:SetText(playerName)
+        if lvlAttach then
+            tnbText:SetFormattedText(lvlAttach[1], ns._RFPreviewLevel(), playerName)
+        else
+            tnbText:SetText(playerName)
+        end
         local talign = s.topNameBarTextAlign or "center"
         local tox = s.topNameBarTextOffsetX or 0
         local toy = s.topNameBarTextOffsetY or 0
@@ -1778,7 +1831,33 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         end
         if htMode == "percent" then htFS:SetText("85%")
         elseif htMode == "percentNoSign" then htFS:SetText("85")
-        elseif htMode == "number" then htFS:SetText("1.02M") end
+        elseif htMode == "number" then htFS:SetText(AbbreviateNumbers(1020000)) end
+    end
+
+    -- Power text on the replica's power sample (72% mana), shown only with it like the live frames.
+    if rawPowerH > 0 and (s.powerTextMode or "none") ~= "none" then
+        local ptFS = nameCarrier:CreateFontString(nil, "OVERLAY")
+        EllesmereUI.PrimeFontShadow(ptFS, outline == "" and EllesmereUI.GetFontUseShadow("raidFrames"))
+        ptFS:SetFont(fontPath, s.powerTextSize or 8, outline)
+        ptFS:SetWordWrap(false)
+        ns.AnchorRFText(ptFS, health, s.powerTextPosition or "bottom",
+            s.powerTextOffsetX or 0, s.powerTextOffsetY or 0, rawW * 0.75)
+        ns.RF_PowerTextInto(ptFS, s.powerTextMode, 72, nil, nil, 2500)
+        local pr, pg, pb = ns.RF_PreviewTextColor(s.powerTextColorMode or "custom",
+            s.powerTextCustomColor, previewClass, 1, 1, 1, "MANA")
+        ptFS:SetTextColor(pr, pg, pb, 0.9)
+    end
+
+    -- Level text on its own spot, in the name's colour, like the live frames.
+    if lvlPos ~= "none" and not lvlAttach then
+        local lvFS = nameCarrier:CreateFontString(nil, "OVERLAY")
+        EllesmereUI.PrimeFontShadow(lvFS, outline == "" and EllesmereUI.GetFontUseShadow("raidFrames"))
+        lvFS:SetFont(fontPath, s.levelTextSize or 10, outline)
+        lvFS:SetWordWrap(false)
+        ns.AnchorRFText(lvFS, health, lvlPos, s.levelTextOffsetX or 0, s.levelTextOffsetY or 0)
+        lvFS:SetFormattedText("%d", ns._RFPreviewLevel())
+        lvFS:SetTextColor(ns.RF_PreviewTextColor(s.nameColorMode or "class",
+            s.nameCustomColor, previewClass, 1, 1, 1))
     end
 
     pvFrame._health = health
@@ -1825,7 +1904,8 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     -- Current spec's indicators for the sidebar. v2: editing dropdown stays functional (healer specs + shared Non-Healer bucket); defaults to current spec on first page open each session.
     if ns.BM2_SpecKey and not ns._bm2SpecInited then
         ns._bm2SpecInited = true
-        local landKey = ns.BM2_SpecKey()
+        -- WoW Forever lands on All Specs (see ns.BM_EnterAllSpecs).
+        local landKey = EllesmereUI.IS_FOREVER and "allspecs" or ns.BM2_SpecKey()
         -- Non-healers land on their CONCRETE "spec<ID>" view, not the shared
         -- All Non Healers/Aug group: the concrete view is where inherited
         -- group tiles (All Specs / Non Healers / role) are visible, so the
@@ -1837,6 +1917,18 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             if sid then landKey = "spec" .. sid end
         end
         selectedSpecKey = landKey
+    end
+    -- WoW Forever lists All Specs and one row per class, keyed to the bucket
+    -- that class renders now: a class view follows it (the player's class
+    -- moves with a live spec override's Buff Manager fork).
+    if EllesmereUI.IS_FOREVER and ns.BM2_ForeverKey and selectedSpecKey ~= "allspecs" then
+        local cls = SelectedBucketClass()
+        local key = cls and ns.BM2_ForeverKey(cls)
+        if key and key ~= selectedSpecKey then
+            selectedSpecKey = key
+            selectedIndicator = nil
+            ns._bm2InhSel = nil
+        end
     end
     local specIndicators = selectedSpecKey and GetSpecIndicators(db, selectedSpecKey) or {}
 
@@ -2187,7 +2279,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 EllesmereUI.ShowPickMenu(tileFrame, {
                     title = EllesmereUI.L("Add To"),
                     fontPath = fontPath,
-                    items = EllesmereUI.SpecBucketMenuItems(selectedSpecKey, HealerRosterLead),
+                    items = EllesmereUI.SpecBucketMenuItems(selectedSpecKey, HealerRosterLead, ns.BM2_ForeverKey),
                     onPick = function(key)
                         -- Target cap: silently blocked at the limit (house
                         -- silent-correction pattern; CountSpecIndicators
@@ -2491,13 +2583,20 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     -- CHECKED filters are excluded from Presets (redundant as extras); picked extras always show under Selected.
                     local function ByLabel(a, b) return a.label < b.label end
                     local function EItems()
+                        -- WoW Forever: a rank alternate stands for its family's
+                        -- primary, so Presets offers no second row for that buff.
+                        -- nil on every other client.
+                        local ap = ns.BM2_ForeverAltPrimary
                         local covered = {}
                         if ns.BM2_GetFilter then
                             for fid in pairs(popup._v2Filters) do
                                 local f = ns.BM2_GetFilter(fid)
                                 if f then
                                     for id, on in pairs(f.spells) do
-                                        if on then covered[id] = true end
+                                        if on and not ns.BM2_OtherClientSpell(f, id) then
+                                            covered[id] = true
+                                            if ap and ap[id] then covered[ap[id]] = true end
+                                        end
                                     end
                                 end
                             end
@@ -2507,6 +2606,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         local seen = {}
                         for id in pairs(popup._v2Extras) do
                             seen[id] = true
+                            if ap and ap[id] then seen[ap[id]] = true end
                             selList[#selList + 1] = SpellEntry(id)
                         end
                         for i = 1, #universe do
@@ -2644,7 +2744,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
         -- Roster shared with the right-click "Add To" menu (built once per
         -- page build here; the menu rebuilds it lazily per open).
-        local specDDValues, specDDOrder, specDDIcons, specDDClass = EllesmereUI.BuildSpecBucketRoster(HealerRosterLead)
+        local specDDValues, specDDOrder, specDDIcons, specDDClass = EllesmereUI.BuildSpecBucketRoster(HealerRosterLead, ns.BM2_ForeverKey)
 
         ---------------------------------------------------------------
         --  LEFT 65%: Preview frame (centered). Health color class =
@@ -2937,6 +3037,9 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             ns._bm2InhSel = nil
             EllesmereUI:RefreshPage(true)
         end)
+        -- WoW Forever: All Non Healers/Aug is not in the Editing Spec list
+        -- there, so its tiles stay read-only (the tile toggle still works).
+        if EllesmereUI.IS_FOREVER and gkey == "nonhealer" then link:Hide() end
         sy = sy - 30
     elseif selectedIndicator then
         local ind = selectedIndicator
@@ -3413,7 +3516,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 -- Ascending fid order matches the runtime's overlap resolution.
                 if ind.filters then
                     local fids = {}
-                    for fid in pairs(ind.filters) do fids[#fids + 1] = fid end
+                    -- Presets only the other client offers get no swatch here.
+                    for fid in pairs(ind.filters) do
+                        if not ns.BM2_HiddenPresetFilter(fid) then fids[#fids + 1] = fid end
+                    end
                     table.sort(fids)
                     for _, fid in ipairs(fids) do
                         local myFid = fid
@@ -3447,81 +3553,21 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             -- Display-level Icon Glow (v2): permanent, every visible icon of the
             -- group glows while shown. No Max Duration setting by design: the
             -- engine offers no baseline/cap on its duration bindings.
-            local GLOW_VALUES = { [0] = "None" }
-            local GLOW_ORDER = { 0 }
-            local Styles = EllesmereUI.Glows and EllesmereUI.Glows.STYLES
-            if Styles then
-                for i, entry in ipairs(Styles) do
-                    -- Auto-Cast Shine and Shape Glow excluded: they live on the forbidden
-                    -- slot-button subtree with no C-side equivalent to render there (stale saved picks fall back to Modern WoW Glow).
-                    if not (entry.shapeGlow or entry.autocast) then
-                        GLOW_VALUES[i] = entry.name
-                        GLOW_ORDER[#GLOW_ORDER + 1] = i
-                    end
+            local GO = EllesmereUI.GlowOptions
+            local glowDesc = GO.PrefixSite(function() return ind end, "displayGlow", "engine", ReloadAndUpdate)
+            -- The color swatches take the free right half.
+            local mdRow = SettingsRow(GO.DropdownSpec(glowDesc, "Icon Glow"),
+                { type="label", text="Glow Color" })
+            if not EllesmereUI._prebuilding then
+                local rgn = mdRow._leftRegion
+                GO.AttachInline(rgn, glowDesc, mdRow._rightRegion)
+                local pv = GO.BuildPreview(rgn, glowDesc, { bar = false, width = 26, height = 26,
+                    anchor = rgn._lastInline or rgn._control, x = -12 })
+                if pv then
+                    pv:SetFrameLevel(rgn:GetFrameLevel() + 5)
+                    rgn._lastInline = pv
                 end
             end
-            local mdRow = SettingsRow(
-                { type="dropdown", text="Icon Glow",
-                  values=GLOW_VALUES, order=GLOW_ORDER,
-                  getValue=function() return ind.displayGlowType or 0 end,
-                  setValue=function(v) ind.displayGlowType = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
-                { type="label", text="" })
-            -- Inline class + custom color swatches, left of the dropdown.
-            local PPl = EllesmereUI.PanelPP or EllesmereUI.PP
-            local rightRgn = mdRow._leftRegion
-            local ctrl = rightRgn._control
-
-            local classSwatch, updateClassSwatch = EllesmereUI.BuildColorSwatch(
-                rightRgn, mdRow:GetFrameLevel() + 3,
-                function()
-                    local _, classFile = UnitClass("player")
-                    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-                    if cc then return cc.r, cc.g, cc.b end
-                    return 1, 0.82, 0
-                end,
-                function() end,
-                false, 20)
-            PPl.Point(classSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            classSwatch:SetScript("OnClick", function()
-                ind.displayGlowClassColor = true; ReloadAndUpdate(); EllesmereUI:RefreshPage()
-            end)
-            classSwatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Colored")
-            end)
-            classSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(
-                rightRgn, mdRow:GetFrameLevel() + 3,
-                function() return ind.displayGlowR or 1.0, ind.displayGlowG or 0.776, ind.displayGlowB or 0.376 end,
-                function(r, g, b)
-                    ind.displayGlowR, ind.displayGlowG, ind.displayGlowB = r, g, b
-                    ReloadAndUpdate()
-                end,
-                false, 20)
-            PPl.Point(glowSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
-            glowSwatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(glowSwatch, "Custom Colored")
-            end)
-            glowSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            -- Click the dimmed custom swatch to switch back from class color.
-            local origGlowClick = glowSwatch:GetScript("OnClick")
-            glowSwatch:SetScript("OnClick", function(self, ...)
-                if ind.displayGlowClassColor then
-                    ind.displayGlowClassColor = false; ReloadAndUpdate(); EllesmereUI:RefreshPage()
-                    return
-                end
-                if (ind.displayGlowType or 0) == 0 then return end
-                if origGlowClick then origGlowClick(self, ...) end
-            end)
-
-            local function UpdateDispGlowState()
-                local noGlow = (ind.displayGlowType or 0) == 0
-                local isClassColored = ind.displayGlowClassColor
-                glowSwatch:SetAlpha((isClassColored or noGlow) and 0.3 or 1)
-                classSwatch:SetAlpha((isClassColored and not noGlow) and 1 or 0.3)
-            end
-            EllesmereUI.RegisterWidgetRefresh(function() updateGlowSwatch(); updateClassSwatch(); UpdateDispGlowState() end)
-            UpdateDispGlowState()
 
             -- THRESHOLD section (Enable, seconds, color, opacity)
             BuildThresholdRow()

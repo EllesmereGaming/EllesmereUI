@@ -24,20 +24,16 @@ do
 
     local function ApplyScaleSafe(scale)
         if InCombatLockdown() then
-            local f = CreateFrame("Frame")
-            f:RegisterEvent("PLAYER_REGEN_ENABLED")
-            f:SetScript("OnEvent", function(self)
-                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                UIParent:SetScale(scale)
-                if EllesmereUI and EllesmereUI.PP and EllesmereUI.PP.UpdateMult then
-                    EllesmereUI.PP.UpdateMult()
-                end
+            -- Re-read the saved scale at drain: a UI Scale change made later in the
+            -- same fight (SetUIScale) must not be undone by this older value.
+            EllesmereUI.CombatQueue.Defer("StartupScale", function()
+                ApplyScaleSafe(EllesmereUIDB and EllesmereUIDB.ppUIScale or scale)
             end)
-        else
-            UIParent:SetScale(scale)
-            if EllesmereUI and EllesmereUI.PP and EllesmereUI.PP.UpdateMult then
-                EllesmereUI.PP.UpdateMult()
-            end
+            return
+        end
+        UIParent:SetScale(scale)
+        if EllesmereUI and EllesmereUI.PP and EllesmereUI.PP.UpdateMult then
+            EllesmereUI.PP.UpdateMult()
         end
     end
 
@@ -510,6 +506,17 @@ end
 if C_AddOns and C_AddOns.DoesAddOnExist and C_AddOns.DoesAddOnExist("EllesmereUIBasics")
    and C_AddOns.GetAddOnEnableState and C_AddOns.GetAddOnEnableState("EllesmereUIBasics") > 0 then
     C_AddOns.DisableAddOn("EllesmereUIBasics")
+end
+
+-- Forever Essentials ships only a _Camelot TOC, which no other client reads, so
+-- a clean install is not listed outside Forever. A copy extracted over an older
+-- build keeps its stale plain TOC and shows as an out-of-date, incompatible row;
+-- disable it there (next session) so the login warning stops. Never on Forever,
+-- where the module is live. Zero cost once the stale TOC is gone.
+if EUI_CLIENT_FOREVER ~= true and C_AddOns and C_AddOns.DoesAddOnExist
+   and C_AddOns.DoesAddOnExist("EllesmereUIForeverEssentials")
+   and C_AddOns.GetAddOnEnableState("EllesmereUIForeverEssentials") > 0 then
+    C_AddOns.DisableAddOn("EllesmereUIForeverEssentials")
 end
 
 -- /rl reload shortcut -- only

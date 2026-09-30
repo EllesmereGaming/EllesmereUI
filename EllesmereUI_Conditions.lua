@@ -295,7 +295,6 @@ end
 --  "out of combat" by definition).
 -------------------------------------------------------------------------------
 local _keyBtnPool = {}
-local _bindCombatFrame
 
 function EllesmereUI.Conditions_ToggleKey(gid)
     if InCombatLockdown() then return end
@@ -307,14 +306,7 @@ end
 
 function EllesmereUI.Conditions_RebuildKeyBindings()
     if InCombatLockdown() then
-        if not _bindCombatFrame then
-            _bindCombatFrame = CreateFrame("Frame")
-            _bindCombatFrame:SetScript("OnEvent", function(self)
-                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                EllesmereUI.Conditions_RebuildKeyBindings()
-            end)
-        end
-        _bindCombatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        EllesmereUI.CombatQueue.Defer("ConditionsKeyBindings", EllesmereUI.Conditions_RebuildKeyBindings)
         return
     end
     for _, btn in ipairs(_keyBtnPool) do

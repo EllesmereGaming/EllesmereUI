@@ -56,9 +56,13 @@ initFrame:SetScript("OnEvent", function(self)
         -- link lands on the banner alone); Classic keeps the tab typography.
         local BS = EllesmereUI.BlizzStyle
         local STOCK = BS and BS.Get("chat")
+        -- WoW Forever (Blizzard Style's Forever variant) draws its own panel,
+        -- input box and ghost tabs: the panel fill, input height and tab
+        -- typography come back; every other stock gate stays.
+        local FV = STOCK and BS.Forever("chat")
         if isTabs and STOCK then
             y = BS.Note(parent, y, "chat")
-            if BS.Active("chat") == "blizzard" then isTabs = false end
+            if BS.Active("chat") == "blizzard" and not FV then isTabs = false end
         end
 
         if isChat then
@@ -92,8 +96,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 2: Background Opacity (+ inline color swatch) | Background
         -- Texture (Unit Frames bar texture catalogue incl. SharedMedia, with
         -- per-item texture preview backgrounds). Stock styles: Blizzard's own
-        -- background (its tab menu's Background swatch sets it).
-        if not STOCK then
+        -- background (its tab menu's Background swatch sets it); WoW Forever
+        -- fills its framed boxes with these.
+        if not STOCK or FV then
         if ECHAT.RefreshBgTextureCatalogue then ECHAT.RefreshBgTextureCatalogue() end
         local btValues, btOrder = {}, {}
         do
@@ -140,7 +145,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
         end
         y = y - h
-        end -- not STOCK
+        end -- not STOCK or FV
 
         -- Row 3: Font (+ cog: Outline Mode) | Font Size
         do
@@ -222,6 +227,10 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("panelBorderTexture", v)
                       Set("panelBorderOffsetX", nil); Set("panelBorderOffsetY", nil)
                       Set("panelBorderShiftX", nil); Set("panelBorderShiftY", nil)
+                      -- A style with a select colour (Pixels grey) seeds the custom
+                      -- colour; the colour mode is kept, every other style keeps its colour.
+                      local selC = EllesmereUI.GetBorderSelectColor(v)
+                      if selC then Set("panelBorderColor", selC) end
                       -- A style pick lands on the style's default step, so an exact
                       -- pixel size paired with the old step is cleared (false, not
                       -- nil: the clear must travel through mirror sync).
@@ -467,10 +476,10 @@ initFrame:SetScript("OnEvent", function(self)
                   Set("sidebarVisibility", v)
                   if ECHAT.ApplySidebarVisibility then ECHAT.ApplySidebarVisibility() end
               end },
-            -- Classic WoW UI draws nothing behind the column; Blizzard
-            -- Style's column backdrop follows this toggle.
+            -- Classic WoW UI and WoW Forever draw nothing behind the column;
+            -- Blizzard Style's column backdrop follows this toggle.
             (function(cfg)
-                if STOCK and BS.Active("chat") == "classic" then BS.Gate("chat", cfg) end
+                if STOCK and (BS.Active("chat") == "classic" or FV) then BS.Gate("chat", cfg) end
                 return cfg
             end)({ type="toggle", text="Hide Sidebar Background",
               getValue=function() return Cfg("hideSidebarBg") or false end,
@@ -654,7 +663,7 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", pixel=true, label="Icon Spacing",
                       min = 0, max = 30, step = 1,
                       get=function()
-                          if STOCK then return Cfg("stockIconSpacing") or 4 end
+                          if STOCK then return Cfg("stockIconSpacing") or (ECHAT.SB_KIT and ECHAT.SB_KIT.gap) or 4 end
                           return Cfg("sidebarIconSpacing") or 10
                       end,
                       set=function(v)
@@ -706,8 +715,9 @@ initFrame:SetScript("OnEvent", function(self)
         end -- isSidebar
 
         if isTabs then
-            -- Classic WoW UI paints the vanilla tab sheet at Blizzard's tab
-            -- geometry: only the TYPOGRAPHY section applies there.
+            -- Classic WoW UI (the vanilla tab sheet) and WoW Forever (the
+            -- bronze tab) paint at Blizzard's tab geometry: only the
+            -- TYPOGRAPHY section applies there.
             if not STOCK then
             _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
 
@@ -1150,6 +1160,10 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("tabBorderTexture", v)
                       Set("tabBorderOffsetX", nil); Set("tabBorderOffsetY", nil)
                       Set("tabBorderShiftX", nil); Set("tabBorderShiftY", nil)
+                      -- A style with a select colour (Pixels grey) seeds the custom
+                      -- colour; the colour mode is kept, every other style keeps its colour.
+                      local selC = EllesmereUI.GetBorderSelectColor(v)
+                      if selC then Set("tabBorderColor", selC) end
                       -- A style pick lands on the style's default step, so an exact
                       -- pixel size paired with the old step is cleared (false, not
                       -- nil: the clear must travel through mirror sync).
@@ -1308,7 +1322,17 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, "INPUT FIELD", y); y = y - h
 
         -- Stock styles keep Blizzard's own input box, its height and place.
-        if not STOCK then
+        -- WoW Forever's box is ours, always below: its height alone.
+        if not STOCK or FV then
+        local ebHeightCfg = { type="slider", text="Edit Box Height", min=10, max=60, step=1,
+              getValue=function() return Cfg("editBoxHeight") or 23 end,
+              setValue=function(v)
+                  Set("editBoxHeight", v)
+                  if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
+              end }
+        if FV then
+        _, h = W:DualRow(parent, y, ebHeightCfg, EllesmereUI.BlankRowCfg())
+        else
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Input on Top",
               getValue=function() return Cfg("inputOnTop") or false end,
@@ -1316,14 +1340,10 @@ initFrame:SetScript("OnEvent", function(self)
                   Set("inputOnTop", v)
                   if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
               end },
-            { type="slider", text="Edit Box Height", min=10, max=60, step=1,
-              getValue=function() return Cfg("editBoxHeight") or 23 end,
-              setValue=function(v)
-                  Set("editBoxHeight", v)
-                  if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
-              end })
+            ebHeightCfg)
+        end
         y = y - h
-        end -- not STOCK
+        end -- not STOCK or FV
 
         do
             local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
@@ -1389,8 +1409,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- (preview icon) doesn't pollute the shared tables.
         local whisperSoundValues = {}
         local whisperSoundPaths = ECHAT.WHISPER_SOUND_PATHS or {}
-        local whisperSoundNames = ECHAT.WHISPER_SOUND_NAMES or { none = "None" }
-        local whisperSoundOrder = ECHAT.WHISPER_SOUND_ORDER or { "none" }
+        local whisperSoundNames = ECHAT.WHISPER_SOUND_NAMES or { none = "Blizzard Default", mute = "None" }
+        local whisperSoundOrder = ECHAT.WHISPER_SOUND_ORDER or { "none", "mute" }
         for k, v in pairs(whisperSoundNames) do whisperSoundValues[k] = v end
         whisperSoundValues._menuOpts = {
             itemHeight = 26,
@@ -1399,11 +1419,11 @@ initFrame:SetScript("OnEvent", function(self)
             iconAtlas = function(key)
                 if key == "none" then return nil end
                 if not whisperSoundPaths[key] then return nil end
-                return "common-icon-sound"
+                return EllesmereUI.SOUND_ICON_ATLAS
             end,
             iconPressedAtlas = function(key)
-                if key == "none" then return nil end
-                return "common-icon-sound-pressed"
+                if not whisperSoundPaths[key] then return nil end
+                return EllesmereUI.SOUND_ICON_PRESSED_ATLAS
             end,
             iconOnClick = function(key)
                 local path = whisperSoundPaths[key]
@@ -1427,9 +1447,13 @@ initFrame:SetScript("OnEvent", function(self)
         extrasBorderRow, h = W:DualRow(parent, y,
             hideBordersCfg,
             { type="dropdown", text="Whisper Sound",
+              tooltip="Blizzard Default keeps the game's whisper sound. Any other sound replaces it, and None plays no sound.",
               values=whisperSoundValues, order=whisperSoundOrder,
               getValue=function() return Cfg("whisperSoundKey") or "none" end,
-              setValue=function(v) Set("whisperSoundKey", v) end })
+              setValue=function(v)
+                  Set("whisperSoundKey", v)
+                  ECHAT.ApplyWhisperMute()
+              end })
         if not EllesmereUI._prebuilding then
             local rgn = extrasBorderRow._leftRegion
             local ctrl = rgn._control
@@ -1841,8 +1865,10 @@ initFrame:SetScript("OnEvent", function(self)
     -- update replacing the folder is all it takes) leaves every setting readable and nothing
     -- listening to them, so the page would look healthy and do absolutely nothing.
     -- Blizzard Style shows Blizzard's own chat tabs, which take none of the
-    -- Tabs page's settings, so the page is not offered there.
+    -- Tabs page's settings, so the page is not offered there (WoW Forever
+    -- paints its own tabs with the Tabs page's typography).
     local blizzTabsStyle = EllesmereUI.BlizzStyle and EllesmereUI.BlizzStyle.Active("chat") == "blizzard"
+        and not EllesmereUI.BlizzStyle.Forever("chat")
     local chatPages = blizzTabsStyle and { "Chat", "Sidebar" } or { "Chat", "Tabs", "Sidebar" }
     if ECHAT.BubblesDB and ECHAT.BubbleDefaults and ns.ChatBubbles then
         chatPages[#chatPages + 1] = "Chat Bubbles"

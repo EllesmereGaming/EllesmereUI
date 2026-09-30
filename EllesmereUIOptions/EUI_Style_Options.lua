@@ -12,8 +12,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  else eui, and a write sets exactly one of the two. Every flag is
 --  reload-gated: the values are written ONLY inside the reload popup's
 --  confirm handler, so a cancelled popup leaves the profile untouched and the
---  runtime never sees a half-applied style mid-session. The header's three
---  look cards (the first-install picker's, EllesmereUI_StyleCards.lua) each
+--  runtime never sees a half-applied style mid-session. The header's look
+--  cards (the first-install picker's, EllesmereUI_StyleCards.lua) each
 --  push their style to every enabled module through the same single prompt.
 --
 --  EllesmereUI.BlizzStyle is the shared helper set the module options pages
@@ -24,6 +24,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  read that latched value; the Style rows show the profile's flags. Get()
 --  answers the shared question -- is a stock look dictating the geometry --
 --  and is true for both stock styles; Active() names the one that is.
+--
+--  WoW Forever (the Forever client only) adds a fourth value, "forever": a
+--  VARIANT of Blizzard Style, not a style of its own. It is a third sibling
+--  flag per row (the Blizzard flag's name with "Forever" in place of
+--  "Blizzard": useForeverStyle, useForeverStyleBars) written TOGETHER with
+--  the Blizzard flag, so every module, reader and older build that does not
+--  know it renders Blizzard Style. The rows read "forever" when both are set;
+--  Active() still answers "blizzard" (the module latches do too), and
+--  Forever() says whether the variant renders. Retail never reads or writes
+--  the Forever flags.
 -------------------------------------------------------------------------------
 
 local GLOBAL_KEY     = "_EUIGlobal"
@@ -96,34 +106,59 @@ local function FriendsProfile()
     local d = _G._EFR_DB
     return d and d.profile and d.profile.friends
 end
+-- The Skyriding HUD keeps its own per-profile DB inside Blizz UI Enhanced
+-- (created at PLAYER_LOGIN, even while the HUD itself is off).
+local function DragonRidingProfile()
+    local n = NS("EllesmereUIBlizzardSkin")
+    local d = n and n.edrDB
+    return d and d.profile
+end
 local function RFProfile()
     local n = NS("EllesmereUIRaidFrames")
     return n and n.db and n.db.profile
 end
 
+local IS_FOREVER = EllesmereUI.IS_FOREVER == true
+
+-- The WoW Forever variant is Blizzard Style everywhere a base style is
+-- asked for (module seeds, the whole-UI font and window slots, Active()).
+local function BaseKey(styleKey)
+    if styleKey == "forever" then return "blizzard" end
+    return styleKey
+end
+
 -- Profile flags -> style key and back. The Classic flag wins a read when both
--- are set; a write sets exactly one of them (or neither, for eui).
-local function StyleKeyOf(p, flag, classicFlag)
+-- are set; a write sets exactly one of them (or neither, for eui). The Forever
+-- flag (nil off the Forever client) only ever rides a set Blizzard flag.
+local function StyleKeyOf(p, flag, classicFlag, foreverFlag)
     if not p then return "eui" end
     if p[classicFlag] then return "classic" end
-    if p[flag] then return "blizzard" end
+    if p[flag] then
+        if foreverFlag and p[foreverFlag] then return "forever" end
+        return "blizzard"
+    end
     return "eui"
 end
-local function FlagAccessors(profileFn, flag, classicFlag)
+local function FlagAccessors(profileFn, flag, classicFlag, foreverFlag)
     return function()
-        return StyleKeyOf(profileFn(), flag, classicFlag)
+        return StyleKeyOf(profileFn(), flag, classicFlag, foreverFlag)
     end, function(styleKey)
         local p = profileFn()
         if p then
-            p[flag]        = (styleKey == "blizzard") or false
+            p[flag]        = (styleKey == "blizzard" or styleKey == "forever") or false
             p[classicFlag] = (styleKey == "classic") or false
+            -- Never a default written: set while chosen, cleared otherwise.
+            if foreverFlag then
+                if styleKey == "forever" then p[foreverFlag] = true else p[foreverFlag] = nil end
+            end
         end
     end
 end
 
 -- The style a module is RENDERING this session: its latched key getter on
 -- the module ns ("eui" while the module is not loaded). Action Bars has no
--- latch and passes its profile accessor instead.
+-- latch and reads its profile flags instead (the Forever variant as
+-- "blizzard", like every latch).
 local function ActiveFn(folder, fnName)
     return function()
         local n = NS(folder)
@@ -134,17 +169,39 @@ local function ActiveFn(folder, fnName)
     end
 end
 
+-- WoW Forever: the module getter that says whether the variant renders this
+-- session, for the modules whose variant draws differently (latched with the
+-- style; Action Bars reads its flags live like AB_Style). A module missing
+-- here draws Blizzard Style under the variant.
+local FOREVER_LATCH = {
+    actionbars = "AB_Forever",
+    unitframes = "UF_Forever",
+    nameplates = "NP_Forever",
+    minimap    = "MinimapForever",
+    cdmicons   = "CdmIconsForever",
+    cdmbars    = "CdmBarsForever",
+    castbar    = "ERB_CastForever",
+    damagemeters = "DMForever",
+    chat       = "ChatForever",
+    threatmeter = "TM_Forever",
+    charsheet  = "CharSheetForever",
+}
+
 local MODULES = {}
 local BY_KEY  = {}
--- onEnable (optional): the style's defaults, run on the profile with the
--- chosen style key the first time the module switches to that stock style
--- (before the reload); a later visit loads the style's saved slot instead
--- (see the per-style slots below).
+-- onEnable (optional): the style's defaults, run on the profile the first
+-- time the module switches to that stock style (before the reload) as
+-- onEnable(p, styleKey, isForever): styleKey is "blizzard" or "classic" (the
+-- WoW Forever variant passes "blizzard" with isForever true). A later visit
+-- loads the style's saved slot instead (see the per-style slots below).
 local function Register(key, folder, display, tooltip, profileFn, flag, classicFlag, activeFnName, onEnable)
-    local get, set = FlagAccessors(profileFn, flag, classicFlag)
+    -- The Forever sibling flag, on the Forever client only.
+    local foreverFlag = IS_FOREVER and (flag:gsub("Blizzard", "Forever", 1)) or nil
+    local get, set = FlagAccessors(profileFn, flag, classicFlag, foreverFlag)
     local m = { key = key, folder = folder, display = display, tooltip = tooltip, get = get, set = set,
-                active = activeFnName and ActiveFn(folder, activeFnName) or get,
-                profile = profileFn, onEnable = onEnable }
+                active = activeFnName and ActiveFn(folder, activeFnName) or function() return BaseKey(get()) end,
+                profile = profileFn, onEnable = onEnable,
+                foreverFlag = foreverFlag, foreverLatch = foreverFlag and FOREVER_LATCH[key] or nil }
     MODULES[#MODULES + 1] = m
     BY_KEY[key] = m
 end
@@ -160,7 +217,7 @@ Register("unitframes",   "EllesmereUIUnitFrames",      "Unit Frames",
     -- the style's own icon on the portrait per switch; Classic also seeds
     -- the Plating health bar texture once per profile (the module's own
     -- seed; it also runs at enable for a profile that arrives already
-    -- switched).
+    -- switched). WoW Forever's own seed rides its Forever-only slots below.
     function(p, styleKey)
         local uf = NS("EllesmereUIUnitFrames")
         if uf and uf.UF_SeedStock then uf.UF_SeedStock(p, styleKey) end
@@ -175,7 +232,7 @@ Register("nameplates",   "EllesmereUINameplates",      "Nameplates",
     -- health and cast bars once per profile; Classic also seeds the vanilla
     -- cast background and a light uninterruptible grey (the module's own
     -- seeds; they also run at enable for a profile that arrives already
-    -- switched).
+    -- switched). WoW Forever's own seed rides its Forever-only slots below.
     function(p, styleKey)
         local np = NS("EllesmereUINameplates")
         if np and np.NP_SeedStock then np.NP_SeedStock(p) end
@@ -226,33 +283,65 @@ Register("damagemeters", "EllesmereUIDamageMeters",    "Damage Meters",
     DMProfile, "useBlizzardStyle", "useClassicStyle", "DMStyle",
     -- The stock panel reads best lighter: the first switch to Blizzard Style
     -- seeds Background Opacity at 0.4 (once per profile; the slider stays
-    -- the user's). The first switch to Classic WoW UI runs the module's own
+    -- the user's), WoW Forever at the chat panel's 0.65 (both wear the same
+    -- bronze frame). The first switch to Classic WoW UI runs the module's own
     -- seed (the near-black window, the quarter-black bar track; once per
     -- profile, the module also runs it at login for a profile that arrives
     -- already switched).
-    function(p, styleKey)
+    function(p, styleKey, isForever)
         if styleKey == "blizzard" and not p.blizzBgAlphaSeeded then
             p.blizzBgAlphaSeeded = true
-            p.bgAlpha = 0.4
+            p.bgAlpha = isForever and 0.65 or 0.4
         elseif styleKey == "classic" then
             local dm = EllesmereUI._ModuleNS and EllesmereUI._ModuleNS.EllesmereUIDamageMeters
             if dm and dm.DMSeedClassic then dm.DMSeedClassic(p) end
         end
     end)
+-- The threat meter exists only on WoW Forever (Forever Essentials). Its
+-- settings are account-wide (EllesmereUIDB.threatMeter), so its flags, slots
+-- and seed stamps live in that table, not in a profile: a profile switch
+-- never changes its look, and Apply to All and the first-install picker set
+-- it for the whole account. The row reads without creating the table
+-- (opening this page writes nothing); a style write creates it. nil while
+-- Forever Essentials is disabled.
+if EllesmereUI.IS_FOREVER then
+local function TMStore(create)
+    if not NS("EllesmereUIForeverEssentials") or not EllesmereUIDB then return nil end
+    local t = EllesmereUIDB.threatMeter
+    if type(t) ~= "table" then
+        if not create then return nil end
+        t = {}
+        EllesmereUIDB.threatMeter = t
+    end
+    return t
+end
+Register("threatmeter",  "EllesmereUIForeverEssentials", "Threat Meter",
+    "Blizzard's meter window and bar art, or a window in the classic chat tabs' border, with every EllesmereUI threat meter feature.",
+    function() return TMStore(true) end, "useBlizzardStyle", "useClassicStyle", "TM_Style",
+    -- The module's own seeds, once each: Blizzard Style's lighter window
+    -- (WoW Forever's at the Damage Meters variant's 0.65), Classic WoW UI's
+    -- near-black window and quarter-black bar track (the module also runs
+    -- Classic's at login for a table that arrives already switched).
+    function(p, styleKey, isForever)
+        local fe = NS("EllesmereUIForeverEssentials")
+        if fe and fe.TM_SeedStock then fe.TM_SeedStock(p, styleKey, isForever) end
+    end)
+BY_KEY.threatmeter.get = FlagAccessors(function() return TMStore(false) end, "useBlizzardStyle", "useClassicStyle",
+    BY_KEY.threatmeter.foreverFlag)
+BY_KEY.threatmeter.enableName = "Forever Essentials"
+end
 Register("questtracker", "EllesmereUIQuestTracker",    "Quest Tracker",
     "Blizzard's own tracker, with every EllesmereUI tracker feature. Both stock styles look the same here.",
     QTProfile, "useBlizzardStyle", "useClassicStyle", "QT_Style")
 Register("chat",         "EllesmereUIChat",            "Chat",
     "Blizzard's own chat window, tabs and input box, or the same window with the classic tab art, with every EllesmereUI chat feature.",
     ChatProfile, "useBlizzardStyle", "useClassicStyle", "ChatStyle")
--- WoW Forever keeps its own character sheet treatment (no row there).
-if not EllesmereUI.IS_FOREVER then
--- Raid Frames never loads on WoW Forever (no row there). One row covers raid,
--- party (in its Raid Frames layout), Friendly Boss and Extra Frames. Either
--- stock style's first visit seeds the stock raid fill (the 12.1 flat fill,
--- or Classic's Blizzard Raid Bar), flush spacing, the stock role icons and
--- absorb looks (the module's own seed; it also runs at enable for a profile
--- that arrives already switched).
+-- One row covers raid, party (in its Raid Frames layout), Friendly Boss and
+-- Extra Frames, on both clients (WoW Forever draws Blizzard Style here).
+-- Either stock style's first visit seeds the stock raid fill (the 12.1 flat
+-- fill, or Classic's Blizzard Raid Bar), flush spacing, the stock role icons
+-- and absorb looks (the module's own seed; it also runs at enable for a
+-- profile that arrives already switched).
 Register("raidframes",   "EllesmereUIRaidFrames",      "Raid Frames",
     "Blizzard's raid frame edge and highlights, or the classic ones, with every EllesmereUI raid frame feature.",
     RFProfile, "useBlizzardStyle", "useClassicStyle", "RF_Style",
@@ -260,11 +349,21 @@ Register("raidframes",   "EllesmereUIRaidFrames",      "Raid Frames",
         local rf = NS("EllesmereUIRaidFrames")
         if rf and rf.RF_SeedStock then rf.RF_SeedStock(p, styleKey) end
     end)
+-- One row on both clients; on WoW Forever every stock style is Blizzard's
+-- own Forever sheet, and the WoW Forever style keeps the item text beside
+-- its slots.
 Register("charsheet",    "EllesmereUIBlizzardSkin",    "Character Sheet",
-    "Blizzard's own character sheet with the EllesmereUI stats, slot text and socket panel added; the Calc tab stays with the EllesmereUI look.",
+    IS_FOREVER and "Blizzard's own character sheet as the game draws it; WoW Forever keeps the item text beside the slots, and the stat colors stay with the EllesmereUI look."
+        or "Blizzard's own character sheet with the EllesmereUI stats, slot text and socket panel added; the Calc tab stays with the EllesmereUI look.",
     CharSheetProfile, "charSheetUseBlizzardStyle", "charSheetUseClassicStyle", "CharSheetStyle")
 -- The module to enable is Blizz UI Enhanced, not a "Character Sheet" one.
 BY_KEY.charsheet.enableName = "Blizz UI Enhanced"
+if not EllesmereUI.IS_FOREVER then
+-- WoW Forever has no skyriding (no HUD, no row there).
+Register("dragonriding", "EllesmereUIBlizzardSkin",    "Skyriding HUD",
+    "Blizzard's bar panel and action button frame, or the classic bar frame and slot ring, with every EllesmereUI Skyriding HUD feature.",
+    DragonRidingProfile, "useBlizzardStyle", "useClassicStyle", "EDR_Style")
+BY_KEY.dragonriding.enableName = "Blizz UI Enhanced"
 -- The Friends List module never loads on WoW Forever (no row there).
 Register("friends",      "EllesmereUIFriends",         "Friends List",
     "Blizzard's own friends window and cards, with the EllesmereUI class icons, class-coloured names and region icons added. Both stock styles look the same here.",
@@ -281,7 +380,7 @@ end
 --  install defaults (the reload every switch ends in refills them from the
 --  module's defaults). A slot holds these keys only, in the module's own
 --  profile table (p._styleSlots), so it follows profile copies and imports.
---  keys: dotted paths into the module's profile table (one level deep);
+--  keys: dotted paths into the module's profile table;
 --  stamps: the markers that make a seed once per profile; seededBy(key):
 --  the stamp whose seed writes that key (true = only this build ever writes
 --  it, nil = no seed does). A first visit to the EllesmereUI look with no
@@ -359,22 +458,75 @@ local SLOT_KEYS = {
                          return "stockRaidSeeded"
                      end },
 }
+-- The threat meter's seeds write into its appearance groups, two levels down
+-- in its account table; the stamps sit at the top.
+if EllesmereUI.IS_FOREVER then
+    SLOT_KEYS.threatmeter = {
+        stamps = { "blizzBgAlphaSeeded", "classicSeeded" },
+        keys = { "appearance.colors.bgAlpha", "appearance.colors.bgR", "appearance.colors.bgG",
+                 "appearance.colors.bgB", "appearance.bars.barTexture", "appearance.colors.barBgR",
+                 "appearance.colors.barBgG", "appearance.colors.barBgB", "appearance.colors.barBgAlpha",
+                 "appearance.colors.barBgUseClassColor" },
+        seededBy = function(key)
+            if key == "appearance.colors.bgAlpha" then return "blizzBgAlphaSeeded" end
+            return "classicSeeded"
+        end }
+end
+-- WoW Forever's own seeds (the Nameplates Left Text its level box stands in
+-- for, the Unit Frames class resource its combo point arc takes) swap only
+-- across the variant (foreverOnly), in a spec of their own (m.fvSlots) kept
+-- apart from the module's slots above (store): the other looks share one
+-- "eui" slot for them, banked on the way in and restored on the way out, and
+-- the variant keeps none, so every visit seeds them again (seed). A switch
+-- between the other looks never touches them. The modules bank the same
+-- store at enable for a profile that arrives already switched.
+if IS_FOREVER then
+    local FOREVER_SLOT_KEYS = {
+        nameplates = { keys = { "textSlotLeft" }, stamps = { "foreverLevelSlotSeeded" },
+                       seededBy = function() return "foreverLevelSlotSeeded" end,
+                       seed = function(p)
+                           local n = NS("EllesmereUINameplates")
+                           if n and n.NP_SeedForever then n.NP_SeedForever(p) end
+                       end },
+        unitframes = { keys = { "player.classPowerStyle", "player.showClassPowerBar" },
+                       stamps = { "foreverClassPowerSeeded" },
+                       seededBy = function() return "foreverClassPowerSeeded" end,
+                       seed = function(p)
+                           local n = NS("EllesmereUIUnitFrames")
+                           if n and n.UF_SeedForever then n.UF_SeedForever(p) end
+                       end },
+    }
+    for key, spec in pairs(FOREVER_SLOT_KEYS) do
+        spec.foreverOnly, spec.store = true, "_foreverStyleSlots"
+        BY_KEY[key].fvSlots = spec
+    end
+    -- Action Bars' queue eye position swaps only across the variant
+    -- (foreverOnly): the other looks share one spot as before, banked on the
+    -- way in and restored on the way out, and the variant keeps none, so
+    -- every visit clears it and the eye goes back onto the minimap's ring (a
+    -- drag there wins until the look changes).
+    SLOT_KEYS.actionbars = { keys = { "barPositions.QueueStatus" }, foreverOnly = true }
+    BY_KEY.actionbars.onEnable = function(p, _, isForever)
+        if isForever and type(p.barPositions) == "table" then p.barPositions.QueueStatus = nil end
+    end
+end
 for key, spec in pairs(SLOT_KEYS) do
     if BY_KEY[key] then BY_KEY[key].slots = spec end
 end
 
+-- A missing table on the way reads nil and makes a write a no-op.
 local function PathGet(t, path)
     local a, b = path:match("^([^.]+)%.(.+)$")
     if not a then return t[path] end
     local s = t[a]
     if type(s) ~= "table" then return nil end
-    return s[b]
+    return PathGet(s, b)
 end
 local function PathSet(t, path, v)
     local a, b = path:match("^([^.]+)%.(.+)$")
     if not a then t[path] = v; return end
     local s = t[a]
-    if type(s) == "table" then s[b] = v end
+    if type(s) == "table" then PathSet(s, b, v) end
 end
 
 -- The slot keys a spec or conditional override holds (spec.prefix = the
@@ -399,6 +551,87 @@ local function OverriddenKeys(m, spec, keys)
     return list
 end
 
+-- One slot spec's swap for module `m` going `from` -> `to` on its profile
+-- `p` (see SwitchModuleStyle). Returns whether a saved slot loaded, then the
+-- keys a spec or conditional override holds and their live values.
+local function SwapSlots(m, p, spec, from, to)
+    -- The slots the swap reads and writes: the looks themselves, except for
+    -- a foreverOnly spec, whose non-Forever looks share the "eui" slot.
+    local fromK, toK = from, to
+    if spec.foreverOnly then
+        if from ~= "forever" then fromK = "eui" end
+        if to ~= "forever" then toK = "eui" end
+    end
+    if fromK == toK then return false end
+    local loaded = false
+    local keep, keepVals
+    local keys = spec.keys
+    if type(keys) == "function" then keys = keys() end
+    keep = OverriddenKeys(m, spec, keys)
+    if keep then
+        keepVals = {}
+        for i = 1, #keep do keepVals[i] = PathGet(p, keep[i]) end
+    end
+    local stamps = spec.stamps
+    local store = spec.store or "_styleSlots"
+    local slots = p[store]
+    if type(slots) ~= "table" then slots = {}; p[store] = slots end
+    local out = {}
+    for i = 1, #keys do out[keys[i]] = PathGet(p, keys[i]) end
+    if stamps then
+        for i = 1, #stamps do out[stamps[i]] = PathGet(p, stamps[i]) end
+    end
+    if not (spec.foreverOnly and fromK == "forever") then slots[fromK] = out end
+    local saved = slots[toK]
+    if type(saved) == "table" then
+        loaded = true
+        for i = 1, #keys do PathSet(p, keys[i], saved[keys[i]]) end
+        if stamps then
+            for i = 1, #stamps do PathSet(p, stamps[i], saved[stamps[i]]) end
+        end
+    else
+        if toK == "eui" then
+            -- Only what a seed wrote goes back to the install default
+            -- (read before the stamps clear below).
+            local by = spec.seededBy
+            if by then
+                for i = 1, #keys do
+                    local st = by(keys[i])
+                    if st == true or (st and PathGet(p, st)) then PathSet(p, keys[i], nil) end
+                end
+            end
+        elseif fromK ~= "eui" then
+            -- From another stock style: start from the EllesmereUI
+            -- look's values, so a first visit gives the same result
+            -- whichever look it is reached from. A profile that reached
+            -- its first stock style before the slots existed never banked
+            -- that look: bank it now as the EllesmereUI first visit would
+            -- leave the profile (what a seed wrote goes back to the install
+            -- default, read before the stamps clear below), so the return
+            -- to EllesmereUI can load it instead of keeping this style's
+            -- seeds.
+            local base = slots.eui
+            if type(base) ~= "table" then
+                base = {}
+                local by = spec.seededBy
+                for i = 1, #keys do
+                    local k = keys[i]
+                    local st = by and by(k)
+                    if not (st == true or (st and PathGet(p, st))) then
+                        base[k] = PathGet(p, k)
+                    end
+                end
+                slots.eui = base
+            end
+            for i = 1, #keys do PathSet(p, keys[i], base[keys[i]]) end
+        end
+        if stamps then
+            for i = 1, #stamps do PathSet(p, stamps[i], nil) end
+        end
+    end
+    return loaded, keep, keepVals
+end
+
 -- One module to `to`: its slots swap, then its flags. Every Style write goes
 -- through here (a row, Apply to All, the first-install picker). A setting a
 -- spec or conditional override holds keeps its live value through all of
@@ -407,91 +640,38 @@ local function SwitchModuleStyle(m, to)
     local p = m.profile and m.profile()
     local from = m.get()
     if from == to then return end
-    local spec = m.slots
-    local loaded = false
-    local keep, keepVals
-    if p and spec then
-        local keys = spec.keys
-        if type(keys) == "function" then keys = keys() end
-        keep = OverriddenKeys(m, spec, keys)
-        if keep then
-            keepVals = {}
-            for i = 1, #keep do keepVals[i] = PathGet(p, keep[i]) end
-        end
-        local stamps = spec.stamps
-        local slots = p._styleSlots
-        if type(slots) ~= "table" then slots = {}; p._styleSlots = slots end
-        local out = {}
-        for i = 1, #keys do out[keys[i]] = PathGet(p, keys[i]) end
-        if stamps then
-            for i = 1, #stamps do out[stamps[i]] = PathGet(p, stamps[i]) end
-        end
-        slots[from] = out
-        local saved = slots[to]
-        if type(saved) == "table" then
-            loaded = true
-            for i = 1, #keys do PathSet(p, keys[i], saved[keys[i]]) end
-            if stamps then
-                for i = 1, #stamps do PathSet(p, stamps[i], saved[stamps[i]]) end
-            end
-        else
-            if to == "eui" then
-                -- Only what a seed wrote goes back to the install default
-                -- (read before the stamps clear below).
-                local by = spec.seededBy
-                if by then
-                    for i = 1, #keys do
-                        local st = by(keys[i])
-                        if st == true or (st and PathGet(p, st)) then PathSet(p, keys[i], nil) end
-                    end
-                end
-            elseif from ~= "eui" then
-                -- From the other stock style: start from the EllesmereUI
-                -- look's values, so a first visit gives the same result
-                -- whichever look it is reached from. A profile that reached
-                -- its first stock style before the slots existed never banked
-                -- that look: bank it now as the EllesmereUI first visit would
-                -- leave the profile (what a seed wrote goes back to the install
-                -- default, read before the stamps clear below), so the return
-                -- to EllesmereUI can load it instead of keeping this style's
-                -- seeds.
-                local base = slots.eui
-                if type(base) ~= "table" then
-                    base = {}
-                    local by = spec.seededBy
-                    for i = 1, #keys do
-                        local k = keys[i]
-                        local st = by and by(k)
-                        if not (st == true or (st and PathGet(p, st))) then
-                            base[k] = PathGet(p, k)
-                        end
-                    end
-                    slots.eui = base
-                end
-                for i = 1, #keys do PathSet(p, keys[i], base[keys[i]]) end
-            end
-            if stamps then
-                for i = 1, #stamps do PathSet(p, stamps[i], nil) end
-            end
-        end
-    end
+    local loaded, keep, keepVals = false, nil, nil
+    if p and m.slots then loaded, keep, keepVals = SwapSlots(m, p, m.slots, from, to) end
+    -- WoW Forever's own spec (the Forever client only; it swaps only into
+    -- or out of the variant).
+    local fv = m.fvSlots
+    local fvLoaded, fvKeep, fvKeepVals = false, nil, nil
+    if p and fv then fvLoaded, fvKeep, fvKeepVals = SwapSlots(m, p, fv, from, to) end
     m.set(to)
     -- A style's defaults run only on its first visit: a loaded slot already
-    -- holds what the user had there.
-    if p and to ~= "eui" and m.onEnable and not loaded then m.onEnable(p, to) end
+    -- holds what the user had there. WoW Forever keeps its own slot and runs
+    -- Blizzard Style's defaults (told it is the variant), and its own seed
+    -- on every visit (its Forever-only slot is never banked).
+    if p and to ~= "eui" and m.onEnable and not loaded then m.onEnable(p, BaseKey(to), to == "forever") end
+    if p and fv and to == "forever" and not fvLoaded then fv.seed(p) end
     if keep then
         for i = 1, #keep do PathSet(p, keep[i], keepVals[i]) end
+    end
+    if fvKeep then
+        for i = 1, #fvKeep do PathSet(p, fvKeep[i], fvKeepVals[i]) end
     end
 end
 
 -- The stock style most loaded modules use ("blizzard" on a tie or none):
 -- names the look a font or window record from before the slots belongs to.
+-- WoW Forever counts as Blizzard Style (it shares that look's font and
+-- window slots).
 local function InferredStockStyle()
     local b, c = 0, 0
     for i = 1, #MODULES do
         local m = MODULES[i]
         if NS(m.folder) ~= nil then
-            local k = m.get()
+            local k = BaseKey(m.get())
             if k == "blizzard" then b = b + 1 elseif k == "classic" then c = c + 1 end
         end
     end
@@ -507,16 +687,39 @@ EllesmereUI.BlizzStyle = BlizzStyle
 
 local STYLE_VALUES = { eui = "EllesmereUI Style", blizzard = "Blizzard Style", classic = "Classic WoW UI" }
 local STYLE_ORDER  = { "eui", "blizzard", "classic" }
+-- The WoW Forever variant is offered on the Forever client only, second.
+if IS_FOREVER then
+    STYLE_VALUES.forever = "WoW Forever"
+    table.insert(STYLE_ORDER, 2, "forever")
+end
 
 -- The style the module currently RENDERS (its session latch, not the profile
--- flags): "eui", "blizzard" or "classic". "eui" for unknown keys and for
--- disabled modules.
+-- flags): "eui", "blizzard" or "classic" -- "blizzard" under the WoW Forever
+-- variant too (ask Forever()). "eui" for unknown keys and for disabled
+-- modules.
 function BlizzStyle.Active(key)
     local m = BY_KEY[key]
     return m and m.active() or "eui"
 end
+-- True when the module renders the WoW Forever variant of Blizzard Style
+-- this session (always false off the Forever client): its latched Forever
+-- getter; a module with no Forever-only pieces draws Blizzard Style either
+-- way and answers from its flags, so its gates and banner name the look
+-- that was picked.
+function BlizzStyle.Forever(key)
+    local m = BY_KEY[key]
+    if not (m and m.foreverFlag) or m.active() ~= "blizzard" then return false end
+    local latch = m.foreverLatch
+    if latch then
+        local n = NS(m.folder)
+        local fn = n and n[latch]
+        return (fn ~= nil and fn()) and true or false
+    end
+    return m.get() == "forever"
+end
 -- The display name of the rendering style (the requirement text on gated rows).
 function BlizzStyle.Label(key)
+    if BlizzStyle.Forever(key) then return STYLE_VALUES.forever end
     return STYLE_VALUES[BlizzStyle.Active(key)] or STYLE_VALUES.eui
 end
 -- True when a stock look (Blizzard Style or Classic WoW UI) dictates the
@@ -532,7 +735,8 @@ end
 -- Blizzard Default in place of the install default Expressway, and the
 -- EllesmereUI look takes Expressway back from Blizzard Default; any other
 -- font stays. Glyph-restricted locales already render the client's own font,
--- so nothing changes there. Both callers reload right after.
+-- so nothing changes there. Both callers reload right after. WoW Forever
+-- shares Blizzard Style's font slot (the same stock font).
 -- legacy: the stock look a record from before the slots belongs to, taken
 -- before any module flag changes (nil = infer it now).
 local function FontSlots(legacy)
@@ -552,9 +756,10 @@ local function FontSlots(legacy)
 end
 local function FontPending(styleKey)
     local db, s = FontSlots()
-    return db ~= nil and (s.active or "eui") ~= styleKey
+    return db ~= nil and (s.active or "eui") ~= BaseKey(styleKey)
 end
 local function ApplyWholeUIFont(styleKey, legacy)
+    styleKey = BaseKey(styleKey)
     local db, s = FontSlots(legacy)
     if not db then return end
     local from = s.active or "eui"
@@ -583,12 +788,15 @@ end
 -- Default). A disabled Blizz UI Enhanced module has no swapper and is left
 -- alone. The look is the active PROFILE's (profile-root windowSkinLook), so
 -- the account's windows swap back to each profile's look on a profile switch
--- (EllesmereUI.ReconcileWindowSkinLook).
+-- (EllesmereUI.ReconcileWindowSkinLook). WoW Forever shares Blizzard Style's
+-- window slot: both hand the windows back to Blizzard, whose windows on that
+-- client are the Forever ones.
 local function WholeUIWindowsPending(styleKey)
     local swap = EllesmereUI.SwapWindowSkinStyle
-    return swap ~= nil and swap(styleKey, true, InferredStockStyle())
+    return swap ~= nil and swap(BaseKey(styleKey), true, InferredStockStyle())
 end
 local function ApplyWholeUIWindows(styleKey, legacy)
+    styleKey = BaseKey(styleKey)
     local swap = EllesmereUI.SwapWindowSkinStyle
     if not swap then return end
     swap(styleKey, false, legacy or InferredStockStyle())
@@ -598,9 +806,12 @@ end
 
 -- Every loaded module to one style at once, no prompt: the first-install
 -- style picker (EllesmereUI_StyleChoicePopup.lua) writes the flags and
--- reloads itself. The same writes as Apply to All's confirm; a module with
--- no profile (disabled at the picker) is left alone. Takes a style key
--- (true stands for blizzard, false for eui).
+-- reloads itself, and on the Forever client so does the module picker (the
+-- WoW Forever look a fresh install starts on, written as its reload is
+-- confirmed). The same writes as Apply to All's confirm; a module with no
+-- profile (disabled at the picker) is left alone. The first-install stamp
+-- is its callers' to settle. Takes a style key (true stands for blizzard,
+-- false for eui; "forever" only on the Forever client, eui elsewhere).
 function BlizzStyle.ApplyAll(styleKey)
     if styleKey == true then styleKey = "blizzard" elseif not STYLE_VALUES[styleKey] then styleKey = "eui" end
     local legacy = InferredStockStyle()
@@ -610,6 +821,17 @@ function BlizzStyle.ApplyAll(styleKey)
     end
     ApplyWholeUIFont(styleKey, legacy)
     ApplyWholeUIWindows(styleKey, legacy)
+end
+-- One module to one style, no prompt: a module page's own style button,
+-- called from its reload prompt's confirm (the same switch as a row's, so
+-- the style's slots swap with it). No-op while the module is disabled.
+function BlizzStyle.Switch(key, styleKey)
+    local m = BY_KEY[key]
+    if m and m.profile() then
+        -- WoW Forever: settles the first-install picker, as the Style page does.
+        if EllesmereUI.IS_FOREVER and EllesmereUIDB then EllesmereUIDB.styleChoicePending = nil end
+        SwitchModuleStyle(m, styleKey)
+    end
 end
 
 -- The rendered style never changes during a session, so gating a row is a
@@ -749,6 +971,9 @@ local function PromptStyleChanges(changes, wholeUIStyle)
             -- session's logout sweep would have turned them into overrides
             -- for the group being edited.
             EllesmereUI.SpecOverrides_CloseEditSessions()
+            -- WoW Forever: a look committed here settles the first-install
+            -- picker, so it never asks again over a choice already made.
+            if EllesmereUI.IS_FOREVER and EllesmereUIDB then EllesmereUIDB.styleChoicePending = nil end
             local legacy = wholeUIStyle and InferredStockStyle()
             for i = 1, #changes do
                 SwitchModuleStyle(changes[i].m, changes[i].key)
@@ -806,11 +1031,12 @@ function _G._EUI_BuildStylePage(pageName, parent, yOffset)
 
     parent._showRowDivider = true
 
-    -- Header: the first-install picker's three look cards
-    -- (EllesmereUI_StyleCards.lua), each one Apply to All for its look
-    -- through the single reload prompt. The card for the look every loaded
-    -- module already uses is marked IN USE, and its button stays live only
-    -- while that look still has a font or window-skin change to apply.
+    -- Header: the first-install picker's look cards (three; four with WoW
+    -- Forever on that client; EllesmereUI_StyleCards.lua), each one Apply
+    -- to All for its look through the single reload prompt. The card for the
+    -- look every loaded module already uses is marked IN USE, and its button
+    -- stays live only while that look still has a font or window-skin change
+    -- to apply.
     -- Sized host + single TOPLEFT point per the search framework's geometry
     -- contract; the search prebuild only needs the y advance.
     local CARDS_TOP = 140

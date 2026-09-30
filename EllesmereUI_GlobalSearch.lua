@@ -775,19 +775,11 @@ local function RunPrebuildPass(onComplete)
     end
 
     local i = 0
-    local combatWait
     local function StepJob()
         -- A full page build is a multi-millisecond main-thread hit; never do
         -- that during combat. Pause the pass and resume once combat ends.
         if InCombatLockdown() then
-            if not combatWait then
-                combatWait = CreateFrame("Frame")
-                combatWait:SetScript("OnEvent", function(self)
-                    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                    C_Timer.After(0.05, StepJob)
-                end)
-            end
-            combatWait:RegisterEvent("PLAYER_REGEN_ENABLED")
+            EllesmereUI.CombatQueue.Defer(StepJob, function() C_Timer.After(0.05, StepJob) end)
             return
         end
         -- As many builds as fit in a small per-frame budget (at least one),

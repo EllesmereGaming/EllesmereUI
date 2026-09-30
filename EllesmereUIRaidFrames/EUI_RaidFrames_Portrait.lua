@@ -29,6 +29,20 @@ local CLASS_ART = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\"
 local CLASS_SHEET = "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES"
 local QMARK_MODEL = "Interface\\Buttons\\TalkToMeQuestionMark.m2"
 
+-- 3D Zoom (100..ZOOM3D_MAX, also the options slider's max) -> portrait
+-- zoom, camera distance. Up to 300 it is the distance alone (1..3); above,
+-- the camera blends to the full body (portrait zoom 1 -> 0, distance 3 -> 1).
+local ZOOM3D_STOCK, ZOOM3D_MAX = 300, 500
+ns.RF_PT_ZOOM3D_MAX = ZOOM3D_MAX
+local function Zoom3DOf(z)
+    z = z or 100
+    if z <= ZOOM3D_STOCK then return 1, z / 100 end
+    if z > ZOOM3D_MAX then z = ZOOM3D_MAX end
+    local t = (z - ZOOM3D_STOCK) / (ZOOM3D_MAX - ZOOM3D_STOCK)
+    local d = ZOOM3D_STOCK / 100
+    return 1 - t, d - (d - 1) * t
+end
+
 local function Point(r, p, rel, rp, x, y)
     if PP and PP.Point then PP.Point(r, p, rel, rp, x, y) else r:SetPoint(p, rel, rp, x, y) end
 end
@@ -99,6 +113,45 @@ local function Ensure3D(bd)
     bd._3d = m
     ns._ptModelOn = true
     return m
+end
+
+-- Character Size: a scaled model renders on a canvas the box's size times
+-- k, bottom-centred on the Inside box, which clips it; the box never
+-- changes. At k = 1 the model fills the box.
+local function ModelCanvas(bd, k, w, h)
+    local m = bd._3d
+    if k == 1 or not (w and h and w > 0 and h > 0) then
+        -- Back from a canvas: drop its BOTTOM anchor first.
+        if bd._charCanvas then m:ClearAllPoints(); bd._charCanvas = nil end
+        m:SetAllPoints(bd)
+        return
+    end
+    m:ClearAllPoints()
+    m:SetSize(w * k, h * k)
+    m:SetPoint("BOTTOM", bd, "BOTTOM", 0, 0)
+    bd._charCanvas = true
+end
+-- Installed only while scaled: the canvas follows the box's real size (the
+-- Inside box's height comes from its anchors).
+local function BoxSizeChanged(self, w, h)
+    ModelCanvas(self, self._charK or 1, w, h)
+end
+-- Scaled only for a 3D model of an available unit (the question mark keeps
+-- the box's size); a change of _charK, _3dOn or _state re-seats. Unscaled
+-- (the default) is the stock re-anchor alone: no script, no size reads.
+local function SeatModel(bd)
+    if not bd._3d then return end
+    local k = bd._charK or 1
+    local scaled = k ~= 1 and bd._3dOn and bd._state ~= false or false
+    if scaled ~= (bd._charHook or false) then
+        bd:SetScript("OnSizeChanged", scaled and BoxSizeChanged or nil)
+        bd._charHook = scaled
+    end
+    if scaled then
+        ModelCanvas(bd, k, bd:GetWidth(), bd:GetHeight())
+    else
+        ModelCanvas(bd, 1)
+    end
 end
 
 -- First enable: the backdrop and the bars' area. Health, power, the Top
@@ -301,8 +354,8 @@ local function Shape(bd, s, shaped, w, h)
     end
     SeatArt2D(bd)
     SeatClassArt(bd, h)
-    -- A model is never masked or enlarged: it stays on the backdrop.
-    if bd._3d then bd._3d:SetAllPoints(bd) end
+    -- A model is never masked: it seats on the backdrop.
+    SeatModel(bd)
     return true
 end
 
@@ -400,7 +453,8 @@ function ns.RF_PtPaint(st, unit, event)
             if avail then
                 m:ClearModel()
                 m:SetUnit(unit)
-                m:SetPortraitZoom(1)
+                bd._camP = bd._pz3d or 1
+                m:SetPortraitZoom(bd._camP)
                 m:SetPosition(0, 0, 0)
                 bd._camZ = bd._zoom3d or 1
                 m:SetCamDistanceScale(bd._camZ)
@@ -413,7 +467,11 @@ function ns.RF_PtPaint(st, unit, event)
                 bd._camZ = nil
             end
             bd._guid = (avail and not issecretvalue(guid)) and guid or nil
+            -- The question mark takes the box's size: a scaled model re-seats
+            -- when availability flips.
+            local reseat = (bd._charK or 1) ~= 1 and (bd._state == false) ~= (avail == false)
             bd._state = avail
+            if reseat then SeatModel(bd) end
             repainted = true
         end
     else
@@ -486,6 +544,8 @@ function ns.RF_PtApply(owner, st, s, bw, bh, unit)
             bd._on = nil
             bd:Hide()
             SetMode(bd, nil)
+            -- Off drops the Character Size script with the model.
+            if (bd._charK or 1) ~= 1 then bd._charK = 1; SeatModel(bd) end
         end
         return
     end
@@ -497,7 +557,11 @@ function ns.RF_PtApply(owner, st, s, bw, bh, unit)
     -- (a button with no unit repaints on its next occupant).
     local cs = s.partyPortraitClassStyle or "modern"
     if bd._style ~= cs then bd._style = cs; bd._ct = nil end
-    bd._zoom3d = (s.partyPortrait3dZoom or 100) / 100
+    bd._pz3d, bd._zoom3d = Zoom3DOf(s.partyPortrait3dZoom)
+    -- Character Size: Inside positions only (the box that clips it).
+    local charK = inside and ((s.partyPortraitCharScale or 100) / 100) or 1
+    local charKChanged = (bd._charK or 1) ~= charK
+    bd._charK = charK
     -- Background under square and shaped art; none under a bare model.
     local shaped = style == "detached" and (s.partyPortraitShape or "portrait") ~= "none"
     bd._bg:SetShown(not inside and (style == "attached" or shaped))
@@ -505,10 +569,17 @@ function ns.RF_PtApply(owner, st, s, bw, bh, unit)
     local wasOn = bd._on
     bd._on = true
     local swapped = SetMode(bd, mode)
+    -- A new scale re-seats the model (a re-shape already did); so does a
+    -- swap into or out of 3D while scaled (Shape seated before the swap).
+    if (charKChanged and not reshaped) or (swapped and charK ~= 1) then SeatModel(bd) end
     if not wasOn then bd:Show() end
     -- A 3D Zoom change on a loaded model: the camera alone.
     local m = bd._3dOn and bd._3d
-    if m and bd._state and bd._camZ and bd._camZ ~= bd._zoom3d then
+    if m and bd._state and bd._camZ and (bd._camZ ~= bd._zoom3d or bd._camP ~= bd._pz3d) then
+        if bd._camP ~= bd._pz3d then
+            bd._camP = bd._pz3d
+            m:SetPortraitZoom(bd._pz3d)
+        end
         bd._camZ = bd._zoom3d
         m:SetCamDistanceScale(bd._zoom3d)
     end

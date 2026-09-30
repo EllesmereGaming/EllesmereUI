@@ -35,12 +35,27 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --      page, the thin header bars) through the scroll box's own frame
 --      callbacks, never by touching its data.
 --
---  Cost: a one-time pass at login on frames that already exist, then a
---  recolour per element initialisation (what Blizzard does anyway on each
---  stats refresh) and one colour compare plus one item-link compare per slot
---  update (Blizzard's own, only while the slots are shown). The one event of
---  our own, GET_ITEM_INFO_RECEIVED, is registered only while a shown slot
---  waits on item data the client has not cached yet.
+--  All of this is the EllesmereUI look. Under the WoW Forever style from the
+--  Style page only the slot text stays, on Blizzard's own sheet: the same
+--  lines through the same per-slot update, set further out so they clear
+--  Blizzard's bronze slot frames. The outer weapon slots' lines start lower
+--  (under the columns' bottom slot frames) and the middle weapon slot's lines
+--  stack above it, running left from its right edge (the frame border leaves
+--  no room under it), clear of the columns' own text; weapon lines too long
+--  for their room are cut short. No eyeball there: that corner is Blizzard's
+--  portrait.
+--  Under Blizzard Style and Classic WoW UI nothing here runs and the sheet
+--  stays Blizzard's own. The Character Sheet card's Off and the window skins
+--  kill switch stop both looks.
+--
+--  Cost: a one-time pass at login on frames that already exist (under the
+--  WoW Forever style, a one-time text build at the slots' first show
+--  instead), then a recolour per element initialisation (what Blizzard does
+--  anyway on each stats refresh) and one colour compare plus one item-link
+--  compare per slot update (Blizzard's own, only while the slots are shown).
+--  The one event of our own, GET_ITEM_INFO_RECEIVED, is registered only while
+--  a shown slot waits on item data the client has not cached yet. Nothing at
+--  all under Blizzard Style or Classic WoW UI.
 --------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local EllesmereUI = _G.EllesmereUI
@@ -53,11 +68,24 @@ local function GetFFD(frame)
     return d
 end
 
-local function Enabled()
+-- The Character Sheet card's switch and the window skins kill switch, which
+-- stop both looks (as they stop the retail stock styles' labels).
+local function SheetOn()
     if not EllesmereUIDB then return true end
     if EllesmereUIDB.themedCharacterSheet == false then return false end
-    if EllesmereUI.BlizzWindowSkinsKilled and EllesmereUI.BlizzWindowSkinsKilled() then return false end
-    return true
+    return not EllesmereUI.BlizzWindowSkinsKilled()
+end
+
+-- The EllesmereUI look (the style is latched at login, so a choice from the
+-- Style page lands at the reload).
+local function Enabled()
+    return not ns.CharSheetStock() and SheetOn()
+end
+
+-- The slot text: the EllesmereUI look, or the WoW Forever style (Blizzard
+-- Style and Classic WoW UI keep Blizzard's sheet whole).
+local function TextEnabled()
+    return (not ns.CharSheetStock() or ns.CharSheetForever()) and SheetOn()
 end
 
 local function FontPath()
@@ -236,8 +264,9 @@ local SLOTS = {
 
 local function FadeChildren(frame, Fade)
     if not frame then return end
-    for i = 1, select("#", frame:GetChildren()) do
-        local child = select(i, frame:GetChildren())
+    local children = { frame:GetChildren() }
+    for i = 1, #children do
+        local child = children[i]
         if child and child.GetRegions and not (child.IsForbidden and child:IsForbidden()) then
             Fade(child)
         end
@@ -280,14 +309,24 @@ end
 --  enchant settings keys, sizes and colours, so those options rows drive it
 --  through the refreshers redefined below.
 --------------------------------------------------------------------------------
-local EX = 5   -- the text's near edge, off the slot edge
+local EX_LOOK = 5  -- the EllesmereUI look's text edge, off the slot edge
+local EX = EX_LOOK -- the text's near edge, off the slot edge
+local WY = 10      -- the outer weapon slots' first line, above the slot's centre
+-- Under the WoW Forever style Blizzard's bronze slot frames stay: the 55px
+-- art round each 37px slot reaches 9px past its edges. The text sits 4px
+-- past that, and the outer weapon slots' first line drops to the slot's
+-- centre so it clears the frames of the columns' bottom slots (set at the
+-- build, the style being latched for the session).
+local SLOT_FRAME = 9
+local stockPane      -- WoW Forever style: the left pane, which the side weapon lines stop at
 
 -- Where each slot's text sits: "R" right of it, "L" left of it, "B" below
--- it. The inner side for the two columns; the outer side for the outer
--- weapon slots (the ranged text past the ammo slot while that shows); below
--- the middle weapon slot, whose sides are taken and whose top holds the
--- flyout arrow. Shirt, tabard and ammo carry none (shirt and tabard carry
--- none on retail either).
+-- it, "T" above it. The inner side for the two columns; the outer side for
+-- the outer weapon slots (the ranged text past the ammo slot while that
+-- shows); below the middle weapon slot, whose sides are taken and whose top
+-- holds the flyout arrow, or above it under the WoW Forever style (Blizzard's
+-- frame border leaves no room under it). Shirt, tabard and ammo carry none
+-- (shirt and tabard carry none on retail either).
 local TEXT_SIDE = {
     CharacterHeadSlot = "R", CharacterNeckSlot = "R", CharacterShoulderSlot = "R",
     CharacterBackSlot = "R", CharacterChestSlot = "R", CharacterWristSlot = "R",
@@ -459,12 +498,40 @@ local function ApplyLabelFonts(d)
     d.fontVer = textVer
 end
 
+-- WoW Forever style: a weapon slot's lines capped at the room they have
+-- (the stats and dps take its width, justified to their anchored side; the
+-- enchant shrinks to it when wider), cut short rather than run past it.
+local function CapLines(d, room, justify)
+    if not room or room <= 0 then return end
+    d.stats:SetWidth(room); d.stats:SetJustifyH(justify)
+    d.dps:SetWidth(room); d.dps:SetJustifyH(justify)
+    if d.ench:GetWidth() > room then d.ench:SetWidth(room) end
+end
+
+-- The side weapon lines stop 6px inside the left pane (its frame border on
+-- the left, the stats pane's edge on the right: past the ammo slot the
+-- ranged text has about 90px).
+local PANE_PAD = 6
+local function CapToPane(d, anchor, point)
+    local room
+    if point == "LEFT" then
+        local a, e = anchor:GetRight(), stockPane:GetRight()
+        room = a and e and e - PANE_PAD - a - EX
+    else
+        local a, e = anchor:GetLeft(), stockPane:GetLeft()
+        room = a and e and a - EX - e - PANE_PAD
+    end
+    CapLines(d, room, point)
+end
+
 -- Weapon slots stack their lines from the top: the stats, the dps, then the
 -- enchant, a line moving up when the one above it is empty. Beside a slot
--- the first line sits where retail's item level does and the enchant keeps
--- its retail spot unless the dps line pushes it down; below the middle
--- weapon slot the lines stack centred under it, stats and dps sharing a row. Re-run after each paint
--- (the lines' contents and heights decide the stack).
+-- the first line sits where retail's item level does (at the slot's centre
+-- under the WoW Forever style) and the enchant keeps its retail spot unless
+-- the dps line pushes it down; below the middle weapon slot the lines stack
+-- centred under it, stats and dps sharing a row; above it (WoW Forever
+-- style) they stack upward, ending at its right edge. Re-run after each
+-- paint (the lines' contents and heights decide the stack).
 local LINE = 13
 local function StackWeaponText(d, anchor)
     local stats, dps, ench = d.stats, d.dps, d.ench
@@ -491,9 +558,37 @@ local function StackWeaponText(d, anchor)
         ench:SetJustifyH("CENTER")
         return
     end
+    if d.side == "T" then
+        -- The enchant nearest the slot, then the dps, then the stats. The
+        -- columns' bottom slots keep their inner lines within their own
+        -- height, level with these, so the stack starts at those slots' top,
+        -- else just past the bronze frame. Each line ends at the slot's right
+        -- edge and runs left into the band beside the shirt and tabard (which
+        -- carry no text), capped at the left column's text edge: a centred
+        -- stack or a shared stats and dps row would run into the right
+        -- column's text.
+        local y = SLOT_FRAME + 2
+        local col, top = _G.CharacterWristSlot, anchor:GetTop()
+        local colTop = col and col:GetTop()
+        if top and colTop and colTop - top + 2 > y then y = colTop - top + 2 end
+        local right, colRight = anchor:GetRight(), col and col:GetRight()
+        CapLines(d, right and colRight and right - colRight - EX, "RIGHT")
+        ench:SetJustifyH("RIGHT")
+        if d.hasEnch then
+            ench:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, y)
+            y = y + ench:GetStringHeight() + 1
+        end
+        if d.hasDps then
+            dps:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, y)
+            y = y + dps:GetStringHeight() + 1
+        end
+        if d.hasStats then stats:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, y) end
+        return
+    end
     local point, rel, x = "LEFT", "RIGHT", EX
     if d.side == "L" then point, rel, x = "RIGHT", "LEFT", -EX end
-    local y = 10
+    if stockPane then CapToPane(d, anchor, point) end
+    local y = WY
     if d.hasStats then
         stats:SetPoint(point, anchor, rel, x, y)
         y = y - LINE
@@ -603,7 +698,9 @@ local function PaintSlotText(slot)
 
     -- Vanilla enchants carry no icon, so the name always shows; Show Enchant
     -- Names gives it retail's name look (outlined, tinted from the item's
-    -- colour). Capped at 45% of the gap between the columns, as on retail.
+    -- colour). Capped at 45% of the gap between the columns, as on retail,
+    -- less the WoW Forever style's extra inset on each side (so the two
+    -- columns' enchants keep a gap in the middle).
     local name = DB("showEnchants") ~= false and EnchantName(slotID) or ""
     ench:SetText(name)
     if name ~= "" then
@@ -617,9 +714,12 @@ local function PaintSlotText(slot)
         end
         local head, hands = _G.CharacterHeadSlot, _G.CharacterHandsSlot
         local lr, rl = head and head:GetRight(), hands and hands:GetLeft()
-        ench:SetWidth((lr and rl and rl > lr) and (rl - lr) * 0.45 or 0)
+        ench:SetWidth((lr and rl and rl > lr) and (rl - lr - 2 * (EX - EX_LOOK)) * 0.45 or 0)
     end
-    if dps then StackWeaponText(d, d.anchor) end
+    if dps then
+        d.hasEnch = name ~= ""
+        StackWeaponText(d, d.anchor)
+    end
 end
 
 -- The slots went away (tab, pet view, close): nothing waits any more; a
@@ -661,6 +761,12 @@ local slotOverlay   -- every slot's text; the eyeball fades it
 local function BuildSlotText()
     local host = _G.PaperDollItemsFrame
     if not host or itemWatch then return end
+    -- WoW Forever style: the text goes past Blizzard's bronze slot frames.
+    local fv = ns.CharSheetForever()
+    if fv then
+        EX, WY = SLOT_FRAME + 4, 0
+        stockPane = _G.CharacterFrame and _G.CharacterFrame.LeftPaneHost
+    end
     itemWatch = CreateFrame("Frame")
     itemWatch:SetScript("OnEvent", OnItemInfo)
     -- A child of the slots' own frame, so it goes with them (other tabs, the
@@ -677,12 +783,23 @@ local function BuildSlotText()
         local name = SLOTS[i]
         local side, slot = TEXT_SIDE[name], _G[name]
         if side and slot then
-            -- Without a ranged slot the off hand is the outer one on the right.
-            if side == "B" and not rangedShown then side = "R" end
+            -- Without a ranged slot the off hand is the outer one on the
+            -- right; under the WoW Forever style the middle one's text goes
+            -- above it.
+            if side == "B" then
+                if not rangedShown then side = "R"
+                elseif fv then side = "T" end
+            end
             local d = GetFFD(slot)
             d.idx, d.side, d.anchor = i, side, slot
+            -- One line each: a capped width (WoW Forever style) cuts the
+            -- text short rather than wrapping it into the frames around.
             d.stats = overlay:CreateFontString(nil, "OVERLAY")
-            if WEAPON_SLOT[name] then d.dps = overlay:CreateFontString(nil, "OVERLAY") end
+            d.stats:SetWordWrap(false)
+            if WEAPON_SLOT[name] then
+                d.dps = overlay:CreateFontString(nil, "OVERLAY")
+                d.dps:SetWordWrap(false)
+            end
             d.ench = overlay:CreateFontString(nil, "OVERLAY")
             d.ench:SetFont(path, DB("charSheetEnchantSize") or 9, "")
             d.ench:SetWordWrap(false)
@@ -692,7 +809,8 @@ local function BuildSlotText()
         end
     end
     host:HookScript("OnHide", ClearPending)
-    -- A first open that skinned the sheet has already had Blizzard's update.
+    -- A first open that skinned the sheet (or, under the WoW Forever style,
+    -- the slots' first show) has already had Blizzard's update.
     for i = 1, #SLOTS do
         local slot = _G[SLOTS[i]]
         if slot and slot:IsVisible() then PaintSlotText(slot) end
@@ -706,7 +824,7 @@ end
 -- sheet repaints on its next show.
 local function RefreshSlotText()
     textVer = textVer + 1
-    if not Enabled() then return end
+    if not TextEnabled() then return end
     for i = 1, #SLOTS do
         local slot = _G[SLOTS[i]]
         if slot and slot:IsVisible() then PaintSlotText(slot) end
@@ -728,6 +846,14 @@ local function OnSlotUpdate(slot)
     if d.stats then PaintSlotText(slot) end
 end
 
+-- Both looks follow that update through one hook, installed once.
+local slotHooked = false
+local function HookSlotUpdates()
+    if slotHooked or type(_G.PaperDollItemSlotButton_Update) ~= "function" then return end
+    slotHooked = true
+    hooksecurefunc("PaperDollItemSlotButton_Update", OnSlotUpdate)
+end
+
 local function SkinSlot(slotName, Fade)
     local slot = _G[slotName]
     if not slot or GetFFD(slot).done then return end
@@ -741,8 +867,9 @@ local function SkinSlot(slotName, Fade)
         -- The ammo slot is built without that child: its ring is an atlas
         -- texture on the button itself. The arrow pointing at the ranged slot
         -- (an unnamed child frame of its own) stays.
-        for i = 1, select("#", slot:GetRegions()) do
-            local r = select(i, slot:GetRegions())
+        local regions = { slot:GetRegions() }
+        for i = 1, #regions do
+            local r = regions[i]
             if r.GetAtlas and r:GetAtlas() == "UI-Character-Info-GearSlotSmall" then r:SetAlpha(0) end
         end
     end
@@ -947,10 +1074,7 @@ local function SkinFrame()
         end)
         d.eyeBtn = eyeBtn
     end
-    if not d.slotHook and type(_G.PaperDollItemSlotButton_Update) == "function" then
-        d.slotHook = true
-        hooksecurefunc("PaperDollItemSlotButton_Update", OnSlotUpdate)
-    end
+    HookSlotUpdates()
 
     -- Stats list colours.
     HookStatsList(_G.CharacterStatsPaneScrollBox)
@@ -968,14 +1092,26 @@ local function SkinFrame()
     return true
 end
 
+-- WoW Forever style: the slot text alone, built at the slots' first show;
+-- every later show returns at once.
+local function BuildStockText()
+    if itemWatch then return end
+    BuildSlotText()
+    HookSlotUpdates()
+end
+
 local init = CreateFrame("Frame")
 init:RegisterEvent("PLAYER_LOGIN")
 init:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
-    if not _G.CharacterFrame or not Enabled() then return end
-    if not SkinFrame() then
-        -- The engine loads after this addon's own files; one retry on the
-        -- first open covers a late shell.
-        _G.CharacterFrame:HookScript("OnShow", function() SkinFrame() end)
+    if not _G.CharacterFrame then return end
+    if Enabled() then
+        if not SkinFrame() then
+            -- The engine loads after this addon's own files; one retry on the
+            -- first open covers a late shell.
+            _G.CharacterFrame:HookScript("OnShow", function() SkinFrame() end)
+        end
+    elseif TextEnabled() and _G.PaperDollItemsFrame then
+        _G.PaperDollItemsFrame:HookScript("OnShow", BuildStockText)
     end
 end)

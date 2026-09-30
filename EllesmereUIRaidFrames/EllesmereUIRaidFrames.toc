@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Incredibly light performance, modern raid frames with endless flexibility.
 ## Author: Ellesmere
-## Version: 9.2.9
+## Version: 9.3.4
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIRaidFramesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -32,6 +32,9 @@ EUI_RaidFrames_DebuffManager.lua
 
 # 12.1 Buff Manager v2: spell -> filter -> indicator model (self-gated)
 EUI_RaidFrames_BuffManager2.lua
+
+# WoW Forever: Missing Buffs indicator (returns on every other client)
+EUI_RaidFrames_ForeverMissingBuffs.lua
 
 # 12.1 Manager options pages (self-gated; inert on 12.0)
 

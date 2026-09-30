@@ -718,6 +718,12 @@ local function GetBarGrowDirActual(barKey)
         if EllesmereUI.GetTotemGrowDir then return (EllesmereUI.GetTotemGrowDir()) end
         return "RIGHT"
     end
+    if barKey == "EABR_Reminders" then
+        if EllesmereUI.GetAuraBuffGrowDir then
+            return EllesmereUI.GetAuraBuffGrowDir()
+        end
+        return "CENTER"
+    end
     if barKey:sub(1, 4) == "CDM_" then
         local rawKey = barKey:sub(5)
         local cdm = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
@@ -752,6 +758,12 @@ local function GetBarGrowDir(barKey)
         local g = EllesmereUI.GetTotemGrowDir()
         if g == "CENTER" then return nil end   -- centered = no direction indicator
         return g
+    end
+    if barKey == "EABR_Reminders" then
+        if not EllesmereUI.GetAuraBuffGrowDir then return nil end
+        local g = EllesmereUI.GetAuraBuffGrowDir()
+        if g and g ~= "CENTER" then return g end
+        return nil
     end
     if barKey:sub(1, 4) == "CDM_" then
         local rawKey = barKey:sub(5)
@@ -1317,11 +1329,19 @@ local function ValidateStoredLinks()
     local function ufKey(key)
         return resolveFolder ~= nil and resolveFolder(key) == "EllesmereUIUnitFrames"
     end
+    -- WoW Forever never builds the House Favor bar or the Battle Res and
+    -- Bloodlust icons: a link whose CHILD is one of them stays for the other
+    -- client on the same terms (its other end live, a unit frame key, or
+    -- another such key).
+    local function clientAbsent(key)
+        return EllesmereUI.IS_FOREVER == true
+            and (key == "FavorBar" or key == "EUI_BattleRes" or key == "EUI_Bloodlust")
+    end
     local function LinkGone(childKey, targetKey)
         local childGone, targetGone = MissingForGood(childKey), MissingForGood(targetKey)
         if not (childGone or targetGone) then return false end
-        if childGone and ufKey(childKey)
-           and (not targetGone or ufKey(targetKey)) then
+        if childGone and (ufKey(childKey) or clientAbsent(childKey))
+           and (not targetGone or ufKey(targetKey) or clientAbsent(targetKey)) then
             return false
         end
         return true
@@ -1415,7 +1435,9 @@ function MatchH.ApplyWidthMatch(sourceKey, targetKey)
         local pw = targetElem.getMatchPad(targetKey)
         if pw and pw > 0 then targetW = targetW + pw end
     end
-    if targetW and targetW > 0 then
+    -- A width that is not a real number (a frame not laid out yet can read NaN)
+    -- skips the match: WoW Forever errors on dividing one.
+    if targetW and EllesmereUI.PP.IsNum(targetW) and targetW > 0 then
         local rawW, conv = targetW, 1
         -- Snap to the physical pixel grid with round-to-nearest: PP.Scale
         -- truncates and drops a pixel on float boundary values; SnapForES uses
@@ -1506,7 +1528,7 @@ function MatchH.ApplyHeightMatch(sourceKey, targetKey)
         local _, ph = targetElem.getMatchPad(targetKey)
         if ph and ph > 0 then targetH = targetH + ph end
     end
-    if targetH and targetH > 0 then
+    if targetH and EllesmereUI.PP.IsNum(targetH) and targetH > 0 then
         local rawH, conv = targetH, 1
         local PPm = EllesmereUI and EllesmereUI.PP
         if PPm and PPm.SnapForES and targetBar then
@@ -1655,6 +1677,9 @@ do
         if not growDir or growDir == "CENTER" then return end
         local targetBar = GetBarFrame(info.target)
         if not targetBar or not targetBar:GetLeft() then return end
+        -- A clamp-held target is not at its saved spot: pairing it would make the
+        -- child jump once the target is released. Retries next settle.
+        if EllesmereUI._RectHeldByClamp(info.target, targetBar) then return end
         -- UIParent-space target geometry, computed like ApplyAnchorPosition's tL/tR/tT/tB so the baseline is comparable.
         local uiS = UIParent:GetEffectiveScale()
         local tS = targetBar:GetEffectiveScale()
@@ -2397,46 +2422,41 @@ do
     local AnchorPark = {}
     EllesmereUI._AnchorPark = AnchorPark
 
-    local function AnchorPark_EnsureFrame()
-        local f = AnchorPark.frame
-        if not f then
-            f = CreateFrame("Frame")
-            AnchorPark.frame = f
-            f:SetScript("OnEvent", function()
-                f:UnregisterAllEvents()
-                local anchorKeys = AnchorPark.keys
-                local posKeys = AnchorPark.posKeys
-                AnchorPark.keys = nil
-                AnchorPark.posKeys = nil
-                -- Bar positions first: anchored children read target bounds,
-                -- so targets must be placed before the anchor pass.
-                if posKeys then
-                    local db = GetPositionDB()
-                    for key in pairs(posKeys) do
-                        local pos = db and db[key]
-                        if pos and pos.point then
-                            if not ApplyCenterPosition(key, pos) then
-                                local bar = GetBarFrame(key)
-                                if bar then
-                                    pcall(function()
-                                        bar:ClearAllPoints()
-                                        bar:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
-                                    end)
-                                end
-                            end
+    -- One combat queue for every lockdown-skipped apply in this file
+    local queue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
+    EllesmereUI._UnlockCombatQueue = queue
+
+    local function AnchorPark_Drain()
+        local anchorKeys = AnchorPark.keys
+        local posKeys = AnchorPark.posKeys
+        AnchorPark.keys = nil
+        AnchorPark.posKeys = nil
+        -- Bar positions first: anchored children read target bounds,
+        -- so targets must be placed before the anchor pass.
+        if posKeys then
+            local db = GetPositionDB()
+            for key in pairs(posKeys) do
+                local pos = db and db[key]
+                if pos and pos.point then
+                    if not ApplyCenterPosition(key, pos) then
+                        local bar = GetBarFrame(key)
+                        if bar then
+                            pcall(function()
+                                bar:ClearAllPoints()
+                                bar:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
+                            end)
                         end
                     end
                 end
-                if anchorKeys then
-                    -- Full dependency-sorted pass instead of per-key applies: parked
-                    -- chains must apply parents first; idempotent for never-parked anchors.
-                    if EllesmereUI.ReapplyAllUnlockAnchors then
-                        EllesmereUI.ReapplyAllUnlockAnchors()
-                    end
-                end
-            end)
+            end
         end
-        f:RegisterEvent("PLAYER_REGEN_ENABLED")
+        if anchorKeys then
+            -- Full dependency-sorted pass instead of per-key applies: parked
+            -- chains must apply parents first; idempotent for never-parked anchors.
+            if EllesmereUI.ReapplyAllUnlockAnchors then
+                EllesmereUI.ReapplyAllUnlockAnchors()
+            end
+        end
     end
 
     -- Park an anchored child whose apply was blocked by combat lockdown.
@@ -2444,7 +2464,7 @@ do
         local keys = AnchorPark.keys
         if not keys then keys = {}; AnchorPark.keys = keys end
         keys[childKey] = true
-        AnchorPark_EnsureFrame()
+        queue.Defer("AnchorPark", AnchorPark_Drain)
     end
 
     -- Park a bar whose saved-position reapply was blocked by combat lockdown.
@@ -2452,7 +2472,7 @@ do
         local keys = AnchorPark.posKeys
         if not keys then keys = {}; AnchorPark.posKeys = keys end
         keys[barKey] = true
-        AnchorPark_EnsureFrame()
+        queue.Defer("AnchorPark", AnchorPark_Drain)
     end
 end
 
@@ -2596,6 +2616,9 @@ do
             bCenterY = PPa.SnapCenterForDim(bCenterY, childBar:GetHeight() or 0, cS)
         end
         local okPt, point, relTo, relPoint, curX, curY = pcall(childBar.GetPoint, childBar, 1)
+        -- A child still on a followed edge reads its anchor back secret: never compared.
+        if okPt and issecretvalue and (issecretvalue(point) or issecretvalue(relPoint)
+           or issecretvalue(curX) or issecretvalue(curY)) then okPt = false end
         if okPt and point == "CENTER" and relPoint == "CENTER" and relTo == UIParent then
             local onePx = ((PPa and PPa.perfect) or 1) / cS
             local tol = onePx * 0.5
@@ -3128,6 +3151,10 @@ do
             specID = EllesmereUI._specID
         end
         if not specID or specID == 0 then return nil end
+        -- WoW Forever: the spec the class acts as for Spec Overrides.
+        if EllesmereUI.IS_FOREVER and EllesmereUI.SpecOverrides_CurrentSpecID then
+            specID = EllesmereUI.SpecOverrides_CurrentSpecID() or specID
+        end
         local groups = Groups()
         if not groups then return nil end
         for _, g in ipairs(groups) do
@@ -3229,6 +3256,9 @@ do
             bCenterY = PPa.SnapCenterForDim(bCenterY, childBar:GetHeight() or 0, cS)
         end
         local okPt, point, relTo, relPoint, curX, curY = pcall(childBar.GetPoint, childBar, 1)
+        -- A child still on a followed edge reads its anchor back secret: never compared.
+        if okPt and issecretvalue and (issecretvalue(point) or issecretvalue(relPoint)
+           or issecretvalue(curX) or issecretvalue(curY)) then okPt = false end
         if okPt and point == "CENTER" and relPoint == "CENTER" and relTo == UIParent then
             local onePx = ((PPa and PPa.perfect) or 1) / cS
             local tol = onePx * 0.5
@@ -3455,6 +3485,28 @@ do
             end
         end
     end
+end
+
+-- True when an action bar's clamped frame touches a screen edge (or its rect
+-- cannot be read): the engine may be holding it there, so its live rect can be
+-- the clamped spot rather than the one its saved position asks for (the bars
+-- are clamped for display only and keep their saved spot even off screen).
+-- Automatic captures that bank live geometry into saved data skip such a bar
+-- and retry on a later pass; explicit user moves (drag, nudge, link changes)
+-- still capture it. Every other element, and a bar not yet clamped, is false.
+EllesmereUI._RectHeldByClamp = function(key, f)
+    local abKeys = EllesmereUI._abBarKeys
+    if not (abKeys and abKeys[key]) then return false end
+    if not (f and f:IsClampedToScreen()) then return false end
+    local l, r, t, b = f:GetLeft(), f:GetRight(), f:GetTop(), f:GetBottom()
+    if not (l and r and t and b) then return true end
+    if issecretvalue and (issecretvalue(l) or issecretvalue(r)
+        or issecretvalue(t) or issecretvalue(b)) then
+        return true
+    end
+    local s = f:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    local w, h = UIParent:GetSize()
+    return l * s <= 0.5 or b * s <= 0.5 or r * s >= w - 0.5 or t * s >= h - 0.5
 end
 
 -- Captures the growth-edge pin for an anchored custom-growth bar from LIVE
@@ -3784,8 +3836,21 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
     -- container reads back secret under aura restriction: park until regen).
     local cW0, cH0 = childBar:GetWidth(), childBar:GetHeight()
     if issecretvalue and (issecretvalue(cW0) or issecretvalue(cH0)) then
-        EllesmereUI._AnchorPark.Park(childKey)
-        return
+        -- Unlock mode: a child still hanging off a followed edge (the unit's
+        -- live aura stack when unlock opened with a target up) is placed at
+        -- its absolute resting spot below, which frees its rect, so its
+        -- stored size stands in for the unreadable one. Parking here would
+        -- wait for a regen that never comes out of combat, leaving the bar
+        -- on the stack and its mover unsized.
+        local elem = isUnlocked and registeredElements[childKey]
+        local gw, gh
+        if elem and elem.getSize then gw, gh = elem.getSize(childKey) end
+        if type(gw) ~= "number" or type(gh) ~= "number"
+           or issecretvalue(gw) or issecretvalue(gh) then
+            EllesmereUI._AnchorPark.Park(childKey)
+            return
+        end
+        cW0, cH0 = gw, gh
     end
     local cW = (cW0 or 50) * cS / uiS
     local cH = (cH0 or 50) * cS / uiS
@@ -3892,8 +3957,11 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
             -- session-baseline/bless captures) or inside an unlock session. CDM bars
             -- populate icons asynchronously at login; capturing mid-population would
             -- freeze a transient half-icon edge into the pin. Until capture, the legacy pin below serves the apply.
+            -- Never from a clamp-held rect: the pin would bank the clamped spot.
             if ai.refFor ~= gd and EllesmereUI._unlockCaptureGrowPin
-               and (EllesmereUI._settleReapplyInProgress or isUnlocked) then
+               and (EllesmereUI._settleReapplyInProgress or isUnlocked)
+               and not EllesmereUI._RectHeldByClamp(childKey, childBar)
+               and not EllesmereUI._RectHeldByClamp(targetKey, targetBar) then
                 EllesmereUI._unlockCaptureGrowPin(childKey, ai, side)
             end
             if ai.refFor == gd then
@@ -4020,7 +4088,8 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
                             rt[childKey] = nil
                             b = nil
                         end
-                        if not b and EllesmereUI._settleReapplyInProgress then
+                        if not b and EllesmereUI._settleReapplyInProgress
+                           and not EllesmereUI._RectHeldByClamp(targetKey, targetBar) then
                             b = { sx = savedEdge.x, sy = savedEdge.y, tgt = targetKey,
                                   tgtx = tCX, tgty = tCY,
                                   tgtL = tL, tgtR = tR, tgtT = tT, tgtB = tB }
@@ -4261,6 +4330,8 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
             bEdgeX, bEdgeY = bEdgeX + exDX, bEdgeY + exDY
             local skip = false
             local okPt, point, relTo, relPoint, curX, curY = pcall(childBar.GetPoint, childBar, 1)
+            if okPt and issecretvalue and (issecretvalue(point) or issecretvalue(relPoint)
+               or issecretvalue(curX) or issecretvalue(curY)) then okPt = false end
             if okPt and point == cdmEdgeAnchor and relPoint == "CENTER" and relTo == UIParent then
                 local onePx = ((PP and PP.perfect) or 1) / cS
                 -- Sub-pixel tolerance only: identical recomputes differ by float dust,
@@ -4310,6 +4381,8 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
             fx, fy = fx + exFX, fy + exFY
             local skip = false
             local okPt, point, relTo, relPoint, curX, curY = pcall(childBar.GetPoint, childBar, 1)
+            if okPt and issecretvalue and (issecretvalue(point) or issecretvalue(relPoint)
+               or issecretvalue(curX) or issecretvalue(curY)) then okPt = false end
             if okPt and point == "TOP" and relPoint == "BOTTOM" and relTo == follow then
                 local onePx = ((PP and PP.perfect) or 1) / cS
                 local tol = onePx * 0.5
@@ -4338,10 +4411,10 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
             -- not), so it re-SetPoint the same value every frame while sitting still.
             local PPa = EllesmereUI and EllesmereUI.PP
             if PPa and PPa.SnapCenterForDim then
-                local childW = childBar:GetWidth() or 0
-                local childH = childBar:GetHeight() or 0
-                bCenterX = PPa.SnapCenterForDim(bCenterX, childW, cS)
-                bCenterY = PPa.SnapCenterForDim(bCenterY, childH, cS)
+                -- The size read above (the stored one when the live rect was
+                -- secret: the bar is still on its followed edge until the SetPoint below).
+                bCenterX = PPa.SnapCenterForDim(bCenterX, cW0 or 0, cS)
+                bCenterY = PPa.SnapCenterForDim(bCenterY, cH0 or 0, cS)
             end
             local exCX, exCY = ExtraAnchorOffset(childKey)
             bCenterX, bCenterY = bCenterX + exCX, bCenterY + exCY
@@ -4349,6 +4422,10 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
             -- position (sub-physical-pixel tolerance). Kills flicker when multiple cascade passes compute the same answer (steady state).
             local skip = false
             local okPt, point, relTo, relPoint, curX, curY = pcall(childBar.GetPoint, childBar, 1)
+            -- A child still on a followed edge (unlock opened with its unit's
+            -- aura stack up) reads its anchor back secret: never compared.
+            if okPt and issecretvalue and (issecretvalue(point) or issecretvalue(relPoint)
+               or issecretvalue(curX) or issecretvalue(curY)) then okPt = false end
             if okPt and point == "CENTER" and relPoint == "CENTER" and relTo == UIParent then
                 local onePx = ((PP and PP.perfect) or 1) / cS
                 local tol = onePx * 0.5
@@ -4989,24 +5066,13 @@ ApplyCenterPosition = function(barKey, pos)
 
     pcall(function()
         if InCombatLockdown() and frame:IsProtected() then
-            -- Store on the frame so repeated calls overwrite instead of stacking
-            local ffd = EllesmereUI._GetFFD(frame)
-            if not ffd.combatDefer then
-                ffd.combatDefer = CreateFrame("Frame")
-                ffd.combatDefer:RegisterEvent("PLAYER_REGEN_ENABLED")
-                ffd.combatDefer:SetScript("OnEvent", function(self)
-                    self:UnregisterAllEvents()
-                    local args = self._args
-                    if args then
-                        pcall(function()
-                            args.f:ClearAllPoints()
-                            args.f:SetPoint(args.a, UIParent, "CENTER", args.x, args.y)
-                        end)
-                    end
-                    self._args = nil
+            -- Keyed by frame so repeated calls overwrite instead of stacking
+            EllesmereUI._UnlockCombatQueue.Defer(frame, function()
+                pcall(function()
+                    frame:ClearAllPoints()
+                    frame:SetPoint(anchor, UIParent, "CENTER", adjX, adjY)
                 end)
-            end
-            ffd.combatDefer._args = { f = frame, a = anchor, x = adjX, y = adjY }
+            end)
             return
         end
         frame:ClearAllPoints()
@@ -5312,12 +5378,7 @@ local function ApplySavedPositions()
 
     -- If we skipped protected frames, re-run once combat drops
     if inCombat then
-        local reapplyFrame = CreateFrame("Frame")
-        reapplyFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-        reapplyFrame:SetScript("OnEvent", function(self)
-            self:UnregisterAllEvents()
-            ApplySavedPositions()
-        end)
+        EllesmereUI._UnlockCombatQueue.Defer("ApplySavedPositions", ApplySavedPositions)
     end
 end
 
@@ -6386,6 +6447,9 @@ EllesmereUI._unlockSetGrowDirection = function(barKey, val)
         if tb then tb.growDirection = val end
         if EllesmereUI.LayoutTotemBar then EllesmereUI.LayoutTotemBar() end
         EllesmereUI.RecenterBarAnchor(barKey)
+    elseif barKey == "EABR_Reminders" then
+        if EllesmereUI.SetAuraBuffGrowDir then EllesmereUI.SetAuraBuffGrowDir(val) end
+        EllesmereUI.RecenterBarAnchor(barKey)
     elseif barKey:sub(1, 4) == "PAB_" then
         local euf = EllesmereUI.Lite.GetAddon("EllesmereUIUnitFrames", true)
         if euf and euf.SetGrowDirectionForBar then
@@ -6994,6 +7058,7 @@ local function CreateMover(barKey)
         Bar5 = true, Bar6 = true, Bar7 = true, Bar8 = true,
         StanceBar = true, PetBar = true,
         ERB_TotemBar = true,   -- totem bar: align active icons left/right/center
+        EABR_Reminders = true, -- aura buff reminders: align icons left/right/center
     }
     local canGrow = _GROW_KEYS[barKey] or barKey:sub(1, 4) == "CDM_" or barKey:sub(1, 4) == "PAB_"
 
@@ -7709,6 +7774,8 @@ local function CreateMover(barKey)
                 local _, v3 = EllesmereUI.GetTotemGrowDir()
                 isVert = v3
             end
+        elseif barKey == "EABR_Reminders" then
+            isVert = false   -- the reminder row is horizontal only
         elseif barKey:sub(1, 4) == "PAB_" then
             -- Player Aura Bars support vertical growth too -- read the bar's
             -- own current growDirection (same bridge the currentVal lookup below uses)
@@ -7751,6 +7818,8 @@ local function CreateMover(barKey)
             -- layout does or it would highlight an option that is not offered.
             currentVal = EllesmereUI.GetTotemGrowDir and EllesmereUI.GetTotemGrowDir()
                 or (isVert and "DOWN" or "RIGHT")
+        elseif barKey == "EABR_Reminders" then
+            if EllesmereUI.GetAuraBuffGrowDir then currentVal = EllesmereUI.GetAuraBuffGrowDir() end
         elseif barKey:sub(1, 4) == "PAB_" then
             local euf4 = EllesmereUI.Lite.GetAddon("EllesmereUIUnitFrames", true)
             currentVal = (euf4 and euf4.GetGrowDirectionForBar and euf4:GetGrowDirectionForBar(barKey)) or "LEFT"
@@ -12557,7 +12626,11 @@ function ns.RequestClose(save, afterFn)
         end,
         -- Dismiss (ESC / click-off) does nothing -- user stays in unlock mode,
         -- and any pending close callback is cleared since the close was abandoned
-        onDismiss = function() pendingAfterClose = nil end,
+        onDismiss = function()
+            pendingAfterClose = nil
+            -- Controller Back: stamp the dismiss so the same press's step skips
+            if unlockFrame and unlockFrame._padEsc then unlockFrame._padDismissAt = GetTime() end
+        end,
     })
 end
 
@@ -12757,6 +12830,41 @@ local function CreateUnlockFrame()
     -- Click-to-deselect is handled by toggle behavior on movers themselves
     -- (clicking the selected mover again deselects it), so no full-screen catcher is needed -- world interaction (targeting, camera) stays unblocked.
 
+    -- One Escape step: the innermost open layer closes, else Unlock Mode does
+    -- (which asks first when there are unsaved changes). padAll: a controller
+    -- Back that closes every window at once (nil from the keyboard).
+    local function EscapeStep(padAll)
+        -- If anchor dropdown is open, close it instead of closing unlock mode
+        if anchorDropdownFrame and anchorDropdownFrame:IsShown() then
+            anchorDropdownFrame:Hide()
+            if anchorDropdownCatcher then anchorDropdownCatcher:Hide() end
+            return
+        end
+        -- If in width/height/anchor pick mode, cancel it instead of closing
+        if pickModeMover and pickMode then
+            CancelPickMode()
+            return
+        end
+        -- If in select-element pick mode, cancel it instead of closing
+        if selectElementPicker then
+            local picker = selectElementPicker
+            picker._snapTarget = picker._preSelectTarget
+            picker._preSelectTarget = nil
+            if picker._updateSnapLabel then picker._updateSnapLabel() end
+            selectElementPicker = nil
+            FadeOverlayForSelectElement(false)
+            return
+        end
+        -- That Back exits to the world, as Blizzard's does: a panel reopened
+        -- here loses the pointer as soon as the press ends. Unsaved changes
+        -- keep the way back for the prompt's Save & Exit.
+        if padAll and not hasChanges then
+            EllesmereUI._unlockReturnModule = nil
+            EllesmereUI._unlockReturnPage = nil
+        end
+        ns.CloseUnlockMode()
+    end
+
     -- ESC to close (skip if confirm popup is already showing)
     unlockFrame:SetScript("OnKeyDown", function(self, key)
         if key == "ESCAPE" then
@@ -12766,36 +12874,39 @@ local function CreateUnlockFrame()
                 self:SetPropagateKeyboardInput(true)
                 return
             end
-            -- If anchor dropdown is open, close it instead of closing unlock mode
-            if anchorDropdownFrame and anchorDropdownFrame:IsShown() then
-                self:SetPropagateKeyboardInput(false)
-                anchorDropdownFrame:Hide()
-                if anchorDropdownCatcher then anchorDropdownCatcher:Hide() end
-                return
-            end
-            -- If in width/height/anchor pick mode, cancel it instead of closing
-            if pickModeMover and pickMode then
-                self:SetPropagateKeyboardInput(false)
-                CancelPickMode()
-                return
-            end
-            -- If in select-element pick mode, cancel it instead of closing
-            if selectElementPicker then
-                self:SetPropagateKeyboardInput(false)
-                local picker = selectElementPicker
-                picker._snapTarget = picker._preSelectTarget
-                picker._preSelectTarget = nil
-                if picker._updateSnapLabel then picker._updateSnapLabel() end
-                selectElementPicker = nil
-                FadeOverlayForSelectElement(false)
-                return
-            end
             self:SetPropagateKeyboardInput(false)
-            ns.CloseUnlockMode()
+            EscapeStep()
         else
             self:SetPropagateKeyboardInput(true)
         end
     end)
+
+    -- Controller Back (the escape proxy runs it once Unlock Mode is registered
+    -- there, see OpenUnlockMode): the same step as Escape. A shown confirm
+    -- popup answers Back itself, and the Back that just dismissed the
+    -- unsaved-changes prompt must not raise it again in the same pass.
+    unlockFrame._padBack = function()
+        local dimmer = _G["EUIConfirmDimmer"]
+        if dimmer and dimmer:IsShown() then return end
+        if unlockFrame._padDismissAt == GetTime() then return end
+        -- The game also closes every window by itself (the UI hidden and shown
+        -- again, a loading screen, death, loss of control): not a Back press,
+        -- so Unlock Mode stays open through those, as it always has. Hiding
+        -- the UI marks the frame, so the close when it returns is skipped too.
+        if not unlockFrame:IsVisible() then
+            unlockFrame._padUIHidden = true
+            return
+        end
+        if unlockFrame._padUIHidden then
+            unlockFrame._padUIHidden = nil
+            return
+        end
+        if EllesmereUI._zoneTransitionActive or UnitIsDeadOrGhost("player")
+           or (not HasFullControl() and not UnitOnTaxi("player")) then
+            return
+        end
+        EscapeStep(EllesmereUI.PadNative() and CanAutoSetGamePadCursorControl(false))
+    end
 
     unlockFrame:Hide()
     return unlockFrame
@@ -13209,6 +13320,16 @@ function ns.OpenUnlockMode()
     -- BASE_SCALE makes the container appear as ICON_SZ on screen,
     -- so to appear as panelStartSz we need: BASE_SCALE * (panelStartSz / ICON_SZ)
     local startScale = BASE_SCALE * (panelStartSz / ICON_SZ) * 0.6
+
+    -- Controller Back steps out like Escape: registered with the escape proxy
+    -- on the first open with a controller in use (padOnly: it counts only then),
+    -- and never a controller-cursor root (a pointer-drag UI).
+    if not unlockFrame._padEsc and EllesmereUI.PadInUse() then
+        unlockFrame._padEsc = true
+        EllesmereUI.RegisterEscapeClose(unlockFrame, {
+            padOnly = true, notOwned = true, onEscape = unlockFrame._padBack,
+        })
+    end
 
     -- Show overlay, hide grid/toolbar/movers
     unlockFrame:Show()

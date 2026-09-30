@@ -5,6 +5,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Ctrl+drag for a temporary move that resets when the panel closes.
 -------------------------------------------------------------------------------
 local GetFFD = EllesmereUI._GetFFD
+local ns = select(2, ...)
 
 -- Temporary positions (per-frame, cleared on hide, not persisted)
 local tempPos = {}
@@ -14,9 +15,6 @@ local tempScale = {}
 
 -- Every hooked frame, for the scroll-wheel overlay's mouseover targeting
 local hookedFrames = {}
-
--- Frames that loaded during combat and need SetMovable/SetClampedToScreen deferred
-local deferredMovable = {}
 
 -- Forward-declare; created in the event-driven initialization section below
 local eventFrame
@@ -789,6 +787,8 @@ local function HookFrame(frame, name)
 end
 
 local function TryHook(name)
+    -- WoW Forever's Gamepad interface style: no panel hooks (see InitShifter).
+    if EllesmereUI.PadGamepadUI() then return end
     local frame = _G[name]
     if frame and frame.HookScript then HookFrame(frame, name) end
 end
@@ -1001,8 +1001,8 @@ end
 --  only because their subtrees never touch secrets.
 --
 --  SecureSetPoint bails in combat, and Blizzard re-anchors this container
---  exactly then (widgets spawn mid-fight) -- missed re-asserts set a dirty
---  flag and re-apply on PLAYER_REGEN_ENABLED.
+--  exactly then (widgets spawn mid-fight) -- missed re-asserts defer a
+--  re-apply to the module's combat queue.
 -------------------------------------------------------------------------------
 local TOPBAR_NAME = "UIWidgetTopCenterContainerFrame"
 local TOPBAR_KEY, TOPBAR_LABEL = "EUI_TopBarEventText", "Top Bar Event Text"
@@ -1010,8 +1010,6 @@ local TOPBAR_DEFW, TOPBAR_DEFH, TOPBAR_DEFY = 400, 60, -120
 
 local topBarProxy
 local topBarHooked = false
-local topBarDirty  = false
-local topBarRegen
 
 local function TopBarEnabled()
     return EllesmereUIDB and EllesmereUIDB.shifterTopBarUnlock or false
@@ -1047,7 +1045,7 @@ local function ApplyTopBarPos()
     frame.ignoreFramePositionManager = true
     -- SECURE write only (see block comment); false = in combat, defer.
     if not SecureSetPoint(frame, pos.point, pos.relPoint, pos.x, pos.y) then
-        topBarDirty = true
+        ns.CombatQueue.Defer("ShifterTopBar", ApplyTopBarPos)
     end
     ffd._shTopBarIgnoreSP = false
 end
@@ -1063,14 +1061,6 @@ local function HookTopBar()
     end)
     frame:HookScript("OnShow", function()
         ApplyTopBarPos()
-    end)
-    topBarRegen = CreateFrame("Frame")
-    topBarRegen:RegisterEvent("PLAYER_REGEN_ENABLED")
-    topBarRegen:SetScript("OnEvent", function()
-        if topBarDirty then
-            topBarDirty = false
-            ApplyTopBarPos()
-        end
     end)
 end
 
@@ -1179,6 +1169,13 @@ local pendingAddons = {}
 eventFrame = CreateFrame("Frame")
 
 local function InitShifter()
+    -- WoW Forever's Gamepad interface style drives Blizzard panels through its
+    -- own D-pad focus and binding stack. Our hooks run inside a panel's show
+    -- chain, so a panel opened from the radial menu leaves that stack tainted
+    -- and the next gamepad Back gets a protected call blocked (Blizzard's
+    -- forbidden popup then freezes the client). Dragging needs a mouse anyway,
+    -- so nothing is hooked while that style is on (false on retail).
+    if EllesmereUI.PadGamepadUI() then return end
     for i = 1, #PRELOADED do
         TryHook(PRELOADED[i])
     end
@@ -1219,14 +1216,6 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         end
     elseif event == "MODIFIER_STATE_CHANGED" then
         UpdateWheelOverlay()
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-        for i = 1, #deferredMovable do
-            local f = deferredMovable[i]
-            f:SetMovable(true)
-            f:SetClampedToScreen(true)
-        end
-        wipe(deferredMovable)
     end
 end)
 

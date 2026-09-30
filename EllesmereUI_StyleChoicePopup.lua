@@ -6,11 +6,20 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  (EllesmereUI_FirstInstall.lua stamps EllesmereUIDB.styleChoicePending in
 --  its close path) one popup offers the three looks side by side, each with a
 --  mock of what it means (the cards live in EllesmereUI_StyleCards.lua,
---  shared with the Style page header): the EllesmereUI style (the default; closes the
---  popup), the Blizzard style or the Classic WoW UI style (every loaded
---  module's Style flags set at once through the Style page's registry, then
---  a reload). Once per install; an existing user never sees it, since only
---  the picker writes the stamp. Global Settings > Style keeps every choice
+--  shared with the Style page header): the EllesmereUI style, the Blizzard
+--  style or the Classic WoW UI style, or on the WoW Forever client also the
+--  WoW Forever variant. The card of the look this session already renders
+--  shows IN USE and stays lit as on the Style page; it keeps its hover and
+--  closes the popup with nothing written, and so does Escape; any other card
+--  sets every loaded module's Style flags at once through the Style page's
+--  registry, then reloads. The default look (the first card, tagged DEFAULT)
+--  is the EllesmereUI style, or WoW Forever on that client; either is
+--  normally the look in use (on WoW Forever the module picker applies it as
+--  its reload is confirmed).
+--  Once per install; an existing user never sees it, since only a first
+--  install writes the stamp (the module picker's close, and on WoW Forever
+--  also the first-install loader at ADDON_LOADED in EllesmereUI_FirstInstall.lua).
+--  Global Settings > Style keeps every choice
 --  reversible per module.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
@@ -40,18 +49,26 @@ local function Release()
     end
 end
 
--- A stock style: the flags ride the Style page's own registry (LoadOnDemand
--- options), so one code path owns what "all modules" means; then the reload
+-- Every loaded module to one look: the flags ride the Style page's own
+-- registry (LoadOnDemand options), so one code path owns what "all modules"
+-- means. False when the options addon cannot load. The module picker runs it
+-- too on WoW Forever (EllesmereUI_FirstInstall.lua), as its reload's
+-- pre-reload step. The caller reloads.
+local function ApplyLook(styleKey)
+    if not EllesmereUI.EnsureOptionsLoaded() then return false end
+    local BS = EllesmereUI.BlizzStyle
+    if not (BS and BS.ApplyAll) then return false end
+    BS.ApplyAll(styleKey)
+    return true
+end
+EllesmereUI.ApplyFirstInstallLook = ApplyLook
+
+-- A look other than the one this session renders: applied, then the reload
 -- every style change needs. When the options addon cannot load, the popup
 -- (dimmer) closes on the chat hint instead of staying up.
-local function ChooseStockStyle(styleKey, label, dimmer)
+local function ChooseOtherLook(styleKey, label, dimmer)
     Stamp()
-    if C_AddOns and C_AddOns.LoadAddOn then
-        C_AddOns.LoadAddOn("EllesmereUIOptions")
-    end
-    local BS = EllesmereUI.BlizzStyle
-    if BS and BS.ApplyAll then
-        BS.ApplyAll(styleKey)
+    if ApplyLook(styleKey) then
         EllesmereUI.RequestReload(nil, EllesmereUI.L("Style changed for this profile. A UI reload is needed to apply it."))
         -- On the Forever client the reload waits on its popup: the choice is
         -- made, so the picker closes under it. Retail is already reloading.
@@ -71,12 +88,23 @@ local function ShowStyleChoicePopup()
     local FONT = EllesmereUI._font or EllesmereUI.EXPRESSWAY
         or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
     local EG = ELLESMERE_GREEN
-    local POPUP_W, POPUP_H = 700, 470
-    -- Escape = the EllesmereUI look (the non-destructive default).
-    local ChooseEUI
+    -- Wide enough for the card row (four cards on the WoW Forever client).
+    local POPUP_W, POPUP_H = math.max(700, EllesmereUI.STYLE_CARDS_W + 32), 480
+    -- The DEFAULT card: EllesmereUI, or on the WoW Forever client WoW
+    -- Forever, the look a fresh install there starts on.
+    local defaultKey = EllesmereUI.IS_FOREVER and "forever" or "eui"
+    -- The look this session renders, read from the modules: its card closes
+    -- the popup with nothing written. The default while no styleable module
+    -- is loaded; none while the loaded modules render different looks
+    -- (every card applies then).
+    local rendered = EllesmereUI.RenderedLook()
+    local activeKey = rendered
+    if activeKey == nil then activeKey = defaultKey elseif activeKey == false then activeKey = nil end
+    local KeepLook, OnPick
+    -- Escape keeps whatever renders: it never writes.
     local dimmer, popup = EllesmereUI.BuildPopupShell("EUIStyleChoice", {
         w = POPUP_W, h = POPUP_H, bump = 1.15, dimAlpha = 0.45,
-        onEscape = function() ChooseEUI() end,
+        onEscape = function() KeepLook() end,
     })
 
     local eyebrow = popup:CreateFontString(nil, "OVERLAY")
@@ -100,30 +128,44 @@ local function ShowStyleChoicePopup()
     PP.Point(desc, "TOP", title, "BOTTOM", 0, -10)
     desc:SetText("EllesmereUI's features work with every look. Change your mind any time under Global Settings > Style.")
 
-    ChooseEUI = function()
+    KeepLook = function()
         Stamp()
         dimmer:Hide()
         Release()
     end
 
-    -- The three look cards (EllesmereUI_StyleCards.lua, shared with the
-    -- Style page header).
-    EllesmereUI.BuildStyleCards(popup, -128, {
+    OnPick = function(styleKey)
+        if styleKey == activeKey then
+            KeepLook()
+        elseif styleKey == "blizzard" then
+            ChooseOtherLook("blizzard", "Blizzard Style", dimmer)
+        elseif styleKey == "classic" then
+            ChooseOtherLook("classic", "Classic WoW UI", dimmer)
+        elseif styleKey == "forever" then
+            ChooseOtherLook("forever", "WoW Forever", dimmer)
+        else
+            ChooseOtherLook("eui", "EllesmereUI Style", dimmer)
+        end
+    end
+
+    -- The look cards (EllesmereUI_StyleCards.lua, shared with the Style page
+    -- header): three, plus WoW Forever on that client, the default card first.
+    -- Set 10 below the description so the IN USE badge above a card clears it.
+    local cards = EllesmereUI.BuildStyleCards(popup, -138, {
         buttonText = {
             eui = "Use EllesmereUI Style",
             blizzard = "Use Blizzard Style",
             classic = "Use Classic WoW UI",
+            forever = "Use WoW Forever",
         },
-        onPick = function(styleKey)
-            if styleKey == "blizzard" then
-                ChooseStockStyle("blizzard", "Blizzard Style", dimmer)
-            elseif styleKey == "classic" then
-                ChooseStockStyle("classic", "Classic WoW UI", dimmer)
-            else
-                ChooseEUI()
-            end
-        end,
+        defaultKey = defaultKey,
+        onPick = OnPick,
     })
+    -- The look the loaded modules render: IN USE and lit, as on the Style page
+    -- (no card while none is loaded or their looks differ). It stays pickable,
+    -- hover included: clicking it keeps the look and closes the popup.
+    local inUse = cards and type(rendered) == "string" and cards[rendered]
+    if inUse then inUse:SetState(true, true, "In Use") end
 
     local footnote = popup:CreateFontString(nil, "OVERLAY")
     footnote:SetFont(FONT, 12, "")
@@ -131,7 +173,16 @@ local function ShowStyleChoicePopup()
     footnote:SetWidth(POPUP_W - 90)
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 14)
-    footnote:SetText("Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later.")
+    -- Names the cards that reload: every one but the active look's.
+    if EllesmereUI.IS_FOREVER and activeKey == "forever" then
+        footnote:SetText(EllesmereUI.L("EllesmereUI Style, Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later."))
+    elseif activeKey == "eui" and EllesmereUI.IS_FOREVER then
+        footnote:SetText(EllesmereUI.L("WoW Forever, Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later."))
+    elseif activeKey == "eui" then
+        footnote:SetText("Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later.")
+    else
+        footnote:SetText(EllesmereUI.L("Every look but the one in use reloads the UI once to apply. Each module can be switched separately later."))
+    end
 
     dimmer:Show()
 end

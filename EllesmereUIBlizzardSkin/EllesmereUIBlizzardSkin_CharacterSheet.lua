@@ -22,23 +22,32 @@ end
 -- switch that changes it both reload). Both stock styles mean the same here:
 -- Blizzard's own character frame, with the EllesmereUI stats section inside
 -- its stats pane and the item level / enchant / upgrade-track text beside its
--- slots. WoW Forever has its own sheet and no Style row for it, so it always
--- reads "eui" there.
+-- slots. WoW Forever reads the same flags (its WoW Forever variant as
+-- blizzard): Blizzard Style and Classic WoW UI there leave Blizzard's own
+-- Forever sheet untouched, and the WoW Forever variant keeps the item text
+-- beside its slots (EllesmereUIBlizzardSkin_CharacterSheetForever.lua).
 function ns.CharSheetStyle()
     local v = ns._csStyle
     if v == nil then
-        if EllesmereUI.IS_FOREVER then
-            v = "eui"
-        else
-            local p = EllesmereUI.GetActiveProfileData()
-            if type(p) ~= "table" then return "eui" end
-            v = (p.charSheetUseClassicStyle and "classic") or (p.charSheetUseBlizzardStyle and "blizzard") or "eui"
-        end
+        local p = EllesmereUI.GetActiveProfileData()
+        if type(p) ~= "table" then return "eui" end
+        v = (p.charSheetUseClassicStyle and "classic") or (p.charSheetUseBlizzardStyle and "blizzard") or "eui"
         ns._csStyle = v
+        -- The WoW Forever variant of Blizzard Style, latched with it: the
+        -- Forever client, Blizzard Style, and the sibling flag set with it.
+        ns._csForever = v == "blizzard" and EllesmereUI.IS_FOREVER == true
+            and p.charSheetUseForeverStyle == true
     end
     return v
 end
 function ns.CharSheetStock() return ns.CharSheetStyle() ~= "eui" end
+-- WoW Forever variant: CharSheetStyle() still reads "blizzard" (every stock
+-- site stays as it is); this keeps the slot text on Blizzard's Forever
+-- sheet. False off Forever.
+function ns.CharSheetForever()
+    if ns._csStyle == nil then ns.CharSheetStyle() end
+    return ns._csForever == true
+end
 -- Stock styles' "Blizzard UI Color" (on unless turned off): every stat
 -- category in Blizzard's yellow in place of its own colour. nil when it does
 -- not apply (always under the EllesmereUI look).
@@ -420,6 +429,8 @@ do
             showAdjustedStats            = false,
             showManaStat                 = false,
             showCharSheetDurability      = false,
+            charSheetSeasonPanel         = true,
+            charSheetHideSlotFlyoutArrows = false,
             charSheetDurabilityLocation  = "model",
             charSheetDurabilityShowLabel = true,
         }
@@ -486,8 +497,9 @@ local function PreSkinCharacterSheet()
             CharacterModelScene.ControlFrame:EnableMouse(false)
         end
     end
-    for i = 1, select("#", frame:GetRegions()) do
-        local region = select(i, frame:GetRegions())
+    local regions = { frame:GetRegions() }
+    for i = 1, #regions do
+        local region = regions[i]
         if region and region:IsObjectType("Texture") then
             region:SetAlpha(0)
         end
@@ -892,8 +904,9 @@ local function SkinCharacterSheet()
         local tab = _G["CharacterFrameTab" .. i]
         if tab and not ns.CharSheetStock() then
             charTabs[#charTabs + 1] = tab
-            for j = 1, select("#", tab:GetRegions()) do
-                local region = select(j, tab:GetRegions())
+            local regions = { tab:GetRegions() }
+            for j = 1, #regions do
+                local region = regions[j]
                 if region and region:IsObjectType("Texture") then
                     region:SetTexture("")
                     if region.SetAtlas then region:SetAtlas("") end
@@ -1461,8 +1474,11 @@ local function SkinCharacterSheet()
         if not footerLabel then return end
         footerLabel:ClearAllPoints()
         local socketPanel = _G.EUI_CharSheet_SocketPanel
+        local seasonPanel = _G.EUI_CharSheet_SeasonPanel
         if socketPanel and socketPanel:IsShown() then
             footerLabel:SetPoint("RIGHT", socketPanel, "LEFT", -8, 0)
+        elseif seasonPanel and seasonPanel:IsShown() then
+            footerLabel:SetPoint("RIGHT", seasonPanel, "LEFT", -8, 0)
         else
             footerLabel:SetPoint("RIGHT", frame, "BOTTOMRIGHT", -10, 6)
         end
@@ -2037,7 +2053,7 @@ local function SkinCharacterSheet()
                 settingKey = "SecondaryStats",
                 color = GetCategoryColor("Secondary Stats"),
                 stats = {
-                    { name = "Critical Strike", func = function() return GetCritChance("player") or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_CRIT_MELEE) or 0 end },
+                    { name = "Critical Strike", func = function() return (EllesmereUI.PlayerCritChance()) end, format = "%.2f%%", rawFunc = function() local _, critCR = EllesmereUI.PlayerCritChance(); return GetCombatRating(critCR) or 0 end },
                     { name = "Haste", func = function() return UnitSpellHaste("player") or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_HASTE_MELEE) or 0 end },
                     { name = "Mastery", func = function() return GetMasteryEffect() or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_MASTERY) or 0 end },
                     { name = "Versatility", func = function()
@@ -2553,7 +2569,8 @@ local function SkinCharacterSheet()
                         GameTooltip:AddLine(description, 1, 1, 1, true)
 
                         if stat.name == "Critical Strike" and GetCritChanceProvidesParryEffect() then
-                            local critToParry = GetCombatRatingBonusForCombatRatingValue(CR_PARRY, GetCombatRating(CR_CRIT_MELEE))
+                            local _, critCR = EllesmereUI.PlayerCritChance()
+                            local critToParry = GetCombatRatingBonusForCombatRatingValue(CR_PARRY, GetCombatRating(critCR))
                             GameTooltip:AddLine(" ")
                             GameTooltip:AddLine(string.format(L("Increases parry chance by %.2f%%."), critToParry), 1, 1, 1, true)
                         end
@@ -4055,24 +4072,9 @@ local function SkinCharacterSheet()
             upgradeTrackText, upgradeTrackColor = EUI_GetUpgradeTrack(itemLink)
         end
 
-        -- Item-level display color, resolved once: custom override > upgrade/crafted-track hue >
-        -- item rarity > white. Shared with the enchant name text when Show Enchant Names is on, so both read in the same color.
-        local ilvlColor
-        if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor and EllesmereUIDB.charSheetItemLevelColor then
-            ilvlColor = EllesmereUIDB.charSheetItemLevelColor
-        elseif upgradeTrackText ~= "" and upgradeTrackColor then
-            ilvlColor = upgradeTrackColor
-        else
-            ilvlColor = EllesmereUI.GetCraftedTrackColor(itemLink)
-            if not ilvlColor then
-                if (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) and itemQuality then
-                    local r, g, b = GetItemQualityColor(itemQuality)
-                    ilvlColor = { r = r, g = g, b = b }
-                else
-                    ilvlColor = { r = 1, g = 1, b = 1 }
-                end
-            end
-        end
+        -- Item-level display color, resolved once. Shared with the enchant name text when Show
+        -- Enchant Names is on, so both read in the same color.
+        local ilvlColor = EllesmereUI.GetItemLevelColor(itemLink, itemQuality, upgradeTrackText, upgradeTrackColor)
 
         if GetFFD(slot).itemLevelLabel then
             local showItemLevel = (not EllesmereUIDB) or (EllesmereUIDB.showItemLevel ~= false)
@@ -4349,11 +4351,45 @@ local function ApplyCharSheetCalcTab()
     end
 end
 
+-- Blizzard shows these popout buttons on the Equipment tab. Alpha only hides
+-- their artwork; native click handlers and modified-hover flyouts stay intact.
+-- Show/Hide and arrow reversal do not reset alpha, so no hooks are needed.
+local slotFlyoutArrowsHidden = false
+function EllesmereUI._refreshCharSheetSlotFlyoutArrows()
+    local hide = not EllesmereUI.IS_FOREVER and EllesmereUIDB
+        and EllesmereUIDB.charSheetHideSlotFlyoutArrows == true
+        and EllesmereUIDB.themedCharacterSheet ~= false
+        and not EllesmereUI.BlizzWindowSkinsKilled()
+    if not hide and not slotFlyoutArrowsHidden then return end
+
+    for _, slotName in ipairs(EUI_ALL_SLOTS) do
+        local slot = _G[slotName]
+        local button = slot and slot.popoutButton
+        if button then
+            if hide then
+                local data = GetFFD(button)
+                if data.slotFlyoutAlpha == nil then
+                    data.slotFlyoutAlpha = button:GetAlpha()
+                end
+                button:SetAlpha(0)
+            else
+                local data = FFD[button]
+                if data and data.slotFlyoutAlpha ~= nil then
+                    button:SetAlpha(data.slotFlyoutAlpha)
+                    data.slotFlyoutAlpha = nil
+                end
+            end
+        end
+    end
+    slotFlyoutArrowsHidden = hide
+end
+
 -- Entry point: apply the themed character sheet.
 local function ApplyThemedCharacterSheet()
-    -- WoW Forever: the full makeover stands down; the sheet gets the plain
-    -- window treatment plus the stats sidebar from
-    -- EllesmereUIBlizzardSkin_CharacterSheetForever.lua instead.
+    -- WoW Forever: the full makeover stands down; the EllesmereUI look and
+    -- the WoW Forever style's slot text there are
+    -- EllesmereUIBlizzardSkin_CharacterSheetForever.lua, and the other stock
+    -- styles keep Blizzard's own sheet untouched.
     if EllesmereUI.IS_FOREVER then return end
     if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then
         return
@@ -4377,6 +4413,7 @@ if EllesmereUI then
         -- makeover, the equipment-set watcher) runs; see the Forever file.
         if EllesmereUI.IS_FOREVER then return end
         if CharacterFrame then
+            EllesmereUI._refreshCharSheetSlotFlyoutArrows()
             -- Pre-skin runs early, while CharacterFrame is still hidden; running it
             -- mid-OnShow breaks the Rep/Currency ScrollBox data render.
             local sheetOn = not EllesmereUIDB or (EllesmereUIDB.themedCharacterSheet ~= false and not EllesmereUI.BlizzWindowSkinsKilled())

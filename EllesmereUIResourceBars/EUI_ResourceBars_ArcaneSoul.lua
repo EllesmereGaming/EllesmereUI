@@ -46,7 +46,7 @@ local SURGE_AURA_ID   = 365362  -- Arcane Surge, the buff it applies
 local SOUL_AURA_ID    = 451038  -- Arcane Soul (fixed 4s, granted when Surge ends)
 local ARCANE_SPEC_ID  = 62
 local SUNFURY_TREE_ID = 39      -- C_ClassTalents.GetActiveHeroTalentSpec()
-local GCD_SPELL_ID    = 61304
+local GCD_SPELL_ID    = EllesmereUI.GCD_SPELL
 local STYLE_KEY       = "erb:arcsoul121"
 local UNLOCK_KEY      = "EUI_ArcaneSoul"
 

@@ -211,10 +211,7 @@ local function InstallQuestItemHotkey()
         qItemBtn:SetAttribute("type", "item")
     end
     if InCombatLockdown() then
-        local initFrame = CreateFrame("Frame")
-        initFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-        initFrame:SetScript("OnEvent", function(f)
-            f:UnregisterAllEvents()
+        ns.CombatQueue.Defer("QuestItemInit", function()
             InitSecureAttributes()
             if EQT.ApplyQuestItemHotkey then EQT.ApplyQuestItemHotkey() end
         end)

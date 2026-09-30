@@ -443,7 +443,6 @@ local function StyleBar(holder, cfg)
     holder.timer:SetShown(showTimer)
     -- target visibility is per-cast (hasTarget); the paint pass owns it
 
-    holder._glowDirty = true -- size may have changed; the glow geometry is size-dependent
     holder._styleGen = styleGen
 end
 
@@ -466,12 +465,11 @@ local function Reflow()
 end
 
 --------------------------------------------------------------------------------
---  Important-cast glow: routed through Glows.StartEngineGlow (the C-side
---  AnimationGroup path built for the 12.1 forbidden aura partition), so it
---  costs ZERO per-frame Lua regardless of how many bars glow -- unlike the
---  driver-ticked engines the nameplate module uses. Only styles with a
---  genuine C-side twin are offered (1/2/5/6/7); styles 3/4 silently remap
---  inside the engine and are left off the options dropdown.
+--  Important-cast glow: an engine host by choice (the C-side AnimationGroup
+--  path built for the 12.1 forbidden aura partition), so it costs ZERO
+--  per-frame Lua regardless of how many bars glow. The engine host draws
+--  Pixel, Action Button, GCD, Modern and Classic; a stored Auto-Cast or
+--  Shape pick renders as Modern WoW Glow.
 --------------------------------------------------------------------------------
 local function EnsureGlowOverlay(holder)
     if holder._glow then return holder._glow end
@@ -485,39 +483,30 @@ end
 
 local function ClearImportantGlow(holder)
     if holder._glowActive and holder._glow then
-        if Glows then Glows.StopAllGlows(holder._glow) end
+        Glows.StopAllGlows(holder._glow)
         holder._glow:SetAlpha(0)
         holder._glow:Hide()
         holder._glowActive = false
-        holder._glowStyle = nil
     end
 end
 
+local IMP_GLOW_SPEC = {}
 local function StartImportantGlowAnim(holder, cfg)
     local ov = EnsureGlowOverlay(holder)
-    local style = cfg.importantGlowStyle or 1
     local c = cfg.importantGlowColor or { r = 1, g = 0.2, b = 0.2 }
-    local n = cfg.importantGlowLines or 8
-    local th = cfg.importantGlowThickness or 2
-    local period = cfg.importantGlowSpeed or 4
-
-    -- Dirty-check so the animation is not restarted on every cast event; only
-    -- a real style/color/param/size change tears it down and re-plays it.
-    if not holder._glowActive or holder._glowStyle ~= style
-        or holder._glowR ~= c.r or holder._glowG ~= c.g or holder._glowB ~= c.b
-        or holder._glowN ~= n or holder._glowTh ~= th or holder._glowPeriod ~= period
-        or holder._glowDirty then
-        holder._glowDirty = nil
-        Glows.StopAllGlows(ov)
-        local pW, pH = holder.sb:GetWidth(), holder.sb:GetHeight()
-        if pW < 5 then pW = 100 end
-        if pH < 5 then pH = 14 end
-        Glows.StartEngineGlow(ov, style, pW, c.r, c.g, c.b, { N = n, th = th, period = period }, pH)
-        holder._glowActive = true
-        holder._glowStyle = style
-        holder._glowR, holder._glowG, holder._glowB = c.r, c.g, c.b
-        holder._glowN, holder._glowTh, holder._glowPeriod = n, th, period
-    end
+    local bgc = cfg.importantGlowBackgroundColor
+    local spec = IMP_GLOW_SPEC
+    spec.style = cfg.importantGlowStyle or 1
+    spec.r, spec.g, spec.b = Glows.ResolveColor(cfg.importantGlowColorMode or "custom", c.r, c.g, c.b)
+    spec.lines, spec.thickness, spec.speed = cfg.importantGlowLines, cfg.importantGlowThickness, cfg.importantGlowSpeed
+    spec.bg = (cfg.importantGlowBackground == true) or nil
+    spec.bgR, spec.bgG, spec.bgB = bgc and bgc.r, bgc and bgc.g, bgc and bgc.b
+    local pW, pH = holder.sb:GetWidth(), holder.sb:GetHeight()
+    if pW < 5 then pW = 100 end
+    if pH < 5 then pH = 14 end
+    -- Restarts only on a real style/color/param/size change, never per cast event.
+    Glows.StartSpecGlow(ov, spec, pW, pH, "engine")
+    holder._glowActive = true
     ov:Show()
     return ov
 end
@@ -527,7 +516,7 @@ end
 -- branch below is allowed to touch it without deciding what it IS.
 local function ApplyImportantGlow(e, cfg)
     local holder = e.bar
-    if not (cfg.importantGlow and Glows and Glows.StartEngineGlow) then
+    if not cfg.importantGlow then
         ClearImportantGlow(holder)
         return
     end
@@ -538,7 +527,7 @@ local function ApplyImportantGlow(e, cfg)
     end
     if issecretvalue and issecretvalue(imp) then
         -- Must run the animation regardless; only its alpha carries the answer.
-        -- StartEngineGlow forces alpha 1 on (re)start, so the boolean alpha
+        -- The glow start forces alpha 1 on (re)start, so the boolean alpha
         -- assignment always runs AFTER the start call, never before.
         local ov = StartImportantGlowAnim(holder, cfg)
         ov:SetAlphaFromBoolean(imp)

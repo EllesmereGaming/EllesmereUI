@@ -56,12 +56,14 @@ local DB_DEFAULTS = {
         enabled          = false,
         hideInCombat     = false,
 
-        -- Bar art: "modern" = the EllesmereUI look; "blizzard" / "classic" =
-        -- the Resource Bars' Blizzard Style / Classic WoW UI frames.
-        barStyle          = "modern",
+        -- Bar art (Global Settings > Style, "Skyriding HUD"): the Classic flag
+        -- = Classic WoW UI, else the Blizzard flag = Blizzard Style, else the
+        -- EllesmereUI look. Read through the session latch ns.EDR_Style().
+        useBlizzardStyle  = false,
+        useClassicStyle   = false,
         classicFrameSize  = nil,  -- Classic WoW UI frame %, nil = shared default
         -- Charges: "bars" = a pip row in the bar column, "gems" = Blizzard's
-        -- original vigor gems above the column. Independent of barStyle.
+        -- original vigor gems above the column. Independent of the bar art.
         vigorStyle        = "bars",
         classicScale      = 1.0,
         chargeSound       = false,
@@ -134,11 +136,28 @@ local smoothedSpeed   = 0
 local SPEED_EMA_ALPHA = 0.25
 local evtFrame        -- event frame (created on first enable)
 local _spellEventsRegistered = false
+local _cdEventRegistered     = false
 -- True only while actually airborne skyriding: PLAYER_IS_GLIDING_CHANGED edges
 -- plus a fresh read at every visibility evaluation. Gates the speed poll -- the
 -- OnUpdate is armed only while gliding, while the landing decay is still
 -- draining, or while a pip/cooldown section is mid-animation.
 local _gliding = false
+
+-- The bar art this session: "eui" | "blizzard" | "classic". Read from the
+-- profile's two Style page flags once (the first call with a profile, which
+-- is the DB creation at PLAYER_LOGIN) and latched for the session: the Style
+-- page and a profile switch that changes it both reload. The Classic flag
+-- wins when both are set (the Style page never writes both).
+function ns.EDR_Style()
+    local v = ns._edrStyle
+    if v == nil then
+        local p = db and db.profile
+        if not p then return "eui" end
+        v = (p.useClassicStyle and "classic") or (p.useBlizzardStyle and "blizzard") or "eui"
+        ns._edrStyle = v
+    end
+    return v
+end
 
 -- Returns true when the module should be hard-disabled (M+ or raid instance).
 -- No frames shown, no events processed, no OnUpdate.
@@ -196,17 +215,35 @@ end
 
 -- Register/unregister high-frequency spell events based on HUD visibility.
 -- These fire for ALL spells globally, so we only listen when actively showing.
+-- SPELL_UPDATE_COOLDOWN feeds only the Whirling Surge icon, so it is also off
+-- while the icon is hidden; every Rebuild ends in UpdateVisibility, which
+-- re-syncs it when Show Whirling Surge flips.
 local function RegisterSpellEvents()
-    if _spellEventsRegistered or not evtFrame then return end
-    evtFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
-    evtFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-    _spellEventsRegistered = true
+    if not evtFrame then return end
+    if not _spellEventsRegistered then
+        evtFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
+        _spellEventsRegistered = true
+    end
+    local wantCd = db.profile.showWhirlingSurge ~= false
+    if wantCd ~= _cdEventRegistered then
+        if wantCd then
+            evtFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+        else
+            evtFrame:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
+        end
+        _cdEventRegistered = wantCd
+    end
 end
 local function UnregisterSpellEvents()
-    if not _spellEventsRegistered or not evtFrame then return end
-    evtFrame:UnregisterEvent("SPELL_UPDATE_CHARGES")
-    evtFrame:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
-    _spellEventsRegistered = false
+    if not evtFrame then return end
+    if _spellEventsRegistered then
+        evtFrame:UnregisterEvent("SPELL_UPDATE_CHARGES")
+        _spellEventsRegistered = false
+    end
+    if _cdEventRegistered then
+        evtFrame:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
+        _cdEventRegistered = false
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -218,6 +255,15 @@ local function IsOnSkyridingMount()
     return canGlide == true
 end
 
+-- Hidden -> shown (the normal path and Unlock Mode's force-show alike). The
+-- spell events are off while the HUD is hidden, so every section repaints
+-- once; charges that refilled meanwhile are not a live gain, so they repaint
+-- without the full-charge chime or the gem flash.
+local function MarkReshown()
+    skyridingDirty, secondWindDirty, whirlingDirty = true, true, true
+    lastSoundCur, lastClassicCur = -1, -1
+end
+
 function UpdateVisibility()
     if not rootFrame then return end
     local p = db and db.profile
@@ -227,7 +273,9 @@ function UpdateVisibility()
         UnregisterSpellEvents()
         return
     end
+    local wasShown = rootFrame:IsShown()
     if EllesmereUI and EllesmereUI._unlockActive then
+        if not wasShown then MarkReshown() end
         rootFrame:Show()
         rootFrame:SetScript("OnUpdate", OnUpdate)
         RegisterSpellEvents()
@@ -236,12 +284,9 @@ function UpdateVisibility()
     local onSky = IsOnSkyridingMount()
     local hideCombat = p.hideInCombat and UnitAffectingCombat("player")
     local visible = onSky and not hideCombat
-    local wasShown = rootFrame:IsShown()
     rootFrame:SetShown(visible)
     if visible then
-        -- Charges that refilled while the HUD was hidden are not a live gain:
-        -- repaint them without the full-charge chime or the gem flash.
-        if not wasShown then lastSoundCur, lastClassicCur = -1, -1 end
+        if not wasShown then MarkReshown() end
         -- Seed the airborne flag from a fresh read (covers /reload mid-flight
         -- and any edge missed while hidden), then arm only if there is work.
         local isGliding = C_PlayerInfo.GetGlidingInfo()
@@ -487,10 +532,10 @@ local ROW_RANGE = { speedHeight = { 4, 40 }, skyridingHeight = { 2, 24 }, second
 local STYLE_ROWS_BARS = { "speed", "sky", "sw" }
 local STYLE_ROWS_GEMS = { "speed", "sw" }
 
--- Bar Style art. Both stock looks match the Resource Bars' ones so the HUD and
--- the class resource bar read as one UI; the bars keep the user's texture and
--- colours in every style, and the column is framed as one box with dividers
--- (see ApplyColumnChrome).
+-- Stock style art (ns.EDR_Style). Both stock looks match the Resource Bars'
+-- ones so the HUD and the class resource bar read as one UI; the bars keep
+-- the user's texture and colours in every style, and the column is framed as
+-- one box with dividers (see ApplyColumnChrome).
 --
 -- Blizzard: the Cooldown Manager bar panel (the personal resource display's
 -- art) round the column, and an inner bevel over each row so the user's
@@ -578,7 +623,8 @@ end
 -- each row, which needs room around it.
 local function ComputeLayout(p)
     local classic = p.vigorStyle == "gems"
-    local chrome = (p.barStyle == "blizzard" or p.barStyle == "classic") and p.barStyle or nil
+    local style = ns.EDR_Style()
+    local chrome = style ~= "eui" and style or nil
     local k = chrome == "classic" and ClassicFrameK(p) or 1
 
     local rows = {}
@@ -607,6 +653,10 @@ local function ComputeLayout(p)
     local classicH = classic and PPSnap(CLASSIC_H * scale) or 0
     local rawW = max(clusterW, classicW)
     local rawH = clusterH + classicH + ((classic and clusterH > 0) and p.gap or 0)
+    -- The even-pixel rounding is for the stock frames and the classic gems
+    -- only: the EllesmereUI bars keep their exact size, so their root frame
+    -- and the unlock size stay what they always were.
+    local even = chrome or classic
 
     return {
         rows = rows, classic = classic, chrome = chrome, frameK = k, ov = ov,
@@ -615,9 +665,10 @@ local function ComputeLayout(p)
         icon = icon, iconSize = iconSize, iconY = PPSnap((clusterH - iconSize) / 2),
         clusterW = clusterW, clusterH = clusterH,
         classicW = classicW, classicH = classicH,
-        -- raw* before the even-pixel rounding, so the unlock setters can undo it.
+        -- raw* before the even-pixel rounding (equal to total* without it).
         rawW = rawW, rawH = rawH,
-        totalW = SnapEven(rawW), totalH = SnapEven(rawH),
+        totalW = even and SnapEven(rawW) or rawW,
+        totalH = even and SnapEven(rawH) or rawH,
     }
 end
 
@@ -681,20 +732,23 @@ local function ApplyBordersAll(L)
         -- draw their own full border, so the shared seam gets two
         -- independently pixel-snapped lines instead of one. Suppress the
         -- edge on one side of every seam so only a single line remains:
-        -- each row drops its bottom edge when a row sits under it, and a row
-        -- lying wholly beside the icon drops its right edge (the icon can be
-        -- shorter than the column, so rows above or below it keep theirs).
+        -- the speed bar drops its top edge under the row above it, any other
+        -- row drops its bottom edge over the row under it (the ownership the
+        -- HUD has always drawn), and a row lying wholly beside the icon drops
+        -- its right edge (the icon can be shorter than the column, so rows
+        -- above or below it keep theirs).
         local gapTouch = p.gap == 0
         local stackTouch = p.stackSpacing == 0
         local iconLo, iconHi = L.iconY - 0.01, L.iconY + L.iconSize + 0.01
+        local rows = L.rows
         local y = L.colY + L.ov
-        for i, key in ipairs(L.rows) do
+        for i, key in ipairs(rows) do
             local h = p[ROW_FIELD[key]]
             local iconTouch = gapTouch and L.icon and y >= iconLo and y + h <= iconHi
             y = y + h + p.gap
-            local hideB = gapTouch and i > 1
+            local hideB = gapTouch and i > 1 and rows[i - 1] ~= "speed"
             if key == "speed" then
-                ApplyBorderEdges(speedBar, false, iconTouch, false, hideB)
+                ApplyBorderEdges(speedBar, false, iconTouch, gapTouch and i < #rows, hideB)
             else
                 local pips, n = stackFrame.pips, SKYRIDING_PIPS
                 if key == "sw" then pips, n = swFrame.pips, SECONDWIND_PIPS end
@@ -1466,9 +1520,11 @@ function RegisterUnlockElements()
                     end
                     return
                 end
-                -- getSize reports the even-pixel total: take that rounding back
-                -- off so a size restore (w = the reported total) is a no-op.
-                local clusterW = w - (L.totalW - L.rawW)
+                -- Where getSize reports an even-pixel total, a restore of that
+                -- exact size is a no-op; any other width (a drag, a width
+                -- match) sizes the cluster as given, so a match converges.
+                if L.totalW ~= L.rawW and abs(w - L.totalW) < 0.01 then return end
+                local clusterW = w
                 -- A gem row wider than the bars sets the width by itself; the
                 -- column only follows the handle once it is dragged past it.
                 if L.classicW > L.clusterW and clusterW <= L.classicW then return end
@@ -1494,8 +1550,9 @@ function RegisterUnlockElements()
                     end
                     return
                 end
-                -- Undo getSize's even-pixel rounding (see setWidth).
-                local newTotalH = PPSnap(h) - (L.totalH - L.rawH)
+                -- A restore of getSize's even-pixel total is a no-op (see setWidth).
+                if L.totalH ~= L.rawH and abs(h - L.totalH) < 0.01 then return end
+                local newTotalH = PPSnap(h)
                 local classicPart = L.classic and (L.classicH + p.gap) or 0
                 local k = max(8, newTotalH - classicPart) / L.clusterH
                 if L.icon and p.iconSize then
@@ -1503,15 +1560,26 @@ function RegisterUnlockElements()
                 end
                 local rows = L.rows
                 if #rows == 0 then Rebuild(); return end
-                -- Each row's frame rim is a fixed size, not scaled with the bar.
-                local targetSum = max(#rows * 2,
-                    floor(L.colH * k - (#rows - 1) * p.gap - 2 * L.ov + 0.5))
-
-                local bars = {}
-                for _, key in ipairs(rows) do
-                    local field = ROW_FIELD[key]
-                    bars[#bars + 1] = { field = field, lo = ROW_RANGE[field][1], hi = ROW_RANGE[field][2] }
+                -- Bars top to bottom (Second Wind, charges, speed): the order
+                -- the leftover pass below hands a remainder out in.
+                local bars, loSum = {}, 0
+                for i = #rows, 1, -1 do
+                    local field = ROW_FIELD[rows[i]]
+                    local lo = ROW_RANGE[field][1]
+                    bars[#bars + 1] = { field = field, lo = lo, hi = ROW_RANGE[field][2] }
+                    loSum = loSum + lo
                 end
+                -- The column takes the whole new height when it is the
+                -- cluster's tallest part, else its scaled share, in whole
+                -- units. Each row's frame rim is a fixed size, not scaled with
+                -- the bar. The EllesmereUI bars filling the whole cluster take
+                -- the exact pixel-snapped height, as they always have.
+                local whole = L.colH == L.clusterH
+                local colTarget = whole and (newTotalH - classicPart) or L.colH * k
+                local targetSum = colTarget - (#rows - 1) * p.gap - 2 * L.ov
+                if L.chrome or L.classic or not whole then targetSum = floor(targetSum + 0.5) end
+                targetSum = max(loSum, targetSum)
+
                 local oldSum = 0
                 for _, b in ipairs(bars) do
                     b.old = p[b.field]
@@ -1584,6 +1652,9 @@ initFrame:SetScript("OnEvent", function(self)
 
     db = EllesmereUI.Lite.NewDB("EllesmereUIDragonRidingDB", DB_DEFAULTS)
     ns.edrDB = db
+    -- Latch the bar art from the login profile (even while the HUD is off,
+    -- so a profile switch before its first build still compares against it).
+    ns.EDR_Style()
 
     -- If disabled, skip all frame creation and event registration.
     -- Rebuild (called from options toggle) will lazy-init if needed.
@@ -1669,8 +1740,12 @@ ns.edrRebuild = function()
     Rebuild()
 end
 ns.edrRedraw = function() Redraw() end
--- The icon's current size, for the options slider while it is still automatic.
+-- The icon's automatic size (as tall as every bar of the vigor style, frame
+-- rim included), whatever Icon Size holds: the options show it while Auto Size
+-- is on and hand it over when Auto Size is turned off.
 ns.edrIconSize = function()
     local p = db and db.profile
-    return p and ComputeLayout(p).iconSize or 34
+    if not p then return 34 end
+    local L = ComputeLayout(p)
+    return StackHeight(p, L.classic and STYLE_ROWS_GEMS or STYLE_ROWS_BARS, L.ov)
 end
