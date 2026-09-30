@@ -14,8 +14,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  shared with Cursor/BattleRes/Bloodlust: each NewDB merges its own defaults
 --  into the SAME profile table, repointed by the profile system on swap.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
-EllesmereUI._ModuleNS["EllesmereUIQoL"] = select(2, ...)  -- LOD options files read this module ns via the registry
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+local ns = select(2, ...)
+EllesmereUI._ModuleNS["EllesmereUIQoL"] = ns  -- LOD options files read this module ns via the registry
+ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
 local _qolExtrasDB
 local function QoLExtrasProfile()
@@ -1323,9 +1325,11 @@ qolFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Quick Signup (double-click to sign up)
+    --  Quick Signup (double-click to sign up; not on WoW Forever: Blizzard's
+    --  premade-group list does not load there, so the block and its options
+    --  row do not exist)
     ---------------------------------------------------------------------------
-    do
+    if not EllesmereUI.IS_FOREVER then
         local lastClickTime  = 0
         local lastClickEntry = nil
         local DOUBLE_CLICK_THRESHOLD = 0.4
@@ -1411,9 +1415,10 @@ qolFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Persistent LFG Signup Note
+    --  Persistent LFG Signup Note (not on WoW Forever: no premade Sign Up dialog
+    --  there, so the block and its options row do not exist)
     ---------------------------------------------------------------------------
-    do
+    if not EllesmereUI.IS_FOREVER then
         local vanilla = LFGListApplicationDialog_Show
         local patched = false
         local copyHooked = false
@@ -2168,7 +2173,7 @@ do
             crit, critCR = EllesmereUI.ForeverCritChance()
             haste, hasteCR = EllesmereUI.ForeverHaste()
         else
-            crit, critCR = GetCritChance("player"), CR_CRIT_MELEE
+            crit, critCR = EllesmereUI.PlayerCritChance()
             haste, hasteCR = UnitSpellHaste("player"), CR_HASTE_MELEE
         end
         local mastery = GetMasteryEffect()
@@ -2835,12 +2840,7 @@ do
             end
         end
         if InCombatLockdown() then
-            local w = CreateFrame("Frame")
-            w:RegisterEvent("PLAYER_REGEN_ENABLED")
-            w:SetScript("OnEvent", function(self)
-                self:UnregisterAllEvents()
-                ApplyFPSBind()
-            end)
+            ns.CombatQueue.Defer("FPSBind", ApplyFPSBind)
         else
             ApplyFPSBind()
         end
@@ -3134,12 +3134,7 @@ do
 
     local function ApplyRightClickTarget()
         if InCombatLockdown() then
-            local deferFrame = CreateFrame("Frame")
-            deferFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-            deferFrame:SetScript("OnEvent", function(self)
-                self:UnregisterAllEvents()
-                ApplyRightClickTarget()
-            end)
+            ns.CombatQueue.Defer("RightClickTarget", ApplyRightClickTarget)
             return
         end
         local db = EllesmereUIDB
@@ -4922,7 +4917,7 @@ do
         fs = EnsureText(button)
         if ilvl and ilvl > 0 then
             fs:SetText(ilvl)
-            -- Match the character sheet: custom color > upgrade track > rarity.
+            -- Match the character sheet: custom color > upgrade/crafted track > rarity.
             local c
             if EllesmereUI.GetItemLevelColor then
                 c = EllesmereUI.GetItemLevelColor(link, quality)

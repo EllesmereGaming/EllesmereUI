@@ -1,4 +1,5 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- no raid-wide lust on WoW Forever: no icon, no events, no unlock mover, even when a saved or imported profile has the tracker enabled; the options section is not built there and every reader of the _G._EUI_Bloodlust_* hooks nil-guards
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_Bloodlust.lua
 --  Runtime for the Bloodlust Tracker icon. Detects the player's Sated /

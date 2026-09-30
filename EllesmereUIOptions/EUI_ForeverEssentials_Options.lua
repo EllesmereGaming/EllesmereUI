@@ -31,6 +31,11 @@ initFrame:SetScript("OnEvent", function(self)
                 return _G._EUI_BuildThreatMeterPage(pageName, parent, yOffset)
             end
         end,
+        -- The Threat page's preview lives in the content header; declaring its
+        -- builder makes a cached page whose header was dropped rebuild with it.
+        getHeaderBuilder = function(pageName)
+            if pageName == PAGE_THREAT then return _G._EUI_ThreatHeaderBuilder end
+        end,
         onReset = function()
             if EllesmereUIDB then
                 EllesmereUIDB.flightTimer = nil
@@ -49,6 +54,8 @@ initFrame:SetScript("OnEvent", function(self)
             local TM = EllesmereUI._ThreatMeter
             if TM then
                 TM.Apply()
+                TM.ApplyStyle()
+                TM.ApplyPosition()
             end
             EllesmereUI:InvalidatePageCache()
         end,

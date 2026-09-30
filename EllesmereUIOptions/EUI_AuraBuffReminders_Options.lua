@@ -234,6 +234,18 @@ initFrame:SetScript("OnEvent", function(self)
         return icons
     end
 
+    -- x of the first preview icon's center from the container's TOP, following the live grow
+    -- direction: Grow Right pins the row's left end and Grow Left its right end to the page's
+    -- content column (container edge + CONTENT_PAD); Grow Centered centers the row.
+    local function PreviewStartX(d, count, sz, spacing, boxW)
+        local growDir = d and d.growDirection
+        local edgeX = boxW / 2 - EllesmereUI.CONTENT_PAD
+        if growDir == "RIGHT" then return -edgeX + (sz / 2) end
+        local totalW = (count * sz) + ((count - 1) * spacing)
+        if growDir == "LEFT" then return edgeX - totalW + (sz / 2) end
+        return -(totalW / 2) + (sz / 2)
+    end
+
     local function UpdatePreviewHeader()
         if not _previewIcons or #_previewIcons == 0 then return end
         local d = DDB()
@@ -242,22 +254,13 @@ initFrame:SetScript("OnEvent", function(self)
         local ICON_SIZE = _G._EABR_ICON_SIZE or 40
         local sz = math.floor(ICON_SIZE * baseScale + 0.5)
         local spacing = d.iconSpacing or 8
-        local glowType = d.glowType or 0
-        local gr, gg, gb
-        if _G._EABR_ResolveGlowTint then
-            gr, gg, gb = _G._EABR_ResolveGlowTint(d)
-        else
-            local gc = d.glowColor or {r=1, g=0.776, b=0.376}
-            gr, gg, gb = gc.r, gc.g, gc.b
-        end
+        -- The live renderer's own spec (nil = glow off), so the preview is the live look.
+        local glowSpec = _G._EABR_GlowSpec and _G._EABR_GlowSpec(d, {})
         local showText = d.showText
         local tc = d.textColor or {r=1, g=1, b=1}
         local opacity = d.opacity or 1.0
-        local GT = _G._EABR_GLOW_TYPES
-        local Stop = _G._EABR_StopAllGlows
 
-        local count = #_previewIcons
-        local totalW = (count * sz) + ((count - 1) * spacing)
+        local startX = PreviewStartX(d, #_previewIcons, sz, spacing, _previewContainer:GetWidth())
 
         for i, pIcon in ipairs(_previewIcons) do
             local btn = pIcon.frame
@@ -265,7 +268,6 @@ initFrame:SetScript("OnEvent", function(self)
             btn:SetSize(sz, sz)
             btn:SetAlpha(opacity)
             btn:ClearAllPoints()
-            local startX = -(totalW / 2) + (sz / 2)
             btn:SetPoint("TOP", btn:GetParent(), "TOP", startX + (i - 1) * (sz + spacing), 0)
 
             if _G._EABR_ApplyIconBorder then
@@ -275,29 +277,14 @@ initFrame:SetScript("OnEvent", function(self)
             -- Glow
             if not btn._glowWrapper then
                 local w = CreateFrame("Frame", nil, btn)
-                w:SetAllPoints(btn); w:SetFrameLevel(btn:GetFrameLevel() + 3)
+                w:SetAllPoints(btn); w:SetFrameLevel(btn:GetFrameLevel() + 4)
                 btn._glowWrapper = w
             end
-            if Stop then Stop(btn._glowWrapper) end
-
-            if glowType > 0 and GT then
-                local entry = GT[glowType]
-                if entry then
-                    local pr, pg, pb = gr, gg, gb
-                    if pr == nil then pr, pg, pb = 1.0, 0.788, 0.137 end
-                    if entry.procedural and _G._EABR_StartPixelGlow then
-                        _G._EABR_StartPixelGlow(btn._glowWrapper, sz, pr, pg, pb)
-                    elseif entry.buttonGlow and _G._EABR_StartButtonGlow then
-                        _G._EABR_StartButtonGlow(btn._glowWrapper, sz, pr, pg, pb, 1.36)
-                    elseif entry.autocast and _G._EABR_StartAutoCastShine then
-                        _G._EABR_StartAutoCastShine(btn._glowWrapper, sz, pr, pg, pb, 1.0)
-                    elseif _G._EABR_StartFlipBookGlow then
-                        -- FlipBook glow (GCD, Modern WoW, Classic WoW) use shared live function
-                        _G._EABR_StartFlipBookGlow(btn._glowWrapper, sz, entry, gr, gg, gb)
-                    end
-                    btn._glowWrapper:Show()
-                end
+            if glowSpec then
+                EllesmereUI.Glows.StartSpecGlow(btn._glowWrapper, glowSpec, sz, sz, "icon", EllesmereUI.Glows.PANEL_EXTRA)
+                btn._glowWrapper:Show()
             else
+                EllesmereUI.Glows.StopAllGlows(btn._glowWrapper)
                 btn._glowWrapper:Hide()
             end
 
@@ -368,9 +355,7 @@ initFrame:SetScript("OnEvent", function(self)
         local ICON_SIZE = _G._EABR_ICON_SIZE or 40
         local sz = math.floor(ICON_SIZE * baseScale + 0.5)
         local spacing = d and d.iconSpacing or 8
-        local count = #_previewIcons
-        local totalW = (count * sz) + ((count - 1) * spacing)
-        local startX = -(totalW / 2) + (sz / 2)
+        local startX = PreviewStartX(d, #_previewIcons, sz, spacing, _previewContainer:GetWidth())
         for i, pIcon in ipairs(_previewIcons) do
             local btn = pIcon.frame
             if btn then
@@ -484,14 +469,12 @@ initFrame:SetScript("OnEvent", function(self)
             if pIcon.frame then pIcon.frame:Hide() end
         end
         wipe(_previewIcons)
-        local count = #icons
-        local totalW = (count * sz) + ((count - 1) * spacing)
+        local startX = PreviewStartX(d, #icons, sz, spacing, hdrW)
 
         for i, iconData in ipairs(icons) do
             local btn = CreateFrame("Button", nil, container)
             btn:SetSize(sz, sz)
             btn:EnableMouse(true)
-            local startX = -(totalW / 2) + (sz / 2)
             btn:SetPoint("TOP", container, "TOP", startX + (i - 1) * (sz + spacing), 0)
             btn:SetAlpha(opacity)
 
@@ -620,6 +603,8 @@ initFrame:SetScript("OnEvent", function(self)
         { key="othersMissing", label="Others are missing my buff" },
         { key="iAmMissing",    label="I am missing others' buffs" },
     }
+    local GROW_DIR_VALUES = { CENTER = "Grow Centered", LEFT = "Grow Left", RIGHT = "Grow Right" }
+    local GROW_DIR_ORDER  = { "CENTER", "LEFT", "RIGHT" }
 
     -- Values are stored explicitly (true/false) rather than nil-for-on: the
     -- SavedVariables layer re-merges default keys on load, so an absent
@@ -751,8 +736,9 @@ initFrame:SetScript("OnEvent", function(self)
             suffix:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
             suffix:SetTextColor(1, 1, 1, 0.35)
             local found
-            for i = 1, rgn:GetNumRegions() do
-                local reg = select(i, rgn:GetRegions())
+            local regions = { rgn:GetRegions() }
+            for i = 1, #regions do
+                local reg = regions[i]
                 if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == labelText then
                     found = reg; break
                 end
@@ -766,7 +752,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     ---------------------------------------------------------------------------
     --  4-column checkbox grid (DualRow-style rows with RowBg + dividers)
-    --  items = { { label, classToken, getVal, setVal }, ... }
+    --  items = { { label, classToken, getVal, setVal, tooltip? }, ... }
     ---------------------------------------------------------------------------
     local GRID_COLS     = 4
     local GRID_ROW_H    = 50
@@ -865,9 +851,11 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
                 btn:SetScript("OnEnter", function()
                     if not item.getVal() then label:SetAlpha(0.8) end
+                    if item.tooltip then EllesmereUI.ShowWidgetTooltip(cell, item.tooltip) end
                 end)
                 btn:SetScript("OnLeave", function()
                     if not item.getVal() then label:SetAlpha(0.5) end
+                    if item.tooltip then EllesmereUI.HideWidgetTooltip() end
                 end)
 
                 -- Optional per-item cog (e.g. per-item conditions) just left
@@ -933,6 +921,44 @@ initFrame:SetScript("OnEvent", function(self)
         return y
     end
 
+    ---------------------------------------------------------------------------
+    --  Glow site: the reminder icon glow as a shared glow descriptor, used by the
+    --  Reminders page and the Global Settings Glows page.
+    ---------------------------------------------------------------------------
+    local abrGlowDesc
+    do
+        local GO = EllesmereUI.GlowOptions
+        abrGlowDesc = _G._EABR_GLOW_VIEW and {
+            view = _G._EABR_GLOW_VIEW, host = "icon", excludes = { [4] = true },
+            caps = { mode = true, params = true, bg = true },
+            defaultColor = { r = 1.0, g = 0.788, b = 0.137 },
+            onChange = function() RefreshAll(); UpdatePreviewHeader() end,
+            get = function(f)
+                local d = DDB(); if not d then return nil end
+                if f == "style" then return d.glowType or 0
+                elseif f == "mode" then
+                    -- Read-path migration: a profile activated mid-session may not
+                    -- have a mode key yet; derive it from the stored color.
+                    if _G._EABR_EnsureGlowModeMigrated then _G._EABR_EnsureGlowModeMigrated(d) end
+                    return d.glowColorMode or "default"
+                end
+                return EllesmereUI.GlowOptions.FlatGet(d, "glow", f)
+            end,
+            set = function(f, a, b2, c2)
+                local d = DDB(); if not d then return end
+                if f == "style" then d.glowType = a
+                elseif f == "mode" then d.glowColorMode = a
+                else EllesmereUI.GlowOptions.FlatSet(d, "glow", f, a, b2, c2)
+                end
+            end,
+        }
+        if abrGlowDesc then
+            GO.RegisterSite({ id = "abr_glow", label = "Reminder Glow", group = "module",
+                module = "EllesmereUIAuraBuffReminders", page = PAGE_REMINDERS, section = SECTION_DISPLAY,
+                highlight = "Glow Type", desc = abrGlowDesc })
+        end
+    end
+
     local function BuildRemindersPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
@@ -990,6 +1016,20 @@ initFrame:SetScript("OnEvent", function(self)
                   RefreshAll()
                   UpdatePreviewHeader()
               end }
+        );  y = y - h
+
+        -- Row 2: Grow Direction
+        _, h = W:DualRow(parent, y,
+            { type="dropdown", text="Grow Direction",
+              values=GROW_DIR_VALUES, order=GROW_DIR_ORDER,
+              tooltip="Which part of the row stays in place as reminders appear and disappear.",
+              getValue=function() local d = DDB(); return d and d.growDirection or "CENTER" end,
+              setValue=function(v)
+                  EllesmereUI.SetAuraBuffGrowDir(v)
+                  RefreshAll()
+                  RelayoutPreviewIcons()
+              end },
+            EllesmereUI.BlankRowCfg()
         );  y = y - h
 
         -----------------------------------------------------------------------
@@ -1164,87 +1204,18 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row 3: Glow Type (+ inline trio swatch) | Attach Important Buffs to Cursor
+        -- Row 3: Glow Type (shared glow controls) | Attach Important Buffs to Cursor
+        local GO = EllesmereUI.GlowOptions
+        local abrDesc = abrGlowDesc
         local rowGlow
         rowGlow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Glow Type",
-              values=_G._EABR_GLOW_VALUES or {[0]="None"},
-              order=_G._EABR_GLOW_ORDER or {0},
-              getValue=function() local d = DDB(); return d and d.glowType or 0 end,
-              setValue=function(v)
-                  local d = DDB(); if not d then return end; d.glowType = v
-                  RefreshAll(); UpdatePreviewHeader()
-                  EllesmereUI:RefreshPage()
-              end },
+            abrDesc and GO.DropdownSpec(abrDesc, "Glow Type") or EllesmereUI.BlankRowCfg(),
             { type="toggle", text="Attach Important Buffs to Cursor",
               tooltip="This option only affects Raid Buffs and Paladin Beacons",
               getValue=function() local d = DDB(); return d and d.cursorAttach end,
               setValue=function(v) local d = DDB(); if not d then return end; d.cursorAttach = v; RefreshAll() end }
         );  y = y - h
-
-        -- Inline color swatch on Glow Type (left of row 3)
-        if not EllesmereUI._prebuilding then
-            local rgn = rowGlow._leftRegion
-            local isNone = function()
-                local d = DDB()
-                return not d or (d.glowType or 0) == 0
-            end
-            local swatch, defaultSwatch, classSwatch = EllesmereUI.BuildTrioColorSwatch(
-                rgn, rgn:GetFrameLevel()+5,
-                {
-                    getMode = function()
-                        local d = DDB()
-                        -- Read-path migration: a profile activated mid-session
-                        -- may not have a mode key yet; derive it from the
-                        -- stored color so the trio highlights correctly.
-                        if d and _G._EABR_EnsureGlowModeMigrated then _G._EABR_EnsureGlowModeMigrated(d) end
-                        return (d and d.glowColorMode) or "default"
-                    end,
-                    setMode = function(m)
-                        local d = DDB(); if not d then return end
-                        d.glowColorMode = m
-                    end,
-                    getCustomRGB = function()
-                        local d = DDB()
-                        local gc = d and d.glowColor or {r=1.0, g=0.788, b=0.137}
-                        return gc.r, gc.g, gc.b
-                    end,
-                    setCustomRGB = function(r, g, b)
-                        local d = DDB(); if not d then return end
-                        d.glowColor = {r=r, g=g, b=b}
-                    end,
-                    hasClassColor = true,
-                    onChange = function() RefreshAll(); UpdatePreviewHeader(); EllesmereUI:RefreshPage() end,
-                    disabled = isNone,
-                    overrideSize = 20,
-                })
-            classSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            swatch:SetPoint("RIGHT", classSwatch, "LEFT", -8, 0)
-            defaultSwatch:SetPoint("RIGHT", swatch, "LEFT", -8, 0)
-            rgn._lastInline = defaultSwatch
-
-            -- Disabled overlay when glow type is None
-            local function MakeSwatchBlock(target)
-                local block = CreateFrame("Frame", nil, target)
-                block:SetAllPoints()
-                block:SetFrameLevel(target:GetFrameLevel() + 10)
-                block:EnableMouse(true)
-                block:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(target, EllesmereUI.DisabledTooltip("This option requires a Glow Type other than None"))
-                end)
-                block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                return block
-            end
-            local swatchBlocks = { MakeSwatchBlock(swatch), MakeSwatchBlock(defaultSwatch), MakeSwatchBlock(classSwatch) }
-            local function UpdateSwatchBlock()
-                local none = isNone()
-                for _, block in ipairs(swatchBlocks) do
-                    if none then block:Show() else block:Hide() end
-                end
-            end
-            UpdateSwatchBlock()
-            EllesmereUI.RegisterWidgetRefresh(UpdateSwatchBlock)
-        end
+        if abrDesc then GO.AttachInline(rowGlow._leftRegion, abrDesc) end
 
         -- Inline color swatch + cog on Show Name (left of row 2)
         if not EllesmereUI._prebuilding then
@@ -1606,11 +1577,18 @@ initFrame:SetScript("OnEvent", function(self)
                     label = EllesmereUI.L(shield.name),
                     classToken = "SHAMAN",
                     key = shield.key,
+                    tooltip = shield.key == "es_ally"
+                        and "Out of combat, reminds you when no groupmate has your Earth Shield (Elemental Orbit)."
+                        or nil,
                     getVal = function() local c = CDB(); return c and c.enabled and c.enabled[shield.key] end,
                     setVal = function(v) local c = CDB(); if c and c.enabled then c.enabled[shield.key] = v end end,
                 }
             end
-            h = BuildCheckboxGrid(parent, y, gridItems, function() RefreshAll(); RebuildPreviewHeader() end, _gridCellRefs)
+            -- Earth Shield (Ally) turns group tracking on or off.
+            h = BuildCheckboxGrid(parent, y, gridItems, function()
+                if _G._EABR_UpdateGroupAuraRegistration then _G._EABR_UpdateGroupAuraRegistration() end
+                RefreshAll(); RebuildPreviewHeader()
+            end, _gridCellRefs)
             y = y - h
         end
 

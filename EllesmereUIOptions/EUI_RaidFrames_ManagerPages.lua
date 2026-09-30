@@ -25,6 +25,10 @@ local CAT_VALUES = { boss = "Boss", role = "Role", priority = "Important",
     cc = "Crowd Control", raid = "Raid", raidcombat = "Raid In Combat", dispel = "Dispellable",
     nonplayer = "Non-Player" }
 local CAT_ORDER = { "nonplayer", "priority", "boss", "role", "cc", "raid", "raidcombat", "dispel" }
+-- The Less Common Filters, named in indicator subtitles after the main ones.
+local LESS_CAT_VALUES = { castbyme = "Cast By You", magic = "Magic", curse = "Curse", poison = "Poison",
+    disease = "Disease", bleed = "Bleed", canapply = "Can Apply Aura" }
+local LESS_CAT_ORDER = { "castbyme", "magic", "curse", "poison", "disease", "bleed", "canapply" }
 
 local TYPE_NAMES = { icons = "Icon", glow = "Frame Glow", square = "Square",
     healthcolor = "Health Bar Color", bar = "Duration Bar" }
@@ -80,6 +84,35 @@ local function DmApply()
     if ns.DMP_RefreshPreview then ns.DMP_RefreshPreview() end
 end
 
+-- Frame Glow tile: the shared glow descriptor over the tile's own keys (always
+-- on, no None). The tile editor and the options preview (GO.Spec) share it.
+local function TileGlowDesc(t, onChange)
+    return {
+        host = "engine", noNone = true, excludes = EllesmereUI.Glows.RECT_EXCLUDES,
+        -- The half next to Filters is too narrow for the color swatches.
+        colorInCog = true,
+        caps = { mode = true, params = true, bg = true },
+        defaultColor = { r = 1, g = 0.78, b = 0.38 },
+        onChange = onChange,
+        get = function(f)
+            if f == "style" then return t.glowType or 1
+            elseif f == "mode" then return t.glowColorMode or "default"
+            -- The tile keeps its color under t.color, the rest under glow*.
+            elseif f == "color" then local c = t.color; if c then return c.r, c.g, c.b end
+            end
+            return EllesmereUI.GlowOptions.FlatGet(t, "glow", f)
+        end,
+        set = function(f, a, b2, c2)
+            if f == "style" then t.glowType = a
+            elseif f == "mode" then t.glowColorMode = a
+            elseif f == "color" then t.color = { r = a, g = b2, b = c2 }
+            elseif f == "bg" then t.glowBackground = a and true or nil
+            else EllesmereUI.GlowOptions.FlatSet(t, "glow", f, a, b2, c2)
+            end
+        end,
+    }
+end
+
 local function DmProfile()
     return ns.db and ns.db.profile
 end
@@ -97,16 +130,24 @@ end
 -------------------------------------------------------------------------------
 
 local function TileSubtitle(t)
-    -- Every tile type routes via the catch-all flavor plus the checked filter set.
+    -- Every tile type routes via the catch-all flavor plus the checked filter set;
+    -- Match All joins the filters the way they combine.
     local names = {}
     if t.all == true then names[#names + 1] = L("All Debuffs") end
     if t.hasDuration == true then names[#names + 1] = L("Has Duration") end
+    local cats = {}
     if t.claim then
         for _, cat in ipairs(CAT_ORDER) do
-            if t.claim[cat] then names[#names + 1] = L(CAT_VALUES[cat]) end
+            if t.claim[cat] then cats[#cats + 1] = L(CAT_VALUES[cat]) end
+        end
+        for _, cat in ipairs(LESS_CAT_ORDER) do
+            if t.claim[cat] then cats[#cats + 1] = L(LESS_CAT_VALUES[cat]) end
         end
     end
-    if #names == 0 then return L("No filters routed") end
+    if #names == 0 and #cats == 0 then return L("No filters routed") end
+    if #cats > 0 then
+        names[#names + 1] = table.concat(cats, ns.DM_TileMatchOn(t) and " & " or ", ")
+    end
     return table.concat(names, ", ")
 end
 
@@ -240,16 +281,43 @@ local function DmSetLane(show, owner, dm, k, v, neg)
     end
     if v and modeKey then dm[modeKey] = mode end
 end
+-- Match Mode rows (a radio pair over t.match, nil = Match Any = the union),
+-- locked while the tile's All Debuffs shows everything, spliced in after Has
+-- Duration like the Base Icons dropdown's.
+local TILE_MATCH_ANY = "__tMatchAny"
+local TILE_MATCH_ALL = "__tMatchAll"
+local function TileLaneItems(t)
+    local function Locked() return t.all == true end
+    local lockTip = EllesmereUI.L("Uncheck All Debuffs to choose how the Show filters combine.")
+    local items = {}
+    for i = 1, #TILE_LANE_ITEMS do
+        local it = TILE_LANE_ITEMS[i]
+        items[#items + 1] = it
+        if it.key == TILE_CA_DUR then
+            items[#items + 1] = { isHeader = true, label = "Match Mode" }
+            items[#items + 1] = { key = TILE_MATCH_ANY, label = EllesmereUI.L("Match Any Filter"), isModifier = true,
+                lockedFn = Locked, lockedTooltip = lockTip,
+                tooltip = EllesmereUI.L("Shows debuffs that match any checked Show filter (the default).") }
+            items[#items + 1] = { key = TILE_MATCH_ALL, label = EllesmereUI.L("Match All Filters"), isModifier = true,
+                lockedFn = Locked, lockedTooltip = lockTip,
+                tooltip = EllesmereUI.L("Shows only debuffs that match every checked Show filter (dispel types count as one); the rest stay where they already show.") }
+        end
+    end
+    return items
+end
 local function BuildTileFiltersDD(rgn, t, dm)
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
     if rgn._control then rgn._control:Hide() end
     if not t.claim then t.claim = {} end
     local claim = t.claim
     local function NegHas(cat) return t.neg ~= nil and t.neg[cat] == true end
-    local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
+    local warnClosed
+    local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
         rgn, 190, rgn:GetFrameLevel() + 2,
-        TILE_LANE_ITEMS,
+        TileLaneItems(t),
         function(k, neg)
+            if k == TILE_MATCH_ALL then return t.match == "all" end
+            if k == TILE_MATCH_ANY then return t.match ~= "all" end
             if k == TILE_CA_ALL then return t.all == true end
             if k == TILE_CA_DUR then return t.hasDuration == true end
             if k == "dispel_you" then
@@ -269,6 +337,13 @@ local function BuildTileFiltersDD(rgn, t, dm)
             return claim[k] and true or false
         end,
         function(k, v, neg)
+            if k == TILE_MATCH_ANY or k == TILE_MATCH_ALL then
+                -- Radio pair: the clicked row wins whatever its checked state.
+                t.match = (k == TILE_MATCH_ALL) and "all" or nil
+                DmApply()
+                EllesmereUI:RefreshPage()
+                return
+            end
             if k == TILE_CA_ALL or k == TILE_CA_DUR then
                 -- Independent bits: All Debuffs = catch-all, Has Duration =
                 -- AND-modifier (combinable with All or any claims).
@@ -289,10 +364,22 @@ local function BuildTileFiltersDD(rgn, t, dm)
             -- the menu.
             EllesmereUI:RefreshPage()
         end,
-        nil, 12)
+        nil, 12, nil, nil, function()
+            if warnClosed then warnClosed() end
+        end,
+        -- The summary joins picks the way they combine (Base Icons parity).
+        { separatorFn = function()
+            return ns.DM_TileMatchOn(t) and " & " or ", "
+        end })
     PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
     rgn._control = cbDD
     rgn._lastInline = nil
+    if cbRefresh then EllesmereUI.RegisterWidgetRefresh(cbRefresh) end
+    -- Match All picks that can never match together show nothing here (the
+    -- runtime's own test); an ordinary empty tile keeps its quiet subtitle.
+    warnClosed = EllesmereUI.AttachEmptyFilterWarn(rgn, cbDD,
+        EllesmereUI.L("These filters can never match together."),
+        function() return not ns.DM_TileMatchEmpty(t) end)
 end
 local function BuildFxEffects(frame, sy, fxOwner)
     local W = EllesmereUI.Widgets
@@ -314,21 +401,7 @@ local function BuildFxEffects(frame, sy, fxOwner)
     end
     local list = fxOwner.fxList or {}
 
-    local GLOW_VALUES = { [0] = "None" }
-    local GLOW_ORDER = { 0 }
-    local Styles = EllesmereUI.Glows and EllesmereUI.Glows.STYLES
-    if Styles then
-        for i, entry in ipairs(Styles) do
-            -- Auto-Cast Shine joins Shape Glow in the exclusions: these
-            -- glows live on the forbidden slot-button subtree, and neither
-            -- style has a C-side equivalent to render there (stale saved
-            -- picks fall back to Modern WoW Glow via StartEngineGlow).
-            if not (entry.shapeGlow or entry.autocast) then
-                GLOW_VALUES[i] = entry.name
-                GLOW_ORDER[#GLOW_ORDER + 1] = i
-            end
-        end
-    end
+    local GO = EllesmereUI.GlowOptions
 
     -- One "ICON EFFECTS" section block per list entry.
     for bi = 1, #list do
@@ -368,79 +441,24 @@ local function BuildFxEffects(frame, sy, fxOwner)
             end)
         end
 
-        -- Row 1: Filters | Icon Glow (+ class/custom swatches)
+        -- Row 1: Filters | Icon Glow (shared glow controls)
+        local glowDesc = GO.PrefixSite(function() return e end, "glow", "engine", DmApply)
+        -- The half next to Filters is too narrow for the color swatches.
+        glowDesc.colorInCog = true
         local row
         row, hh = W:DualRow(frame, sy,
             { type = "dropdown", text = "Filters",
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
               setValue = function() end },
-            { type = "dropdown", text = "Icon Glow",
-              values = GLOW_VALUES, order = GLOW_ORDER,
-              getValue = function() return e.glowType or 0 end,
-              setValue = function(v) e.glowType = v; DmApply(); EllesmereUI:RefreshPage() end }); sy = sy - hh
+            GO.DropdownSpec(glowDesc, "Icon Glow")); sy = sy - hh
         do
             -- The SAME filter dropdown as Assigned Debuffs / tile panes
             -- (shared items incl. the split dispel entries + tooltips).
             if not e.filters then e.filters = {} end
             BuildFilterCBDropdown(row._leftRegion, e.filters, DmTable() or {})
         end
-        do
-            local rgn = row._rightRegion
-            local ctrl = rgn._control
-
-            local classSwatch, updateClassSwatch = EllesmereUI.BuildColorSwatch(
-                rgn, row:GetFrameLevel() + 3,
-                function()
-                    local _, classFile = UnitClass("player")
-                    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-                    if cc then return cc.r, cc.g, cc.b end
-                    return 1, 0.82, 0
-                end,
-                function() end,
-                false, 20)
-            PP.Point(classSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            classSwatch:SetScript("OnClick", function()
-                e.glowClassColor = true; DmApply(); EllesmereUI:RefreshPage()
-            end)
-            classSwatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Colored")
-            end)
-            classSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(
-                rgn, row:GetFrameLevel() + 3,
-                function() return e.glowR or 1.0, e.glowG or 0.776, e.glowB or 0.376 end,
-                function(r, g, b)
-                    e.glowR, e.glowG, e.glowB = r, g, b
-                    DmApply()
-                end,
-                false, 20)
-            PP.Point(glowSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
-            glowSwatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(glowSwatch, "Custom Colored")
-            end)
-            glowSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            -- Click the dimmed custom swatch to switch back from class color.
-            local origGlowClick = glowSwatch:GetScript("OnClick")
-            glowSwatch:SetScript("OnClick", function(self, ...)
-                if e.glowClassColor then
-                    e.glowClassColor = false; DmApply(); EllesmereUI:RefreshPage()
-                    return
-                end
-                if (e.glowType or 0) == 0 then return end
-                if origGlowClick then origGlowClick(self, ...) end
-            end)
-
-            local function UpdateFxGlowState()
-                local noGlow = (e.glowType or 0) == 0
-                local isClassColored = e.glowClassColor
-                glowSwatch:SetAlpha((isClassColored or noGlow) and 0.3 or 1)
-                classSwatch:SetAlpha((isClassColored and not noGlow) and 1 or 0.3)
-            end
-            EllesmereUI.RegisterWidgetRefresh(function() updateGlowSwatch(); updateClassSwatch(); UpdateFxGlowState() end)
-            UpdateFxGlowState()
-        end
+        GO.AttachInline(row._rightRegion, glowDesc)
 
         -- Row 2: Border (+ swatch, the DISPLAY-section Border style) | Size
         -- (icon size for the matched filters; 0 = the grid's own size).
@@ -655,10 +673,14 @@ local function BuildBaseDetailDM(frame, fontPath)
                 for i = 1, #tiles do
                     local t = tiles[i]
                     if t.enabled then
-                        if t.all == true or t.hasDuration == true then return true end
-                        if t.claim then
-                            for _, on in pairs(t.claim) do
-                                if on then return true end
+                        if t.all == true then return true end
+                        -- A Match All indicator whose picks can never match shows nothing.
+                        if not ns.DM_TileMatchEmpty(t) then
+                            if t.hasDuration == true then return true end
+                            if t.claim then
+                                for _, on in pairs(t.claim) do
+                                    if on then return true end
+                                end
                             end
                         end
                     end
@@ -1201,42 +1223,23 @@ local function BuildTileDetail(frame, fontPath, t)
 
     -- Effect tiles: checked filter categories + type-specific visuals.
     _, hh = W:SectionHeader(frame, "EFFECT", sy); sy = sy - hh
+    -- Frame Glow: shared glow controls over the tile's own keys (always on: no None).
+    local GO = EllesmereUI.GlowOptions
+    local glowDesc
+    if t.type == "glow" then
+        glowDesc = TileGlowDesc(t, DmApply)
+    end
     local catRow
     catRow, hh = W:DualRow(frame, sy,
         { type = "dropdown", text = "Filters",
           values = { __placeholder = "..." }, order = { "__placeholder" },
           getValue = function() return "__placeholder" end,
           setValue = function() end },
-        { type = "label", text = (t.type == "bar") and "" or "Color" }); sy = sy - hh
+        glowDesc and GO.DropdownSpec(glowDesc, "Glow")
+            or { type = "label", text = (t.type == "bar" or t.type == "glow") and "" or "Color" }); sy = sy - hh
     BuildTileFiltersDD(catRow._leftRegion, t, DmTable() or {})
-    if t.type == "glow" then
-        -- Trio swatch (default / custom / class) -- the CDM pandemic-glow
-        -- color pattern.
-        local rgn = catRow._rightRegion
-        local PPl = EllesmereUI.PP or EllesmereUI.PanelPP
-        local customSwatch, defaultSwatch, classSwatch = EllesmereUI.BuildTrioColorSwatch(
-            rgn, catRow:GetFrameLevel() + 3,
-            {
-                getMode = function() return t.glowColorMode or "default" end,
-                setMode = function(m)
-                    t.glowColorMode = m
-                    DmApply()
-                end,
-                getCustomRGB = function()
-                    local c = t.color
-                    return (c and c.r) or 1, (c and c.g) or 0.78, (c and c.b) or 0.38
-                end,
-                setCustomRGB = function(r, g, b)
-                    t.color = { r = r, g = g, b = b }
-                    DmApply()
-                end,
-                hasClassColor = true,
-                onChange = function() EllesmereUI:RefreshPage() end,
-            })
-        PPl.Point(classSwatch, "RIGHT", rgn, "RIGHT", -20, 0)
-        PPl.Point(customSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
-        PPl.Point(defaultSwatch, "RIGHT", customSwatch, "LEFT", -8, 0)
-        rgn._lastInline = defaultSwatch
+    if glowDesc then
+        GO.AttachInline(catRow._rightRegion, glowDesc)
     elseif t.type ~= "bar" then
         -- Health color rides a dedicated Opacity slider (BM parity), so
         -- its swatch has no alpha strip. (The bar's colors live in its
@@ -1258,22 +1261,7 @@ local function BuildTileDetail(frame, fontPath, t)
         rgn._lastInline = swatch
     end
 
-    if t.type == "glow" then
-        -- Frame Glow renders exactly one style: the animation-driven pixel
-        -- march (the only look the forbidden slot subtree can run).
-        _, hh = W:DualRow(frame, sy,
-            { type = "slider", text = "Speed", min = 1, max = 10, step = 1,
-              getValue = function() return t.glowSpeed or 4 end,
-              setValue = function(v) TSet("glowSpeed", v) end },
-            { type = "slider", text = "Lines", min = 4, max = 16, step = 1,
-              getValue = function() return t.glowLines or 8 end,
-              setValue = function(v) TSet("glowLines", v) end }); sy = sy - hh
-        _, hh = W:DualRow(frame, sy,
-            { type = "slider", text = "Thickness", min = 1, max = 4, step = 1,
-              getValue = function() return t.glowThickness or 2 end,
-              setValue = function(v) TSet("glowThickness", v) end },
-            { type = "label", text = "" }); sy = sy - hh
-    elseif t.type == "bar" then
+    if t.type == "bar" then
         -- BM bar indicator CORE + DISPLAY 1:1 (minus Own Only and the
         -- 12.1-removed Max Duration / Threshold).
         local isVert = (t.orientation or "HORIZONTAL") == "VERTICAL"
@@ -1384,7 +1372,19 @@ local function BuildTileDetail(frame, fontPath, t)
             { type = "slider", text = "Opacity", min = 5, max = 100, step = 1,
               getValue = function() return t.opacity or 45 end,
               setValue = function(v) TSet("opacity", v) end },
-            { type = "label", text = "" }); sy = sy - hh
+            EllesmereUI.MaxDurationDropdown(
+                function() return t.maxDurSec end,
+                function(v) t.maxDurSec = v end,
+                DmApply)); sy = sy - hh
+    elseif t.type == "glow" then
+        -- The runtime folds the tile's cap into its effect filter
+        -- (EffectFilterForTile), as for the grid tiles.
+        _, hh = W:DualRow(frame, sy,
+            EllesmereUI.MaxDurationDropdown(
+                function() return t.maxDurSec end,
+                function(v) t.maxDurSec = v end,
+                DmApply),
+            EllesmereUI.BlankRowCfg()); sy = sy - hh
     end
     return sy
 end
@@ -1441,7 +1441,7 @@ local function DmPvClick(self)
     -- grid is an All Specs row, inherited in every concrete spec view.
     if id == "base" then
         if dmSpecSel ~= "allspecs" and ns.BM_InheritedGroupsFor
-            and ns.BM_InheritedGroupsFor(dmSpecSel) then
+            and ns.BM_InheritedGroupsFor(dmSpecSel, true) then
             dmInhSel = { group = "allspecs", id = "base" }
             EllesmereUI:RefreshPage(true)
             return
@@ -1453,7 +1453,7 @@ local function DmPvClick(self)
             if own[i].id == id then inOwn = true break end
         end
         if not inOwn then
-            local inhG = ns.BM_InheritedGroupsFor and ns.BM_InheritedGroupsFor(dmSpecSel)
+            local inhG = ns.BM_InheritedGroupsFor and ns.BM_InheritedGroupsFor(dmSpecSel, true)
             if inhG then
                 for gi = 1, #inhG do
                     local gl = ns.DM_BucketTiles and ns.DM_BucketTiles(inhG[gi])
@@ -1490,7 +1490,7 @@ function ns.DMP_RefreshPreview()
     -- own list -- the preview mirrors what that spec renders.
     local tiles = {}
     do
-        local inhG = ns.BM_InheritedGroupsFor and ns.BM_InheritedGroupsFor(dmSpecSel)
+        local inhG = ns.BM_InheritedGroupsFor and ns.BM_InheritedGroupsFor(dmSpecSel, true)
         if inhG then
             for gi = 1, #inhG do
                 local gl = ns.DM_BucketTiles and ns.DM_BucketTiles(inhG[gi])
@@ -1752,7 +1752,7 @@ function ns.DMP_RefreshPreview()
     local baseShown
     if dmSpecSel == "allspecs" then
         baseShown = true
-    elseif ns.BM_InheritedGroupsFor and ns.BM_InheritedGroupsFor(dmSpecSel) then
+    elseif ns.BM_InheritedGroupsFor and ns.BM_InheritedGroupsFor(dmSpecSel, true) then
         baseShown = not (ns.DM_BaseDisabled and ns.DM_BaseDisabled(dmSpecSel))
     end
     if baseShown then
@@ -1916,25 +1916,10 @@ function ns.DMP_RefreshPreview()
                         gov:EnableMouse(false)
                         pv._dmGlow = gov
                     end
-                    -- Color mode parity with the live renderer.
-                    local cr, cg2, cb2 = 1.0, 0.788, 0.137
-                    local mode = t.glowColorMode or "default"
-                    if mode == "class" then
-                        local _, cf = UnitClass("player")
-                        local ccc = cf and RAID_CLASS_COLORS and RAID_CLASS_COLORS[cf]
-                        if ccc then cr, cg2, cb2 = ccc.r, ccc.g, ccc.b end
-                    elseif mode == "custom" then
-                        local c = t.color or { r = 1, g = 0.78, b = 0.38 }
-                        cr, cg2, cb2 = c.r or 1, c.g or 0.78, c.b or 0.38
-                    end
+                    -- Live parity: the tile's own descriptor, the same call as the slot renderer.
+                    local spec = EllesmereUI.GlowOptions.Spec(TileGlowDesc(t))
                     gov:Show()
-                    -- Live parity: the animation-driven pixel march (the
-                    -- only style the live slots render).
-                    if Glows.StartAnimatedAnts then
-                        Glows.StartAnimatedAnts(gov, t.glowLines or 8,
-                            t.glowThickness or 2, t.glowSpeed or 4,
-                            cr, cg2, cb2, pv:GetWidth() or 72, pv:GetHeight() or 72)
-                    end
+                    Glows.StartSpecGlow(gov, spec, pv:GetWidth() or 72, pv:GetHeight() or 72, "engine", Glows.PANEL_EXTRA)
                     -- One overlay: the first qualifying glow tile wins.
                     pv._dmGlowUsed = true
                 end
@@ -1976,11 +1961,20 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         and not (type(dmSpecSel) == "string" and dmSpecSel:match("^spec%d")) then
         dmSpecSel = "allspecs"
     end
+    -- WoW Forever lists All Specs and one row per class, keyed to the bucket
+    -- that class renders now: a group view resets to All Specs and a spec
+    -- view follows its class's current bucket (it moves with the profile and
+    -- when that bucket loses its last tile, per-spec disable or Base Icons off).
+    if EllesmereUI.IS_FOREVER and dmSpecSel ~= "allspecs" then
+        local m = type(dmSpecSel) == "string" and dmSpecSel:match("^spec(%d+)$")
+        local cls = m and EllesmereUI.SpecClassOf(tonumber(m))
+        dmSpecSel = (cls and ns.DM_ForeverKey and ns.DM_ForeverKey(cls)) or "allspecs"
+    end
     local tiles = (ns.DM_BucketTiles and ns.DM_BucketTiles(dmSpecSel)) or {}
 
     -- Group buckets this view inherits from (concrete "spec<ID>" views
     -- only): their tiles lead the sidebar as read-only rows.
-    local inhGroups = ns.BM_InheritedGroupsFor and ns.BM_InheritedGroupsFor(dmSpecSel) or nil
+    local inhGroups = ns.BM_InheritedGroupsFor and ns.BM_InheritedGroupsFor(dmSpecSel, true) or nil
 
     -- The Base Icons grid is an All Specs indicator: OWN in the All Specs
     -- view, INHERITED (read-only, per-spec disable pill) in concrete spec
@@ -2166,7 +2160,8 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
             -- rename never re-declares containers).
             title = t.name or L(TYPE_NAMES[t.type] or t.type),
             posText = posText,
-            subtitle = TileSubtitle(t),
+            -- Live: filter and Match Mode clicks refresh without a rebuild.
+            subtitleFn = function() return TileSubtitle(t) end,
             selected = (dmSel == t.id and not dmInhSel),
             enabled = t.enabled and true or false,
             showToggle = true,
@@ -2182,7 +2177,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 EllesmereUI.ShowPickMenu(tileFrame, {
                     title = L("Add To"),
                     fontPath = fontPath,
-                    items = EllesmereUI.SpecBucketMenuItems(dmSpecSel),
+                    items = EllesmereUI.SpecBucketMenuItems(dmSpecSel, nil, ns.DM_ForeverKey),
                     onPick = function(key)
                         if ns.DM_CopyTile and ns.DM_CopyTile(t, key) then
                             DmApply()
@@ -2536,7 +2531,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         local specCenterX = pvSplitW + specSplitW / 2
         -- Roster shared with the right-click "Add To" menu (the menu
         -- rebuilds it lazily per open).
-        local specDDValues, specDDOrder, specDDIcons = EllesmereUI.BuildSpecBucketRoster()
+        local specDDValues, specDDOrder, specDDIcons = EllesmereUI.BuildSpecBucketRoster(nil, ns.DM_ForeverKey)
         specDDValues._menuOpts = {
             maxHeight = 300,
             icon = function(key) return specDDIcons[key] end,
@@ -2622,6 +2617,9 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     elseif selTile then
         settingsTitle:SetText(L(TYPE_NAMES[selTile.type] or selTile.type))
         subTitle:SetText("(" .. TileSubtitle(selTile) .. ")")
+        EllesmereUI.RegisterWidgetRefresh(function()
+            subTitle:SetText("(" .. TileSubtitle(selTile) .. ")")
+        end)
     elseif groupEmpty then
         local ginfo3 = ns.BM_GROUP_BUCKET_INFO and ns.BM_GROUP_BUCKET_INFO[dmSpecSel]
         settingsTitle:SetText(ginfo3 and L(ginfo3.name) or dmSpecSel)
@@ -3092,11 +3090,32 @@ function ns.BMP_ShowFilterEditor()
         function()
             local f = (ns.BM2_GetFilter and ns.BM2_GetFilter(sel.id)) or sel
             local universe = (ns.BM2_AllPresetSpells and ns.BM2_AllPresetSpells()) or {}
+            -- WoW Forever: a rank alternate on the filter holds its family's
+            -- primary too, so the search offers no second row for that buff.
+            -- nil on every other client.
+            local ap = ns.BM2_ForeverAltPrimary
+            local held
+            if ap then
+                held = {}
+                if f.spells then
+                    for sid in pairs(f.spells) do
+                        if ap[sid] and not ns.BM2_OtherClientSpell(f, sid) then held[ap[sid]] = true end
+                    end
+                end
+                if f.custom then
+                    for sid in pairs(f.custom) do
+                        if ap[sid] then held[ap[sid]] = true end
+                    end
+                end
+            end
             local out = {}
             for i = 1, #universe do
                 local id = universe[i]
-                local onFilter = (f.spells and f.spells[id] ~= nil)
+                -- An id kept only for the other client is not on the filter here.
+                local onFilter = (f.spells and f.spells[id] ~= nil
+                        and not ns.BM2_OtherClientSpell(f, id))
                     or (f.custom and f.custom[id])
+                    or (held and held[id])
                 if not onFilter then
                     local nm = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
                         or (C_Spell.GetSpellName and C_Spell.GetSpellName(id))
@@ -3170,7 +3189,8 @@ function ns.BMP_ShowFilterEditor()
         if info and info.class then
             byClass[info.class] = byClass[info.class] or {}
             table.insert(byClass[info.class], id)
-        else
+        elseif not ns.BM2_OtherClientSpell(sel, id) then
+            -- Ids kept only for the other client get no row.
             table.insert(customList, id)
         end
     end
@@ -3445,13 +3465,20 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
         end
         local function ByLabel(a, b) return a.label < b.label end
         local function ExtraItems()
+            -- WoW Forever: a rank alternate stands for its family's primary
+            -- (BM2_ResolveSpellsOwn), so Presets offers no second row for a
+            -- buff already assigned. nil on every other client.
+            local ap = ns.BM2_ForeverAltPrimary
             local covered = {}
             if ind.filters and ns.BM2_GetFilter then
                 for fid in pairs(ind.filters) do
                     local f = ns.BM2_GetFilter(fid)
                     if f then
                         for id, on in pairs(f.spells) do
-                            if on then covered[id] = true end
+                            if on and not ns.BM2_OtherClientSpell(f, id) then
+                                covered[id] = true
+                                if ap and ap[id] then covered[ap[id]] = true end
+                            end
                         end
                     end
                 end
@@ -3462,6 +3489,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
             local sp = ind.spells or {}
             for i = 1, #sp do
                 seen[sp[i]] = true
+                if ap and ap[sp[i]] then seen[ap[sp[i]]] = true end
                 selected[#selected + 1] = SpellEntry(sp[i])
             end
             for i = 1, #universe do
@@ -3600,8 +3628,12 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                 end
                 local so = ind.spellOrder
                 if so then
+                    -- WoW Forever: an entry saved under a rank alternate
+                    -- stands for its family's primary. nil elsewhere.
+                    local ap = ns.BM2_ForeverAltPrimary
                     for i = 1, #so do
                         local id = so[i]
+                        if ap then id = ap[id] or id end
                         if present[id] and not seen[id] then
                             seen[id] = true
                             Add(id)

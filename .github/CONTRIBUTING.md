@@ -64,8 +64,8 @@ will make changes to it myself.
   `EllesmereUI:ShowConfirmPopup`, never `StaticPopup_Show`.
 - Options pages use two-slot rows (`W:DualRow`). Fill slots left to right
   with no gaps; never pass `nil` as the right slot (use
-  `{ type = "label", text = "" }`); only the last row of a section may have
-  an empty slot.
+  `EllesmereUI.BlankRowCfg()`, a fresh blank label on every call); only the
+  last row of a section may have an empty slot.
 
 ## PR etiquette
 

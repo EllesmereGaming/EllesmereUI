@@ -296,8 +296,8 @@ local function ResolveItemBorderColor(itemLink)
         return STYLE.colors.itemDefaultBorder
     end
 
-    -- GetItemInfo reads the link (bonus-modified quality); ByID reads the base item.
-    local _, _, quality = GetItemInfo(itemLink)
+    -- C_Item.GetItemInfo reads the link (bonus-modified quality); ByID reads the base item.
+    local _, _, quality = C_Item.GetItemInfo(itemLink)
     if not quality and C_Item and C_Item.GetItemQualityByID then
         quality = C_Item.GetItemQualityByID(itemLink)
     end
@@ -375,8 +375,9 @@ local function SuppressItemButtonChrome(itemFrame)
         SuppressTexture(itemFrame:GetHighlightTexture())
     end
 
-    for i = 1, select("#", itemFrame:GetRegions()) do
-        local region = select(i, itemFrame:GetRegions())
+    local regions = { itemFrame:GetRegions() }
+    for i = 1, #regions do
+        local region = regions[i]
         if region and region:IsObjectType("Texture") and region ~= itemFrame.Icon and not region._euiOwned then
             SuppressTexture(region)
         end

@@ -485,6 +485,13 @@ end
 -- loads first).
 ns.FormatTime = FormatTime
 
+-- WoW Forever has no shared battle res charge pool, so the indicator does not
+-- exist there: the shared helpers above stay defined, and nothing below runs
+-- (no DB, frame, events, unlock mover or _G._EUI_BattleRes_* hooks), even when
+-- a saved or imported profile has it enabled. Every reader of those hooks
+-- nil-guards, and the options section and Fonts rows are not built there.
+if EllesmereUI.IS_FOREVER then return end
+
 local _lastCountText, _lastDurText, _lastCountColor
 local function _setCount(s, isZero)
     if s ~= _lastCountText then

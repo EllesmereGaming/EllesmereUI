@@ -47,14 +47,14 @@ end
 --  taint-safe, so re-calls from the dev's own refresh hooks are near-free.
 -------------------------------------------------------------------------------
 local base = {}
-base.apiVersion = 1
+base.apiVersion = 2   -- 2: SetTabSelection
 
 local PASS = {
     -- Containers / chrome
     "Panel", "Inset", "FadeRegions", "FadeNineSlice",
     -- Widgets
     "Button", "WhiteButtonLabel", "StateButtonLabel", "EditBox", "Checkbox", "Dropdown",
-    "ScrollBar", "Tab", "CloseButton", "PageButton", "SquareIcon",
+    "ScrollBar", "Tab", "SetTabSelection", "CloseButton", "PageButton", "SquareIcon",
     "SortHeaderBar",
     -- Text / bars
     "Font", "White", "ApplyBarFill",

@@ -89,8 +89,11 @@ function EUI.UnregisterVisibilityUpdater(fn)
     end
 end
 
--- Mouseover poll registry: each entry is { frame=, visible=, isActive=fn }.
+-- Mouseover poll registry: each entry is { frame=, visible=, isActive=fn, getAlpha=fn }.
 -- isActive returns true when that frame currently wants mouseover behavior.
+-- getAlpha (optional) returns the alpha a reveal applies, for a target whose shown
+-- state is not full alpha (the Minimap's Opacity); nil reveals at 1. It runs only on
+-- the reveal edge, never per tick.
 local mouseoverTargets = {}
 -- Mouseover predicates are pure functions of module settings plus the same state edges
 -- the dispatcher already watches, so each target's answer is cached and re-derived only
@@ -103,13 +106,14 @@ local mouseoverTargets = {}
 local _moGen = 1
 local MouseoverScan  -- defined with the scan below; bound here for the subscribe
 
-function EUI.RegisterMouseoverTarget(frame, isActive)
+function EUI.RegisterMouseoverTarget(frame, isActive, getAlpha)
     if not frame or type(isActive) ~= "function" then return end
+    if type(getAlpha) ~= "function" then getAlpha = nil end
     -- visible starts nil = "state not applied yet", not false: the scan below treats nil
     -- as unknown and applies the hidden state on its first active tick. Seeding false
     -- would make that first tick a no-op (already-false edge), so a target that becomes
     -- active with the cursor away never received its Hide() until the first real hover.
-    mouseoverTargets[#mouseoverTargets + 1] = { frame = frame, visible = nil, isActive = isActive }
+    mouseoverTargets[#mouseoverTargets + 1] = { frame = frame, visible = nil, isActive = isActive, getAlpha = getAlpha }
     -- First target arms the shared 0.15s scan on the Mouse service (same-key
     -- subscribe is idempotent). No targets registered = the scan never runs.
     EllesmereUI.Mouse.SubscribeTick("visMouseover", 0.15, MouseoverScan)
@@ -248,7 +252,8 @@ MouseoverScan = function(rawX, rawY)
                 if over then
                     if t.visible ~= true then
                         t.visible = true
-                        frame:SetAlpha(1); frame:EnableMouse(true); frame:Show()
+                        local ga = t.getAlpha
+                        frame:SetAlpha(ga and ga() or 1); frame:EnableMouse(true); frame:Show()
                     end
                 elseif t.visible ~= false then
                     t.visible = false

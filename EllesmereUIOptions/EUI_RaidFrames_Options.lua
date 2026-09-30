@@ -9,6 +9,9 @@ local ADDON_NAME = "EllesmereUIRaidFrames"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
+-- WoW Forever: the preview's numbers follow the live frames (EllesmereUI_NumberFormat.lua).
+local AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
+
 local PAGE_MAIN = "Frames"
 local PAGE_PARTY = "Party"
 local PAGE_BUFFS = "Buff Manager"
@@ -38,6 +41,53 @@ function ns.RF_PartyKitGate(cfg)
     cfg.rawTooltip      = nil
     cfg._blizzGated     = true
     return cfg
+end
+
+-- Move Frames button of a Free Move group (Friendly Boss, Extra Frames, Pet Frames): toggles its
+-- drag overlay, right-aligned in the DualRow half rgn. opts: isShown() and setShown(show), the
+-- overlay; allowed(), whether it can open (Free Move chosen, out of combat); optional enabled()
+-- with enabledTip, the group's own switch, which also dims rgn's plain label while off. Nothing is
+-- built during the search prebuild; returns the button.
+function ns.RF_OptMoveFramesButton(row, rgn, opts)
+    if EllesmereUI._prebuilding then return end
+    local btn = CreateFrame("Button", nil, row)
+    btn:SetSize(140, 26)
+    btn:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
+    btn:SetFrameLevel(row:GetFrameLevel() + 5)
+    local bbg = btn:CreateTexture(nil, "BACKGROUND")
+    bbg:SetAllPoints()
+    bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+    EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.25)
+    local lbl = btn:CreateFontString(nil, "OVERLAY")
+    EllesmereUI.ApplyModuleFont(lbl, nil, 13, "raidFrames")
+    lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    local enabled = opts.enabled
+    local function Update()
+        lbl:SetText(opts.isShown() and EllesmereUI.L("Stop Moving") or EllesmereUI.L("Move Frames"))
+        btn:SetAlpha(opts.allowed() and 1 or 0.35)
+        -- Plain-label slots have no native disabled handling.
+        if enabled and rgn._label then rgn._label:SetAlpha(enabled() and 1 or 0.3) end
+    end
+    btn:SetScript("OnEnter", function(self)
+        if enabled and not enabled() then
+            EllesmereUI.ShowWidgetTooltip(self, opts.enabledTip)
+        elseif not opts.allowed() then
+            EllesmereUI.ShowWidgetTooltip(self,
+                EllesmereUI.DisabledTooltip("This option requires Position to be set to Free Move"))
+        else
+            EllesmereUI.ShowWidgetTooltip(self,
+                "Drag the overlay to position the frames, then click again to lock")
+        end
+    end)
+    btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+    btn:SetScript("OnClick", function()
+        if not opts.allowed() then return end
+        opts.setShown(not opts.isShown())
+        Update()
+    end)
+    EllesmereUI.RegisterWidgetRefresh(Update)
+    Update()
+    return btn
 end
 
 -- Party page PORTRAIT section (every style; EUI_RaidFrames_Portrait.lua):
@@ -91,8 +141,8 @@ function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
 
     -- Art Style: 2D, 3D, or class art in one of seven sets (the flyout).
     local classVals = { modern = "Modern", arcade = "Arcade", glyph = "Glyph", legend = "Legend",
-        midnight = "Midnight", pixel = "Pixel", runic = "Runic" }
-    local classOrder = { "modern", "arcade", "glyph", "legend", "midnight", "pixel", "runic" }
+        midnight = "Midnight", pixel = "Pixel", pixelsComic = "Pixels Comic", runic = "Runic" }
+    local classOrder = { "modern", "arcade", "glyph", "legend", "midnight", "pixel", "pixelsComic", "runic" }
     local artValues = {
         ["3d"] = "3D Portrait",
         ["2d"] = "2D Portrait",
@@ -211,9 +261,18 @@ function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
         { type="slider", label="2D Zoom", min=50, max=100, step=1,
           get=function() return PV("partyPortraitArtScale", 100) end,
           set=function(v) PtSet("partyPortraitArtScale", v) end },
-        { type="slider", label="3D Zoom", min=100, max=300, step=1,
+        { type="slider", label="3D Zoom", min=100, max=ns.RF_PT_ZOOM3D_MAX, step=1,
+          tooltip="Above 300 the camera pulls back to show the whole character.",
           get=function() return PV("partyPortrait3dZoom", 100) end,
           set=function(v) PtSet("partyPortrait3dZoom", v) end },
+        { type="slider", label="Character Size", min=50, max=200, step=1,
+          tooltip="Scales the 3D character from the portrait's bottom edge, for use with the full-body 3D Zoom range above 300.",
+          disabled=function()
+              return PV("partyPortraitStyle", "none") ~= "detached" or not IsInside(PV("partyPortraitSide", "left"))
+          end,
+          disabledTooltip="This option requires an Inside position",
+          get=function() return PV("partyPortraitCharScale", 100) end,
+          set=function(v) PtSet("partyPortraitCharScale", v) end },
     } })
     EllesmereUI.BuildInlineCog(sizePosRow._rightRegion, { title = "Portrait Position Offsets", rows = {
         { type="slider", label="X Offset", min=-100, max=100, step=1,
@@ -286,6 +345,228 @@ function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
           get=function() return PV("partyPortraitBorderOpacity", 100) end,
           set=function(v) PtSet("partyPortraitBorderOpacity", v) end },
     } })
+    return y
+end
+
+-- Party page PARTY TARGETS section (every style, not kit-gated): Enable |
+-- Include Own Target, then, only while enabled, Fill Color | Background,
+-- Width | Height and Position (offsets cog). Party-only keys on db.profile;
+-- each setter takes the runtime's own light path (restyle, layout or the
+-- include edge), never a party reload. Returns the new y.
+function ns.RF_BuildPartyTargets(parent, y, W)
+    local db = ns.db
+    local BLANK = EllesmereUI.BlankRowCfg
+    local _, h, row
+    local function PV(k, d)
+        local v = db.profile[k]
+        if v == nil then return d end
+        return v
+    end
+    -- The party preview draws its own target frames (the real ones are dimmed under it).
+    local function Preview()
+        if ns.partyPvActive() then ns.ShowPartyPreview() end
+    end
+    -- Colour and background: the fingerprint-gated restyle and repaint.
+    local function PtSet(k, v)
+        db.profile[k] = v
+        ns.PT_Refresh()
+        Preview()
+    end
+    -- Size, side and offsets: the delta-gated layout (combat-deferred).
+    local function LaySet(k, v)
+        db.profile[k] = v
+        ns._PT_Layout()
+        Preview()
+    end
+    local DARK_TIP = "Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors."
+
+    _, h = W:SectionHeader(parent, "PARTY TARGETS", y); y = y - h
+
+    -- Row 1: Enable | Include Own Target. The rows below are HIDDEN while
+    -- off, so the flip rebuilds the page.
+    local on = db.profile.partyShowTargets == true   -- build time (the page rebuilds)
+    _, h = W:DualRow(parent, y,
+        { type="toggle", text="Enable Party Targets",
+          tooltip="Show a smaller secure target button beside each party frame. Left-click a button to target that party member's current target.",
+          getValue=function() return db.profile.partyShowTargets or false end,
+          setValue=EllesmereUI.SectionToggleSetValue(function(v)
+              db.profile.partyShowTargets = v
+              ns.PT_SetEnabled(v)
+              Preview()
+          end) },
+        on and { type="toggle", text="Include Own Target",
+          tooltip="Also show your own target beside your frame.",
+          -- Hide Self leaves no frame of yours to attach to.
+          disabled=function() return db.profile.partyHideSelf == true end,
+          disabledTooltip="Hide Self", requireState="disabled",
+          getValue=function() return db.profile.partyTargetIncludeSelf or false end,
+          setValue=function(v)
+              db.profile.partyTargetIncludeSelf = v
+              ns.PT_SetIncludeSelf(v)
+              Preview()
+          end }
+        or BLANK());  y = y - h
+
+    if not on then return y end
+
+    -- Row 2: Fill Color | Background (the Health Bar row's controls on the
+    -- target frames' own keys).
+    row, h = W:DualRow(parent, y,
+        { type="dropdown", text="Fill Color",
+          values={ class = "Class Color", dark = "Dark Mode", classic = "Classic", custom = "Custom Color" },
+          order={ "class", "dark", "classic", "custom" },
+          tooltip="Class Color uses the class color for players and the reaction color for NPCs.",
+          getValue=function() return PV("partyTargetHealthColorMode", "class") end,
+          setValue=function(v)
+              PtSet("partyTargetHealthColorMode", v)
+              EllesmereUI:RefreshPage()
+          end },
+        { type="slider", text="Background", min=0, max=100, step=1,
+          disabled=function() return PV("partyTargetHealthColorMode", "class") == "dark" end,
+          disabledTooltip=DARK_TIP, rawTooltip=true,
+          getValue=function() return PV("partyTargetBgDarkness", 50) end,
+          setValue=function(v) PtSet("partyTargetBgDarkness", v) end });  y = y - h
+    -- Custom fill swatch: live only in Custom mode, dimmed and blocked otherwise.
+    if not EllesmereUI._prebuilding then
+        local rgn = row._leftRegion
+        local swatch = EllesmereUI.BuildColorSwatch(
+            rgn, row:GetFrameLevel() + 3,
+            function()
+                local c = db.profile.partyTargetCustomFillColor
+                if c then return c.r, c.g, c.b, 1 end
+                return 37/255, 193/255, 29/255, 1
+            end,
+            function(r, g, b)
+                PtSet("partyTargetCustomFillColor", { r=r, g=g, b=b })
+            end, false, 20)
+        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = swatch
+        -- Blocking overlay: non-clickable + tooltip unless Fill Color is Custom.
+        local block = CreateFrame("Frame", nil, swatch)
+        block:SetAllPoints()
+        block:SetFrameLevel(swatch:GetFrameLevel() + 10)
+        block:EnableMouse(true)
+        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, "Only available with Custom fill color") end)
+        block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        local function UpdateSwatchVis()
+            if PV("partyTargetHealthColorMode", "class") == "custom" then
+                swatch:SetAlpha(1); block:Hide()
+            else
+                swatch:SetAlpha(0.3); block:Show()
+            end
+        end
+        EllesmereUI.RegisterWidgetRefresh(UpdateSwatchVis)
+        UpdateSwatchVis()
+    end
+    -- Background Custom + Class swatch pair: clicking either toggles partyTargetBgClassColored, the inactive one dims (mirrors the fill picker).
+    if not EllesmereUI._prebuilding then
+        local rgn = row._rightRegion
+        -- Class swatch shows the player's class color and is not editable.
+        local bgClassSwatch = EllesmereUI.BuildColorSwatch(
+            rgn, row:GetFrameLevel() + 3,
+            function()
+                local _, ct = UnitClass("player")
+                local cc = ct and EllesmereUI.GetClassColor(ct)
+                if cc then return cc.r, cc.g, cc.b, 1 end
+                return 1, 1, 1, 1
+            end,
+            function() end, false, 20)
+        bgClassSwatch:SetScript("OnClick", function()
+            PtSet("partyTargetBgClassColored", true)
+            EllesmereUI:RefreshPage()
+        end)
+        bgClassSwatch:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgClassSwatch, "Class Colored Background") end)
+        bgClassSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        bgClassSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = bgClassSwatch
+
+        local bgSwatch = EllesmereUI.BuildColorSwatch(
+            rgn, row:GetFrameLevel() + 3,
+            function()
+                local c = db.profile.partyTargetCustomBgColor
+                if c then return c.r, c.g, c.b, 1 end
+                return 17/255, 17/255, 17/255, 1
+            end,
+            function(r, g, b)
+                PtSet("partyTargetCustomBgColor", { r=r, g=g, b=b })
+            end, false, 20)
+        bgSwatch._eabOrigClick = bgSwatch:GetScript("OnClick")
+        bgSwatch:SetScript("OnClick", function(self)
+            if PV("partyTargetBgClassColored", false) then
+                PtSet("partyTargetBgClassColored", false)
+                EllesmereUI:RefreshPage()
+                return
+            end
+            if self._eabOrigClick then self._eabOrigClick(self) end
+        end)
+        bgSwatch:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgSwatch, "Custom Background Color") end)
+        bgSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        bgSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = bgSwatch
+        -- Blocking overlay spans BOTH swatches: Dark Mode has no background.
+        local bgBlock = CreateFrame("Frame", nil, rgn)
+        bgBlock:SetPoint("TOPLEFT", bgSwatch, "TOPLEFT", 0, 0)
+        bgBlock:SetPoint("BOTTOMRIGHT", bgClassSwatch, "BOTTOMRIGHT", 0, 0)
+        bgBlock:SetFrameLevel(bgClassSwatch:GetFrameLevel() + 10)
+        bgBlock:EnableMouse(true)
+        bgBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgSwatch, DARK_TIP) end)
+        bgBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        local function UpdateBgSwatchVis()
+            if PV("partyTargetHealthColorMode", "class") == "dark" then
+                bgSwatch:SetAlpha(0.3); bgClassSwatch:SetAlpha(0.3); bgBlock:Show()
+            else
+                bgBlock:Hide()
+                local classOn = PV("partyTargetBgClassColored", false)
+                bgSwatch:SetAlpha(classOn and 0.3 or 1)
+                bgClassSwatch:SetAlpha(classOn and 1 or 0.3)
+            end
+        end
+        EllesmereUI.RegisterWidgetRefresh(UpdateBgSwatchVis)
+        UpdateBgSwatchVis()
+    end
+
+    -- Row 3: Width | Height (absolute, not scaled with the party frames).
+    _, h = W:DualRow(parent, y,
+        { type="slider", text="Width", min=20, max=300, step=1,
+          getValue=function() return PV("partyTargetWidth", 70) end,
+          setValue=function(v) LaySet("partyTargetWidth", v) end },
+        { type="slider", text="Height", min=10, max=150, step=1,
+          getValue=function() return PV("partyTargetHeight", 33) end,
+          setValue=function(v) LaySet("partyTargetHeight", v) end });  y = y - h
+
+    -- Row 4: Position (+ offsets cog). Shows the side the frames actually
+    -- take (the Horizontal Frames setter's refresh re-reads it); a pick of
+    -- the side an unset Position shows (the kit's move included) is stored
+    -- as unset, so it keeps following the layout and the frame style.
+    -- Under the Party Frames kit the stacked frames' buff side is taken.
+    row, h = W:DualRow(parent, y,
+        { type="dropdown", text="Position",
+          tooltip="Right by default, or Bottom with Horizontal Frames. With Frame Style: Party Frames, the side holding the buffs is not available.",
+          values={ top = "Top", bottom = "Bottom", left = "Left", right = "Right" },
+          order={ "top", "bottom", "left", "right" },
+          itemDisabled=function(v)
+              local p = db.profile
+              if p.partyHorizontal or not ns.RF_PartyKit() then return false end
+              local m = ns.RF_KitBuffMode(p)
+              return (m == "RIGHT" and v == "right") or (m == "LEFT" and v == "left")
+          end,
+          itemDisabledTooltip=function(v)
+              if v == "left" or v == "right" then return "Frame Style: Party Frames" end
+          end,
+          itemRequireState="disabled",
+          getValue=function() return ns.PT_ShownSide() end,
+          setValue=function(v)
+              LaySet("partyTargetPosition", (v ~= ns.PT_ShownSide(true)) and v or nil)
+          end },
+        BLANK());  y = y - h
+    EllesmereUI.BuildInlineCog(row._leftRegion, { title = "Target Position Offsets", rows = {
+        { type="slider", label="X Offset", min=-100, max=100, step=1,
+          get=function() return PV("partyTargetOffsetX", 0) end,
+          set=function(v) LaySet("partyTargetOffsetX", v) end },
+        { type="slider", label="Y Offset", min=-100, max=100, step=1,
+          get=function() return PV("partyTargetOffsetY", 0) end,
+          set=function(v) LaySet("partyTargetOffsetY", v) end },
+    }, icon = EllesmereUI.DIRECTIONS_ICON })
     return y
 end
 
@@ -378,6 +659,57 @@ initFrame:SetScript("OnEvent", function(self)
             return db.profile["party_" .. key]
         end
         return SGet(key)
+    end
+
+    -- WoW Forever: the Missing Buffs icons' glow (prefix keys missingBuffsGlow*)
+    -- as a shared glow descriptor over a read/write pair -- the page's context-
+    -- aware SVal/SWrite in the indicator's cog, the raid keys on Global
+    -- Settings > Glows (built outside any tab, so never through the tab context).
+    local MissingGlowDesc
+    if EllesmereUI.IS_FOREVER then
+        local GK = EllesmereUI.Glows.PrefixKeys("missingBuffsGlow")
+        function MissingGlowDesc(read, write)
+            return {
+                host = "icon", excludes = { [4] = true },
+                caps = { mode = true, params = true, bg = true },
+                defaultColor = EllesmereUI.Glows.DEFAULT_COLOR,
+                onChange = ReloadAndUpdate,
+                disabled = function() return read("showMissingBuffs", true) == false end,
+                disabledTooltip = "Missing Buffs",
+                get = function(f)
+                    if f == "style" then return read(GK.type, 2)
+                    elseif f == "mode" then return read(GK.mode, "default")
+                    elseif f == "color" then return read(GK.r), read(GK.g), read(GK.b)
+                    elseif f == "lines" then return read(GK.lines)
+                    elseif f == "thickness" then return read(GK.th)
+                    elseif f == "speed" then return read(GK.speed)
+                    elseif f == "bg" then return read(GK.bg) == true
+                    elseif f == "bgColor" then return read(GK.bgR), read(GK.bgG), read(GK.bgB)
+                    end
+                end,
+                set = function(f, a, b, c)
+                    if f == "style" then write(GK.type, a)
+                    elseif f == "mode" then write(GK.mode, a)
+                    elseif f == "color" then write(GK.r, a); write(GK.g, b); write(GK.b, c)
+                    elseif f == "lines" then write(GK.lines, a)
+                    elseif f == "thickness" then write(GK.th, a)
+                    elseif f == "speed" then write(GK.speed, a)
+                    elseif f == "bg" then write(GK.bg, a and true or nil)
+                    elseif f == "bgColor" then write(GK.bgR, a); write(GK.bgG, b); write(GK.bgB, c)
+                    end
+                end,
+            }
+        end
+        EllesmereUI.GlowOptions.RegisterSite({ id = "rf_missing_buffs", label = "Missing Buffs Glow",
+            group = "module", module = "EllesmereUIRaidFrames", page = PAGE_MAIN,
+            section = "INDICATORS", highlight = "Missing Buffs",
+            desc = MissingGlowDesc(
+                function(key, default)
+                    local v = db.profile[key]
+                    if v == nil then return default end
+                    return v
+                end,
+                function(key, v) db.profile[key] = v end) })
     end
 
     ---------------------------------------------------------------------------
@@ -781,13 +1113,16 @@ initFrame:SetScript("OnEvent", function(self)
         ["maxHealthStripes"]      = "Max Health Stripes",       -- reduced max-health overlay
         -- The native raid fill (the shared-media copy dedupes against it).
         ["blizzardRaid"]          = "Blizzard Raid Bar",
+        ["pixelsShield"]          = "Pixels Shield",            -- pixels-shield.tga
+        ["pixelsShieldEdge"]      = "Pixels Shield Edge",       -- shield-only: pixels-shield-edge.tga
+        ["pixelsShieldFill"]      = "Pixels Shield Fill",       -- shield-only: pixels-shield-fill.tga (tiled)
     }
     -- Shield absorb shows every style including Blizzard (Modern).
-    local absorbStyleOrder = { "none", "blizzardModern", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeStripes", "largeStripesR", "blizzardRaid" }
+    local absorbStyleOrder = { "none", "blizzardModern", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeStripes", "largeStripesR", "blizzardRaid", "pixelsShield", "pixelsShieldEdge", "pixelsShieldFill" }
     -- Heal absorb shares the values table but EXCLUDES Blizzard (Modern).
-    local healAbsorbStyleOrder = { "none", "healBlizzModern", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
+    local healAbsorbStyleOrder = { "none", "healBlizzModern", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid", "pixelsShield" }
     -- Max Health mirrors Heal Absorb plus "Max Health Stripes" first.
-    local maxHealthStyleOrder = { "none", "maxHealthStripes", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
+    local maxHealthStyleOrder = { "none", "maxHealthStripes", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid", "pixelsShield" }
     -- Appends SharedMedia statusbar textures after a divider (mirrors Bar Texture dropdown). "sm:" keys land in the shared health-bar tables via AppendSharedMediaTextures; resolution flows through ns.ResolveAbsorbStyleTex -> health-bar lookup.
     -- All three dropdowns share absorbStyleValues, so each gains the SM entries and preview swatch.
     do
@@ -1006,7 +1341,6 @@ initFrame:SetScript("OnEvent", function(self)
                 wipe(ns._healthAnimState)
 
                 local frames = ns.PvActiveFrames()
-                local s = (ns.PvEffectiveProfile and ns.PvEffectiveProfile()) or db.profile
                 for i = 1, 20 do
                     local f = frames[i]
                     if f and f._health then
@@ -1025,8 +1359,9 @@ initFrame:SetScript("OnEvent", function(self)
                 ns._healthAnimTicker = C_Timer.NewTicker(0.1, function()
                     if not ns._healthAnimActive then return end
                     -- Real preview contract: ticks must render effective-overlay values only, never the panel view's swapped values.
-                    local s = (ns.PvEffectiveProfile and ns.PvEffectiveProfile()) or db.profile
+                    local s = ns.PvSettings()
                     local smooth = s.smoothBars
+                    local invert = ns.RF_IsInvertedFill(s)
 
                     for i, st in ipairs(ns._healthAnimState) do
                         local f = st.frame
@@ -1040,10 +1375,11 @@ initFrame:SetScript("OnEvent", function(self)
                                 st.current = st.target
                                 st.target = 15 + math.random(85)
 
+                                local barPct = invert and (100 - st.current) or st.current
                                 if smooth and smoothInterp then
-                                    f._health:SetValue(st.current, smoothInterp)
+                                    f._health:SetValue(barPct, smoothInterp)
                                 else
-                                    f._health:SetValue(st.current)
+                                    f._health:SetValue(barPct)
                                 end
 
                                 if f._healthText then
@@ -1163,7 +1499,9 @@ initFrame:SetScript("OnEvent", function(self)
                 local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.83, b = 0.62 }
                 local ar, ag, ab = EG.r, EG.g, EG.b
 
-                local tip = CreateFrame("Frame", nil, UIParent)
+                -- On the panel body like the other panel tips: it hides with the
+                -- window when it collapses and rides the panel scale.
+                local tip = CreateFrame("Frame", nil, EllesmereUI._panelBody)
                 tip:SetFrameStrata("FULLSCREEN_DIALOG")
                 tip:SetFrameLevel(200)
                 if PP then PP.Size(tip, TIP_W, TIP_H) end
@@ -1261,6 +1599,10 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return SVal("healthVerticalFill", false) end,
                       -- RefreshPage re-labels Absorbs Placement for the new axis; cog popups bake labels in on first build.
                       set=function(v) SSet("healthVerticalFill", v); EllesmereUI:RefreshPage() end }),
+                    ns.RF_PartyKitGate({ type="toggle", label="Fill Missing Health",
+                      tooltip="The bar fills with missing health, growing as the unit takes damage.",
+                      get=function() return SVal("healthInvertFill", false) end,
+                      set=function(v) SSet("healthInvertFill", v) end }),
                 },
             })
         end
@@ -2113,6 +2455,8 @@ initFrame:SetScript("OnEvent", function(self)
                                 else
                                     f._power:SetValue(st.current)
                                 end
+                                -- Power Text follows the animated value (ApplyPreviewData sets f._pwtMode; nil = hidden).
+                                if f._pwtMode then ns.RF_PowerTextInto(f._powerText, f._pwtMode, st.current, nil, nil, f._pwtPer) end
                             end
                         end
                     end
@@ -2430,20 +2774,31 @@ initFrame:SetScript("OnEvent", function(self)
                       return SVal("nameColorMode", "class") == "accent" and 1 or 0.3
                   end },
               } });  y = y - h
-        -- Name char cap + text stacking cog, on the Name Size slider.
+        -- Name char cap + text stacking cog, on the Name Size slider. WoW Forever
+        -- heads it with Name Format (the character name's first or last word; First
+        -- and Last is the default). "full" is stored, not nil: a party section's nil
+        -- would fall through to the raid value.
         do
             local rgn = row._leftRegion
+            local nameRows = {
+                { type="slider", label="Max Characters (0=off)", min=0, max=30, step=1,
+                  get=function() return SVal("nameMaxLength", 15) end,
+                  set=function(v) SSet("nameMaxLength", v) end },
+                { type="toggle", label="Show Above Icons",
+                  tooltip="Render the name and health text above buff and debuff icons.",
+                  get=function() return SVal("nameTextAboveIcons", false) end,
+                  set=function(v) SSet("nameTextAboveIcons", v) end },
+            }
+            if EllesmereUI.IS_FOREVER then
+                table.insert(nameRows, 1, { type="dropdown", label="Name Format",
+                    values={ first = "First Name", last = "Last Name", full = "First and Last" },
+                    order={ "first", "last", "full" },
+                    get=function() return SVal("nameFormat", "full") end,
+                    set=function(v) SSet("nameFormat", v) end })
+            end
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Name Text",
-                rows = {
-                    { type="slider", label="Max Characters (0=off)", min=0, max=30, step=1,
-                      get=function() return SVal("nameMaxLength", 15) end,
-                      set=function(v) SSet("nameMaxLength", v) end },
-                    { type="toggle", label="Show Above Icons",
-                      tooltip="Render the name and health text above buff and debuff icons.",
-                      get=function() return SVal("nameTextAboveIcons", false) end,
-                      set=function(v) SSet("nameTextAboveIcons", v) end },
-                },
+                rows = nameRows,
             })
         end
 
@@ -2565,6 +2920,156 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
         end   -- close Health Text dependent-row gate
+
+        -- Level Position (+ offset cog) | Level Size: the unit's level in front of the name inside
+        -- the name text ("Attach to Name", the WoW Forever default, None on retail: "60 Name"; "(Divider)": "60 | Name"; both
+        -- follow the Name Size), or in the name's colour on its own spot. None = off.
+        do
+            local levelPosValues = { name = "Attach to Name", nameDiv = "Attach to Name (Divider)" }
+            for k, v in pairs(namePositionValuesName) do levelPosValues[k] = v end
+            local levelPosOrder = { "name", "nameDiv", "topleft", "top", "topright", "left", "center",
+                "right", "bottomleft", "bottom", "bottomright", "none" }
+            local function LvlPos() return SVal("levelTextPosition", ns.RF_LEVEL_DEFAULT) end
+            local function LvlAttached() return ns.RF_LEVEL_ATTACH[LvlPos()] ~= nil end
+            local function LvlSpotOff() return LvlPos() == "none" or LvlAttached() end
+            local function LvlReq()
+                return LvlAttached() and "Attached to the name, the level uses the Name Size." or "Level Position"
+            end
+            local function LvlCogReq()
+                return LvlAttached() and "Attached to the name, the level follows the name's position." or "Level Position"
+            end
+            row, h = W:DualRow(parent, y,
+                { type="dropdown", text="Level Position", values=levelPosValues, order=levelPosOrder,
+                  getValue=LvlPos,
+                  setValue=function(v) SSet("levelTextPosition", v); EllesmereUI:RefreshPage() end },
+                { type="slider", text="Level Size", min=6, max=26, step=1,
+                  disabled=LvlSpotOff, disabledTooltip=LvlReq, rawTooltip=LvlAttached,
+                  getValue=function() return SVal("levelTextSize", 10) end,
+                  setValue=function(v) SSet("levelTextSize", v) end });  y = y - h
+            EllesmereUI.BuildInlineCog(row._leftRegion, {
+                icon = EllesmereUI.DIRECTIONS_ICON,
+                disabled = LvlSpotOff, disabledTooltip = LvlCogReq, rawTooltip = LvlAttached,
+                title = "Level Offset",
+                rows = {
+                    { type="slider", label="Offset X", min=-500, max=500, step=1,
+                      get=function() return SVal("levelTextOffsetX", 0) end,
+                      set=function(v) SSet("levelTextOffsetX", v) end },
+                    { type="slider", label="Offset Y", min=-500, max=500, step=1,
+                      get=function() return SVal("levelTextOffsetY", 0) end,
+                      set=function(v) SSet("levelTextOffsetY", v) end },
+                },
+            })
+        end
+
+        -- Power Text (+ Custom/Class/Accent/Power swatches) | Power Text Size (+ position cog). Shows only on frames whose power bar shows, so everything greys while no role shows one.
+        do
+            local function PTOff() return IsPowerOff() or SVal("powerTextMode", "none") == "none" end
+            local function PTReq() return IsPowerOff() and "Show Power Bar For" or "Power Text" end
+            row, h = W:DualRow(parent, y,
+                { type="dropdown", text="Power Text",
+                  values={ ["none"]="None", ["percent"]="Percent", ["percentNoSign"]="Percent (No Sign)",
+                           ["number"]="Number", ["numberPercent"]="Number | Percent", ["percentNumber"]="Percent | Number" },
+                  order={ "none", "percent", "percentNoSign", "number", "numberPercent", "percentNumber" },
+                  disabled=IsPowerOff,
+                  disabledTooltip="Show Power Bar For",
+                  getValue=function() return SVal("powerTextMode", "none") end,
+                  setValue=function(v) SSet("powerTextMode", v); EllesmereUI:RefreshPage() end },
+                { type="slider", text="Power Text Size", min=6, max=26, step=1,
+                  disabled=PTOff,
+                  disabledTooltip=PTReq,
+                  getValue=function() return SVal("powerTextSize", 8) end,
+                  setValue=function(v) SSet("powerTextSize", v) end });  y = y - h
+            -- Swatches: Custom is added FIRST so the _lastInline chain places it next to the dropdown; Power (leftmost) shows the player's power color and is not editable. Each dims and blocks while Power Text is None or power is off.
+            if not EllesmereUI._prebuilding then
+                local rgn = row._leftRegion
+                local function AddPTSwatch(getColor, setColor, mode, opensPicker, tooltip)
+                    local sw, updateSw = EllesmereUI.BuildColorSwatch(
+                        rgn, row:GetFrameLevel() + 3, getColor, setColor, false, 20)
+                    sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                    rgn._lastInline = sw
+                    -- Preserve the picker-opening click, then switch mode on click (same technique as the Health Text swatches).
+                    sw._eabOrigClick = sw:GetScript("OnClick")
+                    sw:SetScript("OnClick", function(self)
+                        if SVal("powerTextColorMode", "custom") ~= mode then
+                            SSet("powerTextColorMode", mode)
+                            EllesmereUI:RefreshPage()
+                            return
+                        end
+                        if opensPicker and self._eabOrigClick then self._eabOrigClick(self) end
+                    end)
+                    sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, tooltip) end)
+                    sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    local block = CreateFrame("Frame", nil, sw)
+                    block:SetAllPoints(); block:SetFrameLevel(sw:GetFrameLevel() + 10); block:EnableMouse(true)
+                    block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, EllesmereUI.DisabledTooltip(PTReq())) end)
+                    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    local function vis()
+                        updateSw()
+                        if PTOff() then
+                            sw:SetAlpha(0.3); block:Show()
+                        else
+                            sw:SetAlpha(SVal("powerTextColorMode", "custom") == mode and 1 or 0.3); block:Hide()
+                        end
+                    end
+                    EllesmereUI.RegisterWidgetRefresh(vis)
+                    vis()
+                end
+                -- Custom (rightmost): editable, opens the picker when active.
+                AddPTSwatch(
+                    function()
+                        local c = SGet("powerTextCustomColor")
+                        if c then return c.r, c.g, c.b, 1 end
+                        return 1, 1, 1, 1
+                    end,
+                    function(r, g, b)
+                        SWrite("powerTextCustomColor", { r=r, g=g, b=b })
+                        ReloadAndUpdate()
+                    end, "custom", true, "Custom Color")
+                AddPTSwatch(
+                    function()
+                        local _, ct = UnitClass("player")
+                        if ct and RAID_CLASS_COLORS[ct] then
+                            local cc = RAID_CLASS_COLORS[ct]
+                            return cc.r, cc.g, cc.b, 1
+                        end
+                        return 1, 1, 1, 1
+                    end,
+                    function() end, "class", false, "Class Color")
+                AddPTSwatch(
+                    function()
+                        local r, g, b = EllesmereUI.ResolveActiveAccent()
+                        return r or 1, g or 1, b or 1, 1
+                    end,
+                    function() end, "accent", false, "Accent Color")
+                -- Power (leftmost): each frame's own power-type color at runtime.
+                AddPTSwatch(
+                    function()
+                        local _, pToken = UnitPowerType("player")
+                        local info = EllesmereUI.GetPowerColor(pToken or "MANA")
+                        if info then return info.r, info.g, info.b, 1 end
+                        return 0, 0.5, 1, 1
+                    end,
+                    function() end, "power", false, "Power Colored Text")
+            end
+            -- Position + offset cog on the Power Text Size slider.
+            EllesmereUI.BuildInlineCog(row._rightRegion, {
+                icon = EllesmereUI.DIRECTIONS_ICON,
+                disabled = PTOff,
+                disabledTooltip = PTReq,
+                title = "Power Text Position",
+                rows = {
+                    { type="dropdown", label="Position", values=namePositionValues, order=namePositionOrder,
+                      get=function() return SVal("powerTextPosition", "bottom") end,
+                      set=function(v) SSet("powerTextPosition", v) end },
+                    { type="slider", label="Offset X", min=-150, max=150, step=1,
+                      get=function() return SVal("powerTextOffsetX", 0) end,
+                      set=function(v) SSet("powerTextOffsetX", v) end },
+                    { type="slider", label="Offset Y", min=-75, max=75, step=1,
+                      get=function() return SVal("powerTextOffsetY", 0) end,
+                      set=function(v) SSet("powerTextOffsetY", v) end },
+                },
+            })
+        end
 
         -- Heal Absorb Text (+swatches) | Heal Absorb Text Position (+offset cog); Heal Absorb Text Size row is 1:1 with Health Text. Shows the heal-absorb shield amount (short/full), hidden at zero.
         row, h = W:DualRow(parent, y,
@@ -2744,6 +3249,84 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end  -- close do (indicators eyeball)
 
+        -- WoW Forever: Missing Buffs, first in the section (runtime in
+        -- EUI_RaidFrames_ForeverMissingBuffs.lua). The raid marker row's
+        -- shape: Position (None turns it off) | Size, offsets in the cog.
+        if EllesmereUI.IS_FOREVER then
+            local mbPositionValues = {
+                none        = "None",
+                topleft     = "Top Left",
+                top         = "Top",
+                topright    = "Top Right",
+                left        = "Left",
+                center      = "Center",
+                right       = "Right",
+                bottomleft  = "Bottom Left",
+                bottom      = "Bottom",
+                bottomright = "Bottom Right",
+            }
+            local mbPositionOrder = { "none", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+            local mbRow
+            mbRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Missing Buffs", values=mbPositionValues, order=mbPositionOrder,
+                  tooltip="Shows Fortitude, Mark of the Wild, Spirit or Thorns on a member who is missing it, for the buffs you can cast yourself (choose which in the cog).",
+                  getValue=function()
+                      if not SVal("showMissingBuffs", true) then return "none" end
+                      return SVal("missingBuffsPosition", "top")
+                  end,
+                  setValue=function(v)
+                      if v == "none" then
+                          SSet("showMissingBuffs", false)
+                      else
+                          SWrite("showMissingBuffs", true)
+                          SSet("missingBuffsPosition", v)
+                      end
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="slider", text="Missing Buffs Size", min=8, max=40, step=1,
+                  disabled=function() return not SVal("showMissingBuffs", true) end,
+                  disabledTooltip="Missing Buffs",
+                  getValue=function() return SVal("missingBuffsSize", 22) end,
+                  setValue=function(v) SSet("missingBuffsSize", v) end });  y = y - h
+            do
+                local rgn = mbRow._leftRegion
+                local rows = {
+                    -- One switch per buff (all on by default). The list is the
+                    -- profile's, shared across classes, so every buff is listed;
+                    -- only the ones this character can cast ever show.
+                    { type="reordercheck", label="Buffs", ddWidth=170,  -- the Glow dropdown's width
+                      hint="Only buffs you can cast show",
+                      items={
+                          { key="missingBuffsFort",   label="Fortitude",        fixed=true },
+                          { key="missingBuffsMark",   label="Mark of the Wild", fixed=true },
+                          { key="missingBuffsSpirit", label="Spirit",           fixed=true },
+                          { key="missingBuffsThorns", label="Thorns",           fixed=true },
+                          { key="missingBuffsBlessing", label="Paladin Blessings", fixed=true },
+                      },
+                      get=function(key) return SVal(key, true) end,
+                      set=function(key, on) SSet(key, on) end },
+                    { type="slider", label="Offset X", min=-50, max=50, step=1,
+                      get=function() return SVal("missingBuffsOffsetX", 0) end,
+                      set=function(v) SSet("missingBuffsOffsetX", v) end },
+                    { type="slider", label="Offset Y", min=-50, max=50, step=1,
+                      get=function() return SVal("missingBuffsOffsetY", 0) end,
+                      set=function(v) SSet("missingBuffsOffsetY", v) end },
+                }
+                -- The icons' glow: the shared glow controls (also listed on
+                -- Global Settings > Glows); the Pixel Glow rows show only
+                -- while Pixel Glow is picked.
+                for _, r in ipairs(EllesmereUI.GlowOptions.PopupRows(MissingGlowDesc(SVal, SWrite), "Glow", true)) do
+                    rows[#rows + 1] = r
+                end
+                EllesmereUI.BuildInlineCog(rgn, {
+                    title = "Missing Buffs",
+                    rows = rows,
+                    disabled = function() return not SVal("showMissingBuffs", true) end,
+                    disabledTooltip = "Missing Buffs",
+                })
+            end
+        end
+
         local RI_STYLES = ns.ROLE_ICON_STYLES
         -- Effective role: the player's spec wins over a stale assigned role
         local playerRole = EllesmereUI.UnitEffectiveRole("player")
@@ -2757,6 +3340,7 @@ initFrame:SetScript("OnEvent", function(self)
             blizzDefault  = "Blizz Default",
             -- Key stays "blizzLight" so saved roleIconStyle values resolve; only the display label reads "Modern Light".
             blizzLight    = "Modern Light",
+            pixels        = "Pixels",
             _menuOpts = {
                 icon = function(key)
                     local map = RI_STYLES[key]
@@ -2772,7 +3356,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
             },
         }
-        local roleStyleOrder = { "none", "modern", "blizzLight", "modernCircle", "styled", "classicCircle", "classic", "blizzDefault" }
+        local roleStyleOrder = { "none", "modern", "blizzLight", "pixels", "modernCircle", "styled", "classicCircle", "classic", "blizzDefault" }
         row, h = W:DualRow(parent, y,
             { type="dropdown", text="Role Icons", values=roleStyleValues, order=roleStyleOrder,
               getValue=function() return SVal("roleIconStyle", "modern") end,
@@ -3539,7 +4123,10 @@ initFrame:SetScript("OnEvent", function(self)
               order={ "center", "left", "right" },
               getValue=function() return SVal("topNameBarTextAlign", "center") end,
               setValue=function(v) SSet("topNameBarTextAlign", v) end },
-            { type="label", text="" });  y = y - h
+            { type="toggle", text="Show on Bottom",
+              tooltip="Places the bar at the bottom of the frame instead of the top.",
+              getValue=function() return SVal("topNameBarBottom", false) end,
+              setValue=function(v) SSet("topNameBarBottom", v) end });  y = y - h
         -- Custom rightmost (opens picker), class leftmost. Clicking switches topNameBarTextColorMode; the inactive one dims. Custom is added FIRST so it sits next to the dropdown.
         if not EllesmereUI._prebuilding then
             local rgn = tnbRow3._leftRegion
@@ -3621,7 +4208,7 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Rows below are HIDDEN while Never; only the Never <-> enabled flip forces the full rebuild.
                   setValue = EllesmereUI.DependentSetValue(FBEnabled, function(v)
                       FBSet().display = v
-                      if ns.FB_Apply then ns.FB_Apply() end
+                      ns.FB_Apply()
                       EllesmereUI:RefreshPage()
                   end) },
                 (not FBEnabled()) and { type="label", text="" } or
@@ -3631,8 +4218,8 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue = function() return FBSet().position or "right" end,
                   setValue = function(v)
                       FBSet().position = v
-                      if v ~= "free" and ns.FB_SetMoverShown then ns.FB_SetMoverShown(false) end
-                      if ns.FB_Apply then ns.FB_Apply() end
+                      if v ~= "free" then ns.FB_SetMoverShown(false) end
+                      ns.FB_Apply()
                       EllesmereUI:RefreshPage()
                   end }); y = y - h
             -- Inline cog on the display dropdown: Show in Dungeons (opt-in;
@@ -3650,7 +4237,7 @@ initFrame:SetScript("OnEvent", function(self)
                               -- Absent = off (additive key); FB_Apply re-registers
                               -- the secure group driver, so the flip is live.
                               FBSet().showInDungeons = v and true or nil
-                              if ns.FB_Apply then ns.FB_Apply() end
+                              ns.FB_Apply()
                           end },
                     },
                 })
@@ -3661,19 +4248,13 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="label", text="Free Move Position" },
                 { type="label", text="Boss Health Color" }); y = y - h
             do
-                local btn = CreateFrame("Button", nil, row)
-                btn:SetSize(140, 26)
-                btn:SetPoint("RIGHT", row._leftRegion, "RIGHT", -20, 0)
-                btn:SetFrameLevel(row:GetFrameLevel() + 5)
-                local bbg = btn:CreateTexture(nil, "BACKGROUND")
-                bbg:SetAllPoints()
-                bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
-                EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.25)
-                local lbl = btn:CreateFontString(nil, "OVERLAY")
-                EllesmereUI.ApplyModuleFont(lbl, nil, 13, "raidFrames")
-                lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-                lbl:SetText(EllesmereUI.L("Move Frames"))
-
+                local btn = ns.RF_OptMoveFramesButton(row, row._leftRegion, {
+                    isShown = ns.FB_IsMoverShown, setShown = ns.FB_SetMoverShown,
+                    allowed = function()
+                        return FBEnabled() and (FBSet().position == "free") and not InCombatLockdown()
+                    end,
+                    enabled = FBEnabled, enabledTip = FB_DISABLED_TIP,
+                })
                 EllesmereUI.BuildInlineCog(row, {
                     anchorTo = btn, chain = false,
                     disabled = function() return not (FBEnabled() and FBSet().position == "free") end,
@@ -3684,51 +4265,12 @@ initFrame:SetScript("OnEvent", function(self)
                           get=function() return FBSet().freeHorizontal == true end,
                           set=function(v)
                               FBSet().freeHorizontal = v
-                              if ns.FB_Apply then ns.FB_Apply() end
+                              ns.FB_Apply()
                               -- Resize/reposition the drag overlay if it is up.
-                              if ns.FB_IsMoverShown and ns.FB_IsMoverShown()
-                                 and ns.FB_SetMoverShown then
-                                  ns.FB_SetMoverShown(true)
-                              end
+                              if ns.FB_IsMoverShown() then ns.FB_SetMoverShown(true) end
                           end },
                     },
                 })
-
-                -- Capture the region NOW: the shared `row` local is reused by later rows, so closures must not read it at refresh time.
-                local fmRegion = row._leftRegion
-                local function MoveAllowed()
-                    return FBEnabled() and (FBSet().position == "free")
-                        and not InCombatLockdown()
-                end
-                local function UpdateMoveBtn()
-                    local active = ns.FB_IsMoverShown and ns.FB_IsMoverShown()
-                    lbl:SetText(active and EllesmereUI.L("Stop Moving") or EllesmereUI.L("Move Frames"))
-                    btn:SetAlpha(MoveAllowed() and 1 or 0.35)
-                    -- Plain-label slots have no native disabled handling.
-                    if fmRegion._label then
-                        fmRegion._label:SetAlpha(FBEnabled() and 1 or 0.3)
-                    end
-                end
-                btn:SetScript("OnEnter", function(self)
-                    if not FBEnabled() then
-                        EllesmereUI.ShowWidgetTooltip(self, FB_DISABLED_TIP)
-                    elseif not MoveAllowed() then
-                        EllesmereUI.ShowWidgetTooltip(self,
-                            EllesmereUI.DisabledTooltip("Position must be set to Free Move"))
-                    else
-                        EllesmereUI.ShowWidgetTooltip(self,
-                            "Drag the overlay to position the frames, then click again to lock")
-                    end
-                end)
-                btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                btn:SetScript("OnClick", function()
-                    if not MoveAllowed() then return end
-                    local active = ns.FB_IsMoverShown and ns.FB_IsMoverShown()
-                    if ns.FB_SetMoverShown then ns.FB_SetMoverShown(not active) end
-                    UpdateMoveBtn()
-                end)
-                EllesmereUI.RegisterWidgetRefresh(UpdateMoveBtn)
-                UpdateMoveBtn()
             end
             if not EllesmereUI._prebuilding then
                 local rgn = row._rightRegion
@@ -3741,7 +4283,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end,
                     function(r, g, b)
                         FBSet().healthColor = { r=r, g=g, b=b }
-                        if ns.FB_Apply then ns.FB_Apply() end
+                        ns.FB_Apply()
                     end, false, 20)
                 swatch:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
                 rgn._lastInline = swatch
@@ -3771,22 +4313,16 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue = function() return FBSet().extraWidth or 0 end,
                   setValue = function(v)
                       FBSet().extraWidth = v
-                      if ns.FB_Apply then ns.FB_Apply() end
-                      if ns.FB_IsMoverShown and ns.FB_IsMoverShown()
-                         and ns.FB_SetMoverShown then
-                          ns.FB_SetMoverShown(true)
-                      end
+                      ns.FB_Apply()
+                      if ns.FB_IsMoverShown() then ns.FB_SetMoverShown(true) end
                   end },
                 { type="slider", text="Extra Height", min=-50, max=100, step=1,
                   tooltip="Makes the boss frames taller or shorter relative to the raid frame size.",
                   getValue = function() return FBSet().extraHeight or 0 end,
                   setValue = function(v)
                       FBSet().extraHeight = v
-                      if ns.FB_Apply then ns.FB_Apply() end
-                      if ns.FB_IsMoverShown and ns.FB_IsMoverShown()
-                         and ns.FB_SetMoverShown then
-                          ns.FB_SetMoverShown(true)
-                      end
+                      ns.FB_Apply()
+                      if ns.FB_IsMoverShown() then ns.FB_SetMoverShown(true) end
                   end }); y = y - h
             end   -- close Friendly Boss Frames hidden-while-disabled gate
 
@@ -3818,11 +4354,9 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Rows below are HIDDEN while unconfigured (no tanks toggle AND no hotkey); only a configured-state flip forces the rebuild.
                   setValue = EllesmereUI.DependentSetValue(XFConfigured, function(v)
                       XFSet().showTanks = v
-                      if ns.XF_Apply then ns.XF_Apply() end
+                      ns.XF_Apply()
                       -- Feature may have just gone dark; the mover can't stay up.
-                      if not XFConfigured() and ns.XF_SetMoverShown then
-                          ns.XF_SetMoverShown(false)
-                      end
+                      if not XFConfigured() then ns.XF_SetMoverShown(false) end
                       EllesmereUI:RefreshPage()
                   end) }); y = y - h
             -- Inline cog on Show Tanks: tank auto-include options.
@@ -3836,7 +4370,7 @@ initFrame:SetScript("OnEvent", function(self)
                           get=function() return XFSet().excludeSelfTank == true end,
                           set=function(v)
                               XFSet().excludeSelfTank = v or nil
-                              if ns.XF_Apply then ns.XF_Apply() end
+                              ns.XF_Apply()
                           end },
                     },
                 })
@@ -3859,9 +4393,7 @@ initFrame:SetScript("OnEvent", function(self)
                         local wasConfigured = XFConfigured()
                         EllesmereUIDB.extraFramesKey = key
                         -- The mover can't stay up once the feature goes dark.
-                        if not XFConfigured() and ns.XF_SetMoverShown then
-                            ns.XF_SetMoverShown(false)
-                        end
+                        if not XFConfigured() then ns.XF_SetMoverShown(false) end
                         -- Hidden rows below: a configured-state flip needs the full rebuild, not the fast refresh.
                         if XFConfigured() ~= wasConfigured then
                             EllesmereUI:RefreshPage(true)
@@ -3884,55 +4416,18 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue = function() return XFSet().position or "right" end,
                   setValue = function(v)
                       XFSet().position = v
-                      if v ~= "free" and ns.XF_SetMoverShown then ns.XF_SetMoverShown(false) end
-                      if ns.XF_Apply then ns.XF_Apply() end
+                      if v ~= "free" then ns.XF_SetMoverShown(false) end
+                      ns.XF_Apply()
                       -- Full rebuild: the Grow/Wrap Direction row only exists while the position is Free Move.
                       EllesmereUI:RefreshPage(true)
                   end },
                 { type="label", text="Free Move Position" }); y = y - h
-            if not EllesmereUI._prebuilding then
-                local rgn = row._rightRegion
-                local btn = CreateFrame("Button", nil, row)
-                btn:SetSize(140, 26)
-                btn:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
-                btn:SetFrameLevel(row:GetFrameLevel() + 5)
-                local bbg = btn:CreateTexture(nil, "BACKGROUND")
-                bbg:SetAllPoints()
-                bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
-                EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.25)
-                local lbl = btn:CreateFontString(nil, "OVERLAY")
-                EllesmereUI.ApplyModuleFont(lbl, nil, 13, "raidFrames")
-                lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-                lbl:SetText(EllesmereUI.L("Move Frames"))
-
-                local function MoveAllowed()
-                    return XFConfigured() and (XFSet().position == "free")
-                        and not InCombatLockdown()
-                end
-                local function UpdateMoveBtn()
-                    local active = ns.XF_IsMoverShown and ns.XF_IsMoverShown()
-                    lbl:SetText(active and EllesmereUI.L("Stop Moving") or EllesmereUI.L("Move Frames"))
-                    btn:SetAlpha(MoveAllowed() and 1 or 0.35)
-                end
-                btn:SetScript("OnEnter", function(self)
-                    if not MoveAllowed() then
-                        EllesmereUI.ShowWidgetTooltip(self,
-                            EllesmereUI.DisabledTooltip("Position must be set to Free Move"))
-                    else
-                        EllesmereUI.ShowWidgetTooltip(self,
-                            "Drag the overlay to position the frames, then click again to lock")
-                    end
-                end)
-                btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                btn:SetScript("OnClick", function()
-                    if not MoveAllowed() then return end
-                    local active = ns.XF_IsMoverShown and ns.XF_IsMoverShown()
-                    if ns.XF_SetMoverShown then ns.XF_SetMoverShown(not active) end
-                    UpdateMoveBtn()
-                end)
-                EllesmereUI.RegisterWidgetRefresh(UpdateMoveBtn)
-                UpdateMoveBtn()
-            end
+            ns.RF_OptMoveFramesButton(row, row._rightRegion, {
+                isShown = ns.XF_IsMoverShown, setShown = ns.XF_SetMoverShown,
+                allowed = function()
+                    return XFConfigured() and (XFSet().position == "free") and not InCombatLockdown()
+                end,
+            })
 
             -- Free Move ONLY (hidden otherwise; Position's setValue forces a rebuild): growth axes of the free-floating grid, with Wrap After in an inline cog on Wrap Direction.
             -- Attached positions need none of this -- they stack group-sized runs of 5 along the raid's own growth settings, like extra raid groups.
@@ -3943,11 +4438,8 @@ initFrame:SetScript("OnEvent", function(self)
                 return set.growDirection or (set.freeHorizontal and "RIGHT" or "DOWN")
             end
             local function XFReapply()
-                if ns.XF_Apply then ns.XF_Apply() end
-                if ns.XF_IsMoverShown and ns.XF_IsMoverShown()
-                   and ns.XF_SetMoverShown then
-                    ns.XF_SetMoverShown(true)
-                end
+                ns.XF_Apply()
+                if ns.XF_IsMoverShown() then ns.XF_SetMoverShown(true) end
             end
 
             -- The wrap dropdown only offers the two directions perpendicular to the primary run, so a grow change forces a full rebuild to swap its value set.
@@ -4004,22 +4496,16 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue = function() return XFSet().extraWidth or 0 end,
                   setValue = function(v)
                       XFSet().extraWidth = v
-                      if ns.XF_Apply then ns.XF_Apply() end
-                      if ns.XF_IsMoverShown and ns.XF_IsMoverShown()
-                         and ns.XF_SetMoverShown then
-                          ns.XF_SetMoverShown(true)
-                      end
+                      ns.XF_Apply()
+                      if ns.XF_IsMoverShown() then ns.XF_SetMoverShown(true) end
                   end },
                 { type="slider", text="Extra Height", min=-50, max=100, step=1,
                   tooltip="Makes the extra frames taller or shorter relative to the raid frame size.",
                   getValue = function() return XFSet().extraHeight or 0 end,
                   setValue = function(v)
                       XFSet().extraHeight = v
-                      if ns.XF_Apply then ns.XF_Apply() end
-                      if ns.XF_IsMoverShown and ns.XF_IsMoverShown()
-                         and ns.XF_SetMoverShown then
-                          ns.XF_SetMoverShown(true)
-                      end
+                      ns.XF_Apply()
+                      if ns.XF_IsMoverShown() then ns.XF_SetMoverShown(true) end
                   end }); y = y - h
             -- Inline cog on Extra Width: Auto Resize Indicators (default on;
             -- off keeps indicators/auras at the real frames' base scale
@@ -4034,7 +4520,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v)
                               -- nil = on (additive key, zero migration); false = off.
                               if v then XFSet().autoResizeIndicators = nil else XFSet().autoResizeIndicators = false end
-                              if ns.XF_Apply then ns.XF_Apply() end
+                              ns.XF_Apply()
                           end },
                     },
                 })
@@ -4060,15 +4546,28 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local tabKey = _partyCtx and "party" or "raid"
             local onParty = tabKey == "party"
+            -- This tab's Position, Extra Width/Height and Free Move spot (it reads the shared ones
+            -- until it sets its own).
+            local function PFTab()
+                PFSet()
+                return ns.PF_View(tabKey)
+            end
             local function PFEnabled()
                 return PFSet()[tabKey] == true
             end
             -- Only a preview already on screen: starting one here would show the raid preview on the
             -- party tab, or a preview with Preview Mode set to None.
             local function PFRefreshPreview()
-                if ns.previewActive and ns.previewActive() and ns.ShowPreview then ns.ShowPreview() end
-                if ns.partyPvActive and ns.partyPvActive() and ns.ShowPartyPreview then ns.ShowPartyPreview() end
+                if ns.previewActive() then ns.ShowPreview() end
+                if ns.partyPvActive() then ns.ShowPartyPreview() end
             end
+            -- The last row holds what the chosen position needs: the Move Frames button (Free Move)
+            -- or Pet Side (Beside Owner). The other positions have none.
+            local function PFPlacement()
+                local p = PFTab().position
+                if p == "free" or (p == "owner" and onParty) then return p end
+            end
+            local BLANK = EllesmereUI.BlankRowCfg
 
             row, h = W:DualRow(parent, y,
                 { type="toggle", text="Show Pets",
@@ -4077,113 +4576,81 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Rows below are HIDDEN while off; only the on/off flip forces the rebuild.
                   setValue = EllesmereUI.DependentSetValue(PFEnabled, function(v)
                       PFSet()[tabKey] = v and true or false
-                      if ns.PF_Apply then ns.PF_Apply() end
+                      ns.PF_Apply()
                       -- The Move Frames button goes with the page rebuild; the overlay can't stay up.
-                      if not v and ns.PF_SetMoverShown then ns.PF_SetMoverShown(false) end
+                      if not v and ns.PF_IsMoverShown(tabKey) then ns.PF_SetMoverShown(false) end
                       PFRefreshPreview()
                       EllesmereUI:RefreshPage()
                   end) },
-                (not PFEnabled()) and { type="label", text="" } or
+                (not PFEnabled()) and BLANK() or
                 { type="dropdown", text="Position",
-                  -- Beside Owner is party only, and a flag over the shared position so the raid tab keeps its own.
+                  -- Beside Owner (a pet beside each party frame) is party only.
                   values = onParty
                       and { left="Before First Group", right="After Last Group", free="Free Move", owner="Beside Owner" }
                       or { left="Before First Group", right="After Last Group", free="Free Move" },
                   order  = onParty and { "left", "right", "free", "owner" } or { "left", "right", "free" },
-                  getValue = function()
-                      if onParty and PFSet().ownerMode then return "owner" end
-                      return PFSet().position or "right"
-                  end,
+                  getValue = function() return PFTab().position or "right" end,
                   setValue = function(v)
-                      if onParty then PFSet().ownerMode = (v == "owner") or nil end
-                      if v ~= "owner" then PFSet().position = v end
-                      if v ~= "free" and ns.PF_SetMoverShown then ns.PF_SetMoverShown(false) end
-                      if ns.PF_Apply then ns.PF_Apply() end
+                      local before = PFPlacement()
+                      PFTab().position = v
+                      if v ~= "free" and ns.PF_IsMoverShown(tabKey) then ns.PF_SetMoverShown(false) end
+                      ns.PF_Apply()
                       PFRefreshPreview()
-                      EllesmereUI:RefreshPage()
+                      -- A new last row needs the full rebuild.
+                      EllesmereUI:RefreshPage(PFPlacement() ~= before)
                   end }); y = y - h
 
             if PFEnabled() then
             row, h = W:DualRow(parent, y,
                 { type="slider", text="Extra Width", min=-50, max=100, step=1,
                   tooltip="Widens or narrows the pet frames relative to the frame size.",
-                  getValue = function() return PFSet().extraWidth or 0 end,
+                  getValue = function() return PFTab().extraWidth or 0 end,
                   setValue = function(v)
-                      PFSet().extraWidth = v
-                      if ns.PF_Apply then ns.PF_Apply() end
-                      if ns.PF_IsMoverShown and ns.PF_IsMoverShown() and ns.PF_SetMoverShown then
-                          ns.PF_SetMoverShown(true)
-                      end
+                      PFTab().extraWidth = v
+                      ns.PF_Apply()
+                      ns.PF_PlaceMover(tabKey)
                       PFRefreshPreview()
                   end },
                 { type="slider", text="Extra Height", min=-50, max=100, step=1,
                   tooltip="Makes the pet frames taller or shorter relative to the frame size.",
-                  getValue = function() return PFSet().extraHeight or 0 end,
+                  getValue = function() return PFTab().extraHeight or 0 end,
                   setValue = function(v)
-                      PFSet().extraHeight = v
-                      if ns.PF_Apply then ns.PF_Apply() end
-                      if ns.PF_IsMoverShown and ns.PF_IsMoverShown() and ns.PF_SetMoverShown then
-                          ns.PF_SetMoverShown(true)
-                      end
+                      PFTab().extraHeight = v
+                      ns.PF_Apply()
+                      ns.PF_PlaceMover(tabKey)
                       PFRefreshPreview()
                   end }); y = y - h
 
-            row, h = W:DualRow(parent, y,
-                { type="label", text="Free Move Position" },
-                onParty and { type="dropdown", text="Pet Side",
-                  values = { right="Right", left="Left", below="Below" },
-                  order  = { "right", "left", "below" },
-                  disabled = function() return not PFSet().ownerMode end,
-                  disabledTooltip = "Position must be set to Beside Owner", rawTooltip = true,
-                  getValue = function()
-                      return PFSet().ownerSide or (db.profile.partyHorizontal and "below" or "right")
-                  end,
-                  setValue = function(v)
-                      PFSet().ownerSide = v
-                      if ns.PF_Apply then ns.PF_Apply() end
-                  end }
-                or { type="label", text="" }); y = y - h
-            if not EllesmereUI._prebuilding then
-                local btn = CreateFrame("Button", nil, row)
-                btn:SetSize(140, 26)
-                btn:SetPoint("RIGHT", row._leftRegion, "RIGHT", -20, 0)
-                btn:SetFrameLevel(row:GetFrameLevel() + 5)
-                local bbg = btn:CreateTexture(nil, "BACKGROUND")
-                bbg:SetAllPoints()
-                bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
-                EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.25)
-                local lbl = btn:CreateFontString(nil, "OVERLAY")
-                EllesmereUI.ApplyModuleFont(lbl, nil, 13, "raidFrames")
-                lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-                lbl:SetText(EllesmereUI.L("Move Frames"))
-
-                local function MoveAllowed()
-                    return PFSet().position == "free" and not (onParty and PFSet().ownerMode)
-                        and not InCombatLockdown()
-                end
-                local function UpdateMoveBtn()
-                    local active = ns.PF_IsMoverShown and ns.PF_IsMoverShown()
-                    lbl:SetText(active and EllesmereUI.L("Stop Moving") or EllesmereUI.L("Move Frames"))
-                    btn:SetAlpha(MoveAllowed() and 1 or 0.35)
-                end
-                btn:SetScript("OnEnter", function(self)
-                    if not MoveAllowed() then
-                        EllesmereUI.ShowWidgetTooltip(self,
-                            EllesmereUI.DisabledTooltip("Position must be set to Free Move"))
-                    else
-                        EllesmereUI.ShowWidgetTooltip(self,
-                            "Drag the overlay to position the frames, then click again to lock")
-                    end
-                end)
-                btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                btn:SetScript("OnClick", function()
-                    if not MoveAllowed() then return end
-                    local active = ns.PF_IsMoverShown and ns.PF_IsMoverShown()
-                    if ns.PF_SetMoverShown then ns.PF_SetMoverShown(not active) end
-                    UpdateMoveBtn()
-                end)
-                EllesmereUI.RegisterWidgetRefresh(UpdateMoveBtn)
-                UpdateMoveBtn()
+            local placement = PFPlacement()
+            if placement == "free" then
+                row, h = W:DualRow(parent, y, { type="label", text="Free Move Position" }, BLANK()); y = y - h
+                ns.RF_OptMoveFramesButton(row, row._leftRegion, {
+                    isShown = function() return ns.PF_IsMoverShown(tabKey) end,
+                    setShown = function(show) ns.PF_SetMoverShown(show, tabKey) end,
+                    allowed = function() return PFTab().position == "free" and not InCombatLockdown() end,
+                })
+            elseif placement == "owner" then
+                -- Across the party frames' stack only: beside stacked frames, above or below
+                -- horizontal ones (the other sides hold the next frame).
+                row, h = W:DualRow(parent, y,
+                    { type="dropdown", text="Pet Side",
+                      values = { right="Right", left="Left", above="Above", below="Below" },
+                      order  = { "right", "left", "above", "below" },
+                      itemDisabled = function(v)
+                          local across = (v == "above" or v == "below")
+                          return across ~= (db.profile.partyHorizontal and true or false)
+                      end,
+                      itemDisabledTooltip = function(v)
+                          if v == "above" or v == "below" then return "Horizontal Frames" end
+                          return "This option requires Horizontal Frames to be disabled"
+                      end,
+                      getValue = function() return ns.PF_OwnerSide() end,
+                      setValue = function(v)
+                          PFSet().ownerSide = v
+                          ns.PF_Apply()
+                          PFRefreshPreview()
+                      end },
+                    BLANK()); y = y - h
             end
             end
             _secY = y
@@ -5311,6 +5778,10 @@ initFrame:SetScript("OnEvent", function(self)
                       tooltip="Collapse subgroups that have no members so the remaining groups close ranks. For example, if only groups 1, 2, 3 and 6 have players, they show with no gaps instead of leaving empty space where groups 4 and 5 would be. Real raid frames only.",
                       get=function() return SVal("hideEmptyGroups", true) end,
                       set=function(v) SSet("hideEmptyGroups", v) end },
+                    { type="toggle", label="Hide Groups 5-8 in Mythic Raid",
+                      tooltip="Mythic raids allow only 20 players (groups 1-4), so hide groups 5-8 while inside one. Groups 1-4 still follow Show Groups, and Show Groups applies as normal everywhere else.",
+                      get=function() return SVal("mythicRaidHideGroups", false) end,
+                      set=function(v) SSet("mythicRaidHideGroups", v) end },
                     { type="toggle", label="Exclude Hidden from Size",
                       tooltip="When using custom raid sizes, don't count members in hidden groups toward the raid-size breakpoint. For example, if you hide groups 7 and 8, a full 40-man raid is sized as if it were 24-man instead of jumping to the 30-man frame size. Has no effect unless you have custom raid sizes set up.",
                       get=function() return SVal("excludeHiddenGroupsFromSize", true) end,
@@ -5709,7 +6180,8 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             { type="toggle", text="Hide Self",
               getValue=function() return db.profile.partyHideSelf or false end,
-              setValue=function(v) db.profile.partyHideSelf = v; PartyReloadAndUpdate() end });  y = y - h
+              -- RefreshPage re-reads Include Own Target's disabled state.
+              setValue=function(v) db.profile.partyHideSelf = v; PartyReloadAndUpdate(); EllesmereUI:RefreshPage() end });  y = y - h
 
         -- Auto Resize Icons | Frame Spacing. The checkbox dropdown is a pure VIEW (no migration) over partyAutoResizeIndicators ("Indicators & Auras") and partyAutoResizeTrackedBuffs ("Tracked Buffs", defaults on).
         local partyAutoResizeRow
@@ -5779,14 +6251,10 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end });  y = y - h
 
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Enable Party Targets",
-              tooltip="Show a smaller secure target button beside each party frame. Left-click a button to target that party member's current target.",
-              getValue=function() return db.profile.partyShowTargets or false end,
-              setValue=function(v)
-                  db.profile.partyShowTargets = v
-                  if ns.PT_SetEnabled then ns.PT_SetEnabled(v) end
-              end });  y = y - h
+        -------------------------------------------------------------------
+        --  PARTY TARGETS (party only, every style; file-scope builder)
+        -------------------------------------------------------------------
+        y = ns.RF_BuildPartyTargets(parent, y, W)
 
         -------------------------------------------------------------------
         --  PORTRAIT (party only, every style; file-scope builder)
@@ -6510,6 +6978,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local mode = db.profile.previewMode or "overlay"
                 if mode ~= "none" and ns.ShowPartyPreview then ns.ShowPartyPreview() end
             elseif page == PAGE_BUFFS then
+                -- Panel opening on Buffs counts as entering it (WoW Forever: All Specs).
+                ns.BM_EnterAllSpecs()
                 if not ns._bmRoot then
                     C_Timer.After(0, function()
                         if EllesmereUI:GetActiveModule() == "EllesmereUIRaidFrames" then
@@ -6610,6 +7080,8 @@ initFrame:SetScript("OnEvent", function(self)
         local origSelectPage = EllesmereUI.SelectPage
         EllesmereUI.SelectPage = function(self, pageName, ...)
             _partyCtx = (pageName == PAGE_PARTY)
+            -- Entering Buffs from another page (not a rebuild while on it): WoW Forever opens it on All Specs.
+            if pageName == PAGE_BUFFS and EllesmereUI:GetActivePage() ~= PAGE_BUFFS then ns.BM_EnterAllSpecs() end
             -- Party tab excludes synced sections from inline search; cleared on every other page (any module) so the hook can never leak.
             EllesmereUI._searchExcludeSection = (pageName == PAGE_PARTY) and ns._PartySearchExclude or nil
             EllesmereUI._onInlineSearch = (pageName == PAGE_PARTY) and ns._PartySearchOverlaySync or nil

@@ -659,11 +659,11 @@ initFrame:SetScript("OnEvent", function(self)
                 iconAtlas = function(key)
                     if key == "none" then return nil end
                     if not gdSoundPaths[key] then return nil end
-                    return "common-icon-sound"
+                    return EllesmereUI.SOUND_ICON_ATLAS
                 end,
                 iconPressedAtlas = function(key)
                     if key == "none" then return nil end
-                    return "common-icon-sound-pressed"
+                    return EllesmereUI.SOUND_ICON_PRESSED_ATLAS
                 end,
                 iconOnClick = function(key)
                     local path = gdSoundPaths[key]
@@ -2059,9 +2059,8 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, "GROUP FINDER", y);  y = y - h
 
         -- Auto Insert Keystone | Announce Instance Reset, then Quick Signup |
-        -- Persistent Signup Note. WoW Forever has no keystones: the first slot goes
-        -- and the other three fill in sequence, so the note lands alone on the
-        -- second row and its cog follows it there.
+        -- Persistent Signup Note. WoW Forever has no keystones and no premade
+        -- group list, so only Announce Instance Reset is built there.
         local autoKeyCfg = { type="toggle", text="Auto Insert Keystone",
               tooltip="Automatically inserts your key into the Font of Power.",
               getValue=function()
@@ -2109,19 +2108,16 @@ initFrame:SetScript("OnEvent", function(self)
                   end
                   EllesmereUI:RefreshPage()
               end }
-        local noteRow, noteRgnKey
+        local noteRow
         if EllesmereUI.IS_FOREVER then
-            _, h = W:DualRow(parent, y, announceCfg, quickCfg);  y = y - h
-            noteRow, h = W:DualRow(parent, y, persistCfg, { type="label", text="" });  y = y - h
-            noteRgnKey = "_leftRegion"
+            _, h = W:DualRow(parent, y, announceCfg, EllesmereUI.BlankRowCfg());  y = y - h
         else
             _, h = W:DualRow(parent, y, autoKeyCfg, announceCfg);  y = y - h
             noteRow, h = W:DualRow(parent, y, quickCfg, persistCfg);  y = y - h
-            noteRgnKey = "_rightRegion"
         end
 
-        if not EllesmereUI._prebuilding then
-            local rightRgn = noteRow[noteRgnKey]
+        if noteRow and not EllesmereUI._prebuilding then
+            local rightRgn = noteRow._rightRegion
             local function persistOff()
                 return not (EllesmereUIDB and EllesmereUIDB.persistSignupNote)
             end
@@ -2270,11 +2266,21 @@ initFrame:SetScript("OnEvent", function(self)
     -- No item upgrade system on WoW Forever: the Upgrader tab is not offered there
     -- (its resident file returns at load, so the page builder never exists either).
     if not EllesmereUI.IS_FOREVER then pages[#pages + 1] = PAGE_UPGCALC end
+    local searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown" }
+    -- Terms for features WoW Forever does not have (the Battle Res indicator)
+    -- are dropped there, so a sidebar search for them does not list this
+    -- module; retail keeps the full list.
+    if EllesmereUI.IS_FOREVER then
+        local foreverDrop = { ["brez"] = true, ["bres"] = true, ["battle res"] = true, ["combat res"] = true }
+        for i = #searchTerms, 1, -1 do
+            if foreverDrop[searchTerms[i]] then table.remove(searchTerms, i) end
+        end
+    end
     EllesmereUI:RegisterModule("EllesmereUIQoL", {
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
         pages       = pages,
-        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown" },
+        searchTerms = searchTerms,
         buildPage   = function(pageName, parent, yOffset)
             -- The Raid Tools settings preview ends when any OTHER QoL page
             -- builds (the CDM tracking-bars placeholder arrangement); window

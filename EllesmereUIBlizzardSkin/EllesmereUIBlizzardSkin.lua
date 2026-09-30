@@ -6,8 +6,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  context menu and static popup reskinning below.
 -------------------------------------------------------------------------------
 local ADDON_NAME = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read this module ns via the registry
+EllesmereUI._ModuleNS[ADDON_NAME].CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
 local FFD = setmetatable({}, { __mode = "k" })
@@ -101,6 +102,12 @@ do
           keys = { "queuestatus", "delvepicker", "playerchoice", "trade" } },
         { marker = "bnetToastStyleSeeded", keys = { "bnettoast" } },
     }
+    -- Retail only: this shipment is when the Friends List card started
+    -- skinning retail's friends window. WoW Forever's card has driven its own
+    -- friends skin since that file shipped, so those accounts stay as set.
+    if not EllesmereUI.IS_FOREVER then
+        BATCHES[#BATCHES + 1] = { marker = "socialLegacySkinSeeded", keys = { "socialui" } }
+    end
     local function SeedBatch(marker, newKeys)
         if EllesmereUIDB[marker] then return end
         EllesmereUIDB[marker] = true
@@ -196,6 +203,33 @@ do
         if type(p) == "table" then p.windowSkinLook = live end
     end
 
+    -- WoW Forever, once per account: a profile the whole-UI switch put on a
+    -- stock look before the Character Sheet row existed there takes that
+    -- look for the sheet (the WoW Forever variant when a module wears it).
+    -- A row choice already made is kept.
+    local function AdoptForeverCharSheetStyle(db)
+        if not EllesmereUI.IS_FOREVER or db.foreverCharSheetStyleAdopted then return end
+        db.foreverCharSheetStyleAdopted = true
+        if type(db.profiles) ~= "table" then return end
+        for name, p in pairs(db.profiles) do
+            if type(p) == "table" and p.charSheetUseBlizzardStyle == nil and p.charSheetUseClassicStyle == nil then
+                local look = p.windowSkinLook or FontLookOf(db, name, p)
+                if look == "blizzard" or look == "classic" then
+                    p.charSheetUseBlizzardStyle = (look == "blizzard")
+                    p.charSheetUseClassicStyle  = (look == "classic")
+                    if look == "blizzard" and type(p.addons) == "table" then
+                        for _, t in pairs(p.addons) do
+                            if type(t) == "table" and t.useForeverStyle then
+                                p.charSheetUseForeverStyle = true
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     local seedFrame = CreateFrame("Frame")
     seedFrame:RegisterEvent("ADDON_LOADED")
     -- Registered here, first among this addon's frames, so the login pass
@@ -214,6 +248,7 @@ do
         for _, batch in ipairs(BATCHES) do SeedBatch(batch.marker, batch.keys) end
         AdoptLegacyCharSheetStyle(EllesmereUIDB)
         AdoptLegacyWindowLook(EllesmereUIDB)
+        AdoptForeverCharSheetStyle(EllesmereUIDB)
         EllesmereUI.ReconcileWindowSkinLook()
     end)
 end
@@ -755,13 +790,12 @@ end
     end
 
     -- Hard blocks for a tooltip request, checked before the dwell and again in it: the
-    -- inspect window is open or waiting on this player, the talent frame is inspecting
-    -- someone (ClearInspectPlayer would retarget it), or another addon is polling
-    -- (passive mode). Timed hold-offs are not blocks; _dwellTick waits them out.
+    -- inspect window is open or waiting on this player, or the talent frame is inspecting
+    -- someone (ClearInspectPlayer would retarget it). Timed hold-offs, passive mode
+    -- included, are not blocks; _dwellTick waits them out.
     local function _inspBlocked(guid, now)
         local psf = PlayerSpellsFrame
         if psf and psf.IsInspecting and psf:IsInspecting() then return true end
-        if (now - _insp.lastForeign) < _insp.FOREIGN_WINDOW then return true end
         local f = InspectFrame
         if f then
             if f:IsShown() then return true end
@@ -778,9 +812,9 @@ end
     -- Tooltip-side inspect request, paced. It never fires straight out of the tooltip
     -- pass: a dwell timer runs first, so sweeping the cursor across raid frames costs
     -- one request instead of one per frame. It then yields to the shared request
-    -- budget, and stays silent entirely while another addon is polling the group --
+    -- budget, and asks for no group member while another addon is polling the group --
     -- the INSPECT_READY handler caches whatever that addon asked for, so in a raid
-    -- with such an addon running the tooltip contributes no requests at all.
+    -- with such an addon running the tooltip adds requests only for non-members.
     -- The price is that an uncached player's item level appears a moment later.
     -- One named timer function, rescheduled while needed, so no closure per hover.
     local function _dwellTick()
@@ -811,13 +845,19 @@ end
         if guid == _inspectPendingGUID then
             readyAt = math.max(readyAt, _insp.pendingAt + _insp.PENDING_TTL)
         end
+        -- Passive mode: a group member waits out another addon's polling, which will
+        -- inspect them and feed the open tooltip through the handler. Anyone outside the
+        -- group is never polled by it, so they keep the plain MIN_GAP pacing.
+        local unit = _CleanTokenForGUID(guid)
+        if unit then
+            readyAt = math.max(readyAt, _insp.lastForeign + _insp.FOREIGN_WINDOW)
+        end
         if readyAt > now then
             _insp.dwellArmed = true
             C_Timer.After(readyAt - now, _dwellTick)
             return
         end
         _insp.dwellGUID = nil
-        local unit = _CleanTokenForGUID(guid)
         if not unit and _G.UnitTokenFromGUID then
             local tu = _G.UnitTokenFromGUID(guid)
             if tu and not (_isSecret and _isSecret(tu)) then unit = tu end
@@ -839,7 +879,7 @@ end
         -- The pending dwell re-checks every gate itself; skip them on each refresh meanwhile.
         if _insp.dwellArmed and _insp.dwellGUID == guid then return end
         local now = GetTime()
-        -- Blocked now: arm nothing; a later tooltip refresh or re-hover asks again.
+        -- Hard-blocked now: arm nothing; a later tooltip refresh or re-hover asks again.
         if _inspBlocked(guid, now) then return end
         -- Always track the latest unit; a running timer picks up the retarget.
         if _insp.dwellGUID ~= guid then
@@ -1316,8 +1356,9 @@ end
         for _, btn in ipairs(popupBtns) do
             if btn and not GetFFD(btn).skinned then
                 GetFFD(btn).skinned = true
-                for j = 1, select("#", btn:GetRegions()) do
-                    local r = select(j, btn:GetRegions())
+                local regions = { btn:GetRegions() }
+                for j = 1, #regions do
+                    local r = regions[j]
                     if r and r:IsObjectType("Texture") and r ~= btn:GetFontString() then
                         r:SetTexture(nil)
                         if r.SetAtlas then r:SetAtlas("") end
@@ -1387,8 +1428,9 @@ end
         local eb = popup.editBox or (popup.GetName and _G[popup:GetName() .. "EditBox"])
         if eb and not GetFFD(eb).skinned then
             GetFFD(eb).skinned = true
-            for j = 1, select("#", eb:GetRegions()) do
-                local r = select(j, eb:GetRegions())
+            local regions = { eb:GetRegions() }
+            for j = 1, #regions do
+                local r = regions[j]
                 if r and r:IsObjectType("Texture") then
                     r:SetTexture(nil)
                     if r.SetAtlas then r:SetAtlas("") end
@@ -1696,8 +1738,9 @@ end
                     local btn = dialog[btnName]
                     if btn then
                         -- Named Left/Middle/Right textures are swapped by C++ on mouse down, so SetTexture alone does not stick.
-                        for j = 1, select("#", btn:GetRegions()) do
-                            local r = select(j, btn:GetRegions())
+                        local regions = { btn:GetRegions() }
+                        for j = 1, #regions do
+                            local r = regions[j]
                             if r and r:IsObjectType("Texture") and not GetFFD(r).owned and r ~= btn:GetFontString() then
                                 r:SetAlpha(0)
                             end
@@ -1917,8 +1960,9 @@ end
         -- touched, same treatment as SkinQueuePopup's enterButton/leaveButton.
         local function SkinRoleCheckButton(btn)
             if not btn then return end
-            for j = 1, select("#", btn:GetRegions()) do
-                local r = select(j, btn:GetRegions())
+            local regions = { btn:GetRegions() }
+            for j = 1, #regions do
+                local r = regions[j]
                 if r and r:IsObjectType("Texture") and not GetFFD(r).owned and r ~= btn:GetFontString() then
                     r:SetAlpha(0)
                 end
@@ -2057,8 +2101,9 @@ do
         if qkb.BG then qkb.BG:SetAlpha(0) end
         if qkb.Border then qkb.Border:SetAlpha(0) end
         if qkb.Bg then qkb.Bg:SetAlpha(0) end
-        for i = 1, select("#", qkb:GetRegions()) do
-            local r = select(i, qkb:GetRegions())
+        local regions = { qkb:GetRegions() }
+        for i = 1, #regions do
+            local r = regions[i]
             if r and r:IsObjectType("Texture") and not GetFFD(r).owned then
                 r:SetAlpha(0)
             end
@@ -2101,8 +2146,9 @@ do
             local btn = qkb[name]
             if btn and not GetFFD(btn).skinned then
                 GetFFD(btn).skinned = true
-                for j = 1, select("#", btn:GetRegions()) do
-                    local r = select(j, btn:GetRegions())
+                local regions2 = { btn:GetRegions() }
+                for j = 1, #regions2 do
+                    local r = regions2[j]
                     if r and r:IsObjectType("Texture") and not GetFFD(r).owned and r ~= btn:GetFontString() then
                         r:SetAlpha(0)
                     end
@@ -2210,8 +2256,9 @@ do
             local btn = dialog[btnName]
             if btn then
                 -- Re-stripped every show; Blizzard re-applies the art.
-                for j = 1, select("#", btn:GetRegions()) do
-                    local r = select(j, btn:GetRegions())
+                local regions = { btn:GetRegions() }
+                for j = 1, #regions do
+                    local r = regions[j]
                     if r and r:IsObjectType("Texture") and not GetFFD(r).owned and r ~= btn:GetFontString() then
                         r:SetAlpha(0)
                     end
@@ -2294,8 +2341,9 @@ do
 
         local desc = _G.LFGListApplicationDialogDescription
         if desc then
-            for i = 1, select("#", desc:GetRegions()) do
-                local r = select(i, desc:GetRegions())
+            local regions = { desc:GetRegions() }
+            for i = 1, #regions do
+                local r = regions[i]
                 if r and r:IsObjectType("Texture") and not GetFFD(r).owned then
                     r:SetAlpha(0)
                 end
@@ -2318,8 +2366,9 @@ do
             local btn = dialog[btnName]
             if btn and not GetFFD(btn).skinned then
                 GetFFD(btn).skinned = true
-                for j = 1, select("#", btn:GetRegions()) do
-                    local r = select(j, btn:GetRegions())
+                local regions = { btn:GetRegions() }
+                for j = 1, #regions do
+                    local r = regions[j]
                     if r and r:IsObjectType("Texture") and not GetFFD(r).owned and r ~= btn:GetFontString() then
                         r:SetAlpha(0)
                     end
@@ -2382,8 +2431,9 @@ do
 
         local RS = EllesmereUI.RESKIN
 
-        for i = 1, select("#", GameMenuFrame:GetRegions()) do
-            local r = select(i, GameMenuFrame:GetRegions())
+        local regions = { GameMenuFrame:GetRegions() }
+        for i = 1, #regions do
+            local r = regions[i]
             if r and r:IsObjectType("Texture") then r:SetAlpha(0) end
         end
         if GameMenuFrame.NineSlice then GameMenuFrame.NineSlice:SetAlpha(0) end
@@ -2391,8 +2441,9 @@ do
         -- Header: strip art, accent the title, nudge down.
         local header = GameMenuFrame.Header
         if header then
-            for i = 1, select("#", header:GetRegions()) do
-                local r = select(i, header:GetRegions())
+            local regions2 = { header:GetRegions() }
+            for i = 1, #regions2 do
+                local r = regions2[i]
                 if r and r:IsObjectType("Texture") then r:SetAlpha(0) end
             end
             local headerText = header.Text or (header.GetRegions and select(1, header:GetRegions()))
@@ -2444,8 +2495,9 @@ do
             for menuBtn in menu.buttonPool:EnumerateActive() do
                 if not GetFFD(menuBtn).skinned then
                     GetFFD(menuBtn).skinned = true
-                    for j = 1, select("#", menuBtn:GetRegions()) do
-                        local r = select(j, menuBtn:GetRegions())
+                    local regions2 = { menuBtn:GetRegions() }
+                    for j = 1, #regions2 do
+                        local r = regions2[j]
                         if r and r:IsObjectType("Texture") and r ~= menuBtn:GetFontString() then
                             r:SetAlpha(0)
                         end

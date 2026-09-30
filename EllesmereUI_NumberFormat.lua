@@ -15,6 +15,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  suite. RegisterNumberAbbreviation stays the public hook for a locale to add
 --  or override its algorithm.
 --
+--  WoW Forever's numbers are small, so nothing below 10,000 abbreviates there
+--  (9999 stays "9999", 10123 reads "10.1K"). The block at the end of this file
+--  trims every table here, and EllesmereUI.ForeverAbbreviateNumbers hands the
+--  same trimmed tiers to modules that call the client function directly.
+--
 --  AbbreviateNumber() runs on every combat-meter and gold-bar refresh, often many
 --  times a second across a raid frame's worth of bars, so it's written as a hot
 --  path: client API localized to upvalues, and the resolved AbbreviateConfig built
@@ -99,15 +104,24 @@ end
 -- warm call is a truthiness check away from returning instead of a hash lookup.
 local cfgLocalized, cfgEnglish
 
+-- WoW Forever's tier trim, set by the block at the end of this file (nil on
+-- every other client, whose tables reach the client untouched).
+local ForeverTiers
+
+local function NewConfig(rows)
+    if ForeverTiers then rows = ForeverTiers(rows) end
+    return { config = CreateAbbreviateConfig(rows) }
+end
+
 local function BuildConfig(forceEnglish)
     if forceEnglish then
-        cfgEnglish = cfgEnglish or { config = CreateAbbreviateConfig(EnglishBreakpoints()) }
+        cfgEnglish = cfgEnglish or NewConfig(EnglishBreakpoints())
         return cfgEnglish
     end
     if not cfgLocalized then
         local builder = localeBuilders[EllesmereUI.LOCALE]
         local opts = builder and builder() or EnglishBreakpoints()
-        cfgLocalized = { config = CreateAbbreviateConfig(opts) }
+        cfgLocalized = NewConfig(opts)
     end
     return cfgLocalized
 end
@@ -117,4 +131,48 @@ end
 --   K/M/B (e.g. DamageMeters' "force English units" setting).
 function EllesmereUI.AbbreviateNumber(n, forceEnglish)
     return AbbreviateNumbers(tonumber(n) or 0, BuildConfig(forceEnglish))
+end
+
+--------------------------------------------------------------------------------
+--  WoW Forever only: no tier below 10,000.
+--------------------------------------------------------------------------------
+if EllesmereUI.IS_FOREVER then
+    -- rows (largest first) -> a new list without the tiers below 10,000, bar the
+    -- plain one (breakpoint 1 or 0). When nothing then starts AT 10,000, the
+    -- largest dropped tier moves up to start there, keeping its divisors: the
+    -- English K tier still reads 12345 as "12.3K", while the CJK thousands tier
+    -- just goes (the wan tier already starts at 10,000). A moved row is edited
+    -- in place, so pass freshly built rows.
+    ForeverTiers = function(rows)
+        local out = {}
+        for i = 1, #rows do
+            local row = rows[i]
+            local bp = row.breakpoint
+            if bp >= 10000 or bp <= 1 then
+                out[#out + 1] = row
+            elseif not out[1] or out[#out].breakpoint > 10000 then
+                row.breakpoint = 10000
+                out[#out + 1] = row
+            end
+        end
+        return out
+    end
+    -- For a module's own breakpoint table (Unit Frames' decimal bands).
+    EllesmereUI.ForeverAbbrevTiers = ForeverTiers
+
+    -- EllesmereUI.ForeverAbbreviateNumbers(n, opts) / ForeverAbbreviateLargeNumbers(n, opts)
+    --   The client's AbbreviateNumbers / AbbreviateLargeNumbers for modules that
+    --   call it directly (health, power, absorb and XP text), on this file's own
+    --   trimmed tiers so every Forever number reads alike (9999, then 10.1K); a
+    --   caller's own opts pass through as they are. n goes straight to the C
+    --   function, so a secret value stays secret-safe.
+    local AbbreviateLargeNumbers = AbbreviateLargeNumbers
+
+    function EllesmereUI.ForeverAbbreviateNumbers(n, opts)
+        return AbbreviateNumbers(n, opts or BuildConfig(false))
+    end
+
+    function EllesmereUI.ForeverAbbreviateLargeNumbers(n, opts)
+        return AbbreviateLargeNumbers(n, opts or BuildConfig(false))
+    end
 end

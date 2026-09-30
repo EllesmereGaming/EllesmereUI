@@ -5,19 +5,22 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  The three look cards (EllesmereUI Style, Blizzard Style, Classic WoW UI),
 --  each with a miniature of what the look means, shared by the first-install
 --  style picker (EllesmereUI_StyleChoicePopup.lua) and the header of Global
---  Settings > Style (EUI_Style_Options.lua). Builds frames only when called.
+--  Settings > Style (EUI_Style_Options.lua). The WoW Forever client adds a
+--  fourth pick card, WoW Forever. Builds frames only when called.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI then return end
 
 local GOLD_R, GOLD_G, GOLD_B = 1.0, 0.80, 0.18
 local BRONZE_R, BRONZE_G, BRONZE_B = 0.86, 0.65, 0.42
+local FOREVER_R, FOREVER_G, FOREVER_B = 0.47, 0.75, 0.95
+local IS_FOREVER = EllesmereUI.IS_FOREVER == true
 -- The vanilla frame sheet: the player frame samples it flipped (portrait on
 -- the left); 193x77 of visible art at 1x.
 local CLASSIC_FRAME = "Interface\\TargetingFrame\\UI-TargetingFrame"
-local CLASSIC_SLOT  = "Interface\\Buttons\\UI-Quickslot2"
+local CLASSIC_EMPTY = "Interface\\Buttons\\UI-Quickslot"
 local CLASSIC_FILL  = "Interface\\TargetingFrame\\UI-StatusBar"
-local CLASSIC_DISC  = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\circle_mask.tga"
+local CLASSIC_CAP   = "Interface\\MainMenuBar\\UI-MainMenuBar-EndCap-Dwarf"
 
 local CARD_W, CARD_H, CARD_GAP = 212, 296, 16
 -- Display cards (announcements) have no button: the caption is the last row.
@@ -25,6 +28,10 @@ local DISPLAY_CARD_H = 248
 local MOCK_W, MOCK_H = 186, 118
 EllesmereUI.STYLE_CARD_H = CARD_H
 EllesmereUI.STYLE_CARD_DISPLAY_H = DISPLAY_CARD_H
+-- The row of pick cards (four on the WoW Forever client), for callers that
+-- size a host round it; display cards stay three.
+local PICK_CARDS = IS_FOREVER and 4 or 3
+EllesmereUI.STYLE_CARDS_W = PICK_CARDS * CARD_W + (PICK_CARDS - 1) * CARD_GAP
 
 local function AtlasOK(name)
     return name and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name) and true or false
@@ -90,11 +97,13 @@ end
 
 -------------------------------------------------------------------------------
 --  Blizzard mock: the stock player frame art with its health and mana
---  fills, over a row of the rounded stock button slots. Every atlas is
---  validated; a missing one falls back to a plain gold-framed box so the
---  card never shows a blank stage.
+--  fills, over four rounded stock button slots flanked by retail's gryphon
+--  end caps. Every atlas is validated; a missing one falls back to a plain
+--  gold-framed box (or leaves its cap out) so the card never shows a blank
+--  stage. forever: the WoW Forever card's base (its own art, its caps drawn
+--  by DrawForeverMock). Returns the unit frame.
 -------------------------------------------------------------------------------
-local function DrawBlizzMock(stage, PP, MakeBorder)
+local function DrawBlizzMock(stage, PP, MakeBorder, _eg, _font, forever)
     local ART = "UI-HUD-UnitFrame-Player-PortraitOn"
     local HEALTH = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Health"
     local MANA = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Mana"
@@ -110,7 +119,9 @@ local function DrawBlizzMock(stage, PP, MakeBorder)
         PP.Point(frame, "TOP", stage, "TOP", 0, -8)
         local art = frame:CreateTexture(nil, "ARTWORK", nil, 2)
         art:SetAllPoints()
-        art:SetAtlas(ART, false)
+        -- Plain Blizzard Style draws the retail art on WoW Forever too, as
+        -- live (EllesmereUI.StockAtlas); the WoW Forever card keeps its own.
+        if forever then art:SetAtlas(ART, false) else EllesmereUI.StockAtlas(art, ART, false) end
         if AtlasOK(HEALTH) then
             local h = frame:CreateTexture(nil, "ARTWORK", nil, 1)
             h:SetAtlas(HEALTH, false)
@@ -140,7 +151,7 @@ local function DrawBlizzMock(stage, PP, MakeBorder)
         PP.Size(power, 96, 12)
     end
 
-    local ICON, GAP, N = 24, 4, 5
+    local ICON, GAP, N = 24, 4, 4
     local rowW = N * ICON + (N - 1) * GAP
     local slotOK = AtlasOK(SLOT)
     for i = 1, N do
@@ -150,7 +161,7 @@ local function DrawBlizzMock(stage, PP, MakeBorder)
         PP.Point(ic, "TOPLEFT", stage, "TOP", -rowW / 2 + (i - 1) * (ICON + GAP), -76)
         local t = ic:CreateTexture(nil, "ARTWORK")
         if slotOK then
-            t:SetAtlas(SLOT, false)
+            if forever then t:SetAtlas(SLOT, false) else EllesmereUI.StockAtlas(t, SLOT, false) end
             PP.Point(t, "TOPLEFT", ic, "TOPLEFT", -3, 3)
             PP.Point(t, "BOTTOMRIGHT", ic, "BOTTOMRIGHT", 3, -3)
         else
@@ -159,15 +170,85 @@ local function DrawBlizzMock(stage, PP, MakeBorder)
             MakeBorder(ic, GOLD_R, GOLD_G, GOLD_B, 0.6, PP)
         end
     end
+    -- Blizzard Style: retail's gryphon end caps (retail art on every client,
+    -- at the live caps' 104.5x98), bottoms a little below the slots.
+    if not forever then
+        local CAP_H, OVERLAP = 28, 3
+        for side = 1, 2 do
+            local name = (side == 1) and "ui-hud-actionbar-gryphon-left" or "ui-hud-actionbar-gryphon-right"
+            if AtlasOK(name) then
+                local cap = CreateFrame("Frame", nil, stage)
+                cap:SetFrameLevel(stage:GetFrameLevel() + 2)
+                PP.Size(cap, CAP_H * 104.5 / 98, CAP_H)
+                if side == 1 then
+                    PP.Point(cap, "BOTTOMRIGHT", stage, "TOP", -rowW / 2 + OVERLAP, -104)
+                else
+                    PP.Point(cap, "BOTTOMLEFT", stage, "TOP", rowW / 2 - OVERLAP, -104)
+                end
+                local t = cap:CreateTexture(nil, "ARTWORK")
+                t:SetAllPoints()
+                EllesmereUI.StockAtlas(t, name, false)
+            end
+        end
+    end
+    return frame, rowW
+end
+
+-------------------------------------------------------------------------------
+--  WoW Forever mock (that client only, where every stock atlas already draws
+--  its Forever art): the Blizzard mock with the round level badge on the
+--  player frame and the gryphon end caps flanking a four-slot bar. A missing
+--  atlas just leaves its piece out.
+-------------------------------------------------------------------------------
+local function DrawForeverMock(stage, PP, MakeBorder, EG, font)
+    local frame, rowW = DrawBlizzMock(stage, PP, MakeBorder, EG, font, true)
+    -- Level badge: Blizzard's Forever spot is BOTTOMLEFT 13,7 of the 232x100
+    -- box, i.e. -4,-7.5 off the centred art, at the mock's 0.78.
+    local BADGE = "UI-HUD-UnitFrame-SmallCircle"
+    if AtlasOK(BADGE) then
+        local bf = CreateFrame("Frame", nil, stage)
+        bf:SetFrameLevel(stage:GetFrameLevel() + 2)
+        PP.Size(bf, 24, 24)
+        PP.Point(bf, "BOTTOMLEFT", frame, "BOTTOMLEFT", -3, -6)
+        local disc = bf:CreateTexture(nil, "ARTWORK")
+        disc:SetAllPoints()
+        disc:SetAtlas(BADGE, false)
+        local lvl = bf:CreateFontString(nil, "OVERLAY")
+        lvl:SetFont(font, 10, "")
+        lvl:SetTextColor(1, 1, 1, 1)
+        PP.Point(lvl, "CENTER", bf, "CENTER", 0, 0)
+        lvl:SetText("60")
+    end
+    -- Gryphon end caps at their own aspect, bottoms level with the slots,
+    -- each overlapping the bar's end by a few pixels.
+    local CAP_H, OVERLAP = 26, 8
+    for side = 1, 2 do
+        local name = (side == 1) and "ui-hud-actionbar-gryphon-left" or "ui-hud-actionbar-gryphon-right"
+        local info = C_Texture.GetAtlasInfo(name)
+        if info and info.width and info.height and info.height > 0 then
+            local cap = CreateFrame("Frame", nil, stage)
+            cap:SetFrameLevel(stage:GetFrameLevel() + 2)
+            PP.Size(cap, CAP_H * info.width / info.height, CAP_H)
+            if side == 1 then
+                PP.Point(cap, "BOTTOMRIGHT", stage, "TOP", -rowW / 2 + OVERLAP, -102)
+            else
+                PP.Point(cap, "BOTTOMLEFT", stage, "TOP", rowW / 2 - OVERLAP, -102)
+            end
+            local t = cap:CreateTexture(nil, "ARTWORK")
+            t:SetAllPoints()
+            t:SetAtlas(name, false)
+        end
+    end
 end
 
 -------------------------------------------------------------------------------
 --  Classic mock: the vanilla player frame sheet (193x77 of art, sampled
 --  flipped so the portrait sits on the left) with its health and mana
---  bars at the vanilla spots, over a row of the vanilla square slots with
---  their gold ring. Plain files, so nothing needs validating.
+--  bars at the vanilla spots and the level in its ring, over four vanilla
+--  empty slots flanked by the vanilla gryphon end caps. Plain files, so
+--  nothing needs validating.
 -------------------------------------------------------------------------------
-local function DrawClassicMock(stage, PP)
+local function DrawClassicMock(stage, PP, _mb, _eg, font)
     local s = 0.78
     local frame = CreateFrame("Frame", nil, stage)
     frame:SetFrameLevel(stage:GetFrameLevel() + 1)
@@ -193,53 +274,65 @@ local function DrawClassicMock(stage, PP)
     mrest:SetColorTexture(0, 0, 0, 0.5)
     PP.Point(mrest, "TOPLEFT", mana, "TOPRIGHT", 0, 0)
     PP.Size(mrest, 119 * s * 0.4, 12 * s)
-    -- Portrait disc where the ring opens (64x64 at 24,-16 in the box).
-    local disc = frame:CreateTexture(nil, "ARTWORK", nil, 0)
-    disc:SetColorTexture(0.18, 0.16, 0.13, 1)
-    PP.Size(disc, 58 * s, 58 * s)
-    PP.Point(disc, "TOPLEFT", frame, "TOPLEFT", (27 - 19.5) * s, -(19 - 11.5) * s)
-    local discMask = frame:CreateMaskTexture()
-    discMask:SetTexture(CLASSIC_DISC, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    discMask:SetAllPoints(disc)
-    disc:AddMaskTexture(discMask)
     local art = frame:CreateTexture(nil, "ARTWORK", nil, 2)
     art:SetTexture(CLASSIC_FRAME)
     art:SetTexCoord(0.85546875, 0.1015625, 0.0625, 0.6640625)
     art:SetAllPoints(frame)
-    local nameLine = frame:CreateTexture(nil, "OVERLAY")
-    nameLine:SetColorTexture(1, 0.82, 0, 0.9)
-    PP.Size(nameLine, 44 * s, 4)
-    PP.Point(nameLine, "TOPLEFT", frame, "TOPLEFT", (92 - 19.5) * s, -(31 - 11.5) * s)
+    -- Level in the ring by the portrait: vanilla's PlayerLevelText sits CENTER
+    -- at BOTTOMLEFT 35.25,30 of the 232x100 box.
+    local lvl = frame:CreateFontString(nil, "OVERLAY")
+    lvl:SetFont(font, 9, "")
+    lvl:SetTextColor(1, 0.82, 0, 1)
+    PP.Point(lvl, "CENTER", frame, "TOPLEFT", (35.25 - 19.5) * s, -(70 - 11.5) * s)
+    lvl:SetText("60")
 
-    local ICON, GAP, N = 24, 4, 5
+    local ICON, GAP, N = 24, 4, 4
     local rowW = N * ICON + (N - 1) * GAP
     for i = 1, N do
         local ic = CreateFrame("Frame", nil, stage)
         ic:SetFrameLevel(stage:GetFrameLevel() + 1)
         PP.Size(ic, ICON, ICON)
         PP.Point(ic, "TOPLEFT", stage, "TOP", -rowW / 2 + (i - 1) * (ICON + GAP), -76)
-        local ibg = ic:CreateTexture(nil, "BACKGROUND")
-        ibg:SetAllPoints()
-        ibg:SetColorTexture(0.16 + i * 0.03, 0.14, 0.1 + i * 0.02, 1)
-        -- The vanilla slot ring: 66/36 of the button, a pixel low.
-        local ring = ic:CreateTexture(nil, "ARTWORK")
-        ring:SetTexture(CLASSIC_SLOT)
-        PP.Size(ring, ICON * 66 / 36, ICON * 66 / 36)
-        PP.Point(ring, "CENTER", ic, "CENTER", 0, -ICON / 36)
+        -- The vanilla empty slot: 66/36 of the button, a pixel low.
+        local slot = ic:CreateTexture(nil, "ARTWORK")
+        slot:SetTexture(CLASSIC_EMPTY)
+        PP.Size(slot, ICON * 66 / 36, ICON * 66 / 36)
+        PP.Point(slot, "CENTER", ic, "CENTER", 0, -ICON / 36)
+    end
+    -- Vanilla's gryphon end caps (one file, the right one mirrored), bottoms a
+    -- little below the slots, each overlapping the bar's end.
+    local CAP, OVERLAP = 36, 8
+    for side = 1, 2 do
+        local cap = CreateFrame("Frame", nil, stage)
+        cap:SetFrameLevel(stage:GetFrameLevel() + 2)
+        PP.Size(cap, CAP, CAP)
+        if side == 1 then
+            PP.Point(cap, "BOTTOMRIGHT", stage, "TOP", -rowW / 2 + OVERLAP, -102)
+        else
+            PP.Point(cap, "BOTTOMLEFT", stage, "TOP", rowW / 2 - OVERLAP, -102)
+        end
+        local t = cap:CreateTexture(nil, "ARTWORK")
+        t:SetAllPoints()
+        t:SetTexture(CLASSIC_CAP)
+        if side == 2 then t:SetTexCoord(1, 0, 0, 1) end
     end
 end
 
 -------------------------------------------------------------------------------
 --  EllesmereUI.BuildStyleCards(parent, topY, opts) -> handles
 --
---  Three cards in a row, the middle one on parent's centre line, their tops
---  topY below parent's TOP. Each card is one click target: the whole card
---  and its button pick that style, and hover lights the card in its own
+--  Three cards in a row (four pick cards on the WoW Forever client,
+--  EllesmereUI.STYLE_CARDS_W wide), centred on parent's centre line, their
+--  tops topY below parent's TOP. Each card is one click target: the whole
+--  card and its button pick that style, and hover lights the card in its own
 --  colour. opts:
---    onPick(styleKey)  called on a pick ("eui" | "blizzard" | "classic")
+--    onPick(styleKey)  called on a pick ("eui" | "blizzard" | "classic",
+--                      or "forever" on the WoW Forever client)
 --    buttonText        a string for every card, or a table keyed by style
 --    display           true: announcement cards -- no button, no click or
 --                      hover, DISPLAY_CARD_H tall (onPick/buttonText unused)
+--    defaultKey        the pick card tagged DEFAULT, placed first (nil or
+--                      "eui" = the EllesmereUI card, in the usual order)
 --  Returns a table keyed by style; handle:SetState(inUse, pickable, label)
 --  keeps a card lit with an IN USE badge, and dims its button (picks then do
 --  nothing) with an optional label while it has nothing to apply.
@@ -269,13 +362,35 @@ function EllesmereUI.BuildStyleCards(parent, topY, opts)
     }
 
     local display = opts.display == true
+    -- WoW Forever: its own pick card on that client, second in the row (the
+    -- announcement cards never show there).
+    if IS_FOREVER and not display then
+        table.insert(DEFS, 2, { key = "forever", r = FOREVER_R, g = FOREVER_G, b = FOREVER_B,
+          title = "WoW Forever", tag = "FOREVER ART",
+          caption = "Forever's bronze frames, gryphons and round badges, with EllesmereUI's features.",
+          draw = DrawForeverMock })
+    end
+    -- Another default look: its card leads the row with the DEFAULT tag.
+    local dk = opts.defaultKey
+    if dk and dk ~= "eui" and not display then
+        for i = 2, #DEFS do
+            if DEFS[i].key == dk then
+                local def = table.remove(DEFS, i)
+                DEFS[1].tag = "FLAT & MODERN"
+                def.tag = "DEFAULT"
+                table.insert(DEFS, 1, def)
+                break
+            end
+        end
+    end
+    local mid = (#DEFS + 1) / 2
     local handles = {}
     for index, def in ipairs(DEFS) do
         local accentR, accentG, accentB = def.r, def.g, def.b
         local card = CreateFrame(display and "Frame" or "Button", nil, parent)
         card:SetFrameLevel(parent:GetFrameLevel() + 1)
         PP.Size(card, CARD_W, display and DISPLAY_CARD_H or CARD_H)
-        PP.Point(card, "TOP", parent, "TOP", (index - 2) * (CARD_W + CARD_GAP), topY)
+        PP.Point(card, "TOP", parent, "TOP", (index - mid) * (CARD_W + CARD_GAP), topY)
         local cbg = card:CreateTexture(nil, "BACKGROUND")
         cbg:SetAllPoints()
         cbg:SetColorTexture(0.09, 0.11, 0.13, 1)
@@ -319,7 +434,7 @@ function EllesmereUI.BuildStyleCards(parent, topY, opts)
         sbg:SetAllPoints()
         sbg:SetColorTexture(0.04, 0.05, 0.06, 1)
         MakeBorder(stage, 1, 1, 1, 0.08, PP)
-        def.draw(stage, PP, MakeBorder, EG)
+        def.draw(stage, PP, MakeBorder, EG, FONT)
 
         local cap = card:CreateFontString(nil, "OVERLAY")
         cap:SetFont(FONT, 12, "")

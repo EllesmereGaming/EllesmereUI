@@ -205,8 +205,9 @@ local function OnBlizzardFlyoutShow(flyout)
     -- once per button (its size never changes; the paint stamps classicArt
     -- in the button's record).
     local classic = ns.AB_Style() == "classic"
-    for i = 1, flyout:GetNumChildren() do
-        local child = select(i, flyout:GetChildren())
+    local children = { flyout:GetChildren() }
+    for i = 1, #children do
+        local child = children[i]
         if child and child:IsShown() and child.icon then
             if classic then
                 if not ns.EFD(child).classicArt then ns.AB_PaintClassicButton(child) end

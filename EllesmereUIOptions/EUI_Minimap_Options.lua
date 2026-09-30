@@ -141,9 +141,34 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Rebuild: the Width | Height Offset row exists only on the rect layout.
                 EllesmereUI:RefreshPage(true)
               end }));  y = y - h
+        -- Inline cog on Visibility: Opacity of the shown map (showing and hiding stay
+        -- with Visibility). Greyed while the map never shows; the checklist refreshes
+        -- the page on close, which re-runs the cog's disabled state.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(visRow._leftRegion, {
+                title = "Minimap Opacity",
+                disabled = function()
+                    local m = MinimapDB()
+                    return m ~= nil and (EllesmereUI.VisOverrideValue(m) or m.visibility) == "never"
+                end,
+                disabledTooltip = "This option requires a Visibility other than Never",
+                rows = {
+                    { type="slider", label="Opacity", min=10, max=100, step=1,
+                      tooltip="Fades the minimap while it is shown. Visibility still decides when it shows.",
+                      get=function() local m = MinimapDB(); return (m and m.opacity) or 100 end,
+                      set=function(v)
+                          local m = MinimapDB(); if not m then return end
+                          m.opacity = v
+                          -- One SetAlpha, not a full apply pass.
+                          if _G._EMM_ApplyMapAlpha then _G._EMM_ApplyMapAlpha() end
+                      end },
+                },
+            })
+        end
 
-        -- Row 2: Size | Interactable Button Size
-        _, h = W:DualRow(parent, y,
+        -- Row 2: Size (+ Icon Size cog) | Interactable Button Size
+        local sizeRow
+        sizeRow, h = W:DualRow(parent, y,
             { type="slider", text="Size", min=100, max=600, step=1,
               getValue=function() local m = MinimapDB(); return m and m.mapSize or 140 end,
               setValue=function(v)
@@ -190,6 +215,29 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshMinimap()
               end })
         y = y - h
+        -- Icon Size in a cog on Size: Blizzard's Edit Mode Icon Size (the scale of
+        -- the icons on the map), kept here and applied to the map itself, so the
+        -- Edit Mode layout is never written. Unset shows Edit Mode's value.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(sizeRow._leftRegion, {
+                title = "Minimap Icons",
+                rows = {
+                    { type="slider", label="Icon Size", min=50, max=200, step=10,
+                      tooltip="Size of the icons on the map, such as group members, quest objectives and gathering nodes. The same setting as Blizzard's Edit Mode Icon Size.",
+                      get=function()
+                          local m = MinimapDB()
+                          local v = m and m.iconScale
+                          if v then return v end
+                          return (_G._EMM_EditModeIconScale and _G._EMM_EditModeIconScale()) or 100
+                      end,
+                      set=function(v)
+                          local m = MinimapDB(); if not m then return end
+                          m.iconScale = v
+                          if _G._EMM_ApplyIconScale then _G._EMM_ApplyIconScale() end
+                      end },
+                },
+            })
+        end
 
         -- Row 3: Border Style (+ options cog) | Border Size (+ class/custom swatches)
         local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
@@ -465,8 +513,9 @@ initFrame:SetScript("OnEvent", function(self)
             suffix:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
             suffix:SetTextColor(1, 1, 1, 0.35)
             local rzLabel
-            for i = 1, rgn:GetNumRegions() do
-                local reg = select(i, rgn:GetRegions())
+            local regions = { rgn:GetRegions() }
+            for i = 1, #regions do
+                local reg = regions[i]
                 if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Reset Zoom" then
                     rzLabel = reg
                     break
@@ -712,10 +761,11 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Friends Tooltip Cap | Custom Tooltip Size
-        _, h = W:DualRow(parent, y,
+        -- Friends Tooltip Cap (+ cog: Show Notes) | Custom Tooltip Size
+        local friendsCapRow
+        friendsCapRow, h = W:DualRow(parent, y,
             { type="slider", text="Friends Tooltip Cap", min=0, max=30, step=1,
-              tooltip="Max rows per section in the Friends Online tooltip (0 = the 30-row max).",
+              tooltip="Max rows per section in the Friends Online tooltip (0 = the 30-row max). The cog can show each note under its row.",
               getValue=function() local m = MinimapDB(); return m and m.friendsMaxRows or 0 end,
               setValue=function(v)
                 local m = MinimapDB(); if not m then return end
@@ -729,6 +779,21 @@ initFrame:SetScript("OnEvent", function(self)
                 m.customTooltipScale = v
               end }
         );  y = y - h
+        -- Inline cog on Friends Tooltip Cap: Show Notes
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(friendsCapRow._leftRegion, {
+                title = "Friends Tooltip",
+                rows = {
+                    { type = "toggle", label = "Show Notes",
+                      tooltip = "Shows each guild or friend note on a second line under its row. The tooltip gets taller.",
+                      get = function() local m = MinimapDB(); return m and m.friendsShowNotes or false end,
+                      set = function(v)
+                          local m = MinimapDB(); if not m then return end
+                          m.friendsShowNotes = v
+                      end },
+                },
+            })
+        end
 
         -- Shared row-position choices (QoL button row + Blizzard element row).
         -- The two rows are mutually exclusive per position: a value picked on
@@ -1494,7 +1559,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- Show on FPS/MS Hover | Show on Clock Hover
         local HOVER_TT_VALUES = { none = "None", lockouts = "Instance Lockouts", vault = "Great Vault" }
         local HOVER_TT_ORDER = { "none", "lockouts", "vault" }
-        -- No Great Vault on WoW Forever (the module resets a saved "vault" to "none" at login there).
+        -- No Great Vault on WoW Forever: the entry is dropped and a saved "vault"
+        -- shows as None (the module reads it as none too and never rewrites it).
         if EllesmereUI.IS_FOREVER then
             HOVER_TT_VALUES.vault = nil
             HOVER_TT_ORDER = { "none", "lockouts" }
@@ -1504,7 +1570,11 @@ initFrame:SetScript("OnEvent", function(self)
               values = HOVER_TT_VALUES, order = HOVER_TT_ORDER,
               disabled=FpsOff,
               disabledTooltip="Show FPS/MS",
-              getValue=function() local m = MinimapDB(); return m and m.fpsHoverTooltip or "none" end,
+              getValue=function()
+                local m = MinimapDB(); local v = m and m.fpsHoverTooltip or "none"
+                if EllesmereUI.IS_FOREVER and v == "vault" then v = "none" end
+                return v
+              end,
               setValue=function(v)
                 local m = MinimapDB(); if not m then return end
                 m.fpsHoverTooltip = v
@@ -1514,7 +1584,11 @@ initFrame:SetScript("OnEvent", function(self)
               values = HOVER_TT_VALUES, order = HOVER_TT_ORDER,
               disabled=function() return ClockMode() == "none" end,
               disabledTooltip="Clock Style",
-              getValue=function() local m = MinimapDB(); return m and m.clockHoverTooltip or "none" end,
+              getValue=function()
+                local m = MinimapDB(); local v = m and m.clockHoverTooltip or "none"
+                if EllesmereUI.IS_FOREVER and v == "vault" then v = "none" end
+                return v
+              end,
               setValue=function(v)
                 local m = MinimapDB(); if not m then return end
                 m.clockHoverTooltip = v

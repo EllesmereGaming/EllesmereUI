@@ -773,20 +773,30 @@ BuildIconStrip = function()
         _iconStrip:EnableMouse(false)
         _iconStrip:SetScript("OnMouseDown", function(_, btn) StartIconDrag(btn) end)
         _iconStrip:SetScript("OnMouseUp", StopIconDrag)
-        -- Click-through unless shift is held (strip + all icon children)
+        -- Click-through unless shift is held (strip + all icon children).
+        -- The Shift watch is registered only while the strip is visible; each
+        -- show re-reads Shift so a press or release made while hidden is not missed.
         local modFrame = CreateFrame("Frame")
-        modFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
-        modFrame:SetScript("OnEvent", function(_, _, key, down)
-            if key == "LSHIFT" or key == "RSHIFT" then
-                local on = (down == 1)
-                -- Don't disable mouse mid-drag; let OnMouseUp end it naturally
-                if not on and _iconContainer._dragging then return end
-                _iconStrip:EnableMouse(on)
-                for _, ic in ipairs(_iconPool) do
-                    ic.frame:EnableMouse(on)
-                end
+        local function SetShiftMouse(on)
+            -- Don't disable mouse mid-drag; let OnMouseUp end it naturally
+            if not on and _iconContainer._dragging then return end
+            _iconStrip:EnableMouse(on)
+            for _, ic in ipairs(_iconPool) do
+                ic.frame:EnableMouse(on)
             end
+        end
+        modFrame:SetScript("OnEvent", function(_, _, key, down)
+            if key == "LSHIFT" or key == "RSHIFT" then SetShiftMouse(down == 1) end
         end)
+        _iconContainer:SetScript("OnShow", function()
+            modFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
+            SetShiftMouse(IsShiftKeyDown() and true or false)
+        end)
+        _iconContainer:SetScript("OnHide", function()
+            modFrame:UnregisterEvent("MODIFIER_STATE_CHANGED")
+        end)
+        -- Starts hidden so the first Show below runs the OnShow registration.
+        _iconContainer:Hide()
         -- Per-icon backgrounds (created in MakeIcon) travel with each icon
         -- during animation. No strip-level background needed.
     end
@@ -1097,14 +1107,22 @@ local function BuildBarWindow()
         frame._locked = sh.barLocked or false
         frame._isHovered = false
         _barWin = frame
+        -- A cast already underway animates the moment the window shows
+        -- (instance rules, hotkey, options, Alt-Z). Starts hidden so the
+        -- first Show below runs it too.
+        frame:SetScript("OnShow", function()
+            if next(_pendingCasts) then StartCastAnim(true) end
+        end)
+        frame:Hide()
 
         frame._bg = frame:CreateTexture(nil, "BACKGROUND")
         frame._bg:SetAllPoints()
 
         -- Header (inside the classic box's line; flush on every other look)
         local ci = ns.DMClassicInset()
+        -- (Its fixed 22, plus the Forever header band's rail under the variant.)
         local hdr = CreateFrame("Frame", nil, frame)
-        hdr:SetHeight(22)
+        hdr:SetHeight(22 + ns.DMFvRail(22))
         hdr:SetPoint("TOPLEFT", frame, "TOPLEFT", ci, -ci); hdr:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -ci, -ci)
         hdr:SetFrameLevel(frame:GetFrameLevel() + 5)
         hdr:EnableMouse(true)
@@ -1115,7 +1133,7 @@ local function BuildBarWindow()
         frame._hdrBg = hdrBg
 
         local title = hdr:CreateFontString(nil, "OVERLAY")
-        title:SetPoint("LEFT", hdr, "LEFT", 6, 0)
+        title:SetPoint("LEFT", hdr, "LEFT", 6, ns.DMHdrLift(22))
         SetFont(title, 11)
         title:SetText("Spell History")
         frame._title = title
@@ -1133,7 +1151,7 @@ local function BuildBarWindow()
         local function MakeHdrBtn(texFile, xOff, tooltip, onClick, artKey)
             local btn = CreateFrame("Button", nil, hdr)
             btn:SetSize(btnSize, btnSize)
-            btn:SetPoint("RIGHT", hdr, "RIGHT", xOff, 0)
+            btn:SetPoint("RIGHT", hdr, "RIGHT", xOff, ns.DMHdrLift(22))
             btn:SetFrameLevel(hdr:GetFrameLevel() + 2)
             local icon = btn:CreateTexture(nil, "ARTWORK")
             icon:SetAllPoints()
@@ -1161,7 +1179,8 @@ local function BuildBarWindow()
 
         -- Btn 1 (rightmost): Settings
         MakeHdrBtn(MEDIA .. "dm_settings.png", -(btnPad + 2), "Settings", function()
-            if ns._optionsOpen then
+            -- Folded to the mini window: fall through to ShowModule, which unfolds it.
+            if ns._optionsOpen and not EUI._panelCollapsed then
                 EUI:Hide()
                 return
             end
@@ -1194,7 +1213,7 @@ local function BuildBarWindow()
         end)
 
         -- Btn 3: Resize (width drag)
-        local resizeBtnHdr = MakeHdrBtn(MEDIA .. "dm_width_resize.png", -(btnSize * 2 + btnPad * 3 + 2), "Resize Width", function() end)
+        local resizeBtnHdr = MakeHdrBtn(MEDIA .. "dm_width_resize.png", -(btnSize * 2 + btnPad * 3 + 2), "Resize Width", function() end, "resize")
         -- Override: drag to resize width
         local resizeStartX, resizeStartW
         local resizeFrame = CreateFrame("Frame")
@@ -1260,7 +1279,7 @@ local function BuildBarWindow()
     ns.DMPaintHeaderBg(_barWin._hdrBg, hR, hG, hB, dmCfg.hdrBgAlpha or 1, sh.bgR or 0, sh.bgG or 0, sh.bgB or 0)
 
     local tR, tG, tB
-    if dmCfg.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
+    if dmCfg.hdrTextUseAccent ~= false then tR, tG, tB = ns.DMTitleRGB()
     else local tc = dmCfg.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
     _barWin._title:SetTextColor(tR, tG, tB, 1)
 
@@ -1278,7 +1297,7 @@ local function BuildBarWindow()
 
     -- Size: width from DB, height auto-calculated from maxBars (plus the
     -- classic box's inset above and below)
-    local hdrH = hideTop and 0 or 22
+    local hdrH = hideTop and 0 or (22 + ns.DMFvRail(22))
     local maxBars = sh.maxBars or 5
     local _, _, stride = ns._RowMetrics(sh.shBarHeight or 18, dmCfg.barSpacing or 2, _barWin:GetEffectiveScale())
     local autoH = hdrH + maxBars * stride + ci * 2
@@ -1437,8 +1456,9 @@ end
 
 -------------------------------------------------------------------------------
 --  Active-cast fill animation
---  Only runs while there are pending (in-progress) casts to animate.
---  Stops itself when all casts resolve.  Zero cost when idle.
+--  Only runs while there are pending (in-progress) casts to animate and the
+--  bar window is visible.  Stops itself when all casts resolve or the window
+--  hides; the window's OnShow restarts it.  Zero cost when idle or hidden.
 -------------------------------------------------------------------------------
 -- Lightweight per-frame updater: only touches fill values + right text on
 -- bars with active casts.  Full RefreshBarWindow runs on PushEntry/Finish.
@@ -1446,7 +1466,7 @@ local _castAnimFrame = CreateFrame("Frame")
 _castAnimFrame:Hide()
 _castAnimFrame:SetScript("OnUpdate", function(self)
     if not next(_pendingCasts) then self:Hide(); return end
-    if not _barWin or not _barWin:IsShown() then return end
+    if not _barWin or not _barWin:IsVisible() then self:Hide(); return end
     local now = GetTime()
     local visSlots = _barWin._visSlots or 5
     local scroll = _barScroll or 0
@@ -1471,7 +1491,10 @@ _castAnimFrame:SetScript("OnUpdate", function(self)
     end
 end)
 
-StartCastAnim = function() _castAnimFrame:Show() end
+-- onShow: called from the bar window's OnShow, which already means it is visible.
+StartCastAnim = function(onShow)
+    if onShow or (_barWin and _barWin:IsVisible()) then _castAnimFrame:Show() end
+end
 local function StopCastAnim()  _castAnimFrame:Hide() end
 
 -------------------------------------------------------------------------------

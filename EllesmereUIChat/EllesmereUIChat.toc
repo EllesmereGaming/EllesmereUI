@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Modern chat enhancements with useful utilities.
 ## Author: Ellesmere
-## Version: 9.2.9
+## Version: 9.3.4
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIChatDB
 ## SavedVariablesPerCharacter: EllesmereUIChatScrollDB
@@ -23,6 +23,10 @@ EllesmereUIChat_Tabs.lua
 
 # Stock-style sidebar kits (Blizzard Style / Classic WoW UI chat button column)
 EllesmereUIChat_SidebarStock.lua
+
+# WoW Forever look (Forever client only, Blizzard Style variant): bronze
+# panel frames, tabs and sidebar kit on our own frames
+EllesmereUIChat_Forever.lua
 
 # Chat bubbles: Blizzard's own bubbles stay on, we blank their chrome and draw a styled
 # frame on the frame that carries their position.

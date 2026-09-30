@@ -60,9 +60,16 @@ local CLASSIC_TAB_H    = 32
 local CLASSIC_CLIP_UP  = CLASSIC_TAB_H - 26   -- the dock manager is 26 tall
 local CLASSIC_LABEL_Y  = -5                   -- the sheet's label seat
 local CLASSIC_IDLE_A   = 0.75                 -- an unselected tab's art
+-- WoW Forever: ghosts wear the kit's bronze tab (EllesmereUIChat_Forever.lua)
+-- at their own height, the strip's clip raised to fit it like Classic's.
+local function FvTabs() return ns.ChatForever and ns.ChatForever() end
+local FV_TAB_H   = 28
+local FV_CLIP_UP = FV_TAB_H - 26
+local FV_LABEL_Y = -2
 
 local function TabHeight()
     if ClassicTabs() then return CLASSIC_TAB_H end
+    if FvTabs() then return FV_TAB_H end
     return DB().tabHeight or 24
 end
 
@@ -296,8 +303,9 @@ end
 --  path ever touches an art texture's alpha slot.
 -------------------------------------------------------------------------------
 local function SuppressTabRegions(tab)
-    for i = 1, select("#", tab:GetRegions()) do
-        local region = select(i, tab:GetRegions())
+    local regions = { tab:GetRegions() }
+    for i = 1, #regions do
+        local region = regions[i]
         -- GetAlpha reads secret on chat-roleset widgets in lockdown; a
         -- secret skips the compare and re-asserts.
         local a = region and region.SetAlpha and region:GetAlpha()
@@ -316,8 +324,9 @@ end
 -- chat is hidden) and skips every tab with nothing recorded.
 local stockTabRegionsOff = setmetatable({}, { __mode = "k" })
 local function StockHideTabRegions(tab)
-    for i = 1, select("#", tab:GetRegions()) do
-        local region = select(i, tab:GetRegions())
+    local regions = { tab:GetRegions() }
+    for i = 1, #regions do
+        local region = regions[i]
         local a = region and region.SetAlpha and region:GetAlpha()
         if a and not stockTabRegionsOff[region]
             and ((issecretvalue and issecretvalue(a)) or a ~= 0) then
@@ -331,8 +340,9 @@ local function StockRestoreTabRegions(tab)
     local d = CFD(tab)
     if not d.stockRegionsOff then return end
     d.stockRegionsOff = nil
-    for i = 1, select("#", tab:GetRegions()) do
-        local region = select(i, tab:GetRegions())
+    local regions = { tab:GetRegions() }
+    for i = 1, #regions do
+        local region = regions[i]
         if region and stockTabRegionsOff[region] then
             stockTabRegionsOff[region] = nil
             region:SetAlpha(1)
@@ -398,6 +408,13 @@ local function StyleGhost(g, isActive)
         g._clL:SetAlpha(a)
         g._clM:SetAlpha(a)
         g._clR:SetAlpha(a)
+        return
+    end
+
+    -- WoW Forever: the kit's bronze tab, warm while selected. Typography
+    -- stays the user's.
+    if FvTabs() then
+        ECHAT.FV_StyleGhost(g, isActive)
         return
     end
 
@@ -575,8 +592,10 @@ local function PositionStrip()
     local gdm = _G.GeneralDockManager
     if not gdm then return end
     strip:ClearAllPoints()
-    -- Classic's full-height tabs reach above the 26px dock: raise the clip.
-    strip:SetPoint("TOPLEFT", gdm, "TOPLEFT", 0, ClassicTabs() and CLASSIC_CLIP_UP or 0)
+    -- Classic's full-height tabs (and WoW Forever's) reach above the 26px
+    -- dock: raise the clip.
+    strip:SetPoint("TOPLEFT", gdm, "TOPLEFT", 0,
+        ClassicTabs() and CLASSIC_CLIP_UP or (FvTabs() and FV_CLIP_UP) or 0)
     strip:SetPoint("BOTTOMRIGHT", gdm, "BOTTOMRIGHT", 0, 0)
     -- Never re-show over an engaged full hide or passthrough: their
     -- remember-restores own the reveal.
@@ -597,16 +616,18 @@ local function RefreshNow()
     local fontSize = cfg.tabFontSize or 11
     local fontFlag = TabFontFlag()
     local padX = cfg.tabInnerPaddingX or 12
-    local labelY = ClassicTabs() and CLASSIC_LABEL_Y or 0
+    local labelY = ClassicTabs() and CLASSIC_LABEL_Y or (FvTabs() and FV_LABEL_Y) or 0
 
     -- The chat panel extends left of ChatFrame1 by its inset while Blizzard's
     -- dock starts at the frame edge; the FIRST ghost (and the strip's clip
     -- rect) stretch left to the panel edge so the row lines up with the
     -- panel. Visual-only: the extra pixels have no tab under them. Deferred
     -- numeric rect reads, the module's shipped-safe class. The stock styles
-    -- draw no panel, so their tabs stay exactly where Blizzard puts them.
+    -- draw no panel, so their tabs stay exactly where Blizzard puts them;
+    -- WoW Forever draws one, its first tab standing tabX in from its frame.
     local leftExtend = 0
-    if not (ns.ChatStock and ns.ChatStock()) then
+    local fvTabs = FvTabs()
+    if not (ns.ChatStock and ns.ChatStock()) or fvTabs then
         local cf1 = _G.ChatFrame1
         local bg1 = cf1 and CFD(cf1).bg
         local firstCF = GENERAL_CHAT_DOCK and GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES
@@ -615,6 +636,7 @@ local function RefreshNow()
         local bgLeft = bg1 and bg1:GetLeft()
         local tabLeft = firstTab and firstTab:GetLeft()
         if bgLeft and tabLeft then
+            if fvTabs then bgLeft = bgLeft + ECHAT.FV.tabX end
             local delta = bgLeft - tabLeft
             if delta < 0 and delta > -60 then leftExtend = delta end
         end
@@ -622,7 +644,7 @@ local function RefreshNow()
     if leftExtend ~= 0 then
         local gdm = _G.GeneralDockManager
         if gdm then
-            strip:SetPoint("TOPLEFT", gdm, "TOPLEFT", leftExtend, 0)
+            strip:SetPoint("TOPLEFT", gdm, "TOPLEFT", leftExtend, fvTabs and FV_CLIP_UP or 0)
         end
     end
 
@@ -673,9 +695,9 @@ local function RefreshNow()
                 local nativeGap = isScrolling and not seenScrolling and 0 or 1
                 if isScrolling then seenScrolling = true end
                 local leftInset = count == 1 and leftExtend or 0
-                -- Classic ghosts span their tab exactly (the sheet carries its
-                -- own margins), so no spacing compensation there.
-                if count > 1 and not ECHAT.ExtendBgBehindTabs(cfg) and not ClassicTabs() then
+                -- Classic and WoW Forever ghosts span their tab exactly (their
+                -- art carries its own margins), so no spacing compensation there.
+                if count > 1 and not ECHAT.ExtendBgBehindTabs(cfg) and not ClassicTabs() and not FvTabs() then
                     leftInset = tabGap - nativeGap
                 end
 
