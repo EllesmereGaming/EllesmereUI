@@ -48,8 +48,9 @@ do
         if not EllesmereUI._prebuilding then
             local btn = select(1, activateBtnFrame:GetChildren())
             if btn then
-                for i = 1, btn:GetNumRegions() do
-                    local rgn = select(i, btn:GetRegions())
+                local regions = { btn:GetRegions() }
+                for i = 1, #regions do
+                    local rgn = regions[i]
                     if rgn and rgn.GetText and rgn:GetText() then
                         activateBtnLbl = rgn
                         break
@@ -235,11 +236,11 @@ do
                 iconAtlas = function(key)
                     if key == "none" then return nil end
                     if not sndPaths[key] then return nil end
-                    return "common-icon-sound"
+                    return EllesmereUI.SOUND_ICON_ATLAS
                 end,
                 iconPressedAtlas = function(key)
                     if key == "none" then return nil end
-                    return "common-icon-sound-pressed"
+                    return EllesmereUI.SOUND_ICON_PRESSED_ATLAS
                 end,
                 iconOnClick = function(key)
                     local path = sndPaths[key]
@@ -310,11 +311,12 @@ do
             end }
 
         if EllesmereUI.IS_FOREVER then
-            -- WoW Forever has no keystones, no rated PvP and no Mythic, Heroic or
-            -- Raid Finder difficulties, and its vanilla raids report difficulty 9 or
+            -- WoW Forever has no keystones, no rated PvP, no Sated or Exhaustion
+            -- debuffs for the Bloodlust trigger and no Mythic, Heroic or Raid
+            -- Finder difficulties, and its vanilla raids report difficulty 9 or
             -- 148, which no boss kill trigger maps. Show only what can fire there.
             _, h = W:TripleRow(parent, y,
-                randomlyCheckbox, bloodlustCheckbox, levelUpCheckbox,
+                randomlyCheckbox, levelUpCheckbox, nil,
                 CB_SPLITS
             );  y = y - h
         else
@@ -397,8 +399,9 @@ do
                 suffix:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
                 suffix:SetTextColor(1, 1, 1, 0.35)
                 local durLabel
-                for i = 1, durFrame:GetNumRegions() do
-                    local reg = select(i, durFrame:GetRegions())
+                local regions = { durFrame:GetRegions() }
+                for i = 1, #regions do
+                    local reg = regions[i]
                     if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Auto Celebration Duration" then
                         durLabel = reg
                         break
@@ -427,8 +430,9 @@ do
             if not EllesmereUI._prebuilding then
                 -- Find the label and slider control regions
                 local durLabel, durControl
-                for i = 1, durFrame:GetNumRegions() do
-                    local reg = select(i, durFrame:GetRegions())
+                local regions = { durFrame:GetRegions() }
+                for i = 1, #regions do
+                    local reg = regions[i]
                     if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Auto Celebration Duration" then
                         durLabel = reg
                         break
@@ -496,8 +500,9 @@ do
                 suffix:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
                 suffix:SetTextColor(1, 1, 1, 0.35)
                 local cdLabel
-                for i = 1, cdFrame:GetNumRegions() do
-                    local reg = select(i, cdFrame:GetRegions())
+                local regions = { cdFrame:GetRegions() }
+                for i = 1, #regions do
+                    local reg = regions[i]
                     if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Random Celebrations Minimum Cooldown" then
                         cdLabel = reg
                         break
@@ -523,8 +528,9 @@ do
             -- Disabled tooltip for cooldown slider (split: label zone + control zone)
             do
                 local cdLabel
-                for i = 1, cdFrame:GetNumRegions() do
-                    local reg = select(i, cdFrame:GetRegions())
+                local regions = { cdFrame:GetRegions() }
+                for i = 1, #regions do
+                    local reg = regions[i]
                     if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Random Celebrations Minimum Cooldown" then
                         cdLabel = reg
                         break

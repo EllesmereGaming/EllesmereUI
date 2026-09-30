@@ -28,8 +28,7 @@ local sin, cos = _G.sin or math.sin, _G.cos or math.cos  -- WoW globals are degr
 local GetTime = GetTime
 local GetCursorPosition = GetCursorPosition
 local GetSpellCooldown = C_Spell.GetSpellCooldown
--- GCD reference spell: 61304 returns nil on Forever, which uses Classic's 29515
-local GCD_SPELL = EllesmereUI.IS_FOREVER == true and 29515 or 61304
+local GCD_SPELL = EllesmereUI.GCD_SPELL
 local UnitCastingInfo = UnitCastingInfo
 local UnitChannelInfo = UnitChannelInfo
 
@@ -455,31 +454,18 @@ end
 -- Called from the cast events and from the combat-start visibility pass.
 local function ArmGCDRing()
     if not gcdRing then return end
-    -- Query GCD via the reference spell; duration may be a secret number
-    -- so wrap the comparison in pcall to avoid taint errors
     local cdData = GetSpellCooldown(GCD_SPELL)
-    if not cdData or not cdData.startTime then return end
-    local ok, elapsed, dur = pcall(function()
-        local d = cdData.duration
-        local s = cdData.startTime
-        if d and d > 0 and d <= 1.6 and s and s > 0 then
-            return GetTime() - s, d
-        end
-    end)
-    if ok and elapsed then
-        gcdRing:StartRing(elapsed, dur)
-    elseif not ok then
-        -- Secret values (combat on Forever): push the GCD's duration object
-        -- to the swipe, same as the ResourceBars GCD bar native path.
-        -- isActive stays readable when the numbers are secret; skip if the
-        -- GCD is already over (e.g. the SUCCEEDED at the end of a hard cast)
-        local active = cdData.isActive
-        if issecretvalue and issecretvalue(active) then active = true end
-        local durObj = active and C_Spell.GetSpellCooldownDuration
-            and C_Spell.GetSpellCooldownDuration(GCD_SPELL)
-        if durObj and gcdRing._cd.SetCooldownFromDurationObject then
-            gcdRing:StartRingFromDuration(durObj, 1.6)
-        end
+    if not cdData then return end
+    local d, s = cdData.duration, cdData.startTime
+    if issecretvalue(d) or issecretvalue(s) then
+        -- Restricted combat hides the numbers: hand the GCD's duration object to
+        -- the swipe (the Resource Bars GCD bar's native path). isActive is never
+        -- secret and skips a GCD that already ended (the SUCCEEDED of a hard cast).
+        if not cdData.isActive then return end
+        local durObj = C_Spell.GetSpellCooldownDuration(GCD_SPELL)
+        if durObj then gcdRing:StartRingFromDuration(durObj, 1.6) end
+    elseif d and d > 0 and d <= 1.6 and s and s > 0 then
+        gcdRing:StartRing(GetTime() - s, d)
     end
 end
 
@@ -515,15 +501,15 @@ local function CreateGCDCircle()
         if event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_STOP" then
             local cdData = GetSpellCooldown(GCD_SPELL)
             local stillActive = false
-            if cdData and cdData.startTime then
-                -- Secret values (combat on Forever) cannot be compared; if the
-                -- read fails, assume the GCD is still running and keep the ring
-                -- (same rule as the ResourceBars GCD bar stop handler)
-                local ok, act = pcall(function()
-                    local d, s = cdData.duration, cdData.startTime
-                    return (d and d > 0 and s and s > 0) and true or false
-                end)
-                stillActive = (not ok) or act
+            if cdData then
+                -- A secret read (restricted combat) keeps the ring: the GCD may still
+                -- be running (same rule as the Resource Bars GCD bar stop handler).
+                local d, s = cdData.duration, cdData.startTime
+                if issecretvalue(d) or issecretvalue(s) then
+                    stillActive = true
+                else
+                    stillActive = (d and d > 0 and s and s > 0) and true or false
+                end
             end
             if not stillActive then
                 gcdRing:StopRing()

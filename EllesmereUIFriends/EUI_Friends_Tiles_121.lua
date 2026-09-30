@@ -203,18 +203,6 @@ local function TileState(accountInfo)
     return IsSameProjectOnline(gi) and "retail" or "other_game"
 end
 
--- Legacy ||EUI:Group|| tags are stripped from any note we display.
-local EUI_NOTE_TAG, EUI_NOTE_END = "||EUI:", "||"
-local function StripNoteTag(note)
-    if not note or note == "" then return note end
-    local s = note:find(EUI_NOTE_TAG, 1, true)
-    if not s then return note end
-    local e = note:find(EUI_NOTE_END, s + #EUI_NOTE_TAG, true)
-    if not e then return note end
-    local clean = note:sub(1, s - 1)
-    return (clean:match("^(.-)%s*$")) or clean
-end
-
 -------------------------------------------------------------------------------
 --  One-time structure per pooled card
 -------------------------------------------------------------------------------
@@ -401,8 +389,9 @@ local function BuildInfo(accountInfo)
             text = (loc == "enUS" or loc == "enGB") and "In App" or "Battle.Net"
         end
     end
-    local note = StripNoteTag(accountInfo.note)
-    if note and note ~= "" then
+    -- Legacy ||EUI:Group|| tags are stripped from any note we display.
+    local note = EllesmereUI.StripFriendNoteTag(accountInfo.note)
+    if note then
         if text ~= "" then
             text = text .. "  |cff888888|  " .. note .. "|r"
         else

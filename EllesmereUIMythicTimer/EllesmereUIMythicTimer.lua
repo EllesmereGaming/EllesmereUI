@@ -3,8 +3,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUIMythicTimer.lua  --  M+ Timer overlay for EllesmereUI
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
+ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 local EMT = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 
 -- Upvalues
@@ -214,6 +215,10 @@ local DB_DEFAULTS = {
         frameWidth        = 260,
         barWidth          = 210,
         barHeight         = 8,
+        -- enemyBarHeight: intentionally unset so the forces bar falls back to
+        -- barHeight. A default here would change the forces bar of every user
+        -- who customized barHeight. Written once either bar height slider is
+        -- changed (the timer slider pins it to the old height first).
         barHeightExpanded = 22,
         barTexture        = "none",
         barBgTexture      = "none",
@@ -899,23 +904,17 @@ end
 -- template to HideBase(), which is protected, so calling it from our execution during
 -- combat is blocked (ADDON_ACTION_BLOCKED). In combat, suppress with alpha only
 -- (top-level frame, never children, never mouse state) and finish the real Hide once
--- combat drops. The regen listener is one-shot: it unregisters on fire and is
--- re-registered by each new in-combat request.
-local _trackerRegenFrame
+-- combat drops. Each new in-combat request re-queues the one-shot finish.
+local function FinishTrackerHide()
+    local f = _G.ObjectiveTrackerFrame
+    if not f then return end
+    f:SetAlpha(1)
+    if TrackerShouldBeHidden() then f:Hide() end
+end
 local function HideTracker(otf)
     if InCombatLockdown() then
         otf:SetAlpha(0)
-        if not _trackerRegenFrame then
-            _trackerRegenFrame = CreateFrame("Frame")
-            _trackerRegenFrame:SetScript("OnEvent", function(self)
-                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                local f = _G.ObjectiveTrackerFrame
-                if not f then return end
-                f:SetAlpha(1)
-                if TrackerShouldBeHidden() then f:Hide() end
-            end)
-        end
-        _trackerRegenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        ns.CombatQueue.Defer("TrackerHide", FinishTrackerHide)
     else
         otf:SetAlpha(1)  -- clear any combat alpha-suppression before hiding
         otf:Hide()
@@ -1850,8 +1849,11 @@ local function RenderStandalone()
     local TBAR_PAD = 0
     local configuredTimerBarH = p.barHeight or 8
     local expandedH = p.barHeightExpanded or 22
-    local TBAR_H = p.timerInBar and max(configuredTimerBarH, expandedH) or configuredTimerBarH
-    local ENEMY_BAR_H = p.barHeight or 8
+    -- The in-bar timer only exists while the bar is shown; otherwise fall back
+    -- to the standalone clock instead of hiding the timer entirely.
+    local timerInBar = p.timerInBar and p.showTimerBar ~= false
+    local TBAR_H = timerInBar and max(configuredTimerBarH, expandedH) or configuredTimerBarH
+    local ENEMY_BAR_H = p.enemyBarHeight or p.barHeight or 8
     local ROW_GAP = p.rowGap or 6
     local OBJ_GAP = p.objectiveGap or 4
 
@@ -2451,7 +2453,7 @@ local function RenderStandalone()
     end
 
     -- Timer text (with optional inline detail rendered as one combined block)
-    if not p.timerInBar then
+    if not timerInBar then
         local timerAlign = _ra(p.timerAlign or "CENTER")
         SetTimerFS(f._timerFS, p.timerTextSize or 20)
         ApplyShadow(f._timerFS)
@@ -2622,7 +2624,7 @@ local function RenderStandalone()
     if titleAffixBelowTimer then
         local timerGap = p.titleAffixTimerGap or p.titleAffixSandwichGap or defaultSandwichGap
         local barGap = p.titleAffixBarGap or p.titleAffixSandwichGap or defaultSandwichGap
-        if p.timerInBar then
+        if timerInBar then
             y = y - timerGap
         else
             y = y - (timerGap - defaultSandwichGap)
@@ -2669,7 +2671,7 @@ local function RenderStandalone()
         f._barFill:ClearAllPoints()
         f._barFill:SetPoint("TOPLEFT", barClip, "TOPLEFT", 0, 0)
         f._barFill:SetSize(fillW, clipH)
-        local _fillA = p.timerInBar and (p.barFillAlphaExpanded or 0.85) or 0.85
+        local _fillA = timerInBar and (p.barFillAlphaExpanded or 0.85) or 0.85
         ApplyBarTexture(f._barFill, p.barTexture, timerBarR, timerBarG, timerBarB, _fillA)
         f._barFill:Show()
 
@@ -2809,7 +2811,7 @@ local function RenderStandalone()
             f._seg2:Show()
         end
 
-        if p.timerInBar then
+        if timerInBar then
             if not f._barTimerFS then
                 f._barTimerFS = f:CreateFontString(nil, "OVERLAY")
                 f._barTimerFS:SetParent(f._emtTextLayer)

@@ -8,7 +8,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  + _childupdate-eab-page with explicit action attrs.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local EAB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.EAB = EAB
@@ -36,6 +36,11 @@ do
         return CreateFrame("Frame")
     end
 end
+
+-- "Run once after combat" for every combat-gated deferral in this file. The shell is
+-- taken in the main chunk, so drained work bills ActionBars. Keys are per purpose, and
+-- sites that defer the same work share a key (e.g. "UpdateKeybinds").
+ns.CombatQueue = EllesmereUI.NewCombatQueue(ns.TakeShell())
 
 -- "Hide Count at 0" (Icon Effects): hide a zero charge/stack count via the
 -- count fontstring's ALPHA, never its text -- text is co-owned: Blizzard's
@@ -185,6 +190,39 @@ function ns.AB_Style()
     local p = EAB.db and EAB.db.profile
     if not p then return "eui" end
     return (p.useClassicStyle and "classic") or (p.useBlizzardStyle and "blizzard") or "eui"
+end
+
+-- The WoW Forever variant of Blizzard Style (the Forever client only): the
+-- bars render Blizzard Style (AB_Style() stays "blizzard", every stock site
+-- is unchanged) and the profile's sibling useForeverStyle flag, set together
+-- with the Blizzard flag, adds the Forever-only pieces. A LIVE read like
+-- AB_Style; false on every other client.
+function ns.AB_Forever()
+    if EllesmereUI.IS_FOREVER ~= true then return false end
+    local p = EAB.db and EAB.db.profile
+    if not (p and p.useForeverStyle == true) then return false end
+    return ns.AB_Style() == "blizzard"
+end
+
+-- WoW Forever's frame and dividers behind a bar (Show Bar Background), under
+-- the variant only: the bar's own foreverBarBg. nil reads the bar's default:
+-- Action Bar 1 follows the profile-wide foreverHideBarBg (shown unless it is
+-- set), every other bar is off.
+function ns.AB_ForeverBg(key)
+    if not ns.AB_Forever() then return false end
+    local p = EAB.db.profile
+    local s = p.bars and p.bars[key]
+    local v = s and s.foreverBarBg
+    if v == nil then v = key == "MainBar" and p.foreverHideBarBg ~= true end
+    return v and true or false
+end
+
+-- SetAtlas for a stock-look texture: EllesmereUI.StockAtlas (retail art
+-- where the Forever client swaps the name), native under the WoW Forever
+-- look. Plain SetAtlas on retail.
+function ns.AB_StockAtlas(tex, name, ...)
+    if ns.AB_Forever() then return tex:SetAtlas(name, ...) end
+    return EllesmereUI.StockAtlas(tex, name, ...)
 end
 
 -- The button shape the bar LAYOUT sizes for. Stock styles draw no custom
@@ -449,6 +487,13 @@ local defaults = {
         highlightUseClassColor = false,
         highlightCustomColor = { r = 0.973, g = 0.839, b = 0.604, a = 1 },
         highlightBorderSize = 4,
+        -- Match Bar Border: on bars with a textured Border Style, a press
+        -- (pushed Border type), a hover (highlight Border type) or the active
+        -- spell lights up a tinted copy of the button's own border instead of
+        -- the flat lines or the checked fill. Off = today's look.
+        pushedBorderMatchBar = false,
+        highlightBorderMatchBar = false,
+        castHighlightBorder = false,
         showCastHighlight = true,
         -- Show the recharge countdown on charge spells while a charge is
         -- still banked (mirrors "Show numbers for cooldowns" CVar onto the
@@ -465,7 +510,6 @@ local defaults = {
         procGlowType = 1,
         procGlowColor = { r = 1, g = 0.776, b = 0.376 },
         procGlowUseClassColor = false,
-        procGlowScale = 1.0,
         procGlowEnabled = false,
         -- Assisted Highlight ring: extra pixels per side beyond the button
         -- footprint. 0 = Blizzard's size (art sits exactly on the button).
@@ -477,6 +521,9 @@ local defaults = {
         -- instead, 3 = both. The overlay leaves the button edge free for the
         -- proc glow, which is the point of offering it.
         assistGlowStyle = 1,
+        -- On Cropped bars, size the glow ring to the button's rectangle
+        -- instead of scaling the square art by width. Off = today's ring.
+        assistGlowFitCropped = false,
         assistGlowOverlayColor = { r = 0.15, g = 0.5, b = 1 },
         assistGlowOverlayAlpha = 30,
         useBlizzardStyle = false,
@@ -504,6 +551,9 @@ for _, info in ipairs(BAR_CONFIG) do
         borderTexture = "solid",
         borderThickness = "thin",
         borderBehind = false,
+        -- Textured border drawn above proc glows, the assisted highlight and
+        -- the cooldown swipe. Show Behind wins over it.
+        borderAboveEffects = false,
         buttonPadding = 2,
         buttonWidth = 0,
         buttonHeight = 0,
@@ -514,6 +564,9 @@ for _, info in ipairs(BAR_CONFIG) do
         housingHideEnabled = false,
         barVisibility = "always",
         dragShow = false,
+        -- Hide Bar When Using Gamepad: off by default; inert until a
+        -- controller is connected with gamepad support enabled.
+        gamepadHideBar = false,
         visHideHousing = false,
         visOnlyInstances = false,
         visHideMounted = false,
@@ -586,6 +639,20 @@ for _, info in ipairs(BAR_CONFIG) do
         numRows = 1,
         targetWidth = 0,
         targetHeight = 0,
+        -- End caps (the End Caps checklist and its cog) and WoW Forever's bar
+        -- background, per bar. nil reads the bar's default (ns.AB_CapsSides,
+        -- ns.AB_CapsVal, ns.AB_ForeverBg): Action Bar 1 falls back to the
+        -- profile-wide keys, every other bar starts without them. The micro
+        -- menu and bag bar read the same endCap* keys; the profile keys
+        -- endCapSpanLeft / endCapSpanRight (written only by the first-install
+        -- capture, in no defaults table) move bar 1's defaults to another bar.
+        endCapLeft = nil,
+        endCapRight = nil,
+        endCapArt = nil,
+        endCapScale = nil,
+        endCapOffsetX = nil,
+        endCapOffsetY = nil,
+        foreverBarBg = nil,
     }
 end
 
@@ -616,6 +683,15 @@ for _, info in ipairs(EXTRA_BARS) do
         d.height = 18
         d.orientation = "HORIZONTAL"
         d.clickThrough = true  -- default on for data bars
+        -- Custom Border (opt-in): off keeps the built-in 1px black line. The
+        -- style keys below are what the option starts from (solid, thin, black)
+        -- and render that same line. Offsets, shifts and borderThicknessPx have
+        -- no default (nil = the style's own).
+        d.customBorder = false
+        d.borderTexture = "solid"
+        d.borderThickness = "thin"
+        d.borderColor = { r = 0, g = 0, b = 0, a = 1 }
+        d.borderBehind = false
     end
 end
 -- House Favor bar ships opt-in: hidden until the user turns it on.
@@ -623,8 +699,9 @@ if defaults.profile.bars.FavorBar then
     defaults.profile.bars.FavorBar.alwaysHidden = true
 end
 
--- Blizzard data bar override (let Blizzard control XP + Rep via Edit Mode)
-defaults.profile.useBlizzardDataBars = false
+-- Blizzard data bar override (let Blizzard control XP + Rep via Edit Mode). WoW
+-- Forever keeps Blizzard's own bars by default (the per-client default rule).
+defaults.profile.useBlizzardDataBars = (EllesmereUI.IS_FOREVER == true)
 -- Stock vehicle / override bar suppression. Opt-in, and inert until switched
 -- on: no frame, no events and no hook exist while it is false.
 defaults.profile.hideBlizzardVehicleBar = false
@@ -667,6 +744,16 @@ end
 -- alpha), or a record beside its SetAlpha.
 local _fadeAlpha = {}
 
+-- The micro menu's and bag bar's end caps ride our own follower frame, not
+-- the Blizzard frame, so every alpha written to that Blizzard frame is copied
+-- onto their cap layer: ns._abFadeTwin[blizzFrame] = cap layer (weak keys),
+-- set only while that bar shows caps (ns.AB_ExtraCaps); nil otherwise.
+function ns.AB_FadeTwin(frame, a)
+    local tw = ns._abFadeTwin
+    local h = tw and tw[frame]
+    if h then h:SetAlpha(a) end
+end
+
 -- The one fader for every fade target: a shared OnUpdate queue.
 -- AnimationGroups spread taint on Blizzard frames and cost 0.7-4ms to start
 -- on secure bar frames.
@@ -675,21 +762,27 @@ local _extraFadeFrame = CreateFrame("Frame")
 
 local function _ExtraFadeOnUpdate(_, elapsed)
     local anyActive = false
+    local tw = ns._abFadeTwin
     for frame, info in pairs(_extraFadeQueue) do
         info.elapsed = info.elapsed + elapsed
         local t = info.elapsed / info.duration
+        local a
         if t >= 1 then
-            local a = info.toAlpha
+            a = info.toAlpha
             frame:SetAlpha(a)
             _fadeAlpha[frame] = a
             _extraFadeQueue[frame] = nil
         else
             -- Smooth in/out easing
             local e = t < 0.5 and (2 * t * t) or (1 - (-2 * t + 2)^2 / 2)
-            local a = info.fromAlpha + (info.toAlpha - info.fromAlpha) * e
+            a = info.fromAlpha + (info.toAlpha - info.fromAlpha) * e
             frame:SetAlpha(a)
             _fadeAlpha[frame] = a
             anyActive = true
+        end
+        if tw then
+            local h = tw[frame]
+            if h then h:SetAlpha(a) end
         end
     end
     if not anyActive then
@@ -733,6 +826,8 @@ local function ShouldQuickKeybindSurfaceBar(s)
     end
 
     -- Surfaces bars hidden by transient runtime rules, but explicit "Never" wins.
+    -- Hide Bar When Using Gamepad is not a Never: its verdict (EAB._padHide) is
+    -- off while this mode is open, so a controller player can bind those bars.
     local vis = s.barVisibility or "always"
     return not s.alwaysHidden and vis ~= "never"
 end
@@ -743,6 +838,7 @@ local function FadeTo(frame, toAlpha, duration)
     if abs(cur - toAlpha) < 0.01 then
         frame:SetAlpha(toAlpha)
         _fadeAlpha[frame] = toAlpha
+        ns.AB_FadeTwin(frame, toAlpha)
         return
     end
     local existing = _extraFadeQueue[frame]
@@ -763,6 +859,7 @@ local function StopFade(frame, alpha)
     if alpha then
         frame:SetAlpha(alpha)
         _fadeAlpha[frame] = alpha
+        ns.AB_FadeTwin(frame, alpha)
     end
 end
 
@@ -1131,6 +1228,8 @@ do
         killOne(pager.UpButton)
         killOne(pager.DownButton)
         -- Cover anything else Blizzard parents in here later (ResizeLayoutFrame).
+        -- Runs on every MainActionBar Show (form, stance and page flips), so
+        -- it reads the live list instead of building a table.
         if type(pager.GetChildren) == "function" then
             for i = 1, pager:GetNumChildren() do
                 killOne((select(i, pager:GetChildren())))
@@ -1184,7 +1283,17 @@ do
                 -- the pager's invisible arrows would still eat clicks.
                 KillPagerMouse(frame)
                 if frame.Selection then frame.Selection:Hide(); frame.Selection:SetAlpha(0) end -- Edit Mode selection/mover
-                if frame.EndCaps then frame.EndCaps:Hide() end -- artwork (gryphons/endcaps/border)
+                local caps = frame.EndCaps
+                if caps then
+                    caps:Hide() -- artwork (gryphons/endcaps/border)
+                    -- WoW Forever: each end cap is an Edit Mode system of its own that
+                    -- shows itself and its selection overlay whenever Edit Mode opens
+                    -- (the overlay ignores the bar's alpha). Silence both overlays like
+                    -- the bar's own; Edit Mode's Show never resets alpha or mouse.
+                    local l, r = caps.LeftEndCap, caps.RightEndCap
+                    if l and l.Selection then l.Selection:SetAlpha(0); l.Selection:EnableMouse(false) end
+                    if r and r.Selection then r.Selection:SetAlpha(0); r.Selection:EnableMouse(false) end
+                end
                 if frame.BorderArt then frame.BorderArt:Hide() end
                 frame:SetAlpha(0)
             else
@@ -2286,6 +2395,11 @@ function EAB_VTABLE.BuildPagingConditions(barKey, pagingConfig, defaultPage)
             end
         end
     end
+    -- WoW Forever: every class pages bar 1 by its stance/form offset (6 + offset), so
+    -- the implicit fallback covers every offset after any explicit per-form pick.
+    if barKey == "MainBar" and not noForm and EllesmereUI.IS_FOREVER then
+        parts[#parts + 1] = "[bonusbar:1] 7; [bonusbar:2] 8; [bonusbar:3] 9; [bonusbar:4] 10"
+    end
     -- Manual pages come before the skyriding clause: the engine only consults
     -- the bonus bar while Blizzard's page is 1 (ActionBarController_UpdateAll),
     -- so [bonusbar:5] listed first pinned the bar to the skyriding page and
@@ -2347,7 +2461,12 @@ local function GetClassPagingConditions()
 
     -- Class-specific form paging (page 1 only, per the ordering above)
     if not noForm then
-        if class == "DRUID" then
+        if EllesmereUI.IS_FOREVER then
+            -- WoW Forever pages bar 1 natively by the stance/form offset for EVERY
+            -- class (vanilla warrior stances, druid forms, rogue stealth): page 6 + offset.
+            -- Mirror it exactly so ACTIONBUTTONn and the icon agree in every stance.
+            conditions = conditions .. "[bonusbar:1] 7; [bonusbar:2] 8; [bonusbar:3] 9; [bonusbar:4] 10; "
+        elseif class == "DRUID" then
             conditions = conditions .. "[bonusbar:1,stealth] 7; [bonusbar:1] 7; [bonusbar:3] 9; [bonusbar:4] 10; "
         elseif class == "ROGUE" then
             conditions = conditions .. "[bonusbar:1] 7; "
@@ -2520,9 +2639,13 @@ LayoutPagingFrame = function()
     if f:GetParent() ~= mainFrame then
         f:SetParent(mainFrame)
         f:SetFrameStrata("MEDIUM")
-        f:SetFrameLevel((mainFrame:GetFrameLevel() or 1) + 5)
         f:SetAlpha(1)
     end
+    -- Five levels over the bar, and one over its end caps while they can show
+    -- (retail's page arrows sit over its caps).
+    local caps = s.orientation ~= "vertical" and ns.AB_CAPS[ns.AB_CapsLook("MainBar") or "-"]
+    local lvl = (mainFrame:GetFrameLevel() or 1) + 1 + (caps and caps.lvl or 4)
+    if f:GetFrameLevel() ~= lvl then f:SetFrameLevel(lvl) end
 
     if s.alwaysHidden or s.enabled == false or not s.showPagingArrows then
         f:Hide()
@@ -3090,9 +3213,28 @@ ns.BuildBarButtons = function(info, frame, skipProtected)
     return buttons
 end
 
+-- Keeps every bar frame on screen, the way Blizzard's own bars are: bar
+-- positions are offsets from the screen centre, so a higher UI Scale, an
+-- import made at another scale or a narrower screen would otherwise push a bar
+-- near an edge past it. Display only: the saved position is never rewritten,
+-- so the bar goes back to it once the screen has room. Protected on our secure
+-- bar frames in combat, so the combat /reload build runs this at combat end.
+-- On ns: file at the 200-local cap.
+ns._eabClampAllBars = function()
+    for _, f in pairs(barFrames) do
+        f:SetClampedToScreen(true)
+    end
+end
+
 local function SetupBar(info, skipProtected)
     local key = info.key
     local frame = CreateBarFrame(info)
+    if skipProtected or InCombatLockdown() then
+        -- One key: every bar of the combat build shares the single pass.
+        ns.CombatQueue.Defer("EABClampBars", ns._eabClampAllBars)
+    else
+        frame:SetClampedToScreen(true)
+    end
     -- A bar that can never become visible AND has no key bound gets no buttons
     -- at load: the button loop is 95 % of such a bar's setup cost, and most of
     -- that is Blizzard's CreateFrame on the action button template, which only
@@ -3536,10 +3678,12 @@ end
 --  -- the exact spike the mouseover fix removed. (On ns: 200-local cap.)
 -------------------------------------------------------------------------------
 ns._eabBarDormant = {}
--- HARD dormancy: bars whose visibility mode is "Never" (or disabled) cannot become
--- visible through ANY runtime condition -- no driver state, no combat edge. The only
--- reveal paths are a settings write or the Toggle Action Bar runtime override; both
--- funnel through RefreshRuntimeVisibility, which recomputes this map. While a bar is in this map EVERY per-event walk skips it,
+-- HARD dormancy: bars whose visibility mode is "Never" (or disabled, or hidden by
+-- Hide Bar When Using Gamepad) cannot become visible through ANY runtime condition --
+-- no driver state, no combat edge. The only reveal paths are a settings write, the
+-- Toggle Action Bar runtime override, a controller disconnect or Quick Keybind mode
+-- opening (out of combat only); all four funnel through RefreshRuntimeVisibility,
+-- which recomputes this map. While a bar is in this map EVERY per-event walk skips it,
 -- content classes included: the reveal reconcile below repaints each button from live
 -- state on the show edge, so correct-on-reveal holds at zero background cost.
 -- Conditional-visibility bars keep content-walk coverage (their reveal edges can fire
@@ -3558,7 +3702,10 @@ ns.IsNeverBar = function(info)
     if info.isStance or info.isPetBar or info.visibilityOnly then return false end
     local bars = EAB.db and EAB.db.profile and EAB.db.profile.bars
     local s = bars and bars[info.key]
-    local never = s and (s.alwaysHidden or s.enabled == false) or false
+    -- Hide Bar When Using Gamepad joins the set while a controller is connected
+    -- (EAB._padHide only turns on out of combat, see EAB._PadSync).
+    local never = s and (s.alwaysHidden or s.enabled == false
+        or (EAB._padHide and s.gamepadHideBar == true)) or false
     -- Toggle override wins both ways: hiding an Always bar hard-disables its UI
     -- work; showing a Never bar wakes it. Action bindings stay live.
     local override = EAB._visOverride and EAB._visOverride[info.key]
@@ -3697,17 +3844,6 @@ do
         if _G._EAB_UpdateKeybinds then _G._EAB_UpdateKeybinds() end
     end
 
-    -- Deferral shell for that reroute. ACTIONBAR_SLOT_CHANGED fires freely IN
-    -- combat (a page swap fires 12+), but the reroute can't run there:
-    -- UpdateKeybinds needs SetOverrideBinding and the re-trigger needs SetAttribute on
-    -- a secure header, both combat-protected. Never drop the update: SLOT_CHANGED won't
-    -- refire and other UpdateKeybinds callers are load-time/rare, so a dropped rebuild
-    -- leaves routing and attr state stale until something unrelated rebuilds.
-    -- (Historical note: this comment once blamed native routing for press-and-tap
-    -- empower behaviour; superseded 2026-08-09 -- empower keys are native by design
-    -- now.) Defer to PLAYER_REGEN_ENABLED,
-    -- matching sibling paths (UPDATE_BINDINGS handler, ApplyKeyDownCVar).
-    local _empowerDeferFrame
     function EAB:SetupEventDispatcher()
         if _dispatcherSetup then return end
         _dispatcherSetup = true
@@ -5342,15 +5478,11 @@ do
                 C_Timer_After(0, function()
                     _empowerReroutePending = false
                     if InCombatLockdown() then
-                        -- Re-arm for leaving combat instead of dropping it.
-                        if not _empowerDeferFrame then
-                            _empowerDeferFrame = ns.TakeShell()
-                            _empowerDeferFrame:SetScript("OnEvent", function(self)
-                                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                                _EmpowerReroute()
-                            end)
-                        end
-                        _empowerDeferFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+                        -- SLOT_CHANGED fires freely in combat, but the rebuild needs
+                        -- SetOverrideBinding and a secure SetAttribute. Never drop it:
+                        -- SLOT_CHANGED won't refire, so defer under the shared
+                        -- "UpdateKeybinds" key (the reroute is UpdateKeybinds itself).
+                        ns.CombatQueue.Defer("UpdateKeybinds", _EmpowerReroute)
                         return
                     end
                     _EmpowerReroute()
@@ -5539,6 +5671,72 @@ local function CaptureBlizzardDefaults()
         end
     end
     return captured
+end
+
+-- First-install end cap span: the elements in one row directly beside
+-- Blizzard's Action Bar 1 at capture time (horizontal bars 2-8 shown at all
+-- times, the micro menu, the bag bar; stance and pet bars depend on the class,
+-- so never), walked outward from bar 1 on each side. The last one each way
+-- carries bar 1's cap for that side (ns.AB_CapsSides). Same row = vertical
+-- overlap of at least half the shorter one; directly beside = facing edges
+-- -8..12 apart (Blizzard's WoW Forever row leaves 4.5 and 7), the nearest
+-- first. Returns the left and right bar keys, nil for none.
+function ns.AB_CaptureCapSpan(captured)
+    local main = _G.MainActionBar
+    local mc = captured and captured.MainBar
+    if not main or not mc or mc.orientation == "vertical" then return nil, nil end
+    local uiS = UIParent:GetEffectiveScale()
+    local function Rect(f)
+        if not (f and f.GetLeft) then return nil end
+        local l, r, t, b = f:GetLeft(), f:GetRight(), f:GetTop(), f:GetBottom()
+        if not (l and r and t and b) or r - l < 1 or t - b < 1 then return nil end
+        local k = f:GetEffectiveScale() / uiS
+        return { l * k, r * k, t * k, b * k }
+    end
+    local home = Rect(main)
+    if not home or home[2] - home[1] < 20 then return nil, nil end
+    local cands = {}
+    for _, info in ipairs(BAR_CONFIG) do
+        local d = captured[info.key]
+        if info.key ~= "MainBar" and d and info.blizzFrame and not info.isStance and not info.isPetBar
+            and d.orientation == "horizontal" and (d.visibility == nil or d.visibility == 0) then
+            local r = Rect(_G[info.blizzFrame])
+            if r then cands[#cands + 1] = { key = info.key, r = r } end
+        end
+    end
+    local mcf, mm = _G.MicroMenuContainer, _G.MicroMenu
+    if mcf and mcf:IsShown() and mm and mm:GetParent() == mcf and mm:IsShown() and mm.isHorizontal ~= false then
+        local r = Rect(mcf)
+        if r then cands[#cands + 1] = { key = "MicroBar", r = r } end
+    end
+    local bags = _G.BagsBar
+    if bags and bags:IsShown() and bags.isHorizontal ~= false then
+        local r = Rect(bags)
+        if r then cands[#cands + 1] = { key = "BagBar", r = r } end
+    end
+    local function Walk(dir)
+        local cur, last, used = home, nil, {}
+        while true do
+            local best, bestGap
+            for i = 1, #cands do
+                local c = cands[i]
+                if not used[c] then
+                    local r = c.r
+                    local ov = min(cur[3], r[3]) - max(cur[4], r[4])
+                    if ov >= 0.5 * min(cur[3] - cur[4], r[3] - r[4]) then
+                        local gap = (dir > 0) and (r[1] - cur[2]) or (cur[1] - r[2])
+                        if gap >= -8 and gap <= 12 and (not bestGap or gap < bestGap) then
+                            best, bestGap = c, gap
+                        end
+                    end
+                end
+            end
+            if not best then return last end
+            used[best] = true
+            last, cur = best.key, best.r
+        end
+    end
+    return Walk(-1), Walk(1)
 end
 
 -------------------------------------------------------------------------------
@@ -5739,6 +5937,750 @@ local function HideSlotArt(btn)
 end
 
 -------------------------------------------------------------------------------
+--  The action bars' chrome and the 20-segment data bars. Every action bar can
+--  carry end caps, left, right or both (the End Caps checklist), in the
+--  current look's art (the EllesmereUI style: the art the player picks), with
+--  its own size and offsets. WoW Forever: the metal frame round a bar and the
+--  dividers between its buttons (Show Bar Background, on by default on Action
+--  Bar 1 only), the faction end caps (both sides on by default on Action Bar
+--  1 only) and the data bar segments, from Blizzard's own atlases (they draw
+--  the Forever art on that client). Built per bar the first time a piece is
+--  on (LayoutBar's tail, out of combat, stamp-gated; ApplyDataBarLayout);
+--  off, nothing is built and a built piece hides. All on ns: the main chunk
+--  is at the 200-local cap.
+-------------------------------------------------------------------------------
+ns.AB_FV_ART = {
+    frame = "UI-HUD-ActionBar-Frame",
+    -- Divider slices { start edge, end edge, middle } and the edges' depth
+    -- along the divider: between the columns of a horizontal bar, then
+    -- between the rows of a vertical one.
+    divH = { "ui-hud-actionbar-frame-divider-ThreeSlice-EdgeTop",
+             "ui-hud-actionbar-frame-divider-ThreeSlice-EdgeBottom",
+             "!ui-hud-actionbar-frame-divider-ThreeSlice-Center", 14, 15 },
+    divV = { "ui-hud-actionbar-frame-divider-ThreeSlice-EdgeLeft",
+             "ui-hud-actionbar-frame-divider-ThreeSlice-EdgeRight",
+             "_ui-hud-actionbar-frame-divider-ThreeSlice-Center", 12, 12 },
+    xpDivider = "ui-hud-experiencebar-divider",
+}
+
+-- End caps per look: the art by faction (`art`, none while neutral) or the
+-- same for every faction (`any`), the size at the icon size `unit` the art is
+-- drawn for (caps only ever scale down, as Blizzard's do), the frame levels
+-- over the bar (`lvl`), and the anchors { left point, bar point, x, y, right
+-- point, bar point, x, y } for one row (near) and several (far, else near).
+-- mid: anchored on the bar's side middles, else its bottom corners.
+ns.AB_CAPS = {
+    -- WoW Forever: inner edge 30 inside the bar's ends, 5 above its middle;
+    -- over the buttons.
+    forever = {
+        unit = 45, w = 154, h = 95, lvl = 4, mid = true,
+        art = {
+            Alliance = { "ui-hud-actionbar-gryphon-left", "ui-hud-actionbar-gryphon-right" },
+            Horde    = { "ui-hud-actionbar-wyvern-left",  "ui-hud-actionbar-wyvern-right" },
+        },
+        near = { "RIGHT", "LEFT", 30, 5, "LEFT", "RIGHT", -30, 5 },
+    },
+    -- Blizzard Style: retail's MainActionBar end caps, over the buttons' proc
+    -- glows and assisted highlight as retail's are. stock: drawn through
+    -- EllesmereUI.StockAtlas (retail art where the Forever client swaps it).
+    blizzard = {
+        unit = 45, w = 104.5, h = 98, lvl = 17, stock = true,
+        near = { "BOTTOMRIGHT", "BOTTOMLEFT", 9, -22, "BOTTOMLEFT", "BOTTOMRIGHT", -8, -22 },
+    },
+    -- Classic WoW UI: vanilla's compact end caps (a file, the right one
+    -- mirrored), out at the bar's corners on a bar of several rows.
+    classic = {
+        unit = 36, w = 128, h = 128, lvl = 17, file = true,
+        any = { "Interface\\MainMenuBar\\UI-MainMenuBar-EndCap-Dwarf",
+                "Interface\\MainMenuBar\\UI-MainMenuBar-EndCap-Dwarf" },
+        near = { "BOTTOMRIGHT", "BOTTOMLEFT", 28, -3, "BOTTOMLEFT", "BOTTOMRIGHT", -29, -3 },
+        far  = { "BOTTOMRIGHT", "BOTTOMLEFT", 0, -3, "BOTTOMLEFT", "BOTTOMRIGHT", -1, -3 },
+    },
+}
+ns.AB_CAPS.blizzard.art = ns.AB_CAPS.forever.art
+
+-- Atlas presence, probed once per name (a piece the client lacks is skipped).
+ns._abAtlas = {}
+function ns.AB_AtlasOK(name)
+    local v = ns._abAtlas[name]
+    if v == nil then
+        v = C_Texture.GetAtlasInfo(name) ~= nil
+        ns._abAtlas[name] = v
+    end
+    return v
+end
+
+-- True when `art` (an EllesmereUI style End Caps art) draws on this client:
+-- "blizzard", "classic", or "forever" -- the Forever client's own art, which
+-- retail does not ship.
+function ns.AB_CapsArtOK(art)
+    return art == "blizzard" or art == "classic" or (art == "forever" and EllesmereUI.IS_FOREVER == true)
+end
+
+-- One of a bar's end cap settings (endCapArt, endCapScale, endCapOffsetX,
+-- endCapOffsetY), nil = unset: the bar's own key, and on Action Bar 1 an
+-- unset key reads the profile-wide key (euiEndCaps for the art, the same
+-- name for the rest), which nothing writes. A bar that carries one of Action
+-- Bar 1's caps (the first-install span below) reads bar 1's where unset, so
+-- the pair matches.
+function ns.AB_CapsVal(key, k)
+    local p = EAB.db and EAB.db.profile
+    if not p then return nil end
+    local s = p.bars and p.bars[key]
+    local v = s and s[k]
+    if v == nil then
+        if key == "MainBar" then
+            v = p[(k == "endCapArt") and "euiEndCaps" or k]
+        elseif p.endCapSpanLeft == key or p.endCapSpanRight == key then
+            v = ns.AB_CapsVal("MainBar", k)
+        end
+    end
+    return v
+end
+
+-- Whether Action Bar 1's unset sides show caps under the current look: WoW
+-- Forever while foreverHideEndCaps is off; Blizzard Style and Classic WoW UI
+-- while showEndCaps; the EllesmereUI style while euiEndCaps names art this
+-- client draws.
+function ns.AB_CapsMainDefault(p)
+    if ns.AB_Forever() then return p.foreverHideEndCaps ~= true end
+    if ns.AB_Style() == "eui" then return ns.AB_CapsArtOK(p.euiEndCaps) end
+    return p.showEndCaps == true
+end
+
+-- Which ends of a bar show caps (the End Caps checklist): the bar's own
+-- endCapLeft / endCapRight. An unset side reads the bar's default: Action Bar
+-- 1 follows the look (ns.AB_CapsMainDefault), both sides alike; every other
+-- bar shows none. The first-install span (endCapSpanLeft / endCapSpanRight,
+-- written by the Action Bars capture: the outermost bar in a row directly
+-- beside bar 1 on that side) moves bar 1's default for that side onto the
+-- named bar's same side. Checklist choices always win.
+function ns.AB_CapsSides(key)
+    local p = EAB.db and EAB.db.profile
+    local s = p and p.bars and p.bars[key]
+    if not s then return false, false end
+    local l, r = s.endCapLeft, s.endCapRight
+    if l == nil or r == nil then
+        local sl, sr = p.endCapSpanLeft, p.endCapSpanRight
+        local dl, dr = false, false
+        if key == "MainBar" then
+            local d = ns.AB_CapsMainDefault(p)
+            dl, dr = d and sl == nil, d and sr == nil
+        elseif sl == key or sr == key then
+            local d = ns.AB_CapsMainDefault(p)
+            dl, dr = d and sl == key, d and sr == key
+        end
+        if l == nil then l = dl end
+        if r == nil then r = dr end
+    end
+    return l and true or false, r and true or false
+end
+
+-- The art the EllesmereUI style draws on a bar's caps: its End Caps cog
+-- pick; none, or art this client lacks, reads Modern.
+function ns.AB_CapsArt(key)
+    local art = ns.AB_CapsVal(key, "endCapArt")
+    if ns.AB_CapsArtOK(art) then return art end
+    return "blizzard"
+end
+
+-- The look whose end caps a bar draws, then its left and right sides, or nil
+-- while the bar shows neither side: WoW Forever's under that variant,
+-- Blizzard Style's and Classic WoW UI's own, and under the EllesmereUI style
+-- the art the player picks.
+function ns.AB_CapsLook(key)
+    local l, r = ns.AB_CapsSides(key)
+    if not (l or r) then return nil end
+    local look
+    if ns.AB_Forever() then
+        look = "forever"
+    else
+        look = ns.AB_Style()
+        if look == "eui" then look = ns.AB_CapsArt(key) end
+    end
+    return look, l, r
+end
+
+-- A bar's end cap tweaks (the End Caps cog): the size as a fraction of the
+-- look's own, the X/Y offsets (X mirrored: a positive value moves both caps
+-- away from the bar; Y defaults to 5, the caps a little higher than the
+-- look's own spot), and last the size in percent as stored.
+function ns.AB_CapsTweak(key)
+    local sc = ns.AB_CapsVal(key, "endCapScale") or 100
+    return sc / 100, ns.AB_CapsVal(key, "endCapOffsetX") or 0, ns.AB_CapsVal(key, "endCapOffsetY") or 5, sc
+end
+
+-- Every chrome input of a bar in one string, for LayoutBar's stamp (the
+-- tweaks only while a cap shows; "-" for a bar with no chrome).
+function ns.AB_ChromeStamp(key)
+    local look, l, r = ns.AB_CapsLook(key)
+    local fv = ns.AB_ForeverBg(key)
+    if not look then return fv and "fv" or "-" end
+    local _, dx, dy, sc = ns.AB_CapsTweak(key)
+    return look .. (l and "L" or "") .. (r and "R" or "") .. (fv and ",fv," or ",")
+        .. sc .. "," .. dx .. "," .. dy
+end
+
+-- How far a bar's chrome reaches past a button grid gridH tall (top,
+-- bottom), for a preview that must make room: WoW Forever's frame (6/5 at
+-- button size / 45) and `look`'s caps (nil = none; multi = several rows)
+-- with bar `key`'s tweaks. pxK scales the cap offsets (the preview's scale;
+-- nil = 1).
+function ns.AB_ChromeReach(btnW, gridH, forever, look, multi, pxK, key)
+    local top, bottom = 0, 0
+    if forever then
+        top, bottom = 6 * btnW / 45, 5 * btnW / 45
+    end
+    local c = look and ns.AB_CAPS[look]
+    if c then
+        local sc, _, dy = ns.AB_CapsTweak(key)
+        dy = dy * (pxK or 1)
+        local kc = min(btnW / c.unit, 1) * sc
+        local y = ((multi and c.far) or c.near)[4]
+        if c.mid then
+            top = max(top, (c.h / 2 + y) * kc - gridH / 2 + dy)
+            bottom = max(bottom, (c.h / 2 - y) * kc - gridH / 2 - dy)
+        else
+            top = max(top, (c.h + y) * kc - gridH + dy)
+            bottom = max(bottom, -y * kc - dy)
+        end
+    end
+    return top, bottom
+end
+
+-- One cap's art: a file (the right cap mirrored) or an atlas (a stock
+-- look's through EllesmereUI.StockAtlas).
+function ns.AB_SetCapArt(tex, c, name, right)
+    if c.file then
+        tex:SetTexture(name)
+        if right then tex:SetTexCoord(1, 0, 0, 1) else tex:SetTexCoord(0, 1, 0, 1) end
+    elseif c.stock then
+        -- The art can switch live on the same textures (the EllesmereUI style's
+        -- End Caps choice): clear a previous look's mirror or sheet coords first.
+        tex:SetTexCoord(0, 1, 0, 1)
+        EllesmereUI.StockAtlas(tex, name)
+    else
+        tex:SetTexCoord(0, 1, 0, 1)
+        tex:SetAtlas(name)
+    end
+end
+
+-- Paints the caps' art for the player's faction onto a chrome state (the
+-- same art for every faction on a look with `any`), each side shown only
+-- while the bar asks for it. True once the art no longer waits on the
+-- faction (kept as st.capKnown).
+function ns.AB_CapsFaction(st)
+    local capL, capR = st.capL, st.capR
+    if not capL then return true end
+    local c = st.capsOn and ns.AB_CAPS[st.capLook]
+    local fac = c and c.art and UnitFactionGroup("player")
+    local set = c and (c.any or (fac and c.art[fac])) or nil
+    if set and st.capSet ~= set then
+        ns.AB_SetCapArt(capL, c, set[1], false)
+        ns.AB_SetCapArt(capR, c, set[2], true)
+        st.capSet = set
+    end
+    capL:SetShown(set ~= nil and st.capSideL == true)
+    capR:SetShown(set ~= nil and st.capSideR == true)
+    st.capKnown = not (c and c.art) or fac ~= nil
+    return st.capKnown
+end
+
+-- Paints `look`'s end caps (nil = none) onto st (a state table the caller
+-- keeps) round a button grid w x h whose TOPLEFT sits at (ox, oy) off
+-- owner's TOPLEFT; btnW = the button size, multi = several rows, sideL /
+-- sideR = the ends that show a cap. The caps sit the look's lvl over owner
+-- (under Action Bar 1's paging arrows), scale with the icon size (down only)
+-- times bar `key`'s size, and move by its offsets (times pxK, the preview's
+-- scale; nil = 1).
+function ns.AB_PaintCaps(st, owner, ox, oy, w, h, btnW, look, multi, pxK, key, sideL, sideR)
+    local c = look and ns.AB_CAPS[look]
+    st.capsOn = (c and (sideL or sideR) and (c.any or ns.AB_AtlasOK(c.art.Alliance[1]))) and true or false
+    st.capSideL, st.capSideR = sideL and true or false, sideR and true or false
+    local host = st.capHost
+    if not st.capsOn then
+        if host then host:Hide() end
+        return
+    end
+    if not host then
+        host = CreateFrame("Frame", nil, owner)
+        st.capL = host:CreateTexture(nil, "OVERLAY", nil, 5)
+        st.capR = host:CreateTexture(nil, "OVERLAY", nil, 5)
+        st.capHost = host
+    end
+    local sc, dx, dy = ns.AB_CapsTweak(key)
+    local kc = btnW / c.unit
+    if kc > 1 then kc = 1 end
+    kc = kc * sc
+    -- The offsets in the host's (scaled) units.
+    dx, dy = dx * (pxK or 1) / kc, dy * (pxK or 1) / kc
+    local g = (multi and c.far) or c.near
+    if st.capLook ~= look or st.capGeo ~= g or st.capDX ~= dx or st.capDY ~= dy then
+        local capL, capR = st.capL, st.capR
+        capL:SetSize(c.w, c.h)
+        capR:SetSize(c.w, c.h)
+        capL:ClearAllPoints()
+        capR:ClearAllPoints()
+        capL:SetPoint(g[1], host, g[2], g[3] - dx, g[4] + dy)
+        capR:SetPoint(g[5], host, g[6], g[7] + dx, g[8] + dy)
+        if st.capLook ~= look then st.capSet = nil end
+        st.capLook, st.capGeo, st.capDX, st.capDY = look, g, dx, dy
+    end
+    host:SetFrameLevel(owner:GetFrameLevel() + c.lvl)
+    host:SetScale(kc)
+    host:ClearAllPoints()
+    host:SetPoint("TOPLEFT", owner, "TOPLEFT", ox / kc, oy / kc)
+    host:SetSize(w / kc, h / kc)
+    host:Show()
+end
+
+function ns.AB_HideBarChrome(st)
+    if st.under then st.under:Hide() end
+    if st.capHost then st.capHost:Hide() end
+    st.capsOn = false
+end
+
+-- Paints WoW Forever's frame and dividers onto st (a state table the caller
+-- keeps) round a button grid w x h whose TOPLEFT sits at (ox, oy) off
+-- owner's TOPLEFT. k = button size / 45 (Blizzard scales the art with the
+-- icon size). n = the buttons along the bar when it runs as one line at
+-- Blizzard's divider spacing, else 0; step = the distance between button
+-- starts along it; the first `extra` buttons carry one onePx more. Both sit
+-- on a frame one level under owner (under the buttons).
+function ns.AB_PaintForeverChrome(st, owner, ox, oy, w, h, k, vertical, n, step, extra, onePx)
+    local ART = ns.AB_FV_ART
+    local lvl = owner:GetFrameLevel()
+
+    -- Under the buttons, in 45px-button units.
+    local under = st.under
+    if not under then
+        under = CreateFrame("Frame", nil, owner)
+        st.under = under
+        st.divs = {}
+    end
+    under:SetFrameLevel(lvl > 0 and lvl - 1 or 0)
+    under:SetScale(k)
+    under:ClearAllPoints()
+    under:SetPoint("TOPLEFT", owner, "TOPLEFT", ox / k, oy / k)
+    under:SetSize(w / k, h / k)
+    under:Show()
+
+    local border = st.border
+    if not border and ns.AB_AtlasOK(ART.frame) then
+        border = under:CreateTexture(nil, "BACKGROUND", nil, -3)
+        border:SetAtlas(ART.frame)
+        border:SetPoint("TOPLEFT", under, "TOPLEFT", -6, 6)
+        border:SetPoint("BOTTOMRIGHT", under, "BOTTOMRIGHT", 4, -5)
+        st.border = border
+    end
+
+    -- Dividers: one per pair of neighbours; a divider's end edge overlaps
+    -- the later button by 5 (the flared ends fill the rings' corners).
+    -- Unlike the frame they keep their native size whatever the icon size
+    -- (12 across, 5 of overlap, the edges at the atlas depth), so in the
+    -- under frame's units every one of those divides by k.
+    local ik = 1 / k
+    local set = vertical and ART.divV or ART.divH
+    if n > 1 and not (ns.AB_AtlasOK(set[1]) and ns.AB_AtlasOK(set[2]) and ns.AB_AtlasOK(set[3])) then
+        n = 0
+    end
+    local divs = st.divs
+    for i = 1, n - 1 do
+        local d = divs[i]
+        if not d then
+            d = { under:CreateTexture(nil, "BACKGROUND", nil, -2),
+                  under:CreateTexture(nil, "BACKGROUND", nil, -2),
+                  under:CreateTexture(nil, "BACKGROUND", nil, -2) }
+            divs[i] = d
+        end
+        local a, b, c = d[1], d[2], d[3]
+        if d.set ~= set then
+            a:SetAtlas(set[1]); b:SetAtlas(set[2]); c:SetAtlas(set[3])
+            d.set = set
+        end
+        local at = (i * step + (i < extra and i or extra) * onePx) / k
+        a:ClearAllPoints(); b:ClearAllPoints(); c:ClearAllPoints()
+        if vertical then
+            a:SetSize(set[4] * ik, 12 * ik); b:SetSize(set[5] * ik, 12 * ik)
+            a:SetPoint("TOPLEFT", under, "TOPLEFT", 0, 7 * ik - at)
+            b:SetPoint("TOPRIGHT", under, "TOPRIGHT", 0, 7 * ik - at)
+            c:SetPoint("TOPLEFT", a, "TOPRIGHT")
+            c:SetPoint("BOTTOMRIGHT", b, "BOTTOMLEFT")
+        else
+            a:SetSize(12 * ik, set[4] * ik); b:SetSize(12 * ik, set[5] * ik)
+            a:SetPoint("TOPLEFT", under, "TOPLEFT", at - 7 * ik, 0)
+            b:SetPoint("BOTTOMLEFT", under, "BOTTOMLEFT", at - 7 * ik, 0)
+            c:SetPoint("TOPLEFT", a, "BOTTOMLEFT")
+            c:SetPoint("BOTTOMRIGHT", b, "TOPRIGHT")
+        end
+        a:Show(); b:Show(); c:Show()
+    end
+    for i = (n > 1 and n or 1), #divs do
+        local d = divs[i]
+        d[1]:Hide(); d[2]:Hide(); d[3]:Hide()
+    end
+end
+
+-- A bar's chrome onto st, for the live bar and the options preview: WoW
+-- Forever's frame and dividers when `forever`, then `look`'s end caps (nil =
+-- none) on the sideL / sideR ends. Arguments as AB_PaintForeverChrome and
+-- AB_PaintCaps. True once the caps' art no longer waits on the faction.
+function ns.AB_PaintBarChrome(st, owner, ox, oy, w, h, btnW, forever, look, multi, vertical, n, step, extra, onePx, pxK, key, sideL, sideR)
+    if forever then
+        ns.AB_PaintForeverChrome(st, owner, ox, oy, w, h, btnW / 45, vertical, n, step, extra, onePx)
+    elseif st.under then
+        st.under:Hide()
+    end
+    ns.AB_PaintCaps(st, owner, ox, oy, w, h, btnW, look, multi, pxK, key, sideL, sideR)
+    return ns.AB_CapsFaction(st)
+end
+
+-- The faction listener every bar's caps share: registered only while some
+-- bar shows faction caps -- for the pick a neutral character makes, and for
+-- one loading screen while a bar's faction art still waits. Runs after a
+-- bar's chrome changes (LayoutBar's tail), never per event otherwise.
+function ns.AB_CapsEvSync()
+    local need, waiting = false, false
+    local all = ns._abChrome
+    if all then
+        for _, st in pairs(all) do
+            local c = st.capsOn and ns.AB_CAPS[st.capLook]
+            if c and c.art then
+                need = true
+                if not st.capKnown then waiting = true end
+            end
+        end
+    end
+    local ev = ns._abCapsEv
+    if not need then
+        if ev then ev:UnregisterAllEvents() end
+        return
+    end
+    if not ev then
+        ev = ns.TakeShell()
+        ev:SetScript("OnEvent", function(self, event)
+            local known = true
+            for _, cs in pairs(ns._abChrome) do
+                if not ns.AB_CapsFaction(cs) then known = false end
+            end
+            if known and event == "PLAYER_ENTERING_WORLD" then
+                self:UnregisterEvent(event)
+            end
+        end)
+        ns._abCapsEv = ev
+    end
+    ev:RegisterEvent("NEUTRAL_FACTION_SELECT_RESULT")
+    if waiting then
+        ev:RegisterEvent("PLAYER_ENTERING_WORLD")
+    else
+        ev:UnregisterEvent("PLAYER_ENTERING_WORLD")
+    end
+end
+
+-- A bar's chrome, from LayoutBar's tail: WoW Forever's frame and dividers
+-- (Show Bar Background), and the bar's end caps on a horizontal bar. Each
+-- bar keeps its own state (ns._abChrome[key]), built the first time it shows
+-- either piece.
+function ns.AB_ApplyBarChrome(key, frame, w, h, btnW, vertical, multi, n, step, extra, onePx)
+    local all = ns._abChrome
+    local st = all and all[key]
+    local fv = ns.AB_ForeverBg(key)
+    local look, sideL, sideR
+    if not vertical then look, sideL, sideR = ns.AB_CapsLook(key) end
+    if not (fv or look) then
+        if st then
+            ns.AB_HideBarChrome(st)
+            ns.AB_CapsEvSync()
+        end
+        return
+    end
+    if not all then all = {}; ns._abChrome = all end
+    if not st then st = {}; all[key] = st end
+    ns.AB_PaintBarChrome(st, frame, 0, 0, w, h, btnW, fv, look, multi, vertical, n, step, extra, onePx, nil, key, sideL, sideR)
+    ns.AB_CapsEvSync()
+end
+
+-------------------------------------------------------------------------------
+--  End caps on the micro menu and the bag bar. Both are Blizzard frames EAB
+--  only follows, so their caps are painted (the painter above, the same keys
+--  and checklist as an action bar) onto the bar's follower frame
+--  (extraBarHolders, our own), never into Blizzard's tree. They take Action Bar
+--  1's button size (neither bar has one), the strata and level of the frame
+--  that holds the buttons (so they draw over them as bar 1's do), and the
+--  Blizzard frame's alpha through the fader's twin. Shown state follows EAB's
+--  own hides (the follower hides with them; SetManagedBlizzOwnedSuppressed
+--  reports its own, Data Bars' micro menu hider too), the micro menu's docking
+--  (a secure post-hook) and WoW Forever's interface-style switch (its event,
+--  one frame later): never an OnShow hook, since Blizzard shows and hides
+--  these frames inside functions that go on to call protected ones. The micro
+--  menu's caps sit on the buttons' own rect (retail's container also keeps
+--  the queue eye's slot), the bag bar's on its shown buttons (retail's bar
+--  keeps its length while collapsed). Nothing runs until a side shows.
+-------------------------------------------------------------------------------
+ns.AB_CAP_EXTRAS = { MicroBar = true, BagBar = true }
+
+-- The frame whose level the buttons ride on.
+function ns.AB_ExtraCapsBase(key)
+    if key == "MicroBar" then return _G.MicroMenu end
+    return _G.BagsBar
+end
+
+-- Edit Mode laid the bar out vertically: no caps (as a vertical action bar).
+function ns.AB_ExtraCapsVertical(key)
+    local f = ns.AB_ExtraCapsBase(key)
+    return f ~= nil and f.isHorizontal == false
+end
+
+function ns.AB_ExtraCapsShown(key)
+    local st = ns._abChrome and ns._abChrome[key]
+    local host = st and st.capHost
+    if not host then return end
+    local bf = _G[BAR_LOOKUP[key].frameName]
+    local on = st.capsOn and bf ~= nil and bf:IsShown()
+    if on and key == "MicroBar" then
+        -- Docked into a vehicle or pet battle frame: the container is empty.
+        local m = _G.MicroMenu
+        on = m ~= nil and m:GetParent() == bf and m:IsShown()
+    end
+    host:SetShown(on and true or false)
+end
+
+-- After EAB itself hid or showed one of the two Blizzard frames.
+function ns.AB_ExtraCapsFor(frame)
+    if not ns._abCapHooked then return end
+    if frame == _G.MicroMenuContainer then
+        ns.AB_ExtraCapsShown("MicroBar")
+    elseif frame == _G.BagsBar then
+        ns.AB_ExtraCapsShown("BagBar")
+    end
+end
+
+-- Once per bar, the first time its caps show (a secure post-hook cannot be
+-- removed; with no caps it returns at the missing layer).
+function ns.AB_ExtraCapsHooks(key)
+    local done = ns._abCapHooked or {}
+    ns._abCapHooked = done
+    if done[key] then return end
+    done[key] = true
+    local m = _G.MicroMenu
+    if key == "MicroBar" and m and m.OverrideMicroMenuPosition then
+        hooksecurefunc(m, "OverrideMicroMenuPosition", function() ns.AB_ExtraCapsShown("MicroBar") end)
+    end
+end
+
+-- WoW Forever's interface-style switch (keyboard and mouse vs controller)
+-- hides and shows both Blizzard frames (INPUT_DEVICE_INTERFACE_TRANSITION):
+-- the shown state is re-read one frame later, listened to only while either
+-- bar shows caps. Retail's frames never follow that switch.
+function ns.AB_ExtraCapsPadFlush()
+    ns._abCapStyleArmed = nil
+    ns.AB_ExtraCapsShown("MicroBar")
+    ns.AB_ExtraCapsShown("BagBar")
+end
+function ns.AB_ExtraCapsPad()
+    if not EllesmereUI.IS_FOREVER then return end
+    local all = ns._abChrome
+    local on = all and ((all.MicroBar and all.MicroBar.capsOn) or (all.BagBar and all.BagBar.capsOn))
+    local ev = ns._abCapStyleEv
+    if not on then
+        if ev then ev:UnregisterAllEvents() end
+        return
+    end
+    if not ev then
+        if C_EventUtils and C_EventUtils.IsEventValid
+            and not C_EventUtils.IsEventValid("INPUT_DEVICE_INTERFACE_TRANSITION") then
+            return
+        end
+        ev = ns.TakeShell()
+        ev:SetScript("OnEvent", function()
+            if ns._abCapStyleArmed then return end
+            ns._abCapStyleArmed = true
+            C_Timer_After(0, ns.AB_ExtraCapsPadFlush)
+        end)
+        ns._abCapStyleEv = ev
+    end
+    ev:RegisterEvent("INPUT_DEVICE_INTERFACE_TRANSITION")
+end
+
+-- Retail's bag bar keeps its full length while collapsed (the expand arrow
+-- only hides the bag slots), so its caps sit on the shown buttons: their
+-- left edge and width in follower units, nil = the whole follower. WoW
+-- Forever hides that arrow, so its bar never collapses.
+function ns.AB_BagEdge(b, hs, hl, minL, maxR)
+    if b and b:IsShown() then
+        local l, r = b:GetLeft(), b:GetRight()
+        if l and r then
+            local k = b:GetEffectiveScale() / hs
+            l, r = l * k - hl, r * k - hl
+            if not minL or l < minL then minL = l end
+            if not maxR or r > maxR then maxR = r end
+        end
+    end
+    return minL, maxR
+end
+function ns.AB_BagCapsExtent(holder)
+    local bb, mgr = _G.BagsBar, _G.MainMenuBarBagManager
+    if not bb or bb.hideExpandToggle or not (mgr and mgr.EnumerateBagButtons) then return nil end
+    local hs, hl = holder:GetEffectiveScale(), holder:GetLeft()
+    if not hl then return nil end
+    local minL, maxR = ns.AB_BagEdge(_G.BagBarExpandToggle, hs, hl, nil, nil)
+    for _, b in mgr:EnumerateBagButtons() do
+        minL, maxR = ns.AB_BagEdge(b, hs, hl, minL, maxR)
+    end
+    if not minL or maxR - minL < 1 then return nil end
+    return minL, maxR - minL
+end
+-- Collapsing or expanding the bag bar repaints its caps (one frame later,
+-- after Blizzard's own relayout), listened to only while it shows caps.
+function ns.AB_BagCapsExpandFlush()
+    ns._abBagArmed = nil
+    ns.AB_ExtraCaps("BagBar")
+end
+function ns.AB_BagCapsExpandChanged()
+    if ns._abBagArmed then return end
+    ns._abBagArmed = true
+    C_Timer_After(0, ns.AB_BagCapsExpandFlush)
+end
+function ns.AB_BagCapsWatch(on)
+    local bb = _G.BagsBar
+    if not (bb and not bb.hideExpandToggle and EventRegistry) then return end
+    if on then
+        if not ns._abBagWatch then
+            ns._abBagWatch = true
+            EventRegistry:RegisterCallback("MainMenuBarManager.OnExpandChanged", ns.AB_BagCapsExpandChanged, ns.AB_CAP_EXTRAS)
+        end
+    elseif ns._abBagWatch then
+        ns._abBagWatch = nil
+        EventRegistry:UnregisterCallback("MainMenuBarManager.OnExpandChanged", ns.AB_CAP_EXTRAS)
+    end
+end
+
+-- Paints (or clears) a bar's caps. Stamp-gated on every input the paint
+-- reads; the shown state is re-read every call.
+function ns.AB_ExtraCaps(key)
+    local holder = extraBarHolders[key]
+    local bf = holder and _G[BAR_LOOKUP[key].frameName]
+    if not bf then return end
+    local all = ns._abChrome
+    local st = all and all[key]
+    local look, sL, sR
+    if not ns.AB_ExtraCapsVertical(key) then look, sL, sR = ns.AB_CapsLook(key) end
+    if not look then
+        if st and st.capsOn then
+            ns.AB_HideBarChrome(st)
+            if ns._abFadeTwin then ns._abFadeTwin[bf] = nil end
+            ns.AB_CapsEvSync()
+            ns.AB_ExtraCapsPad()
+            if key == "BagBar" then ns.AB_BagCapsWatch(false) end
+        end
+        return
+    end
+    if not all then all = {}; ns._abChrome = all end
+    if not st then st = {}; all[key] = st end
+    local base = ns.AB_ExtraCapsBase(key) or bf
+    local lvl, strata = base:GetFrameLevel(), base:GetFrameStrata()
+    local owner, ox = holder, 0
+    local w, h, u = holder:GetWidth(), holder:GetHeight(), ns._abMainBtnW or 45
+    local m = (key == "MicroBar") and _G.MicroMenu
+    if m then
+        -- The buttons' own rect, on a frame of ours anchored to it: it follows
+        -- a corner flip of the menu in its container by itself.
+        owner = st.xOwner
+        if not owner then
+            owner = CreateFrame("Frame", nil, holder)
+            owner:SetPoint("TOPLEFT", m, "TOPLEFT")
+            owner:SetPoint("BOTTOMRIGHT", m, "BOTTOMRIGHT")
+            st.xOwner = owner
+        end
+        local k = m:GetEffectiveScale() / holder:GetEffectiveScale()
+        w, h = m:GetWidth() * k, m:GetHeight() * k
+    elseif key == "BagBar" then
+        local l, bw = ns.AB_BagCapsExtent(holder)
+        if l then ox, w = l, bw end
+    end
+    local sc, dx, dy = ns.AB_CapsTweak(key)
+    if not st.capsOn or st.xLook ~= look or st.xL ~= sL or st.xR ~= sR or st.xW ~= w
+        or st.xH ~= h or st.xU ~= u or st.xS ~= sc or st.xDX ~= dx or st.xDY ~= dy
+        or st.xLvl ~= lvl or st.xStr ~= strata or st.xOX ~= ox then
+        if holder:GetFrameStrata() ~= strata then holder:SetFrameStrata(strata) end
+        holder:SetFrameLevel(lvl)
+        if owner ~= holder then
+            if owner:GetFrameStrata() ~= strata then owner:SetFrameStrata(strata) end
+            owner:SetFrameLevel(lvl)
+        end
+        ns.AB_PaintCaps(st, owner, ox, 0, w, h, u, look, false, nil, key, sL, sR)
+        ns.AB_CapsFaction(st)
+        st.xLook, st.xL, st.xR, st.xW, st.xH, st.xU = look, sL, sR, w, h, u
+        st.xS, st.xDX, st.xDY, st.xLvl, st.xStr, st.xOX = sc, dx, dy, lvl, strata, ox
+        local tw = ns._abFadeTwin
+        if not tw then
+            tw = setmetatable({}, { __mode = "k" })
+            ns._abFadeTwin = tw
+        end
+        tw[bf] = st.capsOn and st.capHost or nil
+        if st.capHost then st.capHost:SetAlpha(_fadeAlpha[bf] or 1) end
+        if st.capsOn then ns.AB_ExtraCapsHooks(key) end
+        ns.AB_CapsEvSync()
+        ns.AB_ExtraCapsPad()
+        if key == "BagBar" then ns.AB_BagCapsWatch(st.capsOn) end
+    end
+    ns.AB_ExtraCapsShown(key)
+end
+
+function ns.AB_ExtraCapsAll()
+    ns.AB_ExtraCaps("MicroBar")
+    ns.AB_ExtraCaps("BagBar")
+end
+
+-- Repaints the bars that carry Action Bar 1's caps (its cap settings reach them).
+function ns.AB_CapsSpanApply()
+    local p = EAB.db and EAB.db.profile
+    if not p then return end
+    local l, r = p.endCapSpanLeft, p.endCapSpanRight
+    for i = 1, 2 do
+        local k = (i == 1) and l or r
+        if k and not (i == 2 and k == l) then
+            if ns.AB_CAP_EXTRAS[k] then ns.AB_ExtraCaps(k) else EAB:ApplyPaddingForBar(k) end
+        end
+    end
+end
+
+-- The 20 segments of Blizzard's experience bar on our XP / reputation / favor
+-- bars: 19 dividers (horizontal bars only), each LEFT edge on a twentieth of
+-- the width, 3 wide and 10/17 of the height, over the fill and under the text.
+function ns.AB_ForeverDataBarDividers(holder, w, h, orient)
+    local host = holder._fvDivHost
+    local atlas = ns.AB_FV_ART.xpDivider
+    if not (ns.AB_Forever() and orient == "HORIZONTAL" and ns.AB_AtlasOK(atlas)) then
+        if host then host:Hide() end
+        return
+    end
+    if not host then
+        host = CreateFrame("Frame", nil, holder)
+        host:SetAllPoints(holder)
+        host._tex = {}
+        holder._fvDivHost = host
+    end
+    host:SetFrameLevel(holder:GetFrameLevel() + 2)
+    local dh = floor(h * 10 / 17 + 0.5)
+    if dh < 1 then dh = 1 end
+    local seg = w / 20
+    local tex = host._tex
+    for i = 1, 19 do
+        local t = tex[i]
+        if not t then
+            t = host:CreateTexture(nil, "OVERLAY")
+            t:SetAtlas(atlas)
+            tex[i] = t
+        end
+        t:SetSize(3, dh)
+        t:ClearAllPoints()
+        t:SetPoint("LEFT", holder, "LEFT", i * seg, 0)
+    end
+    host:Show()
+end
+
+-------------------------------------------------------------------------------
 --  Party Mode: spinning action bars, on the shared spin engine
 --  (EllesmereUI.PartySpin_Create, EllesmereUI_PartyMode.lua). Each bar's
 --  shown buttons orbit that bar's centre by re-anchoring, not rotating, so
@@ -5846,7 +6788,9 @@ local function LayoutBar(key)
             tostring(s.buttonShape), tostring(s.buttonWidth), tostring(s.buttonHeight),
             tostring(s._matchExtraPixels), tostring(s._matchExtraPixelsH),
             tostring(showES), tostring(s.mouseoverEnabled),
-            ns.AB_Style(), tostring(p.procGlowEnabled),
+            ns.AB_Forever() and "forever" or ns.AB_Style(),
+            ns.AB_ChromeStamp(key),
+            tostring(p.procGlowEnabled),
             pos and tostring(pos.point) or "-", pos and tostring(pos.relPoint) or "-",
             pos and tostring(pos.x) or "-", pos and tostring(pos.y) or "-",
             base0 and tostring(base0.w) or "-", base0 and tostring(base0.h) or "-",
@@ -5927,6 +6871,12 @@ local function LayoutBar(key)
     local rowsUpward = not isVertical and (growDir == "UP" or growDir == "CENTER")
     local colFlip, rowFlip, cornerFill = ns.GetOrderFlips(s, isVertical, rowsUpward)
 
+    -- Fit Ring to Cropped Buttons sizes the assist ring from the button's own
+    -- rectangle: a shown ring on this bar is refitted (or restored) after the
+    -- re-layout. A hidden ring is fitted by AssistShow before it next shows.
+    local assistFit = EAB.db.profile.assistGlowFitCropped
+    local assistRefit = false
+
     for i = 1, info.count do
         local btn = buttons[i]
         if not btn then break end
@@ -5995,13 +6945,16 @@ local function LayoutBar(key)
                 btn:SetSize(nativeW, nativeH)
                 btn:SetPoint(anchor, frame, anchor, xOff / sc, yOff / sc)
                 -- Classic WoW UI: the vanilla ring on the native-size button,
-                -- painted once per size (the scale carries it).
+                -- painted once per size (the scale carries it). Blizzard
+                -- Style on the Forever client: the retail border, once.
                 if abStyle == "classic" then
                     local cfd = EFD(btn)
                     if cfd.classicW ~= nativeW or cfd.classicH ~= nativeH then
                         cfd.classicW, cfd.classicH = nativeW, nativeH
                         ns.AB_PaintClassicButton(btn, nativeW, nativeH)
                     end
+                elseif EllesmereUI.IS_FOREVER and not (info.isStance or info.isPetBar) then
+                    ns.AB_StockNormal(btn)
                 end
             else
                 btn:SetPoint(anchor, frame, anchor, xOff, yOff)
@@ -6032,9 +6985,16 @@ local function LayoutBar(key)
             end
 
             -- AssistedCombat frames are created lazily at the default 45x45,
-            -- anchored CENTER; scale them to our button size.
-            if btn.AssistedCombatHighlightFrame then
-                btn.AssistedCombatHighlightFrame:SetScale(btnW / 45)
+            -- anchored CENTER; scale them to our button size. A highlight ring
+            -- fitted to a Cropped button (ns._AssistFit) runs at scale 1 and is
+            -- refitted by the assist pass queued at the end of this layout.
+            local ahf = btn.AssistedCombatHighlightFrame
+            if ahf and not (ns._eabFD[ahf] and ns._eabFD[ahf].fitW) then
+                ahf:SetScale(btnW / 45)
+            end
+            if assistFit and not assistRefit then
+                local ohf = EFD(btn).assistHL
+                assistRefit = (ohf and ohf:IsShown()) or (ahf and ahf:IsShown()) or false
             end
             if btn.AssistedCombatRotationFrame then
                 btn.AssistedCombatRotationFrame:SetScale(btnW / 45)
@@ -6319,12 +7279,31 @@ local function LayoutBar(key)
         end
     end
 
+    -- The bar's chrome: WoW Forever's frame and dividers when shown (dividers
+    -- only on a one-line bar at spacing 2 or less, as Blizzard draws them)
+    -- and the bar's end caps. A bar that never showed either builds nothing.
+    if (ns._abChrome and ns._abChrome[key]) or ns.AB_ForeverBg(key) or ns.AB_CapsLook(key) then
+        local oneLine = (isVertical and totalCols or totalRows) == 1 and (s.buttonPadding or 2) <= 2
+        ns.AB_ApplyBarChrome(key, frame, max(frameW, 1), max(frameH, 1), btnW, isVertical, totalRows > 1,
+            oneLine and (isVertical and totalRows or totalCols) or 0,
+            isVertical and stepH or stepW, isVertical and extraH or extraW, onePx)
+    end
+    -- The micro menu's and bag bar's caps size from Action Bar 1's buttons
+    -- and may carry its caps (the span): repaint them after bar 1's pass.
+    if key == "MainBar" then
+        ns._abMainBtnW = btnW
+        ns.AB_ExtraCapsAll()
+    end
+
     -- Countdown size can be capped against button width (CooldownFonts .EffectiveSize,
     -- opt-in per bar), so any re-layout can change the cap. It sits here, not at the
     -- ~fourteen callers (icon size, padding, row/column overrides, width/height-match
     -- links, profile swaps, ...), because hooking one leaves the rest applying a stale
     -- size. Cheap when nothing changed: the per-frame stamp no-ops unless size differs.
     EAB:ApplyCooldownFontsForBar(key)
+    -- A shown fitted-or-fittable assist ring on this bar: refit or restore it
+    -- on the next assist pass (coalesced; never queued with the option off).
+    if assistRefit then ns.QueueAssistRescan() end
     -- Publish the stamp only on a completed pass (cleared on entry above).
     ns._eabLayoutStamp[key] = _lbStamp
 end
@@ -6405,6 +7384,24 @@ function ns.AB_ClassicSlotRing(btn, filled)
     if nt then
         nt:SetTexture(filled and ns.AB_CLASSIC.slot or ns.AB_CLASSIC.empty)
         nt:SetTexCoord(0, 1, 0, 1)
+    end
+end
+
+-- Plain Blizzard Style on the Forever client: the border the template's
+-- OnLoad left on our button's NormalTexture (IconFrame-AddRow, as our
+-- buttons have no .bar; IconFrame on a bar-art button) is redrawn once from
+-- its retail sheet, where the client's atlas would draw Forever art.
+function ns.AB_StockNormal(btn)
+    local fd = EFD(btn)
+    if fd.stockNT then return end
+    fd.stockNT = true
+    if ns.AB_Forever() then return end
+    local nt = btn.NormalTexture
+    local a = nt and nt:GetAtlas()
+    if not a then return end
+    local l = strlower(a)
+    if l == "ui-hud-actionbar-iconframe-addrow" or l == "ui-hud-actionbar-iconframe" then
+        EllesmereUI.StockAtlas(nt, a)
     end
 end
 
@@ -6809,8 +7806,22 @@ local function EnsureBorders(btn)
     return fd.borders
 end
 
+-- Frame level of a button's textured border backdrop (the bar border and its
+-- Match Bar Border copy). "Show Behind": level-1 draws behind the icon.
+-- "Border Above Effects": +20 clears the proc glow wrapper (+10), the assist
+-- overlay (+14) and ring (+15), the cooldown swipe and the item-rank diamond
+-- (+18). Otherwise the button's own level, in front of the icon. Show Behind
+-- wins. On ns: the main chunk is at the 200-local cap.
+ns._eabBorderLevel = function(btn, behind, above)
+    local lvl = btn:GetFrameLevel()
+    if behind then return max(0, lvl - 1) end
+    if above then return lvl + 20 end
+    return lvl
+end
+
 -- edgePx: the bar's exact size from ResolveBorderThickness (nil = legacy path).
-local function ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey, behind, edgePx)
+-- above: the bar's "Border Above Effects" (textured borders only).
+local function ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey, behind, edgePx, above)
     MakeButtonSquare(btn)
     local PP = EllesmereUI and EllesmereUI.PP
     local fd = EFD(btn)
@@ -6854,12 +7865,13 @@ local function ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey,
         end
         EllesmereUI.ApplyBorderStyle(btn, sz, cr, cg, cb, ca, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey, nil, edgePx)
         -- "Show Behind": textured border frame is a child of btn; equal level draws
-        -- in front of the icon, level-1 draws behind it. Solid borders unaffected.
+        -- in front of the icon, level-1 draws behind it. "Border Above Effects"
+        -- raises it over the effects; turning it off lands back on the rule
+        -- above on the next apply. Solid borders unaffected.
         if texKey ~= "solid" and EllesmereUI._bdBorderData then
             local bdFrame = EllesmereUI._bdBorderData[btn]
             if bdFrame then
-                local lvl = btn:GetFrameLevel()
-                bdFrame:SetFrameLevel(behind and math.max(0, lvl - 1) or lvl)
+                bdFrame:SetFrameLevel(ns._eabBorderLevel(btn, behind, above))
             end
         end
         if fd.borders and fd.shapeMask and fd.shapeMask:IsShown() then
@@ -7023,8 +8035,7 @@ local function ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brd
                 if EllesmereUI._bdBorderData then
                     local bdFrame = EllesmereUI._bdBorderData[btn]
                     if bdFrame then
-                        local lvl = btn:GetFrameLevel()
-                        bdFrame:SetFrameLevel(s.borderBehind and math.max(0, lvl - 1) or lvl)
+                        bdFrame:SetFrameLevel(ns._eabBorderLevel(btn, s.borderBehind, s.borderAboveEffects))
                     end
                 end
             else
@@ -7303,15 +8314,18 @@ function EAB:ApplyBordersForBar(barKey)
     local texShiftY = s.borderTextureShiftY
     local thicknessKey = s.borderThickness or "thin"
     local behind = s.borderBehind
+    local above = s.borderAboveEffects
     local buttons = barButtons[barKey]
     if not buttons then return end
     for i = 1, #buttons do
         local btn = buttons[i]
         if btn then
             EFD(btn).barKey = barKey
-            ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, texShiftX, texShiftY, "actionbars", thicknessKey, behind, px)
+            ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, texShiftX, texShiftY, "actionbars", thicknessKey, behind, px, above)
         end
     end
+    -- Match Bar Border copies follow the bar border (one boolean read while off).
+    ns._ixBarSync(barKey)
 end
 
 function EAB:ApplyBorders()
@@ -7347,6 +8361,9 @@ function EAB:ApplyShapesForBar(barKey)
         end
     end
     LayoutBar(barKey)
+    -- A shape change moves the bar in or out of Match Bar Border eligibility;
+    -- the copies' style inputs all go through ApplyBordersForBar's own sync.
+    ns._ixBarSync(barKey, true)
 end
 
 function EAB:ApplyShapes()
@@ -7717,8 +8734,9 @@ function EAB_VTABLE.CooldownFonts.ApplyToFrame(cdFrame, fontPath, cdSize, cdOX, 
         return true
     end
 
-    for ri = 1, cdFrame:GetNumRegions() do
-        local region = select(ri, cdFrame:GetRegions())
+    local regions = { cdFrame:GetRegions() }
+    for ri = 1, #regions do
+        local region = regions[ri]
         if region and region.GetObjectType and region:GetObjectType() == "FontString" then
             EllesmereUI.ApplyIconTextFont(region, fontPath, eff, "actionBars")
             region:SetTextColor(cr, cg, cb)
@@ -7984,7 +9002,13 @@ function EAB:ApplyIconBackgroundForBar(barKey)
                 clip:SetFrameLevel(math.max(1, btn:GetFrameLevel() - 1))
                 clip:EnableMouse(false)
                 local bg = clip:CreateTexture(nil, "BACKGROUND", nil, -1)
-                bg:SetAtlas("UI-HUD-ActionBar-IconFrame-Slot")
+                -- Built once; the look is reload-gated, so the stock looks
+                -- take the retail slot art here for the session.
+                if blizzStyle then
+                    ns.AB_StockAtlas(bg, "UI-HUD-ActionBar-IconFrame-Slot")
+                else
+                    bg:SetAtlas("UI-HUD-ActionBar-IconFrame-Slot")
+                end
                 bfd.iconBgClip = clip
                 bfd.iconBg = bg
             end
@@ -9084,6 +10108,11 @@ end
 EAB.VIS_EDGES = { softTarget = true }
 
 local function BuildVisibilityString(info, s, visOverride)
+    -- Hide Bar When Using Gamepad compiles to the constant a Never bar gets, so
+    -- every writer that builds a bar's driver here agrees (combat-gated sites,
+    -- regen healers, housing/soft-target/pet rebuilds). An explicit override
+    -- (toggle keybind, drag, spellbook) still wins, as it does over Never.
+    if EAB._padHide and not visOverride and s.gamepadHideBar == true then return "hide" end
     local key = info.key
     local vis = visOverride or s.barVisibility or "always"
     -- An applied Visibility override replaces the whole setting, the shared option
@@ -9294,33 +10323,29 @@ end
 -- "visibility", a different key pair -- without this the micro menu/bag bar stays
 -- hidden after every wild pet battle until a /reload.
 --
--- One shared shell frame; pending frames retry once combat drops. If a new
+-- One combat-queue entry; pending frames retry once combat drops. If a new
 -- battle began before regen the pending set is dropped: suppression flags
 -- are still set (re-suppressing keeps the ORIGINAL pre-battle shown state,
 -- see `if not ffd[suppressKey]` below), so that battle's own close
 -- transition completes or re-defers as usual.
 -- do-block with block locals; helper exported on the vtable (200-local cap).
 do
-    local pending, shell
+    local pending
+    local function DrainPending()
+        local p = pending
+        pending = nil
+        if not p then return end
+        if C_PetBattles and C_PetBattles.IsInBattle and C_PetBattles.IsInBattle() then
+            return -- back in a battle; its close transition owns the rest
+        end
+        for f in pairs(p) do
+            EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(f, "petbattle", false)
+        end
+    end
     EAB_VTABLE.ExtraBars.QueuePetBattleUnsuppress = function(frame)
         pending = pending or {}
         pending[frame] = true
-        if not shell then
-            shell = ns.TakeShell()
-            shell:SetScript("OnEvent", function(self)
-                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                local p = pending
-                pending = nil
-                if not p then return end
-                if C_PetBattles and C_PetBattles.IsInBattle and C_PetBattles.IsInBattle() then
-                    return -- back in a battle; its close transition owns the rest
-                end
-                for f in pairs(p) do
-                    EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(f, "petbattle", false)
-                end
-            end)
-        end
-        shell:RegisterEvent("PLAYER_REGEN_ENABLED")
+        ns.CombatQueue.Defer("PetBattleUnsuppress", DrainPending)
     end
 end
 
@@ -9352,6 +10377,7 @@ function EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, reason, supp
         if frame:IsShown() then
             if not InCombatLockdown() then
                 frame:Hide()
+                ns.AB_ExtraCapsFor(frame)
             else
                 ns._eabApplyDeferred = true
             end
@@ -9377,6 +10403,7 @@ function EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, reason, supp
         ffd[shownKey] = nil
         if wasShown and not frame:IsShown() then
             frame:Show()
+            ns.AB_ExtraCapsFor(frame)
         end
     end
 end
@@ -9401,6 +10428,7 @@ function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s)
         _fadeAlpha[frame] = resting
         if hstate then hstate.fadeDir = nil end
     end
+    ns.AB_FadeTwin(frame, _fadeAlpha[frame])
 end
 
 function EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, blizzOwnedVisibility, s, shouldShow)
@@ -9677,11 +10705,76 @@ ns._eabBuildSkippedBars = function()
     return built
 end
 
+-------------------------------------------------------------------------------
+--  Hide Bar When Using Gamepad (per bar, s.gamepadHideBar, default off; set
+--  on the Global Settings Gamepad page).
+--  "Using" means CONNECTED (EllesmereUI.PadConnected: gamepad support is on
+--  and a controller is present), never the last-input device, so a touch of
+--  the mouse cannot flicker a bar back. A hidden bar is hidden the way Never
+--  hides it: its driver compiles to "hide" (BuildVisibilityString) and it
+--  joins the Never set (ns.IsNeverBar). Two cached verdicts: EAB._padOn is the
+--  device verdict, EAB._padHide the one every bar reader uses (_padOn, except
+--  while Quick Keybind mode is open, which brings these bars back for binding).
+--  Both only turn ON out of combat: the secure drivers cannot follow in
+--  combat, and a still-visible bar in the Never set would skip its content
+--  walks for the rest of the fight. EAB fields, not locals: 200-local cap.
+-------------------------------------------------------------------------------
+-- Device edges arrive through EllesmereUI.WatchPad, one call per burst; a
+-- repaint only when the verdict flips.
+function EAB._PadFlush(on)
+    if on == EAB._padOn then return end
+    if InCombatLockdown() then
+        -- Keep the old verdict; the PLAYER_REGEN_ENABLED ApplyAll re-reads it.
+        EAB._padStale = true
+        ns._eabApplyDeferred = true
+        return
+    end
+    EAB._padOn = on
+    EAB:RefreshRuntimeVisibility()
+end
+
+-- Watches the device edges while any bar has the toggle on (unwatched they
+-- cost nothing) and re-reads the devices on the watch edge and after an edge
+-- that landed in combat. Runs ahead of the Never map and the drivers, so every
+-- settings path (options, profile swap, spec override) re-arms here, and once
+-- from FinishSetup before its pre-lockdown driver pass. Quick Keybind mode's
+-- open and close edges re-run it through RefreshRuntimeVisibility.
+function EAB._PadSync()
+    local bars = EAB.db.profile.bars
+    local any = false
+    for i = 1, #BAR_CONFIG do
+        local s = bars[BAR_CONFIG[i].key]
+        if s and s.gamepadHideBar == true then any = true break end
+    end
+    if any ~= (EAB._padArmed == true) then
+        EAB._padArmed = any
+        if any then
+            EllesmereUI.WatchPad(EAB, EAB._PadFlush)
+        else
+            EllesmereUI.UnwatchPad(EAB)
+        end
+        EAB._padStale = any or nil
+    end
+    if not any then
+        EAB._padOn = false
+    elseif EAB._padStale and not InCombatLockdown() then
+        EAB._padStale = nil
+        EAB._padOn = EllesmereUI.PadConnected()
+    end
+    -- A Quick Keybind close taken in combat keeps the bars up until its regen
+    -- FinishClose re-runs this.
+    local hide = (EAB._padOn and not _quickKeybindState.open) or false
+    if hide and not EAB._padHide and InCombatLockdown() then return end
+    EAB._padHide = hide
+end
+
 function EAB:RefreshRuntimeVisibility()
     -- Secure driver/mouse writes below are per-site combat-gated; a run
     -- during combat leaves those writes unapplied, and the REGEN_ENABLED
     -- ApplyAll (gated on this flag) is the healer.
     if InCombatLockdown() then ns._eabApplyDeferred = true end
+    -- Controller verdict first: the Never map and every driver below read it.
+    EAB._PadSync()
     -- Every settings path that can change a bar's Never/disabled status runs
     -- through here (this is where drivers re-derive), so this is the single
     -- recompute site for the hard-dormancy map the event walks gate on.
@@ -9825,6 +10918,8 @@ local MYSLOT_VIS_FIELDS = {
     -- The Match Mode scalar is its own store key outside visibilityModes; a
     -- surviving "any" makes the compiler build from the emptied set.
     "visibilityMatch",
+    -- Hide Bar When Using Gamepad would keep the bar hidden like Never.
+    "gamepadHideBar",
 }
 -- The option LANES (target/enemy/mounted macro lanes AND the Lua-only
 -- instance/housing/skyriding/resting/VEHICLE lanes) are enumerated by the
@@ -9897,6 +10992,7 @@ function EAB:SetMyslotForceShow(on)
                     for _, f in ipairs(optKeys) do s[f] = nil end
                 end
                 s.alwaysHidden = false
+                s.gamepadHideBar = false
                 s.mouseoverEnabled = false
                 -- Force FULL opacity, never the bar's real resting value: a
                 -- hidden-until-hover bar rests at mouseoverAlpha 0 (and the
@@ -9992,7 +11088,10 @@ function EAB:ToggleVisKey(key)
             local saved = s.barVisibility or "always"
             if saved == "always" or saved == "never" then
                 participants[#participants + 1] = info.key
-                local eff = (self._visOverride and self._visOverride[info.key]) or saved
+                -- A controller-hidden bar counts as hidden (as Never does), so
+                -- the first press shows it.
+                local eff = (self._visOverride and self._visOverride[info.key])
+                    or ((self._padHide and s.gamepadHideBar == true) and "never") or saved
                 if eff == "always" then anyShown = true end
             end
         end
@@ -10019,15 +11118,9 @@ end
 -- APIs are combat-protected, so defer to PLAYER_REGEN_ENABLED in combat.
 function EAB:RebuildVisToggleBindings()
     if InCombatLockdown() then
-        if not self._visToggleCombatFrame then
-            local f = ns.TakeShell()
-            f:SetScript("OnEvent", function(self2)
-                self2:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                EAB:RebuildVisToggleBindings()
-            end)
-            self._visToggleCombatFrame = f
-        end
-        self._visToggleCombatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        ns.CombatQueue.Defer("RebuildVisToggleBindings", function()
+            EAB:RebuildVisToggleBindings()
+        end)
         return
     end
     -- Unique keys that have at least one participating (always/never) bar.
@@ -10346,6 +11439,260 @@ ns._applyBorderEdges = _applyBorderEdges
 ns._hideBorderEdges  = _hideBorderEdges
 end
 
+-------------------------------------------------------------------------------
+--  Match Bar Border (the Pushed / Highlight Border Settings cogs and the Spell
+--  Cast Highlight cog). On bars with a textured Border Style, a press, a hover
+--  or the active spell lights up a tinted copy of the button's own border in
+--  place of the flat edge lines (pushed / hover) or the checked fill (cast).
+--  One copy per button, built the first time a role arms it on an eligible
+--  bar, never for players who leave the options off: EFD(btn).ixBorder is a
+--  wrapper frame and the only Show/Hide target, EFD(btn).ixHost inside it
+--  carries the backdrop and stays shown, so neither a restyle nor the UI-scale
+--  re-apply (EllesmereUI.ReapplyPxBorders) can flash or drop the copy. Roles
+--  (EFD ixPush / ixHover / ixCast) are armed by the three Apply*Textures
+--  passes; the live states (ixPressed / ixOver / ixChecked) come from hooks
+--  whose bodies return at once unless their role is armed. ONE painter picks
+--  pressed > spell cast > hover. While the copy shows, the bar border hides
+--  through its own backdrop's alpha (our frame), never Hide(); the button's
+--  own alpha is never read or written. All on ns: the main chunk is at the
+--  200-local cap.
+-------------------------------------------------------------------------------
+
+-- Tint slots (r, g, b, a), refilled in place by the pushed and highlight passes
+-- while their role is on, so a paint allocates nothing.
+ns._ixPushC = { 1, 1, 1, 1 }
+ns._ixHlC   = { 1, 1, 1, 1 }
+-- [barKey] = the bar's last computed eligibility (GetCheckedAlpha reads it).
+ns._ixElig  = {}
+
+-- Which roles are on, from the profile alone: each needs its own opt-in plus
+-- the setting it restyles (Border pushed / highlight type, cast highlight on).
+ns._ixRolesOn = function(p)
+    return (p.pushedBorderMatchBar and (p.pushedTextureType or 2) == 5) or false,
+        (p.highlightBorderMatchBar and (p.highlightTextureType or 2) == 5) or false,
+        (p.castHighlightBorder and p.showCastHighlight ~= false) or false
+end
+
+-- Bar eligibility: EllesmereUI style, square icons, a None or Cropped shape, a
+-- textured Border Style that resolves to a file, Border Size above 0. Returns
+-- it and whether it differs from the stored value (stored here).
+ns._ixBarEligible = function(barKey)
+    local p = EAB.db.profile
+    local s = p.bars[barKey]
+    local ok = false
+    if s and p.squareIcons and ns.AB_Style() == "eui" then
+        local shape = s.buttonShape or "none"
+        local tex = s.borderTexture or "solid"
+        if (shape == "none" or shape == "cropped") and tex ~= "" and tex ~= "solid"
+           and EllesmereUI.ResolveBorderTexture(tex) then
+            ok = ResolveBorderThickness(s) > 0
+        end
+    end
+    local changed = ns._ixElig[barKey] ~= ok
+    ns._ixElig[barKey] = ok
+    return ok, changed
+end
+
+-- Styles the copy exactly like the bar border: texture, step, exact size,
+-- offsets, shifts, and the bar border's frame level (Show Behind / Border
+-- Above Effects; ApplyBorderStyle resets the backdrop to the host's level, so
+-- it is set again after). Keeps the current tint. Unmemoized, like the bar
+-- border's own textured path. Callers keep it out of combat.
+ns._ixStyle = function(btn, fd, s)
+    local host = fd.ixHost
+    local sz, px = ResolveBorderThickness(s)
+    EllesmereUI.ApplyBorderStyle(host, sz, fd.ixR or 1, fd.ixG or 1, fd.ixB or 1, fd.ixA or 1,
+        s.borderTexture, s.borderTextureOffset, s.borderTextureOffsetY,
+        s.borderTextureShiftX, s.borderTextureShiftY, "actionbars",
+        s.borderThickness or "thin", nil, px)
+    local bd = EllesmereUI._bdBorderData[host]
+    if bd then bd:SetFrameLevel(ns._eabBorderLevel(btn, s.borderBehind, s.borderAboveEffects)) end
+    fd.ixStyled = true
+end
+
+-- The one painter: pressed > spell cast > hover (cast and hover share the
+-- highlight tint). Recolours only on a real change, shows and hides only on an
+-- edge. Runs from hooks in and out of combat: our own frames only.
+ns._ixPaint = function(btn, fd)
+    local w = fd.ixBorder
+    if not w then return end
+    local bdData = EllesmereUI._bdBorderData
+    local bd = bdData[fd.ixHost]
+    local c
+    if bd then
+        if fd.ixPressed and fd.ixPush then
+            c = ns._ixPushC
+        elseif (fd.ixChecked and fd.ixCast) or (fd.ixOver and fd.ixHover) then
+            c = ns._ixHlC
+        end
+    end
+    if c then
+        local r, g, b, a = c[1], c[2], c[3], c[4]
+        if fd.ixR ~= r or fd.ixG ~= g or fd.ixB ~= b or fd.ixA ~= a then
+            fd.ixR, fd.ixG, fd.ixB, fd.ixA = r, g, b, a
+            bd:SetBackdropBorderColor(r, g, b, a)
+        end
+        if not fd.ixLit then
+            fd.ixLit = true
+            local base = bdData[btn]
+            if base then
+                fd.ixBaseA = base:GetAlpha()
+                base:SetAlpha(0)
+            end
+            w:Show()
+        end
+    elseif fd.ixLit then
+        fd.ixLit = nil
+        w:Hide()
+        local base = bdData[btn]
+        if base then base:SetAlpha(fd.ixBaseA or 1) end
+    end
+end
+
+-- Pressed-state drivers, one shared function each. Bodies return unless the
+-- pushed role is armed (or, to release, a press is recorded).
+ns._ixPressOn = function(btn)
+    local fd = ns._eabFD[btn]
+    if fd and fd.ixPush and not fd.ixPressed then
+        fd.ixPressed = true
+        ns._ixPaint(btn, fd)
+    end
+end
+ns._ixPressOff = function(btn)
+    local fd = ns._eabFD[btn]
+    if fd and fd.ixPressed then
+        fd.ixPressed = nil
+        ns._ixPaint(btn, fd)
+    end
+end
+
+-- Installed once per button, the first time the pushed role arms it. The
+-- keybind flash path shows and hides PushedTexture from Lua; a mouse press is
+-- drawn by the engine with no Lua call, so the button's own mouse scripts
+-- drive that half, and OnHide drops a press a hidden bar would strand. A drag
+-- off the button may never deliver OnMouseUp, so OnDragStart drops it too, on
+-- our own action buttons only (the Stance and Pet bars reuse Blizzard's).
+ns._ixHookPress = function(btn, fd)
+    fd.ixPressHooked = true
+    local pt = btn.PushedTexture
+    if pt then
+        hooksecurefunc(pt, "Show", function() ns._ixPressOn(btn) end)
+        hooksecurefunc(pt, "Hide", function() ns._ixPressOff(btn) end)
+    end
+    btn:HookScript("OnMouseDown", ns._ixPressOn)
+    btn:HookScript("OnMouseUp", ns._ixPressOff)
+    btn:HookScript("OnHide", ns._ixPressOff)
+    if _controllerButtons[btn] then btn:HookScript("OnDragStart", ns._ixPressOff) end
+end
+
+-- Reads the checked state and paints only when it really changed. A secret
+-- value is skipped without a retry; the next SetChecked samples again.
+ns._ixSampleChecked = function(btn, fd)
+    local c = btn:GetChecked()
+    if issecretvalue and issecretvalue(c) then return end
+    c = c and true or nil
+    if fd.ixChecked ~= c then
+        fd.ixChecked = c
+        ns._ixPaint(btn, fd)
+    end
+end
+
+-- Installed once per button, the first time the cast role arms it. Blizzard's
+-- UpdateState and our own dispatcher both set the checked state through
+-- SetChecked. The hooked argument is never read (it can be secret).
+ns._ixHookChecked = function(btn, fd)
+    fd.ixCheckHooked = true
+    hooksecurefunc(btn, "SetChecked", function()
+        local d = ns._eabFD[btn]
+        if d and d.ixCast then ns._ixSampleChecked(btn, d) end
+    end)
+end
+
+-- Arms (on) or disarms one role ("ixPush" / "ixHover" / "ixCast") on one
+-- button; returns whether it is armed. The first arm builds and styles the
+-- copy and installs the role's driver, out of combat only: a combat arm defers
+-- to the regen ApplyAll and returns false, so the caller keeps its own look.
+-- Dropping the last role hides the copy, restores the bar border's alpha and
+-- takes the host out of the px re-apply registry (HideBorderStyle).
+ns._ixRole = function(btn, s, role, on)
+    local fd = EFD(btn)
+    if on then
+        local needHook = (role == "ixPush" and not fd.ixPressHooked)
+            or (role == "ixCast" and not fd.ixCheckHooked)
+        if not fd.ixStyled or needHook then
+            if InCombatLockdown() then
+                ns._eabApplyDeferred = true
+                return false
+            end
+            if not fd.ixBorder then
+                local w = CreateFrame("Frame", nil, btn)
+                w:SetAllPoints(btn)
+                w:Hide()
+                local host = CreateFrame("Frame", nil, w)
+                host:SetAllPoints(w)
+                fd.ixBorder, fd.ixHost = w, host
+                ns._ixEver = true
+            end
+            if not fd.ixStyled then ns._ixStyle(btn, fd, s) end
+            if role == "ixPush" and not fd.ixPressHooked then ns._ixHookPress(btn, fd) end
+            if role == "ixCast" and not fd.ixCheckHooked then ns._ixHookChecked(btn, fd) end
+        end
+        fd[role] = true
+        -- A (re)armed cast role starts from the button's real state.
+        if role == "ixCast" then ns._ixSampleChecked(btn, fd) end
+        ns._ixPaint(btn, fd)
+        return true
+    elseif fd[role] then
+        fd[role] = nil
+        if role == "ixPush" then
+            fd.ixPressed = nil
+        elseif role == "ixHover" then
+            fd.ixOver = nil
+        else
+            fd.ixChecked = nil
+        end
+        ns._ixPaint(btn, fd)
+        if fd.ixStyled and not (fd.ixPush or fd.ixHover or fd.ixCast) then
+            EllesmereUI.HideBorderStyle(fd.ixHost)
+            fd.ixStyled = nil
+        end
+    end
+    return false
+end
+
+-- Tail of ApplyBordersForBar / ApplyShapesForBar. Armed copies restyle with the
+-- bar border (out of combat; a combat pass defers to the regen ApplyAll);
+-- eligOnly (the shape tail) skips that restyle. A bar that moved in or out of
+-- eligibility re-runs the three role passes, which own the edges-or-copy
+-- choice; ApplyAll runs them itself right after its bar loop.
+ns._ixBarSync = function(barKey, eligOnly)
+    local p = EAB.db and EAB.db.profile
+    if not p then return end
+    local push, hover, cast = ns._ixRolesOn(p)
+    if not (push or hover or cast) then return end
+    local elig, changed = ns._ixBarEligible(barKey)
+    if elig and not eligOnly then
+        local buttons = barButtons[barKey]
+        local s = p.bars[barKey]
+        if buttons and s then
+            if InCombatLockdown() then
+                ns._eabApplyDeferred = true
+            else
+                for i = 1, #buttons do
+                    local btn = buttons[i]
+                    local fd = btn and ns._eabFD[btn]
+                    if fd and fd.ixStyled then ns._ixStyle(btn, fd, s) end
+                end
+            end
+        end
+    end
+    if changed and not _isApplyingAll then
+        EAB:ApplyPushedTextures()
+        EAB:ApplyHighlightTextures()
+        EAB:ApplyCheckedTextures()
+    end
+end
+
 function EAB:ApplyPushedTextures()
     local p = self.db.profile
     local abStyle = ns.AB_Style()
@@ -10360,9 +11707,21 @@ function EAB:ApplyPushedTextures()
         if ct then local cc = RAID_CLASS_COLORS[ct]; if cc then cr, cg, cb = cc.r, cc.g, cc.b end end
     end
 
+    -- Match Bar Border (pushed): eligible bars trade the flat edges for the
+    -- button's own border copy, tinted with this colour and its alpha. Once a
+    -- copy exists (ixEver), every path that does not arm the role disarms it.
+    local ixOn = abStyle == "eui" and (ns._ixRolesOn(p))
+    if ixOn then
+        local t = ns._ixPushC
+        t[1], t[2], t[3], t[4] = cr, cg, cb, customC.a or 1
+    end
+    local ixEver = ns._ixEver
+
     for _, info in ipairs(BAR_CONFIG) do
         local buttons = barButtons[info.key]
         if buttons then
+            local s = p.bars[info.key]
+            local ixBar = ixOn and ns._ixBarEligible(info.key)
             for i = 1, #buttons do
                 local btn = buttons[i]
                 if btn and btn.PushedTexture then
@@ -10372,8 +11731,11 @@ function EAB:ApplyPushedTextures()
                             btn.PushedTexture:SetAtlas(nil)
                             btn.PushedTexture:SetTexture(ns.AB_CLASSIC.pushed)
                             btn.PushedTexture:SetTexCoord(0, 1, 0, 1)
-                        else
+                        elseif info.isStance or info.isPetBar then
+                            -- Blizzard's buttons: its own art pass re-atlases them.
                             btn.PushedTexture:SetAtlas("UI-HUD-ActionBar-IconFrame-Down", true)
+                        else
+                            ns.AB_StockAtlas(btn.PushedTexture, "UI-HUD-ActionBar-IconFrame-Down", true)
                         end
                         btn.PushedTexture:SetDrawLayer("OVERLAY", 7)
                         btn.PushedTexture:ClearAllPoints()
@@ -10386,8 +11748,12 @@ function EAB:ApplyPushedTextures()
                         ns._hideBorderEdges(btn, "_pushedBorder")
                     elseif pType == 5 then
                         btn.PushedTexture:SetAlpha(0)
-                        local edges = ns._setupBorderEdges(btn, "_pushedBorder", btn.PushedTexture)
-                        ns._applyBorderEdges(edges, btn, brdSize, cr, cg, cb)
+                        if ixBar and ns._ixRole(btn, s, "ixPush", true) then
+                            ns._hideBorderEdges(btn, "_pushedBorder")
+                        else
+                            local edges = ns._setupBorderEdges(btn, "_pushedBorder", btn.PushedTexture)
+                            ns._applyBorderEdges(edges, btn, brdSize, cr, cg, cb)
+                        end
                     else
                         btn.PushedTexture:SetAlpha(1)
                         ns._hideBorderEdges(btn, "_pushedBorder")
@@ -10398,6 +11764,9 @@ function EAB:ApplyPushedTextures()
                             btn.PushedTexture:SetColorTexture(cr, cg, cb, 0.35)
                         end
                     end
+                    -- Stock styles, other pushed types, the option off and
+                    -- bars that left eligibility all land here.
+                    if ixEver and not ixBar then ns._ixRole(btn, s, "ixPush", false) end
                 end
             end
         end
@@ -10511,13 +11880,36 @@ function EAB:ApplyHighlightTextures()
         if ct then local cc = RAID_CLASS_COLORS[ct]; if cc then cr, cg, cb = cc.r, cc.g, cc.b end end
     end
 
+    -- Match Bar Border (hover), plus the tint the spell-cast copy shares with
+    -- it (this colour and its alpha). Once a copy exists (ixEver), every path
+    -- that does not arm the hover role disarms it, and a lit cast copy picks
+    -- up a colour change here. The tint is refreshed on every pass, options
+    -- off included: the Spell Cast Highlight toggles arm the cast role through
+    -- ApplyCheckedTextures alone, which paints with this slot as it stands.
+    local _, ixOn, ixCast = ns._ixRolesOn(p)
+    ixOn = ixOn and not abStock
+    do
+        local t = ns._ixHlC
+        t[1], t[2], t[3], t[4] = cr, cg, cb, customC.a or 1
+    end
+    local ixEver = ns._ixEver
+
     for _, info in ipairs(BAR_CONFIG) do
         if abStock then
             -- skip -- the stock kit owns the highlight (classic paints its
             -- own in ns.AB_PaintClassicButton)
+            local buttons = ixEver and barButtons[info.key]
+            if buttons then
+                for i = 1, #buttons do
+                    local btn = buttons[i]
+                    if btn then ns._ixRole(btn, nil, "ixHover", false) end
+                end
+            end
         else
         local buttons = barButtons[info.key]
         if buttons then
+            local s = p.bars[info.key]
+            local ixBar = ixOn and ns._ixBarEligible(info.key)
             for i = 1, #buttons do
                 local btn = buttons[i]
                 if btn and btn.HighlightTexture then
@@ -10526,16 +11918,33 @@ function EAB:ApplyHighlightTextures()
                         ns._hideBorderEdges(btn, "_highlightBorder")
                     elseif hType == 5 then
                         btn.HighlightTexture:SetAlpha(0)
-                        local edges = ns._setupBorderEdges(btn, "_highlightBorder")
-                        ns._applyBorderEdges(edges, btn, brdSize, cr, cg, cb)
+                        if ixBar and ns._ixRole(btn, s, "ixHover", true) then
+                            ns._hideBorderEdges(btn, "_highlightBorder")
+                        else
+                            local edges = ns._setupBorderEdges(btn, "_highlightBorder")
+                            ns._applyBorderEdges(edges, btn, brdSize, cr, cg, cb)
+                        end
                         if not EFD(btn).hlBorderHooked then
                             EFD(btn).hlBorderHooked = true
+                            -- Hover driver for both looks: the armed copy, else
+                            -- today's edges.
                             btn:HookScript("OnEnter", function(self)
-                                local be = EFD(self)._highlightBorder
+                                local fd = EFD(self)
+                                if fd.ixHover then
+                                    fd.ixOver = true
+                                    ns._ixPaint(self, fd)
+                                    return
+                                end
+                                local be = fd._highlightBorder
                                 if be and be._active then for j = 1, 4 do be[j]:Show() end end
                             end)
                             btn:HookScript("OnLeave", function(self)
-                                local be = EFD(self)._highlightBorder
+                                local fd = EFD(self)
+                                if fd.ixOver then
+                                    fd.ixOver = nil
+                                    ns._ixPaint(self, fd)
+                                end
+                                local be = fd._highlightBorder
                                 if be then for j = 1, 4 do be[j]:Hide() end end
                             end)
                         end
@@ -10549,6 +11958,11 @@ function EAB:ApplyHighlightTextures()
                             btn.HighlightTexture:SetColorTexture(cr, cg, cb, 0.35)
                         end
                     end
+                    if ixEver and not ixBar then ns._ixRole(btn, s, "ixHover", false) end
+                end
+                if ixCast and ixEver and btn then
+                    local fd = ns._eabFD[btn]
+                    if fd and fd.ixCast then ns._ixPaint(btn, fd) end
                 end
                 _quickKeybindState.art.RefreshButton(btn)
             end
@@ -10568,18 +11982,9 @@ end
 --  textures/animations with user-selected glow styles.
 -------------------------------------------------------------------------------
 
--- Loop glow types: atlas-based Blizzard FlipBook styles + procedural engines
-local LOOP_GLOW_TYPES = {
-    { name = "Pixel Glow",           procedural = true },
-    { name = "Custom Proc Glow",     buttonGlow = true },
-    { name = "Auto-Cast Shine",      autocast = true },
-    { name = "Shape Glow",           shapeGlow = true },
-    { name = "GCD",                  atlas = "RotationHelper_Ants_Flipbook", texPadding = 1.6 },
-    { name = "Modern WoW Glow",      atlas = "UI-HUD-ActionBar-Proc-Loop-Flipbook", texPadding = 1.4 },
-    { name = "Classic WoW Glow",     texture = "Interface\\SpellActivationOverlay\\IconAlertAnts",
-      rows = 5, columns = 5, frames = 25, duration = 0.3, frameW = 48, frameH = 48, texPadding = 1.25 },
-}
-ns.LOOP_GLOW_TYPES = LOOP_GLOW_TYPES
+-- Loop glow types: the shared glow styles in their shared order (saved procGlowType
+-- values are shared indices).
+local LOOP_GLOW_TYPES = EllesmereUI.Glows.MakeView({ 1, 2, 3, 4, 5, 6, 7 }).list
 
 -- Proc start types: the initial burst animation
 local PROC_START_TYPES = {
@@ -10673,15 +12078,12 @@ local function UpdateFlipbook(btn)
         end
     end
 
-    local cr, cg, cb
-    if p.procGlowUseClassColor then
-        local _, class = UnitClass("player")
-        local cc = RAID_CLASS_COLORS[class]
-        if cc then cr, cg, cb = cc.r, cc.g, cc.b else cr, cg, cb = 1, 1, 1 end
-    else
-        local c = p.procGlowColor or { r = 1, g = 0.776, b = 0.376 }
-        cr, cg, cb = c.r, c.g, c.b
-    end
+    -- Color mode: the class flag alone decides Class (legacy profiles and older
+    -- spec overrides carry only the flag); the mode key tells Default from
+    -- Custom. The options getter reads the same rule.
+    local c = p.procGlowColor or { r = 1, g = 0.776, b = 0.376 }
+    local cr, cg, cb = _G_Glows.ResolveColor(p.procGlowUseClassColor and "class"
+        or (p.procGlowColorMode == "default" and "default" or "custom"), c.r, c.g, c.b)
 
     local loopIdx = p.procGlowType or 1
     if loopIdx < 1 or loopIdx > #LOOP_GLOW_TYPES then loopIdx = 1 end
@@ -10692,6 +12094,12 @@ local function UpdateFlipbook(btn)
         end
     end
     local loopEntry = LOOP_GLOW_TYPES[loopIdx]
+    -- Default mode (nil color): the drawn engines use the suite gold; FlipBooks
+    -- keep the atlas's own untinted look.
+    if cr == nil and (loopEntry.procedural or loopEntry.buttonGlow or loopEntry.autocast or loopEntry.shapeGlow) then
+        local d = _G_Glows.DEFAULT_COLOR
+        cr, cg, cb = d.r, d.g, d.b
+    end
 
     if not fd.glowWrapper then
         local wrapper = CreateFrame("Frame", nil, btn:GetParent() or btn)
@@ -10726,13 +12134,17 @@ local function UpdateFlipbook(btn)
         local bW, bH = _ufBtnW, _ufBtnH
 
         if loopEntry.procedural then
-            local N = 8
-            local th = 2
-            local period = 4
+            local N = p.procGlowLines or 8
+            local th = p.procGlowThickness or 2
+            local period = p.procGlowSpeed or 4
             local lineLen = floor((bW + bH) * (2 / N - 0.1))
             lineLen = min(lineLen, min(bW, bH))
             if lineLen < 1 then lineLen = 1 end
-            _G_Glows.StartProceduralAnts(wrapper, N, th, period, lineLen, cr, cg, cb, bW, bH)
+            -- No fallback table per proc: an unset background color reads as black.
+            local bgOn, bgc = p.procGlowBackground, p.procGlowBackgroundColor
+            _G_Glows.StartProceduralAnts(wrapper, N, th, period, lineLen, cr, cg, cb, bW, bH,
+                bgOn and (bgc and bgc.r or 0) or nil, bgOn and (bgc and bgc.g or 0) or nil,
+                bgOn and (bgc and bgc.b or 0) or nil, bgOn and 1 or nil)
         elseif loopEntry.buttonGlow then
             _G_Glows.StartButtonGlow(wrapper, bW, cr, cg, cb, nil, bH)
         elseif loopEntry.autocast then
@@ -11047,15 +12459,21 @@ do
         -- Footprint. Alone (style 2) the tint covers exactly the button. Under
         -- the ring (style 3) it grows or shrinks with the ring's outset so the
         -- two end flush -- the tint never sticks out past the ring, which is
-        -- what a negative outset would otherwise produce. Change-guarded: the
+        -- what a negative outset would otherwise produce. With Fit Ring to
+        -- Cropped Buttons fitting the ring (ns._AssistFit), the tint takes the
+        -- same top and bottom pull-in so the two stay flush. Change-guarded: the
         -- rescan runs several times a second while a suggestion is up.
         local pad = (style == 3) and ((p and p.assistGlowOutset) or 0) or 0
+        local padY = pad
+        if style == 3 and fd.cropped and p and p.assistGlowFitCropped then
+            padY = pad - ns._ASSIST_CROP_TRIM / 2
+        end
         local ofd = EFD(ov)
-        if ofd.pad ~= pad then
-            ofd.pad = pad
+        if ofd.pad ~= pad or ofd.padY ~= padY then
+            ofd.pad, ofd.padY = pad, padY
             ov:ClearAllPoints()
-            ov:SetPoint("TOPLEFT", btn, "TOPLEFT", -pad, pad)
-            ov:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", pad, -pad)
+            ov:SetPoint("TOPLEFT", btn, "TOPLEFT", -pad, padY)
+            ov:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", pad, -padY)
         end
         -- Re-assert: bar layout can change the button's frame level after create.
         ov:SetFrameLevel(btn:GetFrameLevel() + 14)
@@ -11107,6 +12525,58 @@ do
         return s
     end
 
+    -- "Fit Ring to Cropped Buttons": a Cropped button is shorter than it is
+    -- wide, so the width-only scale above lets the square ring overhang its top
+    -- and bottom. With the option on, a ring on a Cropped button runs at scale 1
+    -- and takes the button's rectangle plus the outset on every side, less a
+    -- fixed 2 px at top and bottom. Its Flipbook keeps the template's overscan
+    -- on each axis: the ants art has transparent padding baked in (the template
+    -- draws a 66px Flipbook over its 45px frame so the ants land on the frame's
+    -- edge), so a Flipbook stretched to the frame would draw the ring well
+    -- inside the button. The Flipbook stays on its own CENTER anchor; only its
+    -- size follows the frame, per axis, in the snapshot's own ratio. The ring's
+    -- and its Flipbook's original sizes are snapshotted on first touch and
+    -- restored exactly when the button leaves Cropped or the option goes off.
+    -- State lives in EFD(ring), never on Blizzard's frame. Change-guarded:
+    -- AssistShow re-runs several times a second. Returns true when it sized
+    -- the ring (the caller then skips the width scale).
+    -- The fitted ring's height trim: 2 px pulled in at the top and at the
+    -- bottom. The Ring + Overlay tint reads it too, to stay flush.
+    ns._ASSIST_CROP_TRIM = 4
+    ns._AssistFit = function(btn, ring, cropped)
+        local p = EAB.db and EAB.db.profile
+        local rfd = ns._eabFD[ring]
+        if not (cropped and p and p.assistGlowFitCropped) then
+            if rfd and rfd.fitW then
+                rfd.fitW, rfd.fitH = nil, nil
+                ring:SetSize(rfd.origW, rfd.origH)
+                local fb = ring.Flipbook
+                if fb and rfd.fbW then fb:SetSize(rfd.fbW, rfd.fbH) end
+            end
+            return false
+        end
+        rfd = EFD(ring)
+        local fb = ring.Flipbook
+        if not rfd.origW then
+            rfd.origW, rfd.origH = ring:GetSize()
+            if fb then rfd.fbW, rfd.fbH = fb:GetSize() end
+        end
+        local outset = p.assistGlowOutset or 0
+        local w = btn:GetWidth() + outset * 2
+        local h = btn:GetHeight() + outset * 2 - ns._ASSIST_CROP_TRIM
+        if w < 1 then w = 1 end
+        if h < 1 then h = 1 end
+        if ring:GetScale() ~= 1 then ring:SetScale(1) end
+        if rfd.fitW ~= w or rfd.fitH ~= h then
+            rfd.fitW, rfd.fitH = w, h
+            ring:SetSize(w, h)
+            if fb and rfd.fbW and rfd.origW > 0 and rfd.origH > 0 then
+                fb:SetSize(rfd.fbW * w / rfd.origW, rfd.fbH * h / rfd.origH)
+            end
+        end
+        return true
+    end
+
     -- Paint the suggestion on one button in whatever style the user picked.
     -- Owns the "Blizzard already draws its own ring here" case too (it used to
     -- live at the call site): the overlay is ours either way, so the two
@@ -11129,7 +12599,7 @@ do
         if bf and bf:IsShown() then
             ns._AssistRingHide(btn)
             bf:SetAlpha(style == 2 and 0 or 1)
-            if fd.squared then
+            if fd.squared and not ns._AssistFit(btn, bf, fd.cropped) then
                 local s = ns._AssistScale(btn)
                 if bf:GetScale() ~= s then bf:SetScale(s) end
             end
@@ -11147,7 +12617,9 @@ do
             if not hf then return end
             fd.assistHL = hf
         end
-        hf:SetScale(ns._AssistScale(btn))
+        if not ns._AssistFit(btn, hf, fd.cropped) then
+            hf:SetScale(ns._AssistScale(btn))
+        end
         -- Re-assert: bar layout can change the button's frame level after create.
         hf:SetFrameLevel(btn:GetFrameLevel() + 15)
         hf:Show()
@@ -11621,19 +13093,38 @@ end
 -- spell is the current/active action. Option off drives its alpha to 0 (the same
 -- hide-via-alpha pattern the "none" pushed/highlight types use). Single source
 -- of truth, so every site setting CheckedTexture alpha stays consistent.
-function EAB:GetCheckedAlpha()
-    return (self.db.profile.showCastHighlight == false) and 0 or 1
+-- barKey: "Show as Border" (Spell Cast Highlight cog) holds the fill at 0 on
+-- the bars where the button's border copy stands in for it (ns._ixElig, kept
+-- current by every pass that can change it while the option is on).
+function EAB:GetCheckedAlpha(barKey)
+    local p = self.db.profile
+    if p.showCastHighlight == false then return 0 end
+    if barKey and p.castHighlightBorder and ns._ixElig[barKey] then return 0 end
+    return 1
 end
 
 function EAB:ApplyCheckedTextures()
-    local a = self:GetCheckedAlpha()
+    local p = self.db.profile
+    local _, _, ixOn = ns._ixRolesOn(p)
+    local ixEver = ns._ixEver
     for _, info in ipairs(BAR_CONFIG) do
         local buttons = barButtons[info.key]
         if buttons then
+            local s = p.bars[info.key]
+            -- Eligibility first: GetCheckedAlpha reads it.
+            local ixBar = ixOn and ns._ixBarEligible(info.key)
+            local a = self:GetCheckedAlpha(info.key)
             for i = 1, #buttons do
                 local btn = buttons[i]
                 if btn and btn.CheckedTexture then
                     btn.CheckedTexture:SetAlpha(a)
+                end
+                if btn then
+                    if ixBar then
+                        ns._ixRole(btn, s, "ixCast", true)
+                    elseif ixEver then
+                        ns._ixRole(btn, s, "ixCast", false)
+                    end
                 end
             end
         end
@@ -11703,19 +13194,10 @@ local function UpdateKeybinds()
     -- version of this comment blamed native bindings for press-and-tap
     -- empower behaviour; superseded 2026-08-09 -- empowers route native BY
     -- DESIGN now, with hold-and-release engine-owned.)
-    -- Re-arming here covers every caller at once; sibling paths that already defer just
-    -- arm it twice (idempotent, RegisterEvent twice is one registration).
+    -- Re-arming here covers every caller at once; sibling paths that already defer share
+    -- the "UpdateKeybinds" queue key, so the rebuild runs once after combat.
     if InCombatLockdown() then
-        local df = _bindState.deferFrame
-        if not df then
-            df = ns.TakeShell()
-            df:SetScript("OnEvent", function(self)
-                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                UpdateKeybinds()
-            end)
-            _bindState.deferFrame = df
-        end
-        df:RegisterEvent("PLAYER_REGEN_ENABLED")
+        ns.CombatQueue.Defer("UpdateKeybinds", UpdateKeybinds)
         return false
     end
     -- With the house editor active our overrides are cleared so Blizzard's
@@ -11783,7 +13265,8 @@ local function UpdateKeybinds()
             -- through the button (SetOverrideBindingClick) so the keypress
             -- reads our paged "action" attr, exactly as empower/flyout already do.
             --
-            -- Class-default form paging (Druid/Rogue) is NOT custom paging:
+            -- Class-default form paging (Druid/Rogue; every class's stance or
+            -- form on WoW Forever) is NOT custom paging:
             -- it rides on bonusbar, a native engine concept ACTIONBUTTONn
             -- resolves on its own, so icon and native keybind already agree
             -- in every form. Click-routing those bars would only cost
@@ -11981,18 +13464,9 @@ local function ApplyClickRegistration()
 end
 
 -- Called when ActionButtonUseKeyDown CVar changes. Defers to out-of-combat.
-local _keyDownDeferFrame
 local function ApplyKeyDownCVar()
     if InCombatLockdown() then
-        if not _keyDownDeferFrame then
-            _keyDownDeferFrame = ns.TakeShell()
-            _keyDownDeferFrame:SetScript("OnEvent", function(self)
-                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                ApplyClickRegistration()
-                UpdateKeybinds()
-            end)
-        end
-        _keyDownDeferFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        ns.CombatQueue.Defer("ApplyKeyDownCVar", ApplyKeyDownCVar)
         return
     end
     ApplyClickRegistration()
@@ -12111,6 +13585,7 @@ function EAB:ReclaimMicroMenu()
         MicroMenu:SetPoint(h[1], h[2] or MicroMenuContainer, h[3], h[4], h[5])
     end
     MicroMenu:SetAlpha(1)
+    ns.AB_ExtraCapsShown("MicroBar")
 end
 
 -- Blizzard docks MicroMenu into PetBattleFrame for the duration of a pet
@@ -12123,23 +13598,14 @@ end
 -- PLAYER_REGEN_ENABLED, same pattern as QueuePetBattleUnsuppress uses for
 -- the sibling suppression bug this branch was originally about.
 do
-    -- One shared shell, taken once and kept (shells are never returned to a
-    -- pool): the QueuePetBattleUnsuppress shape above. Taking a fresh shell
-    -- per lockdown-closed battle would leak a frame each time.
-    local pending, shell
+    -- One keyed combat-queue entry (idempotent), the QueuePetBattleUnsuppress
+    -- shape above.
+    local function ReclaimMicroMenu()
+        EAB:ReclaimMicroMenu()
+    end
     local function TryReclaimAfterPetBattle()
         if InCombatLockdown() then
-            if pending then return end
-            pending = true
-            if not shell then
-                shell = ns.TakeShell()
-                shell:SetScript("OnEvent", function(self)
-                    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                    pending = nil
-                    EAB:ReclaimMicroMenu()
-                end)
-            end
-            shell:RegisterEvent("PLAYER_REGEN_ENABLED")
+            ns.CombatQueue.Defer("ReclaimMicroMenu", ReclaimMicroMenu)
             return
         end
         EAB:ReclaimMicroMenu()
@@ -12245,13 +13711,13 @@ do
                         -- Slot has an action; restore alpha so Blizzard's
                         -- UpdateState manages checked visuals (honors the
                         -- Show Highlight on Spell Cast setting).
-                        if ct then ct:SetAlpha(EAB:GetCheckedAlpha()) end
+                        if ct then ct:SetAlpha(EAB:GetCheckedAlpha("MainBar")) end
                     end
                 else
                     -- Normal page: restore alpha on all buttons so checked
                     -- state renders correctly when spells are dragged in
                     -- (honors the Show Highlight on Spell Cast setting).
-                    if ct then ct:SetAlpha(EAB:GetCheckedAlpha()) end
+                    if ct then ct:SetAlpha(EAB:GetCheckedAlpha("MainBar")) end
                 end
             end
         end
@@ -12452,7 +13918,8 @@ function EAB._UpdateSpellbookNeverBars(resync)
         for _, info in ipairs(BAR_CONFIG) do
             local s = EAB.db.profile.bars[info.key]
             if s and s.spellbookShow and s.enabled ~= false
-               and ((s.barVisibility or "always") ~= "always" or s.alwaysHidden)
+               and ((s.barVisibility or "always") ~= "always" or s.alwaysHidden
+                    or (EAB._padHide and s.gamepadHideBar == true))
                and not (EAB._visOverride and EAB._visOverride[info.key]) then
                 EAB._visOverride = EAB._visOverride or {}
                 EAB._visOverride[info.key] = "always"
@@ -12578,6 +14045,9 @@ local function ApplyAll()
         if not inCombat then EAB:ApplyAlwaysShowButtons(key) end
         if not inCombat then EAB:ApplyClickThroughForBar(key) end
     end
+    -- The micro menu's and bag bar's caps (a profile or spec switch changes
+    -- their keys without bar 1's layout stamp moving).
+    ns.AB_ExtraCapsAll()
 
     EAB:ApplyPushedTextures()
     EAB:HookPushedFlash()
@@ -12770,7 +14240,7 @@ local function RegisterWithUnlockMode()
                 -- a saved-Always bar toggled off does not.
                 local ov = EAB._visOverride and EAB._visOverride[info.key]
                 if ov then return ov == "never" end
-                return s.alwaysHidden
+                return s.alwaysHidden or (EAB._padHide and s.gamepadHideBar == true)
             end,
             getFrame = function() return barFrames[info.key] end,
             getSize = function()
@@ -13128,6 +14598,13 @@ function EAB:OnInitialize()
             EllesmereUI._abBarPositions = EAB.db.profile.barPositions
         end
         ApplyAll()
+        -- Data bars: ApplyAll never lays them out, so a profile swap, an import
+        -- or a spec override repaints their size, texture, text and Custom
+        -- Border here (our own plain frames: safe in combat). Not in ApplyAll,
+        -- which also runs at login, where creation already laid them out.
+        for _, info in ipairs(ns.EXTRA_BARS) do
+            if info.isDataBar then ns.ApplyDataBarLayout(info.key) end
+        end
         if not InCombatLockdown() then
             RestoreBarPositions()
             -- Recalculate flyout directions now that bars are at their final
@@ -13373,10 +14850,6 @@ end
 function EAB:OnFirstLogin()
     self:UnregisterEvent("PLAYER_ENTERING_WORLD")
 
-    -- WoW Forever starts every install from the base layout, never from a
-    -- snapshot of Blizzard's bars (EllesmereUI_ForeverLayout.lua).
-    if EllesmereUI.IS_FOREVER then self.db.sv._capturedOnce_EAB = true end
-
     -- A profile import can stamp the capture flag mid-session (imported data
     -- is a chosen layout). Honor the stamp here so a still-pending capture
     -- never overwrites the imported profile; just run the normal setup.
@@ -13432,6 +14905,47 @@ function EAB:OnFirstLogin()
                     point = data.point, relPoint = data.relPoint,
                     x = data.x, y = data.y,
                 }
+            end
+        end
+    end
+
+    -- Action Bar 1's end caps go to the outer ends of a row of bars Blizzard
+    -- placed directly beside it (WoW Forever: the micro menu and bags).
+    do
+        local p = self.db.profile
+        p.endCapSpanLeft, p.endCapSpanRight = ns.AB_CaptureCapSpan(captured)
+    end
+
+    -- WoW Forever keeps Blizzard's XP / reputation bars (useBlizzardDataBars),
+    -- which Edit Mode stacks right above action bar 1 and restacks as they come
+    -- and go (a watched reputation, max level). The bars it stacks above them
+    -- (2, 3, stance, pet) were captured over the stack as it stood, so they are
+    -- lifted by the steps its hidden containers would add (Edit Mode's
+    -- UpdateBottomActionBarPositions: the secondary container height - 1, the
+    -- main one height + 4), and a status bar that shows later never covers
+    -- them. Only while the containers and the bar sit where Edit Mode puts them.
+    if EllesmereUI.IS_FOREVER and self.db.profile.useBlizzardDataBars then
+        local mainC, secC = _G.MainStatusTrackingBarContainer, _G.SecondaryStatusTrackingBarContainer
+        local function AtDefault(f)
+            if not f.IsInDefaultPosition then return true end
+            local ok, v = pcall(f.IsInDefaultPosition, f)
+            return not ok or v ~= false
+        end
+        if mainC and secC and AtDefault(mainC) and AtDefault(secC) then
+            local lift = 0
+            if not secC:IsShown() then lift = lift + (secC:GetHeight() or 0) - 1 end
+            if not mainC:IsShown() then lift = lift + (mainC:GetHeight() or 0) + 4 end
+            if lift > 0 then
+                local STACKED = { MultiBarBottomLeft = true, MultiBarBottomRight = true,
+                                  StanceBar = true, PetActionBar = true }
+                local uiS = UIParent:GetEffectiveScale()
+                for _, info in ipairs(BAR_CONFIG) do
+                    local pos = self.db.profile.barPositions[info.key]
+                    local bf = STACKED[info.blizzFrame] and _G[info.blizzFrame]
+                    if pos and pos.y and bf and bf:IsShown() and AtDefault(bf) then
+                        pos.y = pos.y + lift * bf:GetEffectiveScale() / uiS
+                    end
+                end
             end
         end
     end
@@ -13550,13 +15064,8 @@ end
 
 function EAB:SyncEditModeIcons()
     if InCombatLockdown() then
-        local f = ns.TakeShell()
-        f:RegisterEvent("PLAYER_REGEN_ENABLED")
-        f:SetScript("OnEvent", function(self)
-            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-            self:SetScript("OnEvent", nil)
-            SyncEditModeIconCounts()
-        end)
+        -- Keyed: repeated calls in one combat collapse into one idempotent sync.
+        ns.CombatQueue.Defer("SyncEditModeIcons", SyncEditModeIconCounts)
         return
     end
     SyncEditModeIconCounts()
@@ -13735,10 +15244,7 @@ function EAB:FinishSetup()
         end
 
         if InCombatLockdown() then
-            local f = ns.TakeShell()
-            f:RegisterEvent("PLAYER_REGEN_ENABLED")
-            f:SetScript("OnEvent", function(self)
-                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            ns.CombatQueue.Defer("FinishSetupVisuals", function()
                 C_Timer_After(0.1, DoVisuals)
             end)
         else
@@ -13870,7 +15376,8 @@ function EAB:FinishSetup()
                 if not info.isStance and not info.isPetBar then
                     local s = EAB.db.profile.bars[info.key]
                     local frame = barFrames[info.key]
-                    if s and frame and not s.alwaysHidden then
+                    if s and frame and not s.alwaysHidden
+                       and not (EAB._padHide and s.gamepadHideBar == true) then
                         local vis = s.barVisibility or "always"
                         -- Any visibility option at all counts: a bar the player cannot
                         -- see is a bar they cannot drop a spell onto, so surfacing one
@@ -13924,8 +15431,10 @@ function EAB:FinishSetup()
             ns.EABQueueGrid(false)
         elseif event == "CVAR_UPDATE" then
             -- Name-filtered: CVAR_UPDATE fires for every cvar, dozens of times
-            -- at login. Only the lock matters to the drag wrapper.
-            if arg1 == "lockActionBars" then ns.EABSyncBarsLocked() end
+            -- at login. The lock matters to the drag wrapper; Cast Actions on
+            -- Key Down re-applies useOnKeyDown (combat-deferred).
+            if arg1 == "lockActionBars" then ns.EABSyncBarsLocked()
+            elseif arg1 == "ActionButtonUseKeyDown" then ApplyKeyDownCVar() end
         elseif event == "PLAYER_REGEN_ENABLED" then
             -- A lock toggled during combat deferred; pick it up on regen.
             ns.EABSyncBarsLocked()
@@ -14016,44 +15525,63 @@ function EAB:FinishSetup()
         end
     end
 
-    -- When UIParent's scale changes, the coordinate space shifts. Re-save
-    -- all bar positions from their current frame anchors (which WoW has
-    -- already adjusted) so the DB stays in sync with the new scale.
+    -- When the screen's coordinate space changes (UI Scale, resolution, window
+    -- size), put every bar back on its SAVED position. The bars are clamped to
+    -- the screen (SetupBar), and the engine can rewrite a clamped frame's
+    -- anchor to the spot it clamped it to; re-applying the saved record returns
+    -- a bar to its real spot once the screen has room again. Display only:
+    -- nothing here reads a live anchor or writes a saved position (the saved
+    -- record changes only when the player moves the bar). Gated on UIParent's
+    -- size, so a scale event that changes nothing costs one compare. Skipped
+    -- while an unlock session is open or suspended for combat: its movers own
+    -- the bars until Save & Exit or Cancel.
     do
-        local _scaleFrame = ns.TakeShell()
-        _scaleFrame:RegisterEvent("UI_SCALE_CHANGED")
-        _scaleFrame:SetScript("OnEvent", function()
-            if InCombatLockdown() then return end
-            local positions = EAB.db.profile.barPositions
-            if not positions then return end
-            for _, info in ipairs(BAR_CONFIG) do
-                local key = info.key
-                local frame = barFrames[key]
-                if frame and positions[key] then
-                    local pt, _, rpt, px, py = frame:GetPoint(1)
-                    if pt then
-                        positions[key].point    = pt
-                        positions[key].relPoint = rpt
-                        positions[key].x        = px
-                        positions[key].y        = py
+        local scaleFrame = ns.TakeShell()
+        scaleFrame._eabW, scaleFrame._eabH = UIParent:GetSize()
+        local function ReapplySavedBarPositions()
+            if EllesmereUI._unlockActive or EllesmereUI._unlockModeSessionActive then return end
+            RestoreBarPositions()
+            -- Anchored bars take their spot from the anchor, not the record.
+            -- The helper lives in the unlock core, built at PLAYER_LOGIN.
+            local reapply = EllesmereUI.ReapplyUnlockAnchor
+            local adb = EllesmereUIDB and EllesmereUIDB.unlockAnchors
+            if reapply and adb then
+                local bars = EAB.db.profile.bars
+                for _, info in ipairs(BAR_CONFIG) do
+                    local key = info.key
+                    local ai = adb[key]
+                    if ai and ai.target then
+                        -- A growth bar with no captured pin keeps its LIVE
+                        -- edge on a re-apply (the settle pass skips it for the
+                        -- same reason), which would fix a clamped spot in place.
+                        local s = bars[key]
+                        local gd = (s and s.growDirection or "up"):upper()
+                        if key == "StanceBar" or gd == "CENTER" or ai.refFor == gd then
+                            reapply(key)
+                        end
                     end
                 end
+            end
+        end
+        scaleFrame:RegisterEvent("UI_SCALE_CHANGED")
+        scaleFrame:RegisterEvent("DISPLAY_SIZE_CHANGED")
+        scaleFrame:SetScript("OnEvent", function(sf)
+            local w, h = UIParent:GetSize()
+            if w == sf._eabW and h == sf._eabH then return end
+            if EllesmereUI._unlockActive or EllesmereUI._unlockModeSessionActive then return end
+            sf._eabW, sf._eabH = w, h
+            if InCombatLockdown() then
+                ns.CombatQueue.Defer("EABReapplyBarPositions", ReapplySavedBarPositions)
+            else
+                ReapplySavedBarPositions()
             end
         end)
     end
 
     -- Register events
-    local _bindDeferFrame
     self:RegisterEvent("UPDATE_BINDINGS", function()
         if InCombatLockdown() then
-            if not _bindDeferFrame then
-                _bindDeferFrame = ns.TakeShell()
-                _bindDeferFrame:SetScript("OnEvent", function(self)
-                    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                    UpdateKeybinds()
-                end)
-            end
-            _bindDeferFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            ns.CombatQueue.Defer("UpdateKeybinds", UpdateKeybinds)
         else
             UpdateKeybinds()
         end
@@ -14064,13 +15592,6 @@ function EAB:FinishSetup()
     self:RegisterEvent("ACTIONBAR_SHOWGRID", function() ns.EABQueueGrid(true) end)
     -- Pet actions fire their own grid events when dragging pet spells
     self:RegisterEvent("PET_BAR_SHOWGRID", function() ns.EABQueueGrid(true) end)
-
-    -- Re-apply useOnKeyDown when the "Press and Hold Casting" CVar changes.
-    self:RegisterEvent("CVAR_UPDATE", function(_, cvarName)
-        if cvarName == "ActionButtonUseKeyDown" then
-            ApplyKeyDownCVar()
-        end
-    end)
 
     -- Detect bar-to-bar drags (CURSOR_CHANGED) and clear grid state on drop.
     -- Also show mouseover-faded bars while dragging so the player can drop
@@ -14715,7 +16236,7 @@ function EAB:FinishSetup()
                         -- SetChecked / StartFlash / StopFlash are visual-only and safe
                         -- to call during combat lockdown.
                         local ct = btn:GetCheckedTexture()
-                        local ctA = EAB:GetCheckedAlpha()
+                        local ctA = EAB:GetCheckedAlpha("PetBar")
                         if isActive then
                             if IsPetAttackAction(i) then
                                 btn:StartFlash()
@@ -14780,7 +16301,14 @@ function EAB:FinishSetup()
             local petInfo = BAR_LOOKUP["PetBar"]
             local petFrame = barFrames["PetBar"]
             local petS = self.db.profile.bars["PetBar"]
-            if petInfo and petFrame and petS and not petS.alwaysHidden then
+            -- Not while a runtime rule owns the driver (a surfacing override from
+            -- the toggle keybind or the spellbook, or Hide Bar When Using
+            -- Gamepad): RefreshRuntimeVisibility registered that string (an
+            -- override keeps the [pet] term), and a plain rebuild here would
+            -- stomp it on the reveal's own reconcile pass.
+            if petInfo and petFrame and petS and not petS.alwaysHidden
+               and not (self._visOverride and self._visOverride.PetBar)
+               and not (self._padHide and petS.gamepadHideBar == true) then
                 RegisterAttributeDriver(petFrame, "state-visibility", BuildVisibilityString(petInfo, petS))
             end
         end
@@ -14923,6 +16451,10 @@ function EAB:FinishSetup()
     -- _eabLastVisStr cache skips unchanged re-registrations, so the later ApplyAll
     -- pass is a no-op for these. Extra bars (built on a later timer) are nil-skipped
     -- here, exactly as on a normal login.
+    -- Controller verdict first (Hide Bar When Using Gamepad): on a combat
+    -- reload this is the last out-of-combat moment, and the first
+    -- RefreshRuntimeVisibility only lands after lockdown is back.
+    self._PadSync()
     self:ApplyCombatVisibility()
     self:UpdateVehicleBarWatch()
 
@@ -15003,6 +16535,64 @@ EllesmereUI.RegAccent({ type = "callback", fn = function()
     end
 end })
 
+-- Custom Border (the data-bar sections' opt-in). Off: the MakeBorder 1px line
+-- stays and nothing here runs past one boolean read. On: an owned host (a
+-- child of the holder, built the first time the option is on) draws the
+-- chosen style through ApplyBorderStyle like every other EUI border (exact
+-- size, pixel-snapped anchors, UI-scale re-apply), and MakeBorder's container
+-- hides. Turning it off retires the host with HideBorderStyle BEFORE Hide, so
+-- the UI-scale re-apply cannot bring an exact-size backdrop back over the
+-- line, then shows MakeBorder again. Levels: host = holder+1 (its solid strips
+-- land at holder+2, where MakeBorder's do); the textured backdrop is set again
+-- after every ApplyBorderStyle (which resets it to the host's level): holder+2
+-- above the fill, the holder's own level with Show Behind. The text host stays
+-- above it. A child of the holder, so the mouseover fade carries it; the
+-- holder's alpha is never read or written. On ns: the chunk is at the local cap.
+ns.ApplyDataBarBorder = function(holder, s)
+    local host = holder._cbHost
+    local line = holder._border and holder._border._frame
+    if not s.customBorder then
+        if holder._cbOn then
+            holder._cbOn = nil
+            EllesmereUI.HideBorderStyle(host)
+            host:Hide()
+            if line then line:Show() end
+        end
+        return
+    end
+    local lvl = holder:GetFrameLevel()
+    if not host then
+        host = CreateFrame("Frame", nil, holder)
+        host:SetAllPoints(holder)
+        host:EnableMouse(false)
+        holder._cbHost = host
+    end
+    host:SetFrameLevel(lvl + 1)
+    if not holder._cbOn then
+        holder._cbOn = true
+        if line then line:Hide() end
+    end
+    local tex = s.borderTexture or "solid"
+    local c = s.borderColor
+    local sz, px = ResolveBorderThickness(s)
+    EllesmereUI.ApplyBorderStyle(host, sz, c and c.r or 0, c and c.g or 0, c and c.b or 0, c and c.a or 1,
+        tex, s.borderTextureOffset, s.borderTextureOffsetY, s.borderTextureShiftX, s.borderTextureShiftY,
+        "actionbars", s.borderThickness or "thin", nil, px)
+    local top = lvl + 2
+    if tex ~= "" and tex ~= "solid" then
+        local bd = EllesmereUI._bdBorderData[host]
+        if bd then
+            if s.borderBehind then top = lvl end
+            bd:SetFrameLevel(top)
+        end
+    end
+    local textHost = holder._textHost
+    if textHost then
+        local want = max(lvl + 3, top + 1)
+        if textHost:GetFrameLevel() ~= want then textHost:SetFrameLevel(want) end
+    end
+end
+
 local function ApplyDataBarLayout(barKey)
     local frame = dataBarFrames[barKey]
     if not frame then return end
@@ -15044,6 +16634,17 @@ local function ApplyDataBarLayout(barKey)
         frame._text:ClearAllPoints()
         frame._text:SetPoint("CENTER", s.textOffsetX or 0, s.textOffsetY or 0)
     end
+
+    -- WoW Forever: the experience bar's 20 segments.
+    if frame._fvDivHost or ns.AB_Forever() then
+        ns.AB_ForeverDataBarDividers(frame, w, h, orient)
+    end
+
+    -- Custom Border (one boolean read while off), then its reach for width /
+    -- height matching (value-compared and deferred; a no-op in unlock mode and
+    -- before the bar is registered).
+    ns.ApplyDataBarBorder(frame, s)
+    EllesmereUI.MatchPadChanged(barKey)
 
     if frame._updateFunc then frame._updateFunc() end
 end
@@ -15092,6 +16693,9 @@ local function CreateDataBarFrame(barKey, updateFunc)
     local edges = holder._border and holder._border.edges
     textHost:SetFrameLevel(((edges and edges.GetFrameLevel and edges:GetFrameLevel())
         or holder:GetFrameLevel() + 2) + 1)
+
+    -- Kept for Custom Border, which holds it above its own backdrop.
+    holder._textHost = textHost
 
     local text = textHost:CreateFontString(nil, "OVERLAY")
     EllesmereUI.PrimeFontShadow(text, EllesmereUI.GetFontUseShadow("actionBars"))
@@ -15166,6 +16770,9 @@ function ns.XPBarAtMaxLevel()
     return (maxLevel and level >= maxLevel) or false
 end
 
+-- WoW Forever: raw XP under 10,000 is not abbreviated (EllesmereUI_NumberFormat.lua).
+-- On ns, not a local: this chunk is at its 200-local cap.
+ns.AbbreviateLargeNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateLargeNumbers) or AbbreviateLargeNumbers
 local function UpdateXPBar()
     local frame, s = EAB_VTABLE.ExtraBars.BeginManagedDataBarUpdate("XPBar")
     if not frame then return end
@@ -15214,7 +16821,7 @@ local function UpdateXPBar()
     end
 
     if showRawValues then
-        strXP = format("%s / %s", AbbreviateLargeNumbers(currentXP), AbbreviateLargeNumbers(maxXP))
+        strXP = format("%s / %s", ns.AbbreviateLargeNumbers(currentXP), ns.AbbreviateLargeNumbers(maxXP))
     else
         local pct = (currentXP / maxXP) * 100
         strXP = format("%.1f%%", pct)
@@ -15222,7 +16829,7 @@ local function UpdateXPBar()
 
     if restedXP > 0 then
         if showRawValues then
-            strRested = format(EllesmereUI.L(" (Rested: %s)"), AbbreviateLargeNumbers(restedXP))
+            strRested = format(EllesmereUI.L(" (Rested: %s)"), ns.AbbreviateLargeNumbers(restedXP))
         else
             local restedPct = (restedXP / maxXP) * 100
             strRested = format(EllesmereUI.L(" (Rested: %.1f%%)"), restedPct)
@@ -15453,9 +17060,10 @@ end
 --  GetCurrentHouseLevelFavor(guid) -> HOUSE_LEVEL_FAVOR_UPDATED (level +
 --  favor payload); GetHouseLevelFavorForLevel(n) is the only sync read.
 -------------------------------------------------------------------------------
--- do-end scoped + ns export: the file-scope local budget is nearly at the
--- Lua 5.1 200 cap.
-do
+-- Block-scoped + ns export: the file-scope local budget is nearly at the
+-- Lua 5.1 200 cap. WoW Forever has no housing: there the block never runs,
+-- so no bar is built, nothing registers and ns._CreateFavorBar stays nil.
+if not EllesmereUI.IS_FOREVER then
 local favorState  -- { level, displayLevel, favor, needed } from the last payload
 local favorEv, favorArmed
 local ArmFavorEvents  -- forward: mutual recursion with UpdateFavorBar
@@ -15596,7 +17204,7 @@ local function CreateFavorBar()
 end
 
 ns._CreateFavorBar = CreateFavorBar
-end
+end -- not IS_FOREVER
 
 -------------------------------------------------------------------------------
 --  Register Data Bars with Unlock Mode: same pattern as action bars and
@@ -15609,7 +17217,9 @@ local function RegisterDataBarsWithUnlockMode()
     local elements = {}
     local orderBase = 300
     for idx, info in ipairs(EXTRA_BARS) do
-        if info.isDataBar then
+        -- Only a bar that was built gets a mover (WoW Forever never builds
+        -- the House Favor bar).
+        if info.isDataBar and dataBarFrames[info.key] then
             local bk = info.key
             elements[#elements + 1] = MK({
                 key   = bk,
@@ -15623,6 +17233,19 @@ local function RegisterDataBarsWithUnlockMode()
                     local s = EAB.db.profile.bars[bk]
                     if s then return s.width or 400, s.height or 18 end
                     return 400, 18
+                end,
+                -- A Custom Border's textured reach past the bar's edges counts
+                -- in size matching (the same arguments ApplyDataBarBorder
+                -- paints with). nil while Custom Border is off: MakeBorder's
+                -- line and solid strips sit inside the frame.
+                getMatchPad = function()
+                    local s = EAB.db and EAB.db.profile and EAB.db.profile.bars[bk]
+                    if not (s and s.customBorder) then return nil end
+                    local sz, px = ResolveBorderThickness(s)
+                    local c = s.borderColor
+                    return EllesmereUI.BorderMatchPad(sz, s.borderTexture or "solid",
+                        s.borderTextureOffset, s.borderTextureOffsetY, s.borderTextureShiftX, s.borderTextureShiftY,
+                        "actionbars", s.borderThickness or "thin", px, nil, c and c.a or 1)
                 end,
                 setWidth = function(_, w)
                     local s = EAB.db.profile.bars[bk]
@@ -16297,6 +17920,55 @@ AttachExtraBarHoverHooks = function(info)
     HookChildren(hoverRoot)
 end
 
+-- WoW Forever: while the variant renders and no eye position is saved, the
+-- queue eye sits at its stock minimap spot and is never captured: on the
+-- ring where Blizzard's Forever layout puts it while the minimap draws that
+-- ring (its spot helper answers), else at that layout's anchor on the map.
+-- Anchored to the map, so a move carries it; the minimap's apply pass calls
+-- the relayout below on a resize, and its button row reads the predicate to
+-- start past the eye. An unlock-mode drag saves a position, which wins until
+-- the look changes (every switch to the variant clears it). Once per
+-- profile, while the ring is drawn, a spot saved before the variant placed
+-- the eye (a login capture) gives way; the stamp is set as soon as nothing
+-- is saved, so every later spot is the player's own.
+function ns.AB_ForeverEyeParked()
+    if not ns.AB_Forever() then return false end
+    local p = EAB.db.profile
+    local qs = p.barPositions.QueueStatus
+    if not p.foreverEyeRingSeeded then
+        if not (qs and qs.point) then
+            p.foreverEyeRingSeeded = true
+        else
+            local mm = EllesmereUI._ModuleNS.EllesmereUIMinimap
+            if mm and mm.MinimapQueueEyeSpot() then
+                p.foreverEyeRingSeeded = true
+                p.barPositions.QueueStatus = nil
+                qs = nil
+            end
+        end
+    end
+    return not (qs and qs.point)
+end
+-- Places the holder there; true when parked.
+function ns.AB_ForeverEyePark(holder)
+    if not (holder and ns.AB_ForeverEyeParked()) then return false end
+    local mm = EllesmereUI._ModuleNS.EllesmereUIMinimap
+    local map, x, y
+    if mm then map, x, y = mm.MinimapQueueEyeSpot() end
+    holder:ClearAllPoints()
+    if map then
+        holder:SetPoint("CENTER", map, "CENTER", x, y)
+    else
+        -- Blizzard's stock spot, which scales with the minimap's Edit Mode size.
+        local ms = (MinimapCluster and MinimapCluster.GetEditModeScale and MinimapCluster:GetEditModeScale()) or 1
+        holder:SetPoint("CENTER", Minimap, "CENTER", -68 * ms, -68 * ms)
+    end
+    return true
+end
+function ns.AB_ForeverEyeRelayout()
+    ns.AB_ForeverEyePark(extraBarHolders.QueueStatus)
+end
+
 local function SetupExtraBarHolder(barKey, frameName, barInfo)
     local blizzFrame = _G[frameName]
     if not blizzFrame then return end
@@ -16321,10 +17993,14 @@ local function SetupExtraBarHolder(barKey, frameName, barInfo)
         local function SyncFollow()
             local fw, fh = blizzFrame:GetWidth(), blizzFrame:GetHeight()
             if fw and fw > 1 and fh and fh > 1 then
-                holder:SetSize(fw, fh)
+                -- In our own units: Edit Mode's Size setting scales the frame.
+                local k = blizzFrame:GetEffectiveScale() / holder:GetEffectiveScale()
+                holder:SetSize(fw * k, fh * k)
             end
             holder:ClearAllPoints()
             holder:SetPoint("CENTER", blizzFrame, "CENTER", 0, 0)
+            -- The bar's end caps follow the frame's size and orientation.
+            ns.AB_ExtraCaps(barKey)
         end
         SyncFollow()
         blizzFrame:HookScript("OnSizeChanged", function() SyncFollow() end)
@@ -16333,12 +18009,20 @@ local function SetupExtraBarHolder(barKey, frameName, barInfo)
                 C_Timer_After(0, SyncFollow)
             end)
         end
+        -- A Size change only rescales the frame (no size event).
+        if blizzFrame.UpdateSystemSettingSize then
+            hooksecurefunc(blizzFrame, "UpdateSystemSettingSize", function()
+                C_Timer_After(0, SyncFollow)
+            end)
+        end
         return holder
     end
 
     -- Restore saved position or capture current Blizzard position
     local pos = EAB.db.profile.barPositions[barKey]
-    if pos and pos.point then
+    if barKey == "QueueStatus" and ns.AB_ForeverEyePark(holder) then
+        -- WoW Forever: at its stock spot on the minimap (never captured).
+    elseif pos and pos.point then
         holder:ClearAllPoints()
         holder:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
     else
@@ -16419,9 +18103,14 @@ local function SetupExtraBarHolder(barKey, frameName, barInfo)
             end
         end
 
+        -- On WoW Forever the eye is an Edit Mode system whose SetPoint and
+        -- ClearAllPoints are Blizzard overrides that flag Edit Mode's anchor
+        -- pass (tainted from here); the saved base methods move it cleanly.
         local function RepositionQueue()
-            blizzFrame:ClearAllPoints()
-            blizzFrame:SetPoint("CENTER", holder, "CENTER", 0, 0)
+            local clear = blizzFrame.ClearAllPointsBase or blizzFrame.ClearAllPoints
+            local setPt = blizzFrame.SetPointBase or blizzFrame.SetPoint
+            clear(blizzFrame)
+            setPt(blizzFrame, "CENTER", holder, "CENTER", 0, 0)
         end
 
         RepositionQueue()
@@ -16430,14 +18119,30 @@ local function SetupExtraBarHolder(barKey, frameName, barInfo)
 
         -- Prevent Blizzard from snapping the eye back or reparenting away
         local _upGuard = false
+        local function Repin()
+            if _upGuard then return end
+            _upGuard = true
+            RepositionQueue()
+            EnsureQueueParent()
+            _upGuard = false
+        end
         if type(blizzFrame.UpdatePosition) == "function" then
-            hooksecurefunc(blizzFrame, "UpdatePosition", function()
-                if _upGuard then return end
-                _upGuard = true
-                RepositionQueue()
-                EnsureQueueParent()
-                _upGuard = false
-            end)
+            hooksecurefunc(blizzFrame, "UpdatePosition", Repin)
+        end
+        -- WoW Forever: the eye is an Edit Mode system with no UpdatePosition.
+        -- Blizzard re-anchors it through UpdateDefaultAnchor (its own layout
+        -- apply, the micro menu's anchor, drag and settings) and, through a
+        -- callback that holds the unhooked function, on a Minimap size change.
+        if EllesmereUI.IS_FOREVER then
+            if type(blizzFrame.UpdateDefaultAnchor) == "function" then
+                hooksecurefunc(blizzFrame, "UpdateDefaultAnchor", Repin)
+            end
+            if MinimapCluster and type(MinimapCluster.SetEditModeScale) == "function" then
+                hooksecurefunc(MinimapCluster, "SetEditModeScale", function()
+                    ns.AB_ForeverEyeRelayout()
+                    Repin()
+                end)
+            end
         end
 
         -- Recover from external Hide() calls (other addons, stale state).
@@ -16540,7 +18245,7 @@ local function RegisterExtraBarsWithUnlockMode()
                     holder:ClearAllPoints()
                     if pos and pos.point then
                         holder:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
-                    else
+                    elseif not (bk == "QueueStatus" and ns.AB_ForeverEyePark(holder)) then
                         holder:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
                     end
                 end,
@@ -16786,6 +18491,36 @@ _quickKeybindState.GetMacroBindFrame = function()
     return frame
 end
 
+-- Controller: while armed over a macro, the overlay also takes Blizzard's
+-- native gamepad buttons, re-decided on every arm, so buttons bind only while
+-- a controller is the active input and the overlay is shown. The pad button
+-- bound to the game menu unbinds the macro, as Escape does, instead of being
+-- bound to it.
+-- Never while the controller-cursor addon is loaded or the Gamepad interface
+-- style is on: their D-pad and face buttons drive a cursor or the focus and
+-- would bind here instead.
+_quickKeybindState.ArmMacroPad = function(frame)
+    local want = EllesmereUI.PadNative() and not EllesmereUI.PadCP()
+        and not EllesmereUI.PadGamepadUI()
+    if not want and not frame._padOn then return end
+    -- Binding is out of combat only (BindMacroInput), so is the switch.
+    if InCombatLockdown() then return end
+    if want and not frame._padInit then
+        frame._padInit = true
+        frame:SetScript("OnGamePadButtonDown", function(_, button)
+            -- The pointer's click buttons click, as Left/Right do on the mouse.
+            if button == GetCVar("GamePadCursorLeftClick")
+               or button == GetCVar("GamePadCursorRightClick") then
+                return
+            end
+            if GetBindingFromClick(button) == "TOGGLEGAMEMENU" then button = "ESCAPE" end
+            _quickKeybindState.BindMacroInput(button)
+        end)
+    end
+    frame._padOn = want or nil
+    frame:EnableGamePadButton(want)
+end
+
 _quickKeybindState.HideMacroBindFrame = function()
     local frame = _quickKeybindState.macroBindFrame
     if not frame then return end
@@ -16837,6 +18572,7 @@ _quickKeybindState.SelectMacroButton = function(button)
     frame.button = button
     frame:ClearAllPoints()
     frame:SetAllPoints(button)
+    _quickKeybindState.ArmMacroPad(frame)  -- controller buttons, only while armed
     frame:Show()
 
     _quickKeybindState.RefreshMacroButton(button, true)
@@ -16987,6 +18723,9 @@ local function EAB_UpdateQuickKeybindVisibility(show)
             EAB:ApplyClickThroughForBar(key)
         end
     else
+        -- Pad verdict back first (the open flag is already down), so the
+        -- drivers below compile Hide Bar When Using Gamepad again.
+        EAB._PadSync()
         EAB:ApplyCombatVisibility()
         EAB:RefreshRuntimeVisibility()
         for _, info in ipairs(BAR_CONFIG) do
@@ -17000,8 +18739,6 @@ local function EAB_UpdateQuickKeybindVisibility(show)
         LayoutPagingFrame()
     end
 end
-
-local _qkbHookFrame
 
 _quickKeybindState.FinishClose = function()
     _quickKeybindState.closePending = false
@@ -17176,6 +18913,10 @@ _quickKeybindState.Open = function()
     if InCombatLockdown() then return end
     _quickKeybindState.closePending = false
     _quickKeybindState.open = true
+    -- Bars hidden by Hide Bar When Using Gamepad come back for binding: the
+    -- open flag drops the pad verdict (EAB._PadSync), so they leave the Never
+    -- set and surface below like any other runtime-hidden bar.
+    if EAB._padHide then EAB:RefreshRuntimeVisibility() end
     _quickKeybindState.InitButtons()
     _quickKeybindState.InitMacroFrame()
     EAB_UpdateQuickKeybindButtons(true)
@@ -17199,7 +18940,14 @@ local function EAB_QuickKeybindClose()
         -- so restore that presentation immediately even though secure
         -- visibility drivers still have to wait until combat ends.
         EAB:RefreshMouseover()
-        _qkbHookFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        ns.CombatQueue.Defer("QuickKeybindClose", function()
+            if _quickKeybindState.closePending then
+                _quickKeybindState.FinishClose()
+            elseif _quickKeybindState.open
+                and not (QuickKeybindFrame and QuickKeybindFrame:IsShown()) then
+                EAB_QuickKeybindClose()
+            end
+        end)
         return
     end
     _quickKeybindState.open = false
@@ -17209,7 +18957,7 @@ local function EAB_QuickKeybindClose()
 end
 
 -- Defer hook until QuickKeybindFrame exists (it loads after PLAYER_LOGIN).
-_qkbHookFrame = CreateFrame("Frame")
+local _qkbHookFrame = CreateFrame("Frame")
 _qkbHookFrame:RegisterEvent("PLAYER_LOGIN")
 _qkbHookFrame:RegisterEvent("ADDON_LOADED")
 _qkbHookFrame:SetScript("OnEvent", function(self, event, addonName)
@@ -17254,14 +19002,6 @@ _qkbHookFrame:SetScript("OnEvent", function(self, event, addonName)
         _quickKeybindState.InitMacroFrame()
         if _quickKeybindState.macroFrameHooked then
             self:UnregisterEvent("ADDON_LOADED")
-        end
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-        if _quickKeybindState.closePending then
-            _quickKeybindState.FinishClose()
-        elseif _quickKeybindState.open
-            and not (QuickKeybindFrame and QuickKeybindFrame:IsShown()) then
-            EAB_QuickKeybindClose()
         end
     end
 end)

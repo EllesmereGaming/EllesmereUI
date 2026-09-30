@@ -432,13 +432,20 @@ local function ShowFirstInstallPopup()
         RefreshButtonLabel()
     end)
 
-    local function Close(triggerReload)
+    -- reloading: the click already fired the secure /reload (WoW Forever), so
+    -- the choices are written and no reload prompt follows.
+    local function Close(triggerReload, reloading)
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.firstInstallPopupShown = true
         EllesmereUIDB.bagsUserChosen = true
+        -- WoW Forever: the stamp the loader below set at ADDON_LOADED is still
+        -- set unless a look was settled while this popup was up (an import, a
+        -- Style page change).
+        local lookOpen = EllesmereUIDB.styleChoicePending
         -- The style picker (EllesmereUI_StyleChoicePopup.lua) follows on the
-        -- next login, after this popup's reload: EllesmereUI look or Blizzard.
-        EllesmereUIDB.styleChoicePending = true
+        -- next login, after this popup's reload; on WoW Forever only while
+        -- no look was settled here.
+        EllesmereUIDB.styleChoicePending = (lookOpen or not EllesmereUI.IS_FOREVER) and true or nil
         EllesmereUI._firstInstallPending = nil
 
         -- Write QoL cursor setting directly into the profile table so it
@@ -474,10 +481,29 @@ local function ShowFirstInstallPopup()
                     SetAddonEnabled(row._entry.addon, row._checked)
                 end
             end
-            EllesmereUI.RequestReload()
-            -- On the Forever client the reload waits on its popup: close the
-            -- picker so "Later" leaves the game usable (the choices are saved
-            -- and apply at the next reload). Retail is already reloading.
+            -- WoW Forever: a fresh install starts on the WoW Forever look,
+            -- written as this reload's pre-reload step so the style picker
+            -- opens on the look in use (its card then closes the picker
+            -- without a second reload), and "Later" writes nothing. The
+            -- options addon loads now, never in combat; in combat, or when it
+            -- cannot load, the picker offers the look as its default instead.
+            local applyLook
+            if EllesmereUI.IS_FOREVER and lookOpen and not InCombatLockdown()
+                and EllesmereUI.EnsureOptionsLoaded() then
+                applyLook = function()
+                    if InCombatLockdown() then return end
+                    EllesmereUI.ApplyFirstInstallLook("forever")
+                end
+            end
+            if reloading then
+                if applyLook then applyLook() end
+            else
+                EllesmereUI.RequestReload(nil, nil, applyLook)
+            end
+            -- The Forever fallback (picker shown in combat) waits on the reload
+            -- popup: close the picker so "Later" leaves the game usable (the
+            -- addon choices are saved and apply at the next reload; the look
+            -- is left to the style picker). Otherwise the UI is reloading.
             dimmer:Hide()
             return
         end
@@ -496,8 +522,14 @@ local function ShowFirstInstallPopup()
         -- Always reload so the addon enable/disable selections take effect.
         Close(true)
     end)
+    -- WoW Forever: Done is itself the secure /reload click (one click saves
+    -- the choices and reloads, no reload popup after it). A picker shown in
+    -- combat keeps the plain button and its reload popup.
+    EllesmereUI.AttachReloadClick(doneBtn, function() Close(true, true) end)
 
     dimmer:Show()
+    -- Controller cursor: the picker has no other way out, so bring the gamepad pointer up.
+    if EllesmereUI.PadNative() then EllesmereUI.RaiseGamePadCursor() end
 end
 
 EllesmereUI.ShowFirstInstallPopup = ShowFirstInstallPopup
@@ -547,10 +579,11 @@ loader:SetScript("OnEvent", function(self, event, addonName)
         if addonName ~= "EllesmereUI" then return end
         self:UnregisterEvent("ADDON_LOADED")
         _showPopupOnLogin = ComputeShowOnLogin()
-        -- WoW Forever: a fresh install starts from the base layout, seeded
-        -- before any module opens its profile (EllesmereUI_ForeverLayout.lua).
-        if _showPopupOnLogin and EllesmereUI.SeedForeverBaseLayout then
-            EllesmereUI.SeedForeverBaseLayout()
+        -- WoW Forever: the style picker (WoW Forever by default there) is due
+        -- even if this session ends before the module picker's reload.
+        if _showPopupOnLogin and EllesmereUI.IS_FOREVER then
+            if not EllesmereUIDB then EllesmereUIDB = {} end
+            EllesmereUIDB.styleChoicePending = true
         end
         if _showPopupOnLogin then
             -- Handshake for other first-login popups (e.g. CDM's Edit Mode

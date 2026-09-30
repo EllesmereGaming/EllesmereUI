@@ -288,8 +288,9 @@ local function SkinCheckbox(cb)
     local d = GetFFD(cb)
     if d.skinned then return end
     d.skinned = true
-    for i = 1, select("#", cb:GetRegions()) do
-        local r = select(i, cb:GetRegions())
+    local regions = { cb:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r.IsObjectType and r:IsObjectType("Texture") and r.SetTexture then
             r:SetTexture("")
         end
@@ -427,8 +428,9 @@ local function SkinTab(tab)
     if not tab or tab:IsForbidden() then return end
     local d = GetFFD(tab)
     if d.bg then return end
-    for j = 1, select("#", tab:GetRegions()) do
-        local r = select(j, tab:GetRegions())
+    local regions = { tab:GetRegions() }
+    for j = 1, #regions do
+        local r = regions[j]
         if r and r:IsObjectType("Texture") then
             r:SetTexture("")
             if r.SetAtlas then r:SetAtlas("") end
@@ -848,8 +850,9 @@ local function SkinRefreshGlyph(rb)
     local d = GetFFD(rb)
     if d.glyph then return end
     if not (C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("UI-RefreshButton")) then return end
-    for i = 1, select("#", rb:GetRegions()) do
-        local r = select(i, rb:GetRegions())
+    local regions = { rb:GetRegions() }
+    for i = 1, #regions do
+        local r = regions[i]
         if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
     end
     for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetDisabledTexture" }) do

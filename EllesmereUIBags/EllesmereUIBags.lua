@@ -11,6 +11,8 @@ EUI_Bags:Hide()
 -- Auto-size state: reset on close (next open sizes from its first/active tab);
 -- while open it only grows, never shrinks.
 EUI_Bags:HookScript("OnHide", function(self)
+    -- WoW Forever sizes every open to its content: a hidden UI (Alt-Z) is not a close, keep the size.
+    if EllesmereUI.IS_FOREVER and self:IsShown() then return end
     self._asCols  = nil
     self._asMaxGridW = nil
     self._asMaxH  = nil
@@ -1039,6 +1041,13 @@ local function CreateHeader()
         EUI_Bags.refreshEnabled = false
 
         local sfxWas = GetCVar("Sound_EnableSFX")
+        -- Blizzard's clean-up sound. Sound effects stay muted for the whole
+        -- run (item moves), which would cut it short, so it goes out on the
+        -- Master channel, and only while the player's sound effects are on
+        -- and their volume is above zero.
+        if sfxWas == "1" and (tonumber(GetCVar("Sound_SFXVolume")) or 0) > 0 then
+            PlaySound(SOUNDKIT.UI_BAG_SORTING_01, "Master")
+        end
         SetCVar("Sound_EnableSFX", "0")
 
         -----------------------------------------------------------------------
@@ -1358,6 +1367,7 @@ local function CreateHeader()
     -- storm drives our refresh). Sort to Bottom rides their fill direction (right-to-left = start
     -- at backpack = our top), floating free slots to our top. Real Blizzard CVar (also drives their Clean Up); set only while the option is on, re-asserted each sort.
     local function DoBlizzardSort()
+        PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
         LockSort()
         if BP().bagSortToBottom and C_Container.SetSortBagsRightToLeft then
             C_Container.SetSortBagsRightToLeft(false)
@@ -1407,6 +1417,8 @@ local function CreateHeader()
                 })
             end
         else
+            -- Sound here, not in DoVisualSort: the first-open auto sort stays silent.
+            PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
             DoVisualSort()
         end
     end)
@@ -1603,7 +1615,14 @@ local function CreateHeader()
         EUI_BagsReagent:Hide()
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.bagsVisible = false
+        -- Controller cursor: keep Blizzard's hidden bag frames closed too.
+        if EUI.PadInUse() then ns.PadReleaseBlizzBags() end
     end)
+    -- Controller cursor: Cancel finds each window's close control.
+    if EUI.PadCP() then
+        EUI_Bags.CloseButton = close
+        EUI_BagsWindow.CloseButton = bagsBtn
+    end
 
     -- Bottom-edge separator (1px physical pixel)
     local PP = EUI and EUI.PP
@@ -2082,14 +2101,14 @@ local function UpdateCurrencyDisplays(footerWidth)
     return footerHeight
 end
 
--- Re-lay-out the currency footer and grow/shrink the bag frame by the height delta; reads the previous height BEFORE UpdateCurrencyDisplays stamps the new one.
+-- Re-lay-out the currency footer and grow/shrink the bag frame by the height delta (grow-only running max under Auto-Size and on WoW Forever); reads the previous height BEFORE UpdateCurrencyDisplays stamps the new one.
 local function SyncBagFrameToFooter()
     local prev = EUI_Bags._footerH or FOOTER_H
     local footerH = UpdateCurrencyDisplays() or FOOTER_H
     if footerH == prev then return end
     if not EUI_Bags:IsVisible() then return end
     local delta = footerH - prev
-    if BP().bagAutoSize then
+    if BP().bagAutoSize or EUI.IS_FOREVER then
         EUI_Bags._asMaxH = math.max(EUI_Bags._asMaxH or EUI_Bags:GetHeight() or 0, EUI_Bags:GetHeight() + delta)
         EUI_Bags:SetHeight(EUI_Bags._asMaxH)
     else
@@ -2124,6 +2143,8 @@ local function CreateReagentBagUI()
     close:SetScript("OnEnter", function() close.icon:SetAlpha(0.9) end)
     close:SetScript("OnLeave", function() close.icon:SetAlpha(0.7) end)
     close:SetScript("OnClick", function() EUI_BagsReagent:Hide() end)
+    -- Controller cursor: Cancel finds the close button.
+    if EUI.PadCP() then EUI_BagsReagent.CloseButton = close end
     EUI_BagsReagent.Header = header
     local footer = CreateFrame("Frame", nil, EUI_BagsReagent)
     footer:SetPoint("BOTTOMLEFT", 1, 1)
@@ -2465,7 +2486,135 @@ function ns.AttachGridScrollbar(host, sf, clamp, rawWheel)
     track:SetScript("OnLeave", function()
         if not _isDragging then thumb:SetColorTexture(1, 1, 1, 0.25) end
     end)
+
+    -- Controller cursor (a pad has no wheel): one-notch step buttons at the
+    -- track ends, a visible track, a thumb that follows every scroll (the
+    -- cursor scrolls the grid itself) and a track that is not a cursor stop
+    -- (a press there would jump to the hidden pointer). The owner calls
+    -- track.PadSync(on) at its show edge; nothing is built before a
+    -- controller is in use.
+    local padUp, padDown, padOn
+    local function PadSteps()
+        local show = padOn and trackBg:IsShown() or false
+        padUp:SetShown(show)
+        padDown:SetShown(show)
+    end
+    function track.PadSync(on)
+        on = on and true or false
+        if not padUp then
+            if not on then return end
+            padUp, padDown = ns.PadStepButtons(host, SCROLLBAR_HIT_W, function(delta) OnWheel(nil, delta) end)
+            padUp:SetFrameLevel(track:GetFrameLevel() + 1)
+            padDown:SetFrameLevel(track:GetFrameLevel() + 1)
+            padUp:SetPoint("TOP", track, "TOP", 0, 0)
+            padDown:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
+            hooksecurefunc(trackBg, "Show", PadSteps)
+            hooksecurefunc(trackBg, "Hide", PadSteps)
+            sf:HookScript("OnVerticalScroll", function() UpdateThumb() end)
+            EUI.PadHint(track, "nodeignore")
+        end
+        if on == padOn then return end
+        padOn = on
+        trackBg:SetColorTexture(1, 1, 1, on and 0.15 or 0.06)
+        PadSteps()
+    end
     return track, thumb, UpdateThumb
+end
+
+-------------------------------------------------------------------------------
+--  Controller support (the bags and the bank). Everything here runs only on
+--  an edge that already exists (a show, a click, a menu open) behind the
+--  shared controller signal; mouse/keyboard players never build any of it.
+-------------------------------------------------------------------------------
+do
+    local ARROW_UP   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.png"
+    local ARROW_DOWN = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.png"
+
+    local function MakeStep(parent, size, icon, onClick)
+        local b = CreateFrame("Button", nil, parent)
+        b:SetSize(size, size)
+        local t = b:CreateTexture(nil, "OVERLAY")
+        t:SetSize(size - 4, size - 4)
+        t:SetPoint("CENTER", b, "CENTER", 0, 0)
+        t:SetTexture(icon)
+        b:SetAlpha(0.5)
+        b:SetScript("OnEnter", function(self) self:SetAlpha(0.9) end)
+        b:SetScript("OnLeave", function(self) self:SetAlpha(0.5) end)
+        b:SetScript("OnClick", onClick)
+        b:Hide()
+        return b
+    end
+
+    -- Up/down step buttons for a wheel-only scroller: step(1) scrolls up one
+    -- notch, step(-1) down. Created hidden; the caller anchors them.
+    function ns.PadStepButtons(parent, size, step)
+        return MakeStep(parent, size, ARROW_UP, function() step(1) end),
+               MakeStep(parent, size, ARROW_DOWN, function() step(-1) end)
+    end
+
+    -- Sidebar step buttons (categories, bank tabs) in the sidebar header, left
+    -- of the collapse arrow: shown while a controller is in use, the sidebar
+    -- is expanded and its entries overflow. Each click runs the sidebar's own
+    -- wheel handler once (one entry). Called at the window's show edge.
+    local function SidebarStepsUpdate(st)
+        local show = st.on and not BP()[st.key] and (st.child:GetHeight() - st.sf:GetHeight()) > 0.5
+        st.up:SetShown(show)
+        st.down:SetShown(show)
+    end
+
+    function ns.PadSidebarSync(hdr, sf, child, dbKey, on)
+        if not (hdr and sf and child) then return end
+        local st = hdr._padSteps
+        if not st then
+            if not on then return end
+            local up, down = ns.PadStepButtons(hdr, 14, function(delta)
+                local wheel = sf:GetScript("OnMouseWheel")
+                if wheel then wheel(sf, delta) end
+            end)
+            down:SetPoint("RIGHT", hdr, "RIGHT", -22, 0)
+            up:SetPoint("RIGHT", down, "LEFT", -2, 0)
+            st = { up = up, down = down, sf = sf, child = child, key = dbKey }
+            hdr._padSteps = st
+            -- The rebuild sets the list height; the window can resize it too.
+            local function Update() SidebarStepsUpdate(st) end
+            hooksecurefunc(child, "SetHeight", Update)
+            sf:HookScript("OnSizeChanged", Update)
+        end
+        st.on = on and true or false
+        SidebarStepsUpdate(st)
+    end
+
+    -- Blizzard's bag frames live under a hidden parent. One that its own
+    -- toggle opened keeps reporting shown after we close the bags ourselves,
+    -- so the next Back press counts as "closed a bag" and does nothing else.
+    -- Only frames that are shown but not visible (still under that parent)
+    -- are touched, and no Blizzard OnHide runs for them.
+    function ns.PadReleaseBlizzBags()
+        local f = ContainerFrameCombinedBags
+        if f and f:IsShown() and not f:IsVisible() then f:Hide() end
+        for i = 1, 13 do
+            f = _G["ContainerFrame" .. i]
+            if f and f:IsShown() and not f:IsVisible() then f:Hide() end
+        end
+    end
+
+    -- WoW Forever's Gamepad interface style navigates Blizzard's own bags and
+    -- bank with the D-pad, so the takeover stands down for the session there.
+    -- Decided once, at login; a later style switch asks for a reload, once.
+    local standDown, styleAsked
+    function ns.PadUIStandDown()
+        if standDown == nil then standDown = EUI.PadGamepadUI() end
+        return standDown
+    end
+
+    function ns.PadStyleChanged()
+        if styleAsked then return end
+        styleAsked = true
+        -- The Gamepad style's D-pad cannot reach the popup, so chat says it too.
+        EllesmereUI.PrintError(EllesmereUI.L("The interface style changed. Type /reload so the bags match it."))
+        EUI.RequestReload(EllesmereUI.L("Reload Required"),
+            EllesmereUI.L("The interface style changed. Reload so the bags match it."))
+    end
 end
 
 -- Gold border for quest items (overrides the normal quality border).
@@ -2692,6 +2841,9 @@ do
         eb:SetScript("OnEditFocusLost", function() SetValue(Current()) end)
         eb:SetScript("OnEnterPressed", function() DoSplit(IsAltKeyDown()) end)
         eb:SetScript("OnEscapePressed", function() d:Hide() end)
+        -- Controller cursor: the -/+ buttons cover the amount, so no
+        -- on-screen keyboard for this box.
+        EUI.PadHint(eb, "hidekeyboard")
         d._eb = eb
 
         local plus = MakeButton(d, 22, 22, "+", PP)
@@ -2707,6 +2859,9 @@ do
         local split = MakeButton(d, 88, 24, EllesmereUI.L("Split"), PP)
         split:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", 10, 10)
         split:SetScript("OnClick", function() DoSplit(false) end)
+        d._split = split
+        -- Controller cursor: Cancel finds the dialog's close button.
+        if EUI.PadCP() then d.CloseButton = close end
 
         local auto = MakeButton(d, 88, 24, EllesmereUI.L("Auto Split"), PP)
         auto:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -10, 10)
@@ -2764,8 +2919,14 @@ do
         dialog:ClearAllPoints()
         dialog:SetPoint("BOTTOMLEFT", owner, "TOPLEFT", -4, 6)
         dialog:Show()
-        dialog._eb:SetFocus()
-        dialog._eb:HighlightText()
+        -- Controller cursor on screen: no keyboard focus (it would raise the
+        -- on-screen keyboard); the cursor moves onto Split instead.
+        if EUI.PadCursorShown() then
+            EUI.PadFocus(dialog._split)
+        else
+            dialog._eb:SetFocus()
+            dialog._eb:HighlightText()
+        end
     end
 
     -- Blizzard's guild bank buttons open StackSplitFrame the same way ours do,
@@ -3106,6 +3267,7 @@ local function GetOrCreateBagSlot(idx)
     local btn = CreateFrame("Button", nil, slotParent)
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    btn:RegisterForDrag("LeftButton")
     btn.icon = btn:CreateTexture(nil, "ARTWORK")
     local z = BP().bagItemIconZoom or 0.08
     btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
@@ -3117,18 +3279,48 @@ local function GetOrCreateBagSlot(idx)
     CreateInsetBorder(btn)
     SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
 
-    -- Drag-and-drop: equip a bag into this slot
+    -- Drag-and-drop: equip a bag into this slot, or swap it with the
+    -- equipped bag on the cursor
     local function TrySwapBag(self)
         if InCombatLockdown() then return end
         if not CursorHasItem() then return end
         local bagID = self:GetID()
         if bagID == 0 then return end  -- can't replace backpack
-        local invID = C_Container.ContainerIDToInventoryID(bagID)
-        PickupInventoryItem(invID)
+        PutItemInBag(C_Container.ContainerIDToInventoryID(bagID))
         EUI_Bags._pendingBagSwap = true
     end
     btn:SetScript("OnReceiveDrag", TrySwapBag)
     btn:HookScript("OnClick", TrySwapBag)
+    -- Drag an equipped bag out of its slot (drop it on another slot to swap)
+    btn:SetScript("OnDragStart", function(self)
+        if InCombatLockdown() then return end
+        local bagID = self:GetID()
+        if bagID == 0 then return end  -- the backpack can't be moved
+        PickupBagFromSlot(C_Container.ContainerIDToInventoryID(bagID))
+        EUI_Bags._pendingBagSwap = true
+    end)
+
+    -- Tooltip: bag name + used/total slots (computed live on hover)
+    btn:SetScript("OnEnter", function(self)
+        SetInsetBorderColor(self, 1, 1, 1, 1)
+        local bagIdx = self:GetID()
+        local bName
+        if bagIdx == 0 then
+            bName = "Backpack"
+        else
+            local bLink = GetInventoryItemLink("player", C_Container.ContainerIDToInventoryID(bagIdx))
+            bName = bLink and GetItemInfo(bLink) or EUI.Lf("Bag %1$d", bagIdx)
+        end
+        local bTotal = C_Container.GetContainerNumSlots(bagIdx)
+        local bFree = C_Container.GetContainerNumFreeSlots(bagIdx)
+        local tip = bName
+        if bTotal > 0 then tip = tip .. "  (" .. (bTotal - bFree) .. "/" .. bTotal .. ")" end
+        EUI.ShowWidgetTooltip(self, tip)
+    end)
+    btn:SetScript("OnLeave", function(self)
+        SetInsetBorderColor(self, self._bdrR, self._bdrG, self._bdrB, 1)
+        EUI.HideWidgetTooltip()
+    end)
 
     bagSlots[idx] = btn
     return btn
@@ -3191,6 +3383,34 @@ function EUI_Bags.SetBindTypeText(fs, isWuE, bindType, quality)
         return
     end
     if c then fs:SetTextColor(c.r, c.g, c.b) else fs:SetTextColor(1, 1, 1) end
+end
+
+-------------------------------------------------------------------------------
+--  Third-party item overlay icons (opt-in extension point for compatibility bridges with addons like CanIMogIt)
+-------------------------------------------------------------------------------
+-- Public API (other addons call it): updateFn(btn, data) runs for every
+-- painted slot in the bags, the reagent bag and the bank. btn is our secure
+-- container item button: keep state off it (parent frames to btn._textOverlay
+-- and track them in your own table), never touch it from a click handler.
+-- data = { bag, slot, info, itemLink }, valid during the call only (the bank
+-- reuses one table); placeholder slots pass bag 0 / slot 0 and no item. A
+-- painter error is reported and never stops our render.
+EUI_Bags.itemOverlayIcons = EUI_Bags.itemOverlayIcons or {}
+
+function EUI_Bags.RegisterItemOverlayIcon(name, updateFn)
+    EUI_Bags.itemOverlayIcons[name] = updateFn
+end
+
+function EUI_Bags.UnregisterItemOverlayIcon(name)
+    EUI_Bags.itemOverlayIcons[name] = nil
+end
+
+function EUI_Bags.RunItemOverlays(btn, data)
+    local fns = EUI_Bags.itemOverlayIcons
+    if next(fns) == nil then return end
+    for _, fn in pairs(fns) do
+        securecallfunction(fn, btn, data)
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -3459,6 +3679,8 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
 
     end
     UpdatePawnArrow(btn, data.itemLink)
+    EUI_Bags.RunItemOverlays(btn, data)
+
     -- Same requery the native container update does after re-assigning a slot: the
     -- cursor can be resting on this button while the repaint moves another item under
     -- it, and nothing re-reads the tooltip until the mouse moves (it kept showing the
@@ -3517,7 +3739,7 @@ local function GetOrCreatePinOverlay()
             if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
         end
     end)
-    ov:SetScript("OnClick", function()
+    ov:SetScript("OnClick", function(self)
         local cursorType, itemID, cursorLink = GetCursorInfo()
         if cursorType == "item" and itemID then
             -- Click-to-place also pins
@@ -3530,6 +3752,12 @@ local function GetOrCreatePinOverlay()
             end
             ClearCursor()
             if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
+            return
+        end
+        -- Controller cursor on screen: select mode hit-tests the hidden
+        -- pointer, so explain the carry-then-press path instead.
+        if EUI.PadCursorShown() then
+            EUI.ShowWidgetTooltip(self, EllesmereUI.L("Pick up an item, then press + to pin it"))
             return
         end
         EUI.HideWidgetTooltip()
@@ -3576,6 +3804,12 @@ local function GetOrCreateAssignOverlay()
         end
         -- No cursor item: enter assign select mode (like pin select)
         if self._assignCatKey then
+            -- Controller cursor on screen: select mode hit-tests the hidden
+            -- pointer, so explain the carry-then-press path instead.
+            if EUI.PadCursorShown() then
+                EUI.ShowWidgetTooltip(self, EllesmereUI.L("Pick up an item, then press + to add it to this category"))
+                return
+            end
             EUI.HideWidgetTooltip()
             EnterAssignSelectMode(self._assignCatKey)
         end
@@ -3664,6 +3898,13 @@ EnterAssignSelectMode = function(catKey)
         EUI_Bags._assignOverlay = ov
     end
     local ov = EUI_Bags._assignOverlay
+    -- Controller cursor: Back (which never reaches OnKeyDown) cancels the
+    -- mode first. Joined only once a controller is in use; the proxy counts
+    -- it only when one is in use at its show.
+    if not ov._padEsc and EUI.PadInUse() then
+        ov._padEsc = true
+        EllesmereUI.RegisterEscapeClose(ov, { padOnly = true, notOwned = true, onEscape = function() ExitAssignSelectMode() end })
+    end
     ov:SetAlpha(0)
     ov:Show()
     if not ov._fadeIn then
@@ -3802,6 +4043,13 @@ EnterPinSelectMode = function()
         EUI_Bags._pinOverlay = ov
     end
     local ov = EUI_Bags._pinOverlay
+    -- Controller cursor: Back (which never reaches OnKeyDown) cancels the
+    -- mode first. Joined only once a controller is in use; the proxy counts
+    -- it only when one is in use at its show.
+    if not ov._padEsc and EUI.PadInUse() then
+        ov._padEsc = true
+        EllesmereUI.RegisterEscapeClose(ov, { padOnly = true, notOwned = true, onEscape = function() ExitPinSelectMode() end })
+    end
     ov:SetAlpha(0)
     ov:Show()
     if not ov._fadeIn then
@@ -3921,7 +4169,11 @@ EnterPinSelectMode = function()
     end
     -- Position catcher over the scroll frame area
     local sf = EUI_Bags._scrollFrame
-    if sf then
+    if sf and EUI.IS_FOREVER then
+        -- WoW Forever: the window can grow while open (fit to content), so the catcher follows the scroll frame.
+        EUI_Bags._pinCatcher:ClearAllPoints()
+        EUI_Bags._pinCatcher:SetAllPoints(sf)
+    elseif sf then
         local l, b, w, h = sf:GetRect()
         if l and b and w and h then
             EUI_Bags._pinCatcher:ClearAllPoints()
@@ -4641,6 +4893,129 @@ local function CreateSidebar()
     EUI_Bags._collapseBtn = collapseBtn
 end
 
+-- Controller cursor: a pad has no middle click and no drag, so while one is in
+-- use the category menu also offers unpinning, removing assigned items and
+-- moving the entry one place up or down. A move runs the drag's own drop
+-- path (StopSidebarDrag) with the neighbour the sidebar shows.
+local function PadCategoryEntries(root, btn, cat, catIdx, isGroupHeader, isGroupMember)
+    local rows = {}
+
+    -- Pinned Items: every pinned item in the bags, once per pin key.
+    if cat.isPinned then
+        local pinned = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+        local seen
+        for bag = 0, 5 do
+            for slot = 1, (pinned and C_Container.GetContainerNumSlots(bag) or 0) do
+                local info = C_Container.GetContainerItemInfo(bag, slot)
+                local link = info and info.itemID and C_Container.GetContainerItemLink(bag, slot)
+                if info and info.itemID and IsItemPinned(pinned, link, info.itemID) then
+                    local key = NormalizePinKey(link, info.itemID)
+                    seen = seen or {}
+                    if key and not seen[key] then
+                        seen[key] = true
+                        local itemID = info.itemID
+                        rows[#rows + 1] = { text = link or tostring(itemID), fn = function()
+                            local p = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+                            if p then p[key] = nil; p[itemID] = nil end
+                            EUI_Bags:RefreshInventory()
+                        end }
+                    end
+                end
+            end
+        end
+        rows.title = EllesmereUI.L("Unpin Item")
+    -- A category items can be assigned to: every item assigned to it.
+    elseif not isGroupHeader and EUI_CategoryManager:CanAssignToCategory(catIdx) then
+        local assignments = EllesmereUIDB and EllesmereUIDB.bagItemAssignments
+        local catKey = cat._defaultName
+        if assignments and catKey then
+            for itemID, aKey in pairs(assignments) do
+                if aKey == catKey then
+                    local name, link = GetItemInfo(itemID)
+                    rows[#rows + 1] = { text = link or name or ("item:" .. itemID), sort = name or "", fn = function()
+                        EUI_CategoryManager:UnassignItem(itemID)
+                        EUI_Bags:RefreshInventory()
+                    end }
+                end
+            end
+            table.sort(rows, function(a, b) return a.sort < b.sort end)
+        end
+        rows.title = EllesmereUI.L("Remove Assigned Item")
+    end
+
+    -- Move Up / Move Down against the neighbouring sidebar rows.
+    local me
+    for i = 1, #_sidebarBtns do
+        if _sidebarBtns[i] == btn and btn:IsShown() then me = i; break end
+    end
+    local function Row(j)
+        local b = _sidebarBtns[j]
+        if b and b:IsShown() then return b end
+    end
+    local upTarget, downTarget, moveGroup
+    if me and not cat.noMove and not btn._noMove then
+        local group = cat.groupName
+        if isGroupMember and group then
+            -- Within its own group only (set children are skipped).
+            local j = me - 1
+            while Row(j) and Row(j)._isEquipSet do j = j - 1 end
+            local q = Row(j)
+            if q and q._isGroupMember and q._groupName == group then upTarget = q._catIdx end
+            j = me + 1
+            while Row(j) and Row(j)._isEquipSet do j = j + 1 end
+            q = Row(j)
+            if q and q._isGroupMember and q._groupName == group then downTarget = q._catIdx + 1 end
+            moveGroup = group
+        else
+            -- A plain category, or a group header moving its whole block past
+            -- the neighbouring entry (a whole group counts as one entry).
+            local j = me - 1
+            while Row(j) and (Row(j)._isEquipSet or Row(j)._isGroupMember) do j = j - 1 end
+            local q = Row(j)
+            if q and q._catIdx > 0 and not q._noMove then upTarget = q._catIdx end
+            j = me + 1
+            while Row(j) and (Row(j)._isEquipSet or (isGroupHeader and Row(j)._isGroupMember and Row(j)._groupName == group)) do
+                j = j + 1
+            end
+            q = Row(j)
+            if q and q._catIdx > 0 and not q._noMove then
+                if q._isGroupHeader and q._groupName then
+                    local members = EUI_CategoryManager:GetGroupMembers(q._groupName)
+                    if #members > 0 then downTarget = members[#members] + 1 end
+                else
+                    downTarget = q._catIdx + 1
+                end
+            end
+        end
+    end
+    local function Move(target)
+        -- The sidebar may have been rebuilt while the menu was open: act only
+        -- when the same row still shows the same category.
+        if EUI_CategoryManager:GetCategories()[catIdx] ~= cat or btn._catIdx ~= catIdx or not btn:IsShown()
+            or (btn._isGroupHeader or false) ~= (isGroupHeader or false) then
+            return
+        end
+        _dragFromCatIdx = catIdx
+        _dragSourceBtn = btn
+        _dragDropMode = "insert"
+        _dragDropTarget = target
+        _dragInsertGroup = moveGroup
+        _dragTargetIsHeader = false
+        StopSidebarDrag()
+    end
+
+    if #rows == 0 and not upTarget and not downTarget then return end
+    root:CreateDivider()
+    if upTarget then root:CreateButton(EllesmereUI.L("Move Up"), function() Move(upTarget) end) end
+    if downTarget then root:CreateButton(EllesmereUI.L("Move Down"), function() Move(downTarget) end) end
+    if #rows > 0 then
+        local sub = root:CreateButton(rows.title)
+        -- A long list scrolls inside the menu instead of running off screen.
+        if #rows > 20 then sub:SetScrollMode(20 * 20) end
+        for _, r in ipairs(rows) do sub:CreateButton(r.text, r.fn) end
+    end
+end
+
 -- Show context menu for grouping categories
 local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember)
     local cats = EUI_CategoryManager:GetCategories()
@@ -4763,6 +5138,11 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                     EUI_Bags:RefreshInventory()
                 end)
             end
+        end
+
+        -- Controller cursor: unpin / remove / move entries (no middle click or drag on a pad).
+        if EUI.PadInUse() then
+            PadCategoryEntries(rootDescription, btn, cat, catIdx, isGroupHeader, isGroupMember)
         end
     end)
 end
@@ -5421,6 +5801,8 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                         else s:SetPropagateKeyboardInput(true) end
                     end)
                     popup:EnableKeyboard(true)
+                    -- Controller cursor: Cancel finds Add Category, which toggles the popup closed.
+                    if EUI.PadCP() then popup.CloseButton = self end
 
                     EUI_Bags._newCatPopup = popup
                 end
@@ -5672,7 +6054,8 @@ function EUI_Bags:RefreshInventory()
     -- Show blocked-swap tooltip in category/group views (not All Items, not OneBag)
     if swapDetected and not isAllItems and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2 then
         if EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(EUI_Bags, "Positions can only be changed\nin the All Items, OneBag, or MultiBag views", { anchor = "cursor" })
+            -- Controller cursor: the pointer may be hidden, so anchor to the window.
+            EUI.ShowWidgetTooltip(EUI_Bags, "Positions can only be changed\nin the All Items, OneBag, or MultiBag views", (not EUI.PadInUse()) and { anchor = "cursor" } or nil)
             C_Timer.After(3, function()
                 EUI.HideWidgetTooltip()
             end)
@@ -7117,6 +7500,7 @@ function EUI_Bags:RefreshInventory()
 
     -- 6. Size frame. Default: fixed height, dynamic width. Auto-size: height grows to fit content
     -- (no vertical scroll), width follows column count; both track a running max while open (never shrink mid-session), floored at FIXED_H and capped at the screen.
+    -- WoW Forever: height always fits the content on that running max, with no FIXED_H floor (see below).
     local FIXED_H = 650
     local gridContentW = gridW + gridPadX * 2 + scrollbarPad + 2
     local totalW = sidebarW + gridContentW
@@ -7126,11 +7510,22 @@ function EUI_Bags:RefreshInventory()
     end
     local currencyFooterH = UpdateCurrencyDisplays(totalW) or FOOTER_H
 
-    if BP().bagAutoSize then
+    if BP().bagAutoSize or EUI.IS_FOREVER then
         local sc = EUI_Bags:GetScale(); if not sc or sc <= 0 then sc = 1 end
         local maxH = (UIParent:GetHeight() / sc) * 0.95
-        -- Cap at the screen first, then floor at FIXED_H so the window is never smaller than normal (even on short screens).
-        local neededH = math.max(FIXED_H, math.min(contentH + HEADER_H + currencyFooterH + 2, maxH))
+        local fitH = contentH + HEADER_H + currencyFooterH + 2
+        local neededH
+        if EUI.IS_FOREVER then
+            -- WoW Forever bags hold far fewer slots: fit the content instead of flooring at FIXED_H, never shorter
+            -- than the category list; without Auto-Size the normal height stays the cap (taller content scrolls).
+            if not BP().bagAutoSize then maxH = math.min(maxH, FIXED_H + currencyFooterH - FOOTER_H) end
+            local sbHdr, sbChild = EUI_Bags._sidebarHdr, EUI_Bags._sidebarChild
+            local sbH = HEADER_H + currencyFooterH + (sbHdr and sbHdr:GetHeight() or 0) + (sbChild and sbChild:GetHeight() or 0)
+            neededH = math.min(math.max(fitH, sbH), maxH)
+        else
+            -- Cap at the screen first, then floor at FIXED_H so the window is never smaller than normal (even on short screens).
+            neededH = math.max(FIXED_H, math.min(fitH, maxH))
+        end
         EUI_Bags._asMaxH = math.max(EUI_Bags._asMaxH or 0, neededH)
         EUI_Bags:SetWidth(totalW)
         EUI_Bags:SetHeight(EUI_Bags._asMaxH)
@@ -7243,6 +7638,10 @@ function EUI_BagsReagent:RefreshInventory()
             else SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1) end
         end
         UpdatePawnArrow(btn, itemLink)
+        if next(EUI_Bags.itemOverlayIcons) ~= nil then
+            data.itemLink = itemLink
+            EUI_Bags.RunItemOverlays(btn, data)
+        end
         -- Tooltip requery after the slot re-assignment (see RenderButton).
         if GameTooltip:IsOwned(btn) then
             if data.info and btn.UpdateTooltip then btn:UpdateTooltip() else GameTooltip:Hide() end
@@ -7289,33 +7688,9 @@ function EUI_BagsWindow:RefreshBags()
         SetInsetBorderColor(btn, bdrR, bdrG, bdrB, 1)
         btn._bdrR, btn._bdrG, btn._bdrB = bdrR, bdrG, bdrB
 
-        -- Tooltip: bag name + free/total slots (computed live on hover)
-        local bagIdx = i
-        btn:SetScript("OnEnter", function(self)
-            SetInsetBorderColor(self, 1, 1, 1, 1)
-            if EUI.ShowWidgetTooltip then
-                local bName
-                if bagIdx == 0 then
-                    bName = "Backpack"
-                else
-                    local bInvID = C_Container.ContainerIDToInventoryID(bagIdx)
-                    local bLink = GetInventoryItemLink("player", bInvID)
-                    bName = bLink and GetItemInfo(bLink) or EUI.Lf("Bag %1$d", bagIdx)
-                end
-                local bTotal = C_Container.GetContainerNumSlots(bagIdx)
-                local bFree = C_Container.GetContainerNumFreeSlots(bagIdx)
-                local tip = bName
-                if bTotal > 0 then tip = tip .. "  (" .. (bTotal - bFree) .. "/" .. bTotal .. ")" end
-                EUI.ShowWidgetTooltip(self, tip)
-            end
-        end)
-        btn:SetScript("OnLeave", function(self)
-            SetInsetBorderColor(self, self._bdrR, self._bdrG, self._bdrB, 1)
-            EUI.HideWidgetTooltip()
-        end)
-
+        -- Blizzard's bag bar order: backpack on the right, reagent bag on the left
         parent:ClearAllPoints()
-        parent:SetPoint("TOPLEFT", EUI_BagsWindow, "TOPLEFT", startX + (i * (SLOT_SIZE + SPACING)), startY)
+        parent:SetPoint("TOPLEFT", EUI_BagsWindow, "TOPLEFT", startX + ((BAG_COLUMNS - 1 - i) * (SLOT_SIZE + SPACING)), startY)
     end
     EUI_BagsWindow:SetSize((BAG_COLUMNS * (SLOT_SIZE + SPACING)) + 15, SLOT_SIZE + 20)
 end
@@ -7383,7 +7758,10 @@ local function StartAddon()
     end)
     EUI_Bags:SetScript("OnMouseDown", function(self, button)
         local noShift = BP().bagMoveNoShift
-        if button ~= "LeftButton" or (not noShift and not IsKeyDown("LSHIFT")) then return end
+        -- A controller's emulated Shift reads as a Shift key, not the physical
+        -- left one, so it also counts while a controller is in use.
+        if button ~= "LeftButton" or (not noShift and not IsKeyDown("LSHIFT")
+            and not (IsShiftKeyDown() and EUI.PadInUse())) then return end
         local cx, cy = GetCursorPosition()
         local es = self:GetEffectiveScale()
         _bagDragStartCX = cx / es
@@ -7423,7 +7801,13 @@ local function StartAddon()
         EUI.PanelPP.CreateBorder(EUI_Bags, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7)
     end
 
+    local PadBagsShown  -- controller cursor show edge (defined below)
+
+    -- Blizzard's backpack open/close sounds, played on the frame's show/hide
+    -- transitions as Blizzard's container frames do: a Show on an already open
+    -- bag fires no OnShow, and the login pre-build never shows the frame.
     EUI_Bags:HookScript("OnShow", function()
+        PlaySound(SOUNDKIT.IG_BACKPACK_OPEN)
         CaptureTrackedGold()
         -- Repaint if the unmerge state changed while hidden: the flag-flip refresh is gated on
         -- IsVisible, and closing a mailbox hides bags in the same breath so that repaint is thrown away (costs one boolean compare when already matching).
@@ -7432,21 +7816,23 @@ local function StartAddon()
         if _paintedPanelOpen ~= _anyItemPanelOpen or EUI_Bags._paintedUnmerged then
             EUI_Bags:RefreshInventory()
         end
+        -- Controller cursor: scroll aids and the carried-item drop button,
+        -- built only once a controller is in use.
+        if EUI_Bags._padBuilt or EUI.PadInUse() then PadBagsShown() end
     end)
 
     EUI_Bags:HookScript("OnHide", function()
+        PlaySound(SOUNDKIT.IG_BACKPACK_CLOSE)
+        EUI_Bags._closeSoundAt = GetTime()
         if EUI_Bags._searchBox then
             EUI_Bags._searchBox:SetText("")
             EUI_Bags._searchBox:ClearFocus()
         end
     end)
 
-    -- Click empty space with an external item on the cursor: auto-place in the first free
-    -- bag slot (same as looting), only for items not already in the player's bags (bank withdrawals, mail, etc.).
-    EUI_Bags:HookScript("OnMouseUp", function(_, button)
-        if button ~= "LeftButton" then return end
-        local cursorType, cursorItemID, cursorLink = GetCursorInfo()
-        if cursorType ~= "item" then return end
+    -- An item on the cursor that is not from the player's bags (bank withdrawals, mail, etc.).
+    local function CursorItemIsExternal()
+        if GetCursorInfo() ~= "item" then return false end
         -- Check if the cursor item is from the player's bags (bag 0-4)
         for bag = 0, 4 do
             local numSlots = C_Container.GetContainerNumSlots(bag)
@@ -7454,11 +7840,15 @@ local function StartAddon()
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 if info and info.isLocked then
                     -- Locked = this slot is the pickup source
-                    return
+                    return false
                 end
             end
         end
-        -- External item: place in first empty bag slot
+        return true
+    end
+    -- External item: place in first empty bag slot (same as looting).
+    local function PlaceExternalCursorItem()
+        if not CursorItemIsExternal() then return end
         for bag = 0, 4 do
             local numSlots = C_Container.GetContainerNumSlots(bag)
             for slot = 1, numSlots do
@@ -7468,7 +7858,63 @@ local function StartAddon()
                 end
             end
         end
+    end
+    -- Click empty space with an external item on the cursor: auto-place it.
+    EUI_Bags:HookScript("OnMouseUp", function(_, button)
+        if button ~= "LeftButton" then return end
+        PlaceExternalCursorItem()
     end)
+
+    -- Controller cursor: empty slots take no presses in the All Items and
+    -- category views, so an item carried in from the bank or mail gets a
+    -- "Place in Bags" footer button. The cursor watch is registered only
+    -- while the bags are open with a controller in use.
+    local function PadPlaceSync()
+        EUI_Bags._padPlaceBtn:SetShown(CursorItemIsExternal())
+    end
+    local function PadPlaceButton()
+        local footer = EUI_Bags.Footer
+        local b = CreateFrame("Button", nil, footer)
+        b:SetHeight(22)
+        b:SetPoint("BOTTOMLEFT", footer, "BOTTOMLEFT", 8, 5)
+        b:SetFrameLevel(footer:GetFrameLevel() + 20)
+        local bg = b:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.15, 0.15, 0.15, 1)
+        local PP = EUI and EUI.PP
+        if PP and PP.CreateBorder then PP.CreateBorder(b, 0.25, 0.25, 0.25, 1) end
+        local fs = b:CreateFontString(nil, "OVERLAY")
+        SetBagFont(fs, 11)
+        fs:SetPoint("CENTER", 0, 0)
+        fs:SetTextColor(1, 1, 1, 0.9)
+        fs:SetText(EllesmereUI.L("Place in Bags"))
+        b:SetWidth(fs:GetStringWidth() + 20)
+        b:SetScript("OnEnter", function() bg:SetColorTexture(0.2, 0.2, 0.2, 1) end)
+        b:SetScript("OnLeave", function() bg:SetColorTexture(0.15, 0.15, 0.15, 1) end)
+        b:SetScript("OnClick", function() PlaceExternalCursorItem() end)
+        b:Hide()
+        EUI_Bags._padPlaceBtn = b
+        local watch = CreateFrame("Frame")
+        watch:SetScript("OnEvent", PadPlaceSync)
+        EUI_Bags._padCursorWatch = watch
+    end
+    -- Show edge (gated at the call): scroll aids, sidebar steps, drop button.
+    PadBagsShown = function()
+        local on = EUI.PadInUse()
+        EUI_Bags._padBuilt = true
+        if EUI_Bags._scrollTrack then EUI_Bags._scrollTrack.PadSync(on) end
+        ns.PadSidebarSync(EUI_Bags._sidebarHdr, EUI_Bags._sidebarSF, EUI_Bags._sidebarChild, "bagSidebarCollapsed", on)
+        local watch = EUI_Bags._padCursorWatch
+        if on then
+            if not watch then PadPlaceButton(); watch = EUI_Bags._padCursorWatch end
+            watch:RegisterEvent("CURSOR_CHANGED")
+            watch:RegisterEvent("ITEM_LOCK_CHANGED")
+            PadPlaceSync()
+        elseif watch then
+            watch:UnregisterAllEvents()
+            EUI_Bags._padPlaceBtn:Hide()
+        end
+    end
 
     CreateHeader()
     CreateFooter()
@@ -7504,6 +7950,14 @@ local function StartAddon()
         end
     end)
     EllesmereUI.RegisterEscapeClose(EUI_BagsReagent)
+    -- The detached reagent bag closed on its own plays the backpack close
+    -- sound. Silent when the main bag closed in the same frame (it already
+    -- played) or when only its parent hid (its own shown flag is still set).
+    EUI_BagsReagent:HookScript("OnHide", function(self)
+        if not self:IsShown() and EUI_Bags._closeSoundAt ~= GetTime() then
+            PlaySound(SOUNDKIT.IG_BACKPACK_CLOSE)
+        end
+    end)
 
     local OriginalToggleAllBags = ToggleAllBags
     local function ToggleEUI()
@@ -7512,7 +7966,22 @@ local function StartAddon()
             EUI_BagsReagent:Hide()
             if not EllesmereUIDB then EllesmereUIDB = {} end
             EllesmereUIDB.bagsVisible = false
+            -- Controller cursor: keep Blizzard's hidden bag frames closed too.
+            if EUI.PadInUse() then ns.PadReleaseBlizzBags() end
         else
+            -- Controller cursor: gamepad pointer on at this user-requested
+            -- open, as Blizzard's own bag toggle does (one C call when no
+            -- gamepad is active).
+            if EUI.PadNative() then
+                EUI.RaiseGamePadCursor()
+                -- WoW Forever: the Gamepad interface style was switched on
+                -- since login. Its D-pad cannot reach our bags, so they stay
+                -- closed until a reload.
+                if EUI.IS_FOREVER and EUI.PadGamepadUI() then
+                    ns.PadStyleChanged()
+                    return
+                end
+            end
             ApplyBagScale()
             EUI_Bags:Show()
             EUI_Bags:RefreshInventory()
@@ -7548,6 +8017,17 @@ local function StartAddon()
         else if OriginalToggleAllBags then OriginalToggleAllBags() end end
     end
 
+    -- WoW Forever with the Gamepad interface style at login: Blizzard's own
+    -- bags keep the D-pad navigation, so none of the takeover below runs
+    -- (false on retail and for every other Forever player).
+    if ns.PadUIStandDown() then
+        -- A switch back to another style: the takeover follows a reload.
+        local function StyleCheck()
+            if not EUI.PadGamepadUI() then ns.PadStyleChanged() end
+        end
+        hooksecurefunc("ToggleAllBags", StyleCheck)
+        hooksecurefunc("ToggleBackpack", StyleCheck)
+    else
     ToggleAllBags = SmartToggleBags
     -- Hook ToggleBackpack/ToggleBag via hooksecurefunc (avoids tainting the global)
     hooksecurefunc("ToggleBackpack", SmartToggleBags)
@@ -7572,6 +8052,7 @@ local function StartAddon()
         if not EUI_Bags:IsVisible() then ToggleEUI() end
         KillBlizzard()
     end)
+    end -- not ns.PadUIStandDown()
 
     -- Recent Items: session-only tracking (resets on login/reload)
     -- Raised from 12 to 15.
@@ -7953,6 +8434,20 @@ local function StartAddon()
 
     EUI_Bags:HookScript("OnHide", function()
         EUI_BagsWindow:Hide()
+        -- Controller cursor: the carried-item watch lives only while the bags are open.
+        local watch = EUI_Bags._padCursorWatch
+        if watch then
+            watch:UnregisterAllEvents()
+            EUI_Bags._padPlaceBtn:Hide()
+        end
+        -- Controller cursor: a Back press or a bank close hides the bags
+        -- alone, so the pin/assign selection and the detached reagent window
+        -- go with them (a real close only, not a hidden UI).
+        if EUI.PadInUse() and not EUI_Bags:IsShown() then
+            if EUI_Bags._pinSelectMode then ExitPinSelectMode() end
+            if EUI_Bags._assignSelectMode then ExitAssignSelectMode() end
+            EUI_BagsReagent:Hide()
+        end
     end)
 
     EllesmereUI.RegisterEscapeClose(EUI_Bags)

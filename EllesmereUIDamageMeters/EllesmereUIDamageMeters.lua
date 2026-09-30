@@ -5,8 +5,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Multi-window support (up to 5). Zero Blizzard frame hooks. All settings live.
 -------------------------------------------------------------------------------
 local _, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS["EllesmereUIDamageMeters"] = ns  -- LOD options files read this module ns via the registry
+ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 local EUI = EllesmereUI
 
 -- Constants
@@ -210,7 +211,9 @@ ns.EDM.DB = function()
 end
 
 local function DB() return ns.EDM.DB() end
-local function GetHeaderH() local c = DB(); return c.hdrHeight or 22 end
+-- The header's height: the Header Height setting, plus the Forever header
+-- band's rail under it (ns.DMFvRail; 0 on every other look).
+local function GetHeaderH() local c = DB(); local h = c.hdrHeight or 22; return h + ns.DMFvRail(h) end
 
 -------------------------------------------------------------------------------
 --  Stock styles (Global Settings > Style) on our own windows and rows:
@@ -246,6 +249,11 @@ function ns.DMStyle()
         if not dm then return "eui" end
         v = (dm.useClassicStyle and "classic") or (dm.useBlizzardStyle and "blizzard") or "eui"
         ns._dmStyle = v
+        -- The WoW Forever variant of Blizzard Style, latched with it: the
+        -- Forever client, Blizzard Style, and the sibling useForeverStyle
+        -- flag set together with the Blizzard one.
+        ns._dmForever = v == "blizzard" and EllesmereUI.IS_FOREVER == true
+            and dm.useForeverStyle == true
     end
     return v
 end
@@ -253,6 +261,12 @@ end
 -- or bar borders, no header bottom border).
 function ns.DMBlizz() return ns.DMStyle() ~= "eui" end
 function ns.DMClassic() return ns.DMStyle() == "classic" end
+-- WoW Forever variant: DMStyle() still reads "blizzard" (every stock site
+-- stays as it is); this gates the Forever-only pieces. False off Forever.
+function ns.DMForever()
+    if ns._dmStyle == nil then ns.DMStyle() end
+    return ns._dmForever == true
+end
 -- The one-time Classic WoW UI seed on a profile `p`: a near-black window
 -- (#101010), the game's own bar fill as the bar texture and a quarter-black
 -- track behind every bar (once per profile; the controls stay the user's
@@ -305,21 +319,29 @@ ns.DM_HDR_ART = {
 ns.DM_HDR_IDLE, ns.DM_HDR_HOVER = 0.85, 1
 ns.DM_HDR_CLASSIC_SCALE, ns.DM_HDR_CLASSIC_PAD = 0.85, 2
 -- The stock-style art entry for a header key this session (nil = EUI glyph).
+-- WoW Forever reads its own set; an atlas entry the client lacks keeps the
+-- glyph.
 function ns.DMHdrArt(key)
-    local set = ns.DM_HDR_ART[ns.DMStyle()]
-    return set and set[key] or nil
+    local style = ns.DMStyle()
+    local set = ns.DM_HDR_ART[ns._dmForever and "forever" or style]
+    local art = set and set[key] or nil
+    if art and art.atlas and not ns.DMFvAtlas(art.atlas) then return nil end
+    return art
 end
 -- Header button size for a config (the Icon Size setting; the Spell History
 -- header passes nil for its fixed 22), and the gap between buttons: the
--- classic art draws at 85% with a 2px gap, the glyphs at full size 2px
--- overlapped (their margin is in the file).
+-- classic art draws at 85% with a 2px gap, WoW Forever's plates a little
+-- smaller with their own gap, the glyphs at full size 2px overlapped (their
+-- margin is in the file).
 function ns.DMHdrIconSize(cfg)
     local sz = (cfg and cfg.hdrIconSize) or 22
     if ns.DMStyle() == "classic" then sz = math.floor(sz * ns.DM_HDR_CLASSIC_SCALE + 0.5) end
+    if ns._dmForever then sz = math.floor(sz * ns.DM_FV.btnScale + 0.5) end
     return sz
 end
 function ns.DMHdrIconPad()
     if ns.DMStyle() == "classic" then return ns.DM_HDR_CLASSIC_PAD end
+    if ns._dmForever then return ns.DM_FV.btnPad end
     return -2
 end
 -- Seats a header icon texture in its button: full-bleed, or inset to its
@@ -339,10 +361,12 @@ function ns.DMSeatHdrArt(tex, size)
     end
 end
 -- Paints an art entry on a header icon texture and stamps it (tex._hdrArt)
--- for the hover pass. An atlas is never followed by SetTexCoord.
+-- for the hover pass. An atlas is never followed by SetTexCoord. An entry
+-- with `tint` is a desaturated glyph in that colour, one with `plate` sits
+-- on WoW Forever's square button plate (ns.DMFvPlate).
 function ns.DMApplyHdrArt(tex, art)
     tex._hdrArt = art
-    tex:SetDesaturated(false)
+    tex:SetDesaturated(art.tint ~= nil)
     if art.atlas then
         tex:SetAtlas(art.atlas)
     else
@@ -353,15 +377,20 @@ function ns.DMApplyHdrArt(tex, art)
             tex:SetTexCoord(art.l or 0, art.r or 1, art.t or 0, art.b or 1)
         end
     end
-    local k = ns.DM_HDR_IDLE
-    tex:SetVertexColor(k, k, k, 1)
+    local k, c = ns.DM_HDR_IDLE, art.tint
+    if c then tex:SetVertexColor(c[1] * k, c[2] * k, c[3] * k, 1) else tex:SetVertexColor(k, k, k, 1) end
+    if art.plate or tex._fvPlate then ns.DMFvPlate(tex, false) end
     ns.DMSeatHdrArt(tex)
 end
 -- Paints a header key's stock art on a texture; false when the key keeps
 -- the EUI glyph (the caller paints that).
 function ns.DMPaintHdrArt(tex, key)
     local art = ns.DMHdrArt(key)
-    if not art then tex._hdrArt = nil; return false end
+    if not art then
+        tex._hdrArt = nil
+        if tex._fvPlate then tex._fvPlate:Hide() end
+        return false
+    end
     ns.DMApplyHdrArt(tex, art)
     return true
 end
@@ -372,15 +401,22 @@ function ns.DMHdrHover(tex, hover, dimmed)
     local art = tex._hdrArt
     if not art then return false end
     if art.hover then tex:SetAtlas(hover and art.hover or art.atlas) end
-    local k = hover and ns.DM_HDR_HOVER or ns.DM_HDR_IDLE
-    tex:SetVertexColor(k, k, k, dimmed and 0.5 or 1)
+    local k, c = hover and ns.DM_HDR_HOVER or ns.DM_HDR_IDLE, art.tint
+    if c then
+        tex:SetVertexColor(c[1] * k, c[2] * k, c[3] * k, dimmed and 0.5 or 1)
+    else
+        tex:SetVertexColor(k, k, k, dimmed and 0.5 or 1)
+    end
+    if art.plate then ns.DMFvPlate(tex, hover) end
     return true
 end
 -- The mode button's icon for a meter type: the vanilla spell icon under
--- Classic WoW UI, the EUI glyph otherwise (its desaturation and tint were
--- set when the button was built and stay).
+-- Classic WoW UI, the tinted glyph on a plate under WoW Forever, the EUI
+-- glyph otherwise (its desaturation and tint were set when the button was
+-- built and stay).
 function ns.DMSetTypeIcon(tex, dmType)
-    local set = ns.DM_HDR_ART[ns.DMStyle()]
+    local style = ns.DMStyle()
+    local set = ns.DM_HDR_ART[ns._dmForever and "forever" or style]
     local art = set and set.types and set.types[dmType]
     if art then ns.DMApplyHdrArt(tex, art); return end
     tex._hdrArt = nil
@@ -398,15 +434,17 @@ function ns.DMClassicTint(tex, r, g, b, a)
     tex:SetVertexColor(r or 0, g or 0, b or 0, a or 1)
 end
 -- Header background: the stock atlas (opacity still applies) under Blizzard
--- Style; under Classic WoW UI the window's tooltip background again as a
--- lighter band (the header's own colour is not used, its opacity is), the
--- way the stock meter's header stands off its body: the window colour is the
--- trailing winR/winG/winB when given (a window body tinted from its own
--- settings), the main meter's otherwise; the configured colour on the EUI
--- look.
+-- Style, Forever's header band in its place under the WoW Forever variant
+-- (ns.DMFvHeader); under Classic WoW UI the window's tooltip background
+-- again as a lighter band (the header's own colour is not used, its opacity
+-- is), the way the stock meter's header stands off its body: the window
+-- colour is the trailing winR/winG/winB when given (a window body tinted
+-- from its own settings), the main meter's otherwise; the configured colour
+-- on the EUI look.
 function ns.DMPaintHeaderBg(tex, r, g, b, a, winR, winG, winB)
     local style = ns.DMStyle()
     if style == "blizzard" then
+        if ns._dmForever and ns.DMFvHeader(tex, a) then return end
         tex:SetAtlas(ns.DM_BLIZZ_HEADER)
         tex:SetVertexColor(1, 1, 1, a)
     elseif style == "classic" then
@@ -503,10 +541,11 @@ function ns.DMPaintClassicBg(tex, r, g, b, a, edged)
     ns.DMClassicTint(tile, r, g, b, a)
 end
 -- How far the header and the row area sit inside the window under Classic
--- WoW UI (past the rim and bevel), zero on every other look so the anchors
--- below are exactly what they were.
+-- WoW UI (past the rim and bevel) and WoW Forever (past the bronze line),
+-- zero on every other look so the anchors below are exactly what they were.
 function ns.DMClassicInset()
     if ns.DMClassic() then return ns.DM_CLASSIC_INSET end
+    if ns._dmForever and EUI.ForeverBorderOK() then return ns.DM_FV.inset end
     return 0
 end
 -- The header's bottom line under Classic WoW UI: one hairline (h = the
@@ -544,6 +583,7 @@ function ns.DMPaintWindowBg(tex, r, g, b, a, edged)
         ns.DMPaintClassicBg(tex, r, g, b, a, edged)
         return
     end
+    if ns._dmForever and ns.DMPaintForeverBg(tex, a, edged) then return end
     local parts = tex._blizzParts
     if not parts then
         local parent = tex:GetParent()
@@ -620,7 +660,8 @@ end
 -- Row background: the stock shadowed track under the fill plus its edge
 -- highlight over it, both hugging the fill's rect (the shadow style's own
 -- insets: the track sits 2px outside the fill on every side, exactly under
--- its edge). One-time per row.
+-- its edge). One-time per row. WoW Forever wears the same track (a bar
+-- texture, not frame art).
 function ns.DMApplyBlizzBarBg(bar)
     local bg = bar._bg
     if not bg or not bar.fill then return end
@@ -636,6 +677,215 @@ function ns.DMApplyBlizzBarBg(bar)
     edge:SetPoint("TOPLEFT", bar.fill, "TOPLEFT", -2, 2)
     edge:SetPoint("BOTTOMRIGHT", bar.fill, "BOTTOMRIGHT", 2, -2)
 end
+
+-------------------------------------------------------------------------------
+--  WoW Forever (the Forever client's variant of Blizzard Style: DMStyle()
+--  still reads "blizzard", ns.DMForever() gates these). Forever's own art on
+--  our windows: the bronze line of Forever's micro menu box the chat panel
+--  wears (EllesmereUI.ForeverBorder, on its own child frame, the line inside
+--  the window's rect so snapping and size matching are unchanged) over a
+--  flat dark body; header buttons on Forever's square plates with tan
+--  glyphs, Forever's red close button; Forever's dropdown panel on the
+--  menus and its list buttons on the home page (the rows keep Blizzard
+--  Style's bar art); gold titles and menu highlights, tan glyphs and timers
+--  in place of the EllesmereUI accent. The header bar is Forever's
+--  objective tracker header (Forever's art for the retail header bar's own
+--  design: a dark body warming toward a lower rail), cut to its warm body
+--  and lower bronze rod, the rod running under the frame's side lines.
+--  Every atlas is probed once and a missing piece leaves plain Blizzard
+--  Style in its place. Built on the build paths only; nothing here runs off
+--  the variant.
+-------------------------------------------------------------------------------
+ns.DM_FV = {
+    frameLevel = 14,  -- the line over the header and rows, under the resize grip and lock (15, 16)
+    inset      = EUI.FOREVER_BORDER.shade, -- header and rows start past the line and its inner shadow
+    bodyInset  = EUI.FOREVER_BORDER.line,  -- the body from the line's inner edge, its corners behind the chamfers
+    -- Header band: a cut of this 300x40 art, as fractions of its box (art
+    -- pixels 64..176 across clear its fading ends and the filigree; 9..39
+    -- down hold the body, the lower rod and its shadow, leaving out the
+    -- upper rod the frame's top line stands in for), drawn hdrReach wider
+    -- than the header each side so the rod ends under the side lines.
+    header     = "ui-questtracker-primary-objective-header",
+    hdrCut     = { 64 / 300, 176 / 300, 9 / 40, 39 / 40 },
+    hdrReach   = 2,
+    -- The cut's rod and shadow (6 of its 30 rows) under its 24-row body: a
+    -- header grows by this share of its height so the body holds the title
+    -- and buttons and the rod runs beneath them.
+    hdrRail    = 0.25,
+    plate      = "common-button-tertiary-square-normal",
+    plateHover = "common-button-tertiary-square-hover",
+    glyph      = { 0.95, 0.82, 0.60 }, -- x the idle 0.85: the reference's tan
+    -- Text in place of the accent: titles and menu highlights (the menu
+    -- headers' gold), menu timers.
+    gold       = { r = 1, g = 0.82, b = 0 },
+    tan        = { r = 174 / 255, g = 157 / 255, b = 129 / 255 },
+    close      = "RedButton-Exit",
+    btnScale   = 0.86, btnPad = 3,
+    menu       = "common-dropdown-bg",
+    card       = { normal = "common-button-list-small", hover = "common-button-list-small-hover",
+                   selected = "common-button-list-small-selected" },
+}
+-- Atlas presence, probed once per name.
+ns._dmFvAtlas = {}
+function ns.DMFvAtlas(name)
+    local v = ns._dmFvAtlas[name]
+    if v == nil then
+        v = C_Texture.GetAtlasInfo(name) ~= nil
+        ns._dmFvAtlas[name] = v
+    end
+    return v
+end
+-- The bronze line on one of our frames, built once: the pieces on a child
+-- frame over the owner's content, the line's outer edge on the owner's
+-- edge, or with `outside` its inner edge (the breakdown popup, whose rows
+-- run flush). Nil off the variant or without the art.
+function ns.DMFvFrameArt(owner, outside)
+    if owner._fvRim then return owner._fvRim end
+    if not (ns.DMForever() and EUI.ForeverBorderOK()) then return nil end
+    local host = CreateFrame("Frame", nil, owner)
+    host:SetFrameLevel(owner:GetFrameLevel() + ns.DM_FV.frameLevel)
+    host:SetAllPoints(owner)
+    local o = outside and EUI.FOREVER_BORDER.line or 0
+    EUI.ForeverBorderSeat(EUI.ForeverBorder(host), owner, "TOPLEFT", -o, o, o, -o)
+    owner._fvRim = host
+    return host
+end
+-- Window background under WoW Forever. With `edged` the window wears the
+-- bronze line over a flat dark body spanning it (from the line's inner
+-- edge; black at the Background Opacity, as Blizzard Style), both regions
+-- and frames of the window built once, the body re-tinted per call; the bg
+-- texture itself paints nothing. Without it (the breakdown panel inside a
+-- window) nothing: the window's body stays up behind it. False without the
+-- art (the caller paints plain Blizzard Style).
+function ns.DMPaintForeverBg(tex, a, edged)
+    if not EUI.ForeverBorderOK() then return false end
+    if not edged then
+        tex:SetTexture(nil)
+        tex:SetColorTexture(0, 0, 0, 0)
+        return true
+    end
+    local body = tex._fvBody
+    if not body then
+        local win = tex:GetParent()
+        local e = ns.DM_FV.bodyInset
+        body = win:CreateTexture(nil, "BACKGROUND", nil, -8)
+        body:SetPoint("TOPLEFT", win, "TOPLEFT", e, -e)
+        body:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -e, e)
+        tex._fvBody = body
+        ns.DMFvFrameArt(win)
+        tex:SetTexture(nil)
+        tex:SetColorTexture(0, 0, 0, 0)
+    end
+    body:SetColorTexture(0, 0, 0, ns.DM_BLIZZ_BG_BODY * (a or 1))
+    return true
+end
+-- A header's background as the Forever header band (FV.header cut to
+-- FV.hdrCut): an atlas cannot be cropped, so the cut is drawn from the
+-- atlas's own sheet file at its coords, reaching FV.hdrReach past the
+-- header's sides under the frame. Set up once per texture; every call only
+-- re-applies the opacity `a`. False without the art (the frame too: the
+-- rod needs the side lines over its ends); the caller paints plain
+-- Blizzard Style.
+function ns.DMFvHeader(tex, a)
+    if not tex._fvHdr then
+        local FV = ns.DM_FV
+        if not (EUI.ForeverBorderOK() and ns.DMFvAtlas(FV.header)) then return false end
+        local info = C_Texture.GetAtlasInfo(FV.header)
+        local l, t = info.leftTexCoord, info.topTexCoord
+        local w, h = info.rightTexCoord - l, info.bottomTexCoord - t
+        local c, e, hdr = FV.hdrCut, FV.hdrReach, tex:GetParent()
+        tex:SetTexture(info.file or info.filename)
+        tex:SetTexCoord(l + w * c[1], l + w * c[2], t + h * c[3], t + h * c[4])
+        tex:ClearAllPoints()
+        tex:SetPoint("TOPLEFT", hdr, "TOPLEFT", -e, 0)
+        tex:SetPoint("BOTTOMRIGHT", hdr, "BOTTOMRIGHT", e, 0)
+        tex._fvHdr = true
+    end
+    tex:SetVertexColor(1, 1, 1, a or 1)
+    return true
+end
+-- The rail the Forever header band adds under a header of height h (the
+-- rod and its shadow, below the band's body); 0 off the variant or without
+-- the art (the same gates as ns.DMFvHeader).
+function ns.DMFvRail(h)
+    if not ns.DMForever() then return 0 end
+    local FV = ns.DM_FV
+    if not (EUI.ForeverBorderOK() and ns.DMFvAtlas(FV.header)) then return 0 end
+    return math.floor(h * FV.hdrRail + 0.5)
+end
+-- How far a header's title and buttons rise to centre on the band's body
+-- (h = the header's own height setting; nil = the meter's Header Height).
+function ns.DMHdrLift(h)
+    return ns.DMFvRail(h or DB().hdrHeight or 22) / 2
+end
+-- A header glyph's square plate (Forever's button art, normal or hover)
+-- under the glyph on its button, built once; hidden when the texture's art
+-- entry carries none or the client lacks the art.
+function ns.DMFvPlate(tex, hover)
+    local FV, art, plate = ns.DM_FV, tex._hdrArt, tex._fvPlate
+    local on = art and art.plate and ns.DMFvAtlas(FV.plate) and ns.DMFvAtlas(FV.plateHover)
+    if not plate then
+        if not on then return end
+        local btn = tex:GetParent()
+        plate = btn:CreateTexture(nil, "BACKGROUND")
+        plate:SetAllPoints(btn)
+        tex._fvPlate = plate
+    end
+    if not on then plate:Hide(); return end
+    local atlas = hover and FV.plateHover or FV.plate
+    if plate._fvAtlas ~= atlas then plate:SetAtlas(atlas); plate._fvAtlas = atlas end
+    plate:Show()
+end
+-- A context menu panel in Forever's dropdown art (what Blizzard's menus wear
+-- on that client: a bronze line round a black body, soft shadow), its line
+-- 1px outside our flush panel, in place of the EUI fill and border. False
+-- off the variant or without the art.
+function ns.DMFvMenuArt(f, bg)
+    local atlas = ns.DM_FV.menu
+    if not (ns.DMForever() and ns.DMFvAtlas(atlas)) then return false end
+    local t = f:CreateTexture(nil, "BACKGROUND", nil, -1)
+    t:SetAtlas(atlas)
+    t:SetPoint("TOPLEFT", f, "TOPLEFT", -10, 7)
+    t:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 10, -13)
+    t:SetAlpha(0.925)
+    bg:SetColorTexture(0, 0, 0, 0)
+    f._fvArt = t
+    return true
+end
+-- A home page card's background as Forever's list button ("normal" |
+-- "hover" | "selected"), `a` its opacity (the add button reads fainter).
+-- False off the variant or without the art (the caller paints its colour).
+function ns.DMFvCard(tex, state, a)
+    if not ns._dmForever then return false end
+    local C = ns.DM_FV.card
+    if not (ns.DMFvAtlas(C.normal) and ns.DMFvAtlas(C.hover) and ns.DMFvAtlas(C.selected)) then return false end
+    local atlas = C[state]
+    if tex._fvCard ~= atlas then tex:SetAtlas(atlas); tex._fvCard = atlas end
+    tex:SetVertexColor(1, 1, 1, a or 1)
+    return true
+end
+-- Header art: our glyphs, desaturated and tan, on the square plates (the
+-- meter types too); the close button is Forever's red one. Built by a
+-- function so the main chunk gains no locals, on the Forever client only
+-- (read only under the variant).
+function ns.DMFvHdrArtSet()
+    local tint = ns.DM_FV.glyph
+    local function G(file) return { file = file, tint = tint, plate = true } end
+    local types = {}
+    for dmType, file in pairs(DM_TYPE_ICONS) do types[dmType] = G(file) end
+    return {
+        settings = G(MEDIA .. "dm_settings.png"),
+        segment  = G(MEDIA .. "dm_sheet.png"),
+        reset    = G(MEDIA .. "dm_undo.png"),
+        open     = G(MEDIA .. "dm_open.png"),
+        close    = { atlas = ns.DM_FV.close },
+        locked   = G(MEDIA .. "dm_locked_top.png"),
+        unlocked = G(MEDIA .. "dm_unlock_top.png"),
+        resize   = G(MEDIA .. "dm_width_resize.png"),
+        types    = types,
+    }
+end
+if EllesmereUI.IS_FOREVER then ns.DM_HDR_ART.forever = ns.DMFvHdrArtSet() end
 
 -- Header icon visibility (hide until title bar hovered)
 local function ResetButtonHidden(cfg)
@@ -654,10 +904,21 @@ local function GetHeaderLayoutButtons(W, cfg)
     end
     return buttons
 end
+-- The same count without building the list (the title fit runs on every paint).
+function ns.DMHeaderButtonCount(W, cfg)
+    if not W or not W.hdrBtns then return 0 end
+    local hideReset = ResetButtonHidden(cfg)
+    local n = 0
+    for _, btn in ipairs(W.hdrBtns) do
+        if btn ~= W.resetBtn or not hideReset then n = n + 1 end
+    end
+    return n
+end
 
 local function LayoutHeaderButtons(W, cfg, iconSz)
     if not W or not W.header or not W.hdrBtns then return end
     local btnPad = ns.DMHdrIconPad()
+    local lift = ns.DMHdrLift(cfg and cfg.hdrHeight)
     local layoutBtns = GetHeaderLayoutButtons(W, cfg)
     for bi, btn in ipairs(layoutBtns) do
         if iconSz then
@@ -666,7 +927,7 @@ local function LayoutHeaderButtons(W, cfg, iconSz)
             if btn._hdrIcon and btn._hdrIcon._hdrArt then ns.DMSeatHdrArt(btn._hdrIcon, iconSz) end
         end
         btn:ClearAllPoints()
-        btn:SetPoint("RIGHT", W.header, "RIGHT", -(iconSz * (bi - 1) + btnPad * bi + 2), 0)
+        btn:SetPoint("RIGHT", W.header, "RIGHT", -(iconSz * (bi - 1) + btnPad * bi + 2), lift)
     end
 end
 
@@ -797,6 +1058,22 @@ local function GetBookmarks()
     return cfg.bookmarks
 end
 
+-- ipairs over the bookmarks this client offers, keeping each one's index in
+-- the saved list: a type not offered here (WoW Forever's Threat in a profile
+-- brought elsewhere) gets no card, and its bookmark stays saved.
+local function NextHomeType(list, i)
+    i = i + 1
+    local v = list[i]
+    while v ~= nil and not DM_TYPE_NAMES[v] do
+        i = i + 1
+        v = list[i]
+    end
+    if v ~= nil then return i, v end
+end
+function ns.DMHomeTypes(list)
+    return NextHomeType, list, 0
+end
+
 
 -- Shared state
 local _inCombat = false
@@ -820,6 +1097,7 @@ ns._toggleHidden = false
 -- build has taken over.
 local _buildGen = 0
 ns._DM_TYPE_NAMES = DM_TYPE_NAMES
+ns._DM_TYPE_ICONS = DM_TYPE_ICONS
 
 -- Unlock mode registration: each window is a first-class unlock element (EDM_Win1..N) via the
 -- core mover system (drag, exact X/Y, anchor-to-element, width/height matching). Index-based
@@ -1175,7 +1453,6 @@ instanceFrame:SetScript("OnEvent", function(_, event)
         -- boundaries, ticker covers the rest). Out of combat, one debounced repaint keeps rolls prompt.
             for _, w in ipairs(_windows) do
                 -- Data caches only -- style never changes on a session roll (see SESSION_UPDATED note above)
-                w._barSources = nil
                 w._cachedTargets = nil
             end
             if _inCombat or _needsFinalRefresh then
@@ -1193,7 +1470,6 @@ instanceFrame:SetScript("OnEvent", function(_, event)
         if _targetsCache then wipe(_targetsCache) end
         for _, w in ipairs(_windows) do
             w._barCacheKey = nil
-            w._barSources = nil
             w._cachedTargets = nil
             w.Refresh()
         end
@@ -1230,7 +1506,6 @@ instanceFrame:SetScript("OnEvent", function(_, event)
         -- Refresh after zone-in to pick up visibility/data changes
         for _, w in ipairs(_windows) do
             w._barCacheKey = nil
-            w._barSources = nil
         end
         C_Timer.After(0.5, function()
             for _, w in ipairs(_windows) do w.Refresh() end
@@ -1258,6 +1533,12 @@ local function GetAccentRGB()
     return EUI.DEFAULT_ACCENT_R or 12/255,
            EUI.DEFAULT_ACCENT_G or 210/255,
            EUI.DEFAULT_ACCENT_B or 157/255
+end
+-- A header title's "Use Accent" colour: WoW Forever's gold under the variant
+-- (its kit carries no EllesmereUI accent), the accent otherwise.
+function ns.DMTitleRGB()
+    if ns.DMForever() then local c = ns.DM_FV.gold; return c.r, c.g, c.b end
+    return GetAccentRGB()
 end
 
 -- Bar texture tables
@@ -1575,6 +1856,32 @@ function ns._DeathTimeText(src, live)
     return FormatTimer(st)
 end
 
+-- A hidden window never paints, but a Deaths row's in-combat time is stamped on first
+-- sight and the feign cache only drops a GUID it sees at 0 HP: a hidden Deaths window
+-- keeps both moving without a paint, so it reads right the moment it shows. On ns:
+-- CreateDMWindow sits at the 60-upvalue cap.
+function ns._DMHiddenDeathsPass(w)
+    if not _inCombat or w.curDMType ~= Enum.DamageMeterType.Deaths then return end
+    CleanupFeignCache()
+    -- Only the live Current view stamps (see ns._DeathTimeText)
+    if w.curSessionID or w.curSession ~= Enum.DamageMeterSessionType.Current then return end
+    -- A window switched onto this view while the ticks were off (combat-start auto-Current)
+    if not _sharedTicker then StartSharedTicker() end
+    local s = C_DamageMeter and C_DamageMeter.GetCombatSessionFromType
+        and C_DamageMeter.GetCombatSessionFromType(Enum.DamageMeterSessionType.Current, Enum.DamageMeterType.Deaths)
+    local srcs = s and s.combatSources
+    if not srcs then return end
+    for i = 1, #srcs do
+        local src = srcs[i]
+        local rid, t = src.deathRecapID, src.deathTimeSeconds
+        -- A readable death time needs no stamp.
+        if rid and not (issecretvalue and issecretvalue(rid)) and rid > 0 and not _deathStamps[rid]
+           and (t == nil or (issecretvalue and issecretvalue(t))) then
+            ns._DeathTimeText(src, true)
+        end
+    end
+end
+
 local function FormatTimerDecimal(seconds)
     if not seconds or (issecretvalue and issecretvalue(seconds)) then return "0:00.0" end
     return format("%d:%02d.%d", math.floor(seconds / 60), math.floor(seconds % 60),
@@ -1609,7 +1916,7 @@ end
 -- Class icon sprite system
 local CLASS_ICON_SPRITE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\"
 local CLASS_ICON_SPRITE_TEX = {}
-for _, style in ipairs({"modern", "dark", "light", "clean"}) do
+for _, style in ipairs({"modern", "dark", "light", "clean", "pixelsComic"}) do
     CLASS_ICON_SPRITE_TEX[style] = CLASS_ICON_SPRITE_BASE .. style .. ".tga"
 end
 local CLASS_SPRITE_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
@@ -1620,6 +1927,7 @@ local ICON_STYLE_VALUES = {
     blizzard = "Blizzard",
     modern   = "Modern",
     pixel    = "Pixel",
+    pixelsComic = "Pixels Comic",
     glyph    = "Glyph",
     arcade   = "Arcade",
     legend   = "Legend",
@@ -1627,7 +1935,7 @@ local ICON_STYLE_VALUES = {
     runic    = "Runic",
 }
 local ICON_STYLE_ORDER = {
-    "none", "spec", "---", "blizzard", "modern", "pixel", "glyph",
+    "none", "spec", "---", "blizzard", "modern", "pixel", "pixelsComic", "glyph",
     "arcade", "legend", "midnight", "runic",
 }
 _G._EDM_IconStyleValues = ICON_STYLE_VALUES
@@ -1648,7 +1956,11 @@ local function ResolveIcon(src, iconTex, barH)
     local classFile = src.classFilename
     if not classFile or (issecretvalue and issecretvalue(classFile)) or classFile == "" then iconTex:Hide(); return 0 end
 
-    if style == "spec" then
+    -- A Threat list's pet row (WoW Forever) shows the pet icon in every style, not its owner's class.
+    if src.threatPet and type(src.specIconID) == "number" then
+        iconTex:SetTexture(src.specIconID)
+        iconTex:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
+    elseif style == "spec" then
         local specIcon = src.specIconID
         if specIcon and type(specIcon) == "number" and specIcon ~= 0 then
             iconTex:SetTexture(specIcon)
@@ -1880,7 +2192,7 @@ end
 
 local function EnsureTooltipFrame()
     if _ttFrame then
-        ApplyInheritedBlizzardBorder(_ttFrame, "tooltip")
+        if not _ttFrame._fvRim then ApplyInheritedBlizzardBorder(_ttFrame, "tooltip") end
         return
     end
     _ttFrame = CreateFrame("Frame", nil, UIParent)
@@ -1890,8 +2202,12 @@ local function EnsureTooltipFrame()
     _ttFrame._bg = _ttFrame:CreateTexture(nil, "BACKGROUND")
     _ttFrame._bg:SetAllPoints()
     _ttFrame._bg:SetColorTexture(0, 0, 0, 0.95)
-    if EUI.MakeBorder then _ttFrame._legacyBorder = EUI.MakeBorder(_ttFrame, 0, 0, 0, 1) end
-    ApplyInheritedBlizzardBorder(_ttFrame, "tooltip")
+    -- WoW Forever: the bronze line round the outside (the rows run flush)
+    -- in place of the EUI border.
+    if not ns.DMFvFrameArt(_ttFrame, true) then
+        if EUI.MakeBorder then _ttFrame._legacyBorder = EUI.MakeBorder(_ttFrame, 0, 0, 0, 1) end
+        ApplyInheritedBlizzardBorder(_ttFrame, "tooltip")
+    end
 
     -- Header bar
     _ttFrame._hdr = CreateFrame("Frame", nil, _ttFrame)
@@ -1988,7 +2304,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
         local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
         ns.DMPaintHeaderBg(_ttFrame._hdrBg, hR, hG, hB, cfg.hdrBgAlpha or 1)
         local tR, tG, tB
-        if cfg.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
+        if cfg.hdrTextUseAccent ~= false then tR, tG, tB = ns.DMTitleRGB()
         else local tc = cfg.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
         _ttFrame._hdrText:SetTextColor(tR, tG, tB, 1)
     end
@@ -2392,9 +2708,12 @@ local function MakeMenuPanel(level)
     f:SetClampedToScreen(true); f:EnableMouse(true)
     local bg = f:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints()
     bg:SetColorTexture(RS.BG_R or 0.067, RS.BG_G or 0.067, RS.BG_B or 0.067, RS.CTX_ALPHA or 0.95)
-    local PP_L = EUI.PP
-    if PP_L and PP_L.CreateBorder then PP_L.CreateBorder(f, 1, 1, 1, RS.BRD_ALPHA or 0.18, 1) end
-    ApplyInheritedBlizzardBorder(f, "popupMenu")
+    -- WoW Forever: Forever's dropdown panel in place of the EUI border.
+    if not ns.DMFvMenuArt(f, bg) then
+        local PP_L = EUI.PP
+        if PP_L and PP_L.CreateBorder then PP_L.CreateBorder(f, 1, 1, 1, RS.BRD_ALPHA or 0.18, 1) end
+        ApplyInheritedBlizzardBorder(f, "popupMenu")
+    end
     f._pool = {}; f:Hide()
     f:RegisterEvent("PLAYER_REGEN_DISABLED")
     f:SetScript("OnEvent", function(self) self:Hide() end)
@@ -2423,10 +2742,12 @@ local function EnsureMenuRow(menu, idx)
 end
 
 local function LayoutMenu(menu, items, onDismiss, isChild)
-    ApplyInheritedBlizzardBorder(menu, "popupMenu")
+    if not menu._fvArt then ApplyInheritedBlizzardBorder(menu, "popupMenu") end
     local fontPath = (EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
     local outline = (EUI.GetFontOutlineFlag("damageMeters")) or ""
-    local EG = EUI.ELLESMERE_GREEN
+    -- WoW Forever: gold active and hovered items, tan timers (no accent).
+    local fv = ns.DMForever()
+    local EG = fv and ns.DM_FV.gold or EUI.ELLESMERE_GREEN
     local hlAlpha = EUI.DD_ITEM_HL_A or 0.08
     for _, r in ipairs(menu._pool) do r:Hide() end
     if not menu._mfs then menu._mfs = menu:CreateFontString(nil, "OVERLAY") end
@@ -2466,7 +2787,8 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
             -- Timer text (accent-colored, right-aligned)
             if item.timerText and row._timer then
                 row._timer:SetFont(fontPath, CTX_FONT_SZ, outline)
-                local ar, ag, ab = GetAccentRGB()
+                local ar, ag, ab
+                if fv then local c = ns.DM_FV.tan; ar, ag, ab = c.r, c.g, c.b else ar, ag, ab = GetAccentRGB() end
                 row._timer:SetTextColor(ar, ag, ab, 0.9)
                 row._timer:SetText(item.timerText)
                 row._lbl:SetPoint("RIGHT", row._timer, "LEFT", -6, 0)
@@ -2606,6 +2928,10 @@ local function CreateDMWindow(winIdx)
     local W = {}
     W.idx = winIdx
     W.curDMType    = wdb.curDMType or Enum.DamageMeterType.DamageDone
+    -- A type this client does not offer (WoW Forever's Threat without Forever
+    -- Essentials, or in a profile brought elsewhere) reads as Damage Done; the
+    -- saved choice stays.
+    if not DM_TYPE_NAMES[W.curDMType] then W.curDMType = Enum.DamageMeterType.DamageDone end
     W.curSession   = wdb.curSession or Enum.DamageMeterSessionType.Current
     W.curSessionID = nil
     W.visibleCount = 0
@@ -2724,15 +3050,14 @@ local function CreateDMWindow(winIdx)
                 bar._iconBorderFrame:SetFrameLevel(bar.row:GetFrameLevel() + 6)
                 bar._iconBorderFrame:SetAllPoints(bar.classIcon) -- tracks icon size/position
             end
-            -- Follow the icon's shown state: ResolveIcon hides it for sources without a usable
-            -- class (secret/NPC rows), and a frame anchored to a hidden texture would still render a floating border
-            bar._iconBorderFrame:SetShown(bar.classIcon:IsShown())
             local tex = c.iconBorderTexture or "solid"
             local px = EllesmereUI.BorderPx(c.iconBorderSizePx, sz, tex)
             EllesmereUI.ApplyBorderStyle(bar._iconBorderFrame, sz,
                 c.iconBorderR or 0, c.iconBorderG or 0, c.iconBorderB or 0, c.iconBorderA or 1,
                 tex, c.iconBorderTextureOffset, c.iconBorderTextureOffsetY,
                 c.iconBorderTextureShiftX, c.iconBorderTextureShiftY, "damagemeters_icon", sz, nil, px)
+            -- After styling: ApplyBorderStyle shows its target, and a border anchored to a hidden icon still draws.
+            bar._iconBorderFrame:SetShown(bar.classIcon:IsShown())
         end
         bar.ApplyIconBorder()
         -- Per-bar track background (behind the fill). Default alpha 0 = invisible.
@@ -2822,6 +3147,8 @@ local function CreateDMWindow(winIdx)
         bar._hl:SetAllPoints(bar.row); bar._hl:SetColorTexture(1, 1, 1, 0.08); bar._hl:Hide()
         bar.row:SetScript("OnEnter", function()
             bar._hl:Show()
+            -- Threat rows (WoW Forever) have no breakdown to show.
+            if W.curDMType == "threat" then return end
             -- Deaths without recap: show "no recap available" tooltip
             if W.curDMType == Enum.DamageMeterType.Deaths and bar._src then
                 local rid = bar._src.deathRecapID
@@ -2838,7 +3165,7 @@ local function CreateDMWindow(winIdx)
                     local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
                     ns.DMPaintHeaderBg(_ttFrame._hdrBg, hR, hG, hB, cfg2.hdrBgAlpha or 1)
                     local tR, tG, tB
-                    if cfg2.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
+                    if cfg2.hdrTextUseAccent ~= false then tR, tG, tB = ns.DMTitleRGB()
                     else local tc = cfg2.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
                     _ttFrame._hdrText:SetTextColor(tR, tG, tB, 1)
                     for bi = 1, #_ttBars do if _ttBars[bi] then _ttBars[bi].row:Hide() end end
@@ -2869,7 +3196,7 @@ local function CreateDMWindow(winIdx)
                 local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
                 ns.DMPaintHeaderBg(_ttFrame._hdrBg, hR, hG, hB, cfg2.hdrBgAlpha or 1)
                 local tR, tG, tB
-                if cfg2.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
+                if cfg2.hdrTextUseAccent ~= false then tR, tG, tB = ns.DMTitleRGB()
                 else local tc = cfg2.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
                 _ttFrame._hdrText:SetTextColor(tR, tG, tB, 1)
                 -- Hide bars, show combat message
@@ -2977,10 +3304,10 @@ local function CreateDMWindow(winIdx)
     local hdrFS = cfg.hdrFontSize or 11
     local txOX, txOY = cfg.hdrTextOffX or 0, cfg.hdrTextOffY or 0
     W.titleText = header:CreateFontString(nil, "OVERLAY"); SetDMFont(W.titleText, hdrFS)
-    W.titleText:SetPoint("LEFT", header, "LEFT", 6 + txOX, txOY)
+    W.titleText:SetPoint("LEFT", header, "LEFT", 6 + txOX, txOY + ns.DMHdrLift(cfg.hdrHeight))
     do
         local tR, tG, tB
-        if cfg.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
+        if cfg.hdrTextUseAccent ~= false then tR, tG, tB = ns.DMTitleRGB()
         else local tc = cfg.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
         W.titleText:SetTextColor(tR, tG, tB, 1)
     end
@@ -2996,7 +3323,8 @@ local function CreateDMWindow(winIdx)
         -- Refresh), and home screen cards (via RefreshHome), each gated on its own accent-use toggle
         EUI.RegAccent({ type = "callback", fn = function(r, g, b)
             local c = DB()
-            if c.hdrTextUseAccent ~= false then W.titleText:SetTextColor(r, g, b, 1) end
+            -- (WoW Forever's title keeps its gold.)
+            if c.hdrTextUseAccent ~= false and not ns.DMForever() then W.titleText:SetTextColor(r, g, b, 1) end
             if c.iconColorUseAccent then
                 for _, ic in ipairs(W.hdrIcons) do
                     if not ic._hdrArt then ic:SetVertexColor(r, g, b, ICON_ALPHA) end
@@ -3022,7 +3350,7 @@ local function CreateDMWindow(winIdx)
     -- under a stock style (ns.DM_HDR_ART); the glyph stays where none exists.
     local function MakeHeaderBtn(texFile, xOff, tooltip, onClick, artKey)
         local btn = CreateFrame("Button", nil, header)
-        btn:SetSize(btnSize, btnSize); btn:SetPoint("RIGHT", header, "RIGHT", xOff, 0)
+        btn:SetSize(btnSize, btnSize); btn:SetPoint("RIGHT", header, "RIGHT", xOff, ns.DMHdrLift())
         btn:SetFrameLevel(header:GetFrameLevel() + 2)
         local ir, ig, ib = GetIconColor()
         local icon = btn:CreateTexture(nil, "ARTWORK"); icon:SetAllPoints()
@@ -3071,26 +3399,33 @@ local function CreateDMWindow(winIdx)
             mStartEntry(L("Dispels"), Enum.DamageMeterType.Dispels),
             mStartEntry(L("Deaths"), Enum.DamageMeterType.Deaths),
         }
-        ShowEDMMenu({
+        -- An instance rule changed: re-apply every window now, and move the mouseover
+        -- scan's cached predicate on next frame (deferred like the hotkey toggle), so a
+        -- hover cannot reveal a window the new rule hides.
+        local function rulesChanged()
+            for _, w in ipairs(_windows) do w.UpdateVisibility() end
+            C_Timer.After(0, EUI.RequestVisibilityUpdate)
+        end
+        local items = {
             { text = L("Hide in Dungeons"), isActive = wdb.hideInDungeon, onClick = function()
                 wdb.hideInDungeon = not wdb.hideInDungeon
-                for _, w in ipairs(_windows) do w.UpdateVisibility() end
+                rulesChanged()
             end },
             { text = L("Hide in Raids"), isActive = wdb.hideInRaid, onClick = function()
                 wdb.hideInRaid = not wdb.hideInRaid
-                for _, w in ipairs(_windows) do w.UpdateVisibility() end
+                rulesChanged()
             end },
-            { text = L("Hide in Delves"), isActive = wdb.hideInDelve, onClick = function()
+            { text = L("Hide in Delves"), noForever = true, isActive = wdb.hideInDelve, onClick = function()
                 wdb.hideInDelve = not wdb.hideInDelve
-                for _, w in ipairs(_windows) do w.UpdateVisibility() end
+                rulesChanged()
             end },
             { text = L("Hide in PvP"), isActive = wdb.hideInPvP, onClick = function()
                 wdb.hideInPvP = not wdb.hideInPvP
-                for _, w in ipairs(_windows) do w.UpdateVisibility() end
+                rulesChanged()
             end },
             { text = L("Hide out of Instances"), isActive = wdb.hideOutOfInstance, onClick = function()
                 wdb.hideOutOfInstance = not wdb.hideOutOfInstance
-                for _, w in ipairs(_windows) do w.UpdateVisibility() end
+                rulesChanged()
             end },
             "---",
             { text = L("Width"), isInput = true,
@@ -3115,35 +3450,48 @@ local function CreateDMWindow(winIdx)
                 W.snapDisabled = not W.snapDisabled
                 wdb.snapDisabled = W.snapDisabled
             end },
-            { text = L("Hide Timer"), isActive = wdb.hideTimer, onClick = function()
+            { text = L("Hide Timer"), noThreat = true, isActive = wdb.hideTimer, onClick = function()
                 wdb.hideTimer = not wdb.hideTimer
                 W.timerText:SetShown(not wdb.hideTimer)
             end },
-            { text = L("Auto Swap Current/Overall"),
+            { text = L("Auto Swap Current/Overall"), noForever = true,
               tooltip = L("Auto switch your window to overall at the end of an M+ run, and current at the start"),
               isActive = wdb.autoSwapMythic, onClick = function()
                 wdb.autoSwapMythic = not wdb.autoSwapMythic
             end },
-            { text = L("Auto Current on Combat"),
+            { text = L("Auto Current on Combat"), noThreat = true,
               tooltip = L("Entering combat switches this window back to Current if viewing a past segment"),
               isActive = wdb.autoCurrentOnCombat, onClick = function()
                 wdb.autoCurrentOnCombat = not wdb.autoCurrentOnCombat
             end },
-            { text = L("Sync Segment Selection"),
+            { text = L("Sync Segment Selection"), noThreat = true,
               tooltip = L("Selecting a segment switches all synced windows to it"),
               isActive = wdb.syncSegments, onClick = function()
                 wdb.syncSegments = not wdb.syncSegments
             end },
-            { text = L("Default on M+ Start"),
+            { text = L("Default on M+ Start"), noForever = true,
               tooltip = L("Set your window to this Meter Type on dungeon start"),
               children = mStartChildren },
             { text = L("Settings"), onClick = function()
                 EUI:ShowModule("EllesmereUIDamageMeters")
             end },
-        }, W.settingsBtn)
+        }
+        -- WoW Forever has no delves and no keystones: the entries only those drive are
+        -- left out of the menu there (their saved values stay, and stay inert).
+        if EUI.IS_FOREVER then
+            for i = #items, 1, -1 do
+                local e = items[i]
+                if type(e) == "table" and e.noForever then table.remove(items, i) end
+            end
+        end
+        -- A Threat window's list settings head the menu (WoW Forever).
+        if W.curDMType == "threat" and ns.DMThreatMenu then ns.DMThreatMenu(items) end
+        ShowEDMMenu(items, W.settingsBtn)
     end, "settings")
 
     W.segmentBtn = MakeHeaderBtn("dm_sheet.png", -(btnSize + btnPad * 2 + 2), L("Select Segment"), function()
+        -- A Threat list (WoW Forever) has no segments.
+        if W.curDMType == "threat" then return end
         local items = {}
         -- Segments first (top of upward menu)
         if C_DamageMeter and C_DamageMeter.GetAvailableCombatSessions then
@@ -3180,8 +3528,13 @@ local function CreateDMWindow(winIdx)
     function W.SetDMType(dmType)
         W.curDMType = dmType; wdb.curDMType = dmType
         if W.CloseSource then W.CloseSource() end
+        -- A full row pass: a Threat list's ranks skip its pull line, so a row that
+        -- keeps its slot across the switch would keep that rank.
+        W._barCacheKey = nil
         W.Refresh()
         if W._modeIcon then ns.DMSetTypeIcon(W._modeIcon, dmType) end
+        -- Leaving Threat may leave its list with no window (WoW Forever)
+        if ns.DMThreatSync then ns.DMThreatSync() end
     end
 
     W.modeBtn = MakeHeaderBtn("dm_arrow.png", -(btnSize * 2 + btnPad * 3 + 2), "Switch Meter Type", function()
@@ -3190,7 +3543,7 @@ local function CreateDMWindow(winIdx)
         local cur = W.curDMType
         local dmActive = (cur == Enum.DamageMeterType.DamageDone or cur == Enum.DamageMeterType.DamageTaken or cur == Enum.DamageMeterType.AvoidableDamageTaken or cur == Enum.DamageMeterType.EnemyDamageTaken)
         local actActive = (cur == Enum.DamageMeterType.Interrupts or cur == Enum.DamageMeterType.Dispels or cur == Enum.DamageMeterType.Deaths)
-        ShowEDMMenu({
+        local items = {
             { text = L("Damage"), isActive = dmActive, children = {
                 entry(L("Damage Done"), Enum.DamageMeterType.DamageDone), entry(L("Damage Taken"), Enum.DamageMeterType.DamageTaken),
                 entry(L("Avoidable Damage Taken"), Enum.DamageMeterType.AvoidableDamageTaken), entry(L("Enemy Damage Taken"), Enum.DamageMeterType.EnemyDamageTaken),
@@ -3199,7 +3552,10 @@ local function CreateDMWindow(winIdx)
             { text = L("Actions"), isActive = actActive, children = {
                 entry(L("Interrupts"), Enum.DamageMeterType.Interrupts), entry(L("Dispels"), Enum.DamageMeterType.Dispels), entry(L("Deaths"), Enum.DamageMeterType.Deaths),
             }},
-        }, W.modeBtn)
+        }
+        -- WoW Forever with Forever Essentials: its threat list
+        if DM_TYPE_NAMES.threat then items[#items + 1] = entry(L("Threat"), "threat") end
+        ShowEDMMenu(items, W.modeBtn)
     end)
     -- Set mode icon to current DM type icon
     W._modeIcon = W.hdrIcons[#W.hdrIcons]
@@ -3313,16 +3669,20 @@ local function CreateDMWindow(winIdx)
         local fs = W.titleText
         local full = W._fullTitle
         if not fs or not full then return end
-        fs:SetText(full)
         local c = DB()
         local iconSz = ns.DMHdrIconSize(c)
-        local n = #GetHeaderLayoutButtons(W, c)
+        local n = ns.DMHeaderButtonCount(W, c)
         -- Icons hidden until hover occupy no space, so the title gets the whole header instead of truncating against a gap that isn't there
         if W._hdrIconsShown == false then n = 0 end
         local headerW = frame:GetWidth() or (wdb.width or 300)
         local btnLeft = headerW - (iconSz * n) - (btnPad * n) - 2
         local avail = btnLeft - (6 + (c.hdrTextOffX or 0)) - 6
         if avail < 1 then avail = 1 end
+        -- The same title in the same room keeps the fit on screen (the header style
+        -- pass drops this memo: a font change moves the widths).
+        if W._fitFull == full and W._fitAvail == avail then return end
+        W._fitFull, W._fitAvail = full, avail
+        fs:SetText(full)
         if fs:GetStringWidth() <= avail then return end
         local s = full
         while #s > 1 do
@@ -3512,15 +3872,33 @@ local function CreateDMWindow(winIdx)
     viewport:SetScrollChild(content)
     W.content = content
 
-    viewport:SetScript("OnSizeChanged", function(self, w)
+    viewport:SetScript("OnSizeChanged", function(self, w, h)
+        -- Tracked through guarded pin/unpin resizes too, so "grew" compares against the real last height.
+        local grew = h and h > (W._vpH or 0)
+        W._vpH = h
         if W.stickyGuard then return end
         if w and w > 0 then content:SetWidth(w) end
         W.UpdateSticky(nil, W.visibleCount)
+        -- A taller viewport reveals rows the last pass skipped; the grip drag queues once on release.
+        -- In combat the running ticker fills them (a pin/unpin resize would otherwise double its pass).
+        -- (A Threat window, WoW Forever, has no ticker: it fills them in combat too.)
+        if grew and not W.resizing and (not InCombatLockdown() or W.curDMType == "threat") then W.QueueRepopulate() end
     end)
 
     -- Mouse wheel scrolling (no visual scrollbar)
     local _scrollMax = 0
     local _scrollRefreshPending = false
+    -- Rows scrolled or resized into view are filled only by a RefreshUI pass (the ticker
+    -- is stopped out of combat): one coalesced pass next frame, through one reused callback.
+    local function RunRepopulate()
+        _scrollRefreshPending = false
+        if W._lastSession then RefreshUI(W._lastSession) end
+    end
+    function W.QueueRepopulate()
+        if _scrollRefreshPending or not W._lastSession then return end
+        _scrollRefreshPending = true
+        C_Timer.After(0, RunRepopulate)
+    end
     viewport:EnableMouseWheel(true)
     viewport:SetScript("OnMouseWheel", function(_, delta)
         local c = DB(); local _, _, step = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale()); step = step * 2
@@ -3528,14 +3906,7 @@ local function CreateDMWindow(winIdx)
         local newVal = math.max(0, math.min(_scrollMax, cur - delta * step))
         viewport:SetVerticalScroll(newVal)
         W.UpdateSticky(nil, W.visibleCount)
-        -- Debounce: populate newly visible bars on next frame
-        if not _scrollRefreshPending and W._lastSession then
-            _scrollRefreshPending = true
-            C_Timer.After(0, function()
-                _scrollRefreshPending = false
-                if W._lastSession then RefreshUI(W._lastSession) end
-            end)
-        end
+        W.QueueRepopulate()
     end)
 
     -- Bar pool
@@ -3727,6 +4098,7 @@ local function CreateDMWindow(winIdx)
             if left and top then wdb.position = { x = left, y = top } end
         end
         W.UpdateSticky(nil, W.visibleCount)
+        W.QueueRepopulate()
         -- Refresh home screen card widths one frame after resize
         if homeFrame and homeFrame:IsShown() then
             C_Timer.After(0, function() if RefreshHome then RefreshHome() end end)
@@ -3822,7 +4194,9 @@ local function CreateDMWindow(winIdx)
         sources = W.cachedSources
         if not W.stickyPlayer or not W.stickySep then return end
         local c = DB()
-        if c.showPinnedSelf == false or not _playerGUID or not sources or #sources == 0 then
+        -- (A Threat list, WoW Forever, pins no row.)
+        if c.showPinnedSelf == false or not _playerGUID or not sources or #sources == 0
+           or W.curDMType == "threat" then
             W.stickyPlayer.row:Hide(); W.stickySep:Hide(); ResetScrollAnchors(); W.stickyAtTop = false; return
         end
         local playerIdx
@@ -3857,7 +4231,8 @@ local function CreateDMWindow(winIdx)
         -- Clamp scroll after viewport resize
         local newViewH = viewport:GetHeight()
         if newViewH and newViewH > 0 then
-            local totalH = (#sources) * stride
+            -- The content holds at most the pool, as RecalcViewport sizes it.
+            local totalH = math.min(#sources, BAR_POOL_SIZE) * stride
             local maxScr = math.max(0, totalH - newViewH)
             _scrollMax = maxScr
             local cur = viewport:GetVerticalScroll()
@@ -3870,10 +4245,11 @@ local function CreateDMWindow(winIdx)
         local src = sources[playerIdx]; local maxAmt = isDeaths and 1 or (sources[1] and sources[1].totalAmount or 1)
         local bar = W.stickyPlayer
         local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
-        local showIcon = (c.iconStyle or "spec") ~= "none"; local showClassColor = c.showClassColor ~= false
+        local iconStyle = c.iconStyle or "spec"
+        local showIcon = iconStyle ~= "none"; local showClassColor = c.showClassColor ~= false
         local texPath, texKey = GetBarTexturePath()
-        -- Layout cache: only rebuild on settings change
-        local stickyCacheKey = leftFS .. "|" .. rightFS .. "|" .. texPath .. "|" .. tostring(showIcon) .. "|" .. tostring(showClassColor) .. "|" .. barH .. "|" .. tostring(c.classIconZoom)
+        -- Layout cache: only rebuild on settings change (iconStyle, as the row key: a style switch re-resolves the icon)
+        local stickyCacheKey = leftFS .. "|" .. rightFS .. "|" .. texPath .. "|" .. iconStyle .. "|" .. tostring(showClassColor) .. "|" .. barH .. "|" .. tostring(c.classIconZoom) .. "|" .. tostring(c.barFillAlpha)
         if stickyCacheKey ~= W._stickyCacheKey then
             W._stickyCacheKey = stickyCacheKey
             bar.row:SetHeight(barH)
@@ -3882,7 +4258,7 @@ local function CreateDMWindow(winIdx)
             bar.fill:SetAlpha(c.barFillAlpha or 1)
             SetDMFont(bar.pos, leftFS); SetDMFont(bar.label, leftFS); SetDMFont(bar.amount, rightFS)
             bar.label:SetWidth(math.max(20, (frame:GetWidth() or 200) * 0.60))
-            W._stickyClassCache = nil; W._stickySpecCache = nil  -- force icon/color rebuild
+            W._stickyClassCache = false; W._stickySpecCache = nil  -- false: never a classFilename, forces the icon/colour pass
         end
         bar.row:Show()
         -- Icon + color: only when class changes
@@ -3895,7 +4271,7 @@ local function CreateDMWindow(winIdx)
             W._stickySpecCache = specIcon
             local iconOffset = showIcon and ResolveIcon(src, bar.classIcon, barH) or 0
             if not showIcon then bar.classIcon:Hide() end
-            if bar._iconBorderFrame then bar._iconBorderFrame:SetShown(bar.classIcon:IsShown()) end
+            if bar._iconBorderFrame then bar._iconBorderFrame:SetShown(c.customIconBorder and (c.iconBorderSize or 0) > 0 and bar.classIcon:IsShown()) end
             bar.fill:SetPoint("TOPLEFT", bar.row, "TOPLEFT", iconOffset, 0)
             bar.fill:SetPoint("TOPRIGHT", bar.row, "TOPRIGHT", 0, 0)
             if showClassColor then
@@ -3903,13 +4279,16 @@ local function CreateDMWindow(winIdx)
                 if cc then bar.fill:SetStatusBarColor(cc.r, cc.g, cc.b)
                 elseif W.curDMType == Enum.DamageMeterType.EnemyDamageTaken then bar.fill:SetStatusBarColor(0xDD/255, 0x31/255, 0x31/255)
                 else bar.fill:SetStatusBarColor(0.5, 0.5, 0.5) end
-            else
-                if c.barColorUseAccent ~= false then local ar2, ag2, ab2 = GetAccentRGB(); bar.fill:SetStatusBarColor(ar2, ag2, ab2)
-                else local bc = c.barColor; bar.fill:SetStatusBarColor(bc and bc.r or 0.35, bc and bc.g or 0.55, bc and bc.b or 0.8) end
             end
             -- Repaint class-colored background for the new class (no-op when off); bar._class set here so ApplyBg reads the current class
             bar._class = classFile
             if c.barBgUseClassColor then bar.ApplyBg() end
+        end
+        -- Accent / custom fill: outside the class memo (as the rows paint it), so Use Accent,
+        -- Custom Color and a live accent change reach the pinned row.
+        if not showClassColor then
+            if c.barColorUseAccent ~= false then local ar2, ag2, ab2 = GetAccentRGB(); bar.fill:SetStatusBarColor(ar2, ag2, ab2)
+            else local bc = c.barColor; bar.fill:SetStatusBarColor(bc and bc.r or 0.35, bc and bc.g or 0.55, bc and bc.b or 0.8) end
         end
         -- Per-tick: value + text only
         if isDeaths then
@@ -3921,6 +4300,7 @@ local function CreateDMWindow(winIdx)
         local hideNums = c.hideNumbers
         if hideNums then
             bar.pos:SetText("")
+            W._stickyRankCache = nil  -- un-hiding repaints the rank
         elseif playerIdx ~= W._stickyRankCache then
             W._stickyRankCache = playerIdx
             bar.pos:SetText(RANK_STRINGS[playerIdx] or (playerIdx .. "."))
@@ -3951,6 +4331,9 @@ local function CreateDMWindow(winIdx)
     RefreshUI = function(session)
 
         if not frame then return end
+        -- Hidden (a deferred or repopulate pass landing after a hide): no paint. The
+        -- OnShow catch-up refetches, so the skipped session never reaches the screen.
+        if not frame:IsVisible() then W._refreshPending = true; return end
         W._lastSession = session  -- cache for scroll-triggered refresh
 
         -- Populate rows
@@ -3967,6 +4350,8 @@ local function CreateDMWindow(winIdx)
             local labelMaxW = math.max(20, rowWidth * 0.60)
             local isDeaths = (W.curDMType == Enum.DamageMeterType.Deaths)
             local isCount = (W.curDMType == Enum.DamageMeterType.Interrupts or W.curDMType == Enum.DamageMeterType.Dispels)
+            -- WoW Forever's Threat rows carry their rank, value text and highlight colour.
+            local isThreat = (W.curDMType == "threat")
             -- Deaths: reverse to chronological (API returns most recent first) and filter feign
             -- deaths; CleanupFeignCache runs first so real deaths after Feign Death aren't hidden by the cached spell 5384 GUID
             if isDeaths then
@@ -3986,9 +4371,11 @@ local function CreateDMWindow(winIdx)
                 end
                 sources = rev
             end
-            W._barSources = sources  -- share with sticky (may be reversed for Deaths)
             local maxAmt = isDeaths and 1 or (sources[1] and sources[1].totalAmount or 1)
             count = math.min(#sources, BAR_POOL_SIZE)
+            -- Before the visible range below: it must read this segment's clamped scroll and pinned viewport.
+            RecalcViewport(count)
+            W.UpdateSticky(sources, count)
             -- Cache key: detects settings changes that require full bar rebuild
             local iconStyle = c.iconStyle or "spec"
             local cacheKey = leftFS .. "|" .. rightFS .. "|" .. texPath .. "|" .. iconStyle .. "|" .. tostring(showClassColor) .. "|" .. tostring(c.barColorUseAccent) .. "|" .. barH .. "|" .. barSp .. "|" .. tostring(c.hideNumbers) .. "|" .. tostring(c.leftTextUseClassColor) .. "|" .. tostring(c.rightTextUseClassColor) .. "|" .. tostring(c.barFillAlpha) .. "|" .. tostring(c.classIconZoom)
@@ -4001,6 +4388,9 @@ local function CreateDMWindow(winIdx)
             -- Visible range calculation
             local scrollOff = viewport:GetVerticalScroll() or 0
             local viewH = viewport:GetHeight() or 200
+            -- Unresolved rect (first pass after build): fill every row once. A squeezed
+            -- but resolved viewport keeps its real height, or it would fill the pool every tick.
+            if viewH <= 0 and not viewport:IsRectValid() then viewH = count * stride end
             local visFirst = math.floor(scrollOff / stride) + 1
             local visLast = math.min(count, math.ceil((scrollOff + viewH) / stride))
 
@@ -4028,8 +4418,9 @@ local function CreateDMWindow(winIdx)
                         else
                             bar.pos:SetText(RANK_STRINGS[i] or (i .. "."))
                         end
-                        -- Invalidate icon + color caches so they rebuild
-                        bar._cachedClass = nil; bar._cachedSpecIcon = nil; bar._cachedColorClass = nil
+                        -- false: never a classFilename, so the next visible pass always re-seats the fill cleared above
+                        bar._cachedClass = false; bar._cachedSpecIcon = nil; bar._cachedColorClass = false
+                        bar._cachedRank = nil; bar._cachedThreatColor = nil
                     end
 
                     -- Per-tick content: only for visible bars
@@ -4047,10 +4438,10 @@ local function CreateDMWindow(winIdx)
                             bar._cachedSpecIcon = specIcon
                             local iconOffset = showIcon and ResolveIcon(src, bar.classIcon, barH) or 0
                             if not showIcon then bar.classIcon:Hide() end
-                            if bar._iconBorderFrame then bar._iconBorderFrame:SetShown(bar.classIcon:IsShown()) end
+                            if bar._iconBorderFrame then bar._iconBorderFrame:SetShown(c.customIconBorder and (c.iconBorderSize or 0) > 0 and bar.classIcon:IsShown()) end
                             bar.fill:SetPoint("TOPLEFT", bar.row, "TOPLEFT", iconOffset, 0)
                             bar.fill:SetPoint("TOPRIGHT", bar.row, "TOPRIGHT", 0, 0)
-                            bar._cachedColorClass = nil
+                            bar._cachedColorClass = false
                             -- Repaint class-colored background for the new class (no-op when off); bar._class set here so ApplyBg reads the current class
                             bar._class = classFile
                             if c.barBgUseClassColor then bar.ApplyBg() end
@@ -4065,10 +4456,26 @@ local function CreateDMWindow(winIdx)
                             bar.fill:SetValue(src.totalAmount or 0)
                         end
 
-                        -- Color
-                        if showClassColor then
+                        -- Threat: the pull line takes no rank, so ranks move with it
+                        if isThreat and not c.hideNumbers and bar._cachedRank ~= src.rankText then
+                            bar._cachedRank = src.rankText
+                            bar.pos:SetText(src.rankText)
+                        end
+
+                        -- Color (a Threat row's highlight wins; false makes the
+                        -- next plain row repaint its own colour, which drops the
+                        -- highlight memo)
+                        local threatColor = isThreat and src.threatColor
+                        if threatColor then
+                            if bar._cachedThreatColor ~= threatColor then
+                                bar._cachedThreatColor = threatColor
+                                bar.fill:SetStatusBarColor(threatColor.r, threatColor.g, threatColor.b)
+                            end
+                            bar._cachedColorClass = false
+                        elseif showClassColor then
                             if classFile ~= bar._cachedColorClass then
                                 bar._cachedColorClass = classFile
+                                bar._cachedThreatColor = nil
                                 local cc = classFile and RAID_CLASS_COLORS[classFile] and EUI.GetClassColor(classFile)
                                 if cc then bar.fill:SetStatusBarColor(cc.r, cc.g, cc.b)
                                 elseif W.curDMType == Enum.DamageMeterType.EnemyDamageTaken then bar.fill:SetStatusBarColor(0xDD/255, 0x31/255, 0x31/255)
@@ -4076,6 +4483,7 @@ local function CreateDMWindow(winIdx)
                             end
                         elseif fullRebuild or not bar._cachedColorClass then
                             bar._cachedColorClass = false
+                            bar._cachedThreatColor = nil
                             if c.barColorUseAccent ~= false then local ar2, ag2, ab2 = GetAccentRGB(); bar.fill:SetStatusBarColor(ar2, ag2, ab2)
                             else local bc = c.barColor; bar.fill:SetStatusBarColor(bc and bc.r or 0.35, bc and bc.g or 0.55, bc and bc.b or 0.8) end
                         end
@@ -4116,7 +4524,9 @@ local function CreateDMWindow(winIdx)
 
                         -- Amount text (guard secret values -- can't compare)
                         local fmtVal
-                        if isDeaths then
+                        if isThreat then
+                            fmtVal = src.threatText
+                        elseif isDeaths then
                             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
                             fmtVal = isOverall and "" or ns._DeathTimeText(src,
                                 not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Current)
@@ -4137,26 +4547,26 @@ local function CreateDMWindow(winIdx)
                 else
                     if bar.row:IsShown() then bar.row:Hide() end
                     bar._src = nil; bar._srcGUID = nil; bar._class = nil
-                    bar._cachedSlot = nil; bar._cachedClass = nil; bar._cachedSpecIcon = nil; bar._cachedColorClass = nil
+                    bar._cachedSlot = nil; bar._cachedClass = false; bar._cachedSpecIcon = nil; bar._cachedColorClass = false
                     bar._cachedSrcName = nil; bar._cachedDisplayName = nil; bar._cachedAmtText = nil
+                    bar._cachedRank = nil; bar._cachedThreatColor = nil
                 end
             end
 
         else
             for i = 1, BAR_POOL_SIZE do W.rowPool[i].row:Hide() end
+            W.cachedSources = nil
+            RecalcViewport(0)
+            W.UpdateSticky(nil, 0)
         end
         W.visibleCount = count
-
-        W.UpdateSticky(W._barSources, count)
-
-
-
-        RecalcViewport(count)
 
         W.UpdateTimerText()
         local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
         local typeName = L(DM_TYPE_NAMES[W.curDMType] or "Damage Done")
         W._fullTitle = isOverall and EllesmereUI.Lf("Overall %1$s", typeName) or typeName
+        -- A Threat list (WoW Forever) names its mob and has no segments.
+        if session and session.threatTitle then W._fullTitle = session.threatTitle end
         W.FitTitle()
         if winIdx == 1 then UpdateSATimerText() end
 
@@ -4169,8 +4579,16 @@ local function CreateDMWindow(winIdx)
     -- Header combat timer, decoupled from the meter refresh rate: the shared timer ticker calls this
     -- between refreshes so the clock ticks smoothly at slow rates. Memoized on the displayed second (inputs: resolved duration second + the blank state from Overall/no-data gates).
     function W.UpdateTimerText()
-        -- Hidden timer (hideTimer) skips duration reads entirely; the second-memo repaints on the first tick after it is shown again
-        if not W.timerText or not W.timerText:IsShown() then return end
+        -- IsVisible covers a hidden timer (hideTimer) and a hidden window alike: no duration
+        -- read. The second-memo repaints on the first tick after it shows again, and a
+        -- window's OnShow catch-up refresh runs this at once.
+        if not W.timerText or not W.timerText:IsVisible() then return end
+        -- A Threat list (WoW Forever) has no fight clock.
+        if W.curDMType == "threat" then
+            if W._timerSec ~= -1 then W._timerSec = -1; W.timerText:SetText("") end
+            return
+        end
+        local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
         local dur
         if W.curSessionID then
             -- Historical session: use that session's stored API duration
@@ -4182,11 +4600,10 @@ local function CreateDMWindow(winIdx)
             -- Live "Current" view: derived from the SAME session the bars render, so it resets
             -- on a Current roll and freezes at combat end in lockstep with the bars (see GetCurrentViewDuration)
             dur = GetCurrentViewDuration()
-        else
-            -- Overall (timer is hidden for Overall by the isOverall gate below)
+        elseif not isOverall then
+            -- Overall never reads a duration (the isOverall gate below blanks its timer)
             dur = C_DamageMeter and C_DamageMeter.GetSessionDurationSeconds and C_DamageMeter.GetSessionDurationSeconds(W.curSession)
         end
-        local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
         -- Hide timer when segment has no data (count == 0) or is Overall
         local sec = -1
         if not isOverall and dur and type(dur) == "number" and dur > 0 and (W.visibleCount or 0) > 0 then
@@ -4201,8 +4618,25 @@ local function CreateDMWindow(winIdx)
         end
     end
 
-    function W.Refresh()
+    -- sync: paint in this call even past PEAK_BUDGET (the OnShow catch-up, which must
+    -- never leave the pre-hide rows up for a frame).
+    function W.Refresh(sync)
         if not frame then return end
+        -- Hidden by any rule (instance rule, the hotkey, a failing global rule, between
+        -- hovers, Alt-Z): no fetch, no paint. The frame's OnShow runs one catch-up.
+        if not frame:IsVisible() then
+            W._refreshPending = true
+            -- The standalone timer rides window 1's refresh and has its own visibility
+            if winIdx == 1 then UpdateSATimerText() end
+            -- A live Deaths view still stamps its in-combat death times
+            ns._DMHiddenDeathsPass(W)
+            return
+        end
+        -- WoW Forever's Threat type: Forever Essentials' list, no session fetch.
+        if W.curDMType == "threat" then
+            RefreshUI(ns.DMThreatSession and ns.DMThreatSession())
+            return
+        end
 
         local apiStart = debugprofilestop()
         local session
@@ -4215,7 +4649,7 @@ local function CreateDMWindow(winIdx)
         local apiMs = debugprofilestop() - apiStart
 
         -- If API spiked, defer UI work to next frame so peaks don't stack
-        if apiMs > PEAK_BUDGET then
+        if apiMs > PEAK_BUDGET and not sync then
             C_Timer.After(0, function()
                 RefreshUI(session)
             end)
@@ -4228,6 +4662,8 @@ local function CreateDMWindow(winIdx)
     function W.RefreshBreakdown()
         if not W.sourceOpen then return end
         if not W.sourceGUID and not W.sourceCreatureID then return end
+        -- Hidden: the OnShow catch-up reaches the breakdown through RefreshUI
+        if not frame:IsVisible() then W._refreshPending = true; return end
         if not C_DamageMeter then return end
         EnsureSpellPool()
 
@@ -4566,12 +5002,15 @@ local function CreateDMWindow(winIdx)
     end
 
     function W.CloseSource()
+        local wasOpen = W.sourceOpen
         W.sourceOpen = false; W.sourceGUID = nil; W.sourceCreatureID = nil; W.sourceRecapID = nil; W.sourceRawName = nil
         W._cachedTargets = nil
         if W.sourceFrame then W.sourceFrame:Hide() end
         if viewport then viewport:Show() end
         if frame._bg then frame._bg:Show() end
         W.UpdateSticky(nil, W.visibleCount)
+        -- The last pass skipped the pin state while the source was up: rows it reveals need a fill.
+        if wasOpen then W.QueueRepopulate() end
     end
 
     -- Home screen (quick links grid): 2-column card layout with accent indicators, + add button, hint text
@@ -4586,7 +5025,6 @@ local function CreateDMWindow(winIdx)
     local CARD_PAD_TOP = 6
     local CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A = 0.12, 0.12, 0.12, 0.8
     local CARD_HL_A    = 0.18
-    local HOME_MAX     = 8
 
     local function MakeCard(parent)
         local card = CreateFrame("Button", nil, parent)
@@ -4635,6 +5073,8 @@ local function CreateDMWindow(winIdx)
         local outline = (EUI.GetFontOutlineFlag("damageMeters")) or ""
         local EG = EUI.ELLESMERE_GREEN
         local acR, acG, acB = GetAccentRGB()
+        -- WoW Forever: the header's tan glyphs in place of the accent.
+        local fvG = ns.DMForever() and ns.DM_FV.glyph
 
         -- Calculate column width from scroll frame. An unplaced window (an
         -- unlock-anchored one before the login anchor pass lands) has no
@@ -4647,15 +5087,18 @@ local function CreateDMWindow(winIdx)
         -- Hide all existing cards
         for _, c in ipairs(homeCards) do c:Hide() end
 
-        -- Layout bookmarks in 2-column grid
+        -- Layout bookmarks in 2-column grid. Cards go by display position (shown);
+        -- idx stays the bookmark's place in the saved list, for removal.
         local row, col = 0, 0
         local startY = -CARD_PAD_TOP
+        local shown = 0
 
-        for idx, dmType in ipairs(bookmarks) do
-            local card = homeCards[idx]
+        for idx, dmType in ns.DMHomeTypes(bookmarks) do
+            shown = shown + 1
+            local card = homeCards[shown]
             if not card then
                 card = MakeCard(homeChild)
-                homeCards[idx] = card
+                homeCards[shown] = card
             end
 
             local label = L(DM_TYPE_NAMES[dmType] or "Unknown")
@@ -4667,7 +5110,11 @@ local function CreateDMWindow(winIdx)
             card:SetPoint("TOPLEFT", homeChild, "TOPLEFT", xOff, yOff)
             card:SetWidth(colW)
 
-            card._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
+            -- WoW Forever: Forever's list buttons, the selected one marking
+            -- the active meter (no accent strip).
+            if not ns.DMFvCard(card._bg, isActive and "selected" or "normal") then
+                card._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
+            end
             card._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
             card._lbl:SetText(label)
             card._icon:SetTexture(DM_TYPE_ICONS[dmType] or MEDIA .. "dm_home_damage.png")
@@ -4675,24 +5122,37 @@ local function CreateDMWindow(winIdx)
 
             if isActive then
                 card._accent:SetColorTexture(acR, acG, acB, 1)
-                card._accent:Show()
-                card._icon:SetVertexColor(acR, acG, acB, 1)
+                card._accent:SetShown(not ns._dmForever)
+                if fvG then
+                    card._icon:SetVertexColor(fvG[1], fvG[2], fvG[3], 1)
+                else
+                    card._icon:SetVertexColor(acR, acG, acB, 1)
+                end
                 card._lbl:SetTextColor(1, 1, 1, 1)
                 card._arrow:SetVertexColor(1, 1, 1, 1)
             else
                 card._accent:Hide()
-                card._icon:SetVertexColor(acR, acG, acB, 0.6)
+                if fvG then
+                    local k = ns.DM_HDR_IDLE
+                    card._icon:SetVertexColor(fvG[1] * k, fvG[2] * k, fvG[3] * k, 1)
+                else
+                    card._icon:SetVertexColor(acR, acG, acB, 0.6)
+                end
                 card._lbl:SetTextColor(1, 1, 1, 0.8)
                 card._arrow:SetVertexColor(1, 1, 1, 1)
             end
 
             card:SetScript("OnEnter", function(self)
-                self._bg:SetColorTexture(CARD_BG_R + 0.06, CARD_BG_G + 0.06, CARD_BG_B + 0.06, CARD_BG_A + CARD_HL_A)
+                if not ns.DMFvCard(self._bg, "hover") then
+                    self._bg:SetColorTexture(CARD_BG_R + 0.06, CARD_BG_G + 0.06, CARD_BG_B + 0.06, CARD_BG_A + CARD_HL_A)
+                end
                 self._lbl:SetTextColor(1, 1, 1, 1)
                 self._arrow:SetVertexColor(1, 1, 1, 1)
             end)
             card:SetScript("OnLeave", function(self)
-                self._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
+                if not ns.DMFvCard(self._bg, isActive and "selected" or "normal") then
+                    self._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
+                end
                 if isActive then
                     self._lbl:SetTextColor(1, 1, 1, 1)
                     self._arrow:SetVertexColor(1, 1, 1, 1)
@@ -4706,9 +5166,8 @@ local function CreateDMWindow(winIdx)
                     table.remove(bookmarks, idx)
                     RefreshHome()
                 elseif button == "LeftButton" then
-                    W.curDMType = dmType; wdb.curDMType = dmType
-                    ns.DMSetTypeIcon(W._modeIcon, dmType)
-                    W.HideHome(); W.CloseSource(); W.Refresh()
+                    W.HideHome()
+                    W.SetDMType(dmType)
                 end
             end)
 
@@ -4717,9 +5176,12 @@ local function CreateDMWindow(winIdx)
             if col >= 2 then col = 0; row = row + 1 end
         end
 
-        -- "+ ADD NEW" button (full width, below the grid)
+        -- "+ ADD NEW" button (full width, below the grid), while a type this client
+        -- offers has no card yet
         local addRow = (col > 0) and (row + 1) or row
-        if #bookmarks < HOME_MAX then
+        local offered = 0
+        for _ in pairs(DM_TYPE_NAMES) do offered = offered + 1 end
+        if shown < offered then
             if not homeAddBtn then
                 homeAddBtn = CreateFrame("Button", nil, homeChild)
                 homeAddBtn:SetHeight(CARD_H)
@@ -4730,7 +5192,9 @@ local function CreateDMWindow(winIdx)
                 homeAddBtn._plus:SetPoint("RIGHT", homeAddBtn._lbl, "LEFT", -4, 0)
                 homeAddBtn._hint:SetPoint("LEFT", homeAddBtn._lbl, "RIGHT", 6, 0)
             end
-            homeAddBtn._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A * 0.5)
+            if not ns.DMFvCard(homeAddBtn._bg, "normal", 0.5) then
+                homeAddBtn._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A * 0.5)
+            end
             homeAddBtn._plus:SetFont(fontPath, 13, outline)
             homeAddBtn._plus:SetText("+")
             homeAddBtn._plus:SetTextColor(1, 1, 1, 0.3)
@@ -4750,11 +5214,15 @@ local function CreateDMWindow(winIdx)
             homeAddBtn:SetPoint("TOPLEFT", homeChild, "TOPLEFT", CARD_PAD_X, startY - addRow * (CARD_H + CARD_GAP))
             homeAddBtn:SetPoint("TOPRIGHT", homeChild, "TOPRIGHT", -CARD_PAD_X, startY - addRow * (CARD_H + CARD_GAP))
             homeAddBtn:SetScript("OnEnter", function(self)
-                self._bg:SetColorTexture(CARD_BG_R + 0.04, CARD_BG_G + 0.04, CARD_BG_B + 0.04, CARD_BG_A * 0.7)
+                if not ns.DMFvCard(self._bg, "hover", 0.7) then
+                    self._bg:SetColorTexture(CARD_BG_R + 0.04, CARD_BG_G + 0.04, CARD_BG_B + 0.04, CARD_BG_A * 0.7)
+                end
                 self._lbl:SetTextColor(1, 1, 1, 0.5); self._plus:SetTextColor(1, 1, 1, 0.5)
             end)
             homeAddBtn:SetScript("OnLeave", function(self)
-                self._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A * 0.5)
+                if not ns.DMFvCard(self._bg, "normal", 0.5) then
+                    self._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A * 0.5)
+                end
                 self._lbl:SetTextColor(1, 1, 1, 0.3); self._plus:SetTextColor(1, 1, 1, 0.3)
             end)
             homeAddBtn:SetScript("OnClick", function()
@@ -4839,9 +5307,12 @@ local function CreateDMWindow(winIdx)
     end
 
     function W.HideHome()
+        local wasUp = homeFrame and homeFrame:IsShown()
         if homeFrame then homeFrame:Hide() end
         if viewport then viewport:Show() end
         if frame._bg then frame._bg:Show() end
+        -- ShowHome hid the pinned row on its pinned anchors: re-run the pin pass (OpenSource sets sourceOpen first).
+        if wasUp and not W.sourceOpen then W.QueueRepopulate() end
     end
 
     function W.ToggleHome()
@@ -4849,6 +5320,18 @@ local function CreateDMWindow(winIdx)
     end
 
     -- (Refresh ticker is shared across all windows -- see file scope below CreateDMWindow)
+
+    -- Per-window instance rules (Hide in Dungeons / Raids / Delves / PvP / out of
+    -- Instances); shared by UpdateVisibility and the mouseover predicate below.
+    local function InstanceHidden()
+        local _, iType = IsInInstance()
+        if wdb.hideInDungeon and iType == "party" then return true end
+        if wdb.hideInRaid and iType == "raid" then return true end
+        if wdb.hideInDelve and C_PartyInfo and C_PartyInfo.IsDelveInProgress and C_PartyInfo.IsDelveInProgress() then return true end
+        if wdb.hideInPvP and (iType == "pvp" or iType == "arena") then return true end
+        if wdb.hideOutOfInstance and (iType == "none" or iType == nil) then return true end
+        return false
+    end
 
     -- Visibility
     function W.UpdateVisibility()
@@ -4860,12 +5343,7 @@ local function CreateDMWindow(winIdx)
         local vis = EUI.EvalVisibility(c)
         if not vis or vis == false then frame:Hide(); return end
         -- Per-window instance visibility
-        local _, iType = IsInInstance()
-        if wdb.hideInDungeon and iType == "party" then frame:Hide(); return end
-        if wdb.hideInRaid and iType == "raid" then frame:Hide(); return end
-        if wdb.hideInDelve and C_PartyInfo and C_PartyInfo.IsDelveInProgress and C_PartyInfo.IsDelveInProgress() then frame:Hide(); return end
-        if wdb.hideInPvP and (iType == "pvp" or iType == "arena") then frame:Hide(); return end
-        if wdb.hideOutOfInstance and (iType == "none" or iType == nil) then frame:Hide(); return end
+        if InstanceHidden() then frame:Hide(); return end
         if vis == "mouseover" then frame:Hide()
         else frame:SetAlpha(1); frame:EnableMouse(true); frame:Show() end
     end
@@ -4875,10 +5353,29 @@ local function CreateDMWindow(winIdx)
         -- Hover-gated sets only reveal while their conditions pass; a legacy single "mouseover" behaves exactly as before
         EUI.RegisterMouseoverTarget(frame, function()
             -- The mouseover scanner shows the frame without going through UpdateVisibility,
-            -- so the toggle has to be refused here as well
-            if ns._toggleHidden then return false end
+            -- so the toggle and the window's instance rules have to be refused here as well
+            if ns._toggleHidden or InstanceHidden() then return false end
             local c = DB()
             return c ~= nil and EUI.VisWantsMouseover(c, "visibility")
+        end)
+    end
+
+    -- Catch-up: refreshes skipped while hidden leave W._refreshPending, so the first show
+    -- (a rule, the hotkey, a hover, the options preview, Alt-Z) repaints once, in-call,
+    -- before the frame draws; then the ticks a fully hidden meter let lapse come back.
+    frame:HookScript("OnShow", function()
+        -- A Threat window (WoW Forever) always repaints: its list stops while
+        -- no Threat window is on screen.
+        if W._refreshPending or W.curDMType == "threat" then
+            W._refreshPending = nil
+            W.Refresh(true)
+        end
+        ns._DMReviveTicks()
+    end)
+    -- (Only where the Threat type is offered: set at login, before any window is built.)
+    if DM_TYPE_NAMES.threat then
+        frame:HookScript("OnHide", function()
+            if W.curDMType == "threat" then ns.DMThreatSync(W) end
         end)
     end
 
@@ -4887,8 +5384,9 @@ local function CreateDMWindow(winIdx)
     function W.Destroy()
         if W._hoverTicker then W._hoverTicker:Cancel() end
         resizeFrame:SetScript("OnUpdate", nil)
-        -- Unregister from global visibility system (prevents ghost resurrection)
+        -- Unregister from the global visibility system and the mouseover scan (prevents ghost resurrection)
         EUI.UnregisterVisibilityUpdater(W.UpdateVisibility)
+        EUI.UnregisterMouseoverTarget(frame)
         frame:Hide(); frame:SetParent(nil)
         -- Remove from runtime array
         local oldCount = #_windows
@@ -4950,12 +5448,9 @@ _G._EDM_Rescale = ns.Rescale
 -- recolor live without a /reload (color is cached keyed only on classFile, which the palette edit doesn't change).
 ns.RefreshColors = function()
     for _, w in ipairs(_windows) do
-        w._stickyClassCache = nil; w._stickySpecCache = nil
+        w._stickyClassCache = false; w._stickySpecCache = nil
+        -- The key bust re-seeds every populated row's colour memo (the full-rebuild pass).
         w._barCacheKey = nil
-        if w.rowPool then
-            for _, bar in ipairs(w.rowPool) do bar._cachedColorClass = nil end
-        end
-        if w.stickyPlayer then w.stickyPlayer._cachedColorClass = nil end
         w.Refresh()
     end
 end
@@ -5054,7 +5549,7 @@ ns.ApplyHeader = function()
     local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
     local hA = cfg.hdrBgAlpha or 1
     local tR, tG, tB
-    if cfg.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
+    if cfg.hdrTextUseAccent ~= false then tR, tG, tB = ns.DMTitleRGB()
     else local c = cfg.hdrTextColor; tR = c and c.r or 1; tG = c and c.g or 1; tB = c and c.b or 1 end
     local hdrFS = cfg.hdrFontSize or 11
     local hdrH = GetHeaderH()
@@ -5081,7 +5576,7 @@ ns.ApplyHeader = function()
             w.titleText:SetTextColor(tR, tG, tB, 1)
             local txOX, txOY = cfg.hdrTextOffX or 0, cfg.hdrTextOffY or 0
             w.titleText:ClearAllPoints()
-            w.titleText:SetPoint("LEFT", w.header, "LEFT", 6 + txOX, txOY)
+            w.titleText:SetPoint("LEFT", w.header, "LEFT", 6 + txOX, txOY + ns.DMHdrLift(cfg.hdrHeight))
         end
         if w.timerText then
             SetDMFont(w.timerText, hdrFS)
@@ -5095,6 +5590,7 @@ ns.ApplyHeader = function()
         end
 
         ApplyHeaderButtonsHoverVisibility(w, cfg)
+        w._fitFull = nil
         if w.FitTitle then w.FitTitle() end
     end
     ns.ApplyWindowBorder()
@@ -5517,14 +6013,12 @@ do
         local wantReset, wantToggle = WantKey(c.resetDataKey), WantKey(c.toggleWindowsKey)
         if not wantReset and not wantToggle and not appliedReset and not appliedToggle then
             kbFrame:UnregisterEvent("UPDATE_BINDINGS")
-            kbFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
             return
         end
         if InCombatLockdown() then
-            kbFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            ns.CombatQueue.Defer("DMKeybinds", ns.ApplyDMKeybinds)
             return
         end
-        kbFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
         selfWriteUntil = GetTime() + 0.5
         local resetBtn = _G.EllesmereUIDMResetBindBtn
         if resetBtn then
@@ -5627,6 +6121,25 @@ local function StopTimerTicker()
     if _saDecimalTicker then _saDecimalTicker:Cancel(); _saDecimalTicker = nil end
 end
 
+-- What the ticks feed: true while something is on screen (a visible window, or the enabled
+-- standalone timer, whose clock lives on these tickers); "stamp" while only a hidden window
+-- on the live Current Deaths view needs them (ns._DMHiddenDeathsPass, no clock); false
+-- otherwise. A hidden window's refresh only marks it stale for its OnShow catch-up.
+local function AnyTickViewer()
+    if DB().standaloneTimer then return true end
+    local stamp = false
+    for _, w in ipairs(_windows) do
+        local f = w.frame
+        -- A Threat window (WoW Forever) is painted by its own list's updates.
+        if f and w.curDMType ~= "threat" then
+            if f:IsVisible() then return true end
+            if w.curDMType == Enum.DamageMeterType.Deaths and not w.curSessionID
+               and w.curSession == Enum.DamageMeterSessionType.Current then stamp = "stamp" end
+        end
+    end
+    return stamp
+end
+
 local function SharedRefreshTick()
     -- Player out of combat but group still fighting (player died mid-pull)
     if _needsFinalRefresh then
@@ -5642,7 +6155,9 @@ local function SharedRefreshTick()
             _inCombat = false
             _needsFinalRefresh = false
             _regenTimestamp = 0
-            for _, w in ipairs(_windows) do w.Refresh() end
+            for _, w in ipairs(_windows) do
+                if w.curDMType ~= "threat" then w.Refresh() end
+            end
             if _sharedTicker then _sharedTicker:Cancel(); _sharedTicker = nil end
             StopTimerTicker()
             return
@@ -5655,12 +6170,32 @@ local function SharedRefreshTick()
         StopTimerTicker()
         return
     end
-    for _, w in ipairs(_windows) do w.Refresh() end
+    -- (Threat windows, WoW Forever, are painted by their own list's updates.)
+    for _, w in ipairs(_windows) do
+        if w.curDMType ~= "threat" then w.Refresh() end
+    end
+    -- Nothing on screen any more (each window above only marked itself stale): stop, and the
+    -- next window to show restarts the ticks. The group-fight poll and a hidden live Deaths
+    -- view keep their tick, no clock.
+    local v = AnyTickViewer()
+    if v ~= true then
+        if _needsFinalRefresh or v then StopTimerTicker() else StopSharedTicker() end
+    end
 end
 
--- Only active during combat to avoid idle CPU cost.
+-- Only active during combat to avoid idle CPU cost, and only while AnyTickViewer or the
+-- group-fight poll (_needsFinalRefresh) needs a tick. Gated here rather than at the call
+-- sites, so the session-event revivals cannot bring back a ticker with nothing to paint.
 StartSharedTicker = function()
-    if _sharedTicker then _sharedTicker:Cancel() end
+    if _sharedTicker then _sharedTicker:Cancel(); _sharedTicker = nil end
+    StopTimerTicker()
+    local viewers = AnyTickViewer()
+    if not viewers and not _needsFinalRefresh then
+        -- Data keeps moving with nothing refreshing it: mark every (hidden) window stale so
+        -- its show catches up at once instead of a tick later.
+        for _, w in ipairs(_windows) do w._refreshPending = true end
+        return
+    end
     local rate = DB().refreshRate or TICK_COMBAT
     -- Belt for values the login clamp has not seen yet (a profile imported
     -- mid-session from an old export can carry a sub-floor rate). Respects
@@ -5669,7 +6204,8 @@ StartSharedTicker = function()
     local floor = DB().unsafeRefreshRate and REFRESH_RATE_HARD_FLOOR or REFRESH_RATE_FLOOR
     if rate < floor then rate = floor end
     _sharedTicker = C_Timer.NewTicker(rate, SharedRefreshTick)
-    StopTimerTicker()
+    -- The poll or a hidden live Deaths view alone (nothing on screen) needs no clock
+    if viewers ~= true then return end
     _timerTicker = C_Timer.NewTicker(0.5, TimerTick)
     -- Tenths display needs a faster brush than the 0.5s timer tick; combat-only, opt-in only, standalone timer only
     local cfg = DB()
@@ -5681,6 +6217,14 @@ end
 StopSharedTicker = function()
     if _sharedTicker then _sharedTicker:Cancel(); _sharedTicker = nil end
     StopTimerTicker()
+end
+
+-- Something came on screen (a window's OnShow, after its catch-up; a build or profile
+-- swap, whose windows show without an OnShow edge): start the ticks, or add the clock
+-- to a clockless ticker. The clock runs whenever anything is on screen, so its absence
+-- is the signal. On ns: CreateDMWindow sits at the 60-upvalue cap.
+ns._DMReviveTicks = function()
+    if (_inCombat or _needsFinalRefresh) and not _timerTicker then StartSharedTicker() end
 end
 
 -- Stop the ticker after `delay`, no-op if a newer combat segment started (generation mismatch)
@@ -5786,7 +6330,6 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         ns.AutoCurrentOnCombat()
         for _, w in ipairs(_windows) do
             w._barCacheKey = nil
-            w._barSources = nil
             w._cachedTargets = nil
             w.Refresh()
         end
@@ -5842,6 +6385,8 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         -- Check if group is still fighting (player died but boss alive)
         if IsGroupInCombat() then
             _needsFinalRefresh = true  -- let tick poll until group leaves combat
+            -- The poll needs its tick even when a fully hidden meter let the ticker lapse
+            if not _sharedTicker then StartSharedTicker() end
             -- Don't freeze timer -- group is still in combat
         else
             -- Freeze timer: entire group out of combat. Guard against overwriting an earlier freeze (e.g. ENCOUNTER_END already froze at the boss end)
@@ -5969,7 +6514,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- All windows exist: register them with the core unlock mode system
             ns.RegisterDMUnlock()
             if cfg.standaloneTimer then CreateSATimer() end
-            if _inCombat and not _sharedTicker then StartSharedTicker() end
+            ns._DMReviveTicks()
             -- Pre-create tooltip frame so first hover doesn't pay creation cost
             EnsureTooltipFrame()
             local sc = (cfg.hoverTooltipScale or 100) / 100
@@ -5994,7 +6539,10 @@ initFrame:SetScript("OnEvent", function(self)
             if EUI.UnregisterVisibilityUpdater and w.UpdateVisibility then
                 EUI.UnregisterVisibilityUpdater(w.UpdateVisibility)
             end
-            if w.frame then w.frame:Hide(); w.frame:SetParent(nil) end
+            if w.frame then
+                EUI.UnregisterMouseoverTarget(w.frame)
+                w.frame:Hide(); w.frame:SetParent(nil)
+            end
         end
         wipe(_windows)
         -- Destroy standalone timer if present
@@ -6032,6 +6580,6 @@ initFrame:SetScript("OnEvent", function(self)
             local sc = (c.hoverTooltipScale or 100) / 100
             _ttFrame:SetScale(sc)
         end
-        if _inCombat and not _sharedTicker then StartSharedTicker() end
+        ns._DMReviveTicks()
     end
 end)

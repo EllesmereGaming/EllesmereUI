@@ -834,8 +834,10 @@ local function PlayerBuffChain(s)
             for filterId in pairs(s.buffNegFilters) do
                 local f = ns.PAB_GetFilter and ns.PAB_GetFilter(filterId)
                 if f and f.spells then
+                    -- Ids a preset keeps only for the other client never count
+                    -- here (ns.PAB_OtherClientSpell), same as on Player Aura Bars.
                     for id, on in pairs(f.spells) do
-                        if on then
+                        if on and not ns.PAB_OtherClientSpell(f, id) then
                             ex = ex or {}
                             ex[id] = true
                             ExpandBuffFamily(ex, id, f.spells)
@@ -872,7 +874,7 @@ local function PlayerBuffChain(s)
             local f = ns.PAB_GetFilter and ns.PAB_GetFilter(filterId)
             if f and f.spells then
                 for id, on in pairs(f.spells) do
-                    if on then
+                    if on and not ns.PAB_OtherClientSpell(f, id) then
                         inc = inc or {}
                         if not inc[id] then
                             inc[id] = true
@@ -902,7 +904,7 @@ local function PlayerBuffChain(s)
             local f = ns.PAB_GetFilter and ns.PAB_GetFilter(filterId)
             if f and f.spells then
                 for id, on in pairs(f.spells) do
-                    if on then
+                    if on and not ns.PAB_OtherClientSpell(f, id) then
                         hide[id] = true
                         ExpandBuffFamily(hide, id, f.spells)
                     end
@@ -1065,7 +1067,21 @@ end
 -- nothing when its picks can never match.
 local function PlayerDebuffChain(s)
     EnsurePlayerAuraLanes(s)
-    if s.debuffShowAll == false then
+    -- Has Duration checked with no Show pick is the timed catch-all (Player Aura
+    -- Bars parity): the All Debuffs path below, narrowed by ChainFor.
+    local durAlone = false
+    if s.debuffShowAll == false and s.debuffHasDuration == true then
+        durAlone = true
+        for i = 1, #TOKEN_CLASSES do
+            if ClassEnabled(TOKEN_CLASSES[i], false, s, "player") then durAlone = false break end
+        end
+        if durAlone then
+            for i = 1, #CANDIDATE_CLASSES do
+                if ClassEnabled(CANDIDATE_CLASSES[i], false, s, "player") then durAlone = false break end
+            end
+        end
+    end
+    if s.debuffShowAll == false and not durAlone then
         local matchOn, link = PlayerDebuffMatch(s)
         if matchOn then return { link } end
         return BuildChain("HARMFUL", false, s, "player")
@@ -1120,6 +1136,60 @@ local function PlayerDebuffChain(s)
     for n = 1, #negations do allTokens[#allTokens + 1] = negations[n] end
     chain[#chain + 1] = { key = "pdall|" .. table.concat(allTokens, "") .. "|" .. CandFP(cand),
         tokens = allTokens, cand = cand }
+    return chain
+end
+
+-- An element's chain. Has Duration (s.debuffHasDuration on every unit,
+-- s.buffDurOnly on target/focus/boss -- its own key: the player's broad-mode
+-- s.buffHasDuration, run inside PlayerBuffChain, can already sit copied on
+-- those units) is an AND-modifier on every link that shows content:
+-- Blizzard's candidate maxDuration check, which drops an aura when
+-- `duration > maxDuration or duration == 0`, so math.huge drops only the
+-- permanent ones. The container evaluates it and it is not identity-gated,
+-- so it holds on any unit, friendly or hostile, secret or not. Hide-lane links
+-- (they render nothing) and Tracked Auras include links (explicit always-show
+-- spells) keep their payload. A narrowed link's key gains "|dur", so the
+-- variant declares fresh and the plain one parks at 0.
+local function ChainFor(unit, base, s)
+    local isBuff = base == "HELPFUL"
+    local chain
+    if unit == "player" and isBuff then
+        return PlayerBuffChain(s)
+    elseif unit == "player" then
+        chain = PlayerDebuffChain(s)
+    else
+        chain = BuildChain(base, isBuff, s, unit)
+    end
+    local dur
+    if isBuff then dur = s.buffDurOnly == true else dur = s.debuffHasDuration == true end
+    if not dur then return chain end
+    -- Non-player buffs with nothing shown or hidden run the plain show-all
+    -- group (ApplyGroupConfig); narrowed, it becomes an explicit link.
+    if isBuff and #chain == 0 then
+        chain[1] = { key = "all", tokens = { base } }
+    end
+    -- Show All's catch-all is what shows the Tracked Auras there (no include
+    -- links); narrowed, they get one include link of their own, from any
+    -- caster as the catch-all showed them, at any duration.
+    if not isBuff and unit ~= "player" and DebuffFilterMode(s) == "all" and HasActiveIncludes(s) then
+        local m = {}
+        for id, v in pairs(s.debuffInclude) do
+            if v then m[id] = true end
+        end
+        chain[#chain + 1] = { key = "incall|" .. CandFP({ includeSpellIDs = m }),
+            tokens = { "HARMFUL" }, cand = { includeSpellIDs = m, excludeSpellIDs = {} }, inc = true }
+    end
+    for i = 1, #chain do
+        local c = chain[i]
+        if not (c.hidden or c.inc) then
+            local cand = { maxDuration = math.huge }
+            if c.cand then
+                for k, v in pairs(c.cand) do cand[k] = v end
+                if cand.maxDuration == nil then cand.maxDuration = math.huge end
+            end
+            chain[i] = { key = c.key .. "|dur", tokens = c.tokens, cand = cand, glow = c.glow, mine = c.mine }
+        end
+    end
     return chain
 end
 
@@ -1335,7 +1405,10 @@ local function StyleTableFP(st, font)
         b and b.texture, b and b.size, b and b.edgePx, b and b[1], b and b[2], b and b[3], b and b[4],
         b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
         b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel,
-        st.noTooltips, st.blizzBorder, st.dispelBorder)
+        st.noTooltips, st.blizzBorder, st.dispelBorder,
+        -- Textured Dispel Ring (the ring's art key) and Use Dispel Colors (the
+        -- palette fingerprint the colour map was built from).
+        st.dispelBorderTexture, st.dispelColorFP)
 end
 
 -- Declares one chain group and records it in the element's declared-set
@@ -1392,6 +1465,11 @@ local function ElementSize(unit, base, s)
     return size, h, cropped
 end
 
+-- Use Dispel Colors (player debuffs): the Dispel Colors palette as the engine's
+-- customDispelColorMap plus its fingerprint. Assigned below the dispel slot table
+-- it reads.
+local PlayerDispelPalette
+
 local function BuildStyle(unit, base, s, unitFrame)
     local isBuff = (base == "HELPFUL")
     local size, h, cropped = ElementSize(unit, base, s)
@@ -1410,7 +1488,7 @@ local function BuildStyle(unit, base, s, unitFrame)
     -- Blizzard Style: buffs borderless like the stock frames, debuffs on the
     -- engine-stamped stock dispel border (AuraKit blizzBorder); no EUI ring.
     local blizz = ns.UF_Blizz and ns.UF_Blizz() or false
-    local border, dispel, blizzBorder
+    local border, dispel, blizzBorder, dispelTex, dcMap, dcFP
     if blizz then
         if not isBuff then dispel = true; blizzBorder = true end
     else
@@ -1430,14 +1508,25 @@ local function BuildStyle(unit, base, s, unitFrame)
             unitFrameLevel = unitFrame and unitFrame:GetFrameLevel() or 1,
         }
         -- Dispel-type border recolor (per-unit debuffDispelBorder): the engine
-        -- shows the ring only on typed (dispellable) debuffs and picks the
-        -- dispel color itself -- the user palette cannot apply under secrecy
-        -- (same documented delta as the RF debuff border).
+        -- shows the ring only on typed (dispellable) debuffs and tints it per
+        -- dispel type, in its own colours or, with the player's Use Dispel
+        -- Colors, in the Dispel Colors palette handed over as
+        -- customDispelColorMap (below). No aura data is read either way.
         dispel = (not isBuff and s.debuffDispelBorder) and true or nil
         -- Buffs on target/focus/boss (opt-in): the same engine ring, tinted by
         -- the buff's dispel type (Magic blue). Untyped buffs get no ring.
         if isBuff and unit ~= "player" and s.buffDispelBorder == true then
             dispel = true
+        end
+        -- Textured Dispel Ring (per-unit, player/target): AuraKit draws the ring
+        -- in the aura border's own art on the aura border's geometry (style.border)
+        -- instead of flat strips, and keeps the strips by itself for a size-0 border.
+        if dispel and s.auraBorderDispelTextured == true
+            and border.texture ~= "solid" and border.texture ~= "" then
+            dispelTex = border.texture
+        end
+        if dispel and not isBuff and unit == "player" and s.debuffDispelUsePalette == true then
+            dcMap, dcFP = PlayerDispelPalette()
         end
     end
 
@@ -1471,6 +1560,9 @@ local function BuildStyle(unit, base, s, unitFrame)
         noTooltips = (s.showAuraTooltips == false) or nil,
         dispelBorder = dispel,
         dispelHelpful = (isBuff and dispel) or nil,
+        dispelBorderTexture = dispelTex,
+        dispelColorMap = dcMap,
+        dispelColorFP = dcFP,
         -- Resolved once per (fingerprint-gated) style rebuild instead of on
         -- every ApplyUFText call -- GetFontPath's result only changes when
         -- font settings change, which already forces a fresh style table.
@@ -1489,8 +1581,8 @@ end
 
 function PurgeGlow.Extra(button, d, style)
     ApplyUFText(button, d, style)
+    if not style.purgeSpec then return end
     local Glows = EllesmereUI.Glows
-    if not (Glows and Glows.StartEngineGlow) then return end
     local host = d.ufPurgeGlow
     if not host then
         -- The first call runs inside initializeFrame, the button's one legal
@@ -1504,35 +1596,33 @@ function PurgeGlow.Extra(button, d, style)
         end
         host:EnableMouse(false)
         d.ufPurgeGlow = host
+        -- nil need: every family (Pixel, the flipbooks and Blizzard Border).
+        Glows.PrewarmEngineHost(host, style.width, style.height, nil)
     end
-    local g, w, h = style.purgeGlow, style.width, style.height
-    local cr, cg, cb = style.purgeR, style.purgeG, style.purgeB
-    -- Blizzard Border: Blizzard's static stealable art instead of a glow.
-    if g == Glows.STEALABLE_BORDER then
-        if host._pgS ~= g or host._pgW ~= w or host._pgH ~= h
-           or host._pgR ~= cr or host._pgG ~= cg or host._pgB ~= cb then
-            if host._euiGlowActive then Glows.StopGlow(host) end
-            host:SetAlpha(1)
-            Glows.ShowStealableBorder(host, w, h, cr, cg, cb)
-            host._pgBorder = true
-            host._pgS, host._pgW, host._pgH = g, w, h
-            host._pgR, host._pgG, host._pgB = cr, cg, cb
-        end
-        return
-    end
-    if host._pgBorder then
-        Glows.HideStealableBorder(host)
-        host._pgBorder = nil
-    end
-    if (not host._euiGlowActive) or host._pgS ~= g or host._pgW ~= w or host._pgH ~= h
-       or host._pgR ~= cr or host._pgG ~= cg or host._pgB ~= cb then
-        -- C-side animations only (engine-button subtree); nil color = the
-        -- style's default look.
-        Glows.StartEngineGlow(host, g, w, cr, cg, cb, nil, h)
-        host._pgS, host._pgW, host._pgH = g, w, h
-        host._pgR, host._pgG, host._pgB = cr, cg, cb
-    end
+    -- C-side animations only (engine-button subtree); Blizzard Border
+    -- (static stealable art) renders through the same call.
+    Glows.StartSpecGlow(host, style.purgeSpec, style.width, style.height, "engine")
 end
+
+-- Unset color = "default" mode: the suite's default look (gold).
+function PurgeGlow.Spec(s)
+    local c = s.buffPurgeGlowColor
+    local mode = s.buffPurgeGlowColorMode or (c and "custom" or "default")
+    local bgc = s.buffPurgeGlowBackgroundColor
+    local spec = {
+        style = s.buffPurgeGlow,
+        lines = s.buffPurgeGlowLines, thickness = s.buffPurgeGlowThickness,
+        speed = s.buffPurgeGlowSpeed,
+        bg = s.buffPurgeGlowBackground == true or nil,
+        bgR = bgc and bgc.r, bgG = bgc and bgc.g, bgB = bgc and bgc.b,
+    }
+    spec.r, spec.g, spec.b = EllesmereUI.Glows.ResolveColor(mode, c and c.r, c and c.g, c and c.b)
+    -- Class mode: the palette colour this spec (and Register's print) holds,
+    -- for the colours-changed hook below the reload.
+    if mode == "class" then PurgeGlow.ccR, PurgeGlow.ccG, PurgeGlow.ccB = spec.r, spec.g, spec.b end
+    return spec
+end
+ns.UF_PurgeGlowSpec = PurgeGlow.Spec
 
 -- Registers (and restyles on a fingerprint change) the glow style while the
 -- glow is on. Runs before any glow group is declared: initializeFrame
@@ -1541,11 +1631,11 @@ function PurgeGlow.Register(unit, s, frame, font)
     if not PurgeGlow.On(unit, s) then return end
     local key = PurgeGlow.StyleKey(unit)
     local style = BuildStyle(unit, "HELPFUL", s, frame)
-    local c = s.buffPurgeGlowColor
-    style.purgeGlow = s.buffPurgeGlow
-    style.purgeR, style.purgeG, style.purgeB = c and c.r, c and c.g, c and c.b
+    local sp = PurgeGlow.Spec(s)
+    style.purgeSpec = sp
     style.applyExtra = PurgeGlow.Extra
-    local v = StyleTableFP(style, font) .. "|" .. FP(style.purgeGlow, style.purgeR, style.purgeG, style.purgeB)
+    local v = StyleTableFP(style, font) .. "|" .. FP(sp.style, sp.r, sp.g, sp.b, sp.lines,
+        sp.thickness, sp.speed, sp.bg, sp.bgR, sp.bgG, sp.bgB)
     local st = ufFP[key]
     if not st then st = {}; ufFP[key] = st end
     if st.style ~= v then
@@ -2319,6 +2409,38 @@ local DISPEL_SLOTS = {
 }
 local DISPEL_TYPE_TOKENS = { magic = "Magic", curse = "Curse", disease = "Disease", poison = "Poison", bleed = "Bleed" }
 
+-- Use Dispel Colors: the player's Dispel Colors (profile root, the palette the
+-- dispel overlay uses) as a customDispelColorMap (dispel type -> Color) for the
+-- player's debuff rings, plus its fingerprint, which BuildStyle hands on as
+-- style.dispelColorFP (AuraKit re-registers the ring options when it moves).
+-- Memoised on the five resolved colours, its only inputs: an unchanged palette
+-- hands back the same map.
+do
+    local memoFP, memoMap
+    PlayerDispelPalette = function()
+        local p = ns.UF_GetProfile and ns.UF_GetProfile()
+        if not p then return nil, nil end
+        local fp = ""
+        for i = 1, #DISPEL_SLOTS do
+            local slot = DISPEL_SLOTS[i]
+            local c = p[slot.colorKey]
+            fp = fp .. string.format("%.3f,%.3f,%.3f;", (c and c.r) or slot.fallback[1],
+                (c and c.g) or slot.fallback[2], (c and c.b) or slot.fallback[3])
+        end
+        if memoFP ~= fp then
+            local map = {}
+            for i = 1, #DISPEL_SLOTS do
+                local slot = DISPEL_SLOTS[i]
+                local c = p[slot.colorKey]
+                map[DISPEL_TYPE_TOKENS[slot.key]] = CreateColor((c and c.r) or slot.fallback[1],
+                    (c and c.g) or slot.fallback[2], (c and c.b) or slot.fallback[3], 1)
+            end
+            memoFP, memoMap = fp, map
+        end
+        return memoMap, memoFP
+    end
+end
+
 -- A dispel type RAID_PLAYER_DISPELLABLE can never match (bleeds via the dwarf
 -- racial, poison on a shaman via Poison Cleansing Totem -- the token knows class
 -- and spec dispels only) is handled here by keeping the PLAIN slot lit for such
@@ -2364,11 +2486,17 @@ local function ApplyDispelSlotStyle(button, d, style)
     end
 
     tex:ClearAllPoints()
-    if style.mode == "gradient" or style.mode == "gradient_sharp" then
+    if style.mode == "none" then
+        -- Overlay None with Color Custom Borders on: the slots show for the
+        -- border copy alone.
+        tex:Hide()
+    elseif style.mode == "gradient" or style.mode == "gradient_sharp" then
+        tex:Show()
         tex:SetAllPoints(health)
         tex:SetTexture(style.mode == "gradient_sharp" and GRADIENT_SHARP_TEXTURE or GRADIENT_TEXTURE)
         tex:SetVertexColor(c.r, c.g, c.b, alpha)
     elseif style.mode == "fill" then
+        tex:Show()
         local fillTex = health.GetStatusBarTexture and health:GetStatusBarTexture()
         -- Both corners come off the fill texture so the overlay follows vertical and
         -- reverse fills; anchoring TOPLEFT to the bar only tracks left-to-right.
@@ -2380,9 +2508,82 @@ local function ApplyDispelSlotStyle(button, d, style)
         tex:SetColorTexture(c.r, c.g, c.b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     else -- "full"
+        tex:Show()
         tex:SetAllPoints(health)
         tex:SetColorTexture(c.r, c.g, c.b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
+    end
+
+    -- Color Custom Borders: a copy of the player frame's own border (same style,
+    -- size, exact pixels, offsets and shifts) in this type's Dispel Color at full
+    -- opacity. It rides the slot's engine visibility, so it covers the normal
+    -- border only while the type is present; only the active "by me" twin carries
+    -- style.customBorder. One level over the unified border's current level
+    -- (frame+10, frame+20 over an inside 3D portrait, frame-1 under Show Behind).
+    -- Every type's copy shares that level, so two types present at once stack in
+    -- no fixed order, as on Raid Frames. The secret-safe renderer needs no size
+    -- reads and no scripts (scripts never run under a slot button). State lives
+    -- in d, never on the button.
+    local cb = style.customBorder
+    local uf = style.unitFrame
+    local ub = cb and uf and uf.unifiedBorder
+    if ub then
+        if not d.ufCbHost then
+            -- Published only once anchored: a denied write leaves no half-built
+            -- host, and the next restyle simply tries again.
+            local host = CreateFrame("Frame", nil, button)
+            host:SetAllPoints(ub)
+            d.ufCbState = {}
+            d.ufCbHost = host
+        end
+        -- Armed before the first write on the host: a draw that throws partway
+        -- still leaves the off branch able to clear whatever it drew.
+        d.ufCbOn = true
+        d.ufCbHost:SetFrameLevel(ub:GetFrameLevel() + 1)
+        EllesmereUI.ApplySecretSafeBorderStyle(d.ufCbHost, d.ufCbState, cb.size, c.r, c.g, c.b, 1,
+            cb.tex, cb.offX, cb.offY, cb.shX, cb.shY, "unitframes", cb.size, nil, cb.px)
+        d.ufCbHost:Show()
+    elseif d.ufCbOn then
+        -- Size 0 hides every piece and drops the UI-scale re-apply registration.
+        EllesmereUI.ApplySecretSafeBorderStyle(d.ufCbHost, d.ufCbState, 0, 0, 0, 0, 0, "solid")
+        d.ufCbHost:Hide()
+        -- Disarmed only once the hide landed: a denied call re-runs this at the lift.
+        d.ufCbOn = nil
+    end
+
+    -- The portrait's Outer Ring (its texture on the backdrop, backdrop._outerRing)
+    -- gets the same copy while it shows: the ring's own art laid on the ring's own
+    -- rect (anchor-derived, so size and position follow it), on a holder one level
+    -- over the portrait backdrop (a detached backdrop sits at frame+15, over the
+    -- unified border and its copy).
+    local bd = ub and uf.Portrait and uf.Portrait.backdrop
+    local ring = bd and bd._outerRing
+    if ring and ring:IsShown() and bd:IsShown() then
+        if not d.ufRingHost then
+            local host = CreateFrame("Frame", nil, button)
+            local rt = host:CreateTexture(nil, "OVERLAY", nil, 7)
+            rt:SetAllPoints(host)
+            d.ufRingTex = rt
+            d.ufRingHost = host
+        end
+        local host = d.ufRingHost
+        if d.ufRingAnchor ~= ring then
+            host:ClearAllPoints()
+            host:SetAllPoints(ring)
+            d.ufRingAnchor = ring
+        end
+        d.ufRingOn = true
+        host:SetFrameLevel(bd:GetFrameLevel() + 1)
+        local art = ring:GetTexture()
+        if d.ufRingArt ~= art then
+            d.ufRingTex:SetTexture(art)
+            d.ufRingArt = art
+        end
+        d.ufRingTex:SetVertexColor(c.r, c.g, c.b, 1)
+        host:Show()
+    elseif d.ufRingOn then
+        d.ufRingHost:Hide()
+        d.ufRingOn = nil
     end
 end
 
@@ -2390,9 +2591,22 @@ local function DispelStyleKey(slotKey)
     return "uf:player:dispel:" .. slotKey
 end
 
+-- Color Custom Borders is live: the toggle, over a custom border (runtime twin
+-- of the options gate; a saved true stands down under a stock style, a Solid
+-- Border Style or Border Size 0).
+local function DispelCustomBorderOn(p)
+    return p.dispelCustomBorder == true and ns.UF_CustomBorderOn(p.player)
+end
+
+-- The slots show while the overlay or Color Custom Borders needs them; both off
+-- (the default), the container stays hidden and parses nothing.
+local function DispelSlotsShown(p)
+    return (p.dispelOverlay or "none") ~= "none" or DispelCustomBorderOn(p)
+end
+
 local function BuildDispelStyles(frame)
     local p = ns.UF_GetProfile and ns.UF_GetProfile()
-    if not p then return "none" end
+    if not p then return false end
     local mode = p.dispelOverlay or "none"
     -- "Only Dispellable by You": slot filters are fixed at declaration and
     -- containers are never swapped (engine buttons leak), so BOTH filter
@@ -2400,22 +2614,42 @@ local function BuildDispelStyles(frame)
     -- styled to opacity 0. Toggling the option only restyles.
     local byMe = p.dispelOverlayByMe == true
     local op = p.dispelOverlayOpacity or 100
+    -- Color Custom Borders: the player frame border's own ApplyBorderStyle
+    -- inputs, so each type's copy matches it (read-only, shared by the slots).
+    local customBorder
+    if DispelCustomBorderOn(p) then
+        local s = p.player
+        local bs = s.borderSize or 1
+        local btex = s.borderTexture
+        customBorder = {
+            size = bs, tex = btex,
+            offX = s.borderTextureOffset, offY = s.borderTextureOffsetY,
+            shX = s.borderTextureShiftX, shY = s.borderTextureShiftY,
+            px = EllesmereUI.BorderPx(s.borderSizePx, bs, btex),
+        }
+    end
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
         -- A type the engine token can never match keeps using the PLAIN slot in
         -- "by me" mode: its by-me twin stays dark and would swallow the setting
         -- entirely.
         local tokenBlind = TokenBlindDispelSlot(slot.key)
+        local byMeLive = byMe and not tokenBlind
         local col = p[slot.colorKey]
         local color = { r = col and col.r or slot.fallback[1], g = col and col.g or slot.fallback[2], b = col and col.b or slot.fallback[3] }
+        -- The border copy rides the live twin only; the inactive one draws nothing.
+        local plainCB, byMeCB
+        if byMeLive then byMeCB = customBorder else plainCB = customBorder end
         AK.styles[DispelStyleKey(slot.key)] = {
             width = 1, height = 1,
             noRegions = true,
             mode = mode,
             color = color,
-            opacity = (byMe and not tokenBlind) and 0 or op,
+            opacity = byMeLive and 0 or op,
             level = slot.level,
             healthFrame = frame.Health,
+            unitFrame = frame,
+            customBorder = plainCB,
             applyExtra = ApplyDispelSlotStyle,
         }
         AK.styles[DispelStyleKey(slot.key .. "_byme")] = {
@@ -2423,17 +2657,19 @@ local function BuildDispelStyles(frame)
             noRegions = true,
             mode = mode,
             color = color,
-            opacity = (byMe and not tokenBlind) and op or 0,
+            opacity = byMeLive and op or 0,
             level = slot.level,
             healthFrame = frame.Health,
+            unitFrame = frame,
+            customBorder = byMeCB,
             applyExtra = ApplyDispelSlotStyle,
         }
     end
-    return mode
+    return DispelSlotsShown(p)
 end
 
 local function CreateDispelSlots(frame, entry)
-    local mode = BuildDispelStyles(frame)
+    local shown = BuildDispelStyles(frame)
 
     local container = entry.dispel
     if not container then
@@ -2487,16 +2723,29 @@ local function CreateDispelSlots(frame, entry)
     end
     AK.FinishContainer(container, "player")
 
-    container:SetShown(mode ~= "none")
+    container:SetShown(shown)
 end
 
 local function DispelFP(p)
     -- The poison capability is a talent (Poison Cleansing Totem), so it rides
     -- the fingerprint; race can't change mid-session.
+    -- Color Custom Borders copies the frame border, so while it is on every input
+    -- the copy reads counts too: the border keys; the strata (a strata change
+    -- re-stacks child levels); the portrait mode and side (an inside 3D portrait
+    -- lifts the unified border to frame+20); and the portrait and Outer Ring keys
+    -- that decide whether the ring copy shows and which art it takes.
+    local s = p.player
+    local cb = p.dispelCustomBorder == true and s ~= nil
     return FP(p.dispelOverlay, p.dispelOverlayOpacity, p.dispelOverlayByMe == true,
         TokenBlindDispelSlot("poison") and 1 or 0,
         CK(p.dispelColorMagic), CK(p.dispelColorCurse),
-        CK(p.dispelColorDisease), CK(p.dispelColorPoison), CK(p.dispelColorBleed))
+        CK(p.dispelColorDisease), CK(p.dispelColorPoison), CK(p.dispelColorBleed),
+        cb, cb and FP(s.borderSize, s.borderTexture, s.borderSizePx,
+            s.borderTextureOffset, s.borderTextureOffsetY, s.borderTextureShiftX,
+            s.borderTextureShiftY, s.borderBehind, p.frameStrata, s.frameStrata,
+            s.portraitMode, s.portraitSide, p.portraitStyle, s.portraitStyle, s.showPortrait,
+            s.portraitSize, s.detachedPortraitShape, s.detachedPortraitOuterRing,
+            s.detachedPortraitOuterRingScale) or false)
 end
 
 local function ReloadDispelSlots(frame, entry)
@@ -2512,7 +2761,7 @@ local function ReloadDispelSlots(frame, entry)
             AK.RestyleSoon(DispelStyleKey(DISPEL_SLOTS[i].key .. "_byme"))
         end
     end
-    entry.dispel:SetShown((p.dispelOverlay or "none") ~= "none")
+    entry.dispel:SetShown(DispelSlotsShown(p))
 end
 
 -- Options-panel poke (via ns.UpdatePlayerDispelOverlay): re-run the
@@ -2610,14 +2859,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
         -- probe T1/T1b), and the config pass zeroes whatever fell out of the active
         -- set. The old swap path permanently leaked a 10-button batch per group per
         -- toggle (engine frames are never freed).
-        local chain
-        if unit == "player" and base == "HELPFUL" then
-            chain = PlayerBuffChain(s)
-        elseif unit == "player" then
-            chain = PlayerDebuffChain(s)
-        else
-            chain = BuildChain(base, base == "HELPFUL", s, unit)
-        end
+        local chain = ChainFor(unit, base, s)
         local sig = ChainSignature(chain)
         local force = forceCfg
         local container = entry[field]
@@ -2719,7 +2961,6 @@ local unitWatcher = CreateFrame("Frame")
 unitWatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
 unitWatcher:RegisterEvent("PLAYER_FOCUS_CHANGED")
 unitWatcher:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
-unitWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
 unitWatcher:SetScript("OnEvent", function(_, event)
     -- The Tracked Auras gate first (a friendly/hostile flip re-configures the
     -- debuff groups), then the one re-parse.
@@ -2731,14 +2972,6 @@ unitWatcher:SetScript("OnEvent", function(_, event)
         IncGate.Apply("focus", true)
         PurgeGlow.Check("focus", true)
         RefreshUnit("focus")
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        -- Filter-set swaps requested during combat run now.
-        for unitKey, entry in pairs(registry) do
-            if entry.pendingSwap then
-                entry.pendingSwap = nil
-                ns.UF_ReloadAuraContainers(entry.frame, unitKey)
-            end
-        end
     else
         for i = 1, 5 do RefreshUnit("boss" .. i) end
     end
@@ -2753,6 +2986,29 @@ function ns.UF_ReloadAllAuraContainers()
             ns.UF_ReloadAuraContainers(entry.frame, unitKey)
         end
     end
+end
+
+-- Colors page edits (swatches, darken, resets, profile switches) all end in
+-- ApplyColorsToOUF. Once a Class-mode purge glow was built, a changed class
+-- colour re-runs the reload; the purge print carries the colour, so only
+-- that glow style restyles. Calls in one frame (a profile switch can make
+-- two) collapse into one check on the next frame: the flush frame stays
+-- hidden until a call and hides itself before working.
+do
+    local flush = CreateFrame("Frame")
+    flush:Hide()
+    flush:SetScript("OnUpdate", function(self)
+        self:Hide()
+        local r0 = PurgeGlow.ccR
+        if r0 == nil then return end
+        local r, g, b = EllesmereUI.Glows.ResolveColor("class")
+        if r ~= r0 or g ~= PurgeGlow.ccG or b ~= PurgeGlow.ccB then
+            ns.UF_ReloadAllAuraContainers()
+        end
+    end)
+    hooksecurefunc(EllesmereUI, "ApplyColorsToOUF", function()
+        if PurgeGlow.ccR ~= nil then flush:Show() end
+    end)
 end
 
 -- Cast bar settle: the bar's saved position is applied by the unlock system's
@@ -2859,14 +3115,7 @@ local function BuildUnitContainers(frame, unit)
     -- atom).
     for e = 1, 2 do
         local base, field = ELEMENT_ORDER[e][1], ELEMENT_ORDER[e][2]
-        local chain
-        if unit == "player" and base == "HELPFUL" then
-            chain = PlayerBuffChain(s)
-        elseif unit == "player" then
-            chain = PlayerDebuffChain(s)
-        else
-            chain = BuildChain(base, base == "HELPFUL", s, unit)
-        end
+        local chain = ChainFor(unit, base, s)
         local declared = entry.groups[field]
         local styleKey = StyleKey(unit, base)
         if not declared.all then

@@ -89,7 +89,8 @@ function ns.WC_Sync(frame, sp, powerKey, gen)
     local ebR, ebG, ebB, ebA = 0.1, 0.1, 0.1, 0.5
     local ERB2 = ns.ERB
     if ERB2 and ERB2.PipBgColor then
-        ebR, ebG, ebB, ebA = ERB2.PipBgColor(sp)
+        -- Background on individual pips hides the full-bar backdrop: composite.
+        ebR, ebG, ebB, ebA = ERB2.PipBgColor(sp, ns.ERB_PipBgOn(sp, false))
     end
     local wantText = sp.showText and true or false
     if wantText and _G._ERB_TextHiddenByForm and ns.ERB and ns.ERB.db

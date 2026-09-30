@@ -19,6 +19,19 @@ local function PAB()
     local db = ns.db
     return db and db.profile and db.profile.playerAuraBars
 end
+-- WoW Forever: every read passes the one-time buff clear first
+-- (EllesmereUI_Migration.lua; "fvBuffWipe" is its frozen mark). The table is
+-- cleared in place, so the same table returns; a marked one costs one field
+-- read. Nothing here runs on other clients.
+if EllesmereUI.FvBW then
+    local fv = EllesmereUI.FvBW
+    PAB = function()
+        local db = ns.db
+        local s = db and db.profile and db.profile.playerAuraBars
+        if s and s.fvBuffWipe == nil then fv.ProcessUF(db.profile, nil, "live") end
+        return s
+    end
+end
 
 -------------------------------------------------------------------------------
 --  Shared class vocabulary (from EUI_UnitFrames_AuraContainers.lua)
@@ -321,23 +334,22 @@ local function PabSnap(x)
     return math.floor(x / m + 0.5 + 0.001) * m
 end
 
-local function PAB_ApplyDmFx(button, d, style)
+-- On ns, not file locals: this chunk sits near Lua's 200-local cap. The need
+-- table names the engine glow families the Icon Glow menu offers (Pixel and
+-- the flipbooks, no Blizzard Border), so a prewarm builds only those.
+ns.PAB_GLOW_SPEC = {}
+ns.PAB_GLOW_NEED = { ants = true, flip = true }
+local function PAB_ApplyDmFx(button, d, style, arming)
     local cat = d.dmCat
     local e = style.fxList and PAB_FxBlockFor(style.fxList, cat) or nil
 
     local Glows = EllesmereUI.Glows
     local PP = EllesmereUI.PP
-    local gType = (e and e.glowType) or 0
-    -- ALWAYS remap driver-ticked styles (Pixel/Action Button/Auto-Cast/Shape) to their
-    -- FlipBook-safe equivalent. Must NOT gate on AK.AurasRestricted(): that reflects only
-    -- whether AURA DATA is secret, while a Lua OnUpdate touching a frame parented to a
-    -- 12.1 engine aura button is forbidden UNCONDITIONALLY ("Attempt to access forbidden
-    -- object from code tainted by an AddOn" on wrapper:IsVisible() inside
-    -- EllesmereUI_Glows.lua's driver). Only FlipBook styles (GCD/Modern/Classic) are
-    -- safe: C-side AnimationGroups, never in the driver's IsVisible() polling loop.
-    if gType > 0 and Glows and Glows.RestrictionSafeStyle then
-        gType = Glows.RestrictionSafeStyle(gType)
-    end
+    -- Engine host: a Lua OnUpdate touching a frame parented to a 12.1 engine aura
+    -- button is forbidden unconditionally, so only C-side animations render here
+    -- (StartSpecGlow's engine path: Pixel as animated ants, ABG as its FlipBook twin).
+    local spec = e and Glows.SpecFromPrefix(ns.PAB_GLOW_SPEC, e, "glow", 1.0, 0.776, 0.376)
+    local sz = style.width or 18
 
     -- Icon Glow overlay: created UNCONDITIONALLY, matching block or not. The first call
     -- lands in the button's one legal creation window (extraInit, see AddGroupToContainer
@@ -358,23 +370,25 @@ local function PAB_ApplyDmFx(button, d, style)
         gov:Hide()
         d.pabFxGlow = gov
     end
-    if gType > 0 and Glows and Glows.StartGlow then
+    -- The extraInit call (arming) is the button's creation window. While any
+    -- Icon Effect of this style carries a glow, the button's glow regions are
+    -- built there whatever its own category, so a glow added to that category
+    -- later only reconfigures them. Buff bars (never fxList) and styles with no
+    -- Icon Glow keep the one empty frame.
+    if arming and style.fxList then
+        local fx = style.fxList
+        for i = 1, #fx do
+            if (fx[i].glowType or 0) > 0 then
+                Glows.PrewarmEngineHost(gov, sz, style.height or sz, ns.PAB_GLOW_NEED)
+                break
+            end
+        end
+    end
+    if spec then
         gov:Show()
-        local cr, cg, cb = e.glowR or 1.0, e.glowG or 0.776, e.glowB or 0.376
-        if e.glowClassColor then
-            local _, classFile = UnitClass("player")
-            local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-            if cc then cr, cg, cb = cc.r, cc.g, cc.b end
-        end
-        local sz = style.width or 18
-        if (not gov._euiGlowActive) or gov._fxStyle ~= gType or gov._fxW ~= sz
-           or gov._fxCR ~= cr or gov._fxCG ~= cg or gov._fxCB ~= cb then
-            Glows.StartGlow(gov, gType, sz, cr, cg, cb)
-            gov._fxStyle, gov._fxW = gType, sz
-            gov._fxCR, gov._fxCG, gov._fxCB = cr, cg, cb
-        end
+        Glows.StartSpecGlow(gov, spec, sz, style.height or sz, "engine")
     else
-        if gov._euiGlowActive and Glows and Glows.StopGlow then Glows.StopGlow(gov) end
+        if gov._euiGlowActive then Glows.StopGlow(gov) end
         gov:Hide()
     end
 
@@ -477,7 +491,7 @@ local function BuffBarChain(cfg)
             local f = ns.PAB_GetFilter and ns.PAB_GetFilter(filterId)
             if f and f.spells then
                 for id, on in pairs(f.spells) do
-                    if on then
+                    if on and not ns.PAB_OtherClientSpell(f, id) then
                         ex = ex or {}
                         ex[id] = true
                         ExpandFamily(ex, id, f.spells)
@@ -1222,6 +1236,13 @@ local function BuildStyle(isBuff, cfg)
             style.dispelBorderPx = solidPx or borderSize
             style.dispelColorMap = dcMap
             style.dispelColorFP = dcFP
+            -- Textured Dispel Ring (per bar, opt-in): AuraKit draws the ring in
+            -- this bar's border art on the geometry its border lane draws that
+            -- border with (style.border), tinted by the engine from the palette
+            -- above. Solid, shaped or size-0 bars keep the strips/shape ring.
+            if cfg.borderDispelTextured == true and border and border.texture then
+                style.dispelBorderTexture = border.texture
+            end
         end
 
         -- Dispel-type indicator icon (AK's one-hot engine channel; default off).
@@ -1799,7 +1820,7 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
                 -- harmlessly and this re-arms it right after.
                 extraInit = function(button, d, style)
                     d.dmCat = catKey
-                    PAB_ApplyDmFx(button, d, style)
+                    PAB_ApplyDmFx(button, d, style, true)
                 end,
             })
             declaredSet[effKey] = true
@@ -2414,22 +2435,9 @@ end
 -- own SetSize/ClearAllPoints/SetPoint ADDON_ACTION_BLOCKED in combat (a protected
 -- anchor-dependent poisons its anchor ancestor's geometry) -- while the cinematic/
 -- faction/vehicle recovery lane legitimately re-drives config mid-combat. Keyed and
--- coalesced; the event is registered only while something is queued, so idle cost is
--- zero.
-local pabRegenApplies = {}
-local pabRegenFrame
+-- coalesced through the addon's shared ns.CombatQueue.
 local function QueuePABRegenApply(key, fn)
-    pabRegenApplies[key] = fn
-    if not pabRegenFrame then
-        pabRegenFrame = CreateFrame("Frame")
-        pabRegenFrame:SetScript("OnEvent", function(self)
-            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-            local pending = pabRegenApplies
-            pabRegenApplies = {}
-            for _, apply in pairs(pending) do apply() end
-        end)
-    end
-    pabRegenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    ns.CombatQueue.Defer("PAB:" .. key, fn)
 end
 
 -- Combat-safe Show/Hide for a bar PARENT. The engine aura container is a
@@ -2859,7 +2867,10 @@ do
     function BuffAuraMax(grid)
         local slots = grid.enchSlots or 0
         if slots <= 0 then return grid.effectiveMax end
-        return math.max(0, grid.effectiveMax - ActiveEnchantCount(slots))
+        local n = ActiveEnchantCount(slots)
+        -- WoW Forever: its imbue cells come off the budget too (nil elsewhere).
+        if ns.PAB_FvImbueCount then n = n + ns.PAB_FvImbueCount() end
+        return math.max(0, grid.effectiveMax - n)
     end
 
     -- The budget moves with the enchants, so an applied or expired oil re-applies
@@ -2885,6 +2896,8 @@ do
             enchEventFrame:UnregisterAllEvents()
             lastEnchCount = nil
         end
+        -- WoW Forever: its imbue cells follow the row on and off (nil elsewhere).
+        if ns.PAB_FvImbueSync then ns.PAB_FvImbueSync(want) end
     end
 end
 
@@ -2895,6 +2908,12 @@ local function ApplyEnchants(container, cfg, pad, grid)
     if (grid.enchSlots or 0) <= 0 then return end
     AK.AddItemEnchantmentsToContainer(container,
         BuildEnchantSpec(cfg, pad, grid.rowGap, grid.enchSlots))
+    -- WoW Forever: imbues are an enchant type the engine cells never see there,
+    -- drawn by EUI_UnitFrames_ForeverImbues.lua (nil on every other client).
+    if ns.PAB_FvImbueLayout then
+        ns.PAB_FvImbueLayout(container, buffsParent, cfg, grid,
+            BuildGroupLayout(cfg, pad, grid.rowGap), (BuildContainerSpec(buffsParent, cfg, grid)))
+    end
 end
 
 -- Buffs content signature: the resolved spell set PLUS the number of declared
@@ -3567,6 +3586,16 @@ local function PABEnsure()
     db.profile.playerAuraBars = db.profile.playerAuraBars or {}
     return db.profile.playerAuraBars
 end
+-- WoW Forever: returns through the checked reader above, so a table created
+-- here passes the one-time buff clear before anything writes to it.
+if EllesmereUI.FvBW then
+    PABEnsure = function()
+        local db = ns.db
+        if not (db and db.profile) then return nil end
+        db.profile.playerAuraBars = db.profile.playerAuraBars or {}
+        return PAB()
+    end
+end
 
 local function NextBarId(s)
     s.nextBarId = (s.nextBarId or 1)
@@ -3597,18 +3626,77 @@ local function FilterStore(s)
     return s.pabFilters
 end
 
+-- The filter list every picker and editor shows: the stored list itself, or,
+-- on a client missing presets the other one offers, a fresh copy without them
+-- (ns.PAB_OtherClientPreset).
 function ns.PAB_Filters()
     local s = PAB()
     local store = s and s.pabFilters
-    return store and store.list or nil
+    local list = store and store.list or nil
+    if not list or next(ns.PAB_OTHER_ONLY_PRESETS) == nil then return list end
+    local out = {}
+    for i = 1, #list do
+        if not ns.PAB_OtherClientPreset(list[i]) then out[#out + 1] = list[i] end
+    end
+    return out
 end
 
+-- Scans the stored list (no copy per lookup); nil for a preset only the other
+-- client offers, so every resolver treats an assignment to it as a dangling id.
 function ns.PAB_GetFilter(id)
-    local list = ns.PAB_Filters()
+    local s = PAB()
+    local store = s and s.pabFilters
+    local list = store and store.list
     if not list then return nil end
     for i = 1, #list do
-        if list[i].id == id then return list[i] end
+        local f = list[i]
+        if f.id == id then
+            if ns.PAB_OtherClientPreset(f) then return nil end
+            return f
+        end
     end
+end
+
+-- Profiles travel between retail and WoW Forever. A preset filter only the
+-- other client offers stays stored untouched (bars and states intact for the
+-- next visit there) but is hidden here. Seeded filters carry the catalogue's
+-- preset name, so the name identifies the preset.
+function ns.PAB_OtherClientPreset(f)
+    return f.preset and ns.PAB_OTHER_ONLY_PRESETS[f.name] or false
+end
+
+-- An id a preset filter keeps only for the other client: never shown or
+-- resolved here, its stored state waits for that client. On WoW Forever that
+-- is every id only the retail catalogue curates under the preset. On retail
+-- it is an id the Forever seed added (f.foreverSeeded, see
+-- ns.PAB_ImportBM2Filters) that retail does not curate there: a retail user
+-- may add such an id by hand, so only the seed's own note tells them apart.
+function ns.PAB_OtherClientSpell(f, id)
+    local key = f.preset and ns.PAB_PRESET_KEY[f.name]
+    if not key then return false end
+    local here = EllesmereUI.BUFF_PRESET_IDS[key]
+    if here and here[id] then return false end
+    if EllesmereUI.IS_FOREVER == true then
+        local other = EllesmereUI.BUFF_PRESET_OTHER_IDS[key]
+        return (other and other[id]) == true
+    end
+    local m = f.foreverSeeded
+    return (m and m[id]) == true
+end
+
+-- True for a stored filter id that belongs to a preset only the other client
+-- offers (ns.PAB_GetFilter returns nil for it); false for every other id,
+-- dangling ones included. Always false while this client offers every preset.
+function ns.PAB_HiddenPresetFilter(id)
+    if next(ns.PAB_OTHER_ONLY_PRESETS) == nil then return false end
+    local s = PAB()
+    local store = s and s.pabFilters
+    local list = store and store.list
+    if not list then return false end
+    for i = 1, #list do
+        if list[i].id == id then return ns.PAB_OtherClientPreset(list[i]) == true end
+    end
+    return false
 end
 
 function ns.PAB_AddFilter(name)
@@ -3689,6 +3777,8 @@ end
 -- 64844) checks only the primary while the buff that actually lands is the alt
 -- (field report 2026-08-16: "64844 not tracked"). Name-matching mirrors the
 -- editor's dedup exactly (both fall back to the id when the name is uncached).
+-- Ids kept only for the other client (ns.PAB_OtherClientSpell) are never
+-- rewritten from here.
 function ns.PAB_SetSpellState(filterId, spellID, state)
     local f = ns.PAB_GetFilter(filterId)
     if not f then return end
@@ -3707,21 +3797,30 @@ function ns.PAB_SetSpellState(filterId, spellID, state)
     local fam = ns.PAB_SPELL_FAMILY and ns.PAB_SPELL_FAMILY[spellID]
     if fam then
         for i = 1, #fam do
-            if fam[i] ~= spellID and f.spells[fam[i]] ~= nil then Write(fam[i]) end
+            if fam[i] ~= spellID and f.spells[fam[i]] ~= nil
+                and not ns.PAB_OtherClientSpell(f, fam[i]) then Write(fam[i]) end
         end
     end
     local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
     if name then
         for id in pairs(f.spells) do
-            if id ~= spellID and C_Spell.GetSpellName(id) == name then Write(id) end
+            if id ~= spellID and not ns.PAB_OtherClientSpell(f, id)
+                and C_Spell.GetSpellName(id) == name then Write(id) end
         end
     end
 end
 
+-- On retail, a Forever-seeded id kept inert here (ns.PAB_OtherClientSpell)
+-- counts as absent, and every add drops the id's seed note (one can outlive
+-- its id after a delete): the added id is an ordinary row on both clients.
 function ns.PAB_AddSpellToFilter(filterId, spellID)
     local f = ns.PAB_GetFilter(filterId)
     if not (f and spellID and spellID > 0) then return false end
-    if f.spells[spellID] ~= nil then return false end -- already present
+    local m = EllesmereUI.IS_FOREVER ~= true and f.foreverSeeded or nil
+    if f.spells[spellID] ~= nil and not (m and ns.PAB_OtherClientSpell(f, spellID)) then
+        return false -- already present
+    end
+    if m then m[spellID] = nil end
     f.spells[spellID] = true
     return true
 end
@@ -3753,7 +3852,7 @@ function ns.PAB_ResolveSpells(cfg)
             local f = ns.PAB_GetFilter(filterId)
             if f then
                 for id, on in pairs(f.spells) do
-                    if on then
+                    if on and not ns.PAB_OtherClientSpell(f, id) then
                         set[id] = true
                         ExpandFamily(set, id, f.spells)
                     end
@@ -3768,7 +3867,7 @@ function ns.PAB_ResolveSpells(cfg)
             local f = ns.PAB_GetFilter(filterId)
             if f then
                 for id, on in pairs(f.spells) do
-                    if on then
+                    if on and not ns.PAB_OtherClientSpell(f, id) then
                         hide[id] = true
                         ExpandFamily(hide, id, f.spells)
                     end
@@ -3826,12 +3925,27 @@ function ns.PAB_CopyBM2FiltersIn()
         if tf then
             local spells = {}
             for id, on in pairs(sf.spells) do
-                local state = on and true or false
-                spells[id] = state
-                local a = altsMap and altsMap[id]
-                if a then
-                    for j = 1, #a do spells[a[j]] = state end
+                -- Ids the library keeps only for the other client are not
+                -- this client's to copy.
+                if not br.OtherClientSpell(sf, id) then
+                    local state = on and true or false
+                    spells[id] = state
+                    local a = altsMap and altsMap[id]
+                    if a then
+                        for j = 1, #a do spells[a[j]] = state end
+                    end
                 end
+            end
+            -- Retail: a copied id is the library's live content, no longer a
+            -- Forever-seed note.
+            local m = tf.foreverSeeded
+            if m and EllesmereUI.IS_FOREVER ~= true then
+                for id in pairs(spells) do m[id] = nil end
+            end
+            -- The copy overwrites what this editor shows; ids kept only for
+            -- the other client are not shown, so they stay.
+            for id, on in pairs(tf.spells) do
+                if spells[id] == nil and ns.PAB_OtherClientSpell(tf, id) then spells[id] = on end
             end
             tf.spells = spells
         end
@@ -3861,7 +3975,8 @@ function ns.PAB_CopyOwnFiltersIntoBM2()
             for i = 1, #alts do altToPrimary[alts[i]] = primary end
         end
     end
-    local own = FilterStore(s).list
+    -- Presets only the other client offers stay out (ns.PAB_Filters' view).
+    local own = ns.PAB_Filters() or FilterStore(s).list
     local nameToId = NameToId(br.Filters() or {})
     for i = 1, #own do
         local of = own[i]
@@ -3874,17 +3989,23 @@ function ns.PAB_CopyOwnFiltersIntoBM2()
         if tf then
             local desired = {}
             for id, on in pairs(of.spells) do
-                local p = altToPrimary[id]
-                if p then
-                    -- Primary's own explicit state wins over an alternate's.
-                    if of.spells[p] == nil and desired[p] == nil then desired[p] = on and true or false end
-                else
-                    desired[id] = on and true or false
+                -- Ids kept only for the other client are not this client's to copy.
+                if not ns.PAB_OtherClientSpell(of, id) then
+                    local p = altToPrimary[id]
+                    if p then
+                        -- Primary's own explicit state wins over an alternate's.
+                        if of.spells[p] == nil and desired[p] == nil then desired[p] = on and true or false end
+                    else
+                        desired[id] = on and true or false
+                    end
                 end
             end
             local curated = tf.preset and br.CuratedSpells and br.CuratedSpells(tf.preset) or nil
             for id, on in pairs(desired) do
-                if tf.spells[id] == nil and not (curated and curated[id]) then
+                -- An id the library keeps only for the other client counts as
+                -- absent (BM2_AddCustomSpell takes it over).
+                if (tf.spells[id] == nil or br.OtherClientSpell(tf, id))
+                    and not (curated and curated[id]) then
                     -- New non-curated id must carry the custom marker or the
                     -- library's curation prune strips it on the next merge.
                     br.AddCustomSpell(tid, id)
@@ -3893,9 +4014,10 @@ function ns.PAB_CopyOwnFiltersIntoBM2()
             end
             -- Our version is authoritative: ids we don't carry go unchecked
             -- (false, not nil -- a nil curated id gets re-seeded to its
-            -- default) and foreign custom ids are removed.
+            -- default) and foreign custom ids are removed. Ids the library
+            -- keeps only for the other client are left as they are.
             for id in pairs(tf.spells) do
-                if desired[id] == nil then
+                if desired[id] == nil and not br.OtherClientSpell(tf, id) then
                     if tf.custom and tf.custom[id] then
                         br.SetSpellState(tid, id, nil)
                     else
@@ -3968,7 +4090,7 @@ do
         table.sort(enabled)
         table.sort(disabled)
         BM2_FILTER_SEED[#BM2_FILTER_SEED + 1] =
-            { name = def.name, enabled = enabled, disabled = disabled }
+            { key = def.key, name = def.name, enabled = enabled, disabled = disabled }
     end
     -- Every member of a curated family (primary + its alternates) maps to the whole
     -- member list, so PAB_ResolveSpells can expand from whichever id the user has.
@@ -3980,6 +4102,22 @@ do
         for i = 1, #fam do fams[fam[i]] = fam end
     end
     ns.PAB_SPELL_FAMILY = fams
+    -- Preset name -> key across both clients' catalogues, and the names of the
+    -- presets only the other client offers (ns.PAB_OtherClientPreset,
+    -- ns.PAB_OtherClientSpell): seeded filters carry the catalogue's name.
+    local keyByName, offered, otherOnly = {}, {}, {}
+    for i = 1, #BP.filters do
+        keyByName[BP.filters[i].name] = BP.filters[i].key
+        offered[BP.filters[i].key] = true
+    end
+    local other = EllesmereUI.BUFF_PRESET_OTHER_FILTERS
+    for i = 1, #other do
+        local def = other[i]
+        if keyByName[def.name] == nil then keyByName[def.name] = def.key end
+        if not offered[def.key] then otherOnly[def.name] = true end
+    end
+    ns.PAB_PRESET_KEY = keyByName
+    ns.PAB_OTHER_ONLY_PRESETS = otherOnly
 end
 ns.PAB_SPELL_CLASS_HINTS = SPELL_CLASS_HINTS
 
@@ -4009,6 +4147,20 @@ function ns.PAB_ImportBM2Filters()
     local list = ns.PAB_Filters() or {}
     for i = 1, #list do byName[list[i].name] = list[i] end
 
+    -- WoW Forever: every id this seed adds that the retail catalogue does not
+    -- curate under the preset is noted on the filter (f.foreverSeeded), so
+    -- retail keeps it inert when the profile goes back there
+    -- (ns.PAB_OtherClientSpell). Nothing is noted on retail.
+    local retailIds = EllesmereUI.IS_FOREVER == true and EllesmereUI.BUFF_PRESET_OTHER_IDS or nil
+    local function NoteSeed(f, key, id)
+        if not retailIds then return end
+        local cur = retailIds[key]
+        if cur and cur[id] then return end
+        local m = f.foreverSeeded
+        if not m then m = {}; f.foreverSeeded = m end
+        m[id] = true
+    end
+
     local created = 0
     for i = 1, #BM2_FILTER_SEED do
         local seed = BM2_FILTER_SEED[i]
@@ -4018,6 +4170,10 @@ function ns.PAB_ImportBM2Filters()
             if f then
                 for j = 1, #seed.enabled do f.spells[seed.enabled[j]] = true end
                 for j = 1, #seed.disabled do f.spells[seed.disabled[j]] = false end
+                if retailIds then
+                    for j = 1, #seed.enabled do NoteSeed(f, seed.key, seed.enabled[j]) end
+                    for j = 1, #seed.disabled do NoteSeed(f, seed.key, seed.disabled[j]) end
+                end
                 created = created + 1
             end
         end
@@ -4032,11 +4188,11 @@ function ns.PAB_ImportBM2Filters()
             -- removing non-seed ids would delete user additions.
             for j = 1, #seed.enabled do
                 local id = seed.enabled[j]
-                if f.spells[id] == nil then f.spells[id] = true end
+                if f.spells[id] == nil then f.spells[id] = true; NoteSeed(f, seed.key, id) end
             end
             for j = 1, #seed.disabled do
                 local id = seed.disabled[j]
-                if f.spells[id] == nil then f.spells[id] = false end
+                if f.spells[id] == nil then f.spells[id] = false; NoteSeed(f, seed.key, id) end
             end
             -- Family heal: a checked PRIMARY whose curated alternates were left
             -- unchecked (the pre-fix editor toggled only the visible row) pulls
@@ -4197,23 +4353,32 @@ end
 function ns.PAB_DeleteCustomBuffBar(id)
     local s = PABEnsure()
     if not s then return end
+    -- WoW Forever: a delete can empty the bucket the player's class renders
+    -- (its bars, or the per-spec disables the sweep clears), which moves it
+    -- to the next class spec with data (ns.PAB_ForeverSpecID); a move
+    -- re-drives every custom bar once.
+    local fvSid = EllesmereUI.IS_FOREVER and ns.PAB_ForeverSpecID() or nil
     if s.customBuffBars then
         for i = #s.customBuffBars, 1, -1 do
             if s.customBuffBars[i].id == id then table.remove(s.customBuffBars, i) end
         end
     end
     DeleteFromSpecBuckets(s, id, "buffBars")
+    if fvSid and ns.PAB_ForeverSpecID() ~= fvSid then ReloadAllCustomBars() end
 end
 
 function ns.PAB_DeleteCustomDebuffBar(id)
     local s = PABEnsure()
     if not s then return end
+    -- WoW Forever: same bucket-move check as ns.PAB_DeleteCustomBuffBar.
+    local fvSid = EllesmereUI.IS_FOREVER and ns.PAB_ForeverSpecID() or nil
     if s.customDebuffBars then
         for i = #s.customDebuffBars, 1, -1 do
             if s.customDebuffBars[i].id == id then table.remove(s.customDebuffBars, i) end
         end
     end
     DeleteFromSpecBuckets(s, id, "debuffBars")
+    if fvSid and ns.PAB_ForeverSpecID() ~= fvSid then ReloadAllCustomBars() end
 end
 
 -------------------------------------------------------------------------------
@@ -4233,6 +4398,8 @@ end
 -- local twin): healers/Aug = HEALER role or Augmentation (1473), keeping
 -- "All Non Healers/Aug" its exact complement.
 local function RoleBucketForSpecID(specID)
+    -- WoW Forever specs carry no role (same rule as the RaidFrames twin).
+    if EllesmereUI.IS_FOREVER then return nil end
     if not specID then return nil end
     if specID == 1473 then return "healers" end
     local role = GetSpecializationInfoByID and select(5, GetSpecializationInfoByID(specID))
@@ -4245,6 +4412,8 @@ end
 ns.PAB_RoleBucketForSpecID = RoleBucketForSpecID
 
 local function CurrentSpecID()
+    -- WoW Forever: the retail spec the player's class acts as.
+    if EllesmereUI.IS_FOREVER then return ns.PAB_ForeverSpecID() end
     local idx = GetSpecialization and GetSpecialization()
     return idx and GetSpecializationInfo and GetSpecializationInfo(idx) or nil
 end
@@ -4255,6 +4424,8 @@ function ns.PAB_InheritedGroupsFor(bucketKey)
     local m = type(bucketKey) == "string" and bucketKey:match("^spec(%d+)$")
     local sid = m and tonumber(m)
     if not sid then return nil end
+    -- WoW Forever has no spec roles: a class view inherits All Specs only.
+    if EllesmereUI.IS_FOREVER then return { "allspecs" } end
     local out = { "allspecs" }
     local roleKey = RoleBucketForSpecID(sid)
     if roleKey ~= "healers" then out[#out + 1] = "nonhealer" end
@@ -4278,6 +4449,40 @@ local function SpecBarBucket(s, key, create)
     b.debuffBars = b.debuffBars or {}
     b.inhDis = b.inhDis or {}
     return b
+end
+
+-- WoW Forever: a class acts as the first of its retail specs (class order)
+-- whose "spec<ID>" bucket holds data (buff bars, debuff bars or per-spec
+-- disables of All Specs bars), else its first spec. token nil = the player's
+-- class. Resolved per reload / page build / removal, never per frame.
+function ns.PAB_BucketHasData(id, st)
+    local b = st and st["spec" .. id]
+    if b == nil then return false end
+    if (b.buffBars and #b.buffBars > 0) or (b.debuffBars and #b.debuffBars > 0) then return true end
+    local dis = b.inhDis
+    if not (dis and next(dis) ~= nil) then return false end
+    if not EllesmereUI.IS_FOREVER then return true end
+    -- WoW Forever renders All Specs and the class's own bucket only, so only
+    -- a disable of an All Specs bar counts. Scans the bar arrays in place.
+    local s = PAB()
+    local list = s and s.customBuffBars
+    for i = 1, (list and #list or 0) do
+        if dis[list[i].id] then return true end
+    end
+    list = s and s.customDebuffBars
+    for i = 1, (list and #list or 0) do
+        if dis[list[i].id] then return true end
+    end
+    return false
+end
+function ns.PAB_ForeverSpecID(token)
+    local s = PAB()
+    return EllesmereUI.ForeverClassSpec(token, ns.PAB_BucketHasData, s and s.pabSpecBars)
+end
+-- The bucket a Forever class row edits: the one that class renders.
+function ns.PAB_ForeverKey(token)
+    local sid = ns.PAB_ForeverSpecID(token)
+    return sid and ("spec" .. sid) or nil
 end
 
 -- Bucket bar array for an EDITED view ("allspecs"/nil = the legacy arrays).
@@ -4309,8 +4514,12 @@ end
 function ns.PAB_SetInhDisabled(concreteKey, id, disabled)
     local s = PABEnsure()
     if not (s and concreteKey and id) then return end
+    -- WoW Forever: clearing the last per-spec disable can move the bucket
+    -- the player's class renders (see ns.PAB_DeleteCustomBuffBar).
+    local fvSid = EllesmereUI.IS_FOREVER and ns.PAB_ForeverSpecID() or nil
     local b = SpecBarBucket(s, concreteKey, true)
     b.inhDis[id] = disabled and true or nil
+    if fvSid and ns.PAB_ForeverSpecID() ~= fvSid then ReloadAllCustomBars() end
 end
 
 -- Does bucketKey's content render for the given spec?
@@ -4318,6 +4527,8 @@ local function BucketApplies(bucketKey, sid)
     if not bucketKey or bucketKey == "allspecs" then return true end
     local m = bucketKey:match("^spec(%d+)$")
     if m then return sid == tonumber(m) end
+    -- WoW Forever has no spec roles: no group bucket applies there.
+    if EllesmereUI.IS_FOREVER then return false end
     if not sid then return false end
     local roleKey = RoleBucketForSpecID(sid)
     if bucketKey == "nonhealer" then return roleKey ~= "healers" end
@@ -5412,7 +5623,7 @@ local function BuildMixedRealSpells(cfg)
                 local nf = ns.PAB_GetFilter and ns.PAB_GetFilter(filterId)
                 if nf and nf.spells then
                     for id, on in pairs(nf.spells) do
-                        if on then
+                        if on and not ns.PAB_OtherClientSpell(nf, id) then
                             negSet = negSet or {}
                             negSet[id] = true
                             ExpandFamily(negSet, id, nf.spells)
@@ -5428,7 +5639,8 @@ local function BuildMixedRealSpells(cfg)
                 if cfg.filters[f.id] then
                     local ids = {}
                     for id, on in pairs(f.spells) do
-                        if on and not (negSet and negSet[id]) then ids[#ids + 1] = id end
+                        if on and not (negSet and negSet[id])
+                            and not ns.PAB_OtherClientSpell(f, id) then ids[#ids + 1] = id end
                     end
                     if #ids > 0 then
                         table.sort(ids)
@@ -5518,7 +5730,7 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
                     local f = ns.PAB_GetFilter and ns.PAB_GetFilter(filterId)
                     if f and f.spells then
                         for id, on in pairs(f.spells) do
-                            if on then
+                            if on and not ns.PAB_OtherClientSpell(f, id) then
                                 subSet = subSet or {}
                                 subSet[id] = true
                                 ExpandFamily(subSet, id, f.spells)
@@ -5563,17 +5775,17 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
 end
 
 -- Icon Effects Per-Filter preview: applies a matched fx block's Glow/Border to a
--- fake preview icon. These are plain addon-owned frames (CreatePreviewIcon), never
--- secure engine buttons, so no creation-window/taint restriction applies: glow/border
--- hosts are created lazily and Glows.StartGlow is called directly, with no
--- RestrictionSafeStyle gate (real aura buttons only). `e` is nil when no active fx
--- block matches this icon's category (or for buff/placeholder slots), clearing any fx
+-- fake preview icon. Plain addon-owned frames (CreatePreviewIcon), so hosts are
+-- created lazily; the glow renders on the engine path anyway so the preview shows
+-- exactly what the live aura buttons can. `e` is nil when no active fx block
+-- matches this icon's category (or for buff/placeholder slots), clearing any fx
 -- left over from a previous render of this reused frame.
+ns.PAB_PREVIEW_GLOW_SPEC = {}
 local function ApplyPreviewFx(btn, e)
     local Glows = EllesmereUI.Glows
-    local gType = (e and e.glowType) or 0
+    local spec = e and Glows.SpecFromPrefix(ns.PAB_PREVIEW_GLOW_SPEC, e, "glow", 1.0, 0.776, 0.376)
     local gov = btn.fxGlow
-    if gType > 0 and Glows and Glows.StartGlow then
+    if spec then
         if not gov then
             gov = CreateFrame("Frame", nil, btn)
             gov:SetAllPoints(btn)
@@ -5582,21 +5794,10 @@ local function ApplyPreviewFx(btn, e)
             btn.fxGlow = gov
         end
         gov:Show()
-        local cr, cg, cb = e.glowR or 1.0, e.glowG or 0.776, e.glowB or 0.376
-        if e.glowClassColor then
-            local _, classFile = UnitClass("player")
-            local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-            if cc then cr, cg, cb = cc.r, cc.g, cc.b end
-        end
         local sz = btn:GetWidth() or 18
-        if (not gov._euiGlowActive) or gov._fxStyle ~= gType or gov._fxW ~= sz
-           or gov._fxCR ~= cr or gov._fxCG ~= cg or gov._fxCB ~= cb then
-            Glows.StartGlow(gov, gType, sz, cr, cg, cb)
-            gov._fxStyle, gov._fxW = gType, sz
-            gov._fxCR, gov._fxCG, gov._fxCB = cr, cg, cb
-        end
+        Glows.StartSpecGlow(gov, spec, sz, btn:GetHeight() or sz, "engine", Glows.PANEL_EXTRA)
     elseif gov then
-        if gov._euiGlowActive and Glows and Glows.StopGlow then Glows.StopGlow(gov) end
+        if gov._euiGlowActive then Glows.StopGlow(gov) end
         gov:Hide()
     end
 

@@ -9,8 +9,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  Storage, evaluation and the reanchor filter live in the CDM addon
 --  (EllesmereUICdmTalentConditions.lua). The tree read here is the ACTIVE
---  talent config, the same one the filter reads, and conditions are stored per
---  spec, so what the popup shows is exactly what decides the icon.
+--  talent config's committed build, the same one the filter reads, and
+--  conditions are stored per spec, so what the popup shows is exactly what
+--  decides the icon. A saved condition no drawn node can show (a talent a
+--  patch removed, or a choice side that no longer exists) is listed under the
+--  trees with its own remove, since it still decides the icon.
 --
 --  Frames are built on first open and reused; nothing exists until then.
 -------------------------------------------------------------------------------
@@ -20,6 +23,9 @@ if not ns then return end
 local PP = EllesmereUI.PP
 
 local POPUP_W, POPUP_H = 940, 620
+-- Bump over the dimmer's panel scale: the popup draws at panelScale px per unit, the
+-- density of the sibling CDM popups that every size below assumes.
+local POPUP_BUMP = 1.2
 local HEADER_H, FOOTER_H = 70, 56
 local SIDE_PAD, PANEL_GAP = 16, 12
 local PANEL_W = (POPUP_W - SIDE_PAD * 2 - PANEL_GAP) / 2
@@ -31,15 +37,19 @@ local AREA_H = PANEL_H - PANEL_LABEL_H - AREA_PAD
 local NODE = 26
 local BORDER_PX, MARK_PX = 1, 3
 local NOT_TAKEN_R, NOT_TAKEN_G, NOT_TAKEN_B = 0.95, 0.30, 0.30
+-- Footer buttons (MakeActionButton rows are 38 tall).
+local BTN_W, BTN_GAP, BTN_BOTTOM, BTN_H = 110, 8, 9, 38
+-- Off-tree strip: one chip per condition no drawn node shows, four per row.
+local OFF_PAD, OFF_LABEL_H = 10, 22
+local CHIP_COLS, CHIP_W, CHIP_H, CHIP_GAP_X, CHIP_GAP_Y = 4, 218, 26, 12, 6
+local CLOSE_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
 
 local CLASS_HALF, SPEC_HALF = 1, 2
 local EMPTY = {}
 
-local function FontPath()
-    return (EllesmereUI.GetFontPath("cdm"))
-        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+local function SetTCFont(fs, size)
+    EllesmereUI.ApplyModuleFont(fs, nil, size, "cdm")
 end
-local Outline = EllesmereUI.GetFontOutlineFlag
 
 -------------------------------------------------------------------------------
 --  Tree data (read fresh on every open; talents cannot change while it is up
@@ -60,8 +70,15 @@ local function ReadNode(configID, nodeID, info)
         end
     end
     if #entries == 0 then return nil end
+    -- Committed build only, the same test the reanchor filter uses: a pick the
+    -- player has staged but not applied is not taken yet (activeRank already
+    -- counts it). A granted rank (activeRank above ranksPurchased) cannot be
+    -- staged, so it counts as taken.
     local taken = false
-    if (info.activeRank or 0) > 0 then
+    local committed = info.entryIDsWithCommittedRanks
+    if committed and #committed > 0 then
+        taken = committed[1]
+    elseif (info.activeRank or 0) > (info.ranksPurchased or 0) then
         taken = (info.activeEntry and info.activeEntry.entryID) or true
     end
     return {
@@ -71,7 +88,7 @@ local function ReadNode(configID, nodeID, info)
         entries = entries,
         choice = (info.type == Enum.TraitNodeType.Selection) and #entries > 1,
         edges = info.visibleEdges,
-        taken = taken,   -- current build: active entryID, true, or false
+        taken = taken,   -- current build: committed entryID, true, or false
     }
 end
 
@@ -138,16 +155,18 @@ end
 -------------------------------------------------------------------------------
 --  Popup state
 -------------------------------------------------------------------------------
-local dimmer, popup, titleFS, statusFS
+local dimmer, popup, titleFS, statusFS, offFrame
 -- [half] = { frame, label, area, empty, lines = {}, buttons = {}, used = 0 }. Each panel
 -- keeps its own button pool so a button never changes parent (its border's frame level
 -- is fixed when it is built).
 local panels = {}
+local chips = {}       -- off-tree chip pool, [i] shows offTree[i]
 local pending = {}     -- nodeID -> { nodeID, entryID, spellID, taken }
-local offTree = {}     -- saved conditions on nodes the current tree does not show; kept as-is
+local offTree = {}     -- saved conditions no drawn node shows; kept unless removed
 local onConfirm
+local tipOwner         -- node button that set GameTooltip up (hidden only while it owns it)
 
-local RepaintAll, UpdateStatus
+local RepaintAll, UpdateStatus, LayoutOffTree
 
 local function ConditionOn(btn)
     local c = pending[btn.node.nodeID]
@@ -177,6 +196,7 @@ local function PaintButton(btn)
 end
 
 local function ButtonOnEnter(btn)
+    tipOwner = btn
     GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
     GameTooltip:SetSpellByID(btn.spellID)
     GameTooltip:AddLine(" ")
@@ -194,12 +214,14 @@ local function ButtonOnEnter(btn)
     GameTooltip:Show()
 end
 
-local function ButtonOnLeave()
-    GameTooltip:Hide()
+local function ButtonOnLeave(btn)
+    if GameTooltip:IsOwned(btn) then GameTooltip:Hide() end
+    tipOwner = nil
 end
 
 -- Taken > Not Taken > cleared. On a choice node the condition names one side,
--- so clicking the other half moves it there (starting again at Taken).
+-- so clicking the other half moves it there (starting again at Taken). Only
+-- this node's buttons can change paint.
 local function ButtonOnClick(btn)
     local nodeID = btn.node.nodeID
     local c = ConditionOn(btn)
@@ -210,7 +232,7 @@ local function ButtonOnClick(btn)
     else
         pending[nodeID] = nil
     end
-    RepaintAll()
+    for _, b in ipairs(btn.node.btns) do PaintButton(b) end
     UpdateStatus()
     ButtonOnEnter(btn)
 end
@@ -231,6 +253,17 @@ local function AcquireButton(panel)
     end
     btn:Show()
     return btn
+end
+
+-- True when a drawn button can show a condition on this node side.
+local function IsDrawn(nodeID, entryID)
+    for _, panel in ipairs(panels) do
+        for i = 1, panel.used do
+            local b = panel.buttons[i]
+            if b.node.nodeID == nodeID and b.entryID == entryID then return true end
+        end
+    end
+    return false
 end
 
 RepaintAll = function()
@@ -292,6 +325,7 @@ local function LayoutHalf(panel, nodes)
             n._cx, n._cy = left + NODE / 2, top + NODE / 2
             local parts = n.choice and 2 or 1
             local w = NODE / parts
+            n.btns = {}
             for k = 1, parts do
                 local e = n.entries[k]
                 local btn = AcquireButton(panel)
@@ -307,6 +341,7 @@ local function LayoutHalf(panel, nodes)
                 btn.node = n
                 btn.entryID = n.choice and e.entryID or nil
                 btn.spellID = e.spellID
+                n.btns[k] = btn
             end
         end
 
@@ -338,34 +373,107 @@ local function LayoutHalf(panel, nodes)
 end
 
 -------------------------------------------------------------------------------
---  Frames (built once, on first open)
+--  Off-tree strip: conditions no drawn node shows, each with its own remove
 -------------------------------------------------------------------------------
-local function MakeButton(parent, text, accent)
-    local ar, ag, ab = EllesmereUI.GetAccentColor()
-    local btn = CreateFrame("Button", nil, parent)
-    btn:SetSize(90, 28)
-    local bg = btn:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    local lbl = btn:CreateFontString(nil, "OVERLAY")
-    lbl:SetFont(FontPath(), 12, Outline())
-    lbl:SetPoint("CENTER")
-    lbl:SetText(text)
-    local r, g, b, a
-    if accent then
-        bg:SetColorTexture(ar, ag, ab, 0.15)
-        EllesmereUI.MakeBorder(btn, ar, ag, ab, 0.3, PP)
-        r, g, b, a = ar, ag, ab, 0.9
-    else
-        bg:SetColorTexture(0.12, 0.12, 0.12, 0.5)
-        EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.10, PP)
-        r, g, b, a = 0.7, 0.7, 0.7, 0.8
-    end
-    lbl:SetTextColor(r, g, b, a)
-    btn:SetScript("OnEnter", function() lbl:SetTextColor(1, 1, 1, 1) end)
-    btn:SetScript("OnLeave", function() lbl:SetTextColor(r, g, b, a) end)
-    return btn
+local function ChipOnEnter(chip)
+    chip.x:SetAlpha(1)
+    local c = offTree[chip.index]
+    if not c then return end
+    local state = c.taken and EllesmereUI.L("Shown only while this talent is taken")
+        or EllesmereUI.L("Shown only while this talent is NOT taken")
+    EllesmereUI.ShowWidgetTooltip(chip, state .. "\n" .. EllesmereUI.L("Click: clear"))
 end
 
+local function ChipOnLeave(chip)
+    chip.x:SetAlpha(0.6)
+    EllesmereUI.HideWidgetTooltip()
+end
+
+local function ChipOnClick(chip)
+    if not offTree[chip.index] then return end
+    table.remove(offTree, chip.index)
+    EllesmereUI.HideWidgetTooltip(true)
+    LayoutOffTree()
+    UpdateStatus()
+    -- The chip under the cursor now shows the next condition: describe that one.
+    if offTree[chip.index] then ChipOnEnter(chip) end
+end
+
+local function MakeChip(i)
+    local chip = CreateFrame("Button", nil, offFrame)
+    chip:SetSize(CHIP_W, CHIP_H)
+    local bg = chip:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.04, 0.06, 0.08, 1)
+    chip.border = EllesmereUI.MakeBorder(chip, 1, 1, 1, 0.10, PP)
+    chip.icon = chip:CreateTexture(nil, "ARTWORK")
+    chip.icon:SetSize(CHIP_H - 8, CHIP_H - 8)
+    chip.icon:SetPoint("LEFT", chip, "LEFT", 4, 0)
+    chip.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    chip.x = chip:CreateTexture(nil, "ARTWORK")
+    chip.x:SetSize(10, 10)
+    chip.x:SetPoint("RIGHT", chip, "RIGHT", -8, 0)
+    if chip.x.SetSnapToPixelGrid then chip.x:SetSnapToPixelGrid(false); chip.x:SetTexelSnappingBias(0) end
+    chip.x:SetTexture(CLOSE_ICON)
+    chip.x:SetAlpha(0.6)
+    chip.label = chip:CreateFontString(nil, "OVERLAY")
+    SetTCFont(chip.label, 11)
+    chip.label:SetPoint("LEFT", chip.icon, "RIGHT", 6, 0)
+    chip.label:SetPoint("RIGHT", chip.x, "LEFT", -6, 0)
+    chip.label:SetJustifyH("LEFT")
+    chip.label:SetWordWrap(false)
+    chip.label:SetTextColor(0.85, 0.85, 0.85, 1)
+    chip:SetScript("OnEnter", ChipOnEnter)
+    chip:SetScript("OnLeave", ChipOnLeave)
+    chip:SetScript("OnClick", ChipOnClick)
+    chips[i] = chip
+    return chip
+end
+
+-- Lays the strip out and sizes the popup to it (no strip: the base size). The
+-- scale is re-fitted to the new height, so a long list still fits the screen.
+LayoutOffTree = function()
+    local n = #offTree
+    local h = POPUP_H
+    if n > 0 then
+        local rows = math.ceil(n / CHIP_COLS)
+        local stripH = OFF_LABEL_H + rows * CHIP_H + (rows - 1) * CHIP_GAP_Y
+        h = POPUP_H + OFF_PAD + stripH
+        offFrame:SetHeight(stripH)
+        local ar, ag, ab = EllesmereUI.GetAccentColor()
+        for i = 1, n do
+            local c = offTree[i]
+            local chip = chips[i] or MakeChip(i)
+            local col = (i - 1) % CHIP_COLS
+            local row = math.floor((i - 1) / CHIP_COLS)
+            chip:ClearAllPoints()
+            chip:SetPoint("TOPLEFT", offFrame, "TOPLEFT", col * (CHIP_W + CHIP_GAP_X),
+                -(OFF_LABEL_H + row * (CHIP_H + CHIP_GAP_Y)))
+            chip.index = i
+            chip.x:SetAlpha(0.6)
+            local sid = type(c.spellID) == "number" and c.spellID or nil
+            chip.icon:SetTexture((sid and C_Spell.GetSpellTexture(sid)) or 134400)
+            chip.label:SetText((sid and C_Spell.GetSpellName(sid)) or EllesmereUI.L("Unknown talent"))
+            if c.taken then
+                chip.border:SetColor(ar, ag, ab, 1)
+            else
+                chip.border:SetColor(NOT_TAKEN_R, NOT_TAKEN_G, NOT_TAKEN_B, 1)
+            end
+            chip:Show()
+        end
+        offFrame:Show()
+    else
+        offFrame:Hide()
+    end
+    for i = n + 1, #chips do chips[i]:Hide() end
+    popup:SetHeight(h)
+    popup:SetScale(EllesmereUI.PopupBump(POPUP_BUMP))
+    EllesmereUI.ClampPopupToScreen(popup, POPUP_W, h)
+end
+
+-------------------------------------------------------------------------------
+--  Frames (built once, on first open)
+-------------------------------------------------------------------------------
 local function MakePanel(half)
     local frame = CreateFrame("Frame", nil, popup)
     frame:SetSize(PANEL_W, PANEL_H)
@@ -377,7 +485,7 @@ local function MakePanel(half)
     EllesmereUI.MakeBorder(frame, 1, 1, 1, 0.10, PP)
 
     local label = frame:CreateFontString(nil, "OVERLAY")
-    label:SetFont(FontPath(), 12, Outline())
+    SetTCFont(label, 12)
     label:SetPoint("TOPLEFT", frame, "TOPLEFT", AREA_PAD, -6)
     label:SetTextColor(0.85, 0.85, 0.85, 1)
 
@@ -386,7 +494,7 @@ local function MakePanel(half)
     area:SetPoint("TOPLEFT", frame, "TOPLEFT", AREA_PAD, -PANEL_LABEL_H)
 
     local empty = frame:CreateFontString(nil, "OVERLAY")
-    empty:SetFont(FontPath(), 11, Outline())
+    SetTCFont(empty, 11)
     empty:SetPoint("CENTER")
     empty:SetTextColor(0.6, 0.6, 0.6, 0.8)
     empty:SetText(EllesmereUI.L("Talent data is not available right now."))
@@ -397,7 +505,11 @@ local function MakePanel(half)
 end
 
 local function Close()
-    GameTooltip:Hide()
+    if tipOwner and GameTooltip:IsOwned(tipOwner) then GameTooltip:Hide() end
+    tipOwner = nil
+    -- A chip hidden under the cursor never gets OnLeave; the modal dimmer means
+    -- only this popup can own the widget tooltip here.
+    EllesmereUI.HideWidgetTooltip(true)
     dimmer:Hide()
 end
 
@@ -416,21 +528,24 @@ end
 
 local function Build()
     if popup then return end
-    -- Clamped: two trees side by side are wide, and the dimmer eats every click
-    -- behind it, so an overflowing popup would strand its buttons off-screen.
+    -- Dimmer scaled by the panel scale, the popup by its bump (the sibling CDM popups'
+    -- density), and registered so the Panel Scale slider rescales it. Clamped: two
+    -- trees side by side are wide, and the dimmer eats every click behind it, so an
+    -- overflowing popup would strand its buttons off-screen.
     dimmer, popup = EllesmereUI.BuildPopupShell("EUI_CDM_TalentConditions", {
-        w = POPUP_W, h = POPUP_H, dimAlpha = 0.25, clamp = true,
+        w = POPUP_W, h = POPUP_H, bump = POPUP_BUMP, dimAlpha = 0.25, clamp = true,
         onEscape = Close, onDimmerDown = Close,
     })
     dimmer:Hide()
+    EllesmereUI._popupFrames[#EllesmereUI._popupFrames + 1] = { popup = popup, dimmer = dimmer }
 
     titleFS = popup:CreateFontString(nil, "OVERLAY")
-    titleFS:SetFont(FontPath(), 14, Outline())
+    SetTCFont(titleFS, 16)
     titleFS:SetPoint("TOP", popup, "TOP", 0, -16)
     titleFS:SetTextColor(1, 1, 1, 1)
 
     local hint = popup:CreateFontString(nil, "OVERLAY")
-    hint:SetFont(FontPath(), 11, Outline())
+    SetTCFont(hint, 11)
     hint:SetPoint("TOP", titleFS, "BOTTOM", 0, -6)
     hint:SetTextColor(0.7, 0.7, 0.7, 0.85)
     hint:SetText(EllesmereUI.L("Click a talent to require it: Taken, then Not Taken, then cleared. Every condition must hold for the icon to show."))
@@ -438,31 +553,51 @@ local function Build()
     MakePanel(CLASS_HALF)
     MakePanel(SPEC_HALF)
 
-    statusFS = popup:CreateFontString(nil, "OVERLAY")
-    statusFS:SetFont(FontPath(), 11, Outline())
-    statusFS:SetPoint("BOTTOMLEFT", popup, "BOTTOMLEFT", SIDE_PAD, 22)
-    statusFS:SetPoint("RIGHT", popup, "RIGHT", -330, 0)
-    statusFS:SetJustifyH("LEFT")
-    statusFS:SetWordWrap(false)
+    offFrame = CreateFrame("Frame", nil, popup)
+    offFrame:SetPoint("TOPLEFT", popup, "TOPLEFT", SIDE_PAD, -(HEADER_H + PANEL_H + OFF_PAD))
+    offFrame:SetWidth(POPUP_W - SIDE_PAD * 2)
+    offFrame:Hide()
+    local offLabel = offFrame:CreateFontString(nil, "OVERLAY")
+    SetTCFont(offLabel, 11)
+    offLabel:SetPoint("TOPLEFT", offFrame, "TOPLEFT", 0, -2)
+    offLabel:SetTextColor(0.7, 0.7, 0.7, 0.85)
+    offLabel:SetText(EllesmereUI.L("Conditions on talents not shown above (they still apply):"))
 
-    local saveBtn = MakeButton(popup, EllesmereUI.L("Save"), true)
-    saveBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -SIDE_PAD, 14)
+    local font = EllesmereUI.GetFontPath("cdm")
+    local ar, ag, ab = EllesmereUI.GetAccentColor()
+    local saveBtn = EllesmereUI.MakeActionButton(popup, font, EllesmereUI.L("Save"), ar, ag, ab, { w = BTN_W })
+    saveBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -SIDE_PAD, BTN_BOTTOM)
     saveBtn:SetScript("OnClick", Commit)
 
-    local cancelBtn = MakeButton(popup, EllesmereUI.L("Cancel"), false)
-    cancelBtn:SetPoint("RIGHT", saveBtn, "LEFT", -8, 0)
+    local cancelBtn = EllesmereUI.MakeActionButton(popup, font, EllesmereUI.L("Cancel"), 1, 1, 1,
+        { w = BTN_W, secondary = true, hoverA = 0.8 })
+    cancelBtn:SetPoint("RIGHT", saveBtn, "LEFT", -BTN_GAP, 0)
     cancelBtn:SetScript("OnClick", Close)
+    popup._cancelBtn = cancelBtn
 
-    local clearBtn = MakeButton(popup, EllesmereUI.L("Clear All"), false)
-    clearBtn:SetPoint("RIGHT", cancelBtn, "LEFT", -8, 0)
+    local clearBtn = EllesmereUI.MakeActionButton(popup, font, EllesmereUI.L("Clear All"), 1, 1, 1,
+        { w = BTN_W, secondary = true, hoverA = 0.8 })
+    clearBtn:SetPoint("RIGHT", cancelBtn, "LEFT", -BTN_GAP, 0)
     clearBtn:SetScript("OnClick", function()
         wipe(pending)
         wipe(offTree)
+        LayoutOffTree()
         RepaintAll()
         UpdateStatus()
     end)
 
-    dimmer:SetScript("OnHide", function() onConfirm = nil end)
+    -- Status line: left of the buttons, on their centre line.
+    local statusY = BTN_BOTTOM + BTN_H / 2
+    statusFS = popup:CreateFontString(nil, "OVERLAY")
+    SetTCFont(statusFS, 11)
+    statusFS:SetPoint("LEFT", popup, "BOTTOMLEFT", SIDE_PAD, statusY)
+    statusFS:SetPoint("RIGHT", popup, "BOTTOMRIGHT", -(SIDE_PAD + 3 * BTN_W + 3 * BTN_GAP), statusY)
+    statusFS:SetJustifyH("LEFT")
+    statusFS:SetWordWrap(false)
+
+    -- Hooked, not set: hide hooks the popup shell or the controller cursor put
+    -- on this dimmer must survive (with none, this is its only handler).
+    dimmer:HookScript("OnHide", function() onConfirm = nil end)
 end
 
 -------------------------------------------------------------------------------
@@ -488,7 +623,9 @@ function ns.TalentCondPreviewSet(barKey, tracked)
 end
 
 -- Small corner mark on a preview slot whose spell carries conditions: accent while
--- they hold, red while they do not. state nil hides it. Built on first use.
+-- they hold, red while they do not. state nil hides it. Built on first use. Kept under
+-- the slot's text overlay (its border strips sit one level above the fill), so keybind
+-- and stack text stay readable in every icon style (the overlay's level differs per style).
 function ns.PaintTalentCondMark(slot, state)
     local mark = slot._tcMark
     if not state then
@@ -497,13 +634,13 @@ function ns.PaintTalentCondMark(slot, state)
     end
     if not mark then
         mark = CreateFrame("Frame", nil, slot)
-        mark:SetFrameLevel(slot:GetFrameLevel() + 6)
         mark:EnableMouse(false)
-        mark._tex = mark:CreateTexture(nil, "OVERLAY")
+        mark._tex = mark:CreateTexture(nil, "ARTWORK")
         mark._tex:SetAllPoints()
-        EllesmereUI.MakeBorder(mark, 0, 0, 0, 1, EllesmereUI.PanelPP)
+        PP.CreateBorder(mark, 0, 0, 0, 1, 1, "OVERLAY", 7)
         slot._tcMark = mark
     end
+    mark:SetFrameLevel(slot._pvTextOverlay:GetFrameLevel() - 2)
     local size = math.max(6, math.floor((slot:GetWidth() or 0) * 0.28 + 0.5))
     mark:SetSize(size, size)
     mark:ClearAllPoints()
@@ -523,7 +660,6 @@ end
 -------------------------------------------------------------------------------
 function ns.ShowCDMTalentConditionsPopup(spellID, conds, confirm)
     Build()
-    GameTooltip:Hide()
 
     local spellName = C_Spell.GetSpellName(spellID) or tostring(spellID)
     titleFS:SetText(EllesmereUI.Lf("Talent Conditions: %1$s", spellName))
@@ -534,19 +670,16 @@ function ns.ShowCDMTalentConditionsPopup(spellID, conds, confirm)
     LayoutHalf(panels[CLASS_HALF], halves and halves[CLASS_HALF])
     LayoutHalf(panels[SPEC_HALF], halves and halves[SPEC_HALF])
 
-    -- Seed the edit copy. A condition on a node this tree does not show (a
-    -- talent a patch removed) cannot be clicked here; it is kept untouched
-    -- unless Clear All drops it.
+    -- Seed the edit copy. A condition no drawn button can show (a talent a patch
+    -- removed, a choice side that no longer exists, or a second condition on one
+    -- node) goes to the off-tree strip, where it stays until removed there or by
+    -- Clear All.
     wipe(pending)
     wipe(offTree)
-    local shown = {}
-    for _, panel in ipairs(panels) do
-        for i = 1, panel.used do shown[panel.buttons[i].node.nodeID] = true end
-    end
     for _, c in ipairs(type(conds) == "table" and conds or EMPTY) do
         if type(c) == "table" and c.nodeID then
             local copy = { nodeID = c.nodeID, entryID = c.entryID, spellID = c.spellID, taken = c.taken ~= false }
-            if shown[c.nodeID] and not pending[c.nodeID] then
+            if not pending[c.nodeID] and IsDrawn(c.nodeID, c.entryID) then
                 pending[c.nodeID] = copy
             else
                 offTree[#offTree + 1] = copy
@@ -555,7 +688,9 @@ function ns.ShowCDMTalentConditionsPopup(spellID, conds, confirm)
     end
 
     onConfirm = confirm
+    LayoutOffTree()
     RepaintAll()
     UpdateStatus()
+    ns.PadPopupOpen(dimmer, popup, popup._cancelBtn, Close)  -- controller cursor
     dimmer:Show()
 end

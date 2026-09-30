@@ -116,7 +116,7 @@ local _cdrArmedByKey = {}
 local GetOverlay, ResolveSwipeColor, IconTexture, ApplyToFrame, ApplyRule, RaiseOverlayBorders, RestoreOverlayBorders
 local EnsureTicker, OpenWindow, CloseWindow, CloseAll, CastWindow
 local OpenFromAura, EvalCustom, InitialStamp, OnEvent, UpdateListeners
-local ResolveCastSpells
+local ResolveCastSpells, PresetAltItemIDs
 local PresetOnCD, ApplyCdState, RestoreAllCdState, EvalCdStateNow, QueueCdStateEval
 
 -- ---------------------------------------------------------------------------
@@ -1030,6 +1030,20 @@ ResolveCastSpells = function(key)
             else
                 local _, spID = C_Item.GetItemSpell(itemID)
                 if spID then out[#out + 1] = spID end
+                -- Other family presets (primary id only): map each alternate's
+                -- on-use spell too (Demonic Healthstone, other mana pot ranks).
+                local alts = PresetAltItemIDs(itemID)
+                if alts then
+                    local seen = {}
+                    if spID then seen[spID] = true end
+                    for i = 1, #alts do
+                        local _, altSp = C_Item.GetItemSpell(alts[i])
+                        if altSp and not seen[altSp] then
+                            seen[altSp] = true
+                            out[#out + 1] = altSp
+                        end
+                    end
+                end
             end
         end
     end
@@ -1060,9 +1074,10 @@ end
 -- itemID -> its preset's alternate item IDs. A preset (e.g. Light's Potential)
 -- covers several ranks of the same consumable; the player owns one alternate and
 -- the cooldown ticks on THAT id, not the primary. ProcessPresetCooldowns already
--- walks these, so PresetOnCD must too or the "CD Ready" glow never turns off.
+-- walks these, so PresetOnCD must too or the "CD Ready" glow never turns off;
+-- ResolveCastSpells maps each alternate's on-use spell from it too.
 local _presetAltMap
-local function PresetAltItemIDs(itemID)
+PresetAltItemIDs = function(itemID)
     if not _presetAltMap then
         _presetAltMap = {}
         for _, pr in ipairs(ns.CDM_ITEM_PRESETS or {}) do
@@ -1214,11 +1229,8 @@ ApplyCdState = function(frame, fc, cas, eff, onCD, ready)
         -- starts a glow when nothing is running, so it cannot stomp another
         -- owner's.
         if not fd._presetCdGlowOn or not glow._glowActive then
-            local gr, gg, gb
-            if ns.ResolveGlowColor then
-                gr, gg, gb = ns.ResolveGlowColor(cas)
-            end
-            ns.StartNativeGlow(glow, eff == "pixelGlowReady" and 1 or 3, gr or 1, gg or 1, gb or 1)
+            local style = ns.CdReadyGlowStyle(eff, cas)
+            ns.StartNativeGlow(glow, style, ns.CdReadyGlowColor(style, cas))
             fd._presetCdGlowOn = true
         end
     elseif fd._presetCdGlowOn then

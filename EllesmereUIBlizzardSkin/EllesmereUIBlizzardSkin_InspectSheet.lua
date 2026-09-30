@@ -9,7 +9,6 @@ local ADDON_NAME, ns = ...
 local skinned = false
 local GetItemInfo = C_Item.GetItemInfo
 local GetItemInfoInstant = C_Item.GetItemInfoInstant
-local GetItemQualityColor = C_Item.GetItemQualityColor
 
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
 local FFD = setmetatable({}, { __mode = "k" })
@@ -101,7 +100,7 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
 
     -- Item level label (font size matches CharacterSheet)
     if itemLink and not GetFFD(slot).iLvlText and not skipLabels then
-        local ilvl = select(4, GetItemInfo(itemLink))
+        local _, _, quality, ilvl = GetItemInfo(itemLink)
         if ilvl and ilvl > 0 then
             local itemLevelSize = EllesmereUIDB and EllesmereUIDB.charSheetItemLevelSize or 11
             local ilvlText = GetFFD(slot).cachedILvlText or textOverlayFrame:CreateFontString(nil, "OVERLAY")
@@ -122,20 +121,7 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
 
             ilvlText:SetText(ilvl)
 
-            local upgradeTrackText, upgradeTrackColor = EllesmereUI.GetUpgradeTrack(itemLink)
-            local displayColor
-            if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor and EllesmereUIDB.charSheetItemLevelColor then
-                displayColor = EllesmereUIDB.charSheetItemLevelColor
-            elseif upgradeTrackText ~= "" and upgradeTrackColor then
-                displayColor = upgradeTrackColor
-            elseif (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) then
-                local _, _, quality = GetItemInfo(itemLink)
-                if quality then
-                    local r, g, b = GetItemQualityColor(quality)
-                    displayColor = { r = r, g = g, b = b }
-                end
-            end
-            displayColor = displayColor or { r = 1, g = 1, b = 1 }
+            local displayColor = EllesmereUI.GetItemLevelColor(itemLink, quality)
             ilvlText:SetTextColor(displayColor.r, displayColor.g, displayColor.b, 0.9)
             ilvlText:Show()
 
@@ -462,9 +448,9 @@ local function SkinInspectSheet()
     -- are theirs to draw (see WSkin.IsForeignFrame).
     local IsForeign = ns.WSkin and ns.WSkin.IsForeignFrame
     if InspectPVPFrame then
-        local numChildren = InspectPVPFrame:GetNumChildren()
-        for i = 1, numChildren do
-            local child = select(i, InspectPVPFrame:GetChildren())
+        local children = { InspectPVPFrame:GetChildren() }
+        for i = 1, #children do
+            local child = children[i]
             if child and not child:GetName()
                and not (IsForeign and IsForeign(child, InspectPVPFrame)) then
                 child:Hide()
@@ -474,9 +460,9 @@ local function SkinInspectSheet()
 
     -- Hide Guild Frame background elements
     if InspectGuildFrame then
-        local numChildren = InspectGuildFrame:GetNumChildren()
-        for i = 1, numChildren do
-            local child = select(i, InspectGuildFrame:GetChildren())
+        local children = { InspectGuildFrame:GetChildren() }
+        for i = 1, #children do
+            local child = children[i]
             if child and not child:GetName()
                and not (IsForeign and IsForeign(child, InspectGuildFrame)) then
                 child:Hide()
@@ -485,9 +471,9 @@ local function SkinInspectSheet()
     end
 
     -- Hide unnamed decoration frames in main InspectFrame
-    local numChildren = frame:GetNumChildren()
-    for i = 1, numChildren do
-        local child = select(i, frame:GetChildren())
+    local children = { frame:GetChildren() }
+    for i = 1, #children do
+        local child = children[i]
         if child and not child:GetName() and child:GetObjectType() == "Frame"
            and not (IsForeign and IsForeign(child, frame)) then
             -- Only hide if it's not one of our known frames and not the TitleFrame or title parent
@@ -558,8 +544,9 @@ local function SkinInspectSheet()
         if paperDollItemsFrame then
             local IsForeignBtn = ns.WSkin and ns.WSkin.IsForeignFrame
             local talentsBtn = paperDollItemsFrame.InspectTalents
-            for i = 1, paperDollItemsFrame:GetNumChildren() do
-                local child = select(i, paperDollItemsFrame:GetChildren())
+            local children2 = { paperDollItemsFrame:GetChildren() }
+            for i = 1, #children2 do
+                local child = children2[i]
                 if child and child:GetObjectType() == "Button" and not child:GetName()
                    and child ~= talentsBtn
                    and not (IsForeignBtn and IsForeignBtn(child, paperDollItemsFrame)) then
@@ -589,9 +576,9 @@ local function SkinInspectSheet()
             slot:Show()
 
             -- Hide ALL unnamed Texturen in den Slots (die Dekoration)
-            local numRegions = slot:GetNumRegions()
-            for i = 1, numRegions do
-                local region = select(i, slot:GetRegions())
+            local regions = { slot:GetRegions() }
+            for i = 1, #regions do
+                local region = regions[i]
                 if region and region:IsObjectType("Texture") then
                     local regionName = region:GetName()
                     -- Hide nur unnamed Texturen (nicht die Icon)
@@ -802,8 +789,9 @@ local function SkinInspectSheet()
         if tab then
             inspTabs[#inspTabs + 1] = tab
             -- Remove Blizzard textures
-            for j = 1, select("#", tab:GetRegions()) do
-                local region = select(j, tab:GetRegions())
+            local regions = { tab:GetRegions() }
+            for j = 1, #regions do
+                local region = regions[j]
                 if region and region:IsObjectType("Texture") then
                     region:SetTexture("")
                     if region.SetAtlas then region:SetAtlas("") end
@@ -971,8 +959,9 @@ local function SkinInspectSheet()
         frame.TitleContainer:SetWidth(406)
         frame.TitleContainer:SetPoint("TOP", frame, "TOP", 0, 0)
 
-        for i = 1, frame.TitleContainer:GetNumChildren() do
-            local child = select(i, frame.TitleContainer:GetChildren())
+        local children2 = { frame.TitleContainer:GetChildren() }
+        for i = 1, #children2 do
+            local child = children2[i]
             if child and child:GetObjectType() == "FontString" then
                 child:SetJustifyH("CENTER")
             end

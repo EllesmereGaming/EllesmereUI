@@ -69,8 +69,10 @@ changes the user makes apply to your frames live where possible.
 
 ## Reference
 
-`S.apiVersion` is `1`. The API only ever grows; existing functions and their
-signatures will not change.
+`S.apiVersion` is `2`. The API only ever grows; existing functions and their
+signatures will not change. Version 2 added `S.SetTabSelection`; check
+`S.apiVersion >= 2` (or `S.SetTabSelection`) before calling it, so your skin
+still works for players on an older EllesmereUI.
 
 ### Containers
 
@@ -94,6 +96,7 @@ signatures will not change.
 | `S.Dropdown(dropdown)` | Flat dropdown with the house arrow. |
 | `S.ScrollBar(scrollBar)` | Fades arrows/track art, paints the thin white thumb strip. Scroll behavior untouched. |
 | `S.Tab(tab)` | House tab: flat plate, accent underline on the active tab. |
+| `S.SetTabSelection(tab, selected)` | Overrides which of your `S.Tab` tabs looks selected, for tabs your addon switches itself: `true` / `false` show it selected or not, `nil` returns to the tab's own selection. Visual only: the tab's real selection state is never touched. (apiVersion 2) |
 | `S.CloseButton(button)` | House close (X) glyph. |
 | `S.PageButton(button, "<" or ">")` | House prev/next page arrows. |
 | `S.SquareIcon(iconTexture [, parentFrame])` | Squares an icon's baked bevel (texcoord crop). Pass the icon's parent frame to also draw a 1px black border around it. |

@@ -11,7 +11,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  scroll-down button, no backdrop). Where Blizzard has no art for one of our
 --  buttons (guild, copy, portals) our own glyph sits on the kit's button in
 --  Blizzard's gold. Durability matches them (our glyph in gold on the kit's
---  button), tinted by the worst equipment alert.
+--  button), tinted by the worst equipment alert. WoW Forever's kit (bronze
+--  square plates, tan glyphs) lives in EllesmereUIChat_Forever.lua.
 --
 --  Everything here dresses OUR sidebar and buttons (UIParent-parented frames
 --  the chat module creates); no Blizzard frame is touched. Loaded after the
@@ -41,6 +42,7 @@ local function Entry(base, t)
     if base then for k, v in pairs(base) do if t[k] == nil then t[k] = v end end end
     return t
 end
+ECHAT.SB_Entry = Entry   -- the WoW Forever kit (EllesmereUIChat_Forever.lua)
 
 -- Button bases. w/h at scale 1; padT/padB = the art's transparent rows (the
 -- visible gap between icons is measured art to art).
@@ -139,7 +141,10 @@ ECHAT._sbBdMemo = {}
 -- is built). The two hot hooks the main file tests stay nil on the
 -- EllesmereUI look.
 function ECHAT.SB_Latch()
-    local kit = ns.ChatStock and ns.ChatStock() and ECHAT.SB_KITS[ns.ChatStyle()] or nil
+    local key = ns.ChatStock and ns.ChatStock() and ns.ChatStyle()
+    -- WoW Forever: the kit's bronze square buttons.
+    if key and ns.ChatForever() and ECHAT.SB_KITS.forever then key = "forever" end
+    local kit = key and ECHAT.SB_KITS[key] or nil
     ECHAT.SB_KIT = kit
     ECHAT.SB_SyncBackdrop = (kit and kit.backdrop) and ECHAT._SB_SyncBackdropImpl or nil
     ECHAT.SB_FlashSync = kit and ECHAT._SB_FlashSyncImpl or nil
@@ -185,10 +190,10 @@ local function SetStateArt(btn, which, e, blend)
 end
 
 -- Default sidebar width: Blizzard's 29px column (30 = the slider minimum),
--- following Icon Size; 40 on the EllesmereUI look.
+-- or the kit's own column, following Icon Size; 40 on the EllesmereUI look.
 function ECHAT.SidebarWidthDefault()
     if not ECHAT.SB_KIT then return 40 end
-    return math.max(30, math.floor(29 * (ECHAT.DB().sidebarIconScale or 1) + 0.5))
+    return math.max(30, math.floor((ECHAT.SB_KIT.colW or 29) * (ECHAT.DB().sidebarIconScale or 1) + 0.5))
 end
 
 -- The sidebar on the kit's column seat: Blizzard's ButtonFrame rect (its
@@ -290,12 +295,13 @@ end
 
 -- Pressed glyph: Blizzard's (-1,-2) at 0.75 (vanilla -Down art moves the
 -- glyph the same way). Shared functions on our buttons, no closures.
+-- _sbGYs = a kit glyph's own lift at the current Icon Size (nil = centred).
 function ECHAT.SB_GlyphDown(self, button)
     if button and button ~= "LeftButton" then return end
     local ic = self._icon
     if ic and self._sbGlyph then
         self._sbPushed = true
-        ic:ClearAllPoints(); ic:SetPoint("CENTER", self, "CENTER", -1, -2); ic:SetAlpha(0.75)
+        ic:ClearAllPoints(); ic:SetPoint("CENTER", self, "CENTER", -1, -2 + (self._sbGYs or 0)); ic:SetAlpha(0.75)
     end
 end
 -- Also on OnHide (a press can end off the button): only a pressed glyph has
@@ -305,7 +311,7 @@ function ECHAT.SB_GlyphUp(self)
     self._sbPushed = nil
     local ic = self._icon
     if ic and self._sbGlyph then
-        ic:ClearAllPoints(); ic:SetPoint("CENTER", self, "CENTER", 0, 0); ic:SetAlpha(1)
+        ic:ClearAllPoints(); ic:SetPoint("CENTER", self, "CENTER", 0, self._sbGYs or 0); ic:SetAlpha(1)
     end
 end
 -- The gear's states follow Blizzard's own order (pressed-hover, hover,
@@ -352,6 +358,8 @@ function ECHAT.SB_Dress(btn, key)
     SetStateArt(btn, "Normal", Pick(e.n))
     SetStateArt(btn, "Pushed", Pick(e.p))
     SetStateArt(btn, "Highlight", Pick(e.hl), e.hlBlend)
+    -- WoW Forever: the kit's bronze plate under the glyph (our frames).
+    if e.plate then ECHAT.FV_Plate(btn, true) end
     if e.inset then
         local t = btn:CreateTexture(nil, "BACKGROUND")
         t:SetColorTexture(0, 0, 0, e.inset)
@@ -366,7 +374,7 @@ function ECHAT.SB_Dress(btn, key)
     if g then
         icon:SetDrawLayer("OVERLAY")
         icon:ClearAllPoints()
-        icon:SetPoint("CENTER", btn, "CENTER", 0, 0)
+        icon:SetPoint("CENTER", btn, "CENTER", 0, g.y or 0)
         icon:SetDesaturated(false)
         if g.atlas then
             icon:SetAtlas(g.atlas)
@@ -375,8 +383,15 @@ function ECHAT.SB_Dress(btn, key)
             local tc = g.tc
             if tc then icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) else icon:SetTexCoord(0, 1, 0, 1) end
         end
-        if g.gold then icon:SetVertexColor(GOLD_R, GOLD_G, GOLD_B, 1) else icon:SetVertexColor(1, 1, 1, 1) end
+        -- A kit tint (WoW Forever's tan; a glyph may carry its own) wins
+        -- over the gold/white glyph rule.
+        local tint = g.tint or kit.tint
+        if tint then
+            icon:SetDesaturated(true)
+            icon:SetVertexColor(tint[1], tint[2], tint[3], 1)
+        elseif g.gold then icon:SetVertexColor(GOLD_R, GOLD_G, GOLD_B, 1) else icon:SetVertexColor(1, 1, 1, 1) end
         btn._sbGW, btn._sbGH = g.w, g.h
+        btn._sbGY, btn._sbGYs = g.y, g.y
         icon:Show()
         if e.push then
             btn._sbGlyph = true
@@ -401,6 +416,27 @@ function ECHAT.SB_DressScroll(btn, seat)
     SetStateArt(btn, "Normal", Pick(e.n))
     SetStateArt(btn, "Pushed", Pick(e.p))
     SetStateArt(btn, "Highlight", Pick(e.hl), e.hlBlend)
+    -- WoW Forever: the bronze plate and a tinted glyph in the sidebar seat
+    -- (re-run on every seat change; the chat seat wears plain art, which a
+    -- move back to the plate clears).
+    if e.plate or btn._fvPlate then ECHAT.FV_Plate(btn, e.plate == true) end
+    if e.plate and btn.ClearNormalTexture then
+        btn:ClearNormalTexture(); btn:ClearPushedTexture(); btn:ClearHighlightTexture()
+    end
+    local g = e.glyph and e.glyph[1]
+    if g and btn._icon and ECHAT.SB_ArtOK(g) then
+        local ic, tint = btn._icon, g.tint or kit.tint
+        ic:SetDrawLayer("OVERLAY")
+        ic:ClearAllPoints()
+        ic:SetPoint("CENTER", btn, "CENTER", 0, 0)
+        ic:SetAtlas(g.atlas)
+        ic:SetDesaturated(tint ~= nil)
+        if tint then ic:SetVertexColor(tint[1], tint[2], tint[3], 1) else ic:SetVertexColor(1, 1, 1, 1) end
+        btn._sbGW, btn._sbGH = g.w, g.h
+        ic:Show()
+    elseif btn._sbGW then
+        btn._sbGW, btn._sbGH = nil, nil
+    end
     local fl = btn._sbFlash
     if not fl then
         fl = btn:CreateTexture(nil, "OVERLAY")
@@ -427,6 +463,13 @@ function ECHAT.SB_DressScroll(btn, seat)
         if fa.atlas then fl:SetAtlas(fa.atlas) else fl:SetTexture(fa.file) end
         fl:SetBlendMode("ADD")
     end
+    -- A glyph seat flashes the glyph itself; a plain seat the whole button.
+    local onIcon = btn._sbGW ~= nil
+    if (btn._sbFlOnIcon or false) ~= onIcon then
+        btn._sbFlOnIcon = onIcon
+        fl:ClearAllPoints()
+        fl:SetAllPoints(onIcon and btn._icon or btn)
+    end
 end
 
 -- A count under its button, or inside it (the QuickJoin plate), in the
@@ -440,9 +483,11 @@ function ECHAT.SB_MakeCount(btn, sidebar, key)
     local fs = btn:CreateFontString(nil, "OVERLAY")
     EUI.PrimeFontShadow(fs, true)
     fs:SetFont(ECHAT.GetFont(), 10, "")
-    fs:SetTextColor(1, 1, 1, 1)
+    -- A kit count colour (WoW Forever's tan), else white.
+    local cc = ECHAT.SB_KIT and ECHAT.SB_KIT.countColor
+    if cc then fs:SetTextColor(cc[1], cc[2], cc[3], 1) else fs:SetTextColor(1, 1, 1, 1) end
     if inside then
-        fs:SetPoint("BOTTOM", btn, "BOTTOM", 0, 4)
+        fs:SetPoint("BOTTOM", btn, "BOTTOM", 0, (ECHAT.SB_KIT and ECHAT.SB_KIT.countY) or 4)
     else
         -- Right under the VISIBLE art: the button's transparent bottom rows
         -- come off (re-anchored with Icon Size in SB_ApplyScale).
@@ -473,6 +518,14 @@ function ECHAT.SB_ApplyScale(d, s, force)
             btn._sbPadT = (e.padT or 0) * s
             btn._sbPadB = (e.padB or 0) * s
             if btn._sbGW and btn._icon then btn._icon:SetSize(btn._sbGW * s, btn._sbGH * s) end
+            -- A lifted kit glyph keeps its lift in step with Icon Size.
+            if btn._sbGY and btn._icon then
+                btn._sbGYs = btn._sbGY * s
+                if not btn._sbPushed then
+                    btn._icon:ClearAllPoints()
+                    btn._icon:SetPoint("CENTER", btn, "CENTER", 0, btn._sbGYs)
+                end
+            end
             local ins = btn._sbInset
             if ins then
                 ins:ClearAllPoints()
@@ -492,7 +545,7 @@ function ECHAT.SB_ApplyScale(d, s, force)
             if owner then
                 fs:ClearAllPoints()
                 if fs._sbInside then
-                    fs:SetPoint("BOTTOM", owner, "BOTTOM", 0, 4 * s)
+                    fs:SetPoint("BOTTOM", owner, "BOTTOM", 0, ((ECHAT.SB_KIT and ECHAT.SB_KIT.countY) or 4) * s)
                 else
                     fs:SetPoint("TOP", owner, "BOTTOM", 0, owner._sbPadB or 0)
                 end
@@ -504,6 +557,8 @@ function ECHAT.SB_ApplyScale(d, s, force)
     if se then
         sbtn:SetSize(se.w * s, se.h * s)
         sbtn._freeMoveH = se.h * s
+        -- A glyph seat (WoW Forever's sidebar seat) sizes its glyph too.
+        if sbtn._sbGW and sbtn._icon then sbtn._icon:SetSize(sbtn._sbGW * s, sbtn._sbGH * s) end
     end
     -- A font-only change re-fonts the counts and stops; a new scale re-runs
     -- the chain once (the width pass already reaches ApplySidebarIcons).

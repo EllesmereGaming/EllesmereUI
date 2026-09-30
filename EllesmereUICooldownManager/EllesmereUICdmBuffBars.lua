@@ -443,6 +443,15 @@ do
     end
 
     local function Bank(profileName, specKey)
+        -- WoW Forever: never recreate a missing bucket here. The saved owner
+        -- can name a key the class no longer resolves to, and a recreated
+        -- bucket would steer which key the next session reads; a missing
+        -- bucket has nothing live to bank.
+        if EllesmereUI.IS_FOREVER then
+            local sp = profileName and specKey and ns.GetSpecProfilesForProfile
+                and ns.GetSpecProfilesForProfile(profileName)
+            if not (sp and sp[specKey]) then return end
+        end
         local b = Bucket(profileName, specKey, true)
         if not b then return end
         local an, wm, hm = LiveStores(false)
@@ -759,7 +768,9 @@ function ns.AddBarToAllSpecs(srcIdx)
     end
 
     local added = 0
-    local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
+    -- WoW Forever: the class has no other spec to copy into (the store key it
+    -- runs on is the only one it reads).
+    local numSpecs = (not EllesmereUI.IS_FOREVER) and GetNumSpecializations and GetNumSpecializations() or 0
     for i = 1, numSpecs do
         local specID = C_SpecializationInfo.GetSpecializationInfo(i)
         if specID then
@@ -799,7 +810,8 @@ function ns.AddBarToAllSpecs(srcIdx)
     end
 
     -- Mark broadcast so the button flips to "Remove..." in every spec; set even when added == 0 (all specs already held it).
-    local set = ns.GetActiveTBBBroadcastSet and ns.GetActiveTBBBroadcastSet()
+    -- WoW Forever copies nowhere (see above), so nothing is marked there.
+    local set = (not EllesmereUI.IS_FOREVER) and ns.GetActiveTBBBroadcastSet and ns.GetActiveTBBBroadcastSet()
     if set then
         local key = ns.TBBBroadcastKey(srcBar)
         if key then set[key] = true end
@@ -836,7 +848,7 @@ function ns.RemoveBarFromAllSpecs(srcIdx)
     end
 
     local removed = 0
-    local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
+    local numSpecs = (not EllesmereUI.IS_FOREVER) and GetNumSpecializations and GetNumSpecializations() or 0
     for i = 1, numSpecs do
         local specID = C_SpecializationInfo.GetSpecializationInfo(i)
         if specID then
@@ -1744,8 +1756,9 @@ local TBB_STYLE_KEYS = {
     "borderTextureOffset", "borderTextureOffsetY",
     "borderTextureShiftX", "borderTextureShiftY", "borderBehind",
     "stockBorderScale",
-    "pandemicGlow", "pandemicGlowStyle", "pandemicGlowColor",
+    "pandemicGlow", "pandemicGlowStyle", "pandemicGlowColor", "pandemicGlowMode",
     "pandemicGlowLines", "pandemicGlowThickness", "pandemicGlowSpeed",
+    "pandemicGlowBackground", "pandemicGlowBackgroundColor",
 }
 -- Appended rather than spelled out: a lane added to the shared list is copied with the
 -- rest of the style instead of silently staying behind on the source bar.
@@ -2120,12 +2133,12 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     wrapFrame._gradTex  = nil
 
     -- Text overlay: parented to wrapFrame (not bar) so bar's SetClipsChildren can't
-    -- chop text when font size exceeds bar height. Level sits above the border (bar+5
-    -- in ApplySettings, PP strips at +6) and the pandemic glow overlay (wrapFrame+7 =
-    -- bar+6), so timer/name/stacks render on top of both; keyed off bar so they track together.
+    -- chop text when font size exceeds bar height. Level sits above the border (bar+6
+    -- in ApplySettings, PP strips at +7) and the pandemic glow overlay (bar+8), so
+    -- timer/name/stacks render on top of both; keyed off bar so they track together.
     local textOverlay = CreateFrame("Frame", nil, wrapFrame)
     textOverlay:SetAllPoints(bar)
-    textOverlay:SetFrameLevel(bar:GetFrameLevel() + 7)
+    textOverlay:SetFrameLevel(bar:GetFrameLevel() + 9)
     wrapFrame._textOverlay = textOverlay
 
     -- Timer text
@@ -2169,12 +2182,12 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     bdrContainer:Hide()
     wrapFrame._barBorder = bdrContainer
 
-    -- Pandemic glow overlay above the border, whose PP strips draw at +6
-    -- (border frame +5 plus the +1 the strip container adds), so a thick border
-    -- cannot bury the edge-hugging glow.
+    -- Pandemic glow overlay above the border, whose PP strips draw at bar+7
+    -- (border frame +6 plus the +1 the strip container adds), so a border
+    -- cannot bury the edge-hugging glow (wrapFrame+9 = bar+8).
     local panGlow = CreateFrame("Frame", nil, wrapFrame)
     panGlow:SetAllPoints(wrapFrame)
-    panGlow:SetFrameLevel(wrapFrame:GetFrameLevel() + 7)
+    panGlow:SetFrameLevel(wrapFrame:GetFrameLevel() + 9)
     panGlow:SetAlpha(0)
     panGlow:EnableMouse(false)
     wrapFrame._pandemicGlowOverlay = panGlow
@@ -2633,7 +2646,7 @@ ns.ApplyTBBBlizzIconArt = function(bar, iSize)
             bar._blizzIconMask = mask
         end
         local ov = icon:CreateTexture(nil, "OVERLAY", nil, 5)
-        if classic then ov:SetTexture(ns.CDM_CLASSIC_RING) else ov:SetAtlas(ns.CDM_BLIZZ_OVERLAY) end
+        if classic then ov:SetTexture(ns.CDM_CLASSIC_RING) else ns.CdmStockAtlas(ov, ns.CDM_BLIZZ_OVERLAY, true) end
         ov:SetSnapToPixelGrid(false)
         ov:SetTexelSnappingBias(0)
         bar._blizzIconOverlay = ov
@@ -2752,8 +2765,9 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         -- loses the tie to them (created lazily, so they win) and vanishes the
         -- moment a threshold is crossed. Ticks and charge hash lines shift up
         -- in step to keep their order. The classic spark rides above the
-        -- chrome (+6) instead, as the vanilla spark draws over its frame.
-        if bar._sparkOverlay then bar._sparkOverlay:SetFrameLevel(sb:GetFrameLevel() + (classicBar and 7 or 3)) end
+        -- chrome instead, as the vanilla spark draws over its frame: sb+8, above
+        -- the pandemic glow (base+8), level with the text.
+        if bar._sparkOverlay then bar._sparkOverlay:SetFrameLevel(sb:GetFrameLevel() + (classicBar and 8 or 3)) end
         -- Tick overlay MUST be re-asserted here too: SetFrameStrata collapses descendant levels, so otherwise ticks land at a default level.
         if bar._tickOverlay then bar._tickOverlay:SetFrameLevel(sb:GetFrameLevel() + 4) end
         if bar._chargeHashOverlay then bar._chargeHashOverlay:SetFrameLevel(sb:GetFrameLevel() + 5) end
@@ -2762,8 +2776,9 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         -- ties, putting ticks ON TOP of the border. One level up keeps the border above
         -- ticks; charge hash lines tie it and win via later creation, as intended.
         if bar._barBorder then bar._barBorder:SetFrameLevel(base + 6) end
-        if bar._pandemicGlowOverlay then bar._pandemicGlowOverlay:SetFrameLevel(base + 7) end
-        if bar._textOverlay then bar._textOverlay:SetFrameLevel(sb:GetFrameLevel() + 7) end
+        -- Glow +8: the border's PP strips draw at +7 and would tie it; text stays on top.
+        if bar._pandemicGlowOverlay then bar._pandemicGlowOverlay:SetFrameLevel(base + 8) end
+        if bar._textOverlay then bar._textOverlay:SetFrameLevel(sb:GetFrameLevel() + 8) end
     end
 
     -- width/height are always VISUAL dimensions describing the bar's TOTAL footprint,
@@ -3681,6 +3696,141 @@ local function AssignFramesToConfigs(bars)
 end
 ns.AssignTBBFramesToConfigs = AssignFramesToConfigs
 
+-------------------------------------------------------------------------------
+--  Audio on Buff Gain / Loss for Tracking Bars
+--
+--  Same two keys as the CDM buff icons (buffActiveSoundKey / buffLostSoundKey,
+--  nil = silent), stored per bar config, and the same pipeline. Blizzard-tracked
+--  bars need no hook of their own: InstallBuffFrameHooks already puts the
+--  apply/remove alert hooks on both buff viewers' frames, and RecordBuffEdge
+--  asks ns.FindTBBSoundKey (ahead of the Buffs bar tiers for a Tracked Bars
+--  frame, after them for a buff icon frame). The self-timed presets have no
+--  Blizzard alert, so their timer edges call ns.TBBPresetSoundEdge. Bars that
+--  track a cooldown never cue. Everything here is ns.* on purpose: this file's
+--  local budget is nearly spent. Gated 0-cost on ns._tbbAnyBuffSound, the
+--  tracking-bar half of ns._cdmAnyBuffSound.
+-------------------------------------------------------------------------------
+
+-- Sound key for the tracking bar that owns this Blizzard frame / spell id.
+-- The current pairing names the exact bar (Eclipse-style shared slots), but
+-- only while it still fits the frame: the pool reuses frame objects across
+-- cooldown slots, and a relayout while the tick sleeps leaves the pairing
+-- stale. An id match covers a frame the pairing has not seen yet (its first
+-- activation). Presets cue from their own windows, never from an alert.
+-- Returns the key; false when the owning bar has a sound on its other edge
+-- only (this edge is its own silence, so no Buffs bar sound may stand in);
+-- nil when no bar has a say.
+function ns.FindTBBSoundKey(frame, sid, field)
+    if not (ECME and ECME.db) then ECME = ns.ECME end
+    local p = ECME and ECME.db and ECME.db.profile
+    if not p or (p.cdmBars and p.cdmBars.useBlizzardBuffBars) then return nil end
+    local tbb = ns.GetTrackedBuffBars()
+    local bars = tbb and tbb.bars
+    if not bars then return nil end
+    local cfg
+    if frame and _tbbAssignedFor == bars then
+        for c, f in pairs(_tbbAssignment) do
+            if f == frame then
+                if c.enabled ~= false and not c.popularKey and c.trackType ~= "cooldown" then
+                    local sc = _tbbStickyCdID[c]
+                    if (sc ~= nil and frame.cooldownID == sc) or CfgWantsSID(c, sid)
+                       or MatchFrameToConfig(frame, c) then
+                        cfg = c
+                    end
+                end
+                break
+            end
+        end
+    end
+    if not cfg then
+        for _, c in ipairs(bars) do
+            if c.enabled ~= false and not c.popularKey and CfgWantsSID(c, sid) then
+                cfg = c; break
+            end
+        end
+    end
+    if not cfg then return nil end
+    local key = cfg[field]
+    if key and key ~= "none" then return key end
+    local g, l = cfg.buffActiveSoundKey, cfg.buffLostSoundKey
+    if (g and g ~= "none") or (l and l ~= "none") then return false end
+    return nil
+end
+
+-- Any tracking bar in any spec of this profile with a gain or loss sound
+-- (feeds ns.RescanBuffSoundFlag). Cooldown-tracking bars never cue.
+function ns.TBBAnyBuffSound()
+    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+    if not sp then return false end
+    for _, prof in pairs(sp) do
+        local tbb = type(prof) == "table" and prof.trackedBuffBars
+        if type(tbb) == "table" and type(tbb.bars) == "table" then
+            for _, c in ipairs(tbb.bars) do
+                if c.trackType ~= "cooldown" then
+                    local g, l = c.buffActiveSoundKey, c.buffLostSoundKey
+                    if (g and g ~= "none") or (l and l ~= "none") then return true end
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- Tracking-bar sound enable (a bar's sound set in options, or the rescan
+-- finding one): flips both gates live and hooks the buff viewer frames already
+-- out of their pools, since pool Acquire only hooks while the gate is on. Both
+-- viewers: a bar's spell can live in either one.
+function ns.EnsureTBBSoundHooks()
+    ns._cdmAnyBuffSound = true
+    ns._tbbAnyBuffSound = true
+    local hook = ns.EnsureBuffSoundHook
+    if not hook then return end
+    local viewer = _G.BuffBarCooldownViewer
+    local pool = viewer and viewer.itemFramePool
+    if pool then
+        for frame in pool:EnumerateActive() do hook(frame) end
+    end
+    viewer = _G.BuffIconCooldownViewer
+    pool = viewer and viewer.itemFramePool
+    if pool then
+        for frame in pool:EnumerateActive() do hook(frame) end
+    end
+end
+
+-- [popularKey] = GetTime() a latched preset window ends at (loss still to cue).
+ns._tbbPresetLoss = {}
+
+-- Self-timed preset edge. The gain comes from the event that (re)starts the
+-- window (Sated rise, Time Spiral glow, potion cast), so a refresh cues again,
+-- and latches the loss at the window's end (expiry) while a bar of that preset
+-- has a loss sound. The tracking-bar tick fires the latch ahead of its
+-- visibility gates, so a bar parked at that moment still cues; a consumed
+-- Time Spiral cues from its glow hide, which clears the latch. One cue per
+-- edge: the throttle id is per preset, so with two bars of one preset only
+-- the first bar with a sound plays.
+function ns.TBBPresetSoundEdge(popularKey, gainEdge, expiry)
+    if not ns._tbbAnyBuffSound or not popularKey then return end
+    local latch = ns._tbbPresetLoss
+    -- Clear only a present entry: the tick calls in here while walking the latch table.
+    if latch[popularKey] then latch[popularKey] = nil end
+    if not (ECME and ECME.db) then ECME = ns.ECME end
+    local p = ECME and ECME.db and ECME.db.profile
+    if not p or (p.cdmBars and p.cdmBars.useBlizzardBuffBars) then return end
+    local tbb = ns.GetTrackedBuffBars()
+    local bars = tbb and tbb.bars
+    if not bars then return end
+    local field = gainEdge and "buffActiveSoundKey" or "buffLostSoundKey"
+    for _, cfg in ipairs(bars) do
+        if cfg.enabled ~= false and cfg.popularKey == popularKey
+           and cfg.trackType ~= "cooldown" then
+            local key = cfg[field]
+            if key and key ~= "none" then ns.PlayBuffSoundEdge(key, "tbb:" .. popularKey, gainEdge) end
+            local lost = cfg.buffLostSoundKey
+            if gainEdge and expiry and lost and lost ~= "none" then latch[popularKey] = expiry end
+        end
+    end
+end
+
 --- Frame-based check: is a spellID present in BuffBarCooldownViewer? Iterates the tiny pool
 --- (~3-5 frames), matching via MatchesSID across all fields (overrideSpellID, spellID, linkedSpellIDs).
 function ns.IsSpellInBuffBarViewer(spellID)
@@ -4012,9 +4162,9 @@ local function UpdatePandemic(bar, cfg)
     -- Glow always wraps the whole bar: the overlay covers the entire wrapFrame footprint, so an enabled icon is included rather than glowed alone.
     local glowTarget = bar._pandemicGlowOverlay
 
-    local style = cfg.pandemicGlowStyle or 1
-    -- Only pixel glow (1) and autocast (4) render on the bar rectangle
-    if style ~= 1 and style ~= 4 then style = 1 end
+    -- Bar rectangle: Pixel Glow or Auto-Cast Shine only (texture styles stretch);
+    -- any other stored style, and Blizzard Default (-1), render as Pixel Glow.
+    local style = ns.PG_TbbEffectiveStyle(cfg)
 
     -- Start/restart glow on style or target change
     if not bar._pandemicGlowActive or bar._pandemicGlowStyleIdx ~= style
@@ -4209,6 +4359,7 @@ local function _ensureLustListener(enable)
                 if present and not _satedPresent and not isFull
                     and GetTime() >= _lustZoneGuard then
                     _lustExpiry = GetTime() + 40  -- rising edge: lust just went out
+                    ns.TBBPresetSoundEdge("bloodlust", true, _lustExpiry)
                     _satedSince = GetTime()
                     _tbbWake.Wake()  -- lust can come from other players: no local cast/aura edge is guaranteed
                     -- Drive Custom Auras (icon) lust displays sharing this edge.
@@ -4247,6 +4398,9 @@ function ns.UpdateLustListener()
         end
     end
     if not any and ns.AnyCustomAuraLust then any = ns.AnyCustomAuraLust() end
+    -- WoW Forever has no raid lust and no Sated debuff: a lust bar or icon saved
+    -- on another client stays dormant there and never arms the listener.
+    if EllesmereUI.IS_FOREVER then any = false end
     _ensureLustListener(any)
     -- Sibling preset listeners refresh from the same change sites: every add/remove/rebuild path already calls UpdateLustListener.
     if ns.UpdateTimeSpiralListener then ns.UpdateTimeSpiralListener() end
@@ -4266,6 +4420,7 @@ local _smoothBuffs, _smoothCooldowns = true, false
 local function _UpdateSelfTimedBar(bar, cfg, expiry, duration)
     local remaining = expiry - GetTime()
     if remaining <= 0 then
+        -- The loss cue comes from the preset's latch in the tick, shown or not.
         if bar:IsShown() then bar:Hide() end
         return
     end
@@ -4379,6 +4534,7 @@ local function _ensureTimeSpiralListener(enable)
                     if not TIME_SPIRAL_TRIGGERS[sid] then return end
                     if GetTime() < _ts.suppressUntil then return end
                     _ts.expiry = GetTime() + TIME_SPIRAL_DURATION  -- free move just granted
+                    ns.TBBPresetSoundEdge("timespiral", true, _ts.expiry)
                     _tbbWake.Wake()  -- glow edge is outside the sleeper's wake events
                     -- Drive Custom Auras (icon) displays sharing this edge.
                     if ns.SignalTimeSpiralCast then ns.SignalTimeSpiralCast() end
@@ -4390,6 +4546,7 @@ local function _ensureTimeSpiralListener(enable)
                     -- so an unrelated trigger's hide cannot fire spuriously.
                     if _ts.expiry > GetTime() then
                         _ts.expiry = 0
+                        ns.TBBPresetSoundEdge("timespiral", false)
                         if ns.SignalTimeSpiralEnd then ns.SignalTimeSpiralEnd() end
                     end
                 elseif event == "UNIT_SPELLCAST_SENT" then
@@ -4428,6 +4585,9 @@ function ns.UpdateTimeSpiralListener()
         end
     end
     if not any and ns.AnyCustomAuraTimeSpiral then any = ns.AnyCustomAuraTimeSpiral() end
+    -- WoW Forever has no Time Spiral: a bar or icon saved on another client stays
+    -- dormant there and never arms the glow listener.
+    if EllesmereUI.IS_FOREVER then any = false end
     _ensureTimeSpiralListener(any)
 end
 
@@ -4467,6 +4627,7 @@ local function _ensurePotionCastListener(enable)
                 local key = spellID and _potionTrigger[spellID]
                 if not key then return end
                 _potionExpiry[key] = GetTime() + (_potionDur[key] or 30)
+                ns.TBBPresetSoundEdge(key, true, _potionExpiry[key])
             end)
         end
         if not _potionActive then
@@ -4492,6 +4653,39 @@ function ns.UpdatePotionCastListener()
         end
     end
     _ensurePotionCastListener(any)
+end
+
+-- Can a sound set on this tracking bar ever play? Options-side predicate:
+-- cheap, allocation-free, secret-safe. Cooldown-tracking bars never cue. A
+-- preset cues from its own window, so only the self-timed ones count. Any
+-- other bar cues only through a Blizzard buff viewer's aura alert, so its
+-- spell has to be in the Tracked Bars or Tracked Buffs viewer: the bar's
+-- current pairing, or a live frame of either viewer whose spell the bar
+-- wants (the id match the alert path uses).
+function ns.TBB_BarCanCue(cfg)
+    if type(cfg) ~= "table" or cfg.trackType == "cooldown" then return false end
+    local pk = cfg.popularKey
+    if pk then
+        -- The lust and Time Spiral windows never open on WoW Forever (their
+        -- listeners stay off there), so only a cast-timed preset can cue.
+        if EllesmereUI.IS_FOREVER then return _potionDur[pk] ~= nil end
+        return pk == "bloodlust" or pk == "timespiral" or _potionDur[pk] ~= nil
+    end
+    -- A dirty map still holds the previous pass's pairings: trust it only once rebuilt.
+    if not _tbbAssignDirty and _tbbAssignment[cfg] then return true end
+    local GetCanonical = ns.GetCanonicalSpellIDForFrame
+    if not GetCanonical then return false end
+    for vi = 1, 2 do
+        local viewer
+        if vi == 1 then viewer = _G.BuffBarCooldownViewer else viewer = _G.BuffIconCooldownViewer end
+        local pool = viewer and viewer.itemFramePool
+        if pool then
+            for frame in pool:EnumerateActive() do
+                if CfgWantsSID(cfg, GetCanonical(frame)) then return true end
+            end
+        end
+    end
+    return false
 end
 
 -- True when v is a plain, readable number. A secret value fails BEFORE any type/comparison touches it; nil and non-numbers fail too.
@@ -5447,6 +5641,24 @@ function ns.UpdateTrackedBuffBarTimers()
 
     -- Visibility gate inputs, once per pass, only when some bar has a condition.
     if _anyVisCond then TBBFillVisState() end
+
+    -- Audio on Buff Loss for the self-timed presets: a latch the gain armed
+    -- fires at the window's end ahead of every visibility gate below, so a bar
+    -- parked at that moment (Only In Combat after combat drops) still cues.
+    -- The window has no end event, so a pending latch keeps the tick awake;
+    -- one found long past its end (the tick was parked) clears silently.
+    local lossLatch = ns._tbbPresetLoss
+    if next(lossLatch) then
+        local now = GetTime()
+        for pk, at in pairs(lossLatch) do
+            if now >= at then
+                lossLatch[pk] = nil
+                if now - at < 1 then ns.TBBPresetSoundEdge(pk, false) end
+            else
+                tickLive = true
+            end
+        end
+    end
 
     for i, cfg in ipairs(bars) do
         local bar = tbbFrames[i]

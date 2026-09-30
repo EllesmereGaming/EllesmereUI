@@ -4,13 +4,30 @@
 ## Group: EllesmereUI
 ## Notes: Information bar for EllesmereUI - clock, gold, reputation and more
 ## Author: Ellesmere
-## Version: 9.2.9
+## Version: 9.3.4
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIDataBarsDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Runtime
 EllesmereUIDataBars.lua
-EllesmereUIDataBars_Blocks.lua
+Blocks\Shared.lua
+Blocks\Clock.lua
+Blocks\Stats.lua
+Blocks\Location.lua
+Blocks\Gold.lua
+Blocks\Bags.lua
+Blocks\XPRep.lua
+Blocks\Travel.lua
+Blocks\Spec.lua
+Blocks\Profession.lua
+Blocks\MicroMenu.lua
+Blocks\Currency.lua
+Blocks\Crests.lua
+Blocks\ItemLevel.lua
+Blocks\GreatVault.lua
+Blocks\Audio.lua
+Blocks\LDB.lua
+Blocks\Spacer.lua
 
 # Options

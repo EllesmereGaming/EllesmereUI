@@ -63,8 +63,30 @@ end
 -- game as "spec<ID>". lead(values, order, icons) may add entries after the
 -- divider and returns a set of specIDs to leave out. Returns fresh tables:
 -- values, order, icons, classes (class file per "spec<ID>" key).
-function EllesmereUI.BuildSpecBucketRoster(lead)
+-- WoW Forever: All Specs, "---a", then one row per class keyed by the
+-- bucket that class edits (foreverKeyFor(classToken); a nil key skips the
+-- class). No role buckets there and lead is not called.
+function EllesmereUI.BuildSpecBucketRoster(lead, foreverKeyFor)
     local values, order, icons, classes = {}, {}, {}, {}
+    if EllesmereUI.IS_FOREVER then
+        local all = EllesmereUI.SPEC_GROUP_BUCKET_INFO.allspecs
+        values.allspecs = EllesmereUI.L(all.name)
+        order[1] = "allspecs"
+        icons.allspecs = all.icon
+        local list = EllesmereUI.ForeverClasses()
+        for i = 1, #list do
+            local token = list[i]
+            local key = foreverKeyFor and foreverKeyFor(token)
+            if key and values[key] == nil then
+                if #order == 1 then order[2] = "---a" end
+                values[key] = EllesmereUI.ForeverClassName(token)
+                order[#order + 1] = key
+                icons[key] = EllesmereUI.ForeverClassIcon(token)
+                classes[key] = token
+            end
+        end
+        return values, order, icons, classes
+    end
     for _, g in ipairs(EllesmereUI.SPEC_GROUP_BUCKETS) do
         values[g.key] = EllesmereUI.L(g.name)
         order[#order + 1] = g.key
@@ -91,9 +113,9 @@ function EllesmereUI.BuildSpecBucketRoster(lead)
 end
 
 -- Right-click "Add To" items: the roster minus dividers, the edited bucket
--- (selKey, the source) disabled.
-function EllesmereUI.SpecBucketMenuItems(selKey, lead)
-    local values, order, icons = EllesmereUI.BuildSpecBucketRoster(lead)
+-- (selKey, the source) disabled. foreverKeyFor: see BuildSpecBucketRoster.
+function EllesmereUI.SpecBucketMenuItems(selKey, lead, foreverKeyFor)
+    local values, order, icons = EllesmereUI.BuildSpecBucketRoster(lead, foreverKeyFor)
     local items = {}
     for i = 1, #order do
         local key = order[i]
@@ -131,7 +153,7 @@ local PxCo = {
         windowBorderSize = true, iconBorderSize = true,
         hoverBorderSize = true, targetBorderSize = true, borderWidth = true,
         party_borderSize = true, party_hoverBorderSize = true,
-        party_targetBorderSize = true,
+        party_targetBorderSize = true, castBorderSize = true,
     },
     memo = {},
 }
@@ -245,16 +267,31 @@ local _defaultView = false   -- panel open in Default Editing Mode: live holds
 -------------------------------------------------------------------------------
 local DeepCopy = EllesmereUI.Lite.DeepCopy
 
+-- WoW Forever reports one spec per class; there the player is the first
+-- retail spec of the class (class order) that a group of the active profile
+-- holds, else the class's first spec. nil until the client knows its spec.
 local function CurrentSpecID()
     local id = EllesmereUI._specID
     if not id or id == 0 then
         EllesmereUI._RefreshSpecID()
         id = EllesmereUI._specID
     end
+    if EllesmereUI.IS_FOREVER and id and id ~= 0 then
+        return EllesmereUI.SpecFor(id, EllesmereUI._SO_InAnyGroup)
+    end
     return (id and id ~= 0) and id or nil
 end
 
 local function SpecName(specID)
+    -- WoW Forever: a retail spec ID reads "Spec - Class" from the shared spec
+    -- table; a WoW Forever spec ID reads as its class.
+    if EllesmereUI.IS_FOREVER then
+        local token = EllesmereUI.SpecClassOf(specID)
+        if token then
+            local sn, cn = EllesmereUI.RetailSpecName(specID), EllesmereUI.ForeverClassName(token)
+            return sn and (sn .. " - " .. cn) or cn
+        end
+    end
     -- The by-id lookup is not registered on WoW Forever.
     if not GetSpecializationInfoByID then return "Spec " .. tostring(specID) end
     local _, name, _, _, _, _, className = GetSpecializationInfoByID(specID)
@@ -315,6 +352,47 @@ local function SpecInAnyGroup(specID)
         end
     end
     return false
+end
+
+-- CurrentSpecID's WoW Forever predicate (CurrentSpecID is declared above
+-- this local), and the current spec for Unlock Mode (loads before this file).
+EllesmereUI._SO_InAnyGroup = SpecInAnyGroup
+EllesmereUI.SpecOverrides_CurrentSpecID = CurrentSpecID
+
+-- WoW Forever: card tooltip lines for a group. A class held whole reads as
+-- the class; a partial class lists its specs; a group holding specs of the
+-- player's class but not the one this character uses says so.
+function EllesmereUI._SO_ForeverGroupNames(specs, curSpec)
+    specs = specs or {}
+    local set, out, done = {}, {}, {}
+    for _, id in ipairs(specs) do set[id] = true end
+    local player = select(2, UnitClass("player"))
+    local inactive = false
+    for _, id in ipairs(specs) do
+        local token = EllesmereUI.SpecClassOf(id)
+        local ids = EllesmereUI.ForeverClassSpecIDs(token)
+        if not ids then
+            out[#out + 1] = SpecName(id)   -- a class WoW Forever lacks
+        elseif not done[token] then
+            done[token] = true
+            local whole = true
+            for i = 1, #ids do
+                if not set[ids[i]] then whole = false; break end
+            end
+            if whole then
+                out[#out + 1] = EllesmereUI.ForeverClassName(token)
+            else
+                for i = 1, #ids do
+                    if set[ids[i]] then out[#out + 1] = SpecName(ids[i]) end
+                end
+            end
+            if token == player and curSpec and not set[curSpec] then inactive = true end
+        end
+    end
+    if inactive then
+        out[#out + 1] = string.format(L("Inactive on WoW Forever: this character uses %s"), SpecName(curSpec))
+    end
+    return out
 end
 
 -- First existing group (creation order) whose member specs hold banked values on
@@ -465,6 +543,10 @@ for i = 1, #VIS_OV_FOLDERS do
     set.visibilityModes = true
     set.visibilityMatch = true
 end
+
+-- WoW Forever: the buff clear mark (EllesmereUI_Migration.lua) is bookkeeping,
+-- never a setting. The loop above guaranteed the Unit Frames set exists.
+if EllesmereUI.FvBW then SETTING_BLACKLIST.EllesmereUIUnitFrames[EllesmereUI.FvBW.KEY] = true end
 
 -- The lanes come from the shared VIS_OPT_KEYS, never a copy, so one added later
 -- cannot silently become capturable again. Lazy because this file can load first;
@@ -1128,6 +1210,9 @@ end
 --- every profile swap / import picks the current spec's overrides up through
 --- the full refresh that follows. No refresh of its own.
 function EllesmereUI.SpecOverrides_ApplyValues(specID)
+    -- WoW Forever: re-resolve the spec the class acts as against the groups
+    -- of the profile now active (a profile swap or import can move it).
+    if EllesmereUI.IS_FOREVER then specID = CurrentSpecID() or specID end
     ApplyValuesFor(specID or _activeSpec or CurrentSpecID())
     -- Unlock layout overrides ride the same hook: stores must hold the current
     -- spec's effective layout before every module refresh that follows. Always
@@ -1210,6 +1295,9 @@ function EllesmereUI.SpecOverrides_Apply(specID, deferLogin)
         end)
         return
     end
+    -- WoW Forever: every caller means "the current spec"; the client's own
+    -- spec ID never keys a group, so resolve the spec the class acts as.
+    if specID and EllesmereUI.IS_FOREVER then specID = CurrentSpecID() or specID end
     local touched = ApplyValuesFor(specID)
     if touched then RunRefreshers(touched) end
     -- Unlock layout overrides: a same-profile spec change never runs RefreshAllAddons,
@@ -1275,6 +1363,12 @@ end
 --- Spec transition entry point, called by the profile system's spec handler
 --- BEFORE any spec-profile switch.
 function EllesmereUI.SpecOverrides_OnSpecChanged(oldSpecID, newSpecID)
+    -- WoW Forever: the outgoing spec is the one whose values are live, the
+    -- incoming one the spec the class acts as.
+    if EllesmereUI.IS_FOREVER then
+        if oldSpecID then oldSpecID = _activeSpec end
+        if newSpecID then newSpecID = CurrentSpecID() or newSpecID end
+    end
     -- Unlock layout: bank live into the outgoing layer FIRST, while live still
     -- belongs to the old state (the new spec's values/refreshers have not run
     -- yet). The per-spec layer apply rides ApplyUnlock later.
@@ -1314,6 +1408,22 @@ function EllesmereUI.SpecOverrides_OnSpecChanged(oldSpecID, newSpecID)
     _inTransition = true
 end
 
+-- WoW Forever: creating or deleting a group can move the spec the class acts
+-- as (CurrentSpecID) while _activeSpec still names the spec whose values are
+-- live. Runs the transition a spec change runs, once: OnSpecChanged banks
+-- what is live (the unlock, Buff Manager and Debuff Manager layers, then the
+-- Default view or the outgoing spec), then the new spec applies. Stands down
+-- while an editing session holds its own values live (its exit converges)
+-- and while a spec transition is mid-flight (its apply resolves the new
+-- spec). Retail never calls this.
+function EllesmereUI._SO_ForeverConverge()
+    local r = CurrentSpecID()
+    if not r or r == _activeSpec or _inTransition then return end
+    if _editGroup or (EllesmereUI._CondOv and EllesmereUI._CondOv._edit) then return end
+    EllesmereUI.SpecOverrides_OnSpecChanged(_activeSpec, r)
+    EllesmereUI.SpecOverrides_Apply(r)
+end
+
 --- Harvest the live values of the spec currently in the live db. Called on
 --- logout and before manual profile switches/imports/exports so normal
 --- options-page edits are never lost. An active Editing-as session is banked
@@ -1345,7 +1455,8 @@ function EllesmereUI.SpecOverrides_HarvestCurrent()
     if EllesmereUI._CondOv and EllesmereUI._CondOv._edit then
         EllesmereUI._CondOv.ExitEdit(nil, true)
         if not _defaultView then
-            Harvest(_activeSpec or CurrentSpecID())
+            -- WoW Forever banks only a spec an apply made live.
+            Harvest(_activeSpec or ((not EllesmereUI.IS_FOREVER) and CurrentSpecID() or nil))
             return
         end
     end
@@ -1382,7 +1493,9 @@ function EllesmereUI.SpecOverrides_HarvestCurrent()
         return
     end
     BankCond()
-    Harvest(_activeSpec or CurrentSpecID())
+    -- WoW Forever banks only a spec an apply made live: before the first
+    -- apply no resolved spec owns the live values.
+    Harvest(_activeSpec or ((not EllesmereUI.IS_FOREVER) and CurrentSpecID() or nil))
 end
 
 -------------------------------------------------------------------------------
@@ -1845,7 +1958,6 @@ local function UnlockElemAnchorOwned(key)
 end
 local _unlockSettleWanted = false
 local _unlockFlushScheduled = false
-local _unlockFlushCombatWatch  -- one-shot PLAYER_REGEN_ENABLED re-flush frame
 local ScheduleUnlockFlush
 
 -- Loose elem-geometry equality (position keywords exact, coordinates and
@@ -2333,14 +2445,9 @@ function EllesmereUI.SpecOverrides_FlushUnlock()
     -- PLAYER_REGEN_ENABLED (the settle is idempotent, only measures post-rebuild geometry).
     if InCombatLockdown() then
         _unlockFlushScheduled = true  -- keeps ScheduleUnlockFlush deduped
-        if not _unlockFlushCombatWatch then
-            _unlockFlushCombatWatch = CreateFrame("Frame")
-            _unlockFlushCombatWatch:SetScript("OnEvent", function(self)
-                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-                if _unlockFlushScheduled then EllesmereUI.SpecOverrides_FlushUnlock() end
-            end)
-        end
-        _unlockFlushCombatWatch:RegisterEvent("PLAYER_REGEN_ENABLED")
+        EllesmereUI.CombatQueue.Defer("SpecOverridesFlushUnlock", function()
+            if _unlockFlushScheduled then EllesmereUI.SpecOverrides_FlushUnlock() end
+        end)
         return
     end
     _unlockFlushScheduled = false
@@ -2588,6 +2695,11 @@ local function GetBmStore(create)
         prof.specBmOverrides = s
     end
     s.layouts = s.layouts or {}
+    -- WoW Forever: the one-time buff clear of the fork stores, before anything
+    -- banks into or applies from them ("fvBuffWipe" is its frozen mark,
+    -- EllesmereUI_Migration.lua). A marked store costs one field read.
+    local fv = EllesmereUI.FvBW
+    if fv and s.fvBuffWipe == nil then fv.BmForks(prof) end
     return s
 end
 
@@ -2601,6 +2713,9 @@ local function GetCondBmStore(create)
         prof.condBmOverrides = s
     end
     s.layouts = s.layouts or {}
+    -- WoW Forever: the one-time buff clear of the fork stores (see GetBmStore).
+    local fv = EllesmereUI.FvBW
+    if fv and s.fvBuffWipe == nil then fv.BmForks(prof) end
     return s
 end
 
@@ -2721,13 +2836,52 @@ function EllesmereUI.SpecOverrides_HarvestBmLayout()
     end
 end
 
+--- WoW Forever: records the spec a live spec fork serves, the bucket the
+--- Raid Frames Buff Manager (dm false) or Debuff Manager (dm true) renders
+--- and edits: specID when want is a spec group's id and specID a retail spec
+--- of the player's class, else nil. Returns the previous value. Runtime
+--- only; callers gate on Forever.
+function EllesmereUI._SO_SetForkSpec(dm, want, specID)
+    local v = nil
+    if type(want) == "number" and specID and EllesmereUI.IsPlayerSpec(specID)
+       and EllesmereUI.RetailSpecName(specID) then
+        v = specID
+    end
+    local prev
+    if dm then
+        prev = EllesmereUI.SpecOverrides_DmForkSpecID
+        EllesmereUI.SpecOverrides_DmForkSpecID = v
+        EllesmereUI._SO_DmForkSeeded = true
+    else
+        prev = EllesmereUI.SpecOverrides_BmForkSpecID
+        EllesmereUI.SpecOverrides_BmForkSpecID = v
+        EllesmereUI._SO_BmForkSeeded = true
+    end
+    return prev
+end
+
+--- WoW Forever: re-drives the aura containers after a fork spec moved with
+--- no paint, and rebuilds the open manager page unless noPage (the caller is
+--- a page build, or rebuilds the page itself).
+function EllesmereUI._SO_ForkReDrive(dm, noPage)
+    if _G._ERF_BMRefresh then _G._ERF_BMRefresh(dm or noPage) end
+    if dm and not noPage and EllesmereUI:GetActiveModule() == "EllesmereUIRaidFrames"
+       and EllesmereUI:GetActivePage() == "Debuff Manager" then
+        EllesmereUI:RefreshPage(true)
+    end
+end
+
 --- Swaps the live Buff Manager to the given spec's layer: the owner group's
 --- fork, else the applied conditional's fork, else the baseline. Mirrors
 --- SpecOverrides_ApplyUnlock (incl. the force flag for establish transitions);
 --- NEVER harvests here.
 function EllesmereUI.SpecOverrides_ApplyBm(specID, force, noPageRefresh)
     local s = GetBmStore()
-    if not s then return end
+    if not s then
+        -- WoW Forever: no spec fork is live on a profile without the store.
+        if EllesmereUI.IS_FOREVER then EllesmereUI._SO_SetForkSpec(false, nil) end
+        return
+    end
     -- Import window: NO apply may run between the store merge and the post-reload
     -- converge. Pre-reload the child Lite DBs still hold the OUTGOING profile's
     -- tables (the reload IS the switch), so a paint would "land" on the wrong
@@ -2757,7 +2911,21 @@ function EllesmereUI.SpecOverrides_ApplyBm(specID, force, noPageRefresh)
             end
         end
     end
-    if want == s.active and not force then return end
+    -- WoW Forever: publish the spec the wanted layer serves before any paint
+    -- (the paint's refresh reads it); with no paint, re-drive the frames and
+    -- the open Buff Manager page when it moved. Put back below when the
+    -- pointer does not move.
+    local fvPrev
+    if EllesmereUI.IS_FOREVER then
+        EllesmereUI._SO_SeedForkSpec(false)
+        fvPrev = EllesmereUI._SO_SetForkSpec(false, want, specID)
+    end
+    if want == s.active and not force then
+        if EllesmereUI.IS_FOREVER and fvPrev ~= EllesmereUI.SpecOverrides_BmForkSpecID then
+            EllesmereUI._SO_ForkReDrive(false, noPageRefresh)
+        end
+        return
+    end
     if not target then target = s.baselineLayout end
     if target then
         -- The pointer advances ONLY when the paint lands. A silent no-op apply (RF
@@ -2776,6 +2944,11 @@ function EllesmereUI.SpecOverrides_ApplyBm(specID, force, noPageRefresh)
         -- A layer is live but there is nothing to paint back (no
         -- baselineLayout): KEEP the old pointer so harvests keep banking live
         -- into the layer it actually holds.
+    end
+    -- WoW Forever: the pointer did not move, so the spec goes back to the
+    -- one the live layer serves.
+    if EllesmereUI.IS_FOREVER and s.active ~= want then
+        EllesmereUI.SpecOverrides_BmForkSpecID = type(s.active) == "number" and fvPrev or nil
     end
 end
 
@@ -2877,9 +3050,19 @@ function EllesmereUI.SpecOverrides_RemoveBmLayout(groupId)
     if not s or s.layouts[groupId] == nil then return false end
     s.layouts[groupId] = nil
     if s.active == groupId then
+        -- WoW Forever: the baseline serves no fork spec; cleared before the
+        -- paint (its refresh reads it), put back when the paint fails.
+        local fvPrev
+        if EllesmereUI.IS_FOREVER then
+            fvPrev = EllesmereUI._SO_SetForkSpec(false, nil)
+        end
         -- Pointer moves only with a landed paint (or nothing to restore).
         if not s.baselineLayout or BmApplyLayer(s.baselineLayout) then
             s.active = nil
+            -- Nothing painted: the frames move to the class's bucket.
+            if fvPrev and not s.baselineLayout then EllesmereUI._SO_ForkReDrive(false) end
+        elseif EllesmereUI.IS_FOREVER then
+            EllesmereUI.SpecOverrides_BmForkSpecID = fvPrev
         end
     end
     return true
@@ -3038,11 +3221,43 @@ function EllesmereUI.SpecOverrides_HarvestDmLayout()
     end
 end
 
+--- WoW Forever: publishes a fork spec from the saved pointer at its first
+--- read or apply, once per manager (dm true: Debuff Manager) per session.
+--- The pointer's fork is already live at login, so the frames build with
+--- its bucket before the deferred login apply (and through a /reload in
+--- combat, which defers that apply). Latched even when nothing publishes:
+--- after it the value moves only through a path that re-drives the frames.
+function EllesmereUI._SO_SeedForkSpec(dm)
+    if dm then
+        if EllesmereUI._SO_DmForkSeeded then return end
+    elseif EllesmereUI._SO_BmForkSeeded then
+        return
+    end
+    local want, cur, owner
+    local prof = GetProfileRoot()
+    if prof and not prof._importEstablishPending then
+        local s
+        if dm then s = GetDmStore() else s = GetBmStore() end
+        want = s and s.active
+    end
+    if type(want) == "number" then
+        cur = CurrentSpecID()
+        if cur then
+            if dm then owner = DmOwnerGid(cur) else owner = BmOwnerGid(cur) end
+        end
+    end
+    EllesmereUI._SO_SetForkSpec(dm, owner == want and owner or nil, cur)
+end
+
 --- Swaps the live Debuff Manager to the given spec's layer (mirror of
 --- SpecOverrides_ApplyBm). NEVER harvests here.
 function EllesmereUI.SpecOverrides_ApplyDm(specID, force, noPageRefresh)
     local s = GetDmStore()
-    if not s then return end
+    if not s then
+        -- WoW Forever: no spec fork is live on a profile without the store.
+        if EllesmereUI.IS_FOREVER then EllesmereUI._SO_SetForkSpec(true, nil) end
+        return
+    end
     -- Import window: same suppression as SpecOverrides_ApplyBm (pre-reload
     -- paints land on the outgoing profile's tables).
     do
@@ -3068,7 +3283,20 @@ function EllesmereUI.SpecOverrides_ApplyDm(specID, force, noPageRefresh)
             end
         end
     end
-    if want == s.active and not force then return end
+    -- WoW Forever: publish the spec the wanted layer serves (see the BM
+    -- twin); with no paint, re-drive the frames and the open Debuff Manager
+    -- page when it moved.
+    local fvPrev
+    if EllesmereUI.IS_FOREVER then
+        EllesmereUI._SO_SeedForkSpec(true)
+        fvPrev = EllesmereUI._SO_SetForkSpec(true, want, specID)
+    end
+    if want == s.active and not force then
+        if EllesmereUI.IS_FOREVER and fvPrev ~= EllesmereUI.SpecOverrides_DmForkSpecID then
+            EllesmereUI._SO_ForkReDrive(true, noPageRefresh)
+        end
+        return
+    end
     if not target then target = s.baselineLayout end
     if target then
         -- Pointer advances ONLY when the paint lands (see the BM twin: a
@@ -3079,6 +3307,10 @@ function EllesmereUI.SpecOverrides_ApplyDm(specID, force, noPageRefresh)
         end
     elseif s.active == nil then
         s.active = want
+    end
+    -- WoW Forever: the pointer did not move (see the BM twin).
+    if EllesmereUI.IS_FOREVER and s.active ~= want then
+        EllesmereUI.SpecOverrides_DmForkSpecID = type(s.active) == "number" and fvPrev or nil
     end
 end
 
@@ -3165,8 +3397,18 @@ function EllesmereUI.SpecOverrides_RemoveDmLayout(groupId)
     if not s or s.layouts[groupId] == nil then return false end
     s.layouts[groupId] = nil
     if s.active == groupId then
+        -- WoW Forever: the baseline serves no fork spec (see the BM twin).
+        local fvPrev
+        if EllesmereUI.IS_FOREVER then
+            fvPrev = EllesmereUI._SO_SetForkSpec(true, nil)
+        end
         if not s.baselineLayout or DmApplyLayer(s.baselineLayout) then
             s.active = nil
+            -- Nothing painted: the frames and the open Debuff Manager page
+            -- move to the class's bucket.
+            if fvPrev and not s.baselineLayout then EllesmereUI._SO_ForkReDrive(true) end
+        elseif EllesmereUI.IS_FOREVER then
+            EllesmereUI.SpecOverrides_DmForkSpecID = fvPrev
         end
     end
     return true
@@ -3648,6 +3890,15 @@ function EllesmereUI.SpecOverrides_ActivateBm(kind, gid, source)
         end
         if BmOwnerGid(cur) == gid then
             s.active = gid
+            -- WoW Forever: the new fork serves the current spec's bucket;
+            -- published before the paint below, or re-driven with no paint
+            -- (RefreshPage below rebuilds the page).
+            if EllesmereUI.IS_FOREVER then
+                local fvPrev = EllesmereUI._SO_SetForkSpec(false, gid, cur)
+                if not needPaint and fvPrev ~= EllesmereUI.SpecOverrides_BmForkSpecID then
+                    EllesmereUI._SO_ForkReDrive(false, true)
+                end
+            end
             -- Baseline-seeded fork while a conditional was live (the
             -- conditional ceased to exist for this spec), or a preset/other-
             -- override seed: swap the screen to the new layer. RefreshPage
@@ -3793,6 +4044,14 @@ function EllesmereUI.SpecOverrides_ActivateDm(kind, gid)
         end
         if DmOwnerGid(cur) == gid then
             s.active = gid
+            -- WoW Forever: the new fork serves the current spec's bucket
+            -- (see SpecOverrides_ActivateBm).
+            if EllesmereUI.IS_FOREVER then
+                local fvPrev = EllesmereUI._SO_SetForkSpec(true, gid, cur)
+                if not fromCond and fvPrev ~= EllesmereUI.SpecOverrides_DmForkSpecID then
+                    EllesmereUI._SO_ForkReDrive(true, true)
+                end
+            end
             if fromCond then DmApplyLayer(s.layouts[gid], true) end
         end
     else
@@ -5541,6 +5800,9 @@ local function WatchTick()
     SampleAttribution()
     local root = _G.EllesmereUIFrame
     if not (root and root:IsShown()) then return end
+    -- Folded to the mini window: nothing on the panel can be edited, so skip the
+    -- profile diff; the unfold re-baselines the snapshot (RegisterOnCollapse below).
+    if EllesmereUI._panelCollapsed then return end
     -- Hidden search prebuild mid-session: its selector setters and lazy page
     -- seeding write db.profile; absorb the whole tick (resync) so those writes
     -- can never diff into captures.
@@ -5576,6 +5838,15 @@ local function WatchTick()
     _watchResync = false
     _watchSnap = SnapshotProfiles()
 end
+
+-- Unfolding from the mini window: absorb whatever changed the profiles while the
+-- panel was folded (WatchTick skipped them), so the first widget edit after it
+-- (ProcessNotifiedWrites diffs against the same snapshot) captures only itself.
+EllesmereUI:RegisterOnCollapse(function(on)
+    if not on and (_editGroup or Cond._edit) and _watchSnap then
+        _watchSnap = SnapshotProfiles()
+    end
+end)
 
 -- Page rebuilds lazily seed defaults into profiles; absorb those writes instead of
 -- capturing them (fast-path refreshes don't rebuild rows and keep capture armed).
@@ -5837,7 +6108,8 @@ end
 
 local function EnsureEditBanner()
     if editBanner then return editBanner end
-    local root = _G.EllesmereUIFrame or UIParent
+    -- The panel body, so the banner hides with the window when it collapses.
+    local root = EllesmereUI._panelBody or UIParent
     editBanner = CreateFrame("Frame", nil, root)
     editBanner:SetSize(680, 44)
     -- Sits ON TOP of the visible panel: banner bottom flush with the window's
@@ -5921,7 +6193,7 @@ local function SetEditOverlayShown(shown)
     if shown and not editOverlay then
         local root = _G.EllesmereUIFrame
         if not root then return end
-        editOverlay = CreateFrame("Frame", nil, root)
+        editOverlay = CreateFrame("Frame", nil, EllesmereUI._panelBody)
         editOverlay:SetAllPoints(root)
         editOverlay:SetFrameLevel(root:GetFrameLevel() + 1)
         editOverlay:EnableMouse(false)
@@ -6083,6 +6355,10 @@ ExitGroupEdit = function(noRecheck)
     if not noRecheck and EllesmereUI.Conditions_Recheck then
         EllesmereUI.Conditions_Recheck()
     end
+    -- WoW Forever: a group created or deleted while this session was open can
+    -- move the spec the class acts as; the user finishing applies it (never a
+    -- preamble exit).
+    if EllesmereUI.IS_FOREVER and not noRecheck then EllesmereUI._SO_ForeverConverge() end
 end
 
 --- Force-closes every editing-as session (spec group, conditional, Default view).
@@ -6284,6 +6560,14 @@ Cond.ExitEdit = function(noRestore, noRecheck)
         -- bails during edit sessions); resolve it now.
         if not noRecheck and EllesmereUI.Conditions_Recheck then
             EllesmereUI.Conditions_Recheck()
+        end
+        -- WoW Forever: a group created or deleted while this session was open
+        -- can move the spec the class acts as; the user finishing applies it.
+        -- Only with the panel shown: the panel-hide hook also ends this session
+        -- when a Customize Unlock Mode click hides the panel, and unlock mode
+        -- opens before an apply's layer flush lands.
+        if EllesmereUI.IS_FOREVER and not noRecheck and PanelShown() then
+            EllesmereUI._SO_ForeverConverge()
         end
     end
     -- noRestore: store writes only -- the transition applies + refreshes.
@@ -6550,7 +6834,8 @@ local nameIconPopup
 -- icon grid built from defs, Create runs onCreate(p). Callers set the title,
 -- button label, name text and icon selection on every show.
 local function BuildNameIconPopup(defs, onCreate)
-    local p = CreateFrame("Frame", nil, UIParent)
+    -- Controller cursor: overlay parent (UIParent unless a controller cursor is loaded).
+    local p = CreateFrame("Frame", nil, EllesmereUI.OverlayParent())
     p:SetSize(380, 300)
     p:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
     p:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -6642,6 +6927,11 @@ local function BuildNameIconPopup(defs, onCreate)
     cancel:SetScript("OnLeave", function() if xbrd and xbrd.SetColor then xbrd:SetColor(1, 1, 1, 0.22) end end)
     cancel:SetScript("OnClick", function() p:Hide() end)
 
+    -- Controller cursor: its cancel press backs out through Cancel, and the
+    -- panel is a blocker, not a stop.
+    if EllesmereUI.PadCP() then p.CloseButton = cancel end
+    EllesmereUI.TrackOverlay(p)
+    EllesmereUI.PadHint(p, "nodepass")
     return p
 end
 
@@ -6684,6 +6974,11 @@ local function ShowNameIconPopup(specIDs, editing)
             }
             groups[#groups + 1] = g
             p:Hide()
+            -- WoW Forever: the new group can move the spec the class acts as.
+            -- Apply it before the session opens, so every exit of that session
+            -- (and a create the page lock refuses) sees it. While a session is
+            -- open this stands down and that session's user exit applies it.
+            if EllesmereUI.IS_FOREVER then EllesmereUI._SO_ForeverConverge() end
             -- Auto-activate: a new group goes straight into its "Editing as"
             -- session. EnterGroupEdit self-guards the BM page lock and tears
             -- down any active session.
@@ -6717,6 +7012,8 @@ local function ShowNameIconPopup(specIDs, editing)
         end
     end
     nameIconPopup:Show()
+    -- Controller cursor: move it into the popup.
+    EllesmereUI.PadFocus(nameIconPopup)
 end
 
 local function StartGroupCreation()
@@ -6998,7 +7295,16 @@ local function SetGroupSpecs(g, newSpecs)
             end
         end
     end
-    EllesmereUI.SpecOverrides_Apply(_activeSpec or CurrentSpecID())
+    -- WoW Forever: when the new membership moves the spec the class acts as,
+    -- the converge banks the live layers and values into the outgoing state,
+    -- then applies the new spec (one apply). While an editing session or a
+    -- spec transition is open it stands down, and that exit applies it.
+    local r = EllesmereUI.IS_FOREVER and CurrentSpecID()
+    if r and r ~= _activeSpec then
+        EllesmereUI._SO_ForeverConverge()
+    else
+        EllesmereUI.SpecOverrides_Apply(_activeSpec or CurrentSpecID())
+    end
     UpdateIndicator()
     RequestGoldWalk()
     RefreshCardsPopup()
@@ -7090,6 +7396,7 @@ RefreshCardsPopup = function()
             names[#names + 1] = SpecName(id)
             if id == curSpec then isMember = true end
         end
+        if EllesmereUI.IS_FOREVER then names = EllesmereUI._SO_ForeverGroupNames(g.specs, curSpec) end
         local ownerLocked = (isMember and curOwnerGid and curOwnerGid ~= g.id) or false
         add(BuildCardRow(p, y, {
             name = g.name or "?",
@@ -7176,6 +7483,8 @@ RefreshCardsPopup = function()
                         EllesmereUI.SpecOverrides_RemoveDmLayout(g.id)
                         RebuildFKeyIndex()
                         RequestGoldWalk()
+                        -- WoW Forever: the delete can move the spec the class acts as.
+                        if EllesmereUI.IS_FOREVER then EllesmereUI._SO_ForeverConverge() end
                         UpdateIndicator()   -- current spec may have been a member
                         RefreshCardsPopup()
                         if EllesmereUI:GetActivePage() == LIST_PAGE then
@@ -7348,7 +7657,7 @@ function EllesmereUI.SpecOverrides_ToggleCardsPopup(anchorBtn)
         return
     end
     if not cardsPopup then
-        local p = CreateFrame("Frame", nil, _G.EllesmereUIFrame or UIParent)
+        local p = CreateFrame("Frame", nil, EllesmereUI._panelBody or UIParent)
         p:Hide()   -- born hidden so the first Show() fires OnShow (click-off arming)
         p:SetSize(280, 100)
         p:SetFrameStrata("DIALOG")
@@ -7525,13 +7834,16 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
         end
     end
     p:Show()
+    -- Controller cursor: move it into the popup.
+    EllesmereUI.PadFocus(p)
 end
 
 -- ---- condition picker popup (checklist + keybind capture) -------------------
 function Cond.ShowPickerPopup(existing)
     local p = Cond._pickerPopup
     if not p then
-        p = CreateFrame("Frame", nil, UIParent)
+        -- Controller cursor: overlay parent (UIParent unless a controller cursor is loaded).
+        p = CreateFrame("Frame", nil, EllesmereUI.OverlayParent())
         p:SetSize(340, 100)
         p:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
         p:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -7731,6 +8043,11 @@ function Cond.ShowPickerPopup(existing)
             p:Hide()
         end)
 
+        -- Controller cursor: its cancel press backs out through Cancel, and the
+        -- panel is a blocker, not a stop.
+        if EllesmereUI.PadCP() then p.CloseButton = cancel end
+        EllesmereUI.TrackOverlay(p)
+        EllesmereUI.PadHint(p, "nodepass")
         Cond._pickerPopup = p
     end
     p._editing = existing
@@ -7748,6 +8065,8 @@ function Cond.ShowPickerPopup(existing)
         or L("New Conditional Group"))
     p._syncKeyRow()
     p:Show()
+    -- Controller cursor: move it into the popup.
+    EllesmereUI.PadFocus(p)
 end
 
 -- ---- cards popup: UNIFIED with the spec overrides popup ----------------------
