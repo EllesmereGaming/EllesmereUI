@@ -306,6 +306,7 @@ local defaults = {
     nameplateYOffset = 0,
     enemyNameTextSize = 11,
     enemyNameTextReactionColor = false,
+    enemyNameTextDifficultyColor = false,
     debuffTimerColor = { r = 1, g = 1, b = 1 },
     auraTextPosition = "topleft",
     debuffTimerPosition = "topleft",
@@ -6676,6 +6677,13 @@ function ns.NP_PaintSlotClassColors(plate, unit, skipName)
     end
     return ns._npSlotClassName
 end
+-- Difficulty color for the enemy nameplate NAME TEXT: the unit's effective level ranked
+-- against the player's (Blizzard's grey/green/yellow/orange/red), via the same helper the
+-- level text uses. Returns nil for a skull/secret/unreadable level so the caller falls back
+-- to the reaction color (if enabled) and then to the plain slot color.
+local function GetEnemyNameDifficultyColor(unit)
+    return EllesmereUI.GetLevelColor(unit, UnitEffectiveLevel(unit))
+end
 -- Blizzard's own plate for this unit, colored by untainted code. Under HideBlizzardFrame the
 -- UnitFrame keeps its unit (its events are killed), so its health bar still carries whatever
 -- CompactUnitFrame_UpdateHealthColor resolved in the driver's SetUnit -- including the class
@@ -8864,20 +8872,29 @@ function NameplateFrame:UpdateHealthColor()
         if wasNameThreat then self._nameThR, self._nameThG, self._nameThB = nil, nil, nil end
     else
         if wasNameThreat then self._nameThR, self._nameThG, self._nameThB = nil, nil, nil end
-        -- Enemy Name Text "Reaction Color" (EXTRAS toggle): zero cost while off (one field read),
-        -- other than the one-time restore below for a plate that was previously colored by this
-        -- feature. Piggybacks on this function's existing event-driven calls rather than
-        -- registering anything of its own.
-        if p and p.enemyNameTextReactionColor then
-            local nnr, nng, nnb = GetEnemyNameReactionColor(unit)
+        -- Enemy Name Text color (EXTRAS toggles): Difficulty Color takes priority over Reaction
+        -- Color when both are on; a nil difficulty color (skull/secret/unreadable level) falls
+        -- through to Reaction, then to the plain slot color. Zero cost while both off (two field
+        -- reads), other than the one-time restore below for a plate previously colored by either
+        -- feature. Both share the _lastNameReact* cache -- a single writer of self.name's color,
+        -- so ApplyAppearance's invalidation of that cache (at its slot-color line) covers both.
+        -- Piggybacks on this function's existing event-driven calls rather than registering
+        -- anything of its own.
+        local nnr, nng, nnb
+        if p and p.enemyNameTextDifficultyColor then
+            nnr, nng, nnb = GetEnemyNameDifficultyColor(unit)
+        end
+        if not nnr and p and p.enemyNameTextReactionColor then
+            nnr, nng, nnb = GetEnemyNameReactionColor(unit)
+        end
+        if nnr then
             if nnr ~= self._lastNameReactR or nng ~= self._lastNameReactG or nnb ~= self._lastNameReactB then
                 self._lastNameReactR, self._lastNameReactG, self._lastNameReactB = nnr, nng, nnb
                 self.name:SetTextColor(nnr, nng, nnb, 1)
             end
         elseif self._lastNameReactR or wasNameThreat then
-            -- Toggled off after having been applied to this plate (or the threat lane just
-            -- handed the name back): restore the slot color directly here rather than
-            -- depending on ApplyAppearance re-running elsewhere.
+            -- Toggled off (or no readable color; or the threat lane just handed the name back):
+            -- restore the slot color directly here rather than depending on ApplyAppearance.
             self._lastNameReactR, self._lastNameReactG, self._lastNameReactB = nil, nil, nil
             local nameSlotKey = ns.FindNameSlot()
             if nameSlotKey then
