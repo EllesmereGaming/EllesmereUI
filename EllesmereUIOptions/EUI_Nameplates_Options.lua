@@ -7,6 +7,12 @@ local ADDON_NAME = "EllesmereUINameplates"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
+-- Name-slot Strata rank (from the shared strata order) for the Display preview: lets the
+-- preview name draw over or behind the preview auras to mirror the live plate. Used by the
+-- ordering block after the preview name is placed.
+local NP_STRATA_RANK = {}
+for i, s in ipairs(EllesmereUI.FRAME_STRATA_ORDER_FULL) do NP_STRATA_RANK[s] = i end
+
 -- Body-text preview flag, already slug-gated at the source (GetFontOutlineFlag).
 local function GetNPOptOutline() return EllesmereUI.GetFontOutlineFlag("nameplates") end
 
@@ -503,6 +509,12 @@ initFrame:SetScript("OnEvent", function(self)
         local topTextFrame = CreateFrame("Frame", nil, pf)
         topTextFrame:SetAllPoints(health)
         topTextFrame:SetFrameLevel(health:GetFrameLevel() + 6)
+        -- Host used to draw the preview name OVER the preview auras when its slot Strata calls
+        -- for it (see the ordering block after the name is placed). Raised by frame level within
+        -- the preview's own strata, since the options window strata varies.
+        local nameStrataHost = CreateFrame("Frame", nil, pf)
+        nameStrataHost:SetAllPoints(health)
+        nameStrataHost:SetFrameLevel(health:GetFrameLevel() + 20)
 
         -- Name text (anchored BOTTOM to health TOP, +4px gap, width 113)
         local nameFS = pf:CreateFontString(nil, "OVERLAY")
@@ -1844,6 +1856,16 @@ initFrame:SetScript("OnEvent", function(self)
             ns.ReflowFontString(nameFS)
             if DBVal("hideEnemyNameWhileCasting") == true then nameFS:Hide() end
             LayoutPreviewNameRaidMarker()
+
+            -- The live nameplate already z-orders the name by its slot Strata (SlotTextHost),
+            -- but this preview parented the name at a fixed level, so changing the Strata showed
+            -- no difference here. Mirror the live result: at MEDIUM or above draw the name over
+            -- the auras, at LOW/BACKGROUND leave it behind (preview auras are the default MEDIUM).
+            local _pvNameStrata = (pvNameSlotKey and DBVal(pvNameSlotKey .. "Strata")) or "MEDIUM"
+            if (NP_STRATA_RANK[_pvNameStrata] or NP_STRATA_RANK.MEDIUM) >= NP_STRATA_RANK.MEDIUM then
+                nameFS:SetParent(nameStrataHost)
+                if nameRaidFrame:IsShown() then nameRaidFrame:SetParent(nameStrataHost) end
+            end
 
             -- Health bar color: always uses "enemies in combat" color
             local eic = (DB() and DB().enemyInCombat) or defaults.enemyInCombat
