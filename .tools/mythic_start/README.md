@@ -1,9 +1,11 @@
 # Mythic+ Start behavior checks
 
-`test_mythic_start.py` extracts the existing Auto Insert block together with the
-opt-in Mythic+ Start controller from `EllesmereUIQoL.lua` and runs each scenario
-in a fresh Lua 5.1 environment. The controller is enabled explicitly in the
-general fixtures; dedicated scenarios verify its real default-off behavior.
+`test_mythic_start.py` loads `EllesmereUIQoL_MythicStart.lua` as a separate Lua
+chunk, then runs the existing Auto Insert block and controller initialization
+bridge extracted from the main file's `PLAYER_LOGIN` handler. This models the
+addon files loading before login while isolating unrelated QoL features. Each
+scenario runs in a fresh Lua 5.1 environment. The controller is enabled explicitly
+in the general fixtures; dedicated scenarios verify its real default-off behavior.
 `mythic_start_mocks.lua` supplies controllable WoW events, frames, group identities,
 API responses and cancelable timers. The harness and its dependencies are outside
 the addon and are not referenced by its TOC.
@@ -52,7 +54,11 @@ they are not included in the contribution.
   solo retains only the official visual countdown.
 - Static checks that the new block does not reference Raider.IO, PVEFrame,
   Group Finder, GameTooltip, LibMythicKeystone or LibKeystone.
-- Full Lua 5.1 syntax compilation of all three modified addon files.
+- The TOC loads the controller once after the main file. Loading the separate
+  module creates no frames, hooks, events or timers before login, even when
+  enabled; the main login bridge initializes it. The parent client gate leaves
+  the module inactive.
+- Full Lua 5.1 syntax compilation of all four modified/added addon Lua files.
 
 ## What these checks do not establish
 

@@ -1,4 +1,4 @@
-"""Behavioral tests for the isolated Retail Mythic+ Start block under Lua 5.1.
+"""Behavioral tests for the Retail Mythic+ Start module under Lua 5.1.
 
 Run with the bundled Python after installing lupa into tests/dependencies.
 Mocks model API events explicitly; they cannot establish live-client secure-call,
@@ -18,27 +18,35 @@ from lupa.lua51 import LuaRuntime
 
 ADDON = Path(os.environ.get("ELLESMERE_TEST_ADDON_ROOT", ROOT))
 SOURCE_PATH = ADDON / "EllesmereUIQoL" / "EllesmereUIQoL.lua"
+MODULE_PATH = ADDON / "EllesmereUIQoL" / "EllesmereUIQoL_MythicStart.lua"
 SOURCE = SOURCE_PATH.read_text(encoding="utf-8-sig")
 MATCH = re.search(r"^    --  Auto Insert Keystone.*?(?=^    --  Quick Signup)", SOURCE, re.M | re.S)
 if not MATCH:
-    raise RuntimeError("Cannot locate Mythic+ Start block in addon source")
-BLOCK = MATCH.group(0)
-FEATURE_MATCH = re.search(r"^[ \t]*--  Mythic\+ Start", BLOCK, re.M)
-if not FEATURE_MATCH:
-    raise RuntimeError("Cannot locate opt-in Mythic+ Start block")
-# The opt-in controller shares the original outer Forever guard. Close that
-# guard when running the unchanged Auto Insert prefix as our baseline.
-AUTO_INSERT_BLOCK = BLOCK[:FEATURE_MATCH.start()] + '\n    end\n'
+    raise RuntimeError("Cannot locate Auto Insert/login bridge in addon source")
+LOGIN_BLOCK = MATCH.group(0)
+BLOCK = MODULE_PATH.read_text(encoding="utf-8-sig")
+# The main file registers its login handler before the separate controller file
+# loads. All addon files finish loading before PLAYER_LOGIN invokes that handler.
+# Execute those two runtime phases separately, retaining the unchanged Auto
+# Insert block without the controller bridge as the default-off baseline.
+AUTO_INSERT_BLOCK, bridge_count = re.subn(
+    r"^[ \t]*if EllesmereUI\._applyKeystoneStart then EllesmereUI\._applyKeystoneStart\(\) end\n",
+    "", LOGIN_BLOCK, flags=re.M,
+)
+if bridge_count != 1:
+    raise RuntimeError("Cannot locate the Mythic+ Start PLAYER_LOGIN bridge")
+LOAD_PHASES = (BLOCK, LOGIN_BLOCK)
 MOCKS = (HERE / "mythic_start_mocks.lua").read_text(encoding="utf-8")
 
 
 class MythicStartTests(unittest.TestCase):
-    def lua(self, setup="", before_load="", source=BLOCK):
+    def lua(self, setup="", before_load="", source=LOAD_PHASES):
         vm = LuaRuntime(unpack_returned_tuples=True)
         vm.execute(MOCKS)
         if before_load:
             vm.execute(before_load)
-        vm.execute(source)
+        for chunk in (source,) if isinstance(source, str) else source:
+            vm.execute(chunk)
         if setup:
             vm.execute(setup)
         return vm
@@ -380,17 +388,23 @@ class MythicStartTests(unittest.TestCase):
     def test_37_toc_and_saved_variables_defaults_remain_in_existing_addon(self):
         toc = (ADDON / 'EllesmereUIQoL' / 'EllesmereUIQoL.toc').read_text(encoding='utf-8-sig')
         self.assertTrue('LibMythicKeystone' not in toc, 'No LibMythicKeystone dependency in QoL TOC')
+        entries = [line.strip() for line in toc.splitlines() if line.strip().endswith('.lua')]
+        self.assertEqual(entries.count(MODULE_PATH.name), 1, 'The controller must load exactly once')
+        self.assertEqual(entries.index(MODULE_PATH.name), entries.index(SOURCE_PATH.name) + 1,
+                         'The controller must load after the main file registers its login handler')
         main_toc = (ADDON / 'EllesmereUI.toc').read_text(encoding='utf-8-sig')
         self.assertTrue('## SavedVariables: EllesmereUIDB' in main_toc, 'Existing EllesmereUIDB declaration must remain')
         expected_files = (
-            SOURCE_PATH,
+            MODULE_PATH,
             ADDON / 'EllesmereUIOptions' / 'EUI_QoL_Options.lua',
             ADDON / 'EllesmereUIOptions' / 'EUI__General_Options.lua',
         )
         for path in expected_files:
             contents = path.read_text(encoding='utf-8-sig')
-            for name in ('autoInsertKeystone', 'mythicKeystoneControls', 'autoKeystoneReadyCheck', 'autoStartKeystone'):
+            for name in ('mythicKeystoneControls', 'autoKeystoneReadyCheck', 'autoStartKeystone'):
                 self.assertTrue(name in contents, f'{name} must exist in {path.name}')
+        self.assertIn('autoInsertKeystone', SOURCE, 'Auto Insert remains in the existing main file')
+        self.assertNotIn('CreateKeystoneStartController', SOURCE, 'The controller belongs to its own file')
         self.assertTrue('autoKeystoneCountdown' not in BLOCK, 'Ready must not enable an automatic countdown')
 
     def test_38_fractional_official_timeleft_synchronizes_chat(self):
@@ -460,6 +474,7 @@ class MythicStartTests(unittest.TestCase):
         compile_lua = vm.eval('function(source, name) local fn, err = loadstring(source, name); return fn ~= nil, err end')
         paths = (
             SOURCE_PATH,
+            MODULE_PATH,
             ADDON / 'EllesmereUIOptions' / 'EUI_QoL_Options.lua',
             ADDON / 'EllesmereUIOptions' / 'EUI__General_Options.lua',
         )
@@ -751,6 +766,36 @@ class MythicStartTests(unittest.TestCase):
             assert(frame.EllesmereReadyButton == nil and frame.EllesmerePullButton == nil)
             Harness.click('EllesmerePullButton'); Harness.advance(5)
             assert(#Harness.countdowns == 1 and Harness.chat[#Harness.chat].message == 'GO!')
+        """)
+
+    def test_56_separate_module_waits_for_main_login_initialization(self):
+        vm = self.lua(source=BLOCK)
+        vm.execute("""
+            assert(type(EllesmereUI._applyKeystoneStart) == 'function')
+            assert(Harness.frameCreates == 2 and Harness.methodHooks == 0)
+            assert(Harness.liveTimers() == 0)
+            assert(Harness.button('READY') == nil and Harness.button('PULL') == nil)
+            for _, frame in ipairs(Harness.frames) do assert(next(frame.events) == nil) end
+            Harness.emit('CHALLENGE_MODE_KEYSTONE_SLOTTED')
+            assert(Harness.readyRequests == 0 and #Harness.countdowns == 0)
+        """)
+        vm.execute(LOGIN_BLOCK)
+        vm.execute("""
+            Harness.open(); Harness.slot()
+            assert(Harness.button('READY'):IsShown() and Harness.button('PULL'):IsShown())
+            Harness.click('EllesmerePullButton'); Harness.advance(5)
+            assert(#Harness.countdowns == 1 and Harness.countdowns[1] == 5)
+            assert(Harness.chat[#Harness.chat].message == 'GO!')
+        """)
+
+    def test_57_separate_module_respects_parent_client_gate(self):
+        vm = self.lua(before_load='EUI_CLIENT_BLOCKED = true', source=BLOCK)
+        vm.execute("""
+            assert(EllesmereUI._applyKeystoneStart == nil)
+            assert(Harness.frameCreates == 2 and Harness.methodHooks == 0)
+            assert(Harness.liveTimers() == 0)
+            assert(Harness.button('READY') == nil and Harness.button('PULL') == nil)
+            for _, frame in ipairs(Harness.frames) do assert(next(frame.events) == nil) end
         """)
 
 
