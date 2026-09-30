@@ -40,10 +40,10 @@ local function FillColor(sp, powerKey)
     elseif sp.classColored == false then
         return sp.fillR or 1, sp.fillG or 1, sp.fillB or 1, 1
     else
-        local pc = EllesmereUI.GetPowerColor and EllesmereUI.GetPowerColor(powerKey)
+        local pc = EllesmereUI.GetPowerColor(powerKey)
         if pc then return pc.r, pc.g, pc.b, 1 end
     end
-    local cc = EllesmereUI.GetClassColor and EllesmereUI.GetClassColor(PLAYER_CLASS)
+    local cc = EllesmereUI.GetClassColor(PLAYER_CLASS)
     if cc then return cc.r, cc.g, cc.b, 1 end
     return 1, 1, 1, 1
 end
@@ -89,7 +89,8 @@ function ns.WC_Sync(frame, sp, powerKey, gen)
     local ebR, ebG, ebB, ebA = 0.1, 0.1, 0.1, 0.5
     local ERB2 = ns.ERB
     if ERB2 and ERB2.PipBgColor then
-        ebR, ebG, ebB, ebA = ERB2.PipBgColor(sp)
+        -- Background on individual pips hides the full-bar backdrop: composite.
+        ebR, ebG, ebB, ebA = ERB2.PipBgColor(sp, ns.ERB_PipBgOn(sp, false))
     end
     local wantText = sp.showText and true or false
     if wantText and _G._ERB_TextHiddenByForm and ns.ERB and ns.ERB.db

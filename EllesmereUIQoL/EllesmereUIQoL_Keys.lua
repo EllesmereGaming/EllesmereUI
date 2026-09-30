@@ -1,4 +1,5 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- no keystones on WoW Forever: no /keys popup, no events, no slash commands; the options section is not built there and every reader nil-guards
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_Keys.lua
 --  /keys slash command: displays party keystone levels in a styled popup.
@@ -190,17 +191,17 @@ local popup, rowFrames
 local ShowKeystonePopup  -- forward declaration
 
 local function ResolveFont()
-    return (EUI and EUI.GetFontPath and EUI.GetFontPath("extras")) or "Fonts\\FRIZQT__.TTF"
+    return (EUI.GetFontPath("extras")) or "Fonts\\FRIZQT__.TTF"
 end
 
 local function ResolveOutline()
-    return (EUI and EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("extras")) or ""
+    return (EUI.GetFontOutlineFlag("extras")) or ""
 end
 
 local function MakeLabel(parent, size, _, r, g, b, a)
     local fs = parent:CreateFontString(nil, "OVERLAY")
     local flags = ResolveOutline()
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, flags == "") end
+    EllesmereUI.PrimeFontShadow(fs, flags == "")
     fs:SetFont(ResolveFont(), size, flags)
     if r then fs:SetTextColor(r, g or 1, b or 1, a or 1) end
     return fs
@@ -266,11 +267,11 @@ local function BuildPopup()
     refTex:SetAlpha(ICON_ALPHA)
     refBtn:SetScript("OnEnter", function()
         refTex:SetAlpha(1)
-        if EUI and EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(refBtn, "Refresh Data") end
+        EUI.ShowWidgetTooltip(refBtn, "Refresh Data")
     end)
     refBtn:SetScript("OnLeave", function()
         refTex:SetAlpha(ICON_ALPHA)
-        if EUI and EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        EUI.HideWidgetTooltip()
     end)
     local refLocked = false
     refBtn:SetScript("OnClick", function()
@@ -355,15 +356,13 @@ local function AcquireRow(i)
             if EG then r._dungeonFS:SetTextColor(EG.r, EG.g, EG.b, 1) end
             local cdInfo = C_Spell.GetSpellCooldown(sid)
             if cdInfo and cdInfo.duration and cdInfo.duration > 0 then
-                if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(tpBtn, "Portal on Cooldown")
-                end
+                EllesmereUI.ShowWidgetTooltip(tpBtn, "Portal on Cooldown")
             end
         end
     end)
     tpBtn:SetScript("OnLeave", function()
         r._dungeonFS:SetTextColor(0.7, 0.7, 0.7, 1)
-        if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+        EllesmereUI.HideWidgetTooltip()
     end)
     tpBtn:Hide()
     r._tpBtn = tpBtn

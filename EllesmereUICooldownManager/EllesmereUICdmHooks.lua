@@ -1594,13 +1594,18 @@ local function HideBlizzardDecorations(frame)
 
     local iconWidget = frame.Icon
     local regions = { frame:GetRegions() }
+    -- Blizzard Style keeps the viewer's rounded icon mask; only the ring
+    -- overlay is replaced (ns.CdmApplyBlizzIconArt redraws it at the icon's
+    -- live size, since the viewer's fixed inset only fits its stock sizes).
+    -- Classic WoW UI icons are square, so they take the swap like the EUI look.
+    local keepMask = ns.CdmIconStyle() == "blizzard"
     for ri = 1, #regions do
         local rgn = regions[ri]
-        if rgn and rgn.IsObjectType and rgn:IsObjectType("MaskTexture") then
+        if not keepMask and rgn and rgn.IsObjectType and rgn:IsObjectType("MaskTexture") then
             pcall(function() rgn:SetTexture("Interface\\Buttons\\WHITE8X8") end)
         end
     end
-    if frame.Cooldown then
+    if frame.Cooldown and not keepMask then
         local cdRegions = { frame.Cooldown:GetRegions() }
         for ri = 1, #cdRegions do
             local rgn = cdRegions[ri]
@@ -1610,11 +1615,15 @@ local function HideBlizzardDecorations(frame)
         end
     end
 
+    -- The ring overlay, matched by atlas or by its sheet file. The rounded
+    -- MASK lives in the same sheet, so the file match must skip masks: a
+    -- hidden mask masks nothing (Blizzard Style needs it; the EUI look has
+    -- already squared it above).
     local OVERLAY_ATLAS = "UI-HUD-CoolDownManager-IconOverlay"
     local OVERLAY_FILE  = 6707800
     for ri = 1, #regions do
         local rgn = regions[ri]
-        if rgn and rgn ~= iconWidget and rgn.IsObjectType and rgn:IsObjectType("Texture") then
+        if rgn and rgn ~= iconWidget and rgn.GetObjectType and rgn:GetObjectType() == "Texture" then
             local atlas = rgn.GetAtlas and rgn:GetAtlas()
             local tex = rgn.GetTexture and rgn:GetTexture()
             if atlas == OVERLAY_ATLAS or tex == OVERLAY_FILE then
@@ -1625,6 +1634,98 @@ local function HideBlizzardDecorations(frame)
     end
 
     -- Do NOT call SetHideCountdownNumbers here; SetCountdownFont controls CD text.
+end
+
+-------------------------------------------------------------------------------
+--  Stock style icon art (Global Settings > Style)
+--  Blizzard Style: the viewer's look on every icon we lay out: rounded mask,
+--  bevel ring and rounded swipe. Pooled viewer frames keep Blizzard's own mask
+--  (HideBlizzardDecorations leaves it under this style); frames we create
+--  (trinkets, placeholders, custom buffs, item presets) get an equivalent one.
+--  Classic WoW UI: the vanilla action button ring round a square icon (no
+--  mask, EUI's own square swipe).
+--  The ring is our own texture on a child frame, so it survives pool reuse and
+--  follows the icon's live size instead of the viewer's fixed stock inset.
+--  Idempotent and cheap: structural work once per frame, then a size memo
+--  gates the re-anchor. Never runs unless a stock style is on.
+-------------------------------------------------------------------------------
+function ns.CdmApplyBlizzIconArt(frame)
+    if not frame then return end
+    local fc = FC(frame)
+    local classic = ns.CdmClassicIcons()
+    local host = fc.blizzHost
+    if not host then
+        host = CreateFrame("Frame", nil, frame)
+        host:SetAllPoints(frame)
+        host:EnableMouse(false)
+        fc.blizzHost = host
+        local ov = host:CreateTexture(nil, "OVERLAY", nil, 5)
+        if classic then ov:SetTexture(ns.CDM_CLASSIC_RING) else ns.CdmStockAtlas(ov, ns.CDM_BLIZZ_OVERLAY) end
+        if ov.SetSnapToPixelGrid then ov:SetSnapToPixelGrid(false); ov:SetTexelSnappingBias(0) end
+        fc.blizzOverlay = ov
+        -- Own frames carry no viewer mask or swipe art: the rounded kit adds
+        -- both (classic icons stay square on the default swipe).
+        if not frame.viewerFrame and not classic then
+            local fd = hookFrameData[frame]
+            local tex = (fd and fd.tex) or frame._tex or frame.Icon
+            if tex and tex.AddMaskTexture then
+                local mask = frame:CreateMaskTexture()
+                mask:SetAtlas(ns.CDM_BLIZZ_MASK)
+                mask:SetAllPoints(frame)
+                tex:AddMaskTexture(mask)
+                fc.blizzMask = mask
+            end
+            local cd = (fd and fd.cooldown) or frame._cooldown or frame.Cooldown
+            if cd and cd.SetSwipeTexture then pcall(cd.SetSwipeTexture, cd, ns.CDM_BLIZZ_SWIPE) end
+        end
+    end
+    -- Viewer frames: the viewer's own rounded mask, re-asserted once (shown,
+    -- on the atlas) so no earlier pass can have left it hidden or squared.
+    -- Classic keeps the square mask HideBlizzardDecorations gave it.
+    if frame.viewerFrame and not classic and not fc.blizzMaskOK then
+        fc.blizzMaskOK = true
+        local fd = hookFrameData[frame]
+        local tex = (fd and fd.tex) or frame.Icon
+        local n = tex and tex.GetNumMaskTextures and tex:GetNumMaskTextures() or 0
+        for i = 1, n do
+            local m = tex:GetMaskTexture(i)
+            if m then
+                pcall(m.SetAtlas, m, ns.CDM_BLIZZ_MASK)
+                pcall(m.SetAlpha, m, 1)
+                pcall(m.Show, m)
+            end
+        end
+    end
+    -- Ring above the art and swipe (+14), below glows (+16) and text (+23).
+    local lvl = frame:GetFrameLevel() + 15
+    if host:GetFrameLevel() ~= lvl then host:SetFrameLevel(lvl) end
+    local w, h = frame:GetSize()
+    if fc.blizzArtW ~= w or fc.blizzArtH ~= h then
+        fc.blizzArtW, fc.blizzArtH = w, h
+        local ov = fc.blizzOverlay
+        if classic then
+            ns.CdmPlaceClassicRing(ov, host, w, h)
+        else
+            ov:ClearAllPoints()
+            ov:SetPoint("TOPLEFT", host, "TOPLEFT", -w * ns.CDM_BLIZZ_RING_X, h * ns.CDM_BLIZZ_RING_Y)
+            ov:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", w * ns.CDM_BLIZZ_RING_X, -h * ns.CDM_BLIZZ_RING_Y)
+        end
+    end
+end
+-- The rounded mask an icon's art carries under Blizzard Style (the viewer's
+-- own on pooled frames, ours on own frames), for overlays that copy the art
+-- (fake-active, press flash) so they round off with it. Nil under Classic
+-- WoW UI, whose icons are square.
+function ns.CdmBlizzIconMask(frame)
+    if ns.CdmClassicIcons() then return nil end
+    local fc = frame and _ecmeFC[frame]
+    if fc and fc.blizzMask then return fc.blizzMask end
+    local fd = frame and hookFrameData[frame]
+    local tex = (fd and fd.tex) or (frame and (frame.Icon or frame._tex))
+    if tex and tex.GetNumMaskTextures and tex:GetNumMaskTextures() > 0 then
+        return tex:GetMaskTexture(1)
+    end
+    return nil
 end
 
 -------------------------------------------------------------------------------
@@ -2085,6 +2186,8 @@ local function EvalCdReadySound(frame, fd, primeOnly)
         return
     end
     local fc2 = _ecmeFC[frame]
+    -- Hidden by its Talent Conditions (TalentCondFilterPass): stays silent.
+    if fc2 and fc2.tcHidden then fd._cdReadyArmed = false; return end
     local sid2 = fc2 and fc2.spellID
     local bk2 = fc2 and fc2.barKey
     if not sid2 or not bk2 then return end
@@ -2174,6 +2277,7 @@ local function HookCdReadyAvailableAlert(frame, fd)
         local sida = fca and fca.spellID
         local bka = fca and fca.barKey
         if not sida or not bka then return end
+        if fca.tcHidden then return end  -- hidden by its Talent Conditions
         if bka == ns.FOCUSKICK_BAR_KEY then return end
         if bka:sub(1, 7) == "__ghost" then return end
         local ssa = ResolveSpellSettings(f, sida, ns.GetBarSpellData(bka))
@@ -2867,6 +2971,8 @@ local function ApplyOnlyNumbers(frame, fd, barData)
         end
         local ifc = _ecmeFC[frame]
         if ifc and ifc.shapeBorder then ifc.shapeBorder:SetAlpha(0) end
+        -- Blizzard Style ring goes with the art (the custom-aura buttons hide theirs too).
+        if ifc and ifc.blizzHost then ifc.blizzHost:Hide() end
         if frame.DebuffBorder then frame.DebuffBorder:SetAlpha(0) end
         local cd = (fd and fd.cooldown) or frame.Cooldown or frame._cooldown
         if cd then
@@ -2887,6 +2993,7 @@ local function ApplyOnlyNumbers(frame, fd, barData)
         if bg then bg:SetAlpha(1) end
         local ifc = _ecmeFC[frame]
         if ifc and ifc.shapeBorder then ifc.shapeBorder:SetAlpha(1) end
+        if ifc and ifc.blizzHost then ifc.blizzHost:Show() end
         if frame.DebuffBorder then frame.DebuffBorder:SetAlpha(1) end
         local cd = fd.cooldown or frame.Cooldown or frame._cooldown
         if cd then
@@ -2920,13 +3027,23 @@ local function DecorateFrame(frame, barData)
     -- decoration) so a reclaimed pooled frame stays correctly layered.
     local baseLvl = frame:GetFrameLevel()
 
-    if not fd.bg then
-        local bg = frame:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        fd.bg = bg
+    -- Blizzard Style (Global Settings > Style): no EUI background or border;
+    -- the viewer's rounded mask stays and ns.CdmApplyBlizzIconArt draws the
+    -- ring. Stamped on fd so the swipe hooks read one flag per push.
+    local blizzArt = ns.CdmBlizzIcons()
+    fd._blizzArt = blizzArt or nil
+
+    if blizzArt then
+        if fd.bg then fd.bg:Hide() end
+    else
+        if not fd.bg then
+            local bg = frame:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints()
+            fd.bg = bg
+        end
+        fd.bg:SetColorTexture(barData.bgR or 0.08, barData.bgG or 0.08,
+            barData.bgB or 0.08, barData.bgA or 0.6)
     end
-    fd.bg:SetColorTexture(barData.bgR or 0.08, barData.bgG or 0.08,
-        barData.bgB or 0.08, barData.bgA or 0.6)
 
     -- Show Cooldown Edge: stamped per (re)claim so the cooldown hooks read one
     -- flag instead of chasing frame -> bar -> settings on every push. Toggling
@@ -2949,7 +3066,14 @@ local function DecorateFrame(frame, barData)
     -- that re-applies the shape. Active-state tint on shaped icons rides
     -- shapeBorder, never the square border, so both re-asserts below are square-only.
     local shapeKey = barData.iconShape
-    if shapeKey and shapeKey ~= "none" and shapeKey ~= "cropped" then
+    if blizzArt then
+        -- Blizzard Style: the ring overlay is the frame; no square border.
+        if fd.borderFrame then
+            EllesmereUI.PP.HideBorder(fd.borderFrame)
+            local bdFrame = EllesmereUI._bdBorderData and EllesmereUI._bdBorderData[fd.borderFrame]
+            if bdFrame then bdFrame:Hide() end
+        end
+    elseif shapeKey and shapeKey ~= "none" and shapeKey ~= "cropped" then
         if fd.borderFrame then
             EllesmereUI.PP.HideBorder(fd.borderFrame)
             local bdFrame = EllesmereUI._bdBorderData and EllesmereUI._bdBorderData[fd.borderFrame]
@@ -2967,12 +3091,14 @@ local function DecorateFrame(frame, barData)
             if cc then brdR, brdG, brdB = cc.r, cc.g, cc.b end
         end
         local textureKey = barData.borderTexture or "solid"
+        local brdSize = barData.borderSize or 1
         EllesmereUI.ApplyBorderStyle(fd.borderFrame,
-            barData.borderSize or 1,
+            brdSize,
             brdR, brdG, brdB, barData.borderA or 1,
             textureKey, barData.borderTextureOffset, barData.borderTextureOffsetY,
             barData.borderTextureShiftX, barData.borderTextureShiftY,
-            "cdm", barData.borderThickness or "thin", true)
+            "cdm", barData.borderThickness or "thin", true,
+            EllesmereUI.BorderPx(barData.borderSizePx, brdSize, textureKey))
         -- ApplyBorderStyle always paints the bar's BASE color, so re-assert the
         -- active-state tint if engaged (fd._activeBorderOn, set by
         -- ApplyActiveOverlays off Blizzard's SetSwipeColor) or a reanchor mid-proc flashes it back to base.
@@ -2993,6 +3119,7 @@ local function DecorateFrame(frame, barData)
     end
     if fd.glowOverlay then fd.glowOverlay:SetFrameLevel(baseLvl + 16) end
     if fd.textOverlay then fd.textOverlay:SetFrameLevel(baseLvl + 23) end
+    if blizzArt then ns.CdmApplyBlizzIconArt(frame) end
 
     if fd.decorated then
         -- Late retry: the style block already ran; skip one-time decoration.
@@ -3104,12 +3231,8 @@ local function DecorateFrame(frame, barData)
         local kbScale = frame:GetScale() or 1
         if kbScale < 0.01 then kbScale = 1 end
         EllesmereUI.ApplyIconTextFont(kt, GetCDMFont(), (barData.keybindSize or 10) / kbScale, "cdm")
-        kt:SetPoint("TOPLEFT", fd.textOverlay, "TOPLEFT",
-            barData.keybindOffsetX or 2, barData.keybindOffsetY or -2)
-        kt:SetJustifyH("LEFT")
-        kt:SetTextColor(barData.keybindR or 1, barData.keybindG or 1,
-            barData.keybindB or 1, barData.keybindA or 0.9)
         kt:Hide()
+        ns.StyleCDMKeybind(kt, barData, fd.textOverlay, 1 / kbScale, GetCDMFont())
         fd.keybindText = kt
     end
 
@@ -3146,7 +3269,8 @@ local function DecorateFrame(frame, barData)
         -- from texel filtering, so an 8px texture rasterizes the boundary jagged at
         -- any angle. Own asset over the game's viewer swipe for sharp corners (the
         -- stock file bakes in corner rounding that mismatches our squared icons).
-        fd.cooldown:SetSwipeTexture("Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
+        -- Blizzard Style keeps the viewer's rounded swipe to match its mask.
+        fd.cooldown:SetSwipeTexture(ns.CdmSwipeFile())
         -- Hook SetSwipeColor on EVERY CD/utility frame: forces our swipe color
         -- (black, or per-spell custom) so Blizzard's active-state color flash
         -- never shows. SetDrawSwipe hooked too, to keep charge swipes visible.
@@ -3353,6 +3477,11 @@ local function DecorateFrame(frame, barData)
                             local cc = RAID_CLASS_COLORS[ct]
                             if cc then cr, cg, cb = cc.r, cc.g, cc.b end
                         end
+                    end
+                    -- Blizzard Style: the viewer's own active swipe colour
+                    -- unless a per-spell active colour is set.
+                    if fd._blizzArt and not cr and not (ss2 and ss2.activeSwipeR) then
+                        cr, cg, cb = 1, 0.95, 0.57
                     end
                     cr = cr or (ss2 and ss2.activeSwipeR) or 1
                     cg = cg or (ss2 and ss2.activeSwipeG) or 0.776
@@ -4167,9 +4296,8 @@ local function DecorateFrame(frame, barData)
                         -- explicit gate that replaces the old accidental one).
                         if fd.glowOverlay and not fd._cdStateGlowOn
                             and not fd.procGlowActive then
-                            local style = cse == "pixelGlowReady" and 1 or 3
-                            local gr, gg, gb = ns.ResolveGlowColor(ss2)
-                            ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
+                            local style = ns.CdReadyGlowStyle(cse, ss2)
+                            ns.StartNativeGlow(fd.glowOverlay, style, ns.CdReadyGlowColor(style, ss2))
                             fd._cdStateGlowOn = true
                         end
                     elseif fd._cdStateGlowOn then
@@ -4229,9 +4357,8 @@ local function DecorateFrame(frame, barData)
                                 -- overlay -- never start over a live proc.
                                 if fd.glowOverlay and not fd._cdStateGlowOn
                                     and not fd.procGlowActive then
-                                    local style = self.cse == "pixelGlowReadyUsable" and 1 or 3
-                                    local gr, gg, gb = ns.ResolveGlowColor(self.ss2)
-                                    ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
+                                    local style = ns.CdReadyGlowStyle(self.cse, self.ss2)
+                                    ns.StartNativeGlow(fd.glowOverlay, style, ns.CdReadyGlowColor(style, self.ss2))
                                     fd._cdStateGlowOn = true
                                 end
                             elseif fd._cdStateGlowOn then
@@ -4390,7 +4517,7 @@ local function GetOrCreateTrinketFrame(slotID)
 
     local tex = f:CreateTexture(nil, "ARTWORK")
     tex:SetAllPoints()
-    tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    ns.CdmOwnIconCrop(tex)
     f.Icon = tex
     f._tex = tex
 
@@ -4888,9 +5015,8 @@ do
                         -- never start over a live proc; StopProcGlow queues
                         -- this flush again once the proc ends.
                         if not fd._cdStateGlowOn and not fd.procGlowActive then
-                            local style = (cse2 == "pixelGlowReady" or cse2 == "pixelGlowReadyUsable") and 1 or 3
-                            local gr, gg, gb = ns.ResolveGlowColor(ss2)
-                            ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
+                            local style = ns.CdReadyGlowStyle(cse2, ss2)
+                            ns.StartNativeGlow(fd.glowOverlay, style, ns.CdReadyGlowColor(style, ss2))
                             fd._cdStateGlowOn = true
                         end
                     elseif fd._cdStateGlowOn then
@@ -5112,6 +5238,214 @@ end
 -- nothing). OnShow/OnHide track the frame's own shown flag, matching the old
 -- IsShown() gate exactly (alpha/parent-only hiding behaves identically).
 local _pcActive = {}
+
+-------------------------------------------------------------------------------
+--  Out of Range Coloring for spells added by Spell ID (opt-in, per spell).
+--
+--  Blizzard's viewer frames tint themselves out of range; a spell added by ID
+--  has no viewer frame, so its own-frame icon never did. Mirrors
+--  CooldownViewerCooldownItemMixin: the check (C_Spell.EnableSpellRangeCheck)
+--  is armed on the icon's Show only when the spell has a range, range is read
+--  once there, then only SPELL_RANGE_CHECK_UPDATE repaints (the engine
+--  re-dispatches it across target changes), and out of range outranks the
+--  resource tint. Override edges (SPELL_UPDATE_ICON,
+--  COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED, SPELLS_CHANGED) re-point the check
+--  at the live form. The preset pass only paints the stored answer. Writes go
+--  to our own texture only. Zero cost unless a spell opts in: nothing is
+--  armed, the listener shell is taken on the first opted Show, and its events
+--  drop when the last opted icon hides.
+--
+--  Registrations are per SPELL and shared with Blizzard's viewer and the
+--  override arming in the main file: a release never disables an id either of
+--  them still holds, and CustomSpellRangeHolds is the same rule from their side.
+-------------------------------------------------------------------------------
+do
+    local refs = {}      -- armed spell id -> number of frames holding it
+    local armCount = 0   -- shown opted frames (armed, or on a form with no range); the listener is live while > 0
+    local listener
+
+    function ns.CustomSpellRangeHolds(spellID)
+        return refs[spellID] ~= nil
+    end
+
+    -- Custom-spell icon tint: out of range first (Blizzard's RefreshIconColor
+    -- order), else the resource dim. The range tint is written RGBA as Blizzard
+    -- writes it; the dim keeps its 3-arg writes.
+    local function PaintTint(f, sid, onRealCD)
+        local tex = f._tex
+        if not tex then return end
+        if f._rangeOut then
+            -- Out of range the icon is range-driven: the dim memo goes (left set, it
+            -- would hold the drain unsettled after the spell turned usable) and the
+            -- tint write is edge-gated. PaintTint is the only colour writer here.
+            f._lastVertexDim = nil
+            if not f._rangeTinted then
+                local c = CooldownViewerConstants and CooldownViewerConstants.ITEM_NOT_IN_RANGE_COLOR
+                if c then
+                    tex:SetVertexColor(c:GetRGBA())
+                    f._rangeTinted = true
+                end
+            end
+            return
+        end
+        -- Leaving the range tint needs a white write even when the dim memo is clean.
+        local wasTinted = f._rangeTinted
+        if wasTinted then f._rangeTinted = nil end
+        if not onRealCD then
+            local isUsable, notEnoughMana = C_Spell.IsSpellUsable(sid)
+            if notEnoughMana then
+                tex:SetVertexColor(0.5, 0.5, 1.0)
+            elseif not isUsable then
+                tex:SetVertexColor(0.4, 0.4, 0.4)
+            elseif f._lastVertexDim or wasTinted then
+                tex:SetVertexColor(1, 1, 1)
+            end
+            f._lastVertexDim = (not isUsable) or nil
+        elseif f._lastVertexDim or wasTinted then
+            tex:SetVertexColor(1, 1, 1)
+            f._lastVertexDim = nil
+        end
+    end
+    ns.PaintCustomSpellTint = PaintTint
+
+    -- Out of range is a readable false only: nil (no target) and a secret answer
+    -- both read as in range.
+    local function ReadOut(id)
+        local r = C_Spell.IsSpellInRange(id)
+        if not (issecretvalue and issecretvalue(r)) and r == false then return true end
+        return nil
+    end
+
+    -- Apply one out-of-range flip and repaint (every caller is an edge: Show,
+    -- range event, override edge, options). A repaint that lands dimmed wakes
+    -- the drain: the write happened outside the pass, and a dim is only polled
+    -- for its usable edge while the drain is awake.
+    local function SetRangeOut(f, out)
+        if f._rangeOut == out then return end
+        f._rangeOut = out
+        local sid = f._cachedPresetSID
+        if sid then
+            PaintTint(f, sid, f._lastOnRealCD)
+            if f._lastVertexDim then ns._MarkPresetCdDirty() end
+        end
+    end
+
+    local function OnRangeEvent(_, event, spellID)
+        local named = not (issecretvalue and issecretvalue(spellID))
+            and type(spellID) == "number"
+        if event == "SPELL_RANGE_CHECK_UPDATE" then
+            -- Blizzard's own registrations are nearly every dispatch, so a readable
+            -- id no icon here armed returns before any frame is touched. An
+            -- unreadable id (instanced secrecy) re-reads every armed frame. Only
+            -- the in/out answer is re-read: arming stays with Sync.
+            if named and not refs[spellID] then return end
+            for f in pairs(_pcActive) do
+                local armed = f._rangeArmedSID
+                if armed and (not named or armed == spellID) then
+                    SetRangeOut(f, ReadOut(armed))
+                end
+            end
+            return
+        end
+        -- Override edges re-point the opted icons at their live form. The icon
+        -- and override events name the base spell (nil = every spell);
+        -- SPELLS_CHANGED names none.
+        for f in pairs(_pcActive) do
+            if f._rangeOpted and (not named or f._cachedPresetSID == spellID) then
+                ns.SyncCustomSpellRange(f)
+            end
+        end
+    end
+
+    -- Hold or drop one frame's opt-in and its armed id. id is the live form to
+    -- arm, nil while that form has no range: an opted frame stays on the
+    -- override edges either way, so a form that gains a range arms. The range
+    -- event itself is held only while some id is armed.
+    local function SetArm(f, id, opted)
+        opted = opted or nil
+        if f._rangeOpted ~= opted then
+            f._rangeOpted = opted
+            armCount = armCount + (opted and 1 or -1)
+            if opted and armCount == 1 then
+                if not listener then
+                    listener = ns.TakeShell()
+                    listener:SetScript("OnEvent", OnRangeEvent)
+                end
+                listener:RegisterEvent("SPELL_UPDATE_ICON")
+                listener:RegisterEvent("COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED")
+                listener:RegisterEvent("SPELLS_CHANGED")
+            elseif armCount == 0 and listener then
+                listener:UnregisterAllEvents()
+            end
+        end
+        local prev = f._rangeArmedSID
+        if prev == id then return end
+        local hadArm = next(refs) ~= nil
+        f._rangeArmedSID = id
+        if prev then
+            local n = (refs[prev] or 1) - 1
+            refs[prev] = (n > 0) and n or nil
+            if not refs[prev] and not ns.BlizzardArmsRange(prev) then
+                local held = false
+                if ns._oorArmed then
+                    for _, ov in pairs(ns._oorArmed) do
+                        if ov == prev then held = true; break end
+                    end
+                end
+                if not held then C_Spell.EnableSpellRangeCheck(prev, false) end
+            end
+        end
+        if id then
+            if not refs[id] then C_Spell.EnableSpellRangeCheck(id, true) end
+            refs[id] = (refs[id] or 0) + 1
+        end
+        local hasArm = next(refs) ~= nil
+        if hasArm ~= hadArm then
+            if hasArm then
+                listener:RegisterEvent("SPELL_RANGE_CHECK_UPDATE")
+            else
+                listener:UnregisterEvent("SPELL_RANGE_CHECK_UPDATE")
+            end
+        end
+    end
+
+    -- Resolve one custom-spell frame: hold or drop its opt-in, arm, re-point
+    -- (live override) or release its range check, then read range once.
+    -- Called on edges only: Show, override edges and the options toggle.
+    function ns.SyncCustomSpellRange(f)
+        local sid = f._cachedPresetSID
+        if not sid then
+            local m = f._pfKey and f._pfKey:match(":(%d+)$")
+            sid = m and tonumber(m)
+            f._cachedPresetSID = sid
+        end
+        local want, opted
+        local cas = sid and ns._cdmAnyCustomRangeColor and ns.GetEffectiveCustomActiveState(sid)
+        if cas and cas.outOfRangeColoring then
+            opted = true
+            local ovr = C_SpellBook.FindSpellOverrideByID(sid)
+            local live = (ovr and ovr > 0) and ovr or sid
+            if C_Spell.SpellHasRange(live) then want = live end
+        end
+        SetArm(f, want, opted)
+        SetRangeOut(f, want and ReadOut(want) or nil)
+    end
+
+    function ns.ReleaseCustomSpellRange(f)
+        SetArm(f, nil, nil)
+    end
+
+    -- Options toggle (and the gate latching on): re-resolve every shown
+    -- custom-spell icon right away.
+    function ns.RefreshCustomSpellRange()
+        for f in pairs(_pcActive) do
+            if f._isCustomSpellFrame and not f._isCustomBuffFrame then
+                ns.SyncCustomSpellRange(f)
+            end
+        end
+    end
+end
+
 local function _RegisterPresetLive(f, fkey)
     f._pfKey = fkey
     f:HookScript("OnShow", function(self)
@@ -5123,10 +5457,17 @@ local function _RegisterPresetLive(f, fkey)
             self._itemWalkArm = true
             self._countArm = true
         end
+        -- Out of Range Coloring arms (or re-arms) on this edge.
+        if ns._cdmAnyCustomRangeColor and self._isCustomSpellFrame
+           and not self._isCustomBuffFrame then
+            ns.SyncCustomSpellRange(self)
+        end
         if ns._MarkPresetCdDirty then ns._MarkPresetCdDirty() end
     end)
     f:HookScript("OnHide", function(self)
         _pcActive[self] = nil
+        -- A hidden icon holds no range registration; its Show re-arms it.
+        if self._rangeOpted then ns.ReleaseCustomSpellRange(self) end
     end)
     if f:IsShown() then _pcActive[f] = true end
 end
@@ -5309,7 +5650,7 @@ local function GetOrCreatePlaceholderFrame(barKey, spellID, iconID, identKey)
         f:EnableMouse(true)
         if f.SetMouseClickEnabled then f:SetMouseClickEnabled(false) end
         local tex = f:CreateTexture(nil, "ARTWORK")
-        tex:SetAllPoints(); tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        tex:SetAllPoints(); ns.CdmOwnIconCrop(tex)
         f.Icon = tex; f._tex = tex
         local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
         cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawBling(false)
@@ -5369,7 +5710,7 @@ local function GetOrCreateCustomBuffFrame(barKey, sid)
         f:SetSize(36, 36); f:Hide()
         f:EnableMouse(false)
         local tex = f:CreateTexture(nil, "ARTWORK")
-        tex:SetAllPoints(); tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        tex:SetAllPoints(); ns.CdmOwnIconCrop(tex)
         f.Icon = tex; f._tex = tex
         local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
         cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawBling(false)
@@ -5425,7 +5766,7 @@ local function GetOrCreateItemPresetFrame(barKey, itemID)
     if f.SetMouseClickEnabled then f:SetMouseClickEnabled(false) end
     local tex = f:CreateTexture(nil, "ARTWORK")
     tex:SetAllPoints(); tex:SetTexture(icon)
-    tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    ns.CdmOwnIconCrop(tex)
     f.Icon = tex; f._tex = tex
     local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
     cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawBling(false)
@@ -5463,7 +5804,15 @@ local function GetOrCreateItemPresetFrame(barKey, itemID)
         GameTooltip_SetDefaultAnchor(GameTooltip, self)
         -- Pot presets tooltip the resolved display variant (may be another
         -- rank / Fleeting / the swapped-in partner pot), not the primary.
-        GameTooltip:SetItemByID(self._displayItemID or self._presetItemID)
+        -- Other presets tooltip the first owned family member (the id the
+        -- count walk points _itemCdSource at), so a warlock holding only a
+        -- Demonic Healthstone sees that stone; nothing owned -> the primary.
+        local tipID = self._displayItemID
+        if not tipID then
+            local _, owned = ns._ReadItemPresetCount(self)
+            tipID = owned
+        end
+        GameTooltip:SetItemByID(tipID or self._presetItemID)
         -- Re-assert the cursor anchor after content is set (item setters can drop
         -- it under "Anchor to Cursor", leaving the tip invisible). No-op otherwise.
         if EllesmereUI and EllesmereUI._repointTooltipAtCursor then
@@ -5728,6 +6077,32 @@ local function IsPresetFamilyFrame(f)
     return (pd and pd.altItemIDs and f._presetItemID == pd.itemID) and true or false
 end
 
+-- Pact of Gluttony (386689) decides which stone the player conjures: with it only
+-- Demonic Healthstones (224464), without it only Healthstones (5512). The other
+-- stone's entry never shows, not even dimmed. Read by the reanchor pass; talent and
+-- spell changes always queue one. On ns: 200-local cap.
+function ns._HealthstoneHiddenByPact(itemID)
+    if itemID ~= 5512 and itemID ~= 224464 then return false end
+    local pact = C_SpellBook.IsSpellKnown(386689) == true
+    if itemID == 5512 then return pact end
+    return not pact
+end
+
+-- Count (charges included) of a non-pot item preset frame: the primary id, else the
+-- sum of the family alts. Returns total and first owned id. On ns: 200-local cap.
+function ns._ReadItemPresetCount(f)
+    local total = C_Item.GetItemCount(f._presetItemID, false, true) or 0
+    local owned = total > 0 and f._presetItemID or nil
+    if total == 0 and IsPresetFamilyFrame(f) then
+        for _, altID in ipairs(f._presetData.altItemIDs) do
+            local c = C_Item.GetItemCount(altID, false, true) or 0
+            total = total + c
+            if not owned and c > 0 then owned = altID end
+        end
+    end
+    return total, owned
+end
+
 -- Guard: after ENCOUNTER_END clears item-preset caches, subsequent events
 -- fire before Blizzard has finished resetting potion CDs. Without this guard
 -- the update loop re-caches stale cooldown data from C_Item.GetItemCooldown.
@@ -5913,22 +6288,11 @@ local function ProcessPresetCooldowns()
                     -- hiding the swipe when that geometry is only a GCD.
                     ApplyPresetGCDSwipe(f, sid, cdInfo)
                     -- Resource check: dim vertex color when not enough resources
-                    -- Only for custom spells (not racials -- racials don't cost resources)
+                    -- Only for custom spells (not racials -- racials don't cost resources).
+                    -- Out of Range Coloring (opt-in) outranks the dim; its answer
+                    -- (f._rangeOut) is kept by events and only painted here.
                     if f._isCustomSpellFrame and f._tex then
-                        if not onRealCD then
-                            local isUsable, notEnoughMana = C_Spell.IsSpellUsable(sid)
-                            if notEnoughMana then
-                                f._tex:SetVertexColor(0.5, 0.5, 1.0)
-                            elseif not isUsable then
-                                f._tex:SetVertexColor(0.4, 0.4, 0.4)
-                            elseif f._lastVertexDim then
-                                f._tex:SetVertexColor(1, 1, 1)
-                            end
-                            f._lastVertexDim = (not isUsable) or nil
-                        elseif f._lastVertexDim then
-                            f._tex:SetVertexColor(1, 1, 1)
-                            f._lastVertexDim = nil
-                        end
+                        ns.PaintCustomSpellTint(f, sid, onRealCD)
                     end
                     if f._lastVertexDim then anyUnsettled = true end
                     -- "Show Charges" (opt-in, CD/utility custom spells only):
@@ -6078,22 +6442,16 @@ local function ProcessPresetCooldowns()
                     -- count-armed FOREVER and never skipped them (probe capture #12).
                     f._countArm = false
                 elseif f._countArm ~= false then
-                    -- Count-on-edge: item counts only move with bag contents
-                    -- (BAG_UPDATE_DELAYED) or a use-cast, both of which arm.
+                    -- Count-on-edge: item counts move with bag contents
+                    -- (BAG_UPDATE_DELAYED), a use-cast, or a charge-only
+                    -- change (BAG_UPDATE_COOLDOWN recheck), all of which arm.
                     -- This content edge also re-points the single watched cd
                     -- id (f._itemCdSource): first owned id wins; while
                     -- nothing is owned the LAST owned id is kept (the shared
                     -- cd lives on the id that was just used).
                     f._countArm = false
-                    total = C_Item.GetItemCount(f._presetItemID, false, true) or 0
-                    local owned = total > 0 and f._presetItemID or nil
-                    if total == 0 and IsPresetFamilyFrame(f) then
-                        for _, altID in ipairs(f._presetData.altItemIDs) do
-                            local c = C_Item.GetItemCount(altID, false, true) or 0
-                            total = total + c
-                            if not owned and c > 0 then owned = altID end
-                        end
-                    end
+                    local owned
+                    total, owned = ns._ReadItemPresetCount(f)
                     if owned then f._itemCdSource = owned end
                     f._cachedTotal = total
                 else
@@ -6170,19 +6528,17 @@ local function CheckItemPresenceForHide()
     for _, f in pairs(_presetFrames) do
         if f._isItemPresetFrame and f._presetItemID then
             local bd = f._ownerBarKey and barDataByKey[f._ownerBarKey]
-            if bd and bd.hideItemsIfMissing then
+            -- A stone the Pact of Gluttony rule hides is never injected, so its
+            -- stale presence cache must not queue a reanchor on every bag edge.
+            if bd and bd.hideItemsIfMissing
+               and not ns._HealthstoneHiddenByPact(f._presetItemID) then
                 local total
                 if PotSwap.Ensure(f) then
                     -- Pot presets: present = the resolved chain owns anything
                     -- (partner family counts while the swap toggle is on).
                     total = f._displayCount or 0
                 else
-                    total = C_Item.GetItemCount(f._presetItemID, false, true) or 0
-                    if total == 0 and IsPresetFamilyFrame(f) then
-                        for _, altID in ipairs(f._presetData.altItemIDs) do
-                            total = total + (C_Item.GetItemCount(altID, false, true) or 0)
-                        end
-                    end
+                    total = ns._ReadItemPresetCount(f)
                 end
                 if (total > 0) ~= f._hidePresenceCached then changed = true end
             end
@@ -6197,24 +6553,39 @@ local function _PlainNum(v)
     return type(v) == "number" and (not canaccessvalue or canaccessvalue(v))
 end
 
-_racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
-    -- Trailing flush for the loot-storm cap: a bag fire swallowed inside the
-    -- window re-arms on the first event past it (combat noise makes that
-    -- near-immediate; quiet worlds land on the next bag event or the sweep).
-    if ns._pcBagPend and GetTime() >= (ns._pcBagNext or 0) then
-        ns._pcBagPend = nil
-        ns._pcBagNext = GetTime() + 0.5
-        PotSwap.Bump()
-        CheckItemPresenceForHide()
-        for f in pairs(_pcActive) do
-            if f._isItemPresetFrame then
-                f._itemWalkArm = true
-                f._countArm = true
-            end
+-- Trailing flush for the loot-storm cap: a bag fire swallowed inside the
+-- window re-arms on the first listener event past it, or at the window's end
+-- when nothing else fires (a conjured stone's second bag fire lands inside
+-- the window, and a quiet world would otherwise keep its count stale until
+-- some unrelated event). On ns: 200-local cap.
+ns._pcBagFlush = function()
+    ns._pcBagPend = nil
+    ns._pcBagNext = GetTime() + 0.5
+    -- Bag contents changed: pot-preset display variants must re-resolve before
+    -- the presence check, which reads the resolution.
+    PotSwap.Bump()
+    CheckItemPresenceForHide()
+    -- Contents are the only thing that changes item counts, and a new stack can
+    -- move the displayed cooldown source too: re-walk both. (Live set: hidden
+    -- frames re-arm on their Show edge.)
+    for f in pairs(_pcActive) do
+        if f._isItemPresetFrame then
+            f._itemWalkArm = true
+            f._countArm = true
         end
-        _presetCdDirty = true
-        _pcAllSettled = false
-        if ns.ArmBuffTicker then ns.ArmBuffTicker() end
+    end
+    _presetCdDirty = true
+    _pcAllSettled = false
+    if ns.ArmBuffTicker then ns.ArmBuffTicker() end
+end
+ns._pcBagFlushTimerFn = function()
+    ns._pcBagFlushQueued = nil
+    if ns._pcBagPend then ns._pcBagFlush() end
+end
+
+_racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
+    if ns._pcBagPend and GetTime() >= (ns._pcBagNext or 0) then
+        ns._pcBagFlush()
     end
     -- Infrequent events: handle immediately and return
     if event == "BAG_UPDATE_DELAYED" then
@@ -6222,34 +6593,49 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         -- this in bursts, and each fire re-armed variant re-resolves + chain
         -- walks + bag-count scans -- the drain's dominant real cost). At
         -- most two re-arm cycles per second; a burst's trailing changes land
-        -- on the next capped fire, the head flush, or the 5s sweep.
+        -- on the head flush or the queued flush at the window's end.
         local nowB = GetTime()
         if nowB >= (ns._pcBagNext or 0) then
-            ns._pcBagNext = nowB + 0.5
-            -- Bag contents changed: pot-preset display variants must re-resolve (before
-            -- the presence check below, which reads the resolution).
-            PotSwap.Bump()
-            CheckItemPresenceForHide()
-            -- Contents are the only thing that changes item counts, and a
-            -- new stack can move the displayed cooldown source too: re-walk
-            -- both. (Live set: hidden frames re-arm on their Show edge.)
-            for f in pairs(_pcActive) do
-                if f._isItemPresetFrame then
-                    f._itemWalkArm = true
-                    f._countArm = true
-                end
-            end
-            _presetCdDirty = true
-            _pcAllSettled = false
-            if ns.ArmBuffTicker then ns.ArmBuffTicker() end
+            ns._pcBagFlush()
         else
             -- Swallowed by the cap: flush on the first event after the
-            -- window (see the head of this handler).
+            -- window (see the head of this handler), or at its end at the
+            -- latest -- one queued flush per window.
             ns._pcBagPend = true
+            if not ns._pcBagFlushQueued then
+                ns._pcBagFlushQueued = true
+                C_Timer.After(ns._pcBagNext - nowB, ns._pcBagFlushTimerFn)
+            end
         end
         return
     end
     if event == "BAG_UPDATE_COOLDOWN" then
+        -- Charge-only item count changes (a used Healthstone charge, a Soulwell
+        -- refill) move no bag contents, so no BAG_UPDATE fires; a used charge
+        -- lands with this event, after the cast arm already read the old count.
+        -- Re-read the shown non-pot item counts and arm only on a real change.
+        -- A count crossing zero also re-runs the Hide Items if Missing check,
+        -- which otherwise only bag-content edges drive.
+        local hit, crossed
+        for f in pairs(_pcActive) do
+            if f._isItemPresetFrame and f._presetItemID and not f._displayItemID
+               and f._cachedTotal and f._countArm == false then
+                local old, n = f._cachedTotal, ns._ReadItemPresetCount(f)
+                if n ~= old then
+                    f._countArm = true
+                    hit = true
+                    if (n == 0) ~= (old == 0) then crossed = true end
+                end
+            end
+        end
+        if hit then
+            _presetCdDirty = true
+            _pcAllSettled = false
+            -- Fast lane like a cast: the new count lands after the cast's own pass, inside the 1 Hz cap.
+            ns._pcLast = 0
+            if ns.ArmBuffTicker then ns.ArmBuffTicker() end
+            if crossed then CheckItemPresenceForHide() end
+        end
         -- THE item-cooldown edge: fires when any item cooldown starts, ends
         -- early or is modified. Re-walk the item chains on the next pass;
         -- between these edges the cached start/dur drives the display.
@@ -6260,7 +6646,8 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         -- settled there is no running item cd to end or modify, and an item
         -- cd can only START via edges that own UNGATED lanes (player cast,
         -- bag content, equipment, encounter reset), so ambient chatter has
-        -- nothing to report.
+        -- nothing to report. The count recheck above stays ungated on purpose:
+        -- it is the only charge-only count refresh and arms only on a change.
         if not _pcAllSettled then
             for f in pairs(_pcActive) do
                 if f._isItemPresetFrame then f._itemWalkArm = true end
@@ -7189,7 +7576,8 @@ local function CollectAndReanchor()
                         -- Cd-claim markers (collided-buff slots) are also
                         -- <= -100; they are not items.
                         if type(sid) == "number" and sid <= -100
-                           and not ns.CdClaimMarkerToCdID(sid) then
+                           and not ns.CdClaimMarkerToCdID(sid)
+                           and not ns._HealthstoneHiddenByPact(-sid) then
                             local itemID = -sid
                             local f = GetOrCreateItemPresetFrame(injKey, itemID)
                             if f then
@@ -7214,12 +7602,7 @@ local function CollectAndReanchor()
                                     if dispID then
                                         total = f._displayCount or 0
                                     else
-                                        total = C_Item.GetItemCount(itemID, false, true) or 0
-                                        if total == 0 and IsPresetFamilyFrame(f) then
-                                            for _, altID in ipairs(f._presetData.altItemIDs) do
-                                                total = total + (C_Item.GetItemCount(altID, false, true) or 0)
-                                            end
-                                        end
+                                        total = ns._ReadItemPresetCount(f)
                                     end
                                     f._hidePresenceCached = (total > 0)
                                     skipMissing = (total == 0)
@@ -7601,6 +7984,12 @@ local function CollectAndReanchor()
         end
     end
 
+    -- Talent Conditions: a cooldown whose per-spell conditions do not hold this pass is
+    -- dropped like an unlearned spell (EllesmereUICdmTalentConditions.lua). A replacement
+    -- buff follows its cooldown's conditions. Session-gated: skipped entirely until some
+    -- spell has a condition.
+    if ns._cdmAnyTalentCond then ns.TalentCondFilterPass(cdFrames) end
+
     -- Pre-build claim set for racial/custom spell checks: collect all spellIDs already
     -- claimed by Blizzard frames across all bars. This replaces the O(frames *
     -- FindSpellOverrideByID) inner loop with a set lookup.
@@ -7794,6 +8183,7 @@ local function CollectAndReanchor()
                             -- exact item (see slotEquippedItems above); the orphan
                             -- sweep hides any frame from a previous pass.
                             local f = not (slotEquippedItems and slotEquippedItems[itemID])
+                                and not ns._HealthstoneHiddenByPact(itemID)
                                 and GetOrCreateItemPresetFrame(barKey, itemID)
                             if f then
                                 -- Remember the bar that owns this frame so bag
@@ -7814,12 +8204,7 @@ local function CollectAndReanchor()
                                     if dispID then
                                         total = f._displayCount or 0
                                     else
-                                        total = C_Item.GetItemCount(itemID, false, true) or 0
-                                        if total == 0 and IsPresetFamilyFrame(f) then
-                                            for _, altID in ipairs(f._presetData.altItemIDs) do
-                                                total = total + (C_Item.GetItemCount(altID, false, true) or 0)
-                                            end
-                                        end
+                                        total = ns._ReadItemPresetCount(f)
                                     end
                                     f._hidePresenceCached = (total > 0)
                                     skipMissing = (total == 0)
@@ -7895,7 +8280,7 @@ local function CollectAndReanchor()
                                         f:EnableMouse(true)
                                         if f.SetMouseClickEnabled then f:SetMouseClickEnabled(false) end
                                         local tex = f:CreateTexture(nil, "ARTWORK")
-                                        tex:SetAllPoints(); tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                                        tex:SetAllPoints(); ns.CdmOwnIconCrop(tex)
                                         f.Icon = tex; f._tex = tex
                                         local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
                                         cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawBling(false)
@@ -8861,7 +9246,12 @@ end
 --  the style; why they cannot join the bar's icon row is on _AC above the
 --  collect passes. ENTRIES WITH A STORED DURATION ARE LEGACY CAST-TIMER
 --  CUSTOMS AND NEVER REACH HERE. Styling reads the bar's own settings; glows
---  and per-spell overrides do not reach these icons.
+--  and per-spell overrides do not reach these icons, with one exception:
+--  per-spell Custom Icon. A spell carrying one is split out of the shared
+--  group into a single-spell group of its own, so every button in that group
+--  is known to hold that spell without Lua ever reading the (secret) aura, and
+--  its style paints the fixed art (_AC.ApplyExtra). Bars with no Custom Icon
+--  keep the single shared group, byte-for-byte.
 -------------------------------------------------------------------------------
 
 -- Appearance fingerprint: the settings a restyle can carry. Geometry the engine
@@ -8872,6 +9262,7 @@ function _AC.StyleSig(bd)
         bd.iconShape or "none", bd.iconZoom or 0.08,
         bd.borderSize or 1, bd.borderR or 0, bd.borderG or 0, bd.borderB or 0,
         bd.borderA or 1, bd.borderTexture or "solid", bd.borderThickness or "thin",
+        bd.borderSizePx or "",
         bd.borderClassColor and 1 or 0, bd.borderBehind and 1 or 0,
         bd.borderTextureOffset or 0, bd.borderTextureOffsetY or 0,
         bd.borderTextureShiftX or 0, bd.borderTextureShiftY or 0,
@@ -8886,6 +9277,7 @@ function _AC.StyleSig(bd)
         bd.stackCountX or 0, bd.stackCountY or 0,
         bd.stackCountPosition or "bottomright",
         bd.showTooltip and 1 or 0, bd.barStrata or "MEDIUM",
+        (bd.anchorTo == "mouse") and 1 or 0,
     }, "|")
 end
 
@@ -8932,8 +9324,9 @@ end
 -- crop, swipe and border; style.cdm carries what _AC.ApplyExtra draws on our own
 -- regions (background, custom shape, text). PER-SPELL settings cannot reach here:
 -- one engine group renders every custom aura on the bar and, while auras are
--- secret, Lua cannot tell which button holds which aura.
-function _AC.BuildStyle(bd)
+-- secret, Lua cannot tell which button holds which aura. The lone exception is
+-- fixedIcon (a Custom Icon fileID), which only a single-spell group's style carries.
+function _AC.BuildStyle(bd, fixedIcon)
     -- Snapped to the physical pixel grid, as LayoutCDMBar does for the bar's own
     -- icons: an unsnapped button renders a fraction off its neighbors at
     -- non-integral UI scales.
@@ -8941,6 +9334,12 @@ function _AC.BuildStyle(bd)
     local SZ = _AC.SnapPx(rawSZ)
     local zoom = (bd and bd.iconZoom) or 0.08
     local shape = (bd and bd.iconShape) or "none"
+    -- Stock styles: full art, the style's ring instead of a border, no EUI
+    -- shape (see the blizz block in _AC.ApplyExtra); Blizzard Style rounds
+    -- the art with the viewer mask, Classic WoW UI keeps it square.
+    local blizz = ns.CdmBlizzIcons()
+    local classic = ns.CdmClassicIcons()
+    if blizz then zoom = 0; shape = "none" end
     local customShape = (shape ~= "none" and shape ~= "cropped")
     local onlyNumbers = (bd and bd.onlyShowNumbers) and true or false
     local brdSize = (bd and bd.borderSize) or 1
@@ -8950,7 +9349,7 @@ function _AC.BuildStyle(bd)
         if cc then brdR, brdG, brdB = cc.r, cc.g, cc.b end
     end
     local brdA = (bd and bd.borderA) or 1
-    local cdFont = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("cdm"))
+    local cdFont = (EllesmereUI.GetFontPath("cdm"))
         or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
 
     -- Icon rect. A shaped icon samples OUTSIDE its texture to fill the mask, so
@@ -8960,7 +9359,8 @@ function _AC.BuildStyle(bd)
     local texCoord
     local SH = ns.CDM_SHAPES
     if shape == "cropped" then
-        texCoord = { zoom, 1 - zoom, zoom + 0.10, 1 - zoom - 0.10 }
+        local trim = ns.CdmCropTrim(bd)
+        texCoord = { zoom, 1 - zoom, zoom + trim, 1 - zoom - trim }
     elseif customShape and SH and SH.masks[shape] then
         local visRatio = (128 - 2 * (SH.insets[shape] or 17)) / 128
         local grow = ((1 / visRatio) - 1) * 0.5
@@ -8970,21 +9370,24 @@ function _AC.BuildStyle(bd)
     -- Square border only where the bar's own icons draw one: a custom shape
     -- rings itself (_AC.ApplyExtra), Only Show Numbers strips the art entirely.
     local border
-    if brdSize > 0 and not customShape and not onlyNumbers then
+    if brdSize > 0 and not customShape and not onlyNumbers and not blizz then
+        local brdTex = (bd and bd.borderTexture) or "solid"
         border = {
             brdR, brdG, brdB, brdA, size = brdSize,
-            texture = (bd and bd.borderTexture) or "solid",
+            texture = brdTex,
             behind = (bd and bd.borderBehind) or nil,
             offsetX = bd and bd.borderTextureOffset, offsetY = bd and bd.borderTextureOffsetY,
             shiftX = bd and bd.borderTextureShiftX, shiftY = bd and bd.borderTextureShiftY,
             addonKey = "cdm", sizeKey = (bd and bd.borderThickness) or "thin",
+            -- Exact size (borderSizePx); nil = the legacy step, as the bar's own icons.
+            edgePx = EllesmereUI.BorderPx(bd and bd.borderSizePx, brdSize, brdTex),
         }
     end
 
     return {
         width = SZ,
         height = (shape == "cropped")
-            and _AC.SnapPx(math.floor(rawSZ * 0.80 + 0.5)) or SZ,
+            and _AC.SnapPx(math.floor(rawSZ * ns.CdmCropFactor(bd) + 0.5)) or SZ,
         iconCrop = true, iconZoom = zoom,
         texCoord = texCoord,
         cooldownReverse = true,
@@ -8994,11 +9397,16 @@ function _AC.BuildStyle(bd)
         -- Own text pipeline: the house icon-text rules (font, outline, slug) come
         -- from ApplyIconTextFont in _AC.ApplyExtra, exactly as the bar's icons do.
         noDefaultFonts = true,
-        noTooltips = (bd and bd.showTooltip) and nil or true,
+        -- Tooltips follow the bar's Show Tooltip, except on a cursor-anchored
+        -- bar: its icons stay mouse-through there, like the bar's own icons
+        -- (a motion-enabled icon riding the cursor breaks [@mouseover] casts).
+        noTooltips = (not (bd and bd.showTooltip) or (bd and bd.anchorTo == "mouse")) or nil,
         border = border,
         applyExtra = _AC.ApplyExtra,
         cdm = {
             font = cdFont, size = SZ, zoom = zoom,
+            fixedIcon = fixedIcon,
+            blizz = blizz or nil, classic = classic or nil,
             shape = shape, customShape = customShape,
             brdSize = brdSize, brdR = brdR, brdG = brdG, brdB = brdB, brdA = brdA,
             onlyNumbers = onlyNumbers,
@@ -9041,10 +9449,40 @@ function _AC.InitExtra(button, d)
     d.cdmRing:SetSnapToPixelGrid(false)
     d.cdmRing:SetTexelSnappingBias(0)
     d.cdmRing:Hide()
-    -- AuraKit runs applyExtra BEFORE this creation hook, so the pass that draws
-    -- these regions has to run once more now that they exist.
     local AK = EllesmereUI.AuraKit
     local style = AK and d.styleKey and AK.styles[d.styleKey]
+    -- Custom Icon art gets a texture of its own instead of a SetTexture on d.icon:
+    -- the engine re-stamps the aura's art onto its registered icon on every update,
+    -- so ApplyExtra hides d.icon and this takes its place. Anchored to d.icon so it
+    -- follows every shape/zoom re-point without anchoring anything under secrecy.
+    -- Creation time is enough: whether a spell has a Custom Icon is part of the
+    -- structural signature, so a group's style never gains or loses fixedIcon
+    -- without a rebuild. Only its value changes in place, and ApplyExtra re-reads it.
+    if style and style.cdm and style.cdm.fixedIcon and d.icon then
+        d.cdmFixedIcon = button:CreateTexture(nil, "ARTWORK", nil, 1)
+        d.cdmFixedIcon:SetAllPoints(d.icon)
+    end
+    -- Stock style regions: the ring overlay (on the ring host, above the
+    -- swipe) and, under Blizzard Style, the viewer's rounded mask (Classic
+    -- WoW UI icons are square). Whether a style is on is a reload-gated
+    -- profile flag, so it is fixed for the button's whole life.
+    if style and style.cdm and style.cdm.blizz then
+        if not style.cdm.classic then
+            d.cdmBlizzMask = button:CreateMaskTexture()
+            d.cdmBlizzMask:SetAtlas(ns.CDM_BLIZZ_MASK)
+            d.cdmBlizzMask:SetAllPoints(button)
+        end
+        d.cdmBlizzOverlay = d.cdmRingHost:CreateTexture(nil, "OVERLAY", nil, 5)
+        if style.cdm.classic then
+            d.cdmBlizzOverlay:SetTexture(ns.CDM_CLASSIC_RING)
+        else
+            ns.CdmStockAtlas(d.cdmBlizzOverlay, ns.CDM_BLIZZ_OVERLAY)
+        end
+        d.cdmBlizzOverlay:SetSnapToPixelGrid(false)
+        d.cdmBlizzOverlay:SetTexelSnappingBias(0)
+    end
+    -- AuraKit runs applyExtra BEFORE this creation hook, so the pass that draws
+    -- these regions has to run once more now that they exist.
     if style then _AC.ApplyExtra(button, d, style) end
 end
 
@@ -9068,9 +9506,14 @@ function _AC.ApplyExtra(button, d, style)
     -- Only Show Numbers strips the art down to the countdown. Shown-state as
     -- well as alpha, the same pair ApplyOnlyNumbers uses on the bar's own icons:
     -- a texture's alpha and its vertex color share one slot on this client.
+    -- A Custom Icon group hides the engine's art the same way and shows its own
+    -- texture (d.cdmFixedIcon, see InitExtra) in its place.
+    local fixed = c.fixedIcon and d.cdmFixedIcon
+    local artOn = not c.onlyNumbers
+    local engineArtOn = artOn and not fixed
     if d.icon then
-        d.icon:SetAlpha(c.onlyNumbers and 0 or 1)
-        d.icon:SetShown(not c.onlyNumbers)
+        d.icon:SetAlpha(engineArtOn and 1 or 0)
+        d.icon:SetShown(engineArtOn)
         -- Cropped samples a heavy vertical slice, and a snapped image edge can
         -- round to a different physical pixel than the unsnapped swipe (the 1px
         -- split ApplyShapeToCDMIcon disables snapping for). Restored otherwise.
@@ -9081,8 +9524,31 @@ function _AC.ApplyExtra(button, d, style)
             d.icon:SetTexelSnappingBias(0)
         end
     end
+    if fixed then
+        fixed:SetTexture(c.fixedIcon)
+        -- The crop AuraKit's ApplyStyleToRegions gives d.icon from this same style.
+        local tc = style.texCoord
+        if tc then
+            fixed:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
+        elseif style.iconCrop then
+            local z = style.iconZoom or 0.07
+            fixed:SetTexCoord(z, 1 - z, z, 1 - z)
+        else
+            fixed:SetTexCoord(0, 1, 0, 1)
+        end
+        if fixed.SetSnapToPixelGrid then
+            fixed:SetSnapToPixelGrid(c.shape ~= "cropped")
+        end
+        if c.shape == "cropped" and fixed.SetTexelSnappingBias then
+            fixed:SetTexelSnappingBias(0)
+        end
+        fixed:SetAlpha(artOn and 1 or 0)
+        fixed:SetShown(artOn)
+    end
     if d.cdmBg then
-        if c.onlyNumbers then
+        -- Blizzard Style has no EUI background (hidden once below, never
+        -- shown here first).
+        if c.onlyNumbers or c.blizz then
             d.cdmBg:Hide()
         else
             d.cdmBg:SetColorTexture(c.bgR, c.bgG, c.bgB, c.bgA)
@@ -9103,6 +9569,7 @@ function _AC.ApplyExtra(button, d, style)
             mask:SetTexture(maskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
             mask:Show()
             _AC.SetMask(d.icon, mask, true)
+            _AC.SetMask(d.cdmFixedIcon, mask, true)
             _AC.SetMask(d.cdmBg, mask, true)
             _AC.SetMask(d.cooldown, mask, true)
             local exp = SH.iconExpand + (SH.iconExpandOffsets[c.shape] or 0)
@@ -9133,6 +9600,7 @@ function _AC.ApplyExtra(button, d, style)
             end
         else
             _AC.SetMask(d.icon, mask)
+            _AC.SetMask(d.cdmFixedIcon, mask)
             _AC.SetMask(d.cdmBg, mask)
             _AC.SetMask(d.cooldown, mask)
             mask:SetTexture(nil); mask:ClearAllPoints()
@@ -9162,6 +9630,32 @@ function _AC.ApplyExtra(button, d, style)
         else
             ring:Hide()
         end
+    end
+
+    -- Stock styles: ring overlay sized to the button (the same geometry as
+    -- the bar's own icons) and no EUI background; Blizzard Style also seats
+    -- the rounded viewer mask on the art and the viewer's rounded swipe
+    -- (Classic WoW UI keeps the square art and swipe). Anchored to
+    -- d.borderHost like the shape geometry above (button-relative points are
+    -- denied under secrecy). Geometry is memoized on the button size.
+    if c.blizz and d.cdmBlizzOverlay then
+        if d.cdmBg then d.cdmBg:Hide() end
+        local bKey = "blizz|" .. c.size
+        if d.cdmBlizzKey ~= bKey then
+            d.cdmBlizzKey = bKey
+            local ov = d.cdmBlizzOverlay
+            if c.classic then
+                ns.CdmPlaceClassicRing(ov, d.borderHost, c.size, c.size)
+            else
+                _AC.SetMask(d.icon, d.cdmBlizzMask, true)
+                _AC.SetMask(d.cdmFixedIcon, d.cdmBlizzMask, true)
+                ov:ClearAllPoints()
+                PP.Point(ov, "TOPLEFT", d.borderHost, "TOPLEFT", -c.size * ns.CDM_BLIZZ_RING_X, c.size * ns.CDM_BLIZZ_RING_Y)
+                PP.Point(ov, "BOTTOMRIGHT", d.borderHost, "BOTTOMRIGHT", c.size * ns.CDM_BLIZZ_RING_X, -c.size * ns.CDM_BLIZZ_RING_Y)
+                if d.cooldown then pcall(d.cooldown.SetSwipeTexture, d.cooldown, ns.CDM_BLIZZ_SWIPE) end
+            end
+        end
+        d.cdmBlizzOverlay:SetShown(artOn)
     end
 
     if d.duration then
@@ -9198,7 +9692,43 @@ function _AC.ApplyExtra(button, d, style)
     end
 end
 
-function _AC.Build(rec, barKey, bd, sids, sig)
+-- Add every id form the live aura can carry (typed + override + base) to map.
+function _AC.AddSpellForms(map, sid)
+    map[sid] = true
+    local ovr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
+        and C_SpellBook.FindSpellOverrideByID(sid)
+    if ovr and ovr > 0 then map[ovr] = true end
+    local base = C_Spell and C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(sid)
+    if base and base > 0 then map[base] = true end
+    return map
+end
+
+function _AC.FixedIconStyleKey(barKey, sid)
+    return "cdm:aurabuff:" .. barKey .. ":ci:" .. sid
+end
+
+-- A new fileID for a spell that already has its own group is appearance, not
+-- structure: restyle that group in place. A rebuild would abandon the old
+-- container, whose engine-created group buttons can never be freed
+-- (AK.ReleaseContainer), so re-picking an icon must not cost one.
+function _AC.SyncFixedIcons(rec, bd, cis)
+    local styles = rec.ciStyles
+    if not (styles and cis) then return end
+    local AK = EllesmereUI.AuraKit
+    if not (AK and AK.styles) then return end
+    for sid, ci in pairs(cis) do
+        local key = _AC.FixedIconStyleKey(bd.key, sid)
+        local cur = styles[key]
+        if cur and cur ~= ci then
+            styles[key] = ci
+            AK.styles[key] = _AC.BuildStyle(bd, ci)
+            if AK.RestyleSoon then AK.RestyleSoon(key) end
+        end
+    end
+end
+
+-- cis: optional sid -> Custom Icon fileID for the entries that carry one.
+function _AC.Build(rec, barKey, bd, sids, sig, cis)
     local AK = EllesmereUI.AuraKit
     local barFrame = cdmBarFrames[barKey]
     -- Bar not built yet (login race): bail WITHOUT stamping the signature;
@@ -9220,16 +9750,28 @@ function _AC.Build(rec, barKey, bd, sids, sig)
     holder:Show()
     -- ONE flow group carrying every id form the live aura can carry (typed
     -- + override + base): the engine compacts actives and renders nothing
-    -- when none are up.
-    local includeMap = {}
+    -- when none are up. A spell with a Custom Icon gets a single-spell group
+    -- instead, flowing after the shared one. Its forms are struck from the
+    -- shared map, so an id it shares with a plain entry (the add-time variant
+    -- dedup rules that out, but overrides move with talents) renders once.
+    local includeMap, nShared = {}, 0
+    local ciGroups, claimed
     for i = 1, #sids do
         local sid = sids[i]
-        includeMap[sid] = true
-        local ovr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
-            and C_SpellBook.FindSpellOverrideByID(sid)
-        if ovr and ovr > 0 then includeMap[ovr] = true end
-        local base = C_Spell and C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(sid)
-        if base and base > 0 then includeMap[base] = true end
+        local ci = cis and cis[sid]
+        if ci then
+            local forms = _AC.AddSpellForms({}, sid)
+            claimed = claimed or {}
+            for id in pairs(forms) do claimed[id] = true end
+            ciGroups = ciGroups or {}
+            ciGroups[#ciGroups + 1] = { sid = sid, ci = ci, forms = forms }
+        else
+            nShared = nShared + 1
+            _AC.AddSpellForms(includeMap, sid)
+        end
+    end
+    if claimed then
+        for id in pairs(claimed) do includeMap[id] = nil end
     end
     local vertical = (bd and bd.verticalOrientation) and true or false
     local gap = (bd and bd.spacing) or 2
@@ -9248,28 +9790,73 @@ function _AC.Build(rec, barKey, bd, sids, sig)
     rec.pt = pt
     rec.curPt = pt
     if AK.SetContainerAxis then AK.SetContainerAxis(container, vertical) end
-    AK.AddGroupToContainer(container, {
-        key = "spells",
-        filter = { "HELPFUL" },
-        style = styleKey,
-        extraInit = _AC.InitExtra,
-        maxFrameCount = #sids,
-        -- Helpful spellID includes on the player pass the identity gate
-        -- regardless of the spell's secrecy flag.
-        candidateFilters = { includeSpellIDs = includeMap },
-    })
+    -- Group keys in flow order. The shared group is skipped when nothing is left
+    -- in its map: an EMPTY includeSpellIDs would not narrow the HELPFUL filter.
+    local groupKeys = {}
+    if nShared > 0 and next(includeMap) then
+        AK.AddGroupToContainer(container, {
+            key = "spells",
+            filter = { "HELPFUL" },
+            style = styleKey,
+            extraInit = _AC.InitExtra,
+            maxFrameCount = nShared,
+            -- Helpful spellID includes on the player pass the identity gate
+            -- regardless of the spell's secrecy flag.
+            candidateFilters = { includeSpellIDs = includeMap },
+        })
+        groupKeys[#groupKeys + 1] = "spells"
+    end
+    -- Custom Icon groups: one style per spell, since the fixed art is the one
+    -- thing that differs from the shared style. Kept on rec.ciStyles so a restyle
+    -- (RefreshAuraCustomStyle) reaches them too. Cost: every AddAuraGroup mints
+    -- a 10-button engine batch that is never released, so each split spell is
+    -- ten more buttons per container build -- which is why a file-id change
+    -- restyles in place (SyncFixedIcons) instead of rebuilding.
+    local ciStyles
+    if ciGroups then
+        ciStyles = {}
+        for i = 1, #ciGroups do
+            local g = ciGroups[i]
+            local ciStyleKey = _AC.FixedIconStyleKey(barKey, g.sid)
+            AK.styles[ciStyleKey] = _AC.BuildStyle(bd, g.ci)
+            ciStyles[ciStyleKey] = g.ci
+            local gKey = "ci:" .. g.sid
+            AK.AddGroupToContainer(container, {
+                key = gKey,
+                filter = { "HELPFUL" },
+                style = ciStyleKey,
+                extraInit = _AC.InitExtra,
+                maxFrameCount = 1,
+                candidateFilters = { includeSpellIDs = g.forms },
+            })
+            groupKeys[#groupKeys + 1] = gKey
+        end
+    end
+    -- Drop the styles of Custom Icon groups this build no longer has. Their old
+    -- buttons stay registered under the key (group buttons are never released),
+    -- and AuraKit skips a key with no style, so nothing restyles them again.
+    if rec.ciStyles then
+        for oldKey in pairs(rec.ciStyles) do
+            if not (ciStyles and ciStyles[oldKey]) then AK.styles[oldKey] = nil end
+        end
+    end
+    rec.ciStyles = ciStyles
     if container.SetAuraGroupLayout then
         -- elementWidth/Height feed the engine's flow math (the style sizes the
         -- button itself). Without them the flow spaces icons at the engine
         -- default, so any bar not at that size overlaps or gaps -- and a cropped
-        -- bar, whose buttons are 0.80 tall, is off on both axes.
+        -- bar, whose buttons are shorter (ns.CdmCropFactor), is off on both axes. Every group
+        -- shares one layout: their styles differ only in the fixed art.
         local st = AK.styles[styleKey]
         local gapPx = _AC.SnapPx(gap)
-        container:SetAuraGroupLayout("spells", {
+        local layout = {
             elementWidth = st and st.width, elementHeight = st and st.height,
             elementSpacing = gapPx, lineSpacing = gapPx,
             groupSpacing = gapPx, groupLineSpacing = gapPx,
-        })
+        }
+        for i = 1, #groupKeys do
+            container:SetAuraGroupLayout(groupKeys[i], layout)
+        end
     end
     AK.FinishContainer(container, "player")
     rec.container = container
@@ -9344,7 +9931,7 @@ local function UpdateCustomBuffBars()
                                     f:SetSize(36, 36); f:Hide()
                                     f:EnableMouse(false)
                                     local tex = f:CreateTexture(nil, "ARTWORK")
-                                    tex:SetAllPoints(); tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                                    tex:SetAllPoints(); ns.CdmOwnIconCrop(tex)
                                     f.Icon = tex; f._tex = tex
                                     local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
                                     cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawBling(false)
@@ -9482,6 +10069,24 @@ function ns.UpdateCustomBuffAuraTracking()
                     end
                     if sids then
                         seen[bd.key] = true
+                        -- Which spells carry a per-spell Custom Icon is structural:
+                        -- each gets a group of its own. The fileID itself is not --
+                        -- it restyles in place (_AC.SyncFixedIcons). Resolved only
+                        -- once anyone has set one (monotonic gate); everyone else
+                        -- keeps the exact signature they had and pays nothing for it.
+                        local cis, ciSig
+                        if ns._cdmAnyCustomIcon then
+                            for i = 1, #sids do
+                                local sid = sids[i]
+                                local ss = ResolveSpellSettings(nil, sid, sd, bd.key)
+                                local ci = ss and ss.customIcon
+                                if type(ci) == "number" and ci > 0 then
+                                    cis = cis or {}
+                                    cis[sid] = ci
+                                    ciSig = (ciSig or "|ci") .. ":" .. sid
+                                end
+                            end
+                        end
                         -- Structural only: the id list plus the geometry the
                         -- engine flow owns. Everything else is appearance and
                         -- rides ns.RefreshAuraCustomStyle without a rebuild.
@@ -9491,6 +10096,11 @@ function ns.UpdateCustomBuffAuraTracking()
                             .. "|" .. tostring(bd.growDirection or "CENTER")
                             .. "|" .. (bd.verticalOrientation and 1 or 0)
                             .. "|" .. tostring(bd.spacing or 2)
+                            -- Adjust Crop changes the button height the flow lays out, so it
+                            -- is geometry. Appended only while cropped: every other bar keeps
+                            -- its exact signature.
+                            .. ((bd.iconShape == "cropped") and ("|crop" .. ns.CdmCropPercent(bd)) or "")
+                            .. (ciSig or "")
                         local rec = _AC.bars[bd.key]
                         if not rec then rec = {}; _AC.bars[bd.key] = rec end
                         rec.bdRef = bd
@@ -9498,10 +10108,10 @@ function ns.UpdateCustomBuffAuraTracking()
                             local AK = EllesmereUI.AuraKit
                             if AK and AK.QueueBuildJob then
                                 rec.queued = true
-                                local barKey, bdRef, sidsRef, sigRef = bd.key, bd, sids, sig
+                                local barKey, bdRef, sidsRef, sigRef, cisRef = bd.key, bd, sids, sig, cis
                                 AK.QueueBuildJob(function()
                                     rec.queued = nil
-                                    _AC.Build(rec, barKey, bdRef, sidsRef, sigRef)
+                                    _AC.Build(rec, barKey, bdRef, sidsRef, sigRef, cisRef)
                                     -- The job captured the id list as it was when
                                     -- it was queued. A change that landed while it
                                     -- was in flight (two adds in a row) is not in
@@ -9517,6 +10127,7 @@ function ns.UpdateCustomBuffAuraTracking()
                         elseif rec.queued and rec.sig ~= sig then
                             rec.resync = true
                         else
+                            _AC.SyncFixedIcons(rec, bd, cis)
                             ns.RefreshAuraCustomStyle(bd.key)
                         end
                     end
@@ -9537,6 +10148,10 @@ function ns.UpdateCustomBuffAuraTracking()
             rec.sig = nil
             rec.sids = nil
             rec.styleSig = nil
+            if rec.ciStyles and AK and AK.styles then
+                for oldKey in pairs(rec.ciStyles) do AK.styles[oldKey] = nil end
+            end
+            rec.ciStyles = nil
         end
     end
 end
@@ -9560,6 +10175,13 @@ function ns.RefreshAuraCustomStyle(barKey)
     local styleKey = "cdm:aurabuff:" .. barKey
     AK.styles[styleKey] = _AC.BuildStyle(bd)
     if AK.RestyleSoon then AK.RestyleSoon(styleKey) end
+    -- Custom Icon groups carry the same appearance under their own style keys.
+    if rec.ciStyles then
+        for ciStyleKey, ci in pairs(rec.ciStyles) do
+            AK.styles[ciStyleKey] = _AC.BuildStyle(bd, ci)
+            if AK.RestyleSoon then AK.RestyleSoon(ciStyleKey) end
+        end
+    end
     -- Stamped only once the style is actually installed: recording a style that
     -- never applied would make every later call with the same settings early-out.
     rec.styleSig = sig
@@ -10690,8 +11312,20 @@ do
                 if ct then local cc = RAID_CLASS_COLORS[ct]; if cc then cr, cg, cb = cc.r, cc.g, cc.b end end
             end
             tex:SetTexCoord(0, 1, 0, 1)
-            if p.useBlizzardStyle then
-                tex:SetAtlas("UI-HUD-ActionBar-IconFrame-Down", false)
+            if p.useClassicStyle then
+                -- Classic WoW UI action bars: the vanilla pushed slot, uncropped.
+                tex:SetAtlas(nil)
+                tex:SetTexture(DEPRESS_TEX)
+                tex:SetVertexColor(1, 1, 1, 1); tex:SetAlpha(1)
+                return true
+            elseif p.useBlizzardStyle then
+                -- The bars' own pressed art: the retail sheet on WoW Forever
+                -- (EllesmereUI.StockAtlas) unless the bars wear its own look.
+                if EllesmereUI.IS_FOREVER == true and p.useForeverStyle == true then
+                    tex:SetAtlas("UI-HUD-ActionBar-IconFrame-Down", false)
+                else
+                    EllesmereUI.StockAtlas(tex, "UI-HUD-ActionBar-IconFrame-Down", false)
+                end
                 tex:SetVertexColor(1, 1, 1, 1); tex:SetAlpha(1)
                 return true
             elseif pType == 6 then
@@ -10780,6 +11414,14 @@ do
         if mask and not ov._shapeMask then
             pcall(ov._tex.AddMaskTexture, ov._tex, mask)
             ov._shapeMask = mask
+        end
+        -- Blizzard Style: the flash rounds off with the icon's viewer mask.
+        if ns.CdmBlizzIcons() then
+            local bm = ns.CdmBlizzIconMask(icon)
+            if bm and ov._blizzMask ~= bm then
+                pcall(ov._tex.AddMaskTexture, ov._tex, bm)
+                ov._blizzMask = bm
+            end
         end
         local result, cr, cg, cb, bsz = StylePush(ov._tex)
         if not result then ov:Hide(); return nil end

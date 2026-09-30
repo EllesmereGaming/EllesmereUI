@@ -1,8 +1,9 @@
 # Contributing to EllesmereUI
 
-**FEATURE REQUESTS ARE TEMPORARILY HALTED.**
-**ONLY BUG FIXES WILL BE ACCEPTED UNTIL**
-**A FEW WEEKS AFTER 12.1 LAUNCH**
+**FEATURE REQUESTS FREEZE HAS BEEN LIFTED, BUT DUE TO THE SIZE OF EUI, FEATURE**
+**REQUESTS MAY OR MAY NOT BE MERGED DEPENDING ON SEVERAL FACTORS LIKE % OF PLAYERS**
+**THAT WOULD USE IT, POTENTIAL MAINTENANCE, CODE SIZE, AND MORE. IF YOU WANT TO**
+**BUILD A FEATURE I GENERALLY SUGGEST DMING ME ON DISCORD FIRST @ ELLESMERE**
 
 Thanks for wanting to contribute! Pull requests are welcome. This document
 explains how PRs are reviewed and the hard rules the codebase lives by, so
@@ -63,8 +64,8 @@ will make changes to it myself.
   `EllesmereUI:ShowConfirmPopup`, never `StaticPopup_Show`.
 - Options pages use two-slot rows (`W:DualRow`). Fill slots left to right
   with no gaps; never pass `nil` as the right slot (use
-  `{ type = "label", text = "" }`); only the last row of a section may have
-  an empty slot.
+  `EllesmereUI.BlankRowCfg()`, a fresh blank label on every call); only the
+  last row of a section may have an empty slot.
 
 ## PR etiquette
 

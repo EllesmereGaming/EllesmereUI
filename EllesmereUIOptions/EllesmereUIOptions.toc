@@ -1,10 +1,10 @@
-## Interface: 120000, 120001, 120005, 120007, 120100
+## Interface: 120000, 120001, 120005, 120007, 120100, 16001
 ## Title: |cff0cd29fEllesmereUI|r Options
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: EllesmereUI settings panel. Loads on demand when you open EllesmereUI options.
 ## Author: Ellesmere
-## Version: 9.1.8
+## Version: 9.3.4
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -12,9 +12,13 @@
 # Widget factory first: everything below builds pages with it. File order
 # mirrors the original suite load order (parent files, then children A-Z).
 EllesmereUI_Widgets.lua
+EllesmereUI_GlowOptions.lua
 EUI__General_Options.lua
 EUI_Fonts_Options.lua
 EUI_Textures_Options.lua
+EUI_Glows_Options.lua
+EUI_Gamepad_Options.lua
+EUI_Style_Options.lua
 EUI_PartyMode_Options.lua
 
 EUI_ActionBars_Options.lua
@@ -23,8 +27,12 @@ EUI_Bags_Options.lua
 EUI_BlizzardSkin_Options.lua
 EUI_Chat_Options.lua
 EUI_CooldownManager_Options.lua
+EUI_CooldownManager_TalentConditions.lua
 EUI_DamageMeters_Options.lua
 EllesmereUIDataBars_Options.lua
+EUI_ForeverEssentials_Options.lua
+EUI_ForeverEssentials_Travel_Options.lua
+EUI_ForeverEssentials_Threat_Options.lua
 EUI_Friends_Options.lua
 EUI_Minimap_Options.lua
 EUI_MythicTimer_Options.lua
@@ -41,6 +49,14 @@ EUI_QuestTracker_Options.lua
 EUI_Quickdraw_Options.lua
 EUI_RaidFrames_ManagerPages.lua
 EUI_RaidFrames_Options.lua
+ResourceBars_Options\HealthSection_Options.lua
+ResourceBars_Options\PowerSection_Options.lua
+ResourceBars_Options\ClassResourceSection_Options.lua
+ResourceBars_Options\BarDisplayPage_Options.lua
+ResourceBars_Options\CastBarPage_Options.lua
+ResourceBars_Options\TotemBarPage_Options.lua
+ResourceBars_Options\GCDBarPage_Options.lua
+ResourceBars_Options\SwingTimerPage_Options.lua
 EUI_ResourceBars_Options.lua
 EUI_UnitFrames_Options.lua
 EUI_PlayerAuraBars_ManagerPages.lua

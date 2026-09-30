@@ -66,7 +66,7 @@ end
 
 local function SessionHistorySafe()
     if not PersistEnabled() then return false end
-    if EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance() then return false end
+    if EllesmereUI.InProtectedInstance() then return false end
     if GetCVarBool and GetCVarBool("addonChatRestrictionsForced") then return false end
     return true
 end

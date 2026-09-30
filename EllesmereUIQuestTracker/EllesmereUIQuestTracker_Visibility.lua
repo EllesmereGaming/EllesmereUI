@@ -6,19 +6,18 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 -- Rules that must never be broken:
 --   1. Never SetScript on ObjectiveTrackerFrame -- HookScript only.
---   2. Never walk the tracker's children to call EnableMouse. We hide the
---      frame by reparenting the top-level to a hidden container.
+--   2. Never walk the tracker's children to call EnableMouse, and never
+--      SetParent / SetPoint / Hide the EditMode-managed frame from our
+--      execution (its show and size handlers mark the container dirty under
+--      our taint). Hiding is alpha on the frame plus mouse-off on the NAMED
+--      click sinks Blizzard hangs off each block (EQT.ApplyTrackerMouse in
+--      the Skin file), restored only for the frames we switched off.
 --   3. Positioning is delegated to Blizzard's Edit Mode; we provide a
 --      ctrl-drag session-only nudge on top, nothing persistent.
 -------------------------------------------------------------------------------
 local _, ns = ...
 local EQT = ns.EQT
 
--- Hidden reparent target -- NEVER recursed into.
-local hiddenFrame = CreateFrame("Frame", "EllesmereUIQTHiddenParent", UIParent)
-hiddenFrame:Hide()
-
-local _eqtCollapsed       = false
 local _eqtSuppressed      = false
 
 -- Forward-declared so the auto-hide path can toggle BG visibility. The BG
@@ -56,27 +55,6 @@ local function GetBGTopAnchor()
         if header then return header, "BOTTOM" end
     end
     return otf, "TOP"
-end
-
--------------------------------------------------------------------------------
--- Top-level collapse / expand via SetParent. No child recursion.
--------------------------------------------------------------------------------
-local function Collapse()
-    local otf = GetTracker()
-    if not otf then return end
-    if InCombatLockdown() then return end
-    if _eqtCollapsed then return end
-    _eqtCollapsed = true
-    otf:SetParent(hiddenFrame)
-end
-
-local function Expand()
-    local otf = GetTracker()
-    if not otf then return end
-    if InCombatLockdown() then return end
-    if not _eqtCollapsed then return end
-    _eqtCollapsed = false
-    otf:SetParent(UIParent)
 end
 
 -------------------------------------------------------------------------------
@@ -164,13 +142,15 @@ end
 -- template's protected HideBase/ShowBase, so calling either from addon execution during
 -- combat is blocked (ADDON_ACTION_BLOCKED) -- and the raid/encounter auto-hide fires
 -- exactly at combat start (vehicle boss pulls hit this). In combat fall back to alpha
--- suppression: top-level frame only, never children, never mouse state. The shared
--- visibility dispatcher re-runs UpdateVisibility on PLAYER_REGEN_ENABLED, where the
--- real Hide() lands -- same recovery shape as the M+ timer's HideTracker, minus the
--- private regen listener it needs (we are dispatcher-driven).
+-- suppression on the top-level frame, with the block click sinks switched off by name
+-- (EQT.ApplyTrackerMouse; alpha alone left them clickable). The shared visibility
+-- dispatcher re-runs UpdateVisibility on PLAYER_REGEN_ENABLED, where the real Hide()
+-- lands -- same recovery shape as the M+ timer's HideTracker, minus the private regen
+-- listener it needs (we are dispatcher-driven).
 local function HardHide(otf)
     if InCombatLockdown() then
         otf:SetAlpha(0)
+        if EQT.ApplyTrackerMouse then EQT.ApplyTrackerMouse(false) end
     else
         otf:SetAlpha(1)  -- clear any combat alpha-suppression before hiding
         otf:Hide()
@@ -245,6 +225,9 @@ local function UpdateVisibility()
 
     otf:SetAlpha(alpha)
     if _bgFrame then _bgFrame:SetAlpha(alpha) end
+    -- Alpha never affects mouse: an invisible tracker's block buttons would
+    -- still take the clicks meant for the world (see EQT.ApplyTrackerMouse).
+    if EQT.ApplyTrackerMouse then EQT.ApplyTrackerMouse(alpha > 0) end
 
     -- Let ResizeBGToContent decide BG shown/hidden based on real content;
     -- an unconditional Show here would resurrect the empty-state BG.
@@ -266,6 +249,8 @@ function EQT.RefreshStateDriver() UpdateVisibility() end
 -------------------------------------------------------------------------------
 local function EnsureBG()
     if _bgFrame then return _bgFrame end
+    -- Stock styles keep Blizzard's own panel behind the tracker: no background.
+    if EQT.Blizz() then return nil end
     local otf = GetTracker()
     if not otf then return nil end
     _bgFrame = CreateFrame("Frame", "EllesmereUIQTBackground", UIParent)
@@ -373,7 +358,9 @@ end
 -- shift re- queues exactly one more pass -- never a continuous OnUpdate loop.
 local _resizePending = false
 local function QueueResize()
-    if _resizePending then return end
+    -- No background (not built yet, or a stock style): nothing to resize, so
+    -- arm no timer (ResizeBGToContent would return on the nil frame anyway).
+    if _resizePending or not _bgFrame then return end
     _resizePending = true
     C_Timer.After(0.05, function()
         _resizePending = false
@@ -480,8 +467,9 @@ function EQT.InitVisibility()
     EQT.ApplyForceOnScreen()
     InstallShowHook()
 
-    -- Live-update the top accent divider when the user changes UI Accent Color.
-    if EllesmereUI and EllesmereUI.RegAccent then
+    -- Live-update the top accent divider when the user changes UI Accent Color
+    -- (no background, so no divider, under the stock styles).
+    if not EQT.Blizz() and EllesmereUI and EllesmereUI.RegAccent then
         EllesmereUI.RegAccent({ type = "callback", fn = ApplyTopDivider })
     end
 
@@ -519,12 +507,10 @@ function EQT.InitVisibility()
 
     -- Register with the shared visibility dispatcher for combat/mount
     -- visibility modes. Bails immediately when suppressed (M+/raid).
-    if EllesmereUI.RegisterVisibilityUpdater then
-        EllesmereUI.RegisterVisibilityUpdater(function()
-            if _eqtSuppressed then return end
-            UpdateVisibility()
-        end)
-    end
+    EllesmereUI.RegisterVisibilityUpdater(function()
+        if _eqtSuppressed then return end
+        UpdateVisibility()
+    end)
 
     -- Mouseover mode: poll both the tracker and our BG frame as one target
     -- so hovering either fades them in together. SetAlpha on the proxy
@@ -551,6 +537,7 @@ function EQT.InitVisibility()
         moProxy.SetAlpha = function(_, a)
             if otf then otf:SetAlpha(a) end
             if _bgFrame then _bgFrame:SetAlpha(a) end
+            if EQT.ApplyTrackerMouse then EQT.ApplyTrackerMouse((a or 0) > 0) end
         end
         -- The monitor reveals via SetAlpha(1) + Show(). The BG may have been Hidden by
         -- a resize pass while idling at alpha 0 (TrackerIsVisible reads mouseover-idle
@@ -559,10 +546,12 @@ function EQT.InitVisibility()
         -- next resize pass re-hides the frame cleanly.
         moProxy.Show = function()
             if _bgFrame then _bgFrame:Show() end
+            if EQT.ApplyTrackerMouse then EQT.ApplyTrackerMouse(true) end
         end
         moProxy.Hide = function()
             if otf then otf:SetAlpha(0) end
             if _bgFrame then _bgFrame:SetAlpha(0) end
+            if EQT.ApplyTrackerMouse then EQT.ApplyTrackerMouse(false) end
         end
         moProxy.EnableMouse = function() end
         EllesmereUI.RegisterMouseoverTarget(moProxy, function()

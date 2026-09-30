@@ -9,6 +9,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local CategoryManager = {}
 -- Profile access helper (DB created in EUI_Bags_Options.lua, loaded first per TOC)
 local EUI = EllesmereUI
+local GetItemInfoInstant = C_Item.GetItemInfoInstant
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
 
@@ -46,6 +47,69 @@ local DEFAULT_CATEGORIES = {
     { name = "Housing",            types = { IC_HOUSING },                   icon = 7726459 },
     { name = "Miscellaneous",      types = { IC_MISC, IC_CONTAINER }, isCatchAll = true, icon = 5524917 },
 }
+
+if EUI_CLIENT_FOREVER then
+    local campItemIDs = {
+        [279956] = true, -- Mana Well
+        [279970] = true, -- Fermenter
+        [279990] = true, -- Alchemy Laboratory
+        [279944] = true, -- Sharpening Wheel
+        [279988] = true, -- Anvil
+        [279955] = true, -- Master Forge
+        [279976] = true, -- Enchanted Lute
+        [279985] = true, -- Arcane Salvager
+        [279987] = true, -- Arcane Forge
+        [279950] = true, -- Reagent Bot
+        [279949] = true, -- Repair Bot
+        [279989] = true, -- Anarchist's Workbench
+        [279962] = true, -- Incense Candle
+        [279964] = true, -- Greenhouse
+        [279947] = true, -- Seed Hybridizer
+        [279978] = true, -- Camp Tent
+        [279941] = true, -- Tanning Rack
+        [279945] = true, -- Sewing Machine
+        [279960] = true, -- Lodestone
+        [279948] = true, -- Rock Garden
+        [279952] = true, -- Molten Foundry
+        [279979] = true, -- Camp Chair
+        [279969] = true, -- Field Guide
+        [279938] = true, -- Trapper's Workbench
+        [279973] = true, -- Faction Banner
+        [279943] = true, -- Spinning Wheel
+        [279959] = true, -- Loom
+        [279981] = true, -- Basic Campfire Kit
+        [279961] = true, -- Journeyman Campfire Kit
+        [279957] = true, -- Cookie's Feast
+        [279974] = true, -- Expert Campfire Kit
+        [279982] = true, -- Iron Oven
+        [279968] = true, -- First Aid Kit
+        [279940] = true, -- Toxin Study
+        [279951] = true, -- Plague Doctor's Laboratory
+        [279967] = true, -- Fish Bowl
+        [279965] = true, -- Fishing Rack
+        [279966] = true, -- Fishing Hut
+    }
+
+    for _, def in ipairs(DEFAULT_CATEGORIES) do
+        if def.name == "Consumables" or def.name == "Gear Enhancements" then
+            def.defaultGroupName = "Adventure Prep"
+        end
+    end
+    for i, def in ipairs(DEFAULT_CATEGORIES) do
+        if def.name == "Gear Enhancements" then
+            table.insert(DEFAULT_CATEGORIES, i + 1, {
+                name = "Camp Items", itemIDs = campItemIDs, icon = 135805,
+                defaultGroupName = "Adventure Prep",
+            })
+            break
+        end
+    end
+    for i = #DEFAULT_CATEGORIES, 1, -1 do
+        if DEFAULT_CATEGORIES[i].name == "Housing" then
+            table.remove(DEFAULT_CATEGORIES, i)
+        end
+    end
+end
 
 -------------------------------------------------------------------------------
 --  Init
@@ -165,10 +229,20 @@ function CategoryManager:InitCategories()
             end
         else
             local state = userState[def.name]
+            -- The default group name stays raw: the seeded groups in
+            -- EllesmereUIBags_DB.lua store it raw too, so both land in one group
+            -- on every locale.
+            local groupName
+            if state and state.groupName ~= nil then
+                groupName = state.groupName
+            elseif def.defaultGroupName then
+                groupName = def.defaultGroupName
+            end
             cats[#cats + 1] = {
                 _defaultName      = def.name,
                 name              = (state and state.rename) or EllesmereUI.L(def.name),
                 types             = def.types,
+                itemIDs           = def.itemIDs,
                 icon              = def.icon,
                 isAtlas           = def.isAtlas,
                 equipSlots        = def.equipSlots,
@@ -180,8 +254,9 @@ function CategoryManager:InitCategories()
                 isRecent          = def.isRecent,
                 noGroup           = def.noGroup,
                 noMove            = def.noMove,
-                groupName         = state and state.groupName,
+                groupName         = groupName,
                 groupNameCustom   = state and state.groupNameCustom,
+                defaultGroupName  = def.defaultGroupName,
             }
             -- Split mode: append one child category per equipment set right after
             -- the "Item Set Gear" anchor. Runtime-only -- SaveState skips them, so
@@ -243,12 +318,17 @@ function CategoryManager:InitCategories()
 
     self._categories = cats
 
-    -- setID -> category index, for split-mode classification
+    -- setID -> category index, for split-mode classification. The same pass
+    -- notes whether any category carries a fixed item list, so ClassifyItem
+    -- skips that scan entirely when none does (every retail category).
     local setCatIdx = {}
+    local hasItemIDs = false
     for i, cat in ipairs(cats) do
         if cat.equipSetID then setCatIdx[cat.equipSetID] = i end
+        if cat.itemIDs then hasItemIDs = true end
     end
     self._setCatIdxBySetID = setCatIdx
+    self._hasItemIDCats = hasItemIDs
 
     -- Clean up legacy DB keys
     EllesmereUIDB.bagCategoryDefs = nil
@@ -292,6 +372,9 @@ function CategoryManager:SaveState()
             if cat.groupName then
                 entry.groupName = cat.groupName
                 hasState = true
+            elseif cat.defaultGroupName then
+                entry.groupName = false
+                hasState = true
             end
             if cat.groupNameCustom then
                 entry.groupNameCustom = cat.groupNameCustom
@@ -329,11 +412,6 @@ function CategoryManager:GetCategories()
         self:InitCategories()
     end
     return self._categories
-end
-
-function CategoryManager:GetCategoryCount()
-    local cats = self:GetCategories()
-    return #cats
 end
 
 -------------------------------------------------------------------------------
@@ -400,6 +478,14 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
             for i, cat in ipairs(cats) do
                 if cat._defaultName == assignedKey then return i end
             end
+        end
+    end
+
+    -- Fixed item lists (Forever camp items) win over item-class matching; the
+    -- scan runs only while some category carries one (see InitCategories).
+    if itemID and self._hasItemIDCats then
+        for i, cat in ipairs(cats) do
+            if cat.itemIDs and cat.itemIDs[itemID] then return i end
         end
     end
 
@@ -738,12 +824,6 @@ function CategoryManager:GetGroupMembers(groupName)
         if cat.groupName == groupName then members[#members + 1] = i end
     end
     return members
-end
-
--- Check if a category is in a group.
-function CategoryManager:IsGrouped(catIndex)
-    local cats = self:GetCategories()
-    return cats[catIndex] and cats[catIndex].groupName or nil
 end
 
 -------------------------------------------------------------------------------

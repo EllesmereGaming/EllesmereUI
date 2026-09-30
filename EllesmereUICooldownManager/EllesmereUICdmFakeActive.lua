@@ -30,7 +30,7 @@ local _, ns = ...
 
 local GetTime                = GetTime
 local UnitClass              = UnitClass
-local GetSpecialization      = GetSpecialization
+local GetSpecialization      = C_SpecializationInfo.GetSpecialization
 local GetInventoryItemID     = GetInventoryItemID
 local CreateFrame            = CreateFrame
 local C_Timer                = C_Timer
@@ -116,7 +116,7 @@ local _cdrArmedByKey = {}
 local GetOverlay, ResolveSwipeColor, IconTexture, ApplyToFrame, ApplyRule, RaiseOverlayBorders, RestoreOverlayBorders
 local EnsureTicker, OpenWindow, CloseWindow, CloseAll, CastWindow
 local OpenFromAura, EvalCustom, InitialStamp, OnEvent, UpdateListeners
-local ResolveCastSpells
+local ResolveCastSpells, PresetAltItemIDs
 local PresetOnCD, ApplyCdState, RestoreAllCdState, EvalCdStateNow, QueueCdStateEval
 
 -- ---------------------------------------------------------------------------
@@ -202,6 +202,12 @@ GetOverlay = function(iconFrame)
     local icon = f:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints(f)
     o.icon = icon
+    -- Blizzard Style: the copy rounds off with the art it copies (the
+    -- viewer's mask on pooled frames, ours on own frames).
+    if ns.CdmBlizzIcons and ns.CdmBlizzIcons() and ns.CdmBlizzIconMask then
+        local m = ns.CdmBlizzIconMask(iconFrame)
+        if m then pcall(icon.AddMaskTexture, icon, m) end
+    end
 
     local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
     cd:SetAllPoints(f)
@@ -403,15 +409,25 @@ ApplyToFrame = function(iconFrame, rule, win)
     end
 end
 
+-- User active states belong only to frames we inject. Removing a custom spell
+-- clears its customSpellIDs tag but preserves its profile-level settings for
+-- moves between bars. Those settings must not decorate a native viewer icon
+-- when the spell is later added through normal CDM tracking.
+local function IsInjectedFrame(f)
+    return (f._isCustomSpellFrame or f._isRacialFrame or f._isPresetFrame
+            or f._isItemPresetFrame or f._isTrinketFrame) and true or false
+end
+ns.CdmIsInjectedFrame = IsInjectedFrame
+
 -- BUILT-IN rules only ever target native viewer entries, so they only match
 -- icons on the three native bars. Guards against a stale cached spellID on a
 -- Blizzard-pool-reused icon frame matching a custom bar it never belonged to
 -- (field: Ebon Might's built-in overlay painting a custom-bar potion slot
 -- after icon-size/glow adjustments forced frame reuse). USER rules are
 -- deliberately NOT scoped: they are barKey-less by design and follow the
--- spell to whichever bar hosts it (see the AddUserRule contract below) --
--- scoping them would kill custom-bar cd-state effects, overlays and
--- ready-sounds.
+-- injected spell to whichever bar hosts it (see the AddUserRule contract below).
+-- Restrict their frame kind, not their bar, so native icons cannot inherit an
+-- orphaned custom timer while custom-bar presets keep their active states.
 local NATIVE_VIEWER_BARKEYS = { cooldowns = true, utility = true, buffs = true }
 
 -- Apply (or clear) a rule on every matching live icon. A rule with .barKey
@@ -430,7 +446,7 @@ ApplyRule = function(rule, win)
             if rule.barKey then
                 barScopeOK = fc and fc.barKey == rule.barKey
             elseif rule.user then
-                barScopeOK = fc ~= nil
+                barScopeOK = fc ~= nil and IsInjectedFrame(f)
             else
                 barScopeOK = fc and fc.barKey and NATIVE_VIEWER_BARKEYS[fc.barKey]
             end
@@ -675,7 +691,7 @@ end
                         tc:SetAllPoints(button)
                         tc:SetFrameLevel(cd:GetFrameLevel() + 5)
                         local fs = tc:CreateFontString(nil, "OVERLAY")
-                        local cdFont = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("cdm"))
+                        local cdFont = (EllesmereUI.GetFontPath("cdm"))
                             or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
                         local fsScale = (scale and scale > 0.01) and scale or 1
                         local cdSize = ((ss and ss.cooldownFontSize) or (bd and bd.cooldownFontSize) or 12) / fsScale
@@ -1014,6 +1030,20 @@ ResolveCastSpells = function(key)
             else
                 local _, spID = C_Item.GetItemSpell(itemID)
                 if spID then out[#out + 1] = spID end
+                -- Other family presets (primary id only): map each alternate's
+                -- on-use spell too (Demonic Healthstone, other mana pot ranks).
+                local alts = PresetAltItemIDs(itemID)
+                if alts then
+                    local seen = {}
+                    if spID then seen[spID] = true end
+                    for i = 1, #alts do
+                        local _, altSp = C_Item.GetItemSpell(alts[i])
+                        if altSp and not seen[altSp] then
+                            seen[altSp] = true
+                            out[#out + 1] = altSp
+                        end
+                    end
+                end
             end
         end
     end
@@ -1044,9 +1074,10 @@ end
 -- itemID -> its preset's alternate item IDs. A preset (e.g. Light's Potential)
 -- covers several ranks of the same consumable; the player owns one alternate and
 -- the cooldown ticks on THAT id, not the primary. ProcessPresetCooldowns already
--- walks these, so PresetOnCD must too or the "CD Ready" glow never turns off.
+-- walks these, so PresetOnCD must too or the "CD Ready" glow never turns off;
+-- ResolveCastSpells maps each alternate's on-use spell from it too.
 local _presetAltMap
-local function PresetAltItemIDs(itemID)
+PresetAltItemIDs = function(itemID)
     if not _presetAltMap then
         _presetAltMap = {}
         for _, pr in ipairs(ns.CDM_ITEM_PRESETS or {}) do
@@ -1198,11 +1229,8 @@ ApplyCdState = function(frame, fc, cas, eff, onCD, ready)
         -- starts a glow when nothing is running, so it cannot stomp another
         -- owner's.
         if not fd._presetCdGlowOn or not glow._glowActive then
-            local gr, gg, gb
-            if ns.ResolveGlowColor then
-                gr, gg, gb = ns.ResolveGlowColor(cas)
-            end
-            ns.StartNativeGlow(glow, eff == "pixelGlowReady" and 1 or 3, gr or 1, gg or 1, gb or 1)
+            local style = ns.CdReadyGlowStyle(eff, cas)
+            ns.StartNativeGlow(glow, style, ns.CdReadyGlowColor(style, cas))
             fd._presetCdGlowOn = true
         end
     elseif fd._presetCdGlowOn then
@@ -1237,19 +1265,6 @@ RestoreAllCdState = function()
         end
     end
 end
-
--- Is this frame one WE inject? customActiveStates is only editable from the
--- per-icon menu's "Custom Active State" section, offered for exactly these
--- frames (EUI_CooldownManager_Options.lua isCustomInjected). A Blizzard viewer
--- frame carries none of the flags, so a user rule reaching one is an orphan:
--- removing a custom spell clears customSpellIDs but not the profile-level
--- active state, and no menu can then show or clear it -- which hid a plainly
--- tracked spell with nothing to explain why.
-local function IsInjectedFrame(f)
-    return (f._isCustomSpellFrame or f._isRacialFrame or f._isPresetFrame
-            or f._isItemPresetFrame or f._isTrinketFrame) and true or false
-end
-ns.CdmIsInjectedFrame = IsInjectedFrame
 
 -- Same-frame coalesced evaluation: every engine edge funnels here. Zero cost
 -- while no cd-state rules exist.
@@ -1475,7 +1490,7 @@ function ns.FakeActive_Rearm()
 
     -- 1. Built-in rules (class/spec gated).
     local _, classFile = UnitClass("player")
-    local specIdx = GetSpecialization and GetSpecialization() or nil
+    local specIdx = GetSpecialization()
     for i = 1, #FAKE_ACTIVE_RULES do
         local rule = FAKE_ACTIVE_RULES[i]
         if (not rule.class or rule.class == classFile)
