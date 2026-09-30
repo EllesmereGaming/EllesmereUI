@@ -1216,6 +1216,44 @@ function ns.IsCollidedBuffSid(sid)
     return ns.CollidedBuffSids()[sid] == true
 end
 
+--- Buff slots claimed by cooldownID instead of spellID: collided pairs, and
+--- tracked trinket proc rows (EquipSlotTracked). A trinket row reads no spellID
+--- while its proc is down, so a sid claim can neither route it after a reload
+--- nor be told apart from an equipment use-spell by the prune; its cooldownID
+--- is fixed per equipment slot, so the usual cooldownID drift does not apply.
+local function IsTrackedTrinketRow(cdID)
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    local info = gci and gci(cdID)
+    local cat = info and info.category
+    if type(cat) ~= "number" or (issecretvalue and issecretvalue(cat)) then return false end
+    return cat == (Enum and Enum.CooldownViewerCategory
+        and Enum.CooldownViewerCategory.EquipSlotTracked or 8)
+end
+
+function ns.ClaimBuffByCdID(sid, cdID)
+    if type(cdID) ~= "number" or cdID <= 0 then return false end
+    return ns.IsCollidedBuffSid(sid) or IsTrackedTrinketRow(cdID)
+end
+
+-- A trinket row claimed by spellID before rows were claimed by cooldownID
+-- would otherwise stay behind as a second entry. Collided pairs are skipped:
+-- their spellID also identifies the twin slot.
+local function DropTrinketSidClaims(cdID, sid)
+    if type(sid) ~= "number" or sid <= 0 or ns.IsCollidedBuffSid(sid)
+       or not IsTrackedTrinketRow(cdID) then return end
+    local p = ECME.db.profile
+    if not (p and p.cdmBars and p.cdmBars.bars) then return end
+    for _, b in ipairs(p.cdmBars.bars) do
+        if b.barType ~= "custom_buff" then
+            if ns.IsBarBuffFamily(b) then
+                ns.RemoveSpellFromBar(b.key, sid)
+            else
+                ns.RemoveSpellFromBar(b.key, ns.HostedBuffMarker(sid))
+            end
+        end
+    end
+end
+
 -- Runtime hot-path gate: true only when the current spec's buffs store holds at least
 -- one "c"..cooldownID key. Cached by store-table identity, so a spec/profile swap
 -- (different store table) recomputes for free with no explicit invalidation hook.
@@ -1741,8 +1779,9 @@ end
 --- any entry). Collision-gated: non-collided buffs keep the sid path
 --- (survives talent swaps). Never valid on the default "buffs" bar, which
 --- enumerates the live viewer pool directly, never assignedSpells.
-function ns.AddTrackedBuffByCdID(barKey, cdID)
+function ns.AddTrackedBuffByCdID(barKey, cdID, sid)
     if type(cdID) ~= "number" or cdID <= 0 or barKey == "buffs" then return false end
+    DropTrinketSidClaims(cdID, sid)
     return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
 end
 
@@ -1836,10 +1875,11 @@ end
 --- AddTrackedSpell's plumbing unchanged. Collision-gated by the caller:
 --- non-collided buffs keep AddBuffToCDUtilBar's sid path (survives talent
 --- swaps).
-function ns.AddHostedBuffByCdID(barKey, cdID)
+function ns.AddHostedBuffByCdID(barKey, cdID, sid)
     if type(cdID) ~= "number" or cdID <= 0 then return false end
     local sd = ns.GetBarSpellData(barKey)
     if not sd then return false end
+    DropTrinketSidClaims(cdID, sid)
     -- Empty-table sentinel: ResolveSpellSettings' hostedFrame gate
     -- (EllesmereUICdmHooks.lua) short-circuits on this table being non-nil to
     -- skip pricier frame-flag checks. A cd-claimed hosted buff resolves its

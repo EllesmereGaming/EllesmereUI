@@ -8002,18 +8002,18 @@ initFrame:SetScript("OnEvent", function(self)
                 if notLearned then EllesmereUI.HideWidgetTooltip() end
                 if onPicked then
                     -- Selection mode: hand back the identity the runtime routes by
-                    -- (cooldownID only for a collided pair, else the spellID) and close.
-                    local cdPick = sp.cdID and ns.IsCollidedBuffSid
-                        and ns.IsCollidedBuffSid(sp.spellID) and sp.cdID or nil
+                    -- (cooldownID for a collided pair or trinket row, else the spellID) and close.
+                    local cdPick = ns.ClaimBuffByCdID
+                        and ns.ClaimBuffByCdID(sp.spellID, sp.cdID) and sp.cdID or nil
                     menu:Hide()
                     onPicked(sp.spellID, cdPick)
                     return
                 end
-                -- Collided pair (two viewer slots, one shared spellID): claim by cooldownID
-                -- so each slot is hostable on its own; non-collided buffs keep the sid path (identity survives talent swaps, cooldownIDs drift).
-                if sp.cdID and ns.IsCollidedBuffSid and ns.IsCollidedBuffSid(sp.spellID)
+                -- Collided pair (two viewer slots, one shared spellID) or tracked trinket row: claim
+                -- by cooldownID so each slot is hostable on its own; non-collided buffs keep the sid path (identity survives talent swaps, cooldownIDs drift).
+                if ns.ClaimBuffByCdID and ns.ClaimBuffByCdID(sp.spellID, sp.cdID)
                    and ns.AddHostedBuffByCdID then
-                    ns.AddHostedBuffByCdID(targetBarKey, sp.cdID)
+                    ns.AddHostedBuffByCdID(targetBarKey, sp.cdID, sp.spellID)
                 else
                     ns.AddBuffToCDUtilBar(targetBarKey, sp.spellID)
                 end
@@ -8777,6 +8777,11 @@ initFrame:SetScript("OnEvent", function(self)
                 if isBuffBar then
                     spellID = ResolveBuffSettingsKey(anchorFrame)
                         or (sd and sd.assignedSpells and sd.assignedSpells[slotIndex])
+                    -- Unresolved cd-claim slot (trinket row with its proc down):
+                    -- key it the way the runtime reads cd-claimed slots.
+                    local cdClaimB = type(spellID) == "number" and ns.CdClaimMarkerToCdID
+                        and ns.CdClaimMarkerToCdID(spellID)
+                    if cdClaimB then spellID = "c" .. cdClaimB end
                 else
                     spellID = sd and sd.assignedSpells and sd.assignedSpells[slotIndex]
                     if (not spellID or spellID == 0) and anchorFrame and anchorFrame._previewSpellID then
@@ -14946,12 +14951,12 @@ initFrame:SetScript("OnEvent", function(self)
                 -- AddTrackedSpell -- the family sweep removes the spell from every other buff-family bar (including the ghost hidden bar, the "unhide" step) before claiming it for bd.key.
                 ShowBuffBarPicker(self, bd.key, function(newSpellID, newCdID)
                     if newSpellID then
-                        -- Collided pair (two viewer slots, one shared spellID): claim by cooldownID
-                        -- so each slot is addable on its own. Non-collided buffs keep the sid path -- spellID identity survives talent swaps, cooldownIDs drift.
-                        if newCdID and ns.IsCollidedBuffSid
-                           and ns.IsCollidedBuffSid(newSpellID)
+                        -- Collided pair (two viewer slots, one shared spellID) or tracked trinket row:
+                        -- claim by cooldownID so each slot is addable on its own. Non-collided buffs keep the sid path -- spellID identity survives talent swaps, cooldownIDs drift.
+                        if ns.ClaimBuffByCdID
+                           and ns.ClaimBuffByCdID(newSpellID, newCdID)
                            and ns.AddTrackedBuffByCdID then
-                            ns.AddTrackedBuffByCdID(bd.key, newCdID)
+                            ns.AddTrackedBuffByCdID(bd.key, newCdID, newSpellID)
                         else
                             ns.AddTrackedSpell(bd.key, newSpellID)
                         end
@@ -15411,6 +15416,16 @@ initFrame:SetScript("OnEvent", function(self)
                                 slot._previewSpellID = csid
                                 slot._previewCdID = cdClaim
                                 slot._previewHostedBuff = true
+                            else
+                                -- Trinket row with its proc down reads no sid:
+                                -- show the item worn in its slot.
+                                local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+                                local info = gci and gci(cdClaim)
+                                local eqSlot = info and info.equipSlot
+                                if type(eqSlot) == "number" and not (issecretvalue and issecretvalue(eqSlot)) then
+                                    local itemID = GetInventoryItemID("player", eqSlot)
+                                    tex = itemID and C_Item.GetItemIconByID(itemID) or nil
+                                end
                             end
                         elseif hostedSid then
                             -- Hosted-buff marker: previews as its spell, flagged so
