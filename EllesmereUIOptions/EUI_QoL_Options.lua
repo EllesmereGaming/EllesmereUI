@@ -2054,23 +2054,60 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         ---------------------------------------------------------------------------
+        --  MYTHIC+ START (Retail only)
+        ---------------------------------------------------------------------------
+        if not EllesmereUI.IS_FOREVER then
+            _, h = W:SectionHeader(parent, "MYTHIC+ START", y);  y = y - h
+
+            local function SetKeystoneOption(key, value)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB[key] = value
+                if EllesmereUI._applyKeystoneStart then EllesmereUI._applyKeystoneStart() end
+                EllesmereUI:RefreshPage()
+            end
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Auto Insert Keystone",
+                  tooltip="Automatically inserts your key into the Font of Power.",
+                  getValue=function()
+                      return not EllesmereUIDB or EllesmereUIDB.autoInsertKeystone ~= false
+                  end,
+                  setValue=function(v) SetKeystoneOption("autoInsertKeystone", v) end },
+                { type="toggle", text="Ready / Pull Controls",
+                  tooltip="Adds READY and PULL beside the official Start button. Left-click PULL for 5 seconds or right-click for 10; either click during a pull cancels it and pending Auto Start and announces the cancellation to your group. Ready checks never start a countdown.",
+                  getValue=function()
+                      return EllesmereUIDB and EllesmereUIDB.mythicKeystoneControls == true or false
+                  end,
+                  setValue=function(v) SetKeystoneOption("mythicKeystoneControls", v) end });  y = y - h
+
+            local function KeystoneControlsOff()
+                return not EllesmereUIDB or EllesmereUIDB.mythicKeystoneControls ~= true
+            end
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Auto Ready Check",
+                  tooltip="Starts a ready check when a keystone is confirmed in the Font of Power, including when inserted manually. Requires group leader or assistant permission. Ready checks only confirm readiness; left-click PULL for 5 seconds or right-click for 10 seconds. The countdown is announced to your group.",
+                  disabled=KeystoneControlsOff, disabledTooltip="Enable Ready / Pull Controls first.",
+                  getValue=function()
+                      return EllesmereUIDB and EllesmereUIDB.autoKeystoneReadyCheck or false
+                  end,
+                  setValue=function(v) SetKeystoneOption("autoKeystoneReadyCheck", v) end },
+                { type="toggle", text="Auto Start Keystone",
+                  tooltip="Attempts to start the slotted keystone after a countdown started manually with PULL (left-click: 5 seconds; right-click: 10 seconds), when the client allows it. During the countdown, click PULL again with either mouse button to cancel the pull and pending Auto Start and announce the cancellation to your group. Works independently of Auto Ready Check. If Blizzard requires a click, use the official Start button after GO!.",
+                  disabled=KeystoneControlsOff, disabledTooltip="Enable Ready / Pull Controls first.",
+                  getValue=function()
+                      return EllesmereUIDB and EllesmereUIDB.autoStartKeystone or false
+                  end,
+                  setValue=function(v) SetKeystoneOption("autoStartKeystone", v) end });  y = y - h
+
+            _, h = W:Spacer(parent, y, 20);  y = y - h
+        end
+
+        ---------------------------------------------------------------------------
         --  GROUP FINDER
         ---------------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "GROUP FINDER", y);  y = y - h
 
-        -- Auto Insert Keystone | Announce Instance Reset, then Quick Signup |
-        -- Persistent Signup Note. WoW Forever has no keystones and no premade
-        -- group list, so only Announce Instance Reset is built there.
-        local autoKeyCfg = { type="toggle", text="Auto Insert Keystone",
-              tooltip="Automatically inserts your key into the Font of Power.",
-              getValue=function()
-                  if not EllesmereUIDB then return true end
-                  return EllesmereUIDB.autoInsertKeystone ~= false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.autoInsertKeystone = v
-              end }
+        -- WoW Forever has no premade group list, so only Announce Instance
+        -- Reset is built there. Keystone controls live in Mythic+ Start above.
         local announceCfg = { type="toggle", text="Announce Instance Reset",
               tooltip="After a successful instance reset, automatically announces it in party or raid chat so your group knows they can re-enter.",
               getValue=function()
@@ -2112,8 +2149,8 @@ initFrame:SetScript("OnEvent", function(self)
         if EllesmereUI.IS_FOREVER then
             _, h = W:DualRow(parent, y, announceCfg, EllesmereUI.BlankRowCfg());  y = y - h
         else
-            _, h = W:DualRow(parent, y, autoKeyCfg, announceCfg);  y = y - h
             noteRow, h = W:DualRow(parent, y, quickCfg, persistCfg);  y = y - h
+            _, h = W:DualRow(parent, y, announceCfg, EllesmereUI.BlankRowCfg());  y = y - h
         end
 
         if noteRow and not EllesmereUI._prebuilding then
@@ -2327,6 +2364,9 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.skipCinematicsAuto = false
                 EllesmereUIDB.autoFillDelete = false
                 EllesmereUIDB.autoInsertKeystone = false
+                EllesmereUIDB.mythicKeystoneControls = false
+                EllesmereUIDB.autoKeystoneReadyCheck = false
+                EllesmereUIDB.autoStartKeystone = false
                 EllesmereUIDB.instanceResetAnnounce = false
                 EllesmereUIDB.instanceResetAnnounceMsg = ""
                 EllesmereUIDB.quickSignup = false
@@ -2386,6 +2426,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyTargetDistance then EllesmereUI._applyTargetDistance() end
             if EllesmereUI._applyHideTransforms then EllesmereUI._applyHideTransforms() end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end
+            if EllesmereUI._applyKeystoneStart then EllesmereUI._applyKeystoneStart() end
             if EllesmereUI._applyPersistSignupNote then EllesmereUI._applyPersistSignupNote() end
             if EllesmereUI._applyQuickLoot then EllesmereUI._applyQuickLoot() end
             if EllesmereUI._applyInstanceResetAnnounce then EllesmereUI._applyInstanceResetAnnounce() end
