@@ -4122,7 +4122,7 @@ end
 -- Non-playable NPC models are excluded.
 -- Unlisted/missing/restricted IDs stay normal; never infer facing from unit type.
 do
-    local mirrorAngles -- Built only when a 3D portrait is first mirrored.
+    local mirrorAngles -- Built only when portrait mirroring first needs a model ID.
     local function GetMirrorAngle(id)
         if issecretvalue(id) or type(id) ~= "number" or id <= 0 then return end
         if not mirrorAngles then
@@ -4154,6 +4154,18 @@ do
             }
         end
         return mirrorAngles[id]
+    end
+
+    -- 2D textures have no model ID. Reuse their hidden, lazy 3D frame for the
+    -- lookup, then release the model. Missing IDs retry on portrait art events.
+    function ns.UF_CanMirrorPortrait2D(model, unit)
+        model:SetKeepModelOnHide(true)
+        model:ClearModel()
+        model:SetUnit(unit)
+        local angle = GetMirrorAngle(model:GetModelFileID())
+        model:ClearModel()
+        model:SetKeepModelOnHide(false)
+        return angle ~= nil
     end
 
     function ns.UF_ApplyPortraitRotation(model, mirror)
@@ -4207,9 +4219,9 @@ function PortraitOverride(self, event, evtUnit, fallback)
     local hasStateChanged = changed
         or element.state ~= isAvailable
         or event == "UNIT_PORTRAIT_UPDATE"
-        -- Model changes only matter to a 3D PlayerModel portrait (its SetUnit
-        -- must reload). 2D art follows UNIT_PORTRAIT_UPDATE / PORTRAITS_UPDATED,
-        -- the only portrait events Blizzard's own unit frames listen to.
+        -- 3D portraits must reload on model changes. The opted-in 2D mirror
+        -- eligibility check below also uses this event; ordinary 2D art uses
+        -- UNIT_PORTRAIT_UPDATE / PORTRAITS_UPDATED.
         or (event == "UNIT_MODEL_CHANGED" and isModel)
         or event == "ForceUpdate"
         -- Unit swaps (vehicle enter/exit) always repaint: the swap moment can
@@ -4236,6 +4248,13 @@ function PortraitOverride(self, event, evtUnit, fallback)
         -- with guid and availability both reading unchanged, field-traced).
         -- Models only: 2D textures survive Hide/Show.
         or (event == "Show" and isModel)
+    -- A changed model can also change 2D mirror eligibility, including class
+    -- mode's NPC fallback. Reuse the existing appearance event only when opted in.
+    if not hasStateChanged and event == "UNIT_MODEL_CHANGED" then
+        local uk = UnitToSettingsKey(self._euiBaseUnit or u)
+        local us = uk and db.profile[uk]
+        hasStateChanged = us and us.portraitMirror and not ns.UF_Blizz()
+    end
     -- Blank-model recovery is only needed when no other change requires a paint.
     -- Show can run before assets stream in; PORTRAITS_UPDATED retries a still-
     -- blank model without reloading one that is already populated.
@@ -7934,7 +7953,7 @@ local function CreatePortrait(frame, side, frameHeight, unit)
     end
 
     -- 2D and class theme textures are eager; the 3D PlayerModel is deferred until
-    -- mode == "3d" to avoid its GPU/memory cost when unused.
+    -- 3D display or an enabled 2D mirror lookup needs it.
     local model3D = nil
 
     local function EnsureModel3D()
@@ -8055,7 +8074,8 @@ local function CreatePortrait(frame, side, frameHeight, unit)
         -- creation crop). Never under a stock style (its full-art coords
         -- stand), and the unavailable question mark always reads unflipped.
         local mir = (uS2 and uS2.portraitMirror and not ns.UF_Blizz()
-            and not (hasStateChanged and self.state == false)) and true or false
+            and not (hasStateChanged and self.state == false)
+            and ns.UF_CanMirrorPortrait2D(EnsureModel3D(), u)) and true or false
         if mir ~= (self._mirrored or false) then
             self._mirrored = mir
             if mir then
