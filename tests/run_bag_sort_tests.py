@@ -161,6 +161,9 @@ assert lua.eval('painted[1]==.2 and painted[2]==.3 and painted[3]==.4')
 lua.execute('d={_giIlvl=300}')
 lua.execute(paint)
 assert lua.eval('d._giTrackColor==nil'), 'inventory must leave custom colour priority intact'
+lua.execute('settings={bagSeasonColors=false};GetUpgradeTrack=nil;EUI.GetCraftedTrackColor=function() return nil end')
+lua.execute(bank_paint)
+assert lua.eval('painted[1]==.6 and painted[2]==0 and painted[3]==1'), 'missing upgrade helper must fall back to rarity colour'
 print('PASS: real season parser, bonus bounds, recrafts, grey toggles, bounded cache, inventory/bank colour paths and custom priority')
 
 options=source('EllesmereUIOptions/EUI_Bags_Options.lua')

@@ -2340,7 +2340,7 @@ function EUI_Bank:RefreshBank()
                             trackColor = EUI.GetSeasonItemLevelColor(itemLink, BP().bagGreyPreviousSeason)
                         else
                             local rankText
-                            rankText, trackColor = GetUpgradeTrack(itemLink)
+                            if GetUpgradeTrack then rankText, trackColor = GetUpgradeTrack(itemLink) end
                             if not rankText or rankText == "" then trackColor = EUI.GetCraftedTrackColor(itemLink) end
                         end
                         if trackColor then r, g, b = trackColor.r, trackColor.g, trackColor.b end
