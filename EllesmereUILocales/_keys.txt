@@ -29,8 +29,13 @@
 %1$s is bound to \
 %1$s's %2$s Breakdown
 %1$s's Death Recap
+%d / %d Bag slots
+%d / %d Bag slots free
 %d / %d Items
-%d Items
+%d / %d Reagent slots
+%d / %d Reagent slots free
+%d Bag slots free
+%d Reagent slots free
 %d active
 %d bar glow(s)
 %d bar glow(s), turned off
