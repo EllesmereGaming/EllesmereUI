@@ -1,20 +1,12 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 if EllesmereUI.IS_FOREVER then return end
 
-local _, addonRuntime = ...
-local companion = addonRuntime and addonRuntime.keystoneCompanion == true
-local function KeystoneOptions()
-    if companion then return addonRuntime.GetOptions() end
-    return EllesmereUIDB
-end
-
 ---------------------------------------------------------------------------
 --  Mythic+ Start. Build only after opting in; ready checks never pull.
 ---------------------------------------------------------------------------
 local controller
 local function KeystoneControlsEnabled()
-    local options = KeystoneOptions()
-    return options and options.mythicKeystoneControls == true
+    return EllesmereUIDB and EllesmereUIDB.mythicKeystoneControls == true
 end
 
 local function CreateKeystoneStartController()
@@ -26,8 +18,7 @@ local function CreateKeystoneStartController()
     local UpdateKeystoneButtons
 
     local function Option(key)
-        local options = KeystoneOptions()
-        return options and options[key] == true
+        return EllesmereUIDB and EllesmereUIDB[key] == true
     end
 
     local function IsLocked()
@@ -543,25 +534,17 @@ local function CreateKeystoneStartController()
 
     local function RefreshKeystoneStart()
         if not enabled then return end
-        ApplyKeystoneStart()
+        EllesmereUI._applyKeystoneStart()
     end
-    if not companion then
-        for _, name in ipairs({ "RefreshAllAddons", "SwitchProfile", "ApplyProfileData" }) do
-            if EllesmereUI[name] then hooksecurefunc(EllesmereUI, name, RefreshKeystoneStart) end
-        end
+    for _, name in ipairs({ "RefreshAllAddons", "SwitchProfile", "ApplyProfileData" }) do
+        if EllesmereUI[name] then hooksecurefunc(EllesmereUI, name, RefreshKeystoneStart) end
     end
     return ApplyKeystoneStart
 end
 
-local function ApplyKeystoneStart()
+EllesmereUI._applyKeystoneStart = function()
     if not controller and KeystoneControlsEnabled() then
         controller = CreateKeystoneStartController()
     end
     if controller then controller() end
-end
-
-if companion then
-    addonRuntime.Apply = ApplyKeystoneStart
-else
-    EllesmereUI._applyKeystoneStart = ApplyKeystoneStart
 end
