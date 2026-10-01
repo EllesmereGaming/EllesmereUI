@@ -52,6 +52,8 @@ local S = { enabled = false, shown = false, live = false, pbVis = true, loc = "p
 
 -- Forward decl: assigned in the Embed section below; Refresh closes over it.
 local RelayoutPlayer
+-- Forward decl: Power Bar Inside carve (assigned below); Refresh closes over it.
+local PowerCarve
 
 -------------------------------------------------------------------------------
 --  Helpers
@@ -204,8 +206,9 @@ local function Refresh()
         S.shown = shown
         S.host:SetShown(shown)
         -- Embedded: the form edge changes the carve footprint (docked in form,
-        -- reclaimed out of form). Re-run the player layout so the strip follows.
+        -- reclaimed out of form). Re-run the player layout / power carve so it follows.
         if S.embedActive and RelayoutPlayer then RelayoutPlayer() end
+        if S.powerCarveWanted and S.pb and PowerCarve then PowerCarve(S.pb, S.powerCarveWanted and shown) end
     end
     UpdateLive()
 end
@@ -422,6 +425,8 @@ local function Teardown()
     if S.host then S.host:Hide() end
     local MRS = EllesmereUI.ManaRegenSpark
     if MRS then MRS.Detach("shiftmana") end
+    if S.pb and PowerCarve then PowerCarve(S.pb, false) end  -- restore the Power Bar fill
+    S.powerCarveWanted = false
     -- Reclaim the health strip if we were embedded (the carve now reads nil from us).
     if wasEmbedded and RelayoutPlayer then RelayoutPlayer() end
 end
@@ -444,6 +449,57 @@ local UFmod
 RelayoutPlayer = function()
     UFmod = UFmod or (EllesmereUI._ModuleNS and EllesmereUI._ModuleNS["EllesmereUIUnitFrames"])
     if UFmod and UFmod.UF_ReapplyPlayer then UFmod.UF_ReapplyPlayer() end
+end
+
+-- Max mana strip for a Power Bar of powerHeight that keeps the power fill >= 8px.
+-- Unlike ClampManaH (tuned for the tall health bar, floor of 8), this is strict:
+-- a 12px Power Bar yields a 4px cap, never 8. Min 2 so a short bar still shows a sliver.
+local function PowerStripMax(powerHeight)
+    return max(2, (powerHeight or 18) - 8)
+end
+local function ClampPowerStrip(powerHeight)
+    local hi = PowerStripMax(powerHeight)
+    local h = (S.c and S.c.height) or 6
+    if h < 2 then h = 2 elseif h > hi then h = hi end
+    return h
+end
+
+-- Power Bar Inside = carve: shrink the Power Bar's fill (_sb) by the clamped mana strip
+-- and dock the mana host in the freed bottom strip, keeping the power fill >= 8px -- the
+-- same >=8px rule the health carve uses. _sb is anchored once at creation and never
+-- re-anchored per build, so this holds until restored. Horizontal Power Bars only.
+-- on=false restores the fill to full. Returns the applied strip height (0 when off).
+PowerCarve = function(pb, on)
+    local sb = pb and pb._sb
+    if not sb then return 0 end
+    local PP = EllesmereUI.PP
+    local clip = PP.mult * 0.25
+    if not on then
+        sb:ClearAllPoints()
+        sb:SetPoint("TOPLEFT", pb, "TOPLEFT", clip, -clip)
+        sb:SetPoint("BOTTOMRIGHT", pb, "BOTTOMRIGHT", -clip, clip)
+        if S.divider then S.divider:Hide() end
+        return 0
+    end
+    local ph = ClampPowerStrip(S.pp and S.pp.height or 18)
+    local sph = PP.Scale(ph)
+    sb:ClearAllPoints()
+    sb:SetPoint("TOPLEFT", pb, "TOPLEFT", clip, -clip)
+    sb:SetPoint("BOTTOMRIGHT", pb, "BOTTOMRIGHT", -clip, clip + sph)
+    if S.host:GetParent() ~= pb then S.host:SetParent(pb) end
+    S.host:ClearAllPoints()
+    S.host:SetPoint("BOTTOMLEFT", pb, "BOTTOMLEFT", 0, 0)
+    S.host:SetPoint("BOTTOMRIGHT", pb, "BOTTOMRIGHT", 0, 0)
+    S.host:SetHeight(sph)
+    -- 1px divider on the mana strip's top edge (facing the power fill above).
+    local d = S.divider
+    if not d then d = S.host:CreateTexture(nil, "OVERLAY"); d:SetHeight(1); S.divider = d end
+    d:SetColorTexture(0, 0, 0, 1)
+    d:ClearAllPoints()
+    d:SetPoint("TOPLEFT", S.host, "TOPLEFT", 0, 0)
+    d:SetPoint("TOPRIGHT", S.host, "TOPRIGHT", 0, 0)
+    d:Show()
+    return ph
 end
 
 -- The provider the UnitFrames carve reads (EllesmereUI._ShiftManaAttach). GetAttachedBar
@@ -614,9 +670,14 @@ function ns.FDM_Apply(pb, pp, g)
     end
     RegisterUnlockOnce()
     g = g or p.general or EMPTY
+    S.pp = pp
     local anchor = c.anchor or "powerbar"
     local pos = c.position or "below"
+    local ppOri = pp.orientation or g.orientation or "HORIZONTAL"
+    local vertical = ns.IsVerticalOrientation(ppOri)
     local embed = (anchor == "healthbar" and pos == "inside")
+    -- Power Bar Inside carve (horizontal Power Bars only; a vertical one keeps the overlay).
+    S.powerCarveWanted = (anchor == "powerbar" and pos == "inside" and not vertical) or false
     local wasEmbedded = S.embedActive
     S.embedActive = embed
 
@@ -624,6 +685,7 @@ function ns.FDM_Apply(pb, pp, g)
         -- Embed = Anchor: Healthbar + Position: Inside. The UnitFrames carve owns size +
         -- anchors. Style only (horizontal, no own border -- the health frame's border wraps
         -- both), then relayout the player frame to apply/refresh the strip.
+        PowerCarve(pb, false)   -- restore the Power Bar fill if we were carving it
         ApplyBorder(pp, true)
         local r, gr, b = ApplyLook(pp, g, p, "HORIZONTAL")
         ApplyText(c, r, gr, b)
@@ -649,9 +711,16 @@ function ns.FDM_Apply(pb, pp, g)
             S.host:ClearAllPoints()
             S.host:SetSize(max(c.width or 200, 1), max(c.height or 6, 1))
         end
-    else -- powerbar: ride the Power Bar (Layout: below/above adjacent, inside overlay)
+    else -- powerbar: ride the Power Bar
         if S.host:GetParent() ~= pb then S.host:SetParent(pb) end
-        ori, inside = Layout(pb, pp, g, c)
+        if S.powerCarveWanted then
+            -- Inside on a horizontal Power Bar: carve it. Geometry is applied after Refresh
+            -- (once S.shown is current); no own border -- the Power Bar's border wraps both.
+            ori, inside = "HORIZONTAL", true
+        else
+            -- below/above adjacent, or a vertical bar's inside overlay
+            ori, inside = Layout(pb, pp, g, c)
+        end
     end
     ApplyBorder(pp, inside)
     local r, gr, b = ApplyLook(pp, g, p, ori)
@@ -660,6 +729,9 @@ function ns.FDM_Apply(pb, pp, g)
     if wasEmbedded then RelayoutPlayer() end
     local wasLive = S.live
     Refresh()
+    -- Power Bar Inside carve: apply now that S.shown is current (only while in form);
+    -- otherwise this restores the Power Bar fill to full.
+    PowerCarve(pb, S.powerCarveWanted and S.shown)
     -- Already live: the new look and text settings paint now (an edge into
     -- live painted in UpdateLive).
     if wasLive and S.live then Paint(true) end
