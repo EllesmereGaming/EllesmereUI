@@ -34,6 +34,8 @@ local OUTLINES = { __global = "EUI Global Default", none = "Drop Shadow", outlin
 local OUTLINE_ORDER = { "__global", "none", "outline", "thick" }
 local PCT_POSITIONS = { RIGHT = "Inside Right", LEFT = "Inside Left", CENTER = "Inside Center" }
 local PCT_POSITION_ORDER = { "RIGHT", "LEFT", "CENTER" }
+local NP_PCT_POSITIONS = { RIGHT = "Inside Right", LEFT = "Inside Left", CENTER = "Inside Center", BELOW = "Below Health Bar" }
+local NP_PCT_POSITION_ORDER = { "RIGHT", "LEFT", "CENTER", "BELOW" }
 
 _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
@@ -272,7 +274,7 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
         -- Toggle | Position, the Threat % cog on the dropdown. blocked (optional)
         -- greys the row with blockedTip; a toggle left on stays clickable so it
         -- can still be turned off.
-        local function PctRow(text, tooltip, profile, apply, blocked, blockedTip)
+        local function PctRow(text, tooltip, profile, apply, blocked, blockedTip, positions, positionOrder)
             local function PGet(key) return profile()[key] end
             local function PSet(key, v)
                 profile()[key] = v
@@ -298,7 +300,7 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                       PSet("threatPctEnabled", v)
                       EllesmereUI:RefreshPage()
                   end },
-                { type = "dropdown", text = "Position", values = PCT_POSITIONS, order = PCT_POSITION_ORDER,
+                { type = "dropdown", text = "Position", values = positions or PCT_POSITIONS, order = positionOrder or PCT_POSITION_ORDER,
                   disabled = pctOff, disabledTooltip = pctOffTip,
                   getValue = function() return PGet("threatPctPosition") end,
                   setValue = function(v) PSet("threatPctPosition", v) end }
@@ -324,7 +326,7 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
             PctRow("Show on Nameplates",
                 "Shows your threat percentage on each enemy nameplate while you are in combat with it.",
                 function() return np.db.profile end,
-                function() np.RefreshThreatPct() end)
+                function() np.RefreshThreatPct() end, nil, nil, NP_PCT_POSITIONS, NP_PCT_POSITION_ORDER)
         end
         if hasUF then
             local row, pctOff, pctOffTip = PctRow("Show on Target Frame",

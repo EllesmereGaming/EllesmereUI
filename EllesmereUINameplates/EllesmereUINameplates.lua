@@ -2144,6 +2144,8 @@ function ns.LayoutCastBar(plate, footprintW, castH)
         plate:AnchorBottomTexts()
     end
     if classic then ns.NP_ApplyClassicCastArt(plate, castH) end
+    -- Refresh only active below-bar text after cast geometry changes.
+    if plate._tptShown and plate._tptPos == "BELOW" then ns.ApplyThreatPctPos(plate) end
 end
 
 -- Size + anchor the cast spell icon; always square. Normal: cast-bar height, hangs off the
@@ -3825,6 +3827,21 @@ function ns.ApplyThreatPctPos(plate)
     local size = db.threatPctSize or defaults.threatPctSize
     local xOff = db.threatPctXOffset or defaults.threatPctXOffset
     local yOff = db.threatPctYOffset or defaults.threatPctYOffset
+    if posKey == "BELOW" then
+        local drop = 0
+        local castShown = plate.cast and plate.cast:IsShown()
+        if not (issecretvalue and issecretvalue(castShown)) and castShown then
+            -- These are the addon-owned cast bar's local layout inputs, already
+            -- resolved for Classic art, focus height and pixel snapping.
+            local castH = plate.cast:GetHeight()
+            local _, _, _, _, castY = plate.cast:GetPoint(1)
+            if not issecretvalue(castH) and not issecretvalue(castY)
+                and type(castH) == "number" and type(castY) == "number" then
+                drop = math.max(0, castH - castY)
+            end
+        end
+        yOff = yOff - drop - 3
+    end
     local font = GetFont()
     local outline = GetNPOutline()
     if plate._tptPos ~= posKey or plate._tptSize ~= size
@@ -3838,7 +3855,9 @@ function ns.ApplyThreatPctPos(plate)
         plate._tptOutline = outline
         SetFSFont(plate.threatPctText, size, outline)
         plate.threatPctText:ClearAllPoints()
-        if slot.anchor == "CENTER" then
+        if posKey == "BELOW" then
+            plate.threatPctText:SetPoint("TOP", plate.health, "BOTTOM", xOff, yOff)
+        elseif slot.anchor == "CENTER" then
             plate.threatPctText:SetPoint("CENTER", plate.health, "CENTER", xOff, yOff)
         else
             PP.Point(plate.threatPctText, slot.anchor, plate.health, slot.point, slot.xOff + xOff, yOff)
@@ -4534,6 +4553,9 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     -- early-outs unless full-size is on.
     local function OnCastVisibilityChanged(self)
         local owner = self._timerPlate
+        if owner and owner._tptShown and owner._tptPos == "BELOW" then
+            ns.ApplyThreatPctPos(owner)
+        end
         if owner and owner.RefreshCastIconSideReserve then
             owner:RefreshCastIconSideReserve()
         end

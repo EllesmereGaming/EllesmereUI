@@ -43,8 +43,8 @@ local SECTION_OTHER     = "OTHER COLORS"
 -- Threat % Position dropdown (WoW Forever only, so nil on retail).
 local THREAT_PCT_POSITIONS, THREAT_PCT_POSITION_ORDER
 if EllesmereUI.IS_FOREVER then
-    THREAT_PCT_POSITIONS = { RIGHT = "Inside Right", LEFT = "Inside Left", CENTER = "Inside Center" }
-    THREAT_PCT_POSITION_ORDER = { "RIGHT", "LEFT", "CENTER" }
+    THREAT_PCT_POSITIONS = { RIGHT = "Inside Right", LEFT = "Inside Left", CENTER = "Inside Center", BELOW = "Below Health Bar" }
+    THREAT_PCT_POSITION_ORDER = { "RIGHT", "LEFT", "CENTER", "BELOW" }
 end
 
 -- Wait for EllesmereUI to exist
