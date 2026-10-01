@@ -1322,6 +1322,8 @@ qolFrame:SetScript("OnEvent", function(self)
                 ChallengesKeystoneFrame:HookScript("OnShow", InsertKeystone)
             end
         end
+
+        if EllesmereUI._applyKeystoneStart then EllesmereUI._applyKeystoneStart() end
     end
 
     ---------------------------------------------------------------------------
