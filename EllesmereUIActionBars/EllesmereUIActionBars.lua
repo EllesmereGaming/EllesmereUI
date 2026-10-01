@@ -17028,73 +17028,119 @@ local function ApplyBarFrameNineSlice(overlay, atlas)
     overlay._capW = capW   -- for tick clamping (avoid drawing ticks under the caps)
 end
 
--- Show the flipbook's idle frame (frame 0: row 0, col 0 of 2 cols x 30 rows).
-local function FlipStaticFrame(flip, flipAtlas, flipInfo)
-    flip:SetAtlas(flipAtlas)
-    local l, r, t, b = flipInfo.leftTexCoord, flipInfo.rightTexCoord, flipInfo.topTexCoord, flipInfo.bottomTexCoord
-    flip:SetTexCoord(l, l + (r - l) / 2, t, t + (b - t) / 30)
+-- Professions flipbook fill. The client keeps the FRAME size constant (856x34, from the
+-- blacksmithing bar) and varies each profession atlas's native size, so the grid is
+-- derived per-atlas -- a fixed 2x30 grid reads as the texture rotating on other atlases.
+-- do-block: the file is at Lua 5.1's 200 main-chunk local cap, so these live as upvalues
+-- of ns.ApplyXPFlipFill rather than taking main-chunk slots.
+do
+local XPFLIP_FW, XPFLIP_FH = 856, 34
+-- These professions' flipbooks start abruptly, so they fade in as slowly as they exit;
+-- the rest use the quick entry fade.
+local XPFLIP_SLOW_IN = { Jewelcrafting = true, Leatherworking = true }
+local XPFLIP_FADE_IN, XPFLIP_HOLD, XPFLIP_FADE, XPFLIP_DUR = 0.25, 0.2, 0.5, 2.0
+
+local function XPFlipGrid(info)
+    if not (info and info.width and info.height and info.width > 0 and info.height > 0) then
+        return 2, 30, 60
+    end
+    local cols = max(1, floor(info.width / XPFLIP_FW + 0.5))
+    local rows = max(1, floor(info.height / XPFLIP_FH + 0.5))
+    return cols, rows, cols * rows
 end
 
 -- Optional professions-style flipbook fill. EllesmereUIDB.xpFvFillAtlas selects a
--- per-profession flipbook atlas (e.g. Skillbar_Fill_Flipbook_Blacksmithing); when set,
--- an overlay texture tracks the filled width and shows the flipbook art. Animation modes:
---   xpFvFillSmart == 1 -> "smart": play once on XP gain (set by UpdateXPBar), else idle.
+-- per-profession flipbook atlas; two overlay textures track the filled width -- an idle
+-- (frame-0) layer behind and an animated layer in front. Modes:
+--   xpFvFillSmart == 1 -> play once on XP gain, cross-fading idle<->anim (quick entry
+--                         fade, hold the last frame, fade back to idle). Overrides loop.
 --   else xpFvFillAnim == 1 -> loop continuously.
 --   else -> static idle frame.
--- Mirrors the client's skill bar (60 frames / 30 rows x 2 cols / 2s). Smart overrides loop.
 function ns.ApplyXPFlipFill(frame, bar, tex)
     local flipAtlas = EllesmereUIDB and EllesmereUIDB.xpFvFillAtlas
-    local flipInfo = flipAtlas and flipAtlas ~= "" and flipAtlas ~= "default"
+    local info = flipAtlas and flipAtlas ~= "" and flipAtlas ~= "default"
         and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(flipAtlas) or nil
-    if not flipInfo then
+    if not info then
         if frame._fvFlip then frame._fvFlip:Hide() end
+        if frame._fvFlipIdle then frame._fvFlipIdle:Hide() end
         if frame._fvFlipAG then frame._fvFlipAG:Stop() end
+        if frame._fvFlipLoop then frame._fvFlipLoop:Stop() end
         if tex then tex:SetAlpha(1) end
         return
     end
     if not frame._fvFlip then
-        frame._fvFlip = bar:CreateTexture(nil, "OVERLAY")
-    end
-    local flip = frame._fvFlip
-    flip:ClearAllPoints(); flip:SetAllPoints(tex)   -- track the filled width
-    flip:Show()
-    if tex then tex:SetAlpha(0) end                 -- flipbook is the visible fill
-    frame._fvFlipAtlas, frame._fvFlipInfo = flipAtlas, flipInfo
-    if not frame._fvFlipAG then
+        frame._fvFlipIdle = bar:CreateTexture(nil, "OVERLAY", nil, 0)  -- idle frame, behind
+        frame._fvFlip = bar:CreateTexture(nil, "OVERLAY", nil, 1)       -- animated, in front
+        -- One-shot group: fade in (concurrent with the flipbook), play, hold the last
+        -- frame, then fade out -> the idle layer shows through seamlessly.
         local ag = bar:CreateAnimationGroup()
-        local fb = ag:CreateAnimation("FlipBook")
-        if fb.SetTarget then fb:SetTarget(flip) end
-        fb:SetDuration(2)
-        fb:SetFlipBookRows(30); fb:SetFlipBookColumns(2); fb:SetFlipBookFrames(60)
-        if fb.SetFlipBookFrameWidth then fb:SetFlipBookFrameWidth(0); fb:SetFlipBookFrameHeight(0) end
-        -- After a non-looping (smart) play, settle back to the idle frame.
-        ag:SetScript("OnFinished", function()
-            if frame._fvFlipAtlas and frame._fvFlipInfo then
-                FlipStaticFrame(flip, frame._fvFlipAtlas, frame._fvFlipInfo)
-            end
-        end)
+        ag.fb = ag:CreateAnimation("FlipBook"); ag.fb:SetOrder(1)
+        if ag.fb.SetTarget then ag.fb:SetTarget(frame._fvFlip) end
+        if ag.fb.SetFlipBookFrameWidth then ag.fb:SetFlipBookFrameWidth(0); ag.fb:SetFlipBookFrameHeight(0) end
+        ag.fadeIn = ag:CreateAnimation("Alpha"); ag.fadeIn:SetOrder(1)
+        if ag.fadeIn.SetTarget then ag.fadeIn:SetTarget(frame._fvFlip) end
+        ag.fadeIn:SetFromAlpha(0); ag.fadeIn:SetToAlpha(1)
+        ag.fade = ag:CreateAnimation("Alpha"); ag.fade:SetOrder(2)
+        if ag.fade.SetTarget then ag.fade:SetTarget(frame._fvFlip) end
+        ag.fade:SetFromAlpha(1); ag.fade:SetToAlpha(0)
+        ag:SetLooping("NONE")
+        ag:SetScript("OnFinished", function() frame._fvFlip:SetAlpha(0) end)
         frame._fvFlipAG = ag
+        -- Loop group: flipbook only, repeating.
+        local lp = bar:CreateAnimationGroup()
+        lp.fb = lp:CreateAnimation("FlipBook")
+        if lp.fb.SetTarget then lp.fb:SetTarget(frame._fvFlip) end
+        if lp.fb.SetFlipBookFrameWidth then lp.fb:SetFlipBookFrameWidth(0); lp.fb:SetFlipBookFrameHeight(0) end
+        lp:SetLooping("REPEAT")
+        frame._fvFlipLoop = lp
     end
-    local ag = frame._fvFlipAG
+    local flip, idle = frame._fvFlip, frame._fvFlipIdle
+    flip:ClearAllPoints(); flip:SetAllPoints(tex)
+    idle:ClearAllPoints(); idle:SetAllPoints(tex)
+    flip:Show(); idle:Show()
+    if tex then tex:SetAlpha(0) end   -- flipbook is the visible fill
+
+    local cols, rows = XPFlipGrid(info)
+    -- Re-grid only when the atlas changes (setting FlipBook params on a playing anim
+    -- would glitch it); ApplyXPFlipFill runs every XP update.
+    if frame._fvFlipGridFor ~= flipAtlas then
+        local _, _, frames = XPFlipGrid(info)
+        for _, g in ipairs({ frame._fvFlipAG, frame._fvFlipLoop }) do
+            g.fb:SetFlipBookColumns(cols); g.fb:SetFlipBookRows(rows); g.fb:SetFlipBookFrames(frames)
+            g.fb:SetDuration(XPFLIP_DUR)
+        end
+        frame._fvFlipGridFor = flipAtlas
+    end
+    -- Idle frame 0 on the behind layer.
+    idle:SetAtlas(flipAtlas)
+    local l, r, t, b = info.leftTexCoord, info.rightTexCoord, info.topTexCoord, info.bottomTexCoord
+    idle:SetTexCoord(l, l + (r - l) / cols, t, t + (b - t) / rows)
+    idle:SetAlpha(1)
+
     local smart = EllesmereUIDB.xpFvFillSmart == 1
     local loop = EllesmereUIDB.xpFvFillAnim == 1
     if smart then
-        if ag.GetLooping and ag:GetLooping() ~= "NONE" then ag:SetLooping("NONE") end
+        frame._fvFlipLoop:Stop()
         if frame._fvFlipFlash then
             frame._fvFlipFlash = false
-            flip:SetAtlas(flipAtlas)   -- full region as the flipbook base
-            ag:Stop(); ag:Play()
-        elseif not ag:IsPlaying() then
-            FlipStaticFrame(flip, flipAtlas, flipInfo)
+            local profName = flipAtlas:match("Skillbar_Fill_Flipbook_(.+)")
+            frame._fvFlipAG.fadeIn:SetDuration((profName and XPFLIP_SLOW_IN[profName]) and XPFLIP_FADE or XPFLIP_FADE_IN)
+            frame._fvFlipAG.fade:SetStartDelay(XPFLIP_HOLD); frame._fvFlipAG.fade:SetDuration(XPFLIP_FADE)
+            flip:SetAtlas(flipAtlas); flip:SetAlpha(0)
+            frame._fvFlipAG:Stop(); frame._fvFlipAG:Play()
+        elseif not frame._fvFlipAG:IsPlaying() then
+            flip:SetAlpha(0)   -- idle layer only
         end
     elseif loop then
-        if ag.GetLooping and ag:GetLooping() ~= "REPEAT" then ag:SetLooping("REPEAT") end
-        if not ag:IsPlaying() then flip:SetAtlas(flipAtlas); ag:Play() end
+        frame._fvFlipAG:Stop()
+        flip:SetAtlas(flipAtlas); flip:SetAlpha(1)
+        if not frame._fvFlipLoop:IsPlaying() then frame._fvFlipLoop:Play() end
     else
-        ag:Stop()
-        FlipStaticFrame(flip, flipAtlas, flipInfo)
+        frame._fvFlipAG:Stop(); frame._fvFlipLoop:Stop()
+        flip:SetAlpha(0)   -- static idle only
     end
 end
+end  -- flipbook do-block
 
 local function ApplyXPBarStyle(frame)
     if not frame or not frame._bar then return end
@@ -17268,7 +17314,9 @@ local function ApplyXPBarStyle(frame)
             frame._fvFillMask:Hide(); frame._fvFillMaskOn = false
         end
         if frame._fvFlip then frame._fvFlip:Hide() end
+        if frame._fvFlipIdle then frame._fvFlipIdle:Hide() end
         if frame._fvFlipAG then frame._fvFlipAG:Stop() end
+        if frame._fvFlipLoop then frame._fvFlipLoop:Stop() end
         if tex then tex:SetAlpha(1) end
         if bg then
             if bg.SetTextureSliceMargins then bg:SetTextureSliceMargins(0, 0, 0, 0) end
