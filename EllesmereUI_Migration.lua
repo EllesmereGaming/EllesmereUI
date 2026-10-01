@@ -2296,7 +2296,7 @@ EllesmereUI.RegisterMigration({
         end
 
         local PROFILE_KEYS = {
-            "bagScale", "bagColumns", "bagCatTitleSize", "bagCountFontSize",
+            "bagScale", "bagColumns", "bankColumns", "bagCatTitleSize", "bagCountFontSize",
             "itemlevelFontSize", "showItemlevelInBags", "showUpgradeIndicator",
             "bagShowTrackRank", "itemlevelUseCustomColor", "itemlevelCustomColor",
             "bagHideEmptyCategories", "bagSidebarCollapsed", "bankSidebarCollapsed",
