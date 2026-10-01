@@ -68,3 +68,40 @@ actual taint/security behavior, server permissions, persistence across a real
 in-game validation. Boss-mod cases here only establish that the code uses one
 official countdown request and does not call a separate boss-mod API. API mocks
 explicitly emit `START_PLAYER_COUNTDOWN(GUID, timeLeft, totalTime)`.
+
+## Independent installation that survives EllesmereUI updates
+
+An addon manager replaces the official EllesmereUI folders when updating them.
+For local use before these controls are incorporated upstream, build the companion
+package instead of modifying the installed EllesmereUI files:
+
+```powershell
+python .tools/mythic_start/build_companion.py --output-dir package --zip EllesmereUI_MythicStart.zip
+```
+
+Copy the generated `EllesmereUI_MythicStart` folder to the game's
+`Interface/AddOns` directory alongside the current `EllesmereUI` and
+`EllesmereUIQoL` folders. Fully restart WoW so it discovers the new addon folder.
+The companion depends on those two addons and uses their existing appearance and
+the same canonical `EllesmereUIQoL_MythicStart.lua` runtime, copied verbatim by
+the builder. Its generated files are not referenced by the official addon TOCs.
+
+Installing the companion enables manual READY/PULL controls. `/euipull` opens a
+small settings window; Auto Ready and Auto Start default off. Existing enabled
+legacy automation settings are migrated once. Settings live in the companion's
+own `EllesmereUIMythicStartDB` SavedVariables and survive EllesmereUI profile
+changes and resets. EllesmereUI updates do not replace the companion's separate
+folder. A future incompatible WoW or EllesmereUI API change can still require a
+companion update.
+
+If EllesmereUI already includes the integrated Ready/Pull implementation, that
+implementation takes precedence and the companion creates no second controller.
+Use EllesmereUI's own controls settings in that case. Both implementations honor
+the existing client and Forever guards.
+
+Companion checks reuse the behavioral mocks and also exercise private settings,
+legacy migration, integrated coexistence and the generated package:
+
+```powershell
+python -m unittest discover -s .tools/mythic_start -p "test_*.py" -v
+```
