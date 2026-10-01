@@ -3951,6 +3951,40 @@ local CHAT_MSG_EVENTS = {
     -- focus-gained callback and OnChar hook already reset the fade.
 }
 
+-- Returns whether a chat frame would display this event. Channel messages
+-- need an additional channel-list check: every chat frame registers
+-- CHAT_MSG_CHANNEL, but only frames subscribed to the matching zone channel
+-- should wake idle fade. Non-channel events are governed by registration.
+local function ChatFrameShows(cf, event, ...)
+    if not cf or (cf.IsShown and not cf:IsShown()) then return false end
+    if cf.IsEventRegistered and not cf:IsEventRegistered(event) then return false end
+    if event ~= "CHAT_MSG_CHANNEL" then return true end
+    local zoneChannelID, channelName = select(7, ...), select(9, ...)
+    if issecretvalue and (issecretvalue(zoneChannelID) or issecretvalue(channelName)) then return true end
+    for index, name in pairs(cf.channelList or {}) do
+        if (type(zoneChannelID) == "number" and zoneChannelID > 0
+                and cf.zoneChannelList and cf.zoneChannelList[index] == zoneChannelID)
+            or (type(channelName) == "string" and type(name) == "string"
+                and strupper(name) == strupper(channelName)) then
+            return true
+        end
+    end
+    return false
+end
+
+local function VisibleChatShows(event, ...)
+    local selected = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
+        and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
+    if selected and ChatFrameShows(selected, event, ...) then return true end
+    for i = 1, (NUM_CHAT_WINDOWS or 10) do
+        local cf = _G["ChatFrame" .. i]
+        if cf and cf ~= selected and not cf.isDocked and ChatFrameShows(cf, event, ...) then
+            return true
+        end
+    end
+    return false
+end
+
 -------------------------------------------------------------------------------
 --  Tabs are fully owned (EllesmereUIChat_Tabs.lua): our buttons over our own
 --  strip, styled from the same settings, with Blizzard's strip hidden. The
@@ -5549,11 +5583,11 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Idle reset throttle: max once per second.
         local _lastIdleReset = 0
-        local function OnActiveMessage()
-            -- (No passthrough sweep needed on messages anymore: Blizzard's
-            -- line pool is parked in the engine's hidden container, and OUR
-            -- message frames are hidden outright while passthrough is
-            -- engaged -- a hidden frame arms nothing.)
+        local function OnActiveMessage(event, ...)
+            -- Only a message that the selected docked tab or a visible
+            -- undocked chat frame would display may wake idle fade. This keeps
+            -- busy General/Trade/LFG traffic from waking an unrelated tab.
+            if event and not VisibleChatShows(event, ...) then return end
             if not IsIdleApplicable() then return end
             local now = GetTime()
             if now - _lastIdleReset < 1 then return end
