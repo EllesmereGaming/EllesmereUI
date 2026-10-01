@@ -5612,6 +5612,33 @@ local function UpdateBordersForScale(frame, unit)
         frame.Health:SetPoint("TOPLEFT", frame._barClip, "TOPLEFT", xOff, PP.Scale(-topOff) + clipInset)
         frame.Health:SetPoint("RIGHT", frame._barClip, "RIGHT", -rInset, 0)
         PP.Height(frame.Health, settings.healthHeight)
+
+        -- Resource Bars "Mana Bar while Shapeshifted" Embed: carve a strip off the player
+        -- health bar and dock the shapeshift mana bar into it (top/bottom). Dynamic footprint
+        -- -- the provider returns nil out of form so the health bar reclaims the strip. The
+        -- health bar keeps >= 8px. No-op unless the mana bar's Location is Embed. Uses the
+        -- anchor context (clipInset/xOff/rInset/topOff) in scope here.
+        local _PBA = (unit == "player") and EllesmereUI._ShiftManaAttach
+        if _PBA and _PBA.GetAttachedBar then
+            local pbar, side, ph = _PBA.GetAttachedBar(settings.healthHeight)
+            if pbar and side and ph and ph > 0 then
+                local _ph = PP.Scale(ph)
+                pbar:SetParent(frame._barClip)
+                pbar:ClearAllPoints()
+                if side == "top" then
+                    frame.Health:SetPoint("TOPLEFT", frame._barClip, "TOPLEFT", xOff, PP.Scale(-topOff) + clipInset - _ph)
+                    PP.Height(frame.Health, settings.healthHeight - ph)
+                    pbar:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
+                    pbar:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
+                else
+                    PP.Height(frame.Health, settings.healthHeight - ph)
+                    pbar:SetPoint("TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
+                    pbar:SetPoint("TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
+                end
+                pbar:SetHeight(_ph)
+                _PBA.OnAttached(pbar, side)
+            end
+        end
     end
 
     -- Blizzard Style: the stock geometry is re-asserted over everything above
@@ -5621,6 +5648,13 @@ local function UpdateBordersForScale(frame, unit)
         ns.UpdatePortraitSeparator(frame, frame.Portrait and frame.Portrait.backdrop,
             settings, effectiveSide, showPortrait and isAttached, ns.UF_Blizz())
     end
+end
+
+-- Lets the Resource Bars Power Bar apply/remove its player-frame attach (the carve)
+-- without a /reload, by re-running the player layout.
+function ns.UF_ReapplyPlayer()
+    local f = frames and frames.player
+    if f then UpdateBordersForScale(f, "player") end
 end
 
 -- All sizing is width/height based; positioning is owned by Unlock Mode.

@@ -1263,12 +1263,21 @@ local DEFAULTS = {
             -- bars (not used Inside); the text keys mirror the Power Bar's own.
             foreverDruidMana = (EllesmereUI.IS_FOREVER == true) and {
                 enabled     = false,
-                position    = "below",  -- "below","above","inside"
+                -- anchor = which bar the mana bar attaches to; position = where on it.
+                --   healthbar/powerbar + below/above = adjacent (uses gap + offsets)
+                --   healthbar/powerbar + inside       = embed/carve a strip out of that bar
+                --                                       (gap + offsets ignored). healthbar+inside
+                --                                       carves the player unit frame health bar,
+                --                                       dynamic -- only while in Cat/Bear form.
+                --   free = a standalone movable bar (unlock UX); position ignored.
+                anchor      = "powerbar",  -- "healthbar" | "powerbar" | "free"
+                position    = "below",  -- "below" | "above" | "inside" (inside = embed/carve)
+                width       = 200,      -- anchor == "free" only (else follows the host bar)
                 gap         = 2,
                 height      = 6,
                 offsetX     = 0,
                 offsetY     = 0,
-                textFormat  = "none",   -- "none","smart","curpp","perpp","both"
+                textFormat  = "follow", -- "follow" (mirror the Power Bar's text) | "none","smart","curpp","perpp","both"
                 showPercent = true,
                 textSize    = 8,
                 textXOffset = 0,
