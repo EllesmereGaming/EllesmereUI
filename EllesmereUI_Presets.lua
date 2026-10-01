@@ -166,9 +166,177 @@ do
     }
     EllesmereUI._SPEC_DATA = SPEC_DATA
 
+    ---------------------------------------------------------------------------
+    --  WoW Forever spec translation. Forever has ONE spec per class (named
+    --  after the class). Every spec-keyed store keeps RETAIL spec IDs, so
+    --  profiles move between the clients unchanged; on Forever the player
+    --  counts as every retail spec of the class. Where saved data differs
+    --  between specs of the class, the first spec in SPEC_DATA order (the
+    --  class's spec index order) wins. Data a store holds under the Forever
+    --  spec ID itself is what the client shows for it, so where a caller
+    --  allows it that key is read first.
+    --  Retail never builds these tables: the entry points return their input.
+    ---------------------------------------------------------------------------
+    -- Forever class -> Forever spec ID (ChrSpecialization, Forever 1.60.1).
+    EllesmereUI.FOREVER_CLASS_SPEC = {
+        MAGE = 1482, DRUID = 1484, HUNTER = 1485, PALADIN = 1486, PRIEST = 1487,
+        ROGUE = 1488, SHAMAN = 1489, WARLOCK = 1490, WARRIOR = 1491,
+    }
+    -- Heals a Forever class range-checks with, best first: the retail-parity
+    -- heal (learned at level 12-20 there), then the class's level-1 heal.
+    EllesmereUI.FOREVER_HEAL_SPELLS = {
+        PRIEST  = { 2061, 2050 },   -- Flash Heal, Lesser Heal
+        PALADIN = { 19750, 635 },   -- Flash of Light, Holy Light
+        SHAMAN  = { 8004, 331 },    -- Lesser Healing Wave, Healing Wave
+        DRUID   = { 8936, 5185 },   -- Regrowth, Healing Touch
+    }
+    local FOREVER_CLASS_ID = {
+        WARRIOR = 1, PALADIN = 2, HUNTER = 3, ROGUE = 4, PRIEST = 5,
+        SHAMAN = 7, MAGE = 8, WARLOCK = 9, DRUID = 11,
+    }
+
+    local fv            -- lookup tables, built on first use (Forever only)
+    local playerClass   -- the player's class token (never changes in a session)
+
+    local function FV()
+        if fv then return fv end
+        -- specs/order: the Forever classes only. class/name/specName: every
+        -- class in SPEC_DATA, plus each Forever spec ID -> its class.
+        fv = { specs = {}, order = {}, class = {}, name = {}, specName = {} }
+        for i = 1, #SPEC_DATA do
+            local cls = SPEC_DATA[i]
+            fv.name[cls.class] = cls.name
+            for j = 1, #cls.specs do
+                local s = cls.specs[j]
+                fv.class[s.id] = cls.class
+                fv.specName[s.id] = s.name
+            end
+            local fid = EllesmereUI.FOREVER_CLASS_SPEC[cls.class]
+            if fid then
+                local ids = {}
+                for j = 1, #cls.specs do ids[j] = cls.specs[j].id end
+                fv.specs[cls.class] = ids
+                fv.order[#fv.order + 1] = cls.class
+                fv.class[fid] = cls.class
+            end
+        end
+        return fv
+    end
+
+    local function PlayerClass()
+        if not playerClass then playerClass = select(2, UnitClass("player")) end
+        return playerClass
+    end
+
+    -- First candidate pred accepts: the legacy Forever ID (when given), then
+    -- the retail specs in class order. None -> the class's first retail spec,
+    -- the key new data is written under.
+    local function Pick(ids, legacyID, pred, arg)
+        if pred then
+            if legacyID and pred(legacyID, arg) then return legacyID end
+            for i = 1, #ids do
+                if pred(ids[i], arg) then return ids[i] end
+            end
+        end
+        return ids[1]
+    end
+
+    --- Forever: the retail spec ID a class acts as in one store. pred(id, arg)
+    --- answers "this store holds data for spec id"; pred nil = the first spec.
+    --- withLegacy also offers the class's Forever spec ID, first (stores that
+    --- can hold data under it: the CDM spell store). token nil = the player.
+    --- nil on retail and for a class Forever does not have.
+    function EllesmereUI.ForeverClassSpec(token, pred, arg, withLegacy)
+        if not EllesmereUI.IS_FOREVER then return nil end
+        token = token or PlayerClass()
+        local ids = token and FV().specs[token]
+        if not ids then return nil end
+        return Pick(ids, withLegacy and EllesmereUI.FOREVER_CLASS_SPEC[token] or nil, pred, arg)
+    end
+
+    --- The spec ID the client reports, translated to the spec ID that keys a
+    --- retail-keyed store. Returned unchanged on retail, for nil / 0, and for
+    --- a retail spec ID of any class. Otherwise (the client's own spec,
+    --- 1482-1491, 1493 or any unknown ID): the raw ID itself when pred holds
+    --- (data held under it), else the player's class retail specs in class
+    --- order, else the class's first retail spec.
+    function EllesmereUI.SpecFor(rawID, pred, arg)
+        if not EllesmereUI.IS_FOREVER or not rawID or rawID == 0 then return rawID end
+        local t = FV()
+        local owner = t.class[rawID]
+        if owner and EllesmereUI.FOREVER_CLASS_SPEC[owner] ~= rawID then return rawID end
+        local ids = t.specs[PlayerClass() or ""]
+        if not ids then return rawID end
+        return Pick(ids, rawID, pred, arg)
+    end
+
+    --- True when specID is a spec the player counts as: retail = the live spec;
+    --- Forever = any retail spec of the player's class, or its Forever spec ID.
+    function EllesmereUI.IsPlayerSpec(specID)
+        if not specID then return false end
+        if EllesmereUI.IS_FOREVER then return FV().class[specID] == PlayerClass() end
+        local live = EllesmereUI._specID
+        if not live or live == 0 then
+            EllesmereUI._RefreshSpecID()
+            live = EllesmereUI._specID
+        end
+        return live ~= 0 and specID == live
+    end
+
+    --- Forever only (callers gate): class tokens in SPEC_DATA order; a Forever
+    --- class's retail spec IDs in class order (shared tables, read only); the
+    --- class owning a retail spec ID of ANY class or a Forever spec ID; the
+    --- English spec name of a retail spec ID; class display name and icon.
+    function EllesmereUI.ForeverClasses() return FV().order end
+    function EllesmereUI.ForeverClassSpecIDs(token) return token and FV().specs[token] or nil end
+    function EllesmereUI.SpecClassOf(specID) return specID and FV().class[specID] or nil end
+    function EllesmereUI.RetailSpecName(specID) return specID and FV().specName[specID] or nil end
+    function EllesmereUI.ForeverClassName(token)
+        return (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[token])
+            or FV().name[token] or token
+    end
+    function EllesmereUI.ForeverClassIcon(token)
+        local cid = FOREVER_CLASS_ID[token]
+        if not (cid and GetSpecializationInfoForClassID) then return nil end
+        local _, _, _, icon = GetSpecializationInfoForClassID(cid, 1)
+        return icon
+    end
+
+    --- Forever: a spec-ID-keyed set where each Forever spec ID stands for
+    --- every retail spec of its class (a new table; the input is untouched).
+    --- Retail: the input.
+    function EllesmereUI.ForeverExpandSpecSet(set)
+        if not EllesmereUI.IS_FOREVER or not set then return set end
+        local t, out = FV(), {}
+        for id, v in pairs(set) do
+            local owner = t.class[id]
+            if not (owner and EllesmereUI.FOREVER_CLASS_SPEC[owner] == id) then out[id] = v end
+        end
+        for id, v in pairs(set) do
+            local owner = t.class[id]
+            if owner and EllesmereUI.FOREVER_CLASS_SPEC[owner] == id then
+                local ids = t.specs[owner]
+                for i = 1, #ids do
+                    if out[ids[i]] == nil then out[ids[i]] = v end
+                end
+            end
+        end
+        return out
+    end
+
+    -- Store predicates for ForeverClassSpec / SpecFor (plain functions, so no
+    -- call site builds a closure).
+    function EllesmereUI.SpecHasEntry(id, tbl) return tbl ~= nil and tbl[id] ~= nil end
+    function EllesmereUI.SpecHasStringEntry(id, tbl) return tbl ~= nil and tbl[tostring(id)] ~= nil end
+
     -- 5-column layout, sorted alphabetically left-to-right, top-to-bottom
     local NUM_COLS = 5
     local COL_LISTS = { {1,6,11}, {2,7,12}, {3,8,13}, {4,9}, {5,10} }
+    -- WoW Forever: the class loop runs over no classes (it still hides the
+    -- pooled rows) and one row per class is built instead, in two rows that
+    -- need a shorter popup.
+    local NO_CLASSES = {}
+    local FOREVER_POPUP_H = 380
 
     local specPopup  -- reusable popup frame
 
@@ -288,6 +456,7 @@ do
                     PP.Point(div, "LEFT", prevLink, "RIGHT", LINK_GAP / 2, 0)
                     div:SetWidth(1)
                     div:SetHeight(12)
+                    btn._div = div
                     PP.Point(btn, "LEFT", prevLink, "RIGHT", LINK_GAP, 0)
                 else
                     PP.Point(btn, "TOPLEFT", popup, "TOPLEFT", CONTENT_LEFT, LINK_Y)
@@ -303,6 +472,18 @@ do
             popup._checkHealers  = MakeLink("Check Healers")
             popup._checkDPS      = MakeLink("Check DPS")
             popup._uncheckAll    = MakeLink("Uncheck All")
+            -- WoW Forever specs carry no role: the role links are hidden and
+            -- Uncheck All sits right after Check All.
+            if EllesmereUI.IS_FOREVER then
+                popup._checkTanks:Hide(); popup._checkTanks._div:Hide()
+                popup._checkHealers:Hide(); popup._checkHealers._div:Hide()
+                popup._checkDPS:Hide(); popup._checkDPS._div:Hide()
+                local un = popup._uncheckAll
+                un:ClearAllPoints()
+                PP.Point(un, "LEFT", popup._checkAll, "RIGHT", LINK_GAP, 0)
+                un._div:ClearAllPoints()
+                PP.Point(un._div, "LEFT", popup._checkAll, "RIGHT", LINK_GAP / 2, 0)
+            end
 
             -- Column container frames
             popup._columns = {}
@@ -398,8 +579,9 @@ do
                 defFlashFrame:Show()
             end
 
-            -- Default dropdown menu (popout list)
-            local defMenu = CreateFrame("Frame", nil, UIParent)
+            -- Default dropdown menu (popout list). Controller cursor: overlay
+            -- parent (UIParent unless a controller cursor is loaded).
+            local defMenu = CreateFrame("Frame", nil, EllesmereUI.OverlayParent())
             defMenu:SetFrameStrata("FULLSCREEN_DIALOG")
             defMenu:SetFrameLevel(300)
             defMenu:SetClampedToScreen(true)
@@ -440,6 +622,8 @@ do
                 if defMenu:IsShown() then defMenu:Hide() else
                     if popup._rebuildDefMenu then popup._rebuildDefMenu() end
                     defMenu:Show()
+                    -- Controller cursor: move it into the list.
+                    EllesmereUI.PadFocus(defMenu)
                 end
             end)
             defDDBtn:HookScript("OnHide", function() defMenu:Hide() end)
@@ -466,6 +650,10 @@ do
                     for _, e in ipairs(popup._defBrdEdges) do e:SetColorTexture(1, 1, 1, 0.20) end
                 end
             end)
+            EllesmereUI.TrackOverlay(defMenu)
+            -- Controller cursor: its cancel press clicks the dropdown button,
+            -- which folds the list.
+            if EllesmereUI.PadCP() then defMenu.CloseButton = defDDBtn end
 
             -- Done button
             local EG = ELLESMERE_GREEN
@@ -542,6 +730,20 @@ do
                 end
             end)
 
+            -- Controller Back takes the same route as Escape. It counts only when
+            -- a controller is in use at the show, so the keyboard path never changes.
+            if EllesmereUI.RegisterEscapeClose then
+                EllesmereUI.RegisterEscapeClose(dimmer, {
+                    padOnly = true,
+                    onEscape = function()
+                        dimmer:Hide()
+                        if popup._onCancel then popup._onCancel() end
+                    end,
+                })
+            end
+            -- Controller cursor: the panel is a blocker, not a stop.
+            EllesmereUI.PadHint(popup, "nodepass")
+
             popup._CLASS_H = CLASS_H
             popup._CLASS_PAD_TOP = CLASS_PAD_TOP
             popup._CLASS_PAD_BOT = CLASS_PAD_BOT
@@ -584,7 +786,7 @@ do
         -- spec picker). Normal callers keep the subtitle under the title. The
         -- warning also renders 2px larger for emphasis.
         specPopup._subtitle:ClearAllPoints()
-        PP.Size(specPopup, specPopup._POPUP_W, specPopup._POPUP_H)
+        PP.Size(specPopup, specPopup._POPUP_W, EllesmereUI.IS_FOREVER and FOREVER_POPUP_H or specPopup._POPUP_H)
         local subFont = specPopup._subtitle:GetFont()
         if opts.subtitleAtBottom then
             specPopup._subtitle:SetFont(subFont, 16, "")
@@ -646,11 +848,69 @@ do
             assignments[sID] = true
         end
 
+        -- Spec checkbox row at one column slot (pooled; built on first use).
+        local function EnsureSpecRow(col, rowIdx)
+            local row = col._rows[rowIdx]
+            if not row then
+                row = CreateFrame("Button", nil, col)
+                col._rows[rowIdx] = row
+
+                local box = CreateFrame("Frame", nil, row)
+                PP.Size(box, BOX_SZ, BOX_SZ)
+                PP.Point(box, "LEFT", row, "LEFT", 8, 0)
+                box:SetFrameLevel(row:GetFrameLevel() + 1)
+                local boxBg = box:CreateTexture(nil, "BACKGROUND")
+                boxBg:SetAllPoints()
+                boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
+                row._boxBg = boxBg
+                local boxBorder = MakeBorder(box, BORDER_R, BORDER_G, BORDER_B, CB_BRD_A, PP)
+                row._boxBorder = boxBorder
+                local check = box:CreateTexture(nil, "ARTWORK")
+                PP.Point(check, "TOPLEFT", box, "TOPLEFT", CHECK_INSET, -CHECK_INSET)
+                PP.Point(check, "BOTTOMRIGHT", box, "BOTTOMRIGHT", -CHECK_INSET, CHECK_INSET)
+                check:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+                row._check = check
+                row._box = box
+
+                local lbl = row:CreateFontString(nil, "OVERLAY")
+                lbl:SetFont(FONT, 17, "")
+                PP.Point(lbl, "LEFT", box, "RIGHT", 8, 0)
+                lbl:SetTextColor(1, 1, 1, 0.65)
+                row._lbl = lbl
+            end
+            return row
+        end
+        local EG = ELLESMERE_GREEN
+        local function UpdateVisual(r)
+            if r._lockedOn then
+                -- Always-on (e.g. the sync source): checked but locked/grayed.
+                r._check:Show()
+                r._boxBorder:SetColor(EG.r, EG.g, EG.b, CB_ACT_BRD_A * 0.5)
+                r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.5)
+                r._lbl:SetTextColor(1, 1, 1, 0.4)
+            elseif r._locked or r._disabled then
+                r._check:Hide()
+                r._boxBorder:SetColor(BORDER_R, BORDER_G, BORDER_B, CB_BRD_A * 0.4)
+                r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.35)
+                r._lbl:SetTextColor(1, 1, 1, 0.25)
+            elseif r._checked then
+                r._check:Show()
+                r._boxBorder:SetColor(EG.r, EG.g, EG.b, CB_ACT_BRD_A)
+                r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
+                r._lbl:SetTextColor(1, 1, 1, 0.65)
+            else
+                r._check:Hide()
+                r._boxBorder:SetColor(BORDER_R, BORDER_G, BORDER_B, CB_BRD_A)
+                r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
+                r._lbl:SetTextColor(1, 1, 1, 0.65)
+            end
+        end
+
         for colIdx = 1, NUM_COLS do
             local col = specPopup._columns[colIdx]
             for _, row in ipairs(col._rows) do row:Hide() end
 
-            local list = COL_LISTS[colIdx]
+            local list = EllesmereUI.IS_FOREVER and NO_CLASSES or COL_LISTS[colIdx]
             local rowIdx = 0
             local yOff = 0
             local isFirstClass = true
@@ -693,34 +953,7 @@ do
                 -- Spec checkboxes
                 for _, spec in ipairs(cls.specs) do
                     rowIdx = rowIdx + 1
-                    local row = col._rows[rowIdx]
-                    if not row then
-                        row = CreateFrame("Button", nil, col)
-                        col._rows[rowIdx] = row
-
-                        local box = CreateFrame("Frame", nil, row)
-                        PP.Size(box, BOX_SZ, BOX_SZ)
-                        PP.Point(box, "LEFT", row, "LEFT", 8, 0)
-                        box:SetFrameLevel(row:GetFrameLevel() + 1)
-                        local boxBg = box:CreateTexture(nil, "BACKGROUND")
-                        boxBg:SetAllPoints()
-                        boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
-                        row._boxBg = boxBg
-                        local boxBorder = MakeBorder(box, BORDER_R, BORDER_G, BORDER_B, CB_BRD_A, PP)
-                        row._boxBorder = boxBorder
-                        local check = box:CreateTexture(nil, "ARTWORK")
-                        PP.Point(check, "TOPLEFT", box, "TOPLEFT", CHECK_INSET, -CHECK_INSET)
-                        PP.Point(check, "BOTTOMRIGHT", box, "BOTTOMRIGHT", -CHECK_INSET, CHECK_INSET)
-                        check:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
-                        row._check = check
-                        row._box = box
-
-                        local lbl = row:CreateFontString(nil, "OVERLAY")
-                        lbl:SetFont(FONT, 17, "")
-                        PP.Point(lbl, "LEFT", box, "RIGHT", 8, 0)
-                        lbl:SetTextColor(1, 1, 1, 0.65)
-                        row._lbl = lbl
-                    end
+                    local row = EnsureSpecRow(col, rowIdx)
                     PP.Size(row, COL_W, SPEC_H)
                     row:ClearAllPoints()
                     PP.Point(row, "TOPLEFT", col, "TOPLEFT", 0, -yOff)
@@ -743,31 +976,6 @@ do
 
                     local checked = assignments[spec.id] == true
                     row._checked = checked
-                    local EG = ELLESMERE_GREEN
-                    local function UpdateVisual(r)
-                        if r._lockedOn then
-                            -- Always-on (e.g. the sync source): checked but locked/grayed.
-                            r._check:Show()
-                            r._boxBorder:SetColor(EG.r, EG.g, EG.b, CB_ACT_BRD_A * 0.5)
-                            r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.5)
-                            r._lbl:SetTextColor(1, 1, 1, 0.4)
-                        elseif r._locked or r._disabled then
-                            r._check:Hide()
-                            r._boxBorder:SetColor(BORDER_R, BORDER_G, BORDER_B, CB_BRD_A * 0.4)
-                            r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.35)
-                            r._lbl:SetTextColor(1, 1, 1, 0.25)
-                        elseif r._checked then
-                            r._check:Show()
-                            r._boxBorder:SetColor(EG.r, EG.g, EG.b, CB_ACT_BRD_A)
-                            r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
-                            r._lbl:SetTextColor(1, 1, 1, 0.65)
-                        else
-                            r._check:Hide()
-                            r._boxBorder:SetColor(BORDER_R, BORDER_G, BORDER_B, CB_BRD_A)
-                            r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
-                            r._lbl:SetTextColor(1, 1, 1, 0.65)
-                        end
-                    end
                     UpdateVisual(row)
                     allCheckboxes[#allCheckboxes + 1] = row
 
@@ -828,7 +1036,11 @@ do
             local EG2 = ELLESMERE_GREEN
             for _, row in ipairs(allCheckboxes) do
                 if not row._locked and not row._disabled and not row._lockedOn and row._specID then
-                    local _, _, _, _, specRole = GetSpecializationInfoByID(row._specID)
+                    -- The by-id lookup is not registered on WoW Forever: no role there.
+                    local specRole
+                    if GetSpecializationInfoByID then
+                        specRole = select(5, GetSpecializationInfoByID(row._specID))
+                    end
                     if specRole == role then
                         row._checked = true
                         assignments[row._specID] = true
@@ -841,6 +1053,123 @@ do
         specPopup._checkTanks:SetScript("OnClick", function() CheckRole("TANK") end)
         specPopup._checkHealers:SetScript("OnClick", function() CheckRole("HEALER") end)
         specPopup._checkDPS:SetScript("OnClick", function() CheckRole("DAMAGER") end)
+
+        -- WoW Forever: one checkbox row per class (the client has one spec per
+        -- class; the stores keep retail spec IDs). A row stands for every
+        -- retail spec of its class and follows the class's owner: the first of
+        -- its specs (class order) assigned anywhere, the one the spec lookups
+        -- pick. The row reads ticked when this preset holds that spec, and
+        -- locked when another preset holds it with no free spec ahead of it;
+        -- a free spec ahead leaves the row open, because ticking it makes this
+        -- preset the owner. Ticking assigns every spec of the class no other
+        -- preset holds; unticking clears them. Specs of classes Forever does
+        -- not have stay in the assignments untouched.
+        if EllesmereUI.IS_FOREVER then
+            local rows = specPopup._fvRows or {}
+            specPopup._fvRows = rows
+            local function LockedOn(id)
+                local v = lockedOnSpecs[id]
+                return v ~= nil and v ~= false
+            end
+            -- Label in the class colour at the given alpha.
+            local function Tint(row, a)
+                local c = row._fvClr
+                if c then row._lbl:SetTextColor(c.r, c.g, c.b, a) else row._lbl:SetTextColor(1, 1, 1, a) end
+            end
+            local function State(row)
+                local ids = row._fvIDs
+                row._lockedOn, row._disabled, row._checked, row._locked = false, false, false, false
+                row._fvOnTip, row._fvDisTip, row._fvBy = nil, nil, nil
+                for i = 1, #ids do
+                    local id = ids[i]
+                    if LockedOn(id) then
+                        row._lockedOn = true
+                        if not row._fvOnTip and type(lockedOnSpecs[id]) == "string" then
+                            row._fvOnTip = lockedOnSpecs[id]
+                        end
+                    end
+                    local dis = disabledSpecs[id]
+                    if dis ~= nil then
+                        row._disabled = true
+                        if not row._fvDisTip and dis then row._fvDisTip = dis end
+                    end
+                end
+                -- Owner: the first spec of the class assigned anywhere, in class
+                -- order. Another preset's spec locks the row only when no free
+                -- spec comes before it.
+                local free = false
+                for i = 1, #ids do
+                    local id = ids[i]
+                    if assignments[id] == true then row._checked = true; break end
+                    if lockedSpecs[id] then
+                        if not free then row._locked = true; row._fvBy = lockedSpecs[id] end
+                        break
+                    end
+                    free = true
+                end
+                UpdateVisual(row)
+                local _, _, _, a = row._lbl:GetTextColor()
+                Tint(row, a)
+            end
+            local function SetOn(row, on)
+                if row._lockedOn or row._locked or row._disabled then return end
+                local ids = row._fvIDs
+                for i = 1, #ids do
+                    local id = ids[i]
+                    if on then
+                        if not lockedSpecs[id] and disabledSpecs[id] == nil then assignments[id] = true end
+                    elseif not LockedOn(id) then
+                        assignments[id] = nil
+                    end
+                end
+                State(row)
+            end
+            local classes = EllesmereUI.ForeverClasses()
+            for n = 1, #classes do
+                local token = classes[n]
+                local col = specPopup._columns[((n - 1) % NUM_COLS) + 1]
+                -- One row per class in a column, so the pool slot is the row number.
+                local r = math.floor((n - 1) / NUM_COLS) + 1
+                local row = EnsureSpecRow(col, r)
+                PP.Size(row, COL_W, SPEC_H)
+                row:ClearAllPoints()
+                PP.Point(row, "TOPLEFT", col, "TOPLEFT", 0, -(CLASS_GAP + (r - 1) * (SPEC_H + CLASS_GAP)))
+                row:Show()
+                row._lbl:SetText(EllesmereUI.ForeverClassName(token))
+                row._fvClr = CLASS_COLOR_MAP[token]
+                row._fvIDs = EllesmereUI.ForeverClassSpecIDs(token)
+                row._specID = nil
+                rows[n] = row
+                State(row)
+                row:SetScript("OnClick", function(self) SetOn(self, not self._checked) end)
+                row:SetScript("OnEnter", function(self)
+                    if self._disabled and self._fvDisTip then
+                        EllesmereUI.ShowWidgetTooltip(self._box,
+                            EllesmereUI.DisabledTooltip(self._fvDisTip))
+                    elseif self._lockedOn and self._fvOnTip then
+                        EllesmereUI.ShowWidgetTooltip(self._box,
+                            EllesmereUI.DisabledTooltip(self._fvOnTip))
+                    elseif self._locked and self._fvBy then
+                        EllesmereUI.ShowWidgetTooltip(self._box,
+                            EllesmereUI.Lf("Already assigned to %s", self._fvBy))
+                    end
+                    if self._lockedOn or self._locked or self._disabled then return end
+                    Tint(self, 0.90)
+                end)
+                row:SetScript("OnLeave", function(self)
+                    EllesmereUI.HideWidgetTooltip()
+                    if self._lockedOn or self._locked or self._disabled then return end
+                    Tint(self, 0.65)
+                end)
+            end
+            for n = #classes + 1, #rows do rows[n] = nil end
+            specPopup._checkAll:SetScript("OnClick", function()
+                for i = 1, #rows do SetOn(rows[i], true) end
+            end)
+            specPopup._uncheckAll:SetScript("OnClick", function()
+                for i = 1, #rows do SetOn(rows[i], false) end
+            end)
+        end
 
         -- Default Profile dropdown (populate phase)
         local selectedDefaultKey = defaultKey and db[defaultKey] or nil
@@ -933,6 +1262,10 @@ do
             specPopup._closeBtn:ClearAllPoints()
             PP.Point(specPopup._closeBtn, "BOTTOM", specPopup, "BOTTOM", 0, 38)
         end
+        -- Controller cursor: its cancel press backs out through a visible Cancel.
+        if EllesmereUI.PadCP() then
+            specPopup.CloseButton = opts.onCancel and specPopup._cancelBtn or nil
+        end
 
         -- Done button: validate default selection if spec feature is active
         specPopup._closeBtn:SetScript("OnClick", function()
@@ -953,5 +1286,7 @@ do
         end)
 
         specPopup._dimmer:Show()
+        -- Controller cursor: move it into the popup.
+        EllesmereUI.PadFocus(specPopup)
     end
 end

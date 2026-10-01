@@ -3,7 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUI_Glows.lua
 --  Shared glow rendering engine for the EllesmereUI addon suite.
 --  Provides: Pixel Glow (procedural ants), Action Button Glow, Auto-Cast
---  Shine, Shape Glow, and FlipBook-based glows (GCD, Modern WoW, Classic WoW).
+--  Shine, Shape Glow, FlipBook-based glows (GCD, Modern WoW, Classic WoW), and
+--  Blackout (solid colour fill with adjustable transparency).
 --  Each addon attaches to EllesmereUI.Glows.* instead of duplicating engines.
 -------------------------------------------------------------------------------
 if not EllesmereUI then return end
@@ -17,8 +18,9 @@ local sin   = math.sin
 -------------------------------------------------------------------------------
 --  Style Definitions (superset of all addons)
 --  Each addon picks from this table by index or iterates for its dropdown.
---  Fields: name, procedural, buttonGlow, autocast, shapeGlow, atlas, texture,
---          rows, columns, frames, duration, frameW, frameH, scale, previewScale
+--  Fields: name, procedural, buttonGlow, autocast, shapeGlow, solidFill, atlas,
+--          texture, rows, columns, frames, duration, frameW, frameH, scale,
+--          previewScale
 -------------------------------------------------------------------------------
 local GLOW_STYLES = {
     { name = "Pixel Glow",         procedural = true },
@@ -40,6 +42,7 @@ local GLOW_STYLES = {
       -- a direct Classic pick keeps this entry's bare-ants look.
       rows = 5, columns = 5, frames = 22, duration = 0.3,
       frameW = 48, frameH = 48, texPadding = 1.25 },
+    { name = "Blackout",           solidFill = true },
 }
 
 -------------------------------------------------------------------------------
@@ -210,9 +213,14 @@ local DASH_V = [[Interface\AddOns\EllesmereUI\media\glow-dash-v.tga]]
 -- tick. Shared by the animated (_AntsOnUpdate) and static (_AntsStaticSettle) paths.
 local function _AntsResolveSize(self, d)
     local w, h = self:GetSize()
-    -- Taint-strip (reparented frames can return secret-number sizes).
-    w = tonumber(tostring(w)) or 0
-    h = tonumber(tostring(h)) or 0
+    -- A secret size (the wrapper sits in a restricted layout) never reaches tostring or
+    -- arithmetic: it takes the start-time fallback. Plain sizes keep the taint strip.
+    if issecretvalue(w) or issecretvalue(h) then
+        w, h = 0, 0
+    else
+        w = tonumber(tostring(w)) or 0
+        h = tonumber(tostring(h)) or 0
+    end
     if w * h == 0 and d.fallbackW and d.fallbackW > 0 then
         w = d.fallbackW; h = d.fallbackH or d.fallbackW
     end
@@ -520,10 +528,14 @@ local function _AutoCastOnUpdate(self, elapsed)
     local w, h = d.w, d.h
     if w * h == 0 then
         w, h = self:GetSize()
-        -- Strip taint from size values (reparented buttons can return
-        -- "secret number" tainted dimensions from GetSize).
-        w = tonumber(tostring(w)) or 0
-        h = tonumber(tostring(h)) or 0
+        -- A secret size never reaches tostring or arithmetic: it takes the
+        -- start-time fallback below. Plain sizes keep the taint strip.
+        if issecretvalue(w) or issecretvalue(h) then
+            w, h = 0, 0
+        else
+            w = tonumber(tostring(w)) or 0
+            h = tonumber(tostring(h)) or 0
+        end
         -- Fallback to the w/h passed at start time (SetAllPoints wrappers
         -- may return 0 before layout resolves)
         if w * h == 0 and d.fallbackW and d.fallbackW > 0 then
@@ -689,6 +701,45 @@ end
 --  Handles atlas-based and raw-texture FlipBook animations (GCD, Modern WoW
 --  Glow, Classic WoW Glow, and any future FlipBook styles).
 -------------------------------------------------------------------------------
+-- Region creation only: the texture with its looping FlipBook group, plus on
+-- request the atlas ants overlay (ants) and ABG's soft halo (halo), all
+-- hidden. Shared with PrewarmEngineHost, which creates without configuring.
+-- Each part's field appears only once its regions exist.
+local function _EnsureFlip(wrapper, ants, halo)
+    local d = wrapper._euiFlipData
+    if not d then
+        local tex = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
+        tex:SetPoint("CENTER")
+        tex:Hide()
+        local ag = tex:CreateAnimationGroup()
+        ag:SetLooping("REPEAT")
+        local anim = ag:CreateAnimation("FlipBook")
+        d = { tex = tex, ag = ag, anim = anim }
+        wrapper._euiFlipData = d
+    end
+    if ants and not d.ants then
+        local aTex = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
+        aTex:SetPoint("CENTER")
+        aTex:SetBlendMode("ADD")
+        aTex:Hide()
+        local aAg = aTex:CreateAnimationGroup()
+        aAg:SetLooping("REPEAT")
+        d.antsAnim = aAg:CreateAnimation("FlipBook")
+        d.antsAg = aAg
+        d.ants = aTex
+    end
+    if halo and not d.halo then
+        local haloTex = wrapper:CreateTexture(nil, "OVERLAY", nil, 6)
+        haloTex:SetTexture(ICON_ALERT_TEX)
+        haloTex:SetTexCoord(BG_GLOW_L, BG_GLOW_R, BG_GLOW_T, BG_GLOW_B)
+        haloTex:SetBlendMode("ADD")
+        haloTex:SetPoint("CENTER")
+        haloTex:Hide()
+        d.halo = haloTex
+    end
+    return d
+end
+
 local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH, opts)
     -- FlipBook frames have transparent padding baked in. Each atlas
     -- has a different amount, so the style entry carries a texPadding
@@ -698,15 +749,7 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH, opts)
     local texW = w * (entry.texPadding or 1)
     local texH = h * (entry.texPadding or 1)
 
-    if not wrapper._euiFlipData then
-        local tex = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
-        tex:SetPoint("CENTER")
-        local ag = tex:CreateAnimationGroup()
-        ag:SetLooping("REPEAT")
-        local anim = ag:CreateAnimation("FlipBook")
-        wrapper._euiFlipData = { tex = tex, ag = ag, anim = anim }
-    end
-    local d = wrapper._euiFlipData
+    local d = _EnsureFlip(wrapper, entry.atlas ~= nil, opts and opts.abgHalo)
     d.tex:SetSize(texW, texH)
     if entry.atlas then
         d.tex:SetAtlas(entry.atlas)
@@ -733,15 +776,6 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH, opts)
 
     -- Ants overlay: a non-desaturated duplicate at low alpha for atlas styles
     if entry.atlas then
-        if not d.ants then
-            local aTex = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
-            aTex:SetPoint("CENTER")
-            aTex:SetBlendMode("ADD")
-            local aAg = aTex:CreateAnimationGroup()
-            aAg:SetLooping("REPEAT")
-            local aAnim = aAg:CreateAnimation("FlipBook")
-            d.ants = aTex; d.antsAg = aAg; d.antsAnim = aAnim
-        end
         d.ants:SetSize(texW, texH)
         d.ants:SetAtlas(entry.atlas)
         d.ants:SetDesaturated(false)
@@ -768,14 +802,6 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH, opts)
     -- their own bare-ants look, while the ABG stand-in matches the real
     -- thing instead of rendering visibly thinner.
     if opts and opts.abgHalo then
-        if not d.halo then
-            local haloTex = wrapper:CreateTexture(nil, "OVERLAY", nil, 6)
-            haloTex:SetTexture(ICON_ALERT_TEX)
-            haloTex:SetTexCoord(BG_GLOW_L, BG_GLOW_R, BG_GLOW_T, BG_GLOW_B)
-            haloTex:SetBlendMode("ADD")
-            haloTex:SetPoint("CENTER")
-            d.halo = haloTex
-        end
         d.halo:SetSize(texW * 1.3, texH * 1.3)
         d.halo:SetDesaturated(true)
         -- The halo carries the glow color (the ants stay white); no color
@@ -800,6 +826,39 @@ local function StopFlipBookGlow(wrapper)
     end
 end
 
+-------------------------------------------------------------------------------
+--  Solid Fill Engine (Blackout)
+--  One colour texture covering the wrapper at a caller-chosen alpha (opaque
+--  by default), so the icon can be fully hidden or only partially obscured.
+--  Static: no driver tick and no AnimationGroup, so it costs nothing per
+--  frame. The texture is created on the first start and PrewarmEngineHost has
+--  no fill family, so this is not an engine-host style.
+-------------------------------------------------------------------------------
+local function StartSolidFill(wrapper, cr, cg, cb, opts)
+    opts = opts or {}
+    if not wrapper._euiFillData then
+        local tex = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
+        tex:SetAllPoints(wrapper)
+        wrapper._euiFillData = { tex = tex }
+    end
+    local d = wrapper._euiFillData
+    d.tex:SetColorTexture(cr or 0, cg or 0, cb or 0, opts.alpha or 1)
+    d.tex:SetAlpha(1)
+    -- Shape-masked icons: clip the fill to the icon silhouette so it cannot
+    -- spill past a rounded/circular border.
+    local shapeMask = opts.shapeMask
+    if d.mask ~= shapeMask then
+        if d.mask then pcall(d.tex.RemoveMaskTexture, d.tex, d.mask) end
+        if shapeMask then pcall(d.tex.AddMaskTexture, d.tex, shapeMask) end
+        d.mask = shapeMask
+    end
+    d.tex:Show()
+end
+
+local function StopSolidFill(wrapper)
+    if wrapper._euiFillData then wrapper._euiFillData.tex:Hide() end
+end
+
 -- Defined above StopAllGlows so engine-hosted ants (StartEngineGlow /
 -- StartAnimatedAnts) tear down through the same unified stop path.
 local function StopAnimatedAnts(wrapper)
@@ -808,6 +867,7 @@ local function StopAnimatedAnts(wrapper)
     for i = 1, 4 do
         d.groups[i]:Stop()
         d.strips[i]:Hide()
+        if d.bgs and d.bgs[i] then d.bgs[i]:Hide() end
     end
 end
 
@@ -821,7 +881,15 @@ local function StopAllGlows(wrapper)
     StopAutoCastShine(wrapper)
     StopShapeGlow(wrapper)
     StopFlipBookGlow(wrapper)
+    StopSolidFill(wrapper)
     StopAnimatedAnts(wrapper)
+    -- Blizzard Border (EllesmereUI.Glows.STEALABLE_BORDER) is a static texture
+    -- on the same hosts; a stop clears it too.
+    local steal = wrapper._euiStealTex
+    if steal then steal:Hide() end
+    -- StartSpecGlow's change signature describes a glow that is now gone.
+    local sig = wrapper._euiSpecSig
+    if sig then sig.idx = nil end
     -- Defensive scrub: the central driver owns the only OnUpdate now, so the
     -- five Stop* calls above already unregistered this wrapper from the driver.
     -- This clears any stale OnUpdate a pre-migration build may have left on the
@@ -859,6 +927,9 @@ end
 --    .scale       — override entry.scale
     --    .N, .th, .period, .bg — pixel glow tuning/background
 --    .maskPath, .borderPath, .shapeMask — shape glow textures
+--    .untinted    -- a nil color stays nil on the FlipBook path (the atlas's
+--                   own untinted look) instead of desaturated white
+--    .alpha       -- Blackout fill opacity (0-1, default 1 = opaque)
 -------------------------------------------------------------------------------
 local function StartGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
     if not wrapper then return end
@@ -868,6 +939,10 @@ local function StartGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
     opts = opts or {}
     local w = szOrW or 36
     local h = szH or w
+    -- An unspecified colour means black for Blackout (its default look), not
+    -- the white every other style falls back to below.
+    local noColor = (cr == nil)
+    local keepUntinted = opts.untinted and cr == nil
     cr = cr or 1; cg = cg or 1; cb = cb or 1
 
     -- Stop any previous glow
@@ -893,9 +968,16 @@ local function StartGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
     elseif entry.shapeGlow then
         StartShapeGlow(wrapper, w, cr, cg, cb, 1.20, opts)
 
+    elseif entry.solidFill then
+        StartSolidFill(wrapper, noColor and 0 or cr, noColor and 0 or cg, noColor and 0 or cb, opts)
+
     else
         -- FlipBook mode (GCD, Modern WoW Glow, Classic WoW Glow, etc.)
-        StartFlipBookGlow(wrapper, w, entry, cr, cg, cb, h, opts)
+        if keepUntinted then
+            StartFlipBookGlow(wrapper, w, entry, nil, nil, nil, h, opts)
+        else
+            StartFlipBookGlow(wrapper, w, entry, cr, cg, cb, h, opts)
+        end
     end
 
     if opts.maskWith then ApplyMaskWith(wrapper, opts.maskWith) end
@@ -924,12 +1006,53 @@ end
 -------------------------------------------------------------------------------
 local ANIM_MASK_TEX = [[Interface\Buttons\WHITE8X8]]
 
+-- One hidden background strip of the animated ants, spanning p1 to p2.
+local function _MkAntsBg(wrapper, p1, p2)
+    local t = wrapper:CreateTexture(nil, "OVERLAY", nil, 6)
+    t:SetPoint(p1, wrapper, p1)
+    t:SetPoint(p2, wrapper, p2)
+    t:Hide()
+    return t
+end
+
+-- Region creation only (shared with PrewarmEngineHost): per edge the rect mask,
+-- the dash strip and its looping Translation, then the background strips,
+-- all hidden. The data table appears only once every region exists.
+local function _EnsureAnimAnts(wrapper)
+    local d = wrapper._euiAnimAnts
+    if d then return d end
+    d = { strips = {}, masks = {}, groups = {}, trs = {}, bgs = {} }
+    for i = 1, 4 do
+        local mask = wrapper:CreateMaskTexture()
+        mask:SetTexture(ANIM_MASK_TEX, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        local strip = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
+        strip:AddMaskTexture(mask)
+        strip:Hide()
+        local ag = strip:CreateAnimationGroup()
+        ag:SetLooping("REPEAT")
+        local tr = ag:CreateAnimation("Translation")
+        tr:SetSmoothing("NONE")
+        d.masks[i], d.strips[i], d.groups[i], d.trs[i] = mask, strip, ag, tr
+    end
+    -- Background strips: top, right, bottom, left (same order as the edges).
+    d.bgs[1] = _MkAntsBg(wrapper, "TOPLEFT", "TOPRIGHT")
+    d.bgs[2] = _MkAntsBg(wrapper, "TOPRIGHT", "BOTTOMRIGHT")
+    d.bgs[3] = _MkAntsBg(wrapper, "BOTTOMLEFT", "BOTTOMRIGHT")
+    d.bgs[4] = _MkAntsBg(wrapper, "TOPLEFT", "BOTTOMLEFT")
+    wrapper._euiAnimAnts = d
+    return d
+end
+
 -- Marching dashes: per edge, a dash strip one pattern-cycle longer than the edge slides
 -- by exactly one cycle and loops; a rect mask clips it to the edge, so the snap-back is
 -- invisible and the march is seamless. Strip texcoords carry the cumulative perimeter
 -- phase, keeping dashes corner-continuous exactly like the driver-ticked ants (phase
 -- matters modulo one cycle, so the one-cycle anchor offsets cancel out).
-local function StartAnimatedAnts(wrapper, N, th, period, cr, cg, cb, w, h, ca)
+-- bgR non-nil = background on (same contract as StartProceduralAnts): a static
+-- solid strip under each edge. The strips are created WITH the dash strips on
+-- the first call, so turning the background on later never creates a region
+-- outside the host's creation window.
+local function StartAnimatedAnts(wrapper, N, th, period, cr, cg, cb, w, h, ca, bgR, bgG, bgB, bgA)
     N = (N and N > 0) and N or 8
     th = th or 2
     period = period or 4
@@ -937,65 +1060,62 @@ local function StartAnimatedAnts(wrapper, N, th, period, cr, cg, cb, w, h, ca)
     local perim = 2 * (w + h)
     local P = perim / N              -- pixels per dash cycle
     local step = period / N          -- seconds per dash cycle
-    local d = wrapper._euiAnimAnts
-    if not d then
-        d = { strips = {}, masks = {}, groups = {}, trs = {} }
-        wrapper._euiAnimAnts = d
-        for i = 1, 4 do
-            local mask = wrapper:CreateMaskTexture()
-            mask:SetTexture(ANIM_MASK_TEX, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-            local strip = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
-            strip:AddMaskTexture(mask)
-            local ag = strip:CreateAnimationGroup()
-            ag:SetLooping("REPEAT")
-            local tr = ag:CreateAnimation("Translation")
-            tr:SetSmoothing("NONE")
-            d.masks[i], d.strips[i], d.groups[i], d.trs[i] = mask, strip, ag, tr
+    local d = _EnsureAnimAnts(wrapper)
+    for i = 1, 4 do
+        local t = d.bgs[i]
+        if bgR then
+            if i == 1 or i == 3 then t:SetHeight(th) else t:SetWidth(th) end
+            t:SetColorTexture(bgR, bgG or 0, bgB or 0, bgA or 1)
+            t:Show()
+        else
+            t:Hide()
         end
     end
     -- Edge order (clockwise): 1 top scrolls right, 2 right scrolls down,
     -- 3 bottom scrolls left, 4 left scrolls up. base = cumulative
-    -- perimeter phase in cycles at the edge's visual start.
-    local edges = {
-        { tex = DASH_H, len = w, dx = P,  dy = 0,  vert = false, base = 0 },
-        { tex = DASH_V, len = h, dx = 0,  dy = -P, vert = true,  base = w / P },
-        { tex = DASH_H, len = w, dx = -P, dy = 0,  vert = false, base = (w + h) / P },
-        { tex = DASH_V, len = h, dx = 0,  dy = P,  vert = true,  base = (w + h + w) / P },
-    }
+    -- perimeter phase in cycles at the edge's visual start. Computed per
+    -- edge in place (no per-call tables).
+    cr, cg, cb, ca = cr or 1, cg or 1, cb or 1, ca or 1
     for i = 1, 4 do
-        local e = edges[i]
         local mask, strip, ag, tr = d.masks[i], d.strips[i], d.groups[i], d.trs[i]
         ag:Stop()
-        strip:SetTexture(e.tex, "REPEAT", "REPEAT")
-        strip:SetVertexColor(cr or 1, cg or 1, cb or 1, ca or 1)
+        strip:SetVertexColor(cr, cg, cb, ca)
         mask:ClearAllPoints()
         strip:ClearAllPoints()
-        local cyc = (e.len + P) / P
-        if not e.vert then
-            mask:SetSize(e.len, th)
-            strip:SetSize(e.len + P, th)
+        if i == 1 or i == 3 then
+            local base = 0
+            if i == 3 then base = (w + h) / P end
+            strip:SetTexture(DASH_H, "REPEAT", "REPEAT")
+            mask:SetSize(w, th)
+            strip:SetSize(w + P, th)
             if i == 1 then
                 mask:SetPoint("TOPLEFT", wrapper, "TOPLEFT", 0, 0)
                 strip:SetPoint("TOPLEFT", wrapper, "TOPLEFT", -P, 0)
+                tr:SetOffset(P, 0)
             else
                 mask:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 0, 0)
                 strip:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 0, 0)
+                tr:SetOffset(-P, 0)
             end
-            strip:SetTexCoord(e.base, e.base + cyc, 0, 1)
+            strip:SetTexCoord(base, base + (w + P) / P, 0, 1)
         else
-            mask:SetSize(th, e.len)
-            strip:SetSize(th, e.len + P)
+            local base = w / P
+            if i == 4 then base = (w + h + w) / P end
+            strip:SetTexture(DASH_V, "REPEAT", "REPEAT")
+            mask:SetSize(th, h)
+            strip:SetSize(th, h + P)
             if i == 2 then
                 mask:SetPoint("TOPRIGHT", wrapper, "TOPRIGHT", 0, 0)
                 strip:SetPoint("TOPRIGHT", wrapper, "TOPRIGHT", 0, P)
+                tr:SetOffset(0, -P)
             else
                 mask:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 0, 0)
                 strip:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 0, -P)
+                tr:SetOffset(0, P)
             end
-            strip:SetTexCoord(0, 1, e.base, e.base + cyc)
+            strip:SetTexCoord(0, 1, base, base + (h + P) / P)
         end
         strip:Show()
-        tr:SetOffset(e.dx, e.dy)
         tr:SetDuration(step)
         ag:Play()
     end
@@ -1019,14 +1139,18 @@ local ABG_HALO_OPTS = { abgHalo = true }  -- shared scratch for the no-opts ABG 
 local function StartEngineGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
     if not wrapper then return end
     styleIdx = tonumber(styleIdx) or 1
-    if styleIdx < 1 or styleIdx > #GLOW_STYLES then styleIdx = 1 end
+    -- Blackout is Cooldown Manager only: engine hosts draw Pixel instead, as
+    -- ResolveStyle does.
+    if styleIdx < 1 or styleIdx > #GLOW_STYLES or GLOW_STYLES[styleIdx].solidFill then styleIdx = 1 end
     local entry = GLOW_STYLES[styleIdx]
     if entry.procedural then
         opts = opts or {}
         local w = szOrW or 36
+        local bg = opts.bg
         StopAllGlows(wrapper)
         StartAnimatedAnts(wrapper, opts.N or 8, opts.th or 2, opts.period or 4,
-            cr or 1, cg or 1, cb or 1, w, szH or w)
+            cr or 1, cg or 1, cb or 1, w, szH or w, nil,
+            bg and (bg.r or 0) or nil, bg and (bg.g or 0) or nil, bg and (bg.b or 0) or nil, bg and (bg.a or 1) or nil)
         wrapper._euiGlowActive = true
         wrapper:SetAlpha(1)
         return
@@ -1038,7 +1162,9 @@ local function StartEngineGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
         -- white default) while the COLOR rides the halo alone -- gold when
         -- the caller never chose one.
         styleIdx = 7
-        if opts then opts.abgHalo = true else opts = ABG_HALO_OPTS end
+        -- untinted would turn the white ants into the sheet's raw gold; the
+        -- substitution always wants them white.
+        if opts then opts.abgHalo = true; opts.untinted = nil else opts = ABG_HALO_OPTS end
         opts.haloR, opts.haloG, opts.haloB = cr, cg, cb
         cr, cg, cb = nil, nil, nil
     elseif entry.autocast or entry.shapeGlow then
@@ -1089,7 +1215,338 @@ EllesmereUI.Glows = {
     StopShapeGlow       = StopShapeGlow,
     StartFlipBookGlow   = StartFlipBookGlow,
     StopFlipBookGlow    = StopFlipBookGlow,
+    StartSolidFill      = StartSolidFill,
+    StopSolidFill       = StopSolidFill,
     ApplyMaskWith       = ApplyMaskWith,
     StopAllGlows        = StopAllGlows,
 }
+
+-------------------------------------------------------------------------------
+--  Blizzard Border: the static art Blizzard's own target frame puts on a buff
+--  it can steal or purge. No driver and no animation, so it renders the same
+--  in and out of restricted content on engine aura buttons (where a glow host
+--  belongs to a purgeable GROUP, never to a per-aura read). Its picker value
+--  sits outside the STYLES list. The texture is made on first use (the
+--  flipbook glows create theirs on the same hosts the same way); Show/Hide
+--  then only resize, tint and toggle it.
+-------------------------------------------------------------------------------
+do
+    local G = EllesmereUI.Glows
+    local TEX = "Interface\\TargetingFrame\\UI-TargetingFrame-Stealable"
+    -- Blizzard draws it 24 px on a 21 px buff icon.
+    local SCALE = 24 / 21
+    G.STEALABLE_BORDER = 99
+
+    function G.EnsureStealableBorder(host)
+        local tex = host._euiStealTex
+        if not tex then
+            tex = host:CreateTexture(nil, "OVERLAY")
+            tex:SetTexture(TEX)
+            tex:SetBlendMode("ADD")
+            tex:SetPoint("CENTER")
+            tex:Hide()
+            host._euiStealTex = tex
+        end
+        return tex
+    end
+
+    -- w/h: the icon's size; nil color = Blizzard's own look. A tint
+    -- desaturates first, like the flipbook glows, so the pick reads true.
+    function G.ShowStealableBorder(host, w, h, cr, cg, cb)
+        local tex = G.EnsureStealableBorder(host)
+        w = w or 24
+        h = h or w
+        tex:SetSize(w * SCALE, h * SCALE)
+        tex:SetDesaturated(cr ~= nil)
+        tex:SetVertexColor(cr or 1, cg or 1, cb or 1)
+        tex:Show()
+    end
+
+    function G.HideStealableBorder(host)
+        local tex = host and host._euiStealTex
+        if tex then tex:Hide() end
+        -- StartSpecGlow's change check must not skip showing it again.
+        local s = host and host._euiSpecSig
+        if s and s.idx == G.STEALABLE_BORDER then s.idx = nil end
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Unified glow model
+--  GLOW_STYLES is the one style table (the "shared index"). Modules keep their
+--  historical saved numbering through a VIEW, hosts describe what can render
+--  where, and StartSpecGlow renders a whole glow setting (style, color, pixel
+--  parameters, background) in one call. Saved keys stay module-owned: these
+--  helpers only translate and render.
+-------------------------------------------------------------------------------
+do
+    local G = EllesmereUI.Glows
+
+    -- Suite default look ("default" color mode): gold for the drawn engines,
+    -- the atlas's own untinted look for FlipBook styles.
+    local DEF_R, DEF_G, DEF_B = 1.0, 0.788, 0.137
+    G.DEFAULT_COLOR = { r = DEF_R, g = DEF_G, b = DEF_B }
+
+    -- A module's style list in its saved order. list[i] is the shared entry
+    -- itself, or a proxy over it when overrides[i] adds module-only fields
+    -- (read through __index, so frames/texPadding always come from the shared
+    -- table). toShared[i] / fromShared[shared] translate saved <-> shared.
+    -- ordered = the saved values in shared order, so every menu lists the
+    -- styles the same way whatever a module's saved numbering is.
+    function G.MakeView(order, overrides)
+        local list, toShared, fromShared, ordered = {}, {}, {}, {}
+        for i = 1, #order do
+            local si = order[i]
+            local ov = overrides and overrides[i]
+            list[i] = ov and setmetatable(ov, { __index = GLOW_STYLES[si] }) or GLOW_STYLES[si]
+            toShared[i] = si
+            fromShared[si] = i
+        end
+        for si = 1, #GLOW_STYLES do
+            if fromShared[si] then ordered[#ordered + 1] = fromShared[si] end
+        end
+        return { list = list, toShared = toShared, fromShared = fromShared, ordered = ordered }
+    end
+
+    -- Styles each host can render, by shared index. Technical limits live
+    -- here; which styles a site OFFERS (e.g. no Shape without an icon shape) is
+    -- the site's own excludes list. Blackout (8) is Cooldown Manager only and
+    -- stays out of every host on purpose: that keeps it out of every shared
+    -- glow picker (StyleOffered), and ResolveStyle turns a stray 8 into Pixel.
+    --   icon   : our own frame, driver-ticked engines allowed
+    --   bar    : our own rectangular frame; Shape has no shape to follow
+    --   engine : 12.1 aura-button subtree; no driver ticks, so no Auto-Cast or
+    --            Shape (Pixel renders as animated ants, ABG as its FlipBook twin)
+    G.HOSTS = {
+        icon   = { true, true, true, true,  true, true, true },
+        bar    = { true, true, true, false, true, true, true },
+        engine = { true, true, false, false, true, true, true },
+    }
+
+    -- Rectangles (buff bars, whole-frame glows): the texture styles
+    -- (ABG, GCD, Modern, Classic) are square art that stretches on a wide bar,
+    -- and Shape has no shape to follow, so only Pixel and Auto-Cast draw
+    -- cleanly. Rectangle sites pass this as their excludes, in the options and
+    -- in the live spec (an engine host drops Auto-Cast on top: Pixel only).
+    G.RECT_EXCLUDES = { [2] = true, [4] = true, [5] = true, [6] = true, [7] = true }
+
+    -- Nearest renderable replacement, in preference order, per wanted style.
+    local FALLBACK = {
+        [1] = { 7, 6, 5 },   -- Pixel      -> Classic ants
+        [2] = { 7, 6, 1 },   -- ABG        -> Classic
+        [3] = { 6, 5, 1 },   -- Auto-Cast  -> Modern (StartEngineGlow's own remap)
+        [4] = { 6, 1, 7 },   -- Shape      -> Modern
+        [5] = { 6, 7, 1 },
+        [6] = { 5, 7, 1 },
+        [7] = { 1, 6, 5 },
+        [8] = { 1, 6, 7 },   -- Blackout   -> Pixel
+    }
+
+    -- Shared index -> renderable shared index, plus whether it had to change.
+    function G.ResolveStyle(idx, host, excludes)
+        idx = tonumber(idx) or 1
+        -- Blizzard Border is a plain texture: every host can show it.
+        if idx == G.STEALABLE_BORDER then return idx, false end
+        if idx < 1 or idx > #GLOW_STYLES then idx = 1 end
+        local caps = G.HOSTS[host or "icon"] or G.HOSTS.icon
+        if caps[idx] and not (excludes and excludes[idx]) then return idx, false end
+        local alts = FALLBACK[idx]
+        for k = 1, #alts do
+            local a = alts[k]
+            if caps[a] and not (excludes and excludes[a]) then return a, true end
+        end
+        return 1, true
+    end
+
+    -- Color for a mode. nil = the suite default (StartSpecGlow resolves it per
+    -- style). A nil mode is a legacy site that never stored one: it reads as
+    -- custom with the site's own default, so its look is unchanged.
+    function G.ResolveColor(mode, r, g, b, defR, defG, defB)
+        if mode == "default" then return nil end
+        if mode == "class" then
+            -- The palette colour (custom + Class Color Darken); an unknown class is white.
+            local c = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+            return c.r, c.g, c.b
+        end
+        if r ~= nil then return r, g or 0, b or 0 end
+        return defR, defG, defB
+    end
+
+    -- Legacy sites store a class-color boolean instead of a mode.
+    function G.DeriveColorMode(mode, classFlag)
+        if mode then return mode end
+        return classFlag and "class" or "custom"
+    end
+
+    -- Speed: the UI shows 1-8 with higher = faster; saved values are the march
+    -- period in seconds. Stored periods above 8 (older 1-10 sliders) still
+    -- render as saved and read as the slowest step until edited.
+    function G.SpeedToUI(period)
+        local v = 9 - (period or 4)
+        if v < 1 then v = 1 elseif v > 8 then v = 8 end
+        return v
+    end
+    function G.SpeedFromUI(v) return 9 - v end
+
+    -- Spec from a settings table using the prefix key schema shared by the aura
+    -- managers: <p>Type (shared index, 0 = off), <p>ColorMode, legacy
+    -- <p>ClassColor, <p>R/G/B, <p>Lines, <p>Thickness, <p>Speed, <p>Background,
+    -- <p>BackgroundR/G/B. Returns nil when off. Keys are built once per prefix.
+    local _prefixKeys = {}
+    local function PrefixKeys(p)
+        local k = _prefixKeys[p]
+        if not k then
+            k = { type = p .. "Type", mode = p .. "ColorMode", class = p .. "ClassColor",
+                  r = p .. "R", g = p .. "G", b = p .. "B", lines = p .. "Lines",
+                  th = p .. "Thickness", speed = p .. "Speed", bg = p .. "Background",
+                  bgR = p .. "BackgroundR", bgG = p .. "BackgroundG", bgB = p .. "BackgroundB" }
+            _prefixKeys[p] = k
+        end
+        return k
+    end
+    G.PrefixKeys = PrefixKeys
+
+    function G.SpecFromPrefix(out, t, p, defR, defG, defB)
+        local k = PrefixKeys(p)
+        local style = t and t[k.type] or 0
+        if not style or style == 0 then return nil end
+        out.style = style
+        out.r, out.g, out.b = G.ResolveColor(G.DeriveColorMode(t[k.mode], t[k.class]),
+            t[k.r], t[k.g], t[k.b], defR, defG, defB)
+        out.lines, out.thickness, out.speed = t[k.lines], t[k.th], t[k.speed]
+        if t[k.bg] then
+            out.bg, out.bgR, out.bgG, out.bgB = true, t[k.bgR] or 0, t[k.bgG] or 0, t[k.bgB] or 0
+        else
+            -- out is the caller's reused scratch: clear the colour too.
+            out.bg, out.bgR, out.bgG, out.bgB = nil, nil, nil, nil
+        end
+        return out
+    end
+
+    -- Options previews sit in the panel, whose pixel grid differs from
+    -- UIParent's: a raw thickness would draw a different (or no) pixel count
+    -- there. Pass PANEL_EXTRA as StartSpecGlow's extra to draw the pixels the
+    -- live UIParent glow shows.
+    G.PANEL_EXTRA = { panel = true }
+    function G.PanelThickness(th)
+        local PP, PPP = EllesmereUI.PP, EllesmereUI.PanelPP
+        local px = math.floor(th / ((PP and PP.mult) or 1) + 0.5)
+        if px < 1 then px = 1 end
+        return px * ((PPP and PPP.mult) or 1)
+    end
+
+    -- Scratch opts for StartSpecGlow: every field is rewritten on every call.
+    -- StartEngineGlow writes abgHalo/halo* into the table it is given, so a
+    -- field left over from one call would leak into the next (a Classic pick
+    -- after an ABG pick would keep the halo).
+    local _opts, _bg = {}, {}
+
+    -- spec = { style = shared index, r, g, b (already resolved; nil = default
+    --          look), lines, thickness, speed (period), bg, bgR, bgG, bgB,
+    --          excludes }
+    -- host = "icon" | "bar" | "engine"; extra = { maskWith, maskPath,
+    --          borderPath, shapeMask, anchorFrame, panel } (optional, read in this call)
+    -- Restarts only when something changed; returns the rendered shared index
+    -- and whether it was converted from the requested one.
+    function G.StartSpecGlow(wrapper, spec, w, h, host, extra)
+        if not (wrapper and spec) then return end
+        local idx, converted = G.ResolveStyle(spec.style, host, spec.excludes)
+        w = w or 36; h = h or w
+        local s = wrapper._euiSpecSig
+        -- Blizzard Border: no glow, no parameters; nil color = Blizzard's art.
+        if idx == G.STEALABLE_BORDER then
+            local r, g, b = spec.r, spec.g, spec.b
+            -- StopGlow leaves the host at alpha 0 and a caller may park it
+            -- there, so the alpha is re-asserted even when nothing changed.
+            wrapper:SetAlpha(1)
+            if s and s.idx == idx and s.w == w and s.h == h
+               and s.r == r and s.g == g and s.b == b then
+                return idx, false
+            end
+            -- Clear the flag too (StopAllGlows keeps it), so later calls skip the teardown.
+            if wrapper._euiGlowActive then StopAllGlows(wrapper); wrapper._euiGlowActive = false end
+            G.ShowStealableBorder(wrapper, w, h, r, g, b)
+            if not s then s = {}; wrapper._euiSpecSig = s end
+            s.idx, s.host, s.w, s.h, s.r, s.g, s.b = idx, host, w, h, r, g, b
+            return idx, false
+        end
+        -- A shown Blizzard Border needs no separate hide: every start below
+        -- runs StopAllGlows first, which hides it and clears the signature.
+        local entry = GLOW_STYLES[idx]
+        local r, g, b = spec.r, spec.g, spec.b
+        local isFlip = not (entry.procedural or entry.buttonGlow or entry.autocast or entry.shapeGlow)
+        -- Default look: FlipBooks stay untinted (nil). The engine-hosted ABG
+        -- twin takes nil too (white ants, gold halo); everything else is gold.
+        if r == nil and not isFlip
+           and not (host == "engine" and entry.buttonGlow) then
+            r, g, b = DEF_R, DEF_G, DEF_B
+        end
+        local N, th, period = spec.lines or 8, spec.thickness or 2, spec.speed or 4
+        if extra and extra.panel then th = G.PanelThickness(th) end
+        local bgOn = spec.bg and true or false
+        -- An off background draws nothing, so its colour never counts (a
+        -- reused scratch spec can still carry an old one).
+        local bgR, bgG, bgB = 0, 0, 0
+        if bgOn then bgR, bgG, bgB = spec.bgR or 0, spec.bgG or 0, spec.bgB or 0 end
+        local mask = extra and extra.maskWith or nil
+        local maskPath = extra and extra.maskPath or nil
+        local shapeMask = extra and extra.shapeMask or nil
+
+        if s and wrapper._euiGlowActive and s.idx == idx and s.host == host
+           and s.w == w and s.h == h and s.r == r and s.g == g and s.b == b
+           and s.N == N and s.th == th and s.period == period
+           and s.bg == bgOn and s.bgR == bgR and s.bgG == bgG and s.bgB == bgB
+           and s.mask == mask and s.maskPath == maskPath and s.shapeMask == shapeMask then
+            return idx, converted
+        end
+
+        local o = _opts
+        o.N, o.th, o.period = N, th, period
+        if bgOn then
+            _bg.r, _bg.g, _bg.b, _bg.a = bgR, bgG, bgB, 1
+            o.bg = _bg
+        else
+            o.bg = nil
+        end
+        o.untinted = (r == nil) or nil
+        o.abgHalo, o.haloR, o.haloG, o.haloB = nil, nil, nil, nil
+        o.maskWith = mask
+        o.maskPath    = maskPath
+        o.borderPath  = extra and extra.borderPath or nil
+        o.shapeMask   = shapeMask
+        o.anchorFrame = extra and extra.anchorFrame or nil
+        if host == "engine" then
+            StartEngineGlow(wrapper, idx, w, r, g, b, o, h)
+        else
+            StartGlow(wrapper, idx, w, r, g, b, o, h)
+        end
+
+        -- Stored after the start: StartGlow's StopAllGlows invalidates it.
+        s = wrapper._euiSpecSig
+        if not s then s = {}; wrapper._euiSpecSig = s end
+        s.idx, s.host, s.w, s.h, s.r, s.g, s.b = idx, host, w, h, r, g, b
+        s.N, s.th, s.period = N, th, period
+        s.bg, s.bgR, s.bgG, s.bgB, s.mask = bgOn, bgR, bgG, bgB, mask
+        s.maskPath, s.shapeMask = maskPath, shapeMask
+        return idx, converted
+    end
+
+    -- Create the regions an engine-hosted glow can need, hidden and
+    -- unconfigured, from the host's creation window (extraInit): a later style
+    -- or background change then only reconfigures existing regions, and the
+    -- first StartSpecGlow does the only setup (nothing is sized, tinted or
+    -- played here). need = nil creates every family; else a table naming what
+    -- the site can draw: ants (Pixel's animated ants and their background
+    -- strips), flip (the FlipBook styles, with the atlas ants overlay and
+    -- ABG's halo), stealable (the Blizzard Border texture). Pass a file-scope
+    -- constant. w, h stay for call compatibility (creation needs no size).
+    -- Repeat calls are free: each family's data table appears only once its
+    -- regions exist.
+    function G.PrewarmEngineHost(wrapper, w, h, need)
+        if not wrapper then return end
+        if not need or need.ants then _EnsureAnimAnts(wrapper) end
+        if not need or need.flip then _EnsureFlip(wrapper, true, true) end
+        if not need or need.stealable then G.EnsureStealableBorder(wrapper) end
+    end
+end
 

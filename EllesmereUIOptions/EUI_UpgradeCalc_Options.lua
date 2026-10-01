@@ -1,4 +1,5 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- no item upgrade system on WoW Forever: the QoL module lists no Upgrader tab there and its callers nil-guard the page builder and reset
 -------------------------------------------------------------------------------
 --  EUI_UpgradeCalc_Options.lua
 --  Options page for the Upgrade Calculator feature (part of EllesmereUIQoL).
@@ -75,7 +76,7 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
 
     -- Reposition hint
     do
-        local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+        local fontPath = (EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
         local infoFrame = CreateFrame("Frame", nil, parent)
         infoFrame:SetSize(parent:GetWidth(), 20)
         infoFrame:SetPoint("TOP", parent, "TOP", 0, y - 10)
@@ -206,9 +207,10 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
           setValue = function(v) GetAddonDB().showWeeklyRemaining = v; LiveRefresh() end }
     ); y = y - h
 
-    -- Row 5: Show Calc Button on Character Sheet | Open with Crest Upgrader
-    _, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Show Calc Button on Character Sheet",
+    -- Row 5: Show Calc Button on Character Sheet | Open with Crest Upgrader.
+    -- The button is a tab on the EllesmereUI character sheet: gated while the
+    -- sheet's Blizz Default (Window Skins card) keeps Blizzard's tab row.
+    local calcBtnCfg = { type = "toggle", text = "Show Calc Button on Character Sheet",
           tooltip = "Adds a Calc toggle button to the character sheet that opens and closes the Upgrade Calculator.",
           getValue = function() return GetAddonDB().showCalcButton or false end,
           setValue = function(v)
@@ -216,7 +218,15 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
               if EllesmereUI and EllesmereUI.ApplyCharSheetCalcTab then
                   EllesmereUI.ApplyCharSheetCalcTab()
               end
-          end },
+          end }
+    local skinNS = EllesmereUI._ModuleNS and EllesmereUI._ModuleNS.EllesmereUIBlizzardSkin
+    if skinNS and skinNS.CharSheetStock() then
+        calcBtnCfg.disabled        = function() return true end
+        calcBtnCfg.disabledTooltip = "Character Sheet: Blizz Default"
+        calcBtnCfg.requireState    = "disabled"
+    end
+    _, h = W:DualRow(parent, y,
+        calcBtnCfg,
         { type = "toggle", text = "Open with Crest Upgrader",
           tooltip = "Automatically opens the Upgrade Calculator when the Crest Upgrade NPC window is opened.",
           getValue = function() return GetAddonDB().openWithUpgrader or false end,

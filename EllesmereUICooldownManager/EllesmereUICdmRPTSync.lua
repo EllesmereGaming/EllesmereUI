@@ -19,14 +19,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local _, ns = ...
 
-local function DeepCopy(t)
-    local fn = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
-    if fn then return fn(t) end
-    if type(t) ~= "table" then return t end
-    local r = {}
-    for k, v in pairs(t) do r[k] = DeepCopy(v) end
-    return r
-end
+local DeepCopy = EllesmereUI.Lite.DeepCopy
 
 local function GetSA()
     if not EllesmereUIDB then return nil end
@@ -52,9 +45,31 @@ end
 function ns.GetCDMSpecInfo()
     local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     local result = {}
+    -- WoW Forever: one row for the player's class, keyed by the store key the
+    -- Cooldown Manager runs on.
+    if EllesmereUI.IS_FOREVER then
+        local key = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+        if not key then return result end
+        local token = select(2, UnitClass("player"))
+        local prof = sp and sp[key]
+        local hasData = false
+        if type(prof) == "table" then
+            if prof.barSpells and next(prof.barSpells) ~= nil then
+                hasData = true
+            elseif prof.trackedBuffBars and prof.trackedBuffBars.bars
+                   and #prof.trackedBuffBars.bars > 0 then
+                hasData = true
+            end
+        end
+        result[1] = {
+            key = key, name = EllesmereUI.ForeverClassName(token),
+            icon = EllesmereUI.ForeverClassIcon(token), hasData = hasData,
+        }
+        return result
+    end
     local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
     for i = 1, numSpecs do
-        local specID, sName, _, sIcon = GetSpecializationInfo(i)
+        local specID, sName, _, sIcon = C_SpecializationInfo.GetSpecializationInfo(i)
         if specID then
             local key = tostring(specID)
             local prof = sp and sp[key]
@@ -96,11 +111,33 @@ function ns.GetAllCDMSpecInfo()
         return false
     end
 
+    -- WoW Forever: one row per class (the current class always, other classes
+    -- only with data), keyed by the store key that class uses.
+    if EllesmereUI.IS_FOREVER then
+        local classes = EllesmereUI.ForeverClasses()
+        for c = 1, #classes do
+            local token = classes[c]
+            local isCurrentClass = (token == curClassFile)
+            local key = isCurrentClass and ns.GetActiveSpecKey and ns.GetActiveSpecKey() or nil
+            if not key then
+                key = tostring(EllesmereUI.ForeverClassSpec(token, EllesmereUI.SpecHasStringEntry, sp, true))
+            end
+            local hasData = HasData(sp and sp[key])
+            if isCurrentClass or hasData then
+                result[#result + 1] = {
+                    key = key, name = EllesmereUI.ForeverClassName(token),
+                    icon = EllesmereUI.ForeverClassIcon(token), hasData = hasData,
+                }
+            end
+        end
+        return result
+    end
+
     local numClasses = (GetNumClasses and GetNumClasses()) or 0
     for classID = 1, numClasses do
         local className, classFile = GetClassInfo(classID)
         local isCurrentClass = (classFile ~= nil and classFile == curClassFile)
-        local numSpecs = (GetNumSpecializationsForClassID and GetNumSpecializationsForClassID(classID)) or 0
+        local numSpecs = C_SpecializationInfo.GetNumSpecializationsForClassID(classID) or 0
         for specIndex = 1, numSpecs do
             local specID, sName, _, sIcon = GetSpecializationInfoForClassID(classID, specIndex)
             if specID then
@@ -127,12 +164,15 @@ local function IsRPTId(id)
     if type(id) ~= "number" then return false end
     if id < 0 then
         -- The negative space is SHARED: trinket slots (-13/-14) and item
-        -- presets (-itemID) are sync material, but hosted-buff and cd-claim
-        -- markers (at/below -HOSTED_BUFF_MARKER_BASE) encode CLASS SPELLS --
-        -- syncing those leaked inert foreign-class icons onto every synced
-        -- spec's bars (cross-class field report, 2026-08-16), with step 2's
-        -- additive re-add resurrecting them after manual removal.
-        if ns.HOSTED_BUFF_MARKER_BASE and id <= -ns.HOSTED_BUFF_MARKER_BASE then
+        -- presets (-itemID) are sync material, but Empty Slot markers, hosted-buff
+        -- markers, and cd-claim markers (at/below -EMPTY_SLOT_MARKER_BASE, which
+        -- sits below both of those) are not -- Empty Slot is a per-instance
+        -- placeholder with no cross-spec identity, and hosted-buff/cd-claim
+        -- markers encode CLASS SPELLS: syncing those leaked inert foreign-class
+        -- icons onto every synced spec's bars (cross-class field report,
+        -- 2026-08-16), with step 2's additive re-add resurrecting them after
+        -- manual removal.
+        if ns.EMPTY_SLOT_MARKER_BASE and id <= -ns.EMPTY_SLOT_MARKER_BASE then
             return false
         end
         return true
@@ -258,6 +298,18 @@ local function ApplyRPT(specProfiles, sourceSpecKey, targetSpecKey)
     if not srcProf then return end
     local tgtProf = specProfiles[targetSpecKey]
     if not tgtProf then
+        -- WoW Forever: a class reads its Forever spec key first, then its
+        -- retail specs in class order. A bucket created under any key other
+        -- than the one the class resolves to now would either take the class
+        -- over next session (an earlier key) or never be read (a later one),
+        -- so such targets are skipped; existing buckets still sync.
+        if EllesmereUI.IS_FOREVER then
+            local cls = EllesmereUI.SpecClassOf(tonumber(targetSpecKey))
+            if cls and EllesmereUI.ForeverClassSpecIDs(cls)
+               and tostring(EllesmereUI.ForeverClassSpec(cls, EllesmereUI.SpecHasStringEntry, specProfiles, true)) ~= targetSpecKey then
+                return
+            end
+        end
         -- Never-played target spec: it is born directly in the bar-filter v6
         -- model, so stamp it migrated. Otherwise the first time the player
         -- actually plays this spec, MigrateSpecToBarFilterModelV6 would see the

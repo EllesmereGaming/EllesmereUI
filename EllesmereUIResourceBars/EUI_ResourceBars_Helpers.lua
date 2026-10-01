@@ -20,6 +20,17 @@ end
 ns._ERB_IsThresholdCardShadowed = function(entries, idx)
     local cur = entries and entries[idx]
     if not cur or not cur.specIDs then return false end
+    -- WoW Forever: the class resolves as one spec (ns.ForeverThresholdPick; nil
+    -- = All Specs only), so a live card naming specs of the player's class, none
+    -- of them that one, never applies on this character.
+    if EllesmereUI.IS_FOREVER then
+        local pick = ns.ForeverThresholdPick(entries)
+        if not ns.ThresholdCardLiveFor(cur, pick) then
+            for _, s in ipairs(cur.specIDs) do
+                if EllesmereUI.IsPlayerSpec(s) and ns.ThresholdCardLiveFor(cur, s) then return true end
+            end
+        end
+    end
     local curGate = cur.talentSpellID
     local curAll, curSet = false, {}
     for _, s in ipairs(cur.specIDs) do
@@ -100,7 +111,7 @@ ns.ERB_SimpleOverrideOverlay = function(parent, topY, botY, sectionKey)
 		p.barDisplayMode = "advanced"
 		EllesmereUI:RefreshPage(true)
 		-- Clicking to edit navigates to the top of the Advanced page
-		if EllesmereUI.ScrollToTop then EllesmereUI:ScrollToTop() end
+		EllesmereUI:ScrollToTop()
 	end)
 end
 
@@ -116,7 +127,20 @@ ns.IsEntryBarType = function(entry)
 end
 local SpecName = function(specID)
 	if specID == 0 then return "All Specs" end
-	local _, name, _, _, _, _, className = GetSpecializationInfoByID(specID)
+	-- WoW Forever: the spec and class names from the shared spec table, in the
+	-- same "<Spec> <Class>" shape as below.
+	if EllesmereUI.IS_FOREVER then
+		local token = EllesmereUI.SpecClassOf(specID)
+		if token then
+			local sn, cn = EllesmereUI.RetailSpecName(specID), EllesmereUI.ForeverClassName(token)
+			return sn and (sn .. " " .. cn) or cn
+		end
+	end
+	-- The by-id lookup has no namespaced form and is absent on WoW Forever.
+	local _, name, className
+	if GetSpecializationInfoByID then
+		_, name, _, _, _, _, className = GetSpecializationInfoByID(specID)
+	end
 	if name and className then return name .. " " .. className end
 	return name or ("Spec " .. specID)
 end
@@ -124,6 +148,33 @@ ns.EntryLabel = function(entry)
 	if not entry or not entry.specIDs or #entry.specIDs == 0 then return "Unknown" end
 	if entry.specIDs[1] == 0 then return "All Specs" end
 	local names = {}
+	-- WoW Forever: a class the card holds whole reads as the class; a partial
+	-- class lists its specs, so cards for different specs stay distinct.
+	if EllesmereUI.IS_FOREVER then
+		local held, done = {}, {}
+		for _, sid in ipairs(entry.specIDs) do held[sid] = true end
+		for _, sid in ipairs(entry.specIDs) do
+			local token = EllesmereUI.SpecClassOf(sid)
+			local classIDs = EllesmereUI.ForeverClassSpecIDs(token)
+			if not classIDs then
+				names[#names + 1] = SpecName(sid)
+			elseif not done[token] then
+				done[token] = true
+				local whole = true
+				for i = 1, #classIDs do
+					if not held[classIDs[i]] then whole = false; break end
+				end
+				if whole then
+					names[#names + 1] = EllesmereUI.ForeverClassName(token)
+				else
+					for i = 1, #classIDs do
+						if held[classIDs[i]] then names[#names + 1] = SpecName(classIDs[i]) end
+					end
+				end
+			end
+		end
+		return table.concat(names, ", ")
+	end
 	for _, sid in ipairs(entry.specIDs) do names[#names + 1] = SpecName(sid) end
 	return table.concat(names, ", ")
 end
@@ -131,11 +182,14 @@ end
 -- Helper: returns true if the current class/spec uses a bar-type secondary (no pips)
 ns.IsBarTypeSecondary = function()
 	local _, cf = UnitClass("player")
-	local spec = GetSpecialization()
+	local spec = C_SpecializationInfo.GetSpecialization()
 	local gsr = _G._ERB_GetSecondaryResource
 	local info = gsr and gsr()
 	if info and info.power == "IRONFUR_BAR" then return true end            -- Guardian Ironfur bar
 	if info and info.power == "IGNOREPAIN_BAR" then return true end         -- Prot Warrior Ignore Pain bar
+	-- WoW Forever: no bar-type class resource exists there (the runtime never
+	-- builds one), so the retail spec positions below do not apply.
+	if EllesmereUI.IS_FOREVER then return false end
 	if cf == "DRUID" and spec == 1 then return true end                     -- Balance (Astral Power bar)
 	if cf == "SHAMAN" and spec == 1 then return true end                    -- Elemental
 	if cf == "PRIEST" and spec == 3 then return true end                    -- Shadow
@@ -220,6 +274,10 @@ ns.ThresholdNoticeInfo = function(bd, pageSpecID)
 	local entries = bd and bd.thresholdSpecs
 	if not entries or #entries == 0 then return nil end
 	local activeSpecID = _G._ERB_ResolveSpecIDCached and _G._ERB_ResolveSpecIDCached()
+	-- WoW Forever: the spec the thresholds resolve as (ns.ForeverThresholdPick; nil = All Specs only).
+	if EllesmereUI.IS_FOREVER then
+		activeSpecID = ns.ForeverThresholdPick(entries)
+	end
 	local names, seen, active = {}, {}, false
 	for _, entry in ipairs(entries) do
 		if ThresholdEntryConfigured(bd, entry) then

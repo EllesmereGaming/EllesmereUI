@@ -65,11 +65,6 @@ local function FP(...)
     return table.concat(FP_JOIN, "|")
 end
 
-local function Prof()
-    local p = ns.NP_GetProfile and ns.NP_GetProfile()
-    return p or (ns.NP_GetDefaults and ns.NP_GetDefaults()) or {}
-end
-
 local function PVal(key)
     local p = ns.NP_GetProfile and ns.NP_GetProfile()
     if p and p[key] ~= nil then return p[key] end
@@ -84,19 +79,22 @@ end
 -- vertical texcoords derive from the shared crop math.
 ------------------------------------------------------------------------------
 
-local function CropCoords(cropped)
+local function CropCoords(cropped, zoom)
+    -- Horizontal zoom 0.08 (Blizzard Style passes 0: the stock item draws the
+    -- whole icon under its rounded mask, same as PAB and the unit frames).
+    local z = zoom or 0.08
     if cropped then
-        -- Horizontal zoom 0.08; vertical span scaled to the cropped aspect so
-        -- the artwork never squishes (same math as ns.SetAuraIconCrop).
+        -- Vertical span scaled to the cropped aspect so the artwork never
+        -- squishes (same math as ns.SetAuraIconCrop).
         -- `cropped` carries the height factor from GetAuraCrop (Adjust Crop
         -- slider); plain true from a legacy caller falls back to the classic
         -- 0.80, which reproduces the old fixed coords exactly (0.164/0.836).
         local factor = (type(cropped) == "number") and cropped or 0.80
-        local vSpan = (1 - 2 * 0.08) * factor
+        local vSpan = (1 - 2 * z) * factor
         local v0 = 0.5 - vSpan / 2
-        return { 0.08, 0.92, v0, 1 - v0 }
+        return { z, 1 - z, v0, 1 - v0 }
     end
-    return { 0.08, 0.92, 0.08, 0.92 }
+    return { z, 1 - z, z, 1 - z }
 end
 
 local function NPSize(kind)
@@ -171,7 +169,7 @@ local function ApplyNPText(button, d, style)
             button:SetMouseMotionEnabled(motion)
         end
     end
-    local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("nameplates")) or "Fonts\\FRIZQT__.TTF"
+    local path = (EllesmereUI.GetFontPath("nameplates")) or "Fonts\\FRIZQT__.TTF"
     if d.duration then
         local fontKey = path .. "|" .. (style.durSize or 11)
         if d.npDurFont ~= fontKey then
@@ -289,14 +287,11 @@ function NPB.GroupGlow(idx)
     return magic == true, "magic"
 end
 
--- PANDEMIC_GLOW_STYLES index -> shared EllesmereUI.Glows.STYLES index. Defined
--- beside PANDEMIC_GLOW_STYLES in EllesmereUINameplates.lua (loaded before us).
-local NP_TO_SHARED_GLOW = ns.NP_TO_SHARED_GLOW
-
 local function ApplyNPBuffExtra(button, d, style)
     ApplyNPText(button, d, style)
     local Glows = EllesmereUI.Glows
-    if style.purgeGlow and Glows and Glows.StartGlow then
+    if style.purgeGlow and style.purgeSpec then
+        local sz = style.width or 24
         local host = d.npGlowHost
         if not host then
             -- Child of the engine button (cross-tree anchoring TO engine
@@ -318,34 +313,46 @@ local function ApplyNPBuffExtra(button, d, style)
             end
             host:EnableMouse(false)
             d.npGlowHost = host
+            -- nil need: every family (Pixel, the flipbooks and Blizzard Border).
+            Glows.PrewarmEngineHost(host, sz, style.height or sz, nil)
         end
         -- Every buff in this row is dispellable (the group filter says so), so the glow
         -- rides the button's own visibility -- no readback of per-aura state.
         host:SetAlpha(1)
         -- C-side animations only: identical in and out of restricted content.
-        -- StartEngineGlow renders Pixel as the genuine dash march and routes the other
-        -- driver styles to their FlipBook equivalents. purgeStyle carries a
-        -- PANDEMIC_GLOW_STYLES index (1 Pixel, 2 Action Button, 3 Auto-Cast, 4 GCD, 5
-        -- Modern, 6 Classic -- no Shape); the shared Glows list inserts Shape at 4, so
-        -- the flipbook picks translate before the call (raw pass-through rendered GCD
-        -- for Modern picks, Modern for GCD/Classic picks).
-        local gType = NP_TO_SHARED_GLOW[style.purgeStyle or 2] or 6
-        -- nil (color never customized) passes through: the engines render
-        -- their default look (gold ABG halo over white ants).
-        local cr, cg, cb = style.purgeR, style.purgeG, style.purgeB
-        local sz = style.width or 24
-        if (not host._euiGlowActive) or host._npStyle ~= gType or host._npW ~= sz
-           or host._npR ~= cr or host._npG ~= cg or host._npB ~= cb then
-            Glows.StartEngineGlow(host, gType, sz, cr, cg, cb)
-            host._npStyle, host._npW = gType, sz
-            host._npR, host._npG, host._npB = cr, cg, cb
-        end
+        -- purgeSpec is the dispel glow's full spec (ns.GetDispelGlowSpec), built
+        -- once per style pass; the height follows cropped icons. Blizzard
+        -- Border (static stealable art) renders through the same call.
+        Glows.StartSpecGlow(host, style.purgeSpec, sz, style.height or sz, "engine")
     elseif d.npGlowHost then
-        if Glows and Glows.StopGlow and d.npGlowHost._euiGlowActive then
-            Glows.StopGlow(d.npGlowHost)
-        end
+        if d.npGlowHost._euiGlowActive then Glows.StopGlow(d.npGlowHost) end
         d.npGlowHost:SetAlpha(0)
     end
+end
+
+-- Custom Border on Aura Icons (auraIconCustomBorder, Border = Custom): true while the
+-- aura icons wear the plate's custom border. The toggle is read first, so off it costs
+-- one field read.
+local function NPIconCustomBorderOn()
+    return PVal("auraIconCustomBorder") == true and ns.IsCustomBorderEnabled()
+end
+
+-- The plate's custom border as an AuraKit border table. Solid sets no texture key, so
+-- it rides the plain PP lane at its size or exact px; a textured style rides the
+-- eight-slice lane with the nameplate registry offsets (addonKey), its step (sizeKey)
+-- and exact px. Show Behind is not carried: behind the opaque icon it would vanish.
+local function NPCustomIconBorder()
+    local tex = PVal("customBorderTexture")
+    local sz = PVal("customBorderSize") or 1
+    local col = PVal("customBorderColor")
+    local t = { col.r, col.g, col.b, PVal("customBorderAlpha") or 1, size = sz,
+        edgePx = EllesmereUI.BorderPx(PVal("customBorderSizePx"), sz, tex) }
+    if tex and tex ~= "" and tex ~= "solid" then
+        t.texture, t.sizeKey, t.addonKey = tex, sz, "nameplates"
+        t.offsetX, t.offsetY = PVal("customBorderOffset"), PVal("customBorderOffsetY")
+        t.shiftX, t.shiftY = PVal("customBorderShiftX"), PVal("customBorderShiftY")
+    end
+    return t
 end
 
 local function BuildNPStyle(kind, variant)
@@ -357,11 +364,29 @@ local function BuildNPStyle(kind, variant)
     local kindKey = (kind == "debuffs" and "debuff") or (kind == "buffs" and "buff") or "cc"
     local dur = AuraDurCfg(kindKey)
     local stk = StackCfg()
+    -- Stock styles: the whole icon (zoom 0), no EUI border (GetIconBorderEnabled
+    -- is false for every kind under them). Blizzard Style: the stock nameplate
+    -- aura item -- the rounded mask with the ring overlay (AuraKit
+    -- blizzRoundArt). Classic WoW UI: square icons, buffs borderless, debuffs
+    -- and crowd control on the engine-stamped stock dispel-type border (AuraKit
+    -- blizzBorder). Text, stacks, sizes and the dispel glow all stay the user's.
+    local blizz = ns.NP_Blizz()
+    local classic = blizz and ns.NP_Classic()
+    local harmfulClassic = (classic and kind ~= "buffs") or nil
     local style = {
         width = size,
         height = height,
-        texCoord = CropCoords(cropped),
-        border = (not ns.GetIconBorderEnabled or ns.GetIconBorderEnabled(kind)) and { 0, 0, 0, 1, size = 1 } or false,
+        texCoord = CropCoords(cropped, blizz and 0 or nil),
+        -- Off: the plain 1px black edge (plain lane); a per-kind Hide
+        -- Border still wins over the custom border.
+        border = (not ns.GetIconBorderEnabled or ns.GetIconBorderEnabled(kind))
+            and (NPIconCustomBorderOn() and NPCustomIconBorder() or { 0, 0, 0, 1, size = 1 }) or false,
+        blizzRoundArt = (blizz and not classic) or nil,
+        -- The WoW Forever variant keeps that client's own ring (AuraKit
+        -- paints the retail one through EllesmereUI.StockAtlas otherwise).
+        blizzRoundNative = ns.NP_Forever() or nil,
+        dispelBorder = harmfulClassic,
+        blizzBorder = harmfulClassic,
         cooldownReverse = true,
         noDefaultFonts = true,
         noTooltips = true,
@@ -391,10 +416,7 @@ local function BuildNPStyle(kind, variant)
     if kind == "buffs" and variant ~= "plain" then
         local glow, dispelType = NPB.GroupGlow(variant == 2 and 2 or 1)
         style.purgeGlow = glow
-        style.purgeStyle = (ns.GetDispelGlowStyle and ns.GetDispelGlowStyle()) or 2
-        if ns.GetDispelGlowColor then
-            style.purgeR, style.purgeG, style.purgeB = ns.GetDispelGlowColor(dispelType)
-        end
+        style.purgeSpec = ns.GetDispelGlowSpec and ns.GetDispelGlowSpec(dispelType) or nil
         style.applyExtra = ApplyNPBuffExtra
     end
     return style
@@ -619,6 +641,17 @@ local NPF_ONCE_DEBUFFS = {
     [55078] = true,   -- Blood Plague
 }
 
+-- WoW Forever: Sunder Armor is one debuff per target that every warrior's
+-- casts stack onto, so it renders from any caster. Each rank is its own id.
+local NPF_SUNDER_IDS = {
+    [7386] = true, [7405] = true, [8380] = true, [11596] = true, [11597] = true,
+}
+local _, playerClass = UnitClass("player")
+local function NPF_SunderOn()
+    return EllesmereUI.IS_FOREVER and playerClass == "WARRIOR"
+        and PVal("showSunderArmor") == true
+end
+
 -- Active-only include maps for engine candidates (false entries stay
 -- stored but must never reach the C validator). Two maps: any-caster
 -- opt-outs feed the npinc group, everything else (the default) feeds
@@ -679,6 +712,12 @@ local function NPF_Cand(extra, side)
     -- render a copy. Option off = the id is an ordinary debuff again.
     if side ~= "cc" and PVal("hideBloodPlagueCopies") ~= false then
         for id in pairs(NPF_ONCE_DEBUFFS) do
+            m = m or {}
+            m[id] = true
+        end
+    end
+    if side ~= "cc" and NPF_SunderOn() then
+        for id in pairs(NPF_SUNDER_IDS) do
             m = m or {}
             m[id] = true
         end
@@ -769,6 +808,36 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
                 else
                     container:SetAuraGroupMaxFrameCount(gkey, 1)
                 end
+            end
+        end
+    end
+    -- Sunder Armor (Forever warriors, opt-in): any caster, one icon. Ids the
+    -- user already lists in Tracked Auras keep going through those lists.
+    if side ~= "cc" and NPF_SunderOn() then
+        local ex, inc = ns.NPF_Exclude(side), ns.NPF_Include(side)
+        local ids
+        for id in pairs(NPF_SUNDER_IDS) do
+            if not (ex and ex[id]) and not (inc and inc[id]) then
+                ids = ids or {}
+                ids[id] = true
+            end
+        end
+        if ids then
+            wanted.npsunder = true
+            if not declared.npsunder then
+                AK.AddGroupToContainer(container, {
+                    key = "npsunder", filter = { "HARMFUL", "INCLUDE_NAME_PLATE_ONLY" },
+                    maxFrameCount = 1,
+                    candidateFilters = { includeSpellIDs = ids },
+                    sortMethod = SORT_IMPORTANT, style = styleKey,
+                    layout = { elementWidth = 24, elementHeight = 24,
+                               elementSpacing = 4, lineSpacing = 4 },
+                })
+                declared.npsunder = true
+                declaredNew = true
+            else
+                container:SetAuraGroupCandidateFilters("npsunder", { includeSpellIDs = ids })
+                container:SetAuraGroupMaxFrameCount("npsunder", 1)
             end
         end
     end
@@ -889,18 +958,19 @@ end
 -- which reads DISPELLABLE and is defined far above this point (a file-scope
 -- local would be invisible to it down here).
 
--- Enemy Buff Filter mode (npEnemyBuffFilter): "important" is the DEFAULT for
--- EVERYONE (user-directed 2026-08-16 -- a deliberate new default; the retired
--- showAllEnemyBuffs key is an inert orphan, never migrated and never read;
--- the removed "all" value normalizes to important the same way, 2026-08-17).
--- UNION SEMANTICS (user-directed 2026-08-17): a single filter string ANDs
--- its tokens, so the OR lives in the group split. TWO groups render the row:
+-- Enemy Buff Filter mode (npEnemyBuffFilter): "important" is the retail
+-- DEFAULT (the retired showAllEnemyBuffs key is an inert orphan, never
+-- migrated and never read; the removed "all" value normalizes to important
+-- the same way), "showall" the WoW Forever one (defaults table).
+-- UNION SEMANTICS: a single filter string ANDs its tokens, so the OR lives in
+-- the group split. TWO groups render the row:
 -- "np" = ALL dispellable buffs (purgeables AND enrages -- the engine's
 -- DISPELLABLE token is class-independent; this group carries the dispel glow
--- style), "npnb" = the IMPORTANT non-dispellable remainder (plain style;
--- !DISPELLABLE keeps the union overlap-free; parked at 0 in Dispellable
--- mode). Important mode therefore shows important OR dispellable; Dispellable
--- mode shows the glow group alone. Both are composed filter STRINGS with
+-- style), "npnb" = the non-dispellable remainder (plain style; !DISPELLABLE
+-- keeps the union overlap-free), narrowed to IMPORTANT in Important mode and
+-- whole in Show All mode, parked at 0 in Dispellable mode. Important mode
+-- therefore shows important OR dispellable, Show All every buff, and
+-- Dispellable the glow group alone. All are composed filter STRINGS with
 -- INCLUDE_NAME_PLATE_ONLY (matches Blizzard's own buffFilterString) --
 -- C-evaluated, so the split holds on secret enemy data in instanced PvP and
 -- the glow needs no per-aura signal (the machinery #1509 deleted). The
@@ -908,7 +978,7 @@ end
 -- the "np" group wears, so every shown dispellable buff glows.
 local function BuffMode()
     local m = PVal("npEnemyBuffFilter")
-    if m == "dispellable" then return m end
+    if m == "dispellable" or m == "showall" then return m end
     return "important"
 end
 
@@ -923,10 +993,12 @@ end
 
 -- nil = the plain group has nothing to show (Dispellable mode, or a client
 -- without the DISPELLABLE token, where no complement can be expressed).
+-- Important narrows the remainder to IMPORTANT; Show All keeps all of it.
 local function BuffFilterPlain()
-    if BuffMode() ~= "important" or not DISPELLABLE then return nil end
+    local mode = BuffMode()
+    if mode == "dispellable" or not DISPELLABLE then return nil end
     local t = { "HELPFUL", "INCLUDE_NAME_PLATE_ONLY" }
-    if IMPORTANT then t[#t + 1] = IMPORTANT end
+    if mode == "important" and IMPORTANT then t[#t + 1] = IMPORTANT end
     t[#t + 1] = "!" .. DISPELLABLE
     return t
 end
@@ -1101,6 +1173,8 @@ local function TopAnchorFor(plate)
     local topElement = (ns.GetTextSlot and ns.GetTextSlot("textSlotTop")) or "none"
     if ns.IsNameElement and ns.IsNameElement(topElement) then return plate.name or plate.health end
     if topElement == "healthNumber" then return plate.hpNumber or plate.health end
+    if topElement == "level" then return plate.levelText or plate.health end
+    if topElement == "targetOfTarget" then return plate.totText or plate.health end
     if topElement ~= "none" then return plate.hpText or plate.health end
     return plate.health, true -- health-anchored: add class power push
 end
@@ -1134,11 +1208,17 @@ local function AnchorNPContainer(container, kind, plate, slotVal)
         container:SetPoint("TOP", plate.cast or plate.health, "BOTTOM", xOff, -2 + yOff)
         anchorPoint, gH, gV = "TOPLEFT", "RIGHT", "DOWN"
     elseif slotVal == "left" then
-        local sideOff = (ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2
+        -- Classic WoW UI: gap off the border art, not the bare bar edge
+        -- (ns.NP_ClassicSide is 0 on every other style).
+        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("left")) or 0)
         container:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMLEFT", -sideOff + xOff, yOff)
         anchorPoint, gH, gV = "BOTTOMRIGHT", "LEFT", "UP"
     elseif slotVal == "right" then
-        local sideOff = (ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2
+        -- Classic WoW UI's border and WoW Forever's level box both push the
+        -- side auras out (ns.NP_ClassicSide).
+        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("right")) or 0)
         container:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMRIGHT", sideOff + xOff, yOff)
         anchorPoint, gH, gV = "BOTTOMLEFT", "RIGHT", "UP"
     elseif slotVal == "topleft" or slotVal == "topright" then
@@ -1239,10 +1319,13 @@ local function PositionLockout(plate, f, slotVal)
     elseif slotVal == "bottom" then
         f:SetPoint("TOP", plate.cast or plate.health, "BOTTOM", xOff, -2 + yOff)
     elseif slotVal == "left" then
-        local sideOff = (ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2
+        -- Classic WoW UI: gap off the border art, as the containers above do.
+        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("left")) or 0)
         f:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMLEFT", -sideOff + xOff, yOff)
     elseif slotVal == "right" then
-        local sideOff = (ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2
+        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("right")) or 0)
         f:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMRIGHT", sideOff + xOff, yOff)
     else -- topleft / topright
         local debuffY = (ns.GetDebuffYOffset and ns.GetDebuffYOffset()) or 2
@@ -1251,6 +1334,66 @@ local function PositionLockout(plate, f, slotVal)
         local hc = (slotVal == "topleft") and "TOPLEFT" or "TOPRIGHT"
         f:SetPoint(corner, plate.health, hc, xOff, debuffY + cpPush + yOff)
     end
+end
+
+-- The cast-lockout icon is hand-built outside AuraKit, so Custom Border on Aura Icons
+-- reaches it through its own child frame (the icon inset drops to 0 while that draws);
+-- off, the plain 1px edge. Runs on every lockout show, so the restyle is
+-- skipped while its inputs (shown state, level, texture, size step, exact px, colour,
+-- alpha, offsets, shifts) are unchanged; the child turns off through
+-- ApplyBorderStyle(frame, 0) so the UI scale re-apply cannot bring it back.
+local function NPLockoutBorder(f)
+    local on = ns.GetIconBorderEnabled("ccs")
+    local cb = f._npCB
+    if on and NPIconCustomBorderOn() then
+        if not cb then
+            cb = CreateFrame("Frame", nil, f)
+            cb:SetAllPoints(f)
+            cb:EnableMouse(false)
+            f._npCB = cb
+        end
+        local tex = PVal("customBorderTexture")
+        local sz = PVal("customBorderSize") or 1
+        local px = EllesmereUI.BorderPx(PVal("customBorderSizePx"), sz, tex)
+        local col = PVal("customBorderColor")
+        local a = PVal("customBorderAlpha") or 1
+        local ox, oy = PVal("customBorderOffset"), PVal("customBorderOffsetY")
+        local sx, sy = PVal("customBorderShiftX"), PVal("customBorderShiftY")
+        -- Above the swipe, as AuraKit seats its aura borders.
+        local lvl = f.cd:GetFrameLevel() + 1
+        if not cb:IsShown() or cb:GetFrameLevel() ~= lvl
+            or cb._sTex ~= tex or cb._sSz ~= sz or cb._sPx ~= px
+            or cb._sR ~= col.r or cb._sG ~= col.g or cb._sB ~= col.b or cb._sA ~= a
+            or cb._sOX ~= ox or cb._sOY ~= oy or cb._sSX ~= sx or cb._sSY ~= sy then
+            cb:SetFrameLevel(lvl)
+            EllesmereUI.ApplyBorderStyle(cb, sz, col.r, col.g, col.b, a, tex, ox, oy, sx, sy,
+                "nameplates", sz, nil, px)
+            cb._sTex, cb._sSz, cb._sPx = tex, sz, px
+            cb._sR, cb._sG, cb._sB, cb._sA = col.r, col.g, col.b, a
+            cb._sOX, cb._sOY, cb._sSX, cb._sSY = ox, oy, sx, sy
+        end
+        if not f._npCBInset0 then
+            f._npCBInset0 = true
+            f.icon:ClearAllPoints()
+            f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+            f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+        end
+        ns.ApplyFrameIconBorder(f, false)
+        return
+    end
+    if cb and cb:IsShown() then
+        EllesmereUI.ApplyBorderStyle(cb, 0)
+        cb:Hide()
+    end
+    if f._npCBInset0 then
+        -- Back to the creation inset (0 under the stock styles, else 1).
+        f._npCBInset0 = nil
+        local px = ns.NP_Blizz() and 0 or 1
+        f.icon:ClearAllPoints()
+        f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", px, -px)
+        f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -px, px)
+    end
+    ns.ApplyFrameIconBorder(f, on)
 end
 
 function ns.NPC_UpdateLockout(plate)
@@ -1265,30 +1408,43 @@ function ns.NPC_UpdateLockout(plate)
             f:SetFrameStrata("MEDIUM")
             f:SetFrameLevel(800)
             f.icon = f:CreateTexture(nil, "ARTWORK")
-            f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
-            f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
+            -- Stock styles: no border, so the icon fills the cell; Blizzard
+            -- Style also takes the stock rounded swipe under its ring (the
+            -- classic square icon keeps the default swipe).
+            local px = ns.NP_Blizz() and 0 or 1
+            f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", px, -px)
+            f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -px, px)
             f.cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
             f.cd:SetAllPoints(f)
             f.cd:SetReverse(true)
             f.cd:SetDrawEdge(false)
+            local kit = AK or EllesmereUI.AuraKit
+            local swipe = px == 0 and not ns.NP_Classic() and kit and kit.BLIZZ_ROUND_SWIPE
+            if swipe and f.cd.SetSwipeTexture then f.cd:SetSwipeTexture(swipe) end
             local PP = EllesmereUI.PP
             if PP and PP.CreateBorder then PP.CreateBorder(f, 0, 0, 0, 1, 1) end
-            if ns.ApplyFrameIconBorder then
-                ns.ApplyFrameIconBorder(f, ns.GetIconBorderEnabled and ns.GetIconBorderEnabled("ccs"))
-            end
+            NPLockoutBorder(f)
             plate.npcLockout = f
         end
         local size = NPSize("cc")
         local height, cropped = NPHeight("cc", size)
         f:SetSize(size, height)
-        local tc = CropCoords(cropped)
+        local blizz = ns.NP_Blizz()
+        local tc = CropCoords(cropped, blizz and 0 or nil)
         f.icon:SetTexture(lockout.icon)
         f.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
         f.cd:SetCooldown(lockout.start, lockout.duration)
-        PositionLockout(plate, f, cs)
-        if ns.ApplyFrameIconBorder then
-            ns.ApplyFrameIconBorder(f, ns.GetIconBorderEnabled and ns.GetIconBorderEnabled("ccs"))
+        -- Blizzard Style: the stock rounded mask and ring, sized with the cell.
+        -- Classic WoW UI: the stock debuff border round the square icon.
+        if blizz then
+            if ns.NP_Classic() then
+                if ns.NP_ApplyClassicIconArt then ns.NP_ApplyClassicIconArt(f, size, height) end
+            elseif ns.NP_ApplyBlizzIconArt then
+                ns.NP_ApplyBlizzIconArt(f, f.icon, size, height)
+            end
         end
+        PositionLockout(plate, f, cs)
+        NPLockoutBorder(f)
         f:Show()
     elseif f then
         f:Hide()
@@ -1471,6 +1627,7 @@ end
 
 local npFP = {}
 
+local PURGE_FP_SPEC = {}
 local function StyleFPFor(kind, idx)
     local size = NPSize(kind)
     local height = NPHeight(kind, size)
@@ -1485,20 +1642,42 @@ local function StyleFPFor(kind, idx)
         -- so they have to reach this fingerprint or a talent swap / toggle
         -- never restyles the engine buttons.
         local glow, dispelType = NPB.GroupGlow(idx or 1)
-        local pr, pg, pb = 0, 0, 0
-        if ns.GetDispelGlowColor then
-            pr, pg, pb = ns.GetDispelGlowColor(dispelType)
+        local sp = ns.GetDispelGlowSpec and ns.GetDispelGlowSpec(dispelType, PURGE_FP_SPEC)
+        if sp then
+            purge = FP(idx or 1, glow, sp.style, sp.r, sp.g, sp.b, sp.lines, sp.thickness,
+                sp.speed, sp.bg, sp.bgR, sp.bgG, sp.bgB)
+            -- Class mode: the print holds the palette colour; keep it for the
+            -- colours-changed hook below NPC_ReloadAll. The mode is one profile
+            -- value, so any other mode clears it (no reload on later edits).
+            if PVal("dispelGlowColorMode") ~= "class" then
+                NPB.ccR = nil
+            elseif glow then
+                NPB.ccR, NPB.ccG, NPB.ccB = EllesmereUI.Glows.ResolveColor("class")
+            end
         end
-        purge = FP(idx or 1, glow, ns.GetDispelGlowStyle and ns.GetDispelGlowStyle() or 2, pr, pg, pb)
     end
     local durFP = FP(dur.size, dur.x, dur.y, dur.pos, dur.color.r, dur.color.g, dur.color.b)
     local stkFP = FP(stk.size, stk.x, stk.y, stk.pos, stk.color.r, stk.color.g, stk.color.b)
+    -- Custom Border on Aura Icons: every input of NPCustomIconBorder, folded in only
+    -- while it is on (a constant "-" otherwise, so a border edit never restyles default
+    -- users' icons): the toggle and Border = Custom (the gate), texture, size step, the
+    -- exact-size value, colour, alpha, both offsets and both shifts. Colour and alpha go
+    -- in as exact strings, not FP's two-decimal numbers.
+    local cbFP = "-"
+    if NPIconCustomBorderOn() then
+        local col = PVal("customBorderColor")
+        cbFP = FP(PVal("customBorderTexture"), PVal("customBorderSize"),
+            tostring(PVal("customBorderSizePx")),
+            tostring(col.r), tostring(col.g), tostring(col.b), tostring(PVal("customBorderAlpha")),
+            PVal("customBorderOffset"), PVal("customBorderOffsetY"),
+            PVal("customBorderShiftX"), PVal("customBorderShiftY"))
+    end
     return FP(kind, size, height, durFP, stkFP, purge,
-        EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("nameplates") or "",
+        EllesmereUI.GetFontPath("nameplates") or "",
         -- NOT `fn(kind) or true`: the getter legitimately returns false, and
         -- `false or true` would pin this fingerprint input to a constant so
         -- the toggle never restyles (the ternary-falsy trap).
-        (not ns.GetIconBorderEnabled) or ns.GetIconBorderEnabled(kind))
+        (not ns.GetIconBorderEnabled) or ns.GetIconBorderEnabled(kind), cbFP)
 end
 
 local function GeoFP()
@@ -1528,7 +1707,8 @@ local function CfgFP()
     -- NPB.Split decides how many groups the buff row runs, so it belongs
     -- with the container config rather than with the styles.
     return FP(PVal("maxDebuffs"), PVal("showAllDebuffs"), BuffMode(), NPB.Split(),
-        PVal("debuffIncludeCC"), ns.NPF_FP(), PVal("hideBloodPlagueCopies") ~= false)
+        PVal("debuffIncludeCC"), ns.NPF_FP(), PVal("hideBloodPlagueCopies") ~= false,
+        NPF_SunderOn())
 end
 
 local function ReanchorActive()
@@ -1697,17 +1877,32 @@ function ns.NPC_ReloadAll()
         ReanchorActive()
     end
     -- Cast-lockout is a hand-built CC icon, not an AuraKit style, so it
-    -- has to pick up Show Border here rather than through RestyleSoon.
-    do
-        local on = ns.GetIconBorderEnabled and ns.GetIconBorderEnabled("ccs")
-        if ns.ApplyFrameIconBorder then
-            for plate in pairs(active) do
-                if plate.npcLockout then
-                    ns.ApplyFrameIconBorder(plate.npcLockout, on)
-                end
-            end
-        end
+    -- has to pick up Show Border (and the custom icon border) here rather
+    -- than through RestyleSoon.
+    for plate in pairs(active) do
+        if plate.npcLockout then NPLockoutBorder(plate.npcLockout) end
     end
+end
+
+-- Colors page edits (swatches, darken, resets, profile switches) all end in
+-- ApplyColorsToOUF. Once a Class-mode dispel glow was printed, a changed class
+-- colour re-runs the reload; the purge print carries the colour, so only the
+-- glow styles restyle. Calls in one frame (a profile switch can make two)
+-- collapse into one check on the next frame: the flush frame stays hidden
+-- until a call and hides itself before working.
+do
+    local flush = CreateFrame("Frame")
+    flush:Hide()
+    flush:SetScript("OnUpdate", function(self)
+        self:Hide()
+        local r0 = NPB.ccR
+        if r0 == nil then return end
+        local r, g, b = EllesmereUI.Glows.ResolveColor("class")
+        if r ~= r0 or g ~= NPB.ccG or b ~= NPB.ccB then ns.NPC_ReloadAll() end
+    end)
+    hooksecurefunc(EllesmereUI, "ApplyColorsToOUF", function()
+        if NPB.ccR ~= nil then flush:Show() end
+    end)
 end
 
 ------------------------------------------------------------------------------

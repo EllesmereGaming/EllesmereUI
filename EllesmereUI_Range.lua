@@ -83,18 +83,42 @@ end
 
 local DRUID_MELEE_FORMS = { [1] = true, [2] = true } -- Bear, Cat
 
+local EnsureLadder -- defined below; the WoW Forever caster cutoff reads the ladder
+
 -- Spec-derived attack cutoff, form check NOT included (that is the one live
 -- input; everything here only moves on spec/talent changes and is cached by
 -- Range_GetAttackCutoff below).
 local function SpecAttackCutoff(holyPaladinMelee)
     local _, classFile = UnitClass("player")
-    local specIndex = GetSpecialization()
-    local specID = specIndex and GetSpecializationInfo(specIndex)
+    local specIndex = C_SpecializationInfo.GetSpecialization()
+    local specID = specIndex and C_SpecializationInfo.GetSpecializationInfo(specIndex)
+    -- WoW Forever reports one class spec (1482-1491) whatever the player
+    -- plays, so the spec cannot tell caster from melee there. Casters (Druid,
+    -- Priest, Mage, Warlock, Shaman) take the longest harmful spellbook rung
+    -- (<= 40 yd), so the cutoff lands on a real spell (Wrath, Shadow Bolt,
+    -- Lightning Bolt) that Range_BeyondCutoff can probe directly, and follows
+    -- talent range extensions. Druid Cat and Bear Form get 5 from the live form
+    -- check in Range_GetAttackCutoff before this cached value is read.
+    -- Paladin, Hunter (min-range shots are excluded from the ladder), Warrior
+    -- and Rogue stay at 5.
+    if EllesmereUI.IS_FOREVER == true then
+        if classFile == "DRUID" or classFile == "PRIEST" or classFile == "MAGE" or classFile == "WARLOCK"
+            or classFile == "SHAMAN" then
+            EnsureLadder()
+            local best
+            for i = 1, #RG.ladder do
+                local r = RG.ladder[i].range
+                if r > 5 and r <= 40 then best = r end
+            end
+            if best then return best end
+        end
+        return 5
+    end
     if not specID then return 5 end
 
     if classFile == "DRUID" then
         if specID == 102 or specID == 105 then
-            return IsPlayerSpell(197488) and 45 or 40 -- Astral Influence
+            return C_SpellBook.IsSpellKnown(197488) and 45 or 40 -- Astral Influence
         end
         return 5
     elseif classFile == "DEMONHUNTER" then
@@ -128,7 +152,16 @@ function EllesmereUI.Range_GetAttackCutoff(customCutoff, holyPaladinMelee)
     end
 
     local _, classFile = UnitClass("player")
-    if classFile == "DRUID" and DRUID_MELEE_FORMS[GetShapeshiftForm()] then return 5 end
+    if classFile == "DRUID" then
+        -- WoW Forever orders the stance bar the vanilla way (Aquatic Form can sit
+        -- between Bear and Cat), so it checks the form ID: Cat 1, Bear 5, Dire Bear 8.
+        if EllesmereUI.IS_FOREVER == true then
+            local fid = GetShapeshiftFormID()
+            if fid == 1 or fid == 5 or fid == 8 then return 5 end
+        elseif DRUID_MELEE_FORMS[GetShapeshiftForm()] then
+            return 5
+        end
+    end
 
     if holyPaladinMelee then
         local v = RG.cutoffHolyMelee
@@ -199,7 +232,7 @@ local function BuildLadder()
     table.sort(RG.ladder, function(a, b) return a.range < b.range end)
 end
 
-local function EnsureLadder()
+EnsureLadder = function()
     if RG.dirty or not RG.ladderBuilt then BuildLadder() end
 end
 
@@ -248,7 +281,7 @@ end
 -- a restricted query degrades to nil (no display) instead of a blocked action.
 local function ItemChecksAllowed(unit)
     if not (InCombatLockdown()
-        or (EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance())) then
+        or (EllesmereUI.InProtectedInstance())) then
         return true
     end
     local can = UnitCanAttack("player", unit)

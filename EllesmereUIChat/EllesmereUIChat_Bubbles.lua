@@ -420,9 +420,9 @@ local function Layout(f, cfg)
     -- ECHAT's own resolvers, not EUI.GetFontPath("chat") directly: the Chat page carries its
     -- own font and outline pickers that override the module font, and a bubble is chat output.
     local path = (ECHAT.GetFont and ECHAT.GetFont())
-        or (EUI.GetFontPath and EUI.GetFontPath("chat")) or "Fonts\\FRIZQT__.TTF"
+        or (EUI.GetFontPath("chat")) or "Fonts\\FRIZQT__.TTF"
     local flag = (ECHAT.GetOutlineFlag and ECHAT.GetOutlineFlag())
-        or (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("chat")) or ""
+        or (EUI.GetFontOutlineFlag("chat")) or ""
     local fontSize = cfg.fontSize or d.fontSize or 12
     -- SetFont answers false for a path that no longer resolves (a media addon uninstalled
     -- since the setting was made) and leaves the FontString with NO font at all, which makes
@@ -699,6 +699,7 @@ end
 -------------------------------------------------------------------------------
 
 local cvarPending = false
+local FlushCVars   -- forward: AssertCVars defers it, and it calls AssertCVars back
 
 -- Everything that is not the open world, rather than a whitelist of instance types: a type
 -- Blizzard adds later falls through to "stay out" instead of "draw".
@@ -787,7 +788,8 @@ local function AssertCVars()
         local held = heldCVars
         -- Off and holding nothing: no CVar is owed to anyone, so a pass that lands here in
         -- combat has nothing to defer. Without this a profile swap in combat would build the
-        -- event frame and arm two events for a player who never switched the feature on.
+        -- event frame, arm PLAYER_LOGOUT and queue a CVar pass for a player who never switched
+        -- the feature on.
         if cfg.enabled ~= true and not (held and next(held)) then
             cvarPending = false
             return
@@ -795,8 +797,8 @@ local function AssertCVars()
         -- Deferred rather than only handled in SetActive: switching things off in combat still
         -- owes the player their CVars back once the fight ends.
         cvarPending = true
-        EnsureFrame():RegisterEvent("PLAYER_REGEN_ENABLED")
-        eventFrame:RegisterEvent("PLAYER_LOGOUT")
+        ns.CombatQueue.Defer("BubbleCVars", FlushCVars)
+        EnsureFrame():RegisterEvent("PLAYER_LOGOUT")
         return
     end
     cvarPending = false
@@ -846,6 +848,15 @@ local function AssertCVars()
     end
 end
 
+-- Runs once on the regen edge after a pass that landed in combat.
+function FlushCVars()
+    if cvarPending then AssertCVars() end
+    -- Only kept while the feature runs; a deferred restore leaves nothing behind.
+    if not cvarPending and not active and eventFrame then
+        eventFrame:UnregisterEvent("PLAYER_LOGOUT")
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Events
 -------------------------------------------------------------------------------
@@ -864,16 +875,6 @@ local function OnEvent(_, event, ...)
         -- an engine bubble frame that outlives the reload cannot come back invisible for the
         -- next speaker.
         ReleaseAll()
-        return
-    end
-
-    if event == "PLAYER_REGEN_ENABLED" then
-        if cvarPending then AssertCVars() end
-        -- Only kept while the feature runs; a deferred restore leaves nothing behind.
-        if not cvarPending and not active and eventFrame then
-            eventFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
-            eventFrame:UnregisterEvent("PLAYER_LOGOUT")
-        end
         return
     end
 
@@ -967,7 +968,6 @@ local function SetActive(on)
     active = true
 
     if firstPass then
-        eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         eventFrame:RegisterEvent("PLAYER_LOGOUT")
 

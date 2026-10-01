@@ -1,4 +1,5 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- no dungeon teleports on WoW Forever: no popup, no secure button, no events; the LFG Reminder options section is not built there and every reader of the _G._EUI_*TeleportPrompt hooks nil-guards
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_TeleportPrompt.lua
 --  When the player joins a Group Finder (LFGList) group for a dungeon that has
@@ -60,26 +61,27 @@ local pendingName          -- dungeon display name for the title (guaranteed cle
 local pendingAttrSpellID   -- spell attr stashed to write when leaving combat
 local pendingShow          -- join landed in combat; show on PLAYER_REGEN_ENABLED
 local pendingHide          -- hide requested in combat; hide on PLAYER_REGEN_ENABLED
+local shownSpellID         -- teleport the prompt last surfaced for in this group
 
 -- Forward declarations (closures reference each other)
 local BuildPopup, ShowPrompt, HidePrompt, ClearPending
 local ApplyTeleportPrompt  -- live enable/disable entry point (defined in the events section)
-local UpdateButtonVisuals, ResolveDungeon
+local UpdateButtonVisuals, ResolveDungeon, ResolveActiveEntry, ResolveActivity
 local SavePosition, ApplySavedPosition, ApplyDisableVisibility
 
 -------------------------------------------------------------------------------
 --  Font helpers (mirror the /keys popup)
 -------------------------------------------------------------------------------
 local function ResolveFont()
-    return (EUI and EUI.GetFontPath and EUI.GetFontPath("extras")) or "Fonts\\FRIZQT__.TTF"
+    return (EUI.GetFontPath("extras")) or "Fonts\\FRIZQT__.TTF"
 end
 local function ResolveOutline()
-    return (EUI and EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("extras")) or ""
+    return (EUI.GetFontOutlineFlag("extras")) or ""
 end
 local function MakeLabel(parent, size, r, g, b, a)
     local fs = parent:CreateFontString(nil, "OVERLAY")
     local flags = ResolveOutline()
-    if EUI and EUI.PrimeFontShadow then EUI.PrimeFontShadow(fs, flags == "") end
+    EUI.PrimeFontShadow(fs, flags == "")
     fs:SetFont(ResolveFont(), size, flags)
     if r then fs:SetTextColor(r, g or 1, b or 1, a or 1) end
     return fs
@@ -219,20 +221,18 @@ BuildPopup = function()
         local sid = pendingSpellID
         if not sid then return end
         if not IsPlayerSpell(sid) then
-            if EUI.ShowWidgetTooltip then
-                EUI.ShowWidgetTooltip(self, "You have not learned this dungeon teleport yet.")
-            end
+            EUI.ShowWidgetTooltip(self, "You have not learned this dungeon teleport yet.")
             return
         end
         local cdInfo = C_Spell and C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(sid)
         if cdInfo and cdInfo.duration and cdInfo.duration > 0 then
-            if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Teleport on Cooldown") end
+            EUI.ShowWidgetTooltip(self, "Teleport on Cooldown")
         elseif EUI.ShowWidgetTooltip then
             EUI.ShowWidgetTooltip(self, "Teleport to " .. (pendingName or "dungeon"))
         end
     end)
     secureBtn:SetScript("OnLeave", function()
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        EUI.HideWidgetTooltip()
     end)
 
     -- "Disable Feature" text below the teleport button. Clicking it turns the
@@ -288,24 +288,12 @@ UpdateButtonVisuals = function()
 end
 
 -------------------------------------------------------------------------------
---  Resolve the accepted dungeon -> teleport spell via a CLEAN string chain.
---  resultID is only ever passed as a function argument (safe even if secret).
+--  Resolve a known LFG activity -> teleport spell via a CLEAN string chain.
 -------------------------------------------------------------------------------
-ResolveDungeon = function(resultID)
-    if not (C_LFGList and C_LFGList.GetSearchResultInfo) then return end
-    -- Called from LFG_LIST_JOINED_GROUP, where the search result is readable (the
-    -- secrecy that applies while browsing/applying is lifted once you have joined).
-    -- Still wrapped in pcall and guarded with issecretvalue as defense in depth:
-    -- if any needed field is secret, it bails gracefully (no prompt) rather than
-    -- erroring. Capture is synchronous because the result can expire after joining.
+ResolveActivity = function(activityID)
+    if not (C_LFGList and C_LFGList.GetActivityInfoTable)
+        or issecretvalue(activityID) or type(activityID) ~= "number" then return end
     pcall(function()
-        local info = C_LFGList.GetSearchResultInfo(resultID)
-        if type(info) ~= "table" then return end
-        local activityID = info.activityID
-        if activityID == nil and info.activityIDs and not issecretvalue(info.activityIDs) then
-            activityID = info.activityIDs[1]
-        end
-        if issecretvalue(activityID) or activityID == nil then return end
         local act = C_LFGList.GetActivityInfoTable(activityID)
         if type(act) ~= "table" then return end
         local fullName = act.fullName
@@ -315,8 +303,34 @@ ResolveDungeon = function(resultID)
             pendingSpellID = spellID
             -- Display only the dungeon name, not the trailing difficulty suffix
             -- (e.g. "Skyreach (Mythic Keystone)" -> "Skyreach").
-            pendingName    = (fullName:gsub("%s*%b()%s*$", ""))
+            pendingName = (fullName:gsub("%s*%b()%s*$", ""))
         end
+    end)
+end
+
+-- Search results are readable when accepting an invite. Capture immediately:
+-- they can expire shortly after joining.
+ResolveDungeon = function(resultID)
+    if not (C_LFGList and C_LFGList.GetSearchResultInfo) then return end
+    pcall(function()
+        local info = C_LFGList.GetSearchResultInfo(resultID)
+        if type(info) ~= "table" then return end
+        local activityID = info.activityID
+        if activityID == nil and info.activityIDs and not issecretvalue(info.activityIDs) then
+            activityID = info.activityIDs[1]
+        end
+        ResolveActivity(activityID)
+    end)
+end
+
+-- A leader creates or updates an active listing without receiving
+-- LFG_LIST_JOINED_GROUP. Its activityIDs are documented NeverSecret.
+ResolveActiveEntry = function()
+    if not (C_LFGList and C_LFGList.GetActiveEntryInfo) then return end
+    pcall(function()
+        local entry = C_LFGList.GetActiveEntryInfo()
+        if type(entry) ~= "table" or issecretvalue(entry.activityIDs) then return end
+        ResolveActivity(entry.activityIDs[1])
     end)
 end
 
@@ -388,6 +402,7 @@ local ev = CreateFrame("Frame")
 local function SyncEvents()
     if IsEnabled() then
         ev:RegisterEvent("LFG_LIST_JOINED_GROUP")
+        ev:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE")
         ev:RegisterEvent("GROUP_ROSTER_UPDATE")
         ev:RegisterEvent("PLAYER_ENTERING_WORLD")
         ev:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -395,6 +410,7 @@ local function SyncEvents()
         ev:RegisterEvent("PLAYER_REGEN_ENABLED")
     else
         ev:UnregisterEvent("LFG_LIST_JOINED_GROUP")
+        ev:UnregisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE")
         ev:UnregisterEvent("GROUP_ROSTER_UPDATE")
         ev:UnregisterEvent("PLAYER_ENTERING_WORLD")
         ev:UnregisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -409,8 +425,20 @@ end
 -- takes effect immediately in both directions, no reload. The popup parents a
 -- secure button, so a mid-combat first enable defers the build to combat end.
 local pendingBuild
+
+-- Records the group's current listing as already shown, without showing it: a
+-- /reload or re-enable starts with an empty memory, and the next edit of a listing
+-- the player already saw must not pop the prompt again.
+local function SeedShownFromListing()
+    ClearPending()
+    ResolveActiveEntry()
+    shownSpellID = pendingSpellID
+    ClearPending()
+end
+
 ApplyTeleportPrompt = function()
     if IsEnabled() then
+        SeedShownFromListing()
         if not popup and InCombatLockdown() then
             pendingBuild = true
             ev:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -435,6 +463,7 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2)
         if IsEnabled() then
             BuildPopup()
             SyncEvents()
+            SeedShownFromListing()
         end
         return
     elseif event == "PLAYER_REGEN_ENABLED" then
@@ -474,21 +503,42 @@ ev:SetScript("OnEvent", function(self, event, arg1, arg2)
     end
 
     if event == "LFG_LIST_JOINED_GROUP" then
-        -- arg1 = searchResultID. This fires the moment the player joins a Group
-        -- Finder group (i.e. accepted the invite). Unlike the browse/apply phase,
-        -- the search result info is readable here, so the dungeon can be resolved.
-        -- Capture immediately; the search result can expire shortly after joining.
+        -- arg1 = searchResultID. This fires when an applicant accepts an invite.
         ClearPending()
         ResolveDungeon(arg1)
-        if pendingSpellID then ShowPrompt() end
+        if pendingSpellID then
+            shownSpellID = pendingSpellID
+            ShowPrompt()
+        end
+    elseif event == "LFG_LIST_ACTIVE_ENTRY_UPDATE" then
+        -- Fires for the whole group on every create, edit and delist of the
+        -- listing, so leaders get the prompt too. It surfaces only when the
+        -- listing's dungeon is new for this group (never again for an edit or a
+        -- closed prompt), and a delist hides nothing: the usual rules (dungeon
+        -- entered, group left, combat) still hide it.
+        local prevSpell, prevName, prevShow = pendingSpellID, pendingName, pendingShow
+        ClearPending()
+        ResolveActiveEntry()
+        if pendingSpellID and pendingSpellID ~= shownSpellID then
+            shownSpellID = pendingSpellID
+            ShowPrompt()
+        else
+            pendingSpellID, pendingName, pendingShow = prevSpell, prevName, prevShow
+        end
     elseif event == "GROUP_ROSTER_UPDATE" then
         if not IsInGroup() then
             ClearPending(); HidePrompt()
+            shownSpellID = nil
         end
     elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
         local inInstance, instanceType = IsInInstance()
         if inInstance and instanceType == "party" then
             ClearPending(); HidePrompt()
+            -- The dungeon you stand in counts as shown: re-listing it from inside
+            -- (a replacement search) must not offer a teleport to it.
+            local instName = GetInstanceInfo()
+            shownSpellID = (type(instName) == "string" and not issecretvalue(instName)
+                and EUI and EUI.ResolveTeleportSpellByName and EUI.ResolveTeleportSpellByName(instName)) or nil
         end
     end
 end)

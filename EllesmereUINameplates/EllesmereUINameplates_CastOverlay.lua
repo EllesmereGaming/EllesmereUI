@@ -71,6 +71,9 @@ function ns.RefreshCastOverlay(plate)
             -- the same strata; its level 900 keeps it above the border there.
             if plate.castTextFrame then plate.castTextFrame:SetFrameStrata(LIFT_STRATA) end
             plate._castOverlayLifted = true
+            -- The strata change just reset the custom spell icon border's (a cast bar
+            -- child, when it exists): re-seat it above the icon.
+            if plate._castIconBorder then ns.ApplyCastIconBorder(plate) end
         end
         local s = plate:GetEffectiveScale()
         if plate._castLiftScale ~= s then
@@ -83,20 +86,6 @@ function ns.RefreshCastOverlay(plate)
         if plate.castTextFrame then plate.castTextFrame:SetFrameStrata("MEDIUM") end
         plate._castOverlayLifted = nil
         plate._castLiftScale = nil
+        if plate._castIconBorder then ns.ApplyCastIconBorder(plate) end
     end
-end
-
--- Kill switch: hand every active plate's cast bar back to its plate now, and bump the
--- appearance generation so pooled (inactive) plates restore on their next spawn.
-function ns.ClearAllCastOverlays()
-    for _, plate in pairs(ns.plates) do
-        if plate._castOverlayLifted then
-            plate.cast:SetParent(plate)
-            plate.cast:SetFrameStrata(plate:GetFrameStrata())
-            if plate.castTextFrame then plate.castTextFrame:SetFrameStrata("MEDIUM") end
-            plate._castOverlayLifted = nil
-            plate._castLiftScale = nil
-        end
-    end
-    ns._npAppearanceGen = (ns._npAppearanceGen or 0) + 1
 end

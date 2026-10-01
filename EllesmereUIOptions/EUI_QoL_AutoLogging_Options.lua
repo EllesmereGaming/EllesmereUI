@@ -27,6 +27,16 @@ local TRIGGER_ITEMS = {
     { key = "logArena",    label = "Arena" },
     { key = "logScenario", label = "Scenarios" },
 }
+-- WoW Forever: every raid instance logs on the Raids trigger (the Normal Raid
+-- key and its default) and every dungeon on the Dungeons trigger (a key only
+-- that client offers, off until the player turns it on). The retail
+-- difficulty, Mythic+, arena and scenario rows have nothing to match there.
+if EllesmereUI.IS_FOREVER then
+    TRIGGER_ITEMS = {
+        { key = "logNormal",  label = "Raids" },
+        { key = "logDungeon", label = "Dungeons" },
+    }
+end
 
 local function Cfg()
     if not EllesmereUIDB then return {} end
@@ -62,8 +72,10 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     parent._showRowDivider = true
 
     ---------------------------------------------------------------------------
-    --  KEYSTONE CHECK POPUP
+    --  KEYSTONE CHECK POPUP (no keystones on WoW Forever: the section and the
+    --  /keys file behind it do not exist there)
     ---------------------------------------------------------------------------
+    if not EllesmereUI.IS_FOREVER then
     _, h = W:SectionHeader(parent, "KEYSTONE CHECK POPUP", y); y = y - h
 
     _, h = W:DualRow(parent, y,
@@ -82,7 +94,7 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
                       message = "Changing the /keys popup requires a reload to update slash command registration.",
                       confirmText = "Reload",
                       cancelText = "Later",
-                      onConfirm = function() ReloadUI() end,
+                      reload    = true,
                   })
               end),
           getValue = function() return KeysCfg().enabled ~= false end },
@@ -117,10 +129,13 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     end   -- close /keys popup hidden-while-disabled gate
 
     _, h = W:Spacer(parent, y, 20); y = y - h
+    end -- not IS_FOREVER
 
     ---------------------------------------------------------------------------
-    --  LFG REMINDER
+    --  LFG REMINDER (no dungeon teleports on WoW Forever: the section and the
+    --  reminder runtime behind it do not exist there)
     ---------------------------------------------------------------------------
+    if not EllesmereUI.IS_FOREVER then
     _, h = W:SectionHeader(parent, "LFG REMINDER", y); y = y - h
 
     _, h = W:DualRow(parent, y,
@@ -168,6 +183,7 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     end   -- close LFG Reminder hidden-while-disabled gate
 
     _, h = W:Spacer(parent, y, 20); y = y - h
+    end -- not IS_FOREVER
 
     ---------------------------------------------------------------------------
     --  AUTO COMBAT LOGGING
@@ -250,17 +266,19 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     _, h = W:Spacer(parent, y, 20); y = y - h
 
     ---------------------------------------------------------------------------
-    --  BATTLE RES
+    --  BATTLE RES (no shared battle res charges on WoW Forever: the indicator
+    --  runtime builds nothing there and the section is not built)
     ---------------------------------------------------------------------------
-    if _G._EUI_BuildBattleResSection then
+    if _G._EUI_BuildBattleResSection and not EllesmereUI.IS_FOREVER then
         local brezH = _G._EUI_BuildBattleResSection(parent, y, W, EllesmereUI.PP)
         y = y - brezH
     end
 
     ---------------------------------------------------------------------------
-    --  BLOODLUST TRACKER
+    --  BLOODLUST TRACKER (no raid-wide lust on WoW Forever: the tracker
+    --  runtime returns at load there and the section is not built)
     ---------------------------------------------------------------------------
-    if _G._EUI_BuildBloodlustSection then
+    if _G._EUI_BuildBloodlustSection and not EllesmereUI.IS_FOREVER then
         local lustH = _G._EUI_BuildBloodlustSection(parent, y, W, EllesmereUI.PP)
         y = y - lustH
     end

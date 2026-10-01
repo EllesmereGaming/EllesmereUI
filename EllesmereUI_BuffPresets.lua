@@ -11,7 +11,153 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  ADD OR EDIT CURATED IDS HERE ONLY -- never in the consumer files.
 --------------------------------------------------------------------------------
 
-EllesmereUI.BUFF_PRESETS = {
+-- WoW Forever: the vanilla catalogue, in the same shape as the retail one
+-- below. Primary = rank 1; alts = every higher rank plus any separate aura
+-- id the buff lands under: the include maps match exact aura spell ids, so
+-- every learnable rank must be listed. Where the retail catalogue also
+-- curates rank 1 under the preset (unchecked there), rank 2 is the primary
+-- and rank 1 an alt, so the two clients never share one stored checkbox
+-- with different defaults. Active Mitigation, Lesser Healing Buffs and
+-- Support are not offered on this client.
+-- Both catalogues are built on every client: the running client's one
+-- becomes EllesmereUI.BUFF_PRESETS; the other one only feeds the cross-client
+-- id sets and preset list at the end of this file.
+local function ForeverCatalogue()
+    return {
+        filters = {
+            { key = "defensives",  name = "Defensives" },
+            { key = "raidcds",     name = "Raid CDs" },
+            { key = "externals",   name = "Externals" },
+            { key = "coreheals",   name = "Core Healing Buffs" },
+            { key = "offensive",   name = "Offensive CDs" },
+            { key = "movement",    name = "Movement" },
+            { key = "utility",     name = "Utility" },
+            { key = "consumables", name = "Consumables" },
+        },
+        spells = {
+            defensives = {
+                [22812] = { class = "DRUID" },  -- Barkskin
+                [22842] = { class = "DRUID", alts = { 22845 } },  -- Frenzied Regeneration
+                [11958] = { class = "MAGE" },  -- Ice Block
+                -- Ice Barrier (rank 2 primary: retail curates rank 1 unchecked)
+                [13031] = { class = "MAGE", alts = { 11426, 13032, 13033 } },
+                [1463] = { class = "MAGE", alts = { 8494, 8495, 10191, 10192, 10193 } },  -- Mana Shield
+                [642] = { class = "PALADIN", alts = { 1020 } },  -- Divine Shield
+                [498] = { class = "PALADIN", alts = { 5573 } },  -- Divine Protection
+                [586] = { class = "PRIEST", alts = { 9578, 9579, 9592, 10941, 10942 } },  -- Fade
+                [27827] = { class = "PRIEST" },  -- Spirit of Redemption
+                [5277] = { class = "ROGUE" },  -- Evasion
+                -- Vanish (the buff lands as 11327 / 11329)
+                [1856] = { class = "ROGUE", alts = { 1857, 11327, 11329 } },
+                [871] = { class = "WARRIOR" },  -- Shield Wall
+                [12975] = { class = "WARRIOR", alts = { 12976 } },  -- Last Stand
+                [20230] = { class = "WARRIOR" },  -- Retaliation
+                [19263] = { class = "HUNTER" },  -- Deterrence
+                [6229] = { class = "WARLOCK", alts = { 11739, 11740, 28610 } },  -- Shadow Ward
+            },
+            raidcds = {
+                -- Tranquility (rank 2 primary: retail curates rank 1 unchecked)
+                [8918] = { class = "DRUID", alts = { 740, 9862, 9863 } },
+            },
+            externals = {
+                [1022] = { class = "PALADIN", alts = { 5599, 10278 } },  -- Blessing of Protection
+                [6940] = { class = "PALADIN", alts = { 20729 } },  -- Blessing of Sacrifice
+                [10060] = { class = "PRIEST" },  -- Power Infusion
+                [6346] = { class = "PRIEST" },  -- Fear Ward
+                [29166] = { class = "DRUID" },  -- Innervate
+            },
+            coreheals = {
+                -- Renew (rank 2 primary: retail curates rank 1 unchecked)
+                [6074] = { class = "PRIEST", alts = { 139, 6075, 6076, 6077, 6078, 10927,
+                    10928, 10929, 25315 } },
+                -- Power Word: Shield (rank 2 primary: retail curates rank 1 unchecked)
+                [592] = { class = "PRIEST", alts = { 17, 600, 3747, 6065, 6066, 10898, 10899,
+                    10900, 10901 } },
+                -- Rejuvenation (rank 2 primary: retail curates rank 1 unchecked)
+                [1058] = { class = "DRUID", alts = { 774, 1430, 2090, 2091, 3627, 8910, 9839,
+                    9840, 9841, 25299 } },
+                -- Regrowth (rank 2 primary: retail curates rank 1 unchecked)
+                [8938] = { class = "DRUID", alts = { 8936, 8939, 8940, 8941, 9750, 9856, 9857,
+                    9858 } },
+            },
+            offensive = {
+                [1719] = { class = "WARRIOR" },  -- Recklessness
+                [12328] = { class = "WARRIOR" },  -- Death Wish
+                [12292] = { class = "WARRIOR" },  -- Sweeping Strikes
+                [18499] = { class = "WARRIOR" },  -- Berserker Rage
+                [13750] = { class = "ROGUE" },  -- Adrenaline Rush
+                [13877] = { class = "ROGUE" },  -- Blade Flurry
+                [14177] = { class = "ROGUE" },  -- Cold Blood
+                [12042] = { class = "MAGE" },  -- Arcane Power
+                [11129] = { class = "MAGE" },  -- Combustion
+                [12043] = { class = "MAGE" },  -- Presence of Mind
+                [3045] = { class = "HUNTER" },  -- Rapid Fire
+                [19574] = { class = "HUNTER" },  -- Bestial Wrath
+                [10060] = { class = "PRIEST" },  -- Power Infusion
+                [14751] = { class = "PRIEST" },  -- Inner Focus
+                [16188] = { class = "SHAMAN" },  -- Nature's Swiftness
+                [17116] = { class = "DRUID" },  -- Nature's Swiftness
+                [5217] = { class = "DRUID" },  -- Tiger's Fury
+                [20216] = { class = "PALADIN" },  -- Divine Favor
+            },
+            movement = {
+                [1850] = { class = "DRUID", alts = { 9821 } },  -- Dash
+                [783] = { class = "DRUID" },  -- Travel Form
+                [5215] = { class = "DRUID", alts = { 6783, 9913 } },  -- Prowl
+                [2983] = { class = "ROGUE", alts = { 8696, 11305 } },  -- Sprint
+                [1784] = { class = "ROGUE", alts = { 1785, 1786, 1787 } },  -- Stealth
+                [5118] = { class = "HUNTER" },  -- Aspect of the Cheetah
+                [13159] = { class = "HUNTER" },  -- Aspect of the Pack
+                [5384] = { class = "HUNTER" },  -- Feign Death
+                [130] = { class = "MAGE" },  -- Slow Fall
+                [1044] = { class = "PALADIN" },  -- Blessing of Freedom
+                [2645] = { class = "SHAMAN" },  -- Ghost Wolf
+                [1706] = { class = "PRIEST" },  -- Levitate
+            },
+            utility = {
+                [29166] = { class = "DRUID" },  -- Innervate
+                [1044] = { class = "PALADIN" },  -- Blessing of Freedom
+                [546] = { class = "SHAMAN" },  -- Water Walking
+                [131] = { class = "SHAMAN" },  -- Water Breathing
+                [5697] = { class = "WARLOCK" },  -- Unending Breath
+                [1008] = { class = "MAGE", alts = { 8455, 10169, 10170 } },  -- Amplify Magic
+                [604] = { class = "MAGE", alts = { 8450, 8451, 10173, 10174 } },  -- Dampen Magic
+            },
+            -- Aura spell ids of the vanilla flasks, elixirs and potions. Flasks,
+            -- protection potions, Free Action and Limited Invulnerability are
+            -- checked by default; the rest start unchecked.
+            consumables = {
+                [17626] = { class = "ALL" },  -- Flask of the Titans
+                [17628] = { class = "ALL" },  -- Flask of Supreme Power
+                [17627] = { class = "ALL" },  -- Flask of Distilled Wisdom
+                [17629] = { class = "ALL" },  -- Flask of Chromatic Resistance
+                [17538] = { class = "ALL", disabled = true },  -- Elixir of the Mongoose
+                [17539] = { class = "ALL", disabled = true },  -- Greater Arcane Elixir
+                [11474] = { class = "ALL", disabled = true },  -- Elixir of Shadow Power
+                [21920] = { class = "ALL", disabled = true },  -- Elixir of Frost Power
+                [17537] = { class = "ALL", disabled = true },  -- Elixir of Brute Force
+                [17535] = { class = "ALL", disabled = true },  -- Elixir of the Sages
+                [6615] = { class = "ALL" },  -- Free Action Potion
+                [3169] = { class = "ALL" },  -- Limited Invulnerability Potion
+                [17540] = { class = "ALL", disabled = true },  -- Greater Stoneshield Potion
+                [17528] = { class = "ALL", disabled = true },  -- Mighty Rage Potion
+                [2379] = { class = "ALL", disabled = true },  -- Swiftness Potion
+                [11359] = { class = "ALL", disabled = true },  -- Restorative Potion
+                [11364] = { class = "ALL", disabled = true },  -- Magic Resistance Potion
+                [17543] = { class = "ALL" },  -- Greater Fire Protection Potion
+                [17546] = { class = "ALL" },  -- Greater Nature Protection Potion
+                [17548] = { class = "ALL" },  -- Greater Shadow Protection Potion
+                [17544] = { class = "ALL" },  -- Greater Frost Protection Potion
+                [17549] = { class = "ALL" },  -- Greater Arcane Protection Potion
+                [16323] = { class = "ALL", disabled = true },  -- Juju Power
+                [16329] = { class = "ALL", disabled = true },  -- Juju Might
+                [17038] = { class = "ALL", disabled = true },  -- Winterfall Firewater
+            },
+        },
+    }
+end
+
+local RETAIL_PRESETS = {
 
 -- Order = display order. Indicators assign filters by numeric id, but preset
 -- identity rides the `preset` field so curated-data updates can find them.
@@ -98,7 +244,7 @@ spells = {
         [104773] = { class = "WARLOCK" },
         [132413] = { class = "WARLOCK" },
         [387636] = { class = "WARLOCK" },
-        [389614] = { class = "WARLOCK" },
+        [389614] = { class = "WARLOCK", disabled = true },
         [118038] = { class = "WARRIOR" },
         [184364] = { class = "WARRIOR" },
         [190456] = { class = "WARRIOR", alts = { 1277297 } },
@@ -256,27 +402,31 @@ spells = {
         [471306] = { class = "DEMONHUNTER", alts = { 1217605, 473671, 1217607 } },
         [194223] = { class = "DRUID", alts = { 102560 } },
         [106951] = { class = "DRUID", alts = { 102543 } },
-        [50334] = { class = "DRUID", alts = { 102558 } },
-        [403631] = { class = "EVOKER" },
+        [50334] = { class = "DRUID", alts = { 102558 }, disabled = true },
+        [403631] = { class = "EVOKER", disabled = true },
         [375087] = { class = "EVOKER" },
         [186254] = { class = "HUNTER", alts = { 1235388, 1285912, 19574 } },
         [288613] = { class = "HUNTER" },
         [1250646] = { class = "HUNTER", alts = { 1251703 } },
         [190319] = { class = "MAGE" },
-        [12472] = { class = "MAGE" },
         [365350] = { class = "MAGE", alts = { 365362 } },
+        [1247908] = { class = "MAGE" },
         [1249625] = { class = "MONK" },
-        [137639] = { class = "MONK" },
+        [1248992] = { class = "MONK", disabled = true },
         [31884] = { class = "PALADIN", alts = { 231895, 454351, 216331 } },
         [10060] = { class = "PRIEST" },
         [194249] = { class = "PRIEST" },
         [13750] = { class = "ROGUE" },
         [121471] = { class = "ROGUE" },
-        [185422] = { class = "ROGUE" },
+        [185422] = { class = "ROGUE", disabled = true },
+        [1249810] = { class = "ROGUE" },
         [114050] = { class = "SHAMAN", alts = { 114051, 114052, 1219480 } },
         [466772] = { class = "SHAMAN" },
         [442726] = { class = "WARLOCK" },
-        [1276767] = { class = "WARLOCK" },
+        [1276767] = { class = "WARLOCK", disabled = true },
+        [1276166] = { class = "WARLOCK" },
+        [266087] = { class = "WARLOCK" },
+        [417282] = { class = "WARLOCK" },
         [107574] = { class = "WARRIOR" },
         [1719] = { class = "WARRIOR" },
     },
@@ -364,3 +514,38 @@ spells = {
 },
 
 }
+
+local RUNNING, OTHER
+if EllesmereUI.IS_FOREVER == true then
+    RUNNING, OTHER = ForeverCatalogue(), RETAIL_PRESETS
+else
+    RUNNING, OTHER = RETAIL_PRESETS, ForeverCatalogue()
+end
+EllesmereUI.BUFF_PRESETS = RUNNING
+
+-- Profiles travel between retail and WoW Forever (exported on one client,
+-- imported on the other, and back). Both consumers keep what only the other
+-- client curates stored untouched but inert and hidden here: its spell ids
+-- and checkbox states inside shared preset filters, and its presets this
+-- client does not offer. Id sets hold primaries and alts alike:
+--   BUFF_PRESET_IDS[key][id]       this client's catalogue curates id under key
+--   BUFF_PRESET_OTHER_IDS[key][id] the other client's catalogue does
+--   BUFF_PRESET_OTHER_FILTERS      the other client's preset list (key, name)
+local function IdSets(presets)
+    local sets = {}
+    for key, list in pairs(presets.spells) do
+        local set = {}
+        for id, info in pairs(list) do
+            set[id] = true
+            local alts = info.alts
+            if alts then
+                for i = 1, #alts do set[alts[i]] = true end
+            end
+        end
+        sets[key] = set
+    end
+    return sets
+end
+EllesmereUI.BUFF_PRESET_IDS = IdSets(RUNNING)
+EllesmereUI.BUFF_PRESET_OTHER_IDS = IdSets(OTHER)
+EllesmereUI.BUFF_PRESET_OTHER_FILTERS = OTHER.filters

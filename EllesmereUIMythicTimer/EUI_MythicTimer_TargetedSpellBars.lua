@@ -27,15 +27,7 @@ end
 --  Fonts: module-wide family/outline/shadow (surface key "mythicTimer"), only
 --  per-text sizes are settings -- same contract as every other bar surface.
 --------------------------------------------------------------------------------
-local FONT_FALLBACK = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
-local function SetFSFont(fs, size)
-    if not (fs and fs.SetFont) then return end
-    local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("mythicTimer")) or FONT_FALLBACK
-    local outline = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("mythicTimer")) or ""
-    local useShadow = EllesmereUI.GetFontUseShadow and EllesmereUI.GetFontUseShadow("mythicTimer")
-    if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, useShadow) end
-    fs:SetFont(path, size, outline)
-end
+local function SetFSFont(fs, size) EllesmereUI.ApplyModuleFont(fs, nil, size, "mythicTimer") end
 
 --------------------------------------------------------------------------------
 --  Shared engines consumed read-only (core addon, loaded before this module).
@@ -86,8 +78,12 @@ local function CurrentWhereBucket()
     if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then
         return "dungeon_mythic"
     end
-    local _, iType, diffID = GetInstanceInfo()
+    local _, iType, diffID, _, _, _, _, _, _, _, hasWorldTier = GetInstanceInfo()
     diffID = tonumber(diffID) or 0
+    -- Lairs carry the World Tier flag instead of a difficulty id the branches
+    -- below know; the instance gate keeps the flag from ever reclassifying
+    -- the open world, whatever else it may be set on.
+    if hasWorldTier == true and iType ~= "none" then return "lair" end
     if iType == "party" then
         if diffID == 23 or diffID == 8 then return "dungeon_mythic" end
         if diffID == 2 or diffID == 1 or diffID == 205 then return "dungeon_nonmythic" end
@@ -111,7 +107,7 @@ end
 -- (PvP, arena) never hides.
 local LOCATION_KEYS = {
     "open_world", "raid_mythic", "raid_heroic", "raid_normal_lfr",
-    "dungeon_mythic", "dungeon_nonmythic", "timewalking", "delve",
+    "dungeon_mythic", "dungeon_nonmythic", "timewalking", "delve", "lair",
 }
 
 -- Combat state is TRACKED from PLAYER_REGEN_DISABLED / _ENABLED instead of
@@ -366,8 +362,7 @@ local function StyleBar(holder, cfg)
         holder.sb:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", 0, 0)
     end
 
-    local texPath = EllesmereUI.ResolveTexturePath
-        and EllesmereUI.ResolveTexturePath(ns.barTextures, cfg.texture or "none", "Interface\\Buttons\\WHITE8x8")
+    local texPath = EllesmereUI.ResolveTexturePath(ns.barTextures, cfg.texture or "none", "Interface\\Buttons\\WHITE8x8")
         or "Interface\\Buttons\\WHITE8x8"
     holder.sb:SetStatusBarTexture(texPath)
     local pp = EllesmereUI.PP
@@ -382,9 +377,13 @@ local function StyleBar(holder, cfg)
     local un = cfg.uninterruptible
     if un then holder.overlay:SetVertexColor(un.r, un.g, un.b) end
 
-    -- Solid black border on the holder; size 0 removes it.
+    -- Solid black border on the holder; size 0 removes it. The Border Size
+    -- slider stores coordinate units (px * PP.mult) while PP borders take
+    -- physical pixels, so convert here: the bar draws the number the slider
+    -- shows, and the icon divider below follows the same count.
     local bsz = cfg.borderSize
     if bsz == nil then bsz = 1 end
+    if pp and pp.ToPixels then bsz = pp.ToPixels(bsz) end
     if pp and pp.CreateBorder then
         if bsz > 0 then
             if not holder._tsbBorder then
@@ -444,7 +443,6 @@ local function StyleBar(holder, cfg)
     holder.timer:SetShown(showTimer)
     -- target visibility is per-cast (hasTarget); the paint pass owns it
 
-    holder._glowDirty = true -- size may have changed; the glow geometry is size-dependent
     holder._styleGen = styleGen
 end
 
@@ -467,12 +465,11 @@ local function Reflow()
 end
 
 --------------------------------------------------------------------------------
---  Important-cast glow: routed through Glows.StartEngineGlow (the C-side
---  AnimationGroup path built for the 12.1 forbidden aura partition), so it
---  costs ZERO per-frame Lua regardless of how many bars glow -- unlike the
---  driver-ticked engines the nameplate module uses. Only styles with a
---  genuine C-side twin are offered (1/2/5/6/7); styles 3/4 silently remap
---  inside the engine and are left off the options dropdown.
+--  Important-cast glow: an engine host by choice (the C-side AnimationGroup
+--  path built for the 12.1 forbidden aura partition), so it costs ZERO
+--  per-frame Lua regardless of how many bars glow. The engine host draws
+--  Pixel, Action Button, GCD, Modern and Classic; a stored Auto-Cast or
+--  Shape pick renders as Modern WoW Glow.
 --------------------------------------------------------------------------------
 local function EnsureGlowOverlay(holder)
     if holder._glow then return holder._glow end
@@ -486,39 +483,30 @@ end
 
 local function ClearImportantGlow(holder)
     if holder._glowActive and holder._glow then
-        if Glows then Glows.StopAllGlows(holder._glow) end
+        Glows.StopAllGlows(holder._glow)
         holder._glow:SetAlpha(0)
         holder._glow:Hide()
         holder._glowActive = false
-        holder._glowStyle = nil
     end
 end
 
+local IMP_GLOW_SPEC = {}
 local function StartImportantGlowAnim(holder, cfg)
     local ov = EnsureGlowOverlay(holder)
-    local style = cfg.importantGlowStyle or 1
     local c = cfg.importantGlowColor or { r = 1, g = 0.2, b = 0.2 }
-    local n = cfg.importantGlowLines or 8
-    local th = cfg.importantGlowThickness or 2
-    local period = cfg.importantGlowSpeed or 4
-
-    -- Dirty-check so the animation is not restarted on every cast event; only
-    -- a real style/color/param/size change tears it down and re-plays it.
-    if not holder._glowActive or holder._glowStyle ~= style
-        or holder._glowR ~= c.r or holder._glowG ~= c.g or holder._glowB ~= c.b
-        or holder._glowN ~= n or holder._glowTh ~= th or holder._glowPeriod ~= period
-        or holder._glowDirty then
-        holder._glowDirty = nil
-        Glows.StopAllGlows(ov)
-        local pW, pH = holder.sb:GetWidth(), holder.sb:GetHeight()
-        if pW < 5 then pW = 100 end
-        if pH < 5 then pH = 14 end
-        Glows.StartEngineGlow(ov, style, pW, c.r, c.g, c.b, { N = n, th = th, period = period }, pH)
-        holder._glowActive = true
-        holder._glowStyle = style
-        holder._glowR, holder._glowG, holder._glowB = c.r, c.g, c.b
-        holder._glowN, holder._glowTh, holder._glowPeriod = n, th, period
-    end
+    local bgc = cfg.importantGlowBackgroundColor
+    local spec = IMP_GLOW_SPEC
+    spec.style = cfg.importantGlowStyle or 1
+    spec.r, spec.g, spec.b = Glows.ResolveColor(cfg.importantGlowColorMode or "custom", c.r, c.g, c.b)
+    spec.lines, spec.thickness, spec.speed = cfg.importantGlowLines, cfg.importantGlowThickness, cfg.importantGlowSpeed
+    spec.bg = (cfg.importantGlowBackground == true) or nil
+    spec.bgR, spec.bgG, spec.bgB = bgc and bgc.r, bgc and bgc.g, bgc and bgc.b
+    local pW, pH = holder.sb:GetWidth(), holder.sb:GetHeight()
+    if pW < 5 then pW = 100 end
+    if pH < 5 then pH = 14 end
+    -- Restarts only on a real style/color/param/size change, never per cast event.
+    Glows.StartSpecGlow(ov, spec, pW, pH, "engine")
+    holder._glowActive = true
     ov:Show()
     return ov
 end
@@ -528,7 +516,7 @@ end
 -- branch below is allowed to touch it without deciding what it IS.
 local function ApplyImportantGlow(e, cfg)
     local holder = e.bar
-    if not (cfg.importantGlow and Glows and Glows.StartEngineGlow) then
+    if not cfg.importantGlow then
         ClearImportantGlow(holder)
         return
     end
@@ -539,7 +527,7 @@ local function ApplyImportantGlow(e, cfg)
     end
     if issecretvalue and issecretvalue(imp) then
         -- Must run the animation regardless; only its alpha carries the answer.
-        -- StartEngineGlow forces alpha 1 on (re)start, so the boolean alpha
+        -- The glow start forces alpha 1 on (re)start, so the boolean alpha
         -- assignment always runs AFTER the start call, never before.
         local ov = StartImportantGlowAnim(holder, cfg)
         ov:SetAlphaFromBoolean(imp)
@@ -1369,19 +1357,12 @@ local function RegisterUnlock()
                 cfg.height = math.floor(h + 0.5)
                 ns.TSB_Refresh()
             end,
-            savePos = function()
+            savePos = function(_, _, _, x, y)
+                -- Unlock mode hands over CENTER/CENTER coords; on Cancel the frame
+                -- still sits at the dragged spot, so never read the live position.
                 local cfg = Cfg()
-                local f = container
-                if not (cfg and f and f:GetCenter()) then return end
-                -- Raw UIParent-logical center delta; the effective-scale ratio
-                -- normalizes GetCenter's frame-scaled units (timer lesson:
-                -- scale division must never live in the interchange format).
-                local cx, cy = f:GetCenter()
-                local upX, upY = UIParent:GetCenter()
-                local fes = f:GetEffectiveScale() or 1
-                local ues = UIParent:GetEffectiveScale() or 1
-                local ratio = fes / ues
-                cfg.pos = { centerX = cx * ratio - upX, centerY = cy * ratio - upY }
+                if not (cfg and x and y) then return end
+                cfg.pos = { centerX = x, centerY = y }
                 if not (EllesmereUI._unlockActive) then ApplyContainerPosition() end
             end,
             loadPos = function()

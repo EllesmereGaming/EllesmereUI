@@ -1,8 +1,9 @@
 # Contributing to EllesmereUI
 
-**FEATURE REQUESTS ARE TEMPORARILY HALTED.**
-**ONLY BUG FIXES WILL BE ACCEPTED UNTIL**
-**A FEW WEEKS AFTER 12.1 LAUNCH**
+**FEATURE REQUESTS FREEZE HAS BEEN LIFTED, BUT DUE TO THE SIZE OF EUI, FEATURE**
+**REQUESTS MAY OR MAY NOT BE MERGED DEPENDING ON SEVERAL FACTORS LIKE % OF PLAYERS**
+**THAT WOULD USE IT, POTENTIAL MAINTENANCE, CODE SIZE, AND MORE. IF YOU WANT TO**
+**BUILD A FEATURE I GENERALLY SUGGEST DMING ME ON DISCORD FIRST @ ELLESMERE**
 
 Thanks for wanting to contribute! Pull requests are welcome. This document
 explains how PRs are reviewed and the hard rules the codebase lives by, so
@@ -63,8 +64,8 @@ will make changes to it myself.
   `EllesmereUI:ShowConfirmPopup`, never `StaticPopup_Show`.
 - Options pages use two-slot rows (`W:DualRow`). Fill slots left to right
   with no gaps; never pass `nil` as the right slot (use
-  `{ type = "label", text = "" }`); only the last row of a section may have
-  an empty slot.
+  `EllesmereUI.BlankRowCfg()`, a fresh blank label on every call); only the
+  last row of a section may have an empty slot.
 
 ## PR etiquette
 
@@ -72,6 +73,26 @@ will make changes to it myself.
 - Screenshots (before/after) for anything visual.
 - Fill in the PR template checklist honestly - "not applicable" is a fine
   answer, silence is not.
+
+## AI coding rules
+
+Using an AI coding assistant is fine, but these rules apply to you, to your
+AI tools, and to every line of code they write for you:
+
+- **Never study or look at another addon's code unless it has an open source
+  license or its author has given permission**. That includes letting an AI tool
+  read, search, summarize, or learn from it.
+- **Research the game through Blizzard's own UI source**
+  ([wow-ui-source](https://github.com/Gethe/wow-ui-source)) **and look up game
+  data on [wago.tools](https://wago.tools).**
+- **Only submit original code.** Nothing in a PR may be copied from another
+  addon or project, including code an AI tool reproduces from somewhere
+  else. Check what your assistant generates before you submit it.
+- **Keep comments brief.** Only what is needed to understand the code: no
+  restating what a line does, no change history.
+- **Reuse what already exists.** Build on the existing logic and the shared,
+  centralized helpers instead of writing your own copies, and follow the
+  patterns already in the file.
 
 ## Contribution license
 

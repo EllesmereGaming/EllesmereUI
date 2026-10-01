@@ -3,13 +3,22 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUI_Lite.lua
 --  Lightweight replacement for AceAddon-3.0, AceEvent-3.0, and AceDB-3.0
 --  Zero-overhead event dispatch (direct frame handlers, no CallbackHandler)
---  Reads existing AceDB SavedVariables format — no migration needed
+--  Reads existing AceDB SavedVariables format -- no migration needed
 --------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
 local EUILite = {}
 EllesmereUI = EllesmereUI or {}
 EllesmereUI.Lite = EUILite
+
+-- WoW Forever (game type "camelot"): the 12.1 engine reporting a 1.60+ toc.
+-- Stamped by EllesmereUI_ClientGate.lua before any other file runs. Content
+-- that vanilla lacks gates on this, never on WOW_PROJECT_ID (Forever is
+-- classed as mainline on purpose).
+EllesmereUI.IS_FOREVER = (EUI_CLIENT_FOREVER == true)
+-- Global cooldown reference spell: Forever reports nothing on 61304 and uses
+-- Classic's 29515.
+EllesmereUI.GCD_SPELL = EllesmereUI.IS_FOREVER and 29515 or 61304
 
 -- The options-panel scale is exposed as a fixed-step dropdown ("EUI Options
 -- Panel Scale"), NOT a free slider, and its getValue matches exact percentages
@@ -201,15 +210,7 @@ end
 
 local function DeepCopy(src)
     if type(src) ~= "table" then return src end
-    local copy = {}
-    for k, v in pairs(src) do
-        if type(v) == "table" then
-            copy[k] = DeepCopy(v)
-        else
-            copy[k] = v
-        end
-    end
-    return copy
+    return CopyTable(src)
 end
 
 EUILite.DeepCopy = DeepCopy
@@ -477,6 +478,15 @@ local function FlushEnableQueue()
     end
 end
 
+-- Account passes that must read the saved data exactly as it loaded: run once
+-- at this addon's own ADDON_LOADED, before a pre-SavedVariables db is
+-- re-rooted and before any OnInitialize opens a profile and merges defaults
+-- into it -- in the suite and in every standalone alike.
+local _svLoadedHooks = {}
+function EUILite.OnSavedVariablesLoaded(fn)
+    _svLoadedHooks[#_svLoadedHooks + 1] = fn
+end
+
 local lifecycleFrame = CreateFrame("Frame")
 lifecycleFrame:RegisterEvent("ADDON_LOADED")
 lifecycleFrame:RegisterEvent("PLAYER_LOGIN")
@@ -484,6 +494,8 @@ lifecycleFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON_NAME then
             _parentDBRef = EllesmereUIDB
+            for i = 1, #_svLoadedHooks do safecall(_svLoadedHooks[i]) end
+            wipe(_svLoadedHooks)
             if IS_STANDALONE then
                 _svLoaded = true
                 RerootPreSVDBs()

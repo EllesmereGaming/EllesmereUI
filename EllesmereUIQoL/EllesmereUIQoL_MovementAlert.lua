@@ -23,15 +23,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  toggle is on.
 -------------------------------------------------------------------------------
 
+local ns = select(2, ...)
+
 local function IsSecret(value)
     return issecretvalue and issecretvalue(value) or false
-end
-
--- Secret values throw on any comparison (==, <, ...) once execution is
--- tainted, so route a payload field through this before comparing it.
-local function PlainValue(value)
-    if IsSecret(value) then return nil end
-    return value
 end
 
 local inCombat = false
@@ -323,10 +318,10 @@ end
 -------------------------------------------------------------------------------
 local FALLBACK_FONT = "Fonts\\FRIZQT__.TTF"
 local function AlertFontPath()
-    return (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or FALLBACK_FONT
+    return (EllesmereUI.GetFontPath("extras")) or FALLBACK_FONT
 end
 local function AlertFontOutline()
-    local o = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("extras")) or ""
+    local o = (EllesmereUI.GetFontOutlineFlag("extras")) or ""
     if not o:find("OUTLINE") then o = (o == "") and "OUTLINE" or (o .. ", OUTLINE") end
     return o
 end
@@ -568,8 +563,7 @@ local function StyleSlot(slot)
     movementCdFont:SetTextColor(tR, tG, tB)
 
     -- Bar texture (change-guarded: StyleSlot runs on every poll tick)
-    local texPath = (EllesmereUI.ResolveTexturePath
-        and EllesmereUI.ResolveTexturePath(BAR_TEXTURES, ma.barTexture or "none", "Interface\\Buttons\\WHITE8x8"))
+    local texPath = (EllesmereUI.ResolveTexturePath(BAR_TEXTURES, ma.barTexture or "none", "Interface\\Buttons\\WHITE8x8"))
         or "Interface\\Buttons\\WHITE8x8"
     if slot.bar._lastTexPath ~= texPath then
         slot.bar:SetStatusBarTexture(texPath)
@@ -791,9 +785,9 @@ local function SafeGetBaseDuration(spellId)
 end
 
 local function ResolvePlayerSpecId()
-    local spec = GetSpecialization()
+    local spec = C_SpecializationInfo.GetSpecialization()
     if not spec then return nil end
-    local specId = select(1, GetSpecializationInfo(spec))
+    local specId = C_SpecializationInfo.GetSpecializationInfo(spec)
     if specId and specId > 0 then return specId end
     return nil
 end
@@ -811,6 +805,36 @@ local movementPreviewTicker = nil -- options-panel preview loop (nil = off)
 local CheckMovementCooldown
 local CancelAllRechargeTimers
 
+-- WoW Forever: the class counts as each of its retail specs, so the tracker
+-- walks every spec list of the class, merged in class order without repeats.
+-- Ids that are a different spell there are left out (781 is the threat-drop
+-- Disengage there, not a movement spell).
+-- Built once: its inputs (the player's class, the static MOVEMENT_ABILITIES)
+-- never change in a session. nil when the class has no list.
+local ForeverMovementList
+do
+    local merged
+    ForeverMovementList = function()
+        if not merged then
+            merged = {}
+            local skip = { [781] = true }
+            local classAbilities = MOVEMENT_ABILITIES[playerClassToken]
+            local ids = classAbilities and EllesmereUI.ForeverClassSpecIDs(playerClassToken)
+            for i = 1, (ids and #ids or 0) do
+                local specList = classAbilities[ids[i]]
+                for j = 1, (specList and #specList or 0) do
+                    local sid, dup = specList[j], false
+                    for k = 1, #merged do
+                        if merged[k] == sid then dup = true; break end
+                    end
+                    if not dup and not skip[sid] then merged[#merged + 1] = sid end
+                end
+            end
+        end
+        return merged[1] and merged or nil
+    end
+end
+
 local function GetPlayerMovementSpells()
     local class = select(2, UnitClass("player"))
     local specId = ResolvePlayerSpecId()
@@ -820,6 +844,7 @@ local function GetPlayerMovementSpells()
     local classAbilities = MOVEMENT_ABILITIES[class]
     if not classAbilities then return {} end
     local specAbilities = classAbilities[specId]
+    if EllesmereUI.IS_FOREVER then specAbilities = ForeverMovementList() end
     if not specAbilities then return {} end
 
     local result, seen = {}, {}
@@ -1007,6 +1032,7 @@ local function CacheMovementSpells(fullReset)
     local overrides = MA().spellOverrides or {}
     local classAbilities = MOVEMENT_ABILITIES[class]
     local specAbilities = classAbilities and specId and classAbilities[specId]
+    if EllesmereUI.IS_FOREVER and specId then specAbilities = ForeverMovementList() end
     if specAbilities then
         for _, spellId in ipairs(specAbilities) do
             local spellOverride = overrides[spellId]
@@ -1095,7 +1121,7 @@ end
 
 -- buffActive engine-lane handles (declared here so HideMovementDisplay -- the
 -- universal off-path -- can park the host; defined in the lane block below).
-local buffAlertHost, buffAlertBuilt, buffAlertRegenArm, buffAlertLastCount
+local buffAlertHost, buffAlertBuilt, buffAlertRegenFn, buffAlertLastCount
 local buffAlertContainer, buffAlertAssist, buffAlertVehicle
 
 -- keepBuffLane: the cooldown display is going away but the buffActive lane is
@@ -1367,7 +1393,7 @@ local function BuffAlertApplyExtra(button, d, style)
     local entry = style.maEntry
     local label = (entry and (entry.customText or entry.spellName)) or "Active!"
     local r, g, b = ResolveAlertColor("textColor", "textColorUseClass")
-    local fp = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("qol")) or STANDARD_TEXT_FONT
+    local fp = (EllesmereUI.GetFontPath("qol")) or STANDARD_TEXT_FONT
     d.maText:SetFont(fp, ma.textSize or 16, "OUTLINE")
     d.maText:SetTextColor(r, g, b)
     d.maText:ClearAllPoints()
@@ -1521,14 +1547,12 @@ local function RepositionBuffAlertHost(count)
     if not buffAlertHost then return end
     buffAlertLastCount = count
     if InCombatLockdown() then
-        if not buffAlertRegenArm then
-            buffAlertRegenArm = CreateFrame("Frame")
-            buffAlertRegenArm:SetScript("OnEvent", function(self)
-                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        if not buffAlertRegenFn then
+            buffAlertRegenFn = function()
                 RepositionBuffAlertHost(buffAlertLastCount or 0)
-            end)
+            end
         end
-        buffAlertRegenArm:RegisterEvent("PLAYER_REGEN_ENABLED")
+        ns.CombatQueue.Defer("BuffAlertHostPos", buffAlertRegenFn)
         return
     end
     local fw, fh = movementFrame:GetWidth(), movementFrame:GetHeight()
@@ -1796,8 +1820,8 @@ local function PreviewTick()
     -- page/module. (Page name must match PAGE_MOVEMENT in EUI_QoL_Options.lua.)
     local shown = EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown()
     local onPage = shown
-        and EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule() == "EllesmereUIQoL"
-        and EllesmereUI.GetActivePage and EllesmereUI:GetActivePage() == "MoveAlert"
+        and EllesmereUI:GetActiveModule() == "EllesmereUIQoL"
+        and EllesmereUI:GetActivePage() == "MoveAlert"
     if not ma or not onPage then StopMovementPreview(); return end
 
     local now = GetTime()
@@ -1901,6 +1925,7 @@ local function IsValidTimeSpiralProc(spellId)
     local specId = ResolvePlayerSpecId()
     local classData = MOVEMENT_ABILITIES[class]
     local specSpells = classData and specId and classData[specId]
+    if EllesmereUI.IS_FOREVER and specId then specSpells = ForeverMovementList() end
     local matched = false
     if specSpells then
         for _, id in ipairs(specSpells) do
@@ -2113,9 +2138,7 @@ local function UpdateEventRegistration()
         -- installs the session-long late-registration callback), matching the
         -- CDM Tracking Bars setup: a saved SM texture renders correctly
         -- without the options panel ever opening.
-        if EllesmereUI.AppendSharedMediaTextures then
-            EllesmereUI.AppendSharedMediaTextures(BAR_TEXTURE_NAMES, BAR_TEXTURE_ORDER, nil, BAR_TEXTURES)
-        end
+        EllesmereUI.AppendSharedMediaTextures(BAR_TEXTURE_NAMES, BAR_TEXTURE_ORDER, nil, BAR_TEXTURES)
     elseif not anyEnabled and baselineEventsRegistered then
         for _, ev in ipairs(BASELINE_EVENTS) do loader:UnregisterEvent(ev) end
         baselineEventsRegistered = false
