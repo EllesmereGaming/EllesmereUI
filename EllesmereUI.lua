@@ -864,6 +864,13 @@ do
         for i, folder in ipairs(group.members) do members[i] = folder end
         coreGroups[#coreGroups + 1] = { key = group.key, label = group.label, members = members }
     end
+    -- Naowh's companion addon gets a sidebar group of its own while it is enabled.
+    if C_AddOns.GetAddOnEnableState("NaowhUI_EUI") > 0 then
+        navInfo.NaowhUI_EUI = {
+            folder = "NaowhUI_EUI", display = "NaowhUI", search_name = "NaowhUI Naowh", alwaysLoaded = true,
+        }
+        table.insert(coreGroups, 1, { key = "naowhui", label = "NaowhUI", members = { "NaowhUI_EUI" } })
+    end
     EUI_NS.navInfo            = navInfo
     EUI_NS.coreGroups         = coreGroups
     EUI_NS.pluginGroupsTop    = {}

@@ -18,7 +18,7 @@ local _, EUI_NS = ...
 -------------------------------------------------------------------------------
 do
     -- Modules that should NOT get a sync icon (no per-profile settings)
-    local SYNC_EXEMPT = { EllesmereUIPartyMode = true }
+    local SYNC_EXEMPT = { EllesmereUIPartyMode = true, NaowhUI_EUI = true }
     EllesmereUI._syncExempt = SYNC_EXEMPT
 
     -- Modules with a sync icon but no per-profile data (always "synced"). BlizzardSkin hosts

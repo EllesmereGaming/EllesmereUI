@@ -3902,6 +3902,12 @@ do
         -- Extract the addon folder name from the caller's file path.
         local caller = debugstack(2, 1, 0) or ""
         local callerFolder = caller:match("AddOns/([^/]+)/")
+        -- NaowhUI_EUI registers its own page, from its files or from a loadstring chunk.
+        if folderName == "NaowhUI_EUI" and (callerFolder == nil or callerFolder == folderName)
+           and EUI_NS.navInfo[folderName] and C_AddOns.IsAddOnLoaded(folderName) then
+            EUI_NS.RegisterCoreModule(folderName, config, false)
+            return
+        end
         if not callerFolder then return end
         local ALLOWED = {
             EllesmereUI = true,
