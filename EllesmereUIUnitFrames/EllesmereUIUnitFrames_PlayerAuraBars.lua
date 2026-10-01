@@ -2856,7 +2856,15 @@ do
         local n = 0
         for i = 1, math.min(slots or 0, #ENCH_INV_SLOTS) do
             local info = api(ENCH_INV_SLOTS[i])
-            if info and info.hasExpirationTime then n = n + 1 end
+            -- Midnight clients expose the temporary enchant record with
+            -- slightly different populated fields across builds. Count an
+            -- active enchant by any authoritative duration/ID field rather
+            -- than requiring only hasExpirationTime.
+            if info and (info.hasExpirationTime == true
+                    or (type(info.remainingTimeMs) == "number" and info.remainingTimeMs > 0)
+                    or (type(info.enchantID) == "number" and info.enchantID > 0)) then
+                n = n + 1
+            end
         end
         return n
     end
