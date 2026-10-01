@@ -515,6 +515,19 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
                 { type = "toggle", label = "Show Behind",
                   get = function() return B.borderBehind == true end,
                   set = function(v) B.borderBehind = v; onChange() end },
+                { type = "toggle", label = "Power Bar Seam",
+                  tooltip = "Draws the border style's seam art between the health bar and an attached power bar.",
+                  disabled = function()
+                      local pos = B.powerPosition or "below"
+                      local border = Src()
+                      return not (EllesmereUI.GetBorderCompanion(border.borderTexture or "solid", "sepH")
+                          and (B.borderSizeOverride or border.borderSize or 1) > 0 and (pos == "above" or pos == "below")
+                          and (B.powerHeight or 6) > 0)
+                  end,
+                  disabledTooltip = "This option requires an attached Power Bar, a Border Size above 0 and a border style with seam art.",
+                  rawTooltip = true,
+                  get = function() return B.borderPowerSeam == true end,
+                  set = function(v) B.borderPowerSeam = v; onChange() end },
             },
         })
         local function UpdateCogVis()

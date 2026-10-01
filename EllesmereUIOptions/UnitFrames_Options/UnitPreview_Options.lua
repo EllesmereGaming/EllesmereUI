@@ -2085,11 +2085,18 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                     border:EnableMouse(false)
                     icon._euiAuraBorder = border
                 end
+                local aboveEffects = unitKey == "boss" and ns.UF_BossAuraBorderAboveEffects(s)
                 if s.auraBorderBehindUnitFrame then
                     border:SetFrameLevel(0)
+                elseif aboveEffects then
+                    border:SetFrameLevel(icon:GetFrameLevel() + 20)
                 else
                     border:SetFrameLevel(s.auraBorderBehind
                         and math.max(0, icon:GetFrameLevel() - 1) or (icon:GetFrameLevel() + 1))
+                end
+                if icon._durText and (aboveEffects or icon._borderAboveEffects) then
+                    icon._durText:GetParent():SetFrameLevel(icon:GetFrameLevel() + (aboveEffects and 25 or 2))
+                    icon._borderAboveEffects = aboveEffects or nil
                 end
                 EllesmereUI.ApplyBorderStyle(border, s.auraBorderSize or 1,
                     s.auraBorderR or 0, s.auraBorderG or 0, s.auraBorderB or 0, s.auraBorderA or 1,
@@ -2865,7 +2872,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         end
 
         -- Border size and color (encompasses health+power+BTB+above pips)
-        local bs = bds.borderSize or 1
+        local bs = (unitKey == "boss" and s.borderSizeOverride) or bds.borderSize or 1
         local bc = bds.borderColor or { r = 0, g = 0, b = 0 }
         local bTexKey = bds.borderTexture or "solid"
         local borderH = bh2 + (s.bottomTextBar and btbIsAtt and (s.bottomTextBarHeight or 16) or 0)
@@ -2874,7 +2881,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         border:SetPoint("TOPRIGHT", barArea, "TOPRIGHT", 0, 0)
         border:SetHeight(borderH)
         EllesmereUI.ApplyBorderStyle(border, bs, bc.r, bc.g, bc.b, bds.borderAlpha or 1, bTexKey, bds.borderTextureOffset, bds.borderTextureOffsetY, bds.borderTextureShiftX, bds.borderTextureShiftY, "unitframes", bs, nil,
-            EllesmereUI.BorderPx(bds.borderSizePx, bs, bTexKey))
+            EllesmereUI.BorderPx((unitKey ~= "boss" or not s.borderSizeOverride) and bds.borderSizePx, bs, bTexKey))
 
         -- Class Power Pips update (player only)
         if cpPipContainer and cpPips then
@@ -3599,10 +3606,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
 
         -- Recalculate border sizes after scale change so they stay pixel-perfect
         if border then
-            local bs2 = bds.borderSize or 1
+            local bs2 = (unitKey == "boss" and s.borderSizeOverride) or bds.borderSize or 1
             local bTex2 = bds.borderTexture or "solid"
             EllesmereUI.ApplyBorderStyle(border, bs2, (bds.borderColor or {r=0,g=0,b=0}).r, (bds.borderColor or {r=0,g=0,b=0}).g, (bds.borderColor or {r=0,g=0,b=0}).b, bds.borderAlpha or 1, bTex2, bds.borderTextureOffset, bds.borderTextureOffsetY, bds.borderTextureShiftX, bds.borderTextureShiftY, "unitframes", bs2, nil,
-                EllesmereUI.BorderPx(bds.borderSizePx, bs2, bTex2))
+                EllesmereUI.BorderPx((unitKey ~= "boss" or not s.borderSizeOverride) and bds.borderSizePx, bs2, bTex2))
         end
         if castbar then
             if PP.GetBorders(castbar) then PP.SetBorderSize(castbar, 1) end
@@ -3692,7 +3699,8 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         end
         if s.portraitSeparator or pf._portraitSeparator then
             ns.UpdatePortraitSeparator(pf, portraitFrame, s, effectiveSide,
-                sp and isAttached, EllesmereUI.BlizzStyle.Get("unitframes"), true)
+                sp and isAttached, EllesmereUI.BlizzStyle.Get("unitframes"), true,
+                unitKey == "boss" and bds or nil)
         end
         -- After the separators have their final layout, mirror the live
         -- Magic dispel copies, including their above/below and left/right art.

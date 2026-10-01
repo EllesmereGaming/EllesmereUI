@@ -1305,6 +1305,26 @@ end
 -- change-guarded via CK() fingerprints (d.ufDurColor/d.ufStackColor) --
 -- SetTextColor costs real time too, same reasoning as the font guard above.
 local function ApplyUFText(button, d, style)
+    if style.auraBorderAboveEffects or d.ufBorderAboveEffects then
+        -- Only owned art/text hosts move; the restricted button is untouched.
+        -- Stock styles hide the border instead of restoring its level.
+        local level = d.borderHost:GetFrameLevel()
+        if style.auraBorderAboveEffects then
+            d.ufBorderBaseLevel = level
+            level = math.max(level, (d.buttonFrameLevel or 1) + 20)
+            d.borderHost:SetFrameLevel(level)
+        else
+            if not style.border and d.ufBorderBaseLevel then
+                level = d.ufBorderBaseLevel
+                d.borderHost:SetFrameLevel(level)
+            end
+            d.ufBorderBaseLevel = nil
+        end
+        d.dispelHolder:SetFrameLevel(level + 4)
+        d.stackCarrier:SetFrameLevel(level + 5)
+        d.akDispelLvl = level
+        d.ufBorderAboveEffects = style.auraBorderAboveEffects or nil
+    end
     local path = style.fontPath or FALLBACK_FONT
     if d.duration then
         local fontKey = path .. "|" .. (style.cdTextSize or 10)
@@ -1405,6 +1425,7 @@ local function StyleTableFP(st, font)
         b and b.texture, b and b.size, b and b.edgePx, b and b[1], b and b[2], b and b[3], b and b[4],
         b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
         b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel,
+        st.auraBorderAboveEffects,
         st.noTooltips, st.blizzBorder, st.dispelBorder,
         -- Textured Dispel Ring (the ring's art key) and Use Dispel Colors (the
         -- palette fingerprint the colour map was built from).
@@ -1567,6 +1588,8 @@ local function BuildStyle(unit, base, s, unitFrame)
         -- every ApplyUFText call -- GetFontPath's result only changes when
         -- font settings change, which already forces a fresh style table.
         fontPath = (EllesmereUI.GetFontPath("unitFrames")) or FALLBACK_FONT,
+        auraBorderAboveEffects = s.auraBorderAboveEffects == true and unit:match("^boss")
+            and ns.UF_BossAuraBorderAboveEffects(s) or nil,
         applyExtra = ApplyUFText,
     }
 end
@@ -1589,7 +1612,9 @@ function PurgeGlow.Extra(button, d, style)
         -- window for parenting a new frame to it. Just below the text carrier.
         host = CreateFrame("Frame", nil, button)
         host:SetAllPoints(button)
-        if d.stackCarrier then
+        if style.auraBorderAboveEffects then
+            host:SetFrameLevel(d.cooldown:GetFrameLevel() + 5)
+        elseif d.stackCarrier then
             host:SetFrameLevel(d.stackCarrier:GetFrameLevel() - 1)
         else
             host:SetFrameLevel(button:GetFrameLevel() + 1)

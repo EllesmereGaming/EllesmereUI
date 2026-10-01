@@ -3879,6 +3879,13 @@ function ns.UF_BossBorderSettings()
     return GetMiniDonorSettings()
 end
 
+function ns.UF_BossAuraBorderAboveEffects(s)
+    return s.auraBorderAboveEffects == true and not ns.UF_Blizz()
+        and not s.auraBorderBehind and not s.auraBorderBehindUnitFrame
+        and (s.auraBorderSize or 1) > 0
+        and s.auraBorderTexture ~= nil and s.auraBorderTexture ~= "solid" and s.auraBorderTexture ~= ""
+end
+
 -- Boss "Simple Debuff Display" mode: "none"|"left"|"right". Tolerates legacy booleans
 -- (true/nil="left", false="none") so existing/imported profiles read correctly with no
 -- migration pass. "left"/"right" both force the frame-height-matched single column;
@@ -5619,7 +5626,8 @@ local function UpdateBordersForScale(frame, unit)
     if ns.UF_Blizz() and not ns._ufReloadSweep then ns.UF_ApplyBlizzardLayout(frame, unit) end
     if settings.portraitSeparator or frame._portraitSeparator then
         ns.UpdatePortraitSeparator(frame, frame.Portrait and frame.Portrait.backdrop,
-            settings, effectiveSide, showPortrait and isAttached, ns.UF_Blizz())
+            settings, effectiveSide, showPortrait and isAttached, ns.UF_Blizz(), nil,
+            unit:match("^boss%d$") and ns.UF_BossBorderSettings() or nil)
     end
 end
 
@@ -7234,7 +7242,7 @@ end
 -- live. Shared by the creation path and player/target/focus refresh branches. On ns
 -- for the Lua 5.1 200-local ceiling.
 --
--- Power Bar Seam (s.borderPowerSeam, opt-in; player / target / focus): the frame
+-- Power Bar Seam (s.borderPowerSeam, opt-in; player / target / focus / boss): the frame
 -- Border Style's separator strip (EllesmereUI.GetBorderCompanion "sepH") along the
 -- health / power join while the power bar is attached with a height, the frame
 -- border is above 0 and its style has seam art; flipped for a bar above health.
@@ -7252,13 +7260,19 @@ end
 -- registration.
 function ns.UpdatePowerSeam(power, s, stock, preview)
     local seam = power._pbSeam
+    local b = s
+    local sizeOverride
     local path
     if s and s.borderPowerSeam == true then
+        if s == db.profile.boss then
+            b = ns.UF_BossBorderSettings()
+            sizeOverride = s.borderSizeOverride
+        end
         if stock == nil then stock = ns.UF_Blizz() end
         local pos = s.powerPosition or "below"
         if not stock and (pos == "above" or pos == "below") and (s.powerHeight or 6) > 0
-           and (s.borderSize or 1) > 0 and power:IsShown() then
-            path = EllesmereUI.GetBorderCompanion(s.borderTexture or "solid", "sepH")
+           and (sizeOverride or b.borderSize or 1) > 0 and power:IsShown() then
+            path = EllesmereUI.GetBorderCompanion(b.borderTexture or "solid", "sepH")
         end
     end
     if not path then
@@ -7290,12 +7304,13 @@ function ns.UpdatePowerSeam(power, s, stock, preview)
     seam:SetFrameStrata((border or power):GetFrameStrata())
     seam:SetFrameLevel(math.max(power:GetFrameLevel() + 1,
         border and math.min(border:GetFrameLevel() + 1, owner:GetFrameLevel() + 11) or 0))
-    local key, size = s.borderTexture, s.borderSize or 1
-    local px = EllesmereUI.BorderPx(s.borderSizePx, size, key)
+    local key, size = b.borderTexture, sizeOverride or b.borderSize or 1
+    local px
+    if not sizeOverride then px = EllesmereUI.BorderPx(b.borderSizePx, size, key) end
     seam._key, seam._step, seam._px, seam._path = key, size, px, path
     seam._above = (s.powerPosition == "above")
-    local c = s.borderColor
-    seam._tex:SetVertexColor(c and c.r or 0, c and c.g or 0, c and c.b or 0, s.borderAlpha or 1)
+    local c = b.borderColor
+    seam._tex:SetVertexColor(c and c.r or 0, c and c.g or 0, c and c.b or 0, b.borderAlpha or 1)
     seam:Show()
     ns.UF_LayoutPowerSeam(seam)
     EllesmereUI.RegisterPxReapply(seam, (px and not preview) and ns.UF_LayoutPowerSeam or nil)
@@ -7345,14 +7360,17 @@ end
 -- Attached portrait divider: reuse the border style's vertical companion art.
 -- A sibling of the portrait avoids clipping the strip where it crosses into the
 -- bars. Built only on opt-in; layout and colour updates use existing passes.
-function ns.UpdatePortraitSeparator(frame, portrait, s, side, attached, stock, preview)
+function ns.UpdatePortraitSeparator(frame, portrait, s, side, attached, stock, preview, borderSettings)
     local seam = frame._portraitSeparator
     local power = frame.Power or frame._power
     local powerSeam = power and power._pbSeam
+    local sizeOverride = borderSettings and s.borderSizeOverride
+    local b = borderSettings or s
+    local size = sizeOverride or b.borderSize or 1
     local path
     if s.portraitSeparator and attached and portrait and portrait:IsShown()
-       and not stock and (s.borderSize or 1) > 0 then
-        path = EllesmereUI.GetBorderCompanion(s.borderTexture or "solid", "sepV")
+       and not stock and size > 0 then
+        path = EllesmereUI.GetBorderCompanion(b.borderTexture or "solid", "sepV")
     end
     if not path then
         if seam then
@@ -7372,11 +7390,12 @@ function ns.UpdatePortraitSeparator(frame, portrait, s, side, attached, stock, p
     local border = frame.unifiedBorder or frame._border
     seam:SetFrameLevel(math.max(frame:GetFrameLevel() + (preview and 4 or 9),
         border and border:GetFrameLevel() + 1 or 0))
-    seam._key, seam._step = s.borderTexture, s.borderSize or 1
-    seam._px = EllesmereUI.BorderPx(s.borderSizePx, seam._step, seam._key)
+    seam._key, seam._step = b.borderTexture, size
+    seam._px = nil
+    if not sizeOverride then seam._px = EllesmereUI.BorderPx(b.borderSizePx, size, seam._key) end
     seam._right = side == "right"
-    local c = s.borderColor
-    seam._tex:SetVertexColor(c and c.r or 0, c and c.g or 0, c and c.b or 0, s.borderAlpha or 1)
+    local c = b.borderColor
+    seam._tex:SetVertexColor(c and c.r or 0, c and c.g or 0, c and c.b or 0, b.borderAlpha or 1)
     ns.UF_LayoutPortraitSeparator(seam)
     seam:Show()
     if powerSeam and powerSeam:IsShown() then ns.UF_LayoutPowerSeam(powerSeam) end
@@ -9100,6 +9119,10 @@ ns.ApplyBossBorderState = function(self)
         r, g, b, a = c.r, c.g, c.b, bsrc.borderAlpha or 1
     end
     EllesmereUI.SetBorderStyleColor(self.unifiedBorder, r, g, b, a)
+    local seam = self.Power and self.Power._pbSeam
+    if seam and seam:IsShown() then seam._tex:SetVertexColor(r, g, b, a) end
+    local portraitSeam = self._portraitSeparator
+    if portraitSeam and portraitSeam:IsShown() then portraitSeam._tex:SetVertexColor(r, g, b, a) end
 end
 
 local function FrameBorderEnter(self)
@@ -17832,6 +17855,9 @@ function SetupOptionsPanel()
         end
         local size = settings.auraBorderSize or 1
         local tex = settings.auraBorderTexture or "solid"
+        if ns.UF_BossAuraBorderAboveEffects(settings) then
+            border:SetFrameLevel(border:GetParent():GetFrameLevel() + 20)
+        end
         EllesmereUI.ApplySecretSafeBorderStyle(border, border, size,
             settings.auraBorderR or 0, settings.auraBorderG or 0, settings.auraBorderB or 0, settings.auraBorderA or 1,
             tex, settings.auraBorderTextureOffset, settings.auraBorderTextureOffsetY,
@@ -17976,7 +18002,7 @@ function SetupOptionsPanel()
             -- duration/stack text renders over the icon border, not under it.
             local textHost = CreateFrame("Frame", nil, iconFrame)
             textHost:SetAllPoints(iconFrame)
-            textHost:SetFrameLevel(iconFrame:GetFrameLevel() + 4)
+            textHost:SetFrameLevel(iconFrame:GetFrameLevel() + (ns.UF_BossAuraBorderAboveEffects(settings) and 25 or 4))
             local durText = textHost:CreateFontString(nil, "OVERLAY")
             durText:SetDrawLayer("OVERLAY", 7)
             EllesmereUI.ApplyIconTextFont(durText, fontPath, cdSize, "unitFrames")
