@@ -2938,17 +2938,11 @@ do
                 end,
                 getSize  = function() return FIXED_W, FIXED_H end,
                 savePos = function(_, _point, _relPoint, x, y)
+                    -- Unlock mode hands over CENTER/CENTER coords; on Cancel the frame
+                    -- still sits at the dragged spot, so never read the live position.
                     local prof = ActiveProfile()
                     if not prof then return end
-                    local af = EnsureFixedFrame()
-                    if af:GetLeft() then
-                        local fw, fh = af:GetSize()
-                        local cx = af:GetLeft() + fw / 2 - UIParent:GetWidth() / 2
-                        local cy = af:GetBottom() + fh / 2 - UIParent:GetHeight() / 2
-                        prof.tooltipFixedPos = { centerX = cx, centerY = cy }
-                    else
-                        prof.tooltipFixedPos = { centerX = x, centerY = y }
-                    end
+                    prof.tooltipFixedPos = { centerX = x, centerY = y }
                 end,
                 loadPos = function()
                     EnsureSeeded()
