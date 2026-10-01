@@ -611,6 +611,23 @@ end
 
 -- GuildRoster() itself fires GUILD_ROSTER_UPDATE, and the server rate-limits it (~10s); throttle so hovering the guild button does not spam requests.
 local mmLastTipRoster = 0
+local mmGuildTipList = {}
+local mmGuildTipTokens = { "", "", "" }
+local tsort = table.sort
+
+-- Rank index 0 is Guild Master; higher indices are lower ranks. Same-rank ties go A-Z.
+local function MMGuildTipSort(a, b)
+    local ai, bi = a.rankIndex, b.rankIndex
+    if ai ~= bi then return ai < bi end
+    return a.sortName < b.sortName
+end
+
+local function MMGuildNoteText(s)
+    if type(s) ~= "string" or s == "" then return nil end
+    if issecretvalue and issecretvalue(s) then return nil end
+    if not s:find("%S") then return nil end
+    return s
+end
 
 -- Member rows per tooltip, as in the minimap friends tooltip: a big friend list or
 -- guild otherwise grows it past the screen. The rest become one "...and N more" line.
@@ -749,30 +766,47 @@ local function MMBuildGuildTip()
     local gName = GetGuildInfo("player")
     if gName then ns.Tip_AddLine("|cff00ff00" .. gName .. "|r") end
 
-    local shown, hidden = 0, 0
+    wipe(mmGuildTipList)
     for i = 1, GetNumGuildMembers() do
-        local name, _, _, level, _, zone, _, _, isOnline, status, class = GetGuildRosterInfo(i)
-        if isOnline and shown >= MM_TIP_MAX_ROWS then
+        local name, rankName, rankIndex, level, _, zone, publicNote, _, isOnline, status, class = GetGuildRosterInfo(i)
+        if isOnline then
+            local cn = name and name:match("[^-]+") or "?"
+            mmGuildTipList[#mmGuildTipList + 1] = {
+                name = name, rankName = rankName, rankIndex = tonumber(rankIndex) or 99,
+                level = level, zone = zone, status = status, class = class, sortName = cn,
+                publicNote = publicNote,
+            }
+        end
+    end
+    tsort(mmGuildTipList, MMGuildTipSort)
+
+    local hidden = 0
+    for i = 1, #mmGuildTipList do
+        if i > MM_TIP_MAX_ROWS then
             hidden = hidden + 1
-        elseif isOnline then
-            shown = shown + 1
+        else
+            local e = mmGuildTipList[i]
             local clr, clg, clb = 1, 1, 1
-            if class then
-                local cc = EllesmereUI.GetClassColor(class)
+            if e.class then
+                local cc = EllesmereUI.GetClassColor(e.class)
                 clr, clg, clb = cc.r, cc.g, cc.b
             end
-            local st  = (status == 1 and DEFAULT_AFK_MESSAGE) or (status == 2 and DEFAULT_DND_MESSAGE) or ""
-            local cn  = name and name:match("[^-]+") or "?"
+            local st  = (e.status == 1 and DEFAULT_AFK_MESSAGE) or (e.status == 2 and DEFAULT_DND_MESSAGE) or ""
             -- Left plain (no |c): the class color rides the left-color args so the hover recolor to accent shows, like the M+ teleport rows.
-            local left  = format("%s  %s %s", level or "", cn, st)
-            local fname = name
-            ns.Tip_AddClickable(left, zone or "", function(mouseButton)
+            local left = format("%s  %s %s", e.level or "", e.sortName, st)
+            -- Rank and note sit in aligned columns, muted, so names and zones still scan as the primary pair.
+            local note = MMGuildNoteText(e.publicNote)
+            mmGuildTipTokens[1] = format("|cff999999%s|r", e.rankName or "")
+            mmGuildTipTokens[2] = note and format("|cff999999%s|r", note) or ""
+            mmGuildTipTokens[3] = e.zone or ""
+            local fname = e.name
+            ns.Tip_AddClickableColumns(left, mmGuildTipTokens, function(mouseButton)
                 if not fname then return end
                 if mouseButton == "LeftButton" then
                     if IsShiftKeyDown() then C_PartyInfo.InviteUnit(EllesmereUI.BuildFullName(fname) or fname)
                     else MMOpenWhisper(fname, nil) end
                 end
-            end, clr, clg, clb, 1, 1, 1)
+            end, clr, clg, clb)
         end
     end
     if hidden > 0 then ns.Tip_AddLine(format("...and %d more", hidden), 0.53, 0.53, 0.53) end
