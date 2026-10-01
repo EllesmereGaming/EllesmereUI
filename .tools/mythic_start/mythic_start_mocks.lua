@@ -1,4 +1,3 @@
--- Purpose-built behavioral harness; not shipped as part of the addon.
 Harness = {
     now = 0, frames = {}, timers = {}, chat = {}, localChat = {}, countdowns = {},
     readyRequests = 0, slotRequests = 0, pickups = 0, startRequests = 0,

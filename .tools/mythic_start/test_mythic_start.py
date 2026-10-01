@@ -25,10 +25,7 @@ if not MATCH:
     raise RuntimeError("Cannot locate Auto Insert/login bridge in addon source")
 LOGIN_BLOCK = MATCH.group(0)
 BLOCK = MODULE_PATH.read_text(encoding="utf-8-sig")
-# The main file registers its login handler before the separate controller file
-# loads. All addon files finish loading before PLAYER_LOGIN invokes that handler.
-# Execute those two runtime phases separately, retaining the unchanged Auto
-# Insert block without the controller bridge as the default-off baseline.
+# Model file loading before login, with unchanged Auto Insert as the baseline.
 AUTO_INSERT_BLOCK, bridge_count = re.subn(
     r"^[ \t]*if EllesmereUI\._applyKeystoneStart then EllesmereUI\._applyKeystoneStart\(\) end\n",
     "", LOGIN_BLOCK, flags=re.M,
