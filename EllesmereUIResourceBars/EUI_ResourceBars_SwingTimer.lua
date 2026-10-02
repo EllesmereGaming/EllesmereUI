@@ -546,6 +546,13 @@ local function ApplyRowLook(row, cfg, w, h)
     if cfg.showLabel ~= false and not merged then row._tag:Show() else row._tag:Hide() end
     if cfg.showTime ~= false and not merged then row._time:Show() else row._time:Hide() end
     ApplyRangeLook(row, cfg)
+    -- Rounded corners (EllesmereUI_RoundedCorners.lua; nothing at radius 0).
+    -- A combined off-hand row is only a spark over the Main Hand row: no fill.
+    EllesmereUI.RoundCorners(row, cfg.cornerRadius or 0, {
+        roots = { clip }, textures = { row._bg },
+        border = not merged and bdr or nil, clip = clip,
+        style = cfg.borderTexture or "solid",
+    })
 end
 
 local function ApplyLook(cfg)

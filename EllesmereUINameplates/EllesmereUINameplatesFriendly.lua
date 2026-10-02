@@ -1068,6 +1068,7 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
             PP.HideBorder(plate.health)
             ns.HideCustomBorder(plate)
             ns.NP_ApplyClassicHealthArt(plate, GetFriendlyHealthBarHeight())
+            ns.NP_ApplyRounding(plate)
             return
         end
         if ns.IsCustomBorderEnabled() then
@@ -1085,6 +1086,7 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
         end
         -- WoW Forever: the level box right of the bar, as on the enemy plates.
         if ns._npForever then ns.NP_ApplyForeverLevelBox(plate, GetFriendlyHealthBarHeight()) end
+        ns.NP_ApplyRounding(plate)
     end
     function plate:ApplyBorderColor()
         if not PP then return end

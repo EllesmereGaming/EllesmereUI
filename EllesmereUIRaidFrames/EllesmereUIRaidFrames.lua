@@ -505,6 +505,7 @@ local defaults = {
         borderAlpha      = 1,
         borderTexture    = "solid",
         borderBehind     = false,
+        cornerRadius     = 0,  -- rounded corners, 0 = off
         -- borderTextureOffset/OffsetY/ShiftX/ShiftY default via GetBorderDefaults
 
         -- Smooth bars
@@ -4670,6 +4671,7 @@ local function StyleButton(button)
             EllesmereUI.ApplyBorderStyle(d.borderFrame, 0, 0, 0, 0, 0, "solid")
             d.borderFrame._hlBorderSize = nil
             ApplyBorderColor()
+            EllesmereUI.RoundCorners(button, 0)
             return
         end
         if d.stockEdge then
@@ -4678,6 +4680,7 @@ local function StyleButton(button)
             d.borderFrame._hlBorderSize = nil
             ns.RF_StockSeat(d)
             ApplyBorderColor()
+            EllesmereUI.RoundCorners(button, 0)
             return
         end
         d.borderFrame:SetFrameLevel(s.borderBehind and math.max(0, pl - 1) or (pl + 8))
@@ -4686,6 +4689,13 @@ local function StyleButton(button)
             s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
             EllesmereUI.BorderPx(s.borderSizePx, bs, texKey))
         ApplyBorderColor()
+        -- Rounded corners (EllesmereUI_RoundedCorners.lua; nothing at radius 0).
+        -- The power border rides in the body so its edge strips round too.
+        EllesmereUI.RoundCorners(button, s.cornerRadius or 0, {
+            roots = { d.health, d.power, d.topNameBar, d.powerBorderFrame },
+            textures = { d.bg },
+            border = d.borderFrame, style = texKey,
+        })
     end
     if ns.RF_Stock() and not d.kit then ns.RF_StockBuild(button, d, d.power) end
     UpdateBorder()
@@ -12731,7 +12741,7 @@ do
             "combatIndicatorSize", "combatIndicatorPosition", "combatIndicatorOffsetX", "combatIndicatorOffsetY",
             "borderSize", "borderColor", "borderAlpha", "borderTexture",
             "borderBehind", "borderTextureOffset", "borderTextureOffsetY",
-            "borderTextureShiftX", "borderTextureShiftY",
+            "borderTextureShiftX", "borderTextureShiftY", "cornerRadius",
             "hoverBorderEnabled", "hoverBorderSize", "hoverBorderColor", "hoverBorderAlpha",
             "targetBorderEnabled", "targetBorderSize", "targetBorderColor", "targetBorderAlpha",
             -- Exact-size companions (see ns._PARTY_PX_SIBLING): same section as their siblings.

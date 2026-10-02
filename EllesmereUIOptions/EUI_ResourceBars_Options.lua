@@ -763,6 +763,23 @@ initFrame:SetScript("OnEvent", function(self)
                 pc._barBorderFrame:Show()
             end
 
+            -- Rounded corners, as on the live class resource (ns.ERB_RoundSecondary).
+            do
+                local radius = (not ns.ERB_BarsBlizz() and sp.cornerRadius) or 0
+                local style = sp.borderTexture or "solid"
+                local onPips = sp.borderOnPips and not isBar
+                EllesmereUI.RoundCorners(pc, radius, {
+                    roots = { pc }, style = style,
+                    border = not onPips and pc._barBorderFrame or nil,
+                })
+                for i = 1, #_previewFrames.pips do
+                    local pip = _previewFrames.pips[i]
+                    EllesmereUI.RoundCorners(pip, onPips and radius or 0, {
+                        roots = { pip }, style = style, border = pip._borderFrame,
+                    })
+                end
+            end
+
             -- Full-bar background for pips only; bar-type uses _barBg. Background on
             -- individual pips drops it, as on the live bar.
             if not isBar and not ns.ERB_PipBgOn(sp, false) then

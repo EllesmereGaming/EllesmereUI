@@ -3621,6 +3621,23 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             EllesmereUI.ApplyBorderStyle(border, bs2, (bds.borderColor or {r=0,g=0,b=0}).r, (bds.borderColor or {r=0,g=0,b=0}).g, (bds.borderColor or {r=0,g=0,b=0}).b, bds.borderAlpha or 1, bTex2, bds.borderTextureOffset, bds.borderTextureOffsetY, bds.borderTextureShiftX, bds.borderTextureShiftY, "unitframes", bs2, nil,
                 EllesmereUI.BorderPx((not s.borderSizeOverride) and bds.borderSizePx, bs2, bTex2))
         end
+        -- Rounded corners, as on the live frame: the border frame is the shape
+        -- (health + power + attached text bar); the fill sits on pf, under the bars.
+        do
+            local radius = (not ResolveBlizzPreview(unitKey, s) and bds.cornerRadius) or 0
+            EllesmereUI.RoundCorners(pf, radius, {
+                roots = { health, (pvPpPos == "below" or pvPpPos == "above") and power or nil,
+                    s.bottomTextBar and btbIsAtt and btbFrame or nil },
+                border = border, rect = border, style = bds.borderTexture or "solid",
+            })
+            if power then
+                local det = pvPpPos == "detached_top" or pvPpPos == "detached_bottom"
+                EllesmereUI.RoundCorners(power, det and radius or 0, {
+                    roots = { power }, border = power._pbBorder,
+                    style = s.powerBorderStyle or "solid",
+                })
+            end
+        end
         if castbar then
             if PP.GetBorders(castbar) then PP.SetBorderSize(castbar, 1) end
             if castFill then

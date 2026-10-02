@@ -220,6 +220,20 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
               setPx = function(v) local p = DB(); if p then p.swingTimer.borderSizePx = v end end,
               apply = function() RefreshST(); EllesmereUI:RefreshPage() end,
             }));  y = y - h
+        -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
+        -- border size control.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(bsRow._rightRegion, {
+                title = "Corner Radius", tip = "Corner Radius",
+                disabled = function() if stOff() then return true end; local p = DB(); return not EllesmereUI.RoundedStyleOK(p and p.swingTimer.borderTexture) end,
+                disabledTooltip = function() if stOff() then return ST_TIP end; return "This option requires the Solid, Glow or Shadow border style." end,
+                rows = {
+                    { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                      get = function() local p = DB(); return p and p.swingTimer.cornerRadius or 0 end,
+                      set = function(v) local p = DB(); if not p then return end; p.swingTimer.cornerRadius = v; RefreshST() end },
+                },
+            })
+        end
         -- Width Offset | Height Offset: own row while a textured style is selected.
         do
             local p = DB()

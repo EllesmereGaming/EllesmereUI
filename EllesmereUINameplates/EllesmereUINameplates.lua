@@ -1859,8 +1859,47 @@ local function ApplyHealthBarTexture(plate)
     -- the bar's inner shadow (re-sized here on every appearance pass). The
     -- classic plate is the bare fill inside its 1px edge (the border path).
     if ns.NP_Style() == "blizzard" then ns.NP_ApplyBlizzBarArt(plate) end
+    if ns.NP_ApplyRounding then ns.NP_ApplyRounding(plate) end
 end
 ns.ApplyHealthBarTexture = ApplyHealthBarTexture
+
+-- Rounded corners (EllesmereUI_RoundedCorners.lua; nothing at radius 0 or
+-- under the stock styles). The body is listed texture by texture: glows and
+-- arrows on the health bar reach past it and must stay unmasked. The fill sits
+-- on the plate (owner) under the bar; a shown Basic border rounds with it.
+-- Re-run after every retexture (a path swap mints a new fill object).
+local NO_ROOTS = {}
+function ns.NP_ApplyRounding(plate)
+    local health = plate.health
+    if not health then return end
+    local radius = (not ns.NP_Blizz() and p and p.cornerRadius) or 0
+    -- Off: free on every spawn unless this plate was rounded before.
+    if radius <= 0 then
+        if plate._npRounded then
+            plate._npRounded = nil
+            EllesmereUI.RoundCorners(plate, 0)
+            if plate.cast then EllesmereUI.RoundCorners(plate.cast, 0) end
+        end
+        return
+    end
+    plate._npRounded = true
+    -- Basic draws Solid strips on the health bar; Custom draws its own style
+    -- on its own frame (only Solid, Glow and Shadow round).
+    local custom = ns.IsCustomBorderEnabled() and plate._customBorder
+    EllesmereUI.RoundCorners(plate, radius, {
+        roots = NO_ROOTS, rect = health, border = custom or health,
+        style = custom and ((p and p.customBorderTexture) or defaults.customBorderTexture) or "solid",
+        textures = { health:GetStatusBarTexture(), plate.healthBG, plate.hashLine,
+            plate.highlight, plate.targetHighlight },
+    })
+    local cast = plate.cast
+    if cast then
+        EllesmereUI.RoundCorners(cast, radius, {
+            roots = NO_ROOTS, border = cast,
+            textures = { cast:GetStatusBarTexture(), plate.castBG },
+        })
+    end
+end
 
 -- Cast bar texture: mirrors ApplyHealthBarTexture with the same texture set (EUI built-ins +
 -- SharedMedia, appended into ns.healthBarTextures at options-build time). On ns (local cap).
@@ -3886,6 +3925,7 @@ local function EnsureTargetHighlight(plate)
         t:AddMaskTexture(plate._blizzBarMask)
         plate._blizzMaskedTarget = true
     end
+    ns.NP_ApplyRounding(plate)
 end
 
 -- Target arrow styles: key -> { l=left texture, r=right texture, w=drawn width at height 16
@@ -4337,6 +4377,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             PP.HideBorder(plate.health)
             ns.HideCustomBorder(plate)
             ns.NP_ApplyClassicHealthArt(plate)
+            ns.NP_ApplyRounding(plate)
             return
         end
         if ns.IsCustomBorderEnabled() then
@@ -4360,6 +4401,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         if (p and (p.castIconCustomBorder or p.castIconSeparator)) or (plate.cast and plate.cast._iconSeam) then
             ns.ApplyCastIconBorder(plate)
         end
+        ns.NP_ApplyRounding(plate)
     end
     function plate:ApplyBorderColor()
         if not PP then return end
@@ -4515,6 +4557,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         elseif PP.GetBorders(plate.cast) then
             PP.HideBorder(plate.cast)
         end
+        ns.NP_ApplyRounding(plate)
     end
     function plate:ApplyCastBorderColor()
         if not PP or not PP.GetBorders or not PP.GetBorders(plate.cast) then return end
