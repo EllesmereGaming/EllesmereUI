@@ -562,7 +562,7 @@ local defaults = {
         roleIconOffsetX  = 0,
         roleIconOffsetY  = 0,
         roleIconHideInCombat = false,
-        roleIconBehindBorder = false,  -- drop the carrier below the hover/target raise so borders draw over the icon
+        roleIconBehindBorder = false,  -- drop the carrier below the normal border so borders draw over the icon
         showRoleForTank    = true,
         showRoleForHealer  = true,
         showRoleForDPS     = false,
@@ -4428,11 +4428,9 @@ local function StyleButton(button)
 
     local function AnchorRoleIcon()
         local s = LiveS()   -- party/extra-aware (see LiveS note above)
-        -- "Show Behind Border": LVL_RAISE - 1 (9) sits just under the hover/target raise (+10,
-        -- strips +11) and under the base border strips (+9 tie: strips are created after this
-        -- carrier, so they win the tie and draw over the icon). Default: text band.
+        -- The normal textured border is +8, so the enabled carrier must sit below it.
         roleCarrier:SetFrameLevel(button:GetFrameLevel()
-            + (s.roleIconBehindBorder and (ns.LVL_RAISE - 1) or (ns.LVL_AURA - 1)))
+            + (s.roleIconBehindBorder and 7 or (ns.LVL_AURA - 1)))
         local health = ns.RF_AnchorHost(health, s)   -- Uniform Icon Anchoring host swap
         roleIcon:ClearAllPoints()
         -- Party Frames kit: the stock spot plus the user's offsets.

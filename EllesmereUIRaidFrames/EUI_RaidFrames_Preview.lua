@@ -3331,7 +3331,7 @@ local function ApplyPreviewData(f, index)
                 local rc = f._roleIcon:GetParent()
                 if rc then
                     rc:SetFrameLevel(f:GetFrameLevel()
-                        + (s.roleIconBehindBorder and (ns.LVL_RAISE - 1) or (ns.LVL_AURA - 1)))
+                        + (s.roleIconBehindBorder and 7 or (ns.LVL_AURA - 1)))
                 end
                 f._roleIcon:ClearAllPoints()
                 local pos = (s.roleIconPosition or "bottomleft"):upper()
