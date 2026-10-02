@@ -3543,6 +3543,30 @@ PositionArrowsOutsideAuras = function(plate)
     PP.Point(plate.rightArrow, "TOP", plate.health, "TOPRIGHT", rox, dy)
     PP.Point(plate.rightArrow, "BOTTOM", plate.health, "BOTTOMRIGHT", rox, -dy)
     PP.Width(plate.rightArrow, aw)
+    -- Side sanity (issue #2252): pooled plates and restricted-subtree
+    -- displacement can leave an arrow anchored to the wrong side (read: both
+    -- arrows sitting right of the bar). Verify each arrow's first anchor
+    -- relPoint side and repair from the health bar when it disagrees; costs
+    -- two GetPoint reads per target apply, nothing on non-target plates.
+    local function ArrowSide(tex)
+        local _, _, relPt = tex:GetPoint(1)
+        if not relPt then return nil end
+        if relPt:find("LEFT", 1, true) then return "left" end
+        if relPt:find("RIGHT", 1, true) then return "right" end
+        return nil
+    end
+    if ArrowSide(plate.leftArrow) ~= "left" then
+        plate.leftArrow:ClearAllPoints()
+        PP.Point(plate.leftArrow, "TOP", plate.health, "TOPLEFT", lox, dy)
+        PP.Point(plate.leftArrow, "BOTTOM", plate.health, "BOTTOMLEFT", lox, -dy)
+        PP.Width(plate.leftArrow, aw)
+    end
+    if ArrowSide(plate.rightArrow) ~= "right" then
+        plate.rightArrow:ClearAllPoints()
+        PP.Point(plate.rightArrow, "TOP", plate.health, "TOPRIGHT", rox, dy)
+        PP.Point(plate.rightArrow, "BOTTOM", plate.health, "BOTTOMRIGHT", rox, -dy)
+        PP.Width(plate.rightArrow, aw)
+    end
 end
 end -- do (AddSideExtent scope)
 ns.PositionArrowsOutsideAuras = PositionArrowsOutsideAuras
