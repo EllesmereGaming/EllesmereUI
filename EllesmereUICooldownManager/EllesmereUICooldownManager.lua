@@ -6714,9 +6714,36 @@ end
 -- (a Warlock's Axe Toss, a Hunter's pet kick) are legitimate picks IsPlayerSpell cannot see, so
 -- check both banks. Returning the resolved id (not a boolean) is the point: a talent swap moves an
 -- interrupt between base and override forms while the stored id stays put; answering "known" but leaving the caller the un-castable form would feed the readiness gate an id that is never on cooldown.
+-- Warlock Command Demon live-morph resolution (issue #1943): 119898 itself is
+-- always in the player book and NEVER on cooldown, so it reads as "ready"
+-- forever. The real interrupt cooldown ticks on the ACTIVE command morph.
+local COMMAND_DEMON_SPELL_ID = 119898
+-- Morph forms that ARE interrupts -- same ids the shared kick table carries
+-- (EllesmereUI_Kick.lua): Spell Lock (pet), Spell Lock via Command Demon,
+-- Axe Toss, plus the Midnight demon interrupts. Imp/Voidwalker morphs (Singe
+-- Magic etc.) are deliberately absent: they are not kicks and must not ping.
+local COMMAND_DEMON_KICK_MORPHS = {
+    [19647] = true, [89766] = true, [119910] = true,
+    [1276467] = true, [132409] = true,
+}
+
 function ns.ResolveCastableInterrupt(sid)
     if type(sid) ~= "number" or sid <= 0 then return nil end
     local knownInBook = ns.IsSpellInPlayerBook
+    -- Command Demon: walk the LIVE morph, not the stored id (issue #1943).
+    -- GetOverrideSpell is the live-morph API -- FindSpellOverrideByID below is
+    -- talent overrides only and never sees Command Demon. A kick morph resolves
+    -- to itself (its cooldown is the one the sound gate must read); a non-kick
+    -- morph resolves to nil so the focus-cast ping stays silent while no
+    -- interrupt is actually available. With no demon out there is no morph
+    -- (GetOverrideSpell answers the own id) and the normal book path applies.
+    if sid == COMMAND_DEMON_SPELL_ID and C_Spell and C_Spell.GetOverrideSpell then
+        local morph = C_Spell.GetOverrideSpell(sid)
+        if morph and morph > 0 and morph ~= sid then
+            if COMMAND_DEMON_KICK_MORPHS[morph] then return morph end
+            return nil
+        end
+    end
     -- Resolve replacements first: Command Demon can remain known while its
     -- active pet command has the cooldown we need to check.
     if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
