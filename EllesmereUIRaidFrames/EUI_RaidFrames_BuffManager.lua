@@ -1579,6 +1579,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         and (s.powerBorderStyle == "divider" or s.powerBorderStyle == "border") and not ns.RF_Stock()
         and (s.borderTexture == "pixels" or s.borderTexture == "pixels-textured")
     local rawTopBarH = s.topNameBarEnabled and (s.topNameBarHeight or 20) or 0
+    local matchTopNameDivider = s.topNameBarDivider == true and rawTopBarH >= 4 and (s.borderSize or 1) > 0
+        and not ns.RF_Stock() and (s.borderTexture == "pixels" or s.borderTexture == "pixels-textured")
     -- Show on Bottom: the bar takes the bottom edge, health starts at the top and
     -- the power bar sits on the bar (as the live LayoutTopNameBar lays it out).
     local rawBottomY = (s.topNameBarEnabled and s.topNameBarBottom == true) and rawTopBarH or 0
@@ -1705,7 +1707,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
             bdr:SetFrameLevel(pvFrame:GetFrameLevel() + 8)
             PP.CreateBorder(bdr, 0, 0, 0, 1, 1)
             local bc = s.borderColor or { r=0, g=0, b=0 }
-            if matchPowerBorder then
+            if matchPowerBorder or matchTopNameDivider then
                 EllesmereUI.ApplyBorderStyle(bdr, bsz, bc.r, bc.g, bc.b, s.borderAlpha or 1,
                     s.borderTexture, s.borderTextureOffset, s.borderTextureOffsetY,
                     s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bsz, nil,
@@ -1813,6 +1815,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         else
             tnbText:SetTextColor(1, 1, 1)
         end
+        if s.topNameBarDivider == true then ns.RF_ApplyTopNameDivider(tnb, s, true) end
     end
 
     local htMode = s.healthTextMode or "none"

@@ -1459,6 +1459,9 @@ local function CreatePreviewFrame(index, party)
         if s.powerBorderMatchColor == true and f._powerBorder and f._powerBorder._powerArtMode == "divider" then
             ns.RF_ColorPowerDivider(f._powerBorder, r, g, b, a)
         end
+        if s.topNameBarDividerMatchColor == true and f._topNameBar and f._topNameBar._divider then
+            ns.RF_ColorPowerDivider(f._topNameBar._divider, r, g, b, a)
+        end
     end
     f._ApplyBorderColor = PvApplyBorderColor
 
@@ -2000,7 +2003,7 @@ local function ApplyPreviewData(f, index)
 
     -- Health bar height/anchor + Top Name Bar (helper re-anchors health top to
     -- -topBarH; the per-unit power block below re-sets only the height)
-    LayoutTopNameBar(s, h, powerH, f._health, f._topNameBar, f._topNameBarBg, f._topNameBarText, f._power)
+    LayoutTopNameBar(s, h, powerH, f._health, f._topNameBar, f._topNameBarBg, f._topNameBarText, f._power, true)
 
     -- Health bar
     if f._health then

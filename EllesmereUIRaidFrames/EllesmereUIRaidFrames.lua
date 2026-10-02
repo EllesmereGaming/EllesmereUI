@@ -453,6 +453,8 @@ local defaults = {
         -- Top Name Bar: reserves height from the frame TOP (as the power bar does from the bottom); suppresses the in-frame Name.
         topNameBarEnabled       = false,
         topNameBarHeight        = 20,
+        topNameBarDivider       = false,
+        topNameBarDividerMatchColor = false,
         topNameBarBgColor       = { r = 17/255, g = 17/255, b = 17/255 },
         topNameBarBgOpacity     = 80,
         topNameBarTextSize      = 11,
@@ -2006,7 +2008,7 @@ end
 -- flush at the top (same height), and the power bar and the uniform anchor region (health +
 -- power) end on the bar. Those two, and the bar's own edge, are re-anchored only while the option
 -- is or just was on, so the top layout never touches them.
-local function LayoutTopNameBar(s, baseH, powerH, healthBar, tnb, tnbBg, tnbText, powerBar)
+local function LayoutTopNameBar(s, baseH, powerH, healthBar, tnb, tnbBg, tnbText, powerBar, preview)
     local enabled = s.topNameBarEnabled
     local topBarH = enabled and PixelSnap(s.topNameBarHeight or 20) or 0
     local bottomY = (enabled and s.topNameBarBottom == true) and topBarH or 0
@@ -2041,6 +2043,7 @@ local function LayoutTopNameBar(s, baseH, powerH, healthBar, tnb, tnbBg, tnbText
     end
     if not tnb then return topBarH end
     if not enabled then
+        if tnb._divider then ns.RF_ApplyTopNameDivider(tnb, s, preview) end
         tnb:Hide()
         return topBarH
     end
@@ -2079,6 +2082,7 @@ local function LayoutTopNameBar(s, baseH, powerH, healthBar, tnb, tnbBg, tnbText
         if cur then tnbText:SetText(""); tnbText:SetText(cur) end
     end
     tnb:Show()
+    if s.topNameBarDivider == true or tnb._divider then ns.RF_ApplyTopNameDivider(tnb, s, preview) end
     return topBarH
 end
 
@@ -4082,23 +4086,32 @@ function ns.RF_LayoutPowerBorderArt(host)
     local raise = realPP.SnapForES(thick * 5 / 32, es) - realPP.perfect / es
     local t = host._powerArtTex
     t:ClearAllPoints()
-    t:SetPoint("TOPLEFT", host, "TOPLEFT", 0, raise)
-    t:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, raise)
+    if host._powerArtEdge == "BOTTOM" then
+        t:SetTexCoord(0, 1, 1, 0)
+        t:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 0, -raise)
+        t:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", 0, -raise)
+    else
+        t:SetTexCoord(0, 1, 0, 1)
+        t:SetPoint("TOPLEFT", host, "TOPLEFT", 0, raise)
+        t:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, raise)
+    end
     t:SetHeight(thick)
     t:Show()
     seam:Show()
 end
 
 -- The cached art is refreshed by settings passes, not ordinary power paints.
-function ns.RF_ApplyPowerBorderArt(host, s, force, preview)
-    local mode = s.powerBorderStyle or "eui"
-    local key = s.powerBorderMatchFrame == true and not ns.RF_Stock() and s.borderTexture
+function ns.RF_ApplyPowerBorderArt(host, s, force, preview, nameBar)
+    local mode = nameBar and "divider" or (s.powerBorderStyle or "eui")
+    local key = ((nameBar and s.topNameBarDivider == true) or (not nameBar and s.powerBorderMatchFrame == true))
+        and not ns.RF_Stock() and s.borderTexture
     if (key ~= "pixels" and key ~= "pixels-textured") or (mode ~= "divider" and mode ~= "border") then
         ns.RF_ClearPowerBorderArt(host)
         return false
     end
     local size = s.borderSize or 1
-    if size <= 0 or (mode == "divider" and (s.powerHeight or 4) < 4) then
+    local height = nameBar and (s.topNameBarHeight or 20) or (s.powerHeight or 4)
+    if size <= 0 or (mode == "divider" and height < 4) then
         ns.RF_ClearPowerBorderArt(host)
         host:Hide()
         return true
@@ -4111,6 +4124,7 @@ function ns.RF_ApplyPowerBorderArt(host, s, force, preview)
     if host._powerArtTex then host._powerArtTex:Hide() end
     if host._powerArtSeam then host._powerArtSeam:Hide() end
     host._powerArtKey, host._powerArtMode = key, mode
+    host._powerArtEdge = (nameBar and not s.topNameBarBottom) and "BOTTOM" or "TOP"
     host._powerArtSize = size
     host._powerArtPx = EllesmereUI.BorderPx(s.borderSizePx, size, key)
     local c = s.borderColor
@@ -4136,6 +4150,26 @@ function ns.RF_ApplyPowerBorderArt(host, s, force, preview)
     -- The separator's snapped height and join offset also depend on the pixel grid.
     EllesmereUI.RegisterPxReapply(host, (mode == "divider" and not preview) and ns.RF_LayoutPowerBorderArt or nil)
     return true, true
+end
+
+function ns.RF_ApplyTopNameDivider(tnb, s, preview)
+    local host = tnb._divider
+    local key = s.borderTexture
+    if not PP or not s.topNameBarEnabled or s.topNameBarDivider ~= true or ns.RF_Stock()
+        or (key ~= "pixels" and key ~= "pixels-textured") or (s.borderSize or 1) <= 0
+        or (s.topNameBarHeight or 20) < 4 then
+        if host then
+            ns.RF_ClearPowerBorderArt(host)
+            host:Hide()
+        end
+        return
+    end
+    if not host then
+        host = CreateFrame("Frame", nil, tnb:GetParent())
+        host:SetAllPoints(tnb)
+        tnb._divider = host
+    end
+    ns.RF_ApplyPowerBorderArt(host, s, true, preview, true)
 end
 
 -------------------------------------------------------------------------------
@@ -4721,6 +4755,9 @@ local function StyleButton(button)
         EllesmereUI.SetBorderStyleColor(d.borderFrame, r, g, b, a)
         if s.powerBorderMatchColor == true and d.powerBorderFrame and d.powerBorderFrame._powerArtMode == "divider" then
             ns.RF_ColorPowerDivider(d.powerBorderFrame, r, g, b, a)
+        end
+        if s.topNameBarDividerMatchColor == true and d.topNameBar and d.topNameBar._divider then
+            ns.RF_ColorPowerDivider(d.topNameBar._divider, r, g, b, a)
         end
     end
     d.ApplyBorderColor = ApplyBorderColor
@@ -7599,6 +7636,14 @@ XF.Layout = function()
         -- the extra proxy (mirrors ReloadFrames per-button styling) so texts/
         -- indicators/auras/BM buffs auto-resize. Bounded to the built slots.
         local xs = ns._scaledExtraProxy
+        if xs.topNameBarDivider == true then
+            LayoutTopNameBar(xs, h, (d.power and d.power:IsShown()) and powerH or 0,
+                d.health, d.topNameBar, d.topNameBarBg, d.topNameBarText, d.power)
+            if xs.topNameBarDividerMatchColor == true and d.topNameBar and d.topNameBar._divider
+                and d.topNameBar._divider._powerArtMode == "divider" then
+                d.ApplyBorderColor()
+            end
+        end
         if d.nameText then
             ApplyFont(d.nameText, xs.nameSize or 10)
             if d.AnchorNameText then d.AnchorNameText() end
@@ -12841,6 +12886,7 @@ do
         },
         topNameBar = {
             "topNameBarEnabled", "topNameBarHeight",
+            "topNameBarDivider", "topNameBarDividerMatchColor",
             "topNameBarBgColor", "topNameBarBgOpacity",
             "topNameBarTextSize", "topNameBarTextColorMode", "topNameBarTextColor",
             "topNameBarTextOffsetX", "topNameBarTextOffsetY", "topNameBarTextAlign",
