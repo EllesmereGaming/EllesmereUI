@@ -1473,16 +1473,23 @@ local function ElementSize(unit, base, s)
     local isBuff = (base == "HELPFUL")
     local size = Pick(isBuff, s.buffSize, s.debuffSize) or 22
     local simpleOn = BossSimple(unit, base, s)
+    local PP = EllesmereUI.PP
+    local m = PP.mult or 1
     if simpleOn then
-        local PP = EllesmereUI.PP
         local powerPos = s.powerPosition or "below"
         local powerH = 0
         if powerPos == "below" or powerPos == "above" then powerH = s.powerHeight or 0 end
         size = PP.Scale((s.healthHeight or 0) + powerH)
+    elseif m ~= 1 then
+        -- Whole physical pixels (nearest, as Player Aura Bars): AuraKit's border
+        -- strips skip pixel snapping while the icon texture snaps, so a
+        -- fractional far edge leaves the border off the icon at a
+        -- non-pixel-perfect scale.
+        size = math.floor(size / m + 0.5 + 0.001) * m
     end
     local cropped = Pick(isBuff, s.buffCropIcons, s.debuffCropIcons)
     local h = size
-    if cropped then h = math.floor(size * AURA_CROP_HEIGHT + 0.5) end
+    if cropped then h = math.floor(size / m * AURA_CROP_HEIGHT + 0.5) * m end
     return size, h, cropped
 end
 
@@ -1908,7 +1915,7 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
                 local es = container:GetEffectiveScale()
                 local _, fcY = frame:GetCenter()
                 if fcY then
-                    local iconH = Pick(isBuff, s.buffSize, s.debuffSize) or 22
+                    local _, iconH = ElementSize(unit, base, s)
                     local rawY = fcY + oy + cbOff + offY
                     offY = offY + (PP.SnapCenterForDim(rawY, iconH, es) - rawY)
                 end

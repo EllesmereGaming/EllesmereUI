@@ -715,7 +715,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
         local rgn = absorbRow._leftRegion
         -- Placement labels follow the FILL AXIS: saved values stay right/left (meaning the FAR/NEAR end of the fill), worded top/bottom on a vertical bar.
         -- MUTATE IN PLACE, never rebuild this table: RefreshPage's fast path skips a full rebuild and the cog popup is built once then cached, so a fresh table would never reach the widget. The popup re-reads values[get()] every show; _invalidateMenu makes an already-built menu re-read entries from this same table on next click.
-        local absorbEdgeLabels = { overlay = "Overlay", overlayReverse = "Overlay Reverse" }
+        local absorbEdgeLabels = { overlay = "Overlay", overlayReverse = "Overlay Reverse", overlayReverseFull = "Overlay Reverse (Full)" }
         local absorbEdgeLabelsVert  -- last applied axis; nil until first sync
         -- (The Party Frames kit's bar always fills horizontally; decided at build.)
         local kitPage = ns.RF_OptPartyKit()
@@ -734,7 +734,9 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
             rows = {
                 { type="dropdown", label="Placement",
                   values = absorbEdgeLabels,
-                  order = { "overlay", "overlayReverse", "right", "left" },
+                  -- Wide enough for "Overlay Reverse (Full)".
+                  ddWidth = 190,
+                  order = { "overlay", "overlayReverse", "overlayReverseFull", "right", "left" },
                   disabled = function() return SVal("absorbStyle", "none") == "blizzardModern" end,
                   disabledTooltip = "Default Blizz Frames uses a fixed placement",
                   rawTooltip = true,
@@ -745,8 +747,9 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
                   values = { never = "Never", always = "Always", fromleft = "From Left" },
                   order = { "never", "always", "fromleft" },
                   -- From Left only exists in the plain Overlay placement:
-                  -- edge modes have no overshield and Overlay Reverse
-                  -- already clamps the whole absorb inside the fill.
+                  -- edge modes have no overshield, Overlay Reverse
+                  -- already clamps the whole absorb inside the fill and
+                  -- its Full variant draws the excess from the origin edge.
                   itemDisabled=function(v)
                       return v == "fromleft" and SVal("absorbEdgeMode", "overlay") ~= "overlay"
                   end,

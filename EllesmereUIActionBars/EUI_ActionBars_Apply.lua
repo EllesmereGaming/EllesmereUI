@@ -5,7 +5,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  The apply methods the options UI and ApplyAll call: borders, shapes,
 --  layout passthroughs, fonts and keybind text, cooldown countdown fonts,
 --  bar and icon backgrounds, Always Show Buttons and the main bar page sync.
---  Loads right after the main file and reads it through ns only.
+--  Loads after the main file and EUI_ActionBars_ButtonArt.lua and reads them
+--  through ns only.
 -------------------------------------------------------------------------------
 local _, ns = ...
 

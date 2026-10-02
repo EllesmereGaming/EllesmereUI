@@ -1208,9 +1208,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 bar:SetReverseFill(false)
                 bar:SetPoint("BOTTOMLEFT",  health, "BOTTOMLEFT",  0, 0)
                 bar:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
-            elseif mode == "overlayReverse" then
+            elseif mode == "overlayReverse" or mode == "overlayReverseFull" then
                 -- Overlay Reverse: shield fills INTO the health fill from
-                -- its leading edge; the preview clip masks excess.
+                -- its leading edge; the preview clip masks excess. The
+                -- preview shield never exceeds health, so Full matches.
                 if isRev then
                     bar:SetReverseFill(false)
                     bar:SetPoint("BOTTOMLEFT",  healthFill, "BOTTOMLEFT",  0, 0)
@@ -1241,9 +1242,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             bar:SetReverseFill(false)
             bar:SetPoint("TOPLEFT",    health, "TOPLEFT",    0, 0)
             bar:SetPoint("BOTTOMLEFT", health, "BOTTOMLEFT", 0, 0)
-        elseif mode == "overlayReverse" then
+        elseif mode == "overlayReverse" or mode == "overlayReverseFull" then
             -- Overlay Reverse: shield fills INTO the health fill from its
-            -- leading edge; the preview clip masks excess.
+            -- leading edge; the preview clip masks excess. The preview
+            -- shield never exceeds health, so Full matches.
             if isRev then
                 bar:SetReverseFill(false)
                 bar:SetPoint("TOPLEFT",    healthFill, "TOPLEFT",    0, 0)
@@ -3056,7 +3058,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local pvGl = pf._pvGlowLine
                 local glEm = s.absorbEdgeMode or "overlay"
                 if s.absorbGlowLine == true and not s.healthVerticalFill
-                    and (glEm == "overlay" or glEm == "overlayReverse") then
+                    and (glEm == "overlay" or glEm == "overlayReverse" or glEm == "overlayReverseFull") then
                     if not pvGl then
                         pvGl = absorbBar:CreateTexture(nil, "OVERLAY")
                         pf._pvGlowLine = pvGl

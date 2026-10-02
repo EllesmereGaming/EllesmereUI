@@ -6010,6 +6010,12 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed, settingsOverride)
     local osm = s and s.overshieldMode
     if osm == nil then osm = (s and s.showOvershield == false) and "never" or "always" end
     local osFromLeft = osm == "fromleft"
+    -- Overlay Reverse (Full): Overlay Reverse, plus the forward bar filling
+    -- from the bar's ORIGIN edge, so the missing-health clip shows the absorb
+    -- exceeding current health past the fill edge instead of losing it. Its
+    -- clip starts exactly at the fill edge: the 1px seal into the fill would
+    -- double that pixel over the backfill.
+    local orFull = absorbMode == "overlayReverseFull"
 
     -- Vertical fill: the whole HP cluster rotates with the health bar. Every anchor
     -- below is the horizontal layout with its axis swapped -- the health fill's RIGHT
@@ -6036,20 +6042,31 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed, settingsOverride)
     fw:ClearAllPoints()
 
     if isVert then
-        -- missClip + forward bar always use the overlay layout; in the edge modes the
-        -- full-bar backfill shows the whole absorb and the Override hides fw.
+        -- missClip + forward bar use the overlay layout (from the origin edge in
+        -- Overlay Reverse (Full)); in the other modes the backfill shows the
+        -- absorb and the Override hides fw.
         if isReversed then
-            missClip:SetPoint("TOPLEFT",     hpTex, "BOTTOMLEFT",  0, 1)
+            missClip:SetPoint("TOPLEFT",     hpTex, "BOTTOMLEFT",  0, orFull and 0 or 1)
             missClip:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
             fw:SetReverseFill(true)
-            fw:SetPoint("TOPLEFT",  hpTex, "BOTTOMLEFT",  0, 0)
-            fw:SetPoint("TOPRIGHT", hpTex, "BOTTOMRIGHT", 0, 0)
+            if orFull then
+                fw:SetPoint("TOPLEFT",  hpBar, "TOPLEFT",  0, 0)
+                fw:SetPoint("TOPRIGHT", hpBar, "TOPRIGHT", 0, 0)
+            else
+                fw:SetPoint("TOPLEFT",  hpTex, "BOTTOMLEFT",  0, 0)
+                fw:SetPoint("TOPRIGHT", hpTex, "BOTTOMRIGHT", 0, 0)
+            end
         else
-            missClip:SetPoint("BOTTOMLEFT", hpTex, "TOPLEFT",  0, -1)
+            missClip:SetPoint("BOTTOMLEFT", hpTex, "TOPLEFT",  0, orFull and 0 or -1)
             missClip:SetPoint("TOPRIGHT",   hpBar, "TOPRIGHT", 0, 0)
             fw:SetReverseFill(false)
-            fw:SetPoint("BOTTOMLEFT",  hpTex, "TOPLEFT",  0, 0)
-            fw:SetPoint("BOTTOMRIGHT", hpTex, "TOPRIGHT", 0, 0)
+            if orFull then
+                fw:SetPoint("BOTTOMLEFT",  hpBar, "BOTTOMLEFT",  0, 0)
+                fw:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+            else
+                fw:SetPoint("BOTTOMLEFT",  hpTex, "TOPLEFT",  0, 0)
+                fw:SetPoint("BOTTOMRIGHT", hpTex, "TOPRIGHT", 0, 0)
+            end
         end
 
         -- Shield absorb placement.
@@ -6065,12 +6082,13 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed, settingsOverride)
                 ab:SetPoint("TOPLEFT",  hpBar, "TOPLEFT",  0, 0)
                 ab:SetPoint("TOPRIGHT", hpBar, "TOPRIGHT", 0, 0)
             end
-        elseif absorbMode == "overlayReverse" then
+        elseif absorbMode == "overlayReverse" or orFull then
             -- Overlay Reverse: the WHOLE absorb fills from the health fill's
             -- leading edge back INTO the fill; the filled-region clip masks
             -- any excess past empty, so shields larger than current health
             -- never escape the fill (fw hidden by the Override, like the edge
-            -- modes). Axis-swapped for vertical, mirrored for reversed fill.
+            -- modes; Full draws that excess through fw instead).
+            -- Axis-swapped for vertical, mirrored for reversed fill.
             if isReversed then
                 curClip:SetPoint("TOPLEFT",     hpBar, "TOPLEFT",     0, 0)
                 curClip:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMRIGHT", 0, 0)
@@ -6151,20 +6169,31 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed, settingsOverride)
         return
     end
 
-    -- missClip + forward bar always use the overlay layout; in the edge modes
-    -- the full-bar backfill shows the whole absorb and the Override hides fw.
+    -- missClip + forward bar use the overlay layout (from the origin edge in
+    -- Overlay Reverse (Full)); in the other modes the backfill shows the
+    -- absorb and the Override hides fw.
     if isReversed then
-        missClip:SetPoint("TOPRIGHT",    hpTex, "TOPLEFT", 1, 0)
+        missClip:SetPoint("TOPRIGHT",    hpTex, "TOPLEFT", orFull and 0 or 1, 0)
         missClip:SetPoint("BOTTOMLEFT",  hpBar, "BOTTOMLEFT", 0, 0)
         fw:SetReverseFill(true)
-        fw:SetPoint("TOPRIGHT",    hpTex, "TOPLEFT",    0, 0)
-        fw:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMLEFT", 0, 0)
+        if orFull then
+            fw:SetPoint("TOPRIGHT",    hpBar, "TOPRIGHT",    0, 0)
+            fw:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+        else
+            fw:SetPoint("TOPRIGHT",    hpTex, "TOPLEFT",    0, 0)
+            fw:SetPoint("BOTTOMRIGHT", hpTex, "BOTTOMLEFT", 0, 0)
+        end
     else
-        missClip:SetPoint("TOPLEFT",     hpTex, "TOPRIGHT", -1, 0)
+        missClip:SetPoint("TOPLEFT",     hpTex, "TOPRIGHT", orFull and 0 or -1, 0)
         missClip:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
         fw:SetReverseFill(false)
-        fw:SetPoint("TOPLEFT",    hpTex, "TOPRIGHT",    0, 0)
-        fw:SetPoint("BOTTOMLEFT", hpTex, "BOTTOMRIGHT", 0, 0)
+        if orFull then
+            fw:SetPoint("TOPLEFT",    hpBar, "TOPLEFT",    0, 0)
+            fw:SetPoint("BOTTOMLEFT", hpBar, "BOTTOMLEFT", 0, 0)
+        else
+            fw:SetPoint("TOPLEFT",    hpTex, "TOPRIGHT",    0, 0)
+            fw:SetPoint("BOTTOMLEFT", hpTex, "BOTTOMRIGHT", 0, 0)
+        end
     end
 
     -- Shield absorb placement
@@ -6182,10 +6211,11 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed, settingsOverride)
             ab:SetPoint("TOPRIGHT",    hpBar, "TOPRIGHT",    0, 0)
             ab:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
         end
-    elseif absorbMode == "overlayReverse" then
+    elseif absorbMode == "overlayReverse" or orFull then
         -- Overlay Reverse: the WHOLE absorb fills from the health fill's
         -- leading edge back INTO the fill; the filled-region clip masks any
-        -- excess past empty (fw hidden by the Override, like the edge modes).
+        -- excess past empty (fw hidden by the Override, like the edge modes;
+        -- Full draws that excess through fw instead).
         if isReversed then
             curClip:SetPoint("TOPRIGHT",   hpBar, "TOPRIGHT",   0, 0)
             curClip:SetPoint("BOTTOMLEFT", hpTex, "BOTTOMLEFT", 0, 0)
@@ -6712,7 +6742,7 @@ function ns.UF_AbsorbGlowApply(frame, unit)
             if osm == nil then osm = (s.showOvershield == false) and "never" or "always" end
             ge = (osm == "fromleft") and 2 or 1
             anc = (osm == "never") and 0 or ge
-        elseif em == "overlayReverse" then
+        elseif em == "overlayReverse" or em == "overlayReverseFull" then
             ge, anc = 3, 0
         elseif em == (rev and "left" or "right") then
             ge, anc = 5, 0
@@ -7267,9 +7297,10 @@ local function CreateAbsorbBar(frame, unit, settings)
                     fw:SetMinMaxValues(0, maxHealth)
                     fw:SetValue(absorbAmt)
                     fw:Show()
-                    -- Edge modes: the full-bar backfill shows the whole absorb,
-                    -- so the overlay-only forward bar is not needed.
-                    if absorbMode ~= "overlay" then fw:Hide() end
+                    -- Edge modes and Overlay Reverse: the backfill shows the
+                    -- absorb, so the forward bar is not needed (Overlay Reverse
+                    -- (Full) draws its excess through it).
+                    if absorbMode ~= "overlay" and absorbMode ~= "overlayReverseFull" then fw:Hide() end
                 end
                 -- Blizzard Glow Line (opt-in; see ns.UF_AbsorbGlowApply).
                 if ab._glowOn then ns.UF_PaintAbsorbGlow(ab, updUnit, absorbAmt, hpH) end

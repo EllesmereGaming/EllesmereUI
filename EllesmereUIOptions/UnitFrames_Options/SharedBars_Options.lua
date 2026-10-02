@@ -2979,7 +2979,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         -- vertical bar. MUTATED IN PLACE, never rebuilt: RefreshPage's fast path
         -- doesn't rebuild the page and the cog popup is built once then cached, so a
         -- fresh table would never reach it; _invalidateMenu forces the cached menu to reread this table on next click.
-        local absorbEdgeLabels = { overlay = "Overlay", overlayReverse = "Overlay Reverse" }
+        local absorbEdgeLabels = { overlay = "Overlay", overlayReverse = "Overlay Reverse", overlayReverseFull = "Overlay Reverse (Full)" }
         local absorbEdgeLabelsVert  -- last applied axis; nil until the first sync
         -- Returns true only if the axis flipped, so the caller can skip
         -- _invalidateMenu on unrelated refreshes (would break a wired-open click).
@@ -2997,7 +2997,9 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             rows = {
                 { type="dropdown", label="Placement",
                   values = absorbEdgeLabels,
-                  order = { "overlay", "overlayReverse", "right", "left" },
+                  -- Wide enough for "Overlay Reverse (Full)".
+                  ddWidth = 190,
+                  order = { "overlay", "overlayReverse", "overlayReverseFull", "right", "left" },
                   get=function() SyncAbsorbEdgeLabels(); return SValSupported("absorbEdgeMode", "overlay") end,
                   set=function(v) SSetSupported("absorbEdgeMode", v) end },
                 { type="dropdown", label="Show Overshield",
@@ -3005,8 +3007,9 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
                   values = { never = "Never", always = "Always", fromleft = "From Left" },
                   order = { "never", "always", "fromleft" },
                   -- From Left only exists in the plain Overlay placement:
-                  -- edge modes have no overshield and Overlay Reverse
-                  -- already clamps the whole absorb inside the fill.
+                  -- edge modes have no overshield, Overlay Reverse
+                  -- already clamps the whole absorb inside the fill and
+                  -- its Full variant draws the excess from the origin edge.
                   itemDisabled=function(v)
                       return v == "fromleft" and SValSupported("absorbEdgeMode", "overlay") ~= "overlay"
                   end,

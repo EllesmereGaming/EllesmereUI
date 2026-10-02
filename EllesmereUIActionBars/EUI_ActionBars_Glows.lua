@@ -4,8 +4,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  Proc glows, the glue to the shared glow engines, the assisted combat
 --  highlight, the cooldown edge and countdown font hooks, and the misc and
---  checked button textures. Loads after the main file and reads it through
---  ns only.
+--  checked button textures. Loads after the main file,
+--  EUI_ActionBars_ButtonArt.lua and EUI_ActionBars_Range.lua and reads them
+--  through ns only.
 -------------------------------------------------------------------------------
 local _, ns = ...
 

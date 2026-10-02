@@ -2298,6 +2298,9 @@ local function ApplyPreviewData(f, index)
         local mc = f._absorbBar._missClip
         if cc and mc and f._health then
             local absorbMode = s.absorbEdgeMode or "overlay"
+            -- Overlay Reverse (Full): Overlay Reverse plus the origin-edge forward bar for the
+            -- excess (mirrors live; Default Blizz Frames keeps plain Overlay Reverse).
+            local pvOrFull = absorbMode == "overlayReverseFull" and s.absorbStyle ~= "blizzardModern"
             -- Vertical fill: same layout with the axis swapped (the fill's right
             -- edge becomes its top edge). Mirrors the live vertical branch.
             local pvAbVert = ns.RF_IsVerticalFill(s)
@@ -2327,9 +2330,10 @@ local function ApplyPreviewData(f, index)
                         f._absorbBar:SetPoint("TOPRIGHT", f._health, "TOPRIGHT", 0, 0)
                     end
                     if fw then fw:Hide() end
-                elseif absorbMode == "overlayReverse" then
+                elseif absorbMode == "overlayReverse" or absorbMode == "overlayReverseFull" then
                     -- Whole absorb fills DOWN into the fill from its top edge;
-                    -- the filled-region clip masks excess (mirrors live).
+                    -- the filled-region clip masks excess (mirrors live). Full
+                    -- draws that excess through the forward bar instead.
                     cc:ClearAllPoints()
                     cc:SetPoint("BOTTOMLEFT", f._health, "BOTTOMLEFT", 0, 0)
                     cc:SetPoint("TOPRIGHT", vfill, hpB, 0, 0)
@@ -2337,7 +2341,13 @@ local function ApplyPreviewData(f, index)
                     f._absorbBar:ClearAllPoints()
                     f._absorbBar:SetPoint("TOPLEFT", vfill, hpA, 0, 0)
                     f._absorbBar:SetPoint("TOPRIGHT", vfill, hpB, 0, 0)
-                    if fw then fw:Hide() end
+                    if pvOrFull then
+                        mc:ClearAllPoints()
+                        mc:SetPoint("BOTTOMLEFT", vfill, hpA, 0, 0)
+                        mc:SetPoint("TOPRIGHT", f._health, "TOPRIGHT", 0, 0)
+                    elseif fw then
+                        fw:Hide()
+                    end
                 else
                     cc:ClearAllPoints()
                     cc:SetPoint("BOTTOMLEFT", f._health, "BOTTOMLEFT", 0, 0)
@@ -2360,8 +2370,13 @@ local function ApplyPreviewData(f, index)
                 end
                 if fw then
                     fw:ClearAllPoints()
-                    fw:SetPoint("BOTTOMLEFT", vfill, hpA, 0, 0)
-                    fw:SetPoint("BOTTOMRIGHT", vfill, hpB, 0, 0)
+                    if pvOrFull then
+                        fw:SetPoint("BOTTOMLEFT", f._health, "BOTTOMLEFT", 0, 0)
+                        fw:SetPoint("BOTTOMRIGHT", f._health, "BOTTOMRIGHT", 0, 0)
+                    else
+                        fw:SetPoint("BOTTOMLEFT", vfill, hpA, 0, 0)
+                        fw:SetPoint("BOTTOMRIGHT", vfill, hpB, 0, 0)
+                    end
                 end
             elseif absorbMode == "right" or absorbMode == "left" then
                 cc:ClearAllPoints()
@@ -2378,9 +2393,10 @@ local function ApplyPreviewData(f, index)
                     f._absorbBar:SetPoint("BOTTOMRIGHT", f._health, "BOTTOMRIGHT", 0, 0)
                 end
                 if fw then fw:Hide() end
-            elseif absorbMode == "overlayReverse" then
+            elseif absorbMode == "overlayReverse" or absorbMode == "overlayReverseFull" then
                 -- Whole absorb backfills from the fill's leading edge INTO the
-                -- fill; the filled-region clip masks excess (mirrors live).
+                -- fill; the filled-region clip masks excess (mirrors live). Full
+                -- draws that excess through the forward bar instead.
                 local fill = f._health:GetStatusBarTexture()
                 cc:ClearAllPoints()
                 cc:SetPoint("TOPLEFT", f._health, "TOPLEFT", 0, 0)
@@ -2389,7 +2405,13 @@ local function ApplyPreviewData(f, index)
                 f._absorbBar:ClearAllPoints()
                 f._absorbBar:SetPoint("TOPRIGHT", fill, hpA, 0, 0)
                 f._absorbBar:SetPoint("BOTTOMRIGHT", fill, hpB, 0, 0)
-                if fw then fw:Hide() end
+                if pvOrFull then
+                    mc:ClearAllPoints()
+                    mc:SetPoint("TOPLEFT", fill, hpA, 0, 0)
+                    mc:SetPoint("BOTTOMRIGHT", f._health, "BOTTOMRIGHT", 0, 0)
+                elseif fw then
+                    fw:Hide()
+                end
             else
                 local fill = f._health:GetStatusBarTexture()
                 cc:ClearAllPoints()
@@ -2419,8 +2441,13 @@ local function ApplyPreviewData(f, index)
             if not pvAbVert and fw then
                 local hfill = f._health:GetStatusBarTexture()
                 fw:ClearAllPoints()
-                fw:SetPoint("TOPLEFT", hfill, hpA, 0, 0)
-                fw:SetPoint("BOTTOMLEFT", hfill, hpB, 0, 0)
+                if pvOrFull then
+                    fw:SetPoint("TOPLEFT", f._health, "TOPLEFT", 0, 0)
+                    fw:SetPoint("BOTTOMLEFT", f._health, "BOTTOMLEFT", 0, 0)
+                else
+                    fw:SetPoint("TOPLEFT", hfill, hpA, 0, 0)
+                    fw:SetPoint("BOTTOMLEFT", hfill, hpB, 0, 0)
+                end
             end
         end
     end

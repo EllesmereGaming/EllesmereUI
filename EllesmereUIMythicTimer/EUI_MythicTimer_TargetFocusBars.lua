@@ -568,10 +568,18 @@ local function SizeNameForTarget(bar, hasTarget)
     bar.name:SetWidth(hasTarget and shared or math.max(shared, (w - h) - 8 - reserve))
 end
 
+-- Per-bar toggle; a bar that never set it inherits the former shared one.
+local function ShowsTarget(tf, which)
+    local cfg = BarCfg(which)
+    local v = cfg and cfg.showTarget
+    if v == nil then v = tf.showTarget end
+    return v ~= false
+end
+
 local function PaintTarget(bar)
     local tf = TF()
     local fs = bar.target
-    if not tf or tf.showTarget == false then
+    if not tf or not ShowsTarget(tf, bar.which) then
         fs:SetText("")
         fs:Hide()
         SizeNameForTarget(bar, false)
@@ -916,7 +924,7 @@ local function ShowPreview(which)
     elseif tc then
         bar.target:SetTextColor(tc.r, tc.g, tc.b, 1)
     end
-    if tf and tf.showTarget ~= false then
+    if tf and ShowsTarget(tf, which) then
         bar.target:SetText(UnitName("player") or "Target")
         bar.target:Show()
     else
