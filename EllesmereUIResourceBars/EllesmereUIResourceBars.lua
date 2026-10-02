@@ -2915,8 +2915,11 @@ local function ApplyBarAnchor(frame, anchorKey, anchorPos, offsetX, offsetY, gro
             frame._erbMouseShell:Hide()
         end
         frame._erbMouseTrack = nil
-        local g = ERB.db and ERB.db.profile and ERB.db.profile.general
-        frame:SetFrameStrata(g and g.frameStrata or "MEDIUM")
+        local p = ERB.db and ERB.db.profile
+        local g = p and p.general
+        local cfg = p and ((frame == healthBar and p.health)
+            or (frame == primaryBar and p.primary) or (frame == secondaryFrame and p.secondary))
+        frame:SetFrameStrata((cfg and cfg.frameStrata) or (g and g.frameStrata) or "MEDIUM")
         frame:SetFrameLevel(5)
         -- Restore mouse on frame and all children
         SetFrameClickThrough(frame, false)
@@ -3361,7 +3364,7 @@ local function BuildBars()
         if not healthBar then
             healthBar = CreateStatusBar(mainFrame, "ERB_HealthBar", hpWidth, hpHeight,
                 hp.borderSize, hp.borderR, hp.borderG, hp.borderB, hp.borderA)
-            healthBar:SetFrameStrata(g.frameStrata or "MEDIUM")
+            healthBar:SetFrameStrata(hp.frameStrata or g.frameStrata or "MEDIUM")
             healthBar:SetFrameLevel(10)
         end
         if not hp.enabled then
@@ -3536,7 +3539,7 @@ local function BuildBars()
     if not primaryBar then
         primaryBar = CreateStatusBar(mainFrame, "ERB_PrimaryBar", ppWidth, ppHeight,
             pp.borderSize, pp.borderR, pp.borderG, pp.borderB, pp.borderA)
-        primaryBar:SetFrameStrata(g.frameStrata or "MEDIUM")
+        primaryBar:SetFrameStrata(pp.frameStrata or g.frameStrata or "MEDIUM")
         primaryBar:SetFrameLevel(10)
     end
     if pp.enabled ~= false and cachedPrimary then
@@ -3709,7 +3712,7 @@ local function BuildBars()
     -- zero-alpha.
     if not secondaryFrame then
         secondaryFrame = CreateFrame("Frame", "ERB_SecondaryFrame", mainFrame)
-        secondaryFrame:SetFrameStrata(g.frameStrata or "MEDIUM")
+        secondaryFrame:SetFrameStrata(sp.frameStrata or g.frameStrata or "MEDIUM")
         secondaryFrame:SetFrameLevel(10)
     end
     -- Draw Above Other Bars: the slot's level is written only while it is on, or
@@ -11519,12 +11522,13 @@ function ERB:ApplyAll()
     if ns.ArmTick then ns.ArmTick() end
 
     -- Apply frame strata to all existing bar frames (covers live changes)
-    local g = ERB.db.profile.general or DEFAULTS.profile.general
+    local p = ERB.db.profile
+    local g = p.general or DEFAULTS.profile.general
     local barStrata = g.frameStrata or "MEDIUM"
     if mainFrame then mainFrame:SetFrameStrata(barStrata) end
-    if healthBar then healthBar:SetFrameStrata(barStrata) end
-    if primaryBar then primaryBar:SetFrameStrata(barStrata) end
-    if secondaryFrame then secondaryFrame:SetFrameStrata(barStrata) end
+    if healthBar then healthBar:SetFrameStrata(p.health.frameStrata or barStrata) end
+    if primaryBar then primaryBar:SetFrameStrata(p.primary.frameStrata or barStrata) end
+    if secondaryFrame then secondaryFrame:SetFrameStrata(p.secondary.frameStrata or barStrata) end
     local tb = ERB.db.profile.totemBar
     if totemBarFrame then totemBarFrame:SetFrameStrata(tb and tb.frameStrata or "MEDIUM") end
     local cb = ERB.db.profile.castBar

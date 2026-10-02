@@ -170,14 +170,16 @@ local function Blocked(bar)
     return false
 end
 
--- Scale (the RESIZE cog) and strata (General frame strata) ride the host; the
+-- Scale (the RESIZE cog) and class resource strata ride the host; the
 -- held frame keeps its own scale (the runes' 0.95 included).
 local function ApplyHostLook(sp)
+    if InCombatLockdown() and host:IsProtected() then QueueRegen(); return end
+    if heldBar and heldBar:GetParent() == host and Blocked(heldBar) then return end
     local s = tonumber(sp and sp.blizzardClassArtScale) or 1
     if s < 0.5 then s = 0.5 elseif s > 2 then s = 2 end
     if host:GetScale() ~= s then host:SetScale(s) end
     local p = ns.ERB and ns.ERB.db and ns.ERB.db.profile
-    local strata = (p and p.general and p.general.frameStrata) or "MEDIUM"
+    local strata = (sp and sp.frameStrata) or (p and p.general and p.general.frameStrata) or "MEDIUM"
     if host:GetFrameStrata() ~= strata then host:SetFrameStrata(strata) end
     if heldBar and heldBar:GetParent() == host and heldBar:GetFrameStrata() ~= strata then
         heldBar:SetFrameStrata(strata)

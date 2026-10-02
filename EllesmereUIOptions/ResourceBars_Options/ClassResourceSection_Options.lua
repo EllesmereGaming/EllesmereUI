@@ -66,6 +66,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
     -- special bars that pick which resource is drawn.
     local artKeep = {
         ["Show Class Resource"] = true, ["Height"] = true, ["Width"] = true, ["Opacity"] = true,
+        ["Frame Strata"] = true,
         ["Guardian Druid Ironfur Bar"] = true, ["Show Hash Lines"] = true,
         ["Prot Warrior Ignore Pain Bar"] = true, ["Show Hash Line"] = true,
         ["Arms Warrior Sweeping Strikes Bar"] = true,
@@ -2812,7 +2813,8 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                       RebuildPower(); RebuildClass()
                       EllesmereUI:RefreshPage()
                   end },
-                { type = "label", text = "" }); y = y - h
+                ctx.strataCfg); y = y - h
+            ctx.strataPlaced = true
         end
         -- Retail only: WoW Forever has no Enhancement spec.
         if playerClass == "SHAMAN" and not EllesmereUI.IS_FOREVER then
@@ -2834,7 +2836,8 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                       c.enhanceFiveBar = v; RebuildClass()
                       EllesmereUI:RefreshPage()
                   end },
-                { type = "label", text = "" }); y = y - h
+                ctx.strataCfg); y = y - h
+            ctx.strataPlaced = true
             -- Overflow color inline swatch
             if not EllesmereUI._prebuilding then
                 local rgn = enhRow._leftRegion
