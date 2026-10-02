@@ -1456,6 +1456,9 @@ local function CreatePreviewFrame(index, party)
         if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b) end
         bdrFrame._hlBorderSize = nil
         EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
+        if s.powerBorderMatchColor == true and f._powerBorder and f._powerBorder._powerArtMode == "divider" then
+            ns.RF_ColorPowerDivider(f._powerBorder, r, g, b, a)
+        end
     end
     f._ApplyBorderColor = PvApplyBorderColor
 
@@ -2664,8 +2667,10 @@ local function ApplyPreviewData(f, index)
     -- the frame border below)
     if f._powerBorder and PP then
         if hidePower or f.stockDiv or f.kitG then
+            ns.RF_ClearPowerBorderArt(f._powerBorder)
             f._powerBorder:Hide()
-        else
+        elseif not ((s.powerBorderMatchFrame == true or f._powerBorder._powerArtKey)
+            and ns.RF_ApplyPowerBorderArt(f._powerBorder, s, true, true)) then
             local pbStyle = s.powerBorderStyle or "eui"
             if pbStyle == "eui" then
                 PP.UpdateBorder(f._powerBorder, 1, 1, 1, 1, 0.2)

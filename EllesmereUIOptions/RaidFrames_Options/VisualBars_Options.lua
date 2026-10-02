@@ -1317,22 +1317,69 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
         return cfg
     end
     local pwBdrRow
+    local function CanMatchPowerBorder()
+        local key = SGet("borderTexture")
+        return not EllesmereUI.BlizzStyle.Get("raidframes") and (key == "pixels" or key == "pixels-textured")
+    end
+    local function MatchingPowerBorder()
+        return SVal("powerBorderMatchFrame", false) and CanMatchPowerBorder() and SVal("powerBorderStyle", "eui") ~= "eui"
+    end
+    local pwSizeCfg
+    if MatchingPowerBorder() then
+        pwSizeCfg = EllesmereUI.BorderPxSliderCfg({
+            getStep=function() return SVal("borderSize", 1) end,
+            setStep=function() end,
+            getTex=function() return SGet("borderTexture") end,
+            getPx=function() return SGetPx("borderSizePx", "borderSize") end,
+            setPx=function() end,
+            disabled=function() return true end,
+            disabledTooltip="Size and color follow the frame border while Match Frame Border is enabled.",
+            rawTooltip=true,
+        })
+    else
+        pwSizeCfg = { type="slider", text="Border Size", min=0, max=4, step=1,
+            disabled=function() return IsPowerOff() or SVal("powerBorderStyle", "eui") == "eui" end,
+            disabledTooltip="Show Power Bar For",
+            getValue=function() return SVal("powerBorderSize", 1) end,
+            setValue=function(v) SSet("powerBorderSize", v) end }
+    end
     pwBdrRow, h = W:DualRow(parent, y,
         ns.RF_PartyKitGate(PwClassicGate({ type="dropdown", text="Border Style", values=pwBorderStyleValues, order=pwBorderStyleOrder,
           disabled=function() return IsPowerOff() end,
           disabledTooltip="Show Power Bar For",
           getValue=function() return SVal("powerBorderStyle", "divider") end,
-          setValue=function(v) SSet("powerBorderStyle", v); EllesmereUI:RefreshPage() end })),
-        ns.RF_PartyKitGate(PwClassicGate({ type="slider", text="Border Size", min=0, max=4, step=1,
-          disabled=function() return IsPowerOff() or SVal("powerBorderStyle", "eui") == "eui" end,
-          disabledTooltip="Show Power Bar For",
-          getValue=function() return SVal("powerBorderSize", 1) end,
-          setValue=function(v) SSet("powerBorderSize", v) end })));  y = y - h
+          setValue=function(v)
+              SSet("powerBorderStyle", v)
+              EllesmereUI:RefreshPage(SVal("powerBorderMatchFrame", false) and CanMatchPowerBorder())
+          end })),
+        ns.RF_PartyKitGate(PwClassicGate(pwSizeCfg)));  y = y - h
     if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(pwBdrRow._leftRegion, {
+            disabled=function() return IsPowerOff() or not CanMatchPowerBorder() end,
+            disabledTooltip=function() return IsPowerOff() and "Show Power Bar For" or "Pixels or Pixels Textured Border Style" end,
+            title="Power Border Options",
+            rows={
+                { type="toggle", label="Match Frame Border",
+                  tooltip="Divider and Border follow the frame's Pixels style, size, color and transparency. Divider is hidden below Power Height 4. EllesmereUI keeps its fixed white line.",
+                  get=function() return SVal("powerBorderMatchFrame", false) end,
+                  set=function(v) SSet("powerBorderMatchFrame", v); EllesmereUI:RefreshPage(true) end },
+                { type="toggle", label="Match Highlight Colors",
+                  tooltip="Divider follows the frame border's highlight colors and transparency, including hover and target. When off, it keeps the normal frame border color.",
+                  disabled=function() return not MatchingPowerBorder() or SVal("powerBorderStyle", "eui") ~= "divider" end,
+                  disabledTooltip="Requires Match Frame Border and Divider.",
+                  rawTooltip=true,
+                  get=function() return SVal("powerBorderMatchColor", false) end,
+                  set=function(v) SSet("powerBorderMatchColor", v) end },
+            },
+        })
         local rgn = pwBdrRow._rightRegion
         local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
             rgn, pwBdrRow:GetFrameLevel() + 3,
             function()
+                if MatchingPowerBorder() then
+                    local c = SGet("borderColor")
+                    return c and c.r or 0, c and c.g or 0, c and c.b or 0, SVal("borderAlpha", 1)
+                end
                 local c = SGet("powerBorderColor")
                 if c then return c.r, c.g, c.b, SVal("powerBorderAlpha", 1) end
                 return 0, 0, 0, 1
@@ -1346,10 +1393,14 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
         rgn._lastInline = swatch
         local block = CreateFrame("Frame", nil, swatch)
         block:SetAllPoints(); block:SetFrameLevel(swatch:GetFrameLevel() + 10); block:EnableMouse(true)
-        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Border Style")) end)
+        block:SetScript("OnEnter", function()
+            EllesmereUI.ShowWidgetTooltip(swatch, MatchingPowerBorder()
+                and "Size and color follow the frame border while Match Frame Border is enabled."
+                or EllesmereUI.DisabledTooltip("Border Style"))
+        end)
         block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         local function UpdatePwBdrSwatchState()
-            local off = IsPowerOff() or SVal("powerBorderSize", 1) == 0 or SVal("powerBorderStyle", "eui") == "eui"
+            local off = IsPowerOff() or SVal("powerBorderSize", 1) == 0 or SVal("powerBorderStyle", "eui") == "eui" or MatchingPowerBorder()
             if off then swatch:SetAlpha(0.3); block:Show() else swatch:SetAlpha(1); block:Hide() end
         end
         EllesmereUI.RegisterWidgetRefresh(function() if updateSwatch then updateSwatch() end; UpdatePwBdrSwatchState() end)

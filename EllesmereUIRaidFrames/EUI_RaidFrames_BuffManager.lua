@@ -1575,6 +1575,9 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
     bg:SetAllPoints()
 
     local rawPowerH = (s.powerShowForHealer or s.powerShowForTank or s.powerShowForDPS) and (s.powerHeight or 4) or 0
+    local matchPowerBorder = s.powerBorderMatchFrame == true and rawPowerH > 0
+        and (s.powerBorderStyle == "divider" or s.powerBorderStyle == "border") and not ns.RF_Stock()
+        and (s.borderTexture == "pixels" or s.borderTexture == "pixels-textured")
     local rawTopBarH = s.topNameBarEnabled and (s.topNameBarHeight or 20) or 0
     -- Show on Bottom: the bar takes the bottom edge, health starts at the top and
     -- the power bar sits on the bar (as the live LayoutTopNameBar lays it out).
@@ -1672,19 +1675,21 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
             ns.RF_StockBuild(pvFrame, pvFrame, power)
             ns.RF_StockDivider(pvFrame)
         elseif PP and s.powerBorderStyle and s.powerBorderStyle ~= "none" then
-            local pbSize = s.powerBorderSize or 1
+            local pbSize = matchPowerBorder and (s.borderSize or 1) or (s.powerBorderSize or 1)
             if pbSize > 0 then
                 local pwBdr = CreateFrame("Frame", nil, pvFrame)
                 pwBdr:SetAllPoints(power)
                 pwBdr:SetFrameLevel(power:GetFrameLevel() + 1)
                 PP.CreateBorder(pwBdr, 0, 0, 0, 1, 1)
-                local pBc = s.powerBorderColor or { r=0, g=0, b=0 }
-                PP.UpdateBorder(pwBdr, pbSize, pBc.r, pBc.g, pBc.b, s.powerBorderAlpha or 1)
-                local ppC = PP.GetBorders(pwBdr)
-                if ppC and s.powerBorderStyle == "divider" then
-                    if ppC._bottom then ppC._bottom:SetAlpha(0) end
-                    if ppC._left then ppC._left:SetAlpha(0) end
-                    if ppC._right then ppC._right:SetAlpha(0) end
+                if not (matchPowerBorder and ns.RF_ApplyPowerBorderArt(pwBdr, s, true, true)) then
+                    local pBc = s.powerBorderColor or { r=0, g=0, b=0 }
+                    PP.UpdateBorder(pwBdr, pbSize, pBc.r, pBc.g, pBc.b, s.powerBorderAlpha or 1)
+                    local ppC = PP.GetBorders(pwBdr)
+                    if ppC and s.powerBorderStyle == "divider" then
+                        if ppC._bottom then ppC._bottom:SetAlpha(0) end
+                        if ppC._left then ppC._left:SetAlpha(0) end
+                        if ppC._right then ppC._right:SetAlpha(0) end
+                    end
                 end
             end
         end
@@ -1700,7 +1705,14 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
             bdr:SetFrameLevel(pvFrame:GetFrameLevel() + 8)
             PP.CreateBorder(bdr, 0, 0, 0, 1, 1)
             local bc = s.borderColor or { r=0, g=0, b=0 }
-            PP.UpdateBorder(bdr, bsz, bc.r, bc.g, bc.b, s.borderAlpha or 1)
+            if matchPowerBorder then
+                EllesmereUI.ApplyBorderStyle(bdr, bsz, bc.r, bc.g, bc.b, s.borderAlpha or 1,
+                    s.borderTexture, s.borderTextureOffset, s.borderTextureOffsetY,
+                    s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bsz, nil,
+                    EllesmereUI.BorderPx(s.borderSizePx, bsz, s.borderTexture))
+            else
+                PP.UpdateBorder(bdr, bsz, bc.r, bc.g, bc.b, s.borderAlpha or 1)
+            end
         end
     end
 
