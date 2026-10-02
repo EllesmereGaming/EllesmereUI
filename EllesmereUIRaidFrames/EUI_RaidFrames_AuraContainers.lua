@@ -201,7 +201,46 @@ end
 -- subtree writes.
 ns.RFC_ApplyDmFx = ApplyDmFx
 
+-- Base frame level = the unit button's (slot -> container -> unit button).
+local function BmBaseLevel(button)
+    local container = button:GetParent()
+    local unitButton = container and container:GetParent()
+    if unitButton then return unitButton:GetFrameLevel() end
+    return 2
+end
+
+local function AuraBorderLevel(host, border, level, base)
+    if border.behindUnitFrame then
+        host:SetFrameLevel(math.max(0, base - 1))
+    elseif border.behind then
+        host:SetFrameLevel(math.max(0, level - 1))
+    else
+        host:SetFrameLevel(level + 2)
+    end
+end
+
 local function ApplyRFDebuffText(button, d, style)
+    local border = style.border
+    if border and border.texture then
+        d.rfAuraStyled = true
+    elseif d.rfAuraStyled then
+        local level = d.cooldown:GetFrameLevel() + 1
+        d.borderHost:SetFrameLevel(level)
+        if d.dispelHolder then d.dispelHolder:SetFrameLevel(level + 4) end
+        if d.stackCarrier then d.stackCarrier:SetFrameLevel(level + 5) end
+        d.akDispelLvl = level
+        d.rfAuraStyled = nil
+    end
+    if border and border.texture and border.behindUnitFrame then
+        if not d.rfAuraBase then d.rfAuraBase = BmBaseLevel(button) end
+        d.borderHost:SetFrameLevel(math.max(0, d.rfAuraBase - 1))
+        if d.dispelHolder then
+            local level = d.borderHost:GetFrameLevel()
+            d.dispelHolder:SetFrameLevel(level + 4)
+            if d.stackCarrier then d.stackCarrier:SetFrameLevel(level + 5) end
+            d.akDispelLvl = level
+        end
+    end
     -- Restyles hit every button, so expensive setters are change-guarded (SetFont
     -- costs real time even with identical values; mouse-motion is engine-wrapped).
     -- Font key = path|size, so an outline-only toggle slips through until the next
@@ -317,16 +356,129 @@ function ns.RF_GlowClassFP(mode, classFlag)
     return string.format("cc%.3f,%.3f,%.3f", r, g, b)
 end
 
+-- An absent texture keeps the existing solid-border lane and saved appearance.
+function ns.RFC_AuraBorder(s, prefix)
+    local key = prefix .. "Border"
+    local size = s[key .. "Size"] or 1
+    local texture = s[key .. "Texture"] or nil
+    if size <= 0 and not texture then return nil end
+    local r, g, b = ColorParts(s[key .. "Color"], 0, 0, 0)
+    if not texture and not s[key .. "SizePx"] then
+        return { r, g, b, s[key .. "Alpha"] or 1, size = size }
+    end
+    return {
+        r, g, b, s[key .. "Alpha"] or 1, size = size, texture = texture,
+        edgePx = EllesmereUI.BorderPx(s[key .. "SizePx"], size, texture or "solid"),
+        offsetX = s[key .. "TextureOffset"] or nil,
+        offsetY = s[key .. "TextureOffsetY"] or nil,
+        shiftX = s[key .. "TextureShiftX"] or nil,
+        shiftY = s[key .. "TextureShiftY"] or nil,
+        behind = s[key .. "Behind"], behindUnitFrame = s[key .. "BehindUnitFrame"],
+    }
+end
+
+local function AuraBorderFP(s, prefix)
+    local key = prefix .. "Border"
+    if not s[key .. "Texture"] and not s[key .. "SizePx"] and s[key .. "Alpha"] == nil then
+        return ""
+    end
+    return FP(s[key .. "Texture"], s[key .. "SizePx"], s[key .. "Alpha"],
+        s[key .. "TextureOffset"], s[key .. "TextureOffsetY"],
+        s[key .. "TextureShiftX"], s[key .. "TextureShiftY"],
+        s[key .. "Behind"], s[key .. "BehindUnitFrame"], s[key .. "DispelTextured"])
+end
+
+function ns.RFC_ApplyAuraBorderPreview(host, s, prefix, icon, unitFrame, r, g, b, a)
+    if not host then return end
+    local PP = EllesmereUI.PP
+    if not PP then return end
+    local border = ns.RFC_AuraBorder(s, prefix)
+    if prefix == "ind" and (s.type or "icon") == "icon" and s.hideIcon == true then border = nil end
+    local ring = host._rfAuraPreviewRing
+    if ring and ring._rfAuraActive and (not border or not border.texture or prefix ~= "debuff" or not r) then
+        EllesmereUI.ApplySecretSafeBorderStyle(ring, ring, 0, 0, 0, 0, 0, "solid")
+        ring:Hide()
+        ring._rfAuraActive = nil
+    end
+    local restore = host._rfAuraStyled and (not border or not border.texture)
+    if restore then
+        EllesmereUI.ApplySecretSafeBorderStyle(host, host, 0, 0, 0, 0, 0, "solid")
+        PP.ShowBorder(host)
+        host:ClearAllPoints()
+        host:SetAllPoints(icon)
+        host:SetFrameLevel(icon:GetFrameLevel() + 1)
+        if host._rfAuraTextOffset then
+            local text = icon._count or icon._durText
+            if text then text:GetParent():SetFrameLevel(icon:GetFrameLevel() + host._rfAuraTextOffset) end
+            host._rfAuraTextOffset = nil
+        end
+        host._rfAuraStyled = nil
+    end
+    if not border then
+        host:Hide()
+        return
+    end
+    if border.texture then
+        host._rfAuraStyled = true
+        host:ClearAllPoints()
+        host:SetPoint("CENTER", icon, "CENTER")
+        host:SetSize(icon:GetWidth(), icon:GetHeight())
+        AuraBorderLevel(host, border, icon:GetFrameLevel(), unitFrame:GetFrameLevel())
+        EllesmereUI.ApplySecretSafeBorderStyle(host, host, border.size, border[1], border[2], border[3], border[4],
+            border.texture, border.offsetX, border.offsetY, border.shiftX, border.shiftY,
+            "unitframes", border.size, nil, border.edgePx)
+        if prefix == "debuff" then
+            local text = icon._count or icon._durText
+            if text then
+                local carrier = text:GetParent()
+                if not host._rfAuraTextOffset then
+                    host._rfAuraTextOffset = carrier:GetFrameLevel() - icon:GetFrameLevel()
+                end
+                carrier:SetFrameLevel(host:GetFrameLevel() + 5)
+            end
+        end
+        if prefix == "debuff" and r then
+            local px = s.dispelIconBorderSize or 2
+            if px == -1 then px = border.edgePx or border.size end
+            if px > 0 then
+                if not ring then
+                    ring = CreateFrame("Frame", nil, icon)
+                    host._rfAuraPreviewRing = ring
+                end
+                ring:ClearAllPoints()
+                ring:SetPoint("CENTER", icon, "CENTER")
+                ring:SetSize(icon:GetWidth(), icon:GetHeight())
+                ring:SetFrameLevel(host:GetFrameLevel() + 4)
+                local textured = s.debuffBorderDispelTextured == true and border.size > 0
+                    and border.texture ~= "solid" and border.texture ~= ""
+                EllesmereUI.ApplySecretSafeBorderStyle(ring, ring, textured and border.size or px,
+                    r, g, b, a or 1, textured and border.texture or "solid",
+                    border.offsetX, border.offsetY, border.shiftX, border.shiftY,
+                    "unitframes", border.size, nil, textured and border.edgePx or nil)
+                ring._rfAuraActive = true
+            elseif ring and ring._rfAuraActive then
+                EllesmereUI.ApplySecretSafeBorderStyle(ring, ring, 0, 0, 0, 0, 0, "solid")
+                ring:Hide()
+                ring._rfAuraActive = nil
+            end
+        end
+    else
+        PP.UpdateBorder(host, border.edgePx or border.size,
+            r or border[1], g or border[2], b or border[3], a or border[4])
+    end
+    host:SetShown(border.size > 0)
+end
+
 -- sizeOverride: the dispellable-location styles reuse the whole debuff
 -- style with only the physical size swapped (see DispLocSize).
 local function BuildDebuffStyle(s, sizeOverride)
-    local br, bg, bb = ColorParts(s.debuffBorderColor, 0, 0, 0)
+    local border = ns.RFC_AuraBorder(s, "debuff")
     local size = sizeOverride or s.debuffSize or 18
     -- Engine dispel-border extras: ring thickness in PHYSICAL pixels + the user
     -- palette as the engine tint map (AuraKit registers both; helper resolved at
     -- call time, declared below). -1 = follow icon's own Border thickness, 0 = recolor off.
     local dpx = s.dispelIconBorderSize or 2
-    if dpx == -1 then dpx = s.debuffBorderSize or 1 end
+    if dpx == -1 then dpx = (border and border.edgePx) or s.debuffBorderSize or 1 end
     local dcMap, dcFP
     if ns.RFC_DispelBorderColorMap then dcMap, dcFP = ns.RFC_DispelBorderColorMap(s) end
     return {
@@ -334,10 +486,12 @@ local function BuildDebuffStyle(s, sizeOverride)
         height = size,
         iconCrop = true,
         iconZoom = s.debuffIconZoom or 0.08,
-        border = (s.debuffBorderSize or 1) > 0 and { br, bg, bb, 1, size = s.debuffBorderSize or 1 } or nil,
+        border = border,
         -- Dispellable debuffs get the engine dispel-type border over the
         -- static one (dispelName is secret in 12.1; see AuraKit).
         dispelBorder = true,
+        dispelBorderTexture = s.debuffBorderDispelTextured == true and border
+            and border.texture ~= "solid" and border.texture or nil,
         dispelBorderPx = dpx,
         dispelColorMap = dcMap,
         dispelColorFP = dcFP,
@@ -802,6 +956,7 @@ local classFP = {}
 
 local function DebuffStyleFP(s, font)
     return FP(font, s.debuffSize, s.debuffIconZoom, s.debuffBorderSize, CK(s.debuffBorderColor),
+        AuraBorderFP(s, "debuff"),
         s.debuffShowSwipe, s.debuffShowDurText, s.debuffDurTextSize, CK(s.debuffDurTextColor),
         s.debuffDurTextOffsetX, s.debuffDurTextOffsetY, s.debuffShowStacks, s.debuffStacksTextSize,
         CK(s.debuffStacksTextColor), s.debuffStacksOffsetX, s.debuffStacksOffsetY, s.debuffHideTooltips,
@@ -1233,14 +1388,6 @@ local function BmThresholdCurve(ind)
     return curve
 end
 
--- Base frame level = the unit button's (slot -> container -> unit button).
-local function BmBaseLevel(button)
-    local container = button:GetParent()
-    local unitButton = container and container:GetParent()
-    if unitButton then return unitButton:GetFrameLevel() end
-    return 2
-end
-
 -- Color curve binds at SetDurationText registration, so a changed threshold needs
 -- re-registration on restyle. bmRegistered is set AFTER initial registration (keeps
 -- this pass inert during init, since applyExtra runs before it). Curves are cached,
@@ -1340,7 +1487,13 @@ local function ApplyBmIconExtra(button, dd, style)
         dd.bmLvl = lvl
     end
     if dd.cooldown then dd.cooldown:SetFrameLevel(lvl + 1) end
-    if dd.borderHost then dd.borderHost:SetFrameLevel(lvl + 1) end
+    if dd.borderHost then
+        if style.border and style.border.texture then
+            AuraBorderLevel(dd.borderHost, style.border, lvl, base)
+        else
+            dd.borderHost:SetFrameLevel(lvl + 1)
+        end
+    end
     if dd.stackCarrier then dd.stackCarrier:SetFrameLevel(base + BM_FRAMELVL_TEXT) end
     BmRebindDurationCurve(button, dd, style)
     ApplyBmIconGlow(button, dd, style)
@@ -1364,7 +1517,6 @@ local function BmTipsOff()
 end
 
 local function BuildBmIconStyle(ind, iscale, size)
-    local br, bg, bb = BmColor(ind.indBorderColor, 0, 0, 0)
     local hideIcon = ind.hideIcon == true
     return {
         width = size,
@@ -1372,8 +1524,7 @@ local function BuildBmIconStyle(ind, iscale, size)
         iconCrop = true,
         iconZoom = (ns.db and ns.db.profile and ns.db.profile.bmIconZoom) or 0.08,
         hideIcon = hideIcon,
-        border = (not hideIcon and (ind.indBorderSize or 1) > 0)
-            and { br, bg, bb, 1, size = ind.indBorderSize or 1 } or nil,
+        border = not hideIcon and ns.RFC_AuraBorder(ind, "ind") or nil,
         cooldownReverse = true,
         hideSwipe = hideIcon or (ind.showDuration == false),
         noDefaultFonts = true,
@@ -1406,6 +1557,10 @@ local function BmUpdateBorder(dd, host, size, r, g, b, a)
     if (size or 0) > 0 then
         if dd.bmBorderMade then
             PP.UpdateBorder(host, size, r, g, b, a)
+        elseif PP.GetBorders(host) then
+            PP.UpdateBorder(host, size, r, g, b, a)
+            PP.ShowBorder(host)
+            dd.bmBorderMade = true
         else
             PP.CreateBorder(host, r, g, b, a, size, "OVERLAY", 7)
             dd.bmBorderMade = true
@@ -1437,8 +1592,6 @@ local function BmApplySquare(button, dd, style)
             if dd.cooldown.SetDrawSwipe then dd.cooldown:SetDrawSwipe(not hideSwipe) end
         end
     end
-    local br, bg2, bb = BmColor(ind.indBorderColor, 0, 0, 0)
-    BmUpdateBorder(dd, dd.borderHost, ind.indBorderSize or 1, br, bg2, bb, 1)
     ApplyRFDebuffText(button, dd, style)
     -- Cached base + change-guarded level: see ApplyBmIconExtra.
     local base = dd.bmBase
@@ -1450,6 +1603,38 @@ local function BmApplySquare(button, dd, style)
     if dd.bmLvl ~= lvl then
         button:SetFrameLevel(lvl)
         dd.bmLvl = lvl
+    end
+    local border = style.bmBorder
+    if border and border.texture then
+        if not dd.bmBorderState then dd.bmBorderState = {} end
+        local rect = style.width .. "|" .. style.height
+        if dd.akBorderRect ~= rect then
+            dd.borderHost:ClearAllPoints()
+            dd.borderHost:SetPoint("CENTER", button, "CENTER")
+            dd.borderHost:SetSize(style.width, style.height)
+            dd.akBorderRect = rect
+        end
+        AuraBorderLevel(dd.borderHost, border, lvl, base)
+        EllesmereUI.ApplySecretSafeBorderStyle(dd.borderHost, dd.bmBorderState, border.size,
+            border[1], border[2], border[3], border[4], border.texture,
+            border.offsetX, border.offsetY, border.shiftX, border.shiftY,
+            "unitframes", border.size, nil, border.edgePx)
+        dd.bmBorderActive = true
+    else
+        if dd.bmBorderActive then
+            EllesmereUI.ApplySecretSafeBorderStyle(dd.borderHost, dd.bmBorderState, 0, 0, 0, 0, 0, "solid")
+            EllesmereUI.PP.ShowBorder(dd.borderHost)
+            if dd.akBorderRect then
+                dd.borderHost:ClearAllPoints()
+                dd.borderHost:SetAllPoints(button)
+                dd.akBorderRect = nil
+            end
+            dd.borderHost:SetFrameLevel(lvl + 1)
+            dd.bmBorderActive = nil
+        end
+        local br, bg2, bb = BmColor(ind.indBorderColor, 0, 0, 0)
+        BmUpdateBorder(dd, dd.borderHost, (border and border.edgePx) or ind.indBorderSize or 1,
+            br, bg2, bb, ind.indBorderAlpha or 1)
     end
     if dd.stackCarrier then dd.stackCarrier:SetFrameLevel(base + BM_FRAMELVL_TEXT) end
     BmRebindDurationCurve(button, dd, style)
@@ -1649,6 +1834,7 @@ local function BuildBmStyleFor(kind, ind, iscale, size, spellID)
             height = size,
             noRegions = true,
             ind = ind,
+            bmBorder = (ind.indBorderTexture or ind.indBorderSizePx) and ns.RFC_AuraBorder(ind, "ind") or nil,
             sqColor = BmSquareColor(ind, spellID),
             noDefaultFonts = true,
             bmGlowInd = ind,
@@ -2041,6 +2227,7 @@ local function BmVisualKey(kind, ind, size, font, spellID)
     if kind == "icon" then
         return FP(font, size, (ns.db and ns.db.profile and ns.db.profile.bmIconZoom) or 0.08,
             ind.iconOpacity, ind.hideIcon, ind.indBorderSize, CK(ind.indBorderColor),
+            AuraBorderFP(ind, "ind"),
             ind.showDuration, ind.showDurationText, ind.durationTextSize, CK(ind.durationTextColor),
             ind.durationTextOffsetX, ind.durationTextOffsetY, ind.thresholdEnabled, ind.threshold,
             CK(ind.thresholdColor), ind.showStacks, ind.stacksTextSize, CK(ind.stacksTextColor),
@@ -2054,6 +2241,7 @@ local function BmVisualKey(kind, ind, size, font, spellID)
     end
     if kind == "square" then
         return FP(font, size, CK(BmSquareColor(ind, spellID)), ind.showDuration, ind.indBorderSize,
+            AuraBorderFP(ind, "ind"),
             CK(ind.indBorderColor), ind.frameLevel, ind.showDurationText, ind.durationTextSize,
             CK(ind.durationTextColor), ind.durationTextOffsetX, ind.durationTextOffsetY,
             ind.thresholdEnabled, ind.threshold, CK(ind.thresholdColor), ind.showStacks,

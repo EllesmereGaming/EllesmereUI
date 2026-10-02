@@ -426,7 +426,9 @@ local function PvAuraApply(frameIndex, auraType, slotIndex)
         bdrSz = s2.debuffBorderSize or 1
         bdrC = s2.debuffBorderColor or { r = 0, g = 0, b = 0 }
     end
-    if icon._borderFrame and PP and bdrSz > 0 then
+    if auraType ~= "def" then
+        ns.RFC_ApplyAuraBorderPreview(icon._borderFrame, s2, "debuff", icon, f)
+    elseif icon._borderFrame and PP and bdrSz > 0 then
         PP.UpdateBorder(icon._borderFrame, bdrSz, bdrC.r, bdrC.g, bdrC.b, 1)
         icon._borderFrame:Show()
     elseif icon._borderFrame then
@@ -609,14 +611,7 @@ local function PvAuraTick()
                             end
                         end
                     end
-                    local bdrSz = s2.debuffBorderSize or 1
-                    local bdrC = s2.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                    if icon._borderFrame and PP and bdrSz > 0 then
-                        PP.UpdateBorder(icon._borderFrame, bdrSz, bdrC.r, bdrC.g, bdrC.b, 1)
-                        icon._borderFrame:Show()
-                    elseif icon._borderFrame then
-                        icon._borderFrame:Hide()
-                    end
+                    ns.RFC_ApplyAuraBorderPreview(icon._borderFrame, s2, "debuff", icon, f)
                     icon:Show()
                     -- Re-pack all shown debuffs so slot 1 takes the first position
                     -- and any random slot-2+ debuff shifts right, rather than the
@@ -1006,8 +1001,6 @@ ns.RefreshPvAuraVisuals = function()
 
     local dbZ = s2.debuffIconZoom or 0.08
     local defZ = s2.defIconZoom or 0.08
-    local dbBdrSz = s2.debuffBorderSize or 1
-    local dbBdrC = s2.debuffBorderColor or { r = 0, g = 0, b = 0 }
     local dbShowSwipe = s2.debuffShowSwipe ~= false
     local dbShowDurText = s2.debuffShowDurText
     local dbDtC = s2.debuffDurTextColor or { r = 1, g = 1, b = 1 }
@@ -1033,14 +1026,7 @@ ns.RefreshPvAuraVisuals = function()
                 if ic:IsShown() then
                     ic:SetSize(s2.debuffSize or 18, s2.debuffSize or 18)
                     ic._tex:SetTexCoord(dbZ, 1 - dbZ, dbZ, 1 - dbZ)
-                    if ic._borderFrame and _PP then
-                        if dbBdrSz > 0 then
-                            _PP.UpdateBorder(ic._borderFrame, dbBdrSz, dbBdrC.r, dbBdrC.g, dbBdrC.b, 1)
-                            ic._borderFrame:Show()
-                        else
-                            ic._borderFrame:Hide()
-                        end
-                    end
+                    ns.RFC_ApplyAuraBorderPreview(ic._borderFrame, s2, "debuff", ic, f)
                     if ic._cooldown then
                         ic._cooldown:SetDrawSwipe(dbShowSwipe)
                         ic._cooldown:SetHideCountdownNumbers(not dbShowDurText)
@@ -2913,19 +2899,9 @@ local function ApplyPreviewData(f, index)
             end
 
             -- Border (dispel-type colored)
-            local dbBdrSz = s.debuffBorderSize or 1
-            if ddi._borderFrame and PP and dbBdrSz > 0 then
-                local dc = GetDispelColor(dispelType, s)
-                if dc then
-                    PP.UpdateBorder(ddi._borderFrame, dbBdrSz, dc.r, dc.g, dc.b, 1)
-                else
-                    local bc = s.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                    PP.UpdateBorder(ddi._borderFrame, dbBdrSz, bc.r, bc.g, bc.b, 1)
-                end
-                ddi._borderFrame:Show()
-            elseif ddi._borderFrame then
-                ddi._borderFrame:Hide()
-            end
+            local dc = GetDispelColor(dispelType, s)
+            ns.RFC_ApplyAuraBorderPreview(ddi._borderFrame, s, "debuff", ddi, f,
+                dc and dc.r, dc and dc.g, dc and dc.b, dc and 1)
 
             if ddi._cooldown then ddi._cooldown:Hide() end
             if ddi._count then ddi._count:SetText("") end

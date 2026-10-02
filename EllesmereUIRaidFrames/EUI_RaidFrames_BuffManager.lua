@@ -1469,14 +1469,7 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                         end
                                     end
                                     if fr._bdr and PP then
-                                        local ibs = pvHideIcon and 0 or (ind.indBorderSize or 1)
-                                        if ibs > 0 then
-                                            local ibc = ind.indBorderColor or { r=0, g=0, b=0 }
-                                            PP.UpdateBorder(fr._bdr, ibs, ibc.r, ibc.g, ibc.b, 1)
-                                            fr._bdr:Show()
-                                        else
-                                            fr._bdr:Hide()
-                                        end
+                                        ns.RFC_ApplyAuraBorderPreview(fr._bdr, ind, "ind", fr, f)
                                     end
                                 end
                             end
@@ -3367,9 +3360,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 { type="slider", text="Size", min=4, max=80, step=1,
                   getValue=function() return ind.size or 12 end,
                   setValue=function(v) ind.size = v; ReloadAndUpdate() end },
-                { type="slider", pixel=true, text="Spacing", min=-1, max=10, step=1,
-                  getValue=function() return ind.spacing or 1 end,
-                  setValue=function(v) ind.spacing = v; ReloadAndUpdate() end })
+                { type="slider", text="Opacity", min=0, max=100, step=1,
+                  disabled=IconHidden, disabledTooltip="Hide Icons",
+                  getValue=function() return ind.iconOpacity or 100 end,
+                  setValue=function(v) ind.iconOpacity = v; ReloadAndUpdate() end })
 
             -- Icon Zoom cog (icon type only): one profile-wide value shared by all icon indicators.
             if indType == "icon" then
@@ -3385,28 +3379,108 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 })
             end
 
+            local borderValues, borderOrder = EllesmereUI.GetBorderTextureDropdown()
             local bdrRow = SettingsRow(
-                { type="slider", text="Opacity", min=0, max=100, step=1,
+                { type="dropdown", text="Border Style", values=borderValues, order=borderOrder,
                   disabled=IconHidden, disabledTooltip="Hide Icons",
-                  getValue=function() return ind.iconOpacity or 100 end,
-                  setValue=function(v) ind.iconOpacity = v; ReloadAndUpdate() end },
-                { type="slider", text="Border", min=0, max=4, step=1, trackWidth=120,
+                  getValue=function() return ind.indBorderTexture or "solid" end,
+                  setValue=function(v)
+                      local color, behind, behindUnitFrame = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                      ind.indBorderTexture = v
+                      ind.indBorderTextureOffset = nil; ind.indBorderTextureOffsetY = nil
+                      ind.indBorderTextureShiftX = nil; ind.indBorderTextureShiftY = nil
+                      ind.indBorderBehind = behind
+                      ind.indBorderBehindUnitFrame = behindUnitFrame
+                      ind.indBorderColor = { r=color.r, g=color.g, b=color.b }
+                      ind.indBorderAlpha = 1
+                      local size = EllesmereUI.GetBorderDefaultSize("unitframes", v)
+                      if size then ind.indBorderSize = size end
+                      if ind.indBorderSizePx then ind.indBorderSizePx = false end
+                      ReloadAndUpdate()
+                      EllesmereUI:RefreshPage(true)
+                  end },
+                EllesmereUI.BorderPxSliderCfg({ text="Border Size", trackWidth=120,
                   disabled=IconHidden, disabledTooltip="Hide Icons",
-                  getValue=function() return ind.indBorderSize or 1 end,
-                  setValue=function(v) ind.indBorderSize = v; ReloadAndUpdate() end })
+                  getStep=function() return ind.indBorderSize or 1 end,
+                  setStep=function(v) ind.indBorderSize = v end,
+                  getTex=function() return ind.indBorderTexture or "solid" end,
+                  getPx=function() return ind.indBorderSizePx end,
+                  setPx=function(v) ind.indBorderSizePx = v end,
+                  apply=ReloadAndUpdate }))
+            local borderTexture = ind.indBorderTexture or "solid"
+            if borderTexture ~= "solid" and borderTexture ~= "" then
+                local offsetL, offsetR = EllesmereUI.BorderOffsetRowCfgs({
+                    addonKey="unitframes", disabled=IconHidden, disabledTooltip="Hide Icons",
+                    getTex=function() return ind.indBorderTexture or "solid" end,
+                    getStep=function() return ind.indBorderSize or 1 end,
+                    getSizeKey=function() return ind.indBorderSize or 1 end,
+                    getPx=function() return ind.indBorderSizePx end,
+                    getX=function() return ind.indBorderTextureOffset end,
+                    setX=function(v) ind.indBorderTextureOffset = v end,
+                    getY=function() return ind.indBorderTextureOffsetY end,
+                    setY=function(v) ind.indBorderTextureOffsetY = v end,
+                    apply=ReloadAndUpdate,
+                })
+                SettingsRow(offsetL, offsetR)
+                EllesmereUI.BuildInlineCog(bdrRow._leftRegion, {
+                    icon=EllesmereUI.DIRECTIONS_ICON,
+                    disabled=IconHidden, disabledTooltip="Hide Icons", requireState="disabled",
+                    title="Border Options",
+                    rows={
+                        { type="slider", label="Shift X", min=-10, max=10, step=1,
+                          get=function()
+                              local v = ind.indBorderTextureShiftX
+                              if v ~= nil then return v end
+                              local _, _, sx = EllesmereUI.GetBorderDefaults("unitframes", ind.indBorderTexture or "solid", ind.indBorderSize or 1)
+                              return sx
+                          end,
+                          set=function(v) ind.indBorderTextureShiftX = v; ReloadAndUpdate() end },
+                        { type="slider", label="Shift Y", min=-10, max=10, step=1,
+                          get=function()
+                              local v = ind.indBorderTextureShiftY
+                              if v ~= nil then return v end
+                              local _, _, _, sy = EllesmereUI.GetBorderDefaults("unitframes", ind.indBorderTexture or "solid", ind.indBorderSize or 1)
+                              return sy
+                          end,
+                          set=function(v) ind.indBorderTextureShiftY = v; ReloadAndUpdate() end },
+                        { type="toggle", label="Show Behind",
+                          get=function() return ind.indBorderBehind or false end,
+                          set=function(v) ind.indBorderBehind = v; ReloadAndUpdate() end },
+                        { type="toggle", label="Behind Unit Frame",
+                          get=function() return ind.indBorderBehindUnitFrame or false end,
+                          set=function(v) ind.indBorderBehindUnitFrame = v; ReloadAndUpdate() end },
+                    },
+                })
+            end
             do
                 local rgn = bdrRow._rightRegion
-                local swatch = EllesmereUI.BuildColorSwatch(
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, bdrRow:GetFrameLevel() + 3,
                     function()
                         local c = ind.indBorderColor or { r=0, g=0, b=0 }
-                        return c.r, c.g, c.b, 1
+                        return c.r, c.g, c.b, ind.indBorderAlpha or 1
                     end,
-                    function(r, g, b)
+                    function(r, g, b, a)
                         ind.indBorderColor = { r=r, g=g, b=b }
+                        ind.indBorderAlpha = a
                         ReloadAndUpdate()
-                    end, false, 20)
+                    end, true, 20)
                 swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                local origClick = swatch:GetScript("OnClick")
+                swatch:SetScript("OnClick", function(self, ...)
+                    if IconHidden() then return end
+                    if origClick then origClick(self, ...) end
+                end)
+                swatch:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(swatch, IconHidden()
+                        and EllesmereUI.DisabledTooltip("Hide Icons") or "Border Color")
+                end)
+                swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function SwatchState()
+                    updateSwatch()
+                    swatch:SetAlpha(IconHidden() and 0.3 or 1)
+                end
+                EllesmereUI.RegisterWidgetRefresh(SwatchState); SwatchState()
                 rgn._lastInline = swatch
             end
 
@@ -3585,6 +3659,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     rgn._lastInline = pv
                 end
             end
+
+            SettingsRow(
+                { type="slider", pixel=true, text="Spacing", min=-1, max=10, step=1,
+                  getValue=function() return ind.spacing or 1 end,
+                  setValue=function(v) ind.spacing = v; ReloadAndUpdate() end },
+                EllesmereUI.BlankRowCfg())
 
             -- THRESHOLD section (Enable, seconds, color, opacity)
             BuildThresholdRow()
