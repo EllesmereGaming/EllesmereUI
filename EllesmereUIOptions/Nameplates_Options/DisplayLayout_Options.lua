@@ -560,9 +560,11 @@ local function BuildDisplayLayout(parent, y, ctx)
                     ns.ApplyAbsorbStyleAll()
                     UpdatePreview()
                   end },
-                -- Same placements as the unit frames' Absorb Rendering cog.
+                -- Same placements as the unit frames' Absorb Rendering cog, except
+                -- that Overlay Reverse here keeps a shield larger than current
+                -- health (the unit frames clip that excess).
                 { type = "dropdown", label = "Placement",
-                  tooltip = "Overlay fills empty health first, then draws any excess over current health. Overlay Reverse draws the whole shield back over current health. From Right Edge and From Left Edge grow the whole shield from that end of the bar.",
+                  tooltip = "Overlay fills empty health first, then draws any excess over current health. Overlay Reverse draws the shield back over current health; a shield larger than current health spans from the bar's left end. From Right Edge and From Left Edge grow the whole shield from that end of the bar.",
                   values = { overlay = "Overlay", overlayReverse = "Overlay Reverse",
                              right = "From Right Edge", left = "From Left Edge" },
                   order = { "overlay", "overlayReverse", "right", "left" },

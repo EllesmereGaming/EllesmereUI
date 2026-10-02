@@ -267,6 +267,9 @@ local function Skin_LFGVanilla()
         local dd = _G[n]
         if dd then WSkin.Dropdown(dd) end
     end
+    -- The listing's Playstyle pick (a group needs one to post).
+    local av = _G.LFGListingFrameActivityView
+    if av and av.PlayStyleDropdown then WSkin.Dropdown(av.PlayStyleDropdown) end
     for _, n in ipairs(BUTTONS) do
         local b = _G[n]
         if b then WSkin.Button(b); WSkin.WhiteButtonLabel(b) end

@@ -1733,7 +1733,7 @@ function EllesmereUI.BorderPxSliderCfg(spec)
 end
 
 -------------------------------------------------------------------------------
---  Width Offset | Height Offset: the textured border's outward offsets as their
+--  Border Width Offset | Border Height Offset: the textured border's outward offsets as their
 --  own DualRow (shown only while a textured style is selected; the caller builds
 --  the row conditionally). Each slider SHOWS what is drawn: the stored override
 --  when one is set, else the texture's default for the surface's registry row,
@@ -1798,8 +1798,8 @@ function EllesmereUI.BorderOffsetRowCfgs(spec)
         end
         return cfg
     end
-    return Make("Width Offset", spec.getX, spec.setX, function(x) return x end),
-           Make("Height Offset", spec.getY, spec.setY, function(_, y) return y end)
+    return Make("Border Width Offset", spec.getX, spec.setX, function(x) return x end),
+           Make("Border Height Offset", spec.getY, spec.setY, function(_, y) return y end)
 end
 
 -------------------------------------------------------------------------------

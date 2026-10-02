@@ -16,6 +16,5 @@ EUI_UnitFrames_ForeverFormBar.lua
 EllesmereUIUnitFrames_PlayerAuraBars.lua
 EUI_UnitFrames_ForeverImbues.lua
 EUI_UnitFrames_AuraContainers.lua
-EUI_UnitFrames_SelfCombatText.lua
 
 # Options

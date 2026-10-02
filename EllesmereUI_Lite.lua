@@ -13,8 +13,8 @@ EllesmereUI.Lite = EUILite
 
 -- WoW Forever (game type "camelot"): the 12.1 engine reporting a 1.60+ toc.
 -- Stamped by EllesmereUI_ClientGate.lua before any other file runs. Content
--- that vanilla lacks gates on this, never on WOW_PROJECT_ID (Forever is
--- classed as mainline on purpose).
+-- that vanilla lacks gates on this, never on WOW_PROJECT_ID (the gate reads
+-- the toc number, the one signal every Forever build reports the same way).
 EllesmereUI.IS_FOREVER = (EUI_CLIENT_FOREVER == true)
 -- Global cooldown reference spell: Forever reports nothing on 61304 and uses
 -- Classic's 29515.

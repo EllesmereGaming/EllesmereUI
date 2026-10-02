@@ -2953,9 +2953,9 @@ function BuildBankSidebar()
         local anyCat = false
         local renderedGroups = {}
         for _, cat in ipairs(cats) do
-            -- Pinned / Recent / Reagent Bag are bag-side concepts with no bank
-            -- equivalent; ClassifyItem never routes bank items to them anyway.
-            if not (cat.isPinned or cat.isRecent or cat.isReagentBag) then
+            -- Pinned / Recent / Reagent Bag / Special Bags are bag-side concepts with
+            -- no bank equivalent; ClassifyItem never routes bank items to them anyway.
+            if not (cat.isPinned or cat.isRecent or cat.isReagentBag or cat.isSpecialBag) then
                 if cat.groupName then
                     if not renderedGroups[cat.groupName] then
                         renderedGroups[cat.groupName] = true

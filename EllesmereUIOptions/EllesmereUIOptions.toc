@@ -69,6 +69,7 @@ Nameplates_Options\GeneralPage_Options.lua
 Nameplates_Options\NameplatePreview_Options.lua
 EUI_Nameplates_Options.lua
 EUI_QoL_Options.lua
+EUI_QoL_StatPicker.lua
 EUI_QoL_Cursor_Options.lua
 EUI_QoL_BattleRes_Options.lua
 EUI_QoL_AutoLogging_Options.lua

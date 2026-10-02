@@ -1482,9 +1482,7 @@ local function AttachPortraitSideCog(rgn, settingsTable, withArtStyle, unitKey)
     end
     if unitKey == "targettarget" or unitKey == "boss" then
         rows[#rows + 1] = { type="toggle", label="Mirror Portrait",
-            tooltip=unitKey == "boss"
-                and "Mirrors playable-race portraits in 2D and 3D. Always flips class art horizontally."
-                or "Mirrors playable-race portraits in 2D. Always flips class art horizontally.",
+            tooltip="Mirrors playable-race portraits in 2D. Always flips class art horizontally.",
             disabled=function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
             disabledTooltip=function() return EllesmereUI.BlizzStyle.Label("unitframes") end,
             requireState="disabled",

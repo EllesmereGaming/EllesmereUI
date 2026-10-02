@@ -24,7 +24,9 @@ local function QoLExtrasProfile()
     if not _qolExtrasDB and EllesmereUI and EllesmereUI.Lite and EllesmereUI.Lite.NewDB then
         _qolExtrasDB = EllesmereUI.Lite.NewDB("EllesmereUIQoLDB", {
             profile = {
-                secondaryStatsHidden = {
+                -- WoW Forever: every stat of its catalog that is not shown
+                -- by default (EllesmereUIQoL_ForeverStats.lua).
+                secondaryStatsHidden = ns.FvStats and ns.FvStats.hidden or {
                     leech = true,
                     avoidance = true,
                     speed = true,
@@ -54,6 +56,8 @@ qolFrame:SetScript("OnEvent", function(self)
     -- Environment Ping keybind (EllesmereUI._applyEnvPing, further down):
     -- nothing is built unless a key is saved.
     if EllesmereUIDB.envPingKey then EllesmereUI._applyEnvPing() end
+    -- Self Combat Text (EllesmereUIQoL_SelfCombatText.lua): nothing is built while off.
+    ns.SCT_Refresh()
 
     ---------------------------------------------------------------------------
     -- Bonus roll confirmation. Addon-owned overlays intercept Roll/Pass clicks;
@@ -2207,10 +2211,12 @@ do
         crit = true, haste = true, mastery = true, vers = true,
         leech = true, avoidance = true, speed = true,
     }
-    -- WoW Forever has no Mastery or Versatility.
-    if EllesmereUI.IS_FOREVER then
-        DEFAULT_STAT_ORDER = { "crit", "haste", "leech", "avoidance", "speed" }
-        VALID_STAT.mastery, VALID_STAT.vers = nil, nil
+    -- WoW Forever has none of these ratings: the block shows the stat catalog
+    -- of EllesmereUIQoL_ForeverStats.lua instead (FV is nil on retail).
+    local FV = ns.FvStats
+    local FV_STAT = FV and FV.byKey
+    if FV then
+        DEFAULT_STAT_ORDER, VALID_STAT = FV.order, FV_STAT
     end
 
     local function SecondaryStatsOrder()
@@ -2355,40 +2361,40 @@ do
             customHex = statsFrame._classHex or "ffffff"
         end
 
+        -- Retail's ratings and their raw figures; WoW Forever has none of
+        -- them, so nothing here is read there.
         local crit, critCR, haste, hasteCR
-        if EllesmereUI.IS_FOREVER then
-            crit, critCR = EllesmereUI.ForeverCritChance()
-            haste, hasteCR = EllesmereUI.ForeverHaste()
-        else
+        local mastery, vers
+        local showBoth, showRawOnly, showRawValues
+        local critRaw, hasteRaw, masteryRaw, versRaw
+        if not FV then
             crit, critCR = EllesmereUI.PlayerCritChance()
             haste, hasteCR = UnitSpellHaste("player"), CR_HASTE_MELEE
-        end
-        local mastery = GetMasteryEffect()
-        -- Versatility is the only row built by ADDING two getters, and addition
-        -- is what a secret refuses -- so under restriction the real total is
-        -- not computable here. Blizzard's pane still shows it (its code reads
-        -- true values; an addon gets secrets), which is why the two disagreed.
-        -- Falling back to the rating alone silently drops the non-rating bonus,
-        -- so remember the last clean total and show that instead; "?" is the
-        -- floor when there has never been a clean read.
-        local versRating = GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) or 0
-        local versBase = GetVersatilityBonus(CR_VERSATILITY_DAMAGE_DONE) or 0
-        local vers
-        if issecretvalue(versRating) or issecretvalue(versBase) then
-            vers = statsFrame._versLastClean   -- nil until one exists -> "?"
-        else
-            vers = versRating + versBase
-            statsFrame._versLastClean = vers
-        end
-        local showBoth = EllesmereUI.QoLExtrasGet("showSecondaryStatsBoth")
-        local showRawOnly = not showBoth and EllesmereUI.QoLExtrasGet("showSecondaryStatsRaw")
-        local showRawValues = showRawOnly or showBoth
-        local critRaw, hasteRaw, masteryRaw, versRaw
-        if showRawValues then
-            critRaw = GetCombatRating(critCR)
-            hasteRaw = GetCombatRating(hasteCR)
-            masteryRaw = GetCombatRating(CR_MASTERY)
-            versRaw = GetCombatRating(CR_VERSATILITY_DAMAGE_DONE)
+            mastery = GetMasteryEffect()
+            -- Versatility is the only row built by ADDING two getters, and addition
+            -- is what a secret refuses -- so under restriction the real total is
+            -- not computable here. Blizzard's pane still shows it (its code reads
+            -- true values; an addon gets secrets), which is why the two disagreed.
+            -- Falling back to the rating alone silently drops the non-rating bonus,
+            -- so remember the last clean total and show that instead; "?" is the
+            -- floor when there has never been a clean read.
+            local versRating = GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) or 0
+            local versBase = GetVersatilityBonus(CR_VERSATILITY_DAMAGE_DONE) or 0
+            if issecretvalue(versRating) or issecretvalue(versBase) then
+                vers = statsFrame._versLastClean   -- nil until one exists -> "?"
+            else
+                vers = versRating + versBase
+                statsFrame._versLastClean = vers
+            end
+            showBoth = EllesmereUI.QoLExtrasGet("showSecondaryStatsBoth")
+            showRawOnly = not showBoth and EllesmereUI.QoLExtrasGet("showSecondaryStatsRaw")
+            showRawValues = showRawOnly or showBoth
+            if showRawValues then
+                critRaw = GetCombatRating(critCR)
+                hasteRaw = GetCombatRating(hasteCR)
+                masteryRaw = GetCombatRating(CR_MASTERY)
+                versRaw = GetCombatRating(CR_VERSATILITY_DAMAGE_DONE)
+            end
         end
 
         -- One template line per row, plus the figures to fill it. Nothing here
@@ -2402,14 +2408,16 @@ do
         local function Label(long, short)
             return abbreviateLabels and short or EllesmereUI.L(long)
         end
-        local function Row(hex, label, value, raw)
+        -- fmt: the figure's format when no raw rating is shown (a percentage
+        -- unless given).
+        local function Row(hex, label, value, raw, fmt)
             local body, first, second
             if showRawOnly then
                 body, first = "%.0f", raw
             elseif showBoth then
                 body, first, second = "%.0f (%.2f%%)", raw, value
             else
-                body, first = "%.2f%%", value
+                body, first = fmt or "%.2f%%", value
             end
             -- The selected figures travel as arguments so secret values are
             -- never inspected. A nil test is safe on a secret.
@@ -2438,31 +2446,38 @@ do
         end
         local hiddenStats = EllesmereUI.QoLExtrasGet("secondaryStatsHidden")
         if type(hiddenStats) ~= "table" then hiddenStats = nil end
-        local hasVisibleTertiary = not (hiddenStats
-            and hiddenStats.leech and hiddenStats.avoidance and hiddenStats.speed)
+        -- The tertiaries (leech/avoidance/speed) are retail ratings too.
+        local hasVisibleTertiary = false
         local tertHex, leech, avoidance, speed
         local leechRaw, avoidanceRaw, speedRaw
-        if hasVisibleTertiary then
-            local tc = EllesmereUI.QoLExtrasGet("tertiaryStatsColor")
-            local tmode = EllesmereUI.QoLExtrasGet("tertiaryStatsColorMode")
-                or (tc and "custom" or "class")
-            tertHex = (tmode == "custom" and tc)
-                and format("%02x%02x%02x", tc.r * 255, tc.g * 255, tc.b * 255)
-                or statsFrame._classHex or "ffffff"
+        if not FV then
+            hasVisibleTertiary = not (hiddenStats
+                and hiddenStats.leech and hiddenStats.avoidance and hiddenStats.speed)
+            if hasVisibleTertiary then
+                local tc = EllesmereUI.QoLExtrasGet("tertiaryStatsColor")
+                local tmode = EllesmereUI.QoLExtrasGet("tertiaryStatsColorMode")
+                    or (tc and "custom" or "class")
+                tertHex = (tmode == "custom" and tc)
+                    and format("%02x%02x%02x", tc.r * 255, tc.g * 255, tc.b * 255)
+                    or statsFrame._classHex or "ffffff"
 
-            leech = GetLifesteal()
-            avoidance = GetAvoidance()
-            speed = GetSpeed()
-            if showRawValues then
-                leechRaw = GetCombatRating(CR_LIFESTEAL)
-                avoidanceRaw = GetCombatRating(CR_AVOIDANCE)
-                speedRaw = GetCombatRating(CR_SPEED)
+                leech = GetLifesteal()
+                avoidance = GetAvoidance()
+                speed = GetSpeed()
+                if showRawValues then
+                    leechRaw = GetCombatRating(CR_LIFESTEAL)
+                    avoidanceRaw = GetCombatRating(CR_AVOIDANCE)
+                    speedRaw = GetCombatRating(CR_SPEED)
+                end
             end
         end
 
         for _, key in ipairs(SecondaryStatsOrder()) do
             if not (hiddenStats and hiddenStats[key]) then
-                if key == "crit" then
+                local fv = FV_STAT and FV_STAT[key]
+                if fv then
+                    Row(customHex or fv.hex, Label(fv.label, fv.short), fv.get(), nil, fv.fmt)
+                elseif key == "crit" then
                     Row(customHex or STAT_HEX.crit, Label("Crit", "C"), crit, critRaw)
                 elseif key == "haste" then
                     Row(customHex or STAT_HEX.haste, Label("Haste", "H"), haste, hasteRaw)
@@ -2624,10 +2639,14 @@ do
         }) do
             statsFrame:RegisterUnitEvent(ev, "player")
         end
-        -- Forever can show melee or ranged haste, which change without UNIT_SPELL_HASTE.
-        if EllesmereUI.IS_FOREVER then
+        -- WoW Forever: melee and ranged haste change without UNIT_SPELL_HASTE,
+        -- and auras move regen, armor, resistances and run speed with no stat
+        -- event of their own; the character pane listens to the same pair.
+        if FV then
             statsFrame:RegisterUnitEvent("UNIT_ATTACK_SPEED", "player")
             statsFrame:RegisterUnitEvent("UNIT_RANGEDDAMAGE", "player")
+            statsFrame:RegisterUnitEvent("UNIT_AURA", "player")
+            statsFrame:RegisterUnitEvent("UNIT_RESISTANCES", "player")
         end
         for _, ev in ipairs({
             "COMBAT_RATING_UPDATE", "PLAYER_EQUIPMENT_CHANGED",

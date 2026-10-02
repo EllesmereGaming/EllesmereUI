@@ -1,13 +1,15 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  ActionBars_Options\XPBarPage_Options.lua
---  Action Bars options: the XP Bar page (BuildXPBarPage), in CORE, DISPLAY
---  and EXTRAS sections. The data bar controls it shares with the reputation
---  and House Favor bars come from the data bar kit (ns.ABO_DataBarKit,
---  defined in MenuBagsRepPage_Options.lua and read at build time); this file
---  holds the XP bar's own: Style, Show Dividers and its settings row, Fill
---  Style, Rested Color, Background Opacity, Text Background, Show % and the
---  XP Bar Visibility cog. Definitions only; the shared helpers come from
+--  Action Bars options: the XP Bar page (BuildXPBarPage), in CORE, DISPLAY,
+--  TEXT POSITIONS and EXTRAS sections. The data bar controls it shares with
+--  the reputation and House Favor bars come from the data bar kit
+--  (ns.ABO_DataBarKit, defined in MenuBagsRepPage_Options.lua and read at
+--  build time); this file holds the XP bar's own: Style, Show Dividers and
+--  its settings row, Fill Style, Rested Color, Background Opacity, the seven
+--  text positions (what each one shows, and the Size and offsets cogs of
+--  the six besides Center), Text Background, Show % and the XP Bar
+--  Visibility cog. Definitions only; the shared helpers come from
 --  ns._ABO_OptEnv (filled by EUI_ActionBars_Options.lua).
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUIActionBars"]
@@ -32,14 +34,44 @@ local FLIP_CANDS = {
     { "Skillbar_Fill_Flipbook_Fishing",        "Fishing" },
 }
 
+-- What a text position can show: the content ids the bar reads from
+-- textSlot<Stem>, in menu order ("---" draws a separator).
+local TEXT_SLOT_VALUES = {
+    none             = "None",
+    classic          = "Default",
+    level            = "Level",
+    xp               = "Current / Max",
+    xpRemaining      = "Current / Max (Remaining)",
+    remaining        = "Remaining",
+    percent          = "Percent",
+    percentProjected = "Percent (With Completed Quests)",
+    completed        = "Completed Quests",
+    rested           = "Rested",
+    completedRested  = "Completed Quests - Rested",
+    xpPerHour        = "XP per Hour",
+    levelingIn       = "Leveling In",
+    timeLevel        = "Time This Level",
+    timeSession      = "Time This Session",
+}
+local TEXT_SLOT_ORDER = {
+    "none", "---",
+    "classic", "level", "xp", "xpRemaining", "remaining", "percent", "percentProjected", "---",
+    "completed", "rested", "completedRested", "---",
+    "xpPerHour", "levelingIn", "timeLevel", "timeSession",
+}
+
 ---------------------------------------------------------------------------
 --  XP Bar page  (dedicated tab)
---    CORE     Visibility | Orientation, Width | Height, Style | Show Dividers
---             (and 5% Line Style | Divider Text while dividers are on)
---    DISPLAY  Border Style | Border Size (and the offsets of a textured
---             style), Fill Style | Rested Color, Background Opacity | Bar
---             Texture, Text Size | Text Background
---    EXTRAS   Click Through
+--    CORE            Visibility | Orientation, Width | Height, Style | Show
+--                    Dividers (and 5% Line Style | Divider Text while
+--                    dividers are on)
+--    DISPLAY         Border Style | Border Size (and the offsets of a
+--                    textured style), Fill Style | Rested Color, Background
+--                    Opacity | Bar Texture
+--    TEXT POSITIONS  Center Text | Text Size, Left Text | Right Text, Top
+--                    Left Text | Top Right Text, Bottom Left Text | Bottom
+--                    Right Text, Text Background
+--    EXTRAS          Click Through
 --  While the bar's visibility is Never only the first row is built.
 ---------------------------------------------------------------------------
 
@@ -64,8 +96,9 @@ local function BuildXPBarPage(pageName, parent, yOffset)
     -------------------------------------------------------------------
     _, h = W:SectionHeader(parent, "CORE", y);  y = y - h
 
-    -- Visibility (its cog: the text's raw values and level) | Orientation
-    -- (its cog: Vertical Text).
+    -- Visibility (its cog: the Default text's raw values and level) |
+    -- Orientation (its cog: Vertical Text). The texts repaint only through a
+    -- layout pass or an XP change, so the two toggles run the layout.
     local visRow
     visRow, y = K.VisRow(y, XP, "XP Bar Visibility", K.OrientCfg({ XP }))
     K.OrientCog(visRow._rightRegion, { XP }, true)
@@ -76,11 +109,13 @@ local function BuildXPBarPage(pageName, parent, yOffset)
             anchorTo = rgn._control,
             rows = {
                 { type="toggle", label="Show Raw Values",
+                  tooltip="Shows raw XP values in the Default text.",
                   get=function() return S().showRawValues end,
-                  set=function(v) S().showRawValues = v end },
+                  set=function(v) S().showRawValues = v; ns.ApplyDataBarLayout(XP) end },
                 { type="toggle", label="Show Level",
+                  tooltip="Starts the Default text with your level.",
                   get=function() return S().showLevel end,
-                  set=function(v) S().showLevel = v end },
+                  set=function(v) S().showLevel = v; ns.ApplyDataBarLayout(XP) end },
             },
         })
     end
@@ -381,30 +416,126 @@ local function BuildXPBarPage(pageName, parent, yOffset)
             rawTooltip = _blizzDis })
     end
 
-    -- Text Size (its cog: the text's anchor and offsets, and Show %: the XP
-    -- percentage after the raw values, e.g. "Level 40 - 1234 / 5678 (21.7%)")
-    -- | Text Background (its colour and opacity inline).
-    local textRow
-    textRow, h = W:DualRow(parent, y, K.TextSizeCfg(XP),
+    _, h = W:Spacer(parent, y, 12);  y = y - h
+
+    -------------------------------------------------------------------
+    --  TEXT POSITIONS
+    -------------------------------------------------------------------
+    _, h = W:SectionHeader(parent, "TEXT POSITIONS", y);  y = y - h
+
+    -- Each position shows one text (TEXT_SLOT_VALUES), saved as
+    -- textSlot<Stem>; unset, Center shows Default and the others None.
+    -- Center is the bar text that Text Size and its cog place. Left and
+    -- Right sit inside the bar at its ends, the four corners outside it
+    -- (above and below); those six draw on a horizontal bar only, each with
+    -- its own Size (Text Size until set) and offsets in its cog.
+    local SLOT_TIP = "What this position shows. Time This Level reads /played once per character."
+    local function SlotLocked() return _blizzDis() or Vertical() end
+    local function SlotLockTip()
+        if _blizzDis() then return BLIZZ_DIS_TIP end
+        return "Horizontal Orientation"
+    end
+    local function SlotCfg(stem, label)
+        local key = "textSlot" .. stem
+        local def = (stem == "Center") and "classic" or "none"
+        local cfg = { type="dropdown", text=label, values=TEXT_SLOT_VALUES, order=TEXT_SLOT_ORDER,
+              tooltip=SLOT_TIP,
+              disabled=_blizzDis, disabledTooltip=BLIZZ_DIS_TIP, rawTooltip=true,
+              getValue=function() return S()[key] or def end,
+              setValue=function(v)
+                  S()[key] = v
+                  ns.ApplyDataBarLayout(XP)
+                  EllesmereUI:RefreshPage()
+              end }
+        if stem ~= "Center" then
+            cfg.disabled, cfg.disabledTooltip, cfg.rawTooltip = SlotLocked, SlotLockTip, _blizzDis
+        end
+        return cfg
+    end
+    -- The cog of one of the six: its Size and offsets, locked while the
+    -- position shows nothing.
+    local function SlotCog(rgn, stem, label)
+        local key = "textSlot" .. stem
+        local sizeKey, xKey, yKey = key .. "Size", key .. "XOffset", key .. "YOffset"
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = label,
+            icon = EllesmereUI.DIRECTIONS_ICON,
+            anchorTo = rgn._control,
+            captureRegion = rgn,
+            disabled = function() return SlotLocked() or (S()[key] or "none") == "none" end,
+            disabledTooltip = function()
+                if SlotLocked() then return SlotLockTip() end
+                return "a text in this position"
+            end,
+            rawTooltip = _blizzDis,
+            rows = {
+                { type="slider", label="Size", min=6, max=24, step=1,
+                  get=function() return S()[sizeKey] or S().textSize or 9 end,
+                  set=function(v)
+                      S()[sizeKey] = v
+                      ns.ApplyDataBarLayout(XP)
+                  end },
+                { type="slider", label="X Offset", min=-150, max=150, step=1,
+                  get=function() return S()[xKey] or 0 end,
+                  set=function(v)
+                      S()[xKey] = v
+                      ns.ApplyDataBarLayout(XP)
+                  end },
+                { type="slider", label="Y Offset", min=-150, max=150, step=1,
+                  get=function() return S()[yKey] or 0 end,
+                  set=function(v)
+                      S()[yKey] = v
+                      ns.ApplyDataBarLayout(XP)
+                  end },
+            },
+        })
+    end
+    -- Two of the six on one row, each with its cog; returns the new y.
+    local function SlotRow(rowY, lStem, lLabel, rStem, rLabel)
+        local row, rowH = W:DualRow(parent, rowY, SlotCfg(lStem, lLabel), SlotCfg(rStem, rLabel))
+        if chrome then
+            SlotCog(row._leftRegion, lStem, lLabel)
+            SlotCog(row._rightRegion, rStem, rLabel)
+        end
+        return rowY - rowH
+    end
+
+    -- Center Text (its cog: the text's anchor and offsets, and Show %: the
+    -- XP percentage after the Default text's raw values, e.g. "Level 40 -
+    -- 1234 / 5678 (21.7%)") | Text Size (also the size of the other
+    -- positions until their own is set).
+    local centerRow
+    centerRow, h = W:DualRow(parent, y, SlotCfg("Center", "Center Text"), K.TextSizeCfg(XP));  y = y - h
+    if chrome then
+        K.TextCog(centerRow._leftRegion, XP, {
+            { type="toggle", label="Show %",
+              tooltip="Append the XP percentage after the raw values.",
+              disabled=function() return not S().showRawValues end,
+              disabledTooltip="Show Raw Values",
+              get=function() return S().showPercent end,
+              set=function(v) S().showPercent = v; ns.ApplyDataBarLayout(XP) end },
+        })
+    end
+    y = SlotRow(y, "Left", "Left Text", "Right", "Right Text")
+    y = SlotRow(y, "TopLeft", "Top Left Text", "TopRight", "Top Right Text")
+    y = SlotRow(y, "BottomLeft", "Bottom Left Text", "BottomRight", "Bottom Right Text")
+
+    -- Text Background (its colour and opacity inline): a box behind every
+    -- text shown.
+    local textBgRow
+    textBgRow, h = W:DualRow(parent, y,
         { type="toggle", text="Text Background",
-          tooltip="Draws a box behind the bar text.",
+          tooltip="Draws a box behind each text the bar shows.",
           disabled=_blizzDis, disabledTooltip=BLIZZ_DIS_TIP, rawTooltip=true,
           getValue=function() return S().showTextBg end,
           setValue=function(v)
               S().showTextBg = v
               ns.ApplyDataBarLayout(XP)
               EllesmereUI:RefreshPage()
-          end });  y = y - h
-    K.TextCog(textRow._leftRegion, XP, {
-        { type="toggle", label="Show %",
-          tooltip="Append the XP percentage after the raw values.",
-          disabled=function() return not S().showRawValues end,
-          disabledTooltip="Show Raw Values",
-          get=function() return S().showPercent end,
-          set=function(v) S().showPercent = v; ns.ApplyDataBarLayout(XP) end },
-    })
+          end },
+        EllesmereUI.BlankRowCfg());  y = y - h
     if chrome then
-        EllesmereUI.BuildInlineSwatches(textRow._rightRegion, {
+        EllesmereUI.BuildInlineSwatches(textBgRow._leftRegion, {
             { tooltip = "Background Color", hasAlpha = true,
               getValue = function()
                   local c = S().textBgColor

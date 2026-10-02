@@ -71,6 +71,18 @@ These are enforced by EUI and cannot be worked around through the API:
   "Profiles", "Patch Notes", and anything starting with "EllesmereUI" or "EUI".
 - **Registration is a snapshot.** EUI copies what it needs when you register;
   editing your spec table afterwards has no effect.
+- **EUI's own functions and internals are off limits.** Replacing or hooking
+  EUI's functions (`EllesmereUI.RegisterModule` in particular) never reaches
+  EUI's own pages: EUI puts its own function back before it registers them.
+  Fields whose names start with `_` are internal and can change or disappear in
+  any update.
+- **EUI loads its own settings.** Its options load only when the player first
+  opens the panel, so don't load `EllesmereUIOptions` yourself; your
+  `buildPage` always runs after it has loaded.
+
+When an addon breaks these rules, EUI keeps its own pages working and leaves
+the change out, and once per session the player sees a popup that names the
+addon, says it needs an update, and links this page.
 
 Plugin pages take part in the EUI global search (see [Search](#search)). They
 do not take part in EUI profiles, profile sync or spec/conditional overrides:
@@ -205,7 +217,25 @@ inserted into `EllesmereUI.ADDON_GROUPS` shows above or below EUI's groups,
 wherever you inserted it, labelled from your entry in
 `EllesmereUI._addonInfoByFolder`. A row you placed inside one of EUI's groups
 appears in a section of your own instead, as does a page with no row (named
-after your addon). Changes aimed at EUI's own pages are ignored, and the player
-is told which addon made them. New code should use `RegisterPlugin`: it checks
-your spec, guards your callbacks and lets you pick your section's label and
-position.
+after your addon). Changes aimed at EUI's own pages are ignored (see
+[Rules](#rules)). New code should use `RegisterPlugin`: it checks your spec,
+guards your callbacks and lets you pick your section's label and position.
+
+**Players see an update popup naming my addon. What should I change?**
+
+| If your addon... | Do this instead |
+|---|---|
+| Adds a page or tab to an EUI module, for example by wrapping `EllesmereUI.RegisterModule` | Move that page into your own section with `RegisterPlugin` |
+| Builds its own rows into EUI's sidebar, or draws its pages over EUI's content area | Register a plugin: EUI builds your rows and hands each page a frame to draw into |
+| Inserts rows into one of EUI's sidebar sections | Register your own section; for now those rows are moved into one for you |
+
+## Before you release
+
+- [ ] Your section is registered with `RegisterPlugin`, using your folder name
+      as the id.
+- [ ] Nothing in your addon replaces or hooks EUI's own functions, pages or
+      sidebar, or reads fields starting with `_`.
+- [ ] `buildPage` skips side effects while `EllesmereUI.IsSearchPrebuild()` is
+      true.
+- [ ] After a `/reload`, opening the panel shows your section and no update
+      popup naming your addon.

@@ -87,8 +87,7 @@ local function GetOrCreateSlot(idx)
     -- category views (they draw no empty slots, so Blizzard's cursor split has
     -- nowhere to land there); the Stack Splitter setting extends it to the rest.
     btn:HookScript("PostClick", function(self)
-        local bag = self:GetParent():GetID()
-        EUI_Bags.ShowStackSplitter(self, bag == 5 and { 5, 0, 1, 2, 3, 4 } or { 0, 1, 2, 3, 4 }, EUI_Bags)
+        EUI_Bags.ShowStackSplitter(self, ns.SplitTargetBags(self:GetParent():GetID()), EUI_Bags)
     end)
 
     local textOverlay = ns.SkinItemButton(btn, { anchorIcon = true, cooldownFont = true })
@@ -915,38 +914,49 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             curY = curY - (rows * (SLOT_SIZE + SPACING)) - 6
         end
 
+        -- One bag's items + empties as a section titled with the bag's name, in
+        -- slot order (MultiBag's bags, OneBag's special bags).
+        local BagDisplayName = ns.BagDisplayName
+        local function RenderOneBag(bag)
+            local bagList = {}
+            local bagFilled = 0
+            for _, d in ipairs(tempItems) do
+                if d.bag == bag then bagList[#bagList + 1] = d; bagFilled = bagFilled + 1 end
+            end
+            for _, d in ipairs(emptySlots) do
+                if d.bag == bag then bagList[#bagList + 1] = d end
+            end
+            if #bagList > 0 then
+                table.sort(bagList, function(a, b) return a.slot < b.slot end)
+                RenderBagGrid(BagDisplayName(bag) .. " (" .. bagFilled .. " / " .. #bagList .. ")", bagList)
+            end
+        end
+
         if not isMulti then
-            -- OneBag: Main Bags (0-4) merged, in bag:slot order
+            -- OneBag: Main Bags (0-4) merged, in bag:slot order; a WoW Forever
+            -- special bag (ns.SpecialBags) gets its own section after it.
+            local special = ns.SpecialBags()
             local mainSlots = {}
             local mainFilled = 0
             for _, d in ipairs(tempItems) do
-                if d.bag ~= 5 then mainSlots[#mainSlots + 1] = d; mainFilled = mainFilled + 1 end
+                if d.bag ~= 5 and not (special and special[d.bag]) then mainSlots[#mainSlots + 1] = d; mainFilled = mainFilled + 1 end
             end
             for _, d in ipairs(emptySlots) do
-                if d.bag ~= 5 then mainSlots[#mainSlots + 1] = d end
+                if d.bag ~= 5 and not (special and special[d.bag]) then mainSlots[#mainSlots + 1] = d end
             end
             table.sort(mainSlots, function(a, b)
                 if a.bag ~= b.bag then return a.bag < b.bag end
                 return a.slot < b.slot
             end)
             RenderBagGrid(EllesmereUI.Lf("Main Bags (%d / %d)", mainFilled, #mainSlots), mainSlots)
-        else
-            -- MultiBag: one section per equipped bag (0-4)
-            local BagDisplayName = ns.BagDisplayName
-            for bag = 0, 4 do
-                local bagList = {}
-                local bagFilled = 0
-                for _, d in ipairs(tempItems) do
-                    if d.bag == bag then bagList[#bagList + 1] = d; bagFilled = bagFilled + 1 end
-                end
-                for _, d in ipairs(emptySlots) do
-                    if d.bag == bag then bagList[#bagList + 1] = d end
-                end
-                if #bagList > 0 then
-                    table.sort(bagList, function(a, b) return a.slot < b.slot end)
-                    RenderBagGrid(BagDisplayName(bag) .. " (" .. bagFilled .. " / " .. #bagList .. ")", bagList)
+            if special then
+                for bag = 1, 4 do
+                    if special[bag] then RenderOneBag(bag) end
                 end
             end
+        else
+            -- MultiBag: one section per equipped bag (0-4)
+            for bag = 0, 4 do RenderOneBag(bag) end
         end
 
         -- Reagent Bag (5): items + empties from bag 5

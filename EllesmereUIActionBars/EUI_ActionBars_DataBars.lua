@@ -274,6 +274,7 @@ local function ApplyDataBarLayout(barKey)
         -- saved fonts and a login spec-profile switch.
         frame._text:SetFont(EllesmereUI.GetFontPath("actionBars"), s.textSize or 9, EllesmereUI.GetFontOutlineFlag("actionBars"))
         ns.DataBarPlaceText(frame, s)
+        if barKey == "XPBar" then ns.XPBarTextSlots(frame, s) end
     end
 
     -- Dividers (EUI_ActionBars_XPBar.lua): one boolean read while off; a

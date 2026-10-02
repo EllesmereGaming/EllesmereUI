@@ -3,11 +3,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUI Action Bars - XP Bar
 --  The XP bar's own runtime: its frame art styles and profession flipbook
 --  fill, the dividers and Smart Ticks, the XP / rested update and tooltip,
---  and the style getter and setter the XP Bar options tab uses. What it
---  shares with the reputation and House Favor bars (the data bar frame,
---  layout, border, text placement, visibility, hover and Unlock Mode) is in
---  EllesmereUIActionBars.lua, which loads first and calls into this file
---  through ns at run time.
+--  the text positions (seven texts in and around the bar, each showing one
+--  content, with the session clock, XP rate, completed quest and time this
+--  level trackers behind them), and the style getter and setter the XP Bar
+--  options tab uses. What it shares with the reputation and House Favor bars
+--  (the data bar frame, layout, border, Center text placement, visibility,
+--  hover and Unlock Mode) is in EUI_ActionBars_DataBars.lua and the main
+--  file, which load first and call into this file through ns at run time.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
@@ -43,7 +45,7 @@ local XP_BAR_COLORS = {
 --  Applied from ApplyDataBarLayout only (style and layout changes); an XP update
 --  only plays the smart flash. A bar that never opted in reads two fields per
 --  layout; leaving a style undoes its art once. On ns: ApplyDataBarLayout
---  (EllesmereUIActionBars.lua) and the dividers below call into it.
+--  (EUI_ActionBars_DataBars.lua) and the dividers below call into it.
 -------------------------------------------------------------------------------
 ns._XPArtAtlas = { prof = "Professions-skillbar-frame" }
 -- Fit of each frame around the bar (px): cap share of a flat atlas, overlay
@@ -709,12 +711,626 @@ end
 
 -- WoW Forever: raw XP under 10,000 is not abbreviated (EllesmereUI_NumberFormat.lua).
 ns.AbbreviateLargeNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateLargeNumbers) or AbbreviateLargeNumbers
-local function UpdateXPBar()
+
+-------------------------------------------------------------------------------
+--  Text positions (the XP Bar tab's TEXT POSITIONS section). Seven texts,
+--  each showing one content, s.textSlot<Stem> (Center nil = "classic", the
+--  bar's original text; every other nil = "none"). Center is the readout the
+--  data bar kit places (frame._text, ns.DataBarPlaceText); Left and Right sit
+--  inside a horizontal bar, Top Left / Top Right above it and Bottom Left /
+--  Bottom Right below it, each with its own size and offsets, built the first
+--  time it shows something and hidden on a vertical bar. ns.XPBarTextSlots
+--  (every layout pass) lays them out and works out what the contents in use
+--  need; nothing below runs for a content no text shows:
+--    completed quests  QUEST_LOG_UPDATE while the bar shows, one scan a frame
+--    XP per hour       the XP gained since the rate started, counted on every
+--                      XP update (also while the bar is hidden)
+--    time this level   learned from /played (asked once per session while
+--                      unknown), then counted on; saved at logout for the
+--                      next load
+--    the minute clock  a ticker while the bar shows, for the time contents
+--  The session clock, the rate and the saved level time live per character in
+--  EllesmereUIDB.xpBarChars[guid] (built the first time a content needs it;
+--  never exported). A text is set only when its string changed.
+-------------------------------------------------------------------------------
+-- The six texts besides Center: their settings keys, then the text's point
+-- placed on the bar's point (inside: the text host over the fill; outside:
+-- the holder's edge), the base offset and the justification.
+local XP_SLOTS = {
+    { stem = "Left", key = "textSlotLeft", size = "textSlotLeftSize",
+      x = "textSlotLeftXOffset", y = "textSlotLeftYOffset",
+      point = "LEFT", rel = "LEFT", bx = 4, by = 0, justify = "LEFT" },
+    { stem = "Right", key = "textSlotRight", size = "textSlotRightSize",
+      x = "textSlotRightXOffset", y = "textSlotRightYOffset",
+      point = "RIGHT", rel = "RIGHT", bx = -4, by = 0, justify = "RIGHT" },
+    { stem = "TopLeft", key = "textSlotTopLeft", size = "textSlotTopLeftSize",
+      x = "textSlotTopLeftXOffset", y = "textSlotTopLeftYOffset", outside = true,
+      point = "BOTTOMLEFT", rel = "TOPLEFT", bx = 0, by = 2, justify = "LEFT" },
+    { stem = "TopRight", key = "textSlotTopRight", size = "textSlotTopRightSize",
+      x = "textSlotTopRightXOffset", y = "textSlotTopRightYOffset", outside = true,
+      point = "BOTTOMRIGHT", rel = "TOPRIGHT", bx = 0, by = 2, justify = "RIGHT" },
+    { stem = "BottomLeft", key = "textSlotBottomLeft", size = "textSlotBottomLeftSize",
+      x = "textSlotBottomLeftXOffset", y = "textSlotBottomLeftYOffset", outside = true,
+      point = "TOPLEFT", rel = "BOTTOMLEFT", bx = 0, by = -2, justify = "LEFT" },
+    { stem = "BottomRight", key = "textSlotBottomRight", size = "textSlotBottomRightSize",
+      x = "textSlotBottomRightXOffset", y = "textSlotBottomRightYOffset", outside = true,
+      point = "TOPRIGHT", rel = "BOTTOMRIGHT", bx = 0, by = -2, justify = "RIGHT" },
+}
+
+-- Every content a text can show ("none" shows nothing), and the contents
+-- each tracker serves (the clock: every time-based one).
+local XP_TEXT_CONTENT = {
+    classic = true, level = true, xp = true, xpRemaining = true, remaining = true,
+    percent = true, percentProjected = true, completed = true, rested = true,
+    completedRested = true, xpPerHour = true, levelingIn = true, timeLevel = true,
+    timeSession = true,
+}
+local XP_NEED_QUEST = { percentProjected = true, completed = true, completedRested = true }
+local XP_NEED_RATE  = { xpPerHour = true, levelingIn = true }
+local XP_NEED_CLOCK = { xpPerHour = true, levelingIn = true, timeLevel = true, timeSession = true }
+
+local xpPlayerGUID   -- the store key, read once
+local xpLoginAt      -- GetTime() at this session's login (nil after a /reload)
+-- Time this level, once known: the level and the seconds played at it as of
+-- xpLvlStamp (a GetTime()). Kept for the rest of the UI session (GetTime()
+-- counts on and every level-up resets it), so turning the content off and on
+-- again needs no second /played.
+local xpLvl, xpLvlBase, xpLvlStamp
+local xpLvlAsked     -- /played was requested this session
+local xpWorldSeen    -- this load's first PLAYER_ENTERING_WORLD was handled
+local xpClock        -- the minute clock: its aligning timer, then the ticker
+local xpQuestEv      -- QUEST_LOG_UPDATE and the one-shot scan (built on first need)
+-- The first PLAYER_ENTERING_WORLD of a load, then TIME_PLAYED_MSG and
+-- PLAYER_LOGOUT while Time This Level is in use.
+local xpTextEv = ns.TakeShell()
+
+-- A number: in full below 10,000 (6,811), abbreviated from there (17.6K).
+local function FmtNum(n)
+    n = floor(n)
+    if n < 10000 then return BreakUpLargeNumbers(n) end
+    return ns.AbbreviateLargeNumbers(n)
+end
+
+-- A percentage: one decimal, a whole number without one (89.6%, 0%).
+local function FmtPct(v)
+    local t = floor(v * 10 + 0.5)
+    if t % 10 == 0 then return format("%d%%", t / 10) end
+    return format("%.1f%%", t / 10)
+end
+
+-- A duration: 3d 4h, 1h 24m, 22m.
+local function FmtDur(sec)
+    local m = floor((sec > 0 and sec or 0) / 60)
+    local h = floor(m / 60)
+    if h >= 24 then
+        local d = floor(h / 24)
+        return format(EllesmereUI.L("%dd %dh"), d, h - d * 24)
+    elseif h > 0 then
+        return format(EllesmereUI.L("%dh %dm"), h, m - h * 60)
+    end
+    return format(EllesmereUI.L("%dm"), m)
+end
+
+-- This character's entry in EllesmereUIDB.xpBarChars (create: build it, and
+-- the store, when missing). nil while the player's GUID cannot be read.
+local function XPCharEntry(create)
+    local db = EllesmereUIDB
+    if type(db) ~= "table" then return nil end
+    if not xpPlayerGUID then
+        local g = UnitGUID("player")
+        if not g or (issecretvalue and issecretvalue(g)) then return nil end
+        xpPlayerGUID = g
+    end
+    local all = db.xpBarChars
+    if type(all) ~= "table" then
+        if not create then return nil end
+        all = {}
+        db.xpBarChars = all
+    end
+    local e = all[xpPlayerGUID]
+    if type(e) ~= "table" then
+        if not create then return nil end
+        e = { sStart = xpLoginAt or GetTime() }
+        all[xpPlayerGUID] = e
+    end
+    return e
+end
+
+-- XP per Hour counts from here: now, nothing gained yet.
+local function XPRateBaseline(e)
+    e.rStart, e.gained = GetTime(), 0
+    e.lastXP, e.lastMax, e.lastLevel = UnitXP("player"), UnitXPMax("player"), UnitLevel("player")
+end
+
+-- Adds the XP gained since the last reading to the rate; the same values
+-- again add nothing. A level-up adds what the old level still needed plus
+-- the XP into the new one. A lower reading on the same level is taken mid
+-- level-up and waits for the settled one. Returns true when XP was added.
+local function XPTrackRate()
+    local e = XPCharEntry(false)
+    if not (e and e.rStart) then return end
+    local cur, lv = UnitXP("player"), UnitLevel("player")
+    local lastXP, lastLv = e.lastXP, e.lastLevel
+    local added
+    if lastXP and lastLv then
+        if lv == lastLv then
+            if cur <= lastXP then return end
+            e.gained = (e.gained or 0) + (cur - lastXP)
+            added = true
+        elseif lv > lastLv then
+            e.gained = (e.gained or 0) + max(0, (e.lastMax or lastXP) - lastXP) + cur
+            added = true
+        end
+    end
+    e.lastXP, e.lastMax, e.lastLevel = cur, UnitXPMax("player"), lv
+    return added
+end
+
+-- XP per hour since the rate started: 0 until a minute has passed with XP
+-- gained.
+local function XPRate(now)
+    local e = XPCharEntry(false)
+    local start, gained = e and e.rStart, e and e.gained
+    if not (start and gained) or gained <= 0 or now - start < 60 then return 0 end
+    return gained * 3600 / (now - start)
+end
+
+-- "classic": the bar's original text (Show Level, Show Raw Values, Show %,
+-- and the rested XP while there is some).
+local function XPClassicText(s, currentXP, maxXP, restedXP, level)
+    local showRawValues = s.showRawValues
+
+    local strLevel = ""
+    local strXP = ""
+    local strRested = ""
+
+    if s.showLevel then
+        strLevel = format("%s %d - ", LEVEL, level)
+    end
+
+    if showRawValues then
+        strXP = format("%s / %s", ns.AbbreviateLargeNumbers(currentXP), ns.AbbreviateLargeNumbers(maxXP))
+    else
+        local pct = (currentXP / maxXP) * 100
+        strXP = format("%.1f%%", pct)
+    end
+
+    if restedXP > 0 then
+        if showRawValues then
+            strRested = format(EllesmereUI.L(" (Rested: %s)"), ns.AbbreviateLargeNumbers(restedXP))
+        else
+            local restedPct = (restedXP / maxXP) * 100
+            strRested = format(EllesmereUI.L(" (Rested: %.1f%%)"), restedPct)
+        end
+    end
+
+    -- Show %: append the XP percentage after raw values, e.g. "1234 / 5678 (21.7%)".
+    -- Only when raw values are shown (otherwise strXP is already the percentage).
+    local strPct = ""
+    if s.showPercent and showRawValues then
+        strPct = format(" (%.1f%%)", (currentXP / maxXP) * 100)
+    end
+
+    return strLevel .. strXP .. strPct .. strRested
+end
+
+-- One content's string ("" for none).
+local function XPContentText(frame, s, c, cur, mx, rested, level, now)
+    if c == "classic" then
+        return XPClassicText(s, cur, mx, rested, level)
+    elseif c == "level" then
+        return format("%s %d", LEVEL, level)
+    elseif c == "xp" then
+        return FmtNum(cur) .. " / " .. FmtNum(mx)
+    elseif c == "xpRemaining" then
+        return format("%s / %s (%s)", FmtNum(cur), FmtNum(mx), FmtNum(mx - cur))
+    elseif c == "remaining" then
+        return format(EllesmereUI.L("Remaining: %s"), FmtNum(mx - cur))
+    elseif c == "percent" then
+        return FmtPct(cur / mx * 100)
+    elseif c == "percentProjected" then
+        return FmtPct(cur / mx * 100) .. " (" .. FmtPct((cur + (frame._xpQuestXP or 0)) / mx * 100) .. ")"
+    elseif c == "completed" then
+        return format(EllesmereUI.L("Completed: %s"), FmtPct((frame._xpQuestXP or 0) / mx * 100))
+    elseif c == "rested" then
+        return format(EllesmereUI.L("Rested: %s"), FmtPct(rested / mx * 100))
+    elseif c == "completedRested" then
+        return format(EllesmereUI.L("Completed: %s - Rested: %s"),
+            FmtPct((frame._xpQuestXP or 0) / mx * 100), FmtPct(rested / mx * 100))
+    elseif c == "xpPerHour" then
+        return format(EllesmereUI.L("%s XP/Hour"), FmtNum(XPRate(now)))
+    elseif c == "levelingIn" then
+        local rate = XPRate(now)
+        return format(EllesmereUI.L("Leveling in: %s (%s XP/Hour)"),
+            rate > 0 and FmtDur((mx - cur) / rate * 3600) or "--", FmtNum(rate))
+    elseif c == "timeLevel" then
+        return format(EllesmereUI.L("Time this level: %s"),
+            xpLvlBase and FmtDur(xpLvlBase + (now - xpLvlStamp)) or "--")
+    elseif c == "timeSession" then
+        local e = XPCharEntry(false)
+        local start = e and e.sStart or xpLoginAt
+        return format(EllesmereUI.L("Time this session: %s"), start and FmtDur(now - start) or "--")
+    end
+    return ""
+end
+
+-- Paints the texts in use (filter: nil = every one, else only those showing a
+-- content in that set), each only when its string changed. A rotated Center
+-- is placed again after a new string (its placement is measured from it).
+local function XPPaintText(frame, s, filter, cur, mx, rested, level)
+    local now = GetTime()
+    local c = frame._xpCenter or "classic"
+    if not filter or filter[c] then
+        local str = XPContentText(frame, s, c, cur, mx, rested, level, now)
+        if str ~= frame._xpCenterStr then
+            frame._xpCenterStr = str
+            frame._text:SetText(str)
+            if frame._textPost then
+                ns.DataBarPlaceText(frame, s)
+                if c == "none" and frame._textBg then frame._textBg:Hide() end
+            end
+        end
+    end
+    local slots = frame._xpAny and frame._xpSlot
+    if not slots then return end
+    for i = 1, #XP_SLOTS do
+        local rec = slots[XP_SLOTS[i].stem]
+        local sc = rec and rec.c
+        if sc and (not filter or filter[sc]) then
+            local str = XPContentText(frame, s, sc, cur, mx, rested, level, now)
+            if str ~= rec.str then
+                rec.str = str
+                rec.fs:SetText(str)
+            end
+        end
+    end
+end
+
+-- Repaints the texts showing a content in `filter` outside an XP update (the
+-- minute clock, a quest scan, /played, the bar showing again).
+local function XPRepaint(frame, filter)
+    local s = EAB.db and EAB.db.profile.bars.XPBar
+    if not s then return end
+    local mx = UnitXPMax("player")
+    if mx <= 0 then mx = 1 end
+    XPPaintText(frame, s, filter, UnitXP("player"), mx, GetXPExhaustion() or 0, UnitLevel("player"))
+end
+
+-- The XP of every quest in the log that is ready to hand in.
+local GetQuestLogRewardXP = GetQuestLogRewardXP  -- missing on a client: reads 0
+local function XPCompletedQuestXP()
+    if not GetQuestLogRewardXP then return 0 end
+    local QL = C_QuestLog
+    local total = 0
+    for i = 1, QL.GetNumQuestLogEntries() do
+        local q = QL.GetQuestIDForLogIndex(i)
+        if q and q > 0 and QL.IsComplete(q) then
+            total = total + (GetQuestLogRewardXP(q) or 0)
+        end
+    end
+    return total
+end
+
+-- QUEST_LOG_UPDATE only shows the hidden scan frame; its one-shot OnUpdate
+-- hides it, scans once for the whole burst and repaints the quest texts when
+-- the total changed.
+local function OnXPQuestScan(self)
+    self:Hide()
+    local frame = dataBarFrames.XPBar
+    if not frame then return end
+    frame._xpQuestOK = true
+    local total = XPCompletedQuestXP()
+    if total ~= frame._xpQuestXP then
+        frame._xpQuestXP = total
+        XPRepaint(frame, XP_NEED_QUEST)
+    end
+end
+
+local function OnXPQuestEvent(self)
+    self:Show()
+end
+
+-- Quest events only while a quest content is in use and the bar shows. Going
+-- hidden (or out of use) leaves the total stale: it is scanned again on the
+-- next show.
+local function XPSyncQuestEvents(frame, vis)
+    if frame._xpNeedQuest and vis then
+        if not xpQuestEv then
+            xpQuestEv = ns.TakeShell()
+            xpQuestEv:Hide()
+            xpQuestEv:SetScript("OnEvent", OnXPQuestEvent)
+            xpQuestEv:SetScript("OnUpdate", OnXPQuestScan)
+        end
+        if not frame._xpQuestOn then
+            frame._xpQuestOn = true
+            xpQuestEv:RegisterEvent("QUEST_LOG_UPDATE")
+        end
+        if not frame._xpQuestOK then xpQuestEv:Show() end
+    elseif frame._xpQuestOn then
+        frame._xpQuestOn, frame._xpQuestOK = nil, nil
+        xpQuestEv:UnregisterEvent("QUEST_LOG_UPDATE")
+        xpQuestEv:Hide()
+    end
+end
+
+-- The minute clock: repaints the time contents once a minute while the bar
+-- shows, its first tick on the session clock's next whole minute.
+local function OnXPClockTick()
+    local frame = dataBarFrames.XPBar
+    if frame then XPRepaint(frame, XP_NEED_CLOCK) end
+end
+
+local function OnXPClockAlign()
+    xpClock = C_Timer.NewTicker(60, OnXPClockTick)
+    OnXPClockTick()
+end
+
+local function XPSyncClock(frame, vis)
+    if frame._xpNeedClock and vis then
+        if xpClock then return end
+        local e = XPCharEntry(false)
+        local start = e and e.sStart or xpLoginAt
+        local now = GetTime()
+        xpClock = C_Timer.NewTimer(start and (60 - (now - start) % 60) or 60, OnXPClockAlign)
+    elseif xpClock then
+        xpClock:Cancel()
+        xpClock = nil
+    end
+end
+
+-- Time This Level's events: TIME_PLAYED_MSG while it is in use (our request,
+-- or the player's own /played), PLAYER_LOGOUT while it is in use with a known
+-- time.
+local function XPSyncLevelEvents(frame)
+    if frame._xpNeedLevelTime then
+        xpTextEv:RegisterEvent("TIME_PLAYED_MSG")
+        if xpLvlBase then xpTextEv:RegisterEvent("PLAYER_LOGOUT") end
+    else
+        -- Our own /played still owed: its reply lands, then this drops it.
+        if not (xpLvlAsked and not xpLvlBase) then xpTextEv:UnregisterEvent("TIME_PLAYED_MSG") end
+        xpTextEv:UnregisterEvent("PLAYER_LOGOUT")
+    end
+end
+
+-- Whether the XP bar can show at all with these settings: not Blizzard's
+-- bars, not Never, not at max level, XP not turned off. Plain field reads
+-- (the visibility passes normalize the settings table).
+local function XPBarCanShow(s)
+    local p = EAB.db and EAB.db.profile
+    if not (p and s) or p.useBlizzardDataBars then return false end
+    if s.enabled == false or s.alwaysHidden or s.barVisibility == "never" then return false end
+    return not ns.XPBarAtMaxLevel() and not (IsXPUserDisabled and IsXPUserDisabled())
+end
+
+-- /played, at most once per session: while Time This Level is in use and
+-- armed (the bar can show) and its time is unknown (or for another level).
+-- The game prints its two /played lines in chat for that one request; the
+-- chat frames are never touched.
+local function XPRequestPlayed(frame)
+    -- Not before the load's first PLAYER_ENTERING_WORLD has read the time
+    -- saved at the last logout.
+    if xpLvlAsked or not xpWorldSeen or not frame._xpNeedLevelTime then return end
+    if xpLvlBase and xpLvl == UnitLevel("player") then return end
+    if ns.XPBarAtMaxLevel() or (IsXPUserDisabled and IsXPUserDisabled()) then return end
+    xpLvlAsked = true
+    if RequestTimePlayed then RequestTimePlayed() end
+end
+
+-- PLAYER_LEVEL_UP (the bar's own event frame): the new level starts at no
+-- time played (exact, no /played needed; three numbers, kept even while no
+-- text shows the time), and quest rewards change with the level.
+local function XPTextLevelUp(frame, newLevel)
+    xpLvl = type(newLevel) == "number" and newLevel or UnitLevel("player")
+    xpLvlBase, xpLvlStamp = 0, GetTime()
+    if frame._xpNeedLevelTime then XPSyncLevelEvents(frame) end
+    frame._xpQuestOK = nil
+    if frame._xpQuestOn then xpQuestEv:Show() end
+end
+
+-- The holder's own show and hide (hooked the first time quests or the clock
+-- are needed, a flag read otherwise): quest events and the clock follow it,
+-- and the time contents catch up on the time spent hidden.
+local function OnXPHolderShow(frame)
+    if frame._xpNeedQuest then XPSyncQuestEvents(frame, true) end
+    if frame._xpNeedClock then
+        XPSyncClock(frame, true)
+        XPRepaint(frame, XP_NEED_CLOCK)
+    end
+end
+
+local function OnXPHolderHide(frame)
+    if frame._xpQuestOn then XPSyncQuestEvents(frame, false) end
+    if xpClock then XPSyncClock(frame, false) end
+end
+
+-- Lays out the six texts besides Center (font, place, Text Background; hidden
+-- when unused or on a vertical bar) and arms what the contents in use need.
+-- ApplyDataBarLayout calls it for the XP bar right after placing Center.
+function ns.XPBarTextSlots(frame, s)
+    frame._xpPaintDirty = true
+    local center = s.textSlotCenter
+    if center ~= "none" and not XP_TEXT_CONTENT[center] then center = "classic" end
+    frame._xpCenter = center
+    -- No Center text: no Text Background behind it either.
+    if center == "none" and frame._textBg then frame._textBg:Hide() end
+
+    local quest, rate, clock = XP_NEED_QUEST[center], XP_NEED_RATE[center], XP_NEED_CLOCK[center]
+    local levelTime = center == "timeLevel"
+    local horizontal = s.orientation ~= "VERTICAL"
+    local host, slots, any = frame._textHost, frame._xpSlot, false
+    local size, bgOn, bc = s.textSize or 9, s.showTextBg, s.textBgColor
+    for i = 1, #XP_SLOTS do
+        local d = XP_SLOTS[i]
+        local c = horizontal and s[d.key] or nil
+        if not XP_TEXT_CONTENT[c] then c = nil end
+        local rec = slots and slots[d.stem]
+        if c then
+            if not rec then
+                if not slots then
+                    slots = {}
+                    frame._xpSlot = slots
+                end
+                rec = { fs = host:CreateFontString(nil, "OVERLAY") }
+                slots[d.stem] = rec
+            end
+            any = true
+            rec.c = c
+            if XP_NEED_QUEST[c] then quest = true end
+            if XP_NEED_RATE[c] then rate = true end
+            if XP_NEED_CLOCK[c] then clock = true end
+            if c == "timeLevel" then levelTime = true end
+            local fs = rec.fs
+            EllesmereUI.ApplyModuleFont(fs, nil, s[d.size] or size, "actionBars")
+            fs:SetTextColor(1, 1, 1, 1)
+            fs:SetJustifyH(d.justify)
+            fs:ClearAllPoints()
+            fs:SetPoint(d.point, d.outside and frame or host, d.rel, d.bx + (s[d.x] or 0), d.by + (s[d.y] or 0))
+            fs:Show()
+            local bg = rec.bg
+            if bgOn then
+                -- 3 past the text's ends and 1 above and below it, as Center's.
+                if not bg then
+                    bg = host:CreateTexture(nil, "ARTWORK")
+                    bg:SetPoint("TOPLEFT", fs, "TOPLEFT", -3, 1)
+                    bg:SetPoint("BOTTOMRIGHT", fs, "BOTTOMRIGHT", 3, -1)
+                    rec.bg = bg
+                end
+                bg:SetColorTexture(bc and bc.r or 0.06, bc and bc.g or 0.06, bc and bc.b or 0.08, bc and bc.a or 0.9)
+                bg:Show()
+            elseif bg then
+                bg:Hide()
+            end
+        elseif rec then
+            rec.c = nil
+            rec.fs:Hide()
+            if rec.bg then rec.bg:Hide() end
+        end
+    end
+    frame._xpAny = any
+
+    -- Wanted (the contents in use) vs armed (wanted and the bar can show):
+    -- nothing is tracked, stored or requested for a bar that never shows.
+    frame._xpWant = (quest or rate or clock or levelTime) and true or false
+    frame._xpLive = frame._xpWant and XPBarCanShow(s) or false
+    if not frame._xpLive then quest, rate, clock, levelTime = false, false, false, false end
+    local wasRate, wasLevel = frame._xpNeedRate, frame._xpNeedLevelTime
+    frame._xpNeedQuest = quest and true or false
+    frame._xpNeedRate = rate and true or false
+    frame._xpNeedLevelTime = levelTime
+    frame._xpNeedClock = clock and true or false
+
+    -- The store, for every time content: the session clock (a start later
+    -- than now is from an earlier boot and restarts) and the rate, whose count
+    -- starts again when XP per Hour is turned on (a /reload keeps it running).
+    if clock then
+        local e = XPCharEntry(true)
+        if e then
+            local now = GetTime()
+            if type(e.sStart) ~= "number" or e.sStart > now then e.sStart = now end
+            if rate and (wasRate == false or not e.rStart) then XPRateBaseline(e) end
+        end
+    end
+    if levelTime ~= (wasLevel or false) then XPSyncLevelEvents(frame) end
+    if levelTime then XPRequestPlayed(frame) end
+
+    -- Shown-only work (quest events, the minute clock), started and stopped
+    -- by the holder's own show and hide from then on.
+    if (quest or clock) and not frame._xpHooked then
+        frame._xpHooked = true
+        frame:HookScript("OnShow", OnXPHolderShow)
+        frame:HookScript("OnHide", OnXPHolderHide)
+    end
+    if frame._xpHooked then
+        local vis = frame:IsVisible()
+        XPSyncQuestEvents(frame, vis)
+        XPSyncClock(frame, vis)
+    end
+end
+
+-- The first PLAYER_ENTERING_WORLD of a load. A login starts a new session in
+-- the entry a time content built: its clock starts and the rate starts over
+-- (a character's first time content turned on after a /reload counts from
+-- then); a /reload keeps both (GetTime() counts on through it). The time this
+-- level saved at the last logout is taken for this load and cleared from the
+-- store, so a load that does not track it saves nothing; on a /reload the
+-- seconds the reload took are added (/played counted on through it). Play
+-- this file never sees (a crash before the save, a session with Action Bars
+-- off) leaves the last saved time behind, read back short until a level-up
+-- or the player's own /played. The bar can be built before this (its build
+-- waits on a timer), so what it armed is brought up to date here.
+local function XPOnFirstWorld(isInitialLogin)
+    local now = GetTime()
+    xpWorldSeen = true
+    if isInitialLogin then xpLoginAt = now end
+    local e = XPCharEntry(false)
+    local frame = dataBarFrames.XPBar
+    if e then
+        if isInitialLogin then
+            e.sStart = now
+            e.rStart, e.gained, e.lastXP, e.lastMax, e.lastLevel = nil, nil, nil, nil, nil
+            if frame and frame._xpNeedRate then XPRateBaseline(e) end
+        end
+        local t, at = e.lvlTime, e.lvlAt
+        e.lvlTime, e.lvlAt = nil, nil
+        if type(t) == "number" and e.lvl == UnitLevel("player") then
+            if not isInitialLogin and type(at) == "number" and at <= now then t = t + (now - at) end
+            xpLvl, xpLvlBase, xpLvlStamp = e.lvl, t, now
+        end
+    end
+    if frame then
+        if frame._xpNeedLevelTime then XPSyncLevelEvents(frame) end
+        XPRequestPlayed(frame)
+        if isInitialLogin and xpClock then
+            -- Realigned on the session clock that starts now.
+            XPSyncClock(frame, false)
+            XPSyncClock(frame, frame:IsVisible())
+        end
+        if frame._xpNeedClock and frame:IsVisible() then XPRepaint(frame, XP_NEED_CLOCK) end
+    end
+end
+
+xpTextEv:SetScript("OnEvent", function(self, event, arg1, arg2)
+    if event == "TIME_PLAYED_MSG" then
+        -- arg2: the time played this level, as of now.
+        if type(arg2) ~= "number" then return end
+        xpLvl, xpLvlBase, xpLvlStamp = UnitLevel("player"), arg2, GetTime()
+        local frame = dataBarFrames.XPBar
+        if frame then
+            XPSyncLevelEvents(frame)
+            if frame:IsVisible() then XPRepaint(frame, XP_NEED_CLOCK) end
+        end
+    elseif event == "PLAYER_LOGOUT" then
+        -- Also fires on /reload, before SavedVariables are written.
+        if xpLvlBase then
+            local e = XPCharEntry(true)
+            if e then
+                local now = GetTime()
+                e.lvl, e.lvlTime, e.lvlAt = xpLvl, xpLvlBase + (now - xpLvlStamp), now
+            end
+        end
+    else
+        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        XPOnFirstWorld(arg1)
+    end
+end)
+xpTextEv:RegisterEvent("PLAYER_ENTERING_WORLD")
+
+-- levelUp: called from PLAYER_LEVEL_UP, whose values can be half updated.
+local function UpdateXPBar(levelUp)
+    -- XP per Hour counts the XP gained while the bar's visibility hides it
+    -- too; after a level-up, the XP update that follows counts the gain.
+    local holder = dataBarFrames.XPBar
+    if holder and holder._xpWant then
+        -- Max level, Never or Blizzard's bars reached or left: re-arm.
+        local s0 = EAB.db.profile.bars.XPBar
+        if XPBarCanShow(s0) ~= holder._xpLive then ns.XPBarTextSlots(holder, s0) end
+        if holder._xpNeedRate and not levelUp and XPTrackRate() then holder._xpPaintDirty = true end
+    end
+
     local frame, s = EAB_VTABLE.ExtraBars.BeginManagedDataBarUpdate("XPBar")
     if not frame then return end
 
     local bar = frame._bar
-    local text = frame._text
 
     -- Hide at max level (or XP disabled)
     if ns.XPBarAtMaxLevel() or (IsXPUserDisabled and IsXPUserDisabled()) then
@@ -757,48 +1373,20 @@ local function UpdateXPBar()
         restedBar:Hide()
     end
 
-    local config = (EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars and EAB.db.profile.bars["XPBar"]) or {}
-    local showLevel = config.showLevel
-    local showRawValues = config.showRawValues
-
-    local strLevel = ""
-    local strXP = ""
-    local strRested = ""
-
-    if showLevel then
-        strLevel = format("%s %d - ", LEVEL, level)
+    -- The texts (Center's "classic" is the bar's original text), only when an
+    -- input changed: the XP values, a layout pass or a rate gain
+    -- (_xpPaintDirty). Time, quests and /played repaint through XPRepaint.
+    if frame._xpPaintDirty or currentXP ~= frame._xpPCur or maxXP ~= frame._xpPMax
+            or restedXP ~= frame._xpPRest or level ~= frame._xpPLvl then
+        frame._xpPaintDirty = nil
+        frame._xpPCur, frame._xpPMax, frame._xpPRest, frame._xpPLvl = currentXP, maxXP, restedXP, level
+        XPPaintText(frame, s, nil, currentXP, maxXP, restedXP, level)
     end
-
-    if showRawValues then
-        strXP = format("%s / %s", ns.AbbreviateLargeNumbers(currentXP), ns.AbbreviateLargeNumbers(maxXP))
-    else
-        local pct = (currentXP / maxXP) * 100
-        strXP = format("%.1f%%", pct)
-    end
-
-    if restedXP > 0 then
-        if showRawValues then
-            strRested = format(EllesmereUI.L(" (Rested: %s)"), ns.AbbreviateLargeNumbers(restedXP))
-        else
-            local restedPct = (restedXP / maxXP) * 100
-            strRested = format(EllesmereUI.L(" (Rested: %.1f%%)"), restedPct)
-        end
-    end
-
-    -- Show %: append the XP percentage after raw values, e.g. "1234 / 5678 (21.7%)".
-    -- Only when raw values are shown (otherwise strXP is already the percentage).
-    local strPct = ""
-    if config.showPercent and showRawValues then
-        strPct = format(" (%.1f%%)", (currentXP / maxXP) * 100)
-    end
-
-    text:SetText(strLevel .. strXP .. strPct .. strRested)
-    if frame._textPost then ns.DataBarPlaceText(frame, s) end
 
     EAB_VTABLE.ExtraBars.FinishManagedDataBarUpdate("XPBar", frame, s)
 end
 
--- Called by CreateManagedDataBarFrames (EllesmereUIActionBars.lua) when the
+-- Called by CreateManagedDataBarFrames (EUI_ActionBars_DataBars.lua) when the
 -- data bars are built at enable.
 function ns.CreateXPBar()
     local holder = CreateDataBarFrame("XPBar", UpdateXPBar)
@@ -846,13 +1434,22 @@ function ns.CreateXPBar()
     end)
     holder:SetScript("OnLeave", function(self) if GameTooltip:IsOwned(self) then GameTooltip:Hide() end end)
 
-    -- Events
+    -- Events. A level-up also starts Time This Level over and rescans the
+    -- completed quests; a zone change asks for /played if that is still owed.
     local evFrame = ns.TakeShell()
     evFrame:RegisterEvent("PLAYER_XP_UPDATE")
     evFrame:RegisterEvent("PLAYER_LEVEL_UP")
     evFrame:RegisterEvent("UPDATE_EXHAUSTION")
     evFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    evFrame:SetScript("OnEvent", UpdateXPBar)
+    evFrame:SetScript("OnEvent", function(_, event, arg1)
+        if event == "PLAYER_LEVEL_UP" then
+            XPTextLevelUp(holder, arg1)
+            UpdateXPBar(true)
+            return
+        end
+        if event == "PLAYER_ENTERING_WORLD" then XPRequestPlayed(holder) end
+        UpdateXPBar()
+    end)
 
     ApplyDataBarLayout("XPBar")
     UpdateXPBar()

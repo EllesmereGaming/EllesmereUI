@@ -1539,7 +1539,7 @@ local function BuildStyle(unit, base, s, unitFrame)
         if isBuff and unit ~= "player" and s.buffDispelBorder == true then
             dispel = true
         end
-        -- Textured Dispel Ring (per-unit, player/target): AuraKit draws the ring
+        -- Textured Dispel Ring (per-unit, player/target/focus): AuraKit draws the ring
         -- in the aura border's own art on the aura border's geometry (style.border)
         -- instead of flat strips, and keeps the strips by itself for a size-0 border.
         if dispel and s.auraBorderDispelTextured == true

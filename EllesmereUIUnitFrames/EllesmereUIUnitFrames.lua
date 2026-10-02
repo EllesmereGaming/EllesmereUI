@@ -1078,6 +1078,12 @@ local defaults = {
             buffSize = 22,
             buffOffsetX = 0,
             buffOffsetY = 0,
+            auraBorderTexture = "solid",
+            auraBorderSize = 1,
+            auraBorderR = 0, auraBorderG = 0, auraBorderB = 0, auraBorderA = 1,
+            auraBorderBehind = false,
+            auraBorderBehindUnitFrame = false,
+            auraBorderDispelTextured = false,
             debuffSize = 22,
             debuffOffsetX = 0,
             debuffOffsetY = 0,
@@ -13096,7 +13102,6 @@ ReloadFramesBody = function()
     -- Refresh the tag-readable decimal globals before the combat early-return so
     -- tags pick up the saved state at login and on any settings change.
     ns.ApplyTextDecimalGlobals()
-    if ns.SCT_Refresh then ns.SCT_Refresh() end
     if InCombatLockdown() then
         return
     end
@@ -18470,8 +18475,6 @@ function SetupOptionsPanel()
         return true
     end
     ns.ResolveFontPath = ResolveFontPath
-
-    if ns.SCT_Refresh then ns.SCT_Refresh() end
 
     -- Trigger the EllesmereUI options module registration now that ns.db is ready
     if ns._InitEUIModule then

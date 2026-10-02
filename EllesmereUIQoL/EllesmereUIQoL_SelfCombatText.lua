@@ -1,8 +1,8 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
--- EUI_UnitFrames_SelfCombatText.lua
+-- EllesmereUIQoL_SelfCombatText.lua
 -- Self combat text (damage taken, heals received, avoids, combat enter/leave)
--- drawn above the player unit frame in place of Blizzard's WorldFrame-pinned
+-- drawn above the player frame in place of Blizzard's WorldFrame-pinned
 -- scrolling text.
 --
 -- Blizzard's CombatText frame is only hidden, never written to: its OnEvent
@@ -11,18 +11,20 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- here compares or does arithmetic on them. Messages scroll on engine
 -- animation groups (no OnUpdate). Off, nothing is created or registered.
 --
--- Settings: db.profile.player.sct. ReloadFrames calls ns.SCT_Refresh, so
--- login, profile swaps and option changes all route through it. The anchor
--- box is an unlock mode element ("UF_SelfCombatText"): unlock mode applies
--- saved positions and anchor links; Build only places it once (above the
--- player frame when nothing is saved).
+-- Settings: the QoL profile's selfCombatText table, read into a cache by
+-- Refresh. Login (EllesmereUIQoL.lua), profile swaps (RefreshAllAddons) and
+-- option changes all route through Refresh. The anchor box is an unlock mode
+-- element (EUI_SelfCombatText): unlock mode applies saved positions and
+-- anchor links; with nothing saved it sits above the player frame.
 -------------------------------------------------------------------------------
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
+-- WoW Forever: no number under 10,000 abbreviates (EllesmereUI_NumberFormat.lua)
+local AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
 
 local POOL_SIZE  = 12
 local FADE_FRAC  = 0.3   -- fade over the last 30% of the scroll
-local UNLOCK_KEY = "UF_SelfCombatText"
+local UNLOCK_KEY = "EUI_SelfCombatText"
 local BOX_W, BOX_H = 200, 30
 
 local DEFAULTS = {
@@ -31,7 +33,7 @@ local DEFAULTS = {
     stagger = true,
     anim = "straight",     -- straight | fountain | static
     direction = "up",      -- up | down
-    font = "__combat",     -- __combat (CombatTextFont) or a font dropdown key
+    font = "__combat",     -- __combat (CombatTextFont), __global (QoL font) or a font key
     outline = "OUTLINE",   -- NONE | OUTLINE | THICKOUTLINE
     shadow = false,
     abbreviate = false,
@@ -51,43 +53,74 @@ local HEAL = {
     HEAL = false, PERIODIC_HEAL = false,
     HEAL_CRIT = true, PERIODIC_HEAL_CRIT = true,
 }
+-- Avoid types; Build fills avoidLabel with their COMBAT_TEXT_* strings.
 local AVOID = {
-    MISS = true, DODGE = true, PARRY = true, EVADE = true, IMMUNE = true,
-    DEFLECT = true, REFLECT = true, RESIST = true, BLOCK = true, ABSORB = true,
-    SPELL_MISS = true, SPELL_DODGE = true, SPELL_PARRY = true, SPELL_EVADE = true,
-    SPELL_IMMUNE = true, SPELL_DEFLECT = true, SPELL_REFLECT = true,
-    SPELL_RESIST = true, SPELL_BLOCK = true, SPELL_ABSORB = true,
+    "MISS", "DODGE", "PARRY", "EVADE", "IMMUNE", "DEFLECT", "REFLECT", "RESIST", "BLOCK", "ABSORB",
 }
+local avoidLabel = {}
 
 -- Fountain arc: quarter circle of radius 1, x toward the side, y along the scroll
 local ARC = { { 0.134, 0.5 }, { 0.5, 0.866 }, { 1, 1 } }
 
-local anchor, ev
+local anchor, ev, db
 local pool = {}
 local nextIdx = 0
 local enabled = false
 local xDir = 1
+-- Settings as the message path reads them, refilled by Refresh. fontVer tells
+-- a pooled string its font is stale.
+local S = { fontVer = 0 }
+
+-- The QoL profile (the shared EllesmereUIQoLDB; no defaults are merged in:
+-- Get falls back to DEFAULTS).
+local function Profile()
+    if not db then db = EllesmereUI.Lite.NewDB("EllesmereUIQoLDB") end
+    return db.profile
+end
 
 local function Get(k)
-    local p = ns.db and ns.db.profile.player
-    local t = p and p.sct
+    local t = Profile().selfCombatText
     local v = t and t[k]
     if v == nil then return DEFAULTS[k] end
     return v
+end
+
+local function Settings()
+    local p = Profile()
+    local t = p.selfCombatText
+    if not t then t = {}; p.selfCombatText = t end
+    return t
 end
 
 local function Enabled()
     return Get("enabled") == true
 end
 
-local function FontFile()
+-- The font follows the settings only: a global or QoL font change asks for a
+-- reload, so nothing else invalidates it.
+local function ReadSettings()
     local key = Get("font")
-    if key == "__global" then return EllesmereUI.GetFontPath() end
-    if key ~= "__combat" and EllesmereUI.ResolveFontName then
-        return EllesmereUI.ResolveFontName(key)
+    if key == "__global" then
+        S.font = EllesmereUI.GetFontPath("extras")
+    elseif key ~= "__combat" then
+        S.font = EllesmereUI.ResolveFontName(key)
+    else
+        local f = _G.CombatTextFont
+        S.font = f and f:GetFont() or STANDARD_TEXT_FONT
     end
-    local f = _G.CombatTextFont
-    return f and f:GetFont() or STANDARD_TEXT_FONT
+    local outline = Get("outline")
+    S.flags = (outline == "OUTLINE" and EllesmereUI.SlugFlag("OUTLINE, SLUG"))
+        or (outline == "THICKOUTLINE" and EllesmereUI.SlugFlag("THICKOUTLINE, SLUG")) or ""
+    S.shadow = Get("shadow") == true
+    S.size = Get("size")
+    S.critSize = S.size * Get("critScale")
+    S.fontVer = S.fontVer + 1
+    S.anim, S.rise, S.duration = Get("anim"), Get("rise"), Get("duration")
+    S.dy = Get("direction") == "down" and -S.rise or S.rise
+    S.stagger, S.abbreviate = Get("stagger"), Get("abbreviate")
+    S.damage, S.heal, S.avoid, S.combat = Get("damage"), Get("heal"), Get("avoid"), Get("combat")
+    S.damageColor, S.healColor = Get("damageColor"), Get("healColor")
+    S.avoidColor, S.combatColor = Get("avoidColor"), Get("combatColor")
 end
 
 -------------------------------------------------------------------------------
@@ -110,18 +143,15 @@ local function ApplyPos()
 end
 
 local function RegisterMover()
-    local MK = EllesmereUI.MakeUnlockElement
-    if not (MK and EllesmereUI.RegisterUnlockElements) then return end
-    EllesmereUI:RegisterUnlockElements({ MK({
-        key = UNLOCK_KEY, label = "Self Combat Text", group = "Unit Frames", order = 190,
+    EllesmereUI:RegisterUnlockElements({ EllesmereUI.MakeUnlockElement({
+        key = UNLOCK_KEY, label = "Self Combat Text", group = "Quality of Life", order = 730,
         noResize = true,
         isHidden = function() return not Enabled() end,
         getFrame = function() return enabled and anchor or nil end,
         getSize  = function() return BOX_W, BOX_H end,
         savePos = function(_, point, relPoint, x, y)
             if not point then return end
-            ns.db.profile.player.sct = ns.db.profile.player.sct or {}
-            ns.db.profile.player.sct.pos = { point = point, relPoint = relPoint or point, x = x, y = y }
+            Settings().pos = { point = point, relPoint = relPoint or point, x = x, y = y }
             if not EllesmereUI._unlockActive then ApplyPos() end
         end,
         loadPos = function()
@@ -130,24 +160,22 @@ local function RegisterMover()
             return { point = pos.point, relPoint = pos.relPoint or pos.point, x = pos.x, y = pos.y }
         end,
         clearPos = function()
-            local t = ns.db.profile.player.sct
+            local t = Profile().selfCombatText
             if t then t.pos = nil end
             ApplyPos()
         end,
         applyPos = ApplyPos,
-    }) })
+    }) }, "EllesmereUIQoL")
 end
 
 -------------------------------------------------------------------------------
 --  Message pool
 -------------------------------------------------------------------------------
 local function ApplyAnim()
-    local rise, dur = Get("rise"), Get("duration")
-    local dy = Get("direction") == "down" and -rise or rise
-    local mode = Get("anim")
+    local dur, mode = S.duration, S.anim
     for i = 1, POOL_SIZE do
         local fs = pool[i]
-        fs.mv:SetOffset(0, mode == "straight" and dy or 0)
+        fs.mv:SetOffset(0, mode == "straight" and S.dy or 0)
         fs.mv:SetDuration(dur)
         fs.path:SetDuration(dur)
         if mode ~= "fountain" then
@@ -180,38 +208,40 @@ local function Build()
         fs.ag = ag
         pool[i] = fs
     end
+    -- The plain and SPELL_ forms of an avoid share Blizzard's label.
+    for i = 1, #AVOID do
+        local t = AVOID[i]
+        local label = _G["COMBAT_TEXT_" .. t]
+        avoidLabel[t], avoidLabel["SPELL_" .. t] = label, label
+    end
     ev = CreateFrame("Frame")
     ApplyPos()
     RegisterMover()
 end
 
 -- Round-robin pool: a burst past POOL_SIZE restarts the oldest message.
-local function Emit(fmt, value, colorKey, crit)
+local function Emit(fmt, value, c, crit)
     nextIdx = nextIdx % POOL_SIZE + 1
     local fs = pool[nextIdx]
-    local c = Get(colorKey)
-    local size = Get("size")
-    local mode = Get("anim")
-    local stagger = (not crit and Get("stagger")) and fastrandom(-20, 20) or 0
+    local stagger = (not crit and S.stagger) and fastrandom(-20, 20) or 0
     fs.ag:Stop()
-    if mode == "fountain" then
+    if S.anim == "fountain" then
         -- Alternate sides, like Blizzard's fountain
         xDir = -xDir
-        local rise = Get("rise")
-        local sy = Get("direction") == "down" and -rise or rise
+        local rise, sy = S.rise, S.dy
         for j = 1, #ARC do
             fs.cps[j]:SetOffset(xDir * ARC[j][1] * rise, ARC[j][2] * sy)
         end
     end
     fs:ClearAllPoints()
     fs:SetPoint("BOTTOM", anchor, "BOTTOM", stagger, 0)
-    local outline = Get("outline")
-    fs:SetFont(FontFile(), crit and size * Get("critScale") or size, outline == "NONE" and "" or outline)
-    if Get("shadow") then
-        fs:SetShadowColor(0, 0, 0, 1)
-        fs:SetShadowOffset(1, -1)
-    else
-        fs:SetShadowOffset(0, 0)
+    -- A pooled string's font changes only with the settings or between a hit
+    -- and a crit.
+    local kind = crit and 2 or 1
+    if fs.fontVer ~= S.fontVer or fs.fontKind ~= kind then
+        fs.fontVer, fs.fontKind = S.fontVer, kind
+        EllesmereUI.PrimeFontShadow(fs, S.shadow)
+        fs:SetFont(S.font, crit and S.critSize or S.size, S.flags)
     end
     fs:SetTextColor(c.r, c.g, c.b)
     fs:SetFormattedText(fmt, value)
@@ -222,7 +252,7 @@ end
 
 -- Both formatters are C-side and accept secret numbers
 local function FormatAmount(n)
-    if Get("abbreviate") then return AbbreviateNumbers(n) end
+    if S.abbreviate then return AbbreviateNumbers(n) end
     return BreakUpLargeNumbers(n)
 end
 
@@ -235,26 +265,24 @@ local function OnEvent(_, event, arg1, arg2)
         -- data = amount (damage) or source name (heals); arg3 = heal amount
         local crit = DAMAGE[arg1]
         if crit ~= nil then
-            if not Get("damage") then return end
+            if not S.damage then return end
             local data = C_CombatText.GetCurrentEventInfo()
-            Emit("-%s", FormatAmount(data), "damageColor", crit)
+            Emit("-%s", FormatAmount(data), S.damageColor, crit)
             return
         end
         crit = HEAL[arg1]
         if crit ~= nil then
-            if not Get("heal") then return end
+            if not S.heal then return end
             local _, arg3 = C_CombatText.GetCurrentEventInfo()
-            Emit("+%s", FormatAmount(arg3), "healColor", crit)
+            Emit("+%s", FormatAmount(arg3), S.healColor, crit)
             return
         end
-        if AVOID[arg1] and Get("avoid") then
-            local label = _G["COMBAT_TEXT_" .. arg1:gsub("^SPELL_", "")]
-            if label then Emit("%s", label, "avoidColor", false) end
-        end
+        local label = S.avoid and avoidLabel[arg1]
+        if label then Emit("%s", label, S.avoidColor, false) end
     elseif event == "PLAYER_REGEN_DISABLED" then
-        Emit("%s", _G.ENTERING_COMBAT or "+Combat", "combatColor", false)
+        Emit("%s", _G.ENTERING_COMBAT or "+Combat", S.combatColor, false)
     elseif event == "PLAYER_REGEN_ENABLED" then
-        Emit("%s", _G.LEAVING_COMBAT or "-Combat", "combatColor", false)
+        Emit("%s", _G.LEAVING_COMBAT or "-Combat", S.combatColor, false)
     elseif event == "UNIT_ENTERED_VEHICLE" then
         C_CombatText.SetActiveUnit(arg2 and "vehicle" or "player")
     elseif event == "UNIT_EXITING_VEHICLE" then
@@ -269,7 +297,7 @@ end
 
 -- Registers only the events the enabled categories need.
 local function UpdateEvents()
-    if Get("damage") or Get("heal") or Get("avoid") then
+    if S.damage or S.heal or S.avoid then
         ev:RegisterEvent("COMBAT_TEXT_UPDATE")
         ev:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
         ev:RegisterUnitEvent("UNIT_EXITING_VEHICLE", "player")
@@ -278,7 +306,7 @@ local function UpdateEvents()
         ev:UnregisterEvent("UNIT_ENTERED_VEHICLE")
         ev:UnregisterEvent("UNIT_EXITING_VEHICLE")
     end
-    if Get("combat") then
+    if S.combat then
         ev:RegisterEvent("PLAYER_REGEN_DISABLED")
         ev:RegisterEvent("PLAYER_REGEN_ENABLED")
     else
@@ -291,6 +319,7 @@ local function Refresh()
     local want = Enabled()
     if want == enabled then
         if want then
+            ReadSettings()
             ApplyAnim()
             UpdateEvents()
         end
@@ -299,6 +328,7 @@ local function Refresh()
     enabled = want
     if want then
         if not anchor then Build() end
+        ReadSettings()
         ApplyAnim()
         anchor:Show()
         ev:SetScript("OnEvent", OnEvent)
@@ -318,9 +348,17 @@ end
 
 ns.SCT_Refresh = Refresh
 ns.SCT_Get = Get
+EllesmereUI._applySelfCombatText = Refresh  -- RefreshAllAddons (profile swaps)
+
 function ns.SCT_Set(k, v)
-    local p = ns.db.profile.player
-    if not p.sct then p.sct = {} end
-    p.sct[k] = v
+    Settings()[k] = v
     Refresh()
+end
+
+-- QoL page reset: every setting back to its default, the anchor link dropped.
+function ns.SCT_Reset()
+    Profile().selfCombatText = nil
+    if EllesmereUIDB.unlockAnchors then EllesmereUIDB.unlockAnchors[UNLOCK_KEY] = nil end
+    Refresh()
+    ApplyPos()
 end

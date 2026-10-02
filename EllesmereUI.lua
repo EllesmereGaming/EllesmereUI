@@ -899,19 +899,36 @@ do
         return type(key) == "string" and key:sub(1, #PLUGIN_PREFIX) == PLUGIN_PREFIX
     end
 
-    -- Suite registration window (see RegisterModule). Open while the core loads
-    -- the options addon or drains its deferred inits, and from a pre-login load
-    -- of the options addon until just after PLAYER_LOGIN (its files register
-    -- from their PLAYER_LOGIN handlers in that case).
+    -- Suite registration window (see RegisterModule). Open while the options
+    -- addon loads (whoever loads it: its files register as they run), while the
+    -- core drains its deferred inits, and from a pre-login load of the options
+    -- addon until just after PLAYER_LOGIN (its files register from their
+    -- PLAYER_LOGIN handlers in that case).
     local regDepth, loginWindow = 0, false
+    local IsAddOnLoaded = C_AddOns.IsAddOnLoaded
     function EUI_NS.CoreRegistrationOpen()
-        return regDepth > 0 or loginWindow
+        if regDepth > 0 or loginWindow then return true end
+        local loadedOrLoading, loaded = IsAddOnLoaded("EllesmereUIOptions")
+        return loadedOrLoading and not loaded
+    end
+    -- The suite's pages always register through the real RegisterModule. An
+    -- addon that replaced or hooked the public one (to slip pages into the
+    -- suite's modules) is taken out of the path first, so it can never stop
+    -- them registering, and is named in the panel's update notice.
+    local rawget, rawset = rawget, rawset
+    local function ReclaimRegisterModule()
+        local real = EUI_NS.CoreRegisterModule
+        if not real or rawget(EllesmereUI, "RegisterModule") == real then return end
+        local by = EUI_NS.WriterOf(EllesmereUI, "RegisterModule")
+        rawset(EllesmereUI, "RegisterModule", real)
+        if by then EUI_NS.RecordLegacyOffender(by) end
     end
     -- Errors are reported through the error handler (keeping their traceback)
     -- rather than rethrown, so a failing callee can never leave the window open.
     local function ReportError(err) return geterrorhandler()(err) end
     EUI_NS.ReportError = ReportError  -- shared with the plugin registry (EllesmereUI_Panel.lua)
     function EUI_NS.RunCoreRegistration(fn, ...)
+        ReclaimRegisterModule()
         regDepth = regDepth + 1
         local ok, a, b = xpcall(fn, ReportError, ...)
         regDepth = regDepth - 1
@@ -923,30 +940,16 @@ do
     f:SetScript("OnEvent", function(self, event, name)
         if event == "PLAYER_LOGIN" then
             self:UnregisterEvent("PLAYER_LOGIN")
+            -- Before the options files' own PLAYER_LOGIN registrations (a
+            -- pre-login options load, standalone builds).
+            ReclaimRegisterModule()
             if loginWindow then
                 C_Timer.After(0, function() loginWindow = false end)
             end
         elseif name == "EllesmereUIOptions" then
             self:UnregisterEvent("ADDON_LOADED")
-            if not IsLoggedIn() then
-                loginWindow = true
-            elseif not EUI_NS.optionsLoadRequested then
-                -- Loaded after login by something other than the core: its files
-                -- ran outside the registration window and their pages were refused.
-                -- The loader is on the stack (LoadAddOn fires this before returning).
-                -- (Skips the suite's own folders and Blizzard's, which a load
-                -- can pass through on its way here.)
-                local loader
-                for folder in (debugstack(2, 30, 0) or ""):gmatch("AddOns/([^/]+)/") do
-                    if not (folder:find("^EllesmereUI") or folder:find("^Blizzard_")) then loader = folder; break end
-                end
-                if loader then
-                    EUI_NS.RecordLegacyOffender(loader, "loader")
-                    EllesmereUI.PrintError(EllesmereUI.Lf("%1$s loaded EllesmereUI Options too early, so its settings pages could not register. Type /reload; if this keeps happening, update or disable %1$s.", loader))
-                else
-                    EllesmereUI.PrintError("EllesmereUI Options was loaded by another addon, so its settings pages could not register. Type /reload to fix this.")
-                end
-            end
+            -- Loaded before login: its files register from their PLAYER_LOGIN handlers.
+            if not IsLoggedIn() then loginWindow = true end
         end
     end)
 end
@@ -2833,7 +2836,6 @@ function EllesmereUI.EnsureOptionsLoaded()
     if C_AddOns.IsAddOnLoaded("EllesmereUIOptions") then return true end
     -- Inside the suite registration window: the options files register the
     -- suite's module pages while they load (see RegisterModule).
-    EUI_NS.optionsLoadRequested = true
     local ok, reason = EUI_NS.RunCoreRegistration(C_AddOns.LoadAddOn, "EllesmereUIOptions")
     if not ok then
         EllesmereUI.PrintError("Options could not load (" .. tostring(reason) .. "). Enable the \"EllesmereUI Options\" addon in the AddOn List.")

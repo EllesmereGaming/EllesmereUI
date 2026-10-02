@@ -475,8 +475,10 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
           setValue=function(v)
               if v == "inherit" then
                   B.borderCustom = false
-                  -- Show Behind reads the boss table in either mode.
+                  -- Show Behind and Power Bar Seam read the boss table in
+                  -- either mode, and their cog hides while inheriting.
                   if B.borderBehind then B.borderBehind = false end
+                  if B.borderPowerSeam then B.borderPowerSeam = false end
               else
                   B.borderCustom = true
                   B.borderTexture = v
@@ -2251,7 +2253,6 @@ initFrame:SetScript("OnEvent", function(self)
         y, sharedBuffDebuffHeader, sharedAddRow2, sharedAddRow3 = ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
         local sharedAbsorbsHeader, absorbRow, healAbsorbRow
         y, sharedAbsorbsHeader, absorbRow, healAbsorbRow = ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
-        y = ns.UFO_BuildSelfCombatTextSection(parent, y, ctx)
         local sharedAddHeader, sharedAddRow1, sharedAddRow4, sharedAddRow5
         y, sharedAddHeader, sharedAddRow1, sharedAddRow4, sharedAddRow5 = ns.UFO_BuildExtrasSection(parent, y, ctx)
 

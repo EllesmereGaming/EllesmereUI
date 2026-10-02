@@ -3616,8 +3616,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
             local rgn = orow._rightRegion
             -- Effective arrangement: stored order first (stale ids skipped),
             -- then any newly-resolved spells appended in prioritized order.
-            -- Items snapshot at popup build like the Class Sorting cog; a
-            -- page rebuild re-snapshots.
+            -- The cog reads the items again each time its list opens.
             local function OrderItems()
                 local resolved = (ns.BM2_ResolveSpells and ns.BM2_ResolveSpells(ind)) or ind.spells or {}
                 local present, seen, out = {}, {}, {}

@@ -1601,8 +1601,8 @@ L["Fall"] = "가을"
 L["Winter"] = "겨울"
 L["Seasonal Top Donors"] = "시즌 최고 후원자"
 L["Unclaimed"] = "주인 없음"
-L["Width Offset"] = "너비 조정"
-L["Height Offset"] = "높이 조정"
+L["Border Width Offset"] = "테두리 너비 조정"
+L["Border Height Offset"] = "테두리 높이 조정"
 L["TRACKED AURAS"] = "추적 오라"
 L["Copy From:"] = "복사할 곳:"
 L["Open Style"] = "모양 열기"
@@ -8753,10 +8753,6 @@ L["Copy Look From"] = "외형 복사 기준"
 L["The main frame this frame copies its border, bar texture and hover highlight from. Automatic uses Focus, then Target, then Player."] = "이 프레임이 테두리, 바 텍스처, 마우스오버 강조 효과를 복사해 올 기본 프레임입니다. '자동'은 주시 대상, 대상, 플레이어 순서로 적용됩니다."
 
 -- 2026-10-01 신규 (설정 패널 9.3.5: 외부 애드온 로드/보호 팝업)
-L["Addons Need an Update"] = "애드온 업데이트 필요"
-L["%1$s loaded EllesmereUI Options too early, so its settings pages could not register. Type /reload; if this keeps happening, update or disable %1$s."] = "%1$s 애드온이 EllesmereUI 설정을 너무 일찍 불러와 설정 페이지를 등록할 수 없었습니다. /reload 를 입력하세요. 이 현상이 계속되면 %1$s을(를) 업데이트하거나 비활성화하세요."
-L["%1$s loaded EllesmereUI's settings too early, so they could not set up this session. Type /reload; if this keeps happening, update or disable it."] = "%1$s 애드온이 EllesmereUI 설정을 너무 일찍 불러와 이번 세션에 설정할 수 없었습니다. /reload 를 입력하세요. 이 현상이 계속되면 해당 애드온을 업데이트하거나 비활성화하세요."
-L["These addons tried to change EllesmereUI's own settings pages, which is no longer allowed, so those changes are not shown:\n\n%1$s\n\nTheir own settings still appear in a section of their own. Updating them should fix this."] = "다음 애드온들이 EllesmereUI 고유 설정 페이지를 변경하려고 시도했으나 이제 허용되지 않아 해당 변경사항이 적용되지 않습니다:\n\n%1$s\n\n해당 애드온의 자체 설정은 전용 섹션에 정상적으로 표시됩니다. 애드온을 업데이트하면 해결될 수 있습니다."
 
 -- 2026-09-30 신규 (가방 및 은행: 목록 보기(List View) 및 열 설정)
 L["GRID VIEW"] = "격자 보기"

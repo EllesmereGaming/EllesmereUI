@@ -3857,11 +3857,12 @@ end
 --  this API"). For the suite's own pages:
 --   * the caller's file must resolve to a trusted folder; every other caller,
 --     including one without a file path (a loadstring chunk, a call routed
---     through a C function), takes that outside path, which never takes a
---     suite key;
+--     through a C function), and every key that is not a suite page, takes that
+--     outside path, which never takes a suite key;
 --   * outside standalone builds the only trusted caller is the options addon, and
---     only while the core itself is loading it (EUI_NS.CoreRegistrationOpen), so a
---     suite key cannot be claimed ahead of the real registration;
+--     only while it loads or the core drains its deferred inits
+--     (EUI_NS.CoreRegistrationOpen), so a suite key cannot be claimed ahead of
+--     the real registration;
 --   * only suite keys are accepted (suite folders + the fixed panel pages), and
 --     each one is sealed on first registration: it cannot be registered again.
 -------------------------------------------------------------------------------
@@ -3927,6 +3928,12 @@ do
         return sealed[folderName] == true
     end
 
+    -- One of the suite's own addon folders (exact names: an outside addon may
+    -- start its folder name with "EllesmereUI" too).
+    function EUI_NS.IsSuiteFolder(folder)
+        return ALLOWED[folder] == true
+    end
+
     -- A suite page's key: any suite folder (including one the running client
     -- hides from the sidebar), one of the fixed panel pages, or a key the core
     -- registered itself.
@@ -3950,24 +3957,29 @@ do
         -- The caller's addon folder, from its file path (nil without one).
         local caller = debugstack(2, 1, 0) or ""
         local callerFolder = caller:match("AddOns/([^/]+)/")
-        if not (callerFolder and ALLOWED[callerFolder]) then
-            -- Another addon: a page under a key of its own registers as it did
-            -- before the plugin API; a suite page is never replaced.
-            EUI_NS.RegisterExternal(callerFolder, folderName, config)
+        -- A suite page from one of our folders: accepted from the options addon
+        -- inside the registration window, never from anywhere else. Standalone
+        -- builds bundle the options files flat into the one addon.
+        if callerFolder and ALLOWED[callerFolder]
+           and (ALLOWED[folderName] or CORE_PAGE_KEYS[folderName]) then
+            if IS_STANDALONE
+               or (callerFolder == "EllesmereUIOptions" and EUI_NS.CoreRegistrationOpen()) then
+                -- Suite-core marker (module key is a suite folder), gating the toolbar whitelists:
+                -- the overrides icon renders for core modules only, the inline search for core
+                -- modules + Global Settings. Companion/external pages stay unmarked, so neither
+                -- control renders for them (see SelectModule).
+                EUI_NS.RegisterCoreModule(folderName, config, ALLOWED[folderName] == true)
+            end
             return
         end
-        -- Standalone builds bundle the options files flat into the one addon.
-        if not IS_STANDALONE
-           and (callerFolder ~= "EllesmereUIOptions" or not EUI_NS.CoreRegistrationOpen()) then
-            return
-        end
-        if not (ALLOWED[folderName] or CORE_PAGE_KEYS[folderName]) then return end
-        -- Suite-core marker (module key is a suite folder), gating the toolbar whitelists:
-        -- the overrides icon renders for core modules only, the inline search for core
-        -- modules + Global Settings. Companion/external pages stay unmarked, so neither
-        -- control renders for them (see SelectModule).
-        EUI_NS.RegisterCoreModule(folderName, config, ALLOWED[folderName] == true)
+        -- Anything else is another addon's, whatever folder its caller names: a
+        -- page under a key of its own registers as it did before the plugin API;
+        -- a suite page is never replaced.
+        EUI_NS.RegisterExternal(callerFolder, folderName, config)
     end
+    -- The core registers the suite's own pages through this one, never through
+    -- whatever may sit on the public slot by then (EllesmereUI.lua).
+    EUI_NS.CoreRegisterModule = EllesmereUI.RegisterModule
 end
 
 -------------------------------------------------------------------------------
@@ -5099,27 +5111,47 @@ do
     --  addon's group shows above or below the suite's block, wherever the addon
     --  inserted it. A row placed inside one of the suite's groups moves to a
     --  section of its own, as does a page with no row (named after its addon).
-    --  Anything aimed at a suite page is ignored, no suite config is ever handed
-    --  out, and the addon is named once in a notice when the panel opens.
+    --  Anything aimed at a suite page is ignored (a replaced or hooked
+    --  RegisterModule is put back before the suite registers, EllesmereUI.lua),
+    --  no suite config is ever handed out, and the addon is named once in a
+    --  notice when the panel opens.
     ---------------------------------------------------------------------------
-    -- owner: outside key -> the folder that registered it (false: no file path).
+    -- owner: outside key -> the addon that registered it (false: unknown).
     -- sections: source -> its section, a group table in the plugin lists.
     local owner, placed, sections, offenders = {}, {}, {}, {}
     local suiteGroup = {}
     for _, g in ipairs(EUI_NS.coreGroups) do suiteGroup[g.key] = true end
 
-    local function Offend(folder, what)
-        folder = folder or "?"
-        local o = offenders[folder]
-        if not o then o = {}; offenders[folder] = o end
-        o[what] = true
-    end
-    EUI_NS.RecordLegacyOffender = Offend  -- the outside options load (EllesmereUI.lua)
+    -- An addon whose change to a suite page was ignored (named in the notice).
+    local function Offend(folder) offenders[folder] = true end
+    EUI_NS.RecordLegacyOffender = Offend  -- the RegisterModule reclaim (EllesmereUI.lua)
 
     -- An addon's TOC title as plain text (nil if it has none).
     local function AddonTitle(folder)
         local ok, title = pcall(C_AddOns.GetAddOnMetadata, folder, "Title")
         return ok and PlainText(title, MAX_LABEL_CHARS) or nil
+    end
+
+    -- The outside addon that last wrote t[key] (nil for the suite's own writes
+    -- and for anything that is not an installed addon). Taint names the writer
+    -- even where the stack cannot: a wrapper's tail call, a path-less chunk,
+    -- a chunk named after one of our files.
+    local function WriterOf(t, key)
+        local _, by = issecurevariable(t, key)
+        if type(by) == "string" and not EUI_NS.IsSuiteFolder(by) and AddonTitle(by) then
+            return by
+        end
+    end
+    EUI_NS.WriterOf = WriterOf  -- the RegisterModule reclaim (EllesmereUI.lua)
+
+    -- The outside addon that built a table, from its fields' writers.
+    local function Author(t)
+        for k in pairs(t) do
+            if type(k) == "string" then
+                local by = WriterOf(t, k)
+                if by then return by end
+            end
+        end
     end
 
     -- The roster entry an addon published for one of its keys, if any.
@@ -5212,11 +5244,13 @@ do
     end
 
     -- A page another addon registers under a key of its own (folder: that
-    -- addon, nil for a caller without a file path). It may register again.
+    -- addon as the stack names it). It may register again.
     function EUI_NS.RegisterExternal(folder, key, config)
         if type(key) ~= "string" or type(config) ~= "table" then return end
+        -- No folder on the stack, or one of ours: the page's builder names it.
+        if not folder or EUI_NS.IsSuiteFolder(folder) then folder = Author(config) end
         if EUI_NS.IsSuiteKey(key) then
-            if folder then Offend(folder, "page") end
+            if folder then Offend(folder) end
             return
         end
         if EUI_NS.IsPluginKey(key) then return end
@@ -5237,30 +5271,20 @@ do
     })
 
     -- Whenever the panel opens: places what the outside addons added since,
-    -- then a notice naming the addons whose changes to suite pages were
-    -- ignored, and an addon that loaded the options early; never shown twice
-    -- for the same set of addons.
+    -- then the update notice naming the addons whose changes to suite pages
+    -- were ignored (EllesmereUI_VideoGuides.lua). Once per session for a set of
+    -- addons; nothing is saved. Standalone builds have no guide popups.
+    local noticeShownFor
     EllesmereUI:RegisterOnShow(function()
         EUI_NS.SyncExternal()
         if not next(offenders) then return end
-        local pages, loaders = {}, {}
-        for folder, o in pairs(offenders) do
-            local name = (folder ~= "?" and AddonTitle(folder)) or folder
-            if o.page then pages[#pages + 1] = name end
-            if o.loader then loaders[#loaders + 1] = name end
-        end
-        table.sort(pages)
-        table.sort(loaders)
-        local seen = table.concat(pages, ",") .. "|" .. table.concat(loaders, ",")
-        if not EllesmereUIDB or EllesmereUIDB._legacyAddonNotice == seen then return end
-        EllesmereUIDB._legacyAddonNotice = seen
-        local parts = {}
-        if #pages > 0 then
-            parts[#parts + 1] = EllesmereUI.Lf("These addons tried to change EllesmereUI's own settings pages, which is no longer allowed, so those changes are not shown:\n\n%1$s\n\nTheir own settings still appear in a section of their own. Updating them should fix this.", table.concat(pages, "\n"))
-        end
-        if #loaders > 0 then
-            parts[#parts + 1] = EllesmereUI.Lf("%1$s loaded EllesmereUI's settings too early, so they could not set up this session. Type /reload; if this keeps happening, update or disable it.", table.concat(loaders, ", "))
-        end
-        EllesmereUI:ShowInfoPopup({ title = EllesmereUI.L("Addons Need an Update"), content = table.concat(parts, "\n\n") })
+        local names = {}
+        for folder in pairs(offenders) do names[#names + 1] = AddonTitle(folder) or folder end
+        table.sort(names)
+        local seen = table.concat(names, "\n")
+        if noticeShownFor == seen then return end
+        noticeShownFor = seen
+        local guides = EllesmereUI.VideoGuides
+        if guides then guides.ShowAddonUpdate(names) end
     end)
 end

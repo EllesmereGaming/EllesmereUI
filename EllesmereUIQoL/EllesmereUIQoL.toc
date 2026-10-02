@@ -10,6 +10,7 @@
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Luas
+EllesmereUIQoL_ForeverStats.lua
 EllesmereUIQoL.lua
 EllesmereUIQoL_Cursor.lua
 EllesmereUIQoL_BattleRes.lua
@@ -20,6 +21,7 @@ EllesmereUIQoL_TeleportPrompt.lua
 EllesmereUIQoL_Shifter.lua
 EllesmereUIQoL_MovementAlert.lua
 EllesmereUIQoL_RaidTools.lua
+EllesmereUIQoL_SelfCombatText.lua
 EUI_UpgradeCalc.lua
 
 # Options

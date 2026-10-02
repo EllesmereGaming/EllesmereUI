@@ -235,8 +235,7 @@ local function GetOrCreateRow(idx)
     btn:HookScript("PreClick", ns.BankRoutePreClick)
     btn:HookScript("OnClick", ns.BankRouteOnClick)
     btn:HookScript("PostClick", function(self)
-        local bag = self:GetParent():GetID()
-        EUI_Bags.ShowStackSplitter(self, bag == 5 and { 5, 0, 1, 2, 3, 4 } or { 0, 1, 2, 3, 4 }, EUI_Bags)
+        EUI_Bags.ShowStackSplitter(self, ns.SplitTargetBags(self:GetParent():GetID()), EUI_Bags)
     end)
     _rows[idx] = btn
     return btn
@@ -845,8 +844,11 @@ function ns.RenderListView(items, opts)
         sl[#sl + 1] = d
         b.n = b.n + 1
     end
+    -- OneBag: a WoW Forever special bag (ns.SpecialBags) keeps a section of
+    -- its own, as the reagent bag does, after Main Bags.
+    local special = slotView == "one" and ns.SpecialBags() or nil
     local function BagKey(bag)
-        if slotView == "one" and bag ~= 5 then return "main" end
+        if slotView == "one" and bag ~= 5 and not (special and special[bag]) then return "main" end
         return bag
     end
     local pinnedSet, recentSet = opts.pinned, opts.recent
@@ -926,7 +928,9 @@ function ns.RenderListView(items, opts)
         elseif b.key == "recent" then label, secKey = recentLabel, "recent"
         elseif b.key == "main" then
             local total = 0
-            for bag = 0, 4 do total = total + C_Container.GetContainerNumSlots(bag) end
+            for bag = 0, 4 do
+                if not (special and special[bag]) then total = total + C_Container.GetContainerNumSlots(bag) end
+            end
             label, secKey = L("Main Bags"), "bagmain"
             count = "(" .. b.n .. " / " .. total .. ")"
         elseif slotView then

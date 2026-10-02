@@ -283,11 +283,14 @@ local function Money(copper)
     return C_CurrencyInfo.GetCoinTextureString(copper, Get("textSize"))
 end
 
-local function ShowItem(link, count)
+local function ShowItem(link, count, retried)
     local name, _, quality, itemLevel, _, _, _, _, _, icon, sellPrice, classID = C_Item.GetItemInfo(link)
     if not name then
-        -- Not cached yet: try again once the client has it.
-        Item:CreateFromItemLink(link):ContinueOnItemLoad(function() ShowItem(link, count) end)
+        -- Not cached yet: try again once the client has it. Only once: the
+        -- client also calls back when the item fails to load.
+        if not retried then
+            Item:CreateFromItemLink(link):ContinueOnItemLoad(function() ShowItem(link, count, true) end)
+        end
         return
     end
     if (quality or 0) < Get("minQuality") then return end
