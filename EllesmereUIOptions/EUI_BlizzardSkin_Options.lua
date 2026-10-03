@@ -716,11 +716,15 @@ initFrame:SetScript("OnEvent", function(self)
             { type="dropdown", text="Growth Direction",
               tooltip="Forces which way the default screen-anchored tooltip expands as lines are added. Default lets Blizzard decide from the tooltip's screen position.",
               disabled=function()
-                  return ttReskinOff() or (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor and true or false)
+                  return ttReskinOff() or (EllesmereUIDB and (EllesmereUIDB.tooltipAnchorCursor
+                      or EllesmereUIDB.tooltipFixedAnchorPoint) and true or false)
               end,
               disabledTooltip=function()
                   if ttReskinOff() then return "Reskin Tooltip" end
-                  return "This option does not apply while Anchor to Cursor is enabled"
+                  if EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor then
+                      return "This option does not apply while Anchor to Cursor is enabled"
+                  end
+                  return "This option does not apply while an Anchor Point is set; the anchor point decides which way the tooltip grows"
               end,
               values={ default="Default", up="Expand Up", down="Expand Down" },
               order={ "default", "up", "down" },
@@ -759,6 +763,35 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
+
+        -- Anchor Point: which point of the fixed-position box (Unlock Mode > Tooltip)
+        -- the tooltip pins to. Automatic keeps the nearest-screen-corner pick; an
+        -- explicit point overrides Growth Direction.
+        _, h = W:DualRow(parent, y,
+            { type="dropdown", text="Anchor Point",
+              tooltip="Which point of the tooltip's fixed position (the Tooltip box in Unlock Mode) the tooltip is pinned to. Automatic picks the corner nearest the closest screen edge. Pick a top point to grow downward, a bottom point to grow upward, or a side or center point to grow both ways.",
+              disabled=function()
+                  return ttReskinOff() or (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor and true or false)
+              end,
+              disabledTooltip=function()
+                  if ttReskinOff() then return "Reskin Tooltip" end
+                  return "This option does not apply while Anchor to Cursor is enabled"
+              end,
+              values={ auto="Automatic", TOPLEFT="Top Left", TOP="Top", TOPRIGHT="Top Right",
+                       LEFT="Left", CENTER="Center", RIGHT="Right",
+                       BOTTOMLEFT="Bottom Left", BOTTOM="Bottom", BOTTOMRIGHT="Bottom Right" },
+              order={ "auto", "TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "CENTER", "RIGHT",
+                      "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT" },
+              getValue=function()
+                  return (EllesmereUIDB and EllesmereUIDB.tooltipFixedAnchorPoint) or "auto"
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.tooltipFixedAnchorPoint = (v ~= "auto") and v or nil
+                  EllesmereUI:RefreshPage()  -- update the Growth Direction disabled state
+              end },
+            EllesmereUI.BlankRowCfg()
+        );  y = y - h
 
         -----------------------------------------------------------------------
         --  Blizzard HUD. Two on-screen elements that are not windows, so they
@@ -3355,6 +3388,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.tooltipCursorOffsetX = nil
                 EllesmereUIDB.tooltipCursorOffsetY = nil
                 EllesmereUIDB.tooltipFixedPos = nil  -- stale key from the account-global build
+                EllesmereUIDB.tooltipFixedAnchorPoint = nil
                 -- Per-profile fixed tooltip position: clearing it re-seeds from
                 -- Blizzard's CURRENT Edit Mode spot on the next tooltip show.
                 do

@@ -2642,6 +2642,20 @@ local function TooltipIsGlobalLike(tooltip)
     return type(tooltip) == "table" and tooltip.LIKE_GLOBAL_GAMETOOLTIP == true
 end
 
+-- User-chosen point the fixed-position tooltip pins to on its mover box
+-- (tooltipFixedAnchorPoint, any corner, side or CENTER). nil = automatic: the corner
+-- nearest the closest screen corner. File scope because the fixed anchor and Growth
+-- Direction blocks must agree on it (Growth Direction stands down while one is set).
+local VALID_TT_ANCHOR_POINTS = {
+    TOPLEFT = true, TOP = true, TOPRIGHT = true,
+    LEFT = true, CENTER = true, RIGHT = true,
+    BOTTOMLEFT = true, BOTTOM = true, BOTTOMRIGHT = true,
+}
+local function TooltipFixedAnchorPoint()
+    local pt = EllesmereUIDB and EllesmereUIDB.tooltipFixedAnchorPoint
+    return VALID_TT_ANCHOR_POINTS[pt] and pt or nil
+end
+
 do
     -- Selected position = where the tooltip sits relative to the cursor, so the tooltip corner touching the cursor is the opposite one.
     local POINT_FOR_POS = {
@@ -2856,9 +2870,12 @@ do
         end
     end
 
-    -- Corner of the box the tooltip pins to: the one nearest the closest screen corner, so
-    -- growth always runs INTO the screen (and the box). Growth Direction, when set, forces the vertical component -- the same rule its own enforcement block applies, so the two never fight.
+    -- Point of the box the tooltip pins to. An explicit Anchor Point wins outright. Otherwise
+    -- the corner nearest the closest screen corner, so growth always runs INTO the screen
+    -- (and the box). Growth Direction, when set, forces the vertical component -- the same rule its own enforcement block applies, so the two never fight.
     local function CornerFor(af)
+        local fixedPt = TooltipFixedAnchorPoint()
+        if fixedPt then return fixedPt end
         local cx, cy = -350, -150
         local l, b = af:GetLeft(), af:GetBottom()
         if l and b then
@@ -3033,6 +3050,9 @@ do
         local dir = EllesmereUIDB and EllesmereUIDB.tooltipGrowthDirection
         if dir ~= "up" and dir ~= "down" then return nil end
         if EllesmereUIDB.tooltipAnchorCursor then return nil end
+        -- An explicit Anchor Point already decides growth (TOP* grows down, BOTTOM* up);
+        -- forcing a vertical here would fight the fixed anchor's enforcement.
+        if TooltipFixedAnchorPoint() then return nil end
         return dir
     end
 

@@ -2045,6 +2045,7 @@ do
         "tooltipHealthStripTexture", "tooltipHealthStripHeight",
         "tooltipAnchorCursor", "tooltipCursorPosition",
         "tooltipCursorOffsetX", "tooltipCursorOffsetY",
+        "tooltipFixedAnchorPoint",
         "tooltipBgColor", "tooltipBgOpacity", "tooltipBorderSize",
         "showSpellID", "spellIDModifier", "showIconID", "showItemID",
         "showItemMaxStacks", "itemStackModifier",
