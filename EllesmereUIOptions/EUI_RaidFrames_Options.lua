@@ -845,6 +845,29 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local allGrowthOrder        = { "DOWN", "UP", "RIGHT", "LEFT" }
 
+    -- Group Growth additionally offers the grid flow: ns._RF_GRID_ROWS groups
+    -- stack down the first column (G1 above G2) before the next column starts to
+    -- the right (G3 above G4) -- a 2x2 raid block instead of one long run. Unit
+    -- Growth has no such mode: a header's children only ever run along one axis.
+    local groupGrowthValues = {
+        DOWN      = "Down",
+        UP        = "Up",
+        RIGHT     = "Right",
+        LEFT      = "Left",
+        DOWNRIGHT = "Down and then Right",
+    }
+    local groupGrowthOrder  = { "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT" }
+
+    -- Merge Groups renders through Blizzard's flat header, which has a single
+    -- column axis and cannot wrap into a grid, so the grid flow degrades to the
+    -- plain RIGHT run there (same self-heal as ns._RFEffectiveGrowth in the
+    -- runtime). Report what actually renders instead of showing a value the
+    -- merged grid ignores.
+    local function ReadGroupGrowth(v)
+        if v == "DOWNRIGHT" and SVal("mergeGroups", false) then return "RIGHT" end
+        return v
+    end
+
     -- ns._RFGrowthIsVertical is the runtime module's single source of truth for
     -- this check (EllesmereUIRaidFrames.lua); reuse it here rather than a second copy.
     local GrowthIsVertical = ns._RFGrowthIsVertical
@@ -1460,7 +1483,8 @@ initFrame:SetScript("OnEvent", function(self)
         AbbreviateNumbers = AbbreviateNumbers, absorbStyleOrder = absorbStyleOrder,
         absorbStyleValues = absorbStyleValues, allGrowthOrder = allGrowthOrder,
         BuildPreviewModeRow = BuildPreviewModeRow, BuildVisualSections = BuildVisualSections,
-        db = db, floor = floor, growthValues = growthValues, hbtOrder = hbtOrder,
+        db = db, floor = floor, growthValues = growthValues, groupGrowthOrder = groupGrowthOrder,
+        groupGrowthValues = groupGrowthValues, hbtOrder = hbtOrder,
         hbtValues = hbtValues, healAbsorbStyleOrder = healAbsorbStyleOrder,
         healthColorOrder = healthColorOrder, healthColorValues = healthColorValues,
         healthTextOrder = healthTextOrder, healthTextValues = healthTextValues,
@@ -1468,7 +1492,8 @@ initFrame:SetScript("OnEvent", function(self)
         maxHealthStyleOrder = maxHealthStyleOrder, MissingGlowDesc = MissingGlowDesc,
         namePositionOrder = namePositionOrder, namePositionOrderName = namePositionOrderName,
         namePositionValues = namePositionValues, namePositionValuesName = namePositionValuesName,
-        optState = optState, PP = PP, ReloadAndUpdate = ReloadAndUpdate, SGet = SGet,
+        optState = optState, PP = PP, ReadGroupGrowth = ReadGroupGrowth,
+        ReloadAndUpdate = ReloadAndUpdate, SGet = SGet,
         SGetPx = SGetPx, SSet = SSet, SVal = SVal, SWrite = SWrite,
     }
 

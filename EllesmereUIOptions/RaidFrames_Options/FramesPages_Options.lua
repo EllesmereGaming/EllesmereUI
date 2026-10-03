@@ -339,6 +339,7 @@ local function BuildMainPage(pageName, parent, yOffset)
     local env = ns._RFO_OptEnv
     local allGrowthOrder, BuildPreviewModeRow, BuildVisualSections, db = env.allGrowthOrder, env.BuildPreviewModeRow, env.BuildVisualSections, env.db
     local growthValues, KeepGrowthPerpendicular, PP, ReloadAndUpdate = env.growthValues, env.KeepGrowthPerpendicular, env.PP, env.ReloadAndUpdate
+    local groupGrowthValues, groupGrowthOrder, ReadGroupGrowth = env.groupGrowthValues, env.groupGrowthOrder, env.ReadGroupGrowth
     local SGet, SGetPx, SSet, SVal = env.SGet, env.SGetPx, env.SSet, env.SVal
     local SWrite = env.SWrite
     local W = EllesmereUI.Widgets
@@ -571,10 +572,12 @@ local function BuildMainPage(pageName, parent, yOffset)
                                   ReloadAndUpdate()
                               end },
                             { type="dropdown", label="Group Growth",
-                              values=growthValues, order=allGrowthOrder,
+                              values=groupGrowthValues, order=groupGrowthOrder,
                               get=function()
                                   local ov = db.profile.raidSizeOverrides
-                                  return ov and ov[tier] and ov[tier].groupGrowth or db.profile.groupGrowth or "RIGHT"
+                                  return ReadGroupGrowth(
+                                      ov and ov[tier] and ov[tier].groupGrowth
+                                      or db.profile.groupGrowth or "RIGHT")
                               end,
                               set=function(v)
                                   -- Separated groups allow every combination (see
@@ -982,10 +985,13 @@ local function BuildMainPage(pageName, parent, yOffset)
     -------------------------------------------------------------------
     _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
 
-    -- Group Growth | Unit Growth: separated groups (Merge Groups off) support all
-    -- 16 combinations, but merged mode's single Blizzard flat header can only make
-    -- its column direction perpendicular to Unit Growth, so a same-axis pair there
-    -- gets silently reinterpreted (see the colAnchor comment in EllesmereUIRaidFrames.lua)
+    -- Group Growth | Unit Growth: separated groups (Merge Groups off) support every
+    -- combination of the two axes (5 Group Growth values x 4 Unit Growth ones), but
+    -- merged mode's single Blizzard flat header can only make its column direction
+    -- perpendicular to Unit Growth, so a same-axis pair -- and the two-axis grid
+    -- flow, which it renders as a plain RIGHT run (see ReadGroupGrowth in
+    -- EUI_RaidFrames_Options.lua) -- gets silently reinterpreted (see the colAnchor
+    -- comment in EllesmereUIRaidFrames.lua)
     -- -- KeepGrowthPerpendicular bumps the other axis instead. A base edit can also
     -- leave a per-tier override same-axis (an override that only set one axis
     -- inherits the other from base), so fix those up too.
@@ -1002,8 +1008,8 @@ local function BuildMainPage(pageName, parent, yOffset)
     end
 
     _, h = W:DualRow(parent, y,
-        { type="dropdown", text="Group Growth", values=growthValues, order=allGrowthOrder,
-          getValue=function() return SVal("groupGrowth", "RIGHT") end,
+        { type="dropdown", text="Group Growth", values=groupGrowthValues, order=groupGrowthOrder,
+          getValue=function() return ReadGroupGrowth(SVal("groupGrowth", "RIGHT")) end,
           setValue=function(v)
               db.profile.groupGrowth = v
               if SVal("mergeGroups", false) then

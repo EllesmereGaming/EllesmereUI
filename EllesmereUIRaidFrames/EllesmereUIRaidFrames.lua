@@ -334,7 +334,7 @@ local defaults = {
         frameHeight      = 60,
         cellSpacing      = -1,
         groupSpacing     = -1,
-        groupGrowth      = "RIGHT",  -- "DOWN", "UP", "RIGHT", "LEFT"
+        groupGrowth      = "RIGHT",  -- "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT" (grid: ns._RF_GRID_ROWS per column)
         unitGrowth       = "DOWN",   -- any direction; same-axis as groupGrowth = one continuous line
         sortMode         = "ROLE",   -- "INDEX" (by group) or "ROLE" (by assigned role)
         roleOrder        = { "TANK", "HEALER", "DAMAGER" },
@@ -7026,7 +7026,9 @@ FB.Anchor = function(owner)
             local gap = s.groupSpacing or -1
             local grow = s.groupGrowth or "RIGHT"
             local before = (fb.position == "left")
-            if grow == "RIGHT" then
+            if grow == "RIGHT" or grow == "DOWNRIGHT" then
+                -- The grid flow's last group also ends in the rightmost column,
+                -- so it slots in along the same edge as a plain RIGHT run.
                 if before then FB.Pin(c, "TOPRIGHT", anchorHdr, "TOPLEFT", -gap, 0)
                 else FB.Pin(c, "TOPLEFT", anchorHdr, "TOPRIGHT", gap, 0) end
             elseif grow == "LEFT" then
@@ -7339,6 +7341,12 @@ XF.GrowInfo = function(set, s)
     else
         grow = (s and s.unitGrowth) or "DOWN"
         wrap = (s and s.groupGrowth) or "RIGHT"
+        -- Attached runs wrap along the frames' group axis, and the grid flow's
+        -- column advance runs right like a plain RIGHT run (FB.Anchor reads it
+        -- the same way). Read raw it would miss every branch below: the left
+        -- flip falls through to DOWN and the perpendicular check picks the
+        -- RIGHT default by luck.
+        if wrap == "DOWNRIGHT" then wrap = "RIGHT" end
         if set and set.position == "left" then
             wrap = (wrap == "RIGHT" and "LEFT") or (wrap == "LEFT" and "RIGHT")
                 or (wrap == "DOWN" and "UP") or "DOWN"
@@ -9155,6 +9163,11 @@ function ns.PF_PreviewSpec(party, s, w, h, sp, boxW, boxH, ptSpec)
         gap = PixelSnap(s.groupSpacing or 8)
         grow = s.unitGrowth or "DOWN"
         side = s.groupGrowth or "RIGHT"
+        -- The grid flow ends in the rightmost column too, so the pets hang off
+        -- the same edge a plain RIGHT run uses -- FB.Anchor agrees. Read raw,
+        -- PF.OPPOSITE would return nil for it and the side would fall through
+        -- to the vertical branch, drawing the pets above the groups.
+        if side == "DOWNRIGHT" then side = "RIGHT" end
         if before then side = PF.OPPOSITE[side] end
     end
 
@@ -10351,8 +10364,10 @@ end
 -------------------------------------------------------------------------------
 --  Layout groups
 --  Two perpendicular axes: groupGrowth (where next group goes) and
---  unitGrowth (where next unit within a group goes).
---  Container sized for 4 groups (standard 20-player raid).
+--  unitGrowth (where next unit within a group goes). groupGrowth also accepts
+--  the grid flow "DOWNRIGHT" (ns._RFGroupFlow): ns._RF_GRID_ROWS groups stack
+--  down one column before the next column starts to the right, instead of one
+--  continuous run.
 -------------------------------------------------------------------------------
 local MOVER_GROUPS = 4
 
@@ -10539,26 +10554,14 @@ ns._LayoutGroupsImpl = function()
         -- Hide flat header
         if ns._flatHeader and ns._flatHeader:IsShown() then ns._flatHeader:Hide() end
 
-        -- Step between adjacent group origins along the growth axis
-        local stepX, stepY = 0, 0
-        if groupGrowth == "DOWN" then
-            stepY = -(groupH + gs)
-        elseif groupGrowth == "UP" then
-            stepY = (groupH + gs)
-        elseif groupGrowth == "RIGHT" then
-            stepX = (groupW + gs)
-        else -- LEFT
-            stepX = -(groupW + gs)
-        end
-
-        -- Normalize for UP/LEFT growth so slot 0 stays within container bounds
-        local minX, maxY = 0, 0
-        for i = 0, MOVER_GROUPS - 1 do
-            local px = i * stepX
-            local py = i * stepY
-            if px < minX then minX = px end
-            if py > maxY then maxY = py end
-        end
+        -- Group slot origins along the growth flow: a plain direction is one
+        -- continuous run, the grid flow ("Down and then Right") stacks
+        -- ns._RF_GRID_ROWS groups per column. Eight slots are generated (up to
+        -- 8 visible groups) but only the four the box is sized for
+        -- (MOVER_GROUPS) set the normalization origin, so a group past the box
+        -- keeps the same per-slot step instead of rescaling everything in front
+        -- of it.
+        local slots, minX, maxY = ns._RFGroupFlow(groupGrowth, groupW, groupH, gs, 8)
 
         -- For UP/LEFT unit growth, pin each header by the corner its units
         -- grow away from: the offset moves (x, y) to that cell edge and the
@@ -10595,8 +10598,8 @@ ns._LayoutGroupsImpl = function()
                 if vg[group] == false or (occupied and not occupied[group]) then
                     if hdr:IsShown() then hdr:Hide() end
                 else
-                    local x = PixelSnap(visSlot * stepX - minX + hdrOffX)
-                    local y = PixelSnap(visSlot * stepY - maxY + hdrOffY)
+                    local x = PixelSnap(slots[visSlot][1] - minX + hdrOffX)
+                    local y = PixelSnap(slots[visSlot][2] - maxY + hdrOffY)
                     visSlot = visSlot + 1
 
                     hdr:ClearAllPoints()
@@ -10634,14 +10637,14 @@ ns._LayoutGroupsImpl = function()
     -- UpdateVisibility to re-lay them when the set shows or hides.
     ns._rfRaidLaidVis = ns._RFVisWanted()
 
-    -- Container size based on 4 groups for unlock mode mover. Merged mode's
+    -- Container size for unlock mode's mover. Merged mode's
     -- columnAnchorPoint is always perpendicular to unitGrowth (colAnchor above),
     -- so its actual render axis follows unitGrowth, not the literal groupGrowth
     -- (which can share unitGrowth's axis; Blizzard's header can't express that as
     -- a column direction). Keying the box off groupGrowth there mismatches the
     -- box against what merged mode really renders. Separated mode has no such
-    -- header constraint and renders along groupGrowth literally, so it keeps the
-    -- original formula.
+    -- header constraint and renders along groupGrowth literally, so it reads the
+    -- same formula every other size consumer uses (ns._RFFootprint).
     local totalW, totalH
     if merged then
         if unitGrowth == "DOWN" or unitGrowth == "UP" then
@@ -10652,13 +10655,7 @@ ns._LayoutGroupsImpl = function()
             totalH = MOVER_GROUPS * groupH + (MOVER_GROUPS - 1) * gs
         end
     else
-        if groupGrowth == "DOWN" or groupGrowth == "UP" then
-            totalW = groupW
-            totalH = MOVER_GROUPS * groupH + (MOVER_GROUPS - 1) * gs
-        else
-            totalW = MOVER_GROUPS * groupW + (MOVER_GROUPS - 1) * gs
-            totalH = groupH
-        end
+        totalW, totalH = ns._RFFootprint(bw, bh, unitGrowth, groupGrowth, cs, gs)
     end
     containerFrame:SetSize(PixelSnap(totalW), PixelSnap(totalH))
 
@@ -11135,6 +11132,53 @@ ns._RFPosTopLeft = function(pos, w, h)
     return ax - pfx * w, ay + (1 - pfy) * h
 end
 
+-- Groups stacked in one column before the flow steps to the next column, for
+-- the grid group growth ("Down and then Right"): G1/G2 fill the first column
+-- top to bottom, G3/G4 the column to its right. Fixed at 2 so a 20-man raid
+-- lands on the classic 2x2 block; a plain direction is the same flow with one
+-- group per column (every other value below).
+ns._RF_GRID_ROWS = 2
+
+-- Group slot origins (relative to the growth corner, before normalization) for a
+-- group growth direction, plus the origin those slots normalize against (min x,
+-- max y) so slot 0 always sits at the growth corner whichever way the flow runs.
+-- THE single copy of the per-slot step math -- the live layout, the 20-player
+-- preview and the size preview all place groups through it, so they cannot drift.
+-- `count` slots are generated (LayoutGroups can place up to 8 visible groups
+-- into the 4-group box) but only the first MOVER_GROUPS of them -- what the box
+-- is actually sized for -- set the origin, so a group past the box keeps the
+-- same per-slot step instead of rescaling the box in front of it.
+ns._RFGroupFlow = function(groupGrowth, groupW, groupH, gs, count)
+    local n = count or MOVER_GROUPS
+    local stepX, stepY = 0, 0
+    if groupGrowth == "DOWNRIGHT" then
+        -- Column advance is horizontal; the rows inside a column run down.
+        stepX, stepY = (groupW + gs), -(groupH + gs)
+    elseif groupGrowth == "DOWN" then   stepY = -(groupH + gs)
+    elseif groupGrowth == "UP" then     stepY =  (groupH + gs)
+    elseif groupGrowth == "RIGHT" then  stepX =  (groupW + gs)
+    else                                stepX = -(groupW + gs)   -- LEFT
+    end
+    local slots, minX, maxY = {}, 0, 0
+    for i = 0, n - 1 do
+        local px, py
+        if groupGrowth == "DOWNRIGHT" then
+            px = floor(i / ns._RF_GRID_ROWS) * stepX
+            py = (i % ns._RF_GRID_ROWS) * stepY
+        else
+            px, py = i * stepX, i * stepY
+        end
+        slots[i] = { px, py }
+    end
+    local nc = min(MOVER_GROUPS, n)
+    for i = 0, nc - 1 do
+        local px, py = slots[i][1], slots[i][2]
+        if px < minX then minX = px end
+        if py > maxY then maxY = py end
+    end
+    return slots, minX, maxY
+end
+
 -- Footprint of the 4-group mover box for a frame size and growth pair. Callers
 -- that also derive a corner from the same pair (ns._RFCornerTerms/_RFGrowthCorner)
 -- must self-heal (ns._RFEffectiveGrowth) BEFORE calling either, so the size and
@@ -11149,6 +11193,15 @@ ns._RFFootprint = function(bw, bh, unitGrowth, groupGrowth, cs, gs)
     else
         groupW = bw
         groupH = 5 * bh + 4 * cs
+    end
+    if groupGrowth == "DOWNRIGHT" then
+        -- Grid flow: one column of ns._RF_GRID_ROWS groups, then the next
+        -- column to its right (see ns._RFGroupFlow). MOVER_GROUPS (4) fills
+        -- two columns at any row count that divides it.
+        local rows = ns._RF_GRID_ROWS
+        local cols = floor((MOVER_GROUPS + rows - 1) / rows)
+        return PixelSnap(cols * groupW + (cols - 1) * gs),
+               PixelSnap(rows * groupH + (rows - 1) * gs)
     end
     if groupGrowth == "DOWN" or groupGrowth == "UP" then
         return PixelSnap(groupW), PixelSnap(MOVER_GROUPS * groupH + (MOVER_GROUPS - 1) * gs)
@@ -11212,10 +11265,15 @@ end
 -- here without a guarded write (a stale per-tier override, a spec override,
 -- hand-edited SavedVariables). Group Growth wins here; the options UI's
 -- write-time KeepGrowthPerpendicular uses the same resolution EXCEPT its Unit
--- Growth dropdown, which deliberately lets Unit Growth win instead. No-op if
--- not merged.
+-- Growth dropdown, which deliberately lets Unit Growth win instead. Also maps the
+-- grid flow ("Down and then Right") onto the single column axis the flat header
+-- can render; no-op if not merged.
 ns._RFEffectiveGrowth = function(unitGrowth, groupGrowth, merged)
     if not merged then return unitGrowth, groupGrowth end
+    -- The grid flow needs two axes; Blizzard's flat header only has one column
+    -- axis, so merged mode degrades it to the plain RIGHT run it CAN render --
+    -- same shape as the same-axis fallback below.
+    if groupGrowth == "DOWNRIGHT" then groupGrowth = "RIGHT" end
     if ns._RFGrowthIsVertical(unitGrowth) == ns._RFGrowthIsVertical(groupGrowth) then
         unitGrowth = ns._RFGrowthIsVertical(unitGrowth) and "RIGHT" or "DOWN"
     end
@@ -11227,8 +11285,10 @@ end
 -- growth is horizontal (RIGHT pins LEFT edge, LEFT pins RIGHT edge); vertical side likewise
 -- (DOWN pins TOP, UP pins BOTTOM). Every ns._RFEffectiveGrowth caller heals a same-axis pair
 -- before reaching here whenever merged is true, so this only ever sees one for separated mode
--- (merged=false is a no-op for _RFEffectiveGrowth), where all 16 combinations are legitimate
--- and this tie-break (UP beats BOTTOM, LEFT beats RIGHT, default TOP+LEFT) is what existing
+-- (merged=false is a no-op for _RFEffectiveGrowth), where every combination of the two
+-- axes is legitimate -- including the grid flow, whose column advance is horizontal (so
+-- it pins LEFT like RIGHT) and whose rows run down (so it pins TOP like DOWN). This
+-- tie-break (UP beats BOTTOM, LEFT beats RIGHT, default TOP+LEFT) is what existing
 -- per-tier offsets are calibrated against -- matching Blizzard's own same-axis corner instead
 -- would be dead code here for merged and a silent position-shift regression for separated.
 ns._RFGrowthCorner = function(unitGrowth, groupGrowth)
@@ -11425,9 +11485,9 @@ ns._NormalizeTierOffsetAnchors = function()
     end
 end
 
--- Apply tier-based position to the container frame. The active tier's 4-group footprint
--- pins its growth-derived corner (ns._RFGrowthCorner, from the tier's EFFECTIVE unit +
--- group growth) at the BASE (20-man) footprint's same corner, plus the tier's saved
+-- Apply tier-based position to the container frame. The active tier's 4-group
+-- footprint pins its growth-derived corner (ns._RFGrowthCorner, from the tier's
+-- EFFECTIVE unit + group growth) at the BASE (20-man) footprint's same corner, plus the tier's saved
 -- offsets, via the shared ns._RFTierTopLeft origin -- so a larger/smaller tier grows away
 -- from the pinned corner (e.g. RIGHT+DOWN pins top-left, LEFT+UP pins bottom-right).
 -- unlockPos itself is untouched (saved tier offsets were rebased once per scheme by
@@ -12158,7 +12218,7 @@ local function OnEvent(self, event, arg1, ...)
                 if newW ~= ns._activeSizeW or newH ~= ns._activeSizeH then
                     ns._sizeTierDirtyInCombat = true
                 end
-                local newTier, newOv = ns._RFResolveTierOverride(numMembers)
+                local _, newOv = ns._RFResolveTierOverride(numMembers)
                 if newOv ~= ns._activeTierOverride then
                     ns._sizeTierDirtyInCombat = true
                 end
