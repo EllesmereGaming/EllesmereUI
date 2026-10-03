@@ -50,6 +50,13 @@ local evf = CreateFrame("Frame")
 -- between health and mana while embedded).
 local S = { enabled = false, shown = false, live = false, pbVis = true, loc = "powerbar" }
 
+-- Let the unit frame aura code reserve space below the player frame for this bar
+-- when it floats below/above the stack (ERB_PlayerStackBottomFrame consumes this;
+-- see EUI_UnitFrames_AuraContainers.lua). Returns the host regardless of mode -- the
+-- aura side's geometry test ignores it unless it is shown AND hangs below the frame,
+-- so the embed/inside/free modes (which add no height below) reserve nothing.
+ns._FDMStackBottomFrame = function() return S.host end
+
 -- Forward decl: assigned in the Embed section below; Refresh closes over it.
 local RelayoutPlayer
 -- Forward decl: Power Bar Inside carve (assigned below); Refresh closes over it.
