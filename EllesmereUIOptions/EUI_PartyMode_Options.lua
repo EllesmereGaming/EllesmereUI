@@ -172,6 +172,8 @@ do
                 { key = "unitFrames", label = "Unit Frames" },
                 { key = "resource",   label = "Resource Bars" },
                 { key = "power",      label = "Power Bars" },
+                { key = "partyFrames", label = "Party Frames" },
+                { key = "raidFrames",  label = "Raid Frames" },
             }
             local spinRow
             spinRow, h = W:DualRow(parent, y,

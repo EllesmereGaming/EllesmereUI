@@ -1037,8 +1037,8 @@ end
 -- Row order matches how they are used: unit markers first, ground markers
 -- under them. Labels reach L as variables (see the SECTIONS comment).
 local MARKER_ROWS = {
-    { kind = "target", label = "Target" },
-    { kind = "world",  label = "World"  },
+    { kind = "target", label = "Target Markers" },
+    { kind = "world",  label = "World Markers"  },
 }
 
 local function BuildMarkersContent()

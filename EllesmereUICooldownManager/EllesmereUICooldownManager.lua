@@ -6690,10 +6690,10 @@ local function RefreshFocusCastProxyUnit()
 end
 ns.RefreshFocusCastProxyUnit = RefreshFocusCastProxyUnit
 
-function ns.IsSpellInPlayerBook(id)
+function ns.IsSpellInPlayerBook(id, includeOverrides)
     if IsPlayerSpell and IsPlayerSpell(id) then return true end
     if C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook
-        and C_SpellBook.IsSpellKnownOrInSpellBook(id) then
+        and C_SpellBook.IsSpellKnownOrInSpellBook(id, Enum.SpellBookSpellBank.Player, includeOverrides ~= false) then
         return true
     end
     return false
