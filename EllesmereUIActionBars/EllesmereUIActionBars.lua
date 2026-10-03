@@ -305,7 +305,7 @@ for _, info in ipairs(BAR_CONFIG) do BAR_LOOKUP[info.key] = info end
 for _, info in ipairs(EXTRA_BARS) do BAR_LOOKUP[info.key] = info end
 function ns.MasqueOwnsBar(key)
     local info = BAR_LOOKUP[key]
-    if not (ns.MasqueGroup and info and not info.isStance) then return false end
+    if not (ns.MasqueGroup and info) then return false end
     local bars = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars
     local settings = bars and bars[key]
     return settings and settings.masqueEnabled == true
@@ -3078,6 +3078,8 @@ ns.BuildBarButtons = function(info, frame, skipProtected)
         for i = 1, info.count do
             local btn = _G["StanceButton" .. i]
             if btn then
+                -- Reused stance buttons bypass GetOrCreateButton too.
+                EFD(btn).masqueOwned = ns.MasqueOwnsBar(key) or nil
                 if not skipProtected then
                     ApplyShapeHitRects(btn, buttonShape)
                     btn:SetAttributeNoHandler("statehidden", nil)
@@ -7259,7 +7261,7 @@ function EAB_VTABLE.RegisterMasqueButtons()
                         ns.MasqueGroup:AddButton(btn, nil, info.isPetBar and "Pet" or nil)
                         fd.masqueRegistered = true
                     end
-                    if not info.isPetBar then
+                    if not info.isPetBar and not info.isStance then
                         EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
                         EAB_VTABLE.SyncMasqueEmptySlotGloss(btn)
                     end
@@ -14238,6 +14240,10 @@ function EAB:OnInitialize()
         or (rawDB.profiles and not next(rawDB.profiles))
 
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIActionBarsDB", defaults, true)
+
+    -- The shared Masque toggle now includes stance buttons. Inherit its saved
+    -- state so profiles that enabled support before this addition work on reload.
+    self.db.profile.bars.StanceBar.masqueEnabled = self.db.profile.bars.MainBar.masqueEnabled == true
 
     -- Masque is strictly opt-in. Do not create its group unless at least one
     -- action bar has an explicit saved enable. An enabled preference survives
