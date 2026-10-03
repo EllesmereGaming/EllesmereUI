@@ -1575,44 +1575,8 @@ local castBarFrame
 local gcdBarFrame
 local totemBarFrame
 
--- Lowest-hanging VISIBLE frame of the player's RESOURCE stack, for the unit frame
--- aura code to reserve space below the player frame the way it reserves the cast bar
--- (EUI_UnitFrames_AuraContainers.lua -> ResourceStackBelowFrame). Returns the stack
--- element whose bottom edge sits lowest in physical space, or nil when the stack is
--- empty/hidden; the aura side does the x-overlap / below-the-frame geometry. The
--- Forever shapeshift mana bar registers its floating host via ns._FDMStackBottomFrame
--- (nil, hence a no-op, on every other client/class and in its carve/inside modes).
---
--- Only the PERSISTENT resource bars count: power, class resource, and the shapeshift
--- mana bar. The cast bar / GCD bar / totem bar are excluded -- they are transient and
--- would make the auras jump on every cast.
--- Keep the lower of (best, f) by physical bottom edge, if f is part of the VISIBLE
--- stack. A frame that is shown but at ~zero effective alpha is NOT on screen, so it
--- must not count: ResourceBars keeps the class-resource container shown-but-invisible
--- (full height) when the spec has no class resource, and reserving to that invisible
--- placeholder parked the auras a full slot below the visible power bar in caster/bear.
--- We anchor to the lowest thing the player can actually SEE (what Cat already does).
--- Module-level (not a per-call closure) -- ERB_PlayerStackBottomFrame runs on the aura
--- re-anchor path. Threads best/bestY through the return instead of an upvalue closure.
-local function ConsiderStackFrame(f, best, bestY)
-    if f and f.IsShown and f:IsShown()
-        and (not f.GetEffectiveAlpha or f:GetEffectiveAlpha() > 0.05) then
-        local b = f:GetBottom()
-        if b then
-            b = b * (f:GetEffectiveScale() or 1)
-            if not bestY or b < bestY then return f, b end
-        end
-    end
-    return best, bestY
-end
-function EllesmereUI.ERB_PlayerStackBottomFrame()
-    local best, bestY
-    best, bestY = ConsiderStackFrame(primaryBar, best, bestY)
-    best, bestY = ConsiderStackFrame(secondaryFrame, best, bestY)
-    best, bestY = ConsiderStackFrame(secondaryBar, best, bestY)
-    if ns._FDMStackBottomFrame then best, bestY = ConsiderStackFrame(ns._FDMStackBottomFrame(), best, bestY) end
-    return best
-end
+-- EllesmereUI.ERB_PlayerStackExtent() is defined further down, after IsPowerBarHidden /
+-- IsSpecDisabled (its domain predicates), near the end of the resolver helpers.
 local _totemBorderOverlays = setmetatable({}, { __mode = "k" })
 local _totemHooked = false
 local _totemOrigParent
@@ -2390,6 +2354,46 @@ local function IsPowerBarHidden()
     if not GetPrimaryPowerType() then return true end
     if p.secondary and p.secondary.hidePowerIfResource and p.secondary.enabled ~= false and GetSecondaryResource() then return true end
     return false
+end
+
+-- Bounding box (physical px) of the player's STABLE resource stack -- the bars that are
+-- part of the active layout for the CURRENT SPEC/FORM, judged by domain predicate, NOT
+-- by live alpha. Per-bar visibility modes (combat/target/group) only alpha-fade a bar
+-- that stays laid out at full size, so reading the structural "would be shown" state
+-- keeps the footprint stable and stops the auras jumping on combat/target edges. Power:
+-- not IsPowerBarHidden(). Class resource: the UpdateVisibility structural test minus the
+-- transient ShouldShowBar. Shapeshift mana (Forever): ns._FDMStackBottomFrame hands back
+-- its host only while shown for the form. Returns left, right, top, bottom and the TOP
+-- bar's height (for the aura dock test), or nil when nothing is active. Read-only; the
+-- unit frame aura code (EUI_UnitFrames_AuraContainers.lua) compares this to the player
+-- frame in its OWN context, so no cross-addon geometry (and no secret value) is involved.
+function EllesmereUI.ERB_PlayerStackExtent()
+    local p = ERB and ERB.db and ERB.db.profile
+    if not p then return nil end
+    local lft, rgt, top, bot, topH
+    local function add(f)
+        if not (f and f.GetBottom and f.GetTop) then return end
+        local fb, ft = f:GetBottom(), f:GetTop()
+        if not (fb and ft) then return end
+        local s = f:GetEffectiveScale() or 1
+        fb, ft = fb * s, ft * s
+        local fl = (f:GetLeft() or 0) * s
+        local fr = (f:GetRight() or 0) * s
+        if not bot or fb < bot then bot = fb end
+        if not lft or fl < lft then lft = fl end
+        if not rgt or fr > rgt then rgt = fr end
+        if not top or ft > top then top = ft; topH = ft - fb end
+    end
+    if not IsPowerBarHidden() then add(primaryBar) end
+    local sp = p.secondary
+    if sp and sp.enabled ~= false and not IsSpecDisabled(sp)
+        and not _G._ERB_BarHiddenByForm(sp, true) and cachedSecondary then
+        add(secondaryFrame)
+        add(secondaryBar)
+    end
+    if ns._FDMStackBottomFrame then add(ns._FDMStackBottomFrame()) end
+    if not bot then return nil end
+    return lft, rgt, top, bot, topH
 end
 
 -- Unlock mode: register with shared EllesmereUI unlock system

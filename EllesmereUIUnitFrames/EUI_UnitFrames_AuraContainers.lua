@@ -1747,25 +1747,12 @@ ns.UF_CastbarBelowFrame = CastbarBelowFrame
 -- the live frames (EllesmereUIOptions/EUI_UnitFrames_Options.lua).
 EllesmereUI.UF_CastbarBelowFrame = CastbarBelowFrame
 
--- Does the Resource Bars stack (power bar, class resource, and -- Forever druid --
--- the shapeshift mana bar) hang directly below the PLAYER frame, and if so how far
--- down does it reach? Bottom-anchored player auras reserve the cast bar strip (see
--- the castbar block in AnchorContainer); they must reserve this strip the same way
--- or they overlap the stack whenever it grows: a bar shown (the shapeshift mana
--- bar), "Expand Power Bar if No Resource", or a "Shift Elements if No Resource"
--- cascade. The Resource Bars module (a separate addon) owns which of its frames
--- hangs lowest and exposes it as EllesmereUI.ERB_PlayerStackBottomFrame; here we
--- only do the geometry, mirroring CastbarBelowFrame: LIVE geometry in PHYSICAL
--- pixels (the stack carries its own effective scale), x-overlap gated, 0 when the
--- stack is beside/above the frame or absent. Returns the reserve in the FRAME's
--- LOCAL units so it composes with the cast bar's -cbH. Reading non-aura frame
--- geometry is legal under aura restriction.
--- The player frame hosts auras, so under WoW 12.0 its geometry (GetBottom etc.)
--- comes back as a SECRET value to any execution tainted by an addon that is not
--- the frame's owner. Arithmetic on a secret throws. secretNum() turns a secret (or
--- nil) into nil so every read is gated and the reserve degrades to 0 instead of
--- erroring. The re-anchor MUST be driven from UnitFrames' own context (it owns the
--- player frame) for the reads to be real -- see the footprint watcher below.
+-- The player frame hosts auras, so under WoW 12.0 its geometry (GetBottom etc.) comes
+-- back as a SECRET value to any execution tainted by an addon that is not the frame's
+-- owner. Arithmetic on a secret throws. secretNum() turns a secret (or nil) into nil so
+-- every read is gated and the reserve degrades to 0 instead of erroring. The re-anchor
+-- MUST run in UnitFrames' own context (it owns the player frame) for the reads to be
+-- real -- see the re-anchor path below.
 local issecret = issecretvalue
 local function secretNum(v)
     if v == nil then return nil end
@@ -1773,38 +1760,31 @@ local function secretNum(v)
     return v
 end
 
--- Pixel-rounding tolerance only. The stack (e.g. an ERB power bar) commonly hangs
--- just a handful of physical pixels below the frame, and that overhang is REAL and
--- must be reserved -- a larger slack (the cast bar uses 8) swallowed a 7px power bar
--- overhang whole, forcing reserve 0 so the auras fell back onto the frame bottom
--- ("below health, not power"). Keep this tiny: gap <= this means the stack bottom is
--- effectively at/above the frame edge (embed/inside modes, or nothing below).
-local RES_STRIP_SLACK = 2
+-- How far the Resource Bars stack hangs below the PLAYER frame, in the frame's LOCAL
+-- units (so it composes with the cast bar's -cbH). Resource Bars computes the active
+-- stack's STABLE bounding box in its OWN context (EllesmereUI.ERB_PlayerStackExtent --
+-- plain numbers, not secret; stable across combat/target/group visibility because it is
+-- predicate-based, not alpha-based). Here we only read our OWN player frame
+-- (secret-safe) and compare. x-overlap gated; reserves the span from the frame bottom
+-- down to the stack bottom.
 local function ResourceStackBelowFrame(unit, frame)
     if unit ~= "player" then return 0 end
     frame = frame or _G[CB_FRAME_NAMES.player]
-    local getter = EllesmereUI.ERB_PlayerStackBottomFrame
-    local sb = getter and getter()
-    if not (frame and sb) then return 0 end
+    local extent = EllesmereUI.ERB_PlayerStackExtent
+    if not (frame and extent) then return 0 end
+    local sl, sr, stop, sbot, topH = extent()
+    if not (sl and sr and stop and sbot and topH) then return 0 end
     local fl = secretNum(frame:GetLeft())
     local fr = secretNum(frame:GetRight())
     local fb = secretNum(frame:GetBottom())
-    local sl = secretNum(sb:GetLeft())
-    local sr = secretNum(sb:GetRight())
-    local sbot = secretNum(sb:GetBottom())
-    if not (fl and fr and fb and sl and sr and sbot) then return 0 end
+    if not (fl and fr and fb) then return 0 end
     local fs = frame:GetEffectiveScale() or 1
     if fs == 0 then fs = 1 end
-    local ss = sb:GetEffectiveScale() or 1
-    fl, fr, fb = fl * fs, fr * fs, fb * fs
-    sl, sr, sbot = sl * ss, sr * ss, sbot * ss
+    fl, fr, fb = fl * fs, fr * fs, fb * fs -- physical, matching the extent
     -- Beside the frame rather than under it: nothing to reserve.
     if sl >= fr or sr <= fl then return 0 end
-    -- Reserve only the span from the frame bottom down to the stack bottom, and only
-    -- while the stack genuinely hangs below (embed/inside modes carve an existing bar
-    -- and add no height -> bottom at/above the edge).
     local gap = fb - sbot
-    if gap <= RES_STRIP_SLACK then return 0 end
+    if gap <= 0 then return 0 end
     return gap / fs
 end
 
