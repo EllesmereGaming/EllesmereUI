@@ -7246,6 +7246,13 @@ end
 
 function EAB_VTABLE.RegisterMasqueButtons()
     if not ns.MasqueGroup then return end
+    if not ns._masqueInteractionReskinHooked and ns.MasqueGroup.ReSkin then
+        ns._masqueInteractionReskinHooked = true
+        hooksecurefunc(ns.MasqueGroup, "ReSkin", function()
+            EAB:ApplyPushedTextures()
+            EAB:ApplyHighlightTextures()
+        end)
+    end
     -- Masque skins synchronously in AddButton. Register only after EUI's final
     -- layout pass so its first skin calculation sees the finished button size.
     -- Registering during GetOrCreateButton skins the template's initial size and
@@ -11088,7 +11095,16 @@ local function _applyBorderEdges(edges, btn, brdSize, cr, cg, cb)
     edges._active = true
     local anchor = btn.icon or btn.Icon or btn
     local PP = EllesmereUI.PP
-    for j = 1, 4 do edges[j]:SetVertexColor(cr, cg, cb, 1) end
+    local fd = EFD(btn)
+    local mask = fd.masqueOwned and (fd.masquePushedTextureMask or fd.masqueHighlightTextureMask)
+    for j = 1, 4 do
+        edges[j]:SetVertexColor(cr, cg, cb, 1)
+        if edges._masqueMask ~= mask then
+            if edges._masqueMask then edges[j]:RemoveMaskTexture(edges._masqueMask) end
+            if mask then edges[j]:AddMaskTexture(mask) end
+        end
+    end
+    edges._masqueMask = mask
     edges[1]:ClearAllPoints(); edges[1]:SetPoint("TOPLEFT", anchor); edges[1]:SetPoint("TOPRIGHT", anchor)
     if PP then PP.Height(edges[1], brdSize) else edges[1]:SetHeight(brdSize) end
     edges[2]:ClearAllPoints(); edges[2]:SetPoint("BOTTOMLEFT", anchor); edges[2]:SetPoint("BOTTOMRIGHT", anchor)
@@ -11364,6 +11380,51 @@ ns._ixBarSync = function(barKey, eligOnly)
     end
 end
 
+-- Keep interaction art separate from Masque's regions, which it repaints on
+-- every reskin. HIGHLIGHT retains the button's native hover/lock behaviour;
+-- pushed follows both mouse input and EUI's keyboard-flash driver.
+function ns.MasqueInteractionTexture(btn, role)
+    local fd = EFD(btn)
+    local native = btn[role]
+    local key = "masque" .. role
+    local tex = fd[key]
+    if not tex then
+        tex = btn:CreateTexture(nil, role == "HighlightTexture" and "HIGHLIGHT" or "OVERLAY", nil, 7)
+        tex:SetBlendMode("ADD")
+        fd[key] = tex
+        if role == "PushedTexture" then
+            tex:Hide()
+            hooksecurefunc(native, "Show", function() tex:Show() end)
+            hooksecurefunc(native, "Hide", function() tex:Hide() end)
+            btn:HookScript("OnMouseDown", function() tex:Show() end)
+            btn:HookScript("OnMouseUp", function() tex:Hide() end)
+            btn:HookScript("OnHide", function() tex:Hide() end)
+        end
+        hooksecurefunc(native, "SetAlpha", function(self, alpha)
+            if alpha ~= 0 then self:SetAlpha(0) end
+        end)
+    end
+    native:SetAlpha(0)
+    local cfg = btn._MSQ_CFG
+    local mask = cfg and cfg.ButtonMask
+    local icon = btn.icon or btn.Icon
+    if not mask and icon and icon.GetMaskTexture then
+        local ok, iconMask = pcall(icon.GetMaskTexture, icon, 1)
+        if ok then mask = iconMask end
+    end
+    if fd[key .. "Mask"] ~= mask then
+        if fd[key .. "Mask"] then tex:RemoveMaskTexture(fd[key .. "Mask"]) end
+        if mask then tex:AddMaskTexture(mask) end
+        fd[key .. "Mask"] = mask
+    end
+    return tex
+end
+
+function ns.AnchorMasqueInteraction(btn, tex)
+    tex:ClearAllPoints()
+    tex:SetAllPoints(btn.icon or btn.Icon or btn)
+end
+
 function EAB:ApplyPushedTextures()
     local p = self.db.profile
     local abStyle = ns.AB_Style()
@@ -11396,49 +11457,51 @@ function EAB:ApplyPushedTextures()
             for i = 1, #buttons do
                 local btn = buttons[i]
                 if btn and btn.PushedTexture then
-                    if ns.MasqueOwnsBar(info.key) then
-                        -- Masque owns the pushed region for registered action buttons.
-                        -- EUI's full-button texture can extend past a skin's border.
+                    local masque = ns.MasqueOwnsBar(info.key) and abStyle == "eui"
+                    local pushed = masque and ns.MasqueInteractionTexture(btn, "PushedTexture") or btn.PushedTexture
+                    if ns.MasqueOwnsBar(info.key) and abStyle ~= "eui" then
                         ns._hideBorderEdges(btn, "_pushedBorder")
                     elseif abStyle ~= "eui" then
                         if abStyle == "classic" then
                             -- Classic WoW UI: the vanilla depress art over the button.
-                            btn.PushedTexture:SetAtlas(nil)
-                            btn.PushedTexture:SetTexture(ns.AB_CLASSIC.pushed)
-                            btn.PushedTexture:SetTexCoord(0, 1, 0, 1)
+                            pushed:SetAtlas(nil)
+                            pushed:SetTexture(ns.AB_CLASSIC.pushed)
+                            pushed:SetTexCoord(0, 1, 0, 1)
                         elseif info.isStance or info.isPetBar then
                             -- Blizzard's buttons: its own art pass re-atlases them.
-                            btn.PushedTexture:SetAtlas("UI-HUD-ActionBar-IconFrame-Down", true)
+                            pushed:SetAtlas("UI-HUD-ActionBar-IconFrame-Down", true)
                         else
                             ns.AB_StockAtlas(btn.PushedTexture, "UI-HUD-ActionBar-IconFrame-Down", true)
                         end
-                        btn.PushedTexture:SetDrawLayer("OVERLAY", 7)
-                        btn.PushedTexture:ClearAllPoints()
-                        btn.PushedTexture:SetAllPoints(btn)
-                        btn.PushedTexture:SetVertexColor(1, 1, 1, 1)
-                        btn.PushedTexture:SetAlpha(1)
+                        pushed:SetDrawLayer("OVERLAY", 7)
+                        pushed:ClearAllPoints()
+                        pushed:SetAllPoints(btn)
+                        pushed:SetVertexColor(1, 1, 1, 1)
+                        pushed:SetAlpha(1)
                         ns._hideBorderEdges(btn, "_pushedBorder")
                     elseif pType == 6 then
-                        btn.PushedTexture:SetAlpha(0)
+                        pushed:SetAlpha(0)
                         ns._hideBorderEdges(btn, "_pushedBorder")
                     elseif pType == 5 then
-                        btn.PushedTexture:SetAlpha(0)
+                        pushed:SetAlpha(0)
                         if ixBar and ns._ixRole(btn, s, "ixPush", true) then
                             ns._hideBorderEdges(btn, "_pushedBorder")
                         else
-                            local edges = ns._setupBorderEdges(btn, "_pushedBorder", btn.PushedTexture)
+                            local edges = ns._setupBorderEdges(btn, "_pushedBorder", pushed)
                             ns._applyBorderEdges(edges, btn, brdSize, cr, cg, cb)
                         end
                     else
-                        btn.PushedTexture:SetAlpha(1)
+                        pushed:SetAlpha(1)
                         ns._hideBorderEdges(btn, "_pushedBorder")
                         if pType <= 3 then
-                            SetSquareTexture(btn.PushedTexture, HIGHLIGHT_TEXTURES[pType] or HIGHLIGHT_TEXTURES[2])
-                            btn.PushedTexture:SetVertexColor(cr, cg, cb, 1)
+                            SetSquareTexture(pushed, HIGHLIGHT_TEXTURES[pType] or HIGHLIGHT_TEXTURES[2])
+                            pushed:SetVertexColor(cr, cg, cb, 1)
                         elseif pType == 4 then
-                            btn.PushedTexture:SetColorTexture(cr, cg, cb, 0.35)
+                            pushed:SetVertexColor(1, 1, 1, 1)
+                            pushed:SetColorTexture(cr, cg, cb, 0.35)
                         end
                     end
+                    if masque then ns.AnchorMasqueInteraction(btn, pushed) end
                     -- Stock styles, other pushed types, the option off and
                     -- bars that left eligibility all land here.
                     if ixEver and not ixBar then ns._ixRole(btn, s, "ixPush", false) end
@@ -11588,14 +11651,13 @@ function EAB:ApplyHighlightTextures()
             for i = 1, #buttons do
                 local btn = buttons[i]
                 if btn and btn.HighlightTexture then
-                    if ns.MasqueOwnsBar(info.key) then
-                        -- Masque owns the mouseover region for registered action buttons.
-                        ns._hideBorderEdges(btn, "_highlightBorder")
-                    elseif hType == 6 then
-                        btn.HighlightTexture:SetAlpha(0)
+                    local masque = ns.MasqueOwnsBar(info.key)
+                    local highlight = masque and ns.MasqueInteractionTexture(btn, "HighlightTexture") or btn.HighlightTexture
+                    if hType == 6 then
+                        highlight:SetAlpha(0)
                         ns._hideBorderEdges(btn, "_highlightBorder")
                     elseif hType == 5 then
-                        btn.HighlightTexture:SetAlpha(0)
+                        highlight:SetAlpha(0)
                         if ixBar and ns._ixRole(btn, s, "ixHover", true) then
                             ns._hideBorderEdges(btn, "_highlightBorder")
                         else
@@ -11627,15 +11689,17 @@ function EAB:ApplyHighlightTextures()
                             end)
                         end
                     else
-                        btn.HighlightTexture:SetAlpha(1)
+                        highlight:SetAlpha(1)
                         ns._hideBorderEdges(btn, "_highlightBorder")
                         if hType <= 3 then
-                            SetSquareTexture(btn.HighlightTexture, HIGHLIGHT_TEXTURES[hType] or HIGHLIGHT_TEXTURES[1])
-                            btn.HighlightTexture:SetVertexColor(cr, cg, cb, 1)
+                            SetSquareTexture(highlight, HIGHLIGHT_TEXTURES[hType] or HIGHLIGHT_TEXTURES[1])
+                            highlight:SetVertexColor(cr, cg, cb, 1)
                         elseif hType == 4 then
-                            btn.HighlightTexture:SetColorTexture(cr, cg, cb, 0.35)
+                            highlight:SetVertexColor(1, 1, 1, 1)
+                            highlight:SetColorTexture(cr, cg, cb, 0.35)
                         end
                     end
+                    if masque then ns.AnchorMasqueInteraction(btn, highlight) end
                     if ixEver and not ixBar then ns._ixRole(btn, s, "ixHover", false) end
                 end
                 if ixCast and ixEver and btn then
@@ -13764,6 +13828,10 @@ local function ApplyAll()
     -- AddButton applies the Masque skin immediately. Keep registration after
     -- every EUI sizing/layout operation so the initial skin uses final sizes.
     EAB_VTABLE.RegisterMasqueButtons()
+    if ns.MasqueGroup then
+        EAB:ApplyPushedTextures()
+        EAB:ApplyHighlightTextures()
+    end
 
     _isApplyingAll = false
 end
