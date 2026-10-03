@@ -436,7 +436,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             ); y = y - h
 
-            -- Inline cog for Show Pinned Items: "Show in OneBag"
+            -- Inline cog for Show Pinned Items
             if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildInlineCog(pinRecRow._leftRegion, {
                     chain = false,
@@ -448,6 +448,13 @@ initFrame:SetScript("OnEvent", function(self)
                           get=function() return db.profile.bagPinnedInOneBag ~= false end,
                           set=function(v)
                               db.profile.bagPinnedInOneBag = v
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                        { type="toggle", label="Hide from Other Categories",
+                          tooltip="Show pinned items only in Pinned Items, hiding them from other categories and Recent Items. OneBag/MultiBag keep their normal slots. Unpinning an item returns it to its category.",
+                          get=function() return db.profile.bagHidePinnedInCategories == true end,
+                          set=function(v)
+                              db.profile.bagHidePinnedInCategories = v
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
                     },

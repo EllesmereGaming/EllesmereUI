@@ -814,7 +814,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             local recentItems = {}
             if EUI_Bags._recentItems then
                 for _, d in ipairs(tempItems) do
-                    if d.info and d.info.itemID and EUI_Bags._recentItems[d.info.itemID] then
+                    if not d._pinnedOnly and d.info and d.info.itemID and EUI_Bags._recentItems[d.info.itemID] then
                         recentItems[#recentItems + 1] = d
                     end
                 end
@@ -1003,7 +1003,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
         for i = 1, #cats do itemsByCat[i] = {} end
         for _, data in ipairs(displayItems) do
             local ci = data.categoryIndex
-            if ci and itemsByCat[ci] then
+            if ci and itemsByCat[ci] and not data._pinnedOnly then
                 itemsByCat[ci][#itemsByCat[ci] + 1] = data
             end
         end
@@ -1249,7 +1249,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
         local hiddenSet = BP().bagHiddenInAllItems or {}
         for ci, cat in ipairs(cats) do
             if cat.isPinned then
-                -- Pinned Items: display-only duplicate (items also appear in their normal category)
+                -- Pinned Items quickview
                 if pinnedSet and showPinned then
                     local pinItems = {}
                     for _, data in ipairs(displayItems) do
@@ -1266,7 +1266,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                    and (BP().bagShowRecentItems ~= false) then
                     local recentItems = {}
                     for _, data in ipairs(displayItems) do
-                        if data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
+                        if not data._pinnedOnly and data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
                             recentItems[#recentItems + 1] = data
                         end
                     end
