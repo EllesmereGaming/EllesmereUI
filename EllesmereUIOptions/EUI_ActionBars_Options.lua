@@ -17,9 +17,8 @@ local TEXT_ANCHOR_LABELS = {
 local TEXT_ANCHOR_DROPDOWN_ORDER = { "default" }
 for i, a in ipairs(EAB and EAB.TEXT_ANCHOR_ORDER or {}) do TEXT_ANCHOR_DROPDOWN_ORDER[i + 1] = a end
 
--- Keep the load-on-demand options page resilient to a partially updated suite:
--- availability detection does not require the Action Bars runtime to have
--- created a Masque group, or to expose a particular helper revision.
+-- Fall back to LibStub if Action Bars hasn't added the helper yet.
+-- Masque can be available even before we've created a group.
 local function IsMasqueAvailable()
     if ns.IsMasqueAvailable then
         return ns.IsMasqueAvailable()
@@ -6236,10 +6235,8 @@ initFrame:SetScript("OnEvent", function(self)
         end,
     })
 
-    -- Bar Display is deliberately excluded from the global search prebuild
-    -- because constructing it creates a live action-bar edit overlay. Register
-    -- this suite-wide integration directly so "Masque" is searchable even
-    -- before the player has opened Bar Display during this session.
+    -- Search skips Bar Display because building it opens the bar edit overlay.
+    -- Add Masque here so search can find it before the page has been opened.
     if EllesmereUI._RegisterSearchEntry then
         EllesmereUI._RegisterSearchEntry(
             "Enable Masque Support", nil,

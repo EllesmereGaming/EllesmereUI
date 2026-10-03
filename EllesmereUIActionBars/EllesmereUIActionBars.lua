@@ -2242,10 +2242,7 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
     end
 
     if ns.MasqueOwnsBar(info.key) then
-        -- Masque-owned buttons intentionally skip MakeButtonSquare(), but the
-        -- proc driver used the resulting `squared` flag as its eligibility
-        -- check. Keep an explicit marker so these buttons still receive the
-        -- yellow spell-activation ring.
+        -- Masque buttons skip MakeButtonSquare(), so mark them separately to keep the yellow proc glow working.
         EFD(btn).masqueOwned = true
         EAB_VTABLE.SetupCastAnimSuppression(btn)
     end
@@ -3078,7 +3075,7 @@ ns.BuildBarButtons = function(info, frame, skipProtected)
         for i = 1, info.count do
             local btn = _G["StanceButton" .. i]
             if btn then
-                -- Reused stance buttons bypass GetOrCreateButton too.
+                -- Stance buttons skip GetOrCreateButton, so set the Masque flag here.
                 EFD(btn).masqueOwned = ns.MasqueOwnsBar(key) or nil
                 if not skipProtected then
                     ApplyShapeHitRects(btn, buttonShape)
@@ -3094,8 +3091,7 @@ ns.BuildBarButtons = function(info, frame, skipProtected)
         for i = 1, info.count do
             local btn = _G["PetActionButton" .. i]
             if btn then
-                -- Pet buttons bypass GetOrCreateButton. Mark ownership before
-                -- layout and styling, just as we do for our action buttons.
+                -- Pet buttons skip GetOrCreateButton, so set the Masque flag before laying them out and styling them.
                 EFD(btn).masqueOwned = ns.MasqueOwnsBar(key) or nil
                 if not skipProtected then
                     ApplyShapeHitRects(btn, buttonShape)
@@ -7147,10 +7143,8 @@ end
 
 function EAB_VTABLE.SetupCastAnimSuppression(btn)
     local fd = EFD(btn)
-    -- Masque buttons skip MakeButtonSquare, so install the cast-animation hooks
-    -- independently of that path. The existing Hide Casting Animations setting
-    -- remains authoritative; custom shapes continue to force suppression because
-    -- Blizzard's rectangular sweep does not fit their masks.
+    -- Set up these hooks separately since Masque buttons skip MakeButtonSquare.
+    -- Follow Hide Casting Animations. Always hide them on EUI's custom shapes because Blizzard's rectangular sweep doesn't fit those shapes.
     if (btn.SpellCastAnimFrame and not fd.castHooked)
        or (btn.InterruptDisplay and not fd.intHooked) then
         local hideCastAnim = function(self)
@@ -7172,8 +7166,8 @@ function EAB_VTABLE.SetupCastAnimSuppression(btn)
             fd.intHooked = true
         end
     end
-    -- When the cast animation hides, it resets the cooldown swipe color. Re-assert
-    -- the configured swipe on the same edge so Masque buttons keep that setting.
+    -- The cast animation resets the swipe color when it hides.
+    -- Apply our color again so Masque buttons keep the user's setting.
     if btn.SpellCastAnimFrame and not fd.castSwipeHooked then
         fd.castSwipeHooked = true
         btn.SpellCastAnimFrame:HookScript("OnHide", function()
@@ -7187,11 +7181,7 @@ function EAB_VTABLE.SetupCastAnimSuppression(btn)
 end
 
 function EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
-    -- Masque skins the icon, but Blizzard's newer cast animation is not a
-    -- Masque layer. Its stock mask is the default action-button silhouette, so
-    -- the fill/glow can show beyond skins whose border is inset or non-square.
-    -- Reuse Masque's button mask so the complete animation observes the same
-    -- visible boundary as the skinned icon.
+    -- Masque doesn't skin Blizzard's cast animation. Use the button's Masque mask so the fill and glow don't spill outside the skin.
     local fd = EFD(btn)
     local cfg = btn._MSQ_CFG
     local mask = cfg and cfg.ButtonMask
@@ -7226,10 +7216,8 @@ function EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
 end
 
 function EAB_VTABLE.SyncMasqueEmptySlotGloss(btn)
-    -- Masque treats a hidden action icon as an empty button and hides Gloss.
-    -- EUI can intentionally keep that empty button visible with its own slot
-    -- background, so the result otherwise becomes an unglossed square beside
-    -- skinned occupied buttons (most noticeable after instance transitions).
+    -- Masque hides Gloss on empty slots, but EUI can still show their backgrounds.
+    -- Keep the gloss visible so empty slots match the other skinned buttons, including after instance transitions.
     local cfg = btn._MSQ_CFG
     local gloss = cfg and cfg.Gloss
     if not (gloss and gloss.GetTexture) then return end
@@ -7253,10 +7241,8 @@ function EAB_VTABLE.RegisterMasqueButtons()
             EAB:ApplyHighlightTextures()
         end)
     end
-    -- Masque skins synchronously in AddButton. Register only after EUI's final
-    -- layout pass so its first skin calculation sees the finished button size.
-    -- Registering during GetOrCreateButton skins the template's initial size and
-    -- leaves regions bloated until a Masque option forces a later reskin.
+    -- AddButton skins the button right away, so wait until layout is done.
+    -- Registering in GetOrCreateButton uses the template size and leaves the skin too large until Masque reskins it.
     for _, info in ipairs(BAR_CONFIG) do
         if ns.MasqueOwnsBar(info.key) then
             local buttons = barButtons[info.key]
@@ -7264,7 +7250,7 @@ function EAB_VTABLE.RegisterMasqueButtons()
                 for _, btn in ipairs(buttons) do
                     local fd = EFD(btn)
                     if not fd.masqueRegistered then
-                        -- Pet uses Masque's pet-specific art and autocast regions.
+                        -- Use Masque's pet skin and autocast art for pet buttons.
                         ns.MasqueGroup:AddButton(btn, nil, info.isPetBar and "Pet" or nil)
                         fd.masqueRegistered = true
                     end
@@ -11380,9 +11366,9 @@ ns._ixBarSync = function(barKey, eligOnly)
     end
 end
 
--- Keep interaction art separate from Masque's regions, which it repaints on
--- every reskin. HIGHLIGHT retains the button's native hover/lock behaviour;
--- pushed follows both mouse input and EUI's keyboard-flash driver.
+-- Use separate hover and press textures so Masque won't overwrite them on reskin.
+-- HIGHLIGHT handles hover and locked highlights; the press texture follows
+-- mouse clicks and EUI's keyboard flash.
 function ns.MasqueInteractionTexture(btn, role)
     local fd = EFD(btn)
     local native = btn[role]
@@ -13825,8 +13811,7 @@ local function ApplyAll()
     -- the engine's SetPoint hook.
     ns.PartySpin_Refresh()
 
-    -- AddButton applies the Masque skin immediately. Keep registration after
-    -- every EUI sizing/layout operation so the initial skin uses final sizes.
+    -- Register with Masque after sizing and layout, since AddButton skins immediately.
     EAB_VTABLE.RegisterMasqueButtons()
     if ns.MasqueGroup then
         EAB:ApplyPushedTextures()
@@ -14309,14 +14294,10 @@ function EAB:OnInitialize()
 
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIActionBarsDB", defaults, true)
 
-    -- The shared Masque toggle now includes stance buttons. Inherit its saved
-    -- state so profiles that enabled support before this addition work on reload.
+    -- Copy the main bar's Masque setting to the stance bar for older profiles.
     self.db.profile.bars.StanceBar.masqueEnabled = self.db.profile.bars.MainBar.masqueEnabled == true
 
-    -- Masque is strictly opt-in. Do not create its group unless at least one
-    -- action bar has an explicit saved enable. An enabled preference survives
-    -- reload/profile persistence because AceDB retains the true override even
-    -- though the default is false.
+    -- Only create a Masque group if the user has enabled it in settings.
     for _, info in ipairs(BAR_CONFIG) do
         local settings = self.db.profile.bars[info.key]
         if settings and settings.masqueEnabled == true then
