@@ -1783,6 +1783,15 @@ local function ResourceStackBelowFrame(unit, frame)
     fl, fr, fb = fl * fs, fr * fs, fb * fs -- physical, matching the extent
     -- Beside the frame rather than under it: nothing to reserve.
     if sl >= fr or sr <= fl then return 0 end
+    -- Dock test: only reserve while the stack is DOCKED under the frame -- flush,
+    -- overlapping up into it (the normal EUI layout: the resource bars sit partly within
+    -- the unit frame, so the stack TOP is usually at/above the frame bottom), or a small
+    -- gap below. A DETACHED cluster floats far below; reject it so the auras do not chase
+    -- it down. "Far" = more than the stack's own height below the frame top. Overlap is
+    -- always fine; a stack entirely at/above the frame is caught by the gap check.
+    local stackH = stop - sbot
+    local drop = fb - stop -- how far the stack TOP sits below the frame bottom
+    if stackH > 0 and drop > stackH then return 0 end
     local gap = fb - sbot
     if gap <= 0 then return 0 end
     return gap / fs
