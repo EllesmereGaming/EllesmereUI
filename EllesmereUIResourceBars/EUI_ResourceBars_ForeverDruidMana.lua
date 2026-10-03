@@ -47,6 +47,13 @@ local evf = CreateFrame("Frame")
 -- textOn / fmt / suffix (text settings as last applied).
 local S = { enabled = false, shown = false, live = false, pbVis = true }
 
+-- Let the unit frame aura reserve see this bar when it floats below the stack
+-- (EllesmereUI.ERB_PlayerStackExtent consumes it; see EUI_UnitFrames_AuraContainers.lua).
+-- Returns the host ONLY while it is shown for the current form, so the reserved
+-- footprint tracks the form (not transient paint state) and is nil on every other
+-- client/class and in the carve/inside modes that add no height below the frame.
+ns._FDMStackBottomFrame = function() if S.shown and S.host then return S.host end end
+
 -------------------------------------------------------------------------------
 --  Helpers
 -------------------------------------------------------------------------------
