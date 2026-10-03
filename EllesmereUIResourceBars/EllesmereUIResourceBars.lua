@@ -1175,11 +1175,6 @@ local DEFAULTS = {
             bandMode = "percent",  -- "percent" | "value" (bar/health/power only)
             bandReverse = false,
             bands = {},            -- ordered ascending by `to`: { { to=N, r,g,b,a }, ... }
-            hashEnabled = false,
-            hashValues  = "",          -- e.g. "25, 50, 75"
-            hashMode    = "percent",
-            hashWidth   = 1,
-            hashColorR  = 1, hashColorG = 1, hashColorB = 1, hashColorA = 0.7,
         },
         primary = {
             -- Off by default on WoW Forever (vanilla content), on everywhere else.
@@ -1242,12 +1237,6 @@ local DEFAULTS = {
             bandMode = "percent",
             bandReverse = false,
             bands = {},
-            -- User hash lines (opt-in). See health.hashEnabled for semantics.
-            hashEnabled = false,
-            hashValues  = "",
-            hashMode    = "percent",
-            hashWidth   = 1,
-            hashColorR  = 1, hashColorG = 1, hashColorB = 1, hashColorA = 0.7,
             expandIfNoResource = false,
             -- Shift elements anchored to the power bar when the spec has no primary
             -- power (e.g. BM/MM Hunter, Focus shows as class resource). "None"/"Up"/
@@ -3261,12 +3250,14 @@ end
 function ns.ApplyHashLines(sb, cfg, getMaxFn)
     if not sb then return end
     local tickCache = sb._userHashTicks
-    if not (cfg and cfg.hashEnabled) then
+    local ent = cfg and ResolveThresholdSpecEntry(cfg)
+    local hashStr = ent and ent.hashValues
+    if not hashStr or hashStr == "" then
         if tickCache then for i = 1, #tickCache do tickCache[i]:Hide() end end
         return
     end
     if not tickCache then tickCache = {}; sb._userHashTicks = tickCache end
-    local isPercent = (cfg.hashMode or "percent") == "percent"
+    local isPercent = (ent.hashMode or "percent") == "percent"
     local maxVal
     if isPercent then
         maxVal = 100
@@ -3289,8 +3280,8 @@ function ns.ApplyHashLines(sb, cfg, getMaxFn)
         hbs = EllesmereUI.BorderPx(cfg.borderSizePx, hbs, htex) or hbs
     end
     local vInset = hbs * ((PP and PP.mult) or 1)
-    ApplyResourceBarTicks(sb, maxVal, cfg.hashValues, tickCache,
-        cfg.hashWidth, cfg.hashColorR, cfg.hashColorG, cfg.hashColorB, cfg.hashColorA,
+    ApplyResourceBarTicks(sb, maxVal, hashStr, tickCache,
+        ent.hashWidth, ent.hashColorR, ent.hashColorG, ent.hashColorB, ent.hashColorA,
         isPercent, nil, vInset)
 end
 

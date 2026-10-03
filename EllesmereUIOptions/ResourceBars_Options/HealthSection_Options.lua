@@ -14,7 +14,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
     local env = ns._ERB_OptEnv
     local DB, PP, Refresh, SmoothRefresh = env.DB, env.PP, env.Refresh, env.SmoothRefresh
     local RefreshHealth, RebuildHealth, AddFormBarBtn, AddFormTextBtn = env.RefreshHealth, env.RebuildHealth, env.AddFormBarBtn, env.AddFormTextBtn
-    local AttachThresholdNotice, BuildHashCog, BuildThresholdSettingsButton = env.AttachThresholdNotice, env.BuildHashCog, env.BuildThresholdSettingsButton
+    local AttachThresholdNotice, BuildThresholdSettingsButton = env.AttachThresholdNotice, env.BuildThresholdSettingsButton
     local W = EllesmereUI.Widgets
     local _, h
     local function cfg() return ctx.cfg() end
@@ -749,7 +749,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         AddFormTextBtn(rgn, cogBtn, cfg, RefreshHealth)
     end
 
-    -- Row 5: Text Size | Threshold Settings
+    -- Row 5: Text Size | Threshold & Hash Lines
     local healthColorRow
     healthColorRow, h = W:DualRow(parent, y,
         { type = "slider", text = "Text Size", min = 8, max = 24, step = 1,
@@ -760,9 +760,9 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
               local c = cfg(); if not c then return end
               c.textSize = v; RefreshHealth()
           end },
-        { type = "label", text = "Threshold Settings" }
+        { type = "label", text = "Threshold & Hash Lines" }
     );  y = y - h
-    -- Threshold Settings popup: edits DB().health (multi-spec, with the spec dropdown).
+    -- Threshold & Hash Lines editor: edits the health bar config (multi-spec, with the spec dropdown).
 
     if not EllesmereUI._prebuilding then
     local _thrNoticeH   -- assigned below: the notice badge lives on the button itself
@@ -771,26 +771,18 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         getBarData = function() return cfg() end,
         noticeFn = function() if _thrNoticeH then _thrNoticeH() end end,
         singleSpec = ctx.advanced or nil,
+        specID = ctx.specID,
+        pageParent = parent, pageTopY = _advTop, pageBotY = function() return y end,
         refreshFn = function() RefreshHealth(); SmoothRefresh() end,
         rebuildFn = function() RebuildHealth() end,
         disabledFn = healthOff,
         disabledTip = "Health Bar",
-        showHash = false,
         showPartialCog = false,
         thresholdLabel = "Threshold %",
         threshMin = 1, threshMax = 99,
-        popupTitle = "Health Bar Threshold",
         defaultR = 1.0, defaultG = 0.2, defaultB = 0.2, defaultA = 1,
     })
     _thrNoticeH = AttachThresholdNotice(healthSettingsBtn, cfg, ctx.advanced and ctx.specID or nil)
-
-    BuildHashCog({
-        parentRgn = healthColorRow._rightRegion,
-        anchorTo = healthSettingsBtn,
-        getBarData = function() return DB().health end,
-        refreshFn = function() RebuildHealth() end,
-        popupTitle = EllesmereUI.L("Health Bar Hash Lines"),
-    })
     end
     -- Thresholds have their own per-spec system, so lock the slot during a Spec Overrides editing session.
     if EllesmereUI.SpecOverrides_AttachEditLock and not EllesmereUI._prebuilding then

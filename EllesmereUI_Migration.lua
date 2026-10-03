@@ -4081,6 +4081,55 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- Health/Power hash lines are per thresholdSpecs entry, like the Class Resource.
+-- A bar's single hash config is copied onto every existing entry (an entry
+-- shadows the All Specs one), plus an All Specs hash-only entry when none exists.
+EllesmereUI.RegisterMigration({
+    id          = "erb_hash_lines_per_spec_v1",
+    scope       = "profile",
+    description = "Move Health and Power bar hash lines into per-spec threshold entries.",
+    body        = function(ctx)
+        local erb = ctx.profile.addons and ctx.profile.addons.EllesmereUIResourceBars
+        if not erb then return end
+        local function MoveHash(sec)
+            if type(sec) ~= "table" then return end
+            local str = sec.hashValues
+            if sec.hashEnabled and type(str) == "string" and str ~= "" then
+                local function Stamp(e)
+                    e.hashValues = str
+                    e.hashMode   = sec.hashMode or "percent"
+                    e.hashWidth  = sec.hashWidth or 1
+                    e.hashColorR, e.hashColorG = sec.hashColorR or 1, sec.hashColorG or 1
+                    e.hashColorB, e.hashColorA = sec.hashColorB or 1, sec.hashColorA or 0.7
+                end
+                if type(sec.thresholdSpecs) ~= "table" then sec.thresholdSpecs = {} end
+                local hasAll = false
+                for _, list in ipairs({ sec.thresholdSpecs, sec._singleSpecsBackup or {}, sec._formSpecsBackup or {} }) do
+                    for _, e in ipairs(list) do
+                        if type(e) == "table" and e.hashValues == nil then
+                            Stamp(e)
+                            if list == sec.thresholdSpecs and type(e.specIDs) == "table" then
+                                for _, sid in ipairs(e.specIDs) do
+                                    if sid == 0 then hasAll = true end
+                                end
+                            end
+                        end
+                    end
+                end
+                if not hasAll and not sec.thresholdFormMode then
+                    local e = { specIDs = { 0 }, thresholdEnabled = false }
+                    Stamp(e)
+                    sec.thresholdSpecs[#sec.thresholdSpecs + 1] = e
+                end
+            end
+            sec.hashEnabled, sec.hashValues, sec.hashMode, sec.hashWidth = nil, nil, nil, nil
+            sec.hashColorR, sec.hashColorG, sec.hashColorB, sec.hashColorA = nil, nil, nil, nil
+        end
+        MoveHash(erb.health)
+        MoveHash(erb.primary)
+    end,
+})
+
 -- Merge Groups renders through one Blizzard flat SecureGroupHeader, whose column
 -- axis can only run perpendicular to Unit Growth -- a same-axis pair has no valid
 -- column direction, so the runtime silently substitutes one instead of honoring
