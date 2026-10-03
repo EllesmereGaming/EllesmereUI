@@ -6928,6 +6928,12 @@ end
 local function SyncEditModeIconCounts()
     if InCombatLockdown() then return end
     if not C_EditMode or not C_EditMode.GetLayouts or not C_EditMode.SaveLayouts then return end
+    -- A missing shared helper must not abort visual setup before proc-glow
+    -- events are registered. Skip the sync rather than save layouts without
+    -- the shared preset merge and restore tracking.
+    if type(EllesmereUI.EditModeOpen) ~= "function"
+       or type(EllesmereUI.EditModeLayoutsForSave) ~= "function"
+       or type(EllesmereUI.NoteEditModeSetting) ~= "function" then return end
 
     -- Never write while Blizzard's Edit Mode is open. The manager keeps its OWN copy of
     -- layoutInfo for the whole session and pushes that copy whole on Save, so a write from here

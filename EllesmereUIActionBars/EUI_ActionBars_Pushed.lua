@@ -33,6 +33,19 @@ local PUSHED_TYPES = {
     [6] = "none",    -- No pushed effect
 }
 
+-- Proc glows render on a separate frame at button level +10. A texture's
+-- OVERLAY sublevel cannot draw above that frame, so presses need their own
+-- host above the glow. Keep it parented to the button for visibility/alpha.
+local function PressHost(btn)
+    local fd = EFD(btn)
+    if not fd.pressHost then
+        fd.pressHost = CreateFrame("Frame", nil, btn)
+        fd.pressHost:SetAllPoints(btn)
+    end
+    fd.pressHost:SetFrameLevel(btn:GetFrameLevel() + 12)
+    return fd.pressHost
+end
+
 do
 local function _setupBorderEdges(btn, storeKey, driverTex)
     -- Edge state lives in EFD, never on the button table: StanceBar/PetBar
@@ -42,7 +55,8 @@ local function _setupBorderEdges(btn, storeKey, driverTex)
     if not edges then
         edges = {}
         for j = 1, 4 do
-            local t = btn:CreateTexture(nil, "OVERLAY", nil, 2)
+            local host = storeKey == "_pushedBorder" and PressHost(btn) or btn
+            local t = host:CreateTexture(nil, "OVERLAY", nil, 2)
             t:SetColorTexture(1, 1, 1, 1)
             t:Hide()
             edges[j] = t
@@ -163,7 +177,11 @@ ns._ixStyle = function(btn, fd, s)
         s.borderTextureShiftX, s.borderTextureShiftY, "actionbars",
         s.borderThickness or "thin", nil, px)
     local bd = EllesmereUI._bdBorderData[host]
-    if bd then bd:SetFrameLevel(ns._eabBorderLevel(btn, s.borderBehind, s.borderAboveEffects)) end
+    fd.ixBaseLevel = ns._eabBorderLevel(btn, s.borderBehind, s.borderAboveEffects)
+    if bd then
+        bd:SetFrameLevel(fd.ixPressed and fd.ixPush and math.max(fd.ixBaseLevel, btn:GetFrameLevel() + 12)
+            or fd.ixBaseLevel)
+    end
     fd.ixStyled = true
 end
 
@@ -177,6 +195,8 @@ ns._ixPaint = function(btn, fd)
     local bd = bdData[fd.ixHost]
     local c
     if bd then
+        bd:SetFrameLevel(fd.ixPressed and fd.ixPush and math.max(fd.ixBaseLevel or btn:GetFrameLevel(), btn:GetFrameLevel() + 12)
+            or (fd.ixBaseLevel or btn:GetFrameLevel()))
         if fd.ixPressed and fd.ixPush then
             c = ns._ixPushC
         elseif (fd.ixChecked and fd.ixCast) or (fd.ixOver and fd.ixHover) then
@@ -396,6 +416,7 @@ function EAB:ApplyPushedTextures()
                 if btn and btn.PushedTexture then
                     local masque = ns.MasqueOwnsBar(info.key) and abStyle == "eui"
                     local pushed = masque and ns.MasqueInteractionTexture(btn, "PushedTexture") or btn.PushedTexture
+                    pushed:SetParent(abStyle == "eui" and PressHost(btn) or btn)
                     if ns.MasqueOwnsBar(info.key) and abStyle ~= "eui" then
                         ns._hideBorderEdges(btn, "_pushedBorder")
                     elseif abStyle ~= "eui" then
