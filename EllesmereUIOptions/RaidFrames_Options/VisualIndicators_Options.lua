@@ -920,6 +920,31 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
           getValue=function() return SVal("topNameBarHeight", 20) end,
           setValue=function(v) SSet("topNameBarHeight", v) end });  y = y - h
 
+    if not TNBOff() and not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(row._rightRegion, {
+            disabled=function()
+                local key = SGet("borderTexture")
+                return TNBOff() or EllesmereUI.BlizzStyle.Get("raidframes")
+                    or (key ~= "pixels" and key ~= "pixels-textured")
+            end,
+            disabledTooltip=function() return TNBOff() and "Enable Top Name Bar" or "Pixels or Pixels Textured Border Style" end,
+            title="Top Name Bar Options",
+            rows={
+                { type="toggle", label="Divider",
+                  tooltip="Draw a separator matching the frame's Pixels style, size, color and transparency. Hidden below Height 4.",
+                  get=function() return SVal("topNameBarDivider", false) end,
+                  set=function(v) SSet("topNameBarDivider", v) end },
+                { type="toggle", label="Match Highlight Colors",
+                  tooltip="Divider follows the frame border's highlight colors and transparency, including hover and target. When off, it keeps the normal frame border color.",
+                  disabled=function() return not SVal("topNameBarDivider", false) end,
+                  disabledTooltip="Requires Divider.",
+                  rawTooltip=true,
+                  get=function() return SVal("topNameBarDividerMatchColor", false) end,
+                  set=function(v) SSet("topNameBarDividerMatchColor", v) end },
+            },
+        })
+    end
+
     if not TNBOff() then
     local tnbRow2
     tnbRow2, h = W:DualRow(parent, y,

@@ -426,7 +426,9 @@ local function PvAuraApply(frameIndex, auraType, slotIndex)
         bdrSz = s2.debuffBorderSize or 1
         bdrC = s2.debuffBorderColor or { r = 0, g = 0, b = 0 }
     end
-    if icon._borderFrame and PP and bdrSz > 0 then
+    if auraType ~= "def" then
+        ns.RFC_ApplyAuraBorderPreview(icon._borderFrame, s2, "debuff", icon, f)
+    elseif icon._borderFrame and PP and bdrSz > 0 then
         PP.UpdateBorder(icon._borderFrame, bdrSz, bdrC.r, bdrC.g, bdrC.b, 1)
         icon._borderFrame:Show()
     elseif icon._borderFrame then
@@ -609,14 +611,7 @@ local function PvAuraTick()
                             end
                         end
                     end
-                    local bdrSz = s2.debuffBorderSize or 1
-                    local bdrC = s2.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                    if icon._borderFrame and PP and bdrSz > 0 then
-                        PP.UpdateBorder(icon._borderFrame, bdrSz, bdrC.r, bdrC.g, bdrC.b, 1)
-                        icon._borderFrame:Show()
-                    elseif icon._borderFrame then
-                        icon._borderFrame:Hide()
-                    end
+                    ns.RFC_ApplyAuraBorderPreview(icon._borderFrame, s2, "debuff", icon, f)
                     icon:Show()
                     -- Re-pack all shown debuffs so slot 1 takes the first position
                     -- and any random slot-2+ debuff shifts right, rather than the
@@ -1006,8 +1001,6 @@ ns.RefreshPvAuraVisuals = function()
 
     local dbZ = s2.debuffIconZoom or 0.08
     local defZ = s2.defIconZoom or 0.08
-    local dbBdrSz = s2.debuffBorderSize or 1
-    local dbBdrC = s2.debuffBorderColor or { r = 0, g = 0, b = 0 }
     local dbShowSwipe = s2.debuffShowSwipe ~= false
     local dbShowDurText = s2.debuffShowDurText
     local dbDtC = s2.debuffDurTextColor or { r = 1, g = 1, b = 1 }
@@ -1033,14 +1026,7 @@ ns.RefreshPvAuraVisuals = function()
                 if ic:IsShown() then
                     ic:SetSize(s2.debuffSize or 18, s2.debuffSize or 18)
                     ic._tex:SetTexCoord(dbZ, 1 - dbZ, dbZ, 1 - dbZ)
-                    if ic._borderFrame and _PP then
-                        if dbBdrSz > 0 then
-                            _PP.UpdateBorder(ic._borderFrame, dbBdrSz, dbBdrC.r, dbBdrC.g, dbBdrC.b, 1)
-                            ic._borderFrame:Show()
-                        else
-                            ic._borderFrame:Hide()
-                        end
-                    end
+                    ns.RFC_ApplyAuraBorderPreview(ic._borderFrame, s2, "debuff", ic, f)
                     if ic._cooldown then
                         ic._cooldown:SetDrawSwipe(dbShowSwipe)
                         ic._cooldown:SetHideCountdownNumbers(not dbShowDurText)
@@ -1456,6 +1442,12 @@ local function CreatePreviewFrame(index, party)
         if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b) end
         bdrFrame._hlBorderSize = nil
         EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
+        if s.powerBorderMatchColor == true and f._powerBorder and f._powerBorder._powerArtMode == "divider" then
+            ns.RF_ColorPowerDivider(f._powerBorder, r, g, b, a)
+        end
+        if s.topNameBarDividerMatchColor == true and f._topNameBar and f._topNameBar._divider then
+            ns.RF_ColorPowerDivider(f._topNameBar._divider, r, g, b, a)
+        end
     end
     f._ApplyBorderColor = PvApplyBorderColor
 
@@ -1997,7 +1989,7 @@ local function ApplyPreviewData(f, index)
 
     -- Health bar height/anchor + Top Name Bar (helper re-anchors health top to
     -- -topBarH; the per-unit power block below re-sets only the height)
-    LayoutTopNameBar(s, h, powerH, f._health, f._topNameBar, f._topNameBarBg, f._topNameBarText, f._power)
+    LayoutTopNameBar(s, h, powerH, f._health, f._topNameBar, f._topNameBarBg, f._topNameBarText, f._power, true)
 
     -- Health bar
     if f._health then
@@ -2691,8 +2683,10 @@ local function ApplyPreviewData(f, index)
     -- the frame border below)
     if f._powerBorder and PP then
         if hidePower or f.stockDiv or f.kitG then
+            ns.RF_ClearPowerBorderArt(f._powerBorder)
             f._powerBorder:Hide()
-        else
+        elseif not ((s.powerBorderMatchFrame == true or f._powerBorder._powerArtKey)
+            and ns.RF_ApplyPowerBorderArt(f._powerBorder, s, true, true)) then
             local pbStyle = s.powerBorderStyle or "eui"
             if pbStyle == "eui" then
                 PP.UpdateBorder(f._powerBorder, 1, 1, 1, 1, 0.2)
@@ -2932,19 +2926,9 @@ local function ApplyPreviewData(f, index)
             end
 
             -- Border (dispel-type colored)
-            local dbBdrSz = s.debuffBorderSize or 1
-            if ddi._borderFrame and PP and dbBdrSz > 0 then
-                local dc = GetDispelColor(dispelType, s)
-                if dc then
-                    PP.UpdateBorder(ddi._borderFrame, dbBdrSz, dc.r, dc.g, dc.b, 1)
-                else
-                    local bc = s.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                    PP.UpdateBorder(ddi._borderFrame, dbBdrSz, bc.r, bc.g, bc.b, 1)
-                end
-                ddi._borderFrame:Show()
-            elseif ddi._borderFrame then
-                ddi._borderFrame:Hide()
-            end
+            local dc = GetDispelColor(dispelType, s)
+            ns.RFC_ApplyAuraBorderPreview(ddi._borderFrame, s, "debuff", ddi, f,
+                dc and dc.r, dc and dc.g, dc and dc.b, dc and 1)
 
             if ddi._cooldown then ddi._cooldown:Hide() end
             if ddi._count then ddi._count:SetText("") end
@@ -3353,7 +3337,7 @@ local function ApplyPreviewData(f, index)
                 local rc = f._roleIcon:GetParent()
                 if rc then
                     rc:SetFrameLevel(f:GetFrameLevel()
-                        + (s.roleIconBehindBorder and (ns.LVL_RAISE - 1) or (ns.LVL_AURA - 1)))
+                        + (s.roleIconBehindBorder and 7 or (ns.LVL_AURA - 1)))
                 end
                 f._roleIcon:ClearAllPoints()
                 local pos = (s.roleIconPosition or "bottomleft"):upper()

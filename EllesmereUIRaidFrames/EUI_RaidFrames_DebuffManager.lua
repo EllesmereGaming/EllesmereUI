@@ -531,6 +531,12 @@ end
 local TILE_STYLE_KEYS = {
     iconZoom = "debuffIconZoom",
     borderSize = "debuffBorderSize", borderColor = "debuffBorderColor",
+    borderTexture = "debuffBorderTexture", borderSizePx = "debuffBorderSizePx",
+    borderAlpha = "debuffBorderAlpha",
+    borderTextureOffset = "debuffBorderTextureOffset", borderTextureOffsetY = "debuffBorderTextureOffsetY",
+    borderTextureShiftX = "debuffBorderTextureShiftX", borderTextureShiftY = "debuffBorderTextureShiftY",
+    borderBehind = "debuffBorderBehind", borderBehindUnitFrame = "debuffBorderBehindUnitFrame",
+    borderDispelTextured = "debuffBorderDispelTextured",
     showSwipe = "debuffShowSwipe", showDurText = "debuffShowDurText",
     durTextColor = "debuffDurTextColor", durTextSize = "debuffDurTextSize",
     durTextOffsetX = "debuffDurTextOffsetX", durTextOffsetY = "debuffDurTextOffsetY",
