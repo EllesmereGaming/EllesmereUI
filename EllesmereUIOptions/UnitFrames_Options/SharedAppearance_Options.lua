@@ -375,6 +375,20 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 EllesmereUI.BlizzStyle.Gate("unitframes", ocfgR));  y = y - h
         end
     end
+    -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
+    -- border size control.
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(sharedScaleBorderRow._rightRegion, {
+            title = "Corner Radius", tip = "Corner Radius",
+            disabled = function() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end,
+            disabledTooltip = "This option requires the Solid, Glow or Shadow border style.",
+            rows = {
+                { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                  get = function() return SVal("cornerRadius", 0) end,
+                  set = function(v) SSet("cornerRadius", v) end },
+            },
+        })
+    end
     -- Inline cog for border shift / layering (left region)
     if not EllesmereUI._prebuilding then
         local rgn = sharedScaleBorderRow._leftRegion

@@ -304,6 +304,20 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
               setPx = function(v) local c = cfg(); if c then c.borderSizePx = v end end,
               apply = function() RebuildHealth(); EllesmereUI:RefreshPage() end,
             })));  y = y - h
+        -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
+        -- border size control.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(hpBsRow._rightRegion, {
+                title = "Corner Radius", tip = "Corner Radius",
+                disabled = function() if healthOff() then return true end; local c = cfg(); return not EllesmereUI.RoundedStyleOK(c and c.borderTexture) end,
+                disabledTooltip = function() if healthOff() then return "Health Bar" end; return "This option requires the Solid, Glow or Shadow border style." end,
+                rows = {
+                    { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                      get = function() local c = cfg(); return c and c.cornerRadius or 0 end,
+                      set = function(v) local c = cfg(); if not c then return end; c.cornerRadius = v; RebuildHealth() end },
+                },
+            })
+        end
         -- Width Offset | Height Offset: the textured border's outward offsets get their own row while a
         -- textured style is selected (the stock styles gate it away exactly like the row above).
         do

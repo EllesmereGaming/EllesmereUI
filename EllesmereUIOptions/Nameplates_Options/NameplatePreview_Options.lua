@@ -1094,6 +1094,29 @@ local function BuildNameplatePreview(parent, parentW)
                 for _, e in ipairs(_solidEdges) do e:Hide() end
             end
         end
+        -- Rounded corners, as on a live plate. The image border cannot round,
+        -- so a rounded Basic border draws as a Solid one on the custom border
+        -- frame (the live plate's Basic border is that same Solid border).
+        do
+            local radius = (not EllesmereUI.BlizzStyle.Get("nameplates") and DBVal("cornerRadius")) or 0
+            if radius > 0 and not customOn and pcb and simpleBorderFrame:IsShown() then
+                local bc = (DB() and DB().borderColor) or defaults.borderColor
+                simpleBorderFrame:Hide()
+                for _, e in ipairs(_solidEdges) do e:Hide() end
+                pcb:Show()
+                EllesmereUI.ApplyBorderStyle(pcb, DBVal("borderSize") or defaults.borderSize,
+                    bc.r, bc.g, bc.b, 1, "solid")
+            end
+            EllesmereUI.RoundCorners(pf, radius, {
+                roots = {}, rect = health, border = pcb,
+                style = customOn and (DBVal("customBorderTexture") or defaults.customBorderTexture) or "solid",
+                textures = { health:GetStatusBarTexture(), healthBG },
+            })
+            EllesmereUI.RoundCorners(cast, radius, {
+                roots = {}, border = cast,
+                textures = { cast:GetStatusBarTexture(), castBG },
+            })
+        end
 
         -- Refresh all 1px AddBorder edges (cast icon, aura icons)
         for _, refreshFn in ipairs(_borderRefreshers) do refreshFn() end

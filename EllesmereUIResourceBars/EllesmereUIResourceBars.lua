@@ -3308,6 +3308,41 @@ local function EnsureIronfurOverlay(sb)
 end
 
 -- BuildBars -- applies per-element scale, border, colors, text positioning
+-- Rounded corners (EllesmereUI_RoundedCorners.lua; nothing at radius 0 or
+-- under the stock styles, which shape the bars with their own masks).
+-- Health / power: the outer frame is the shape, the clipping inner bar the body.
+function ns.ERB_RoundBar(bar, cfg)
+    if not bar then return end
+    local radius = (not ns.ERB_BarsBlizz() and cfg.cornerRadius) or 0
+    EllesmereUI.RoundCorners(bar, radius, {
+        roots = { bar._sb }, clip = bar._sb,
+        border = bar._border and bar._border._frame, style = cfg.borderTexture or "solid",
+    })
+end
+-- Class resource: the whole row rounds its outline; with Border on Pips each
+-- pip (or rune) also rounds inside its own border.
+function ns.ERB_RoundSecondary(sp, isBarType)
+    local radius = (not ns.ERB_BarsBlizz() and sp.cornerRadius) or 0
+    local style = sp.borderTexture or "solid"
+    local onPips = sp.borderOnPips and not isBarType
+    local rowBorder = secondaryFrame._barBorder
+    EllesmereUI.RoundCorners(secondaryFrame, radius, {
+        roots = { secondaryFrame }, style = style,
+        border = not onPips and rowBorder and rowBorder._frame or nil,
+        clip = isBarType and secondaryBar and secondaryBar._sb or nil,
+    })
+    local pipRadius = onPips and radius or 0
+    for _, list in ipairs({ pips, runeFrames }) do
+        for i = 1, #list do
+            local pip = list[i]
+            EllesmereUI.RoundCorners(pip, pipRadius, {
+                roots = { pip }, style = style,
+                border = pip._border and pip._border._frame,
+            })
+        end
+    end
+end
+
 local function BuildBars()
     -- Frames are being recreated, so every value/config cache keyed on the previous
     -- ones is stale. Bumping the generation invalidates them all at once; without
@@ -3441,6 +3476,9 @@ local function BuildBars()
         -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color).
         -- "Choose texture per bar" (splitTex) gives health its own key; nil follows the main row.
         ApplyBarTexture(healthBar, (p.splitTex == true and hp.barTexture) or g.barTexture or "none")
+        -- Rounded corners (EllesmereUI_RoundedCorners.lua), after the retexture:
+        -- nothing at radius 0 or under the stock styles.
+        ns.ERB_RoundBar(healthBar, hp)
 
         -- Colors: custom colored > class color. Gradient is additive: when enabled
         -- it fills from the resolved custom/class base to the gradient end color.
@@ -3627,6 +3665,7 @@ local function BuildBars()
         -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color).
         -- Same per-bar rule as health: power's own key only while splitTex is on.
         ApplyBarTexture(primaryBar, (p.splitTex == true and pp.barTexture) or g.barTexture or "none")
+        ns.ERB_RoundBar(primaryBar, pp)
 
         -- Colors: custom colored > power type color. Gradient is additive: when on
         -- it fills from the resolved custom/power base to the gradient end color.
@@ -4248,6 +4287,7 @@ local function BuildBars()
         else
             secondaryFrame._barBg:SetColorTexture(sp.barBgR or 0, sp.barBgG or 0, sp.barBgB or 0, sp.barBgA or 0.5)
         end
+        ns.ERB_RoundSecondary(sp, isBarType)
 
         if sp.showText then
             if not secondaryFrame._countText then

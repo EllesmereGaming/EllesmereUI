@@ -73,6 +73,7 @@ EUI_UnlockMode_Tools.lua
 EUI_UnlockMode_Movers.lua
 EUI_UnlockMode_Session.lua
 EllesmereUI_Glows.lua
+EllesmereUI_RoundedCorners.lua
 EllesmereUI_ClassicArt.lua
 EllesmereUI_Range.lua
 EllesmereUI_AuraKit.lua

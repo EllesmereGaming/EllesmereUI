@@ -13110,6 +13110,43 @@ ReloadFramesBody = function()
     -- the geometry the sweep just settled (returns at once everywhere else).
     ns.UF_ApplyForeverComboArc()
 
+    -- Rounded corners (EllesmereUI_RoundedCorners.lua), on the settled
+    -- geometry. The radius rides with the border source, like the border; a
+    -- detached power bar rounds on its own with the same radius.
+    for unit, frame in pairs(frames) do
+        if type(unit) == "string" and type(frame) == "table" and frame.unifiedBorder then
+            local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget")
+            local isBoss = unit:match("^boss%d$") and true or false
+            local src = isBoss and ns.UF_BossBorderSettings()
+                or (isMini and GetMiniDonorSettings(unit)) or GetSettingsForUnit(unit)
+            local us = GetSettingsForUnit(unit)
+            local radius = (not frame._blizzArtFrame and src and src.cornerRadius) or 0
+            local ps = us and us.portraitStyle or profile.portraitStyle or "attached"
+            local attached = ps == "attached" or ((isMini or isBoss) and ps == "detached")
+            local portrait = frame.Portrait and frame.Portrait.backdrop
+            local btb = frame.BottomTextBar
+            EllesmereUI.RoundCorners(frame, radius, {
+                roots = {
+                    frame._barClip,
+                    attached and portrait and portrait:IsShown() and portrait or nil,
+                    btb and not btb._isDetached and btb or nil,
+                },
+                border = frame.unifiedBorder,
+                clip = frame._barClip,
+                style = src and src.borderTexture or "solid",
+            })
+            local power = frame.Power
+            if power then
+                local pp = us and us.powerPosition or "below"
+                local det = pp == "detached_top" or pp == "detached_bottom"
+                EllesmereUI.RoundCorners(power, det and radius or 0, {
+                    roots = { power }, border = power._pbBorder,
+                    style = us.powerBorderStyle or "solid",
+                })
+            end
+        end
+    end
+
     -- Player Aura Bars resolve font path and outline flag at style-build time; every
     -- settings path landing here (fonts, profiles, options) forces one explicit
     -- re-skin of the default and custom bars, both change-guarded no-ops when nothing changed.
