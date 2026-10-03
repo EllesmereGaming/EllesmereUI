@@ -4435,11 +4435,14 @@ local function BuildBars()
     -- restyled after every Power Bar build; nil on every other client/class.
     if ns.FDM_Apply then ns.FDM_Apply(primaryBar, pp, g) end
 
-    -- NB: the player's bottom-anchored auras reserve this stack, but that re-anchor
-    -- is driven from UnitFrames' OWN event watcher (owner context) -- NOT poked from
-    -- here. Pushing it cross-addon runs tainted by Resource Bars, and the player
-    -- frame's geometry then reads as a secret value (WoW 12.0), so the reserve would
-    -- bail. See the footprint watcher in EUI_UnitFrames_AuraContainers.lua.
+    -- The stack layout just settled (this is the convergence point for build / spec /
+    -- form / expand / shift / options). Tell the unit frame to re-anchor its player
+    -- auras to the new footprint. This only ARMS a one-shot throttle on the UnitFrames
+    -- side -- no geometry is read here -- so nothing runs in Resource Bars' tainted
+    -- context; the throttle's OnUpdate reads the player frame next frame in UnitFrames'
+    -- OWN (owner) context, where it is not a secret value. No-op when the player does
+    -- not bottom-anchor auras (gated on the UnitFrames side).
+    if EllesmereUI.UF_RequestResourceReanchor then EllesmereUI.UF_RequestResourceReanchor() end
 end
 
 
