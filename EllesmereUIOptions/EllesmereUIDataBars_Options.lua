@@ -68,17 +68,18 @@ initFrame:SetScript("OnEvent", function(self)
     local TYPE_LABEL = {}
     for _, t in ipairs(ns.BLOCK_TYPES) do TYPE_LABEL[t.key] = t.label end
 
-    -- A saved block whose type registers no factory on WoW Forever (crests,
-    -- spec, great vault) shows only its empty slot there. The live bar
+    -- A saved block whose type registers no factory on this client (crests,
+    -- spec, great vault on WoW Forever; supplies on Midnight) builds no slot
+    -- there. The live bar
     -- measures it at zero, so it collapses out of the solve, except in a role:
     -- as the bar's Fill Remaining block it still takes the leftover span, and
     -- as its Force Centered block it still splits the bar at the center (the
     -- toggles on any shown block move either role). The page mirrors the live
     -- bar: no preview segment and no settings section. The entry stays in the
     -- bar's saved list untouched, so the profile still carries it back to
-    -- retail.
+    -- the other client.
     local function BlockHidden(b)
-        return EllesmereUI.IS_FOREVER and not ns.BlockFactories[b.type]
+        return not ns.BlockFactories[b.type]
     end
 
     -- Typical content extents (real-bar px) for auto-fit blocks that have no
@@ -87,7 +88,7 @@ initFrame:SetScript("OnEvent", function(self)
         clock = 150, fps = 70, ms = 70, gold = 150, xprep = 140, spec = 130,
         profession = 120, travel = 40, micromenu = 340, currency = 90, spacer = 40,
         durability = 70, combat = 105, profession2 = 120, greatvault = 100,
-        location = 140, coords = 70, crests = 160, ilvl = 70,
+        location = 140, coords = 70, crests = 160, ilvl = 70, supplies = 70,
         bags = 50,
     }
 
@@ -2162,7 +2163,13 @@ initFrame:SetScript("OnEvent", function(self)
                           if a == nil then a = "CENTER" end
                           return a
                       end,
-                      setValue = function(v) b.align = v; Apply() end }
+                      setValue = function(v)
+                          b.align = v
+                          -- XP / Rep: a picked alignment also places the bar's
+                          -- label (unset keeps the label left, as it always was).
+                          if b.type == "xprep" then b.labelAlign = v end
+                          Apply()
+                      end }
                 end
                 local alignRow
                 alignRow, h = W:DualRow(parent, y,
@@ -2503,7 +2510,7 @@ initFrame:SetScript("OnEvent", function(self)
                 profession = true, profession2 = true, currency = true,
                 greatvault = true, audio = true, location = true, coords = true,
                 ilvl = true, bags = true,
-                ldb = true,
+                ldb = true, supplies = true,
             }
             if ICON_COLOR_BLOCKS[b.type] then
                 local function IconFlagsOff()
@@ -2516,7 +2523,7 @@ initFrame:SetScript("OnEvent", function(self)
                       getValue = function()
                           local c = b.iconColor
                           if c then return c.r or 1, c.g or 1, c.b or 1 end
-                          return ns.BlockIconDefault(b.type)
+                          return ns.BlockIconDefault(b.type, s)
                       end,
                       setValue = function(r, g, bl)
                           b.iconColor = { r = r, g = g, b = bl }
@@ -2534,7 +2541,7 @@ initFrame:SetScript("OnEvent", function(self)
                               b.useIconAccentColor = nil
                               b.useIconDefaultColor = nil
                               if b.iconColor == nil then
-                                  local dr, dg2, db2 = ns.BlockIconDefault(b.type)
+                                  local dr, dg2, db2 = ns.BlockIconDefault(b.type, s)
                                   b.iconColor = { r = dr, g = dg2, b = db2 }
                               end
                               ApplyBlockColor(); EllesmereUI:RefreshPage()
@@ -2572,7 +2579,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       refreshAlpha = function() return b.useIconAccentColor and 1 or 0.3 end },
                     { tooltip = "Default", hasAlpha = false,
-                      getValue = function() return ns.BlockIconDefault(b.type) end,
+                      getValue = function() return ns.BlockIconDefault(b.type, s) end,
                       setValue = function() end,
                       onClick = function()
                           -- Mode switch only -- the stored custom color stays
@@ -2592,7 +2599,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- lowest durability); same mode semantics, clearer name.
                     iconColorCfg.swatches[4].tooltip = "Dynamic"
                 end
-                if b.type == "spec" then
+                if b.type == "spec" and s.iconStyle ~= "wow" then
                     -- Spec defaults to CLASS color: no Default swatch; the Class swatch
                     -- reads as selected in the nothing-stored state, and a legacy
                     -- stored Default-mode flag (from when the swatch existed) lights it
@@ -2603,7 +2610,7 @@ initFrame:SetScript("OnEvent", function(self)
                         return (IconFlagsOff() and b.iconColor == nil) and 1 or 0.3
                     end
                 end
-                if b.type == "profession" or b.type == "profession2" then
+                if (b.type == "profession" or b.type == "profession2") and s.iconStyle ~= "wow" then
                     -- Professions default to ACCENT (matches the skill-bar
                     -- fill), so they carry no Default swatch -- and Accent
                     -- reads as selected in the nothing-stored state too.
@@ -2660,7 +2667,9 @@ initFrame:SetScript("OnEvent", function(self)
                           Apply()
                       end }
                 end
-                if b.type == "location" then
+                if b.type == "supplies" then
+                    iconRowRight = MkToggleOn("Show Icon", "showIcon")
+                elseif b.type == "location" then
                     iconRowRight = MkToggleOn("Show Icon", "showIcon",
                         "Shows the map pin next to the zone name.")
                 elseif b.type == "coords" then
@@ -2903,8 +2912,27 @@ initFrame:SetScript("OnEvent", function(self)
                     typeRows[#typeRows + 1] = MkToggle("Force English Units (K/M/B)", "forceEnglishUnits",
                         "Always use K/M/B instead of localized units.")
                 end
+            elseif b.type == "profession" or b.type == "profession2" then
+                typeRows = {
+                    { type = "dropdown", text = "Text Display",
+                      values = { name = "Name and Bar", values = "Values" },
+                      order = { "name", "values" },
+                      getValue = function() return s.textDisplay or "name" end,
+                      setValue = function(v) s.textDisplay = v; Apply() end },
+                }
             elseif b.type == "xprep" then
                 typeRows = {
+                    { type = "dropdown", text = "Text Display",
+                      values = { off = "Off", values = "Values", percentage = "Percentage" },
+                      order = { "off", "values", "percentage" },
+                      getValue = function() return ns.GetXPRepTextDisplay(s) end,
+                      setValue = function(v) s.textDisplay = v; Apply() end },
+                    { type = "dropdown", text = "Text Format",
+                      values = { context = "With Level / Faction", plain = "Value Only" },
+                      order = { "context", "plain" },
+                      getValue = function() return s.textFormat or "context" end,
+                      setValue = function(v) s.textFormat = v; Apply() end,
+                      disabled = function() return ns.GetXPRepTextDisplay(s) == "off" end },
                     { type = "dropdown", text = "Mode",
                       tooltip = "Automatic shows XP while leveling and reputation at max level.",
                       values = { auto = "Automatic", xp = "Experience", rep = "Reputation" },
@@ -3019,10 +3047,16 @@ initFrame:SetScript("OnEvent", function(self)
                           return v
                       end,
                       setValue = function(v) s.iconSpacing = v; Apply() end },
-                    MkToggle("Character Stats Tooltip", "charStatsTooltip", "Shows item level and secondary stats in the Character button's tooltip."),
-                    MkToggle("Social & Guild Tooltip", "socialTooltip", "Shows a clickable list of online friends and guildmates in the Social and Guild button tooltips."),
                     -- Individual button toggles live in the "Menu Elements"
                     -- checklist dropdown appended after the shared row loop.
+                }
+            elseif b.type == "supplies" then
+                typeRows = {
+                    { type = "dropdown", text = "Visible Items",
+                      values = { __placeholder = "..." }, order = { "__placeholder" },
+                      getValue = function() return "__placeholder" end,
+                      setValue = function() end },
+                    MkToggle("Show Label", "showLabel"),
                 }
             elseif b.type == "currency" then
                 local cValues, cOrder = ns.BuildCurrencyList()
@@ -3182,10 +3216,53 @@ initFrame:SetScript("OnEvent", function(self)
             local goldTipRow
             local crestListRow
             local bagsLowRow
+            -- Icon Style: a plain dropdown, as on the Damage Meters page. It
+            -- fills the next free type-row slot; micromenu puts it beside
+            -- Menu Elements instead. The page refresh re-evaluates the
+            -- style-dependent swatches.
+            local iconStyleCfg
+            if ns.BlockHasIconStyle(b.type) then
+                iconStyleCfg = { type = "dropdown", text = "Icon Style",
+                    values = { custom = "Custom", wow = "Blizzard" },
+                    order = { "custom", "wow" },
+                    -- Item Level shows its icon only as the "Icon" prefix.
+                    disabled = function()
+                        if b.type == "ilvl" then return s.prefix ~= "icon" end
+                        if b.type == "gold" then return s.showIcons == false end
+                        return s.showIcon == false
+                    end,
+                    disabledTooltip = b.type == "ilvl" and "Prefix: Icon" or "Show Icon",
+                    getValue = function() return s.iconStyle or "custom" end,
+                    setValue = function(v)
+                        s.iconStyle = v
+                        Apply()
+                        -- Rebuild: the icon color swatches depend on the style.
+                        EllesmereUI:RefreshPage(true)
+                    end }
+                if b.type ~= "micromenu" then typeRows[#typeRows + 1] = iconStyleCfg end
+            end
             for k = 1, #typeRows, 2 do
                 local rightCfg = typeRows[k + 1]
                 if not rightCfg then rightCfg = { type = "label", text = "" } end
                 row, h = W:DualRow(parent, y, typeRows[k], rightCfg);  y = y - h
+                if b.type == "supplies" and k == 1 and not EllesmereUI._prebuilding then
+                    local region = row._leftRegion
+                    if region._control then region._control:Hide() end
+                    local dropdown, refresh = EllesmereUI.BuildVisOptsCBDropdown(
+                        region, 210, region:GetFrameLevel() + 2, ns.ClassResourceChoices,
+                        function(key) return ns.ClassResourceShown(s, key) end,
+                        function(key, value)
+                            s.hiddenItems = s.hiddenItems or {}
+                            s.hiddenItems[key] = not value
+                            Apply()
+                        end, nil, 10, true)
+                    PP.Point(dropdown, "RIGHT", region, "RIGHT", -20, 0)
+                    region._control = dropdown
+                    region._lastInline = nil
+                    if refresh then EllesmereUI.RegisterWidgetRefresh(refresh) end
+                    parent._edbClickTargets["block:" .. blockId .. ":resources"] =
+                        { section = secHdr, target = row, slotSide = "left" }
+                end
                 -- Latency: the Show Icon toggle rides this row's right slot and
                 -- carries the inline icon-color swatches built after the loop.
                 if b.type == "ms" and k == 1 then msIconRow = row end
@@ -3464,11 +3541,14 @@ initFrame:SetScript("OnEvent", function(self)
                     { key = "shop",    label = "Shop" },
                     { key = "help",    label = "Help" },
                 }
-                -- WoW Forever has a separate Talents button, right after the Spellbook.
+                -- WoW Forever has separate Talents, Professions and Legacy
+                -- buttons, right after the Spellbook.
                 if EllesmereUI.IS_FOREVER then
                     for i, el in ipairs(MM_ELEMENTS) do
                         if el.key == "spell" then
                             table.insert(MM_ELEMENTS, i + 1, { key = "talent", label = "Talents" })
+                            table.insert(MM_ELEMENTS, i + 2, { key = "profession", label = "Professions" })
+                            table.insert(MM_ELEMENTS, i + 3, { key = "legacy", label = "Legacy" })
                             break
                         end
                     end
@@ -3476,24 +3556,31 @@ initFrame:SetScript("OnEvent", function(self)
                 local mmRow
                 mmRow, h = W:DualRow(parent, y,
                     { type = "dropdown", text = "Menu Elements",
-                      tooltip = "Which micro menu buttons this block shows.",
+                      tooltip = "Which micro menu buttons this block shows, and their order.",
                       values = { __placeholder = "..." }, order = { "__placeholder" },
                       getValue = function() return "__placeholder" end,
                       setValue = function() end },
-                    { type = "label", text = "" });  y = y - h
+                    iconStyleCfg or EllesmereUI.BlankRowCfg());  y = y - h
                 do
                     local leftRgn = mmRow._leftRegion
                     if leftRgn._control then leftRgn._control:Hide() end
-                    local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    -- Rows follow the block's saved button order.
+                    local labels, items = {}, {}
+                    for _, el in ipairs(MM_ELEMENTS) do labels[el.key] = el.label end
+                    for _, key in ipairs(ns.GetMicroMenuOrder(s, {})) do
+                        if labels[key] then items[#items + 1] = { key = key, label = labels[key] } end
+                    end
+                    local cbDD, cbDDRefresh = EllesmereUI.BuildReorderCBDropdown(
                         leftRgn, 210, leftRgn:GetFrameLevel() + 2,
-                        MM_ELEMENTS,
+                        items,
                         function(k)
-                            return s[k] ~= false
+                            return ns.MicroMenuButtonOn(s, k)
                         end,
                         function(k, v)
                             if v then s[k] = true else s[k] = false end
                             Apply()
-                        end)
+                        end,
+                        { setOrder = function(keys) ns.SetMicroMenuOrder(s, keys); Apply() end })
                     PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
                     leftRgn._control = cbDD
                     leftRgn._lastInline = nil

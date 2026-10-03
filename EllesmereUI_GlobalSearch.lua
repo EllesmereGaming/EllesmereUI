@@ -10,6 +10,25 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  of the addon with no other changes required.
 -------------------------------------------------------------------------------
 
+-- The module registry is the core's private one (EllesmereUI.lua), shared
+-- through this addon's namespace. It holds suite modules and plugin modules.
+local _, ns = ...
+ns = ns.__euiCoreNS or ns  -- standalone builds: the core's own table (EllesmereUI.lua)
+
+-- Breadcrumb separator: the house right-arrow glyph rendered inline in the
+-- sub text (module -> page), sized to sit with the 10pt breadcrumb font.
+local BREADCRUMB_ARROW = " |TInterface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-right.png:12:12|t "
+
+-- Display name of a registered module. Plugin modules read as
+-- "Section > Module" so results name the plugin they belong to.
+local function ModuleLabel(config, folder)
+    local title = EllesmereUI.L(config.title or folder)
+    if config._pluginLabel then
+        return EllesmereUI.L(config._pluginLabel) .. BREADCRUMB_ARROW .. title, config._pluginLabel .. " " .. title
+    end
+    return title, title
+end
+
 -------------------------------------------------------------------------------
 --  Index storage
 -------------------------------------------------------------------------------
@@ -151,18 +170,19 @@ local _coarseCandidates
 
 local function BuildCoarseCandidates()
     _coarseCandidates = {}
-    for folder, config in pairs(EllesmereUI._modules or {}) do
+    for folder, config in pairs(ns.modules or {}) do
         if config.pages then
-            local moduleLabel = EllesmereUI.L(config.title or folder)
+            -- moduleText is the plain-text form used in the haystack.
+            local moduleLabel, moduleText = ModuleLabel(config, folder)
             for _, page in ipairs(config.pages) do
                 local pageLabel = EllesmereUI.L(page)
                 _coarseCandidates[#_coarseCandidates + 1] = {
                     kind = "page",
                     -- Combined haystack so a query spanning both module and page words
                     -- (e.g. "damage spell") still matches, not just one half of it.
-                    label = moduleLabel .. " " .. pageLabel,
-                    lLabel = (moduleLabel .. " " .. pageLabel):lower(),
-                    nLabel = ((moduleLabel .. pageLabel):lower():gsub(" ", "")),
+                    label = moduleText .. " " .. pageLabel,
+                    lLabel = (moduleText .. " " .. pageLabel):lower(),
+                    nLabel = ((moduleText .. pageLabel):lower():gsub(" ", "")),
                     displayLabel = pageLabel,
                     moduleLabel = moduleLabel,
                     module = folder,
@@ -193,12 +213,14 @@ local function BuildModuleAliases()
         seen[key] = true
         _moduleAliases[#_moduleAliases + 1] = { alias = alias, folder = folder }
     end
-    for folder, config in pairs(EllesmereUI._modules or {}) do
+    for folder, config in pairs(ns.modules or {}) do
         Add(config.title and EllesmereUI.L(config.title), folder)
+        -- A plugin's section label filters to all of that plugin's modules.
+        if config._pluginLabel then Add(EllesmereUI.L(config._pluginLabel), folder) end
     end
     if EllesmereUI.ADDON_ROSTER then
         for _, entry in ipairs(EllesmereUI.ADDON_ROSTER) do
-            if EllesmereUI._modules and EllesmereUI._modules[entry.folder] then
+            if ns.modules and ns.modules[entry.folder] then
                 Add(entry.display and EllesmereUI.L(entry.display), entry.folder)
             end
         end
@@ -212,7 +234,7 @@ local function BuildModuleAliases()
         EllesmereUIQuickdraw       = { "radial", "wheel", "ring menu", "palette", "grid", "arc", "fan", "action wheel", "action palette", "action menu" },
     }
     for folder, list in pairs(EXTRA_ALIASES) do
-        if EllesmereUI._modules and EllesmereUI._modules[folder] then
+        if ns.modules and ns.modules[folder] then
             for _, a in ipairs(list) do Add(a, folder) end
         end
     end
@@ -299,7 +321,11 @@ local function SearchIndex(query, maxResults)
             local beforeOk = s == 1 or needle:sub(s - 1, s - 1) == " "
             local afterOk = e == #needle or needle:sub(e + 1, e + 1) == " "
             if beforeOk and afterOk then
-                filterSet = { [m.folder] = true }
+                -- Several modules can share one alias (a plugin section label).
+                filterSet = {}
+                for _, other in ipairs(_moduleAliases) do
+                    if other.alias == a then filterSet[other.folder] = true end
+                end
                 subNeedle = (needle:sub(1, s - 1) .. " " .. needle:sub(e + 1))
                     :gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
                 break
@@ -708,7 +734,7 @@ local function PrebuildJob(job)
     -- restore still runs: the live visit happened at whatever selection the player made
     -- themselves, but an EARLIER variant job may have left the module's selector moved.
     local cacheKey = job.folder .. "::" .. job.page
-    if not (EllesmereUI._pageCache and EllesmereUI._pageCache[cacheKey]) then
+    if not (ns.pageCache and ns.pageCache[cacheKey]) then
         local savedMethods = {}
         for _, name in ipairs(_CONTENT_HEADER_METHODS) do
             savedMethods[name] = EllesmereUI[name]
@@ -740,8 +766,10 @@ local function RunPrebuildPass(onComplete)
     _prebuildDone = true
 
     local jobs = {}
-    for folder, config in pairs(EllesmereUI._modules or {}) do
-        if config.pages then
+    for folder, config in pairs(ns.modules or {}) do
+        -- Plugins can opt a module out of the hidden pass (searchPrebuild =
+        -- false); its pages are then indexed by live navigation only.
+        if config.pages and config._searchPrebuild ~= false then
             for _, page in ipairs(config.pages) do
                 -- Already indexed by live navigation -- skip it. Rebuilding it
                 -- hidden would be redundant, and would also reassign whatever
@@ -749,7 +777,7 @@ local function RunPrebuildPass(onComplete)
                 -- buildPage captures to hidden-build versions that a later
                 -- cache-restore could pick up instead of the live ones.
                 local cacheKey = folder .. "::" .. page
-                if not (EllesmereUI._pageCache and EllesmereUI._pageCache[cacheKey]) then
+                if not (ns.pageCache and ns.pageCache[cacheKey]) then
                     -- Selector-driven pages (CDM bar / unit dropdowns) expand to one
                     -- job PER variant so each tick stays one build; the last variant
                     -- job carries the restore of the player's own selection.
@@ -824,8 +852,8 @@ local RESULT_ROW_GAP = 4   -- breathing room between result rows
 local MAX_VISIBLE_RESULTS = 12
 
 local function GetModuleDisplayName(folder)
-    local config = EllesmereUI._modules and EllesmereUI._modules[folder]
-    if config and config.title then return EllesmereUI.L(config.title) end
+    local config = ns.modules and ns.modules[folder]
+    if config and config.title then return (ModuleLabel(config, folder)) end
     if EllesmereUI.ADDON_ROSTER then
         for _, entry in ipairs(EllesmereUI.ADDON_ROSTER) do
             if entry.folder == folder then return EllesmereUI.L(entry.display) end
@@ -833,10 +861,6 @@ local function GetModuleDisplayName(folder)
     end
     return folder
 end
-
--- Breadcrumb separator: the house right-arrow glyph rendered inline in the
--- sub text (module -> page), sized to sit with the 10pt breadcrumb font.
-local BREADCRUMB_ARROW = " |TInterface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-right.png:12:12|t "
 
 local function JoinBreadcrumb(...)
     local parts = {}

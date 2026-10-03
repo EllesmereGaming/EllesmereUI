@@ -35,7 +35,7 @@ local L = function(s) return EllesmereUI.L(s) or s end
 -- Fonts & Colors (Unit Frames + Raid Frames), NOT the separate "Dark Mode
 -- (Class Resource Bar)" master: users commonly dark one without the other,
 -- and the checkbox users read as "Dark Mode" is the main one. This filter
--- mirrors that checkbox's own read (_dmNotRB in EUI__General_Options.lua).
+-- mirrors that checkbox's own read (_dmNotRB in EUI_Colors_Options.lua).
 local function _dmMainFilter(p) return p.id ~= "resourceBars" end
 local function DarkModeMasterOn()
     return (EllesmereUI.IsDarkModeAllOn(_dmMainFilter)) or false

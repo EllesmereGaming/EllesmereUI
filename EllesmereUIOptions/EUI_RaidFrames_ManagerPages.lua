@@ -25,6 +25,10 @@ local CAT_VALUES = { boss = "Boss", role = "Role", priority = "Important",
     cc = "Crowd Control", raid = "Raid", raidcombat = "Raid In Combat", dispel = "Dispellable",
     nonplayer = "Non-Player" }
 local CAT_ORDER = { "nonplayer", "priority", "boss", "role", "cc", "raid", "raidcombat", "dispel" }
+-- The Less Common Filters, named in indicator subtitles after the main ones.
+local LESS_CAT_VALUES = { castbyme = "Cast By You", magic = "Magic", curse = "Curse", poison = "Poison",
+    disease = "Disease", bleed = "Bleed", canapply = "Can Apply Aura" }
+local LESS_CAT_ORDER = { "castbyme", "magic", "curse", "poison", "disease", "bleed", "canapply" }
 
 local TYPE_NAMES = { icons = "Icon", glow = "Frame Glow", square = "Square",
     healthcolor = "Health Bar Color", bar = "Duration Bar" }
@@ -126,16 +130,24 @@ end
 -------------------------------------------------------------------------------
 
 local function TileSubtitle(t)
-    -- Every tile type routes via the catch-all flavor plus the checked filter set.
+    -- Every tile type routes via the catch-all flavor plus the checked filter set;
+    -- Match All joins the filters the way they combine.
     local names = {}
     if t.all == true then names[#names + 1] = L("All Debuffs") end
     if t.hasDuration == true then names[#names + 1] = L("Has Duration") end
+    local cats = {}
     if t.claim then
         for _, cat in ipairs(CAT_ORDER) do
-            if t.claim[cat] then names[#names + 1] = L(CAT_VALUES[cat]) end
+            if t.claim[cat] then cats[#cats + 1] = L(CAT_VALUES[cat]) end
+        end
+        for _, cat in ipairs(LESS_CAT_ORDER) do
+            if t.claim[cat] then cats[#cats + 1] = L(LESS_CAT_VALUES[cat]) end
         end
     end
-    if #names == 0 then return L("No filters routed") end
+    if #names == 0 and #cats == 0 then return L("No filters routed") end
+    if #cats > 0 then
+        names[#names + 1] = table.concat(cats, ns.DM_TileMatchOn(t) and " & " or ", ")
+    end
     return table.concat(names, ", ")
 end
 
@@ -269,16 +281,43 @@ local function DmSetLane(show, owner, dm, k, v, neg)
     end
     if v and modeKey then dm[modeKey] = mode end
 end
+-- Match Mode rows (a radio pair over t.match, nil = Match Any = the union),
+-- locked while the tile's All Debuffs shows everything, spliced in after Has
+-- Duration like the Base Icons dropdown's.
+local TILE_MATCH_ANY = "__tMatchAny"
+local TILE_MATCH_ALL = "__tMatchAll"
+local function TileLaneItems(t)
+    local function Locked() return t.all == true end
+    local lockTip = EllesmereUI.L("Uncheck All Debuffs to choose how the Show filters combine.")
+    local items = {}
+    for i = 1, #TILE_LANE_ITEMS do
+        local it = TILE_LANE_ITEMS[i]
+        items[#items + 1] = it
+        if it.key == TILE_CA_DUR then
+            items[#items + 1] = { isHeader = true, label = "Match Mode" }
+            items[#items + 1] = { key = TILE_MATCH_ANY, label = EllesmereUI.L("Match Any Filter"), isModifier = true,
+                lockedFn = Locked, lockedTooltip = lockTip,
+                tooltip = EllesmereUI.L("Shows debuffs that match any checked Show filter (the default).") }
+            items[#items + 1] = { key = TILE_MATCH_ALL, label = EllesmereUI.L("Match All Filters"), isModifier = true,
+                lockedFn = Locked, lockedTooltip = lockTip,
+                tooltip = EllesmereUI.L("Shows only debuffs that match every checked Show filter (dispel types count as one); the rest stay where they already show.") }
+        end
+    end
+    return items
+end
 local function BuildTileFiltersDD(rgn, t, dm)
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
     if rgn._control then rgn._control:Hide() end
     if not t.claim then t.claim = {} end
     local claim = t.claim
     local function NegHas(cat) return t.neg ~= nil and t.neg[cat] == true end
-    local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
+    local warnClosed
+    local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
         rgn, 190, rgn:GetFrameLevel() + 2,
-        TILE_LANE_ITEMS,
+        TileLaneItems(t),
         function(k, neg)
+            if k == TILE_MATCH_ALL then return t.match == "all" end
+            if k == TILE_MATCH_ANY then return t.match ~= "all" end
             if k == TILE_CA_ALL then return t.all == true end
             if k == TILE_CA_DUR then return t.hasDuration == true end
             if k == "dispel_you" then
@@ -298,6 +337,13 @@ local function BuildTileFiltersDD(rgn, t, dm)
             return claim[k] and true or false
         end,
         function(k, v, neg)
+            if k == TILE_MATCH_ANY or k == TILE_MATCH_ALL then
+                -- Radio pair: the clicked row wins whatever its checked state.
+                t.match = (k == TILE_MATCH_ALL) and "all" or nil
+                DmApply()
+                EllesmereUI:RefreshPage()
+                return
+            end
             if k == TILE_CA_ALL or k == TILE_CA_DUR then
                 -- Independent bits: All Debuffs = catch-all, Has Duration =
                 -- AND-modifier (combinable with All or any claims).
@@ -318,10 +364,22 @@ local function BuildTileFiltersDD(rgn, t, dm)
             -- the menu.
             EllesmereUI:RefreshPage()
         end,
-        nil, 12)
+        nil, 12, nil, nil, function()
+            if warnClosed then warnClosed() end
+        end,
+        -- The summary joins picks the way they combine (Base Icons parity).
+        { separatorFn = function()
+            return ns.DM_TileMatchOn(t) and " & " or ", "
+        end })
     PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
     rgn._control = cbDD
     rgn._lastInline = nil
+    if cbRefresh then EllesmereUI.RegisterWidgetRefresh(cbRefresh) end
+    -- Match All picks that can never match together show nothing here (the
+    -- runtime's own test); an ordinary empty tile keeps its quiet subtitle.
+    warnClosed = EllesmereUI.AttachEmptyFilterWarn(rgn, cbDD,
+        EllesmereUI.L("These filters can never match together."),
+        function() return not ns.DM_TileMatchEmpty(t) end)
 end
 local function BuildFxEffects(frame, sy, fxOwner)
     local W = EllesmereUI.Widgets
@@ -615,10 +673,14 @@ local function BuildBaseDetailDM(frame, fontPath)
                 for i = 1, #tiles do
                     local t = tiles[i]
                     if t.enabled then
-                        if t.all == true or t.hasDuration == true then return true end
-                        if t.claim then
-                            for _, on in pairs(t.claim) do
-                                if on then return true end
+                        if t.all == true then return true end
+                        -- A Match All indicator whose picks can never match shows nothing.
+                        if not ns.DM_TileMatchEmpty(t) then
+                            if t.hasDuration == true then return true end
+                            if t.claim then
+                                for _, on in pairs(t.claim) do
+                                    if on then return true end
+                                end
                             end
                         end
                     end
@@ -2098,7 +2160,8 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
             -- rename never re-declares containers).
             title = t.name or L(TYPE_NAMES[t.type] or t.type),
             posText = posText,
-            subtitle = TileSubtitle(t),
+            -- Live: filter and Match Mode clicks refresh without a rebuild.
+            subtitleFn = function() return TileSubtitle(t) end,
             selected = (dmSel == t.id and not dmInhSel),
             enabled = t.enabled and true or false,
             showToggle = true,
@@ -2211,6 +2274,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 local DD_GAP = 11   -- dropdown to next label/button
 
                 popup = CreateFrame("Frame", nil, UIParent)
+                popup:Hide()  -- start hidden so Show() triggers OnShow
                 popup:SetFrameStrata("DIALOG")
                 popup:SetFrameLevel(200)
                 popup:SetSize(POPUP_W, POPUP_PAD
@@ -2554,6 +2618,9 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     elseif selTile then
         settingsTitle:SetText(L(TYPE_NAMES[selTile.type] or selTile.type))
         subTitle:SetText("(" .. TileSubtitle(selTile) .. ")")
+        EllesmereUI.RegisterWidgetRefresh(function()
+            subTitle:SetText("(" .. TileSubtitle(selTile) .. ")")
+        end)
     elseif groupEmpty then
         local ginfo3 = ns.BM_GROUP_BUCKET_INFO and ns.BM_GROUP_BUCKET_INFO[dmSpecSel]
         settingsTitle:SetText(ginfo3 and L(ginfo3.name) or dmSpecSel)
@@ -3549,8 +3616,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
             local rgn = orow._rightRegion
             -- Effective arrangement: stored order first (stale ids skipped),
             -- then any newly-resolved spells appended in prioritized order.
-            -- Items snapshot at popup build like the Class Sorting cog; a
-            -- page rebuild re-snapshots.
+            -- The cog reads the items again each time its list opens.
             local function OrderItems()
                 local resolved = (ns.BM2_ResolveSpells and ns.BM2_ResolveSpells(ind)) or ind.spells or {}
                 local present, seen, out = {}, {}, {}

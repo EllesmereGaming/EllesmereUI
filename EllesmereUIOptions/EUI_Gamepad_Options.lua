@@ -158,7 +158,7 @@ function _G._EUI_BuildGamepadPage(pageName, parent, yOffset)
           tooltip = "Hides the Unit Frames player cast bar while a controller is connected and gamepad mode is on. Blizzard's gamepad interface shows its own.",
           getValue = function()
               local p = UFPlayer()
-              return (p and p.castbarGamepadHide ~= false) or false
+              return (p and p.castbarGamepadHide == true) or false
           end,
           setValue = function(v)
               local p = UFPlayer()
@@ -181,7 +181,7 @@ function _G._EUI_BuildGamepadPage(pageName, parent, yOffset)
           tooltip = "Hides the Resource & Cast Bars cast bar while a controller is connected and gamepad mode is on. Blizzard's gamepad interface shows its own.",
           getValue = function()
               local cb = RBCast()
-              return (cb and cb.gamepadHide ~= false) or false
+              return (cb and cb.gamepadHide == true) or false
           end,
           setValue = function(v)
               local cb = RBCast()

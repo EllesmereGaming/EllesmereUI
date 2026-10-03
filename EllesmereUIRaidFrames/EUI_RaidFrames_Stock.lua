@@ -960,6 +960,7 @@ function ns.RF_ApplyPartyKit(owner, st, s, unit, force)
             if st.AnchorHealthText then st.AnchorHealthText() end
             if st.AnchorHealAbsorbText then st.AnchorHealAbsorbText() end
             if st.powerText then ns._RFAnchorPowerText(st) end
+            if st.levelText then ns._RFAnchorLevelText(st) end
             ns.RF_KitLeader(st, s)
             if st._nameText and s then PreviewSpots(owner, s, g) end
         end

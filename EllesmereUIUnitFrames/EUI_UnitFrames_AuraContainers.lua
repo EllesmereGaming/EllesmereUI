@@ -1067,7 +1067,21 @@ end
 -- nothing when its picks can never match.
 local function PlayerDebuffChain(s)
     EnsurePlayerAuraLanes(s)
-    if s.debuffShowAll == false then
+    -- Has Duration checked with no Show pick is the timed catch-all (Player Aura
+    -- Bars parity): the All Debuffs path below, narrowed by ChainFor.
+    local durAlone = false
+    if s.debuffShowAll == false and s.debuffHasDuration == true then
+        durAlone = true
+        for i = 1, #TOKEN_CLASSES do
+            if ClassEnabled(TOKEN_CLASSES[i], false, s, "player") then durAlone = false break end
+        end
+        if durAlone then
+            for i = 1, #CANDIDATE_CLASSES do
+                if ClassEnabled(CANDIDATE_CLASSES[i], false, s, "player") then durAlone = false break end
+            end
+        end
+    end
+    if s.debuffShowAll == false and not durAlone then
         local matchOn, link = PlayerDebuffMatch(s)
         if matchOn then return { link } end
         return BuildChain("HARMFUL", false, s, "player")
@@ -1122,6 +1136,60 @@ local function PlayerDebuffChain(s)
     for n = 1, #negations do allTokens[#allTokens + 1] = negations[n] end
     chain[#chain + 1] = { key = "pdall|" .. table.concat(allTokens, "") .. "|" .. CandFP(cand),
         tokens = allTokens, cand = cand }
+    return chain
+end
+
+-- An element's chain. Has Duration (s.debuffHasDuration on every unit,
+-- s.buffDurOnly on target/focus/boss -- its own key: the player's broad-mode
+-- s.buffHasDuration, run inside PlayerBuffChain, can already sit copied on
+-- those units) is an AND-modifier on every link that shows content:
+-- Blizzard's candidate maxDuration check, which drops an aura when
+-- `duration > maxDuration or duration == 0`, so math.huge drops only the
+-- permanent ones. The container evaluates it and it is not identity-gated,
+-- so it holds on any unit, friendly or hostile, secret or not. Hide-lane links
+-- (they render nothing) and Tracked Auras include links (explicit always-show
+-- spells) keep their payload. A narrowed link's key gains "|dur", so the
+-- variant declares fresh and the plain one parks at 0.
+local function ChainFor(unit, base, s)
+    local isBuff = base == "HELPFUL"
+    local chain
+    if unit == "player" and isBuff then
+        return PlayerBuffChain(s)
+    elseif unit == "player" then
+        chain = PlayerDebuffChain(s)
+    else
+        chain = BuildChain(base, isBuff, s, unit)
+    end
+    local dur
+    if isBuff then dur = s.buffDurOnly == true else dur = s.debuffHasDuration == true end
+    if not dur then return chain end
+    -- Non-player buffs with nothing shown or hidden run the plain show-all
+    -- group (ApplyGroupConfig); narrowed, it becomes an explicit link.
+    if isBuff and #chain == 0 then
+        chain[1] = { key = "all", tokens = { base } }
+    end
+    -- Show All's catch-all is what shows the Tracked Auras there (no include
+    -- links); narrowed, they get one include link of their own, from any
+    -- caster as the catch-all showed them, at any duration.
+    if not isBuff and unit ~= "player" and DebuffFilterMode(s) == "all" and HasActiveIncludes(s) then
+        local m = {}
+        for id, v in pairs(s.debuffInclude) do
+            if v then m[id] = true end
+        end
+        chain[#chain + 1] = { key = "incall|" .. CandFP({ includeSpellIDs = m }),
+            tokens = { "HARMFUL" }, cand = { includeSpellIDs = m, excludeSpellIDs = {} }, inc = true }
+    end
+    for i = 1, #chain do
+        local c = chain[i]
+        if not (c.hidden or c.inc) then
+            local cand = { maxDuration = math.huge }
+            if c.cand then
+                for k, v in pairs(c.cand) do cand[k] = v end
+                if cand.maxDuration == nil then cand.maxDuration = math.huge end
+            end
+            chain[i] = { key = c.key .. "|dur", tokens = c.tokens, cand = cand, glow = c.glow, mine = c.mine }
+        end
+    end
     return chain
 end
 
@@ -1237,6 +1305,26 @@ end
 -- change-guarded via CK() fingerprints (d.ufDurColor/d.ufStackColor) --
 -- SetTextColor costs real time too, same reasoning as the font guard above.
 local function ApplyUFText(button, d, style)
+    if style.auraBorderAboveEffects or d.ufBorderAboveEffects then
+        -- Only owned art/text hosts move; the restricted button is untouched.
+        -- Stock styles hide the border instead of restoring its level.
+        local level = d.borderHost:GetFrameLevel()
+        if style.auraBorderAboveEffects then
+            d.ufBorderBaseLevel = level
+            level = math.max(level, (d.buttonFrameLevel or 1) + 20)
+            d.borderHost:SetFrameLevel(level)
+        else
+            if not style.border and d.ufBorderBaseLevel then
+                level = d.ufBorderBaseLevel
+                d.borderHost:SetFrameLevel(level)
+            end
+            d.ufBorderBaseLevel = nil
+        end
+        d.dispelHolder:SetFrameLevel(level + 4)
+        d.stackCarrier:SetFrameLevel(level + 5)
+        d.akDispelLvl = level
+        d.ufBorderAboveEffects = style.auraBorderAboveEffects or nil
+    end
     local path = style.fontPath or FALLBACK_FONT
     if d.duration then
         local fontKey = path .. "|" .. (style.cdTextSize or 10)
@@ -1337,6 +1425,7 @@ local function StyleTableFP(st, font)
         b and b.texture, b and b.size, b and b.edgePx, b and b[1], b and b[2], b and b[3], b and b[4],
         b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
         b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel,
+        st.auraBorderAboveEffects,
         st.noTooltips, st.blizzBorder, st.dispelBorder,
         -- Textured Dispel Ring (the ring's art key) and Use Dispel Colors (the
         -- palette fingerprint the colour map was built from).
@@ -1384,16 +1473,23 @@ local function ElementSize(unit, base, s)
     local isBuff = (base == "HELPFUL")
     local size = Pick(isBuff, s.buffSize, s.debuffSize) or 22
     local simpleOn = BossSimple(unit, base, s)
+    local PP = EllesmereUI.PP
+    local m = PP.mult or 1
     if simpleOn then
-        local PP = EllesmereUI.PP
         local powerPos = s.powerPosition or "below"
         local powerH = 0
         if powerPos == "below" or powerPos == "above" then powerH = s.powerHeight or 0 end
         size = PP.Scale((s.healthHeight or 0) + powerH)
+    elseif m ~= 1 then
+        -- Whole physical pixels (nearest, as Player Aura Bars): AuraKit's border
+        -- strips skip pixel snapping while the icon texture snaps, so a
+        -- fractional far edge leaves the border off the icon at a
+        -- non-pixel-perfect scale.
+        size = math.floor(size / m + 0.5 + 0.001) * m
     end
     local cropped = Pick(isBuff, s.buffCropIcons, s.debuffCropIcons)
     local h = size
-    if cropped then h = math.floor(size * AURA_CROP_HEIGHT + 0.5) end
+    if cropped then h = math.floor(size / m * AURA_CROP_HEIGHT + 0.5) * m end
     return size, h, cropped
 end
 
@@ -1450,7 +1546,7 @@ local function BuildStyle(unit, base, s, unitFrame)
         if isBuff and unit ~= "player" and s.buffDispelBorder == true then
             dispel = true
         end
-        -- Textured Dispel Ring (per-unit, player/target): AuraKit draws the ring
+        -- Textured Dispel Ring (per-unit, player/target/focus): AuraKit draws the ring
         -- in the aura border's own art on the aura border's geometry (style.border)
         -- instead of flat strips, and keeps the strips by itself for a size-0 border.
         if dispel and s.auraBorderDispelTextured == true
@@ -1499,6 +1595,8 @@ local function BuildStyle(unit, base, s, unitFrame)
         -- every ApplyUFText call -- GetFontPath's result only changes when
         -- font settings change, which already forces a fresh style table.
         fontPath = (EllesmereUI.GetFontPath("unitFrames")) or FALLBACK_FONT,
+        auraBorderAboveEffects = s.auraBorderAboveEffects == true and unit:match("^boss")
+            and ns.UF_BossAuraBorderAboveEffects(s) or nil,
         applyExtra = ApplyUFText,
     }
 end
@@ -1521,7 +1619,9 @@ function PurgeGlow.Extra(button, d, style)
         -- window for parenting a new frame to it. Just below the text carrier.
         host = CreateFrame("Frame", nil, button)
         host:SetAllPoints(button)
-        if d.stackCarrier then
+        if style.auraBorderAboveEffects then
+            host:SetFrameLevel(d.cooldown:GetFrameLevel() + 5)
+        elseif d.stackCarrier then
             host:SetFrameLevel(d.stackCarrier:GetFrameLevel() - 1)
         else
             host:SetFrameLevel(button:GetFrameLevel() + 1)
@@ -1815,7 +1915,7 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
                 local es = container:GetEffectiveScale()
                 local _, fcY = frame:GetCenter()
                 if fcY then
-                    local iconH = Pick(isBuff, s.buffSize, s.debuffSize) or 22
+                    local _, iconH = ElementSize(unit, base, s)
                     local rawY = fcY + oy + cbOff + offY
                     offY = offY + (PP.SnapCenterForDim(rawY, iconH, es) - rawY)
                 end
@@ -2379,13 +2479,45 @@ end
 -- a type rather than giving the by-me twin a filter that would match it: two
 -- slots declaring one filter string share a single engine parse batch (see
 -- AK.Filter) and both are not guaranteed to receive the aura. The rule itself
--- lives with the legacy overlay in EllesmereUIUnitFrames.lua, which needs the
+-- lives with the legacy overlay in EUI_UnitFrames_Lifecycle.lua, which needs the
 -- same answer.
 local function TokenBlindDispelSlot(slotKey)
     return ns.UF_TokenBlindDispel ~= nil and ns.UF_TokenBlindDispel(slotKey)
 end
 local GRADIENT_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
 local GRADIENT_SHARP_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
+
+-- Copy the separator's actual texture rect, so width, pixel snapping and future
+-- layout changes stay owned by the separator. Copies belong to the aura slot
+-- (engine visibility); the options preview tints its separators in place.
+-- Keep state outside the slot button, as with the border and outer ring copies.
+local function ApplyDispelSeparatorCopy(parent, state, key, seam, color)
+    local copy = state[key]
+    local source = seam and seam._tex
+    if not (source and seam:IsShown() and source:IsShown()) then
+        if copy then copy.host:Hide() end
+        return
+    end
+    if not copy then
+        local host = CreateFrame("Frame", nil, parent)
+        local tex = host:CreateTexture(nil, "OVERLAY", nil, 7)
+        tex:SetAllPoints(host)
+        host:SetAllPoints(source)
+        copy = { host = host, tex = tex, source = source }
+        state[key] = copy
+    end
+    if copy.source ~= source then
+        copy.host:ClearAllPoints()
+        copy.host:SetAllPoints(source)
+        copy.source = source
+    end
+    copy.host:SetFrameStrata(seam:GetFrameStrata())
+    copy.host:SetFrameLevel(seam:GetFrameLevel() + 1)
+    copy.tex:SetTexture(source:GetTexture())
+    copy.tex:SetTexCoord(source:GetTexCoord())
+    copy.tex:SetVertexColor(color.r, color.g, color.b, 1)
+    copy.host:Show()
+end
 
 -- applyExtra for dispel slots: builds/updates the overlay texture from the
 -- style (mode, color, opacity, health refs). Runs at init and every Restyle.
@@ -2516,6 +2648,13 @@ local function ApplyDispelSlotStyle(button, d, style)
     elseif d.ufRingOn then
         d.ufRingHost:Hide()
         d.ufRingOn = nil
+    end
+
+    -- Only enabled, displayed separators get copies. The inactive by-me twin
+    -- and disabled custom-border mode clear any copies they previously drew.
+    if ub or d.ufPowerSeam or d.ufPortraitSeam then
+        ApplyDispelSeparatorCopy(button, d, "ufPowerSeam", ub and uf.Power and uf.Power._pbSeam, c)
+        ApplyDispelSeparatorCopy(button, d, "ufPortraitSeam", ub and uf._portraitSeparator, c)
     end
 end
 
@@ -2665,7 +2804,9 @@ local function DispelFP(p)
     -- the copy reads counts too: the border keys; the strata (a strata change
     -- re-stacks child levels); the portrait mode and side (an inside 3D portrait
     -- lifts the unified border to frame+20); and the portrait and Outer Ring keys
-    -- that decide whether the ring copy shows and which art it takes.
+    -- that decide whether the ring copy shows and which art it takes. Separator
+    -- visibility and orientation changes must restyle their copies too; their
+    -- dimensions follow the source texture anchors without a restyle.
     local s = p.player
     local cb = p.dispelCustomBorder == true and s ~= nil
     return FP(p.dispelOverlay, p.dispelOverlayOpacity, p.dispelOverlayByMe == true,
@@ -2677,7 +2818,8 @@ local function DispelFP(p)
             s.borderTextureShiftY, s.borderBehind, p.frameStrata, s.frameStrata,
             s.portraitMode, s.portraitSide, p.portraitStyle, s.portraitStyle, s.showPortrait,
             s.portraitSize, s.detachedPortraitShape, s.detachedPortraitOuterRing,
-            s.detachedPortraitOuterRingScale) or false)
+            s.detachedPortraitOuterRingScale, s.borderPowerSeam, s.powerPosition,
+            s.powerHeight, s.portraitSeparator) or false)
 end
 
 local function ReloadDispelSlots(frame, entry)
@@ -2791,14 +2933,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
         -- probe T1/T1b), and the config pass zeroes whatever fell out of the active
         -- set. The old swap path permanently leaked a 10-button batch per group per
         -- toggle (engine frames are never freed).
-        local chain
-        if unit == "player" and base == "HELPFUL" then
-            chain = PlayerBuffChain(s)
-        elseif unit == "player" then
-            chain = PlayerDebuffChain(s)
-        else
-            chain = BuildChain(base, base == "HELPFUL", s, unit)
-        end
+        local chain = ChainFor(unit, base, s)
         local sig = ChainSignature(chain)
         local force = forceCfg
         local container = entry[field]
@@ -3054,14 +3189,7 @@ local function BuildUnitContainers(frame, unit)
     -- atom).
     for e = 1, 2 do
         local base, field = ELEMENT_ORDER[e][1], ELEMENT_ORDER[e][2]
-        local chain
-        if unit == "player" and base == "HELPFUL" then
-            chain = PlayerBuffChain(s)
-        elseif unit == "player" then
-            chain = PlayerDebuffChain(s)
-        else
-            chain = BuildChain(base, base == "HELPFUL", s, unit)
-        end
+        local chain = ChainFor(unit, base, s)
         local declared = entry.groups[field]
         local styleKey = StyleKey(unit, base)
         if not declared.all then

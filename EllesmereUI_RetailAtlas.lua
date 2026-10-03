@@ -26,7 +26,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  Also here: the WoW Forever look's window border (EllesmereUI.
 --  ForeverBorder, below), shared by the chat panel, tabs and sidebar plates,
---  the Damage Meters windows and the threat meter.
+--  the Damage Meters windows, the threat meter and the XP bar's Forever style.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI then return end
@@ -51,6 +51,8 @@ if not EllesmereUI then return end
 --        bottom-right off rel's BOTTOMRIGHT
 --    EllesmereUI.ForeverBorderPaint(ring, r, g, b, a, desat)
 --    EllesmereUI.ForeverBorderShown(ring, shown)
+--    EllesmereUI.ForeverBorderFit(ring, w, h)   a box too small for the
+--        corner pieces (a thin bar) drops the edge pieces between them
 --  Callers build a ring once per frame; a repaint is colour or shown only.
 -------------------------------------------------------------------------------
 local RING_ATLAS = "UI-HUD-ActionBar-Frame"
@@ -148,6 +150,17 @@ end
 function EllesmereUI.ForeverBorderShown(ring, shown)
     shown = shown and true or false
     for i = 1, 8 do ring[i]:SetShown(shown) end
+end
+
+-- A ring round a box (w x h at the line's outer edge) shorter or narrower
+-- than its two corner pieces: the side or top and bottom edge pieces, which
+-- would span a negative length there, hide and the overlapping corners draw
+-- the line alone.
+function EllesmereUI.ForeverBorderFit(ring, w, h)
+    local span = 2 * (RC - RM)
+    local wide, tall = w >= span, h >= span
+    ring[5]:SetShown(wide); ring[6]:SetShown(wide)
+    ring[7]:SetShown(tall); ring[8]:SetShown(tall)
 end
 
 if not EllesmereUI.IS_FOREVER then

@@ -350,6 +350,9 @@ function _G._ERF_BM2ApplyLayer(layer)
     for k, v in pairs(layer.bm2.specs or {}) do b.specs[k] = LegacyCopy(v) end
     wipe(b.seeded)
     for k, v in pairs(layer.bm2.seeded or {}) do b.seeded[k] = v end
+    -- WoW Forever: the starter seed reads which layer live now holds
+    -- (EllesmereUI_Migration.lua).
+    if FVBW then FVBW.Painted(layer) end
     ns.BM2_Invalidate()
 end
 
@@ -406,6 +409,12 @@ local function EnsureFilters()
                 f.spells[id] = nil
             end
         end
+    end
+    -- WoW Forever: the starter seed, decided once per store now that the
+    -- preset filters exist ("fvBmSeed" is its frozen mark,
+    -- EllesmereUI_Migration.lua). A marked store costs one field read.
+    if FVBW and b.fvBmSeed == nil and FVBW.SeedStarter(P(), b) then
+        ns.BM2_Invalidate()
     end
     return b
 end
@@ -642,7 +651,8 @@ end
 
 -- Seeds the starter groups: group 1 center, healing corners top-left/right.
 local function SeedSpec(b, specKey)
-    -- WoW Forever starts blank: never seeds groups (EllesmereUI_Migration.lua).
+    -- WoW Forever never runs this per-bucket seed: its own All Specs starter
+    -- seed is placed once per store from EnsureFilters (EllesmereUI_Migration.lua).
     -- A seeded bucket with its arrays costs plain reads; anything else passes
     -- the gate once.
     if FVBW then

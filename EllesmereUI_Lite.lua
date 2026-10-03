@@ -13,8 +13,8 @@ EllesmereUI.Lite = EUILite
 
 -- WoW Forever (game type "camelot"): the 12.1 engine reporting a 1.60+ toc.
 -- Stamped by EllesmereUI_ClientGate.lua before any other file runs. Content
--- that vanilla lacks gates on this, never on WOW_PROJECT_ID (Forever is
--- classed as mainline on purpose).
+-- that vanilla lacks gates on this, never on WOW_PROJECT_ID (the gate reads
+-- the toc number, the one signal every Forever build reports the same way).
 EllesmereUI.IS_FOREVER = (EUI_CLIENT_FOREVER == true)
 -- Global cooldown reference spell: Forever reports nothing on 61304 and uses
 -- Classic's 29515.
@@ -478,6 +478,23 @@ local function FlushEnableQueue()
     end
 end
 
+-- Account passes that must read the saved data exactly as it loaded: run once
+-- at this addon's own ADDON_LOADED, before a pre-SavedVariables db is
+-- re-rooted and before any OnInitialize opens a profile and merges defaults
+-- into it -- in the suite and in every standalone alike.
+local _svLoadedHooks = {}
+function EUILite.OnSavedVariablesLoaded(fn)
+    _svLoadedHooks[#_svLoadedHooks + 1] = fn
+end
+
+--- For those passes: true while EllesmereUIDB is still the stand-in a
+--- pre-SavedVariables db built (a standalone's file-scope NewDB), with no saved
+--- data loaded over it -- a fresh account, whatever the stand-in holds.
+function EUILite.StoreFromBeforeLoad()
+    local db = _preSVDBs[1]
+    return db ~= nil and db.sv == EllesmereUIDB
+end
+
 local lifecycleFrame = CreateFrame("Frame")
 lifecycleFrame:RegisterEvent("ADDON_LOADED")
 lifecycleFrame:RegisterEvent("PLAYER_LOGIN")
@@ -485,6 +502,8 @@ lifecycleFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON_NAME then
             _parentDBRef = EllesmereUIDB
+            for i = 1, #_svLoadedHooks do safecall(_svLoadedHooks[i]) end
+            wipe(_svLoadedHooks)
             if IS_STANDALONE then
                 _svLoaded = true
                 RerootPreSVDBs()

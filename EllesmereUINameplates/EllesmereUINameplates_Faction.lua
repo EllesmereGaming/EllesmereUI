@@ -34,7 +34,9 @@ local function ArrowTo(fp, anchor)
     local la = fp.leftArrow
     if not la or fp._facArrowTo == anchor then return end
     fp._facArrowTo = anchor
-    local x = -(2 + la:GetWidth() / 2)
+    -- The width we set, never la:GetWidth(): the arrow hangs off the name, and a
+    -- secret name (restricted content) makes its measured width secret.
+    local x = -(2 + (fp._arrowW or 16) / 2)
     la:ClearAllPoints()
     la:SetPoint("TOP", anchor, "LEFT", x, 8)
     la:SetPoint("BOTTOM", anchor, "LEFT", x, -8)

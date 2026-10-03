@@ -93,15 +93,6 @@ local function ChatProfile()
     local d = _G._ECHAT_DB
     return d and d.profile and d.profile.chat
 end
--- The character sheet has no module profile: its style flags sit on the
--- active profile's ROOT (they follow profile switches, copies and exports;
--- every other character sheet setting stays account-wide). nil while Blizz
--- UI Enhanced is disabled, so Apply to All and the first-install picker
--- leave it alone.
-local function CharSheetProfile()
-    if not NS("EllesmereUIBlizzardSkin") then return nil end
-    return EllesmereUI.GetActiveProfileData()
-end
 local function FriendsProfile()
     local d = _G._EFR_DB
     return d and d.profile and d.profile.friends
@@ -184,7 +175,6 @@ local FOREVER_LATCH = {
     damagemeters = "DMForever",
     chat       = "ChatForever",
     threatmeter = "TM_Forever",
-    charsheet  = "CharSheetForever",
 }
 
 local MODULES = {}
@@ -349,15 +339,6 @@ Register("raidframes",   "EllesmereUIRaidFrames",      "Raid Frames",
         local rf = NS("EllesmereUIRaidFrames")
         if rf and rf.RF_SeedStock then rf.RF_SeedStock(p, styleKey) end
     end)
--- One row on both clients; on WoW Forever every stock style is Blizzard's
--- own Forever sheet, and the WoW Forever style keeps the item text beside
--- its slots.
-Register("charsheet",    "EllesmereUIBlizzardSkin",    "Character Sheet",
-    IS_FOREVER and "Blizzard's own character sheet as the game draws it; WoW Forever keeps the item text beside the slots, and the stat colors stay with the EllesmereUI look."
-        or "Blizzard's own character sheet with the EllesmereUI stats, slot text and socket panel added; the Calc tab stays with the EllesmereUI look.",
-    CharSheetProfile, "charSheetUseBlizzardStyle", "charSheetUseClassicStyle", "CharSheetStyle")
--- The module to enable is Blizz UI Enhanced, not a "Character Sheet" one.
-BY_KEY.charsheet.enableName = "Blizz UI Enhanced"
 if not EllesmereUI.IS_FOREVER then
 -- WoW Forever has no skyriding (no HUD, no row there).
 Register("dragonriding", "EllesmereUIBlizzardSkin",    "Skyriding HUD",
@@ -784,8 +765,10 @@ local function ApplyWholeUIFont(styleKey, legacy)
 end
 -- The same two callers also swap the Blizz UI Enhanced window skins through
 -- their own per-style slots (EllesmereUI.SwapWindowSkinStyle: first visit
--- to a stock style = every window but the character sheet's at Blizz
--- Default). A disabled Blizz UI Enhanced module has no swapper and is left
+-- to a stock style = every window at Blizz Default, the character sheet's
+-- with the EllesmereUI features it keeps there). A style picks only these
+-- defaults: each window's own card decides how it renders. A disabled Blizz
+-- UI Enhanced module has no swapper and is left
 -- alone. The look is the active PROFILE's (profile-root windowSkinLook), so
 -- the account's windows swap back to each profile's look on a profile switch
 -- (EllesmereUI.ReconcileWindowSkinLook). WoW Forever shares Blizzard Style's

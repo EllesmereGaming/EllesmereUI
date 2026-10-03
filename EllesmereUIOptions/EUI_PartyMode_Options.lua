@@ -236,11 +236,11 @@ do
                 iconAtlas = function(key)
                     if key == "none" then return nil end
                     if not sndPaths[key] then return nil end
-                    return "common-icon-sound"
+                    return EllesmereUI.SOUND_ICON_ATLAS
                 end,
                 iconPressedAtlas = function(key)
                     if key == "none" then return nil end
-                    return "common-icon-sound-pressed"
+                    return EllesmereUI.SOUND_ICON_PRESSED_ATLAS
                 end,
                 iconOnClick = function(key)
                     local path = sndPaths[key]

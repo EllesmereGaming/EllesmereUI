@@ -1357,19 +1357,12 @@ local function RegisterUnlock()
                 cfg.height = math.floor(h + 0.5)
                 ns.TSB_Refresh()
             end,
-            savePos = function()
+            savePos = function(_, _, _, x, y)
+                -- Unlock mode hands over CENTER/CENTER coords; on Cancel the frame
+                -- still sits at the dragged spot, so never read the live position.
                 local cfg = Cfg()
-                local f = container
-                if not (cfg and f and f:GetCenter()) then return end
-                -- Raw UIParent-logical center delta; the effective-scale ratio
-                -- normalizes GetCenter's frame-scaled units (timer lesson:
-                -- scale division must never live in the interchange format).
-                local cx, cy = f:GetCenter()
-                local upX, upY = UIParent:GetCenter()
-                local fes = f:GetEffectiveScale() or 1
-                local ues = UIParent:GetEffectiveScale() or 1
-                local ratio = fes / ues
-                cfg.pos = { centerX = cx * ratio - upX, centerY = cy * ratio - upY }
+                if not (cfg and x and y) then return end
+                cfg.pos = { centerX = x, centerY = y }
                 if not (EllesmereUI._unlockActive) then ApplyContainerPosition() end
             end,
             loadPos = function()

@@ -5,11 +5,9 @@ if EllesmereUI.IS_FOREVER then return end -- no Great Vault on WoW Forever: no f
 
 local ADDON_NAME, ns = ...
 local L = ns.L
-local MEDIA = ns.MEDIA
 local K = ns.BlockKit
 
 -- Upvalues
-local _G          = _G
 local CreateFrame = CreateFrame
 local C_Timer     = C_Timer
 local GetTime     = GetTime
@@ -304,15 +302,6 @@ local function GVBuildPartyRows()
     return _gvPartyCount
 end
 
-local function GVToggleVault()
-    if not C_AddOns.IsAddOnLoaded("Blizzard_WeeklyRewards") then
-        C_AddOns.LoadAddOn("Blizzard_WeeklyRewards")
-    end
-    local wrf = _G.WeeklyRewardsFrame
-    if not wrf then return end
-    wrf:SetShown(not wrf:IsShown())
-end
-
 ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
@@ -326,7 +315,7 @@ ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
     button:RegisterForClicks("AnyUp")
 
     local icon = button:CreateTexture(nil, "OVERLAY")
-    icon:SetTexture(MEDIA .. "great_vault.png")
+    K.SetBlockIcon(icon, blockCfg)
     local label = button:CreateFontString(nil, "OVERLAY")
     AttachTextOffset(inst, label)
 
@@ -434,7 +423,7 @@ ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
         inst:Refresh()
     end)
     button:SetScript("OnClick", function(_, mb)
-        if mb == "LeftButton" then GVToggleVault() end
+        if mb == "LeftButton" then EllesmereUI.ToggleGreatVault() end
     end)
 
     -- The block's visuals never change with the roster; these events exist only to drop departed members and keep the cache warm for the next hover.

@@ -612,24 +612,6 @@ local function GetFriendClassFile(bnetInfo, wowInfo)
     return nil
 end
 
--- Group tag ||EUI:GroupName|| in Blizzard friend notes; display only, stripped.
-local EUI_NOTE_TAG = "||EUI:"
-local EUI_NOTE_END = "||"
-
-local function ParseGroupFromNote(note)
-    if not note or note == "" then return nil, note end
-    local tagStart = note:find(EUI_NOTE_TAG, 1, true)
-    if not tagStart then return nil, note end
-    local groupStart = tagStart + #EUI_NOTE_TAG
-    local tagEnd = note:find(EUI_NOTE_END, groupStart, true)
-    if not tagEnd then return nil, note end
-    local group = note:sub(groupStart, tagEnd - 1)
-    local clean = note:sub(1, tagStart - 1)
-    clean = clean:match("^(.-)%s*$") or clean
-    if group == "" then return nil, clean end
-    return group, clean
-end
-
 local OFFLINE_ICON = "Interface\\AddOns\\EllesmereUIFriends\\Media\\offline.png"
 
 local MINI_DISPLAY = {
@@ -941,16 +923,10 @@ local function PostUpdateFriendButton(button)
         local userNote
         if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
             local cached = _friendCache[button.id]
-            if cached and cached.note then
-                local _, clean = ParseGroupFromNote(cached.note)
-                if clean and clean ~= "" then userNote = clean end
-            end
+            if cached then userNote = EllesmereUI.StripFriendNoteTag(cached.note) end
         elseif button.buttonType == FRIENDS_BUTTON_TYPE_WOW then
             local cached = _friendCache[button.id + _FC_WOW_OFFSET]
-            if cached and cached.notes then
-                local _, clean = ParseGroupFromNote(cached.notes)
-                if clean and clean ~= "" then userNote = clean end
-            end
+            if cached then userNote = EllesmereUI.StripFriendNoteTag(cached.notes) end
         end
         if userNote then
             if origInfo ~= "" then

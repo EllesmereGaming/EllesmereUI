@@ -9,6 +9,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local CategoryManager = {}
 -- Profile access helper (DB created in EUI_Bags_Options.lua, loaded first per TOC)
 local EUI = EllesmereUI
+local ns = select(2, ...)
 local GetItemInfoInstant = C_Item.GetItemInfoInstant
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
@@ -104,6 +105,13 @@ if EUI_CLIENT_FOREVER then
             break
         end
     end
+    -- What the special bags hold (quivers, ammo pouches, soul, herb and
+    -- enchanting bags; ns.SpecialBags). Last, also in a profile with a saved
+    -- category order: no saved category's index moves (bagVisualOrder).
+    DEFAULT_CATEGORIES[#DEFAULT_CATEGORIES + 1] = {
+        name = "Special Bags", types = {}, isSpecialBag = true, noGroup = true,
+        appendLast = true, icon = "Interface\\Icons\\INV_Misc_Bag_EnchantedRunecloth",
+    }
     for i = #DEFAULT_CATEGORIES, 1, -1 do
         if DEFAULT_CATEGORIES[i].name == "Housing" then
             table.remove(DEFAULT_CATEGORIES, i)
@@ -168,6 +176,10 @@ function CategoryManager:InitCategories()
                 if def.noMove then
                     -- noMove categories always go to the top
                     table.insert(orderedDefs, 1, def)
+                elseif def.appendLast then
+                    -- Last: no saved category's index moves (bagVisualOrder is
+                    -- keyed by index)
+                    orderedDefs[#orderedDefs + 1] = def
                 else
                     -- Insert before catch-all
                     local insertIdx = #orderedDefs
@@ -250,6 +262,7 @@ function CategoryManager:InitCategories()
                 isCatchAll        = def.isCatchAll,
                 isSetGear         = def.isSetGear,
                 isReagentBag      = def.isReagentBag,
+                isSpecialBag      = def.isSpecialBag,
                 isPinned          = def.isPinned,
                 isRecent          = def.isRecent,
                 noGroup           = def.noGroup,
@@ -455,6 +468,9 @@ local ITEM_TYPE_OVERRIDES = {
     [180653] = IC_MISC,
 }
 
+-- WoW Forever's special bags (ns.SpecialBags) for the running ClassifyAll pass
+local _classifySpecial
+
 -- Classify a single item. Returns category index (1-based) or nil for empty slots.
 -- bag/slot are needed for C_Container.GetContainerItemQuestInfo
 function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
@@ -466,6 +482,12 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
     if bag == 5 then
         for i, cat in ipairs(cats) do
             if cat.isReagentBag then return i end
+        end
+    end
+    -- A WoW Forever special bag's items always go to Special Bags
+    if _classifySpecial and _classifySpecial[bag] then
+        for i, cat in ipairs(cats) do
+            if cat.isSpecialBag then return i end
         end
     end
 
@@ -584,6 +606,7 @@ local _claDisabledIdxSet = {}
 
 function CategoryManager:ClassifyAll(items)
     BuildSetGearLookup()
+    _classifySpecial = ns.SpecialBags()
     local cats = self:GetCategories()
     -- Rebuild setID -> index every pass: drag-reorder and custom-category
     -- add/remove mutate cats in place without InitCategories, shifting indices.
@@ -910,12 +933,12 @@ function CategoryManager:UnassignItem(itemID)
 end
 
 -- Check if a category can accept item assignments (drag targets).
--- Excludes Pinned, Recent, Reagent Bag (physical bag, not logical).
+-- Excludes Pinned, Recent, Reagent Bag and Special Bags (physical bags, not logical).
 function CategoryManager:CanAssignToCategory(catIndex)
     local cats = self:GetCategories()
     local cat = cats[catIndex]
     if not cat then return false end
-    if cat.isPinned or cat.isRecent or cat.isReagentBag then return false end
+    if cat.isPinned or cat.isRecent or cat.isReagentBag or cat.isSpecialBag then return false end
     if cat.isEquipSet then return false end  -- membership comes from the set itself
     return true
 end

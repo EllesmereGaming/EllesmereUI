@@ -21,6 +21,12 @@
 -- churn). Tile containers persist per button (frames never freed); disabled/removed tiles park hidden, and a
 -- hidden container unregisters its events (zero cost).
 --
+-- MATCH ALL INDICATORS (t.match == "all", 2+ show picks, All Debuffs off): a grid tile claims no category; it
+-- renders ONE conjunction record and TAKES exactly that set from every other record (the hand-off: each record
+-- splits into exact disjoint parts outside the set), so the rest of each picked category stays where it was.
+-- Precedence: indicators over the base, more picks over fewer (ties by list order); crowd control stays with its
+-- owner unless picked. An effect tile fires one conjunction slot instead of one slot per pick.
+--
 -- Base records render into the EXISTING per-button debuff container via the existing style/anchor/reload
 -- machinery (shared integration sites live in the containers file); legacy preset groups park at 0. Settings live
 -- at ns.db.profile.dmDebuff (shared raid/party/extra, absent = off = zero cost), all keys NEW/additive as a
@@ -297,17 +303,18 @@ local function MatchApply(m, cat, pos, dm)
     return false
 end
 
--- The base spec, from the RAW show lane (never the effective set, which mixes in
--- claims and effects): every pick ANDed, dispel-type picks OR'd into one include
--- set (so Magic + Dispels means Magic), the hide lane as plain vetoes, and every
--- category an indicator claims excluded (the indicator keeps rendering it).
--- Returns the spec and the sorted pick list.
-local function MatchSpec(bv, dm, claims)
+-- The spec of one show lane (the base's RAW lane, never the effective set, which
+-- mixes in claims and effects; or an indicator's own picks): every pick ANDed,
+-- dispel-type picks OR'd into one include set (so Magic + Dispels means Magic),
+-- the hide lane `neg` as plain vetoes, and every category in `claims` excluded
+-- (the claiming indicator keeps rendering it). Returns the spec and the sorted
+-- pick list.
+local function MatchSpec(show, neg, dm, claims)
     local m = { tok = {}, cf = {} }
     local cats, types = {}, nil
     for i = 1, #CATS do
         local cat = CATS[i]
-        if bv[cat] == true then
+        if show[cat] == true then
             cats[#cats + 1] = cat
             if TYPE_CATS[cat] then
                 types = types or {}
@@ -319,7 +326,6 @@ local function MatchSpec(bv, dm, claims)
     for i = 1, #cats do
         if not TYPE_CATS[cats[i]] then MatchApply(m, cats[i], true, dm) end
     end
-    local neg = bv.neg
     for i = 1, #CATS do
         local cat = CATS[i]
         if neg and neg[cat] == true then MatchApply(m, cat, false, dm) end
@@ -335,6 +341,11 @@ local function MatchFinish(m)
     if m.empty then return nil end
     -- PLAYER (your casts, pet and vehicle included) is always a player source.
     if m.tok.PLAYER == true and m.cf.isFromPlayerOrPlayerPet == false then return nil end
+    -- The merged Boss/Role field (only a record carried into the hand-off has
+    -- it) is Boss OR Role, so it contradicts both halves being false.
+    local br = m.cf.isBossOrRoleAura
+    if br == true and m.cf.isBossAura == false and m.cf.isRoleAura == false then return nil end
+    if br == false and (m.cf.isBossAura == true or m.cf.isRoleAura == true) then return nil end
     local cf = {}
     for k, v in pairs(m.cf) do cf[k] = v end
     if m.inc then
@@ -377,6 +388,140 @@ local function TileCatchAllOn(t)
         end
     end
     return true
+end
+
+-- MATCH ALL INDICATORS (t.match == "all", the indicator's All Debuffs off, 2+
+-- Show picks; nil = Match Any): a grid indicator renders ONE conjunction record
+-- instead of claiming each pick, and takes exactly that set out of every other
+-- record (the hand-off at the end of BuildRecords), so the rest of each picked
+-- category stays where it was. An effect indicator fires one conjunction slot
+-- instead of one slot per pick. One pick keeps the claim path unchanged.
+local function TilePicks(t)
+    local c, n = t.claim, 0
+    if c then
+        for i = 1, #CATS do
+            if c[CATS[i]] == true then n = n + 1 end
+        end
+    end
+    return n
+end
+
+local function TileMatchOn(t)
+    return t.match == "all" and t.all ~= true and TilePicks(t) >= 2
+end
+
+-- True when a Match All indicator's own lanes can never match together.
+local function TileMatchEmpty(t, dm)
+    return MatchFinish((MatchSpec(t.claim, t.neg, dm))) == nil
+end
+
+-- Hand-off atoms: the set a Match All indicator takes, as AND terms -- the
+-- per-type dispel picks as ONE OR'd set (first, as it decides disjointness
+-- soonest), every other pick alone, and NOT crowd control while crowd control
+-- stays with its own owner (see BuildRecords).
+local function MatchAtoms(show, ccNeg)
+    local atoms, types = {}, nil
+    for i = 1, #CATS do
+        local cat = CATS[i]
+        if show[cat] == true then
+            local T = TYPE_CATS[cat]
+            if T then
+                types = types or {}
+                types[T] = true
+            else
+                atoms[#atoms + 1] = { cat = cat }
+            end
+        end
+    end
+    if types then table.insert(atoms, 1, { types = types }) end
+    if ccNeg then atoms[#atoms + 1] = { cat = "cc", neg = true } end
+    return atoms
+end
+
+-- ANDs atom `a` (pos) or its complement onto spec m.
+local function MatchAtom(m, a, pos, dm)
+    if a.types then
+        MatchTypes(m, a.types, pos)
+    else
+        MatchApply(m, a.cat, pos ~= (a.neg == true), dm)
+    end
+end
+
+-- A claimed record keeps its overlap with a hidden token category ranked below
+-- its own (per-type > dispel > raid > raidcombat > castbyme; a per-type record
+-- negates only crowd control), so a base hide of `cat` does not reach a Match
+-- All set when one of its picks outranks it.
+local TOK_HIDE_RANK = { dispel = 1, raid = 2, raidcombat = 3, castbyme = 4 }
+local function TokHideOwned(show, cat)
+    local rx = TOK_HIDE_RANK[cat]
+    if not rx then return false end
+    for i = 1, #TYPE_ORDER do
+        if show[TYPE_ORDER[i]] == true then return true end
+    end
+    for pc, r in pairs(TOK_HIDE_RANK) do
+        if r < rx and show[pc] == true then return true end
+    end
+    return false
+end
+
+-- A record as a spec, the inverse of MatchFinish (candidate fields other than
+-- the dispel-type sets ride along untouched). Nil for a token outside the Match
+-- vocabulary, which the hand-off then leaves alone.
+local MATCH_TOK_KNOWN = {}
+for i = 1, #MATCH_TOK_ORDER do MATCH_TOK_KNOWN[MATCH_TOK_ORDER[i]] = true end
+local function RecSpec(r)
+    local m = { tok = {}, cf = {} }
+    local toks = r.tokens
+    for i = 1, #toks do
+        local tk = toks[i]
+        if tk ~= "HARMFUL" then
+            local pos = tk:sub(1, 1) ~= "!"
+            if not pos then tk = tk:sub(2) end
+            if not MATCH_TOK_KNOWN[tk] then return nil end
+            MatchSet(m, m.tok, tk, pos)
+        end
+    end
+    for k, v in pairs(r.cand) do
+        if k == "includeDispelTypes" then
+            m.inc = {}
+            for T in pairs(v) do m.inc[T] = true end
+        elseif k == "excludeDispelTypes" then
+            m.exc = {}
+            for T in pairs(v) do m.exc[T] = true end
+        else
+            m.cf[k] = v
+        end
+    end
+    return m
+end
+
+-- Record r minus the conjunction of `atoms`, as exact disjoint parts:
+-- r AND NOT a1, r AND a1 AND NOT a2, ... A part is skipped where r already
+-- decides its atom, and the remainder inside the set goes to the indicator.
+-- Returns nil when r shares nothing with the set (r stays byte-identical),
+-- else the part specs (an empty list when r lies wholly inside the set).
+local function Carve(r, atoms, dm)
+    local cur = RecSpec(r)
+    if not cur then return nil end
+    local parts
+    for i = 1, #atoms do
+        -- What is left of r shares nothing with the rest of the set: it stays whole.
+        local rest = MatchCopy(cur)
+        for j = i, #atoms do MatchAtom(rest, atoms[j], true, dm) end
+        if not MatchFinish(rest) then
+            if not parts then return nil end
+            parts[#parts + 1] = cur
+            return parts
+        end
+        local out = MatchCopy(cur)
+        MatchAtom(out, atoms[i], false, dm)
+        if MatchFinish(out) then
+            parts = parts or {}
+            parts[#parts + 1] = out
+        end
+        MatchAtom(cur, atoms[i], true, dm)
+    end
+    return parts or {}
 end
 
 -- Fingerprint inputs the record/tile synthesis reads beyond the containers file's DebuffCfgFP (which appends this);
@@ -972,6 +1117,8 @@ function ns.DM_CfgFP()
             if t.maxDurSec then
                 parts[#parts] = parts[#parts] .. ",md" .. tostring(t.maxDurSec)
             end
+            -- Match All: only-when-set, like the base's mA.
+            if t.match == "all" then parts[#parts] = parts[#parts] .. ",mA" end
             for li = 1, #LESS_CATS do
                 local c = LESS_CATS[li]
                 if t.claim and t.claim[c] then parts[#parts] = parts[#parts] .. "," .. c end
@@ -989,7 +1136,8 @@ end
 -- Effective enabled flags: a category is "on" if its base checkbox is set OR
 -- an enabled icons tile claims it; negations key off THESE (a claimed
 -- category must still be excluded from every other record). Also resolves
--- claims[cat] = tile table (first enabled claimer wins).
+-- claims[cat] = tile table (first enabled claimer wins). Match All grid tiles
+-- claim nothing: they come back as a list instead (nil when there are none).
 local function EffectiveState(dm, matchOn)
     -- Every category key is an explicit checkbox (true/nil); cc's base-grid default-on lives in the apply pass's Show All branch, not here.
     -- Show-lane checkboxes are DORMANT while Show All is on (the dropdown dims the
@@ -1015,6 +1163,7 @@ local function EffectiveState(dm, matchOn)
     -- checked, or Has Duration alone): it hosts a tile catch-all record, with
     -- the tile's hide lane and duration modifier folded in by BuildRecords.
     local claimsAll = nil
+    local matchTiles = nil
     -- The ACTIVE union (all-specs + group buckets + own spec, per-spec
     -- disables applied): claims follow whatever the current spec renders.
     local tiles = ns.DM_ActiveTiles()
@@ -1023,7 +1172,10 @@ local function EffectiveState(dm, matchOn)
             local t = tiles[i]
             if t.enabled and (t.type == "icons" or t.type == "square") then
                 if not claimsAll and TileCatchAllOn(t) then claimsAll = t end
-                if t.claim then
+                if TileMatchOn(t) then
+                    matchTiles = matchTiles or {}
+                    matchTiles[#matchTiles + 1] = t
+                elseif t.claim then
                     for c = 1, #CATS do
                         local cat = CATS[c]
                         if t.claim[cat] and not claims[cat] then
@@ -1035,7 +1187,7 @@ local function EffectiveState(dm, matchOn)
             end
         end
     end
-    return eff, claims, claimsAll
+    return eff, claims, claimsAll, matchTiles
 end
 
 -- Boolean ownership rank, read by the ownership fold in BuildRecords:
@@ -1058,16 +1210,17 @@ local BOOL_OWN = {
 -- Builds ALL active records. Each: key, tokens (declaration-fixed filter
 -- parts), cand (fresh candidate table), tile (hosting tile table or nil =
 -- base), cats (Match All and Icon Effect split records only: the
--- category list stamped on their buttons). Also returns the cc candidate
--- table: while cc is UNCLAIMED the base drives the legacy "cc" group (fixed
--- filter, CC glow style); a claimed cc renders in its tile with the tile
--- style, and the CC glow stays a base-group property.
+-- category list stamped on their buttons), match (Match All records),
+-- ccLead (the base CC row in record form, see the Match All indicators).
+-- Also returns the cc candidate table: while cc is UNCLAIMED the base drives
+-- the legacy "cc" group (fixed filter, CC glow style); a claimed cc renders in
+-- its tile with the tile style, and the CC glow stays a base-group property.
 local function BuildRecords(s, dm)
     -- Base-owned inputs read the current spec's base view (empty when the
     -- spec switched the All Specs base grid off); dm keeps the shared flavor.
     local bv = BaseView(dm)
     local matchOn = MatchOn(bv)
-    local eff, claims, claimsAll = EffectiveState(bv, matchOn)
+    local eff, claims, claimsAll, matchTiles = EffectiveState(bv, matchOn)
     -- EFFECTS routing: per-filter icon effects need their categories as
     -- SEPARATE base records even under Show All (like claims, but rendering in
     -- the base container) so the effect can target exactly those buttons
@@ -1273,6 +1426,53 @@ local function BuildRecords(s, dm)
             cand = { excludeSpellIDs = ex } }
     end
 
+    -- Match All indicators in hand-off precedence: more AND terms first (the
+    -- more specific set; the dispel-type picks OR into ONE term, so an extra
+    -- type widens a set and never ranks it higher), ties by list order. Each
+    -- keeps the atoms of the set it takes -- NOT crowd control unless it picks
+    -- Crowd Control, which otherwise stays with its owner like it does for
+    -- every indicator; a set that can never match takes nothing.
+    local matchSets
+    if matchTiles then
+        local order, picks = {}, {}
+        for i = 1, #matchTiles do
+            local t = matchTiles[i]
+            order[t], picks[t] = i, #MatchAtoms(t.claim, false)
+        end
+        table.sort(matchTiles, function(a, b)
+            if picks[a] ~= picks[b] then return picks[a] > picks[b] end
+            return order[a] < order[b]
+        end)
+        for i = 1, #matchTiles do
+            local t = matchTiles[i]
+            local atoms = MatchAtoms(t.claim, ccOn and t.claim.cc ~= true)
+            local m = { tok = {}, cf = {} }
+            for j = 1, #atoms do MatchAtom(m, atoms[j], true, dm) end
+            if MatchFinish(m) then
+                matchSets = matchSets or {}
+                matchSets[#matchSets + 1] = { tile = t, atoms = atoms }
+            end
+        end
+    end
+
+    -- A Match All indicator that picks Crowd Control takes its matching crowd
+    -- control out of the base CC row, which needs the row in record form (the
+    -- legacy "cc" group's filter is declaration-fixed): the record the sized path
+    -- builds, bound to the row's own CC-glow style and leading the row (ccLead).
+    if matchSets and not claims.cc and not (eff.cc and FxSizeFor(bv.fxList, "cc")) then
+        local ccRow = (allOn and not NegHas("cc")) or (not allOn and bv.cc == true and not matchOn)
+            or fxCats.cc == true
+        if ccRow then
+            for i = 1, #matchSets do
+                if matchSets[i].tile.claim.cc == true then
+                    recs[#recs + 1] = { key = "cc", tokens = { "HARMFUL", "CROWD_CONTROL" },
+                        cand = { excludeSpellIDs = ex }, ccLead = true }
+                    break
+                end
+            end
+        end
+    end
+
     -- Category records: skipped in base when Show All covers them, always built for a claiming tile.
     if dispelOn and (claims.dispel or fxCats.dispel or not allOn) then
         local toks = { "HARMFUL" }
@@ -1359,20 +1559,19 @@ local function BuildRecords(s, dm)
             cand = Cand(false, { isFromPlayerOrPlayerPet = npAny }), tile = claims.nonplayer }
     end
 
-    -- MATCH ALL: ONE base conjunction record from the raw show lane (MatchSpec).
-    -- Icon Effects only PAINT here: a block on a category inside the set paints
+    -- MATCH ALL: ONE conjunction record per Match All set, hosted by `tile` (nil =
+    -- the base, from its raw show lane, MatchSpec). Icon Effects (the owner's
+    -- own list) only PAINT here: a block on a category inside the set paints
     -- the whole group (its stamped category list matches the block); a block on
     -- a category X outside the set splits the rest into (set AND X, painted) and
     -- (set AND NOT X), in block order, until a block reaches inside the set.
     -- A part that can never match is skipped, so a hidden or claimed X paints
     -- nothing (Hide beats an effect). Exact complements (every category, the
     -- boolean ones included, has an exact opposite): no debuff lands in two
-    -- parts. A set that can never match builds nothing (ns.DM_MatchEmpty is the
-    -- options warning's test).
-    if matchOn then
-        local rest, cats = MatchSpec(bv, dm, claims)
+    -- parts. A set that can never match builds nothing (ns.DM_MatchEmpty and
+    -- ns.DM_TileMatchEmpty are the options warnings' tests).
+    local function EmitMatch(rest, cats, fl, tile)
         local restT, restC = MatchFinish(rest)
-        local fl = bv.fxList
         if restT and fl then
             local inSet, split = {}, {}
             for i = 1, #cats do inSet[cats[i]] = true end
@@ -1401,7 +1600,7 @@ local function BuildRecords(s, dm)
                                     table.sort(pcats)
                                     pC.excludeSpellIDs = ex
                                     recs[#recs + 1] = { key = "match:" .. table.concat(pcats, "+"),
-                                        tokens = pT, cand = pC, cats = pcats }
+                                        tokens = pT, cand = pC, cats = pcats, tile = tile, match = true }
                                     local negm = MatchCopy(rest)
                                     MatchApply(negm, X, false, dm)
                                     rest = negm
@@ -1417,7 +1616,42 @@ local function BuildRecords(s, dm)
         if restT then
             restC.excludeSpellIDs = ex
             recs[#recs + 1] = { key = "match:" .. table.concat(cats, "+"),
-                tokens = restT, cand = restC, cats = cats }
+                tokens = restT, cand = restC, cats = cats, tile = tile, match = true }
+        end
+    end
+    if matchOn then
+        local rest, cats = MatchSpec(bv, bv.neg, dm, claims)
+        EmitMatch(rest, cats, bv.fxList, nil)
+    end
+
+    -- Match All indicators: each renders its set in its own container with its
+    -- own hide lane and Icon Effects, plus the base hide lane wherever that
+    -- reaches a claiming indicator's records today: dispel-type categories
+    -- always, token categories no pick outranks (TokHideOwned), boolean ones off
+    -- All Debuffs, and nothing at all on a set that picks Crowd Control (cc
+    -- records take no folds) -- never on a category the indicator picks, and
+    -- never where it would empty the picks (a pick beats a hide, as a claim's
+    -- own filter does). Crowd control stays out unless picked (see matchSets).
+    -- Whatever the indicator's own hide lane and Has Duration drop from its set
+    -- shows nowhere, the claims policy.
+    if matchTiles then
+        for i = 1, #matchTiles do
+            local t = matchTiles[i]
+            local m, cats = MatchSpec(t.claim, t.neg, dm)
+            if ccOn and t.claim.cc ~= true then MatchApply(m, "cc", false, dm) end
+            if neg and t.claim.cc ~= true then
+                for c = 1, #CATS do
+                    local cat = CATS[c]
+                    if neg[cat] == true and cat ~= "cc" and t.claim[cat] ~= true
+                        and not (allOn and (MATCH_BOOL[cat] or cat == "nonplayer"))
+                        and not TokHideOwned(t.claim, cat) then
+                        local try = MatchCopy(m)
+                        MatchApply(try, cat, false, dm)
+                        if MatchFinish(try) then m = try end
+                    end
+                end
+            end
+            EmitMatch(m, cats, t.fxList, t)
         end
     end
 
@@ -1623,7 +1857,8 @@ local function BuildRecords(s, dm)
         local r = recs[i]
         local tn = r.tile and r.tile.neg
         -- npdead ignores ALL filters by definition: no hide-lane folds, no duration cap.
-        if tn and r.key ~= "cc" and r.key ~= "npdead" then
+        -- Match All records already carry their indicator's hide lane (MatchSpec).
+        if tn and r.key ~= "cc" and r.key ~= "npdead" and not r.match then
             local toks, cf, key = r.tokens, r.cand, r.key
             if tn.cc == true and not HasTok(toks, "!CROWD_CONTROL") then
                 toks[#toks + 1] = "!CROWD_CONTROL"
@@ -1681,6 +1916,42 @@ local function BuildRecords(s, dm)
         r.fxSize = FxSizeFor(r.tile and r.tile.fxList or bv.fxList, r.cats or r.key)
     end
 
+    -- HAND-OFF: each Match All set (matchSets, in precedence order) is taken out
+    -- of every record not yet settled -- the base, Match Any indicators, the
+    -- catch-alls and lower-precedence Match All indicators -- by splitting the
+    -- record into exact disjoint parts outside the set (Carve). Parts keep the
+    -- record's key, host, category stamp, size and flags, so Icon Effects, sizes
+    -- and the CC row behave as before; a record that shares nothing with the
+    -- set stays byte-identical. The dead-corpse record shows everything by
+    -- design and is never split.
+    if matchSets then
+        local settled = {}
+        for k = 1, #matchSets do
+            local set = matchSets[k]
+            settled[set.tile] = true
+            local out = {}
+            for i = 1, #recs do
+                local r = recs[i]
+                local parts
+                if not r.deadOnly and not (r.tile and settled[r.tile]) then
+                    parts = Carve(r, set.atoms, dm)
+                end
+                if parts then
+                    for p = 1, #parts do
+                        local toks, cf = MatchFinish(parts[p])
+                        if toks then
+                            out[#out + 1] = { key = r.key, tokens = toks, cand = cf, tile = r.tile,
+                                cats = r.cats, fxSize = r.fxSize, match = r.match, ccLead = r.ccLead }
+                        end
+                    end
+                else
+                    out[#out + 1] = r
+                end
+            end
+            recs = out
+        end
+    end
+
     return recs, ccCand, claims, Cand, fxCats, matchOn
 end
 
@@ -1691,7 +1962,19 @@ function ns.DM_MatchEmpty(view)
     local dm = DM()
     if not (view and dm and MatchOn(view)) then return false end
     local _, claims = EffectiveState(view, true)
-    return MatchFinish((MatchSpec(view, dm, claims))) == nil
+    return MatchFinish((MatchSpec(view, view.neg, dm, claims))) == nil
+end
+
+-- Indicator Match All (options: the Filters summary join, the sidebar
+-- subtitle and the "can never match" warning).
+function ns.DM_TileMatchOn(t)
+    return t ~= nil and TileMatchOn(t)
+end
+
+function ns.DM_TileMatchEmpty(t)
+    local dm = DM()
+    if not (t and dm and TileMatchOn(t)) then return false end
+    return TileMatchEmpty(t, dm)
 end
 
 -- Order-independent fingerprint of a candidate-filter table. Candidate payloads are DECLARATION-FIXED
@@ -1736,8 +2019,9 @@ local function GroupKey(AKL, r)
     -- "|sz" marks a SIZED record (group->style binding fixed at declare, so gaining/losing a Size swaps the
     -- variant); size VALUE excluded on purpose since the sized style key is stable per category and its content
     -- rebuilds on edits, so a slider drag restyles buttons instead of minting an engine batch per step.
+    -- "|lead" marks the CC row's record form (its own style and flow slot, see BuildRecords).
     return "dm_" .. r.key .. "|" .. AKL.Filter(unpack(r.tokens))
-        .. (r.fxSize and "|sz" or "") .. "|" .. CandFP(r.cand)
+        .. (r.fxSize and "|sz" or "") .. (r.ccLead and "|lead" or "") .. "|" .. CandFP(r.cand)
 end
 
 -- Effect-tile category resolution: one live-settable slot per tile.
@@ -1772,8 +2056,17 @@ end
 -- the cc slot takes no folds at all -- cc owns its overlaps, base parity with
 -- ccCand bypassing Cand).
 local function EffectFilterForTile(dm, t, cat)
-    local toks, cf = EffectFilterFor(dm, cat)
     local cap = t and (t.maxDurSec or (t.hasDuration == true and math.huge)) or nil
+    -- Match All: ONE conjunction slot from the tile's lanes (its hide lane is in
+    -- the spec). A set that can never match keeps a plain filter; FxApply's gate
+    -- (fx.matchLive) silences the slot instead.
+    if cat == "match" then
+        local toks, cf = MatchFinish((MatchSpec(t.claim, t.neg, dm)))
+        if not toks then return { "HARMFUL" }, {} end
+        if cap then cf.maxDuration = cap end
+        return toks, cf
+    end
+    local toks, cf = EffectFilterFor(dm, cat)
     if cap and cat ~= "cc" then
         cf = cf or {}
         if cf.maxDuration == nil then cf.maxDuration = cap end
@@ -1842,8 +2135,12 @@ local function EffectFilterForTile(dm, t, cat)
 end
 
 -- Effect-tile category set: claimed categories plus the "all" pseudo-category
--- while the tile is in catch-all state (nil when the tile targets nothing).
+-- while the tile is in catch-all state (nil when the tile targets nothing);
+-- under Match All the one "match" pseudo-category instead (the per-pick slots
+-- stay declared, silenced by FxApply's gate).
+local MATCH_FX_SET = { match = true }
 local function EffectCatSet(t)
+    if TileMatchOn(t) then return MATCH_FX_SET end
     local set
     if t.claim then
         for cat, on in pairs(t.claim) do
@@ -2067,10 +2364,12 @@ local function FxApply(button, dd, style)
     -- currently UNCHECKED must render nothing. dd.dmCat is stamped at slot creation
     -- and fx.filters is the live checked set, so the two together are the gate. The
     -- catch-all pseudo-slot ("all") gates on the live tile's current catch-all
-    -- state instead (never a claim key).
+    -- state instead (never a claim key). Under Match All only the "match"
+    -- pseudo-slot renders (fx.matchOn / fx.matchLive, resolved at style build).
     -- Both paths stay pcall-wrapped: this runs inside the engine's CreateFrameBatch,
     -- where an uncaught error aborts the whole batch and the slot never appears.
-    if dd and fx.filters and (fx.filters[dd.dmCat]
+    if dd and fx.filters and ((dd.dmCat == "match" and fx.matchLive)
+        or (not fx.matchOn and fx.filters[dd.dmCat])
         or (dd.dmCat == "all" and fx.tile and TileCatchAllOn(fx.tile))) then
         pcall(FxApplyInner, button, dd, refs, fx)
     else
@@ -2199,6 +2498,10 @@ local function EnsureTileStyle(d, s, t, szOv, szCat)
             for k2, on in pairs(t.claim) do if on then cl[#cl + 1] = k2 end end
             table.sort(cl)
         end
+        -- Match All gate inputs (FxApply): on, and whether the set can match at all
+        -- (reads the tile's lanes and the shared dispel / Non-Player flavors).
+        local mOn = TileMatchOn(t)
+        local mLive = mOn and not TileMatchEmpty(t, DM() or {})
         v = table.concat({ tostring(t.type), tostring(t.glowType), tostring(t.glowLines),
             tostring(t.glowThickness), tostring(t.glowSpeed), tostring(t.glowColorMode),
             ns.RF_GlowClassFP(t.glowColorMode),
@@ -2214,6 +2517,7 @@ local function EnsureTileStyle(d, s, t, szOv, szCat)
             string.format("%.2f,%.2f,%.2f,%.2f", c.r or 1, c.g or 1, c.b or 1, c.a or 1),
             string.format("%.2f,%.2f,%.2f", bgc.r or 0, bgc.g or 0, bgc.b or 0),
             table.concat(cl, "+"), tostring(t.all), tostring(t.hasDuration),
+            mOn and (mLive and "mA" or "mE") or "-",
         }, "|")
         if st.style ~= v then
             st.style = v
@@ -2222,6 +2526,7 @@ local function EnsureTileStyle(d, s, t, szOv, szCat)
                 applyExtra = FxApply,
                 fx = {
                     kind = t.type,
+                    matchOn = mOn, matchLive = mLive,
                     -- Checked-filter set: the applier's per-slot gate (live table reference; the FP above rebuilds on changes).
                     filters = t.claim or {},
                     -- Live tile reference: the catch-all pseudo-slot's gate (see FxApply).
@@ -2542,6 +2847,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
     local tipN, tipCell = ccParkCount or 0, size
 
     -- Base records.
+    local leadLayout
     for gkey, r in pairs(wantedBase) do
         if declared[gkey] then
             local recordSize = r.fxSize and EffectiveIconSize(d, r.fxSize)
@@ -2561,6 +2867,15 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                     elementSpacing = s.debuffSpacing or 1,
                     lineSpacing = s.debuffSpacing or 1,
                 })
+            elseif r.ccLead then
+                -- The CC row's record form keeps the row's lead (flow order 0 sorts
+                -- before every registered group).
+                leadLayout = leadLayout or {
+                    elementWidth = size, elementHeight = size,
+                    elementSpacing = s.debuffSpacing or 1, lineSpacing = s.debuffSpacing or 1,
+                    layoutIndex = 0,
+                }
+                container:SetAuraGroupLayout(gkey, leadLayout)
             else
                 container:SetAuraGroupLayout(gkey, layout)
             end
@@ -2620,9 +2935,12 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                         -- split record stamps its category LIST (its key names the same list, so a group's list
                         -- never changes).
                         local catKey = r.cats or r.key
-                        -- Sized records bind their per-category sized style (buttons take physical size at creation).
+                        -- Sized records bind their per-category sized style (buttons take physical size at creation);
+                        -- the CC row's record form binds the row's own CC-glow style (the containers
+                        -- file builds it beside the base debuff style) and leads the row.
                         local sk = r.fxSize
                             and EnsureBaseSizeStyle(d, s2, r.key, r.fxSize)
+                            or (r.ccLead and ("rf:debuffcc:" .. ClassToken(d)))
                             or StyleKeyFor(d)
                         local groupSize = r.fxSize
                             and EffectiveIconSize(d, r.fxSize) or s2.debuffSize or 18
@@ -2636,6 +2954,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                             layout = {
                                 elementWidth = groupSize, elementHeight = groupSize,
                                 elementSpacing = groupSpacing, lineSpacing = groupSpacing,
+                                layoutIndex = (r.ccLead and not r.fxSize) and 0 or nil,
                             },
                             extraInit = function(btn2, d2, style)
                                 if d2 then d2.dmCat = catKey end

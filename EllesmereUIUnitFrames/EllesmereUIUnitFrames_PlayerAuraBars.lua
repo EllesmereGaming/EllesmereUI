@@ -1285,9 +1285,16 @@ end
 -- Name=6, NameOnly=7, AuraInstanceIDOnly=8}, AuraContainerSortDirection = {Normal=0,
 -- Reverse=1}. Default=0 and Normal=0 are valid values, not "unset" -- compare against
 -- nil, never truthiness.
+--
+-- The dropdown's "Expiration"/"Name" resolve to the native *Only variants: the plain
+-- Expiration/Name comparators rank player-cast/canApplyAura FIRST and only then the
+-- named criterion, so a bar sorted "by Expiration" came out as two separately sorted
+-- runs (e.g. 1h 58m 57m ... then 11h 54m 6m). The saved value keeps the dropdown key.
 local function ResolveSortMethod(cfg)
     local key = cfg.sortMethod or "Default"
-    return AuraContainerSortMethod and AuraContainerSortMethod[key]
+    if not AuraContainerSortMethod then return nil end
+    local native = (key == "Expiration" and "ExpirationOnly") or (key == "Name" and "NameOnly") or nil
+    return (native and AuraContainerSortMethod[native]) or AuraContainerSortMethod[key]
 end
 local function ResolveSortDirection(cfg)
     local key = (cfg.sortDirection == "Reverse") and "Reverse" or "Normal"
@@ -2867,7 +2874,10 @@ do
     function BuffAuraMax(grid)
         local slots = grid.enchSlots or 0
         if slots <= 0 then return grid.effectiveMax end
-        return math.max(0, grid.effectiveMax - ActiveEnchantCount(slots))
+        local n = ActiveEnchantCount(slots)
+        -- WoW Forever: its imbue cells come off the budget too (nil elsewhere).
+        if ns.PAB_FvImbueCount then n = n + ns.PAB_FvImbueCount() end
+        return math.max(0, grid.effectiveMax - n)
     end
 
     -- The budget moves with the enchants, so an applied or expired oil re-applies
@@ -2893,6 +2903,8 @@ do
             enchEventFrame:UnregisterAllEvents()
             lastEnchCount = nil
         end
+        -- WoW Forever: its imbue cells follow the row on and off (nil elsewhere).
+        if ns.PAB_FvImbueSync then ns.PAB_FvImbueSync(want) end
     end
 end
 
@@ -2903,6 +2915,12 @@ local function ApplyEnchants(container, cfg, pad, grid)
     if (grid.enchSlots or 0) <= 0 then return end
     AK.AddItemEnchantmentsToContainer(container,
         BuildEnchantSpec(cfg, pad, grid.rowGap, grid.enchSlots))
+    -- WoW Forever: imbues are an enchant type the engine cells never see there,
+    -- drawn by EUI_UnitFrames_ForeverImbues.lua (nil on every other client).
+    if ns.PAB_FvImbueLayout then
+        ns.PAB_FvImbueLayout(container, buffsParent, cfg, grid,
+            BuildGroupLayout(cfg, pad, grid.rowGap), (BuildContainerSpec(buffsParent, cfg, grid)))
+    end
 end
 
 -- Buffs content signature: the resolved spell set PLUS the number of declared
@@ -3302,6 +3320,8 @@ function SyncCancelCVar()
     if not AnyRightClickCancelActive(s) then return end
     if InCombatLockdown() then return end
     if tonumber(GetCVar(CANCEL_CVAR)) == CANCEL_CVAR_BROKEN then
+        -- A repair to Blizzard's default, which Uninstall EUI must not undo:
+        -- plain SetCVar, not EllesmereUI.SetCVar.
         SetCVar(CANCEL_CVAR, CANCEL_CVAR_DEFAULT)
     end
 end
@@ -5305,21 +5325,27 @@ end
 -- Per Blizzard's AuraUtil.lua comparators: Expiration = ascending expirationTime,
 -- Name = alphabetical spell name, ImportantOnly = `C_Spell.IsSpellImportant(spellId)`
 -- first (a native per-spell flag, NOT dispel-type-based, applies equally to buffs).
--- The real comparators also weight player-cast/priority/canApplyAura ahead of the
--- named criterion and tie-break on auraInstanceID -- not reproduced here (fake
--- entries have no equivalent), so this approximates relative ORDER only.
+-- Expiration/Name resolve to the native *Only comparators (see ResolveSortMethod), so
+-- the live order is the named criterion alone, tie-broken on auraInstanceID.
 -- `sortDirection == "Reverse"` flips every comparison INCLUDING under Default: whether
 -- the engine's Default ordering respects direction is unknown, and reversing the
 -- pool's own order beats ignoring the toggle. Never mutates `list`.
+--
+-- Second return: each output entry's ORIGINAL index in `list`. The fake duration and
+-- stack text are keyed by that index (slot.pv in BuildPreviewSlots), so they travel WITH
+-- their icon; keying them by display cell instead left the Expiration sort invisible.
 local function SortPreviewList(list, isBuff, cfg)
     local method = cfg.sortMethod or "Default"
     local reverse = cfg.sortDirection == "Reverse"
     if method == "Default" then
-        if not reverse then return list end
-        local out = {}
+        local out, src = {}, {}
         local n = #list
-        for i = 1, n do out[i] = list[n - i + 1] end
-        return out
+        for i = 1, n do
+            local from = reverse and (n - i + 1) or i
+            out[i] = list[from]
+            src[i] = from
+        end
+        return out, src
     end
 
     local tagged = {}
@@ -5360,9 +5386,12 @@ local function SortPreviewList(list, isBuff, cfg)
         end)
     end
 
-    local out = {}
-    for i = 1, #tagged do out[i] = tagged[i].entry end
-    return out
+    local out, src = {}, {}
+    for i = 1, #tagged do
+        out[i] = tagged[i].entry
+        src[i] = tagged[i].idx
+    end
+    return out, src
 end
 
 -- Which bar-detail pane owns the visible preview box (kind: "buff"/"debuff", id:
@@ -5692,12 +5721,12 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
     local avail = math.max(0, count - numEnch)
 
     local mixed = isBuff and DedupeByIcon(BuildMixedRealSpells(cfg)) or nil
-    local extraIDs
+    local extraIDs, extraSrc
     if mixed then
         local numSelected = math.min(#mixed, avail)
         local selected = {}
         for i = 1, numSelected do selected[i] = mixed[i] end
-        extraIDs = SortPreviewList(selected, isBuff, cfg)
+        extraIDs, extraSrc = SortPreviewList(selected, isBuff, cfg)
     end
     local numExtra = extraIDs and #extraIDs or 0
     local numFiller = avail - numExtra
@@ -5705,8 +5734,10 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
     for i = 1, numEnch do
         slots[i] = { kind = "enchant", slot = enchSlots[i] }
     end
+    -- pv: the icon's fake duration/stack index, the same one SortPreviewList sorted it
+    -- by -- so the displayed numbers follow the chosen sort.
     for i = 1, numExtra do
-        slots[numEnch + i] = { kind = "extra", spellID = extraIDs[i] }
+        slots[numEnch + i] = { kind = "extra", spellID = extraIDs[i], pv = extraSrc[i] }
     end
     if numFiller > 0 then
         if hasFiller then
@@ -5749,10 +5780,12 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
                     fillerSelected[i] = list[((i - 1) % listLen) + 1]
                 end
             end
-            fillerSelected = SortPreviewList(fillerSelected, isBuff, cfg)
+            local fillerSrc
+            fillerSelected, fillerSrc = SortPreviewList(fillerSelected, isBuff, cfg)
             for i = 1, numFiller do
                 local e = fillerSelected[i]
-                slots[numEnch + numExtra + i] = e and { kind = "fake", entry = e } or { kind = "placeholder" }
+                slots[numEnch + numExtra + i] = e and { kind = "fake", entry = e, pv = fillerSrc[i] }
+                    or { kind = "placeholder" }
             end
         else
             for i = 1, numFiller do
@@ -6135,7 +6168,8 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 local dc = style.durationColor
                 btn.duration:SetTextColor(dc and dc.r or 1, dc and dc.g or 1, dc and dc.b or 1)
                 btn.duration:SetShown(not style.hideDurationText)
-                btn.duration:SetText(PREVIEW_DURATIONS[((i - 1) % #PREVIEW_DURATIONS) + 1])
+                local pv = slot.pv or i
+                btn.duration:SetText(PREVIEW_DURATIONS[((pv - 1) % #PREVIEW_DURATIONS) + 1])
 
                 btn.stack:ClearAllPoints()
                 btn.stack:SetFont(fontPath, style.stackFontSize or 11, "OUTLINE")
@@ -6143,7 +6177,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                     style.stackX or 0, style.stackY or 0)
                 local sc = style.stackColor
                 btn.stack:SetTextColor(sc and sc.r or 1, sc and sc.g or 1, sc and sc.b or 1)
-                local stackVal = PREVIEW_STACKS[((i - 1) % #PREVIEW_STACKS) + 1]
+                local stackVal = PREVIEW_STACKS[((pv - 1) % #PREVIEW_STACKS) + 1]
                 btn.stack:SetShown(style.showStacks ~= false and stackVal ~= nil)
                 if stackVal then btn.stack:SetText(stackVal) end
             end
@@ -6348,7 +6382,7 @@ end
 --  Lifecycle
 -------------------------------------------------------------------------------
 
--- Login build: EllesmereUIUnitFrames.lua's SetupOptionsPanel() calls this once it
+-- Login build: EUI_UnitFrames_OptionsSetup.lua's SetupOptionsPanel() calls this once it
 -- has set ns.db. A PLAYER_LOGIN listener here needed EnableBody's handler to run
 -- first and stood down silently otherwise (field: Blizzard buffs up, no custom
 -- bars until an options change). A disabled Unit Frames module never runs

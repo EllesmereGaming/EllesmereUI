@@ -787,6 +787,8 @@ local function HookFrame(frame, name)
 end
 
 local function TryHook(name)
+    -- WoW Forever's Gamepad interface style: no panel hooks (see InitShifter).
+    if EllesmereUI.PadGamepadUI() then return end
     local frame = _G[name]
     if frame and frame.HookScript then HookFrame(frame, name) end
 end
@@ -1167,6 +1169,13 @@ local pendingAddons = {}
 eventFrame = CreateFrame("Frame")
 
 local function InitShifter()
+    -- WoW Forever's Gamepad interface style drives Blizzard panels through its
+    -- own D-pad focus and binding stack. Our hooks run inside a panel's show
+    -- chain, so a panel opened from the radial menu leaves that stack tainted
+    -- and the next gamepad Back gets a protected call blocked (Blizzard's
+    -- forbidden popup then freezes the client). Dragging needs a mouse anyway,
+    -- so nothing is hooked while that style is on (false on retail).
+    if EllesmereUI.PadGamepadUI() then return end
     for i = 1, #PRELOADED do
         TryHook(PRELOADED[i])
     end

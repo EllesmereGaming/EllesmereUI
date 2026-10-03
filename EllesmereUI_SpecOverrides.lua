@@ -4079,19 +4079,27 @@ end
 --- True for module folders excluded wholesale from the override systems (drives
 --- the sidebar lock during an editing session). Includes the management
 --- surfaces (Profiles & Presets, Patch Notes, Global Settings): they lock like
---- every other excluded module.
-function EllesmereUI.SpecOverrides_ModuleExcluded(folder)
-    return (type(folder) == "string" and EXCLUDED_CONTEXTS[folder] == true)
-        or false
-end
+--- every other excluded module. Plugin pages ("plugin:" keys) are never part of
+--- the override systems, so they are always excluded.
+-- Block-scoped: this file's main chunk sits near the 200-local cap.
+do
+    local _, ns = ...
+    ns = ns.__euiCoreNS or ns  -- standalone builds: the core's own table (EllesmereUI.lua)
 
---- True when a module page is excluded (page-scoped entry, or the whole
---- module). Drives the page-tab lock while a session is active.
-function EllesmereUI.SpecOverrides_PageExcluded(module, page)
-    local ex = module and EXCLUDED_CONTEXTS[module]
-    if ex == true then return true end
-    if type(ex) == "table" and page then return ex[page] == true end
-    return false
+    function EllesmereUI.SpecOverrides_ModuleExcluded(folder)
+        return (type(folder) == "string" and EXCLUDED_CONTEXTS[folder] == true)
+            or ns.IsPluginKey(folder)
+    end
+
+    --- True when a module page is excluded (page-scoped entry, or the whole
+    --- module). Drives the page-tab lock while a session is active.
+    function EllesmereUI.SpecOverrides_PageExcluded(module, page)
+        if ns.IsPluginKey(module) then return true end
+        local ex = module and EXCLUDED_CONTEXTS[module]
+        if ex == true then return true end
+        if type(ex) == "table" and page then return ex[page] == true end
+        return false
+    end
 end
 
 function Cond.GetStore(create)

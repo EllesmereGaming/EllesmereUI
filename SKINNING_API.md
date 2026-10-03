@@ -69,10 +69,12 @@ changes the user makes apply to your frames live where possible.
 
 ## Reference
 
-`S.apiVersion` is `2`. The API only ever grows; existing functions and their
+`S.apiVersion` is `3`. The API only ever grows; existing functions and their
 signatures will not change. Version 2 added `S.SetTabSelection`; check
 `S.apiVersion >= 2` (or `S.SetTabSelection`) before calling it, so your skin
-still works for players on an older EllesmereUI.
+still works for players on an older EllesmereUI. Version 3 added the
+`S.EditBox` options; an older EllesmereUI ignores them (the box keeps its
+border and gets no padding), so they need no check.
 
 ### Containers
 
@@ -91,7 +93,7 @@ still works for players on an older EllesmereUI.
 | `S.Button(button [, keepKeys])` | Flat dark button, subtle white hover, thin border. `keepKeys = {"Icon"}` preserves named regions. Label font/color untouched. |
 | `S.WhiteButtonLabel(button)` | Forces a button label white (color only), re-applied on OnEnable. |
 | `S.StateButtonLabel(button)` | Label white when enabled, gray when disabled. |
-| `S.EditBox(editBox)` | Near-black input box with border, template art removed. |
+| `S.EditBox(editBox [, opts])` | Near-black input box with border, template art removed. `opts.padInput` moves the box's left edge 6px further left and insets its text by the same amount, so the text keeps its place with room before the border; call it after the box is anchored (an unanchored box gets no padding). `opts.noBorder` skips the border. (opts: apiVersion 3) |
 | `S.Checkbox(checkbox [, opts])` | Dark box + accent-colored check. `opts.stockCheck` keeps Blizzard's check color. |
 | `S.Dropdown(dropdown)` | Flat dropdown with the house arrow. |
 | `S.ScrollBar(scrollBar)` | Fades arrows/track art, paints the thin white thumb strip. Scroll behavior untouched. |

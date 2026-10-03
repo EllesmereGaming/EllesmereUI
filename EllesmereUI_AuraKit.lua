@@ -1309,6 +1309,42 @@ function AK.MakeInitializer(styleKey, extra)
     end
 end
 
+-- A cell of `styleKey` on a plain frame of the caller's (no engine aura button
+-- behind it): the same regions and style pass as an engine button's
+-- initializer, registered for restyles, minus the engine registrations (icon,
+-- duration, stacks, cancel), which the caller drives itself. For content the
+-- engine has no source for (WoW Forever's weapon imbues). Returns frame, d.
+function AK.CreateStyledCell(parent, styleKey, extra)
+    local style = AK.styles[styleKey] or {}
+    local button = CreateFrame("Frame", nil, parent)
+    local d = {}
+    bd[button] = d
+    d.styleKey = styleKey
+    d.icon = button:CreateTexture(nil, "ARTWORK")
+    d.icon:SetAllPoints(button)
+    d.cooldown = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+    d.cooldown:SetAllPoints(button)
+    d.borderHost = CreateFrame("Frame", nil, button)
+    d.borderHost:SetAllPoints(button)
+    d.borderHost:SetFrameLevel(d.cooldown:GetFrameLevel() + 1)
+    d.borderHost:EnableMouse(false)
+    d.buttonFrameLevel = button:GetFrameLevel()
+    d.dispelHolder = CreateFrame("Frame", nil, button)
+    d.dispelHolder:SetAllPoints(button)
+    d.dispelHolder:SetFrameLevel(d.borderHost:GetFrameLevel() + 4)
+    d.dispelHolder:EnableMouse(false)
+    d.stackCarrier = CreateFrame("Frame", nil, button)
+    d.stackCarrier:SetAllPoints(button)
+    d.stackCarrier:SetFrameLevel(d.borderHost:GetFrameLevel() + 5)
+    d.stackCarrier:EnableMouse(false)
+    d.stack = d.stackCarrier:CreateFontString(nil, "OVERLAY")
+    d.duration = d.stackCarrier:CreateFontString(nil, "OVERLAY")
+    ApplyStyleToRegions(button, style)
+    GetStyleSet(styleKey)[button] = true
+    if extra then extra(button, d, style) end
+    return button, d
+end
+
 -- Re-applies a style to every registered button (settings changed). Geometry
 -- owned by the container (element sizes, spacing, growth) is re-driven by the
 -- caller through AK.ApplyContainerLayout / group setters, not here.

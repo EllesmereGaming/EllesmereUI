@@ -186,6 +186,10 @@ local PP = EllesmereUI.PP
 
 local MEDIA = "Interface\\AddOns\\EllesmereUIDataBars\\media\\"
 ns.MEDIA = MEDIA
+-- The suite's shared micro menu art (EllesmereUI\media\micromenu\), also used by
+-- Quickdraw: the micro menu, bags, gold, location, item level, stats and Great
+-- Vault icons.
+ns.MICROMENU_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\micromenu\\"
 
 -------------------------------------------------------------------------------
 --  Defaults (fresh profile shape; the old single-bar keys are abandoned)
@@ -243,7 +247,7 @@ ns.BLOCK_DEFAULTS = {
     profession = {},
     profession2 = {},
     travel     = { randomizeHs = true },
-    micromenu  = { disableBlizzardMicroMenu = false, hideSocialText = false, charStatsTooltip = false, socialTooltip = false, mainMenuSpacing = 4, iconSpacing = 2,
+    micromenu  = { disableBlizzardMicroMenu = false, hideSocialText = false, mainMenuSpacing = 4, iconSpacing = 2,
                    menu = true, guild = true, social = true, char = true, spell = true, ach = true, quest = true, lfg = true,
                    pvp = true, housing = true, journal = true, pet = true, shop = true, help = true },
     currency   = { currencyId = nil, showIcon = true, showDescription = true },
@@ -274,6 +278,8 @@ ns.BlockFactories = {}
 -- a bar saved with one shows an empty slot there instead of erroring.
 if EllesmereUI.IS_FOREVER then
     local FOREVER_OFF = { greatvault = true, crests = true, spec = true }
+    table.insert(ns.BLOCK_TYPES, #ns.BLOCK_TYPES, { key = "supplies", label = "Class Resources" })
+    ns.BLOCK_DEFAULTS.supplies = { showIcon = true }
     for i = #ns.BLOCK_TYPES, 1, -1 do
         if FOREVER_OFF[ns.BLOCK_TYPES[i].key] then table.remove(ns.BLOCK_TYPES, i) end
     end
@@ -2290,10 +2296,10 @@ function ns.ApplyBar(id)
 
     for i = 1, #cfg.blocks do
         local b = cfg.blocks[i]
-        -- WoW Forever: a saved block whose type has no factory there (a
-        -- retail-only block from an imported profile) builds no slot, so it
-        -- draws no background or hover region; the layout skips a missing slot.
-        if not (EllesmereUI.IS_FOREVER and not ns.BlockFactories[b.type]) then
+        -- A saved block whose type has no factory on this client (a block
+        -- from the other client's profile) builds no slot, so it draws no
+        -- background or hover region; the layout skips a missing slot.
+        if ns.BlockFactories[b.type] then
             local slot = EnsureSlot(rec, b)
             ApplyBlockDecor(slot, b, cfg)
             AnchorContent(slot, b, vertical, cfg)

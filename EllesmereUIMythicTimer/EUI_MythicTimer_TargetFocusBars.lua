@@ -568,10 +568,18 @@ local function SizeNameForTarget(bar, hasTarget)
     bar.name:SetWidth(hasTarget and shared or math.max(shared, (w - h) - 8 - reserve))
 end
 
+-- Per-bar toggle; a bar that never set it inherits the former shared one.
+local function ShowsTarget(tf, which)
+    local cfg = BarCfg(which)
+    local v = cfg and cfg.showTarget
+    if v == nil then v = tf.showTarget end
+    return v ~= false
+end
+
 local function PaintTarget(bar)
     local tf = TF()
     local fs = bar.target
-    if not tf or tf.showTarget == false then
+    if not tf or not ShowsTarget(tf, bar.which) then
         fs:SetText("")
         fs:Hide()
         SizeNameForTarget(bar, false)
@@ -858,7 +866,9 @@ evt:SetScript("OnEvent", function(_, event, unit, ...)
         -- after unit (castGUID, spellID, interrupterGUID); nil on a natural end.
         TeardownCast(bar)
         local _, _, interrupterGUID = ...
-        if not bar._interrupted then ShowInterruptedFlash(bar, interrupterGUID) end
+        if type(interrupterGUID) ~= "nil" and not bar._interrupted then
+            ShowInterruptedFlash(bar, interrupterGUID)
+        end
     elseif event == "UNIT_SPELLCAST_INTERRUPTED" then
         local _, _, interrupterGUID = ...
         ShowInterruptedFlash(bar, interrupterGUID)
@@ -914,7 +924,7 @@ local function ShowPreview(which)
     elseif tc then
         bar.target:SetTextColor(tc.r, tc.g, tc.b, 1)
     end
-    if tf and tf.showTarget ~= false then
+    if tf and ShowsTarget(tf, which) then
         bar.target:SetText(UnitName("player") or "Target")
         bar.target:Show()
     else
@@ -1028,17 +1038,13 @@ local function MakeBarUnlockElement(which, label, order)
             cfg.height = math.floor(h + 0.5)
             ns.TFB_Refresh()
         end,
-        savePos = function()
+        savePos = function(_, _, _, x, y)
+            -- Unlock mode hands over CENTER/CENTER coords; on Cancel the frame
+            -- still sits at the dragged spot, so never read the live position.
             local cfg = BarCfg(which)
-            local bar = bars[which]
-            if not (cfg and bar and bar.frame:GetCenter()) then return end
-            local cx, cy = bar.frame:GetCenter()
-            local upX, upY = UIParent:GetCenter()
-            local fes = bar.frame:GetEffectiveScale() or 1
-            local ues = UIParent:GetEffectiveScale() or 1
-            local ratio = fes / ues
-            cfg.pos = { centerX = cx * ratio - upX, centerY = cy * ratio - upY }
-            if not EllesmereUI._unlockActive then ApplyBarPosition(bar) end
+            if not (cfg and x and y) then return end
+            cfg.pos = { centerX = x, centerY = y }
+            if not EllesmereUI._unlockActive then ApplyBarPosition(bars[which]) end
         end,
         loadPos = function()
             local cfg = BarCfg(which)

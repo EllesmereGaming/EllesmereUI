@@ -4,7 +4,6 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 
 local ADDON_NAME, ns = ...
 local L = ns.L
-local MEDIA = ns.MEDIA
 local K = ns.BlockKit
 
 -- Upvalues
@@ -40,7 +39,6 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
     inst.events = { "PLAYER_AVG_ITEM_LEVEL_UPDATE", "PLAYER_EQUIPMENT_CHANGED",
                     "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED" }
 
-    local ILVL_TEX = MEDIA .. "micromenu\\menu-character.png"
     local mouseOver = false
 
     local function D() return blockCfg.settings or {} end
@@ -52,7 +50,6 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
     button:RegisterForClicks("AnyUp")
 
     local icon = button:CreateTexture(nil, "OVERLAY")
-    icon:SetTexture(ILVL_TEX)
     local ilvlText = button:CreateFontString(nil, "OVERLAY")
     AttachTextOffset(inst, ilvlText)
 
@@ -85,6 +82,7 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
         EnsureClickButton()
 
         local s = D()
+        K.SetBlockIcon(icon, blockCfg)
         local barCfg = BC()
         local barH = barCtx.GetThickness()
         local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))

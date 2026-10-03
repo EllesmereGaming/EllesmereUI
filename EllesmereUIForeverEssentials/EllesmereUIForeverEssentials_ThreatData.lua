@@ -3,7 +3,8 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 -------------------------------------------------------------------------------
 --  EllesmereUIForeverEssentials_ThreatData.lua  (WoW Forever only)
 --  Threat data for the threat meter (drawn by the ThreatMeter file after this
---  one): the mob whose threat is shown, the group's threat on it read from
+--  one) and for the Damage Meters Threat type (the ThreatFeed file): the mob
+--  whose threat is shown, the group's threat on it read from
 --  prebuilt unit tokens, the pull aggro line and the sort. Forever hands the
 --  threat API over readable (C_Secrets.ShouldUnitThreatValuesBeSecret is false
 --  there); a value that does come back secret skips that unit.
@@ -83,56 +84,70 @@ function ns.ClassOf(unit)
 end
 
 -------------------------------------------------------------------------------
---  Collect: one plain threat read per group token, into pooled entries.
+--  Collectors: one plain threat read per group token, into pooled entries.
+--  Each reader (the meter window, a Damage Meters window) owns a collector,
+--  so a read for one never rewrites the rows another has on screen.
 --  Entry fields: key (row identity: the unit token, "pull", or a preview
 --  sample), unit, raw (threat value), scaled (percent of your own pull line,
 --  100 = you pull aggro), rawPct (percent of the tank's threat), tanking, own,
 --  isPet, pull, order (stable tie-break).
 -------------------------------------------------------------------------------
-local entries, list = {}, {}
-ns.list = list
-local count = 0
+function ns.NewCollector()
+    local entries, list, pullEntry = {}, {}, {}
+    local count = 0
+    local c = { list = list }
 
-local function Add(unit, mob, isPet)
-    if not UnitExists(unit) then return end
-    local tanking, _, scaled, rawPct, raw = UnitDetailedThreatSituation(unit, mob)
-    if not (Readable(raw) and Readable(scaled) and Readable(tanking)) or raw <= 0 then return end
-    count = count + 1
-    local e = entries[count]
-    if not e then e = {}; entries[count] = e end
-    e.key, e.unit, e.raw, e.scaled, e.tanking = unit, unit, raw, scaled, tanking
-    e.rawPct = Readable(rawPct) and rawPct or nil
-    e.isPet, e.pull, e.own, e.order = isPet, false, false, count
-    list[#list + 1] = e
-end
+    local function Add(unit, mob, isPet)
+        if not UnitExists(unit) then return end
+        local tanking, _, scaled, rawPct, raw = UnitDetailedThreatSituation(unit, mob)
+        if not (Readable(raw) and Readable(scaled) and Readable(tanking)) or raw <= 0 then return end
+        count = count + 1
+        local e = entries[count]
+        if not e then e = {}; entries[count] = e end
+        e.key, e.unit, e.raw, e.scaled, e.tanking = unit, unit, raw, scaled, tanking
+        e.rawPct = Readable(rawPct) and rawPct or nil
+        e.isPet, e.pull, e.own, e.order = isPet, false, false, count
+        list[#list + 1] = e
+    end
 
--- Fills the list for `mob`; returns your own entry and the tank's raw threat
--- (nil when nobody in the group holds aggro).
-function ns.Collect(mob, pets)
-    count = 0
-    for i = #list, 1, -1 do list[i] = nil end
-    local inRaid = IsInRaid()
-    if inRaid then
-        for i = 1, GetNumGroupMembers() do
-            Add(RAID_UNITS[i], mob, false)
-            if pets then Add(RAID_PETS[i], mob, true) end
+    -- Fills the list for `mob`; returns your own entry and the tank's raw
+    -- threat (nil when nobody in the group holds aggro).
+    function c.Collect(mob, pets)
+        count = 0
+        for i = #list, 1, -1 do list[i] = nil end
+        local inRaid = IsInRaid()
+        if inRaid then
+            for i = 1, GetNumGroupMembers() do
+                Add(RAID_UNITS[i], mob, false)
+                if pets then Add(RAID_PETS[i], mob, true) end
+            end
+        else
+            Add("player", mob, false)
+            if pets then Add("pet", mob, true) end
+            for i = 1, GetNumSubgroupMembers() do
+                Add(PARTY_UNITS[i], mob, false)
+                if pets then Add(PARTY_PETS[i], mob, true) end
+            end
         end
-    else
-        Add("player", mob, false)
-        if pets then Add("pet", mob, true) end
-        for i = 1, GetNumSubgroupMembers() do
-            Add(PARTY_UNITS[i], mob, false)
-            if pets then Add(PARTY_PETS[i], mob, true) end
+        local own = SelfToken(inRaid)
+        local me, tankRaw
+        for i = 1, #list do
+            local e = list[i]
+            if e.unit == own then e.own = true; me = e end
+            if e.tanking then tankRaw = e.raw end
         end
+        return me, tankRaw
     end
-    local own = SelfToken(inRaid)
-    local me, tankRaw
-    for i = 1, #list do
-        local e = list[i]
-        if e.unit == own then e.own = true; me = e end
-        if e.tanking then tankRaw = e.raw end
+
+    function c.AddPullEntry(me, tankRaw)
+        if ns.FillPullEntry(pullEntry, me, tankRaw) then list[#list + 1] = pullEntry end
     end
-    return me, tankRaw
+
+    function c.Sort()
+        table.sort(list, ns.ByThreat)
+    end
+
+    return c
 end
 
 -- Where you pull aggro: scaled percent is threat against your own pull line
@@ -148,19 +163,12 @@ function ns.FillPullEntry(e, me, tankRaw)
     return e
 end
 
-local pullEntry = {}
-
-function ns.AddPullEntry(me, tankRaw)
-    if ns.FillPullEntry(pullEntry, me, tankRaw) then list[#list + 1] = pullEntry end
-end
-
 -- Highest raw threat first, the pull line sorted in with everyone.
-local function ByThreat(a, b)
+function ns.ByThreat(a, b)
     if a.raw ~= b.raw then return a.raw > b.raw end
     return a.order < b.order
 end
-ns.ByThreat = ByThreat
 
-function ns.Sort()
-    table.sort(list, ByThreat)
-end
+-- The meter window's collector.
+local meter = ns.NewCollector()
+ns.list, ns.Collect, ns.AddPullEntry, ns.Sort = meter.list, meter.Collect, meter.AddPullEntry, meter.Sort

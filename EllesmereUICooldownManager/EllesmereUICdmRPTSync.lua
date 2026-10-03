@@ -164,12 +164,15 @@ local function IsRPTId(id)
     if type(id) ~= "number" then return false end
     if id < 0 then
         -- The negative space is SHARED: trinket slots (-13/-14) and item
-        -- presets (-itemID) are sync material, but hosted-buff and cd-claim
-        -- markers (at/below -HOSTED_BUFF_MARKER_BASE) encode CLASS SPELLS --
-        -- syncing those leaked inert foreign-class icons onto every synced
-        -- spec's bars (cross-class field report, 2026-08-16), with step 2's
-        -- additive re-add resurrecting them after manual removal.
-        if ns.HOSTED_BUFF_MARKER_BASE and id <= -ns.HOSTED_BUFF_MARKER_BASE then
+        -- presets (-itemID) are sync material, but Empty Slot markers, hosted-buff
+        -- markers, and cd-claim markers (at/below -EMPTY_SLOT_MARKER_BASE, which
+        -- sits below both of those) are not -- Empty Slot is a per-instance
+        -- placeholder with no cross-spec identity, and hosted-buff/cd-claim
+        -- markers encode CLASS SPELLS: syncing those leaked inert foreign-class
+        -- icons onto every synced spec's bars (cross-class field report,
+        -- 2026-08-16), with step 2's additive re-add resurrecting them after
+        -- manual removal.
+        if ns.EMPTY_SLOT_MARKER_BASE and id <= -ns.EMPTY_SLOT_MARKER_BASE then
             return false
         end
         return true

@@ -438,9 +438,9 @@ local function ShowFirstInstallPopup()
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.firstInstallPopupShown = true
         EllesmereUIDB.bagsUserChosen = true
-        -- WoW Forever: the base-layout seed's stamp is still set unless a
-        -- look was settled while this popup was up (an import, a Style page
-        -- change).
+        -- WoW Forever: the stamp the loader below set at ADDON_LOADED is still
+        -- set unless a look was settled while this popup was up (an import, a
+        -- Style page change).
         local lookOpen = EllesmereUIDB.styleChoicePending
         -- The style picker (EllesmereUI_StyleChoicePopup.lua) follows on the
         -- next login, after this popup's reload; on WoW Forever only while
@@ -579,12 +579,10 @@ loader:SetScript("OnEvent", function(self, event, addonName)
         if addonName ~= "EllesmereUI" then return end
         self:UnregisterEvent("ADDON_LOADED")
         _showPopupOnLogin = ComputeShowOnLogin()
-        -- WoW Forever: a fresh install starts from the base layout, seeded
-        -- before any module opens its profile (EllesmereUI_ForeverLayout.lua).
-        if _showPopupOnLogin and EllesmereUI.SeedForeverBaseLayout then
-            EllesmereUI.SeedForeverBaseLayout()
-            -- The style picker (WoW Forever by default there) is due even if
-            -- this session ends before the module picker's reload.
+        -- WoW Forever: the style picker (WoW Forever by default there) is due
+        -- even if this session ends before the module picker's reload.
+        if _showPopupOnLogin and EllesmereUI.IS_FOREVER then
+            if not EllesmereUIDB then EllesmereUIDB = {} end
             EllesmereUIDB.styleChoicePending = true
         end
         if _showPopupOnLogin then

@@ -4343,6 +4343,28 @@ EllesmereUI.RegisterMigration({
 --  The account flag "forever_buff_wipe_sweep_v1" (EllesmereUIDB._migrations)
 --  records the one login that also strips Player Aura Bars buff overrides from
 --  profiles holding no Player Aura Bars table (data older than this block).
+--
+--  WOW FOREVER: BUFF MANAGER STARTER SEED
+--
+--  Retail's per-bucket starter groups never seed on WoW Forever. Instead the
+--  Raid Frames Buff Manager gets two All Specs groups, once per store, when
+--  the profile holds no indicator group anywhere (the live store and every
+--  override fork layer, each after its clear above):
+--    * "Defensives & Consumables": icons at the center growing both ways, any
+--      caster, the Defensives, Externals and Consumables filters.
+--    * "Core Healing Buffs": icons at the top right growing left, own casts
+--      only, the Core Healing Buffs filter.
+--  Both go into the base Buff Manager only: the live store while it holds the
+--  base (no fork live), and the banked baseline layer whenever one exists, so
+--  a repaint of the base keeps them. Fork layers are never seeded. It is
+--  decided only while the live store holds the layer the spec root's pointer
+--  names: never between a layer paint and the pointer's move, never during an
+--  editing session.
+--  CONTRACT: the key "fvBmSeed" (bm2.fvBmSeed, beside the clear's mark) marks
+--  a store whose seed was decided: seeded, or passed over because a group
+--  already existed. Same rules as "fvBuffWipe": presence only, frozen name, in
+--  no defaults table, and it travels with the data, so a store that arrives
+--  marked is never seeded.
 --------------------------------------------------------------------------------
 do
     local ADDON_NAME = ...
@@ -4582,7 +4604,8 @@ do
             return b
         end
 
-        -- Seed gate: WoW Forever never seeds starter groups. Guarantees the bucket
+        -- Seed gate: retail's per-bucket starter groups never seed on WoW Forever
+        -- (its own starter seed is FvBW.SeedStarter). Guarantees the bucket
         -- exists with an indicator array (so the retired editor fallback never
         -- runs) and is marked seeded. False only when the client check fails.
         function FvBW.SeedEmpty(b, key)
@@ -4665,6 +4688,171 @@ do
             if cT then c[KEY] = 1 end
         end
 
+        -- Buff Manager starter seed (see the banner); "fvBmSeed" is its mark.
+        local SEED_KEY = "fvBmSeed"
+
+        -- True when any bucket of a v2 specs map holds an indicator group.
+        local function HasGroups(specs)
+            if type(specs) ~= "table" then return false end
+            for _, bk in pairs(specs) do
+                local inds = type(bk) == "table" and bk.inds
+                if type(inds) == "table" and next(inds) ~= nil then return true end
+            end
+            return false
+        end
+
+        -- A fork layer's v2 payload holds a group. A layer with no v2 payload
+        -- applies blank on this client.
+        local function LayerHasGroups(l)
+            local pay = type(l) == "table" and l.bm2
+            return type(pay) == "table" and HasGroups(pay.specs)
+        end
+        -- A fork root (st) has such a layer: its layouts, or the spec root's
+        -- banked baseline.
+        local function ForkHasGroups(st)
+            if type(st) ~= "table" then return false end
+            if type(st.layouts) == "table" then
+                for _, l in pairs(st.layouts) do
+                    if LayerHasGroups(l) then return true end
+                end
+            end
+            return LayerHasGroups(st.baselineLayout)
+        end
+
+        -- Adds the two starter groups to the "allspecs" bucket of a v2 payload
+        -- (the live store or a layer's), marked seeded. ids = preset key ->
+        -- filter id in the profile's filter library. Fresh tables every call.
+        local function SeedAllSpecs(pay, ids)
+            local specs, seeded = pay.specs, pay.seeded
+            if type(specs) ~= "table" then specs = {}; pay.specs = specs end
+            if type(seeded) ~= "table" then seeded = {}; pay.seeded = seeded end
+            local bk = specs.allspecs
+            if type(bk) ~= "table" then bk = {}; specs.allspecs = bk end
+            local inds = bk.inds
+            if type(inds) ~= "table" then inds = {}; bk.inds = inds end
+            local n = type(bk.nextId) == "number" and bk.nextId or 1000001
+            local center = { id = n, enabled = true, type = "icon",
+                name = "Defensives & Consumables", ownOnly = false,
+                filters = {}, spells = {},
+                position = "CENTER", growDirection = "CENTER", size = 18 }
+            if ids.defensives then center.filters[ids.defensives] = true end
+            if ids.externals then center.filters[ids.externals] = true end
+            if ids.consumables then center.filters[ids.consumables] = true end
+            local corner = { id = n + 1, enabled = true, type = "icon",
+                name = "Core Healing Buffs", ownOnly = true,
+                filters = {}, spells = {},
+                position = "TOPRIGHT", growDirection = "LEFT", size = 18 }
+            if ids.coreheals then corner.filters[ids.coreheals] = true end
+            inds[#inds + 1] = center
+            inds[#inds + 1] = corner
+            bk.nextId = n + 2
+            seeded.allspecs = true
+        end
+
+        -- The layer the last Buff Manager paint copied into a live store,
+        -- recorded by Raid Frames at the paint. Runtime only, never saved.
+        local painted = nil
+        function FvBW.Painted(layer) painted = layer end
+
+        -- The slot a layer table fills in a profile's fork roots (s = spec
+        -- root, c = condition root): false = the baseline, a spec group id,
+        -- "cond:<id>" = a condition's layer, nil = none of them (another
+        -- profile's layer, or one a harvest has since replaced).
+        local function SlotOf(l, s, c)
+            if type(s) == "table" then
+                if l == s.baselineLayout then return false end
+                if type(s.layouts) == "table" then
+                    for k, v in pairs(s.layouts) do
+                        if v == l then return k end
+                    end
+                end
+            end
+            if type(c) == "table" and type(c.layouts) == "table" then
+                for k, v in pairs(c.layouts) do
+                    if v == l then return "cond:" .. k end
+                end
+            end
+            return nil
+        end
+
+        -- Raid Frames live store (p = the Raid Frames profile, b = its store),
+        -- called once the preset filters exist: the starter seed, decided once
+        -- per store and only after the store's clear. Returns true when the
+        -- live store gained the groups.
+        function FvBW.SeedStarter(p, b)
+            if type(p) ~= "table" or type(b) ~= "table" then return false end
+            if b[SEED_KEY] ~= nil or b[KEY] == nil then return false end
+            -- An editing session holds a conditional fork live: decided after it.
+            if EllesmereUI._bmSessionGid ~= nil then return false end
+            local ids = {}
+            local list = type(b.filters) == "table" and b.filters.list
+            if type(list) == "table" then
+                for i = 1, #list do
+                    local f = list[i]
+                    if type(f) == "table" and f.preset ~= nil and f.id ~= nil then
+                        ids[f.preset] = f.id
+                    end
+                end
+            end
+            -- Waits for the filter library.
+            if not (ids.defensives or ids.externals or ids.consumables or ids.coreheals) then
+                return false
+            end
+            if not ClientOK() then return false end
+            -- The profile root holding this store: the fork stores live there.
+            local db = EllesmereUIDB
+            local profiles = type(db) == "table" and db.profiles
+            if type(profiles) ~= "table" then return false end
+            local prof = profiles[db.activeProfile or "Default"]
+            local addons = type(prof) == "table" and prof.addons
+            if not (type(addons) == "table" and addons[RF] == p) then
+                prof = nil
+                for _, pd in pairs(profiles) do
+                    addons = type(pd) == "table" and pd.addons
+                    if type(addons) == "table" and addons[RF] == p then prof = pd; break end
+                end
+                if not prof then return false end
+            end
+            -- The fork stores' own one-time clear comes first.
+            FvBW.BmForks(prof)
+            local s, c = prof.specBmOverrides, prof.condBmOverrides
+            if HasGroups(b.specs) or ForkHasGroups(s) or ForkHasGroups(c) then
+                b[SEED_KEY] = 1
+                return false
+            end
+            -- The slot the live store banks into: a fork when the spec root's
+            -- pointer names an existing layer, else the base (a dangling
+            -- pointer banks live into the baseline, as the harvest does).
+            local a = type(s) == "table" and s.active or nil
+            local live = false
+            if type(a) == "number" then
+                if type(s.layouts) == "table" and s.layouts[a] ~= nil then live = a end
+            elseif type(a) == "string" then
+                local gid = tonumber(a:match("^cond:(%d+)$"))
+                if gid ~= nil and type(c) == "table" and type(c.layouts) == "table"
+                    and c.layouts[gid] ~= nil then
+                    live = "cond:" .. gid
+                end
+            end
+            -- Mid-paint: the live store already holds a layer of this profile
+            -- that the pointer has not moved to yet (it moves after the paint's
+            -- refresh returns). Decided at the next read, once they agree.
+            if painted ~= nil then
+                local ps = SlotOf(painted, s, c)
+                if ps ~= nil and ps ~= live then return false end
+            end
+            local forkLive = live ~= false
+            local bl = type(s) == "table" and s.baselineLayout or nil
+            if type(bl) ~= "table" then bl = nil end
+            if not forkLive then SeedAllSpecs(b, ids) end
+            if bl then
+                if type(bl.bm2) ~= "table" then bl.bm2 = BlankFork() end
+                SeedAllSpecs(bl.bm2, ids)
+            end
+            b[SEED_KEY] = 1
+            return not forkLive
+        end
+
         -- Player Aura Bars (uf = a Unit Frames profile, prof = its profile root
         -- for the override strip, mode = "first" | "login" | "import" | "live"):
         --   unmarked table: clear + mark, plus the override strip except "live";
@@ -4734,6 +4922,180 @@ do
                 for _, pd in pairs(profiles) do FvBW.ProcessProfile(pd, mode) end
             end
             flags[SWEEP_ID] = true
+        end)
+    end
+end
+
+--------------------------------------------------------------------------------
+--  WoW Forever snapshot switch: accounts from the base-layout era (one-time).
+--  A fresh WoW Forever install now snapshots Blizzard's layout through the same
+--  module captures as retail. An account that already ran EllesmereUI there
+--  started from the old fixed base layout, with those captures switched off, so
+--  it is frozen to exactly what those builds gave it: no capture runs for it
+--  (Action Bars, Cooldown Manager, the minimap and the chat genesis), on old or
+--  new characters, and its positions stay as they are. Its Edit Mode layouts
+--  are never read or written.
+--  Detection, once per account as the saved data loads (Lite's
+--  OnSavedVariablesLoaded: before any module opens its profile, merges its
+--  defaults or reads a capture flag, in the suite and in every standalone):
+--  any Edit Mode layout stamp of the old writer (foreverEditModeSeen) or any
+--  stored profile data. The flag is written first, so an account that starts
+--  empty is never mistaken for one later. Two client checks, as the buff clear
+--  above: the suite's flag and the raw interface number.
+--------------------------------------------------------------------------------
+do
+    local FLAG = "forever_snapshot_legacy_v1"
+    -- The full-account import keeps the recipient's mark (EllesmereUI_Profiles.lua).
+    EllesmereUI._FvSnapFlag = FLAG
+
+    local function ClientOK()
+        local toc = select(4, GetBuildInfo())
+        return EllesmereUI ~= nil and EllesmereUI.IS_FOREVER == true
+            and type(toc) == "number" and toc >= 16000 and toc < 20000
+    end
+
+    local function Sub(t, key)
+        if type(t[key]) ~= "table" then t[key] = {} end
+        return t[key]
+    end
+
+    -- True when the account holds data from an earlier WoW Forever session.
+    local function HadData(db)
+        if type(db.foreverEditModeSeen) == "table" and next(db.foreverEditModeSeen) then return true end
+        if type(db.profiles) == "table" then
+            for _, prof in pairs(db.profiles) do
+                if type(prof) == "table" and type(prof.addons) == "table" and next(prof.addons) then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    -- One stored profile, frozen to what the base-layout builds gave it:
+    --   minimap: never captured -> the old WoW Forever size, no capture;
+    --   chat: the old genesis rule (a pre-ownership position is dropped) with
+    --     the old WoW Forever spot in place of a live read;
+    --   the two WoW Forever defaults that changed (tabs inside the chat panel,
+    --     Blizzard's XP / reputation bars) keep the old default where unset.
+    local function FreezeProfile(prof)
+        if type(prof) ~= "table" then return end
+        local addons = Sub(prof, "addons")
+        local mm = Sub(Sub(addons, "EllesmereUIMinimap"), "minimap")
+        if not mm._capturedOnce then
+            mm._capturedOnce = true
+            if mm.mapSize == nil then mm.mapSize = 200 end
+        end
+        local chat = Sub(Sub(addons, "EllesmereUIChat"), "chat")
+        if chat._chatPosOwnership ~= 1 then
+            chat._chatPosOwnership = 1
+            chat.chatPosition = nil
+        end
+        if chat.chatPosition == nil then
+            chat.chatPosition = { point = "BOTTOMLEFT", relPoint = "BOTTOMLEFT", x = 63.33, y = 108.17 }
+        end
+        if chat.extendBgBehindTabs == nil then chat.extendBgBehindTabs = false end
+        local ab = Sub(addons, "EllesmereUIActionBars")
+        if ab.useBlizzardDataBars == nil then ab.useBlizzardDataBars = false end
+    end
+
+    if ClientOK() then
+        EllesmereUI.Lite.OnSavedVariablesLoaded(function()
+            if not ClientOK() then return end
+            local db = EllesmereUIDB
+            if type(db) ~= "table" then
+                -- A brand-new account (no saved data yet): nothing to freeze. It is
+                -- marked once its saved data exists, so its own first session's data
+                -- never reads as the old layout's next time.
+                local f = CreateFrame("Frame")
+                f:RegisterEvent("PLAYER_LOGIN")
+                f:SetScript("OnEvent", function(self)
+                    self:UnregisterAllEvents()
+                    local d = EllesmereUIDB
+                    if type(d) == "table" then Sub(d, "_migrations")[FLAG] = true end
+                end)
+                return
+            end
+            local flags = Sub(db, "_migrations")
+            if flags[FLAG] then return end
+            flags[FLAG] = true
+            if not HadData(db) then return end
+            db._capturedOnce_EAB = true
+            db._capturedOnce_CDM = true
+            if type(db.profiles) == "table" then
+                for _, prof in pairs(db.profiles) do FreezeProfile(prof) end
+            end
+        end)
+    end
+end
+
+--------------------------------------------------------------------------------
+--  WoW Forever: Nameplates Enemy Buff Filter to Show All (one-time).
+--  Show All is the WoW Forever default (every enemy buff, unfiltered). An
+--  account that already ran EllesmereUI there is moved to it once: the filter
+--  in every stored profile's Nameplates data and every Spec Override value
+--  stored for it (a stored "key not present" mark already reads the default).
+--  Profiles made afterwards start on the default and keep whatever is picked.
+--  Account flag, written before the pass; a brand-new account is marked once
+--  its saved data exists. Two client checks, as the blocks above.
+--------------------------------------------------------------------------------
+do
+    local FLAG = "forever_np_buff_showall_v1"
+    -- Spec Override value key: the module folder, "\31", then the key path
+    -- (EllesmereUI_SpecOverrides.lua's stored format), and its "not present"
+    -- mark.
+    local OVERRIDE_KEY = "EllesmereUINameplates\31npEnemyBuffFilter"
+    local NIL_SENT = "__SPECOV_NIL__"
+
+    local function ClientOK()
+        local toc = select(4, GetBuildInfo())
+        return EllesmereUI ~= nil and EllesmereUI.IS_FOREVER == true
+            and type(toc) == "number" and toc >= 16000 and toc < 20000
+    end
+
+    local function MoveProfile(prof)
+        if type(prof) ~= "table" then return end
+        local np = type(prof.addons) == "table" and prof.addons.EllesmereUINameplates
+        if type(np) == "table" then np.npEnemyBuffFilter = "showall" end
+        if type(prof.specOverrides) ~= "table" then return end
+        for _, entry in pairs(prof.specOverrides) do
+            local values = type(entry) == "table" and entry.values
+            if type(values) == "table" then
+                for _, bucket in pairs(values) do
+                    if type(bucket) == "table" then
+                        local v = bucket[OVERRIDE_KEY]
+                        if v ~= nil and v ~= NIL_SENT then bucket[OVERRIDE_KEY] = "showall" end
+                    end
+                end
+            end
+        end
+    end
+
+    if ClientOK() then
+        EllesmereUI.Lite.OnSavedVariablesLoaded(function()
+            if not ClientOK() then return end
+            local db = EllesmereUIDB
+            if type(db) ~= "table" then
+                -- A brand-new account: nothing to move. Marked at login, so
+                -- its own first session's choices are never overwritten.
+                local f = CreateFrame("Frame")
+                f:RegisterEvent("PLAYER_LOGIN")
+                f:SetScript("OnEvent", function(self)
+                    self:UnregisterAllEvents()
+                    local d = EllesmereUIDB
+                    if type(d) == "table" then
+                        if type(d._migrations) ~= "table" then d._migrations = {} end
+                        d._migrations[FLAG] = true
+                    end
+                end)
+                return
+            end
+            if type(db._migrations) ~= "table" then db._migrations = {} end
+            if db._migrations[FLAG] then return end
+            db._migrations[FLAG] = true
+            if type(db.profiles) == "table" then
+                for _, prof in pairs(db.profiles) do MoveProfile(prof) end
+            end
         end)
     end
 end

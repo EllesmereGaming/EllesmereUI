@@ -177,7 +177,10 @@ end
 -- position and gets the new fn. Drains FIFO on PLAYER_REGEN_ENABLED; the set is
 -- swapped out first, so an fn may Defer again (next drain), and each fn is
 -- error-isolated. The event is registered only while something is pending, so idle
--- is free. Callers keep their own InCombatLockdown() gate.
+-- is free. Callers keep their own InCombatLockdown() gate: a Defer made out of combat
+-- waits for the NEXT combat end. There is no cancel, and queues drain in no set order
+-- relative to each other, so a queued fn must re-read live state when it runs. Each
+-- child uses its own ns queue; EllesmereUI.CombatQueue is for the parent's files.
 local function QueueErrorHandler(err) return geterrorhandler()(err) end
 
 function EllesmereUI.NewCombatQueue(frame)

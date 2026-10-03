@@ -78,6 +78,8 @@ function EllesmereUI_ApplyDimLights()
     if dimLightsActive then return end
     savedContrast = tonumber(GetCVar("contrast")) or 50
     savedBrightness = tonumber(GetCVar("brightness")) or 50
+    -- Plain SetCVar: graphics settings stay out of Uninstall EUI's record (this
+    -- puts them back itself, on toggle-off and at logout).
     SetCVar("contrast", math.max(0, math.min(100, savedContrast + 14)))
     SetCVar("brightness", math.max(0, savedBrightness - (savedBrightness - 10) * 0.7))
     dimLightsActive = true

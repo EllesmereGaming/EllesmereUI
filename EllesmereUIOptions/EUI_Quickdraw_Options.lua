@@ -199,6 +199,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- clearing both here silently destroyed the second one with no
             -- message (and no way to see it, since the label shows key1).
             if oldK1 then SetBinding(oldK1, nil) end
+            -- Uninstall EUI hands the key back to what it did before.
+            EllesmereUI.NoteBinding(chord, GetBindingAction(chord))
             if not SetBinding(chord, action) then
                 -- Put the primary back. oldK2 was never cleared, so there is
                 -- nothing to restore for it.

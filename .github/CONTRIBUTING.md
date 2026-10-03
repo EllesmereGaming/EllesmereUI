@@ -74,6 +74,26 @@ will make changes to it myself.
 - Fill in the PR template checklist honestly - "not applicable" is a fine
   answer, silence is not.
 
+## AI coding rules
+
+Using an AI coding assistant is fine, but these rules apply to you, to your
+AI tools, and to every line of code they write for you:
+
+- **Never study or look at another addon's code unless it has an open source
+  license or its author has given permission**. That includes letting an AI tool
+  read, search, summarize, or learn from it.
+- **Research the game through Blizzard's own UI source**
+  ([wow-ui-source](https://github.com/Gethe/wow-ui-source)) **and look up game
+  data on [wago.tools](https://wago.tools).**
+- **Only submit original code.** Nothing in a PR may be copied from another
+  addon or project, including code an AI tool reproduces from somewhere
+  else. Check what your assistant generates before you submit it.
+- **Keep comments brief.** Only what is needed to understand the code: no
+  restating what a line does, no change history.
+- **Reuse what already exists.** Build on the existing logic and the shared,
+  centralized helpers instead of writing your own copies, and follow the
+  patterns already in the file.
+
 ## Contribution license
 
 By submitting a PR, you retain copyright to your contribution but grant

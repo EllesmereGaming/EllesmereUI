@@ -3053,6 +3053,8 @@ ns.RFC_RepointStale = RepointStale
 -- (re)assigns a button. SetUnit re-registers events; the explicit refresh
 -- covers assignments where the new unit's auras produce no UNIT_AURA edge.
 function ns.RFC_OnUnitAssigned(button, d, unit)
+    -- WoW Forever: Missing Buffs follows the button's member (own same-unit early-out).
+    if ns.RF_FvMissingUnit then ns.RF_FvMissingUnit(button, d, unit) end
     -- Two-phase: a button receiving its FIRST unit triggers phase B (group
     -- declarations + BM + finish) -- empty buttons only ever carry phase-A shells.
     -- Mid-combat first assignments (raid joiners) work: group jobs ride the live lane

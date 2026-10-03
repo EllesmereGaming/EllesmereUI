@@ -98,6 +98,13 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
             getValue = function() return Get(key) end,
             setValue = setValue or function(v) Set(key, v) end }
     end
+    -- The threat list's own settings, which a Damage Meters Threat window shows
+    -- too: editable whether or not this meter is on.
+    local function ListToggle(key, text, tooltip, setValue)
+        local cfg = Toggle(key, text, tooltip, setValue)
+        cfg.disabled, cfg.disabledTooltip = nil, nil
+        return cfg
+    end
     local function Slider(key, text, low, high, tooltip)
         return { type = "slider", text = text, min = low, max = high, step = 1, tooltip = tooltip,
             disabled = off, disabledTooltip = "Threat Meter",
@@ -204,14 +211,13 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
           onOptionChanged = EllesmereUI.RequestVisibilityUpdate });  y = y - h
 
     _, h = W:DualRow(parent, y,
-        Toggle("focusEnabled", "Enable Focus Tracking", "Adds a Target/Focus switch to the meter header.",
+        ListToggle("focusEnabled", "Enable Focus Tracking", "Adds a Target/Focus switch to the meter header.",
             function(v)
                 ns.SetFocusEnabled(v)
                 ns.ApplyStyle()
             end),
         { type = "toggle", text = "Ignore Pets",
           tooltip = "Leaves pets out of the list.",
-          disabled = off, disabledTooltip = "Threat Meter",
           getValue = function() return not Get("pets") end,
           setValue = function(v) Set("pets", not v) end }
     );  y = y - h
@@ -265,8 +271,9 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
 
         -- Toggle | Position, the Threat % cog on the dropdown. blocked (optional)
         -- greys the row with blockedTip; a toggle left on stays clickable so it
-        -- can still be turned off.
-        local function PctRow(text, tooltip, profile, apply, blocked, blockedTip)
+        -- can still be turned off. positions / positionOrder (optional) replace
+        -- the three inside spots.
+        local function PctRow(text, tooltip, profile, apply, blocked, blockedTip, positions, positionOrder)
             local function PGet(key) return profile()[key] end
             local function PSet(key, v)
                 profile()[key] = v
@@ -292,7 +299,8 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                       PSet("threatPctEnabled", v)
                       EllesmereUI:RefreshPage()
                   end },
-                { type = "dropdown", text = "Position", values = PCT_POSITIONS, order = PCT_POSITION_ORDER,
+                { type = "dropdown", text = "Position",
+                  values = positions or PCT_POSITIONS, order = positionOrder or PCT_POSITION_ORDER,
                   disabled = pctOff, disabledTooltip = pctOffTip,
                   getValue = function() return PGet("threatPctPosition") end,
                   setValue = function(v) PSet("threatPctPosition", v) end }
@@ -311,6 +319,7 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                     },
                 })
             end
+            return row, pctOff, pctOffTip
         end
 
         if hasNP then
@@ -320,14 +329,29 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                 function() np.RefreshThreatPct() end)
         end
         if hasUF then
-            PctRow("Show on Target & Focus Frames",
-                "Shows your threat percentage on the target and focus frames while you are in combat with that unit.",
+            -- The unit frames add the outside spots (the Unit Frames page's list).
+            local row, pctOff, pctOffTip = PctRow("Show on Target Frame",
+                "Shows your threat percentage on the target frame while you are in combat with it. The cog adds the focus frame.",
                 function() return uf.db.profile end,
                 function(key, v)
                     if key == "threatPctEnabled" then uf.SetThreatPctEnabled(v) else uf.RefreshThreatPct() end
                 end,
                 function() return not (uf.frames.target or uf.frames.focus) end,
-                "This option requires an EllesmereUI Target or Focus frame.")
+                "This option requires an EllesmereUI Target or Focus frame.",
+                uf._threatPctPositions, uf._threatPctPositionOrder)
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(row._leftRegion, {
+                    title = "Threat % Units", disabled = pctOff, disabledTooltip = pctOffTip,
+                    rows = {
+                        { type = "toggle", label = "Show on Focus",
+                          get = function() return uf.db.profile.threatPctFocus end,
+                          set = function(v)
+                              uf.db.profile.threatPctFocus = v
+                              uf.RefreshThreatPct()
+                          end },
+                    },
+                })
+            end
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -365,13 +389,13 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
 
     local pullRow
     pullRow, h = W:DualRow(parent, y,
-        Toggle("pullBar", "Pull Aggro Bar", "An extra bar showing how much threat takes aggro from the tank.",
+        ListToggle("pullBar", "Pull Aggro Bar", "An extra bar showing how much threat takes aggro from the tank.",
             function(v) SetAndRefresh("pullBar", v) end),
         Toggle("growUp", "Grow Upward", "Lists the highest threat at the bottom instead of the top.")
     );  y = y - h
     if not EllesmereUI._prebuilding then
-        local pullOff, pullTip = Needs(function() return not Get("pullBar") end, "Pull Aggro Bar")
-        Swatch(pullRow._leftRegion, ColorSwatch("pullColor", "Pull Aggro Bar Color", pullOff, pullTip))
+        Swatch(pullRow._leftRegion, ColorSwatch("pullColor", "Pull Aggro Bar Color",
+            function() return not Get("pullBar") end, "Pull Aggro Bar"))
     end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -456,16 +480,16 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
 
     local customRow
     customRow, h = W:DualRow(parent, y,
-        Toggle("playerColorOn", "Custom Player Color", "Your own bar in a fixed color instead of your class color.",
+        ListToggle("playerColorOn", "Custom Player Color", "Your own bar in a fixed color instead of your class color.",
             function(v) SetAndRefresh("playerColorOn", v) end),
-        Toggle("tankColorOn", "Custom Tank Color", "The bar of whoever holds aggro in a fixed color instead of their class color.",
+        ListToggle("tankColorOn", "Custom Tank Color", "The bar of whoever holds aggro in a fixed color instead of their class color.",
             function(v) SetAndRefresh("tankColorOn", v) end)
     );  y = y - h
     if not EllesmereUI._prebuilding then
-        local playerOff, playerTip = Needs(function() return not Get("playerColorOn") end, "Custom Player Color")
-        Swatch(customRow._leftRegion, ColorSwatch("playerColor", "Player Color", playerOff, playerTip))
-        local tankOff, tankTip = Needs(function() return not Get("tankColorOn") end, "Custom Tank Color")
-        Swatch(customRow._rightRegion, ColorSwatch("tankColor", "Tank Color", tankOff, tankTip))
+        Swatch(customRow._leftRegion, ColorSwatch("playerColor", "Player Color",
+            function() return not Get("playerColorOn") end, "Custom Player Color"))
+        Swatch(customRow._rightRegion, ColorSwatch("tankColor", "Tank Color",
+            function() return not Get("tankColorOn") end, "Custom Tank Color"))
     end
 
     local barBgRow
@@ -490,7 +514,6 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
         { type = "dropdown", text = "Displayed Value",
           tooltip = "Pull % reaches 100 where a player would take aggro, Tank % where they match the tank's threat.",
           values = ns.DisplayValues, order = ns.DisplayOrder,
-          disabled = off, disabledTooltip = "Threat Meter",
           getValue = ns.GetDisplayedValue,
           setValue = function(v)
               ns.SetDisplayedValue(v)

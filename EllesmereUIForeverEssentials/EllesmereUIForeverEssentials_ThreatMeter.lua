@@ -1170,12 +1170,15 @@ function ns.Apply()
         shownList = nil
         if frame then frame:Hide() end
     end
+    -- A reset also reaches a Damage Meters Threat window (ThreatFeed file).
+    ns.FeedChanged()
     RefreshSettingsPreview()
 end
 
 function ns.ApplyStyle()
     cachedStyle = nil
     if frame and Get("enabled") then RequestUpdate() end
+    ns.FeedChanged()
     RefreshSettingsPreview()
 end
 
@@ -1232,8 +1235,9 @@ local function ResizeTo(width, height, key)
     Cfg()[key] = math.floor(size + 0.5)
 end
 
-local function ShowQuickMenu(anchor)
-    local items = {}
+-- What the list shows (tracked unit, displayed value, pets), appended to
+-- `items`. Also the head of a Damage Meters Threat window's settings menu.
+local function DataItems(items)
     if Get("focusEnabled") then
         items[#items + 1] = { text = EllesmereUI.L("Tracked Unit"), children = SourceItems() }
     end
@@ -1253,6 +1257,12 @@ local function ShowQuickMenu(anchor)
             Cfg().pets = not Get("pets")
             Changed()
         end }
+    return items
+end
+ns.DataMenuItems = DataItems
+
+local function ShowQuickMenu(anchor)
+    local items = DataItems({})
     items[#items + 1] = { text = EllesmereUI.L("Warning Sound"), isActive = Get("warnSound") == true,
         onClick = function()
             Cfg().warnSound = not Get("warnSound")

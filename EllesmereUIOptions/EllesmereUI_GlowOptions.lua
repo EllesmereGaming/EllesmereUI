@@ -277,7 +277,7 @@ local function CogChanged(desc)
 end
 
 -- Pixel Glow cog rows (Lines / Thickness / Speed / Background), plus the
--- site's own extra rows.
+-- site's own extra rows. The Pixel Glow ones carry pixelRow (see PopupRows).
 local function CogRows(desc)
     local rows = {}
     local caps = desc.caps or {}
@@ -286,21 +286,21 @@ local function CogRows(desc)
         rows[#rows + 1] = { type = "slider", label = "Lines", min = 2, max = 16, step = 1,
             get = function() return desc.get("lines") or 8 end,
             set = function(v) desc.set("lines", v); CogChanged(desc) end,
-            disabled = notPixel, disabledTooltip = "Pixel Glow" }
+            disabled = notPixel, disabledTooltip = "Pixel Glow", pixelRow = true }
         rows[#rows + 1] = { type = "slider", label = "Thickness", min = 1, max = desc.thicknessMax or 4, step = 1,
             get = function() return desc.get("thickness") or 2 end,
             set = function(v) desc.set("thickness", v); CogChanged(desc) end,
-            disabled = notPixel, disabledTooltip = "Pixel Glow" }
+            disabled = notPixel, disabledTooltip = "Pixel Glow", pixelRow = true }
         rows[#rows + 1] = { type = "slider", label = "Speed", min = 1, max = 8, step = 1,
             get = function() return G.SpeedToUI(desc.get("speed")) end,
             set = function(v) desc.set("speed", G.SpeedFromUI(v)); CogChanged(desc) end,
-            disabled = notPixel, disabledTooltip = "Pixel Glow" }
+            disabled = notPixel, disabledTooltip = "Pixel Glow", pixelRow = true }
     end
     if caps.bg then
         rows[#rows + 1] = { type = "toggle", label = "Background",
             get = function() return desc.get("bg") == true end,
             set = function(v) desc.set("bg", v and true or nil); CogChanged(desc) end,
-            disabled = notPixel, disabledTooltip = "Pixel Glow" }
+            disabled = notPixel, disabledTooltip = "Pixel Glow", pixelRow = true }
         rows[#rows + 1] = { type = "colorpicker", label = "Background Color",
             get = function()
                 local r, g, b = desc.get("bgColor")
@@ -308,7 +308,7 @@ local function CogRows(desc)
             end,
             set = function(r, g, b) desc.set("bgColor", r, g, b); CogChanged(desc) end,
             disabled = function() return notPixel() or desc.get("bg") ~= true end,
-            disabledTooltip = "Pixel Glow Background" }
+            disabledTooltip = "Pixel Glow Background", pixelRow = true }
     end
     if desc.cogRows then
         for _, r in ipairs(desc.cogRows) do rows[#rows + 1] = r end
@@ -356,7 +356,9 @@ end
 
 -- Every glow control as BuildCogPopup rows, for sites whose whole glow setting
 -- lives inside a cog: style dropdown, Default/Custom/Class swatches, pixel rows.
-function GO.PopupRows(desc, styleLabel)
+-- hidePixel: the Pixel Glow rows are left out, not greyed, while another style
+-- is picked (row.hidden: the popup swaps its rows as the style changes).
+function GO.PopupRows(desc, styleLabel, hidePixel)
     local values, order = GO.StyleValues(desc)
     local rows = {}
     local off = function() return not GO.Renders(desc) end
@@ -371,7 +373,11 @@ function GO.PopupRows(desc, styleLabel)
         end }
     local caps = desc.caps or {}
     if caps.mode then rows[#rows + 1] = ColorRow(desc, off) end
-    for _, r in ipairs(CogRows(desc)) do rows[#rows + 1] = r end
+    local notPixel = hidePixel and NotPixel(desc) or nil
+    for _, r in ipairs(CogRows(desc)) do
+        if notPixel and r.pixelRow then r.hidden = notPixel end
+        rows[#rows + 1] = r
+    end
     return rows
 end
 

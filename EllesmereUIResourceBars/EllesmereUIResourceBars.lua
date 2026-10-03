@@ -1253,7 +1253,7 @@ local DEFAULTS = {
             -- power (e.g. BM/MM Hunter, Focus shows as class resource). "None"/"Up"/
             -- "Down", visual-only.
             shiftElementsIfNoPower = "None",
-            manaRegenSpark = false,  -- WoW Forever: mana regen spark (5s rule) while the bar shows mana
+            manaRegenSpark = false,  -- WoW Forever: mana regen spark while the bar shows mana; manaRegenSparkMode "ticks" = Regen Ticks, nil = 5-Second Rule
             -- WoW Forever: Spell Cost Prediction (powerCostPrediction, opt-in;
             -- powerCostColor, nil = Blizzard's mana prediction color). No
             -- defaults: nil is off, so retail profiles stay unchanged.
@@ -1366,7 +1366,7 @@ local DEFAULTS = {
             enabled       = true,
             -- Global Settings > Gamepad: stand this bar down while a controller
             -- is connected (ns.RB_ApplyGamepadCastbar).
-            gamepadHide   = true,
+            gamepadHide   = false,
             -- Blizzard Style (Global Settings > Style): the stock cast bar art
             -- (background, frame, text box, cast/channel fills, pip) on this
             -- bar with every feature intact. Default OFF; reload-gated.
@@ -1378,6 +1378,9 @@ local DEFAULTS = {
             showIcon      = true,
             iconOnRight   = false,  -- attach the spell icon to the right of the bar instead of the left
             showIconDivider = false,  -- draw a 1px divider at the icon/bar seam (interior seam has no border otherwise)
+            iconSize      = 0,  -- 0 = the bar height
+            iconOffsetX   = 0,
+            iconOffsetY   = 0,
             width         = 220,
             height        = 20,
             anchorX       = 0,
@@ -1418,6 +1421,7 @@ local DEFAULTS = {
             showGCDBoundary   = false,
             gcdBoundaryR = 1.0, gcdBoundaryG = 0.82, gcdBoundaryB = 0.0, gcdBoundaryA = 0.95,
             coloredEmpowerStages = false,  -- Color empowered spells from red to green per stage
+            outOfRangeGray = false,  -- Gray fill while the target is out of the cast's range
             showTotalDuration = false,
             latencyEnabled    = false,
             latencyShowText   = false,
@@ -1527,6 +1531,21 @@ local DEFAULTS = {
             unlockPos     = nil,
             enabledClasses = nil,  -- nil = disabled; { SHAMAN = true, ... } = enabled for listed classes
         },
+        -- WoW Forever: Blizzard's call totem bar in the Totem Bar look
+        -- (EUI_ResourceBars_CallTotemBar.lua). Off by default; the table exists
+        -- only on that client, so retail profiles never gain the key.
+        callTotemBar = (EllesmereUI.IS_FOREVER == true) and {
+            enabled       = false,
+            iconSize      = 30,
+            spacing       = 2,
+            showTimer     = true,
+            timerSize     = 11,
+            orientation   = "HORIZONTAL",  -- "HORIZONTAL" or "VERTICAL"
+            borderSize    = 1,
+            borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
+            borderTexture = "solid",
+            unlockPos     = nil,
+        } or nil,
         general = {
             anchorX     = 0,
             anchorY     = -100,
@@ -1572,11 +1591,12 @@ local _erbEventFrame = CreateFrame("Frame")   -- event entry; events registered 
 -- use plain SetValue.
 ns.EASE = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
 
--- Shell pool for runtime handler hosts (mouse-follow anchor): born HERE so their
--- per-frame work bills ResourceBars (attribution rule above).
+-- Shell pool for runtime handler hosts (the combat queue below, and up to three
+-- mouse-follow anchors): born HERE so their work bills ResourceBars (attribution
+-- rule above). One spare.
 do
-    local pool = { CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame") }
-    local n = 4
+    local pool = { CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame") }
+    local n = 5
     ns.TakeShell = function()
         if n > 0 then
             local f = pool[n]
@@ -2329,7 +2349,7 @@ local function IsPowerBarHidden()
     if IsSpecDisabled(pp) then return true end
     if _G._ERB_BarHiddenByForm(pp) then return true end  -- druid per-form bar disable
     if not GetPrimaryPowerType() then return true end
-    if p.secondary and p.secondary.hidePowerIfResource and GetSecondaryResource() then return true end
+    if p.secondary and p.secondary.hidePowerIfResource and p.secondary.enabled ~= false and GetSecondaryResource() then return true end
     return false
 end
 
@@ -2780,6 +2800,10 @@ local function RegisterUnlockElements()
     -- Swing Timer (WoW Forever): returns nil on clients without C_SwingTimer.
     if ns.ST_MakeUnlockElement then
         elements[#elements + 1] = ns.ST_MakeUnlockElement(MK, Rebuild)
+    end
+    -- Call Totem Bar (WoW Forever): nil elsewhere.
+    if ns.CT_MakeUnlockElement then
+        elements[#elements + 1] = ns.CT_MakeUnlockElement(MK)
     end
 
     EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIResourceBars")
@@ -3354,6 +3378,7 @@ local function BuildBars()
                 healthBar:SetPoint(hp.unlockPos.point, UIParent, rp, sx, sy)
             end
             EllesmereUI.SetElementVisibility(healthBar, false)
+            ns.HealthIndicatorsApply(healthBar, nil)
         else
         local healthAnchorKey = NormalizeAnchorKey(hp.anchorTo)
         if EllesmereUI._TryOverrideAnchor and EllesmereUI._TryOverrideAnchor("ERB_Health", healthBar) then
@@ -3461,6 +3486,9 @@ local function BuildBars()
         if IsSpecDisabled(hp) then
             EllesmereUI.SetElementVisibility(healthBar, false)
         end
+        -- Absorb / heal absorb / max health reduction overlays
+        -- (EUI_ResourceBars_HealthIndicators.lua): settings pass only.
+        ns.HealthIndicatorsApply(healthBar, (not IsSpecDisabled(hp)) and hp or nil, hpOri)
         end
     end
 
@@ -3484,7 +3512,7 @@ local function BuildBars()
         -- "Shift Elements if No Resource" checks (IsSpecDisabled +
         -- GetSecondaryResource) plus the master-disable case.
         if sp2.enabled == false or IsSpecDisabled(sp2) or not GetSecondaryResource() then
-            ppExpandDelta = sp2.pipHeight or 20
+            ppExpandDelta = math.max(0, (sp2.pipHeight or 20) + (pp.expandIfNoResourceExtraY or 0))
             ppHeight = ppHeight + ppExpandDelta
             ppDirSign = ResolveExpandDirSign(pp, sp2)
         end
@@ -3638,7 +3666,7 @@ local function BuildBars()
             primaryBar._text:SetTextColor(pp.textFillR or 1, pp.textFillG or 1, pp.textFillB or 1, pp.textFillA or 1)
         end
         primaryBar:Show()
-        local hidePower = p.secondary and p.secondary.hidePowerIfResource and cachedSecondary
+        local hidePower = p.secondary and p.secondary.hidePowerIfResource and p.secondary.enabled ~= false and cachedSecondary
         if hidePower then
             EllesmereUI.SetElementVisibility(primaryBar, false)
         else
@@ -4377,7 +4405,8 @@ local function UpdateHealthBar()
 
     local cur = UnitHealth("player")
     local mx = UnitHealthMax("player")
-    if not cur or not mx or mx <= 0 then return end
+    if not cur or not mx then return end
+    if not (issecretvalue and issecretvalue(mx)) and mx <= 0 then return end
 
     healthBar:SetMinMaxValues(0, mx)
 
@@ -4625,10 +4654,10 @@ local function UpdatePrimaryBar()
     local pct01 = (not pctTainted) and (pctRaw / 100) or 1
 
     -- Both allocating stages below (the curve color read returns a color object,
-    -- the formatters build strings) are stamped on the value pair, since
-    -- UNIT_POWER_UPDATE and UNIT_POWER_FREQUENT both fire for one change and the
-    -- repeat re-derives the same result. A secret value cannot be compared, so it
-    -- always rebuilds and drops the stamps (the next clean event rebuilds too).
+    -- the formatters build strings) are stamped on the value pair, so a repaint
+    -- that finds the same value re-derives nothing. A secret value cannot be
+    -- compared, so it always rebuilds and drops the stamps (the next clean event
+    -- rebuilds too).
     local vmClean = not (issecretvalue and (issecretvalue(cur) or issecretvalue(mx)))
     if not vmClean then primaryBar._colCur = nil; primaryBar._txtCur = nil end
 
@@ -5399,8 +5428,8 @@ local function UpdateSecondaryResource()
     end
 
     -- Value early-out for plain point resources (Holy Power, combo points, soul shards,
-    -- chi, ...). Everything below is a pure function of value/max/config, and FIVE
-    -- triggers reach this per cast (UNIT_POWER_UPDATE/_FREQUENT, UNIT_AURA,
+    -- chi, ...). Everything below is a pure function of value/max/config, and four
+    -- triggers reach this per cast (UNIT_POWER_FREQUENT, UNIT_AURA,
     -- UNIT_SPELLCAST_SUCCEEDED, the 10fps safety poll), most firing with the resource
     -- unchanged (~300 hits/9 misses over 15s casting, profiled 12.2%->2.9%). The
     -- active tracked buff and the winning spender change while the value stands
@@ -6767,13 +6796,12 @@ ns.ShouldShowBar = ShouldShowBar
 -- WoW Forever Spell Cost Prediction host (EllesmereUI_SpellCostPrediction.lua,
 -- nil off Forever): the power type the Power Bar shows, the segment's color at
 -- the bar's Fill Opacity, and the Blizzard Style bar-shape mask for the
--- segment's fill. inBar keeps the segment at the inner bar's own level, under
--- the hash lines, shading, text and border strips however ApplyAll's strata
--- pass levels them. Read on a cast start and by a repeat attach during one,
--- never per power event.
+-- segment's fill. The segment sits one level above the inner bar, where the
+-- druid mana strip's Inside mode draws: a frame at the inner bar's own level
+-- is covered by its fill (see the hash tick overlay). Read on a cast start and
+-- by a repeat attach during one, never per power event.
 if EllesmereUI.SpellCostPrediction then
     ns.ERB_COST_HOST = {
-        inBar = true,
         PowerType = function() return cachedPrimary end,
         Color = function()
             local pp = _G._ERB_ResolvePowerCfg()
@@ -6830,8 +6858,10 @@ local function UpdateVisibility()
         local pp = _G._ERB_ResolvePowerCfg()
         local sp = ERB.db.profile.secondary
         -- cachedPrimary is also checked: specs with no primary power (BM/MM Hunter)
-        -- hide the power bar even when it is enabled in settings.
-        local hidePower = sp and sp.hidePowerIfResource and cachedSecondary
+        -- hide the power bar even when it is enabled in settings. "Hide Power Bar if
+        -- Resource" applies only while the Class Resource is on: its toggle is greyed
+        -- out otherwise, and a WoW Forever druid has combo points in Cat Form alone.
+        local hidePower = sp and sp.hidePowerIfResource and sp.enabled ~= false and cachedSecondary
         local vis = not hidePower and pp and pp.enabled ~= false and not IsSpecDisabled(pp) and not _G._ERB_BarHiddenByForm(pp) and cachedPrimary and not inVehicle and ShouldShowBar(pp)
         ERB._moEligible.primary = (vis == "mouseover")
         if grp then ns._erbGrpP = (vis == true) and not primaryBar._erbMouseTrack end
@@ -6848,7 +6878,7 @@ local function UpdateVisibility()
         -- also lays the spark out from the orientation BuildBars applied.
         if EllesmereUI.ManaRegenSpark then
             if (vis == true or vis == "mouseover") and pp.manaRegenSpark then
-                EllesmereUI.ManaRegenSpark.Attach("erb", primaryBar._sb)
+                EllesmereUI.ManaRegenSpark.Attach("erb", primaryBar._sb, pp.manaRegenSparkMode == "ticks")
             else
                 EllesmereUI.ManaRegenSpark.Detach("erb")
             end
@@ -8032,7 +8062,7 @@ function ns.ERB_GroupCheck(p)
             l = (hp and hp.width) or 214
         elseif i == 2 then
             inBar = pp and pp.enabled ~= false and GetPrimaryPowerType() ~= nil
-                and not (sp and sp.hidePowerIfResource and hasRes)
+                and not (sp and sp.hidePowerIfResource and sp.enabled ~= false and hasRes)
                 and not (primaryBar and primaryBar._erbMouseTrack
                     or (not primaryBar and NormalizeAnchorKey(pp.anchorTo) == "mouse"))
                 and pp.visibility ~= "never" and ShouldShowBar(pp) ~= "mouseover"
@@ -8583,12 +8613,42 @@ end
 -- the icon stays a square of the bar height). The frame width, the fill
 -- inset and the unlock sizing all take it from here.
 function ns.ERB_CastIconW(cb)
-    if cb.showIcon == false then return 0 end
+    if cb.showIcon == false or ns.ERB_CastIconFree(cb) then return 0 end
     local h = cb.height
     if ns.ERB_CastStyle() == "blizzard" and cb.showSpellText and ns.ERB_BlizzAtlas("textbox") then
         return h + 13
     end
     return h
+end
+-- Icon Size / Offset: a custom size or any offset takes the icon out of the
+-- frame (ERB_CastIconW is 0) and it floats beside the bar with its own border.
+-- The stock styles keep it inside their frame art.
+function ns.ERB_CastIconFree(cb)
+    if cb.showIcon == false or ns.ERB_CastStyle() ~= "eui" then return false end
+    return (cb.iconSize or 0) > 0 or (cb.iconOffsetX or 0) ~= 0 or (cb.iconOffsetY or 0) ~= 0
+end
+-- Lays out a floating icon (live bar and options preview), or hides its border.
+function ns.ERB_LayoutFreeCastIcon(iconFrame, host, cb, free)
+    local P = EllesmereUI.PP
+    if not free then
+        if P.GetBorders(iconFrame) then P.HideBorder(iconFrame) end
+        return
+    end
+    local size = (cb.iconSize or 0) > 0 and cb.iconSize or cb.height
+    iconFrame:SetSize(size, size)
+    iconFrame:ClearAllPoints()
+    if cb.iconOnRight then
+        iconFrame:SetPoint("LEFT", host, "RIGHT", cb.iconOffsetX or 0, cb.iconOffsetY or 0)
+    else
+        iconFrame:SetPoint("RIGHT", host, "LEFT", cb.iconOffsetX or 0, cb.iconOffsetY or 0)
+    end
+    if (cb.borderSize or 0) > 0 then
+        if not P.GetBorders(iconFrame) then P.CreateBorder(iconFrame, 0, 0, 0, 1, 1) end
+        P.SetBorderColor(iconFrame, cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1)
+        P.ShowBorder(iconFrame)
+    elseif P.GetBorders(iconFrame) then
+        P.HideBorder(iconFrame)
+    end
 end
 -- Fill art for the current cast kind ("cast" | "channel" | "interrupted").
 -- One field test when the style is off; a memo skips repeat atlas swaps.
@@ -8888,7 +8948,11 @@ BuildCastBar = function()
     -- Icon: left or right side (iconOnRight), full height, no inset
     local iconFrame = castBarFrame._iconFrame
     local iconOnRight = hasIcon and cb.iconOnRight
-    if hasIcon then
+    local iconFree = ns.ERB_CastIconFree(cb)
+    ns.ERB_LayoutFreeCastIcon(iconFrame, castBarFrame, cb, iconFree)
+    if iconFree then
+        iconFrame:Show()
+    elseif hasIcon then
         -- A square of the bar height; under the style it also spans the stock
         -- text box under the bar (see ns.ERB_CastIconW), hung from the same
         -- top corner, as the unit frame cast bars do.
@@ -8918,9 +8982,10 @@ BuildCastBar = function()
     local iconDivider = castBarFrame._iconDivider
     -- Border Art Divider: the border style's vertical companion art in place of
     -- the solid line below (ns.ERB_CastDividerArt; inert unless it was ever on).
-    if ns.ERB_CastDividerArt(iconDivider, hasIcon and cb.showIconDivider, iconFrame, iconOnRight, cb, blizz) then
+    local showDivider = hasIcon and not iconFree and cb.showIconDivider
+    if ns.ERB_CastDividerArt(iconDivider, showDivider, iconFrame, iconOnRight, cb, blizz) then
         iconDivider:Show()
-    elseif hasIcon and cb.showIconDivider then
+    elseif showDivider then
         local des = castBarFrame:GetEffectiveScale()
         local onePixel = des > 0 and (PP.perfect / des) or PP.mult
         local dbs = cb.borderSize or 1
@@ -8954,8 +9019,8 @@ BuildCastBar = function()
     -- The icon-adjacent side sits FLUSH against the icon (no inset): that seam is
     -- interior with no border, and insetting it exposes a 1px background column
     -- next to the icon. Outer edges keep the inset so the fill never bleeds out.
-    local clipLeft  = (hasIcon and not iconOnRight) and iconW or bdrInset
-    local clipRight = (hasIcon and iconOnRight) and iconW or bdrInset
+    local clipLeft  = (iconW > 0 and not iconOnRight) and iconW or bdrInset
+    local clipRight = (iconW > 0 and iconOnRight) and iconW or bdrInset
     clipFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", clipLeft, -bdrInset)
     clipFrame:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -clipRight, bdrInset)
     clipFrame:SetFrameLevel(castBarFrame:GetFrameLevel() + 1)
@@ -9054,6 +9119,10 @@ else
         fillTex:SetVertexColor(fR, fG, fB, fA * fillOp)
     end
 end
+    -- The fill was just repainted from the settings: a live cast re-resolves its
+    -- cached settings on the next tick and re-reads the Out of Range Gray.
+    castBarFrame._rangeOut = nil
+    castBarFrame._cstKey = nil
 
     local spark = castBarFrame._spark
     -- Blizzard Style: the stock pip replaces the spark art (once; the swap is
@@ -9663,6 +9732,18 @@ UpdateCastBar = function(dt)
         if castBarFrame._rawFill and not castBarFrame._nativeFill and ns._rawFillDriver then
             ns._rawFillDriver:Show()
         end
+        -- Out of Range Gray: armed for this cast only while the option is on and
+        -- the spell has a range (self casts, crafting and mounts never read it).
+        local sid = castBarFrame._spellID
+        castBarFrame._cstRangeSpell = (cb.outOfRangeGray and sid and C_Spell.SpellHasRange(sid)) and sid or nil
+        castBarFrame._cstRangeAt = 0
+    end
+    -- Out of Range Gray: at most five target range reads a second, on this tick,
+    -- during an armed cast; the fill repaints only when the answer flips.
+    local rangeSpell = castBarFrame._cstRangeSpell
+    if rangeSpell and now >= castBarFrame._cstRangeAt then
+        castBarFrame._cstRangeAt = now + 0.2
+        ns.ERB_CastRangeTint(C_Spell.IsSpellInRange(rangeSpell, "target") == false)
     end
     local showTimer = castBarFrame._cstShowTimer
 
@@ -9707,7 +9788,7 @@ UpdateCastBar = function(dt)
         end
 
         -- Apply empowered stage coloring if enabled
-        if castBarFrame._empowering and castBarFrame._cstEmpStages then
+        if castBarFrame._empowering and castBarFrame._cstEmpStages and not castBarFrame._rangeOut then
             local numStages = castBarFrame._numStages or 0
             local stage = GetCurrentEmpowerStage(progress, numStages)
             local r, g, b = GetEmpowerStageColor(stage, numStages)
@@ -9882,6 +9963,7 @@ function ns.ShowIdleCastBar()
     castBarFrame._nativeFill = nil
     castBarFrame._cstKey = nil
     if ns._rawFillDriver then ns._rawFillDriver:Hide() end
+    if castBarFrame._rangeOut then ns.ERB_CastRangeTint(false) end
 
     -- Cast decoration has nothing to show without a cast. The spark in
     -- particular is anchored to the RIGHT edge of the fill, so at value 0 it
@@ -9936,6 +10018,7 @@ OnCastStart = function()
     castBarFrame._startTime = startTimeMS / 1000
     castBarFrame._endTime = endTimeMS / 1000
     castBarFrame._spellName = name
+    castBarFrame._spellID = spellID
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     castBarFrame._nameText:SetText(name)
     ns.ERB_SetBlizzCastFill("cast")
@@ -9994,6 +10077,7 @@ OnChannelStart = function()
     castBarFrame._startTime = startTimeMS / 1000
     castBarFrame._endTime = endTimeMS / 1000
     castBarFrame._spellName = name
+    castBarFrame._spellID = spellID
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     castBarFrame._nameText:SetText(name)
     ns.ERB_SetBlizzCastFill("channel")
@@ -10102,15 +10186,10 @@ local function OnChannelStop()
     end)
 end
 
--- Undo the per-stage empower tint and put the configured fill back. Shared by
--- OnEmpowerStop and OnCastStop: the 1s-overrun safety path routes a missed
--- EMPOWER_STOP through OnCastStop, which clears _empowering, and OnEmpowerStop
--- then early-returns on that very flag -- so without this call there the stage
--- tint stayed painted for the rest of the session, the same stuck-fill symptom
--- by a second route. On ns to respect the 200-local cap.
-ns.ResetEmpowerFillColor = function()
-    if not (castBarFrame and castBarFrame._empowerColorApplied) then return end
-    castBarFrame._empowerColorApplied = false
+-- Put the configured fill back after a tint (empower stages, Out of Range
+-- Gray): Blizzard Style white, the gradient re-issued, or the solid colour.
+-- On ns to respect the 200-local cap.
+ns.ERB_RestoreCastFill = function()
     local cb = ERB.db.profile.castBar
     -- Blizzard Style (build stamp): the fill atlas is its own colour; restore plain white.
     if castBarFrame._blizzFill then
@@ -10148,6 +10227,30 @@ ns.ResetEmpowerFillColor = function()
     else
         local fillTex = castBarFrame._bar:GetStatusBarTexture()
         fillTex:SetVertexColor(fR, fG, fB, fA * ((cb.fillOpacity or 100) / 100))
+    end
+end
+
+-- Undo the per-stage empower tint. Shared by OnEmpowerStop and OnCastStop: the
+-- 1s-overrun safety path routes a missed EMPOWER_STOP through OnCastStop, which
+-- clears _empowering, and OnEmpowerStop then early-returns on that very flag --
+-- so without this call there the stage tint stayed painted for the rest of the
+-- session, the same stuck-fill symptom by a second route.
+ns.ResetEmpowerFillColor = function()
+    if not (castBarFrame and castBarFrame._empowerColorApplied) then return end
+    castBarFrame._empowerColorApplied = false
+    ns.ERB_RestoreCastFill()
+end
+
+-- Out of Range Gray (castBar.outOfRangeGray): the fill turns gray while the
+-- target is out of the cast's range and takes its configured paint back when it
+-- returns or the cast ends. Writes only on a flip.
+ns.ERB_CastRangeTint = function(out)
+    if (castBarFrame._rangeOut or false) == out then return end
+    castBarFrame._rangeOut = out or nil
+    if out then
+        castBarFrame._bar:GetStatusBarTexture():SetVertexColor(0.4, 0.4, 0.4, castBarFrame._cstFillAlpha or 1)
+    else
+        ns.ERB_RestoreCastFill()
     end
 end
 
@@ -10199,7 +10302,7 @@ end
 -- read live. On ns: the file is at the 200-local cap.
 function ns.RB_ApplyGamepadCastbar(padOn)
     local cb = ERB.db and ERB.db.profile and ERB.db.profile.castBar
-    local want = (cb and cb.enabled and cb.gamepadHide ~= false) and true or false
+    local want = (cb and cb.enabled and cb.gamepadHide == true) and true or false
     if want ~= (ns._erbCastPadWatched == true) then
         ns._erbCastPadWatched = want
         if want then
@@ -10259,6 +10362,7 @@ OnEmpowerStart = function()
     castBarFrame._startTime = startTimeMS / 1000
     castBarFrame._endTime = endTimeMS / 1000
     castBarFrame._spellName = name
+    castBarFrame._spellID = spellID
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     HideLatencyOverlay()
     castBarFrame._nameText:SetText(name)
@@ -11439,6 +11543,7 @@ function ERB:ApplyAll()
     if ns.MigrateLegacyAnchorTo then ns.MigrateLegacyAnchorTo() end
     if ns.AS_Apply then ns.AS_Apply() end
     if ns.ST_Apply then ns.ST_Apply() end
+    if ns.CT_Apply then ns.CT_Apply() end
 
     -- Vehicle proxy: hide resource bars during full vehicle UI ([vehicleui]
     -- condition). Secure frame creation + RegisterStateDriver both need combat OOC.
@@ -11548,10 +11653,19 @@ local function OnEvent(self, event, ...)
         if cachedSecondary and cachedSecondary.power == "BREWMASTER_STAGGER" then
             UpdateSecondaryResource()
         end
-    elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_POWER_FREQUENT" then
+    elseif event == "UNIT_POWER_FREQUENT" then
+        -- Fires on every power change, so both bars paint on this event alone,
+        -- as Blizzard's own resource display and class resource bars do: the
+        -- throttled UNIT_POWER_UPDATE only re-reports changes this event has
+        -- already delivered, and is not registered. The Power Bar paints only
+        -- for a change of the type it shows (payload token; an unmapped type
+        -- or a secret token paints).
         local unit, powerToken = ...
         if unit == "player" then
-            UpdatePrimaryBar()
+            local tok = POWER_ENUM_TO_KEY[cachedPrimary]
+            if not tok or issecretvalue(powerToken) or powerToken == tok then
+                UpdatePrimaryBar()
+            end
             UpdateSecondaryResource()
         end
     elseif event == "UNIT_MAXHEALTH" or event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
@@ -11697,13 +11811,10 @@ local function OnEvent(self, event, ...)
         end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         -- Route to manual resource trackers (12.0+ secret-value safe)
-        local unit, castGUID, spellID = ...
+        local unit, _, spellID = ...
         if unit == "player" then
             HandleIronfurCast(spellID)
             IP.HandleCast(spellID)
-            if EllesmereUI then
-                EllesmereUI.HandleTipOfTheSpear(event, unit, castGUID, spellID)
-            end
             if cachedSecondary and (cachedSecondary.type == "custom"
                or cachedSecondary.power == "IRONFUR_BAR") then
                 UpdateSecondaryResource()
@@ -11714,9 +11825,6 @@ local function OnEvent(self, event, ...)
         wipe(ironfurTicks)
         ironfurGoEUntil = 0
         IP.hashEndTime = 0
-        if EllesmereUI then
-            EllesmereUI.HandleTipOfTheSpear(event)
-        end
     elseif event == "PLAYER_ENTERING_WORLD" then
         C_Timer.After(0.5, function()
             ERB:ApplyAll()
@@ -11922,7 +12030,6 @@ function ERB:OnEnable()
     eventFrame:RegisterUnitEvent("UNIT_HEALTH", "player")
     eventFrame:RegisterUnitEvent("UNIT_MAXHEALTH", "player")
     eventFrame:RegisterUnitEvent("UNIT_MAX_HEALTH_MODIFIERS_CHANGED", "player")
-    eventFrame:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
     eventFrame:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
     eventFrame:RegisterUnitEvent("UNIT_MAXPOWER", "player")
     eventFrame:RegisterEvent("RUNE_POWER_UPDATE")

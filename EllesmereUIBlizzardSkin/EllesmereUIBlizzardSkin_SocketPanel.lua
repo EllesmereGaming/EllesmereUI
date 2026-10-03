@@ -1229,12 +1229,7 @@ local function OpenSeasonShortcut(self)
             ToggleExpansionLandingPage()
         end
     else
-        if not C_AddOns.IsAddOnLoaded("Blizzard_WeeklyRewards") then
-            C_AddOns.LoadAddOn("Blizzard_WeeklyRewards")
-        end
-        -- Toggle directly so UIPanel management does not close the character sheet.
-        local vault = _G.WeeklyRewardsFrame
-        if vault then vault:SetShown(not vault:IsShown()) end
+        EllesmereUI.ToggleGreatVault()
     end
 end
 
@@ -1445,8 +1440,8 @@ boot:SetScript("OnEvent", function()
     -- WoW Forever: part of the character sheet makeover, which stands down
     -- there (EllesmereUIBlizzardSkin_CharacterSheetForever.lua owns the sheet).
     if EllesmereUI and EllesmereUI.IS_FOREVER then return end
-    -- Stock character sheet styles (Style page, latched for the session):
-    -- the strip hangs below Blizzard's sheet as a tab-art plate. Layout values
+    -- The character sheet's Blizz Default (latched for the session): the
+    -- strip hangs below Blizzard's sheet as a tab-art plate. Layout values
     -- switch here, before the lazy build reads them.
     STOCK = (ns.CharSheetStock and ns.CharSheetStock()) and true or false
     if STOCK then

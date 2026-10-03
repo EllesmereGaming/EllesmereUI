@@ -1438,6 +1438,22 @@ EQT._SuppressAllPOIs = function()
     end)
 end
 
+-- One tracker's share of the mouse-off sweep: its header minimize button and
+-- the blocks now in use (shared-widget-pool trackers: headers only, see
+-- SharesWidgetPool).
+local function TrackerMouseOff(tracker)
+    local header = tracker.Header
+    if header then MouseOff(header.MinimizeButton) end
+    if SharesWidgetPool(tracker) or not tracker.usedBlocks then return end
+    for _, byTemplate in pairs(tracker.usedBlocks) do
+        if type(byTemplate) == "table" then
+            for _, block in pairs(byTemplate) do
+                if type(block) == "table" then ApplyBlockMouse(block) end
+            end
+        end
+    end
+end
+
 -- Tracker-wide mouse switch, driven by the Visibility file on every alpha
 -- edge (combat auto-hide, visibility rules, mouseover idle and hover). OFF
 -- sweeps the blocks now in use plus the module and master header buttons;
@@ -1473,19 +1489,7 @@ EQT.ApplyTrackerMouse = function(on)
     end
     if EQT._trackerMouseOff then return end
     EQT._trackerMouseOff = true
-    EachTracker(function(tracker)
-        local header = tracker.Header
-        if header then MouseOff(header.MinimizeButton) end
-        -- Shared-widget-pool trackers: headers only (see SharesWidgetPool).
-        if SharesWidgetPool(tracker) or not tracker.usedBlocks then return end
-        for _, byTemplate in pairs(tracker.usedBlocks) do
-            if type(byTemplate) == "table" then
-                for _, block in pairs(byTemplate) do
-                    if type(block) == "table" then ApplyBlockMouse(block) end
-                end
-            end
-        end
-    end)
+    EachTracker(TrackerMouseOff)
     ApplyScenarioMouse(_G.ScenarioObjectiveTracker)
     local otf = _G.ObjectiveTrackerFrame
     local master = otf and (otf.HeaderMenu or otf.Header)
@@ -1570,16 +1574,17 @@ function EQT.InitSkin()
 
     EachTracker(HookTracker)
 
-    -- Modules added after this pass were never hooked or skinned: Blizzard's container only
-    -- registers after PLAYER_ENTERING_WORLD (so otf.modules is still empty here and only the
-    -- SUB_TRACKERS names were caught), and addon modules (ObjectiveTrackerModuleTemplate +
-    -- ObjectiveTrackerManager:SetModuleContainer) arrive whenever their addon adds them - they
-    -- kept Blizzard's stock header. Hook each one as it is added. Deferred one frame so no skin
-    -- work runs inside Blizzard's AddModule / container update; HookTracker skips modules it
-    -- has already hooked.
+    -- otf.modules is still empty here (Blizzard registers its container after
+    -- PLAYER_ENTERING_WORLD) and addons add their modules at any time, so hook
+    -- each module as it joins, one frame later so no work runs inside AddModule.
+    -- A module joining a hidden tracker comes out mouse-off like the rest.
     if otf and otf.AddModule then
         hooksecurefunc(otf, "AddModule", function(_, module)
-            C_Timer.After(0, function() HookTracker(module) end)
+            if not module or _hookedTrackers[module] then return end
+            C_Timer.After(0, function()
+                HookTracker(module)
+                if EQT._trackerMouseOff then TrackerMouseOff(module) end
+            end)
         end)
     end
 

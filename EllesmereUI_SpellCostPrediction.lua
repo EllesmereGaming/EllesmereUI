@@ -24,11 +24,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --   PowerType(bar)   the power type the bar shows (a secret one draws nothing)
 --   Color(bar)       r, g, b, a of the segment
 --   Mask(bar)        optional: the bar's shape mask for the segment's fill
---   inBar            optional: true draws the segment at the bar's own frame
---                    level, its fill at ARTWORK 1: over the bar's fill and
---                    under the OVERLAY art on the bar (hash lines, shading,
---                    text, border strips) even where a strata pass levels it
---                    down to the bar's level. Else it sits one level above.
+-- The segment sits one level above the bar: a frame at the bar's own level is
+-- covered by its fill.
 -- SCP.Color(s) is the shared color rule: s.powerCostColor, else Blizzard's
 -- mana prediction color.
 -- Cost: nothing is built before the first Attach; the cast events are
@@ -105,7 +102,7 @@ local function Show(h)
         seg = CreateFrame("StatusBar", nil, clip)
         h.seg = seg
     end
-    local level = power:GetFrameLevel() + (cb.inBar and 0 or 1)
+    local level = power:GetFrameLevel() + 1
     seg:GetParent():SetFrameLevel(level)
     seg:SetFrameLevel(level)
     -- Same texture as the bar's fill (a swap mints a new segment fill object).
@@ -119,7 +116,6 @@ local function Show(h)
     local fill = seg:GetStatusBarTexture()
     local mask = cb.Mask and cb.Mask(power) or nil
     if fill then
-        if cb.inBar then fill:SetDrawLayer("ARTWORK", 1) end
         -- AddMaskTexture is additive: the mask the last draw seated comes
         -- off first (a no-op on a new fill object), then the current one.
         if h.mask then pcall(fill.RemoveMaskTexture, fill, h.mask) end
@@ -176,7 +172,7 @@ local function Stale(h)
        or (bar:GetReverseFill() and true or false) ~= h.rev
        or (bar:GetOrientation() == "VERTICAL") ~= h.vert
        or (bar:GetRotatesTexture() and true or false) ~= h.rot
-       or bar:GetFrameLevel() + (cb.inBar and 0 or 1) ~= h.seg:GetFrameLevel()
+       or bar:GetFrameLevel() + 1 ~= h.seg:GetFrameLevel()
        or (cb.Mask and cb.Mask(bar) or nil) ~= h.mask then
         return true
     end
