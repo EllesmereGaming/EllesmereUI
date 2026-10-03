@@ -1747,6 +1747,67 @@ ns.UF_CastbarBelowFrame = CastbarBelowFrame
 -- the live frames (EllesmereUIOptions/EUI_UnitFrames_Options.lua).
 EllesmereUI.UF_CastbarBelowFrame = CastbarBelowFrame
 
+-- Does the Resource Bars stack (power bar, class resource, and -- Forever druid --
+-- the shapeshift mana bar) hang directly below the PLAYER frame, and if so how far
+-- down does it reach? Bottom-anchored player auras reserve the cast bar strip (see
+-- the castbar block in AnchorContainer); they must reserve this strip the same way
+-- or they overlap the stack whenever it grows: a bar shown (the shapeshift mana
+-- bar), "Expand Power Bar if No Resource", or a "Shift Elements if No Resource"
+-- cascade. The Resource Bars module (a separate addon) owns which of its frames
+-- hangs lowest and exposes it as EllesmereUI.ERB_PlayerStackBottomFrame; here we
+-- only do the geometry, mirroring CastbarBelowFrame: LIVE geometry in PHYSICAL
+-- pixels (the stack carries its own effective scale), x-overlap gated, 0 when the
+-- stack is beside/above the frame or absent. Returns the reserve in the FRAME's
+-- LOCAL units so it composes with the cast bar's -cbH. Reading non-aura frame
+-- geometry is legal under aura restriction.
+-- The player frame hosts auras, so under WoW 12.0 its geometry (GetBottom etc.)
+-- comes back as a SECRET value to any execution tainted by an addon that is not
+-- the frame's owner. Arithmetic on a secret throws. secretNum() turns a secret (or
+-- nil) into nil so every read is gated and the reserve degrades to 0 instead of
+-- erroring. The re-anchor MUST be driven from UnitFrames' own context (it owns the
+-- player frame) for the reads to be real -- see the footprint watcher below.
+local issecret = issecretvalue
+local function secretNum(v)
+    if v == nil then return nil end
+    if issecret and issecret(v) then return nil end
+    return v
+end
+
+-- Pixel-rounding tolerance only. The stack (e.g. an ERB power bar) commonly hangs
+-- just a handful of physical pixels below the frame, and that overhang is REAL and
+-- must be reserved -- a larger slack (the cast bar uses 8) swallowed a 7px power bar
+-- overhang whole, forcing reserve 0 so the auras fell back onto the frame bottom
+-- ("below health, not power"). Keep this tiny: gap <= this means the stack bottom is
+-- effectively at/above the frame edge (embed/inside modes, or nothing below).
+local RES_STRIP_SLACK = 2
+local function ResourceStackBelowFrame(unit, frame)
+    if unit ~= "player" then return 0 end
+    frame = frame or _G[CB_FRAME_NAMES.player]
+    local getter = EllesmereUI.ERB_PlayerStackBottomFrame
+    local sb = getter and getter()
+    if not (frame and sb) then return 0 end
+    local fl = secretNum(frame:GetLeft())
+    local fr = secretNum(frame:GetRight())
+    local fb = secretNum(frame:GetBottom())
+    local sl = secretNum(sb:GetLeft())
+    local sr = secretNum(sb:GetRight())
+    local sbot = secretNum(sb:GetBottom())
+    if not (fl and fr and fb and sl and sr and sbot) then return 0 end
+    local fs = frame:GetEffectiveScale() or 1
+    if fs == 0 then fs = 1 end
+    local ss = sb:GetEffectiveScale() or 1
+    fl, fr, fb = fl * fs, fr * fs, fb * fs
+    sl, sr, sbot = sl * ss, sr * ss, sbot * ss
+    -- Beside the frame rather than under it: nothing to reserve.
+    if sl >= fr or sr <= fl then return 0 end
+    -- Reserve only the span from the frame bottom down to the stack bottom, and only
+    -- while the stack genuinely hangs below (embed/inside modes carve an existing bar
+    -- and add no height -> bottom at/above the edge).
+    local gap = fb - sbot
+    if gap <= RES_STRIP_SLACK then return 0 end
+    return gap / fs
+end
+
 -- Blizzard Style: point the frame's aura block (ns.UF_BlizzAuraBlock, the
 -- edge a cast bar linked under the frame follows) at the lowest
 -- bottom-anchored stack. `container` nil = this display is off; `ia` is its
@@ -1780,7 +1841,10 @@ end
 -- ox + userX, oy + castbarPush + userY) with gap = 1.
 -- buffContainer (HARMFUL calls only): the unit's buff container, needed by
 -- the Anchor Buffs with Debuffs mode below.
-local function AnchorContainer(container, frame, unit, base, s, buffContainer)
+-- reanchorOnly (the footprint-watcher re-anchor path): re-run ONLY the geometry --
+-- SetPoint + aura-block point -- and skip the one-time weapon-enchant declaration
+-- below, which must not be re-issued every settle frame (the engine has no unregister).
+local function AnchorContainer(container, frame, unit, base, s, buffContainer, reanchorOnly)
     local isBuff = (base == "HELPFUL")
 
     -- Boss simple side display: forced side anchoring flush with the frame
@@ -1869,6 +1933,19 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
         if not cbH or cbH <= 0 then cbH = 14 end
         cbOff = -cbH
     end
+    -- Resource Bars stack (power bar / class resource / Forever shapeshift mana)
+    -- below the player frame: reserve down to its bottom edge the same way, and keep
+    -- whichever reserve reaches LOWER (the cast bar may sit above or below it). Same
+    -- bottom-anchor + non-Blizzard-aspect gate as the cast bar; player-only inside
+    -- ResourceStackBelowFrame. CfgFP folds this value in so a stack footprint change
+    -- (bar shown/hidden, expand, shift cascade) re-drives this anchor via a reload.
+    if (anchor == "bottomleft" or anchor == "bottomright")
+        and not (vl and CB_FRAME_NAMES[unit] and ns.UF_LayoutAspectOK and ns.UF_LayoutAspectOK()) then
+        local resReserve = ResourceStackBelowFrame(unit, frame)
+        if resReserve > 0 and -resReserve < cbOff then
+            cbOff = -resReserve
+        end
+    end
 
     local offX = Pick(isBuff, s.buffOffsetX, s.debuffOffsetX) or 0
     local offY = Pick(isBuff, s.buffOffsetY, s.debuffOffsetY) or 0
@@ -1944,7 +2021,7 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
         -- (this pass re-runs on a chain change), and -- the engine has no
         -- addon-facing unregister -- kept until the next reload should the
         -- mode turn off again.
-        if unit == "player" and isBuff and (s.buffShowAll ~= false or s.buffHasDuration == true) then
+        if not reanchorOnly and unit == "player" and isBuff and (s.buffShowAll ~= false or s.buffHasDuration == true) then
             local PP = EllesmereUI.PP
             local w, h = ElementSize(unit, base, s)
             local gap = PP.FromPixels(s.buffSpacingX or 1)
@@ -2413,6 +2490,14 @@ local function CfgFP(unit, base, s, frame)
         mAB and s.debuffOffsetX or nil, mAB and s.debuffOffsetY or nil,
         mAB and s.debuffSpacingY or nil,
         CastbarBelowFrame(unit, frame),
+        -- Resource Bars stack reserve below the player frame (power/class resource/
+        -- shapeshift mana). Rounded to whole pixels so sub-pixel scale jitter does not
+        -- thrash the fingerprint. Live re-anchoring on a footprint change is owned by
+        -- the footprint watcher (AnchorContainer-only); this fingerprint entry is the
+        -- backstop -- it makes any FULL reload (a config edit, an options-time ERB
+        -- height/expand change that fires no watcher event) re-anchor to the current
+        -- geometry. Boolean-stable at 0 for non-player units and when nothing hangs below.
+        math.floor(ResourceStackBelowFrame(unit, frame) + 0.5),
         -- Tracked Auras lists: ApplyGroupConfig reads both (the shared
         -- excludes), and TRI-STATE flips don't move the chain sig -- an
         -- entry's enable checkbox must re-drive this pass. The caster-scope
@@ -2969,6 +3054,92 @@ function ns.UF_ReloadAuraContainers(frame, unit)
     if unit == "player" then
         ReloadDispelSlots(frame, entry)
     end
+end
+
+-- Resource-stack footprint watcher (OWNER CONTEXT). The player's bottom-anchored
+-- auras reserve the Resource Bars stack hanging below the frame (power/class
+-- resource/shapeshift mana). That stack's footprint changes on form swaps, spec/talent
+-- changes (class resource present/absent, "Expand Power Bar if No Resource"), and on
+-- the ERB per-bar visibility modes (combat/target/group) that hide/show a bar. Resource
+-- Bars repositions synchronously on those same events, so we re-anchor on a short defer
+-- (stack settled) -- and crucially from THIS addon's execution, where reading our own
+-- player frame is not secret. The re-anchor is deliberately AnchorContainer-only (just
+-- the container SetPoint offset moves; style/chain/group config are unchanged by a
+-- geometry shift), NOT a full reload -- the full reload path still owns real aura
+-- (chain/style) changes via its own triggers.
+do
+    local MAX_FRAMES = 12 -- safety cap; the token-stable check normally stops in 1-3
+    local polling = false
+    local framesLeft, lastTok, lastAppliedTok = 0, nil, nil
+    -- Gate: the reserve only affects bottom-anchored PLAYER auras, and only when the
+    -- Resource Bars stack exists to hang below the frame. Everyone else pays nothing
+    -- but this settings read per event (no reload, no timer).
+    local function BottomAnchored(a) return a == "bottomleft" or a == "bottomright" end
+    local function PlayerWantsStackReserve()
+        if not EllesmereUI.ERB_PlayerStackBottomFrame then return false end
+        local s = SettingsFor("player")
+        return s ~= nil and (BottomAnchored(s.debuffAnchor) or BottomAnchored(s.buffAnchor))
+    end
+    -- Current stack-bottom edge as a rounded physical-pixel token. The ERB stack frames
+    -- do not host auras, so their geometry is not secret; secretNum guards anyway. Used
+    -- only to detect when the stack has stopped moving.
+    local function stackTok()
+        local getter = EllesmereUI.ERB_PlayerStackBottomFrame
+        local sb = getter and getter()
+        if not (sb and sb.GetBottom) then return 0 end
+        local b = secretNum(sb:GetBottom())
+        if not b then return 0 end
+        return math.floor(b * (sb:GetEffectiveScale() or 1) + 0.5)
+    end
+    -- Cheap re-anchor: only the two player containers' SetPoint offsets change as the
+    -- stack settles, so re-run just AnchorContainer (folds in ResourceStackBelowFrame),
+    -- never the full reload. Buffs first so a merged debuff can ride a positioned buff
+    -- container. AnchorContainer self-skips non-bottom / "none" anchors.
+    local function reanchorOnce()
+        local entry = registry.player
+        local frame = entry and entry.frame
+        if not frame or entry.building then return end
+        local s = SettingsFor("player")
+        if not s then return end
+        if entry.buffs then AnchorContainer(entry.buffs, frame, "player", "HELPFUL", s, entry.buffs, true) end
+        if entry.debuffs then AnchorContainer(entry.debuffs, frame, "player", "HARMFUL", s, entry.buffs, true) end
+    end
+    -- Named function (no per-frame closure). pcall-guarded so a throw can never leave
+    -- `polling` latched true (which would permanently kill the watcher for the session).
+    local function poll()
+        local ok = pcall(reanchorOnce)
+        local tok = ok and stackTok() or lastTok
+        framesLeft = framesLeft - 1
+        if ok and framesLeft > 0 and tok ~= lastTok then
+            lastTok = tok
+            C_Timer.After(0, poll)
+        else
+            lastAppliedTok = tok
+            polling = false
+        end
+    end
+    local function kick()
+        if polling or not PlayerWantsStackReserve() then return end
+        polling = true
+        framesLeft = MAX_FRAMES
+        -- Seed with the last applied token so an event that did NOT move the stack
+        -- (a target change with no visibility bar, etc.) settles in a single frame.
+        lastTok = lastAppliedTok
+        C_Timer.After(0, poll)
+    end
+    local w = CreateFrame("Frame")
+    w:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+    w:RegisterUnitEvent("UNIT_DISPLAYPOWER", "player")
+    w:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    w:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+    -- ERB per-bar visibility modes (combat / target / group) show or hide a stack bar
+    -- with no form/power change; re-anchor on those edges too or the auras overlap a bar
+    -- that just appeared. (Mouseover visibility has no event and is left uncovered.)
+    w:RegisterEvent("PLAYER_REGEN_ENABLED")
+    w:RegisterEvent("PLAYER_REGEN_DISABLED")
+    w:RegisterEvent("PLAYER_TARGET_CHANGED")
+    w:RegisterEvent("GROUP_ROSTER_UPDATE")
+    w:SetScript("OnEvent", kick)
 end
 
 -- Dynamic unit tokens ("target", "focus", "bossN") re-resolve silently: the

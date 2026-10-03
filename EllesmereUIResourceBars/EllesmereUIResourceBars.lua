@@ -1574,6 +1574,45 @@ local secondaryPipTicks = {}  -- tick mark texture cache for pip-type secondary 
 local castBarFrame
 local gcdBarFrame
 local totemBarFrame
+
+-- Lowest-hanging VISIBLE frame of the player's RESOURCE stack, for the unit frame
+-- aura code to reserve space below the player frame the way it reserves the cast bar
+-- (EUI_UnitFrames_AuraContainers.lua -> ResourceStackBelowFrame). Returns the stack
+-- element whose bottom edge sits lowest in physical space, or nil when the stack is
+-- empty/hidden; the aura side does the x-overlap / below-the-frame geometry. The
+-- Forever shapeshift mana bar registers its floating host via ns._FDMStackBottomFrame
+-- (nil, hence a no-op, on every other client/class and in its carve/inside modes).
+--
+-- Only the PERSISTENT resource bars count: power, class resource, and the shapeshift
+-- mana bar. The cast bar / GCD bar / totem bar are excluded -- they are transient and
+-- would make the auras jump on every cast.
+-- Keep the lower of (best, f) by physical bottom edge, if f is part of the VISIBLE
+-- stack. A frame that is shown but at ~zero effective alpha is NOT on screen, so it
+-- must not count: ResourceBars keeps the class-resource container shown-but-invisible
+-- (full height) when the spec has no class resource, and reserving to that invisible
+-- placeholder parked the auras a full slot below the visible power bar in caster/bear.
+-- We anchor to the lowest thing the player can actually SEE (what Cat already does).
+-- Module-level (not a per-call closure) -- ERB_PlayerStackBottomFrame runs on the aura
+-- re-anchor path. Threads best/bestY through the return instead of an upvalue closure.
+local function ConsiderStackFrame(f, best, bestY)
+    if f and f.IsShown and f:IsShown()
+        and (not f.GetEffectiveAlpha or f:GetEffectiveAlpha() > 0.05) then
+        local b = f:GetBottom()
+        if b then
+            b = b * (f:GetEffectiveScale() or 1)
+            if not bestY or b < bestY then return f, b end
+        end
+    end
+    return best, bestY
+end
+function EllesmereUI.ERB_PlayerStackBottomFrame()
+    local best, bestY
+    best, bestY = ConsiderStackFrame(primaryBar, best, bestY)
+    best, bestY = ConsiderStackFrame(secondaryFrame, best, bestY)
+    best, bestY = ConsiderStackFrame(secondaryBar, best, bestY)
+    if ns._FDMStackBottomFrame then best, bestY = ConsiderStackFrame(ns._FDMStackBottomFrame(), best, bestY) end
+    return best
+end
 local _totemBorderOverlays = setmetatable({}, { __mode = "k" })
 local _totemHooked = false
 local _totemOrigParent
@@ -4391,6 +4430,12 @@ local function BuildBars()
     -- WoW Forever druid mana bar (EUI_ResourceBars_ForeverDruidMana.lua):
     -- restyled after every Power Bar build; nil on every other client/class.
     if ns.FDM_Apply then ns.FDM_Apply(primaryBar, pp, g) end
+
+    -- NB: the player's bottom-anchored auras reserve this stack, but that re-anchor
+    -- is driven from UnitFrames' OWN event watcher (owner context) -- NOT poked from
+    -- here. Pushing it cross-addon runs tainted by Resource Bars, and the player
+    -- frame's geometry then reads as a secret value (WoW 12.0), so the reserve would
+    -- bail. See the footprint watcher in EUI_UnitFrames_AuraContainers.lua.
 end
 
 
