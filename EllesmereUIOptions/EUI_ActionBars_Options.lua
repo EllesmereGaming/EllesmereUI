@@ -3969,7 +3969,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.BlizzStyle.Gate("actionbars", { type="dropdown", text="Custom Button Shape",
                   disabled=function() return BlizzStyleOn() or ns.MasqueOwnsBar(SelectedKey()) end,
                   disabledTooltip=function()
-                      if ns.MasqueOwnsBar(SelectedKey()) then return "Button shape is controlled by Masque" end
+                      if ns.MasqueOwnsBar(SelectedKey()) then return "Masque" end
                       return "Blizzard Style Action Bars"
                   end,
                   requireState="disabled",
