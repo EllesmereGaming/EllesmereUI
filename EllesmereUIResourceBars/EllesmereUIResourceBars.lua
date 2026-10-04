@@ -1263,6 +1263,7 @@ local DEFAULTS = {
             -- bars (not used Inside); the text keys mirror the Power Bar's own.
             foreverDruidMana = (EllesmereUI.IS_FOREVER == true) and {
                 enabled     = false,
+                anchor      = "powerbar",  -- "powerbar","healthbar" (healthbar+inside embeds into the player health bar)
                 position    = "below",  -- "below","above","inside"
                 gap         = 2,
                 height      = 6,
