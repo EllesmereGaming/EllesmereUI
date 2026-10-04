@@ -695,6 +695,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIBags",              display = "Bags",                 search_name = "EllesmereUI Bags"                    },
     { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
     { folder = "EllesmereUIQuickdraw",         display = "Quickdraw",            search_name = "EllesmereUI Quickdraw"               },
+    { folder = "EllesmereUILoadoutManager",    display = "Loadout Manager",      search_name = "EllesmereUI Loadout Manager"         },
     { folder = "EllesmereUIPartyMode",         display = "Party Mode",           search_name = "EllesmereUI Party Mode",             alwaysLoaded = true },
 }
 
@@ -725,6 +726,7 @@ EllesmereUI.ADDON_GROUPS = {
             "EllesmereUIAuraBuffReminders",
             "EllesmereUIDataBars",
             "EllesmereUIQuickdraw",
+            "EllesmereUILoadoutManager",
             "EllesmereUIPartyMode",
         },
     },
@@ -779,6 +781,7 @@ end
 -- than sit in them disabled. Extend the set whenever a TOC gets that line.
 EllesmereUI.FOREVER_HIDDEN_ADDONS = {
     EllesmereUIMythicTimer = true, EllesmereUIFriends = true,
+    EllesmereUILoadoutManager = true,
     -- Not an addon: the Dragon Riding profile pseudo-folder (its file returns at
     -- load on Forever), listed so the profile import/export checklists drop it.
     EllesmereUIDragonRiding = true,
