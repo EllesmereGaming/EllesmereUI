@@ -399,6 +399,46 @@ local function InActiveKeystone()
     return ok and active == true
 end
 
+local function RestrictionActive(kind)
+    local restriction = Enum.AddOnRestrictionType[kind]
+    return restriction ~= nil and C_RestrictedActions.IsAddOnRestrictionActive(restriction)
+end
+
+-- SwitchToLoadoutByName is flagged as restricted, so the talent load never
+-- starts while one of Blizzard's add-on restrictions is up (PvP preparation
+-- areas aside, see PvPBlock). Combat is last because it only lags the end of
+-- lockdown.
+local SWAP_RESTRICTIONS = { "PvPMatch", "Encounter", "Map", "Combat" }
+local RESTRICTION_TEXT = { Encounter = "during this encounter", Map = "on this map",
+    PvPMatch = "while a PvP match clears", Combat = "right after combat" }
+
+-- An arena or battleground keeps its PvP match and map restrictions up in the
+-- preparation area too, where the load works (tested on the live client);
+-- once the match is under way talents stay locked until it is over.
+local function PvPBlock(kind)
+    local instanceType = GetCurrentInstanceContext().instanceType
+    if instanceType ~= "arena" and instanceType ~= "pvp" then return kind end
+    if C_PvP.GetActiveMatchState() >= Enum.PvPMatchState.Engaged then return "match" end
+end
+
+-- The first reason a talent load cannot start now. Cheap checks only: the
+-- talent tree is never read while one of them holds.
+local function TalentLoadBlocker()
+    if InActiveKeystone() or RestrictionActive("ChallengeMode") then return "keystone" end
+    if InCombatLockdown() then return "combat" end
+    if UnitIsDeadOrGhost("player") then return "dead" end
+    for i = 1, #SWAP_RESTRICTIONS do
+        local kind = SWAP_RESTRICTIONS[i]
+        if RestrictionActive(kind) then
+            local block = kind
+            if kind == "PvPMatch" or kind == "Map" then block = PvPBlock(kind) end
+            if block then return block end
+        end
+    end
+    local ok, canEdit = pcall(C_ClassTalents.CanEditTalents)
+    if not ok or canEdit == false then return "edit" end
+end
+
 -- Request lifecycle shared by gear and talents. Automatic requests are tied
 -- to a context; explicit button actions also work with automation switched off.
 RequestIsCurrent = function(request)
@@ -459,23 +499,24 @@ local function ScheduleRequest(request, checkOnly)
     end)
 end
 
--- quiet: wait without the chat line (automatic swaps held while you are dead).
+-- quiet: announce no wait (automatic swaps held while you are dead, short
+-- restrictions, a talent loadout most likely in place). A request that
+-- announced an earlier wait still says when it gives up.
 local function DeferRequest(request, message, combat, waitReason, quiet)
     if not RequestIsCurrent(request) then return end
-    if combat then
-        if not EllesmereUILoadoutManagerDB.queueInCombat then
-            Announce("In combat. " .. (request.kind == "gear" and "Gear" or "Talent") .. " swap skipped.")
-            FinishRequest(request)
-            return
-        end
-        request.waitingCombat = true
-    else
-        if request.tries >= MAX_SWAP_RETRIES then
-            Print(message .. " Retry limit reached; use Check Now when ready.")
-            FinishRequest(request)
-            return
-        end
-        request.waitingCombat = nil
+    local silent = quiet and not (request.announcedWait or request.announcedCombat)
+    -- Queue In Combat off drops a swap that comes due in combat, but not one
+    -- waiting out a restriction: an encounter usually ends in combat.
+    if combat and not EllesmereUILoadoutManagerDB.queueInCombat and request.waitReason ~= "restricted" then
+        if not silent then Announce("In combat. " .. (request.kind == "gear" and "Gear" or "Talent") .. " swap skipped.") end
+        FinishRequest(request)
+        return
+    end
+    -- Every wake-up spends one try (RetryRequest), so a wait cannot retry forever.
+    if request.tries >= MAX_SWAP_RETRIES then
+        if not silent then Print(message .. " Retry limit reached; use Check Now when ready.") end
+        FinishRequest(request)
+        return
     end
     request.waitReason = combat and "combat" or waitReason or "availability"
     -- One line per kind of wait. Combat lines can be muted (EllesmereUI.Print
@@ -485,7 +526,8 @@ local function DeferRequest(request, message, combat, waitReason, quiet)
     if not request[flag] and not quiet then
         request[flag] = true
         Announce(message .. (combat and " Queued for after combat."
-            or request.waitReason == "alive" and ""
+            or request.waitReason == "alive" and (request.kind == "gear" and " Gear" or " Talent") .. " swap waits until you are alive."
+            or request.waitReason == "restricted" and " The swap waits until they are allowed again."
             or " Waiting for a game update; Check Now can retry."))
     end
     UpdateRegenRegistration()
@@ -521,10 +563,10 @@ TryEquipSet = function(request)
         return
     end
     if UnitIsDeadOrGhost("player") then
-        DeferRequest(request, "You are dead. Gear swap waits until you are alive.", false, "alive", not request.manual)
+        DeferRequest(request, "You are dead.", false, "alive", not request.manual)
         return
     end
-    request.waitingCombat, request.waitReason = nil, nil
+    request.waitReason = nil
 
     if info.numLost and info.numLost > 0 then
         Announce("Gear set " .. AC() .. info.name .. "|r has " .. tostring(info.numLost) ..
@@ -533,7 +575,6 @@ TryEquipSet = function(request)
     request.setID, request.setName = info.setID, info.name
     request.verifying = true
     request.swapFinished = nil
-    request.tries = request.tries + 1
     UpdateRegenRegistration()
     local okCall, result = pcall(C_EquipmentSet.UseEquipmentSet, info.setID)
     if not RequestIsCurrent(request) then return end
@@ -858,6 +899,29 @@ local function TalentCastEvent(event, unit, castGUID, spellID)
     end
 end
 
+-- Holds (or drops) a talent request that TalentLoadBlocker stopped.
+-- quiet: the loadout is most likely in place already, so say nothing.
+local function HoldTalentRequest(request, blocker, quiet)
+    if blocker == "match" then
+        -- Locked until the match is over: a load on the scoreboard helps no one.
+        if not quiet then Announce("Talent changes are locked once a PvP match starts. Talent swap skipped.") end
+        FinishRequest(request)
+    elseif blocker == "combat" then
+        DeferRequest(request, "In combat.", true, nil, quiet)
+    elseif blocker == "dead" then
+        DeferRequest(request, "You are dead.", false, "alive", quiet or not request.manual)
+    elseif blocker == "edit" then
+        DeferRequest(request, "Cannot change talents here yet.", false, nil, quiet)
+    else
+        -- A restriction: resume when it lifts. The Combat one outlasts
+        -- lockdown by moments, and a PvP match outside its arena or
+        -- battleground is clearing, so neither announces its wait.
+        request.restriction = blocker
+        DeferRequest(request, "Talent changes are blocked " .. RESTRICTION_TEXT[blocker] .. ".", false, "restricted",
+            quiet or blocker == "Combat" or blocker == "PvPMatch")
+    end
+end
+
 TryLoadTalentLoadout = function(request)
     if not RequestIsCurrent(request) then return end
     if request.inFlight then return end
@@ -868,6 +932,8 @@ TryLoadTalentLoadout = function(request)
         FinishRequest(request)
         return
     end
+    local blocker = TalentLoadBlocker()
+    if blocker == "keystone" then FinishRequest(request) return end -- talents are locked for the whole run
 
     local loadout = GetTalentLoadoutFromStored(stored)
     if not loadout then
@@ -879,30 +945,27 @@ TryLoadTalentLoadout = function(request)
         end
         return
     end
+    request.configID, request.specID = loadout.configID, loadout.specID
+    local selected = C_ClassTalents.GetLastSelectedSavedConfigID(loadout.specID) == loadout.configID
+    if blocker then
+        -- Nothing reads the talent tree while a check blocks the load. A
+        -- selected loadout is most likely in place already, so an automatic
+        -- swap holds it without a word; the comparison below settles it.
+        HoldTalentRequest(request, blocker, selected and not request.manual)
+        return
+    end
+    request.waitReason, request.restriction = nil, nil
+
     -- Already applied (selected, and its talents match the live build): like
     -- a worn gear set, nothing to load; only a button press says so.
-    request.configID, request.specID = loadout.configID, loadout.specID
     request.talentSelection = nil
-    if C_ClassTalents.GetLastSelectedSavedConfigID(loadout.specID) == loadout.configID then
+    if selected then
         request.talentSelection = GetTalentSelection(loadout.configID)
         if ActiveTalentsMatch(request) == true then
             if request.manual then Print("Talent loadout " .. AC() .. loadout.name .. "|r is already active.") end
             FinishRequest(request)
             return
         end
-    end
-    if InActiveKeystone() then FinishRequest(request) return end -- talents are locked mid-key
-    if InCombatLockdown() then DeferRequest(request, "In combat.", true); return end
-    if UnitIsDeadOrGhost("player") then
-        DeferRequest(request, "You are dead. Talent swap waits until you are alive.", false, "alive", not request.manual)
-        return
-    end
-    request.waitingCombat, request.waitReason = nil, nil
-
-    local okCan, canChange = pcall(C_ClassTalents.CanEditTalents)
-    if not okCan or canChange == false then
-        DeferRequest(request, "Cannot change talents here yet.")
-        return
     end
 
     if not HasUniqueLoadoutName(loadout) then
@@ -922,7 +985,6 @@ TryLoadTalentLoadout = function(request)
     request.commitSignal, request.commitCastGUID, request.commitFailed = nil, nil, nil
     request.commitCastSucceeded = nil
     request.casting = nil
-    request.tries = request.tries + 1
     UpdateRegenRegistration()
     local okLoad, loadError = pcall(C_ClassTalents.SwitchToLoadoutByName, loadout.name)
     -- This command has no load-result return. Confirm through native events
@@ -949,6 +1011,8 @@ RetryRequest = function(request, checkOnly)
     elseif request.kind == "talent" and request.inFlight then
         CheckTalentCompletion(request)
     elseif not checkOnly then
+        -- Each wake-up of a waiting swap spends one try (see DeferRequest).
+        request.tries = request.tries + 1
         if request.kind == "gear" then TryEquipSet(request) else TryLoadTalentLoadout(request) end
     end
 end
@@ -1208,18 +1272,32 @@ local function OnEvent(self, event, ...)
         ResumeRequests("availability")
         RequestRefresh()
     elseif event == "PLAYER_REGEN_ENABLED" then
-        ResumeRequests()
+        ResumeRequests("combat")
     elseif event == "PLAYER_REGEN_DISABLED" then
         HideSpecChangeWarning()
     elseif event == "CHALLENGE_MODE_START" then
         CancelRequests()
-    elseif event == "PLAYER_STOPPED_MOVING" or event == "PLAYER_UPDATE_RESTING" or event == "UNIT_AURA" then
+    elseif event == "PLAYER_STOPPED_MOVING" or event == "PLAYER_UPDATE_RESTING" then
         ResumeRequests("availability")
+    elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
+        -- Only the lift of the restriction the talent swap waits on resumes
+        -- it. The probe reads false during this dispatch, so the re-check
+        -- runs next frame.
+        local restriction, state = ...
+        local request = requests.talent
+        if not request or issecretvalue(restriction) or issecretvalue(state) then return end
+        if request.waitReason == "restricted" and state == Enum.AddOnRestrictionState.Inactive
+            and restriction == Enum.AddOnRestrictionType[request.restriction] then
+            ScheduleRequest(request)
+        end
     elseif event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
         -- PLAYER_ALIVE also fires on release, when you are still a ghost.
         if not UnitIsDeadOrGhost("player") then ResumeRequests("alive") end
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
-        if ... == "player" then
+        -- It also fires without a spec change (entering an arena, for one);
+        -- only a real change, which changes the context key, cancels a
+        -- pending check and re-runs it.
+        if ... == "player" and BuildAutoInstanceKey(GetCurrentInstanceContext()) ~= lastAutoInstanceKey then
             EnsureDB()
             CancelRequests()
             UI.selectedTalent = nil
@@ -1249,7 +1327,9 @@ local function OnEvent(self, event, ...)
                         request.swapFinished = true
                         ScheduleRequest(request, true)
                     end
-                elseif event ~= "EQUIPMENT_SWAP_FINISHED" and not request.waitingCombat then
+                elseif event ~= "EQUIPMENT_SWAP_FINISHED" and (request.verifying
+                    or request.waitReason == "catalog" or request.waitReason == "availability") then
+                    -- Combat and resurrection waits have their own wake-up event.
                     ScheduleRequest(request)
                 end
             end
@@ -1318,7 +1398,7 @@ UpdateRegenRegistration = function()
     local availability = (gear and gear.waitReason == "availability") or (talent and talent.waitReason == "availability")
     SetEventState("PLAYER_STOPPED_MOVING", availability)
     SetEventState("PLAYER_UPDATE_RESTING", availability)
-    SetEventState("UNIT_AURA", talent and talent.waitReason == "availability", true)
+    SetEventState("ADDON_RESTRICTION_STATE_CHANGED", talent and talent.waitReason == "restricted")
     local alive = (gear and gear.waitReason == "alive") or (talent and talent.waitReason == "alive")
     SetEventState("PLAYER_ALIVE", alive)
     SetEventState("PLAYER_UNGHOST", alive)
@@ -1432,7 +1512,7 @@ function ns.SetQueueInCombat(value)
     if not value then
         for _, kind in ipairs(REQUEST_KINDS) do
             local request = requests[kind]
-            if request and request.waitingCombat then FinishRequest(request) end
+            if request and request.waitReason == "combat" then FinishRequest(request) end
         end
     end
 end
