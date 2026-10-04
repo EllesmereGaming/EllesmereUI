@@ -1019,6 +1019,15 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                         disabledTooltip = FdmOffTip,
                         title = "Mana Bar",
                         rows = {
+                            { type = "dropdown", label = "Anchor",
+                              values = { powerbar = "Power Bar", healthbar = "Health Bar" },
+                              order = { "powerbar", "healthbar" },
+                              tooltip = "What the mana bar attaches to. Power Bar rides the Power Bar (default). Health Bar attaches to the player health bar: with Position Inside it embeds into the health bar (carving a strip); Below / Above float next to it.",
+                              get = function() local t = FdmCfg(); return t and t.anchor or "powerbar" end,
+                              set = function(v)
+                                  local t = FdmCfg(); if not t then return end
+                                  t.anchor = v; RefreshFDM()
+                              end },
                             { type = "dropdown", label = "Position",
                               values = { below = "Below", above = "Above", inside = "Inside" },
                               order = { "below", "above", "inside" },

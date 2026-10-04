@@ -1263,6 +1263,7 @@ local DEFAULTS = {
             -- bars (not used Inside); the text keys mirror the Power Bar's own.
             foreverDruidMana = (EllesmereUI.IS_FOREVER == true) and {
                 enabled     = false,
+                anchor      = "powerbar",  -- "powerbar","healthbar" (healthbar+inside embeds into the player health bar)
                 position    = "below",  -- "below","above","inside"
                 gap         = 2,
                 height      = 6,
@@ -1574,6 +1575,9 @@ local secondaryPipTicks = {}  -- tick mark texture cache for pip-type secondary 
 local castBarFrame
 local gcdBarFrame
 local totemBarFrame
+
+-- EllesmereUI.ERB_PlayerStackExtent() is defined further down, after IsPowerBarHidden /
+-- IsSpecDisabled (its domain predicates), near the end of the resolver helpers.
 local _totemBorderOverlays = setmetatable({}, { __mode = "k" })
 local _totemHooked = false
 local _totemOrigParent
@@ -2351,6 +2355,46 @@ local function IsPowerBarHidden()
     if not GetPrimaryPowerType() then return true end
     if p.secondary and p.secondary.hidePowerIfResource and p.secondary.enabled ~= false and GetSecondaryResource() then return true end
     return false
+end
+
+-- Bounding box (physical px) of the player's STABLE resource stack -- the bars that are
+-- part of the active layout for the CURRENT SPEC/FORM, judged by domain predicate, NOT
+-- by live alpha. Per-bar visibility modes (combat/target/group) only alpha-fade a bar
+-- that stays laid out at full size, so reading the structural "would be shown" state
+-- keeps the footprint stable and stops the auras jumping on combat/target edges. Power:
+-- not IsPowerBarHidden(). Class resource: the UpdateVisibility structural test minus the
+-- transient ShouldShowBar. Shapeshift mana (Forever): ns._FDMStackBottomFrame hands back
+-- its host only while shown for the form. Returns left, right, top, bottom and the TOP
+-- bar's height (for the aura dock test), or nil when nothing is active. Read-only; the
+-- unit frame aura code (EUI_UnitFrames_AuraContainers.lua) compares this to the player
+-- frame in its OWN context, so no cross-addon geometry (and no secret value) is involved.
+function EllesmereUI.ERB_PlayerStackExtent()
+    local p = ERB and ERB.db and ERB.db.profile
+    if not p then return nil end
+    local lft, rgt, top, bot, topH
+    local function add(f)
+        if not (f and f.GetBottom and f.GetTop) then return end
+        local fb, ft = f:GetBottom(), f:GetTop()
+        if not (fb and ft) then return end
+        local s = f:GetEffectiveScale() or 1
+        fb, ft = fb * s, ft * s
+        local fl = (f:GetLeft() or 0) * s
+        local fr = (f:GetRight() or 0) * s
+        if not bot or fb < bot then bot = fb end
+        if not lft or fl < lft then lft = fl end
+        if not rgt or fr > rgt then rgt = fr end
+        if not top or ft > top then top = ft; topH = ft - fb end
+    end
+    if not IsPowerBarHidden() then add(primaryBar) end
+    local sp = p.secondary
+    if sp and sp.enabled ~= false and not IsSpecDisabled(sp)
+        and not _G._ERB_BarHiddenByForm(sp, true) and cachedSecondary then
+        add(secondaryFrame)
+        add(secondaryBar)
+    end
+    if ns._FDMStackBottomFrame then add(ns._FDMStackBottomFrame()) end
+    if not bot then return nil end
+    return lft, rgt, top, bot, topH
 end
 
 -- Unlock mode: register with shared EllesmereUI unlock system
@@ -4391,6 +4435,15 @@ local function BuildBars()
     -- WoW Forever druid mana bar (EUI_ResourceBars_ForeverDruidMana.lua):
     -- restyled after every Power Bar build; nil on every other client/class.
     if ns.FDM_Apply then ns.FDM_Apply(primaryBar, pp, g) end
+
+    -- The stack layout just settled (this is the convergence point for build / spec /
+    -- form / expand / shift / options). Tell the unit frame to re-anchor its player
+    -- auras to the new footprint. This only ARMS a one-shot throttle on the UnitFrames
+    -- side -- no geometry is read here -- so nothing runs in Resource Bars' tainted
+    -- context; the throttle's OnUpdate reads the player frame next frame in UnitFrames'
+    -- OWN (owner) context, where it is not a secret value. No-op when the player does
+    -- not bottom-anchor auras (gated on the UnitFrames side).
+    if EllesmereUI.UF_RequestResourceReanchor then EllesmereUI.UF_RequestResourceReanchor() end
 end
 
 
