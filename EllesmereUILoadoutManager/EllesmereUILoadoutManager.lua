@@ -404,20 +404,20 @@ local function RestrictionActive(kind)
     return restriction ~= nil and C_RestrictedActions.IsAddOnRestrictionActive(restriction)
 end
 
--- SwitchToLoadoutByName is flagged as restricted, so the talent load never
--- starts while one of Blizzard's add-on restrictions is up (PvP preparation
--- areas aside, see PvPBlock). Combat is last because it only lags the end of
--- lockdown.
-local SWAP_RESTRICTIONS = { "PvPMatch", "Encounter", "Map", "Combat" }
-local RESTRICTION_TEXT = { Encounter = "during this encounter", Map = "on this map",
+-- SwitchToLoadoutByName is flagged as restricted, so the talent load waits out
+-- the add-on restrictions below. Map is not one of them: Midnight raids,
+-- dungeons and arenas keep it up, and the load works there (tested on the
+-- live client). Combat is last because it only lags the end of lockdown.
+local SWAP_RESTRICTIONS = { "PvPMatch", "Encounter", "Combat" }
+local RESTRICTION_TEXT = { Encounter = "during this encounter",
     PvPMatch = "while a PvP match clears", Combat = "right after combat" }
 
--- An arena or battleground keeps its PvP match and map restrictions up in the
+-- An arena or battleground keeps the PvP match restriction up in the
 -- preparation area too, where the load works (tested on the live client);
 -- once the match is under way talents stay locked until it is over.
-local function PvPBlock(kind)
+local function PvPMatchBlock()
     local instanceType = GetCurrentInstanceContext().instanceType
-    if instanceType ~= "arena" and instanceType ~= "pvp" then return kind end
+    if instanceType ~= "arena" and instanceType ~= "pvp" then return "PvPMatch" end
     if C_PvP.GetActiveMatchState() >= Enum.PvPMatchState.Engaged then return "match" end
 end
 
@@ -431,7 +431,7 @@ local function TalentLoadBlocker()
         local kind = SWAP_RESTRICTIONS[i]
         if RestrictionActive(kind) then
             local block = kind
-            if kind == "PvPMatch" or kind == "Map" then block = PvPBlock(kind) end
+            if kind == "PvPMatch" then block = PvPMatchBlock() end
             if block then return block end
         end
     end
