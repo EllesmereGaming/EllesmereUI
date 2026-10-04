@@ -902,6 +902,110 @@ initFrame:SetScript("OnEvent", function(self)
                 })
             end
 
+            -- Enable Junk Marker (full-width; inline cog: Auto-Sell at Vendor)
+            local junkRow
+            junkRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Enable Junk Marker",
+                  tooltip="Adds a Junk category that collects grey (Poor) items plus anything you mark. A coin button in the bag header enters select mode -- click items to mark or unmark them as junk -- and a Sell Junk button appears at vendors. Marks are remembered per item, so future copies are classified automatically.",
+                  getValue=function() return db.profile.bagJunkMarker == true end,
+                  setValue=function(v)
+                      v = v and true or false
+                      db.profile.bagJunkMarker = v
+                      -- The Junk category only exists while the feature is on, so
+                      -- rebuild the category list, then redraw and sync the header
+                      -- button. SyncJunkMerchantWatcher registers/unregisters the
+                      -- merchant events to match and hides the Sell Junk button
+                      -- when turning the feature off.
+                      if _G.EUI_CategoryManager and _G.EUI_CategoryManager.InitCategories then
+                          _G.EUI_CategoryManager:InitCategories()
+                      end
+                      if _G.EUI_Bags then
+                          if _G.EUI_Bags._junkBtn then _G.EUI_Bags._junkBtn:SetShown(v) end
+                          if _G.EUI_Bags.SyncJunkMerchantWatcher then _G.EUI_Bags:SyncJunkMerchantWatcher() end
+                          if _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                      end
+                      EllesmereUI:RefreshPage()  -- refresh the cog's disabled state
+                  end }
+            ); y = y - h
+
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(junkRow._leftRegion, {
+                    chain = false,
+                    disabled = function() return db.profile.bagJunkMarker ~= true end,
+                    disabledTooltip = "Enable Junk Marker",
+                    title = "Junk Options",
+                    rows = {
+                        { type="toggle", label="Auto-Sell at Vendor",
+                          tooltip="Automatically sell all Junk items whenever you open a merchant. The game only remembers the last 12 sold items for buyback.",
+                          get=function() return db.profile.bagJunkAutoSell == true end,
+                          set=function(v)
+                              if v then
+                                  -- Enabling automated selling is a deliberate choice: confirm
+                                  -- first, and leave the toggle off if they back out.
+                                  EllesmereUI:ShowConfirmPopup({
+                                      title       = "Auto-Sell Junk",
+                                      message     = "Auto-Sell will sell every Junk item at a merchant for you automatically, each time you open one. Automated selling can have unintended consequences -- you are responsible for your own items.",
+                                      confirmText = "Enable",
+                                      cancelText  = "Cancel",
+                                      onConfirm   = function() db.profile.bagJunkAutoSell = true end,
+                                      onCancel    = function() db.profile.bagJunkAutoSell = nil; EllesmereUI:RefreshPage() end,
+                                  })
+                              else
+                                  db.profile.bagJunkAutoSell = nil
+                              end
+                          end },
+                        { type="toggle", label="No Sale Summary Text",
+                          tooltip="Don't print the 'Sold N junk item(s)' chat line after selling junk (manual or auto-sell).",
+                          get=function() return db.profile.bagJunkNoSellSummary == true end,
+                          set=function(v) db.profile.bagJunkNoSellSummary = v and true or nil end },
+                        { type="toggle", label="Add Junk Category to One Bag",
+                          tooltip="In the One Bag view, pull junk items out of the merged Main Bags grid into their own Junk section at the bottom.",
+                          get=function() return db.profile.bagJunkOneBag == true end,
+                          set=function(v)
+                              db.profile.bagJunkOneBag = v and true or nil
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                        { type="toggle", label="Add Junk Category to MultiBag",
+                          tooltip="In the MultiBag view, pull junk items out of the per-bag grids into their own Junk section at the bottom.",
+                          get=function() return db.profile.bagJunkMultiBag == true end,
+                          set=function(v)
+                              db.profile.bagJunkMultiBag = v and true or nil
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                        { type="toggle", label="Move Junk Category to Top",
+                          tooltip="Place the pulled-out Junk category at the top (just below Pinned Items) instead of at the very bottom. Applies to the One Bag / MultiBag views above.",
+                          get=function() return db.profile.bagJunkAtTop == true end,
+                          set=function(v)
+                              db.profile.bagJunkAtTop = v and true or nil
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                        { type="toggle", label="Sort Junk by Vendor Value",
+                          tooltip="Order the Junk category by vendor sell value, most valuable first, instead of the drag/visual order other categories use. Off by default so Junk behaves like any other category.",
+                          get=function() return db.profile.bagJunkSortByValue == true end,
+                          set=function(v)
+                              db.profile.bagJunkSortByValue = v and true or nil
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                        { type="toggle", label="Show Junk in Recent",
+                          tooltip="Include junk items (grey, and items you have marked) in the Recent Items section. Turn off to keep newly looted junk out of Recent.",
+                          get=function() return db.profile.bagJunkShowInRecent ~= false end,
+                          set=function(v)
+                              db.profile.bagJunkShowInRecent = v and true or false
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                        { type="dropdown", label="Junk Icon Corner",
+                          tooltip="Which corner of an item the junk coin badge sits on (lifted just outside the frame).",
+                          values = { TOPLEFT="Top Left", TOPRIGHT="Top Right", BOTTOMLEFT="Bottom Left", BOTTOMRIGHT="Bottom Right" },
+                          order = { "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" },
+                          get=function() return db.profile.bagJunkCoinCorner or "BOTTOMLEFT" end,
+                          set=function(v)
+                              db.profile.bagJunkCoinCorner = v
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                    },
+                })
+            end
+
             -- Enabled Currencies | Hide OneBag/MultiBag Warning
             local currRow
             currRow, h = W:DualRow(parent, y,

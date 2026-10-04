@@ -119,6 +119,20 @@ if EUI_CLIENT_FOREVER then
     end
 end
 
+-- Junk is the very LAST default, appended after the Forever block so it lands
+-- after Special Bags there too. appendLast keeps it out of a profile's saved
+-- category order until it is new, so turning the feature on/off never shifts
+-- any other category's index -- bagVisualOrder (each category's saved drag
+-- order) is keyed by index, and an insert before the catch-all would move
+-- Miscellaneous and everything after it. types = {} means it never auto-matches
+-- by item class: membership comes only from the quality==Poor rule in
+-- ClassifyItem and from explicit user assignments. The whole category is gated
+-- behind bagJunkMarker (see InitCategories), so it does not exist unless the
+-- feature is enabled.
+DEFAULT_CATEGORIES[#DEFAULT_CATEGORIES + 1] = {
+    name = "Junk", types = {}, isJunk = true, appendLast = true, icon = 133784,
+}
+
 -------------------------------------------------------------------------------
 --  Init
 --  Builds the runtime category list from hardcoded defaults + saved user state
@@ -214,6 +228,18 @@ function CategoryManager:InitCategories()
     for _, d in ipairs(pinned) do orderedDefs[#orderedDefs + 1] = d end
     for _, d in ipairs(rest) do orderedDefs[#orderedDefs + 1] = d end
 
+    -- Junk category only exists while the Junk Marker feature is enabled. Drop
+    -- its def before the build so the category (and its "+" assign button) never
+    -- appear otherwise. Existing bagItemAssignments to "Junk" stay in the DB and
+    -- simply don't resolve to a category until the feature is turned back on.
+    if not BP().bagJunkMarker then
+        local filtered = {}
+        for _, d in ipairs(orderedDefs) do
+            if not d.isJunk then filtered[#filtered + 1] = d end
+        end
+        orderedDefs = filtered
+    end
+
     -- Build runtime categories from ordered defaults + user state.
     -- Custom category placeholders (_isCustom) are expanded inline so
     -- they keep their saved position relative to built-in categories.
@@ -263,6 +289,7 @@ function CategoryManager:InitCategories()
                 isSetGear         = def.isSetGear,
                 isReagentBag      = def.isReagentBag,
                 isSpecialBag      = def.isSpecialBag,
+                isJunk            = def.isJunk,
                 isPinned          = def.isPinned,
                 isRecent          = def.isRecent,
                 noGroup           = def.noGroup,
@@ -336,12 +363,15 @@ function CategoryManager:InitCategories()
     -- skips that scan entirely when none does (every retail category).
     local setCatIdx = {}
     local hasItemIDs = false
+    local junkIdx = nil
     for i, cat in ipairs(cats) do
         if cat.equipSetID then setCatIdx[cat.equipSetID] = i end
         if cat.itemIDs then hasItemIDs = true end
+        if cat.isJunk then junkIdx = i end
     end
     self._setCatIdxBySetID = setCatIdx
     self._hasItemIDCats = hasItemIDs
+    self._junkCatIdx = junkIdx  -- nil when the Junk Marker feature is off
 
     -- Clean up legacy DB keys
     EllesmereUIDB.bagCategoryDefs = nil
@@ -537,6 +567,20 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
         end
     end
 
+    -- Grey (Poor) items auto-route to the Junk category when the Junk Marker
+    -- feature is on. Explicit user assignments and quest status are resolved
+    -- above, so this only catches un-marked junk the player hasn't filed
+    -- elsewhere. _junkCatIdx is nil while the feature is off, skipping this.
+    if self._junkCatIdx then
+        local q
+        if bag and slot then
+            local cinfo = C_Container.GetContainerItemInfo(bag, slot)
+            q = cinfo and cinfo.quality
+        end
+        if q == nil then q = select(3, C_Item.GetItemInfo(itemLink)) end
+        if q == 0 then return self._junkCatIdx end
+    end
+
     -- Get classID + equip slot via GetItemInfoInstant (locale-safe numeric IDs)
     local _, _, _, equipSlot, _, classID = GetItemInfoInstant(itemLink)
     if not classID then
@@ -619,8 +663,18 @@ function CategoryManager:ClassifyAll(items)
         end
     end
     self._setCatIdxBySetID = setCatIdx
+    -- Rebuild the Junk category index every pass too (same reason as setCatIdx:
+    -- ReorderCategory / AddCustomCategory / RemoveCustomCategory mutate cats in
+    -- place without InitCategories, shifting indices). Stays nil when the Junk
+    -- Marker feature is off, which skips the grey-item rule in ClassifyItem.
+    -- Folded into the counts reset below so it is a single pass over cats.
+    local junkIdx
     wipe(_claCounts)
-    for i = 1, #cats do _claCounts[i] = 0 end
+    for i = 1, #cats do
+        _claCounts[i] = 0
+        if cats[i].isJunk then junkIdx = i end
+    end
+    self._junkCatIdx = junkIdx
     local counts = _claCounts
     local total = 0
 
@@ -941,6 +995,48 @@ function CategoryManager:CanAssignToCategory(catIndex)
     if cat.isPinned or cat.isRecent or cat.isReagentBag or cat.isSpecialBag then return false end
     if cat.isEquipSet then return false end  -- membership comes from the set itself
     return true
+end
+
+-------------------------------------------------------------------------------
+--  Junk Marker helpers
+--
+--  The Junk category's assignment key is its _defaultName, "Junk" -- stable
+--  across renames (rename only changes the display name). Everything that needs
+--  to agree on "is this item junk?" (the visual marker, the Sell Junk routine,
+--  the toggle in junk-select mode) routes through here.
+-------------------------------------------------------------------------------
+CategoryManager.JUNK_KEY = "Junk"
+
+-- Is the feature enabled at all?
+function CategoryManager:IsJunkMarkerEnabled()
+    return BP().bagJunkMarker == true
+end
+
+-- IsJunk: true if this item currently belongs in the Junk category -- either the
+-- player explicitly marked it, or it is grey (Poor) and not filed elsewhere.
+-- Pass the item's quality when the caller already knows it (the bag render loop
+-- does) to skip an item-info lookup on the hot path; omit it and we resolve it.
+function CategoryManager:IsJunk(itemID, quality)
+    if not self:IsJunkMarkerEnabled() or not itemID then return false end
+    local assignments = EllesmereUIDB and EllesmereUIDB.bagItemAssignments
+    local assigned = assignments and assignments[itemID]
+    if assigned == self.JUNK_KEY then return true end
+    if assigned then return false end  -- filed into some other category
+    if quality == nil then quality = select(3, C_Item.GetItemInfo(itemID)) end
+    return quality == 0
+end
+
+-- ToggleJunk: flip an explicit Junk assignment for an itemID. Note grey items
+-- are junk by nature, so un-toggling one leaves it grey-junk; the toggle is
+-- chiefly for marking/unmarking non-grey items.
+function CategoryManager:ToggleJunk(itemID)
+    if not itemID then return end
+    local assignments = EllesmereUIDB and EllesmereUIDB.bagItemAssignments
+    if assignments and assignments[itemID] == self.JUNK_KEY then
+        self:UnassignItem(itemID)
+    else
+        self:AssignItem(itemID, self.JUNK_KEY)
+    end
 end
 
 -- Equipment sets changed (created/renamed/deleted): drop the cached list so the
