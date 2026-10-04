@@ -3902,6 +3902,7 @@ do
         EllesmereUIBags = true,
         EllesmereUIDataBars = true,
         EllesmereUIQuickdraw = true,
+        EllesmereUILoadoutManager = true,
         EllesmereUIForeverEssentials = true,
     }
 
