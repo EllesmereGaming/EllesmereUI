@@ -223,7 +223,6 @@ local function CreateKeystoneStartController()
             autoStart = Option("autoStartKeystone"),
         }
         state.pull = pull
-        state.phase = "countdown"
         UpdateKeystoneButtons()
         requestTimer = C_Timer.NewTimer(3, function()
             if state.pull == pull and pull.pending then ResetKeystoneStartState(false) end
@@ -252,7 +251,6 @@ local function CreateKeystoneStartController()
         local ready = { roster = roster, members = members, answers = {}, pending = true,
             slot = SlottedKeystone() }
         state.ready = ready
-        state.phase = "ready_check"
         UpdateKeystoneButtons()
         requestTimer = C_Timer.NewTimer(3, function()
             if state.ready == ready and ready.pending then ResetKeystoneStartState(false) end
