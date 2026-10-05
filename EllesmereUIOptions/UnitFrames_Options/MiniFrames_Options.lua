@@ -10,14 +10,15 @@ if not ns then return end  -- module disabled: no options page
 
 ---------------------------------------------------------------------------
 --  Mini frame donor settings helper
---  Returns the settings table from focus (if usable) target player. Routed
---  through the runtime resolver so the options preview and the live frames
---  can never disagree about which frame is on screen to inherit from.
+--  Returns the settings table unitKey copies its look from (its Copy Look
+--  From pick, else focus, target, player). Routed through the runtime
+--  resolver so the options preview and the live frames can never disagree
+--  about which frame is on screen to inherit from.
 ---------------------------------------------------------------------------
-local function GetMiniDonorSettings()
+local function GetMiniDonorSettings(unitKey)
     local env = ns._UFO_OptEnv
     local db = env.db
-    return ns.GetMiniDonorSettings and ns.GetMiniDonorSettings() or db.profile.player
+    return ns.GetMiniDonorSettings and ns.GetMiniDonorSettings(unitKey) or db.profile.player
 end
 
 ---------------------------------------------------------------------------
@@ -61,7 +62,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
     end
 
     -- Bar Texture override. Mini frames inherit the main frames' donor texture
-    -- (focus > target > player) by default; a specific pick here overrides it for
+    -- (Copy Look From) by default; a specific pick here overrides it for
     -- this frame only. Lands as the last DISPLAY row: Row 2 for ToT/Focus Target/Pet, Row 3 for Boss.
     do
         local mtVals, mtOrder = BuildBarTexDropdown()
@@ -73,7 +74,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
             local baseBg = mo.background
             mo.background = function(key)
                 if key == "inherit" then
-                    local donor = GetMiniDonorSettings()
+                    local donor = GetMiniDonorSettings(unitKey)
                     local dk = donor and donor.healthBarTexture
                     if dk == "inherit" then dk = nil end
                     dk = dk or db.profile.healthBarTexture
@@ -232,7 +233,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
             EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Border Size", min=0, max=4, step=1,
               tooltip="Overrides the border size from the main frames for this frame only. Border color and texture still follow the main frames.",
               getValue=function()
-                  local donor = GetMiniDonorSettings()
+                  local donor = GetMiniDonorSettings(unitKey)
                   return settingsTable.borderSizeOverride or (donor and donor.borderSize) or 1
               end,
               setValue=function(v) settingsTable.borderSizeOverride = v; ReloadAndUpdate() end }),
@@ -1159,7 +1160,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                 settingsTable.powerBgPowerColored = true
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
             end)
-            bgPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSw, "Power Colored Background. Power colors can be adjusted in Global Settings -> Fonts & Colors.") end)
+            bgPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSw, "Power Colored Background. Power colors can be adjusted in Global Settings -> Colors.") end)
             bgPwrSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             PP.Point(bgPwrSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgPwrSw
@@ -1214,7 +1215,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                 settingsTable.powerPercentPowerColor = true
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
             end)
-            fPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(fPwrSw, "Power Colored Fill. Power colors can be adjusted in Global Settings -> Fonts & Colors.") end)
+            fPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(fPwrSw, "Power Colored Fill. Power colors can be adjusted in Global Settings -> Colors.") end)
             fPwrSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             PP.Point(fPwrSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = fPwrSw
@@ -1411,9 +1412,10 @@ end
 -- region. Clicking the cog opens a popup with a toggle that swaps
 -- settings.portraitSide between "left" and "right" live; withArtStyle
 -- (Target of Target / Focus Target) adds the 2D / Class art choice.
-local function AttachPortraitSideCog(rgn, settingsTable, withArtStyle)
+local function AttachPortraitSideCog(rgn, settingsTable, withArtStyle, unitKey)
     local env = ns._UFO_OptEnv
     local ReloadAndUpdate, UpdatePreview, classThemeSubOrder, classThemeSubValues = env.ReloadAndUpdate, env.UpdatePreview, env.classThemeSubOrder, env.classThemeSubValues
+    local _, portraitShow
     local rows = {
         { type="toggle", label="Portrait on Right",
           get=function() return (settingsTable.portraitSide or "left") == "right" end,
@@ -1427,8 +1429,20 @@ local function AttachPortraitSideCog(rgn, settingsTable, withArtStyle)
             values={ ["2d"] = "2D Portrait", ["class"] = "Class" }, order={ "2d", "class" },
             get=function() return settingsTable.portraitMode == "class" and "class" or "2d" end,
             set=function(v)
-                settingsTable.portraitMode = v
-                ReloadAndUpdate(); UpdatePreview()
+                local function ApplyArt()
+                    settingsTable.portraitMode = v
+                    ReloadAndUpdate(); UpdatePreview()
+                end
+                if v == "2d" and settingsTable.portraitMode == "class"
+                    and settingsTable.portraitMirror and not EllesmereUI.BlizzStyle.Get("unitframes")
+                    and ns.UF_Ask2DMirroredPortraits(function()
+                        ApplyArt()
+                        EllesmereUI:RefreshPage()
+                    end) then
+                    if portraitShow and portraitShow._popupFrame then portraitShow._popupFrame:Hide() end
+                    return
+                end
+                ApplyArt()
             end }
         rows[#rows + 1] = { type="dropdown", label="Class Style",
             values=classThemeSubValues, order=classThemeSubOrder,
@@ -1466,7 +1480,49 @@ local function AttachPortraitSideCog(rgn, settingsTable, withArtStyle)
                 return "Custom Non-Player Portrait"
             end }
     end
-    EllesmereUI.BuildInlineCog(rgn, {
+    if unitKey == "targettarget" or unitKey == "boss" then
+        rows[#rows + 1] = { type="toggle", label="Mirror Portrait",
+            tooltip="Mirrors playable-race portraits in 2D. Always flips class art horizontally.",
+            disabled=function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
+            disabledTooltip=function() return EllesmereUI.BlizzStyle.Label("unitframes") end,
+            requireState="disabled",
+            get=function() return settingsTable.portraitMirror == true end,
+            set=function(v)
+                local function ApplyMirror()
+                    settingsTable.portraitMirror = v or nil
+                    ns.UF_RefreshPortraitMirror(unitKey)
+                    UpdatePreview()
+                end
+                if v and not settingsTable.portraitMirror and settingsTable.portraitMode ~= "3d"
+                    and settingsTable.portraitMode ~= "class"
+                    and ns.UF_Ask2DMirroredPortraits(function()
+                        ApplyMirror()
+                        EllesmereUI:RefreshPage()
+                    end) then
+                    if portraitShow and portraitShow._popupFrame then portraitShow._popupFrame:Hide() end
+                    return
+                end
+                ApplyMirror()
+            end }
+        rows[#rows + 1] = { type="toggle", label="Vertical Border Separator",
+            tooltip="Draws the selected border style between the attached portrait and the bars.",
+            disabled=function()
+                local donor = unitKey == "boss" and ns.UF_BossBorderSettings() or GetMiniDonorSettings(unitKey)
+                return EllesmereUI.BlizzStyle.Get("unitframes") or (settingsTable.borderSizeOverride or donor.borderSize or 1) <= 0
+                    or not EllesmereUI.GetBorderCompanion(donor.borderTexture or "solid", "sepV")
+            end,
+            disabledTooltip=function()
+                if EllesmereUI.BlizzStyle.Get("unitframes") then return EllesmereUI.BlizzStyle.Label("unitframes") end
+                return "This option requires a border style with divider art and a Border Size above 0."
+            end,
+            rawTooltip=true,
+            get=function() return settingsTable.portraitSeparator == true end,
+            set=function(v)
+                settingsTable.portraitSeparator = v or nil
+                ReloadAndUpdate(); UpdatePreview()
+            end }
+    end
+    _, portraitShow = EllesmereUI.BuildInlineCog(rgn, {
         gap = 9,
         title = "Portrait Settings",
         -- Side and art only show on a shown portrait (the stock styles
@@ -1491,7 +1547,7 @@ function ns.UFO_BuildFoTToTOptions(W, parent, y, settingsTable, unitKey)
     local enableText = (unitKey == "focustarget") and "Enable Focus Target" or "Enable Target of Target"
     local _, h
 
-    _, h = BuildApplyAllRow(parent, y, MINI_GROUP_ORDER, unitKey); y = y - h
+    _, h = BuildApplyAllRow(parent, y, MINI_GROUP_ORDER, unitKey, true); y = y - h
 
     local portraitRow
     local function enableRow(Ww, pp, yy)
@@ -1520,7 +1576,7 @@ function ns.UFO_BuildFoTToTOptions(W, parent, y, settingsTable, unitKey)
                 EllesmereUI:RefreshPage()
               end }) or { type="label", text="" })
         if isEUI and not EllesmereUI._prebuilding then
-            AttachPortraitSideCog(portraitRow._rightRegion, settingsTable, true)
+            AttachPortraitSideCog(portraitRow._rightRegion, settingsTable, true, unitKey)
         end
         AttachFrameSourceCog(portraitRow._leftRegion, unitKey, {
             tooltip = "Due to Blizzard API restrictions, Blizzard's native " .. childName
@@ -1554,7 +1610,7 @@ function ns.UFO_BuildPetOptions(W, parent, y)
     local ReloadAndUpdate, UpdatePreview, abs, db = env.ReloadAndUpdate, env.UpdatePreview, env.abs, env.db
     local _, h
 
-    _, h = BuildApplyAllRow(parent, y, MINI_GROUP_ORDER, "pet"); y = y - h
+    _, h = BuildApplyAllRow(parent, y, MINI_GROUP_ORDER, "pet", true); y = y - h
 
     local portraitRow
     local function enableRow(Ww, pp, yy)
@@ -1754,7 +1810,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                 EllesmereUI:RefreshPage()
               end }) or { type="label", text="" })
         if isEUI and not EllesmereUI._prebuilding then
-            AttachPortraitSideCog(portraitRow._rightRegion, db.profile.boss)
+            AttachPortraitSideCog(portraitRow._rightRegion, db.profile.boss, false, "boss")
         end
         AttachFrameSourceCog(portraitRow._leftRegion, "boss", {
             onBeforeSet = function(v)
@@ -2484,6 +2540,17 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                           set=function(v) B.auraBorderTextureShiftY=v==0 and nil or v;ReloadAndUpdate() end },
                         { type="toggle",label="Show Behind",get=function() return B.auraBorderBehind or false end,set=function(v) B.auraBorderBehind=v;ReloadAndUpdate() end },
                         { type="toggle",label="Behind Unit Frame",get=function() return B.auraBorderBehindUnitFrame or false end,set=function(v) B.auraBorderBehindUnitFrame=v;ReloadAndUpdate() end },
+                        { type="toggle",label="Border Above Effects",
+                          tooltip="Draws boss aura icon borders over their cooldown swipes and glows. Duration and stack text stay above the borders.",
+                          disabled=function()
+                              local tex = B.auraBorderTexture or "solid"
+                              return B.auraBorderBehind or B.auraBorderBehindUnitFrame
+                                  or tex == "solid" or tex == "" or (B.auraBorderSize or 1) <= 0
+                          end,
+                          disabledTooltip="This option requires a textured Aura Border with a size above 0, and its Show Behind and Behind Unit Frame options disabled.",
+                          rawTooltip=true,
+                          get=function() return B.auraBorderAboveEffects == true end,
+                          set=function(v) B.auraBorderAboveEffects=v;ReloadAndUpdate() end },
                     } })
                     local function vis() if (B.auraBorderTexture or "solid")=="solid" then btn:Hide() else btn:Show() end end
                     EllesmereUI.RegisterWidgetRefresh(vis);vis()

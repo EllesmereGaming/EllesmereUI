@@ -278,6 +278,8 @@ ns.BlockFactories = {}
 -- a bar saved with one shows an empty slot there instead of erroring.
 if EllesmereUI.IS_FOREVER then
     local FOREVER_OFF = { greatvault = true, crests = true, spec = true }
+    table.insert(ns.BLOCK_TYPES, #ns.BLOCK_TYPES, { key = "supplies", label = "Class Resources" })
+    ns.BLOCK_DEFAULTS.supplies = { showIcon = true }
     for i = #ns.BLOCK_TYPES, 1, -1 do
         if FOREVER_OFF[ns.BLOCK_TYPES[i].key] then table.remove(ns.BLOCK_TYPES, i) end
     end
@@ -2294,10 +2296,10 @@ function ns.ApplyBar(id)
 
     for i = 1, #cfg.blocks do
         local b = cfg.blocks[i]
-        -- WoW Forever: a saved block whose type has no factory there (a
-        -- retail-only block from an imported profile) builds no slot, so it
-        -- draws no background or hover region; the layout skips a missing slot.
-        if not (EllesmereUI.IS_FOREVER and not ns.BlockFactories[b.type]) then
+        -- A saved block whose type has no factory on this client (a block
+        -- from the other client's profile) builds no slot, so it draws no
+        -- background or hover region; the layout skips a missing slot.
+        if ns.BlockFactories[b.type] then
             local slot = EnsureSlot(rec, b)
             ApplyBlockDecor(slot, b, cfg)
             AnchorContent(slot, b, vertical, cfg)

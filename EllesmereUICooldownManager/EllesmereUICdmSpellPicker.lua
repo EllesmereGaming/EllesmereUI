@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local _, ns = ...
 
--- Upvalue aliases (populated by EllesmereUICooldownManager.lua)
+-- Upvalue aliases (populated by EllesmereUICooldownManager.lua and the EUI_CDM_*.lua files)
 local ECME                   = ns.ECME
 local barDataByKey           = ns.barDataByKey
 local cdmBarFrames           = ns.cdmBarFrames
@@ -189,7 +189,7 @@ local _buffAliasSeen = {}
 -- Learns every pairwise edge among {displaySID} union linkedList that this session
 -- hasn't already recorded. Ids are gated for secrecy/plausibility here so callers never
 -- need to; the session-cache early-out (mirrors _learnVariantBase in
--- EllesmereUICdmHooks.lua) keeps repeat observations of an already-known pairing from
+-- EUI_CDM_HookResolve.lua) keeps repeat observations of an already-known pairing from
 -- touching the profile table.
 function ns.LearnBuffVariantAlias(displaySID, linkedList)
     if type(linkedList) ~= "table" or #linkedList == 0 then return end
@@ -563,7 +563,7 @@ function ns.EnumerateCDMSettingsCatalog(wantSet)
     local okP, provider = pcall(settings.GetDataProvider, settings)
     if not okP or type(provider) ~= "table" then return nil end
     -- Read the already-built display table, never the getters that would
-    -- build it (see ns.CDMGetProviderDisplayData, EllesmereUICooldownManager.lua).
+    -- build it (see ns.CDMGetProviderDisplayData, EUI_CDM_Reconcile.lua).
     local ordered, infoByID = ns.CDMGetProviderDisplayData(provider)
     if not ordered then return nil end
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
@@ -1216,6 +1216,44 @@ function ns.IsCollidedBuffSid(sid)
     return ns.CollidedBuffSids()[sid] == true
 end
 
+--- Buff slots claimed by cooldownID instead of spellID: collided pairs, and
+--- tracked trinket proc rows (EquipSlotTracked). A trinket row reads no spellID
+--- while its proc is down, so a sid claim can neither route it after a reload
+--- nor be told apart from an equipment use-spell by the prune; its cooldownID
+--- is fixed per equipment slot, so the usual cooldownID drift does not apply.
+local function IsTrackedTrinketRow(cdID)
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    local info = gci and gci(cdID)
+    local cat = info and info.category
+    if type(cat) ~= "number" or (issecretvalue and issecretvalue(cat)) then return false end
+    return cat == (Enum and Enum.CooldownViewerCategory
+        and Enum.CooldownViewerCategory.EquipSlotTracked or 8)
+end
+
+function ns.ClaimBuffByCdID(sid, cdID)
+    if type(cdID) ~= "number" or cdID <= 0 then return false end
+    return IsTrackedTrinketRow(cdID) or ns.IsCollidedBuffSid(sid)
+end
+
+-- Claiming a trinket row by cooldownID drops any spellID claim of it (a bar
+-- entry or a hosted marker), so it never shows twice. Collided pairs keep
+-- theirs: that spellID also names the twin slot.
+local function DropTrinketSidClaims(cdID, sid)
+    if type(sid) ~= "number" or sid <= 0 or not IsTrackedTrinketRow(cdID)
+       or ns.IsCollidedBuffSid(sid) then return end
+    local p = ECME.db.profile
+    if not (p and p.cdmBars and p.cdmBars.bars) then return end
+    for _, b in ipairs(p.cdmBars.bars) do
+        if b.barType ~= "custom_buff" then
+            if ns.IsBarBuffFamily(b) then
+                ns.RemoveSpellFromBar(b.key, sid)
+            else
+                ns.RemoveSpellFromBar(b.key, ns.HostedBuffMarker(sid))
+            end
+        end
+    end
+end
+
 -- Runtime hot-path gate: true only when the current spec's buffs store holds at least
 -- one "c"..cooldownID key. Cached by store-table identity, so a spec/profile swap
 -- (different store table) recomputes for free with no explicit invalidation hook.
@@ -1738,12 +1776,28 @@ end
 --- a cd-claim MARKER (ns.CdClaimMarker, distinct negative id per cooldownID)
 --- sidesteps that while reusing AddTrackedSpell's plumbing unchanged, and
 --- gives the claim a real assignedSpells index (drags/reorders/removes like
---- any entry). Collision-gated: non-collided buffs keep the sid path
---- (survives talent swaps). Never valid on the default "buffs" bar, which
---- enumerates the live viewer pool directly, never assignedSpells.
-function ns.AddTrackedBuffByCdID(barKey, cdID)
-    if type(cdID) ~= "number" or cdID <= 0 or barKey == "buffs" then return false end
-    return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
+--- any entry). Gated by ns.ClaimBuffByCdID: every other buff keeps the sid
+--- path (survives talent swaps). The default "buffs" bar enumerates the live
+--- viewer pool, never assignedSpells, so adding a slot to it releases every
+--- other buff bar's claim on that slot instead.
+function ns.AddTrackedBuffByCdID(barKey, cdID, sid)
+    if type(cdID) ~= "number" or cdID <= 0 then return false end
+    DropTrinketSidClaims(cdID, sid)
+    local marker = ns.CdClaimMarker(cdID)
+    if barKey == "buffs" then
+        local p = ECME.db.profile
+        if p and p.cdmBars and p.cdmBars.bars then
+            for _, b in ipairs(p.cdmBars.bars) do
+                if b.key ~= "buffs" and b.barType ~= "custom_buff" and IsBarBuffFamily(b) then
+                    ns.RemoveSpellFromBar(b.key, marker)
+                end
+            end
+        end
+        if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+        if ns.QueueReanchor then ns.QueueReanchor() end
+        return true
+    end
+    return ns.AddTrackedSpell(barKey, marker)
 end
 
 --- Place a BUFF on a CD/utility bar. HOSTED: RebuildSpellRouteMap diverts its
@@ -1836,12 +1890,13 @@ end
 --- AddTrackedSpell's plumbing unchanged. Collision-gated by the caller:
 --- non-collided buffs keep AddBuffToCDUtilBar's sid path (survives talent
 --- swaps).
-function ns.AddHostedBuffByCdID(barKey, cdID)
+function ns.AddHostedBuffByCdID(barKey, cdID, sid)
     if type(cdID) ~= "number" or cdID <= 0 then return false end
     local sd = ns.GetBarSpellData(barKey)
     if not sd then return false end
+    DropTrinketSidClaims(cdID, sid)
     -- Empty-table sentinel: ResolveSpellSettings' hostedFrame gate
-    -- (EllesmereUICdmHooks.lua) short-circuits on this table being non-nil to
+    -- (EUI_CDM_HookResolve.lua) short-circuits on this table being non-nil to
     -- skip pricier frame-flag checks. A cd-claimed hosted buff resolves its
     -- own "c"..cooldownID key independently -- only the table's existence matters.
     sd.hostedBuffSpellIDs = sd.hostedBuffSpellIDs or {}

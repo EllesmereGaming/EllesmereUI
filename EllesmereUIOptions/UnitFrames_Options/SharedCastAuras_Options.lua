@@ -1521,7 +1521,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     -- Built here with the aura section's helpers, but appended only after
     -- all other buff/debuff controls so the border row stays last.
     local function AddAuraBorderSettings()
-    if optState.selectedUnit == "player" or optState.selectedUnit == "target" then
+    if optState.selectedUnit == "player" or optState.selectedUnit == "target" or optState.selectedUnit == "focus" then
         local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
         local auraBorderRow
         auraBorderRow, h = W:DualRow(parent, y,
@@ -1602,7 +1602,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                     { type="toggle", label="Textured Dispel Ring",
                       tooltip="Draws the dispel-colored ring in this border style's shape instead of flat lines.",
                       -- Needs a dispel ring to draw: the debuff Dispel Type Borders,
-                      -- or on Target the Buff Settings cog's own.
+                      -- or on Target/Focus the Buff Settings cog's own.
                       disabled=function()
                           return SVal("debuffDispelBorder", false) ~= true
                               and not (optState.selectedUnit ~= "player" and SVal("buffDispelBorder", false) == true)

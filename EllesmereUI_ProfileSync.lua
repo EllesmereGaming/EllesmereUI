@@ -5,6 +5,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  popup anchored to the sidebar. Loads after EllesmereUI_Fonts.lua.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
+-- Private namespace shared with EllesmereUI.lua (sidebar buttons).
+local _, EUI_NS = ...
+EUI_NS = EUI_NS.__euiCoreNS or EUI_NS  -- standalone builds: the core's own table (EllesmereUI.lua)
 
 -------------------------------------------------------------------------------
 --  Profile Sync System (mirror groups)
@@ -539,7 +542,7 @@ do
             nf:SetFrameLevel(150)
             nf:EnableMouse(true)
             local bg = nf:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints(); bg:SetColorTexture(15/255, 17/255, 22/255, 1)
+            bg:SetAllPoints(); bg:SetColorTexture(17/255, 15/255, 12/255, 1)
             nf._bg = bg
             -- Fullscreen dimmer: darkens and click-blocks everything behind
             local dim = CreateFrame("Frame", nil, overlayParent)
@@ -648,7 +651,7 @@ do
             return btn
         end
 
-        local cancelBtn = MakeBtn(EllesmereUI.L("Cancel"), 0.18, 0.19, 0.22, 0.9, 0.25, 0.26, 0.3)
+        local cancelBtn = MakeBtn(EllesmereUI.L("Cancel"), 0.172, 0.164, 0.156, 0.9, 0.231, 0.222, 0.215)
         cancelBtn:SetPoint("TOPRIGHT", f, "TOP", -6, cy)
         local confirmBtn = MakeBtn(EllesmereUI.L("Sync"), 0.05, 0.52, 0.39, 0.8, 0.07, 0.62, 0.49)
         confirmBtn:SetPoint("TOPLEFT", f, "TOP", 6, cy)
@@ -741,11 +744,11 @@ do
             _syncPopup:SetFrameLevel(200)
             _syncPopup:EnableMouse(true)
             local bg = _syncPopup:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints(); bg:SetColorTexture(15/255, 17/255, 22/255, 1)
+            bg:SetAllPoints(); bg:SetColorTexture(17/255, 15/255, 12/255, 1)
             _syncPopup._bg = bg
-            -- Controller cursor: born hidden, so the Show below runs its OnShow
-            -- (the click-away) on the first open too.
-            if EllesmereUI.PadInUse() then _syncPopup:Hide() end
+            -- Born hidden, so the Show below runs its OnShow (the click-away)
+            -- on the first open too.
+            _syncPopup:Hide()
             EllesmereUI.TrackOverlay(_syncPopup)
             EllesmereUI.PadHint(_syncPopup, "nodepass")
         end
@@ -932,7 +935,7 @@ do
         refreshSyncBtnLabel()
 
         local function RefreshSidebarSyncIcon()
-            local sidebarBtns = EllesmereUI._sidebarButtons
+            local sidebarBtns = EUI_NS.sidebarButtons
             if sidebarBtns and sidebarBtns[folder] and sidebarBtns[folder]._syncBtn then
                 local sb = sidebarBtns[folder]._syncBtn
                 if sb._refreshAlpha then sb._refreshAlpha() end

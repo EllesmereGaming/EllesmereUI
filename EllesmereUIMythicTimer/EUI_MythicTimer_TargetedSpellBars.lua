@@ -78,6 +78,10 @@ local function CurrentWhereBucket()
     if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then
         return "dungeon_mythic"
     end
+    -- Housing plots report as "scenario"; they belong to the open world.
+    if C_Housing and C_Housing.IsInsideHouseOrPlot and C_Housing.IsInsideHouseOrPlot() then
+        return "open_world"
+    end
     local _, iType, diffID, _, _, _, _, _, _, _, hasWorldTier = GetInstanceInfo()
     diffID = tonumber(diffID) or 0
     -- Lairs carry the World Tier flag instead of a difficulty id the branches
@@ -96,6 +100,7 @@ local function CurrentWhereBucket()
         if diffID == 33 then return "timewalking" end
     elseif iType == "scenario" then
         if diffID == 208 then return "delve" end
+        return "scenario"
     end
     if IsInInstance and not IsInInstance() then return "open_world" end
     return nil -- unmapped (PvP/arena/etc.) -- always shows, matching AuraBuffReminders
@@ -108,6 +113,7 @@ end
 local LOCATION_KEYS = {
     "open_world", "raid_mythic", "raid_heroic", "raid_normal_lfr",
     "dungeon_mythic", "dungeon_nonmythic", "timewalking", "delve", "lair",
+    "scenario",
 }
 
 -- Combat state is TRACKED from PLAYER_REGEN_DISABLED / _ENABLED instead of
@@ -1357,19 +1363,12 @@ local function RegisterUnlock()
                 cfg.height = math.floor(h + 0.5)
                 ns.TSB_Refresh()
             end,
-            savePos = function()
+            savePos = function(_, _, _, x, y)
+                -- Unlock mode hands over CENTER/CENTER coords; on Cancel the frame
+                -- still sits at the dragged spot, so never read the live position.
                 local cfg = Cfg()
-                local f = container
-                if not (cfg and f and f:GetCenter()) then return end
-                -- Raw UIParent-logical center delta; the effective-scale ratio
-                -- normalizes GetCenter's frame-scaled units (timer lesson:
-                -- scale division must never live in the interchange format).
-                local cx, cy = f:GetCenter()
-                local upX, upY = UIParent:GetCenter()
-                local fes = f:GetEffectiveScale() or 1
-                local ues = UIParent:GetEffectiveScale() or 1
-                local ratio = fes / ues
-                cfg.pos = { centerX = cx * ratio - upX, centerY = cy * ratio - upY }
+                if not (cfg and x and y) then return end
+                cfg.pos = { centerX = x, centerY = y }
                 if not (EllesmereUI._unlockActive) then ApplyContainerPosition() end
             end,
             loadPos = function()

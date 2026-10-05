@@ -11,11 +11,13 @@ EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read th
 
 local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 
--- WoW Forever runs a reduced module: one Forever-only section (the Camp
--- Benefits campfire buff plus custom spell IDs) collected by EABR.CollectForever,
--- with every retail collector, its events and its options sections off. Both
--- values live on EABR because this file sits at Lua's 200-local ceiling; retail
--- reads FOREVER as false at each gate and nothing else changes there.
+-- WoW Forever runs a reduced module: the Raid Buffs section over that client's
+-- four buffs (EABR.CollectForeverRaidBuffs) and one Forever-only section (the
+-- Camp Benefits campfire buff plus custom spell IDs) collected by
+-- EABR.CollectForever, with every other retail collector, its events and its
+-- options sections off. Both values live on EABR because this file sits at
+-- Lua's 200-local ceiling; retail reads FOREVER as false at each gate and
+-- nothing else changes there.
 EABR.FOREVER = EllesmereUI.IS_FOREVER == true
 EABR.CAMP_BENEFITS = 1229741
 
@@ -204,6 +206,11 @@ local function InRealInstancedContent()
     if C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap() then
         return false
     end
+    -- Housing plots report as "scenario"; they belong to the open world.
+    if _cachedIType == "scenario" and C_Housing and C_Housing.IsInsideHouseOrPlot
+        and C_Housing.IsInsideHouseOrPlot() then
+        return false
+    end
 
     if _cachedIType == "party"
     or _cachedIType == "raid"
@@ -279,8 +286,9 @@ end
 
 -- Coarse buckets matching the options multi-select: open_world, raid_mythic,
 -- raid_heroic, raid_normal_lfr, dungeon_mythic (Mythic + M+), dungeon_nonmythic
--- (Heroic / Normal / Follower), timewalking, delve, lair. Returns nil for
--- unmapped instanced content (e.g. PvP) so reminders never silently vanish there.
+-- (Heroic / Normal / Follower), timewalking, delve, lair, scenario (any non-delve
+-- scenario). Returns nil for unmapped instanced content (e.g. PvP) so reminders
+-- never silently vanish there.
 function EABR.CurrentWhereBucket(inInstance)
     -- Lairs carry the World Tier flag instead of a difficulty id the allowlist
     -- knows; the instance gate keeps the flag from ever reclassifying the
@@ -295,6 +303,7 @@ function EABR.CurrentWhereBucket(inInstance)
     if cat == "r_normal" or cat == "r_lfr" then return "raid_normal_lfr" end
     if cat == "s_delve" then return "delve" end
     if not inInstance then return "open_world" end
+    if _cachedIType == "scenario" then return "scenario" end
     return nil
 end
 
@@ -1166,6 +1175,16 @@ local BUFF_BENEFICIARIES = {
         PALADIN = true, MONK = true, DRUID = true, DEMONHUNTER = true, SHAMAN = true,
     },
 }
+-- WoW Forever: Intellect serves every mana user (hunters included) and Battle
+-- Shout raises melee attack power only (a hunter shoots with ranged).
+if EABR.FOREVER then
+    BUFF_BENEFICIARIES.intellect = {
+        DRUID = true, HUNTER = true, MAGE = true, PALADIN = true, PRIEST = true, SHAMAN = true, WARLOCK = true,
+    }
+    BUFF_BENEFICIARIES.attackPower = {
+        DRUID = true, PALADIN = true, ROGUE = true, SHAMAN = true, WARRIOR = true,
+    }
+end
 
 -- Set of player classes present in the group (online, alive, in range),
 -- excluding the local player. Built on demand for the receiver view ("I am
@@ -1253,7 +1272,8 @@ end
 -- counted (coverage skips the unit).
 function EABR.UnitBenefits(u, benefit)
     if not benefit then return true end
-    local specSet = EABR.SPEC_BENEFITS[benefit]
+    -- WoW Forever has no spec data to look up (no comms cache, no specs).
+    local specSet = not EABR.FOREVER and EABR.SPEC_BENEFITS[benefit]
     if specSet then
         local spec = EABR.GroupSpecFor(u)
         if spec then
@@ -1277,10 +1297,11 @@ function EABR.UnitBenefits(u, benefit)
     -- never serves the healer spec of these hybrids. Ambiguous combos
     -- (e.g. a DAMAGER Druid: Balance wants int, Feral wants AP) and
     -- unassigned ("NONE") or secret roles fall through to the class answer.
-    -- Effective role: the player's spec wins over a stale assigned role.
+    -- Effective role: the player's spec wins over a stale assigned role. On
+    -- WoW Forever every mana user wants Intellect, whatever the role.
     local role = EllesmereUI.UnitEffectiveRole(u)
     if role ~= nil and not isSecret(role) then
-        if benefit == "intellect" then
+        if benefit == "intellect" and not EABR.FOREVER then
             if (class == "PALADIN" or class == "MONK") and (role == "DAMAGER" or role == "TANK") then
                 return false
             end
@@ -1337,6 +1358,25 @@ local RAID_BUFFS = {
     { key="sky",    class="SHAMAN",  name="Skyfury",                castSpell=462854, buffIDs={462854},  check="raid" },
     -- Hunter's Mark: disabled (under maintenance); entry intentionally omitted.
 }
+-- WoW Forever: that client's four raid buffs replace the list (there it is
+-- read only by its own Raid Buffs: EABR.CollectForeverRaidBuffs and the
+-- options grid). Same keys as retail, so a profile's switches move between
+-- the clients. castSpell = rank 1 (label and options icon); fam = the shared
+-- buff family (every rank, the group version, other casters' versions);
+-- selfCast = cast with no target; party = reaches only the caster's party
+-- (in a raid, their subgroup), as a shout does.
+if EABR.FOREVER then
+    RAID_BUFFS = {
+        { key="motw",   class="DRUID",   name="Mark of the Wild",      castSpell=1126, dismissKey="raidbuff:motw",
+          fam=EllesmereUI.FOREVER_BUFF_FAMILIES.mark },
+        { key="bshout", class="WARRIOR", name="Battle Shout",          castSpell=6673, dismissKey="raidbuff:bshout",
+          fam=EllesmereUI.FOREVER_BUFF_FAMILIES.bshout, benefit="attackPower", selfCast=true, party=true },
+        { key="fort",   class="PRIEST",  name="Power Word: Fortitude", castSpell=1243, dismissKey="raidbuff:fort",
+          fam=EllesmereUI.FOREVER_BUFF_FAMILIES.fort },
+        { key="ai",     class="MAGE",    name="Arcane Intellect",      castSpell=1459, dismissKey="raidbuff:ai",
+          fam=EllesmereUI.FOREVER_BUFF_FAMILIES.ai, benefit="intellect" },
+    }
+end
 
 -------------------------------------------------------------------------------
 --  SPELL DATA Auras (some non-secret, some still OOC-only)
@@ -2202,7 +2242,7 @@ local defaults = {
             -- (value false); an absent bucket = shown. Open world defaults
             -- off for raid buffs. Buckets: open_world, raid_mythic,
             -- raid_heroic, raid_normal_lfr, dungeon_mythic,
-            -- dungeon_nonmythic, timewalking, delve, in_combat.
+            -- dungeon_nonmythic, timewalking, delve, lair, scenario, in_combat.
             whereToShow = { open_world = false },
             -- Show When: othersMissing = remind when a groupmate lacks a
             -- buff I provide; iAmMissing = remind when I lack a buff a
@@ -2733,34 +2773,44 @@ function EABR.EnsureProviderCastButton()
 end
 
 -- Binds the player's own castable raid buff to the button (OOC only), so the
--- binding is already warm when combat starts.
+-- binding is already warm when combat starts. WoW Forever binds the cast its
+-- Raid Buffs pass picked (a rank and the member to cast it on) and builds the
+-- button only once there is one.
 function EABR.SyncProviderCastSpell()
-    if EABR.FOREVER then return end  -- no raid buff providers on WoW Forever; the button is never built there
     if InCombatLockdown() then return end
+    local spellID, unit
+    if EABR.FOREVER then
+        spellID, unit = EABR._fvCastSpell, EABR._fvCastUnit
+        if not (spellID or EABR._providerCastBtn) then return end
+    end
     local btn = EABR.EnsureProviderCastButton()
     if not btn then return end
-    local playerClass = GetPlayerClass()
-    local spellID
-    for _, buff in ipairs(RAID_BUFFS) do
-        if buff.class == playerClass and buff.check == "raid" and Known(buff.castSpell) then
-            spellID = buff.castSpell
-            break
+    if not EABR.FOREVER then
+        local playerClass = GetPlayerClass()
+        for _, buff in ipairs(RAID_BUFFS) do
+            if buff.class == playerClass and buff.check == "raid" and Known(buff.castSpell) then
+                spellID = buff.castSpell
+                break
+            end
         end
     end
-    -- Attribute writes are skipped when the resolved spell is unchanged
+    unit = unit or "player" -- explicit unit so casting doesn't depend on your current target
+    -- Attribute writes are skipped when the resolved cast is unchanged
     -- (this runs on every OOC refresh). Invalidation inputs: the resolved
-    -- spellID (covers spec/known changes via SPELLS_CHANGED refreshes).
-    if spellID == EABR._providerCastSpell then
+    -- spellID (covers spec/known changes via SPELLS_CHANGED refreshes) and
+    -- the unit (WoW Forever's target member).
+    if spellID == EABR._providerCastSpell and unit == EABR._providerCastUnit then
         if not EABR._providerCastVisible then EABR.ParkProviderCastButton() end
         return
     end
     EABR._providerCastSpell = spellID
+    EABR._providerCastUnit = unit
     if spellID then
         btn:SetAttribute("type1", "spell")
         btn:SetAttribute("spell1", spellID)
         btn:SetAttribute("item1", nil)
         btn:SetAttribute("macrotext1", nil)
-        btn:SetAttribute("unit1", "player") -- explicit unit so casting doesn't depend on your current target
+        btn:SetAttribute("unit1", unit)
         btn._icon:SetTexture(Tex(spellID) or 134400)
         btn._tooltipSpell = spellID
         btn._tooltipItem = nil
@@ -4162,12 +4212,88 @@ end
 local _refreshMissing = {}
 local UpdateDurationTicker  -- forward-declare; defined after RequestRefresh
 
+-- WoW Forever rank families of the custom spell IDs: an ID stands for itself,
+-- every spellbook entry with its name (each rank the player knows is its own
+-- spell there) and the shared buff family that lists it (every rank, the group
+-- version, other casters' versions: EllesmereUI.FOREVER_BUFF_FAMILIES). One
+-- spellbook pass resolves every tracked ID, run again only after a spell is
+-- learned (LEARNED_SPELL_IN_SKILL_LINE sets _fvFamDirty) or when an ID joins
+-- the list; the families then serve every refresh as they are.
+function EABR.ForeverFamily(id)
+    local fams = EABR._fvFams
+    if not (fams and fams[id]) or EABR._fvFamDirty then
+        EABR.BuildForeverFamilies()
+        fams = EABR._fvFams
+    end
+    return fams[id]
+end
+
+function EABR.BuildForeverFamilies()
+    EABR._fvFamDirty = false
+    local fams = EABR._fvFams
+    if fams then wipe(fams) else fams = {}; EABR._fvFams = fams end
+    local fo = db.profile.forever
+    local custom = fo and fo.customIDs
+    if not (custom and custom[1]) then return end
+    local familyOf = EABR._fvFamilyOf
+    if not familyOf then
+        familyOf = {}
+        for _, shared in pairs(EllesmereUI.FOREVER_BUFF_FAMILIES) do
+            for _, sid in ipairs(shared.ids) do familyOf[sid] = shared end
+        end
+        EABR._fvFamilyOf = familyOf
+    end
+    -- name -> the families its spellbook entries join
+    local byName = {}
+    for i = 1, #custom do
+        local id = custom[i]
+        if not fams[id] then
+            local list = { id }
+            local shared = familyOf[id]
+            if shared then
+                for _, sid in ipairs(shared.ids) do
+                    if sid ~= id then list[#list + 1] = sid end
+                end
+            end
+            fams[id] = list
+            local name = SpellName(id)
+            if name then
+                local into = byName[name]
+                if not into then into = {}; byName[name] = into end
+                into[#into + 1] = list
+            end
+        end
+    end
+    if not next(byName) then return end
+    local bank = Enum.SpellBookSpellBank.Player
+    local SPELL = Enum.SpellBookItemType.Spell
+    for line = 1, C_SpellBook.GetNumSpellBookSkillLines() do
+        local info = C_SpellBook.GetSpellBookSkillLineInfo(line)
+        local offset = info and info.itemIndexOffset or 0
+        for slot = offset + 1, offset + (info and info.numSpellBookItems or 0) do
+            local kind, _, sid = C_SpellBook.GetSpellBookItemType(slot, bank)
+            local into = kind == SPELL and sid and byName[C_Spell.GetSpellName(sid)]
+            if into then
+                for _, list in ipairs(into) do
+                    local listed = false
+                    for k = 1, #list do
+                        if list[k] == sid then listed = true; break end
+                    end
+                    if not listed then list[#list + 1] = sid end
+                end
+            end
+        end
+    end
+end
+
 -- WoW Forever collector: the Camp Benefits campfire buff and the user's custom
--- spell IDs, absence only (no expiry thresholds). Entries are display-only
--- textures carrying the spell for the tooltip; presence goes through
--- PlayerHasAuraByID, so combat falls back to the pre-pull snapshot exactly like
--- the Auras section. Camp Benefits is skipped under the aura lock and in PvP.
--- The one-slot id table and the dismiss-key memo keep the pass allocation-free.
+-- spell IDs, absence only (no expiry thresholds). A custom ID counts as up
+-- while any spell of its rank family is (EABR.ForeverFamily). Entries are
+-- display-only textures carrying the spell for the tooltip; presence goes
+-- through PlayerHasAuraByID, so combat falls back to the pre-pull snapshot
+-- exactly like the Auras section. Camp Benefits is skipped under the aura lock
+-- and in PvP. The one-slot id table, the cached families and the dismiss-key
+-- memo keep the pass allocation-free.
 function EABR.CollectForever(missing, inInstance, inPvP, restricted)
     local fo = db.profile.forever
     if not fo or not EABR.SectionShows(fo.whereToShow, inInstance) then return end
@@ -4190,8 +4316,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
     if not keys then keys = {}; EABR._foreverKeys = keys end
     for i = 1, #custom do
         local id = custom[i]
-        ids[1] = id
-        if not PlayerHasAuraByID(ids) then
+        if not PlayerHasAuraByID(EABR.ForeverFamily(id)) then
             local dk = keys[id]
             if not dk then dk = "forever:" .. id; keys[id] = dk end
             local e = AcquireEntry()
@@ -4204,6 +4329,245 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
     end
 end
 
+-------------------------------------------------------------------------------
+--  WoW Forever Raid Buffs: the retail section's two views over that client's
+--  four buffs (RAID_BUFFS). A member has a buff while an aura with one of its
+--  family's names is up (every rank, the group version, other casters'
+--  versions). Under the game's aura restriction a buff is read only while none
+--  of its ranks is secret (a secret aura would read absent while up), and
+--  shows nothing otherwise rather than a false alarm. Absence only (no expiry
+--  thresholds).
+-------------------------------------------------------------------------------
+-- Localized names of a family, cached per family (cold spell data stays uncached).
+function EABR.FvNames(fam)
+    local cache = EABR._fvNameCache
+    if not cache then cache = {}; EABR._fvNameCache = cache end
+    local names = cache[fam]
+    if names then return names end
+    names = {}
+    for _, id in ipairs(fam.names) do
+        local n = SpellName(id)
+        if n then names[#names + 1] = n end
+    end
+    if names[1] then cache[fam] = names end
+    return names
+end
+
+-- Whether a unit carries any rank of a family: true / false, or nil when the
+-- answer cannot be read. rec (optional) collects the found aura's instance ID
+-- for the group aura probe.
+function EABR.FvUnitHas(u, fam, rec)
+    local names = EABR.FvNames(fam)
+    if not names[1] then return nil end
+    for n = 1, #names do
+        local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, u, names[n], "HELPFUL")
+        if not ok or isSecret(aura) then return nil end
+        if aura then
+            local iid = rec and aura.auraInstanceID
+            if iid and not isSecret(iid) then rec[iid] = true end
+            return true
+        end
+    end
+    return false
+end
+
+-- The highest rank in a list (lowest first) the player knows, or nil.
+function EABR.FvHighest(list)
+    for i = #list, 1, -1 do
+        if C_SpellBook.IsSpellKnown(list[i]) then return list[i] end
+    end
+end
+
+-- Whether no rank in a list reads secret right now.
+function EABR.FvRanksReadable(list)
+    for i = 1, #list do
+        if not EABR.IsRuntimeNonSecret(list[i]) then return false end
+    end
+    return true
+end
+
+-- Whether a family can be read now: always outside the aura restriction,
+-- inside it only while none of its ranks is secret. The restricted answer is
+-- kept for the frame (inputs: the family and the frame's time), since a burst
+-- of unreadable group aura payloads asks it per event.
+function EABR.FvReadable(fam, restricted)
+    if not restricted then return true end
+    local memo = EABR._fvReadMemo
+    if not memo then memo = {}; EABR._fvReadMemo = memo end
+    local now = GetTime()
+    if memo.t ~= now then
+        wipe(memo)
+        memo.t = now
+    end
+    local v = memo[fam]
+    if v == nil then
+        v = EABR.FvRanksReadable(fam.single) and EABR.FvRanksReadable(fam.group)
+        memo[fam] = v
+    end
+    return v
+end
+
+-- The group unit tokens, built once: party = the player and party1-4, raid =
+-- raid1-40.
+function EABR.FvTokens()
+    local t = EABR._fvTokens
+    if t then return t end
+    t = { party = { "player" }, raid = {} }
+    for i = 1, 4 do t.party[i + 1] = "party" .. i end
+    for i = 1, 40 do t.raid[i] = "raid" .. i end
+    EABR._fvTokens = t
+    return t
+end
+
+-- Whether a raid member is in the player's own party (subgroup), where a
+-- party-wide buff reaches. Unreadable reads as not.
+function EABR.FvInMyParty(u)
+    local v = UnitInSubgroup(u)
+    if isSecret(v) then return false end
+    if v then return true end
+    local me = UnitIsUnit(u, "player")
+    return not isSecret(me) and me == true
+end
+
+-- Classes in the player's own party (in a raid, their subgroup: party1-4
+-- there), online and in range: who a party-wide buff can come from.
+function EABR.FvPartyClassSet()
+    local set = EABR._fvPartyClasses
+    if not set then set = {}; EABR._fvPartyClasses = set end
+    wipe(set)
+    local list = EABR.FvTokens().party
+    for i = 1, GetNumSubgroupMembers() do
+        local u = list[i + 1]
+        if u and _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) then
+            local _, class = UnitClass(u)
+            if class ~= nil and not isSecret(class) then set[class] = true end
+        end
+    end
+    return set
+end
+
+-- In-range beneficiaries carrying a family vs all of them (the "12/15" badge),
+-- plus the first one without it (the click's target); party = a party-wide
+-- buff, counted in a raid on the player's own subgroup only. A member whose
+-- answer cannot be read counts on neither side. The found aura instances
+-- (EABR._fvInst, kept outside the watch so the pass that first builds it
+-- records them too) feed the group aura probe (EABR.FvAuraRelevant).
+function EABR.FvCoverage(fam, benefit, party)
+    local inst = EABR._fvInst
+    if not inst then inst = {}; EABR._fvInst = inst end
+    local raid = IsInRaid()
+    local subgroup = raid and party
+    local tokens = EABR.FvTokens()
+    local list = raid and tokens.raid or tokens.party
+    local n = raid and GetNumGroupMembers() or (GetNumSubgroupMembers() + 1)
+    local have, total, first = 0, 0, nil
+    for i = 1, n do
+        local u = list[i]
+        if not u then break end
+        local rec = inst[u]
+        if rec then wipe(rec) end
+        if _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) and EABR.UnitBenefits(u, benefit)
+            and (not subgroup or EABR.FvInMyParty(u)) then
+            if not rec then rec = {}; inst[u] = rec end
+            local has = EABR.FvUnitHas(u, fam, rec)
+            if has ~= nil then
+                total = total + 1
+                if has then have = have + 1 elseif not first then first = u end
+            end
+        end
+    end
+    return have, total, first
+end
+
+-- The click's cast: the group version on the player while they know it and
+-- could cast it now (its reagent in the bags; mana aside), else the highest
+-- known rank on the member who lacks the buff (the player for a shout).
+function EABR.FvPickCast(buff, unit)
+    local fam = buff.fam
+    local g = EABR.FvHighest(fam.group)
+    if g then
+        local usable, noMana = C_Spell.IsSpellUsable(g)
+        if not isSecret(usable) and not isSecret(noMana) and (usable or noMana) then
+            return g, "player"
+        end
+    end
+    return EABR.FvHighest(fam.single), (not buff.selfCast and unit) or "player"
+end
+
+-- The collector. Provider: the player knows a rank (or the group version) of
+-- their class's buff; with "Others are missing my buff" in a group it counts
+-- the in-range members who benefit, otherwise the player alone. Receiver ("I
+-- am missing others' buffs"): a buff of another class the player lacks while a
+-- member of that class is in range (informational, no click). Out of combat
+-- the pass also picks the provider's cast (EABR.SyncProviderCastSpell binds
+-- it), and every pass syncs the group watch to what it read.
+function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
+    local rb = db.profile.raidBuffs
+    local watch, roster = nil, false
+    local castSpell, castUnit
+    local lockdown = InCombatLockdown()
+    if rb and EABR.SectionShows(rb.whereToShow, inInstance) then
+        local sw = rb.showWhen
+        local othersMissing = not sw or sw.othersMissing ~= false
+        local iAmMissing = sw and sw.iAmMissing == true
+        local grouped = IsInGroup()
+        local groupClasses = iAmMissing and grouped and EABR.BuildGroupClassSet() or nil
+        local partyClasses -- a party-wide buff's casters: built on first need
+        local restricted = EllesmereUI.AuraKit.AurasRestricted()
+        for _, buff in ipairs(RAID_BUFFS) do
+            if rb.enabled[buff.key] then
+                local fam = buff.fam
+                local iCast = buff.class == playerClass
+                    and (EABR.FvHighest(fam.single) or EABR.FvHighest(fam.group)) ~= nil
+                if iCast and othersMissing then watch = fam end
+                if not iCast and iAmMissing then roster = true end
+                local classes = groupClasses
+                if classes and buff.party then
+                    partyClasses = partyClasses or EABR.FvPartyClassSet()
+                    classes = partyClasses
+                end
+                local doReceiver = not iCast and classes and classes[buff.class]
+                    and EABR.PlayerBenefitsFromBuff(buff)
+                if (iCast or doReceiver) and EABR.FvReadable(fam, restricted) then
+                    local isMissing, have, total, first
+                    if iCast and othersMissing and grouped then
+                        have, total, first = EABR.FvCoverage(fam, buff.benefit, buff.party)
+                        isMissing = total > 0 and have < total
+                    else
+                        isMissing = EABR.FvUnitHas("player", fam) == false
+                    end
+                    if iCast and not lockdown then
+                        castSpell, castUnit = EABR.FvPickCast(buff, first)
+                    end
+                    if isMissing then
+                        local e = AcquireEntry()
+                        e.label = ShortLabel(SpellName(buff.castSpell) or buff.name)
+                        e.cat = "raidbuff"; e.data = buff
+                        e.dismissKey = buff.dismissKey
+                        if total then
+                            e.groupHave = have
+                            e.groupTotal = total
+                        end
+                        if iCast then
+                            -- The provider button casts it; in combat it keeps
+                            -- the cast bound before the pull.
+                            e.mode = "spell"
+                            e.spellID = castSpell or EABR._providerCastSpell
+                        else
+                            e.mode = "texture"
+                            e.spellID = buff.castSpell
+                            e.texture = Tex(buff.castSpell)
+                        end
+                        missing[#missing+1] = e
+                    end
+                end
+            end
+        end
+    end
+    if not lockdown then EABR._fvCastSpell, EABR._fvCastUnit = castSpell, castUnit end
+    EABR.FvSyncGroupWatch(watch, roster)
+end
+
 local function Refresh()
     _cachedOutline = nil
     EABR._nextDurationRefreshTime = nil
@@ -4211,7 +4575,14 @@ local function Refresh()
     -- Pooled reminder buttons are children of iconAnchor, built in OnEnable (PLAYER_LOGIN). File-scope events (SPELLS_CHANGED, PLAYER_TALENT_UPDATE,
     -- TRAIT_CONFIG_UPDATED, ...) can fire DURING loading before OnEnable runs; a reminder created then via GetOrCreateIcon gets a nil parent and renders oversized forever (scale 1.0, not UIParent scale -- pooled buttons are never re-parented). Wait for the anchor; OnEnable fires its own refresh.
     if not iconAnchor then return end
-    if euiPanelOpen then HideCombatIcons(); HideAllIcons(); return end
+    -- WoW Forever: the returns below show nothing, so the Raid Buffs group
+    -- watch stands down with them; the event that ends each state (panel
+    -- close, vehicle exit, alive, rest ended) refreshes and re-arms it.
+    if euiPanelOpen then
+        HideCombatIcons(); HideAllIcons()
+        if EABR.FOREVER then EABR.FvSyncGroupWatch(nil, false) end
+        return
+    end
 
     -- Hides all reminders while skyriding (mounted+flying) or in a vehicle; IsMounted/IsFlying/UnitInVehicle are combat-safe (no taint).
     if UnitInVehicle("player") or (IsMounted() and IsFlying()) then
@@ -4221,17 +4592,21 @@ local function Refresh()
         else
             HideAllIcons()
         end
+        if EABR.FOREVER then EABR.FvSyncGroupWatch(nil, false) end
         return
     end
 
     -- Suppresses while dead or in a rested area (city/inn) -- rested areas
     -- always stay hidden, independent of every "Where to Show" setting.
     if UnitIsDeadOrGhost("player") then
-        HideCombatIcons(); HideCursorIcons(); HideAllIcons(); return
+        HideCombatIcons(); HideCursorIcons(); HideAllIcons()
+        if EABR.FOREVER then EABR.FvSyncGroupWatch(nil, false) end
+        return
     end
     if IsResting() then
         HideCombatIcons(); HideCursorIcons()
         if InCombat() then FadeOutSecureIcons() else HideAllIcons() end
+        if EABR.FOREVER then EABR.FvSyncGroupWatch(nil, false) end
         return
     end
 
@@ -4260,9 +4635,15 @@ local function Refresh()
     local inPvP = InPvPInstance()
     local restricted = inCombat or inKeystone
 
-    -- WoW Forever: the one Forever section stands in for the four collectors below.
-    if EABR.FOREVER and remindersOn then
-        EABR.CollectForever(missing, inInstance, inPvP, restricted)
+    -- WoW Forever: its Raid Buffs and the one Forever section stand in for the
+    -- four collectors below (reminders off: the Raid Buffs group watch stands down).
+    if EABR.FOREVER then
+        if remindersOn then
+            EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
+            EABR.CollectForever(missing, inInstance, inPvP, restricted)
+        else
+            EABR.FvSyncGroupWatch(nil, false)
+        end
     end
 
     ---------------------------------------------------------------------------
@@ -4563,6 +4944,113 @@ local function RequestRefresh()
         _refreshTimerActive = true
         C_Timer.After(throttle - elapsed, _doRefresh)
     end
+end
+
+-------------------------------------------------------------------------------
+--  WoW Forever Raid Buffs group watch, synced by every collector pass to what
+--  it read (fam = the provider's buff while its coverage counts the group,
+--  roster = a receiver reminder is possible): GROUP_ROSTER_UPDATE while either
+--  applies; while grouped also UNIT_IN_RANGE_UPDATE and UNIT_CONNECTION per
+--  group token, plus UNIT_AURA for a provider, each aura event probing its own
+--  added and removed auras before a refresh is asked (EABR.FvAuraRelevant).
+--  Nothing is registered otherwise (Refresh also stands it down while it
+--  shows nothing: the options panel open, a vehicle, dead, resting).
+--  RegisterUnitEvent takes two units, so the tokens ride one frame per pair:
+--  party1-4 in a party (the player's own auras come through the main frame),
+--  raid1-40 in a raid.
+-------------------------------------------------------------------------------
+function EABR.FvSyncGroupWatch(fam, roster)
+    local any = fam ~= nil or roster
+    local W = EABR._fvWatch
+    if not W then
+        if not any then return end
+        W = { ids = {}, frames = {} }
+        -- With a refresh already queued there is nothing to probe.
+        local function OnUnitEvent(_, event, unit, info)
+            if refreshQueued then return end
+            if event ~= "UNIT_AURA" or EABR.FvAuraRelevant(unit, info) then RequestRefresh() end
+        end
+        local tokens = EABR.FvTokens()
+        for kind, from in pairs({ party = 2, raid = 1 }) do
+            local list = tokens[kind]
+            for i = from, #list, 2 do
+                local f = CreateFrame("Frame")
+                f.kind, f.u1, f.u2 = kind, list[i], list[i + 1]
+                f:SetScript("OnEvent", OnUnitEvent)
+                W.frames[#W.frames + 1] = f
+            end
+        end
+        W.world = CreateFrame("Frame")
+        W.world:SetScript("OnEvent", function() RequestRefresh() end)
+        EABR._fvWatch = W
+    end
+    if W.fam ~= fam then
+        W.fam = fam
+        wipe(W.ids)
+        if fam then
+            for _, id in ipairs(fam.ids) do W.ids[id] = true end
+        end
+    end
+    if W.any ~= any then
+        W.any = any
+        if any then
+            W.world:RegisterEvent("GROUP_ROSTER_UPDATE")
+        else
+            W.world:UnregisterEvent("GROUP_ROSTER_UPDATE")
+        end
+    end
+    local mode = any and IsInGroup() and (IsInRaid() and "raid" or "party") or nil
+    local auraOn = mode ~= nil and fam ~= nil
+    if W.mode ~= mode or W.auraOn ~= auraOn then
+        W.mode, W.auraOn = mode, auraOn
+        for _, f in ipairs(W.frames) do
+            f:UnregisterAllEvents()
+            if f.kind == mode then
+                f:RegisterUnitEvent("UNIT_IN_RANGE_UPDATE", f.u1, f.u2)
+                f:RegisterUnitEvent("UNIT_CONNECTION", f.u1, f.u2)
+                if auraOn then f:RegisterUnitEvent("UNIT_AURA", f.u1, f.u2) end
+            end
+        end
+        if not auraOn and EABR._fvInst then
+            for _, rec in pairs(EABR._fvInst) do wipe(rec) end
+        end
+    end
+end
+
+-- One group aura event against the watched buff: an added aura of it, or the
+-- removal of one the last pass found on that member, asks for a refresh; a
+-- full update always does; a payload the restriction made unreadable does
+-- while the buff itself stays readable.
+function EABR.FvAuraRelevant(unit, info)
+    local W = EABR._fvWatch
+    local fam = W and W.fam
+    if not fam then return false end
+    if not info then return true end
+    if isSecret(info) then return EABR.FvReadable(fam, true) end
+    local full = info.isFullUpdate
+    if isSecret(full) then return EABR.FvReadable(fam, true) end
+    if full then return true end
+    local added = info.addedAuras
+    if added then
+        if isSecret(added) then return EABR.FvReadable(fam, true) end
+        for i = 1, #added do
+            local aura = added[i]
+            if isSecret(aura) then return EABR.FvReadable(fam, true) end
+            local sid = aura.spellId
+            if isSecret(sid) then return EABR.FvReadable(fam, true) end
+            if sid and W.ids[sid] then return true end
+        end
+    end
+    local removed, found = info.removedAuraInstanceIDs, EABR._fvInst and EABR._fvInst[unit]
+    if removed and found and next(found) then
+        if isSecret(removed) then return EABR.FvReadable(fam, true) end
+        for i = 1, #removed do
+            local iid = removed[i]
+            if isSecret(iid) then return EABR.FvReadable(fam, true) end
+            if found[iid] then return true end
+        end
+    end
+    return false
 end
 
 -- Duration-threshold timer: arms one refresh for the next known buff/enchant threshold crossing instead of polling while idle.
@@ -5345,9 +5833,10 @@ function EABR:OnEnable()
 
     -- Registers broad UNIT_AURA only when the class needs group aura tracking AND only OOC: it fires 100+/sec in a raid, but in-combat CollectRaidBuffs only checks the player's own auras (PlayerHasAuraByID), so group events are pure waste. Evoker keeps broad in combat for ownOnRaid cache updates but skips RequestRefresh on group events (handler below).
     local function UpdateGroupAuraRegistration()
-        -- WoW Forever tracks no group auras: it keeps the player-only UNIT_AURA
-        -- from file scope, whichever caller (loading screen, profile, spec
-        -- override, options) runs this pass.
+        -- WoW Forever keeps the player-only UNIT_AURA from file scope,
+        -- whichever caller (loading screen, profile, spec override, options)
+        -- runs this pass: its one group reader, Raid Buffs, has its own watch,
+        -- synced by every refresh (EABR.FvSyncGroupWatch).
         if EABR.FOREVER then return end
         local playerClass = GetPlayerClass()
         _needGroupAura = false
@@ -5437,7 +5926,7 @@ function EABR:OnEnable()
         mainFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     end
 
-    -- WoW Forever tracks no group buffs, so the range tracking below has nothing to feed.
+    -- WoW Forever's Raid Buffs watch tracks its own range (EABR.FvSyncGroupWatch).
     if EABR.FOREVER then return end
 
     ---------------------------------------------------------------------------
@@ -5550,8 +6039,9 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     if e == "PLAYER_REGEN_DISABLED" then
         -- First pull of this dungeon visit: the elevated pre-key/pre-pull
         -- threshold (EABR.GetShowUnderMinutes' showUnderMPlus) is over.
-        -- WoW Forever has no pre-key window, no group aura tracking and no
-        -- Hunter's Mark reminder: the whole retail pull bookkeeping is skipped.
+        -- WoW Forever has no pre-key window, none of retail's broad group aura
+        -- registration (its Raid Buffs keep their own watch) and no Hunter's
+        -- Mark reminder: the whole retail pull bookkeeping is skipped.
         if not EABR.FOREVER then
         MarkDungeonPullStarted()
         -- Drops broad UNIT_AURA in combat unless a group reader needs it (EABR.KeepGroupAuraInCombat).
@@ -5618,7 +6108,8 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         wipe(_dismissedUntilLoad)
         -- Preserve the last known targeted-aura state across loading screens;
         -- nil is unknown and readers suppress until the delayed rescan resolves it.
-        -- WoW Forever tracks no group auras.
+        -- WoW Forever has no targeted own-aura tracking (its Raid Buffs keep
+        -- their own group watch).
         if not EABR.FOREVER then
             C_Timer.After(0.5, function()
                 CacheInstanceInfo()
@@ -5718,6 +6209,10 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         EABR.ReevaluateOwnOtherAuraTracking()
     end
 
+    -- WoW Forever (its only registration): a new rank joins the custom spells'
+    -- rank families on the next pass (EABR.ForeverFamily).
+    if e == "LEARNED_SPELL_IN_SKILL_LINE" then EABR._fvFamDirty = true end
+
     -- All other events: just refresh
     RequestRefresh()
 end)
@@ -5757,8 +6252,13 @@ if not EABR.FOREVER then
 end
 
 if EABR.FOREVER then
-    -- WoW Forever: only what the Forever section needs -- combat edges, zone
-    -- changes, the player's own aura changes, vehicles and the death states.
+    -- WoW Forever: only what its sections need -- combat edges, zone changes,
+    -- the player's own aura changes, vehicles, the death states, the rested
+    -- state's edges and newly learned spells (a rank joins the custom spells'
+    -- families, a raid buff becomes castable). Raid Buffs adds its group
+    -- events itself (EABR.FvSyncGroupWatch).
+    mainFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
+    mainFrame:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
     mainFrame:RegisterEvent("ENCOUNTER_START")
     mainFrame:RegisterEvent("ENCOUNTER_END")
     mainFrame:RegisterEvent("PLAYER_REGEN_DISABLED")

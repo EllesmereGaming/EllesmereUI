@@ -109,51 +109,155 @@ function EllesmereUI.DarkenColor(r, g, b, frac)
 end
 
 -- Effective in-game custom colours for all rendering consumers (lazy-init). Stored PER
--- PROFILE (db.profiles[name].customColors); the account-wide toggle
--- EllesmereUIDB.colorsApplyToAllProfiles (default ON, nil = on) picks which palette:
---   ON  (global, default): ONE chosen profile's palette (EllesmereUIDB.colorsPullFrom,
---        default the first profile) shared across EVERY profile.
---   OFF (per-profile): the ACTIVE profile's own palette.
--- Nothing is wiped/restored on a profile switch (the getter just resolves a different
--- table), so a spec-switch colour wipe cannot happen. Missing tables -> defaults.
+-- PROFILE (db.profiles[name].customColors: class / power / classResource / resource).
+-- Each colour SECTION of the Colors page picks its own palette source (class, power,
+-- classResource; resource rides classResource):
+--   "Apply to All Profiles" ON (default): ONE chosen profile's section (its "Pull
+--        Colors From", default the first profile) shared across EVERY profile.
+--   OFF (per-profile): the ACTIVE profile's own section.
+-- The per-section keys (EllesmereUIDB.colorsSectionApplyAll / colorsSectionPullFrom,
+-- keyed by section) are account-wide like the original pair (colorsApplyToAllProfiles
+-- / colorsPullFrom), which a section with no key of its own still reads -- an account
+-- from before the split resolves exactly as it did, nothing migrated.
+-- Nothing is wiped/restored on a profile switch (the getter just resolves different
+-- tables), so a spec-switch colour wipe cannot happen. Missing tables -> defaults.
+EllesmereUI.COLOR_SECTIONS = { "class", "power", "classResource" }
+EllesmereUI._COLOR_SECTION_OF = { class = "class", power = "power",
+    classResource = "classResource", resource = "classResource" }
+-- The palette GetCustomColorsDB hands out: its four category fields are the LIVE
+-- tables of each section's source profile, so in-place writes (db.class[token] = c)
+-- land where the section resolves and a DeepCopy of it is the effective palette.
+-- One reused table, refreshed every call; callers never keep it.
+EllesmereUI._ccComposite = {}
+
+function EllesmereUI.ColorSectionApplyAll(section)
+    local db = EllesmereUIDB
+    local own = db and db.colorsSectionApplyAll and db.colorsSectionApplyAll[section]
+    if own ~= nil then return own end
+    return not (db and db.colorsApplyToAllProfiles == false)
+end
+
+-- The NAME of the profile a section pulls from in global mode. Dangling pointers
+-- (a profile removed by a path that missed the DeleteProfile/RenameProfile cleanup,
+-- or a DB saved before that cleanup existed) are dropped, so the section falls back
+-- to the shared pointer, then the first profile, instead of the legacy table.
+function EllesmereUI.ColorSectionPullFrom(section)
+    local db = EllesmereUIDB
+    if not (db and EllesmereUI.GetProfilesDB) then return nil end
+    local pdb = EllesmereUI.GetProfilesDB()
+    local profiles = pdb.profiles
+    local t = db.colorsSectionPullFrom
+    local own = t and t[section]
+    if own and not (profiles and profiles[own]) then t[section] = nil; own = nil end
+    local shared = db.colorsPullFrom
+    if shared and not (profiles and profiles[shared]) then db.colorsPullFrom = nil; shared = nil end
+    return own or shared or (pdb.profileOrder and pdb.profileOrder[1])
+end
+
+function EllesmereUI.SetColorSectionApplyAll(section, on)
+    if not EllesmereUIDB then return end
+    EllesmereUIDB.colorsSectionApplyAll = EllesmereUIDB.colorsSectionApplyAll or {}
+    EllesmereUIDB.colorsSectionApplyAll[section] = on and true or false
+end
+
+function EllesmereUI.SetColorSectionPullFrom(section, name)
+    if not EllesmereUIDB then return end
+    EllesmereUIDB.colorsSectionPullFrom = EllesmereUIDB.colorsSectionPullFrom or {}
+    EllesmereUIDB.colorsSectionPullFrom[section] = name
+end
+
+-- True while any section reads the active profile's own colours (a profile switch
+-- then changes what renders).
+function EllesmereUI.AnyColorSectionPerProfile()
+    for _, s in ipairs(EllesmereUI.COLOR_SECTIONS) do
+        if not EllesmereUI.ColorSectionApplyAll(s) then return true end
+    end
+    return false
+end
+
+-- Point every global-mode section at profile `name` (an import that carries colours
+-- shows them): its own pointer when it has one, else the shared pointer it reads.
+-- Per-profile sections already read the active profile.
+function EllesmereUI.PointColorSectionsAt(name)
+    if not EllesmereUIDB then return end
+    local t = EllesmereUIDB.colorsSectionPullFrom
+    local sharedUsed = false
+    for _, s in ipairs(EllesmereUI.COLOR_SECTIONS) do
+        if EllesmereUI.ColorSectionApplyAll(s) then
+            if t and t[s] ~= nil then t[s] = name else sharedUsed = true end
+        end
+    end
+    if sharedUsed then EllesmereUIDB.colorsPullFrom = name end
+end
+
+-- A deleted profile drops out of every source pointer (nil = the default); returns
+-- true when one pointed at it. A renamed profile is followed (same palette tables).
+function EllesmereUI.ColorSourcesProfileRemoved(name)
+    if not EllesmereUIDB then return false end
+    local hit = false
+    if EllesmereUIDB.colorsPullFrom == name then EllesmereUIDB.colorsPullFrom = nil; hit = true end
+    local t = EllesmereUIDB.colorsSectionPullFrom
+    if t then
+        for s, n in pairs(t) do
+            if n == name then t[s] = nil; hit = true end
+        end
+    end
+    return hit
+end
+function EllesmereUI.ColorSourcesProfileRenamed(oldName, newName)
+    if not EllesmereUIDB then return end
+    if EllesmereUIDB.colorsPullFrom == oldName then EllesmereUIDB.colorsPullFrom = newName end
+    local t = EllesmereUIDB.colorsSectionPullFrom
+    if t then
+        for s, n in pairs(t) do
+            if n == oldName then t[s] = newName end
+        end
+    end
+end
+
+-- The profile whose customColors feed `section` (nil without profiles).
+function EllesmereUI._ColorSectionProfile(section)
+    if not EllesmereUI.GetProfilesDB then return nil end
+    local pdb = EllesmereUI.GetProfilesDB()
+    local name
+    if EllesmereUI.ColorSectionApplyAll(section) then
+        name = EllesmereUI.ColorSectionPullFrom(section)
+    else
+        name = pdb.activeProfile or "Default"
+    end
+    return name and pdb.profiles and pdb.profiles[name]
+end
+
 function EllesmereUI.GetCustomColorsDB()
     if not EllesmereUIDB then EllesmereUIDB = {} end
     if not EllesmereUIDB.customColors then EllesmereUIDB.customColors = {} end
-    if EllesmereUI.GetProfilesDB then
-        local pdb = EllesmereUI.GetProfilesDB()
-        if EllesmereUIDB.colorsApplyToAllProfiles == false then
-            -- Per-profile: the active profile's own palette.
-            local active = pdb.profiles and pdb.profiles[pdb.activeProfile or "Default"]
-            if active then active.customColors = active.customColors or {}; return active.customColors end
+    local out = EllesmereUI._ccComposite
+    for key, section in pairs(EllesmereUI._COLOR_SECTION_OF) do
+        local prof = EllesmereUI._ColorSectionProfile(section)
+        local cc
+        if prof then
+            prof.customColors = prof.customColors or {}
+            cc = prof.customColors
         else
-            -- Global (default): the chosen source profile's palette, used everywhere.
-            -- Heal a dangling source pointer first (profile removed by a path that
-            -- missed the DeleteProfile/RenameProfile cleanup, or a DB saved before
-            -- that cleanup existed): treat it as unset so the first profile takes
-            -- over, instead of silently falling through to the legacy account table.
-            local pull = EllesmereUIDB.colorsPullFrom
-            if pull and not (pdb.profiles and pdb.profiles[pull]) then
-                EllesmereUIDB.colorsPullFrom = nil
-            end
-            local srcName = EllesmereUIDB.colorsPullFrom or (pdb.profileOrder and pdb.profileOrder[1])
-            local src = srcName and pdb.profiles and pdb.profiles[srcName]
-            if src then src.customColors = src.customColors or {}; return src.customColors end
+            cc = EllesmereUIDB.customColors
         end
+        local cat = cc[key]
+        if type(cat) ~= "table" then cat = {}; cc[key] = cat end
+        out[key] = cat
     end
-    return EllesmereUIDB.customColors
+    return out
 end
 
--- Colour editing locks ONLY in global mode while viewing a profile other than the
--- palette source (editing a dormant palette would mislead). Per-profile mode is always
--- editable; global mode is editable on the source profile.
-function EllesmereUI.IsColorEditingLocked()
-    if not EllesmereUIDB then return false end
-    if EllesmereUIDB.colorsApplyToAllProfiles == false then return false end
-    if not EllesmereUI.GetProfilesDB then return false end
+-- A section's colour editing locks ONLY in global mode while viewing a profile other
+-- than its source (editing a dormant palette would mislead). Per-profile mode is always
+-- editable; global mode is editable on the source profile. No section = Class.
+function EllesmereUI.IsColorEditingLocked(section)
+    section = section or "class"
+    if not (EllesmereUIDB and EllesmereUI.GetProfilesDB) then return false end
+    if not EllesmereUI.ColorSectionApplyAll(section) then return false end
     local pdb = EllesmereUI.GetProfilesDB()
-    local activeName = pdb.activeProfile or "Default"
-    local srcName = EllesmereUIDB.colorsPullFrom or (pdb.profileOrder and pdb.profileOrder[1])
-    return srcName ~= nil and srcName ~= activeName
+    local src = EllesmereUI.ColorSectionPullFrom(section)
+    return src ~= nil and src ~= (pdb.activeProfile or "Default")
 end
 
 -------------------------------------------------------------------------------
@@ -299,10 +403,10 @@ function EllesmereUI.RefreshDarkMode()
     if EllesmereUI.ApplyColorsToOUF then EllesmereUI.ApplyColorsToOUF() end
 end
 
--- Global Dark Mode master toggle. Each module stores its own flag in its own DB shape (UF
+-- Global Dark Mode providers. Each module stores its own flag in its own DB shape (UF
 -- darkTheme; RB secondary.darkTheme; RF healthColorMode == "dark"), so each registers a
--- provider that reads/flips its flag AND repaints its frames. The master toggle is a pure view
--- (reads "all on", writes "set all"): no stored key, so it can never desync from the per-module toggles.
+-- provider that reads/flips its flag AND repaints its frames. The Colors page's Dark Mode
+-- dropdown is a pure view over them (one row each): no stored key, so it can never desync from the per-module toggles.
 EllesmereUI._darkModeToggles = EllesmereUI._darkModeToggles or {}
 function EllesmereUI.RegisterDarkModeToggle(provider)
     if type(provider) == "table" and type(provider.isOn) == "function"
@@ -335,7 +439,7 @@ function EllesmereUI.SetDarkModeAll(on, filter)
     end
     EllesmereUI.RefreshDarkMode()
     -- Dark Mode feeds the conditional-override "darkmode" condition. Deliberately here, NOT in
-    -- RefreshDarkMode: SetDarkModeAll is only called by the Fonts & Colors master checkboxes
+    -- RefreshDarkMode: SetDarkModeAll is only called by the Colors page's Dark Mode dropdown
     -- (pure user action), while RefreshDarkMode is also reached from the profile-apply pipeline
     -- where an extra recheck could interleave with the conditions establish choreography (cheap no-op with no darkmode group; self-defers in combat).
     if EllesmereUI.Conditions_Recheck then EllesmereUI.Conditions_Recheck() end

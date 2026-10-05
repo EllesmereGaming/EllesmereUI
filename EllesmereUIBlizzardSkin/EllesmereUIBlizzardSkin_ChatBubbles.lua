@@ -3,12 +3,10 @@ local _, ns = ...
 local EUI = _G.EllesmereUI
 if not EUI then return end
 
-local ECHAT = ns.ECHAT
-if not ECHAT then return end
-
 local PP = EUI.PP
 
--- Chat Bubbles (chatBubbles.enabled, default off), configured on the Chat options page.
+-- Chat Bubbles (chatBubbles.enabled, default off), configured on the Blizz UI Enhanced
+-- options page. Settings live per profile on the profile root (profile.chatBubbles).
 -- Blizzard's bubbles are not forbidden outside instances, so rather than replace them we ride
 -- on them: their switches stay ON, we blank the chrome and hang a styled frame on the frame
 -- carrying their position, which the engine has already put over the speaker's head. No
@@ -62,7 +60,76 @@ local EVENT_CHANNEL = {
 }
 
 local CB = {}
-ns.ChatBubbles = CB
+EUI.ChatBubbles = CB
+
+-- Off by default: switching it on also switches Blizzard's own bubbles ON for the channels
+-- enabled below, so it is opt-in.
+local DEFAULTS = {
+    enabled = false,
+    -- No guild key: Blizzard draws no bubble for guild chat, so there is nothing to ride on.
+    -- party and raid are overwritten from Blizzard's live switches the first time the feature
+    -- is enabled (SeedChannels), so group bubbles are never put in front of a player who had
+    -- them off.
+    say = true, yell = true, party = true, raid = false, npc = true, emote = true,
+    -- Our own bubbles never draw inside an instance, so this decides whether Blizzard's are
+    -- visible there.
+    hideInInstances = false,
+    padding = 8,
+    maxWidth = 260,
+    -- Nudge away from where Blizzard put the bubble we ride on.
+    offsetY = 0,
+    background = true,
+    bgColor = { r = 0, g = 0, b = 0 },
+    bgAlpha = 0.5,
+    borderSize = 1,
+    borderColor = { r = 0, g = 0, b = 0, a = 1 },
+    -- Key into the shared font registry; "__global" follows the EUI global font.
+    font = "__global",
+    fontSize = 12,
+    -- "__global" follows the EUI global outline mode; "none" is the drop shadow.
+    outline = "__global",
+    -- Channel -> true: speaker name in the bubble's top right corner for that channel.
+    showName = {},
+    nameAnchor = "TOPRIGHT",
+    nameFontSize = 10,
+    nameOffsetX = 0,
+    nameOffsetY = 0,
+    textColor = { r = 1, g = 1, b = 1 },
+    -- On, the bubble takes the per-channel colour the engine already gave it.
+    followBlizzardColor = false,
+}
+
+-- Read only. The single answer to "what is this setting worth when it is missing", shared
+-- with the options page.
+function CB.Defaults() return DEFAULTS end
+
+-- Fills keys missing from a stored table (older or migrated data) without touching set ones.
+-- Once per table: Cfg() runs per chat line.
+local filled = setmetatable({}, { __mode = "k" })
+local function FillDefaults(t)
+    if filled[t] then return t end
+    filled[t] = true
+    for k, v in pairs(DEFAULTS) do
+        if t[k] == nil then
+            t[k] = type(v) == "table" and EUI.Lite.DeepCopy(v) or v
+        end
+    end
+    return t
+end
+
+-- The active profile's settings. create=false answers nil for a profile that never touched
+-- the feature, so a player who never opens the page stores nothing.
+function CB.DB(create)
+    local prof = EUI.GetActiveProfileData()
+    if not prof then return nil end
+    local t = prof.chatBubbles
+    if type(t) ~= "table" then
+        if not create then return nil end
+        t = {}
+        prof.chatBubbles = t
+    end
+    return FillDefaults(t)
+end
 
 local active = false          -- events registered and CVars asserted
 local suspended = false       -- inside an instance, where we never draw
@@ -88,8 +155,10 @@ local eventFrame
 local EnsureFrame
 local sweepScheduled = false
 
+-- DEFAULTS (enabled = false) for a profile without settings, so a switch to it still hands
+-- back any CVars we hold. Read only.
 local function Cfg()
-    return ECHAT.BubblesDB and ECHAT.BubblesDB()
+    return CB.DB(false) or DEFAULTS
 end
 
 local function Enabled()
@@ -327,6 +396,12 @@ local function NewBubble()
     if f.text.SetNonSpaceWrap then f.text:SetNonSpaceWrap(true) end
     f.text:SetPoint("CENTER", f, "CENTER", 0, 0)
 
+    f.name = f:CreateFontString(nil, "ARTWORK")
+    f.name:SetFont("Fonts\\FRIZQT__.TTF", 10, "")
+    f.name:SetJustifyH("RIGHT")
+    f.name:SetWordWrap(false)
+    f.name:Hide()
+
     return f
 end
 
@@ -354,6 +429,7 @@ local function Release(f)
     -- Cleared so the next speaker on this frame gets their own colour, or the configured one,
     -- never the last speaker's.
     f.blizzR, f.blizzG, f.blizzB = nil, nil, nil
+    f.speaker, f.channel = nil, nil
     -- Deliberately uncapped. Every bubble frame also builds a PP border container, and PP
     -- registers those permanently (PP.ResnapAllBorders walks the list on each scale or
     -- resolution change and it never shrinks), so the count worth bounding is the number of
@@ -398,7 +474,7 @@ end
 -- clipped inside a frame still sized for the old settings.
 local function Layout(f, cfg)
     -- One place decides what a missing setting is worth.
-    local d = (ECHAT.BubbleDefaults and ECHAT.BubbleDefaults()) or cfg
+    local d = DEFAULTS
 
     local bgc = cfg.bgColor or d.bgColor
     f.bg:SetVertexColor(
@@ -417,13 +493,19 @@ local function Layout(f, cfg)
         PP.HideBorder(f)
     end
 
-    -- ECHAT's own resolvers, not EUI.GetFontPath("chat") directly: the Chat page carries its
-    -- own font and outline pickers that override the module font, and a bubble is chat output.
-    local path = (ECHAT.GetFont and ECHAT.GetFont())
-        or (EUI.GetFontPath("chat")) or "Fonts\\FRIZQT__.TTF"
-    local flag = (ECHAT.GetOutlineFlag and ECHAT.GetOutlineFlag())
-        or (EUI.GetFontOutlineFlag("chat")) or ""
+    local fontKey = cfg.font or d.font
+    local path = fontKey ~= "__global" and EUI.ResolveFontName(fontKey)
+    path = path or EUI.GetFontPath() or "Fonts\\FRIZQT__.TTF"
+    local outline = cfg.outline or d.outline
+    local flag
+    if outline == "__global" then
+        flag = EUI.GetFontOutlineFlag() or ""
+    else
+        flag = EUI.OutlineFlagForMode(outline)
+    end
     local fontSize = cfg.fontSize or d.fontSize or 12
+    -- No outline means the drop shadow, which only renders when primed before SetFont.
+    EUI.PrimeFontShadow(f.text, flag == "")
     -- SetFont answers false for a path that no longer resolves (a media addon uninstalled
     -- since the setting was made) and leaves the FontString with NO font at all, which makes
     -- the NEXT SetText raise "Font not set" in Claim, unguarded, from an event handler. Same
@@ -440,6 +522,25 @@ local function Layout(f, cfg)
     end
     f.text:SetTextColor(tr, tg, tb, 1)
 
+    -- Name row: reserves its height on the anchored edge so the two never overlap; the
+    -- offsets then move the name freely from there.
+    local nameW, nameH = 0, 0
+    local names = cfg.showName
+    if f.speaker and type(names) == "table" and names[f.channel] == true then
+        local nameSize = cfg.nameFontSize or d.nameFontSize
+        EUI.PrimeFontShadow(f.name, flag == "")
+        if not f.name:SetFont(path, nameSize, flag) then
+            f.name:SetFont("Fonts\\FRIZQT__.TTF", nameSize, flag)
+        end
+        f.name:SetTextColor(tr, tg, tb, 0.8)
+        f.name:SetText(f.speaker)
+        nameW = PP.Scale(f.name:GetUnboundedStringWidth()) + PP.mult
+        nameH = nameSize + 2
+        f.name:Show()
+    else
+        f.name:Hide()
+    end
+
     -- Config numbers that end up as frame geometry go through the pixel grid. maxWidth is a
     -- real width (it clamps the FontString), so it is snapped before the measurement.
     local padding = cfg.padding or d.padding or 0
@@ -449,7 +550,20 @@ local function Layout(f, cfg)
     -- cuts a wrapped sentence off. MeasureText leaves the FontString at the width it measured
     -- against, so the frame only has to wrap padding around the result.
     local w, h = MeasureText(f.text, maxWidth, fontSize * 1.4 * 3)
-    PP.Size(f, w + padding * 2, h + padding * 2)
+    if nameW > maxWidth then nameW = maxWidth end
+    if nameW > w then w = nameW end
+    local anchor = cfg.nameAnchor or d.nameAnchor
+    local bottom = anchor:find("BOTTOM") ~= nil
+    local nx = anchor:find("LEFT") and padding or (anchor:find("RIGHT") and -padding or 0)
+    local ny = bottom and padding or -padding
+    f.name:SetWidth(nameW)
+    f.name:SetJustifyH(anchor:find("LEFT") and "LEFT" or (anchor:find("RIGHT") and "RIGHT" or "CENTER"))
+    f.name:ClearAllPoints()
+    PP.Point(f.name, anchor, f, anchor,
+        nx + (cfg.nameOffsetX or 0), ny + (cfg.nameOffsetY or 0))
+    f.text:ClearAllPoints()
+    f.text:SetPoint("CENTER", f, "CENTER", 0, bottom and nameH / 2 or -nameH / 2)
+    PP.Size(f, w + padding * 2, h + nameH + padding * 2)
 end
 
 local _anchorFrame, _anchorTo, _anchorOff
@@ -470,7 +584,7 @@ end
 -- already run, so a caller that carried on would leave a shown frame with no point at all and,
 -- in Claim's case, blank Blizzard's chrome behind it. Both callers hand the bubble back instead.
 local function Anchor(f, cfg)
-    local d = (ECHAT.BubbleDefaults and ECHAT.BubbleDefaults()) or cfg
+    local d = DEFAULTS
     local off = cfg.offsetY or d.offsetY or 0
     f:ClearAllPoints()
     _anchorFrame, _anchorTo, _anchorOff = f, f.outer, off
@@ -491,7 +605,7 @@ end
 -- binds this local instead of creating a global.
 local HookOuter
 
-local function Claim(outer, child, fs, text)
+local function Claim(outer, child, fs, text, line)
     local cfg = Cfg()
     if not cfg then return end
 
@@ -502,6 +616,7 @@ local function Claim(outer, child, fs, text)
     -- Taken now, while the bubble is still untouched, and kept for the life of the claim so
     -- RefreshStyle can switch between the two colours without the bubble being rebuilt.
     f.blizzR, f.blizzG, f.blizzB = BlizzTextColor(fs)
+    f.speaker, f.channel = line.speaker, line.channel
     f.text:SetText(text)
     -- Shown at alpha 0 BEFORE Layout, never after: font geometry on a HIDDEN frame is wrong
     -- (the shared tooltip measures the same way for the same reason), and a wrapped line
@@ -584,11 +699,11 @@ local function OnBlizzShow(outer)
         if not IsSecret(text) then
             local idx = MatchPending(text, seenAt[outer])
             if idx then
-                table.remove(pending, idx)
+                local line = table.remove(pending, idx)
                 -- Blizzard's own text, not the chat event's: the client has already formatted
                 -- it (an emote carries the speaker's name, a monster emote its filled token),
                 -- and it is the string the bubble we are covering actually shows.
-                Claim(outer, child, fs, text)
+                Claim(outer, child, fs, text, line)
             end
         end
         return
@@ -664,8 +779,8 @@ function Sweep(direct)
                     if type(text) == "string" and not IsSecret(text) then
                         local idx = MatchPending(text, at)
                         if idx then
-                            table.remove(pending, idx)
-                            Claim(outer, child, fs, text)
+                            local line = table.remove(pending, idx)
+                            Claim(outer, child, fs, text, line)
                         end
                     end
                 end
@@ -746,7 +861,7 @@ local function RestoreCVars()
         if held[name] then
             held[name] = nil
             local prev = saved[name]
-            if prev and C_CVar.GetCVar(name) ~= prev then C_CVar.SetCVar(name, prev) end
+            if prev and C_CVar.GetCVar(name) ~= prev then EllesmereUI.ReleaseCVar(name, prev, "EllesmereUIBlizzardSkin") end
         end
     end
 end
@@ -764,11 +879,11 @@ local function ApplyCVar(name, target, saved, held)
             saved[name] = cur
             held[name] = true
         end
-        if cur ~= target then C_CVar.SetCVar(name, target) end
+        if cur ~= target then EllesmereUI.HoldCVar(name, target, "EllesmereUIBlizzardSkin") end
     elseif held[name] then
         held[name] = nil
         local prev = saved[name]
-        if prev and cur ~= prev then C_CVar.SetCVar(name, prev) end
+        if prev and cur ~= prev then EllesmereUI.ReleaseCVar(name, prev, "EllesmereUIBlizzardSkin") end
     end
     -- No third branch on purpose: a CVar we never took over is never written.
 end
@@ -894,7 +1009,7 @@ local function OnEvent(_, event, ...)
     local cfg = Cfg()
     if not cfg or cfg[channel] ~= true then return end
 
-    local text = ...
+    local text, sender = ...
     -- Every one of the fourteen events above is declared SecretInChatMessagingLockdown in
     -- Blizzard's own ChatInfoDocumentation, and their "text" payload carries no NeverSecret,
     -- so arg1 IS a secret string whenever that lockdown is in effect -- which is a state of
@@ -906,7 +1021,12 @@ local function OnEvent(_, event, ...)
 
     -- The stamp is read, not advanced: only a bubble APPEARING moves the counter, so every
     -- bubble that shows up from here on compares as newer than this line.
-    pending[#pending + 1] = { text = text, tries = 0, stamp = seenTick }
+    -- Sender shares the lockdown; a secret one is dropped, never compared or shown.
+    local speaker
+    if type(sender) == "string" and not IsSecret(sender) and sender ~= "" then
+        speaker = Ambiguate(sender, "short")
+    end
+    pending[#pending + 1] = { text = text, tries = 0, stamp = seenTick, speaker = speaker, channel = channel }
     -- Swept right here, not a timer later: if the engine already built the bubble before it
     -- dispatched this event, we claim it in the same frame and nothing of Blizzard's is ever
     -- drawn, not even on the very first message of a session, where no frame of theirs exists
@@ -1006,7 +1126,40 @@ end
 -- event registrations nor Blizzard's CVars. The options page runs this per slider STEP while
 -- a slider is being dragged, where the full pass below would re-diff the event registrations
 -- and round-trip Blizzard's switches for a change that can only move pixels.
+-- Options preview: one of our own frames, styled by the same Layout as a live bubble.
+local preview, previewOnResize
+
+local function UpdatePreview(force)
+    if not preview or not (force or preview:IsVisible()) then return end
+    local cfg = Cfg()
+    local names = cfg.showName
+    preview.channel = "say"
+    preview.speaker = (type(names) == "table" and next(names)) and UnitName("player") or nil
+    if preview.speaker then preview.channel = next(names) end
+    Layout(preview, cfg)
+    if previewOnResize then previewOnResize(preview:GetHeight()) end
+end
+
+-- Built lazily the first time the options page asks. onResize gets the bubble height.
+function CB.ShowPreview(parent, onResize)
+    if not preview then
+        preview = NewBubble()
+        preview.text:SetText("The quick brown fox jumps over the lazy dog.")
+    end
+    preview:SetParent(parent)
+    preview:SetFrameStrata(parent:GetFrameStrata())
+    preview:SetFrameLevel(parent:GetFrameLevel() + 5)
+    preview:ClearAllPoints()
+    preview:SetPoint("CENTER", parent, "CENTER", 0, 0)
+    preview:Show()
+    previewOnResize = nil
+    UpdatePreview(true)
+    previewOnResize = onResize
+    return preview
+end
+
 function CB.RefreshStyle()
+    UpdatePreview()
     if not active or suspended then return end
     local cfg = Cfg()
     if not cfg then return end
@@ -1034,6 +1187,7 @@ end
 -- The structural pass: anything that can change WHETHER we draw, or which of Blizzard's
 -- switches we hold. Called from the options page for those settings, and once at login.
 function CB.Refresh()
+    UpdatePreview()
     local on = Enabled()
     -- Ahead of both calls below: SetActive registers events off these very values, and
     -- AssertCVars is the first thing that could overwrite a switch we are about to read.
@@ -1047,4 +1201,16 @@ function CB.Refresh()
         return
     end
     CB.RefreshStyle()
+end
+
+-- Profile switches and imports re-point the profile root.
+_G._EBS_RefreshChatBubbles = CB.Refresh
+
+do
+    local boot = CreateFrame("Frame")
+    boot:RegisterEvent("PLAYER_LOGIN")
+    boot:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        CB.Refresh()
+    end)
 end

@@ -4,12 +4,13 @@
 ## Group: EllesmereUI
 ## Notes: Lightweight quality of life tools and enhancements.
 ## Author: Ellesmere
-## Version: 9.3.5
+## Version: 9.3.8
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIQoLDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Luas
+EllesmereUIQoL_ForeverStats.lua
 EllesmereUIQoL.lua
 EllesmereUIQoL_MythicStart.lua
 EllesmereUIQoL_Cursor.lua
@@ -21,6 +22,7 @@ EllesmereUIQoL_TeleportPrompt.lua
 EllesmereUIQoL_Shifter.lua
 EllesmereUIQoL_MovementAlert.lua
 EllesmereUIQoL_RaidTools.lua
+EllesmereUIQoL_SelfCombatText.lua
 EUI_UpgradeCalc.lua
 
 # Options

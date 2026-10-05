@@ -417,6 +417,19 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
     );  y = y - h
     -- Fill Color inline swatches: gradient end / custom / power
     if not EllesmereUI._prebuilding then
+    -- Spender Colors paint the fill flat once a row names a spell, as the bar does
+    -- (unless they recolor the text instead).
+    local function SpendersFlatten(c, tse)
+        if not (tse and tse.spenderColorEnabled) then return false end
+        if tse.thresholdTextInstead and c.textFormat ~= "none" then return false end
+        local list = tse.spenderColors
+        if list then
+            for i = 1, #list do
+                if list[i].spellID then return true end
+            end
+        end
+        return false
+    end
     EllesmereUI.BuildInlineSwatches(powerBorderRow._rightRegion, {
             { tooltip = "Gradient End Color", hasAlpha = true,
               disabled = function()
@@ -424,6 +437,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                   if not c.enabled then return true end
                   local tse = _G._ERB_ResolveThresholdSpecEntry and _G._ERB_ResolveThresholdSpecEntry(c)
                   if tse and (tse.thresholdEnabled ~= false) then return true end
+                  if SpendersFlatten(c, tse) then return true end
                   return not c.gradientEnabled
               end,
               disabledTooltip = function()
@@ -431,6 +445,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                   if not c or not c.enabled then return powerDisTip end
                   local tse = _G._ERB_ResolveThresholdSpecEntry and _G._ERB_ResolveThresholdSpecEntry(c)
                   if tse and (tse.thresholdEnabled ~= false) then return "This option requires Threshold Settings to be disabled" end
+                  if SpendersFlatten(c, tse) then return "This option requires Spender Colors to be disabled" end
                   return "Gradient"
               end,
               getValue = function()
@@ -710,6 +725,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
         disabledTip = "Power Bar",
         showHash = false,
         showPartialCog = true,
+        showSpenders = true,
         thresholdLabel = "Threshold %",
         threshMin = 1, threshMax = 99,
         popupTitle = "Power Bar Threshold",

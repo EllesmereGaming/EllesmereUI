@@ -7,7 +7,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
--- Glow functions from main file (available after main file loads)
+-- Glow functions from EUI_CDM_Glows.lua (available after it loads)
 local StartNativeGlow = function(...) if ns.StartNativeGlow then return ns.StartNativeGlow(...) end end
 local StopNativeGlow  = function(...) if ns.StopNativeGlow then return ns.StopNativeGlow(...) end end
 
@@ -247,6 +247,64 @@ local function ConfigureStackGate(overlay, key, threshold, operator)
     return st
 end
 
+-- Whether a Cooldown Manager entry names one of the glow spells (its spell,
+-- override or a linked spell).
+local function EntryHasSid(info, sids)
+    if sids[info.spellID] or (info.overrideSpellID and sids[info.overrideSpellID]) then return true end
+    local linked = info.linkedSpellIDs
+    if linked then
+        for i = 1, #linked do
+            if sids[linked[i]] then return true end
+        end
+    end
+    return false
+end
+
+-- Whether a Cooldown Manager entry tracks an aura on another unit.
+-- selfAura == false covers spells whose own aura lands elsewhere (Polymorph,
+-- Frost Nova, ...). A talent entry that tracks a debuff it applies still reads
+-- selfAura == true (Frost Mage's Shatter tracks its linked Freezing debuff on
+-- the target), so a harmful linked spell counts as well.
+local function EntryOnOtherUnit(info, harmful)
+    if info.selfAura == false then return true end
+    local linked = info.linkedSpellIDs
+    if harmful and linked then
+        for i = 1, #linked do
+            if linked[i] and harmful(linked[i]) then return true end
+        end
+    end
+    return false
+end
+
+-- Whether any of the glow spells (sids: set of spellIDs) is tracked on another
+-- unit (a target debuff such as Freezing). Only then does the buff ticker need
+-- the target UNIT_AURA listener (EllesmereUICdmHooks): every target aura change
+-- rebuilds the active-aura cache, so on a raid boss the whole raid's aura
+-- churn would otherwise cost players whose glows only watch their own buffs.
+-- Walks the Tracked Buff / Tracked Bar category sets; called from
+-- SetupOverlays only (glow rebuilds), never per tick.
+local function AnyTargetAura(sids)
+    if not next(sids) then return false end
+    local CV = C_CooldownViewer
+    local cats = Enum and Enum.CooldownViewerCategory
+    if not (cats and CV and CV.GetCooldownViewerCategorySet and CV.GetCooldownViewerCooldownInfo) then
+        return false
+    end
+    local harmful = C_Spell and C_Spell.IsSpellHarmful
+    for _, cat in ipairs({ cats.TrackedBuff, cats.TrackedBar }) do
+        local ok, cdIDs = pcall(CV.GetCooldownViewerCategorySet, cat, true)
+        if ok and type(cdIDs) == "table" then
+            for _, cdID in ipairs(cdIDs) do
+                local info = CV.GetCooldownViewerCooldownInfo(cdID)
+                if info and EntryHasSid(info, sids) and EntryOnOtherUnit(info, harmful) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 --- Rebuild overlay frames from assignments
 local function SetupOverlays()
     local bg = ns.GetBarGlows()
@@ -257,14 +315,19 @@ local function SetupOverlays()
             overlay:Hide()
         end
         ns._barGlowStackSids = nil
+        ns._barGlowAnyHero = nil
+        ns._bgWantTargetAuras = false
+        if ns.SetBarGlowTargetAuras then ns.SetBarGlowTargetAuras(false) end
         return
     end
 
     -- Whether the buff-tick's aura pool-walk should bother reading applications
-    -- at all (EllesmereUICdmHooks.lua): the set of spellIDs stack-gated
+    -- at all (EUI_CDM_HookViewers.lua): the set of spellIDs stack-gated
     -- entries name, nil when there are none. Only frames resolving to one of
     -- these ids pay the applications read; no gated entry = no reads at all.
     local stackSids
+    local glowSids = {}  -- every assigned glow's spellID, for AnyTargetAura
+    local anyHero
 
     local activeKeys = {}
     for assignKey, buffList in pairs(bg.assignments) do
@@ -304,6 +367,12 @@ local function SetupOverlays()
                     overlay._assignEntry = entry
                     overlay:Show()
                     activeKeys[key] = true
+                    if entry.spellID and entry.spellID > 0 then glowSids[entry.spellID] = true end
+                    -- The And condition's second buff can be a target debuff too.
+                    local cond = entry.andMode == "and" and type(entry.conditions) == "table" and entry.conditions[1]
+                    local csid = type(cond) == "table" and tonumber(cond.spellID)
+                    if csid and csid > 0 then glowSids[csid] = true end
+                    if entry.heroTree and not EllesmereUI.IS_FOREVER then anyHero = true end
                     local sid = entry.stackEnabled and entry.spellID
                     if sid and sid > 0 then
                         stackSids = stackSids or {}
@@ -314,6 +383,12 @@ local function SetupOverlays()
         end
     end
     ns._barGlowStackSids = stackSids
+    -- A hero-talent-gated glow exists: talent changes re-run the glow pass.
+    ns._barGlowAnyHero = anyHero
+    -- Listen to target auras only while some glow tracks a non-self aura (EllesmereUICdmHooks).
+    local wantTarget = AnyTargetAura(glowSids)
+    ns._bgWantTargetAuras = wantTarget
+    if ns.SetBarGlowTargetAuras then ns.SetBarGlowTargetAuras(wantTarget) end
 
     -- Hide overlays that are no longer assigned
     for key, overlay in pairs(overlayFrames) do
@@ -354,6 +429,10 @@ local function UpdateOverlayVisuals()
                 shouldGlow = not auraActive
             else
                 shouldGlow = auraActive
+            end
+            -- Second-buff (And) and hero talent conditions (EllesmereUICdmBarGlowConditions.lua)
+            if entry.andMode or entry.heroTree then
+                shouldGlow = ns.BarGlowCombine(entry, shouldGlow, ns._tickBlizzActiveCache)
             end
 
             if shouldGlow and onlyInCombat then

@@ -81,7 +81,7 @@ local function MakePlayBadge(parent, size, color)
     PP.Size(badge, size, size)
     local chip = badge:CreateTexture(nil, "BACKGROUND")
     chip:SetAllPoints()
-    chip:SetColorTexture(0.05, 0.06, 0.08, 0.95)
+    chip:SetColorTexture(0.062, 0.050, 0.039, 0.95)
     MakeBorder(badge, color.r, color.g, color.b, 0.85, PP)
     local tri = MakeTriangle(badge, math.floor(size * 0.36), math.floor(size * 0.42), 1, 1, 1, 0.95)
     PP.Point(tri, "CENTER", badge, "CENTER", size * 0.05, 0)
@@ -91,17 +91,10 @@ end
 -------------------------------------------------------------------------------
 --  Tutorial tips: small one-time play badges attached beside UI entry points
 --  (nav rows, section headers). Clicking one opens its video guide and
---  retires the badge FOREVER (per account). The "Enable Tutorial Tips"
---  toggle (Global Settings -> General) hides them all. Visual: a 16px play
---  chip in the suite accent with a slow, calm alpha breath -- present but
---  never in the way.
+--  retires the badge FOREVER (per account); until then it always shows.
+--  Visual: a 16px play icon in the suite accent -- present but never in the way.
 -------------------------------------------------------------------------------
 local liveTips = {}   -- tipId -> tip frame (RefreshTips re-evaluates these)
-local RefreshTips     -- forward declaration (AttachTip's click handler uses it)
-
-local function TipsEnabled()
-    return not (EllesmereUIDB and EllesmereUIDB.tutorialTipsDisabled)
-end
 
 local function TipSeen(id)
     return (EllesmereUIDB and EllesmereUIDB.tutorialTipsSeen
@@ -153,7 +146,7 @@ local function BuildShell()
     -- Art band: full-bleed dark well flush to the top edge, accent rule
     -- underneath. Per-guide art containers are children created in SetGuide.
     local well = popup:CreateTexture(nil, "BACKGROUND", nil, 1)
-    well:SetColorTexture(0.045, 0.055, 0.07, 1)
+    well:SetColorTexture(0.056, 0.045, 0.034, 1)
     PP.Point(well, "TOPLEFT", popup, "TOPLEFT", 0, 0)
     PP.Point(well, "TOPRIGHT", popup, "TOPRIGHT", 0, 0)
     well:SetHeight(ART_H)
@@ -215,7 +208,7 @@ local function BuildShell()
     PP.Point(urlWell, "TOP", blurb, "BOTTOM", 0, -18)
     local wbg = urlWell:CreateTexture(nil, "BACKGROUND")
     wbg:SetAllPoints()
-    wbg:SetColorTexture(0.03, 0.045, 0.06, 1)
+    wbg:SetColorTexture(0.045, 0.035, 0.027, 1)
     -- Neutral border (never accent-tinted): the link-blue text carries the
     -- "this is the link" read on its own.
     MakeBorder(urlWell, 1, 1, 1, 0.22, PP)
@@ -264,7 +257,7 @@ local function BuildShell()
     PP.Point(okBtn, "BOTTOM", popup, "BOTTOM", 0, 42)
     local okBg = okBtn:CreateTexture(nil, "BACKGROUND")
     okBg:SetAllPoints()
-    okBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+    okBg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
     ui.okBrd = MakeBorder(okBtn, 1, 1, 1, 0.9, PP)
     local okLbl = okBtn:CreateFontString(nil, "OVERLAY")
     okLbl:SetFont(FONT, 15, "")
@@ -439,14 +432,12 @@ end
 --- Attaches a one-time tutorial tip badge to a region. tipId doubles as the
 --- guide id shown on click (override via opts.guide). opts: point/relPoint/
 --- x/y (default: inside the region's right edge), size (16), tooltip.
---- Shift + right click on any badge disables them all (writes the same key
---- as the Global Settings "Enable Tutorial Tips" toggle, which re-enables).
 --- Idempotent per tipId; never builds a retired tip. Returns the tip frame.
 local function AttachTip(region, tipId, opts)
     if not region or not tipId then return nil end
     local existing = liveTips[tipId]
     if existing then
-        existing:SetShown(TipsEnabled() and not TipSeen(tipId))
+        existing:SetShown(not TipSeen(tipId))
         return existing
     end
     if TipSeen(tipId) then return nil end
@@ -473,41 +464,24 @@ local function AttachTip(region, tipId, opts)
     end
 
     -- Deliberately STATIC (no pulse): the badge stays on the UI until
-    -- clicked or disabled, so it must read as a quiet help affordance the
-    -- user consults on their own time -- never as a notification begging
-    -- for a click. Slightly dimmed idle, full brightness on hover.
+    -- clicked, so it must read as a quiet help affordance the user consults
+    -- on their own time -- never as a notification begging for a click.
+    -- Slightly dimmed idle, full brightness on hover.
     tip:SetAlpha(0.8)
 
     local tipText = opts.tooltip or "Video Guide"
     tip:SetScript("OnEnter", function(self)
         self:SetAlpha(1)
         if EllesmereUI.ShowWidgetTooltip then
-            local t = (EllesmereUI.L(tipText)) or tipText
-            local hint = (EllesmereUI.L("Shift + right click to hide video guide icons"))
-                or "Shift + right click to hide video guide icons"
-            EllesmereUI.ShowWidgetTooltip(self, t .. "\n|cff909090" .. hint .. "|r")
+            EllesmereUI.ShowWidgetTooltip(self, (EllesmereUI.L(tipText)) or tipText)
         end
     end)
     tip:SetScript("OnLeave", function(self)
         EllesmereUI.HideWidgetTooltip()
         self:SetAlpha(0.8)
     end)
-    tip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    tip:SetScript("OnClick", function(self, mouseButton)
-        if mouseButton == "RightButton" then
-            -- Shift + right click: hide ALL video guide icons. Identical to turning off
-            -- Enable Tutorial Tips in Global Settings (same key, same true-vs-nil
-            -- convention), so that toggle reads OFF and can turn them back on.
-            if not IsShiftKeyDown() then return end
-            if not EllesmereUIDB then EllesmereUIDB = {} end
-            EllesmereUIDB.tutorialTipsDisabled = true
-            EllesmereUI.HideWidgetTooltip()
-            RefreshTips()
-            -- Re-run the active page's widget refreshers so the Global
-            -- Settings toggle flips live if it is on screen right now.
-            EllesmereUI:RefreshPage()
-            return
-        end
+    tip:RegisterForClicks("LeftButtonUp")
+    tip:SetScript("OnClick", function(self)
         -- One shot: retire forever, then open the guide.
         MarkTipSeen(tipId)
         EllesmereUI.HideWidgetTooltip()
@@ -515,17 +489,14 @@ local function AttachTip(region, tipId, opts)
         Show(opts.guide or tipId)
     end)
 
-    tip:SetShown(TipsEnabled())
     liveTips[tipId] = tip
     return tip
 end
 
---- Re-evaluates every attached tip (the Enable Tutorial Tips toggle calls
---- this so flipping the setting takes effect live). Assigns the forward
---- declaration above AttachTip, whose click handler also calls it.
-RefreshTips = function()
+--- Re-evaluates every attached tip (the /euivideos reset brings retired ones back).
+local function RefreshTips()
     for id, tip in pairs(liveTips) do
-        tip:SetShown(TipsEnabled() and not TipSeen(id))
+        tip:SetShown(not TipSeen(id))
     end
 end
 
@@ -543,7 +514,7 @@ EllesmereUI.VideoGuides = {
     end,
     AttachTip = AttachTip,
     RefreshTips = RefreshTips,
-    TipsEnabled = TipsEnabled,
+    TipsEnabled = function() return true end,   -- tips always show until clicked
 }
 
 -- Reset command: clears the seen state for every video guide popup and every
@@ -612,7 +583,7 @@ do
             PPx.Point(player, "CENTER", band, "CENTER", 0, 0)
             local pbg = player:CreateTexture(nil, "BACKGROUND")
             pbg:SetAllPoints()
-            pbg:SetColorTexture(0.045, 0.055, 0.07, 1)
+            pbg:SetColorTexture(0.056, 0.045, 0.034, 1)
             ctx.MakeBorder(player, EG.r, EG.g, EG.b, 0.8, PPx)
 
             local hex = string.format("%02x%02x%02x",
@@ -756,7 +727,7 @@ do
         PPx.Point(ghost, "CENTER", band, "CENTER", -39, -6)
         local gbg = ghost:CreateTexture(nil, "BACKGROUND")
         gbg:SetAllPoints()
-        gbg:SetColorTexture(0.10, 0.11, 0.13, 1)
+        gbg:SetColorTexture(0.104, 0.096, 0.089, 1)
         ctx.MakeBorder(ghost, 1, 1, 1, 0.08, PPx)
 
         -- Gold override-group card (tank class glyphs + gold name line).
@@ -766,7 +737,7 @@ do
         PPx.Point(card, "CENTER", band, "CENTER", -31, 2)
         local cbg = card:CreateTexture(nil, "BACKGROUND")
         cbg:SetAllPoints()
-        cbg:SetColorTexture(0.12, 0.13, 0.15, 1)
+        cbg:SetColorTexture(0.121, 0.113, 0.106, 1)
         ctx.MakeBorder(card, ctx.GOLD.r, ctx.GOLD.g, ctx.GOLD.b, 0.85, PPx)
 
         local ICON, GAP = 20, 8
@@ -912,7 +883,7 @@ do
                     cbg:SetColorTexture(EG.r * 0.22, EG.g * 0.22, EG.b * 0.22, 1)
                     ctx.MakeBorder(chip, EG.r, EG.g, EG.b, 0.9, PPx)
                 else
-                    cbg:SetColorTexture(0.10, 0.11, 0.13, 1)
+                    cbg:SetColorTexture(0.104, 0.096, 0.089, 1)
                     ctx.MakeBorder(chip, 1, 1, 1, 0.15, PPx)
                 end
                 chips[k] = chip
@@ -933,7 +904,7 @@ do
                 PPx.Point(bar, "TOP", anchorTo, "BOTTOM", 0, gapY)
                 local wbg = bar:CreateTexture(nil, "BACKGROUND")
                 wbg:SetAllPoints()
-                wbg:SetColorTexture(0.10, 0.11, 0.13, 1)
+                wbg:SetColorTexture(0.104, 0.096, 0.089, 1)
                 ctx.MakeBorder(bar, 1, 1, 1, 0.15, PPx)
                 local fill = bar:CreateTexture(nil, "ARTWORK")
                 fill:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
@@ -990,7 +961,7 @@ do
                 PPx.Point(card, "CENTER", band, "CENTER", (k - 2) * (CARD_W + GAP), 0)
                 local cbg = card:CreateTexture(nil, "BACKGROUND")
                 cbg:SetAllPoints()
-                cbg:SetColorTexture(0.045, 0.055, 0.07, 1)
+                cbg:SetColorTexture(0.056, 0.045, 0.034, 1)
                 if isMid then
                     ctx.MakeBorder(card, EG.r, EG.g, EG.b, 0.85, PPx)
                 else
@@ -1016,4 +987,97 @@ do
             end
         end,
     })
+end
+
+-------------------------------------------------------------------------------
+--  Guide #5: addons that need an update ("addon_update")
+--
+--  Shown by the options panel (EllesmereUI_Panel.lua), once per session, when
+--  another addon tried to change EllesmereUI's own settings pages. Names those
+--  addons and links the plugin guide for addon authors.
+-------------------------------------------------------------------------------
+-- ONE paste point for the plugin guide on GitHub.
+EllesmereUI.PLUGINS_API_URL = "https://github.com/EllesmereGaming/EllesmereUI/blob/main/PLUGINS_API.md"
+
+do
+    local def = {
+        url       = EllesmereUI.PLUGINS_API_URL,
+        width     = 580,
+        artHeight = 96,
+        urlWidth  = 520,
+        gaps = {
+            eyebrow = 20, title = 8, blurb = 14,
+            bullets = 18, bulletRows = 8, url = 20, hint = 8,
+            button = 46, footnote = 18,
+        },
+        art = function(popup, ctx)
+            local PPx, band = ctx.PP, ctx.band
+            local EG = ctx.accent
+            local function Box(w, h, x, y, edgeR, edgeG, edgeB, edgeA)
+                local f = CreateFrame("Frame", nil, band)
+                f:SetFrameLevel(band:GetFrameLevel() + 2)
+                PPx.Size(f, w, h)
+                PPx.Point(f, "CENTER", band, "CENTER", x, y)
+                local bg = f:CreateTexture(nil, "BACKGROUND")
+                bg:SetAllPoints()
+                bg:SetColorTexture(0.056, 0.045, 0.034, 1)
+                ctx.MakeBorder(f, edgeR, edgeG, edgeB, edgeA, PPx)
+                return f
+            end
+            local function Bar(parent, w, h, x, y, r, g, b, a)
+                local t = parent:CreateTexture(nil, "ARTWORK")
+                t:SetColorTexture(r, g, b, a)
+                PPx.Size(t, w, h)
+                PPx.Point(t, "TOPLEFT", parent, "TOPLEFT", x, y)
+                return t
+            end
+
+            -- The addon (a settings cog) plugging into a section of its own,
+            -- below EllesmereUI's own rows in a mini settings panel.
+            local tile = Box(50, 50, -104, 0, EG.r, EG.g, EG.b, 0.85)
+            local cog = tile:CreateTexture(nil, "ARTWORK")
+            cog:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\cogs.png")
+            cog:SetVertexColor(1, 1, 1, 0.85)
+            PPx.Size(cog, 26, 26)
+            PPx.Point(cog, "CENTER", tile, "CENTER", 0, 0)
+
+            local arrow = ctx.MakeTriangle(band, 10, 12, EG.r, EG.g, EG.b, 0.9)
+            PPx.Point(arrow, "CENTER", band, "CENTER", -60, 0)
+
+            local panel = Box(170, 66, 44, 0, 1, 1, 1, 0.18)
+            for i = 1, 3 do Bar(panel, 40, 4, 8, -(10 + (i - 1) * 8), 1, 1, 1, 0.18) end
+            local own = CreateFrame("Frame", nil, panel)
+            own:SetFrameLevel(panel:GetFrameLevel() + 1)
+            PPx.Size(own, 46, 14)
+            PPx.Point(own, "TOPLEFT", panel, "TOPLEFT", 5, -42)
+            ctx.MakeBorder(own, EG.r, EG.g, EG.b, 0.85, PPx)
+            Bar(own, 30, 4, 8, -5, EG.r, EG.g, EG.b, 0.9)
+            Bar(panel, 1, 54, 58, -6, 1, 1, 1, 0.10)
+            Bar(panel, 88, 4, 68, -12, 1, 1, 1, 0.16)
+            Bar(panel, 70, 4, 68, -22, 1, 1, 1, 0.16)
+            Bar(panel, 80, 4, 68, -32, 1, 1, 1, 0.16)
+            Bar(panel, 60, 4, 68, -47, EG.r, EG.g, EG.b, 0.35)
+        end,
+    }
+    EllesmereUI.VideoGuides.Register("addon_update", def)
+
+    --- names: the addons' titles, sorted. One per bullet row (titles run
+    --- long); the second row sums up any past the first two.
+    function EllesmereUI.VideoGuides.ShowAddonUpdate(names)
+        local n = #names
+        def.eyebrow  = EllesmereUI.L("ADDON COMPATIBILITY")
+        def.title    = n == 1 and EllesmereUI.Lf("%1$s Issue", names[1]) or EllesmereUI.L("Some Addons Need an Update")
+        def.blurb    = EllesmereUI.L("To keep its settings safe, EllesmereUI now gives other addons their own section in the panel instead of letting them change its pages. The addons below haven't caught up yet, so those changes are hidden until they're updated. Everything else works as usual.")
+        def.footnote = EllesmereUI.L("Addon authors: this guide shows how to add your settings to EllesmereUI.")
+        def.okText   = EllesmereUI.L("Got It")
+        local rows = { { names[1] } }
+        if n == 2 then
+            rows[2] = { names[2] }
+        elseif n > 2 then
+            rows[2] = { EllesmereUI.Lf("%1$s and %2$d more", names[2], n - 2) }
+        end
+        def.bullets = rows
+        def.height = n > 1 and 481 or 460
+        return EllesmereUI.VideoGuides.Show("addon_update")
+    end
 end

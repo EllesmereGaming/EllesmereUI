@@ -419,21 +419,6 @@ local function ApplyPosition()
     frame:SetPoint("CENTER", UIParent, "CENTER", cx, cy)
 end
 
-local function SavePosition()
-    if not frame or not db then return end
-    local left, bottom = frame:GetLeft(), frame:GetBottom()
-    if not left or not bottom then return end
-    local fw, fh = frame:GetSize()
-    local cx = left + fw / 2 - UIParent:GetWidth() / 2
-    local cy = bottom + fh / 2 - UIParent:GetHeight() / 2
-    local PPp = EllesmereUI and EllesmereUI.PP
-    if PPp and PPp.SnapCenterForDim then
-        cx = PPp.SnapCenterForDim(cx, fw)
-        cy = PPp.SnapCenterForDim(cy, fh)
-    end
-    local p = P(); if p then p.pos = { centerX = cx, centerY = cy } end
-end
-
 -- Seed a concrete starting position (left of Brez) the first time the tracker
 -- is switched away from "Never". Does nothing if a position already exists.
 local function SeedDefaultPos()
@@ -1061,12 +1046,10 @@ local function RegisterUnlock()
                 end
             end,
             savePos = function(_, point, relPoint, x, y)
+                -- Unlock mode hands over CENTER/CENTER coords; on Cancel the frame
+                -- still sits at the dragged spot, so never read the live position.
                 local p = P(); if not p then return end
-                if frame and frame:GetLeft() then
-                    SavePosition()
-                else
-                    p.pos = { centerX = x, centerY = y }
-                end
+                p.pos = { centerX = x, centerY = y }
             end,
             loadPos = loadPos,
             clearPos = clearPos,

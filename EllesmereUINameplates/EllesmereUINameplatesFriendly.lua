@@ -1772,9 +1772,8 @@ end
 --- dungeon capture: an explicit "show them" must not be undone later by a
 --- restore that was queued before the user changed their mind.
 function ns.ForceFriendlyPlayerCVarsOn()
-    if not SetCVar then return end
     for i = 1, #FRIENDLY_VIS_CVARS do
-        pcall(SetCVar, FRIENDLY_VIS_CVARS[i], 1)
+        pcall(EllesmereUI.SetCVar, FRIENDLY_VIS_CVARS[i], 1, "EllesmereUINameplates")
     end
     if EllesmereUIDB then EllesmereUIDB.friendlyPlateVisSaved = nil end
 end
@@ -1796,12 +1795,12 @@ local function CaptureFriendlyVis()
 end
 
 local function RestoreFriendlyVis()
-    if not (EllesmereUIDB and SetCVar) then return end
+    if not EllesmereUIDB then return end
     local saved = EllesmereUIDB.friendlyPlateVisSaved
     if saved == nil then return end   -- nothing of ours to undo: leave them alone
     EllesmereUIDB.friendlyPlateVisSaved = nil
     for i = 1, #FRIENDLY_VIS_CVARS do
-        pcall(SetCVar, FRIENDLY_VIS_CVARS[i], saved)
+        pcall(EllesmereUI.ReleaseCVar, FRIENDLY_VIS_CVARS[i], saved, "EllesmereUINameplates")
     end
 end
 
@@ -1825,7 +1824,7 @@ function ns.UpdateFriendlyNameplateSystem()
     -- player nameplates. When disabled we leave those CVars alone so Blizzard's own
     -- Nameplate settings own them. Friendly NPC CVars are always managed because they
     -- have their own EUI toggle.
-    if not InCombatLockdown() and SetCVar then
+    if not InCombatLockdown() then
         local fp = FP()
         local euiManagesPlayers = fp and (fp.showFriendlyPlayers ~= false)
         local _, iType = GetInstanceInfo()
@@ -1835,11 +1834,11 @@ function ns.UpdateFriendlyNameplateSystem()
             -- Hiding without a capture has no matching restore, so the plates
             -- would never come back.
             if euiManagesPlayers and CaptureFriendlyVis() then
-                pcall(SetCVar, "nameplateShowFriendlyPlayers", 0)
-                pcall(SetCVar, "nameplateShowFriends", 0)
+                pcall(EllesmereUI.HoldCVar, "nameplateShowFriendlyPlayers", 0, "EllesmereUINameplates")
+                pcall(EllesmereUI.HoldCVar, "nameplateShowFriends", 0, "EllesmereUINameplates")
             end
-            pcall(SetCVar, "nameplateShowFriendlyNPCs", 0)
-            pcall(SetCVar, "nameplateShowFriendlyNpcs", 0)
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", 0, "EllesmereUINameplates")
         elseif inInstance then
             -- NPC plates only: force off in instances since our frame
             -- suppression doesn't work on protected nameplate frames.
@@ -1853,11 +1852,11 @@ function ns.UpdateFriendlyNameplateSystem()
                 -- well as in the open-world branch. Leaving it out let the health bars
                 -- return on zone-in and stay for the whole instance, since nothing else
                 -- rewrites this CVar until the player is back outside.
-                pcall(SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits",
-                    (fp and fp.friendlyNameOnly ~= false) and 1 or 0)
+                pcall(EllesmereUI.SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits",
+                    (fp and fp.friendlyNameOnly ~= false) and 1 or 0, "EllesmereUINameplates")
             end
-            pcall(SetCVar, "nameplateShowFriendlyNPCs", 0)
-            pcall(SetCVar, "nameplateShowFriendlyNpcs", 0)
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", 0, "EllesmereUINameplates")
+            pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", 0, "EllesmereUINameplates")
         else
             -- Restore user's preferred friendly CVar state
             if fp then
@@ -1867,13 +1866,13 @@ function ns.UpdateFriendlyNameplateSystem()
                     -- Hand back only what a follower dungeon took. Outside that
                     -- case visibility is the user's to own, so nothing is written.
                     RestoreFriendlyVis()
-                    pcall(SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits", nameOnlyVal)
+                    pcall(EllesmereUI.SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits", nameOnlyVal, "EllesmereUINameplates")
                 end
-                pcall(SetCVar, "nameplateShowFriendlyNPCs", showNPCs and 1 or 0)
-                pcall(SetCVar, "nameplateShowFriendlyNpcs", showNPCs and 1 or 0)
+                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNPCs", showNPCs and 1 or 0, "EllesmereUINameplates")
+                pcall(EllesmereUI.SetCVar, "nameplateShowFriendlyNpcs", showNPCs and 1 or 0, "EllesmereUINameplates")
             end
         end
-    elseif SetCVar then
+    else
         -- A zone transition that lands mid-combat drops the whole visibility
         -- pass. Without a retry that silently strands a follower-dungeon
         -- capture unclaimed and leaves friendly plates hidden until the next
@@ -1939,7 +1938,7 @@ function ns.UpdateFriendlyNameplateSystem()
     -- in name-only mode, the protected instance plates in full-plate mode. A
     -- combat skip is caught by the visibility retry above.
     if (nameOnly or shouldEnable) and not InCombatLockdown() then
-        pcall(SetCVar, "nameplateUseClassColorForFriendlyPlayerUnitNames", ns.FriendlyNameClassCVar(_fp))
+        pcall(EllesmereUI.SetCVar, "nameplateUseClassColorForFriendlyPlayerUnitNames", ns.FriendlyNameClassCVar(_fp), "EllesmereUINameplates")
     end
     if nameOnly and showFriendly then
         ApplyFriendlyFontOverride()

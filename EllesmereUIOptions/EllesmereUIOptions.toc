@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: EllesmereUI settings panel. Loads on demand when you open EllesmereUI options.
 ## Author: Ellesmere
-## Version: 9.3.5
+## Version: 9.3.8
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -12,7 +12,20 @@
 # Widget factory first: everything below builds pages with it. File order
 # mirrors the original suite load order (parent files, then children A-Z).
 EllesmereUI_Widgets.lua
+EllesmereUI_Widgets_Color.lua
+EllesmereUI_Widgets_Rows.lua
+EllesmereUI_Widgets_CogPopup.lua
+EllesmereUI_Widgets_SegmentedControl.lua
+EllesmereUI_Widgets_ApplyToAll.lua
+EllesmereUI_Widgets_RowAddons.lua
+EllesmereUI_Widgets_AuraPopups.lua
+EllesmereUI_Widgets_CheckboxDropdowns.lua
+EllesmereUI_Widgets_Visibility.lua
+EllesmereUI_Widgets_PageParts.lua
 EllesmereUI_GlowOptions.lua
+EUI_Colors_Options.lua
+EUI_Profiles_Options.lua
+EUI_WhatsNew_Options.lua
 EUI__General_Options.lua
 EUI_Fonts_Options.lua
 EUI_Textures_Options.lua
@@ -21,28 +34,44 @@ EUI_Gamepad_Options.lua
 EUI_Style_Options.lua
 EUI_PartyMode_Options.lua
 
+ActionBars_Options\AnimationsPage_Options.lua
+ActionBars_Options\BarAppearance_Options.lua
+ActionBars_Options\BarVisibilityLayout_Options.lua
+ActionBars_Options\LivePreview_Options.lua
+ActionBars_Options\XPBarPage_Options.lua
+ActionBars_Options\MenuBagsRepPage_Options.lua
 EUI_ActionBars_Options.lua
 EUI_AuraBuffReminders_Options.lua
 EUI_Bags_Options.lua
 EUI_BlizzardSkin_Options.lua
 EUI_Chat_Options.lua
+CooldownManager_Options\BarsPage_Options.lua
+CooldownManager_Options\BuffBarsPage_Options.lua
+CooldownManager_Options\LivePreview_Options.lua
+CooldownManager_Options\Pickers_Options.lua
+CooldownManager_Options\SpellPicker_Options.lua
 EUI_CooldownManager_Options.lua
 EUI_CooldownManager_TalentConditions.lua
+EUI_CooldownManager_BarGlowConditions.lua
 EUI_DamageMeters_Options.lua
 EllesmereUIDataBars_Options.lua
 EUI_ForeverEssentials_Options.lua
+EUI_ForeverEssentials_General_Options.lua
 EUI_ForeverEssentials_Travel_Options.lua
 EUI_ForeverEssentials_Threat_Options.lua
+EUI_ForeverEssentials_Loot_Options.lua
 EUI_Friends_Options.lua
 EUI_Minimap_Options.lua
 EUI_MythicTimer_Options.lua
 Nameplates_Options\ColorsPage_Options.lua
+Nameplates_Options\CoreTextColoring_Options.lua
 Nameplates_Options\DisplayBars_Options.lua
 Nameplates_Options\DisplayLayout_Options.lua
 Nameplates_Options\GeneralPage_Options.lua
 Nameplates_Options\NameplatePreview_Options.lua
 EUI_Nameplates_Options.lua
 EUI_QoL_Options.lua
+EUI_QoL_StatPicker.lua
 EUI_QoL_Cursor_Options.lua
 EUI_QoL_BattleRes_Options.lua
 EUI_QoL_AutoLogging_Options.lua
@@ -53,6 +82,9 @@ EUI_UpgradeCalc_Options.lua
 EUI_QuestTracker_Options.lua
 EUI_Quickdraw_Options.lua
 EUI_RaidFrames_ManagerPages.lua
+RaidFrames_Options\FramesPages_Options.lua
+RaidFrames_Options\VisualBars_Options.lua
+RaidFrames_Options\VisualIndicators_Options.lua
 EUI_RaidFrames_Options.lua
 ResourceBars_Options\HealthSection_Options.lua
 ResourceBars_Options\PowerSection_Options.lua

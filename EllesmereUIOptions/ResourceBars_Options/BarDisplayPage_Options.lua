@@ -48,8 +48,8 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
             end,
         }
     end
-    -- Own values/order copy per extra texture dropdown (the per-bar row), so no
-    -- two dropdowns share one table pair.
+    -- Own values/order copy per extra texture dropdown (the Texture cog's per-bar
+    -- rows), so no two dropdowns share one table pair.
     local function CopyTexDD()
         local v, o = {}, {}
         for k, name in pairs(hbtValues) do v[k] = name end
@@ -363,20 +363,17 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
         end
     end
 
-    -- Row 3: Texture (cog: per-bar textures, Blizzard atlas for class resource) | Frame Strata.
-    -- The row always writes general.barTexture. With splitTex on (the cog's "Choose texture
-    -- per bar") health and power read their own keys from the row below, so this row
-    -- narrows to the class resource and says so.
+    -- Row 3: Texture | Frame Strata. Each sets all three bars; its cog gives the health and
+    -- power bars their own (Match Main follows the row). A bar's own texture is written
+    -- through ns.ERB_SetBarTexture, which keeps splitTex in step (the runtime, the Style
+    -- page's slots and the Global Settings Textures page read it); a bar's own strata is
+    -- health.frameStrata / primary.frameStrata. Match Main is stored false, not nil:
+    -- profile sync copies only keys that exist.
     local strataValues = EllesmereUI.FRAME_STRATA_LABELS
     local strataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
-    local texLabel = "Texture"
-    do
-        local p0 = DB()
-        if p0 and p0.splitTex == true then texLabel = "Texture (Class Resource)" end
-    end
     local texRow
     texRow, h = W:DualRow(parent, y,
-        { type = "dropdown", text = texLabel, values = hbtValues, order = hbtOrder,
+        { type = "dropdown", text = "Texture", values = hbtValues, order = hbtOrder,
           getValue = function()
               local p = DB(); if not p then return "none" end
               return p.general.barTexture or "none"
@@ -395,94 +392,79 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
               local p = DB(); if not p then return end
               p.general.frameStrata = v; SmoothRefresh()
           end }
-    );
-    -- Texture cog: per-bar textures, and the Blizzard atlas fill for the class resource bar.
-    -- cogShow is declared BEFORE the build so the per-bar toggle's set closure captures it
-    -- (same as the Background cog); the lazily built popup is reached via cogShow._popupFrame.
-    local cogShow
-    cogShow = select(2, EllesmereUI.BuildInlineCog(texRow._leftRegion, {
-        title = "Texture Settings",
-        rows = {
-            { type = "toggle", label = "Choose texture per bar",
-              get = function()
-                  local p = DB(); return (p and p.splitTex) == true
-              end,
-              set = function(v)
-                  local p = DB(); if not p then return end
-                  if v then
-                      -- Health and power start on the texture they show now, so the
-                      -- relabelled main row moves only the class resource from here on.
-                      p.splitTex = true
-                      local t = p.general.barTexture
-                      p.health.barTexture, p.primary.barTexture = t, t
-                      -- Close the popup so the newly revealed per-bar row is visible
-                      local pfr = cogShow and cogShow._popupFrame
-                      if pfr then pfr:Hide() end
-                  else
-                      -- Off means one texture again: every bar follows the main row.
-                      -- Stored false, not nil: profile sync copies only keys that exist,
-                      -- so a nil would never switch it off in a synced profile.
-                      p.splitTex = false
-                      p.health.barTexture, p.primary.barTexture = nil, nil
-                      SmoothRefresh()
-                  end
-                  -- The Global Settings Textures page mirrors these rows and is built
-                  -- from the same flag: drop its cached build.
-                  if EllesmereUI.InvalidateModulePageCache then
-                      EllesmereUI:InvalidateModulePageCache("_EUIGlobal")
-                  end
-                  EllesmereUI:RefreshPage(true)
-              end },
-            { type = "toggle", label = "Blizzard Class Resource Bar Texture",
-              tooltip = "Bar-style class resources (Insanity, Maelstrom, Astral Power, etc.) use Blizzard's default player frame bar artwork instead of the texture above.",
-              get = function()
-                  local p = DB(); return (p and p.secondary.useBlizzardAtlas) or false
-              end,
-              set = function(v)
-                  local p = DB(); if not p then return end
-                  p.secondary.useBlizzardAtlas = v
-                  RebuildClass()
-                  if v then
-                      EllesmereUI:ShowConfirmPopup({
-                          title = "Blizzard Class Resource Bar Texture",
-                          message = "Blizzard's bar artwork is never recolored, so fill color modes and threshold colors will not tint the bar while this is enabled. To keep threshold colors visible, use Recolor Text Instead.",
-                          confirmText = "Okay",
-                      })
-                  end
-              end },
-        },
-    }))
-    y = y - h
-
-    -- Per-bar texture row, built ONLY while "Choose texture per bar" is on, so the page is
-    -- byte-identical for everyone else. Health writes health.barTexture, Power writes
-    -- primary.barTexture; the class resource keeps general.barTexture on the row above.
-    do
-        local p0 = DB()
-        if p0 and p0.splitTex == true then
-            local hv, ho = CopyTexDD()
-            local pv, po = CopyTexDD()
-            _, h = W:DualRow(parent, y,
-                { type = "dropdown", text = "Health Texture", values = hv, order = ho,
-                  getValue = function()
-                      local p = DB(); if not p then return "none" end
-                      return p.health.barTexture or p.general.barTexture or "none"
-                  end,
-                  setValue = function(v)
-                      local p = DB(); if not p then return end
-                      p.health.barTexture = v; SmoothRefresh()
-                  end },
-                { type = "dropdown", text = "Power Texture", values = pv, order = po,
-                  getValue = function()
-                      local p = DB(); if not p then return "none" end
-                      return p.primary.barTexture or p.general.barTexture or "none"
-                  end,
-                  setValue = function(v)
-                      local p = DB(); if not p then return end
-                      p.primary.barTexture = v; SmoothRefresh()
-                  end }
-            );  y = y - h
+    );  y = y - h
+    if not EllesmereUI._prebuilding then
+        local function BarTextureRow(label, barKey)
+            local v, o = CopyTexDD()
+            v.__match = "Match Main Texture"
+            table.insert(o, 1, "---")
+            table.insert(o, 1, "__match")
+            return { type = "dropdown", label = label, values = v, order = o, ddWidth = 170,
+                get = function()
+                    local p = DB(); return p and ns.ERB_BarTexture(p, barKey) or "__match"
+                end,
+                set = function(val)
+                    local p = DB(); if not p then return end
+                    local was = p.splitTex == true
+                    ns.ERB_SetBarTexture(p, barKey, val ~= "__match" and val)
+                    SmoothRefresh()
+                    -- The Global Settings Textures page shows the health and power rows
+                    -- only while one has its own texture: drop its cached build on a flip.
+                    if (p.splitTex == true) ~= was then
+                        EllesmereUI:InvalidateModulePageCache("_EUIGlobal")
+                    end
+                end }
         end
+        local function BarStrataRow(label, barKey)
+            local v, o = { __match = "Match Main Strata" }, { "__match", "---" }
+            for i = 1, #strataOrder do
+                local k = strataOrder[i]
+                v[k] = strataValues[k]
+                o[#o + 1] = k
+            end
+            return { type = "dropdown", label = label, values = v, order = o, ddWidth = 150,
+                get = function()
+                    local p = DB(); return p and p[barKey].frameStrata or "__match"
+                end,
+                set = function(val)
+                    local p = DB(); if not p then return end
+                    p[barKey].frameStrata = val ~= "__match" and val or false
+                    SmoothRefresh()
+                end }
+        end
+        EllesmereUI.BuildInlineCog(texRow._leftRegion, {
+            title = "Texture Settings",
+            captureRegion = texRow._leftRegion,
+            rows = {
+                BarTextureRow("Health Texture", "health"),
+                BarTextureRow("Power Texture", "primary"),
+                { type = "toggle", label = "Blizzard Class Resource Bar Texture",
+                  tooltip = "Bar-style class resources (Insanity, Maelstrom, Astral Power, etc.) use Blizzard's default player frame bar artwork instead of the texture above.",
+                  get = function()
+                      local p = DB(); return (p and p.secondary.useBlizzardAtlas) or false
+                  end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.secondary.useBlizzardAtlas = v
+                      RebuildClass()
+                      if v then
+                          EllesmereUI:ShowConfirmPopup({
+                              title = "Blizzard Class Resource Bar Texture",
+                              message = "Blizzard's bar artwork is never recolored, so fill color modes and threshold colors will not tint the bar while this is enabled. To keep threshold colors visible, use Recolor Text Instead.",
+                              confirmText = "Okay",
+                          })
+                      end
+                  end },
+            },
+        })
+        EllesmereUI.BuildInlineCog(texRow._rightRegion, {
+            title = "Frame Strata Settings",
+            captureRegion = texRow._rightRegion,
+            rows = {
+                BarStrataRow("Health Strata", "health"),
+                BarStrataRow("Power Strata", "primary"),
+            },
+        })
     end
 
     -- Row 4: Blizzard Class Resource Art | Expand Power Bar if No Resource
@@ -580,6 +562,40 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                       local p = DB(); if not p then return end
                       p.secondary.blizzardClassArtScale = v / 100
                       if ns.ERB_ApplyBlizzClassArt then ns.ERB_ApplyBlizzClassArt() end
+                  end },
+            },
+        })
+    end
+    -- Inline reposition cog on "Expand Power Bar if No Resource": Extra Y Offset.
+    -- Greyed whenever the expand cannot apply (the toggle off, the Power Bar
+    -- off, or the bar Height Matched), with the toggle's own reasons.
+    if not EllesmereUI._prebuilding then
+        local rgn = blizzArtRow._rightRegion
+        local function heightMatched()
+            return EllesmereUI.GetHeightMatchTarget and EllesmereUI.GetHeightMatchTarget("ERB_Power")
+        end
+        EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+            disabled = function()
+                local p = DB()
+                if not (p and p.primary.enabled and p.primary.expandIfNoResource) then return true end
+                return heightMatched() and true or false
+            end,
+            disabledTooltip = function()
+                local p = DB()
+                if p and not p.primary.enabled then return "Power Bar" end
+                if heightMatched() then
+                    return "This option can't be used while you have the Power Bar Height Matched in the Unlock Mode."
+                end
+                return "Expand Power Bar if No Resource"
+            end,
+            title = "Expand Offset",
+            rows = {
+                { type = "slider", pixel = true, label = "Extra Y Offset", min = -50, max = 50, step = 1,
+                  get = function() local p = DB(); return (p and p.primary.expandIfNoResourceExtraY) or 0 end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.primary.expandIfNoResourceExtraY = v
+                      Refresh()
                   end },
             },
         })

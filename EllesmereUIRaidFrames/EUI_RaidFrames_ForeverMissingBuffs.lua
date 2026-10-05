@@ -42,46 +42,37 @@ local EllesmereUI = _G.EllesmereUI
 if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 
 -- One entry per buff, shown in this order. class: the one class that casts
--- it; setting: its own switch (the cog's checkbox list; nil = on); names:
--- spells whose (localized) names cover every rank and the group version;
--- ranks: the player ranks and the group version (the "player can cast it"
--- and restriction tests); ids: every spell that applies the buff (ranks,
--- group version, NPC casts) for the aura-event probe.
+-- it; setting: its own switch (the cog's checkbox list; nil = on); from: the
+-- shared buff families it is made of (EllesmereUI.FOREVER_BUFF_FAMILIES),
+-- merged below into names (spells whose localized names cover every rank and
+-- the group version), ranks (the player ranks and the group version: the
+-- "player can cast it" and restriction tests) and ids (every spell that
+-- applies the buff, for the aura-event probe).
 local FAMILIES = {
-    { key = "fort", class = "PRIEST", setting = "missingBuffsFort", icon = 1243, names = { 1243, 21562 },
-      ranks = { 1243, 1244, 1245, 2791, 10937, 10938, 21562, 21564 },
-      ids = { 1243, 1244, 1245, 2791, 10937, 10938, 10939, 10940, 13864, 23947, 23948,
-              21562, 21564, 450086 } },
-    { key = "mark", class = "DRUID", setting = "missingBuffsMark", icon = 1126, names = { 1126, 21849 },
-      ranks = { 1126, 5232, 6756, 5234, 8907, 9884, 9885, 21849, 21850 },
-      ids = { 1126, 5232, 5234, 5286, 5287, 6756, 8907, 8908, 9884, 9885, 16878, 24752,
-              364163, 1291335, 1310503, 21849, 21850 } },
-    { key = "spirit", class = "PRIEST", setting = "missingBuffsSpirit", icon = 14752, names = { 14752, 27681 },
-      ranks = { 14752, 14818, 14819, 27841, 27681 },
-      ids = { 14752, 14818, 14819, 16875, 27841, 27681 } },
-    -- Thorns: six druid ranks (Balance), no group version; ids = every spell
-    -- named Thorns on the client, matching the by-name look-up.
-    { key = "thorns", class = "DRUID", setting = "missingBuffsThorns", icon = 467, names = { 467 },
-      ranks = { 467, 782, 1075, 8914, 9756, 9910 },
-      ids = { 467, 782, 1075, 8914, 9756, 9910, 15438, 16877, 21335, 21337, 22128, 22351, 22696,
-              25640, 25777, 438294, 438326, 1213813, 1213816, 1213834, 1236308, 1291338, 1312955 } },
+    { key = "fort",   class = "PRIEST", setting = "missingBuffsFort",   icon = 1243,  from = { "fort" } },
+    { key = "mark",   class = "DRUID",  setting = "missingBuffsMark",   icon = 1126,  from = { "mark" } },
+    { key = "spirit", class = "PRIEST", setting = "missingBuffsSpirit", icon = 14752, from = { "spirit" } },
+    -- Thorns: six druid ranks (Balance), no group version.
+    { key = "thorns", class = "DRUID",  setting = "missingBuffsThorns", icon = 467,   from = { "thorns" } },
     -- Paladin Blessings: one buff made of every blessing (Might, Wisdom, Kings,
     -- Salvation, Light and their Greater versions), missing only while the
-    -- member has none of them; shown with the Kings icon. ranks = the trainable
-    -- spells (SkillLineAbility); ids add the client's two non-trainable ones
-    -- (1213408 Kings, 26650 Light).
+    -- member has none of them; shown with the Kings icon.
     { key = "blessing", class = "PALADIN", setting = "missingBuffsBlessing", icon = 20217,
-      names = { 19740, 19742, 20217, 1038, 19977, 25782, 25894, 25898, 25895, 25890 },
-      ranks = { 19740, 19834, 19835, 19836, 19837, 19838, 25291,
-                19742, 19850, 19852, 19853, 19854, 25290,
-                20217, 1038, 19977, 19978, 19979,
-                25782, 25916, 25894, 25918, 25898, 25895, 25890 },
-      ids = { 19740, 19834, 19835, 19836, 19837, 19838, 25291,
-              19742, 19850, 19852, 19853, 19854, 25290,
-              20217, 1213408, 1038, 19977, 19978, 19979, 26650,
-              25782, 25916, 25894, 25918, 25898, 25895, 25890 } },
+      from = { "might", "wisdom", "kings", "salvation", "light" } },
 }
 local NUM_FAMILIES = #FAMILIES
+for i = 1, NUM_FAMILIES do
+    local fam = FAMILIES[i]
+    local names, ranks, ids = {}, {}, {}
+    for _, key in ipairs(fam.from) do
+        local shared = EllesmereUI.FOREVER_BUFF_FAMILIES[key]
+        for _, id in ipairs(shared.names) do names[#names + 1] = id end
+        for _, id in ipairs(shared.single) do ranks[#ranks + 1] = id end
+        for _, id in ipairs(shared.group) do ranks[#ranks + 1] = id end
+        for _, id in ipairs(shared.ids) do ids[#ids + 1] = id end
+    end
+    fam.names, fam.ranks, fam.ids = names, ranks, ids
+end
 local FAMILY_BY_ID = {}  -- spell id -> family index
 for i = 1, NUM_FAMILIES do
     for _, id in ipairs(FAMILIES[i].ids) do FAMILY_BY_ID[id] = i end

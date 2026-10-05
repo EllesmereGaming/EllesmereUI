@@ -1513,15 +1513,6 @@ instanceFrame:SetScript("OnEvent", function(_, event)
     end
 end)
 
--- CVar helper
-local function SetCVarSafe(name, value)
-    if C_CVar and C_CVar.SetCVar then
-        C_CVar.SetCVar(name, value)
-    elseif SetCVar then
-        SetCVar(name, value)
-    end
-end
-
 local function SetDMFont(fs, size, flagsOverride, fontOverride)
     EllesmereUI.ApplyModuleFont(fs, fontOverride, size, "damageMeters", flagsOverride)
 end
@@ -6487,7 +6478,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- Style page seeds on the switch; flags make both idempotent).
     if ns.DMClassic() then ns.DMSeedClassic(DB()) end
     -- Disable Blizzard's built-in damage meter UI; C_DamageMeter API still works
-    SetCVarSafe("damageMeterEnabled", 0)
+    EllesmereUI.SetCVar("damageMeterEnabled", 0, "EllesmereUIDamageMeters")
     AppendDMSharedMedia()
 
     _playerGUID = UnitGUID("player")

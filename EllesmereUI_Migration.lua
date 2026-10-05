@@ -1695,6 +1695,20 @@ EllesmereUI.RegisterMigration({
 })
 
 EllesmereUI.RegisterMigration({
+    id          = "chat_bubbles_to_blizzskin_v1",
+    scope       = "profile",
+    description = "Move Chat Bubbles settings from the Chat module profile to the profile root (Blizz UI Enhanced).",
+    body = function(ctx)
+        local chat = ctx.profile.addons and ctx.profile.addons.EllesmereUIChat
+        if not chat or type(chat.chatBubbles) ~= "table" then return end
+        if ctx.profile.chatBubbles == nil then
+            ctx.profile.chatBubbles = chat.chatBubbles
+        end
+        chat.chatBubbles = nil
+    end,
+})
+
+EllesmereUI.RegisterMigration({
     id          = "np_border_ellesmere_to_simple_v3",
     scope       = "profile",
     description = "No-op (superseded by np_border_v5).",
@@ -3869,11 +3883,11 @@ EllesmereUI.RegisterMigration({
         if not db then return end
         local _, physH = GetPhysicalScreenSize()
         if type(physH) ~= "number" or physH <= 0 then return end
-        -- Snap BEFORE the reset test: the dropdown offers only fixed steps, so an
-        -- off-menu seed (1600p lands on 1.111) would leave the control reading
-        -- "Normal (100%)" while the panel renders larger. Testing the SNAPPED
-        -- value keeps the reset honest: a display rounding back to 1.00 has
-        -- nothing to correct and must not fire the overwrite branch.
+        -- Snap BEFORE the reset test: the Window Scale slider moves in 5% steps,
+        -- so an off-step seed (1600p lands on 1.111) would read differently from
+        -- what the panel renders at. Testing the SNAPPED value keeps the reset
+        -- honest: a display rounding back to 1.00 has nothing to correct and must
+        -- not fire the overwrite branch.
         local seeded = math.max(1, math.min(physH / 1440, 2))
         if EllesmereUI.SnapPanelScale then seeded = EllesmereUI.SnapPanelScale(seeded) end
 

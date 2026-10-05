@@ -3316,8 +3316,14 @@ function EMT:OnEnable()
                     -- the same space as upX. Without this the stored offset
                     -- shrinks at larger scales and the frame snaps toward the
                     -- middle every time settings re-apply (e.g. Show Preview).
+                    --
+                    -- Unlock Cancel hands back the pre-session snapshot, i.e. the
+                    -- value already stored, while the frame still sits at the
+                    -- dragged spot: keep the stored value, never the live read.
                     local f = standaloneFrame
-                    if f and f:GetCenter() then
+                    local cur = db.profile.standalonePos
+                    local isRestore = cur and x ~= nil and cur.centerX == x and cur.centerY == y
+                    if not isRestore and f and f:GetCenter() then
                         local cx, cy = f:GetCenter()
                         local upX, upY = UIParent:GetCenter()
                         local fes = f:GetEffectiveScale() or 1

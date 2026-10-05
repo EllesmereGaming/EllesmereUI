@@ -9,6 +9,709 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUINameplates"]
 if not ns then return end  -- module disabled: no options page
 
+-- The nameplate Threat % cog's rows (WoW Forever): get(key) reads the
+-- profile, set(key, v) writes it and refreshes the text.
+if EllesmereUI.IS_FOREVER then
+    function ns.NPO_ThreatPctRows(get, set)
+        local function Slider(key, label, lo, hi)
+            return { type="slider", label=label, min=lo, max=hi, step=1,
+              get=function() return get(key) end,
+              set=function(v) set(key, v) end }
+        end
+        -- The gap colours show while the gap is picked and coloured.
+        local function GapColorOff()
+            return get("threatPctMode") ~= "gap" or not get("threatPctColorByThreat")
+        end
+        local function GapColor(key, label, tip)
+            return { type="colorpicker", label=label, tooltip=tip, hidden=GapColorOff,
+              get=function()
+                local c = get(key)
+                if c then return c.r, c.g, c.b end
+                return 1, 1, 1
+              end,
+              set=function(r, g, b) set(key, { r = r, g = g, b = b }) end }
+        end
+        return {
+            { type="dropdown", label="Text Shows",
+              values={ percent = "Threat %", gap = "Threat Gap" }, order={ "percent", "gap" },
+              tooltip="Threat Gap shows on your target's plate only.",
+              get=function() return get("threatPctMode") or "percent" end,
+              set=function(v) set("threatPctMode", v) end },
+            { type="toggle", label="Color by Threat",
+              tooltip="Colors the number. Off shows it in white.",
+              get=function() return get("threatPctColorByThreat") end,
+              set=function(v) set("threatPctColorByThreat", v) end },
+            GapColor("threatGapAheadColor", "Ahead Color", "When your threat is higher."),
+            GapColor("threatGapBehindColor", "Behind Color", "When theirs is higher."),
+            Slider("threatPctSize", "Size", 6, 20),
+            Slider("threatPctXOffset", "X Offset", -100, 100),
+            Slider("threatPctYOffset", "Y Offset", -100, 100),
+        }
+    end
+end
+
+-- EUI_DEBUFF_COLORS: the per-class debuff lists (the list kit lives in
+-- EllesmereUINameplates_DebuffColors.lua). Debuffs, then combos, two to a
+-- row, each named after its class with up/down arrows beside the name that
+-- reorder it (the higher entry wins); an Add button after each list picks
+-- the class. Every edit reaches the plates as it is made (the runtime
+-- rebuilds at most once a frame, and only for the player's own class); a
+-- color drag waits for the picker to close. debuffColorAdded: the entry Add
+-- just made, kept across the page rebuild Add runs so the rebuilt row
+-- reports the write to Spec Overrides.
+local debuffColorAdded
+function ns.NP_BuildDebuffColorsOptions(parent, y)
+    local DC = ns.DebuffColorKit
+    if not DC then return y end
+    local W = EllesmereUI.Widgets
+    local PP = EllesmereUI.PanelPP
+    local function Get(key)
+        local db = ns.db and ns.db.profile
+        if db and db[key] ~= nil then return db[key] end
+        return ns.defaults[key]
+    end
+    local function Off() return Get("debuffColorsEnabled") ~= true end
+    local function Read(class) return DC.Read(class, Get) end
+    -- Every edit applies at once. The color picker writes on every frame of a
+    -- drag, so while it is open the refresh waits for it to close.
+    local function Apply()
+        if EllesmereUI._colorPickerOpen then
+            EllesmereUI._deferredDriftChecks = EllesmereUI._deferredDriftChecks or {}
+            EllesmereUI._deferredDriftChecks[ns.DebuffColors_RequestRefresh] = true
+        else
+            ns.DebuffColors_RequestRefresh()
+        end
+    end
+    local function Write(class, singles, combos, rgn)
+        ns.db.profile[DC.Key(class)] = DC.Encode(singles, combos)
+        if rgn then EllesmereUI._NotifySettingWrite(rgn) end
+        Apply()
+    end
+    local function Rebuild() EllesmereUI:RefreshPage(true) end
+    local function SpellName(id, fallback)
+        return (id and C_Spell and C_Spell.GetSpellName(id)) or fallback
+    end
+    local function SpellIcon(id)
+        if not id then return end
+        local texture = C_Spell and C_Spell.GetSpellTexture(id)
+        if texture then return texture end
+        local info = C_Spell and C_Spell.GetSpellInfo(id)
+        local preset = ns.DebuffColorPresetByID[id]
+        return (info and info.iconID) or (preset and preset[4])
+            or "Interface\\Icons\\INV_Misc_QuestionMark"
+    end
+    local function CopyColor(c) return { r = c.r, g = c.g, b = c.b } end
+    -- A list's chosen spells, each once, in priority order.
+    local function Chosen(singles)
+        local out, seen = {}, {}
+        for _, e in ipairs(singles) do
+            if e.spell > 0 and not seen[e.spell] then
+                seen[e.spell] = true
+                out[#out + 1] = e.spell
+            end
+        end
+        return out
+    end
+
+    -- Classes: the player's first, then the rest alphabetically. Only the
+    -- classes this client has (a class's saved list elsewhere stays as is).
+    local _, playerClass = UnitClass("player")
+    local NAME, ORDER = {}, {}
+    if EllesmereUI.IS_FOREVER then
+        for _, file in ipairs(EllesmereUI.ForeverClasses()) do
+            NAME[file] = EllesmereUI.ForeverClassName(file)
+            ORDER[#ORDER + 1] = file
+        end
+    else
+        for i = 1, (GetNumClasses and GetNumClasses() or 0) do
+            local name, file = GetClassInfo(i)
+            if name and file then
+                NAME[file] = name
+                ORDER[#ORDER + 1] = file
+            end
+        end
+    end
+    table.sort(ORDER, function(a, b)
+        if (a == playerClass) ~= (b == playerClass) then return a == playerClass end
+        return NAME[a] < NAME[b]
+    end)
+    local CLASS_VALUES = { _noLoc = true }
+    for _, class in ipairs(ORDER) do
+        local c = EllesmereUI.GetClassColor(class)
+        CLASS_VALUES[class] = EllesmereUI.HexColor(c.r, c.g, c.b) .. NAME[class] .. "|r"
+    end
+
+    -- The presets for the spell menus (WoW Forever lists none: they are
+    -- retail spell IDs). A debuff row offers only its own class's presets, in
+    -- the preset table's order; any other spell it holds reads as custom.
+    local classPresets = {}
+    if not EllesmereUI.IS_FOREVER then
+        for _, spell in ipairs(ns.DebuffColorPresets) do
+            local token = spell[3]:gsub("%s", ""):upper()
+            local set = classPresets[token]
+            if not set then
+                set = { order = { "remove", "custom" }, byKey = {} }
+                classPresets[token] = set
+            end
+            local key = tostring(spell[1])
+            set.order[#set.order + 1] = key
+            set.byKey[key] = { id = spell[1], name = SpellName(spell[1], spell[2]), class = spell[3] }
+        end
+    end
+    local NO_PRESETS = { order = { "remove", "custom" }, byKey = {} }
+    local function Presets(class) return classPresets[class] or NO_PRESETS end
+    -- A class's custom spells: every spell its lists hold that is not one of
+    -- its presets, once each, debuffs first. Each is an item of the class's
+    -- spell menus for as long as something holds it.
+    local function Customs(class)
+        local own, out, seen = Presets(class).byKey, {}, {}
+        local singles, combos = Read(class)
+        local function Add(id)
+            local key = tostring(id)
+            if id > 0 and not own[key] and not seen[key] then
+                seen[key] = true
+                out[#out + 1] = key
+            end
+        end
+        for _, e in ipairs(singles) do Add(e.spell) end
+        for _, k in ipairs(combos) do
+            for _, id in ipairs(k.spells) do Add(id) end
+        end
+        return out
+    end
+
+    local function Label(cell)
+        if cell.kind == "combo" then
+            return EllesmereUI.Lf("%1$s Combo %2$d", NAME[cell.class], cell.n)
+        end
+        return EllesmereUI.Lf("%1$s Debuff %2$d", NAME[cell.class], cell.n)
+    end
+    local function SpellOf(cell)
+        local e = Read(cell.class)[cell.n]
+        return e and e.spell or 0
+    end
+    -- A spell another debuff of the class already holds: picking it again
+    -- would only duplicate that row, so its menu item is greyed with the
+    -- reason and Custom Spell... refuses it (the arrows move a debuff).
+    local IN_USE = "Already in use. Use the arrows to reorder."
+    local function HeldElsewhere(cell, id)
+        for n, e in ipairs((Read(cell.class))) do
+            if n ~= cell.n and e.spell == id then return true end
+        end
+        return false
+    end
+    local function ComboSpells(cell)
+        local _, combos = Read(cell.class)
+        local k = combos[cell.n]
+        return k and k.spells or {}
+    end
+
+    -- List edits. Structure changes (add, remove, reorder) rebuild the page;
+    -- the edited or new row reports the write to Spec Overrides.
+    local function SetSpell(cell, id, rgn)
+        local singles, combos = Read(cell.class)
+        local e = singles[cell.n]
+        if not e or e.spell == id then return end
+        e.spell = id
+        Write(cell.class, singles, combos, rgn)
+        EllesmereUI:RefreshPage()
+    end
+    local function Move(cell, dir)
+        local singles, combos = Read(cell.class)
+        local list = cell.kind == "combo" and combos or singles
+        local j = cell.n + dir
+        if not (list[cell.n] and list[j]) then return end
+        list[cell.n], list[j] = list[j], list[cell.n]
+        Write(cell.class, singles, combos, cell.rgn)
+        Rebuild()
+    end
+    local function Remove(cell)
+        local singles, combos = Read(cell.class)
+        local list = cell.kind == "combo" and combos or singles
+        if not list[cell.n] then return end
+        table.remove(list, cell.n)
+        Write(cell.class, singles, combos, cell.rgn)
+        Rebuild()
+    end
+    -- A new debuff starts unchosen; a new combo pairs the class's top two.
+    local function AddSingle(class)
+        local singles, combos = Read(class)
+        if #singles >= DC.MAX_SINGLES then return end
+        singles[#singles + 1] = { spell = 0, color = CopyColor(DC.SINGLE_COLOR) }
+        Write(class, singles, combos)
+        debuffColorAdded = { kind = "single", class = class, n = #singles }
+        Rebuild()
+        debuffColorAdded = nil
+    end
+    local function ComboRoom(class)
+        local singles, combos = Read(class)
+        return #combos < DC.MAX_COMBOS and #Chosen(singles) >= 2
+    end
+    local function AddCombo(class)
+        if not ComboRoom(class) then return end
+        local singles, combos = Read(class)
+        local picks = Chosen(singles)
+        combos[#combos + 1] = { spells = { picks[1], picks[2] }, color = CopyColor(DC.COMBO_COLOR) }
+        Write(class, singles, combos)
+        debuffColorAdded = { kind = "combo", class = class, n = #combos }
+        Rebuild()
+        debuffColorAdded = nil
+    end
+
+    -- Debuff Coloring: a pure view over debuffColorsEnabled (off = None) and
+    -- debuffColorsBorder (on = Color Border, else Color Nameplate). Color
+    -- Border's cog (Extra Border Size) shows only over a Basic or Custom Solid
+    -- border; a textured custom border is recolored as it is. Both checks
+    -- follow the runtime's border reading (BorderSpec in the module).
+    local function Mode()
+        if Off() then return "none" end
+        return Get("debuffColorsBorder") == true and "border" or "nameplate"
+    end
+    local function NoBorder()
+        if EllesmereUI.BlizzStyle.Get("nameplates") then return true end
+        if Get("customBorderEnabled") then
+            if (Get("customBorderSize") or 0) <= 0 then return true end
+            -- A textured border whose art no longer resolves (its media pack
+            -- removed) draws nothing.
+            local tex = Get("customBorderTexture")
+            return tex ~= nil and tex ~= "" and tex ~= "solid"
+                and not EllesmereUI.ResolveBorderTexture(tex)
+        end
+        return Get("showBorder") == false
+    end
+    local function StripBorder()
+        if NoBorder() then return false end
+        if Get("customBorderEnabled") then
+            local tex = Get("customBorderTexture")
+            return not tex or tex == "" or tex == "solid"
+        end
+        return true
+    end
+    local _, h, modeRow
+    _, h = W:SectionHeader(parent, "DEBUFF BASED NAMEPLATE COLORING", y); y = y - h
+    modeRow, h = W:DualRow(parent, y,
+        { type="dropdown", text="Debuff Coloring",
+          values={ none = "None", nameplate = "Color Nameplate", border = "Color Border" },
+          order={ "none", "nameplate", "border" },
+          disabledValues=function(key)
+              if key == "border" and NoBorder() then return "This option requires a Border to be selected" end
+              return false
+          end,
+          getValue=Mode,
+          setValue=EllesmereUI.SectionToggleSetValue(function(v)
+              ns.db.profile.debuffColorsEnabled = v ~= "none"
+              if v ~= "none" then ns.db.profile.debuffColorsBorder = v == "border" end
+              ns.DebuffColors_Refresh()
+          end),
+          tooltip="Colors enemy health bars, or their borders, while the chosen debuffs are on them." },
+        { type="toggle", text="Only My Debuffs",
+          getValue=function() return Get("debuffColorsPlayerOnly") ~= false end,
+          setValue=function(v)
+              ns.db.profile.debuffColorsPlayerOnly = v
+              Apply()
+          end,
+          disabled=Off, disabledTooltip="Debuff Coloring",
+          tooltip="Counts only the debuffs you applied." }); y = y - h
+
+    -- Color Border's cog, built while it is picked (the dropdown rebuilds the
+    -- page) and shown only over a border drawn as strips; a border change on
+    -- the Display page reaches it through the page's refreshers.
+    if Mode() == "border" and not EllesmereUI._prebuilding then
+        local cog = EllesmereUI.BuildInlineCog(modeRow._leftRegion, {
+            title = "Color Border",
+            rows = {
+                { type="slider", label="Extra Border Size", min=0, max=4, step=1,
+                  tooltip="Thickens the border by this many pixels while it shows a debuff color.",
+                  get=function() return Get("debuffColorsBorderExtra") or 0 end,
+                  set=function(v)
+                      ns.db.profile.debuffColorsBorderExtra = v
+                      Apply()
+                  end },
+            },
+        })
+        local function ShowCog() cog:SetShown(StripBorder()) end
+        ShowCog()
+        EllesmereUI.RegisterWidgetRefresh(ShowCog)
+    end
+
+    -- Section gate: the rows below exist only while Debuff Coloring is on (the
+    -- dropdown's SectionToggleSetValue rebuilds the page).
+    if Off() then
+        _, h = W:Spacer(parent, y, 20); y = y - h
+        return y
+    end
+
+    -- Up/down arrows beside a row's name (white, the accent while hovered;
+    -- a darker white when the accent itself is white). The first entry
+    -- cannot move up nor the last down.
+    local UP_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.png"
+    local DOWN_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.png"
+    local function HoverColor()
+        local ac = EllesmereUI.ELLESMERE_GREEN
+        if ac.r > 0.9 and ac.g > 0.9 and ac.b > 0.9 then return 0.72, 0.72, 0.72 end
+        return ac.r, ac.g, ac.b
+    end
+    local function Arrow(rgn, texture, tip, enabled, onClick)
+        local btn = CreateFrame("Button", nil, rgn)
+        btn:SetFrameLevel(rgn:GetFrameLevel() + 12)
+        btn:SetSize(16, 20)
+        local icon = btn:CreateTexture(nil, "ARTWORK")
+        icon:SetTexture(texture)
+        icon:SetSize(16, 16)
+        icon:SetPoint("CENTER")
+        if not enabled then
+            icon:SetAlpha(0.2)
+            btn:EnableMouse(false)
+            return btn
+        end
+        btn:SetScript("OnEnter", function()
+            icon:SetVertexColor(HoverColor())
+            EllesmereUI.ShowWidgetTooltip(btn, tip)
+        end)
+        btn:SetScript("OnLeave", function()
+            icon:SetVertexColor(1, 1, 1)
+            EllesmereUI.HideWidgetTooltip()
+        end)
+        btn:SetScript("OnClick", function()
+            EllesmereUI.HideWidgetTooltip()
+            onClick()
+        end)
+        return btn
+    end
+    local function ReorderArrows(rgn, cell)
+        local label = rgn._label
+        local up = Arrow(rgn, UP_ICON, "Move Up", cell.n > 1, function() Move(cell, -1) end)
+        up:SetPoint("LEFT", label, "LEFT", math.ceil(label:GetStringWidth()) + 6, -1)
+        local down = Arrow(rgn, DOWN_ICON, "Move Down", cell.n < cell.count, function() Move(cell, 1) end)
+        down:SetPoint("LEFT", up, "RIGHT", 0, 0)
+    end
+
+    local SINGLE_TIP = "Higher in the list wins when several are up."
+    local COMBO_TIP = "Combos win over single debuffs; higher in the list wins."
+
+    -- A debuff: its spell menu (Remove, Custom Spell..., the class's presets,
+    -- then its custom spells) with its color inline. The custom tail follows
+    -- edits on every row of the class (cell.syncCustoms, run by the row's
+    -- refresher); Custom Spell... is an action: it adds a spell and keeps its label.
+    local function SingleCfg(cell)
+        local own = Presets(cell.class)
+        local values = { _noLoc = true, none = EllesmereUI.L("None"),
+            remove = { text = EllesmereUI.L("Remove"), action = function() Remove(cell) end } }
+        for key, s in pairs(own.byKey) do values[key] = s.name end
+        local order = {}
+        for i, key in ipairs(own.order) do order[i] = key end
+        local base = #order
+        -- True when the menu's items changed (it must rebuild).
+        function cell.syncCustoms()
+            local customs, changed = Customs(cell.class), false
+            for i, key in ipairs(customs) do
+                if order[base + i] ~= key then
+                    order[base + i] = key
+                    changed = true
+                end
+                local name = SpellName(tonumber(key), "Spell " .. key)
+                if values[key] ~= name then
+                    values[key] = name
+                    changed = true
+                end
+            end
+            for i = #order, base + #customs + 1, -1 do
+                order[i] = nil
+                changed = true
+            end
+            return changed
+        end
+        cell.syncCustoms()
+        values.custom = { text = EllesmereUI.L("Custom Spell..."), action = function()
+            EllesmereUI:ShowInputPopup({
+                title=Label(cell), confirmText="Add", cancelText="Cancel",
+                message="Enter the debuff's spell ID.",
+                placeholder="Spell ID", maxLetters=10,
+                onConfirm=function(text)
+                    local value = DC.SpellID((text or ""):match("^%s*(%d+)%s*$"))
+                    if not (value and C_Spell and C_Spell.GetSpellInfo(value)) then
+                        EllesmereUI.PrintError(EllesmereUI.L("Enter a valid debuff spell ID."))
+                        return
+                    end
+                    if HeldElsewhere(cell, value) then
+                        EllesmereUI.PrintError(EllesmereUI.L("Already in use. Use the arrows to reorder."))
+                        return
+                    end
+                    SetSpell(cell, value, cell.rgn)
+                end,
+            })
+        end }
+        values._menuOpts = {
+            searchable=true, itemHeight=28, maxHeight=280, iconNativeColor=true,
+            icon=function(key)
+                local id = tonumber(key)
+                return SpellIcon(id and id > 0 and id), .08, .92, .08, .92
+            end,
+            onItemHover=function(key, item)
+                local spell = own.byKey[key]
+                if spell then
+                    EllesmereUI.ShowWidgetTooltip(item, spell.class .. " | " .. EllesmereUI.Lf("Spell ID: %1$s", spell.id))
+                elseif tonumber(key) then
+                    EllesmereUI.ShowWidgetTooltip(item, EllesmereUI.Lf("Spell ID: %1$s", key))
+                end
+            end,
+            onItemLeave=function() EllesmereUI.HideWidgetTooltip() end,
+        }
+        return { type="dropdown", text=Label(cell), values=values, order=order,
+            getValue=function()
+                local id = SpellOf(cell)
+                if id == 0 then return "none" end
+                return tostring(id)
+            end,
+            setValue=function(v)
+                local id = DC.SpellID(v)
+                if id then SetSpell(cell, id) end
+            end,
+            -- Never the row's own spell (a list saved with a duplicate keeps
+            -- its label lit).
+            disabledValues=function(key)
+                local id = tonumber(key)
+                if id and id ~= SpellOf(cell) and HeldElsewhere(cell, id) then return IN_USE end
+                return false
+            end,
+            tooltip=SINGLE_TIP }
+    end
+    local function SingleChrome(rgn, cell)
+        ReorderArrows(rgn, cell)
+        -- The menu rebuilds only when its custom spells change.
+        local function Sync()
+            local ctrl = rgn._control
+            if cell.syncCustoms() and ctrl._invalidateMenu then ctrl._invalidateMenu() end
+            if ctrl._refreshLabel then ctrl._refreshLabel() end
+        end
+        Sync()
+        EllesmereUI.RegisterWidgetRefresh(Sync)
+        EllesmereUI.BuildInlineSwatches(rgn, { {
+            tooltip = "Debuff Color",
+            getValue = function()
+                local e = Read(cell.class)[cell.n]
+                local c = e and e.color or DC.SINGLE_COLOR
+                return c.r, c.g, c.b
+            end,
+            setValue = function(r, g, b)
+                local singles, combos = Read(cell.class)
+                local e = singles[cell.n]
+                if not e then return end
+                e.color = { r = r, g = g, b = b }
+                Write(cell.class, singles, combos)
+            end,
+            disabled = function() return SpellOf(cell) == 0 end,
+            disabledTooltip = "This option requires a debuff to be selected",
+        } })
+    end
+
+    -- A combo: a checkbox list of its class's debuffs (two to four checked),
+    -- Remove above them, its color inline. The row's own dropdown, hidden
+    -- under the list, reads and writes the combo's spells.
+    local function SetComboSpells(cell, spells, rgn)
+        local singles, combos = Read(cell.class)
+        local k = combos[cell.n]
+        if not k then return end
+        k.spells = spells
+        Write(cell.class, singles, combos, rgn)
+    end
+    local COMBO_VALUES = setmetatable({}, { __index = function(_, key)
+        if type(key) ~= "string" or key:sub(1, 1) == "_" then return nil end
+        local names = {}
+        for id in key:gmatch("%d+") do names[#names + 1] = SpellName(tonumber(id), "Spell " .. id) end
+        return #names > 0 and table.concat(names, " + ") or nil
+    end })
+    local function ComboCfg(cell)
+        return { type="dropdown", text=Label(cell), values=COMBO_VALUES, order={},
+            getValue=function() return table.concat(ComboSpells(cell), "+") end,
+            setValue=function(v)
+                local spells = {}
+                for id in tostring(v):gmatch("%d+") do
+                    id = DC.SpellID(id)
+                    if id and #spells < DC.MAX_COMBO_SPELLS then spells[#spells + 1] = id end
+                end
+                SetComboSpells(cell, spells)
+            end,
+            tooltip=COMBO_TIP }
+    end
+    local function ComboChrome(rgn, cell)
+        ReorderArrows(rgn, cell)
+        local function Has(id)
+            for _, s in ipairs(ComboSpells(cell)) do
+                if s == id then return true end
+            end
+            return false
+        end
+        local function Valid()
+            local seen, n = {}, 0
+            for _, s in ipairs(ComboSpells(cell)) do
+                if not seen[s] then seen[s] = true; n = n + 1 end
+            end
+            return n >= 2
+        end
+        -- Its class's chosen debuffs, then any spell only the combo holds.
+        local function Items()
+            local items = { { key = "_remove", label = "Remove", isTopAction = true,
+                onClick = function() Remove(cell) end } }
+            local listed = {}
+            local function Add(id)
+                if listed[id] then return end
+                listed[id] = true
+                items[#items + 1] = { key = tostring(id), label = SpellName(id, "Spell " .. id),
+                    icon = SpellIcon(id),
+                    lockedFn = function() return not Has(id) and #ComboSpells(cell) >= DC.MAX_COMBO_SPELLS end,
+                    lockedTooltip = "A combo holds up to four debuffs." }
+            end
+            for _, id in ipairs(Chosen((Read(cell.class)))) do Add(id) end
+            for _, id in ipairs(ComboSpells(cell)) do Add(id) end
+            return items
+        end
+        local ctrl = rgn._control
+        local ddW = ctrl and ctrl:GetWidth() or 0
+        if ddW < 50 then ddW = 170 end
+        local pulse
+        local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(rgn, ddW, rgn:GetFrameLevel() + 2,
+            Items,
+            function(key) return Has(tonumber(key)) end,
+            function(key, on)
+                local id = tonumber(key)
+                local spells = {}
+                for _, s in ipairs(ComboSpells(cell)) do
+                    if s ~= id then spells[#spells + 1] = s end
+                end
+                if on and #spells < DC.MAX_COMBO_SPELLS then spells[#spells + 1] = id end
+                SetComboSpells(cell, spells)
+            end,
+            nil, 8, false, false,
+            function() if pulse then pulse() end end,
+            { notifyWrites = true, noAllLabel = true, separatorFn = function() return " + " end })
+        local p1, rel, p2, ax, ay
+        if ctrl then
+            p1, rel, p2, ax, ay = ctrl:GetPoint(1)
+            ctrl:Hide()
+        end
+        if p1 then cbDD:SetPoint(p1, rel, p2, ax, ay)
+        else PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0) end
+        rgn._control = cbDD
+        rgn._lastInline = nil
+        EllesmereUI.RegisterWidgetRefresh(cbRefresh)
+        pulse = EllesmereUI.AttachEmptyFilterWarn(rgn, cbDD, EllesmereUI.L("Pick at least two debuffs"), Valid)
+        EllesmereUI.BuildInlineSwatches(rgn, { {
+            tooltip = "Combo Color",
+            getValue = function()
+                local _, combos = Read(cell.class)
+                local k = combos[cell.n]
+                local c = k and k.color or DC.COMBO_COLOR
+                return c.r, c.g, c.b
+            end,
+            setValue = function(r, g, b)
+                local singles, combos = Read(cell.class)
+                local k = combos[cell.n]
+                if not k then return end
+                k.color = { r = r, g = g, b = b }
+                Write(cell.class, singles, combos)
+            end,
+        } })
+    end
+
+    -- Add Debuff / Add Combo open the list of classes (the standard dropdown
+    -- menu, as wide as the button, built on first open; a class with no room
+    -- greyed).
+    local ADD_W = 220
+    local NO_PAINT = { SetColor = function() end, SetColorTexture = function() end }
+    local function AddPicker(rgn, pick, room)
+        local btn = rgn._control
+        -- Its own hover look, kept past the menu wiring (which takes the scripts).
+        local enter, leave = btn:GetScript("OnEnter"), btn:GetScript("OnLeave")
+        local proxyLbl = EllesmereUI.MakeFont(btn, 12, nil, 1, 1, 1)
+        proxyLbl:Hide()
+        local menu
+        local function EnsureMenu()
+            if menu then return menu end
+            local refresh
+            menu, _, refresh = EllesmereUI.BuildDropdownMenu(btn, ADD_W, ORDER, CLASS_VALUES,
+                function() return nil end, pick, proxyLbl, "regular",
+                function(class) if not room(class) then return true end end)
+            EllesmereUI.WireDropdownScripts(btn, proxyLbl, NO_PAINT, NO_PAINT, menu, refresh, EllesmereUI.RD_DD_COLOURS, true)
+            btn:HookScript("OnEnter", enter)
+            btn:HookScript("OnLeave", function(self) if not menu:IsShown() then leave(self) end end)
+            menu:HookScript("OnHide", function() if not btn:IsMouseOver() then leave(btn) end end)
+            return menu
+        end
+        btn:HookScript("OnHide", function() if menu then menu:Hide() end end)
+        return function()
+            local m = EnsureMenu()
+            if m:IsShown() then m:Hide() else m:Show() end
+        end
+    end
+    local function SingleRoom(class) return #Read(class) < DC.MAX_SINGLES end
+    local function AnyRoom(room)
+        for _, class in ipairs(ORDER) do
+            if room(class) then return true end
+        end
+        return false
+    end
+    local openSingle, openCombo
+    local ADD_SINGLE = { type="button", text="+ Add Debuff", width=ADD_W,
+        onClick=function() if openSingle then openSingle() end end,
+        disabled=function() return not AnyRoom(SingleRoom) end,
+        disabledTooltip="Every class has ten debuffs.", rawTooltip=true }
+    local ADD_COMBO = { type="button", text="+ Add Combo", width=ADD_W,
+        onClick=function() if openCombo then openCombo() end end,
+        disabled=function() return not AnyRoom(ComboRoom) end,
+        disabledTooltip="This option requires two debuffs for the same class" }
+
+    -- The debuffs, Add Debuff, the combos, Add Combo: two to a row.
+    local cells = {}
+    for _, class in ipairs(ORDER) do
+        local singles = Read(class)
+        for n = 1, #singles do
+            cells[#cells + 1] = { kind = "single", class = class, n = n, count = #singles }
+        end
+    end
+    cells[#cells + 1] = ADD_SINGLE
+    for _, class in ipairs(ORDER) do
+        local _, combos = Read(class)
+        for n = 1, #combos do
+            cells[#cells + 1] = { kind = "combo", class = class, n = n, count = #combos }
+        end
+    end
+    cells[#cells + 1] = ADD_COMBO
+    local function CellCfg(c)
+        if c == nil then return EllesmereUI.BlankRowCfg() end
+        if c == ADD_SINGLE or c == ADD_COMBO then return c end
+        return c.kind == "combo" and ComboCfg(c) or SingleCfg(c)
+    end
+    local function CellChrome(rgn, c)
+        if EllesmereUI._prebuilding or c == nil then return end
+        if c == ADD_SINGLE then
+            openSingle = AddPicker(rgn, AddSingle, SingleRoom)
+            return
+        end
+        if c == ADD_COMBO then
+            openCombo = AddPicker(rgn, AddCombo, ComboRoom)
+            return
+        end
+        c.rgn = rgn
+        if c.kind == "combo" then ComboChrome(rgn, c) else SingleChrome(rgn, c) end
+        -- The entry Add just made: its own row takes the write.
+        local a = debuffColorAdded
+        if a and a.kind == c.kind and a.class == c.class and a.n == c.n then
+            debuffColorAdded = nil
+            EllesmereUI._NotifySettingWrite(rgn)
+        end
+    end
+    for k = 1, #cells, 2 do
+        local l, r = cells[k], cells[k + 1]
+        local row
+        row, h = W:DualRow(parent, y, CellCfg(l), CellCfg(r)); y = y - h
+        CellChrome(row._leftRegion, l)
+        CellChrome(row._rightRegion, r)
+    end
+    _, h = W:Spacer(parent, y, 20); y = y - h
+    return y
+end
+
 -- Mini preview bar builder for color swatches. type: "health"/"cast"/"castLocked". colorKey: DB key for the bar color (read live). parentRow: frame to attach to. anchorFrame: optional override anchor (e.g. DualRow half-region).
 local function MakeColorPreviewBar(parentRow, colorType, colorKey, anchorFrame)
     local env = ns._NPO_OptEnv
@@ -116,10 +819,15 @@ local function MakeColorPreviewBar(parentRow, colorType, colorKey, anchorFrame)
             for _, slot in ipairs(barSlots) do
                 local element = DBVal(slot.key) or defaults[slot.key]
                 local sc = (DB() and DB()[slot.key .. "Color"]) or defaults[slot.key .. "Color"]
-                -- A slot in Class / Reaction mode: this bar stands for a hostile NPC,
-                -- so it shows the Hostile name colour, as the plate would.
-                if DBVal(slot.key .. "ClassColor") == true then
+                -- This bar stands for a hostile NPC at the player's level: Hostility /
+                -- Class shows the Hostile name colour, Level Difficulty that level's
+                -- colour, as the plate would.
+                local mode = ns.NP_SlotColorMode(slot.key, DB())
+                if mode == "class" then
                     sc = (DB() and DB().enemyNameHostileColor) or defaults.hostile
+                elseif mode == "level" then
+                    local r, g, b = ns.NP_UnitLevelColor("player")
+                    if r then sc = { r = r, g = g, b = b } end
                 end
                 if element == "healthPercent" or element == "healthPercentNoSign" then
                     pctFS:SetTextColor(sc.r, sc.g, sc.b, 1)
@@ -459,6 +1167,27 @@ local function BuildColorsPage(pageName, parent, yOffset)
     -----------------------------------------------------------------------
     _, h = W:SectionHeader(parent, SECTION_ENEMY, y);  y = y - h
 
+    -- Modify Out of Combat is a view over darkenEnemiesOOC + darkenOOCRecolor (the
+    -- runtime ignores the recolor flag while darkening is off): No Change = off,
+    -- Darken = on, Change Color = on with the recolor. A pick writes only the keys
+    -- whose value it changes.
+    local function OOCOn()
+        local db = DB()
+        if db and db.darkenEnemiesOOC ~= nil then return db.darkenEnemiesOOC end
+        return defaults.darkenEnemiesOOC
+    end
+    local function OOCRecolorOn()
+        local db = DB()
+        local v = db and db.darkenOOCRecolor
+        if v == nil then v = defaults.darkenOOCRecolor end
+        return v
+    end
+    local function OOCMode()
+        if not OOCOn() then return "none" end
+        return OOCRecolorOn() and "color" or "darken"
+    end
+
+    -- Enemy Types | Modify Out of Combat
     local enemyTypesRow
     enemyTypesRow, h = W:DualRow(parent, y,
         { type="multiSwatch", text="Enemy Types",
@@ -488,43 +1217,43 @@ local function BuildColorsPage(pageName, parent, yOffset)
                 RefreshAllPlates()
               end },
           } },
-        { type="toggle", text="Enable Quest Mob Color",
-          getValue=function() return DBVal("questMobColorEnabled") == true end,
-          setValue=function(v)
-            DB().questMobColorEnabled = v
+        { type="dropdown", text="Modify Out of Combat",
+          values={ none = "No Change", darken = "Darken", color = "Change Color" },
+          order={ "none", "darken", "color" },
+          getValue=OOCMode,
+          -- The inline color swatch exists only for Change Color: rebuild when that flips.
+          setValue=EllesmereUI.DependentSetValue(function() return OOCMode() == "color" end, function(v)
+            local on = v ~= "none"
+            local db = DB()
+            if OOCOn() ~= on then db.darkenEnemiesOOC = on end
+            if on and OOCRecolorOn() ~= (v == "color") then db.darkenOOCRecolor = (v == "color") end
             for _, plate in pairs(ns.plates) do
                 plate:UpdateHealthColor()
             end
             EllesmereUI:RefreshPage()
-          end,
-          tooltip="Colors enemy nameplates for quest mobs you still need to kill." });  y = y - h
+          end),
+          tooltip="How enemy plates look while out of combat." });  y = y - h
 
-    -- Inline Quest Mob Color swatch
-    if not EllesmereUI._prebuilding then
-        local rightRgn = enemyTypesRow._rightRegion
-        local questColorGet = function()
-            local c = DB().questMobColor or defaults.questMobColor
-            return c.r, c.g, c.b
-        end
-        local questColorSet = function(r, g, b)
-            DB().questMobColor = { r = r, g = g, b = b }
-            RefreshAllPlates()
-        end
-        local isQuestOff = function() return DBVal("questMobColorEnabled") ~= true end
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, questColorGet, questColorSet, nil, 20)
-        PP.Point(swatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = isQuestOff()
-            swatch:SetAlpha(off and 0.15 or 1)
-            swatch:EnableMouse(not off)
-            updateSwatch()
-        end)
-        local off = isQuestOff()
-        swatch:SetAlpha(off and 0.15 or 1)
-        swatch:EnableMouse(not off)
+    -- Change Color's flat color (MaybeDarken), inline beside the dropdown while
+    -- that mode is picked.
+    if not EllesmereUI._prebuilding and OOCMode() == "color" then
+        EllesmereUI.BuildInlineSwatches(enemyTypesRow._rightRegion, {
+            { tooltip = "Out of Combat Color",
+              getValue = function()
+                local db = DB()
+                local c = (db and db.darkenOOCColor) or defaults.darkenOOCColor
+                return c.r, c.g, c.b
+              end,
+              setValue = function(r, g, b)
+                DB().darkenOOCColor = { r = r, g = g, b = b }
+                for _, plate in pairs(ns.plates) do
+                    plate:UpdateHealthColor()
+                end
+              end },
+        })
     end
 
-    -- Inline cog on "Enemy Types": Full Coloring M+ Only. On: outside 5-man dungeons, Mini/Caster/Miniboss/Boss all use the flat "All Enemies" color below (Neutral keeps its own); off (default) has no effect anywhere. Keys keep their owBasic* names from before the current UI label.
+    -- Inline cog on "Enemy Types": Simple Coloring When Not In M+. On: outside 5-man dungeons, Mini/Caster/Miniboss/Boss all use the flat "All Enemies" color below (Neutral keeps its own); off (default) has no effect anywhere. Keys keep their owBasic* names from before the current UI label.
     if not EllesmereUI._prebuilding then
         local leftRgn = enemyTypesRow._leftRegion
         local isOWOff = function()
@@ -535,7 +1264,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
         EllesmereUI.BuildInlineCog(leftRgn, {
             title = "Enemy Colors",
             rows = {
-                { type="toggle", label="Full Coloring M+ Only",
+                { type="toggle", label="Simple Coloring When Not In M+",
                   get=function()
                     local v = DBVal("owBasicColoring")
                     if v == nil then return defaults.owBasicColoring end
@@ -552,12 +1281,12 @@ local function BuildColorsPage(pageName, parent, yOffset)
                     RefreshAllPlates()
                   end,
                   disabled=isOWOff,
-                  disabledTooltip="Full Coloring M+ Only" },
+                  disabledTooltip="Simple Coloring When Not In M+" },
             },
         })
     end
 
-    -- Neutral & Mini Enemies | Darken Enemies Out of Combat
+    -- Neutral & Mini Enemies | Enable Quest Mob Color
     local neutralMiniRow
     neutralMiniRow, h = W:DualRow(parent, y,
         { type="multiSwatch", text="Neutral & Mini Enemies",
@@ -580,19 +1309,41 @@ local function BuildColorsPage(pageName, parent, yOffset)
                 RefreshAllPlates()
               end },
           } },
-        { type="toggle", text="Darken Enemies Out of Combat",
-          getValue=function()
-            local db = DB()
-            if db and db.darkenEnemiesOOC ~= nil then return db.darkenEnemiesOOC end
-            return defaults.darkenEnemiesOOC
-          end,
+        { type="toggle", text="Enable Quest Mob Color",
+          getValue=function() return DBVal("questMobColorEnabled") == true end,
           setValue=function(v)
-            DB().darkenEnemiesOOC = v
+            DB().questMobColorEnabled = v
             for _, plate in pairs(ns.plates) do
                 plate:UpdateHealthColor()
             end
+            EllesmereUI:RefreshPage()
           end,
-          tooltip="Dims enemy nameplate colours while the enemy is out of combat. Turn off to keep enemies at full colour whether or not they are fighting." });  y = y - h
+          tooltip="Colors enemy nameplates for quest mobs you still need to kill." });  y = y - h
+
+    -- Inline Quest Mob Color swatch
+    if not EllesmereUI._prebuilding then
+        local rightRgn = neutralMiniRow._rightRegion
+        local questColorGet = function()
+            local c = DB().questMobColor or defaults.questMobColor
+            return c.r, c.g, c.b
+        end
+        local questColorSet = function(r, g, b)
+            DB().questMobColor = { r = r, g = g, b = b }
+            RefreshAllPlates()
+        end
+        local isQuestOff = function() return DBVal("questMobColorEnabled") ~= true end
+        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, questColorGet, questColorSet, nil, 20)
+        PP.Point(swatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
+        EllesmereUI.RegisterWidgetRefresh(function()
+            local off = isQuestOff()
+            swatch:SetAlpha(off and 0.15 or 1)
+            swatch:EnableMouse(not off)
+            updateSwatch()
+        end)
+        local off = isQuestOff()
+        swatch:SetAlpha(off and 0.15 or 1)
+        swatch:EnableMouse(not off)
+    end
 
     -- Inline cog on "Neutral & Mini Enemies": "Mini Coloring M+ Only" toggle. On (default) restricts the Mini Enemies color to 5-man dungeons; off applies it everywhere.
     if not EllesmereUI._prebuilding then
@@ -612,127 +1363,6 @@ local function BuildColorsPage(pageName, parent, yOffset)
                   end },
             },
         })
-
-        -- Inline cog on "Darken Enemies Out of Combat": recolor OOC enemy
-        -- plates with a flat color instead of dimming them (MaybeDarken).
-        local rightRgn = neutralMiniRow._rightRegion
-        local function DarkenRecolorOn()
-            local db = DB()
-            local v = db and db.darkenOOCRecolor
-            if v == nil then v = defaults.darkenOOCRecolor end
-            return v
-        end
-        EllesmereUI.BuildInlineCog(rightRgn, {
-            title = "Out of Combat",
-            rows = {
-                { type="toggle", label="Change Color Instead",
-                  tooltip="Give out-of-combat enemy nameplates a custom color instead of darkening them.",
-                  get=DarkenRecolorOn,
-                  set=function(v)
-                    DB().darkenOOCRecolor = v
-                    for _, plate in pairs(ns.plates) do
-                        plate:UpdateHealthColor()
-                    end
-                  end },
-                { type="colorpicker", label="Out of Combat Color",
-                  disabled=function() return not DarkenRecolorOn() end,
-                  disabledTooltip="Change Color Instead",
-                  get=function()
-                    local db = DB()
-                    local c = (db and db.darkenOOCColor) or defaults.darkenOOCColor
-                    return c.r, c.g, c.b
-                  end,
-                  set=function(r, g, b)
-                    DB().darkenOOCColor = { r = r, g = g, b = b }
-                    for _, plate in pairs(ns.plates) do
-                        plate:UpdateHealthColor()
-                    end
-                  end },
-            },
-        })
-    end
-
-    -- Enemy Name Text Reaction Color: colors the enemy nameplate NAME TEXT (not the
-    -- health bar) Hostile or Neutral to match the unit's reaction. Off by default. The
-    -- two inline swatches fall back to the Hostile/Neutral defaults until the player sets
-    -- their own, and are dimmed/mouse-disabled while the toggle is off -- same pattern as
-    -- the "Enable Quest Mob Color" inline swatch above.
-    local nameReactionRow
-    nameReactionRow, h = W:DualRow(parent, y,
-        { type="toggle", text="Color Name by Reaction",
-          getValue=function() return DBVal("enemyNameTextReactionColor") == true end,
-          setValue=function(v)
-            DB().enemyNameTextReactionColor = v
-            RefreshAllPlates()
-            EllesmereUI:RefreshPage()
-          end,
-          tooltip="Colors the enemy nameplate name text to match the unit's reaction (Hostile or Neutral) instead of the Enemy Name Text color." },
-        { type="label", text="" });  y = y - h
-
-    -- Inline Neutral/Hostile swatches next to the toggle, dimmed and mouse-disabled while off.
-    if not EllesmereUI._prebuilding then
-        local leftRgn = nameReactionRow._leftRegion
-        -- Also editable while any Core Text slot is in Class / Reaction mode: these are
-        -- the NPC colours that mode paints.
-        local isReactionOff = function()
-            if DBVal("enemyNameTextReactionColor") == true then return false end
-            for _, k in ipairs(ns.textSlotKeys) do
-                if DBVal(k .. "ClassColor") == true and DBVal(k) ~= "none" then return false end
-            end
-            return true
-        end
-
-        local hostileGet = function()
-            local c = (DB() and DB().enemyNameHostileColor) or defaults.hostile
-            return c.r, c.g, c.b
-        end
-        local hostileSet = function(r, g, b)
-            DB().enemyNameHostileColor = { r = r, g = g, b = b }
-            RefreshAllPlates()
-        end
-        local hostileSwatch, updateHostileSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, hostileGet, hostileSet, nil, 20)
-        PP.Point(hostileSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
-
-        local neutralGet = function()
-            local c = (DB() and DB().enemyNameNeutralColor) or defaults.neutral
-            return c.r, c.g, c.b
-        end
-        local neutralSet = function(r, g, b)
-            DB().enemyNameNeutralColor = { r = r, g = g, b = b }
-            RefreshAllPlates()
-        end
-        local neutralSwatch, updateNeutralSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, neutralGet, neutralSet, nil, 20)
-        PP.Point(neutralSwatch, "RIGHT", hostileSwatch, "LEFT", -8, 0)
-
-        -- Two side-by-side unlabeled chips: hover tooltips say which is
-        -- which (the sibling single-swatch rows never needed one).
-        hostileSwatch:HookScript("OnEnter", function(s)
-            EllesmereUI.ShowWidgetTooltip(s, EllesmereUI.L("Hostile Color"))
-        end)
-        hostileSwatch:HookScript("OnLeave", function()
-            EllesmereUI.HideWidgetTooltip()
-        end)
-        neutralSwatch:HookScript("OnEnter", function(s)
-            EllesmereUI.ShowWidgetTooltip(s, EllesmereUI.L("Neutral Color"))
-        end)
-        neutralSwatch:HookScript("OnLeave", function()
-            EllesmereUI.HideWidgetTooltip()
-        end)
-
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = isReactionOff()
-            hostileSwatch:SetAlpha(off and 0.15 or 1)
-            hostileSwatch:EnableMouse(not off)
-            updateHostileSwatch()
-            neutralSwatch:SetAlpha(off and 0.15 or 1)
-            neutralSwatch:EnableMouse(not off)
-            updateNeutralSwatch()
-        end)
-        local off = isReactionOff()
-        hostileSwatch:SetAlpha(off and 0.15 or 1)
-        hostileSwatch:EnableMouse(not off)
-        neutralSwatch:SetAlpha(off and 0.15 or 1)
-        neutralSwatch:EnableMouse(not off)
     end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -1103,24 +1733,11 @@ local function BuildColorsPage(pageName, parent, yOffset)
         chanRow = threatPctRow
 
         if not EllesmereUI._prebuilding then
-            local function ThreatPctSlider(key, label, lo, hi)
-                return { type="slider", label=label, min=lo, max=hi, step=1,
-                  get=function() return DBVal(key) end,
-                  set=function(v) ThreatPctSet(key, v) end }
-            end
             EllesmereUI.BuildInlineCog(threatPctRow._leftRegion, {
                 title = "Threat %",
                 disabled = threatPctOff,
                 disabledTooltip = "Show Threat % on Nameplates",
-                rows = {
-                    { type="toggle", label="Color by Threat",
-                      tooltip="Colors the number by threat status. Off shows it in white.",
-                      get=function() return DBVal("threatPctColorByThreat") end,
-                      set=function(v) ThreatPctSet("threatPctColorByThreat", v) end },
-                    ThreatPctSlider("threatPctSize", "Size", 6, 20),
-                    ThreatPctSlider("threatPctXOffset", "X", -100, 100),
-                    ThreatPctSlider("threatPctYOffset", "Y", -100, 100),
-                },
+                rows = ns.NPO_ThreatPctRows(DBVal, ThreatPctSet),
             })
         end
     end
@@ -1185,6 +1802,8 @@ local function BuildColorsPage(pageName, parent, yOffset)
     end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
+
+    y = ns.NP_BuildDebuffColorsOptions(parent, y)
 
     -- Build a refresh-all function for page cache restore
     optState._colorPreviewRefreshAll = function()

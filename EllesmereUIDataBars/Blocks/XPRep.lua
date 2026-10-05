@@ -31,6 +31,10 @@ local BlockColorOf         = K.BlockColorOf
 --  XPREP (XP / Reputation bar)
 --  Auto extent here means "reasonable fixed content size" (icon + 120px minimum bar); templates ship this type in pct mode.
 -------------------------------------------------------------------------------
+function ns.GetXPRepTextDisplay(settings)
+    return settings.textDisplay or "percentage"
+end
+
 ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
@@ -94,6 +98,19 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
         return pCur, pMax, max(0, min(100, floor((pCur / pMax) * 100)))
     end
 
+    -- Returns the label and whether the level/faction context applies to it.
+    local function ProgressLabel(cur, total)
+        local d = D()
+        local display = ns.GetXPRepTextDisplay(d)
+        if display == "off" then return "", false end
+        local context = d.textFormat ~= "plain"
+        if display == "values" then
+            local bl = BreakUpLargeNumbers
+            return (bl and bl(cur) or cur) .. " / " .. (bl and bl(total) or total), context, true
+        end
+        return floor(cur / max(1, total) * 100) .. "%", context
+    end
+
     local barButton = CreateFrame("Button", nil, content)
     barButton:SetAllPoints()
     barButton:EnableMouse(true)
@@ -140,14 +157,18 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
             local curXP = UnitXP("player") or 0
             local maxXP = UnitXPMax("player") or 1
             if maxXP <= 0 then maxXP = 1 end
-            local pct = floor((curXP / maxXP) * 100)
+            curXP = max(0, min(maxXP, curXP))
             local level = 0
             if UnitLevel then level = UnitLevel("player") end
-            local label = pct .. "% to level " .. (level + 1)
+            local label, context, values = ProgressLabel(curXP, maxXP)
+            if context then
+                label = label .. (values and " XP" or "") .. " to level " .. (level + 1)
+            end
             local ar, ag, ab = ns.GetAccent()
             local rested = GetXPExhaustion() or 0
             return {
-                label = label, minV = 0, maxV = maxXP, curV = curXP,
+                label = label, tooltipLabel = "Level " .. level .. " XP",
+                minV = 0, maxV = maxXP, curV = curXP,
                 r = ar, g = ag, b = ab, rested = rested, isXP = true,
             }
         end
@@ -202,16 +223,17 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
         if type(curV) ~= "number" then curV = 0 end
         if maxV <= minV then maxV = minV + 1 end
         curV = max(minV, min(maxV, curV))
-        local _, _, pct = GetProgressValues(curV, minV, maxV)
+        local progress, total = GetProgressValues(curV, minV, maxV)
         local dname = name
         if #name > 20 then dname = name:sub(1, 20) .. "..." end
-        local label = dname .. " " .. pct .. "%"
+        local label, context = ProgressLabel(progress, total)
+        if context then label = dname .. " " .. label end
         local cr, cg, cb
         local color = FACTION_BAR_COLORS and FACTION_BAR_COLORS[reaction]
         if color then cr, cg, cb = color.r, color.g, color.b
         else cr, cg, cb = ns.GetAccent() end
         return {
-            label = label, minV = minV, maxV = maxV, curV = curV,
+            label = label, tooltipLabel = name, minV = minV, maxV = maxV, curV = curV,
             r = cr, g = cg, b = cb, rested = 0,
         }
     end
@@ -228,7 +250,10 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
         if not state then return end
         local ar, ag, ab = ns.GetAccent()
         ns.Tip_Begin(barButton)
-        ns.Tip_AddLine(state.label, 1, 1, 1)
+        -- Text Display Off leaves no label; name the bar instead.
+        local tipLabel = state.label
+        if tipLabel == "" then tipLabel = state.tooltipLabel end
+        ns.Tip_AddLine(tipLabel, 1, 1, 1)
         if state.maxV and state.maxV > 1 then
             local bl = BreakUpLargeNumbers
             ns.Tip_AddDouble(L["PROGRESS"],
@@ -263,6 +288,8 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
             return
         end
         content:Show()
+        local showText = ns.GetXPRepTextDisplay(D()) ~= "off"
+        nameText:SetShown(showText)
         -- Auto-size measure needs the XP-only bar extension (see below).
         inst._xpExtend = (state.isXP and 40) or 0
 
@@ -282,7 +309,20 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
             restBar:Show()
         end
 
-        if isSide then
+        if not showText then
+            nameText:SetText("")
+            inst._xpExtend = 0
+            local width = isSide and max(24, VSlotW(inst) - 8) or max(20, min(120, HBudget(inst, 300)))
+            local height = max(2, floor(CONTENT_BASE * 0.2 + 0.5) - 1)
+            content:SetSize(isSide and VSlotW(inst) or width, isSide and 40 or barH)
+            barTrack:ClearAllPoints()
+            barTrack:SetPoint("CENTER", content, "CENTER", 0, 0)
+            barTrack:SetSize(width, height)
+            barTrack:SetColorTexture(1, 1, 1, 0.1)
+            bar:ClearAllPoints()
+            bar:SetAllPoints(barTrack)
+            restBar:ClearAllPoints(); restBar:SetAllPoints(bar)
+        elseif isSide then
             -- Vertical branch: stacked label above the bar.
             local slotW = VSlotW(inst)
             local innerW = max(24, slotW - 8)
@@ -313,7 +353,12 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
             _dbFitBuf[1] = state.label
             local fitSize = textHeight
             ns.SetFont(nameText, fitSize, barCfg)
-            ns.ResetInlineText(nameText, "LEFT")
+            -- The label's place along the bar (the XP bar runs past it). The Text
+            -- Align dropdown writes labelAlign beside align, so a block keeps its
+            -- left label until an alignment is picked there.
+            local align = blockCfg.labelAlign or "LEFT"
+            local textPoint = align == "LEFT" and "TOPLEFT" or align == "RIGHT" and "TOPRIGHT" or "TOP"
+            ns.ResetInlineText(nameText, align)
             nameText:SetText(state.label)
 
             local textW = nameText:GetStringWidth() or 0
@@ -334,7 +379,7 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
             local pad = max(0, floor((barH - stackH) / 2 + 0.5))
             content:SetSize(min(slotW, barW), barH)
             nameText:ClearAllPoints()
-            nameText:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -pad)
+            nameText:SetPoint(textPoint, content, textPoint, 0, -pad)
             barTrack:ClearAllPoints()
             barTrack:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(pad + textH + 2))
             barTrack:SetSize(barW, bH)

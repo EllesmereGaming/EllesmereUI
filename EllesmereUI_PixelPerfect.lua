@@ -86,6 +86,7 @@ do
             if _G._EAB_Apply then _G._EAB_Apply() end
             if _G._ECME_Apply then _G._ECME_Apply() end
             if _G._EDM_Rescale then _G._EDM_Rescale() end
+            if _G._ERF_PixelGridChanged then _G._ERF_PixelGridChanged() end
             -- Re-sync width/height matches against the new grid. UIParent:SetScale()
             -- does NOT fire UI_SCALE_CHANGED (that event is CVar-tied), so no listener
             -- catches this path. Debounced: the Options slider calls this repeatedly
@@ -560,24 +561,26 @@ do
         allBorders[allBordersN] = { container = container, frame = frame }
     end
 
+    -- Snap one registry entry. Evicts it only on a real failure (dead frame): while
+    -- auras are secret, rect reads in engine aura subtrees are denied but transient.
+    local function SnapEntry(entry)
+        local f = entry.frame
+        local bd = _ppBorderData[f]
+        local ok = pcall(SnapBorderTextures, entry.container, f, bd and bd.borderSize or 1)
+        if not ok then
+            local AKR = EllesmereUI and EllesmereUI.AuraKit
+            if not (AKR and AKR.AurasRestricted and AKR.AurasRestricted()) then
+                entry.container = nil
+                entry.frame = nil
+            end
+        end
+    end
+
     --- Re-snap every registered border. Called on scale/resolution changes.
     function PP.ResnapAllBorders()
         for i = 1, allBordersN do
             local entry = allBorders[i]
-            local c, f = entry.container, entry.frame
-            if c and f then
-                local bd = _ppBorderData[f]
-                local ok = pcall(SnapBorderTextures, c, f, bd and bd.borderSize or 1)
-                if not ok then
-                    -- Evict only on real failure (dead frame): while auras are secret,
-                    -- rect reads in engine aura subtrees are denied but transient.
-                    local AKR = EllesmereUI and EllesmereUI.AuraKit
-                    if not (AKR and AKR.AurasRestricted and AKR.AurasRestricted()) then
-                        entry.container = nil
-                        entry.frame = nil
-                    end
-                end
-            end
+            if entry.container and entry.frame then SnapEntry(entry) end
         end
     end
 
@@ -585,7 +588,6 @@ do
     --- this instead of resnapping 600+ borders when only ~30 on the page need it.
     function PP.ResnapBordersUnder(root)
         if not root then return PP.ResnapAllBorders() end
-        local count = 0
         -- Shared method ref for the climb: engine aura buttons deny addon access while
         -- auras are secret. Under pcall a denied step is a chain dead-end = not under
         -- root, which is correct (aura subtrees are never inside the options panel).
@@ -596,26 +598,37 @@ do
             if f and entry.container then
                 -- Walk up the parent chain (max 10 levels to avoid infinite loops)
                 local parent = f
-                local found = false
                 for _ = 1, 10 do
                     local ok, p = pcall(GetParentFn, parent)
                     if not ok or not p then break end
                     parent = p
-                    if parent == root then found = true; break end
+                    if parent == root then SnapEntry(entry); break end
                 end
-                if found then
-                    count = count + 1
-                    local bd = _ppBorderData[f]
-                    local ok = pcall(SnapBorderTextures, entry.container, f, bd and bd.borderSize or 1)
-                    if not ok then
-                        -- Same transient-vs-dead distinction as ResnapAllBorders.
-                        local AKR = EllesmereUI and EllesmereUI.AuraKit
-                        if not (AKR and AKR.AurasRestricted and AKR.AurasRestricted()) then
-                            entry.container = nil
-                            entry.frame = nil
-                        end
-                    end
+            end
+        end
+    end
+
+    --- Re-snap the borders under any of several roots in ONE registry pass. roots maps
+    --- a frame to true (every border under it), "shown" (only while the border's
+    --- frame is visible) or "skip" (none of them); the nearest root up the parent
+    --- chain decides. The options panel uses it after a panel scale change: the
+    --- whole panel body and the popups at once, while hidden cached pages ("skip")
+    --- wait for their tab switch.
+    function PP.ResnapBordersUnderRoots(roots)
+        local GetParentFn = UIParent.GetParent
+        for i = 1, allBordersN do
+            local entry = allBorders[i]
+            local f = entry.frame
+            if f and entry.container then
+                local parent, mode = f, nil
+                for _ = 1, 10 do
+                    local ok, p = pcall(GetParentFn, parent)
+                    if not ok or not p then break end
+                    parent = p
+                    mode = roots[parent]
+                    if mode then break end
                 end
+                if mode and mode ~= "skip" and (mode ~= "shown" or f:IsVisible()) then SnapEntry(entry) end
             end
         end
     end

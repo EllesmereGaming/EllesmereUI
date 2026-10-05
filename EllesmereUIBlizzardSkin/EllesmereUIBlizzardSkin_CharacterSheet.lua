@@ -426,6 +426,8 @@ do
             charSheetHideSlotFlyoutArrows = false,
             charSheetDurabilityLocation  = "model",
             charSheetDurabilityShowLabel = true,
+            highlightSecondaryItems      = false,
+            highlightTertiaryItems       = false,
         }
         for k, v in pairs(defaults) do
             if EllesmereUIDB[k] == nil then
@@ -837,6 +839,13 @@ local function PreSkinCharacterSheet()
 
     -- Scale fully owned by Blizzard (SetScale on secure panels taints UIParentPanelManager execution context).
     frame:SetFrameStrata("HIGH")
+    -- The equipment set icon picker inherits HIGH from PaperDollFrame, but its template
+    -- keeps the icon grid clickable only by sitting one strata above the rest of the popup.
+    -- Restore that gap, or the popup's BG and BorderBox cover the grid.
+    local gearPopup = _G.GearManagerPopupFrame
+    if gearPopup and gearPopup.IconSelector then
+        gearPopup.IconSelector:SetFrameStrata("DIALOG")
+    end
 
     -- Frame size is entirely Blizzard's -- no SetWidth/SetHeight or OnUpdate enforcers on the secure frame; our layout fits inside native dimensions.
     if CharacterFrameInset then
@@ -2027,8 +2036,11 @@ local function SkinCharacterSheet()
     local function GetCategoryColor(title)
         local blizz = ns.CharSheetBlizzColor()
         if blizz then return blizz end
-        local custom = EllesmereUIDB and EllesmereUIDB.statCategoryColors and EllesmereUIDB.statCategoryColors[title]
-        if custom then return custom end
+        local useCustom = EllesmereUIDB and EllesmereUIDB.statCategoryUseColor and EllesmereUIDB.statCategoryUseColor[title]
+        if useCustom then
+            local custom = EllesmereUIDB and EllesmereUIDB.statCategoryColors and EllesmereUIDB.statCategoryColors[title]
+            if custom then return custom end
+        end
         return DEFAULT_CATEGORY_COLORS[title] or { r = 1, g = 1, b = 1 }
     end
 
@@ -2157,6 +2169,62 @@ local function SkinCharacterSheet()
         return defaultOrder
     end
 
+    -- Stat hover highlight (opt-in per category): the equipped slots whose item
+    -- stats grant the hovered stat glow, in the socket panel's slot-spotlight
+    -- style. Keys are the ITEM_MOD_* tokens C_Item.GetItemStats returns
+    -- (locale-independent; the socket panel's GetGemStatText reads the same
+    -- ones). One glow frame per slot, built on first use and reused.
+    local STAT_NAME_TO_ITEM_MOD = {
+        -- Secondary stats
+        ["Critical Strike"] = "ITEM_MOD_CRIT_RATING_SHORT",
+        ["Haste"]           = "ITEM_MOD_HASTE_RATING_SHORT",
+        ["Mastery"]         = "ITEM_MOD_MASTERY_RATING_SHORT",
+        ["Versatility"]     = "ITEM_MOD_VERSATILITY",
+        -- Tertiary stats
+        ["Leech"]           = "ITEM_MOD_CR_LIFESTEAL_SHORT",
+        ["Avoidance"]       = "ITEM_MOD_CR_AVOIDANCE_SHORT",
+        ["Speed"]           = "ITEM_MOD_CR_SPEED_SHORT",
+    }
+    local statGlows, statGlowsLit = {}, false
+    local function StopStatHighlights()
+        if not statGlowsLit then return end
+        statGlowsLit = false
+        for _, f in pairs(statGlows) do
+            if f:IsShown() then
+                EllesmereUI.Glows.StopGlow(f)
+                f:Hide()
+            end
+        end
+    end
+    local function StartStatHighlights(statName)
+        StopStatHighlights()
+        local modKey = STAT_NAME_TO_ITEM_MOD[statName]
+        if not modKey then return end
+        for _, slotName in ipairs(EUI_GEAR_SLOTS) do
+            local slot = _G[slotName]
+            local slotID = slot and slot:GetID()
+            local link = slotID and GetInventoryItemLink("player", slotID)
+            local stats = link and C_Item.GetItemStats(link)
+            local val = stats and stats[modKey]
+            if type(val) == "number" and val > 0 then
+                local f = statGlows[slotID]
+                if not f then
+                    f = CreateFrame("Frame", nil, CharacterFrame)
+                    f:SetAllPoints(slot)
+                    statGlows[slotID] = f
+                end
+                f:SetFrameStrata(slot:GetFrameStrata())
+                f:SetFrameLevel(slot:GetFrameLevel() + 5)
+                f:Show()
+                local w, h = slot:GetWidth(), slot:GetHeight()
+                if not w or w < 1 then w = 37 end
+                if not h or h < 1 then h = w end
+                EllesmereUI.Glows.StartGlow(f, 6, w, 1, 1, 1, nil, h)
+                statGlowsLit = true
+            end
+        end
+    end
+
     local statSections = GetStatSectionsOrder()
 
     GetFFD(frame).statsPanel = statsPanel
@@ -2283,6 +2351,8 @@ local function SkinCharacterSheet()
     end)
     frame:HookScript("OnHide", function()
         specUpdateFrame:UnregisterAllEvents()
+        -- A close mid-hover never fires the stat row's OnLeave
+        StopStatHighlights()
     end)
     -- The build runs inside the first OnShow, after that open's hooks fired.
     if frame:IsShown() then
@@ -2698,10 +2768,17 @@ local function SkinCharacterSheet()
                     end
 
                     GameTooltip:Show()
+                    -- Glow the equipped items that grant this stat (opt-in per category)
+                    local hk = section and section.settingKey
+                    if EllesmereUIDB and ((hk == "SecondaryStats" and EllesmereUIDB.highlightSecondaryItems)
+                        or (hk == "Tertiary" and EllesmereUIDB.highlightTertiaryItems)) then
+                        StartStatHighlights(stat.name)
+                    end
                 end)
 
                 valueButton:SetScript("OnLeave", function()
                     GameTooltip:Hide()
+                    StopStatHighlights()
                 end)
 
                 table.insert(GetFFD(frame).statsValues, {
@@ -4065,8 +4142,8 @@ local function SkinCharacterSheet()
             upgradeTrackText, upgradeTrackColor = EUI_GetUpgradeTrack(itemLink)
         end
 
-        -- Item-level display color, resolved once. Shared with the enchant name text when Show
-        -- Enchant Names is on, so both read in the same color.
+        -- Item-level display color, resolved once. Shared with the enchant name text when
+        -- Enchants is set to Text, so both read in the same color.
         local ilvlColor = EllesmereUI.GetItemLevelColor(itemLink, itemQuality, upgradeTrackText, upgradeTrackColor)
 
         if GetFFD(slot).itemLevelLabel then
@@ -4088,7 +4165,7 @@ local function SkinCharacterSheet()
             local iconOnly, tooltipText, isMissing, hasEnchant =
                 ns.ParseEnchantLabel(enchantText, slotID, itemLink, "player")
 
-            -- "Show Enchant Names": render the readable name (item-level colored) instead of the
+            -- Enchants set to Text: render the readable name (item-level colored) instead of the
             -- icon. Missing-enchant warning always keeps its red icon; no-enchant falls back to icon.
             local showNames = EllesmereUIDB and EllesmereUIDB.charSheetEnchantNames
             local useName = showNames and hasEnchant and tooltipText and tooltipText ~= ""
@@ -4132,12 +4209,10 @@ local function SkinCharacterSheet()
                     GetFFD(slot).enchantHoverFrame:SetShown(isCharTab)
                     GetFFD(slot).enchantHoverFrame:SetScript("OnEnter", function(self)
                         if not tooltipText or tooltipText == "" then return end
-                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                        GameTooltip:SetText(tooltipText, 1, 1, 1, 1, true)
-                        GameTooltip:Show()
+                        EllesmereUI.ShowWidgetTooltip(self, tooltipText)
                     end)
                     GetFFD(slot).enchantHoverFrame:SetScript("OnLeave", function()
-                        GameTooltip:Hide()
+                        EllesmereUI.HideWidgetTooltip()
                     end)
                 end
             else
@@ -4187,8 +4262,8 @@ local function SkinCharacterSheet()
         end
     end
 
-    -- Public: force a full slot-label rebuild with no item change. Render-only toggles (e.g.
-    -- Show Enchant Names) leave items untouched, so the item-link cache above would short-circuit every slot and never apply live.
+    -- Public: force a full slot-label rebuild with no item change. Render-only settings (e.g.
+    -- the Enchants mode) leave items untouched, so the item-link cache above would short-circuit every slot and never apply live.
     function EllesmereUI._refreshCharSheetSlotLabels()
         wipe(itemCache)
         RefreshAllSlotLabels()

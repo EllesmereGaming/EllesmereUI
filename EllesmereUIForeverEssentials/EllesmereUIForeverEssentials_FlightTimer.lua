@@ -6,15 +6,19 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  the two ends, stops scrolling past a "you" marker. Route lengths come from
 --  the game's TaxiPath data (EllesmereUIForeverEssentials_FlightTimerData.lua);
 --  the client exposes no flight duration, so time is length / speed, with the
---  speed corrected by every flight that lands normally.
+--  speed corrected by every flight that lands normally. The options page shows
+--  the same display flying a sample route on a loop.
 --
 --  Known issue: a reload, relog or crash mid-flight drops the bar for the rest
 --  of that flight. The client gives no destination or progress for a flight
 --  already under way, and saving it would go stale across a logout or crash,
 --  so the bar returns with the next takeoff instead.
 -------------------------------------------------------------------------------
+local _, module = ...
+
 local DEFAULT_SPEED = 30.4 -- yards per second; fitted to measured Classic flight times
 local PREVIEW_SECONDS = 20
+local PREVIEW_HOLD = 2 -- seconds a finished preview flight stays before the next
 local TRACK_HEIGHT = 3
 local PIN_SIZE = 14
 -- Seconds before arrival a stop scrolls in at the track's right end.
@@ -55,24 +59,8 @@ local bar, events, ticker, hooked
 local pending   -- destination picked on the flight map, waiting for takeoff
 local flight    -- the flight in progress
 
--- Cfg() is the WRITE accessor (creates the table); Read() never creates it, so
--- a user who never touches the feature gets no saved table.
-local function Cfg()
-    if not EllesmereUIDB then return {} end
-    EllesmereUIDB.flightTimer = EllesmereUIDB.flightTimer or {}
-    return EllesmereUIDB.flightTimer
-end
-
-local _NOCFG = {}
-local function Read()
-    return EllesmereUIDB and EllesmereUIDB.flightTimer or _NOCFG
-end
-
-local function Get(key)
-    local v = Read()[key]
-    if v == nil then return DEFAULTS[key] end
-    return v
-end
+local F = module.Feature("flightTimer", DEFAULTS, { point = "CENTER", relPoint = "CENTER", x = 0, y = 250 })
+local Get, Cfg, Read, Enabled = F.Get, F.Cfg, F.Read, F.Enabled
 
 -- The display's full height, centred on the track: end names above it, stop
 -- icons and names below (the same room the stop strip clips to).
@@ -84,11 +72,6 @@ end
 -- the track, to clear a track taller than the mark.
 local function Rise(size)
     return math.max(0, (Get("trackHeight") - size) / 2)
-end
-
--- On by default; a saved false turns it off.
-local function Enabled()
-    return Get("enabled") == true
 end
 
 local function Speed()
@@ -108,6 +91,13 @@ end
 local function FormatTime(sec)
     sec = math.max(0, math.floor(sec + 0.5))
     return string.format("%d:%02d", math.floor(sec / 60), sec % 60)
+end
+
+-- The time text of flight fl at elapsed seconds: the time left, plus the
+-- full time with Show Total Time.
+local function TimeLeft(fl, elapsed)
+    local left = FormatTime(fl.eta - elapsed)
+    return Get("showTotal") and (left .. " / " .. FormatTime(fl.eta)) or left
 end
 
 local function FillColor()
@@ -149,14 +139,6 @@ local function RouteInfo(slot)
     return yards and yards > 0 and yards or nil, points
 end
 
-local DEFAULT_POS = { point = "CENTER", relPoint = "CENTER", x = 0, y = 250 }
-local function ApplyPosition()
-    local pos = Read().pos
-    if not (pos and pos.point) then pos = DEFAULT_POS end
-    bar:ClearAllPoints()
-    bar:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
-end
-
 -- Text in Forever Essentials' font and outline (Fonts page, else the global font).
 local function StyleFont(fs, size)
     EllesmereUI.ApplyModuleFont(fs, nil, size, "essentials")
@@ -189,29 +171,32 @@ local function MarkText(show, name, names)
     return names and (name or "") or nil
 end
 
+-- Every function below draws into a display b (the bar on screen, or the
+-- options preview) showing flight fl.
+
 -- Puts the stop strip where elapsed has it, dims the stops already passed,
 -- then slides it on. One long translation over the whole flight ran far too
 -- fast in the client, so each slide is short and the 1 s ticker restarts the
 -- next from the exact spot: no drift, and a slide slightly longer than a tick
 -- never snaps back.
 local SLIDE = 1.25
-local function ScrollStrip(elapsed)
-    local clip = bar.clip
+local function ScrollStrip(b, fl, elapsed)
+    local clip = b.clip
     if not clip:IsShown() then return end
     local g = clip.glide
     g:Stop()
     clip.strip:ClearAllPoints()
-    clip.strip:SetPoint("CENTER", bar, "CENTER", -elapsed * clip.pps, 0)
-    if elapsed < flight.eta then
+    clip.strip:SetPoint("CENTER", b, "CENTER", -elapsed * clip.pps, 0)
+    if elapsed < fl.eta then
         g.move:SetOffset(-SLIDE * clip.pps, 0)
         g:Play()
     end
-    local flown = elapsed / flight.eta * flight.yards
-    for k = 1, #flight.points - 2 do
-        local y = flight.points[k + 1].yards
+    local flown = elapsed / fl.eta * fl.yards
+    for k = 1, #fl.points - 2 do
+        local y = fl.points[k + 1].yards
         if y and y <= flown then
-            bar.stops[k].icon:SetAlpha(0.4)
-            bar.stops[k].label:SetAlpha(0.4)
+            b.stops[k].icon:SetAlpha(0.4)
+            b.stops[k].label:SetAlpha(0.4)
         end
     end
 end
@@ -219,20 +204,20 @@ end
 -- A side-scroller: the two ends hold still at the track's ends and "you" at
 -- its centre. Stops scroll in from the right as they near, cross "you" the
 -- moment they are reached, and run out to the left.
-local function LayoutRoute()
-    local points = flight and flight.points
+local function LayoutRoute(b, fl)
+    local points = fl and fl.points
     local n = points and #points or 0
     local names = Get("destText") ~= "none"
     local dx, dy = Get("destX"), Get("destY")
-    local level = bar.track:GetFrameLevel() + 2
-    bar.over:SetFrameLevel(level)
-    bar.clip:SetFrameLevel(level)
+    local level = b.track:GetFrameLevel() + 2
+    b.over:SetFrameLevel(level)
+    b.clip:SetFrameLevel(level)
 
     -- The ends: a dot in the fill colour (Show End Caps) with the node's name
     -- above it; a hidden dot still places its name.
     local caps = Get("showEndCaps")
     for i = 1, 2 do
-        local m, side = bar.ends[i], i == 1 and "LEFT" or "RIGHT"
+        local m, side = b.ends[i], i == 1 and "LEFT" or "RIGHT"
         ShowMark(m, MarkText(n > 0, n > 0 and points[i == 1 and 1 or n].name, names))
         if not caps then m.icon:Hide() end
         m.icon:SetVertexColor(FillColor())
@@ -247,28 +232,28 @@ local function LayoutRoute()
     -- lengths and an ETA. After an early landing request the route ends at the
     -- next stop; stops already passed would keep sliding out, so the strip
     -- and "you" go entirely.
-    local moving = points and flight.eta and flight.yards and not flight.early
+    local moving = points and fl.eta and fl.yards and not fl.early
     local scroll = moving and n > 2
-    local clip = bar.clip
+    local clip = b.clip
     clip:SetShown(scroll)
     if scroll then
         -- Inside the two end dots, tall enough for a stop's icon and the name
         -- under it.
         clip:ClearAllPoints()
-        clip:SetPoint("BOTTOMLEFT", bar, "LEFT", PIN_SIZE / 2, -PIN_SIZE / 2 - Get("destSize") - 8 - Rise(PIN_SIZE))
-        clip:SetPoint("TOPRIGHT", bar, "RIGHT", -PIN_SIZE / 2, PIN_SIZE / 2 + 2)
+        clip:SetPoint("BOTTOMLEFT", b, "LEFT", PIN_SIZE / 2, -PIN_SIZE / 2 - Get("destSize") - 8 - Rise(PIN_SIZE))
+        clip:SetPoint("TOPRIGHT", b, "RIGHT", -PIN_SIZE / 2, PIN_SIZE / 2 + 2)
         -- px per second of flight: a stop comes in LOOKAHEAD seconds out
         -- (scaled down with the clock for a fast-forward preview).
-        clip.pps = Get("width") / 2 / (flight.lookahead or LOOKAHEAD)
+        clip.pps = Get("width") / 2 / (fl.lookahead or LOOKAHEAD)
     end
-    -- bar.stops[k] is the stop at points[k + 1]; leftovers from a longer
+    -- b.stops[k] is the stop at points[k + 1]; leftovers from a longer
     -- route are hidden.
-    for k = 1, math.max(n - 2, #bar.stops) do
+    for k = 1, math.max(n - 2, #b.stops) do
         local y = scroll and k <= n - 2 and points[k + 1].yards
-        local m = bar.stops[k]
+        local m = b.stops[k]
         if y and not m then
             m = NewMark(clip.strip, STOP_ICON, PIN_SIZE)
-            bar.stops[k] = m
+            b.stops[k] = m
         end
         if m then
             ShowMark(m, MarkText(y, y and points[k + 1].name, names))
@@ -276,62 +261,61 @@ local function LayoutRoute()
             m.label:SetPoint("TOP", m.icon, "BOTTOM", 0, -4 - Rise(PIN_SIZE))
             if y then
                 m.icon:ClearAllPoints()
-                m.icon:SetPoint("CENTER", clip.strip, "CENTER", y / flight.yards * flight.eta * clip.pps, 0)
+                m.icon:SetPoint("CENTER", clip.strip, "CENTER", y / fl.yards * fl.eta * clip.pps, 0)
             end
         end
     end
-    if scroll then ScrollStrip(math.max(0, math.min(GetTime() - flight.start, flight.eta))) end
+    if scroll then ScrollStrip(b, fl, math.max(0, math.min(GetTime() - fl.start, fl.eta))) end
 
     -- "You are here": a white post at the centre, where each stop is reached;
     -- a direct flight has no stops to reach, so none.
-    ShowMark(bar.you, MarkText(scroll, EllesmereUI.L("You"), names))
-    bar.you.label:ClearAllPoints()
-    bar.you.label:SetPoint("BOTTOM", bar.you.icon, "TOP", 0, 2 + Rise(PIN_SIZE + 4))
+    ShowMark(b.you, MarkText(scroll, EllesmereUI.L("You"), names))
+    b.you.label:ClearAllPoints()
+    b.you.label:SetPoint("BOTTOM", b.you.icon, "TOP", 0, 2 + Rise(PIN_SIZE + 4))
 end
 
 local RequestLanding -- the early exit button's click; defined with the flight code
 
 -- Early exit button right of the bar, built on first enable. Greyed out once a
 -- landing is requested, as Blizzard's leave button does.
-local function StyleExit()
-    local b = bar.exit
+local function StyleExit(b, fl)
+    local btn = b.exit
     if not Get("earlyExit") then
-        if b then b:Hide() end
+        if btn then btn:Hide() end
         return
     end
-    if not b then
-        b = CreateFrame("Button", nil, bar)
-        b:SetSize(EXIT_SIZE, EXIT_SIZE)
-        b:SetPoint("LEFT", bar, "RIGHT", PIN_SIZE / 2 + 6, 0)
-        b:SetNormalTexture(EXIT_ICON)
-        b:GetNormalTexture():SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the icon frame
-        b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-        EllesmereUI.PP.CreateBorder(b, 0, 0, 0, 1, 1, "OVERLAY", 2)
-        b:SetScript("OnClick", function() RequestLanding() end)
-        b:SetScript("OnEnter", function(self)
+    if not btn then
+        btn = CreateFrame("Button", nil, b)
+        btn:SetSize(EXIT_SIZE, EXIT_SIZE)
+        btn:SetPoint("LEFT", b, "RIGHT", PIN_SIZE / 2 + 6, 0)
+        btn:SetNormalTexture(EXIT_ICON)
+        btn:GetNormalTexture():SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the icon frame
+        btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+        EllesmereUI.PP.CreateBorder(btn, 0, 0, 0, 1, 1, "OVERLAY", 2)
+        btn:SetScript("OnClick", function() RequestLanding(b) end)
+        btn:SetScript("OnEnter", function(self)
             EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Land at the next flight point"))
         end)
-        b:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        bar.exit = b
+        btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        b.exit = btn
     end
-    local done = flight and flight.early
-    b:SetEnabled(not done)
-    b:SetAlpha(done and 0.4 or 1)
-    b:Show()
+    local done = fl and fl.early
+    btn:SetEnabled(not done)
+    btn:SetAlpha(done and 0.4 or 1)
+    btn:Show()
 end
 
-local function ApplyStyle()
-    if not bar then return end
+local function StyleBar(b, fl)
     local PP = EllesmereUI.PP
-    local track = bar.track
-    bar:SetSize(Get("width"), BoxHeight())
+    local track = b.track
+    b:SetSize(Get("width"), BoxHeight())
     track:SetHeight(Get("trackHeight"))
     track:SetStatusBarTexture(EllesmereUI.ResolveTexturePath(BAR_TEXTURES, Get("texture"), WHITE))
     -- The fill's one alpha owner: a texture's SetAlpha and its colour alpha
     -- are the same channel. A plain SetValue does not reliably take the fill
     -- back from an armed SetTimerDuration, so an elapsed-only flight hides it.
-    local r, g, b = FillColor()
-    track:SetStatusBarColor(r, g, b, (flight and not flight.eta) and 0 or Get("fillOpacity") / 100)
+    local cr, cg, cb = FillColor()
+    track:SetStatusBarColor(cr, cg, cb, (fl and not fl.eta) and 0 or Get("fillOpacity") / 100)
     track.bg:SetColorTexture(0.1, 0.1, 0.1, Get("bgA"))
     -- The border draws inside the track: kept under half its height in pixels,
     -- so at least a pixel of fill always shows (the saved size is kept).
@@ -345,21 +329,20 @@ local function ApplyStyle()
     end
     -- The time sits left of the track, mirroring the early exit button on the
     -- right; under the track is the stop names' lane.
-    bar.time:SetShown(Get("timeText") ~= "none")
-    StyleFont(bar.time, Get("timeSize"))
-    bar.time:ClearAllPoints()
-    bar.time:SetPoint("RIGHT", bar, "LEFT", -PIN_SIZE / 2 - 6 + Get("timeX"), Get("timeY"))
-    LayoutRoute()
-    StyleExit()
+    b.time:SetShown(Get("timeText") ~= "none")
+    StyleFont(b.time, Get("timeSize"))
+    b.time:ClearAllPoints()
+    b.time:SetPoint("RIGHT", b, "LEFT", -PIN_SIZE / 2 - 6 + Get("timeX"), Get("timeY"))
+    LayoutRoute(b, fl)
+    StyleExit(b, fl)
 end
 
-local function CreateBar()
-    if bar then return end
-    -- An invisible box around the whole display, sized by ApplyStyle: the
-    -- unlock mover takes the frame's own size, so this gives it a grabbable
-    -- area. The track is the thin line through its middle.
-    bar = CreateFrame("Frame", nil, UIParent)
-    local track = CreateFrame("StatusBar", nil, bar)
+-- An invisible box around the whole display, sized by StyleBar: the unlock
+-- mover takes the frame's own size, so this gives it a grabbable area. The
+-- track is the thin line through its middle.
+local function BuildBar(parent)
+    local b = CreateFrame("Frame", nil, parent)
+    local track = CreateFrame("StatusBar", nil, b)
     track:SetPoint("LEFT")
     track:SetPoint("RIGHT")
     track:SetMinMaxValues(0, 1)
@@ -367,31 +350,44 @@ local function CreateBar()
     track.bg = track:CreateTexture(nil, "BACKGROUND")
     track.bg:SetAllPoints()
     EllesmereUI.PP.CreateBorder(track, 0, 0, 0, 1, 1, "OVERLAY", 2)
-    bar.track = track
-    bar.time = bar:CreateFontString(nil, "OVERLAY")
-    bar.time:SetJustifyH("RIGHT")
+    b.track = track
+    b.time = b:CreateFontString(nil, "OVERLAY")
+    b.time:SetJustifyH("RIGHT")
     -- PP.CreateBorder draws on its own frame one level above the bar, so the
     -- marks sit on frames two levels up (set in LayoutRoute) to stay on top.
-    bar.over = CreateFrame("Frame", nil, bar)
-    bar.over:SetAllPoints()
-    bar.ends = { NewMark(bar.over, WHITE, PIN_SIZE / 2), NewMark(bar.over, WHITE, PIN_SIZE / 2) }
-    bar.ends[1].icon:SetPoint("CENTER", bar, "LEFT")
-    bar.ends[2].icon:SetPoint("CENTER", bar, "RIGHT")
-    bar.you = NewMark(bar.over, WHITE, 2, PIN_SIZE + 4)
-    bar.you.icon:SetPoint("CENTER", bar, "CENTER")
+    b.over = CreateFrame("Frame", nil, b)
+    b.over:SetAllPoints()
+    b.ends = { NewMark(b.over, WHITE, PIN_SIZE / 2), NewMark(b.over, WHITE, PIN_SIZE / 2) }
+    b.ends[1].icon:SetPoint("CENTER", b, "LEFT")
+    b.ends[2].icon:SetPoint("CENTER", b, "RIGHT")
+    b.you = NewMark(b.over, WHITE, 2, PIN_SIZE + 4)
+    b.you.icon:SetPoint("CENTER", b, "CENTER")
     -- The stops ride a strip inside a clipping frame (see ScrollStrip).
-    bar.clip = CreateFrame("Frame", nil, bar)
-    bar.clip:SetClipsChildren(true)
-    bar.clip.strip = CreateFrame("Frame", nil, bar.clip)
-    bar.clip.strip:SetSize(1, 1)
-    bar.clip.glide = bar.clip.strip:CreateAnimationGroup()
-    bar.clip.glide.move = bar.clip.glide:CreateAnimation("Translation")
-    bar.clip.glide.move:SetSmoothing("NONE")
-    bar.clip.glide.move:SetDuration(SLIDE)
-    bar.stops = {}
+    b.clip = CreateFrame("Frame", nil, b)
+    b.clip:SetClipsChildren(true)
+    b.clip.strip = CreateFrame("Frame", nil, b.clip)
+    b.clip.strip:SetSize(1, 1)
+    b.clip.glide = b.clip.strip:CreateAnimationGroup()
+    b.clip.glide.move = b.clip.glide:CreateAnimation("Translation")
+    b.clip.glide.move:SetSmoothing("NONE")
+    b.clip.glide.move:SetDuration(SLIDE)
+    b.stops = {}
+    return b
+end
+
+local function CreateBar()
+    if bar then return end
+    bar = BuildBar(UIParent)
     bar:Hide()
-    ApplyStyle()
-    ApplyPosition()
+    StyleBar(bar, flight)
+    F.Place(bar)
+end
+
+local RefreshPreview -- the options preview's restyle; defined with it below
+
+local function ApplyStyle()
+    if bar then StyleBar(bar, flight) end
+    RefreshPreview()
 end
 
 -- Shows or hides the bar, faded in and out when the setting is on. Same fade
@@ -433,49 +429,41 @@ local function EndFlight()
     if bar then ShowBar(false) end
 end
 
-local Land, Retarget
+local Land
 
 local function UpdateText()
     local elapsed = GetTime() - flight.start
-    if flight.preview and elapsed >= flight.eta then
-        EndFlight()
-    elseif not flight.preview and elapsed > 2 and not UnitOnTaxi("player") then
+    if elapsed > 2 and not UnitOnTaxi("player") then
         -- Landing edge missed (PLAYER_CONTROL_GAINED is the precise one): end the
         -- flight here instead of running on, but learn nothing from a late read.
         flight.early = true
         Land()
     elseif flight.eta then
-        local left = FormatTime(flight.eta - elapsed)
-        local text = Get("showTotal") and (left .. " / " .. FormatTime(flight.eta)) or left
-        bar.time:SetText(text)
-        ScrollStrip(elapsed)
+        bar.time:SetText(TimeLeft(flight, elapsed))
+        ScrollStrip(bar, flight, elapsed)
     else
         bar.time:SetText(FormatTime(elapsed))
     end
 end
 
-local function ArmTimer()
-    if not flight.eta then return end
+local function ArmTimer(b, fl)
+    if not fl.eta then return end
     local dur = C_DurationUtil.CreateDuration()
-    dur:SetTimeFromStart(flight.start, flight.eta)
-    bar.track:SetTimerDuration(dur,Enum.StatusBarInterpolation.Immediate, Enum.StatusBarTimerDirection.ElapsedTime)
+    dur:SetTimeFromStart(fl.start, fl.eta)
+    b.track:SetTimerDuration(dur,Enum.StatusBarInterpolation.Immediate, Enum.StatusBarTimerDirection.ElapsedTime)
 end
 
 -- points: every node on the way, start first (see RouteInfo).
--- preview: a fast-forward flight that neither lands nor learns.
-local function StartFlight(yards, preview, points)
-    flight = { yards = yards, start = GetTime(), preview = preview, points = points }
-    if preview then
-        flight.eta = PREVIEW_SECONDS
-        flight.lookahead = LOOKAHEAD * PREVIEW_SECONDS / (yards / Speed())
-    elseif yards then
+local function StartFlight(yards, points)
+    flight = { yards = yards, start = GetTime(), points = points }
+    if yards then
         flight.mult = SpeedMultiplier()
         flight.eta = yards / (Speed() * flight.mult)
     end
     CreateBar()
-    ArmTimer()
+    ArmTimer(bar, flight)
     ShowBar(true)
-    ApplyStyle()
+    StyleBar(bar, flight)
     UpdateText()
     if not ticker then ticker = C_Timer.NewTicker(1, UpdateText) end
 end
@@ -484,29 +472,22 @@ end
 -- route end there instead. Nothing is learned from it.
 -- Assumes the server lands at the very next node: a request made right on top
 -- of one may land at the node after, and the bar then ends early.
-function Retarget()
-    flight.early = true
-    local points = flight.points
-    if points and flight.yards and flight.eta then
-        local flown = (GetTime() - flight.start) / flight.eta * flight.yards
+local function Retarget(b, fl)
+    fl.early = true
+    local points = fl.points
+    if points and fl.yards and fl.eta then
+        local flown = (GetTime() - fl.start) / fl.eta * fl.yards
         for i, p in ipairs(points) do
             if p.yards and p.yards > flown then
                 for j = #points, i + 1, -1 do points[j] = nil end
-                flight.eta = flight.eta * p.yards / flight.yards
-                flight.yards = p.yards
-                ArmTimer()
+                fl.eta = fl.eta * p.yards / fl.yards
+                fl.yards = p.yards
+                ArmTimer(b, fl)
                 break
             end
         end
     end
-    ApplyStyle()
-    UpdateText()
-end
-
-RequestLanding = function()
-    if not flight or flight.early then return end
-    -- Previews have no taxi to land; they only show what the bar would do.
-    if flight.preview then Retarget() else TaxiRequestEarlyLanding() end
+    StyleBar(b, fl)
 end
 
 -- Moves the stored speed a quarter of the way toward what this flight measured.
@@ -531,11 +512,11 @@ local function OnEvent(_, event)
         -- it. A stun right after a refused click is ended by UpdateText's
         -- not-on-taxi check two seconds in.
         if pending and GetTime() - pending.clicked < 5 then
-            StartFlight(pending.yards, nil, pending.points)
+            StartFlight(pending.yards, pending.points)
         end
         pending = nil
     elseif event == "PLAYER_CONTROL_GAINED" then
-        if flight and not flight.preview and not UnitOnTaxi("player") then Land() end
+        if flight and not UnitOnTaxi("player") then Land() end
     end
 end
 
@@ -550,7 +531,10 @@ local function Apply()
         if not hooked then
             hooksecurefunc("TakeTaxiNode", OnTakeTaxiNode)
             hooksecurefunc("TaxiRequestEarlyLanding", function()
-                if flight and not flight.preview then Retarget() end
+                if flight then
+                    Retarget(bar, flight)
+                    UpdateText()
+                end
             end)
             hooked = true
         end
@@ -567,84 +551,154 @@ local function Apply()
     end
 end
 
+-------------------------------------------------------------------------------
+--  Options preview: the same display in the Travel page's content header,
+--  flying a real route of the player's faction (PREVIEW_ROUTES) on a loop,
+--  sped up. Built when the page first opens; its ticker runs only while it is
+--  visible, so a closed panel or another page costs nothing.
+-------------------------------------------------------------------------------
+local preview -- view, bar, the sample route and the flight drawn from it
+local StartPreviewFlight
+
+local function PreviewTick()
+    local v, fl = preview, preview.flight
+    local elapsed = GetTime() - fl.start
+    -- The finished flight holds a moment, then the next one starts.
+    if elapsed >= fl.eta + PREVIEW_HOLD then return StartPreviewFlight() end
+    elapsed = math.min(elapsed, fl.eta)
+    v.bar.time:SetText(TimeLeft(fl, elapsed))
+    ScrollStrip(v.bar, fl, elapsed)
+end
+
+StartPreviewFlight = function()
+    local v = preview
+    local fl, points = v.flight, v.points
+    -- An early landing cuts the route short: refill it from the full one.
+    for i, p in ipairs(v.route) do points[i] = p end
+    for i = #v.route + 1, #points do points[i] = nil end
+    fl.points, fl.yards, fl.start, fl.early = points, v.yards, GetTime(), nil
+    fl.eta = PREVIEW_SECONDS
+    fl.lookahead = LOOKAHEAD * PREVIEW_SECONDS / (v.yards / Speed())
+    ArmTimer(v.bar, fl)
+    StyleBar(v.bar, fl)
+    PreviewTick()
+end
+
+local RefreshPreviewNow -- RefreshPreview's body, defined below
+
+local function PreviewShow()
+    if preview.ticker then return end
+    StartPreviewFlight()
+    -- Settings may have changed while the page was away.
+    RefreshPreviewNow()
+    preview.ticker = C_Timer.NewTicker(1, PreviewTick)
+end
+
+local function PreviewHide()
+    if preview.ticker then
+        preview.ticker:Cancel()
+        preview.ticker = nil
+    end
+    preview.bar.clip.glide:Stop()
+end
+
+-- The preview's early exit button lands the sample flight at its next stop.
+local function PreviewLanding()
+    local fl = preview.flight
+    if fl.early then return end
+    Retarget(preview.bar, fl)
+    PreviewTick()
+end
+
+RequestLanding = function(b)
+    if b == bar then
+        -- The hook on TaxiRequestEarlyLanding retargets the bar.
+        if flight and not flight.early then TaxiRequestEarlyLanding() end
+    else
+        PreviewLanding()
+    end
+end
+
+-- force: draw while the header is still being built (not shown yet).
+RefreshPreview = function(force)
+    local v = preview
+    if not (v and (force or v.view:IsVisible())) then return end
+    RefreshPreviewNow()
+end
+
+RefreshPreviewNow = function()
+    local v = preview
+    -- Scaled down when the bar, the time on its left and the early exit
+    -- button on its right are wider than the header.
+    local w = Get("width") + 2 * (PIN_SIZE / 2 + 6 + EXIT_SIZE)
+    local pw = v.view:GetParent():GetWidth()
+    local available = (pw > 0 and pw) or v.availableWidth or w + 40
+    local scale = math.min(1, math.max(100, available - 40) / w)
+    v.bar:SetScale(scale)
+    StyleBar(v.bar, v.flight)
+    v.previewHeight = BoxHeight() * scale + 30
+    v.view:SetHeight(v.previewHeight)
+    if v.onHeightChanged then v.onHeightChanged(v.previewHeight) end
+end
+
+local hookedParents = {}
+local function CreateSettingsPreview(parent, availableWidth, onHeightChanged)
+    local v = preview
+    if not v then
+        local route = PREVIEW_ROUTES[UnitFactionGroup("player")] or PREVIEW_ROUTES.Alliance
+        v = { route = {}, points = {}, flight = {}, yards = 0 }
+        for i = 1, #route, 2 do
+            if i > 1 then v.yards = v.yards + routes[route[i - 2] * 10000 + route[i]] end
+            v.route[#v.route + 1] = { name = route[i + 1], yards = v.yards }
+        end
+        v.view = CreateFrame("Frame", nil, parent)
+        v.bar = BuildBar(v.view)
+        v.bar:SetPoint("CENTER")
+        v.view:SetScript("OnShow", PreviewShow)
+        v.view:SetScript("OnHide", PreviewHide)
+        preview = v
+        StartPreviewFlight()
+    end
+    -- Frames outlive a page rebuild, so the view is reused.
+    v.availableWidth, v.onHeightChanged = availableWidth, onHeightChanged
+    v.view:SetParent(parent)
+    v.view:ClearAllPoints()
+    v.view:SetPoint("TOPLEFT")
+    v.view:SetPoint("TOPRIGHT")
+    if not hookedParents[parent] then
+        hookedParents[parent] = true
+        local lastWidth
+        parent:HookScript("OnSizeChanged", function(_, width)
+            if width == lastWidth then return end
+            lastWidth = width
+            if v.view:GetParent() == parent then RefreshPreview() end
+        end)
+    end
+    v.view:Show()
+    RefreshPreview(true)
+    -- A new frame starts shown, so no OnShow fires for the first open.
+    if v.view:IsVisible() then PreviewShow() end
+    return v
+end
+
 -- Options-page entry points.
 EllesmereUI._FlightTimer = {
     Get = Get,
     Cfg = Cfg,
     Apply = Apply,
     ApplyStyle = ApplyStyle,
-    ApplyPosition = function() if bar then ApplyPosition() end end,
+    ApplyPosition = function() F.Place(bar) end,
     textures = { lookup = BAR_TEXTURES, names = BAR_TEXTURE_NAMES, order = BAR_TEXTURE_ORDER },
-    -- A second click ends it; a real flight is never replaced.
-    Preview = function()
-        if flight and not flight.preview then return end
-        if flight then EndFlight(); return end
-        local route = PREVIEW_ROUTES[UnitFactionGroup("player")] or PREVIEW_ROUTES.Alliance
-        local points, yards = {}, 0
-        for i = 1, #route, 2 do
-            if i > 1 then yards = yards + routes[route[i - 2] * 10000 + route[i]] end
-            points[#points + 1] = { name = route[i + 1], yards = yards }
-        end
-        StartFlight(yards, true, points)
-    end,
+    CreateSettingsPreview = CreateSettingsPreview,
 }
 
-local function Resized()
-    ApplyStyle()
-    if EllesmereUI._unlockActive and EllesmereUI.RepositionBarToMover then
-        EllesmereUI.RepositionBarToMover("EUI_FlightTimer")
-    end
-end
-
-local function RegisterUnlock()
-    local MK = EllesmereUI.MakeUnlockElement
-    local PPs = EllesmereUI.PP
-    EllesmereUI:RegisterUnlockElements({
-        MK({
-            key      = "EUI_FlightTimer",
-            label    = "Flight Timer",
-            group    = "Forever Essentials",
-            order    = 730,
-            isHidden = function() return not Enabled() end,
-            -- Nothing is built while the feature is off (the unlock core calls
-            -- getFrame / applyPos for every element at each login).
-            getFrame = function()
-                if not Enabled() then return nil end
-                CreateBar()
-                return bar
-            end,
-            -- Height follows the text around the track: width only.
-            getSize = function() return Get("width"), BoxHeight() end,
-            setWidth = function(_, w)
-                Cfg().width = math.max(50, PPs.Snap(w))
-                Resized()
-            end,
-            savePos = function(_, point, relPoint, x, y)
-                if not point then return end
-                Cfg().pos = { point = point, relPoint = relPoint, x = x, y = y }
-                if bar and not EllesmereUI._unlockActive then ApplyPosition() end
-            end,
-            loadPos = function()
-                local pos = Read().pos
-                return pos and pos.point and pos or DEFAULT_POS
-            end,
-            clearPos = function()
-                Cfg().pos = nil
-                if bar then ApplyPosition() end
-            end,
-            applyPos = function()
-                if not Enabled() then return end
-                CreateBar()
-                ApplyPosition()
-            end,
-        }),
-    }, "EllesmereUIForeverEssentials")
-end
-
-local boot = CreateFrame("Frame")
-boot:RegisterEvent("PLAYER_LOGIN")
-boot:SetScript("OnEvent", function(self)
-    self:UnregisterAllEvents()
-    Apply()
-    RegisterUnlock()
-end)
+F.Start(Apply, {
+    key = "EUI_FlightTimer", label = "Flight Timer", order = 730, minWidth = 50,
+    frame = function(build)
+        if build then CreateBar() end
+        return bar
+    end,
+    -- Follows the text around the track.
+    height = BoxHeight,
+    applyStyle = ApplyStyle,
+})

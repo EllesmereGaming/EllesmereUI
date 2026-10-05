@@ -45,6 +45,7 @@ local function BuildDisplayBars(parent, y, ctx)
             for _, plate in pairs(plates) do
                 PP.Width(plate.health, v)
                 PP.Width(plate.absorb, v)
+                PP.Width(plate.absorbForward, v)
                 if classic then
                     ns.LayoutCastBar(plate, v, ns.GetCastBarHeight())
                 else

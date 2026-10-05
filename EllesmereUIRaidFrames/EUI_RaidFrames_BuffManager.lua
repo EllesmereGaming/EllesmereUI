@@ -71,7 +71,7 @@ local function BuildPTROverlay(parentFrame, label, fontSize)
     ov:EnableMouse(true)
     local bg = ov:CreateTexture(nil, "OVERLAY")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.10, 0.10, 0.12, 0.95)
+    bg:SetColorTexture(0.098, 0.090, 0.082, 0.95)
     local fs = ov:CreateFontString(nil, "OVERLAY")
     local fp = (EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
     fs:SetFont(fp, fontSize or 12, "")
@@ -2060,6 +2060,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     local POPUP_W, POPUP_PAD, ROW_H, LABEL_H = 260, 10, 30, 14
                     local LBL_GAP, DD_GAP = 4, 11
                     local popup = CreateFrame("Frame", nil, ov)
+                    popup:Hide()  -- start hidden so Show() triggers OnShow
                     popup:SetFrameStrata("DIALOG")
                     popup:SetFrameLevel(ov:GetFrameLevel() + 20)
                     popup:SetSize(POPUP_W, POPUP_PAD + LABEL_H + LBL_GAP + ROW_H + DD_GAP + ROW_H + POPUP_PAD)
@@ -2437,6 +2438,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local GAP = 6
 
                 popup = CreateFrame("Frame", nil, UIParent)
+                popup:Hide()  -- start hidden so Show() triggers OnShow
                 popup:SetFrameStrata("DIALOG")
                 popup:SetFrameLevel(200)
                 local LBL_GAP = 4   -- label to dropdown
@@ -2977,7 +2979,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     -- Scrollbar: thin track + thumb at the viewport's right edge (shown only on overflow).
     local UpdateThumb = EllesmereUI.AttachSmoothScrollbar(settingsScroll, {
         step = 60, width = 5, rightInset = 31, topInset = 12, level = 20,
-        trackAlpha = 0.05, thumbAlpha = 0.22, child = settingsChild })
+        trackAlpha = 0.05, thumbAlpha = 0.22, child = settingsChild, panelWheel = true })
 
     -- From here, DualRows build inside the scroll child
     leftFrame = settingsChild

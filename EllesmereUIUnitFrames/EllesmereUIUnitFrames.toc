@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Simple unit frames with a modern visual style.
 ## Author: Ellesmere
-## Version: 9.3.5
+## Version: 9.3.8
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIUnitFramesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -12,6 +12,23 @@
 # Main Luas
 EUI_UnitFrames_Engine.lua
 EllesmereUIUnitFrames.lua
+EUI_UnitFrames_Text.lua
+EUI_UnitFrames_Portrait.lua
+EUI_UnitFrames_Castbar.lua
+EUI_UnitFrames_Layout.lua
+EUI_UnitFrames_Absorb.lua
+EUI_UnitFrames_Power.lua
+EUI_UnitFrames_Builders.lua
+EUI_UnitFrames_ClassPower.lua
+EUI_UnitFrames_Threat.lua
+EUI_UnitFrames_StockStyles.lua
+EUI_UnitFrames_Reload.lua
+EUI_UnitFrames_ForeverExtras.lua
+EUI_UnitFrames_Visibility.lua
+EUI_UnitFrames_Init.lua
+EUI_UnitFrames_OptionsSetup.lua
+EUI_UnitFrames_Unlock.lua
+EUI_UnitFrames_Lifecycle.lua
 EUI_UnitFrames_ForeverFormBar.lua
 EllesmereUIUnitFrames_PlayerAuraBars.lua
 EUI_UnitFrames_ForeverImbues.lua

@@ -150,18 +150,13 @@ local function BuildNameplatePreview(parent, parentW)
     previewHashLine:SetPoint("BOTTOM", health, "BOTTOM", 0, 0)
     previewHashLine:Hide()
 
-    -- Absorb preview: mask + two StatusBars matching real absorb rendering
+    -- Absorb preview: the live plates' own clip-frame bars and placement
+    -- (ns.NP_BuildAbsorbBars), so the preview draws exactly what plates do.
     local absorbMask = health:CreateMaskTexture()
     absorbMask:SetAllPoints(health)
     absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
-    local previewAbsorb = CreateFrame("StatusBar", nil, health)
-    previewAbsorb:SetPoint("TOPLEFT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-    previewAbsorb:SetPoint("BOTTOMLEFT", health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
-    previewAbsorb:SetReverseFill(false)
-    previewAbsorb:SetMinMaxValues(0, 100)
-    previewAbsorb:SetValue(95)
-    previewAbsorb:SetFrameLevel(health:GetFrameLevel())
-    previewAbsorb:Hide()
+    local pvAbs = {}
+    ns.NP_BuildAbsorbBars(pvAbs, health, absorbMask)
     local function ApplyPreviewAbsorbStyle()
         local style = DBVal("absorbStyle") or "blizzard"
         local tex = ns.NP_ABSORB_STYLE_TEX[style] or ns.ResolveOverlayTexPath(style) or ns.NP_ABSORB_STYLE_TEX.blizzard
@@ -178,24 +173,37 @@ local function BuildNameplatePreview(parent, parentW)
             local c = (DB() and DB().absorbColor) or defaults.absorbColor or { r = 1, g = 1, b = 1 }
             r, g, b = c.r, c.g, c.b
         end
-        previewAbsorb:SetStatusBarTexture(tex)
-        previewAbsorb:SetStatusBarColor(r, g, b, alpha)
-        local fill = previewAbsorb:GetStatusBarTexture()
-        if fill then fill:SetDrawLayer("ARTWORK", 1); fill:AddMaskTexture(absorbMask) end
+        for _, bar in ipairs({ pvAbs.absorb, pvAbs.absorbForward }) do
+            bar:SetStatusBarTexture(tex)
+            bar:SetStatusBarColor(r, g, b, alpha)
+            local fill = bar:GetStatusBarTexture()
+            if fill then fill:SetDrawLayer("ARTWORK", 1); fill:AddMaskTexture(absorbMask) end
+        end
     end
     local function ToggleAbsorbPreview()
         if optState.showAbsorbPreview then
-            local barW = health:GetWidth()
-            local barH = health:GetHeight()
-            local hpPct = (previewHpPct or 75) / 100
-            -- Matches the live absorb bar: a full bar-width StatusBar windowed by fill value so the texture renders at bar scale (not squished into absorb width); visible absorb region is unchanged, only the texture scale differs. The mask clips the overrun past the edge.
-            previewAbsorb:SetSize(barW, barH)
-            previewAbsorb:SetMinMaxValues(0, 1)
-            previewAbsorb:SetValue((1 - hpPct) * 0.95)
+            local mode = DBVal("absorbEdgeMode") or "overlay"
+            -- A shield smaller than the empty health (preview health is
+            -- 60-75%), so each placement draws somewhere different: past the
+            -- health edge, back over it, or at either end of the bar. A shield
+            -- past empty health would draw Overlay and From Right Edge alike.
+            local shield = 0.15
+            ns.NP_SizeAbsorbBars(pvAbs, health:GetWidth(), health:GetHeight())
+            if pvAbs._absEdge ~= mode or pvAbs._absFill ~= health:GetStatusBarTexture() then
+                ns.NP_LayoutAbsorbBars(pvAbs, health, mode)
+            end
             ApplyPreviewAbsorbStyle()
-            previewAbsorb:Show()
+            pvAbs.absorb:SetMinMaxValues(0, 1)
+            pvAbs.absorb:SetValue(shield)
+            pvAbs._absCurClip:Show()
+            if pvAbs._absFwOn then
+                pvAbs.absorbForward:SetMinMaxValues(0, 1)
+                pvAbs.absorbForward:SetValue(shield)
+                pvAbs._absMissClip:Show()
+            end
         else
-            previewAbsorb:Hide()
+            pvAbs._absCurClip:Hide()
+            pvAbs._absMissClip:Hide()
         end
     end
 
@@ -368,7 +376,7 @@ local function BuildNameplatePreview(parent, parentW)
     hpNumber:SetText(hpNumStr)
     hpNumber:Hide()
 
-    -- Standalone level FontString mirrors the live plate's levelText; the player's level stands in for the mob level.
+    -- Standalone level FontString mirrors the live plate's levelText; the player's level stands in for the mob level. Plain text: its colour comes from the slot's Text Coloring mode (previewGlow.slotColor).
     local lvlText = healthTextFrame:CreateFontString(nil, "OVERLAY")
     SetPVFont(lvlText, FONT_PATH, 10, GetNPOptOutline())
     lvlText:SetPoint("CENTER", health, "CENTER", 0, 0)
@@ -384,10 +392,10 @@ local function BuildNameplatePreview(parent, parentW)
         if ns.NP_FormatName then name = ns.NP_FormatName(name, slotKey) end
         return name
     end
-    -- Its colour: in Class / Reaction mode the player's class colour (the
-    -- sample target), else the slot colour passed in.
+    -- Its colour: in Class mode the player's class colour (the sample target),
+    -- else the slot colour passed in.
     pf._totSampleColor = function(slotKey, r, g, b)
-        if slotKey and DBVal(slotKey .. "ClassColor") == true then
+        if slotKey and ns.NP_SlotColorMode(slotKey, DB()) == "class" then
             local _, ct = UnitClass("player")
             local cc = ct and EllesmereUI.GetClassColor(ct)
             if cc then return cc.r, cc.g, cc.b end
@@ -897,6 +905,9 @@ local function BuildNameplatePreview(parent, parentW)
             if EllesmereUI._prebuilding then return end
             local ib = ns.GetIconBorderEnabled
             local db = DB()
+            if (db and db.castIconSeparator) or cast._iconSeam then
+                ns.NP_ApplyCastIconSeparator(cast, castParts.iconFrame, db, customOn and showIcon)
+            end
             sTex = DBVal("customBorderTexture") or defaults.customBorderTexture
             sPath = EllesmereUI.ResolveBorderTexture(sTex)
             sSz = DBVal("customBorderSize") or defaults.customBorderSize
@@ -908,6 +919,7 @@ local function BuildNameplatePreview(parent, parentW)
             sSX, sSY = DBVal("customBorderShiftX"), DBVal("customBorderShiftY")
             sMult = EllesmereUI.PP.mult
             local castOn = customOn and showIcon and DBVal("castIconCustomBorder") == true
+                and DBVal("castbarIconInWidth") ~= true
                 and (not ib or ib("cast"))
             -- Above the icon, as the live border sits at the icon's level + 3.
             paint(castParts.iconFrame, castOn, 3)
@@ -924,12 +936,24 @@ local function BuildNameplatePreview(parent, parentW)
             end
         end
     end
-    -- Class / Reaction slot colours (Core Text Positions swatch pair): the preview is a
-    -- hostile NPC, so a slot in that mode shows the Hostile name colour.
+    -- Core Text slot colours by the slot's Text Coloring mode. The preview is a
+    -- hostile NPC at the player's level: Hostility / Class shows the Hostile name
+    -- colour, Level Difficulty that level's difficulty colour (friendly levels
+    -- included, as the player stands in for the mob), Custom the slot colour.
+    -- lvlColor is reused by every level-mode read.
+    previewGlow.lvlColor = { r = 1, g = 1, b = 1 }
     previewGlow.slotColor = function(slotKey)
         local db = DB()
-        if DBVal(slotKey .. "ClassColor") == true then
+        local mode = ns.NP_SlotColorMode(slotKey, db)
+        if mode == "class" then
             return (db and db.enemyNameHostileColor) or defaults.hostile
+        elseif mode == "level" then
+            local r, g, b = EllesmereUI.GetLevelColor("player", UnitEffectiveLevel("player"), true)
+            if r then
+                local c = previewGlow.lvlColor
+                c.r, c.g, c.b = r, g, b
+                return c
+            end
         end
         return (db and db[slotKey .. "Color"]) or defaults[slotKey .. "Color"]
     end
@@ -1689,7 +1713,7 @@ local function BuildNameplatePreview(parent, parentW)
             -- Read by the preview height below (a table field: no new pf.Update local).
             previewGlow.botTextH = ext
         end
-        -- Preview sample for whichever name-family variant is slotted (player level stands in for mob level), run after slot branches so text re-flows under the new justify (SetJustifyH alone won't re-flow it).
+        -- Preview sample for whichever name-family variant is slotted (player level stands in for mob level), run after slot branches so text re-flows under the new justify (SetJustifyH alone won't re-flow it). The name slot's key carries its Level | Name part colours.
         ns.SetNameElementText(nameFS,
             (ns.IsNameElement(slotTop) and slotTop)
             or (ns.IsNameElement(slotRight) and slotRight)
@@ -1700,7 +1724,7 @@ local function BuildNameplatePreview(parent, parentW)
             or "enemyName",
             -- WoW Forever: the slot's Name Format, as live (nil function off Forever).
             ns.NP_FormatName and ns.NP_FormatName(EllesmereUI.L("Enemy Name Text"), pvNameSlotKey)
-                or EllesmereUI.L("Enemy Name Text"), "player")
+                or EllesmereUI.L("Enemy Name Text"), "player", pvNameSlotKey)
         ns.ReflowFontString(nameFS)
         if DBVal("hideEnemyNameWhileCasting") == true then nameFS:Hide() end
         LayoutPreviewNameRaidMarker()

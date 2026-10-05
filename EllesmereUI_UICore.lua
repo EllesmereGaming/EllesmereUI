@@ -1000,6 +1000,9 @@ end
 --  colorByThreat is off; the status colour while status is readable; else the
 --  isTanking fold between the has-aggro and low-threat colours; else white.
 --  Only the plain white mode is remembered per font string (never a value).
+--      EllesmereUI.PaintThreatGap(fs, text, ahead, colorOn, aheadC, behindC)
+--  The Threat Gap text: the formatted gap in aheadC or behindC by who leads,
+--  or white while colorOn is off (the same white memory).
 -------------------------------------------------------------------------------
 if EllesmereUI.IS_FOREVER then
     local aggR, aggG, aggB, lowR, lowG, lowB, fold
@@ -1027,6 +1030,14 @@ if EllesmereUI.IS_FOREVER then
         else
             return PaintWhite(fs)
         end
+        if white and white[fs] then white[fs] = nil end
+    end
+
+    function EllesmereUI.PaintThreatGap(fs, text, ahead, colorOn, aheadC, behindC)
+        fs:SetText(text)
+        if not colorOn then return PaintWhite(fs) end
+        local c = ahead and aheadC or behindC
+        fs:SetTextColor(c.r, c.g, c.b)
         if white and white[fs] then white[fs] = nil end
     end
 end -- IS_FOREVER

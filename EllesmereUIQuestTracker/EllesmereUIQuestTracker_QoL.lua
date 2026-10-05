@@ -47,6 +47,15 @@ end
 -------------------------------------------------------------------------------
 -- Auto-accept / auto-turn-in
 -------------------------------------------------------------------------------
+-- Blizzard's trivial flag never fires for a quest that scales to the player,
+-- so quests from an earlier expansion have a toggle of their own.
+local function IsIgnoredQuest(questID, isTrivial)
+    if isTrivial and Cfg("autoAcceptIgnoreTrivial") then return true end
+    if not Cfg("autoAcceptIgnoreOldExpansion") or not questID or questID == 0 then return false end
+    local expansion = GetQuestExpansion(questID)
+    return expansion ~= nil and expansion >= 0 and expansion < GetServerExpansionLevel()
+end
+
 local function InstallAutoQuests()
     local autoFrame = CreateFrame("Frame")
     local autoPreventNPCGUID = nil
@@ -77,6 +86,13 @@ local function InstallAutoQuests()
                 if Cfg("autoAccept") and C_GossipInfo.GetAvailableQuests then
                     if Cfg("autoAcceptShiftSkip") and IsShiftKeyDown() then return end
                     local available = C_GossipInfo.GetAvailableQuests()
+                    if available then
+                        for i = #available, 1, -1 do
+                            if IsIgnoredQuest(available[i].questID, available[i].isTrivial) then
+                                table.remove(available, i)
+                            end
+                        end
+                    end
                     if available and #available > 0 then
                         local npcGUID = UnitGUID("npc")
                         if Cfg("autoAcceptPreventMulti") then
@@ -110,6 +126,8 @@ local function InstallAutoQuests()
         if event == "QUEST_DETAIL" then
             if not Cfg("autoAccept") then return end
             if Cfg("autoAcceptShiftSkip") and IsShiftKeyDown() then return end
+            local questID = GetQuestID()
+            if IsIgnoredQuest(questID, C_QuestLog.IsQuestTrivial(questID)) then return end
             AcceptQuest()
         elseif event == "QUEST_COMPLETE" then
             if not Cfg("autoTurnIn") then return end

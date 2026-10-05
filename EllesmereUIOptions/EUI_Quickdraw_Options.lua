@@ -199,6 +199,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- clearing both here silently destroyed the second one with no
             -- message (and no way to see it, since the label shows key1).
             if oldK1 then SetBinding(oldK1, nil) end
+            -- Uninstall EUI hands the key back to what it did before.
+            EllesmereUI.NoteBinding(chord, GetBindingAction(chord))
             if not SetBinding(chord, action) then
                 -- Put the primary back. oldK2 was never cleared, so there is
                 -- nothing to restore for it.
@@ -2758,7 +2760,7 @@ initFrame:SetScript("OnEvent", function(self)
             dim:EnableMouse(true)
             local dimTex = dim:CreateTexture(nil, "OVERLAY")
             dimTex:SetAllPoints()
-            dimTex:SetColorTexture(0.06, 0.08, 0.10, 0.70)
+            dimTex:SetColorTexture(0.077, 0.068, 0.058, 0.70)
             dim:SetScript("OnEnter", function(self)
                 EllesmereUI.ShowWidgetTooltip(self, "Enable the module to edit action menus.")
             end)

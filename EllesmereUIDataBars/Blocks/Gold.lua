@@ -130,7 +130,6 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
 
-    local GOLD_TEX = ns.MICROMENU_MEDIA .. "menu-bags.png"
     local _goldFitBuf = { "", "" }
     local mouseOver = false
 
@@ -152,13 +151,14 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
     goldButton:SetSize(120, 20); goldButton:SetPoint("CENTER")
     goldButton:EnableMouse(true); goldButton:RegisterForClicks("AnyUp")
 
-    local goldIcon = goldButton:CreateTexture(nil, "OVERLAY"); goldIcon:SetTexture(GOLD_TEX)
+    local goldIcon = goldButton:CreateTexture(nil, "OVERLAY")
     local goldText = goldButton:CreateFontString(nil, "OVERLAY")
     local bagText  = goldButton:CreateFontString(nil, "OVERLAY")
     AttachTextOffset(inst, goldText)   -- bagText chains to goldText
 
     function inst:Refresh()
         local dg = D()
+        K.SetBlockIcon(goldIcon, blockCfg)
         local barCfg = BC()
         local barH = barCtx.GetThickness()
         -- 0.4333 ratio = 13px at the 30 base (matches the stat blocks).

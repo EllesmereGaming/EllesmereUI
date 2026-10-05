@@ -106,6 +106,9 @@ local _cdStateRules = {}                                -- subset: cas.cdStateEf
 -- so there is NO poll ticker: evaluation runs only when an edge fires.
 local _cdEvalQueued = false
 local _hasUserRules = false                             -- any profile (user) rule armed
+-- Any cd-state rule on Hidden Until Usable: its proc edges change only
+-- usability, so SPELL_UPDATE_USABLE joins the edges while one exists.
+local _needUsable = false
 
 -- CD-ready sound "armed" state, keyed by ability so it survives the rule-object
 -- churn of FakeActive_Rearm (rebuilds are frequent in M+ and would otherwise eat
@@ -318,6 +321,34 @@ local function ThresholdFor(frame, rule, ss)
         bkT and ns.GetBarSpellData and ns.GetBarSpellData(bkT), bkT)
 end
 
+-- The overlay's active glow (drawn on its own glow frame) holds the icon's
+-- non-Blackout CD-state glow back, as the native active-state glow does:
+-- ns.StartCdGlow reads fd._faActiveGlow from the icon's own frame data. `on`
+-- is true only while that glow is lit AND the overlay renders (12.1 slot mode
+-- keeps the overlay dark). Edge-gated: the rising edge takes down a CD-state
+-- glow on the shared overlay and marks it owed, the falling edge relights it.
+local function HoldCdGlow(iconFrame, on)
+    local fd = ns._hookFrameData and ns._hookFrameData[iconFrame]
+    if not fd or (fd._faActiveGlow or false) == on then return end
+    fd._faActiveGlow = on or nil
+    if on then
+        -- A lit Blackout owns the memo (the active glow never holds it
+        -- back): never clear the memo out from under it.
+        local go = fd.glowOverlay
+        local bo = fd.blackoutOverlay
+        if go and go._glowActive and (fd._cdStateGlowOn or fd._presetCdGlowOn)
+           and not (fd.procGlowActive or fd._activeGlowOn)
+           and not (bo and bo._glowActive) then
+            ns.StopNativeGlow(go)
+            fd._cdStateGlowOn = false
+            fd._presetCdGlowOn = false
+            fd._cdGlowOwed = true
+        end
+    elseif fd._cdGlowOwed then
+        ns.CdGlowKick(iconFrame)
+    end
+end
+
 -- ---------------------------------------------------------------------------
 --  Show / hide the overlay on a single icon frame.
 -- ---------------------------------------------------------------------------
@@ -391,18 +422,21 @@ ApplyToFrame = function(iconFrame, rule, win)
             gfc.shapeBorder  = (uifc and uifc.shapeBorder) or nil
         end
         if ns.ApplyActiveOverlays then ns.ApplyActiveOverlays(o.frame, o, ss, true, bd) end
-        if win.fa121 and FA121 then
+        local slotMode = (win.fa121 and FA121) and true or false
+        if slotMode then
             -- 12.1 slot mode: the slot subtree renders the active display;
             -- Attach positions it and parks this legacy overlay at alpha 0.
             FA121.Attach(iconFrame, o, rule, ss, bd)
         else
             o.frame:SetAlpha(1)
         end
+        HoldCdGlow(iconFrame, o._activeGlowOn == true and not slotMode)
     else
         o._rule = nil
         o._ss = nil
         RestoreOverlayBorders(iconFrame, o)
         if ns.ApplyActiveOverlays then ns.ApplyActiveOverlays(o.frame, o, ss, false, bd) end
+        HoldCdGlow(iconFrame, false)
         o.cd:Clear()
         o.frame:SetAlpha(0)
         if FA121 then FA121.Detach(o) end
@@ -964,9 +998,10 @@ OnEvent = function(self, event, unit, _, spellID)
         if unit == 13 or unit == 14 then
             ns.FakeActive_Rearm()
         end
-    elseif event == "PLAYER_REGEN_ENABLED" then
+    elseif event == "PLAYER_REGEN_ENABLED" or event == "SPELL_UPDATE_USABLE" then
         -- Combat end: cooldown reads were secret-dropped during combat, so any
         -- fail-open cd-state paint corrects on this first plain re-read.
+        -- SPELL_UPDATE_USABLE: a Hidden Until Usable proc edge.
         QueueCdStateEval()
     end
 end
@@ -985,6 +1020,8 @@ UpdateListeners = function()
         -- combat, so the first plain read corrects anything painted fail-open.
         if #_cdStateRules > 0 then _events:RegisterEvent("PLAYER_REGEN_ENABLED")
         else _events:UnregisterEvent("PLAYER_REGEN_ENABLED") end
+        if _needUsable then _events:RegisterEvent("SPELL_UPDATE_USABLE")
+        else _events:UnregisterEvent("SPELL_UPDATE_USABLE") end
         -- Trinket swaps only matter when the player actually uses custom states.
         if _hasUserRules then _events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
         else _events:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED") end
@@ -1158,6 +1195,19 @@ local function PresetCdReady(key, onCD)
     return ns.CdmCdStateReady(effKey, onCD)
 end
 
+-- Hidden Until Usable on a preset (ns.CdmSpellNotUsable): spells only, through
+-- the same override walk. An item key never reads unusable, so the mode acts
+-- as Hidden (On CD) on items.
+local function PresetNotUsable(key)
+    if key <= 0 then return false end
+    local effKey = key
+    if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+        local ov = C_SpellBook.FindSpellOverrideByID(key)
+        if ov and ov > 0 and ov ~= key then effKey = ov end
+    end
+    return ns.CdmSpellNotUsable(effKey)
+end
+
 -- Normal (shown) alpha for a frame, from its bar's opacity (out-of-combat fade folded
 -- in via EffectiveBarAlpha so restores don't clobber the fade). Overflow-diverted
 -- frames render inside the target bar, so their restore alpha follows that bar's
@@ -1221,7 +1271,7 @@ ApplyCdState = function(frame, fc, cas, eff, onCD, ready)
     if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
     if not fd then return end
     -- Glow (On CD) wants the OPPOSITE cooldown state from the Ready variants
-    -- (as the glowOnCD branch of the SetDesaturated hook in CdmHooks.lua).
+    -- (as the glowOnCD branch of the SetDesaturated hook in EUI_CDM_HookDecorate.lua).
     local isOnCdGlow = (eff == "glowOnCD")
     local wantsGlow = isOnCdGlow and onCD or (not isOnCdGlow and not onCD)
     if wantsGlow then
@@ -1269,6 +1319,11 @@ RestoreAllCdState = function()
                     ns.StopCdGlow(fd)
                     fd._presetCdGlowOn = false
                 end
+                -- CloseAll wipes every window right after, but it reaches an
+                -- icon only through its identity, which a rebuild clears on
+                -- custom bars: drop the overlay's hold here so the icon's own
+                -- CD-state glow is not refused until its next window ends.
+                fd._faActiveGlow = nil
                 fd._presetCdTouched = nil
             end
         end
@@ -1285,6 +1340,9 @@ QueueCdStateEval = function()
         EvalCdStateNow()
     end)
 end
+-- The CD-state glow kick in EUI_CDM_HookTrinkets.lua (ns.CdGlowKick) relights an owed preset
+-- glow through this pass.
+ns.FakeActive_QueueCdStateEval = QueueCdStateEval
 
 -- NOTE: pushes NEVER arm anything directly. The drain is push-through by
 -- design (fresh duration objects land on frames constantly, including
@@ -1351,6 +1409,13 @@ EvalCdStateNow = function()
             -- Separate read for the Hidden (CD Ready) effects: a charge spell is
             -- ready only at max charges (items fall through to "not onCD").
             local ready = PresetCdReady(rule.spellID, onCD)
+            -- Hidden Until Usable paints as Hidden (On CD) with "not usable"
+            -- counting as unavailable; the sound below keeps the plain onCD.
+            local hideCD = onCD
+            if eff == "hiddenUnusable" or eff == "hiddenUnusableShift" then
+                eff = (eff == "hiddenUnusableShift") and "hiddenOnCDShift" or "hiddenOnCD"
+                if not onCD then hideCD = PresetNotUsable(rule.spellID) end
+            end
             local sid = rule.spellID
             -- Sound only fires while the ability's icon is present on a bar.
             local hasIcon = false
@@ -1369,7 +1434,7 @@ EvalCdStateNow = function()
                             or (ns._myRacialsSet and ns._myRacialsSet[sid])) then
                         hasIcon = true
                         WireCdStateFrame(f)
-                        if eff then ApplyCdState(f, fc, cas, eff, onCD, ready) end
+                        if eff then ApplyCdState(f, fc, cas, eff, hideCD, ready) end
                     end
                 end
             end
@@ -1474,6 +1539,8 @@ function ns.FakeActive_OnIconRestyled(iconFrame)
     if o._ss and ns.ApplyActiveOverlays then
         o._sbColorSaved = false
         ns.ApplyActiveOverlays(o.frame, o, o._ss, true, bd)
+        -- A live glow edit can switch the overlay's active glow on or off.
+        HoldCdGlow(iconFrame, o._activeGlowOn == true and not st121)
     end
     -- 12.1 slot mode: the live swipe is the slot-child cooldown, not o.cd.
     -- Best-effort mirror only: the engine binding owns that region (field
@@ -1501,7 +1568,7 @@ function ns.FakeActive_Rearm()
     -- Re-read rather than wipe: a re-arm during the login window would leave
     -- the map empty and the lazy refresh in KeyMatches would just rebuild it.
     RefreshSlotItemKeys()
-    _needAura, _needCast, _armed, _hasUserRules = false, false, false, false
+    _needAura, _needCast, _armed, _hasUserRules, _needUsable = false, false, false, false, false
     if FA121 then FA121.BeginSweep() end
 
     -- 1. Built-in rules (class/spec gated).
@@ -1559,6 +1626,7 @@ function ns.FakeActive_Rearm()
             if hasCd or hasSound then
                 -- Both effects ride the same cooldown poll (EvalCdStateNow).
                 _cdStateRules[#_cdStateRules + 1] = rule
+                if eff == "hiddenUnusable" or eff == "hiddenUnusableShift" then _needUsable = true end
             end
         end
         local eq13 = GetInventoryItemID and GetInventoryItemID("player", 13) or nil

@@ -4,8 +4,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  The unit-frame update engine: event routing and repaint scheduling for the
 --  single-unit frames (player/target/focus/pet/tot/fot/boss1-5). Owns NOTHING
---  visual -- painters live in EllesmereUIUnitFrames.lua and are registered per
---  channel; this file decides only WHO gets painted and WHEN.
+--  visual -- painters live in the other EUI_UnitFrames_*.lua files and are
+--  registered per channel; this file decides only WHO gets painted and WHEN.
 --
 --  Design rules:
 --  - One tracker frame per unit token, created once, events registered via
@@ -42,7 +42,7 @@ ns.Engine = Engine
 
 -------------------------------------------------------------------------------
 --  Painter registry: channel -> fn(frame, unit, event). Registered once by the
---  main file. A channel with no painter is simply never scheduled.
+--  owning file. A channel with no painter is simply never scheduled.
 -------------------------------------------------------------------------------
 local painters = {}
 

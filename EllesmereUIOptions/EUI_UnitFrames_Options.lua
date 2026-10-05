@@ -15,10 +15,13 @@ local PAGE_AURA_BARS = "Player Aura Bars"
 local PAGE_UNLOCK    = "Unlock Mode"
 
 -- Threat % Position dropdown (WoW Forever only, so nil on retail). On ns: the
--- Main Frames page builder is near its 60-upvalue cap.
+-- Main Frames page builder is near its 60-upvalue cap, and the Forever
+-- Essentials Threat page reads the same lists. Outside = beside the whole
+-- frame, clear of an attached portrait.
 if EllesmereUI.IS_FOREVER then
-    ns._threatPctPositions = { RIGHT = "Inside Right", LEFT = "Inside Left", CENTER = "Inside Center" }
-    ns._threatPctPositionOrder = { "RIGHT", "LEFT", "CENTER" }
+    ns._threatPctPositions = { RIGHT = "Inside Right", LEFT = "Inside Left", CENTER = "Inside Center",
+        OUTRIGHT = "Outside Right", OUTLEFT = "Outside Left" }
+    ns._threatPctPositionOrder = { "RIGHT", "LEFT", "CENTER", "OUTRIGHT", "OUTLEFT" }
 end
 
 -- Settings-cog rows of a text slot that can show a name. WoW Forever puts its
@@ -128,6 +131,61 @@ function ns.UF_Ask3DPortraits(onConfirm)
         end,
     })
     return true
+end
+
+-- Separate acknowledgement: enabling 3D does not opt into 2D model lookups.
+-- onCancel (optional) replaces the plain page refresh on Cancel.
+function ns.UF_Ask2DMirroredPortraits(onConfirm, onCancel)
+    if EllesmereUIDB and EllesmereUIDB.dismissed2DMirrorWarning then return false end
+    EllesmereUI:ShowConfirmPopup({
+        title       = "2D Mirrored Portraits",
+        message     = "2D mirrored portraits may cause a slight loss in performance efficiency. Do you want to enable them?",
+        confirmText = "Enable",
+        cancelText  = "Cancel",
+        onConfirm   = function()
+            if not EllesmereUIDB then EllesmereUIDB = {} end
+            EllesmereUIDB.dismissed2DMirrorWarning = true
+            onConfirm()
+        end,
+        onCancel    = onCancel or function()
+            EllesmereUI:RefreshPage()
+        end,
+    })
+    return true
+end
+
+-- Frames already set to Mirror Portrait in 2D mode get the same warning once,
+-- the first time Unit Frames options open in a session: Enable keeps them,
+-- Cancel turns Mirror Portrait off on those frames. Class mode is not asked:
+-- there Mirror Portrait also flips the class art, which costs nothing.
+do
+    local asked
+    local UNITS = { "player", "target", "focus", "targettarget", "focustarget", "pet", "boss" }
+    function ns.UF_AskExisting2DMirror()
+        if asked or EllesmereUI._prebuilding then return end
+        asked = true
+        if (EllesmereUIDB and EllesmereUIDB.dismissed2DMirrorWarning) or ns.UF_Blizz() then return end
+        local prof = ns.db and ns.db.profile
+        if not prof then return end
+        local on
+        for _, k in ipairs(UNITS) do
+            local s = prof[k]
+            if type(s) == "table" and s.portraitMirror
+               and (s.portraitMode or prof.portraitMode or "2d") == "2d"
+               and (s.portraitStyle or prof.portraitStyle) ~= "none" then
+                on = on or {}
+                on[#on + 1] = k
+            end
+        end
+        if not on then return end
+        ns.UF_Ask2DMirroredPortraits(function() end, function()
+            for _, k in ipairs(on) do
+                prof[k].portraitMirror = false
+                ns.UF_RefreshPortraitMirror(k)
+            end
+            EllesmereUI:RefreshPage()
+        end)
+    end
 end
 
 -- Dragon Strata dropdown (the PORTRAIT section's dragon cog): Match Frame
@@ -417,8 +475,10 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
           setValue=function(v)
               if v == "inherit" then
                   B.borderCustom = false
-                  -- Show Behind reads the boss table in either mode.
+                  -- Show Behind and Power Bar Seam read the boss table in
+                  -- either mode, and their cog hides while inheriting.
                   if B.borderBehind then B.borderBehind = false end
+                  if B.borderPowerSeam then B.borderPowerSeam = false end
               else
                   B.borderCustom = true
                   B.borderTexture = v
@@ -495,6 +555,19 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
                 { type = "toggle", label = "Show Behind",
                   get = function() return B.borderBehind == true end,
                   set = function(v) B.borderBehind = v; onChange() end },
+                { type = "toggle", label = "Power Bar Seam",
+                  tooltip = "Draws the border style's seam art between the health bar and an attached power bar.",
+                  disabled = function()
+                      local pos = B.powerPosition or "below"
+                      local border = Src()
+                      return not (EllesmereUI.GetBorderCompanion(border.borderTexture or "solid", "sepH")
+                          and (B.borderSizeOverride or border.borderSize or 1) > 0 and (pos == "above" or pos == "below")
+                          and (B.powerHeight or 6) > 0)
+                  end,
+                  disabledTooltip = "This option requires an attached Power Bar, a Border Size above 0 and a border style with seam art.",
+                  rawTooltip = true,
+                  get = function() return B.borderPowerSeam == true end,
+                  set = function(v) B.borderPowerSeam = v; onChange() end },
             },
         })
         local function UpdateCogVis()
@@ -1682,7 +1755,7 @@ initFrame:SetScript("OnEvent", function(self)
         block:SetAllPoints()
         block:SetFrameLevel(rgn:GetFrameLevel() + 50)
         block:EnableMouse(true)
-        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(block, "Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors.") end)
+        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(block, "Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Colors.") end)
         block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         local function Update()
             if db and db.profile and db.profile.darkTheme then
@@ -1961,6 +2034,41 @@ initFrame:SetScript("OnEvent", function(self)
         ReloadAndUpdate()
         EllesmereUI:RefreshPage(true)
     end
+    -- "Copy Look From" (a mini frame's, beside its Apply All Settings From): the
+    -- main frame it copies its border, bar texture and hover highlight from.
+    -- The dropdown shows the frame in use, from the runtime's own pick (the
+    -- chosen frame while it can lend its look, else focus, then target, then
+    -- player). No choice (lookSource nil) keeps following that order:
+    -- re-picking the frame shown stores nothing, and Focus, which behaves
+    -- exactly as no choice, is stored as none.
+    local function BuildLookSourcePair(row, unitKey, ddW)
+        local function Shown()
+            local p = db.profile
+            local s = ns.GetMiniDonorSettings(unitKey)
+            if s == p.focus then return "focus" end
+            if s == p.target then return "target" end
+            return "player"
+        end
+        local ddBtn = EllesmereUI.BuildDropdownControl(
+            row, ddW, row:GetFrameLevel() + 2,
+            { target = "Target", focus = "Focus", player = "Player" },
+            { "target", "focus", "player" },
+            Shown,
+            function(v)
+                if v == Shown() then return end
+                db.profile[unitKey].lookSource = (v ~= "focus") and v or nil
+                ReloadAndUpdate()
+                EllesmereUI:RefreshPage(true)
+            end)
+        ddBtn._ttText = "The main frame this frame copies its border, bar texture and hover highlight from."
+        EllesmereUI.RegisterWidgetRefresh(function() ddBtn._refreshLabel() end)
+
+        local label = EllesmereUI.MakeFont(row, 14, nil, 1, 1, 1)
+        label:SetText(EllesmereUI.L("Copy Look From"))
+        label:SetTextColor(1, 1, 1, 0.6)
+        return label, ddBtn
+    end
+
     -- Centered label + action dropdown atop a unit's settings: lists the group's
     -- other frames and copies FROM the chosen one onto this frame after a
     -- confirm popup. getValue always returns the placeholder so the dropdown
@@ -1972,7 +2080,10 @@ initFrame:SetScript("OnEvent", function(self)
     -- be acknowledged once before it overwrites anything. The acknowledgment
     -- is account-wide (EllesmereUIDB root, not per-profile) and covers every
     -- frame's row -- it educates the user, not a profile.
-    local function BuildApplyAllRow(parent, y, groupUnits, curUnit)
+    --
+    -- withLook (the mini frames) puts the frame's Copy Look From pair beside it,
+    -- the two pairs centred as one line.
+    local function BuildApplyAllRow(parent, y, groupUnits, curUnit, withLook)
         local ddValues = { [""] = "Choose Frame..." }
         local ddOrder = {}
         for _, key in ipairs(groupUnits) do
@@ -1992,7 +2103,7 @@ initFrame:SetScript("OnEvent", function(self)
         label:SetText(EllesmereUI.L("Apply All Settings From"))
         label:SetTextColor(1, 1, 1, 0.6)
 
-        local DD_W, GAP = 180, 12
+        local DD_W, GAP, PAIR_GAP = 180, 12, 40
         local ddBtn = EllesmereUI.BuildDropdownControl(
             row, DD_W, row:GetFrameLevel() + 2,
             ddValues, ddOrder,
@@ -2022,10 +2133,19 @@ initFrame:SetScript("OnEvent", function(self)
         ddBtn._ttText = "Copy every shared setting from another frame in this group to this frame."
         EllesmereUI.RegisterWidgetRefresh(function() ddBtn._refreshLabel() end)
 
-        -- Center the label + dropdown pair as one line
+        -- Center the label + dropdown pair (both pairs with withLook) as one line
         local totalW = label:GetStringWidth() + GAP + DD_W
+        local lookLabel, lookDD
+        if withLook then
+            lookLabel, lookDD = BuildLookSourcePair(row, curUnit, DD_W)
+            totalW = totalW + PAIR_GAP + lookLabel:GetStringWidth() + GAP + DD_W
+        end
         label:SetPoint("LEFT", row, "CENTER", -totalW / 2, 0)
         ddBtn:SetPoint("LEFT", label, "RIGHT", GAP, 0)
+        if lookLabel then
+            lookLabel:SetPoint("LEFT", ddBtn, "RIGHT", PAIR_GAP, 0)
+            lookDD:SetPoint("LEFT", lookLabel, "RIGHT", GAP, 0)
+        end
 
         return row, ROW_H
     end
@@ -2754,6 +2874,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             -- Randomize preview creature IDs on every tab switch
             RandomizePreviewCreatures()
+            ns.UF_AskExisting2DMirror()
             if pageName == PAGE_DISPLAY then
                 return BuildFrameDisplayPage(pageName, parent, yOffset)
             elseif pageName == PAGE_BOSS then
@@ -2807,6 +2928,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
             end
             RandomizePreviewCreatures()
+            ns.UF_AskExisting2DMirror()
             -- Hide all UIParent-parented disabled overlays before restoring
             -- (they persist across tab switches since they're not children of pf)
             for _, pv in pairs(allPreviews) do

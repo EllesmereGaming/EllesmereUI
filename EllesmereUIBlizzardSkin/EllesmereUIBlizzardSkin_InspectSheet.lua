@@ -129,31 +129,66 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
         end
     end
 
-    -- Enchant label (font size matches CharacterSheet)
+    -- Enchant label: its icon (the name on hover), or under Text the name
+    -- itself, outlined and tinted from the item level's color, as on the
+    -- character sheet (a missing enchant keeps its red icon). WoW Forever's
+    -- enchants carry no icon, so the name always shows there (plain unless
+    -- Colored Text), named as that client's character sheet names it.
     if itemLink and not GetFFD(slot).enchantText and not skipLabels then
-        local enchantSize = EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize or 9
         local enchantText = EllesmereUI.GetEnchantText(slotID, inspectUnit)
-        local iconOnly, tooltipText = ns.ParseEnchantLabel(enchantText, slotID, itemLink, inspectUnit)
+        local iconOnly, tooltipText, _, hasEnchant = ns.ParseEnchantLabel(enchantText, slotID, itemLink, inspectUnit)
+        if ns.ForeverEnchantName then tooltipText = ns.ForeverEnchantName(enchantText) end
 
         local showEnchants = (not EllesmereUIDB) or (EllesmereUIDB.inspectShowEnchants ~= false)
+        local styled = EllesmereUIDB and EllesmereUIDB.inspectEnchantNames
+        local useName = (styled or EllesmereUI.IS_FOREVER) and hasEnchant and tooltipText and tooltipText ~= ""
+        local labelText = useName and tooltipText or iconOnly
 
-        if showEnchants and iconOnly and iconOnly ~= "" then
+        if showEnchants and labelText and labelText ~= "" then
+            -- The inspect sheet's own size, else the character sheet's
+            local enchantSize = (EllesmereUIDB and (EllesmereUIDB.inspectEnchantSize or EllesmereUIDB.charSheetEnchantSize)) or 9
             local enchantLabel = GetFFD(slot).cachedEnchantText or textOverlayFrame:CreateFontString(nil, "OVERLAY")
-            enchantLabel:SetFont(fontPath, enchantSize, "")
-            enchantLabel:SetTextColor(1, 1, 1, 0.8)
+            if useName and styled then
+                enchantLabel:SetFont(fontPath, enchantSize, "OUTLINE, SLUG")
+                local _, _, quality = GetItemInfo(itemLink)
+                local c = EllesmereUI.GetItemLevelColor(itemLink, quality)
+                enchantLabel:SetTextColor(c.r + (1 - c.r) * 0.5, c.g + (1 - c.g) * 0.5, c.b + (1 - c.b) * 0.5, 0.9)
+            else
+                enchantLabel:SetFont(fontPath, enchantSize, "")
+                enchantLabel:SetTextColor(1, 1, 1, 0.8)
+            end
+            -- A name is capped at 45% of the gap between the two columns, so
+            -- it never runs over the model or into the other column (cut
+            -- short; the full name stays on the hover).
+            local maxW
+            if useName then
+                local lr = _G.InspectHeadSlot and _G.InspectHeadSlot:GetRight()
+                local rl = _G.InspectHandsSlot and _G.InspectHandsSlot:GetLeft()
+                if lr and rl and not (issecretvalue and (issecretvalue(lr) or issecretvalue(rl)))
+                    and rl > lr then
+                    maxW = (rl - lr) * 0.45
+                end
+            end
+            enchantLabel:SetWordWrap(false)
+            enchantLabel:SetWidth(maxW or 0)
             enchantLabel:ClearAllPoints()
 
+            -- Justified toward its slot, so a capped name hugs it
             if slotName == "InspectMainHandSlot" then
                 enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                enchantLabel:SetJustifyH("RIGHT")
             elseif slotName == "InspectSecondaryHandSlot" then
                 enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                enchantLabel:SetJustifyH("LEFT")
             elseif isRightColumn then
                 enchantLabel:SetPoint("RIGHT", slot, "LEFT", -5, -5)
+                enchantLabel:SetJustifyH("RIGHT")
             else
                 enchantLabel:SetPoint("LEFT", slot, "RIGHT", 5, -5)
+                enchantLabel:SetJustifyH("LEFT")
             end
 
-            enchantLabel:SetText(iconOnly)
+            enchantLabel:SetText(labelText)
             enchantLabel:Show()
             GetFFD(slot).enchantText = enchantLabel
 
@@ -238,6 +273,10 @@ local function ApplyTabVisibility(showLabels)
             end
             if GetFFD(slot).enchantText then
                 GetFFD(slot).enchantText:SetShown(showLabels and showEnchants)
+            end
+            -- Its hover spot too, or the other tabs keep an invisible tooltip
+            if GetFFD(slot).enchantHoverFrame then
+                GetFFD(slot).enchantHoverFrame:SetShown(showLabels and showEnchants)
             end
         end
     end
@@ -1084,7 +1123,8 @@ end
 local function RefreshDock()
     local insp, cf = InspectFrame, _G.CharacterFrame
     if not insp or not cf then return end
-    if EllesmereUIDB and (EllesmereUIDB.themedInspectSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
+    if EllesmereUIDB and (EllesmereUIDB.themedInspectSheet == false or EllesmereUI.BlizzWindowSkinsKilled()
+        or EllesmereUI.BlizzSkinPadStandDown()) then return end
 
     if not (insp:IsShown() and cf:IsShown()) then
         _ignoreSP = true
@@ -1112,7 +1152,8 @@ end
 
 -- Main function to apply themed inspect sheet
 local function ApplyThemedInspectSheet()
-    if EllesmereUIDB and (EllesmereUIDB.themedInspectSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then
+    if EllesmereUIDB and (EllesmereUIDB.themedInspectSheet == false or EllesmereUI.BlizzWindowSkinsKilled()
+        or EllesmereUI.BlizzSkinPadStandDown()) then
         return
     end
 
@@ -1125,7 +1166,8 @@ end
 
 -- Persistently hide NineSlice borders
 local function EnsureInspectNineSliceHidden()
-    if EllesmereUIDB and (EllesmereUIDB.themedInspectSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
+    if EllesmereUIDB and (EllesmereUIDB.themedInspectSheet == false or EllesmereUI.BlizzWindowSkinsKilled()
+        or EllesmereUI.BlizzSkinPadStandDown()) then return end
     if not InspectFrame then return end
 
     local frame = InspectFrame
@@ -1247,6 +1289,15 @@ if EllesmereUI then
         end
     end
 
+    -- Options refresher for the enchant display: restyles every slot of a
+    -- shown sheet; a hidden one restyles on its next show.
+    function EllesmereUI._refreshInspectSlotLabels()
+        if not (InspectFrame and InspectFrame:IsShown()) then return end
+        if EllesmereUIDB and (EllesmereUIDB.themedInspectSheet == false or EllesmereUI.BlizzWindowSkinsKilled()
+            or EllesmereUI.BlizzSkinPadStandDown()) then return end
+        RefreshSlotStyles()
+    end
+
     -- Also hook to INSPECT_READY to reskin when new inspection data arrives
     local inspectHook = CreateFrame("Frame")
     inspectHook:RegisterEvent("INSPECT_READY")
@@ -1344,8 +1395,11 @@ function EllesmereUI._refreshInspectEnchantsVisibility()
     for slotName, _ in pairs(slotGridMap) do
         local slot = _G[slotName]
         if slot and GetFFD(slot).enchantText then
-            -- Only show if Tab 1 AND setting is enabled
+            -- Only show if Tab 1 AND setting is enabled (its hover spot too)
             GetFFD(slot).enchantText:SetShown(isTab1 and showEnchants)
+            if GetFFD(slot).enchantHoverFrame then
+                GetFFD(slot).enchantHoverFrame:SetShown(isTab1 and showEnchants)
+            end
         end
     end
 end

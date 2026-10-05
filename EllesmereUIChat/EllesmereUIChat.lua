@@ -106,10 +106,8 @@ local CHAT_DEFAULTS = {
             tabBorderColorMode = "custom",
             tabBorderColor = { r=1, g=1, b=1 },
             tabBorderOpacity = 0.18,
-            alignTabsToPanel = false,
             tabHeight = 24,
             tabInnerPaddingX = 12,
-            tabOffsetX = 0,
             scrollButtonOnChat = false,
             tabBackgroundColor = { r=0.03, g=0.045, b=0.05, a=0.44 },
             tabBackgroundColorActive = { r=0.03, g=0.045, b=0.05, a=0.65 },
@@ -157,36 +155,6 @@ local CHAT_DEFAULTS = {
             -- Session chat history (EllesmereUIChat_SessionHistory.lua, SavedVariablesPerCharacter)
             persistChatHistory = true,
             persistChatHistoryMaxLines = 100,
-        },
-        -- Chat Bubbles riding on Blizzard's own (EllesmereUIChat_Bubbles.lua). Off by default:
-        -- switching it on also switches Blizzard's own bubbles ON for the channels enabled
-        -- below, so it is opt-in.
-        chatBubbles = {
-            enabled = false,
-            -- No guild key: Blizzard draws no bubble for guild chat, so there is nothing to
-            -- ride on and no position to borrow. party and raid are overwritten from
-            -- Blizzard's live switches the first time the feature is enabled (SeedChannels in
-            -- EllesmereUIChat_Bubbles.lua), so group bubbles are never put in front of a
-            -- player who had them off.
-            say = true, yell = true, party = true, raid = false, npc = true, emote = true,
-            -- Our own bubbles never draw inside an instance, so this decides whether
-            -- Blizzard's are visible there. Off, which leaves the stay exactly as it is now.
-            hideInInstances = false,
-            padding = 8,
-            maxWidth = 260,
-            -- Nudge away from where Blizzard put the bubble we ride on. Zero means exactly
-            -- their position, which the engine already places over the speaker's head.
-            offsetY = 0,
-            background = true,
-            bgColor = { r = 0, g = 0, b = 0 },
-            bgAlpha = 0.5,
-            borderSize = 1,
-            borderColor = { r = 0, g = 0, b = 0, a = 1 },
-            fontSize = 12,
-            textColor = { r = 1, g = 1, b = 1 },
-            -- Off, so the configured textColor above keeps applying. On, the bubble takes the
-            -- colour the engine already gave it, which is per channel.
-            followBlizzardColor = false,
         },
     },
 }
@@ -274,41 +242,6 @@ function ECHAT.ExtendBgBehindTabs(cfg) return cfg.extendBgBehindTabs == true and
 function ECHAT.InputOnTop(cfg) return (cfg.inputOnTop and not ns.ChatStock()) and true or false end
 function ECHAT.BordersHidden(cfg) return (cfg.hideBorders or ns.ChatStock()) and true or false end
 
-local _bubbleDefaults, _bubblesFallback
-
--- Never hand back CHAT_DEFAULTS itself: callers write to what they get, and a write into the
--- defaults table would be merged into every profile created afterwards.
-local function CopyBubbleDefaults()
-    return (EUI.Lite and EUI.Lite.DeepCopy
-        and EUI.Lite.DeepCopy(CHAT_DEFAULTS.profile.chatBubbles)) or {}
-end
-
--- Reference copy, read only. The single answer to "what is this setting worth when it is
--- missing", shared by the renderer and the options page so a default cannot drift between
--- files. Deliberately NOT the same table BubblesDB falls back to, which callers do write to.
-function ECHAT.BubbleDefaults()
-    if not _bubbleDefaults then _bubbleDefaults = CopyBubbleDefaults() end
-    return _bubbleDefaults
-end
-
-function ECHAT.BubblesDB()
-    local d = EnsureDB()
-    if d and d.profile then
-        -- Created on demand rather than answered with the shared fallback: callers WRITE to
-        -- what they get, and a write into the fallback is lost without a word. NewDB's default
-        -- merge normally gets here first; this covers any path that re-points db.profile at a
-        -- profile the merge has not run over.
-        if not d.profile.chatBubbles then
-            d.profile.chatBubbles = CopyBubbleDefaults()
-        end
-        return d.profile.chatBubbles
-    end
-    -- No db at all: read-only ground so the renderer and the options page still resolve every
-    -- key. Writes here go nowhere, which is why the branch above exists.
-    if not _bubblesFallback then _bubblesFallback = CopyBubbleDefaults() end
-    return _bubblesFallback
-end
-
 local PP = EUI.PP
 local function GetFont()
     local cfg = ECHAT.DB()
@@ -331,9 +264,9 @@ local function GetOutlineFlag()
     return ""
 end
 
--- Published for EllesmereUIChat_Bubbles.lua: the bubbles are chat output and have to follow
--- the Chat page's own font and outline pickers, not just the global "chat" module font. Going
--- straight to EUI.GetFontPath("chat") skips the cfg.font / cfg.outlineMode overrides above.
+-- Published for the tabs and the stock sidebar, which follow the Chat page's own font and
+-- outline pickers, not just the global "chat" module font. Going straight to
+-- EUI.GetFontPath("chat") skips the cfg.font / cfg.outlineMode overrides above.
 ECHAT.GetFont = GetFont
 ECHAT.GetOutlineFlag = GetOutlineFlag
 
@@ -753,7 +686,7 @@ end
 function ECHAT.ApplyChatFontSize(size)
     if type(size) ~= "number" or size <= 0 then return end
     for i = 1, 10 do
-        if _G["ChatFrame" .. i] then SetChatWindowSize(i, size) end
+        if _G["ChatFrame" .. i] then EllesmereUI.SetChatWindowSize(i, size) end
     end
     -- Temp whisper frames carry no numbered storage; their live font is the
     -- state FCF_GetChatWindowInfo reads back, so set it directly.
@@ -1182,6 +1115,10 @@ local function EnsureChatClampInsets()
     local l, r, t, b = cf1:GetClampRectInsets()
     if l ~= wl or r ~= wr or t ~= wt or b ~= wb then
         cf1:SetClampRectInsets(wl, wr, wt, wb)
+        -- A rect the clamp pinned under the other insets stays pinned until
+        -- the anchors are written again (they still read as ours), so the
+        -- next placement re-anchors instead of trusting its compare gate.
+        ns._chatReanchor = true
     end
 end
 
@@ -1673,133 +1610,36 @@ function ECHAT.SidebarIconExists(key)
     return CFD(cf1)[ref] ~= nil
 end
 
--- Chat frame position: owned by EUI unlock mode when a saved position exists
--- (genesis-captured otherwise); enforcement is the ApplySystemAnchor guard.
-local function ApplyChatPosition()
-    -- A grip resize is an engine-driven op on ChatFrame1; the op re-anchors
-    -- the frame, Edit Mode's machinery reacts with ApplySystemAnchor, and
-    -- the guard below would then re-apply the SAVED anchors every tick --
-    -- a revert war that freezes the resize. Held off until release.
-    if ns._chatSizingActive then return end
-    local cfg = ECHAT.DB()
-    if not cfg or not cfg.chatPosition then return end
-    local pos = cfg.chatPosition
-    local cf1 = _G.ChatFrame1
-    if not cf1 then return end
-    -- Corner positions only resolve with the clamp insets zeroed; assert
-    -- before anchoring so the enforcement itself can never land clamped.
-    EnsureChatClampInsets()
-    local px, py = pos.x, pos.y
-    -- Saved size rides as a SECOND corner anchor: a two-point rect is
-    -- anchor-determined, so no code path ever calls SetSize on ChatFrame1
-    -- (a synchronous SetSize dispatch would run the dock relayout tainted),
-    -- the engine layout pass dispatches its OnSizeChanged SECURE, and any
-    -- Blizzard SetSize is overridden by the anchors.
-    -- Second-corner enforcement serves only while the Edit Mode store
-    -- disagrees with the saved size (pre-migration, fresh imports, declined
-    -- reloads); once the store carries it, Blizzard's own apply owns the
-    -- size and this stands down. Late-bound ns field: the EM helpers are
-    -- defined below this function.
-    local size = cfg.chatSize
-    local sizeLane = size and size.w and size.h
-        and (not ns._EMChatSizeDelta or ns._EMChatSizeDelta())
-    local isCenterAnchor = (pos.point == "CENTER")
-        and (pos.relPoint == "CENTER" or pos.relPoint == nil)
-    local PPa = EllesmereUI and EllesmereUI.PP
-    if PPa and px and py then
-        local es = cf1:GetEffectiveScale()
-        if isCenterAnchor and PPa.SnapCenterForDim then
-            -- Snap against the dimensions the rect is about to carry: the
-            -- composed lane below sizes it from the saved size, which the
-            -- frame's explicit size (Edit Mode's last apply) can differ from.
-            local dimW = sizeLane and size.w or (cf1:GetWidth() or 0)
-            local dimH = sizeLane and size.h or (cf1:GetHeight() or 0)
-            px = PPa.SnapCenterForDim(px, dimW, es)
-            py = PPa.SnapCenterForDim(py, dimH, es)
-        elseif PPa.SnapForES then
-            px = PPa.SnapForES(px, es)
-            py = PPa.SnapForES(py, es)
-        end
-    end
-    if not pos.point or not (px and py) then return end
-    cf1:ClearAllPoints()
-    local composed = false
-    if sizeLane and isCenterAnchor then
-        -- CENTER-form saves (unlock mode Save & Exit) compose the rect around
-        -- the centre outright. A lone CENTER anchor would resolve on the
-        -- frame's explicit size for a tick, and the canonicalize below would
-        -- read the corner of THAT rect -- landing the chat half the size delta
-        -- away from where it was dropped.
-        cf1:SetPoint("TOPLEFT", UIParent, "CENTER", px - size.w / 2, py + size.h / 2)
-        cf1:SetPoint("BOTTOMRIGHT", UIParent, "CENTER", px + size.w / 2, py - size.h / 2)
-        composed = true
-    else
-        cf1:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, px or 0, py or 0)
-    end
-    if sizeLane then
-        if pos.point == "BOTTOMLEFT" and (pos.relPoint or "BOTTOMLEFT") == "BOTTOMLEFT" then
-            cf1:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT",
-                (px or 0) + size.w, (py or 0) + size.h)
-            composed = true
-        elseif pos.point == "TOPLEFT" and (pos.relPoint or "TOPLEFT") == "TOPLEFT" then
-            -- TOPLEFT-form positions compose the size anchor directly. A
-            -- single-anchor apply would leave the rect on the frame's
-            -- explicit (Edit Mode, stale) size until the deferred normalize
-            -- below lands -- a window where a late Edit Mode pass baked the
-            -- old size in.
-            cf1:SetPoint("BOTTOMRIGHT", UIParent, "TOPLEFT",
-                (px or 0) + size.w, (py or 0) - size.h)
-            composed = true
-        end
-        if not composed or pos.point ~= "BOTTOMLEFT" then
-            -- Canonicalize foreign forms to BOTTOMLEFT once the rect
-            -- resolves, so every later apply composes on the fast path.
-            C_Timer.After(0, function()
-                local cfg2 = ECHAT.DB()
-                if not cfg2 or not cfg2.chatPosition or ns._chatSizingActive then return end
-                local l, b = cf1:GetLeft(), cf1:GetBottom()
-                local issecret = _G.issecretvalue
-                if not (l and b) or (issecret and (issecret(l) or issecret(b))) then return end
-                cfg2.chatPosition = { point = "BOTTOMLEFT", relPoint = "BOTTOMLEFT", x = l, y = b }
-                ApplyChatPosition()
-            end)
-        end
-    end
-    -- The visible stack follows numerically; sync it now rather than at the
-    -- next event so drags and guard re-applies land in one motion.
-    if ECHAT.PositionChatPanelsNow then ECHAT.PositionChatPanelsNow() end
-    -- The sync above reads the rect the SetPoints just changed, and same-tick
-    -- reads can lag the engine layout pass (the grip-save rule) -- the panel,
-    -- the tab band anchored to it, and the strip's clip then disagree for a
-    -- tick (ghost tabs clipped to slivers). One coalesced deferred re-sync
-    -- lands panels-then-strip on the resolved rect for EVERY apply path.
-    if not ns._chatPosResync then
-        ns._chatPosResync = true
-        C_Timer.After(0, function()
-            ns._chatPosResync = nil
-            if ECHAT.PositionChatPanelsNow then ECHAT.PositionChatPanelsNow() end
-            if ECHAT.TabsRefreshNow then ECHAT.TabsRefreshNow() end
-        end)
-    end
-end
-ECHAT.ApplyChatPosition = ApplyChatPosition
+-------------------------------------------------------------------------------
+--  Chat position: owned by EUI unlock mode once a position is saved (genesis-
+--  captured otherwise). Two writers place ChatFrame1: Edit Mode on every
+--  layout apply (login, layout switches, Edit Mode exit, every layout save,
+--  spec changes -- which WoW Forever also fires on level-ups) and
+--  ApplyChatPosition right after it, through the anchor guard. On the
+--  player's own layout the store lane below writes our anchor and size into
+--  it, so Edit Mode's apply lands on our rect and our pass finds nothing to
+--  do. A Blizzard preset cannot be written: there every apply moves chat and
+--  the guard moves it back within the same frame (a frame at Edit Mode's
+--  spot is the blink, and it moves Blizzard's invisible link zones under our
+--  text off our lines: right-clicks that miss or pick the wrong name).
+-------------------------------------------------------------------------------
+
+-- ChatFrame1 is an Edit Mode system: its SetPoint and ClearAllPoints are Edit
+-- Mode's Lua overrides, which from our code would mark Edit Mode's anchor
+-- sweep and the frame's snap state as written by us. Every anchor write of
+-- ours goes through the saved C methods instead.
+local ClearFramePoints, SetFramePoint = EllesmereUI.ClearFramePoints, EllesmereUI.SetFramePoint
 
 -------------------------------------------------------------------------------
---  Edit Mode size ownership. Blizzard's saved-dimensions restore skips the
---  main window ("controlled via edit mode"), so the EM layout is the native
---  store for ChatFrame1's size -- and every loading screen re-applies it.
---  Writing the user's size INTO the active layout makes that apply land the
---  RIGHT size (no default-size flash on load screens, no post-load heal),
---  after which the second-corner anchor enforcement in ApplyChatPosition
---  goes dormant (EMChatSizeDelta reads false). All access goes through the
---  C_EditMode data API only -- never EditModeManagerFrame methods (secure
---  manager chains) -- and only ever saves a blob that came out of
---  GetLayouts with integer setting edits, so a malformed save cannot be
---  constructed here. Field-confirmed shape: the blob carries user layouts
---  only, while activeLayout counts the two presets first (see the resolver
---  comment); preset-active users skip cleanly to the legacy anchor lane,
---  and any unexpected shape aborts the write the same way, exactly as
---  before this system.
+--  Edit Mode store. Blizzard's saved-dimensions restore skips the main window
+--  ("controlled via edit mode"), so the active Edit Mode layout is the native
+--  store for ChatFrame1's position and size, and every layout apply re-applies
+--  it. All access goes through the C_EditMode data API only -- never
+--  EditModeManagerFrame methods (secure manager chains) -- and only ever saves
+--  the blob EllesmereUI.EditModeLayoutsForSave builds (presets first, as
+--  SaveLayouts takes it) with chat's entry edited, so a malformed save cannot
+--  be constructed here. Never while Edit Mode is open (it saves its own copy
+--  over anything written meanwhile) or in combat.
 -------------------------------------------------------------------------------
 local function EMChatEnums()
     local sysEnum = Enum and Enum.EditModeSystem
@@ -1832,55 +1672,28 @@ local function EMChatSettingRow(sys, settingID)
     end
 end
 
--- Resolve the blob and the ACTIVE layout entry under the proof rule.
--- Returns blob, entry, sysChat, setEnum (nil on any unexpected shape).
+-- The blob and the ACTIVE layout entry: blob, entry, sysChat, setEnum,
+-- isPreset (nil on any unexpected shape, or while Edit Mode is open).
+-- activeLayout indexes the merged list, presets first. A preset entry is
+-- read-only (SaveLayouts ignores edits to it): it is only ever read.
 local function EMChatResolve()
     if not (C_EditMode and C_EditMode.GetLayouts and C_EditMode.SaveLayouts) then return nil end
     local sysChat, setEnum, layEnum = EMChatEnums()
     if not sysChat then return nil end
-    -- Never touch the store while Blizzard's Edit Mode is live: the manager
-    -- keeps its OWN session copy of layoutInfo and pushes it WHOLE on Save,
-    -- so a write from here is either discarded by the next Save or discards
-    -- the edit in progress.
-    local emf = _G.EditModeManagerFrame
-    if emf and (emf.editModeActive or (emf.IsShown and emf:IsShown())) then return nil end
-    local ok, blob = pcall(C_EditMode.GetLayouts)
-    if not ok or type(blob) ~= "table" or type(blob.layouts) ~= "table" then return nil end
+    if EllesmereUI.EditModeOpen() then return nil end
+    local blob, numPresets = EllesmereUI.EditModeLayoutsForSave()
+    if not blob then return nil end
     local active = blob.activeLayout
     if type(active) ~= "number" then return nil end
-    -- SaveLayouts replaces the character's ENTIRE layout set and expects the
-    -- shape Blizzard always passes it: PRESET layouts first, then the saved
-    -- ones, with activeLayout indexing that merged list. GetLayouts returns
-    -- only the saved half (field-dumped: 3 saved entries riding
-    -- activeLayout 5), so the merged list is rebuilt here the way
-    -- EditModeManagerFrame:UpdateLayoutInfo builds it; when the presets
-    -- cannot be resolved this fails CLOSED rather than ever handing
-    -- SaveLayouts the short list. Preset entries are read-only and are
-    -- carried through untouched purely for index alignment.
-    if not (EditModePresetLayoutManager
-        and EditModePresetLayoutManager.GetCopyOfPresetLayouts) then return nil end
-    local presets = EditModePresetLayoutManager:GetCopyOfPresetLayouts()
-    if type(presets) ~= "table" or #presets == 0 then return nil end
-    local numPresets = #presets
-    if tAppendAll then
-        tAppendAll(presets, blob.layouts)
-    else
-        for i = 1, #blob.layouts do presets[numPresets + i] = blob.layouts[i] end
-    end
-    blob.layouts = presets
-    -- A preset is active: read-only, nothing safe to write (the preset-copy
-    -- flow stays the open follow-up; the legacy anchor lane serves).
-    if active <= numPresets then return nil end
     local entry = blob.layouts[active]
-    if type(entry) ~= "table" or entry.layoutType == layEnum.Preset then return nil end
-    return blob, entry, sysChat, setEnum
+    if type(entry) ~= "table" then return nil end
+    local isPreset = active <= numPresets or entry.layoutType == layEnum.Preset
+    return blob, entry, sysChat, setEnum, isPreset
 end
 
--- Stored chat size of a layout entry (EM encodes each dimension as
--- hundreds + tens-and-ones setting pairs). nil when unreadable.
-local function EMChatReadSize(entry, sysChat, setEnum)
-    local sys = EMChatFindSystem(entry, sysChat)
-    if not sys then return nil end
+-- Stored chat size of a chat system entry (Edit Mode encodes each dimension
+-- as hundreds + tens-and-ones setting pairs). nil when unreadable.
+local function EMChatReadSize(sys, setEnum)
     local wH = EMChatSettingRow(sys, setEnum.WidthHundreds)
     local wT = EMChatSettingRow(sys, setEnum.WidthTensAndOnes)
     local hH = EMChatSettingRow(sys, setEnum.HeightHundreds)
@@ -1893,9 +1706,10 @@ local function EMChatReadSize(entry, sysChat, setEnum)
     return wH.value * 100 + wT.value, hH.value * 100 + hT.value
 end
 
--- True while the saved size still needs the legacy second-corner anchor:
--- cfg.chatSize exists and the EM store disagrees (or cannot be read). Once
--- the store carries the size, this reads false and enforcement stands down.
+-- True while the saved size still needs the second-corner anchor:
+-- cfg.chatSize exists and the active layout does not hold it (or cannot be
+-- read). Once it does, Edit Mode's own apply sizes chat and the anchor
+-- enforcement stands down.
 local function EMChatSizeDelta()
     local cfg = ECHAT.DB()
     local size = cfg and cfg.chatSize
@@ -1907,59 +1721,369 @@ local function EMChatSizeDelta()
     -- boolean.
     if ns._emChatWrote then return true end
     local blob, entry, sysChat, setEnum = EMChatResolve()
-    if not blob then return true end
-    local w, h = EMChatReadSize(entry, sysChat, setEnum)
+    local sys = blob and EMChatFindSystem(entry, sysChat)
+    local w, h
+    if sys then w, h = EMChatReadSize(sys, setEnum) end
     if not w then return true end
-    return math.abs(w - size.w) > 1 or math.abs(h - size.h) > 1
+    return abs(w - size.w) > 1 or abs(h - size.h) > 1
 end
 
--- Write w/h into the active layout (copying a preset to a new account
--- layout first when needed). Returns true only when the save landed.
-local function EMChatWriteSize(w, h)
-    if InCombatLockdown() then return false end
-    local blob, entry, sysChat, setEnum = EMChatResolve()
-    if not blob then return false end
-    local sys = EMChatFindSystem(entry, sysChat)
-    if not sys then return false end
-    local wH = EMChatSettingRow(sys, setEnum.WidthHundreds)
-    local wT = EMChatSettingRow(sys, setEnum.WidthTensAndOnes)
-    local hH = EMChatSettingRow(sys, setEnum.HeightHundreds)
-    local hT = EMChatSettingRow(sys, setEnum.HeightTensAndOnes)
-    if not (wH and wT and hH and hT) then return false end
-    w = math.max(0, math.floor(w + 0.5))
-    h = math.max(0, math.floor(h + 0.5))
-    wH.value = math.floor(w / 100)
-    wT.value = w % 100
-    hH.value = math.floor(h / 100)
-    hT.value = h % 100
-    local okSave = pcall(C_EditMode.SaveLayouts, blob)
-    if not okSave then return false end
-    ns._emChatWrote = true
+-- The single anchor that places chat from the saved position, pixel-snapped
+-- as every apply places it: point, relPoint, x, y (nil while unsaved). A
+-- centre anchor snaps against the dimensions the rect carries: the saved size
+-- once there is one.
+local function ChatAnchorTarget(cfg, cf1)
+    local pos = cfg.chatPosition
+    local px, py = pos and pos.x, pos and pos.y
+    if not (pos and pos.point and px and py) then return nil end
+    local relPoint = pos.relPoint or pos.point
+    local PPa = EllesmereUI and EllesmereUI.PP
+    if PPa then
+        local es = cf1:GetEffectiveScale()
+        if pos.point == "CENTER" and relPoint == "CENTER" and PPa.SnapCenterForDim then
+            local size = cfg.chatSize
+            local dimW = size and size.w or cf1:GetWidth() or 0
+            local dimH = size and size.h or cf1:GetHeight() or 0
+            px = PPa.SnapCenterForDim(px, dimW, es)
+            py = PPa.SnapCenterForDim(py, dimH, es)
+        elseif PPa.SnapForES then
+            px = PPa.SnapForES(px, es)
+            py = PPa.SnapForES(py, es)
+        end
+    end
+    return pos.point, relPoint, px, py
+end
+
+-------------------------------------------------------------------------------
+--  Store lane: write chat's anchor (and size, once saved) into the active
+--  layout whenever it would place chat elsewhere.
+-------------------------------------------------------------------------------
+
+-- The anchor the store gets: the target's single anchor in Edit Mode's units
+-- (offsets at scale 1, as Edit Mode keeps them). Reused across passes.
+local emAnchor = { relativeTo = "UIParent" }
+
+-- Fills emAnchor from the saved position; false while unsaved.
+local function EMChatFillAnchor(cfg, cf1)
+    local point, relPoint, px, py = ChatAnchorTarget(cfg, cf1)
+    if not point then return false end
+    local scale = cf1:GetScale() or 1
+    emAnchor.point, emAnchor.relativePoint = point, relPoint
+    emAnchor.offsetX, emAnchor.offsetY = px * scale, py * scale
     return true
 end
 
--- Grip release and login migration both land here: write the store when it
--- disagrees. Fully silent -- field-tested that SaveLayouts coheres Edit
--- Mode's cached tables immediately (opening EM after an un-reloaded write
--- shows the new size and does not revert it), so no reload is needed and
--- no prompt exists. Quiet no-op for everyone whose store already agrees.
-function ns.EMChatSyncSize()
+-- The entry already places chat on emAnchor, its only anchor (within Edit
+-- Mode's own anchor tolerance).
+local function EMChatAnchorAgrees(sys)
+    local ai = sys.anchorInfo
+    return type(ai) == "table" and sys.anchorInfo2 == nil
+        and ai.point == emAnchor.point and ai.relativeTo == emAnchor.relativeTo
+        and ai.relativePoint == emAnchor.relativePoint
+        and type(ai.offsetX) == "number" and type(ai.offsetY) == "number"
+        and abs(ai.offsetX - emAnchor.offsetX) < 0.1 and abs(ai.offsetY - emAnchor.offsetY) < 0.1
+end
+
+-- The entry already sizes chat w x h (no w: the size is not ours to keep).
+local function EMChatSizeAgrees(sys, setEnum, w, h)
+    if not w then return true end
+    local sw, sh = EMChatReadSize(sys, setEnum)
+    return sw ~= nil and abs(sw - w) <= 1 and abs(sh - h) <= 1
+end
+
+-- One size row (added when the entry lacks it), noted for Uninstall EUI
+-- first. pairID: the dimension's other row, which goes back with it.
+local function EMChatSetRow(layout, sys, id, value, pairID)
+    local row = EMChatSettingRow(sys, id)
+    if not row then
+        if type(sys.settings) ~= "table" then sys.settings = {} end
+        sys.settings[#sys.settings + 1] = { setting = id, value = value }
+        return
+    end
+    EllesmereUI.NoteEditModeSetting(layout, sys, id, row.value, value, nil, pairID)
+    row.value = value
+end
+
+-- Writes emAnchor and, with w, the size into sys (chat's entry of layout),
+-- each change noted for Uninstall EUI first.
+local function EMChatWrite(layout, sys, setEnum, w, h)
+    if not EMChatAnchorAgrees(sys) then
+        EllesmereUI.NoteEditModeAnchor(layout, sys, emAnchor)
+        local ai = sys.anchorInfo
+        if type(ai) ~= "table" then
+            ai = {}
+            sys.anchorInfo = ai
+        end
+        ai.point, ai.relativeTo, ai.relativePoint = emAnchor.point, emAnchor.relativeTo, emAnchor.relativePoint
+        ai.offsetX, ai.offsetY = emAnchor.offsetX, emAnchor.offsetY
+        sys.anchorInfo2 = nil
+        sys.isInDefaultPosition = false
+    end
+    if not EMChatSizeAgrees(sys, setEnum, w, h) then
+        -- All four rows: Uninstall puts each dimension's pair back whole.
+        w, h = max(0, floor(w + 0.5)), max(0, floor(h + 0.5))
+        EMChatSetRow(layout, sys, setEnum.WidthHundreds, floor(w / 100), setEnum.WidthTensAndOnes)
+        EMChatSetRow(layout, sys, setEnum.WidthTensAndOnes, w % 100, setEnum.WidthHundreds)
+        EMChatSetRow(layout, sys, setEnum.HeightHundreds, floor(h / 100), setEnum.HeightTensAndOnes)
+        EMChatSetRow(layout, sys, setEnum.HeightTensAndOnes, h % 100, setEnum.HeightHundreds)
+    end
+end
+
+-- The last saved layout and target written this session: each is written
+-- once at most, so a store that will not take a value can never loop
+-- write -> apply -> write.
+local emLast = {}
+
+-- One store pass: when the active saved layout would place chat elsewhere,
+-- write chat's anchor (and its size, once saved) into it. A preset is never
+-- written.
+function ns.EMChatSync()
     if InCombatLockdown() then return end
     local cfg = ECHAT.DB()
-    local size = cfg and cfg.chatSize
-    if not (size and size.w and size.h) then return end
-    if not EMChatSizeDelta() then return end
-    EMChatWriteSize(size.w, size.h)
+    local cf1 = _G.ChatFrame1
+    if not (cfg and cf1 and EMChatFillAnchor(cfg, cf1)) then return end
+    local blob, entry, sysChat, setEnum, isPreset = EMChatResolve()
+    if not blob or isPreset then return end
+    local sys = EMChatFindSystem(entry, sysChat)
+    if not sys then return end
+    local size = cfg.chatSize
+    local w, h
+    if size and size.w and size.h then w, h = size.w, size.h end
+    if EMChatAnchorAgrees(sys) and EMChatSizeAgrees(sys, setEnum, w, h) then return end
+    if emLast.name == entry.layoutName and emLast.layoutType == entry.layoutType
+        and emLast.point == emAnchor.point and emLast.relPoint == emAnchor.relativePoint
+        and emLast.x == emAnchor.offsetX and emLast.y == emAnchor.offsetY
+        and emLast.w == w and emLast.h == h then
+        return
+    end
+    emLast.name, emLast.layoutType = entry.layoutName, entry.layoutType
+    emLast.point, emLast.relPoint = emAnchor.point, emAnchor.relativePoint
+    emLast.x, emLast.y, emLast.w, emLast.h = emAnchor.offsetX, emAnchor.offsetY, w, h
+    EMChatWrite(entry, sys, setEnum, w, h)
+    if pcall(C_EditMode.SaveLayouts, blob) then ns._emChatWrote = true end
 end
+
+-- Unlock mode's Reset: chat's entry in the active saved layout goes back to
+-- Edit Mode's default position and size (its own Reset To Default Position,
+-- plus the size); the next settled sight captures that spot as ours.
+function ns.EMChatResetStore()
+    if InCombatLockdown() then return end
+    local blob, entry, sysChat, setEnum, isPreset = EMChatResolve()
+    if not blob or isPreset then return end
+    local sys = EMChatFindSystem(entry, sysChat)
+    local mgr = EditModePresetLayoutManager
+    if not (sys and mgr and mgr.GetDefaultSystemAnchorInfo and mgr.GetDefaultSettingForSystem) then return end
+    local okA, def = pcall(mgr.GetDefaultSystemAnchorInfo, mgr, sysChat)
+    if not (okA and type(def) == "table") then return end
+    EllesmereUI.NoteEditModeAnchor(entry, sys, def)
+    sys.anchorInfo = def
+    sys.anchorInfo2 = nil
+    sys.isInDefaultPosition = true
+    local wH, wT = setEnum.WidthHundreds, setEnum.WidthTensAndOnes
+    local hH, hT = setEnum.HeightHundreds, setEnum.HeightTensAndOnes
+    local okW1, vW1 = pcall(mgr.GetDefaultSettingForSystem, mgr, sysChat, nil, wH)
+    local okW2, vW2 = pcall(mgr.GetDefaultSettingForSystem, mgr, sysChat, nil, wT)
+    local okH1, vH1 = pcall(mgr.GetDefaultSettingForSystem, mgr, sysChat, nil, hH)
+    local okH2, vH2 = pcall(mgr.GetDefaultSettingForSystem, mgr, sysChat, nil, hT)
+    if okW1 and okW2 and type(vW1) == "number" and type(vW2) == "number" then
+        EMChatSetRow(entry, sys, wH, vW1, wT)
+        EMChatSetRow(entry, sys, wT, vW2, wH)
+    end
+    if okH1 and okH2 and type(vH1) == "number" and type(vH2) == "number" then
+        EMChatSetRow(entry, sys, hH, vH1, hT)
+        EMChatSetRow(entry, sys, hT, vH2, hH)
+    end
+    emLast.name = nil
+    if pcall(C_EditMode.SaveLayouts, blob) then ns._emChatWrote = true end
+end
+
+-- The apply passes' store pass: one per frame at most, outside the pass that
+-- asked (never inside Edit Mode's apply), after combat, and not while a grip
+-- drag, an unlock session or the first-install picker is open.
+local RunChatStoreSync
+RunChatStoreSync = function()
+    ns._emSyncQueued = nil
+    if ns._chatSizingActive or EllesmereUI._unlockActive or EllesmereUI._firstInstallPending then return end
+    if InCombatLockdown() then
+        EllesmereUI.CombatQueue.Defer("ChatEMStoreSync", RunChatStoreSync)
+        return
+    end
+    ns.EMChatSync()
+end
+local function ScheduleChatStoreSync()
+    if ns._emSyncQueued then return end
+    ns._emSyncQueued = true
+    C_Timer.After(0, RunChatStoreSync)
+end
+
+-------------------------------------------------------------------------------
+--  Placement
+-------------------------------------------------------------------------------
+
+-- The anchors ApplyChatPosition places: one, or two while the saved size
+-- rides a second corner. Reused across passes.
+local chatTarget = { {}, {} }
+local function SetChatTarget(i, point, relPoint, x, y)
+    local t = chatTarget[i]
+    t.point, t.relPoint, t.x, t.y = point, relPoint, x, y
+end
+
+-- ChatFrame1 already carries exactly the first n target anchors (GetPoint
+-- returns the anchor definitions, never a lagging rect), within Edit Mode's
+-- own anchor tolerance. A secret read counts as a mismatch.
+local function ChatAtTarget(cf1, n)
+    local issecret = _G.issecretvalue
+    local num = cf1:GetNumPoints()
+    if (issecret and issecret(num)) or num ~= n then return false end
+    for i = 1, n do
+        local point, rel, relPoint, x, y = cf1:GetPoint(i)
+        if issecret and (issecret(point) or issecret(rel) or issecret(relPoint)
+            or issecret(x) or issecret(y)) then
+            return false
+        end
+        if rel ~= UIParent or type(x) ~= "number" or type(y) ~= "number" then return false end
+        local hit = false
+        for j = 1, n do
+            local t = chatTarget[j]
+            if t.point == point and t.relPoint == relPoint
+                and abs(t.x - x) < 0.1 and abs(t.y - y) < 0.1 then
+                hit = true
+            end
+        end
+        if not hit then return false end
+    end
+    return true
+end
+
+local function ApplyChatPosition()
+    -- A grip resize is an engine-driven op on ChatFrame1; the op re-anchors
+    -- the frame, Edit Mode's machinery reacts with ApplySystemAnchor, and
+    -- the guard below would then re-apply the SAVED anchors every tick --
+    -- a revert war that freezes the resize. Held off until release.
+    if ns._chatSizingActive then return end
+    local cfg = ECHAT.DB()
+    if not cfg or not cfg.chatPosition then return end
+    local pos = cfg.chatPosition
+    local cf1 = _G.ChatFrame1
+    if not cf1 then return end
+    -- Corner positions only resolve with the clamp insets zeroed; assert
+    -- before anchoring so the enforcement itself can never land clamped.
+    EnsureChatClampInsets()
+    -- Saved size rides as a SECOND corner anchor: a two-point rect is
+    -- anchor-determined, so no code path ever calls SetSize on ChatFrame1
+    -- (a synchronous SetSize dispatch would run the dock relayout tainted),
+    -- the engine layout pass dispatches its OnSizeChanged SECURE, and any
+    -- Blizzard SetSize is overridden by the anchors.
+    -- Second-corner enforcement serves only while the Edit Mode store
+    -- disagrees with the saved size (pre-migration, fresh imports, presets);
+    -- once the store carries it, Blizzard's own apply owns the size and this
+    -- stands down.
+    local size = cfg.chatSize
+    local sizeLane = size and size.w and size.h and EMChatSizeDelta()
+    local point, relPoint, px, py = ChatAnchorTarget(cfg, cf1)
+    if not point then return end
+    local n, composed = 1, false
+    if sizeLane and point == "CENTER" and relPoint == "CENTER" then
+        -- CENTER-form saves (unlock mode Save & Exit) compose the rect around
+        -- the centre outright. A lone CENTER anchor would resolve on the
+        -- frame's explicit size for a tick, and the canonicalize below would
+        -- read the corner of THAT rect -- landing the chat half the size delta
+        -- away from where it was dropped.
+        SetChatTarget(1, "TOPLEFT", "CENTER", px - size.w / 2, py + size.h / 2)
+        SetChatTarget(2, "BOTTOMRIGHT", "CENTER", px + size.w / 2, py - size.h / 2)
+        n, composed = 2, true
+    else
+        SetChatTarget(1, point, relPoint, px, py)
+        if sizeLane then
+            if point == "BOTTOMLEFT" and relPoint == "BOTTOMLEFT" then
+                SetChatTarget(2, "TOPRIGHT", "BOTTOMLEFT", px + size.w, py + size.h)
+                n, composed = 2, true
+            elseif point == "TOPLEFT" and relPoint == "TOPLEFT" then
+                -- TOPLEFT-form positions compose the size anchor directly. A
+                -- single-anchor apply would leave the rect on the frame's
+                -- explicit (Edit Mode, stale) size until the deferred normalize
+                -- below lands -- a window where a late Edit Mode pass baked the
+                -- old size in.
+                SetChatTarget(2, "BOTTOMRIGHT", "TOPLEFT", px + size.w, py - size.h)
+                n, composed = 2, true
+            end
+        end
+    end
+    -- Compare-gated: once Edit Mode's own apply lands on our anchors (the
+    -- store carries them), there is nothing to write -- unless the clamp
+    -- insets were just put back (EnsureChatClampInsets above): a rect pinned
+    -- under the other insets only lets go once the anchors are written again.
+    if ns._chatReanchor or not ChatAtTarget(cf1, n) then
+        ns._chatReanchor = nil
+        ClearFramePoints(cf1)
+        for i = 1, n do
+            local t = chatTarget[i]
+            SetFramePoint(cf1, t.point, UIParent, t.relPoint, t.x, t.y)
+        end
+    end
+    if sizeLane and (not composed or point ~= "BOTTOMLEFT") then
+        -- Canonicalize foreign forms to BOTTOMLEFT once the rect resolves,
+        -- so every later apply composes on the fast path.
+        C_Timer.After(0, function()
+            local cfg2 = ECHAT.DB()
+            if not cfg2 or not cfg2.chatPosition or ns._chatSizingActive then return end
+            -- A rect pinned under other clamp insets is not where the anchors
+            -- put it: never save that spot. Re-anchor; that apply schedules
+            -- this pass again.
+            EnsureChatClampInsets()
+            if ns._chatReanchor then ApplyChatPosition() return end
+            local l, b = cf1:GetLeft(), cf1:GetBottom()
+            local issecret = _G.issecretvalue
+            if not (l and b) or (issecret and (issecret(l) or issecret(b))) then return end
+            cfg2.chatPosition = { point = "BOTTOMLEFT", relPoint = "BOTTOMLEFT", x = l, y = b }
+            ApplyChatPosition()
+        end)
+    end
+    -- The visible stack follows numerically; sync it now rather than at the
+    -- next event so drags and guard re-applies land in one motion.
+    if ECHAT.PositionChatPanelsNow then ECHAT.PositionChatPanelsNow() end
+    -- The sync above reads the rect the SetPoints just changed, and same-tick
+    -- reads can lag the engine layout pass (the grip-save rule) -- the panel,
+    -- the tab band anchored to it, and the strip's clip then disagree for a
+    -- tick (ghost tabs clipped to slivers). One coalesced deferred re-sync
+    -- lands panels-then-strip on the resolved rect for EVERY apply path.
+    if not ns._chatPosResync then
+        ns._chatPosResync = true
+        C_Timer.After(0, function()
+            ns._chatPosResync = nil
+            if ECHAT.PositionChatPanelsNow then ECHAT.PositionChatPanelsNow() end
+            if ECHAT.TabsRefreshNow then ECHAT.TabsRefreshNow() end
+        end)
+    end
+    -- Keep the store on our rect once ownership has begun (the anchor guard
+    -- is installed at the first settled sight).
+    if CFD(cf1).anchorGuarded then ScheduleChatStoreSync() end
+end
+ECHAT.ApplyChatPosition = ApplyChatPosition
 ns._EMChatSizeDelta = EMChatSizeDelta
+
+-- Re-assert after an Edit Mode layout apply in the SAME frame: a one-shot
+-- OnUpdate on a frame of ours (hidden while idle) runs after this frame's
+-- event handlers and before it renders, so Edit Mode's rect never shows. A
+-- timer waits for the next frame, and that one frame at Edit Mode's spot is
+-- the blink (it also moves Blizzard's link zones off our lines). A request
+-- only shows the frame: no addon code runs inside Edit Mode's apply.
+local chatReassert = CreateFrame("Frame")
+chatReassert:Hide()
+chatReassert:SetScript("OnUpdate", function(self)
+    self:Hide()
+    if ns._chatSizingActive or EllesmereUI._unlockActive then return end
+    local cfg = ECHAT.DB()
+    if cfg and cfg.chatPosition then ApplyChatPosition() end
+end)
 
 -- Edit Mode's layout apply (login server-data arrival, layout switches) can
 -- re-rect the main window through paths the ApplySystemAnchor guard never
 -- sees, taking the last word over the settled-sight apply -- the frame sits
 -- at Edit Mode's rect while the panel stack holds ours until an interaction
 -- re-arms enforcement. Its own event is the precise edge: re-assert there,
--- deferred out of Edit Mode's execution, gated on ownership having begun
--- (anchor guard installed) so it can never fire early.
+-- gated on ownership having begun (anchor guard installed) so it can never
+-- fire early.
 do
     local emWatch = CreateFrame("Frame")
     emWatch:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
@@ -1969,12 +2093,7 @@ do
         local cf1 = _G.ChatFrame1
         local d1 = cf1 and CFD(cf1)
         if not (d1 and d1.anchorGuarded) then return end
-        C_Timer.After(0, function()
-            if ns._chatSizingActive then return end
-            if _G.EllesmereUI and _G.EllesmereUI._unlockActive then return end
-            local c2 = ECHAT.DB()
-            if c2 and c2.chatPosition then ApplyChatPosition() end
-        end)
+        chatReassert:Show()
     end)
 end
 
@@ -2050,9 +2169,9 @@ local function GenesisSettle()
 end
 
 -- Edit Mode override, the suite's action-bar anchor-guard pattern: post-hook
--- the system anchor apply, re-apply OURS deferred so no addon code runs
--- inside Edit Mode's secure chain. One hook covers the login layout apply,
--- layout switches, and Edit Mode exit. ChatFrame1 is NEVER reparented and
+-- the system anchor apply and re-apply OURS from the one-shot re-assert
+-- frame (same frame, outside Edit Mode's secure chain). One hook covers the
+-- login layout apply, layout switches, spec changes and Edit Mode exit. ChatFrame1 is NEVER reparented and
 -- its SetPoint is NEVER hooked -- both are recorded failure classes (Edit
 -- Mode's UpdateSystemAnchorInfo assumes a UIParent child; a reparented
 -- chat came back with no anchors at all).
@@ -2064,10 +2183,18 @@ local function InstallChatAnchorGuard()
     d.anchorGuarded = true
     hooksecurefunc(cf1, "ApplySystemAnchor", function()
         local cfg = ECHAT.DB()
-        if cfg and cfg.chatPosition then
-            C_Timer.After(0, ApplyChatPosition)
-        end
+        if cfg and cfg.chatPosition then chatReassert:Show() end
     end)
+    -- Edit Mode also sets the clamp insets from its selection box (32-60px
+    -- past the window) on every layout apply and on entering Edit Mode,
+    -- which applies no anchor; a chat near a screen edge is then pinned
+    -- inward. The same re-assert puts our insets back and re-anchors.
+    if cf1.UpdateClampOffsets then
+        hooksecurefunc(cf1, "UpdateClampOffsets", function()
+            local cfg = ECHAT.DB()
+            if cfg and cfg.chatPosition then chatReassert:Show() end
+        end)
+    end
 end
 
 -- Kill Edit Mode's selection overlay for chat: the unit-frame treatment
@@ -2191,9 +2318,9 @@ local function BuildMainChatResizeGrip(cf)
         curW, curH = newW, newH
         -- Full re-anchor per tick: a mid-drag Edit Mode anchor write would
         -- otherwise leave a third point and overconstrain the rect.
-        cf:ClearAllPoints()
-        cf:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", anchorLeft, anchorTop)
-        cf:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", anchorLeft + newW, anchorTop - newH)
+        ClearFramePoints(cf)
+        SetFramePoint(cf, "TOPLEFT", UIParent, "BOTTOMLEFT", anchorLeft, anchorTop)
+        SetFramePoint(cf, "BOTTOMRIGHT", UIParent, "BOTTOMLEFT", anchorLeft + newW, anchorTop - newH)
         shiftWas = shiftDown
         -- The visible stack is positioned numerically; sync per tick so the
         -- panels ride the drag with zero lag.
@@ -2214,9 +2341,9 @@ local function BuildMainChatResizeGrip(cf)
         -- Hold the position enforcement for the whole drag: our per-tick
         -- corner anchors rule until release.
         ns._chatSizingActive = true
-        cf:ClearAllPoints()
-        cf:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-        cf:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", left + w, top - h)
+        ClearFramePoints(cf)
+        SetFramePoint(cf, "TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+        SetFramePoint(cf, "BOTTOMRIGHT", UIParent, "BOTTOMLEFT", left + w, top - h)
         anchorLeft, anchorTop = left, top
         local cx, cy = GetCursorPosition()
         local es = cf:GetEffectiveScale()
@@ -2249,11 +2376,10 @@ local function BuildMainChatResizeGrip(cf)
             cfg.chatPosition = { point = "BOTTOMLEFT", relPoint = "BOTTOMLEFT",
                 x = anchorLeft, y = anchorTop - h }
         end
+        -- The apply also hands the rect to the Edit Mode store (its next-frame
+        -- store pass; a quiet no-op when the store already agrees).
         if ECHAT.ApplyChatPosition then ECHAT.ApplyChatPosition() end
         if ECHAT.TabsRefreshNow then ECHAT.TabsRefreshNow() end
-        -- Hand the size to the Edit Mode store (the native owner) and offer
-        -- the finalizing reload; quiet no-op when the store already agrees.
-        if ns.EMChatSyncSize then ns.EMChatSyncSize() end
     end)
     -- Lock toggled or panel hidden mid-drag: end the drag and release the
     -- position hold, or the guard would stay suspended forever.
@@ -2313,17 +2439,17 @@ local function KeepMainChatSizeCorner()
     relPoint = relPoint or point
     local w, h = size.w, size.h
     if point == "TOPLEFT" then
-        cf1:SetPoint("BOTTOMRIGHT", UIParent, relPoint, x + w, y - h)
+        SetFramePoint(cf1, "BOTTOMRIGHT", UIParent, relPoint, x + w, y - h)
     elseif point == "BOTTOMLEFT" then
-        cf1:SetPoint("TOPRIGHT", UIParent, relPoint, x + w, y + h)
+        SetFramePoint(cf1, "TOPRIGHT", UIParent, relPoint, x + w, y + h)
     elseif point == "TOPRIGHT" then
-        cf1:SetPoint("BOTTOMLEFT", UIParent, relPoint, x - w, y + h)
+        SetFramePoint(cf1, "BOTTOMLEFT", UIParent, relPoint, x - w, y + h)
     elseif point == "BOTTOMRIGHT" then
-        cf1:SetPoint("TOPLEFT", UIParent, relPoint, x - w, y - h)
+        SetFramePoint(cf1, "TOPLEFT", UIParent, relPoint, x - w, y - h)
     elseif point == "CENTER" then
-        cf1:ClearAllPoints()
-        cf1:SetPoint("TOPLEFT", UIParent, relPoint, x - w / 2, y + h / 2)
-        cf1:SetPoint("BOTTOMRIGHT", UIParent, relPoint, x + w / 2, y - h / 2)
+        ClearFramePoints(cf1)
+        SetFramePoint(cf1, "TOPLEFT", UIParent, relPoint, x - w / 2, y + h / 2)
+        SetFramePoint(cf1, "BOTTOMRIGHT", UIParent, relPoint, x + w / 2, y - h / 2)
     end
 end
 ns._KeepMainChatSizeCorner = KeepMainChatSizeCorner
@@ -3603,7 +3729,7 @@ local function ShowCopyPopup(text)
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
         popup:EnableMouse(true)
 
-        local bg = EUI.SolidTex(popup, "BACKGROUND", 0.06, 0.08, 0.10, 0.95)
+        local bg = EUI.SolidTex(popup, "BACKGROUND", 0.077, 0.068, 0.058, 0.95)
         bg:SetAllPoints()
         EUI.MakeBorder(popup, 1, 1, 1, 0.15, EUI.PanelPP)
 
@@ -3750,7 +3876,10 @@ local function ShowCopyPopup(text)
     copyDimmer:Show()
     C_Timer.After(0.05, function()
         popup._editBox:SetFocus()
+        -- Open at the newest lines: cursor to the end, then pin the scroll there
+        popup._editBox:SetCursorPosition(#text)
         popup._editBox:HighlightText()
+        popup._textBox:GetScrollBox():ScrollToEnd(true)
     end)
 end
 
@@ -3831,7 +3960,7 @@ local function ShowUrlPopup(url)
 
         local bg = urlPopup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.06, 0.08, 0.10, 0.97)
+        bg:SetColorTexture(0.077, 0.068, 0.058, 0.97)
         if PP and PP.CreateBorder then
             PP.CreateBorder(urlPopup, 1, 1, 1, 0.15, 1, "OVERLAY", 7)
         end
@@ -3849,7 +3978,7 @@ local function ShowUrlPopup(url)
         eb:SetAutoFocus(false)
         eb:SetJustifyH("CENTER")
         local ebBg = eb:CreateTexture(nil, "BACKGROUND")
-        ebBg:SetColorTexture(0.10, 0.12, 0.16, 1)
+        ebBg:SetColorTexture(0.112, 0.105, 0.098, 1)
         ebBg:SetPoint("TOPLEFT", -6, 4); ebBg:SetPoint("BOTTOMRIGHT", 6, -4)
         if PP and PP.CreateBorder then
             PP.CreateBorder(eb, 1, 1, 1, 0.02, 1, "OVERLAY", 7)
@@ -3933,11 +4062,10 @@ end)
 -------------------------------------------------------------------------------
 local _skinned = {}
 
--- Chat events counted as real PLAYER activity (used ONLY to reset the
--- idle-fade timer). NEVER add MONSTER_SAY/MONSTER_YELL: in a party their
--- chanSender is SECRET, and registering this insecure frame for them taints
--- HistoryKeeper when it string-converts the sender -> taint spam per monster
--- line. All senders below are plain visible player names.
+-- Chat events counted as real PLAYER activity (used ONLY to wake the idle
+-- fade): a line of one of these that lands in a shown chat window resets the
+-- timer (the engine's idle observer, init section 6). Player chat only: NPC
+-- lines (MONSTER_SAY / MONSTER_YELL) never wake it.
 local CHAT_MSG_EVENTS = {
     CHAT_MSG_SAY = true, CHAT_MSG_YELL = true,
     CHAT_MSG_PARTY = true, CHAT_MSG_PARTY_LEADER = true,
@@ -3945,10 +4073,10 @@ local CHAT_MSG_EVENTS = {
     CHAT_MSG_INSTANCE_CHAT = true, CHAT_MSG_INSTANCE_CHAT_LEADER = true,
     CHAT_MSG_GUILD = true, CHAT_MSG_OFFICER = true,
     CHAT_MSG_CHANNEL = true,
-    -- WHISPER/BN_WHISPER stay off this frame: the whisper-sound event frame
-    -- (init section 7) receives them, keeping secret-sender events on ONE
-    -- frame. Outgoing _INFORM variants need no registration -- the edit-box
-    -- focus-gained callback and OnChar hook already reset the fade.
+    -- WHISPER/BN_WHISPER are not listed: the whisper-sound event frame (init
+    -- section 7) wakes the fade for every incoming whisper, wherever it shows.
+    -- Outgoing _INFORM lines need nothing -- the edit-box focus-gained
+    -- callback and OnChar hook already reset the fade.
 }
 
 -------------------------------------------------------------------------------
@@ -5497,12 +5625,16 @@ initFrame:SetScript("OnEvent", function(self)
 
 
     ---------------------------------------------------------------------------
-    --  6. Idle fade: dims chat after N seconds of inactivity. Resets on a new
-    --     message on the active tab, a whisper window, edit box focus/typing,
-    --     or the cursor entering the chat area (event-driven, no polling).
+    --  6. Idle fade: dims chat after N seconds of inactivity. Resets on player
+    --     chat in a shown window (the selected tab or an undocked window), an
+    --     incoming whisper, edit box focus/typing, or the cursor entering the
+    --     chat area (event-driven, no polling).
     ---------------------------------------------------------------------------
     do
         local idleTimer = nil
+        -- Hover state (UpdateHoverState below); read by OnActiveMessage.
+        local _idleMouseOver = false
+        local SetMessageWake  -- with OnActiveMessage below
 
         local function IsIdleApplicable()
             local cfg = ECHAT.DB()
@@ -5539,12 +5671,13 @@ initFrame:SetScript("OnEvent", function(self)
 
         function ECHAT.ResetIdleTimer()
             CancelIdleFade()
-            if not IsIdleApplicable() then return end
             local cfg = ECHAT.DB()
-            if cfg.idleFadeEnabled ~= false then
-                local delay = cfg.idleFadeDelay or 15
-                idleTimer = C_Timer.NewTimer(delay, StartIdleFade)
-            end
+            local on = IsIdleApplicable() and cfg.idleFadeEnabled ~= false
+            -- Chat lines wake the fade only while it can run: nothing per line otherwise.
+            SetMessageWake(on)
+            if not on then return end
+            local delay = cfg.idleFadeDelay or 15
+            idleTimer = C_Timer.NewTimer(delay, StartIdleFade)
         end
 
         -- Idle reset throttle: max once per second.
@@ -5565,12 +5698,28 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Idle reset via standalone event frame (no hooks on chat frames).
-        local idleEventFrame = CreateFrame("Frame")
-        for ev in pairs(CHAT_MSG_EVENTS) do
-            idleEventFrame:RegisterEvent(ev)
+        -- Chat lines: the display engine's tail sees each line in the window
+        -- Blizzard put it in, after its own channel, message-group and filter
+        -- checks, so player chat (CHAT_MSG_EVENTS) wakes the fade only when
+        -- that window is shown. Inside Blizzard's chat handler the observer
+        -- only reads and shows a frame of ours; the reset runs on its next
+        -- OnUpdate, outside that handler.
+        local wakeFrame = CreateFrame("Frame")
+        wakeFrame:Hide()
+        wakeFrame:SetScript("OnUpdate", function(self)
+            self:Hide()
+            OnActiveMessage()
+        end)
+        local function WakeOnChat(cf, event)
+            if event == nil or wakeFrame:IsShown() then return end
+            if issecretvalue and issecretvalue(event) then return end
+            if CHAT_MSG_EVENTS[event] and cf:IsShown() then wakeFrame:Show() end
         end
-        idleEventFrame:SetScript("OnEvent", OnActiveMessage)
+        SetMessageWake = function(on)
+            if ECHAT.EngineSetIdleObserver then
+                ECHAT.EngineSetIdleObserver(on and WakeOnChat or nil)
+            end
+        end
 
         -- Permanent docked frames only (1-10): hooking a temp whisper edit box
         -- (11+) taints its execution context and poisons HistoryKeeper on
@@ -5651,6 +5800,14 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
             ECHAT.ApplyWhisperMute()
+            -- Uninstall EUI: a mute of ours would outlive the reload.
+            EllesmereUI.OnUninstall(function()
+                if _tellMuted or (EllesmereUIDB and EllesmereUIDB.chatTellMuted) then
+                    UnmuteSoundFile(TELL_SOUND_FILE)
+                    _tellMuted = false
+                    if EllesmereUIDB then EllesmereUIDB.chatTellMuted = nil end
+                end
+            end)
 
             local _whisperThrottle = 0
             local whisperFrame = CreateFrame("Frame")
@@ -5673,7 +5830,6 @@ initFrame:SetScript("OnEvent", function(self)
         -- EnableMouseMotion on our bg frames + HookScript on tabs.
         -- EnableMouseMotion captures hover without blocking clicks but does
         -- block camera turning -- accepted trade-off for zero-poll.
-        local _idleMouseOver = false
         local _hoverCount = 0
         local _editFocusCount = 0
 
@@ -5799,7 +5955,7 @@ initFrame:SetScript("OnEvent", function(self)
     EUI.RegAccent({ type = "callback", fn = UpdateTabColors })
 
     -- Enable scroll-to-scroll chat (Blizzard disables by default)
-    if SetCVar then SetCVar("chatMouseScroll", 1) end
+    EllesmereUI.SetCVar("chatMouseScroll", 1, "EllesmereUIChat")
 
     -- Seed the engine's stamp-all transform with the RESOLVED format:
     -- explicit formats pass through, "__blizzard" resolves to Blizzard's own
@@ -5822,11 +5978,10 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function ApplyTimestampCVar()
         ApplyStampAll()
-        if not SetCVar then return end
         local cfg = ECHAT.DB()
         local fmt = cfg.timestampFormat or "%I:%M "
         if fmt == "__blizzard" then return end
-        SetCVar("showTimestamps", fmt)
+        EllesmereUI.SetCVar("showTimestamps", fmt, "EllesmereUIChat")
     end
     ApplyTimestampCVar()
     C_Timer.After(2, ApplyTimestampCVar)
@@ -5925,12 +6080,11 @@ initFrame:SetScript("OnEvent", function(self)
         ECHAT.ApplyBackground()
         ECHAT.ApplyFonts()
         if ECHAT.RefreshVisibility then ECHAT.RefreshVisibility() end
+        -- The new profile's idle fade settings (and whether chat lines wake it).
+        if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
         -- The passes above can build panel chrome (borders, the tab-band
         -- extension) that did not exist when the house editor opened.
         ECHAT.ApplyPanelHost()
-        -- A profile swap or import re-points db.profile, so the bubbles feature has to
-        -- re-read enabled/channels and re-assert Blizzard's CVars against the new values.
-        if ns.ChatBubbles then ns.ChatBubbles.Refresh() end
         ECHAT.ApplyWhisperMute()
     end
 
@@ -6076,6 +6230,11 @@ initFrame:SetScript("OnEvent", function(self)
                 group = "Chat",
                 order = 600,
                 noResize = true,
+                -- Chat alone places ChatFrame1 from its saved spot (Edit Mode
+                -- applies its own on every layout apply): an anchor link would be
+                -- a third owner, and a link saved before (the old WoW Forever base
+                -- layout made one) kept dragging chat back to its stale spot.
+                ownsPosition = true,
                 getFrame = function() return _G.ChatFrame1 end,
                 getSize  = function()
                     local cf1 = _G.ChatFrame1
@@ -6101,13 +6260,18 @@ initFrame:SetScript("OnEvent", function(self)
                     return cfg and cfg.chatPosition or nil
                 end,
                 clearPos = function()
-                    -- Back to wherever Blizzard's layout puts it; the next
-                    -- settled sight re-captures that as the new genesis.
-                    -- Saved size clears with it (back to Blizzard's size).
+                    -- Back to Edit Mode's default spot and size (the store
+                    -- holds ours until reset); the next settled sight
+                    -- re-captures that as the new genesis.
                     local cfg = ECHAT.DB()
                     if cfg then
                         cfg.chatPosition = nil
                         cfg.chatSize = nil
+                    end
+                    if EUI._unlockActive then
+                        ns._chatUnlockReset = true
+                    else
+                        ns.EMChatResetStore()
                     end
                 end,
                 applyPos = function() ECHAT.ApplyChatPosition() end,
@@ -6121,10 +6285,17 @@ initFrame:SetScript("OnEvent", function(self)
     -- placement elsewhere left the frame on its explicit size; on close, so
     -- the committed or reverted position lands composed in the same
     -- execution (the drift heal is suspended for the session and would
-    -- otherwise be the first thing to notice, one tick later).
+    -- otherwise be the first thing to notice, one tick later). The close's
+    -- apply hands a committed move to the Edit Mode store (its store pass);
+    -- a committed Reset puts Edit Mode's default back (the commit runs
+    -- before this edge).
     EUI:RegisterUnlockModeListener("EllesmereUIChat", function(active)
         if ECHAT.FollowArmUnlock then ECHAT.FollowArmUnlock(active) end
         if ECHAT.ApplyChatPosition then ECHAT.ApplyChatPosition() end
+        if not active and ns._chatUnlockReset then
+            ns._chatUnlockReset = nil
+            ns.EMChatResetStore()
+        end
     end)
 
     ---------------------------------------------------------------------------
@@ -6132,25 +6303,6 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     ECHAT.RefreshVisibility()
     EUI.RegisterVisibilityUpdater(ECHAT.RefreshVisibility)
-
-    ---------------------------------------------------------------------------
-    --  13b. Edit Mode chat-size migration: one-shot after login. On-delta
-    --  only -- users who never resized (no cfg.chatSize) or whose store
-    --  already matches see nothing. A too-early pass (layouts not yet pushed
-    --  from the server) fails the writer's proof rule harmlessly and simply
-    --  retries next login.
-    ---------------------------------------------------------------------------
-    do
-        local mig = CreateFrame("Frame")
-        mig:RegisterEvent("PLAYER_ENTERING_WORLD")
-        mig:SetScript("OnEvent", function(self)
-            self:UnregisterAllEvents()
-            self:SetScript("OnEvent", nil)
-            C_Timer.After(2, function()
-                if ns.EMChatSyncSize then ns.EMChatSyncSize() end
-            end)
-        end)
-    end
 
     ---------------------------------------------------------------------------
     --  14. Hide Blizzard social buttons (quick join, menu, channel, voice)
@@ -6162,10 +6314,5 @@ initFrame:SetScript("OnEvent", function(self)
         local f = _G[frameName]
         if f then f:SetAlpha(0); f:EnableMouse(false) end
     end
-
-    ---------------------------------------------------------------------------
-    --  15. Chat Bubbles (EllesmereUIChat_Bubbles.lua)
-    ---------------------------------------------------------------------------
-    if ns.ChatBubbles then ns.ChatBubbles.Refresh() end
 
 end)

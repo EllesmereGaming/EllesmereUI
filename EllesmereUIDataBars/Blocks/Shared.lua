@@ -236,9 +236,62 @@ local ICON_DEFAULTS = {
 -- textures cannot be vertex-tinted -- the crest art is meant to read by its own
 -- tier color anyway.
 
+-- Block icon art in one place: the EllesmereUI file (full path) and its
+-- Blizzard counterpart (a path or a fileID). Entries without
+-- `wow` have no stock equivalent and always show the custom art.
+local MEDIA, MM = ns.MEDIA, ns.MICROMENU_MEDIA
+local ICON_ART = {
+    audio      = { custom = MEDIA .. "audio.png",           wow = "Interface\\Common\\VoiceChat-Speaker" },
+    bags       = { custom = MM .. "menu-bags.png",          wow = "Interface\\Buttons\\Button-Backpack-Up" },
+    gold       = { custom = MM .. "menu-bags.png",          wow = "Interface\\MoneyFrame\\UI-GoldIcon" },
+    ilvl       = { custom = MM .. "menu-character.png",     wow = "Interface\\Icons\\INV_Chest_Chain" },
+    location   = { custom = MM .. "menu-map.png",           wow = "Interface\\Icons\\INV_Misc_Map09" },
+    coords     = { custom = MEDIA .. "coordinates.png",     wow = "Interface\\Icons\\INV_Misc_Spyglass_02" },
+    durability = { custom = MM .. "menu-professions.png",   wow = "Interface\\Minimap\\Tracking\\Repair" },
+    travel     = { custom = MEDIA .. "hearthstone.png",     wow = 134414 },  -- Hearthstone item icon
+    greatvault = { custom = MM .. "menu-vault.png" },
+    home       = { custom = MEDIA .. "home_latency.png" },
+    world      = { custom = MEDIA .. "world_latency.png" },
+}
+-- Blocks that resolve their Blizzard art themselves (API icons per spec,
+-- profession or micro button); they read settings.iconStyle directly.
+local OWN_ICON_STYLE = { spec = true, profession = true, profession2 = true, micromenu = true }
+
+function ns.BlockHasIconStyle(bType)
+    if OWN_ICON_STYLE[bType] then return true end
+    local art = ICON_ART[bType]
+    return art ~= nil and art.wow ~= nil
+end
+
+-- Crops a stock item/spell icon (Interface\Icons, fileID) off its baked-in border.
+function K.CropStockIcon(icon)
+    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+end
+
+-- Paints a block icon in its selected style. key defaults to the block type.
+-- Cheap to call from Refresh: the texture is only set when it changes.
+function K.SetBlockIcon(icon, blockCfg, key)
+    local art = ICON_ART[key or blockCfg.type]
+    local s = blockCfg.settings
+    local tex = art.wow and s and s.iconStyle == "wow" and art.wow
+    local want = tex or art.custom
+    if icon._edbIconTex == want then return end
+    icon._edbIconTex = want
+    if tex then
+        icon:SetTexture(tex)
+        local crop = type(tex) == "number" or tex:find("^Interface\\Icons\\")
+        if crop then K.CropStockIcon(icon) else icon:SetTexCoord(0, 1, 0, 1) end
+    else
+        icon:SetTexture(art.custom)
+        icon:SetTexCoord(0, 1, 0, 1)
+    end
+end
+
 -- Lowest equipped-durability percent, written by the durability block's sampler; read by the dynamic tint below (and its swatch preview).
 K.lastDurabilityPct = nil
-function ns.BlockIconDefault(bType)
+function ns.BlockIconDefault(bType, settings)
+    -- Stock art carries its own colors; durability keeps its low-durability tint.
+    if settings and settings.iconStyle == "wow" and bType ~= "durability" and ns.BlockHasIconStyle(bType) then return 1, 1, 1 end
     if bType == "spec" then
         local _, classFile = UnitClass("player")
         local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
@@ -293,7 +346,7 @@ end
 local function IconColorOf(b)
     if b.useIconDefaultColor then
         -- Explicit Default mode: the stored custom color stays stashed.
-        return ns.BlockIconDefault(b.type)
+        return ns.BlockIconDefault(b.type, b.settings)
     end
     if b.useIconClassColor then
         local _, classFile = UnitClass("player")
@@ -304,7 +357,7 @@ local function IconColorOf(b)
     end
     local c = b.iconColor
     if c then return c.r or 1, c.g or 1, c.b or 1 end
-    return ns.BlockIconDefault(b.type)
+    return ns.BlockIconDefault(b.type, b.settings)
 end
 
 -- Retire a secure frame: hide + reparent to the engine park frame, deferred to OOC when needed (alpha-hidden immediately in combat).

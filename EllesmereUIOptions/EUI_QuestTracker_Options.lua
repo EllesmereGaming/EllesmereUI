@@ -379,6 +379,12 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="toggle", label="Hold Shift to Skip",
                   get=function() return Cfg("autoAcceptShiftSkip") ~= false end,
                   set=function(v) Set("autoAcceptShiftSkip", v) end },
+                { type="toggle", label="Ignore Low Level Quests",
+                  get=function() return Cfg("autoAcceptIgnoreTrivial") or false end,
+                  set=function(v) Set("autoAcceptIgnoreTrivial", v) end },
+                { type="toggle", label="Ignore Older Expansion Quests",
+                  get=function() return Cfg("autoAcceptIgnoreOldExpansion") or false end,
+                  set=function(v) Set("autoAcceptIgnoreOldExpansion", v) end },
             },
         })
 

@@ -1412,6 +1412,25 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshMinimap()
               end }
         );  y = y - h
+        -- Inline cog on Show Coordinates for decimal precision
+        if not EllesmereUI._prebuilding then
+            local rgn = coordsRow._leftRegion
+            local function coordsOff() return CoordsMode() == "never" end
+            EllesmereUI.BuildInlineCog(rgn, {
+                disabled = coordsOff,
+                disabledTooltip = "Show Coordinates",
+                title = "Coordinate Precision",
+                rows = {
+                    { type = "slider", label = "Decimal Places", min = 0, max = 2, step = 1,
+                      get = function() local m = MinimapDB(); return m and m.coordPrecision or 0 end,
+                      set = function(v)
+                          local m = MinimapDB(); if not m then return end
+                          m.coordPrecision = v
+                          RefreshMinimap()
+                      end },
+                },
+            })
+        end
         -- Inline cog on Coordinates Position for X/Y offset
         if not EllesmereUI._prebuilding then
             local rgn = coordsRow._rightRegion

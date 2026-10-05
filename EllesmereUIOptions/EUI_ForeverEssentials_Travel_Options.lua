@@ -2,9 +2,24 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end -- Forever Essentials loads on WoW Forever only
 -------------------------------------------------------------------------------
 --  EUI_ForeverEssentials_Travel_Options.lua
---  Builds the "Travel" page inside the Forever Essentials module.
+--  Builds the "Travel" page inside the Forever Essentials module: a live
+--  preview of the flight timer in the content header, then its settings.
 -------------------------------------------------------------------------------
 if not EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"] then return end  -- module disabled: no options page
+
+-- The preview surface in the content header. Exported so the module's
+-- getHeaderBuilder can hand it back when the page cache outlives its header.
+local function HeaderBuilder(header, width)
+    local building = true
+    local view = EllesmereUI._FlightTimer.CreateSettingsPreview(header, width, function(height)
+        if not building and header:IsVisible() and math.abs(header:GetHeight() - height) > 1 then
+            EllesmereUI:SetContentHeaderHeightSilent(height)
+        end
+    end)
+    building = false
+    return view.previewHeight
+end
+_G._EUI_TravelHeaderBuilder = HeaderBuilder
 
 _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
@@ -12,6 +27,8 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
     local y = yOffset
     local _, h
     parent._showRowDivider = true
+
+    EllesmereUI:SetContentHeader(HeaderBuilder)
 
     local function off()
         return not FT.Get("enabled")
@@ -49,11 +66,11 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
               FT.Apply()
               EllesmereUI:RefreshPage()
           end },
-        { type = "labeledButton", text = "Preview", buttonText = "Show Flight",
-          tooltip = "Plays a short two-stop flight of your faction, sped up. Click again to stop.",
-          disabled = off,
-          disabledTooltip = "Flight Timer",
-          onClick = function() FT.Preview() end }
+        { type = "toggle", text = "Fade In/Out",
+          tooltip = "Fades the timer in at takeoff and out on landing.",
+          disabled = off, disabledTooltip = "Flight Timer",
+          getValue = function() return FT.Get("fade") end,
+          setValue = function(v) FT.Cfg().fade = v end }
     );  y = y - h
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -202,16 +219,12 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
     );  y = y - h
 
     _, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Fade In/Out",
-          tooltip = "Fades the timer in at takeoff and out on landing.",
-          disabled = off, disabledTooltip = "Flight Timer",
-          getValue = function() return FT.Get("fade") end,
-          setValue = function(v) FT.Cfg().fade = v end },
         { type = "toggle", text = "Show End Caps",
           tooltip = "The dots at the two ends of the track.",
           disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return FT.Get("showEndCaps") end,
-          setValue = function(v) Set("showEndCaps", v) end }
+          setValue = function(v) Set("showEndCaps", v) end },
+        EllesmereUI.BlankRowCfg()
     );  y = y - h
 
     return math.abs(y)
