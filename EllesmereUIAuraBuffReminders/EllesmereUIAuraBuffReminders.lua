@@ -4191,13 +4191,17 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
     for i = 1, #custom do
         local id = custom[i]
         ids[1] = id
-        if not PlayerHasAuraByID(ids) then
+        -- Every rank has its own spell ID on Forever, so a tracked rank stops
+        -- matching once a higher one is learned. Ranks share a name.
+        local name = SpellName(id)
+        local has = PlayerHasAuraByID(ids) or (name ~= nil and PlayerHasBuffByName(name))
+        if not has then
             local dk = keys[id]
             if not dk then dk = "forever:" .. id; keys[id] = dk end
             local e = AcquireEntry()
             e.mode = "texture"; e.spellID = id
             e.texture = Tex(id)
-            e.label = ShortLabel(SpellName(id) or tostring(id))
+            e.label = ShortLabel(name or tostring(id))
             e.cat = "forever"; e.dismissKey = dk
             missing[#missing+1] = e
         end
