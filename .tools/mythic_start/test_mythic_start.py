@@ -795,6 +795,72 @@ class MythicStartTests(unittest.TestCase):
             for _, frame in ipairs(Harness.frames) do assert(next(frame.events) == nil) end
         """)
 
+    def test_58_reset_all_preserves_mythic_start_and_existing_qol_settings(self):
+        general = (ADDON / 'EllesmereUIOptions' / 'EUI__General_Options.lua').read_text(encoding='utf-8-sig')
+        reset = re.search(
+            r'^        local function ResetAllNow\(\)\n.*?(?=^        -- Reset ALL:)',
+            general, re.M | re.S,
+        )
+        self.assertIsNotNone(reset, 'Cannot locate the real Reset ALL implementation')
+        for value in ('true', 'false', 'nil'):
+            with self.subTest(mythic_settings=value):
+                vm = self.lua(source='')
+                vm.execute("""
+                    local addonStores = {
+                        'EllesmereUIActionBarsDB', 'EllesmereUIAuraBuffRemindersDB',
+                        'EllesmereUICooldownManagerDB', 'EllesmereUINameplatesDB',
+                        'EllesmereUIResourceBarsDB', 'EllesmereUIUnitFramesDB',
+                    }
+                    local previousStores = {}
+                    for _, name in ipairs(addonStores) do
+                        previousStores[name] = {resetSentinel = true}
+                        _G[name] = previousStores[name]
+                    end
+                    local previousDB = EllesmereUIDB
+                    EllesmereUIDB.mythicKeystoneControls = VALUE
+                    EllesmereUIDB.autoKeystoneReadyCheck = VALUE
+                    EllesmereUIDB.autoStartKeystone = VALUE
+                    local expectedQoL = {
+                        autoInsertKeystone = false, autoSellJunk = false,
+                        quickSignup = true, signupNote = 'reset preservation fixture',
+                    }
+                    for k, v in pairs(expectedQoL) do EllesmereUIDB[k] = v end
+                    local restore = {fixture = 'original game settings'}
+                    local graphics = {fixture = 'graphics restore values'}
+                    local friends = {
+                        friendGroups = {fixture = 'group'},
+                        friendAssignments = {fixture = 'assignment'},
+                        friendGroupOrder = {fixture = 'order'},
+                        friendGroupColors = {fixture = 'color'},
+                        friendNotes = {fixture = 'note'},
+                        friendFavCollapsed = false,
+                        friendPendingCollapsed = true,
+                        friendUngroupedCollapsed = false,
+                    }
+                    EllesmereUIDB.restoreOnUninstall = restore
+                    EllesmereUIDB.gfxBackup = graphics
+                    EllesmereUIDB.ppUIScale = 0.72
+                    EllesmereUIDB.ppUIScaleAuto = false
+                    EllesmereUIDB.global = {}
+                    for k, v in pairs(friends) do EllesmereUIDB.global[k] = v end
+                    EllesmereUIDB.global.resetSentinel = true
+                    EllesmereUIDB.resetSentinel = true
+                """.replace('VALUE', value) + reset.group(0) + """
+                    ResetAllNow()
+                    assert(EllesmereUIDB ~= previousDB and _G.EllesmereUIDB == EllesmereUIDB)
+                    assert(EllesmereUIDB.resetSentinel == nil and EllesmereUIDB.global.resetSentinel == nil)
+                    for _, name in ipairs(addonStores) do
+                        assert(_G[name] ~= previousStores[name] and next(_G[name]) == nil)
+                    end
+                    for _, name in ipairs({'mythicKeystoneControls', 'autoKeystoneReadyCheck', 'autoStartKeystone'}) do
+                        assert(EllesmereUIDB[name] == VALUE, name .. ' must survive Reset ALL')
+                    end
+                    for k, v in pairs(expectedQoL) do assert(EllesmereUIDB[k] == v, k) end
+                    assert(EllesmereUIDB.restoreOnUninstall == restore and EllesmereUIDB.gfxBackup == graphics)
+                    assert(EllesmereUIDB.ppUIScale == 0.72 and EllesmereUIDB.ppUIScaleAuto == false)
+                    for k, v in pairs(friends) do assert(EllesmereUIDB.global[k] == v, k) end
+                """.replace('VALUE', value))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

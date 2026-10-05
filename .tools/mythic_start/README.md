@@ -21,11 +21,10 @@ Set `ELLESMERE_TEST_ADDON_ROOT` to test another addon tree; the default is the
 repository root. Optional local dependency directories are only import paths;
 they are not included in the contribution.
 
-The 55 checks pass on the contribution's original upstream base
-`b43e34d05896ba39481f916d8e15fa0c3ada27ef` and on a local compatibility overlay
-of current upstream `a134e537f5784bce3dea25457b37f664547fc22c` with only this
-module's integration hunks applied. This checks the current integration;
-future API changes still need validation.
+The 56 checks pass on the contribution merged with current upstream
+`6dffe7cf03918cfc5c73c4f07f404abf425077e0`. This validates the current
+integration in the deterministic harness; future API changes still need
+validation.
 
 ## Coverage
 
@@ -65,6 +64,9 @@ future API changes still need validation.
   enabled; the main login bridge initializes it. The parent client gate leaves
   the module inactive.
 - Full Lua 5.1 syntax compilation of all four modified/added addon Lua files.
+- The real Reset ALL implementation preserves all three Mythic+ Start settings
+  for true, false and absent values, alongside existing QoL settings, friend
+  data, UI scale and the graphics/uninstall restore records.
 
 ## What these checks do not establish
 
