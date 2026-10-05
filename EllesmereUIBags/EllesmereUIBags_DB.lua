@@ -53,6 +53,7 @@ local BAGS_DEFAULTS = {
         bagMoveNoShift        = false,
         bagAllowWindowsOverBags = true,
         bagStackSplitter      = false,
+        bagTrashCan           = false,
         enableGoldTracking    = true,
         detachReagentBag      = false,
         enhancedBags          = true,

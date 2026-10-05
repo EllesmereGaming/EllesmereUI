@@ -2123,6 +2123,8 @@ local function CreateFooter()
     EUI_Bags.Footer, EUI_Bags.Money = footer, money
 end
 
+local TRASH_SIZE = 22
+
 local function UpdateCurrencyDisplays(footerWidth)
     local pool = EUI_Bags._currencyPool
     if not pool or not EUI_Bags.Footer then return FOOTER_H end
@@ -2169,7 +2171,9 @@ local function UpdateCurrencyDisplays(footerWidth)
     local rowGap = 8
     local bottomPad = 7
     local topPad = 7
-    local leftOffset = 10
+    -- Currencies start right of the Trash Can when it is shown
+    local trash = EUI_Bags._trashBtn
+    local leftOffset = (trash and trash:IsShown()) and (10 + TRASH_SIZE + 8) or 10
     local rightMargin = 180
     footerWidth = footerWidth or footer:GetWidth() or EUI_Bags:GetWidth() or 0
     if footerWidth <= 0 then footerWidth = EUI_Bags:GetWidth() or 400 end
@@ -2243,6 +2247,95 @@ local function SyncBagFrameToFooter()
         EUI_Bags:SetHeight(EUI_Bags:GetHeight() + delta)
     end
 end
+
+-------------------------------------------------------------------------------
+--  Trash Can (opt-in): a footer button that deletes the cursor item without
+--  a popup. Only items Blizzard deletes with a plain yes/no are taken (below
+--  Rare, or heirlooms); items that need a typed "DELETE" and quest items go
+--  back to their slot. Not created until the setting is turned on.
+-------------------------------------------------------------------------------
+local function TrashCursorItem()
+    local cursorType, _, cursorLink = GetCursorInfo()
+    if cursorType ~= "item" or not cursorLink then return end
+    local _, _, quality, _, _, _, _, _, _, _, _, classID, _, bindType = C_Item.GetItemInfo(cursorLink)
+    local Q = Enum.ItemQuality
+    local plain = quality and (quality < Q.Rare or quality == Q.Heirloom)
+        and classID ~= Enum.ItemClass.Questitem and bindType ~= Enum.ItemBind.Quest
+    if not plain then
+        ClearCursor()
+        UIErrorsFrame:AddMessage(EllesmereUI.L("Rare and better items and quest items can't go in the Trash Can."), 1, 0.1, 0.1)
+        return
+    end
+    DeleteCursorItem()
+end
+
+local function ApplyTrashCan()
+    local btn = EUI_Bags._trashBtn
+    local on = BP().bagTrashCan == true
+    if not btn then
+        if not on or not EUI_Bags.Footer then return end
+        local footer = EUI_Bags.Footer
+        btn = CreateFrame("Button", nil, footer)
+        btn:SetSize(TRASH_SIZE, TRASH_SIZE)
+        btn:SetPoint("BOTTOMLEFT", footer, "BOTTOMLEFT", 10, 3)
+        btn:SetFrameLevel(footer:GetFrameLevel() + 5)
+        -- Styled like a bag slot with the footer's gold button border
+        local bg = btn:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\icon-bg.png")
+        local PP = EUI.PP
+        local GOLD_R, GOLD_G, GOLD_B = 0.855, 0.722, 0.259
+        if PP and PP.CreateBorder then
+            PP.CreateBorder(btn, GOLD_R, GOLD_G, GOLD_B, 0.6, 1, "OVERLAY", 7)
+        end
+        btn.icon = btn:CreateTexture(nil, "ARTWORK")
+        btn.icon:SetPoint("TOPLEFT", 3, -3)
+        btn.icon:SetPoint("BOTTOMRIGHT", -3, 3)
+        EUI.SetDeleteIcon(btn.icon)
+        btn.icon:SetDesaturated(true)
+        btn.icon:SetAlpha(0.85)
+        local pt = btn:CreateTexture(nil, "OVERLAY")
+        pt:SetAllPoints()
+        pt:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\highlight-3.png")
+        pt:SetVertexColor(0.973, 0.839, 0.604, 1)
+        btn:SetPushedTexture(pt)
+        local function SetLook(self, hover)
+            local armed = hover and GetCursorInfo() == "item"
+            if armed then
+                self.icon:SetVertexColor(1, 0.3, 0.3)
+            else
+                self.icon:SetVertexColor(1, 1, 1)
+            end
+            self.icon:SetAlpha(hover and 1 or 0.85)
+            if PP and PP.SetBorderColor then
+                if armed then
+                    PP.SetBorderColor(self, 1, 0.25, 0.25, 1)
+                else
+                    PP.SetBorderColor(self, GOLD_R, GOLD_G, GOLD_B, hover and 1 or 0.6)
+                end
+            end
+        end
+        local function OnDrop(self)
+            TrashCursorItem()
+            SetLook(self, self:IsMouseOver())
+        end
+        btn:SetScript("OnReceiveDrag", OnDrop)
+        btn:SetScript("OnClick", OnDrop)
+        btn:SetScript("OnEnter", function(self)
+            SetLook(self, true)
+            EUI.ShowWidgetTooltip(self, EllesmereUI.L("Drop an item here to delete it without confirmation. Rare and better items and quest items are not accepted."))
+        end)
+        btn:SetScript("OnLeave", function(self)
+            SetLook(self, false)
+            EUI.HideWidgetTooltip()
+        end)
+        EUI_Bags._trashBtn = btn
+    end
+    btn:SetShown(on)
+    -- Shift the currencies around the button and refit the footer
+    SyncBagFrameToFooter()
+end
+EUI_Bags.ApplyTrashCan = ApplyTrashCan
 
 -------------------------------------------------------------------------------
 --  Reagent Bag UI
@@ -6839,6 +6932,7 @@ local function StartAddon()
 
     CreateHeader()
     CreateFooter()
+    ApplyTrashCan()
     CreateSidebar()
     CreateBagScrollFrame()
     CreateReagentBagUI()

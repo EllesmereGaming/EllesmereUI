@@ -1050,6 +1050,18 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
 
+            -- Trash Can
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Trash Can",
+                  tooltip="Show a trash can in the bottom-left corner of the bags. Items dropped on it are deleted without confirmation. Rare and better items and quest items still need Blizzard's normal delete.",
+                  getValue=function() return db.profile.bagTrashCan == true end,
+                  setValue=function(v)
+                      db.profile.bagTrashCan = v and true or false
+                      if _G.EUI_Bags and _G.EUI_Bags.ApplyTrashCan then _G.EUI_Bags.ApplyTrashCan() end
+                  end },
+                EllesmereUI.BlankRowCfg()
+            ); y = y - h
+
             _, h = W:Spacer(parent, y, 20); y = y - h
             return math.abs(y)
             end) -- end pcall
@@ -1069,6 +1081,7 @@ initFrame:SetScript("OnEvent", function(self)
             if _G.EUI_Bags and _G.EUI_Bags.ApplyWindowLayering then
                 _G.EUI_Bags:ApplyWindowLayering()
             end
+            if _G.EUI_Bags and _G.EUI_Bags.ApplyTrashCan then _G.EUI_Bags.ApplyTrashCan() end
             -- Wipe per-character data from root DB
             if EllesmereUIDB then
                 EllesmereUIDB.bagPinnedItems = nil
