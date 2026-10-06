@@ -454,10 +454,10 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars" },
             },
             {
-                -- A slash command: nothing to open.
                 module = "Cooldown Manager",
-                title  = "/cd Command",
-                desc   = "Type /cd to open or close Blizzard's Cooldown Manager settings",
+                title  = "Blizzard CDM Command",
+                desc   = "Customize or disable the command that opens Blizzard's Cooldown Manager settings in Cooldown Manager > General",
+                nav    = { module = "EllesmereUICooldownManager", page = "General" },
             },
             {
                 module = "Data Bars",

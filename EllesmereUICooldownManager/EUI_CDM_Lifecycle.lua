@@ -393,6 +393,12 @@ end
 -------------------------------------------------------------------------------
 function ECME:OnInitialize()
     self.db = EllesmereUI.Lite.NewDB("EllesmereUICooldownManagerDB", DEFAULTS, true)
+    local settings = self.db.sv.cdmCommandSettings
+    if not settings then
+        settings = { blizzardCDMCommand = "/cd", blizzardCDMCommandEnabled = true }
+        self.db.sv.cdmCommandSettings = settings
+    end
+    ns.RegisterBlizzardCDMCommand()
 
     -- Save spec profile before StripDefaults runs on logout
     EllesmereUI.Lite.RegisterPreLogout(function()

@@ -446,10 +446,24 @@ SlashCmdList.ECME = function(msg)
     EllesmereUI:ShowModule("EllesmereUICooldownManager")
 end
 
--- /cd toggles Blizzard's Cooldown Manager settings: out of combat, a frame
--- later (off the chat line, as the parent's commands run). WoW Forever's
+-- Open Blizzard's Cooldown Manager settings out of combat, a frame later
+-- (off the chat line, as the parent's commands run). WoW Forever's
 -- Gamepad interface style blocks opening a Blizzard panel from addon code.
-SLASH_EUIBLIZZCDM1 = "/cd"
+function ns.NormalizeBlizzardCDMCommand(text)
+    local command = text:match("^%s*(.-)%s*$"):lower()
+    if command == "" then return command end
+    if command:sub(1, 1) ~= "/" then command = "/" .. command end
+    if not command:match("^/[a-z][a-z0-9]*$") then return nil end
+    return command
+end
+
+function ns.RegisterBlizzardCDMCommand()
+    if not ECME.db.sv.cdmCommandSettings.blizzardCDMCommandEnabled then return end
+    local command = ns.NormalizeBlizzardCDMCommand(ECME.db.sv.cdmCommandSettings.blizzardCDMCommand)
+    if command and command ~= "" then
+        SLASH_EUIBLIZZCDM1 = command
+    end
+end
 SlashCmdList.EUIBLIZZCDM = function()
     C_Timer.After(0, function()
         if InCombatLockdown() then

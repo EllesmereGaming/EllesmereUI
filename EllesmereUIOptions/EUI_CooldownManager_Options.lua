@@ -32,6 +32,7 @@ local function GateBlizzardOnly(key, cfg)
     return cfg
 end
 
+local PAGE_GENERAL = "General"
 local PAGE_BAR_GLOWS    = "Bar Glows"
 local PAGE_BUFF_BARS    = "Tracking Bars"
 local PAGE_CDM_BARS     = "CDM Bars"
@@ -2189,16 +2190,61 @@ initFrame:SetScript("OnEvent", function(self)
     end)
 
 
+    local function BuildGeneralPage(pageName, parent, yOffset)
+        local W = EllesmereUI.Widgets
+        local y, h = yOffset, 0
+        local function PromptReload()
+            EllesmereUI:ShowConfirmPopup({
+                title = "Reload Required",
+                message = "Changing the Cooldown Manager command requires a reload to update slash command registration.",
+                confirmText = "Reload",
+                cancelText = "Later",
+                reload = true,
+            })
+        end
+        _, h = W:SectionHeader(parent, "SLASH COMMAND", y); y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "input", text = "Blizzard CDM Command", inputWidth = 160,
+              inputStyle = "popup",
+              disabled = function() return not _G._ECME_AceDB.sv.cdmCommandSettings.blizzardCDMCommandEnabled end,
+              disabledTooltip = "Enable Blizzard CDM Command",
+              tooltip = "Command to open Blizzard's Cooldown Manager settings (for example /cd). Leave blank to disable. Account-wide; requires a UI reload. Use letters and numbers, starting with a letter.",
+              getValue = function() return _G._ECME_AceDB.sv.cdmCommandSettings.blizzardCDMCommand end,
+              setValue = function(text)
+                  local command = ns.NormalizeBlizzardCDMCommand(text)
+                  if not command then
+                      EllesmereUI.PrintError(EllesmereUI.L("Enter a slash command such as /cd, or leave blank to disable."))
+                      return
+                  end
+                  local settings = _G._ECME_AceDB.sv.cdmCommandSettings
+                  if settings.blizzardCDMCommand == command then return end
+                  settings.blizzardCDMCommand = command
+                  PromptReload()
+              end },
+            { type = "toggle", text = "Enable Blizzard CDM Command",
+              tooltip = "Enable the command that opens Blizzard's Cooldown Manager settings. Turning it off keeps your chosen command. Account-wide; requires a UI reload.",
+              getValue = function() return _G._ECME_AceDB.sv.cdmCommandSettings.blizzardCDMCommandEnabled end,
+              setValue = function(enabled)
+                  local settings = _G._ECME_AceDB.sv.cdmCommandSettings
+                  if settings.blizzardCDMCommandEnabled == enabled then return end
+                  settings.blizzardCDMCommandEnabled = enabled
+                  EllesmereUI:RefreshPage()
+                  PromptReload()
+              end }
+        ); y = y - h
+        return math.abs(y)
+    end
+
     ---------------------------------------------------------------------------
     --  Register the module
     ---------------------------------------------------------------------------
     EllesmereUI:RegisterModule("EllesmereUICooldownManager", {
         title       = "Cooldown Manager",
         description = "CDM bar customization, action bar glows, and buff bars.",
-        -- Rotation Assist Icon: the far-right tab; none on Forever (no Assisted
+        -- Rotation Assist Icon is absent on Forever (no Assisted
         -- Highlight there).
-        pages       = EllesmereUI.IS_FOREVER and { PAGE_CDM_BARS, PAGE_BAR_GLOWS, PAGE_BUFF_BARS }
-                      or { PAGE_CDM_BARS, PAGE_BAR_GLOWS, PAGE_BUFF_BARS, PAGE_ROTATION_ICON },
+        pages       = EllesmereUI.IS_FOREVER and { PAGE_CDM_BARS, PAGE_BAR_GLOWS, PAGE_BUFF_BARS, PAGE_GENERAL }
+                      or { PAGE_CDM_BARS, PAGE_BAR_GLOWS, PAGE_BUFF_BARS, PAGE_ROTATION_ICON, PAGE_GENERAL },
         disabledPages = {},
         disabledPageTooltips = {},
         buildPage   = function(pageName, parent, yOffset)
@@ -2214,7 +2260,9 @@ initFrame:SetScript("OnEvent", function(self)
             -- it here would pop the live buff bars onto the screen. It's indexed
             -- normally the first time the player visits it live.
             if EllesmereUI._prebuilding then
-                if pageName == PAGE_CDM_BARS then
+                if pageName == PAGE_GENERAL then
+                    return BuildGeneralPage(pageName, parent, yOffset)
+                elseif pageName == PAGE_CDM_BARS then
                     return ns.CDMO_BuildCDMBarsPage(pageName, parent, yOffset)
                 elseif pageName == PAGE_ROTATION_ICON then
                     return BuildRotationAssistIconPage(pageName, parent, yOffset)
@@ -2238,7 +2286,9 @@ initFrame:SetScript("OnEvent", function(self)
                 HideBuffBarOverlay()
                 HideCDMButtonTip()
             end
-            if pageName == PAGE_CDM_BARS then
+            if pageName == PAGE_GENERAL then
+                return BuildGeneralPage(pageName, parent, yOffset)
+            elseif pageName == PAGE_CDM_BARS then
                 ns._cdmBarsPageOpen = true
                 local h2 = ns.CDMO_BuildCDMBarsPage(pageName, parent, yOffset)
                 if ns.UpdateCustomBuffBars then ns.UpdateCustomBuffBars() end
