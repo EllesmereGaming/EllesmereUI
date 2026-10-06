@@ -358,6 +358,7 @@ Drag to Reorder Groups
 Drag to Reorder Roles
 Drag to resize. Double-click to reset.
 Draw tick lines across the bar at positions you choose.
+Drop an item here to delete it without confirmation. Rare and better items and quest items are not accepted.
 Duplicate
 Duration (seconds)
 Dynamic Rez
@@ -733,6 +734,7 @@ Raid Tools is hidden in a raid without leader or assist -- none of its buttons w
 Raids
 Raise Strata
 Ranged
+Rare and better items and quest items can't go in the Trash Can.
 Re-sync %1$s?
 Ready
 Reagent Bag
