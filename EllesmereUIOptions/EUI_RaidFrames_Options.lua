@@ -869,7 +869,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     -- ns._RFGrowthIsVertical is the runtime module's single source of truth for
-    -- this check (EllesmereUIRaidFrames.lua); reuse it here rather than a second copy.
+    -- this check (EUI_RaidFrames_Reload.lua); reuse it here rather than a second copy.
     local GrowthIsVertical = ns._RFGrowthIsVertical
 
     -- Merge Groups renders through Blizzard's flat SecureGroupHeader, whose column

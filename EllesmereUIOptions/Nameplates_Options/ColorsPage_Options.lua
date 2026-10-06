@@ -51,15 +51,19 @@ if EllesmereUI.IS_FOREVER then
 end
 
 -- EUI_DEBUFF_COLORS: the per-class debuff lists (the list kit lives in
--- EllesmereUINameplates_DebuffColors.lua). Debuffs, then combos, two to a
--- row, each named after its class with up/down arrows beside the name that
--- reorder it (the higher entry wins); an Add button after each list picks
--- the class. Every edit reaches the plates as it is made (the runtime
+-- EllesmereUINameplates_DebuffColors.lua). Under CLASSES one expandable card
+-- per class that holds an entry, its icon and its name in its class color on
+-- the header; Add Class, one wide button below them, starts one. Inside, the debuffs run down the left column
+-- and the combos down the right, each with up/down arrows beside its name
+-- that reorder it (the higher entry wins) and an Add button closing its
+-- column. Every edit reaches the plates as it is made (the runtime
 -- rebuilds at most once a frame, and only for the player's own class); a
 -- color drag waits for the picker to close. debuffColorAdded: the entry Add
 -- just made, kept across the page rebuild Add runs so the rebuilt row
--- reports the write to Spec Overrides.
+-- reports the write to Spec Overrides. debuffColorOpen: the expanded cards
+-- by class token, for the session (the player's starts expanded).
 local debuffColorAdded
+local debuffColorOpen = {}
 function ns.NP_BuildDebuffColorsOptions(parent, y)
     local DC = ns.DebuffColorKit
     if not DC then return y end
@@ -180,7 +184,14 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
         return out
     end
 
+    -- A row reads by its place on its class's card ("1. Debuff"). FullLabel
+    -- names it across classes: its popup title, and the text Spec Overrides
+    -- keys its entry by (two classes' rows share a visible label).
     local function Label(cell)
+        if cell.kind == "combo" then return EllesmereUI.Lf("%1$d. Combo", cell.n) end
+        return EllesmereUI.Lf("%1$d. Debuff", cell.n)
+    end
+    local function FullLabel(cell)
         if cell.kind == "combo" then
             return EllesmereUI.Lf("%1$s Combo %2$d", NAME[cell.class], cell.n)
         end
@@ -239,6 +250,7 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
         if #singles >= DC.MAX_SINGLES then return end
         singles[#singles + 1] = { spell = 0, color = CopyColor(DC.SINGLE_COLOR) }
         Write(class, singles, combos)
+        debuffColorOpen[class] = true
         debuffColorAdded = { kind = "single", class = class, n = #singles }
         Rebuild()
         debuffColorAdded = nil
@@ -424,7 +436,7 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
         cell.syncCustoms()
         values.custom = { text = EllesmereUI.L("Custom Spell..."), action = function()
             EllesmereUI:ShowInputPopup({
-                title=Label(cell), confirmText="Add", cancelText="Cancel",
+                title=FullLabel(cell), confirmText="Add", cancelText="Cancel",
                 message="Enter the debuff's spell ID.",
                 placeholder="Spell ID", maxLetters=10,
                 onConfirm=function(text)
@@ -614,13 +626,11 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
         } })
     end
 
-    -- Add Debuff / Add Combo open the list of classes (the standard dropdown
-    -- menu, as wide as the button, built on first open; a class with no room
-    -- greyed).
-    local ADD_W = 220
+    -- Add Class opens the classes that have no card yet (the standard
+    -- dropdown menu, as wide as the button, built on first open).
+    local ADD_W, CLASS_W = 220, 450
     local NO_PAINT = { SetColor = function() end, SetColorTexture = function() end }
-    local function AddPicker(rgn, pick, room)
-        local btn = rgn._control
+    local function AddPicker(btn, order, pick)
         -- Its own hover look, kept past the menu wiring (which takes the scripts).
         local enter, leave = btn:GetScript("OnEnter"), btn:GetScript("OnLeave")
         local proxyLbl = EllesmereUI.MakeFont(btn, 12, nil, 1, 1, 1)
@@ -629,9 +639,8 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
         local function EnsureMenu()
             if menu then return menu end
             local refresh
-            menu, _, refresh = EllesmereUI.BuildDropdownMenu(btn, ADD_W, ORDER, CLASS_VALUES,
-                function() return nil end, pick, proxyLbl, "regular",
-                function(class) if not room(class) then return true end end)
+            menu, _, refresh = EllesmereUI.BuildDropdownMenu(btn, CLASS_W, order, CLASS_VALUES,
+                function() return nil end, pick, proxyLbl, "regular")
             EllesmereUI.WireDropdownScripts(btn, proxyLbl, NO_PAINT, NO_PAINT, menu, refresh, EllesmereUI.RD_DD_COLOURS, true)
             btn:HookScript("OnEnter", enter)
             btn:HookScript("OnLeave", function(self) if not menu:IsShown() then leave(self) end end)
@@ -645,54 +654,30 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
         end
     end
     local function SingleRoom(class) return #Read(class) < DC.MAX_SINGLES end
-    local function AnyRoom(room)
-        for _, class in ipairs(ORDER) do
-            if room(class) then return true end
-        end
-        return false
+    local function AddSingleCfg(class)
+        return { type="button", text="+ Add Debuff", width=ADD_W,
+            onClick=function() AddSingle(class) end,
+            disabled=function() return not SingleRoom(class) end,
+            disabledTooltip="This class has ten debuffs.", rawTooltip=true }
     end
-    local openSingle, openCombo
-    local ADD_SINGLE = { type="button", text="+ Add Debuff", width=ADD_W,
-        onClick=function() if openSingle then openSingle() end end,
-        disabled=function() return not AnyRoom(SingleRoom) end,
-        disabledTooltip="Every class has ten debuffs.", rawTooltip=true }
-    local ADD_COMBO = { type="button", text="+ Add Combo", width=ADD_W,
-        onClick=function() if openCombo then openCombo() end end,
-        disabled=function() return not AnyRoom(ComboRoom) end,
-        disabledTooltip="This option requires two debuffs for the same class" }
+    local function AddComboCfg(class)
+        return { type="button", text="+ Add Combo", width=ADD_W,
+            onClick=function() AddCombo(class) end,
+            disabled=function() return not ComboRoom(class) end,
+            disabledTooltip="This option requires two debuffs for the same class" }
+    end
 
-    -- The debuffs, Add Debuff, the combos, Add Combo: two to a row.
-    local cells = {}
-    for _, class in ipairs(ORDER) do
-        local singles = Read(class)
-        for n = 1, #singles do
-            cells[#cells + 1] = { kind = "single", class = class, n = n, count = #singles }
-        end
-    end
-    cells[#cells + 1] = ADD_SINGLE
-    for _, class in ipairs(ORDER) do
-        local _, combos = Read(class)
-        for n = 1, #combos do
-            cells[#cells + 1] = { kind = "combo", class = class, n = n, count = #combos }
-        end
-    end
-    cells[#cells + 1] = ADD_COMBO
     local function CellCfg(c)
         if c == nil then return EllesmereUI.BlankRowCfg() end
-        if c == ADD_SINGLE or c == ADD_COMBO then return c end
+        if c.type then return c end
         return c.kind == "combo" and ComboCfg(c) or SingleCfg(c)
     end
     local function CellChrome(rgn, c)
-        if EllesmereUI._prebuilding or c == nil then return end
-        if c == ADD_SINGLE then
-            openSingle = AddPicker(rgn, AddSingle, SingleRoom)
-            return
-        end
-        if c == ADD_COMBO then
-            openCombo = AddPicker(rgn, AddCombo, ComboRoom)
-            return
-        end
+        if EllesmereUI._prebuilding or c == nil or c.type then return end
         c.rgn = rgn
+        if rgn._captureCfg then
+            rgn._captureCfg = setmetatable({ text = FullLabel(c) }, { __index = rgn._captureCfg })
+        end
         if c.kind == "combo" then ComboChrome(rgn, c) else SingleChrome(rgn, c) end
         -- The entry Add just made: its own row takes the write.
         local a = debuffColorAdded
@@ -701,12 +686,109 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
             EllesmereUI._NotifySettingWrite(rgn)
         end
     end
-    for k = 1, #cells, 2 do
-        local l, r = cells[k], cells[k + 1]
-        local row
-        row, h = W:DualRow(parent, y, CellCfg(l), CellCfg(r)); y = y - h
-        CellChrome(row._leftRegion, l)
-        CellChrome(row._rightRegion, r)
+
+    -- A class card's rows: its debuffs down the left column, its combos down
+    -- the right, each column closed by its Add button. The shorter column
+    -- leaves its slots blank so both read top to bottom in priority order.
+    local DEBUFFS, COMBOS = "Debuffs", "Combos"
+    local function ClassRows(class, singles, combos, cy)
+        local titles, ch
+        titles, ch = W:DualRow(parent, cy,
+            { type="label", text="DEBUFFS", tooltip=SINGLE_TIP },
+            { type="label", text="COMBOS", tooltip=COMBO_TIP }); cy = cy - ch
+        -- The column titles read as section headers: their size and tint.
+        local tint = EllesmereUI.TEXT_SECTION
+        for _, rgn in ipairs({ titles._leftRegion, titles._rightRegion }) do
+            local font, _, flags = rgn._label:GetFont()
+            rgn._label:SetFont(font, 12, flags)
+            rgn._label:SetTextColor(tint.r, tint.g, tint.b, tint.a)
+        end
+        local left, right = {}, {}
+        for n = 1, #singles do
+            left[n] = { kind = "single", class = class, n = n, count = #singles }
+        end
+        left[#left + 1] = AddSingleCfg(class)
+        for n = 1, #combos do
+            right[n] = { kind = "combo", class = class, n = n, count = #combos }
+        end
+        right[#right + 1] = AddComboCfg(class)
+        for k = 1, math.max(#left, #right) do
+            local l, r = left[k], right[k]
+            local row
+            row, ch = W:DualRow(parent, cy, CellCfg(l), CellCfg(r)); cy = cy - ch
+            CellChrome(row._leftRegion, l)
+            CellChrome(row._rightRegion, r)
+        end
+        return cy
+    end
+    -- The class icon on a card's header, in a 1px black border: the
+    -- stock sheet's cell cropped past its own beveled frame (WoW Forever:
+    -- the class's first spec icon; a class without one gets none).
+    local CLASS_ICONS = "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES"
+    local ICON_CROP = 0.1
+    local function ClassGlyph(hdr, class)
+        local box = CreateFrame("Frame", nil, hdr)
+        PP.Size(box, 24, 24)
+        PP.Point(box, "LEFT", hdr, "LEFT", 14, 0)
+        local icon = box:CreateTexture(nil, "ARTWORK")
+        icon:SetAllPoints()
+        local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[class]
+        if EllesmereUI.IS_FOREVER then
+            icon:SetTexture(EllesmereUI.ForeverClassIcon(class))
+            icon:SetTexCoord(.08, .92, .08, .92)
+        elseif coords then
+            local du = (coords[2] - coords[1]) * ICON_CROP
+            local dv = (coords[4] - coords[3]) * ICON_CROP
+            icon:SetTexture(CLASS_ICONS)
+            icon:SetTexCoord(coords[1] + du, coords[2] - du, coords[3] + dv, coords[4] - dv)
+        end
+        EllesmereUI.MakeBorder(box, 0, 0, 0, 1, PP)
+    end
+
+    -- A class has a card while it holds an entry, the player's first; Add
+    -- Class offers the rest.
+    local listed, unlisted = {}, {}
+    for _, class in ipairs(ORDER) do
+        local singles, combos = Read(class)
+        if #singles > 0 or #combos > 0 then
+            listed[#listed + 1] = { class = class, singles = singles, combos = combos }
+        else
+            unlisted[#unlisted + 1] = class
+        end
+    end
+
+    -- The cards (the house module card, as on Global Settings > Fonts).
+    if debuffColorOpen[playerClass] == nil then debuffColorOpen[playerClass] = true end
+    -- CLASSES sits closer to the mode row than a full header's height.
+    if #listed > 0 then
+        _, h = W:SectionHeader(parent, "CLASSES", y + 12); y = y - h + 12
+    end
+    for _, entry in ipairs(listed) do
+        local class, singles, combos = entry.class, entry.singles, entry.combos
+        local tile = { key = class, display = NAME[class],
+            desc = EllesmereUI.L(DEBUFFS) .. ": " .. #singles .. "    " .. EllesmereUI.L(COMBOS) .. ": " .. #combos,
+            buildContent = function(_, cy) return ClassRows(class, singles, combos, cy) end }
+        y = EllesmereUI.BuildModuleCard(parent, y, W, tile, {
+            enabled = true, expanded = debuffColorOpen, descW = 440,
+            searchDesc = "Debuff Coloring",
+            glyph = function(hdr) ClassGlyph(hdr, class) end })
+        -- The card's title (its description line hangs off it) takes the
+        -- class color at full strength.
+        local _, title = tile._descFS:GetPoint(1)
+        if title and title.SetTextColor then
+            local c = EllesmereUI.GetClassColor(class)
+            title:SetTextColor(c.r, c.g, c.b, 1)
+        end
+    end
+
+    -- Add Class: a first, unchosen debuff gives the picked class its card.
+    if #unlisted > 0 then
+        local openClass, wide
+        wide, h = W:WideButton(parent, "+ Add Class", y,
+            function() if openClass then openClass() end end, CLASS_W); y = y - h
+        if not EllesmereUI._prebuilding then
+            openClass = AddPicker((wide:GetChildren()), unlisted, AddSingle)
+        end
     end
     _, h = W:Spacer(parent, y, 20); y = y - h
     return y

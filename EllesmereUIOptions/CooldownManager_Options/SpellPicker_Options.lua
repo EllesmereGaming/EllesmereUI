@@ -4233,7 +4233,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
             end
 
             local function SetStatus(text, r, g, b)
-                popup._status:SetText(text)
+                popup._status:SetText(EllesmereUI.L(text))
                 popup._status:SetTextColor(r or 1, g or 0.3, b or 0.3, 1)
                 if popup._statusTimer then popup._statusTimer:Cancel() end
                 if text ~= "" then

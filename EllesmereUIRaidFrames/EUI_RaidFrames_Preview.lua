@@ -3,8 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EUI_RaidFrames_Preview.lua
 --
 --  Options preview for the raid and party frames: fake members, the preview
---  aura ticker, the real-frame overlay and the size preview. Loads right
---  after the main file and reads it through ns only.
+--  aura ticker, the real-frame overlay and the size preview. Loads behind
+--  the EUI_RaidFrames_*.lua chain and reads it through ns and ns._internals.
 -------------------------------------------------------------------------------
 local _, ns = ...
 
@@ -24,6 +24,8 @@ local CreateFrame           = CreateFrame
 
 local PixelSnap, UpdateVisibility = ns.PixelSnap, ns.UpdateVisibility
 local I = ns._internals
+-- EllesmereUIRaidFrames.lua or one of the EUI_RaidFrames_*.lua files failed to load.
+if not I or I.broken then return end
 local ApplyFont, ApplyRoleIcon, DISPEL_ICON_ATLAS = I.ApplyFont, I.ApplyRoleIcon, I.DISPEL_ICON_ATLAS
 local GetDispelColor, IsPowerBarEnabled, LayoutGroups = I.GetDispelColor, I.IsPowerBarEnabled, I.LayoutGroups
 local LayoutTopNameBar, MOVER_GROUPS, ResolveHealthTexture = I.LayoutTopNameBar, I.MOVER_GROUPS, I.ResolveHealthTexture

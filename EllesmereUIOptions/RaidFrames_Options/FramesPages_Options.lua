@@ -1000,7 +1000,7 @@ local function BuildMainPage(pageName, parent, yOffset)
     -- perpendicular to Unit Growth, so a same-axis pair -- and the two-axis grid
     -- flow, which it renders as a plain RIGHT run (see ReadGroupGrowth in
     -- EUI_RaidFrames_Options.lua) -- gets silently reinterpreted (see the colAnchor
-    -- comment in EllesmereUIRaidFrames.lua)
+    -- comment in EUI_RaidFrames_Layout.lua)
     -- -- KeepGrowthPerpendicular bumps the other axis instead. A base edit can also
     -- leave a per-tier override same-axis (an override that only set one axis
     -- inherits the other from base), so fix those up too.

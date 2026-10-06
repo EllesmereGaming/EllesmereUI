@@ -20,5 +20,17 @@
 
 # Main Lua
 EllesmereUIQuickdraw.lua
+EUI_Quickdraw_Slots.lua
+EUI_Quickdraw_Actions.lua
+EUI_Quickdraw_View.lua
+EUI_Quickdraw_Geometry.lua
+EUI_Quickdraw_Nests.lua
+EUI_Quickdraw_Advance.lua
+EUI_Quickdraw_Paint.lua
+EUI_Quickdraw_Pointer.lua
+EUI_Quickdraw_Live.lua
+EUI_Quickdraw_Secure.lua
+EUI_Quickdraw_Gates.lua
+EUI_Quickdraw_Runtime.lua
 
 # Options page lives in the LoadOnDemand EllesmereUIOptions addon.

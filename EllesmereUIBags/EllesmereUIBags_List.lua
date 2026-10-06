@@ -729,7 +729,8 @@ local function RenderRow(btn, data, cols, rowW, x, y, stripe)
             -- Round: fixed crop past the icon's baked-in border so the circle edge stays clean
             local z = round and ROUND_ZOOM or (BP().bagItemIconZoom or 0.08)
             icon:SetTexCoord(z, 1 - z, z, 1 - z)
-            icon:SetDesaturated(info.isLocked or (BP().bagDesaturateJunkItems and q == 0) or false)
+            icon:SetDesaturated(info.isLocked or (BP().bagDesaturateJunkItems and q == 0)
+                or (EUI_CategoryManager and EUI_CategoryManager:IsJunk(info.itemID, q)) or false)
             if EUI._BagsItemUnusable(data.bag, data.slot, data.itemLink, info.itemID) then
                 icon:SetVertexColor(1, 0.1, 0.1)
             else
@@ -908,13 +909,17 @@ function ns.RenderListView(items, opts)
             if pinnedSet and ns.IsItemPinned(pinnedSet, d.itemLink, d.info.itemID) then
                 Add("pinned", "", d)
             end
-            if recentSet and recentSet[d.info.itemID] then
+            if recentSet and recentSet[d.info.itemID]
+               and not ns.JunkHiddenFromRecent(d.info.itemID, d.info.quality) then
                 Add("recent", "", d)
             end
             if slotView then
                 Add(BagKey(d.bag), "", d)
             elseif cat and not hidden[cat._defaultName] and not (cat.groupName and hidden[cat.groupName]) then
-                local key = d._lvQuality == 0 and "junk" or ci
+                -- Grey items already fold into the list's own "Junk" section; send
+                -- the Junk Marker category's items (grey + player-marked) there too
+                -- so there is a single Junk section, not two.
+                local key = (d._lvQuality == 0 or cat.isJunk) and "junk" or ci
                 Add(key, key == "junk" and "" or d._lvSub, d)
             end
         end

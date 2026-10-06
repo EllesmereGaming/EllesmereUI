@@ -539,7 +539,8 @@ local function SkinInspectSheet()
     -- natively with no addon taint in the call stack.
     do
         local fontPath = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
-        local BTN_W, BTN_H = 90, 21
+        -- Narrower beside Forever's three-slot weapon row.
+        local BTN_W, BTN_H = InspectRangedSlot and 76 or 90, 21
         local BTN_Y = 8
 
         local function RestyleButton(btn, labelText, anchor, anchorPoint, xOff)
@@ -582,7 +583,8 @@ local function SkinInspectSheet()
         local paperDollItemsFrame = InspectPaperDollItemsFrame
         if paperDollItemsFrame then
             local IsForeignBtn = ns.WSkin and ns.WSkin.IsForeignFrame
-            local talentsBtn = paperDollItemsFrame.InspectTalents
+            -- Forever parents it to InspectPaperDollFrame instead.
+            local talentsBtn = paperDollItemsFrame.InspectTalents or InspectPaperDollFrame.InspectTalents
             local children2 = { paperDollItemsFrame:GetChildren() }
             for i = 1, #children2 do
                 local child = children2[i]
@@ -753,9 +755,14 @@ local function SkinInspectSheet()
     -- hardcoded offset, no GetWidth which can return a secret value).
     if InspectMainHandSlot and InspectSecondaryHandSlot then
         InspectMainHandSlot:ClearAllPoints()
-        InspectMainHandSlot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 128, 10)
+        InspectMainHandSlot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", InspectRangedSlot and 104 or 128, 10)
         InspectSecondaryHandSlot:ClearAllPoints()
         InspectSecondaryHandSlot:SetPoint("TOPLEFT", InspectMainHandSlot, "TOPRIGHT", 12, 0)
+        -- Forever only: a third weapon slot, the row recentred for it.
+        if InspectRangedSlot then
+            InspectRangedSlot:ClearAllPoints()
+            InspectRangedSlot:SetPoint("TOPLEFT", InspectSecondaryHandSlot, "TOPRIGHT", 12, 0)
+        end
     end
 
     -- Average item level + M+ score, centered below the title/level text.

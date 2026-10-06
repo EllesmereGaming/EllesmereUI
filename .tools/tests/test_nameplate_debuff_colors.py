@@ -876,10 +876,12 @@ function uiMethods:SetSize(w, h) self.width, self.height = w, h end
 function uiMethods:SetPoint(...) table.insert(self.points, {...}) end
 function uiMethods:GetPoint(i) local pt = self.points[i or 1]; if pt then return unpack(pt) end end
 function uiMethods:ClearAllPoints() self.points = {} end
+function uiMethods:SetAllPoints() end
 function uiMethods:SetFrameLevel(l) self.level = l end
 function uiMethods:GetFrameLevel() return self.level or 1 end
 function uiMethods:CreateTexture() return UIObj("Texture", self) end
 function uiMethods:SetTexture(t) self.texture = t end
+function uiMethods:SetTexCoord(...) self.coords = {...} end
 function uiMethods:SetVertexColor(...) self.color = {...} end
 function uiMethods:SetAlpha(a) self.alpha = a end
 function uiMethods:EnableMouse(v) self.mouse = v end
@@ -895,6 +897,9 @@ function uiMethods:SetShown(v) self.shown = v and true or false end
 function uiMethods:IsShown() return self.shown end
 function uiMethods:IsMouseOver() return false end
 function uiMethods:SetText(t) self.text = t end
+function uiMethods:SetTextColor(...) self.textColor = {...} end
+function uiMethods:GetFont() return self.font or "font.ttf", self.fontSize or 14, self.fontFlags or "" end
+function uiMethods:SetFont(font, size, flags) self.font, self.fontSize, self.fontFlags = font, size, flags end
 function uiMethods:GetText() return self.text end
 function uiMethods:GetStringWidth() return #(self.text or "") * 7 end
 function uiMethods:GetWidth() return self.width end
@@ -907,6 +912,7 @@ function CreateFrame(kind, _, parent) return UIObj(kind, parent) end
 
 uiRows, uiRefreshers, uiSwatches, uiCB, uiWarn, uiMenus = {}, {}, {}, {}, {}, {}
 uiNotified, uiErrors, uiOnHide, uiTips, uiCogs, uiHeaders = {}, {}, {}, {}, {}, {}
+uiCards = {}
 stockStyle = nil
 EllesmereUI.BlizzStyle = { Get = function() return stockStyle end }
 function EllesmereUI.BuildInlineCog(rgn, opts)
@@ -932,6 +938,7 @@ local function Region(row, cfg)
         ctrl._refreshLabel = function() rgn.shownValue = cfg.getValue and cfg.getValue() end
     end
     rgn._control = ctrl
+    if cfg.getValue and cfg.setValue then rgn._captureCfg = cfg end
     return rgn
 end
 EllesmereUI.Widgets = {
@@ -953,9 +960,13 @@ EllesmereUI.Widgets = {
 }
 EllesmereUI.PanelPP = { Point=function(f, ...) f:SetPoint(...) end, Size=function(f, w, h) f:SetSize(w, h) end }
 EllesmereUI.ELLESMERE_GREEN = { r=.05, g=.82, b=.62 }
+EllesmereUI.TEXT_SECTION = { r=1, g=1, b=1, a=.41 }
 function EllesmereUI.L(s) return s end
 function EllesmereUI.Lf(s, ...) return (s:gsub("%%%d%$", "%%")):format(...) end
-function EllesmereUI.GetClassColor() return { r=1, g=1, b=1 } end
+function EllesmereUI.GetClassColor(class)
+    if class == "DRUID" then return { r=1, g=.49, b=.04 } end
+    return { r=1, g=1, b=1 }
+end
 function EllesmereUI.HexColor() return "|cffffffff" end
 function EllesmereUI.BlankRowCfg() return { type="label", text="" } end
 function EllesmereUI.RegisterWidgetRefresh(fn) uiRefreshers[#uiRefreshers+1] = fn end
@@ -988,6 +999,43 @@ function EllesmereUI.BuildDropdownMenu(btn, w, order, values, get, set, lbl, sty
     return menu, nil, function() end
 end
 function EllesmereUI.WireDropdownScripts() end
+-- The module card: a header (glyph, title, description hung off the title)
+-- that toggles opts.expanded[tile.key]; its content is built while expanded.
+function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
+    local hdr = UIObj("Button", parent)
+    opts.glyph(hdr, opts.enabled)
+    local title, desc = UIObj("FontString", hdr), UIObj("FontString", hdr)
+    title:SetText(tile.display)
+    desc:SetText(tile.desc)
+    desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
+    tile._hdr, tile._descFS = hdr, desc
+    hdr:SetScript("OnClick", function()
+        opts.expanded[tile.key] = not opts.expanded[tile.key]
+        EllesmereUI:RefreshPage(true)
+    end)
+    local card = { tile=tile, hdr=hdr, title=title, desc=desc, opts=opts, firstRow=#uiRows + 1 }
+    uiCards[#uiCards+1] = card
+    if opts.expanded[tile.key] then y = tile.buildContent(parent, y, W, tile) end
+    card.lastRow = #uiRows
+    return y - 68
+end
+function EllesmereUI.MakeBorder(parent, r, g, b, a) parent.border = { r, g, b, a } end
+-- A cell of a class's card, by its text (rows read alike across cards).
+function CellIn(key, text)
+    local card = Card(key)
+    if not card then return end
+    for i = card.firstRow, card.lastRow do
+        local row = uiRows[i]
+        if row[1].text == text then return { cfg=row[1], rgn=row.frame._leftRegion } end
+        if row[2].text == text then return { cfg=row[2], rgn=row.frame._rightRegion } end
+    end
+end
+function Card(key)
+    for _, card in ipairs(uiCards) do
+        if card.tile.key == key then return card end
+    end
+end
+CLASS_ICON_TCOORDS = { DRUID={ .1, .2, .3, .4 }, ROGUE={ .5, .6, .7, .8 } }
 function GetNumClasses() return 4 end
 local CLASSES = { { "Warrior", "WARRIOR" }, { "Rogue", "ROGUE" }, { "Druid", "DRUID" }, { "Priest", "PRIEST" } }
 function GetClassInfo(i) return CLASSES[i][1], CLASSES[i][2], i end
@@ -999,6 +1047,7 @@ C_Spell = {
 function EllesmereUI:RefreshPage(force)
     if force then
         uiRows, uiRefreshers, uiSwatches, uiCB, uiWarn, uiCogs, uiHeaders = {}, {}, {}, {}, {}, {}, {}
+        uiCards = {}
         uiApply = nil
         builds = builds + 1
         BuildPage()
@@ -1007,6 +1056,8 @@ function EllesmereUI:RefreshPage(force)
     end
 end
 function Builds() return builds end
+-- Add Class: the wide button (present while a class has no card yet).
+function AddClass() return uiApply and uiApply.text == "+ Add Class" and uiApply.button end
 -- Rows: { left cfg, right cfg, frame }; cells in reading order.
 function Cells()
     local out = {}
@@ -1058,27 +1109,83 @@ local requests = 0
 local request = ns.DebuffColors_RequestRefresh
 ns.DebuffColors_RequestRefresh = function() requests = requests + 1; request() end
 
--- Color Nameplate applies at once and builds the section: the two Add buttons,
--- with no Apply button, no close hook and no Color Border cog.
+-- Color Nameplate applies at once: with no entries yet only Add Class joins
+-- the mode row (no card, not even the player's), with no Apply button, no
+-- close hook and no Color Border cog.
 uiRows[1][1].setValue("nameplate")
 assert(profile.debuffColorsEnabled == true and profile.debuffColorsBorder == false and #uiCogs == 0)
-assert(uiApply == nil, "the Apply Coloring button is back")
-assert(#uiRows == 2 and uiRows[2][1].text == "+ Add Debuff" and uiRows[2][2].text == "+ Add Combo")
-assert(not uiRows[2][1].disabled() and uiRows[2][2].disabled(), "Add Combo enabled with no debuffs")
+assert(#uiHeaders == 1 and #uiCards == 0, "a class without entries has a card")
+assert(#uiRows == 1 and AddClass() and uiApply.width == 450, "Add Class is not one wide button")
 assert(#uiOnHide == 0, "a close hook was registered")
 
--- Add Debuff opens the classes (the player's first) and adds an unchosen debuff.
-local addRgn = uiRows[2].frame._leftRegion
-Fire(addRgn._control, "OnClick")
-local picker = uiMenus[addRgn._control]
-assert(picker.menu.shown and picker.order[1] == "DRUID" and picker.order[2] == "PRIEST")
-assert(picker.values.DRUID:find("Druid", 1, true) and picker.values._noLoc)
-picker.set("DRUID")
-assert(profile.debuffColorsDRUID == "0:1,0.43,0.04/", "Add Debuff saved " .. tostring(profile.debuffColorsDRUID))
-local d1 = Cell("Druid Debuff 1")
+-- Add Class opens the classes without a card (the player's first) and starts
+-- the picked one, expanded, with an unchosen debuff; removing its last entry
+-- drops the card again.
+Fire(AddClass(), "OnClick")
+local picker = uiMenus[AddClass()]
+assert(picker.menu.shown and #picker.order == 4 and picker.order[1] == "DRUID"
+    and picker.order[2] == "PRIEST" and picker.order[3] == "ROGUE", "Add Class does not offer every class")
+assert(picker.values.ROGUE:find("Rogue", 1, true) and picker.values._noLoc)
+picker.set("ROGUE")
+assert(profile.debuffColorsROGUE == "0:1,0.43,0.04/", "Add Class saved " .. tostring(profile.debuffColorsROGUE))
+assert(#uiCards == 1 and Card("ROGUE") and #uiHeaders == 2 and uiHeaders[2] == "CLASSES",
+    "the added class has no card under CLASSES")
+local newRogue = CellIn("ROGUE", "1. Debuff")
+assert(newRogue and uiNotified[#uiNotified] == newRogue.rgn, "the added class's row did not report the write")
+Fire(AddClass(), "OnClick")
+assert(#uiMenus[AddClass()].order == 3, "Add Class still offers the added class")
+newRogue.cfg.values.remove.action()
+assert(profile.debuffColorsROGUE == nil and #uiCards == 0 and #uiHeaders == 1
+    and not CellIn("ROGUE", "1. Debuff"), "an emptied class kept its card")
+
+-- The player's class: its card carries the class icon (cropped past the stock
+-- frame, in a 1px black border), its name in the class color at full
+-- strength and the entry counts; the two column titles head
+-- the rows, each column closed by its Add button.
+Fire(AddClass(), "OnClick")
+uiMenus[AddClass()].set("DRUID")
+assert(profile.debuffColorsDRUID == "0:1,0.43,0.04/", "Add Class saved " .. tostring(profile.debuffColorsDRUID))
+local card = Card("DRUID")
+assert(card and card.tile.display == "Druid" and card.opts.enabled == true, "the player's class has no card")
+local tint = card.title.textColor
+assert(tint and tint[1] == 1 and tint[2] == .49 and tint[3] == .04 and tint[4] == 1,
+    "the card title is not class colored at full strength")
+local box = card.hdr.children[1]
+local glyph = box.children[1]
+local function Near(a, b) return math.abs(a - b) < 1e-9 end
+assert(box.kind == "Frame" and glyph.kind == "Texture"
+    and glyph.texture == "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES",
+    "the card has no class icon")
+assert(Near(glyph.coords[1], .11) and Near(glyph.coords[2], .19) and Near(glyph.coords[3], .31)
+    and Near(glyph.coords[4], .39), "the class icon keeps the stock frame")
+assert(box.border and box.border[1] == 0 and box.border[2] == 0 and box.border[3] == 0
+    and box.border[4] == 1, "the class icon has no black border")
+assert(card.desc.text == "Debuffs: 1    Combos: 0", "the card counts read " .. tostring(card.desc.text))
+assert(#uiRows == 4 and uiRows[2][1].type == "label" and uiRows[2][1].text == "DEBUFFS"
+    and uiRows[2][2].type == "label" and uiRows[2][2].text == "COMBOS", "missing column titles")
+-- The titles take the section headers' size and tint.
+for _, rgn in ipairs({ uiRows[2].frame._leftRegion, uiRows[2].frame._rightRegion }) do
+    local tc = rgn._label.textColor
+    assert(rgn._label.fontSize == 12 and tc and tc[1] == 1 and tc[4] == .41, "a column title is not a header")
+end
+assert(uiRows[2][1].tooltip == "Higher in the list wins when several are up."
+    and uiRows[2][2].tooltip:find("Combos win", 1, true))
+assert(uiRows[3][1].text == "1. Debuff" and uiRows[3][2].text == "+ Add Combo")
+assert(uiRows[3][2].disabled(), "Add Combo enabled with no debuffs")
+assert(uiRows[4][1].text == "+ Add Debuff" and not uiRows[4][1].disabled() and uiRows[4][2].type == "label")
+-- The header collapses and expands the card; the Add Class row stays.
+Fire(card.hdr, "OnClick")
+assert(#uiCards == 1 and #uiRows == 1 and not CellIn("DRUID", "1. Debuff") and AddClass(),
+    "a collapsed card kept its rows")
+Fire(Card("DRUID").hdr, "OnClick")
+assert(#uiRows == 4 and CellIn("DRUID", "1. Debuff"), "the card did not expand again")
+local d1 = CellIn("DRUID", "1. Debuff")
 assert(d1 and d1.cfg.getValue() == "none" and d1.cfg.values.none == "None")
-assert(uiNotified[#uiNotified] == d1.rgn, "the new row did not report the write")
 assert(d1.cfg.tooltip == "Higher in the list wins when several are up.")
+-- Spec Overrides keys a row by its class-qualified name, not the short label.
+assert(d1.cfg.text == "1. Debuff" and d1.rgn._captureCfg.text == "Druid Debuff 1"
+    and d1.rgn._captureCfg.getValue() == "none" and d1.rgn._captureCfg.setValue == d1.cfg.setValue,
+    "the row's Spec Overrides name lost its class")
 -- Only the class's own presets, in its order.
 local o = d1.cfg.order
 assert(#o == 6 and o[1] == "remove" and o[2] == "custom" and o[3] == "164812" and o[4] == "164815"
@@ -1108,23 +1215,22 @@ RunWorker()
 
 -- A second debuff, then the arrows reorder (first up / last down disabled).
 Fire(Cell("+ Add Debuff").rgn._control, "OnClick")
-uiMenus[Cell("+ Add Debuff").rgn._control].set("DRUID")
-Cell("Druid Debuff 2").cfg.setValue("155722")
-local up1, down1 = Arrows(Cell("Druid Debuff 1").rgn)
-local up2, down2 = Arrows(Cell("Druid Debuff 2").rgn)
+CellIn("DRUID", "2. Debuff").cfg.setValue("155722")
+local up1, down1 = Arrows(CellIn("DRUID", "1. Debuff").rgn)
+local up2, down2 = Arrows(CellIn("DRUID", "2. Debuff").rgn)
 assert(up1 and down1 and up2 and down2, "missing reorder arrows")
 assert(not up1.mouse and down1.mouse and up2.mouse and not down2.mouse)
 assert(up1.children[1].alpha == .2 and down2.children[1].alpha == .2)
 Fire(down1, "OnClick")
 assert(profile.debuffColorsDRUID == "155722:1,0.43,0.04;1079:0.2,0.3,0.4/", "move down did not swap")
-up2 = Arrows(Cell("Druid Debuff 2").rgn)
+up2 = Arrows(CellIn("DRUID", "2. Debuff").rgn)
 Fire(up2, "OnClick")
 assert(profile.debuffColorsDRUID == "1079:0.2,0.3,0.4;155722:1,0.43,0.04/", "move up did not swap")
 
 -- In use: a spell another debuff of the class holds is greyed in the menu,
 -- with the reason; the row's own spell, the rest and the actions stay open.
 local IN_USE = "Already in use. Use the arrows to reorder."
-local u1, u2 = Cell("Druid Debuff 1"), Cell("Druid Debuff 2")
+local u1, u2 = CellIn("DRUID", "1. Debuff"), CellIn("DRUID", "2. Debuff")
 assert(u1.cfg.disabledValues("155722") == IN_USE and u2.cfg.disabledValues("1079") == IN_USE,
     "a spell another debuff holds is pickable")
 assert(not u1.cfg.disabledValues("1079") and not u1.cfg.disabledValues("164812")
@@ -1134,8 +1240,8 @@ assert(not u1.cfg.disabledValues("1079") and not u1.cfg.disabledValues("164812")
 -- Custom spells: Custom Spell... only adds (an empty popup, its own label
 -- never changes); each added spell joins every menu of its class, a second
 -- one too, and leaves once nothing holds it.
-d1 = Cell("Druid Debuff 1")
-local d2 = Cell("Druid Debuff 2")
+d1 = CellIn("DRUID", "1. Debuff")
+local d2 = CellIn("DRUID", "2. Debuff")
 d1.cfg.values.custom.action()
 assert(not uiPopup.allowEmpty and (uiPopup.initialText or "") == "" and uiPopup.title == "Druid Debuff 1")
 assert(uiPopup.confirmText == "Add" and uiPopup.message == "Enter the debuff's spell ID.")
@@ -1170,13 +1276,9 @@ assert(#d2.cfg.order == 6 and #d1.cfg.order == 6, "a menu kept a spell nothing h
 local addCombo = Cell("+ Add Combo")
 assert(not addCombo.cfg.disabled())
 Fire(addCombo.rgn._control, "OnClick")
-local comboPicker = uiMenus[addCombo.rgn._control]
-assert(comboPicker.disabled("ROGUE") and not comboPicker.disabled("DRUID"),
-    "Add Combo offers a class without two debuffs")
-comboPicker.set("DRUID")
 assert(profile.debuffColorsDRUID == "1079:0.2,0.3,0.4;155722:1,0.43,0.04/1079+155722:0.1,0.88,0.32",
     "Add Combo saved " .. profile.debuffColorsDRUID)
-local k1 = Cell("Druid Combo 1")
+local k1 = CellIn("DRUID", "1. Combo")
 assert(k1 and k1.cfg.getValue() == "1079+155722" and k1.cfg.tooltip:find("Combos win", 1, true))
 local cb = uiCB[1]
 assert(cb.opts.noAllLabel and cb.opts.notifyWrites and cb.opts.separatorFn() == " + ")
@@ -1202,23 +1304,38 @@ assert(profile.debuffColorsDRUID:find("/1+2+3+4:", 1, true), "a fifth spell was 
 -- Remove (top action) drops the combo; the debuff menu's Remove drops a debuff.
 items[1].onClick()
 assert(profile.debuffColorsDRUID == "1:1,1,1;2:1,1,1;3:1,1,1;4:1,1,1;5:1,1,1/")
-Cell("Druid Debuff 3").cfg.values.remove.action()
+CellIn("DRUID", "3. Debuff").cfg.values.remove.action()
 assert(profile.debuffColorsDRUID == "1:1,1,1;2:1,1,1;4:1,1,1;5:1,1,1/")
-assert(Cell("Druid Debuff 4") and not Cell("Druid Debuff 5"))
+assert(CellIn("DRUID", "4. Debuff") and not CellIn("DRUID", "5. Debuff"))
 -- Removing the last entry clears the saved value.
-for i = 4, 1, -1 do Cell("Druid Debuff " .. i).cfg.values.remove.action() end
+for i = 4, 1, -1 do CellIn("DRUID", i .. ". Debuff").cfg.values.remove.action() end
 assert(profile.debuffColorsDRUID == nil, "an emptied list left a saved value")
 
--- Every class is listed after the player's; ten debuffs fill a class.
+-- A class holding an entry follows the player's, each on its own card:
+-- debuffs down the left column, combos down the right, the shorter column
+-- blank below its Add button. Ten debuffs fill a class.
 local ten = ("1:1,1,1;"):rep(10)
 UseProfile({ debuffColorsEnabled=true, debuffColorsDRUID=ten .. "/", debuffColorsROGUE="703:1,1,1/" })
 EllesmereUI:RefreshPage(true)
-local cells = Cells() -- the first two: Debuff Coloring | Only My Debuffs
-assert(cells[3].cfg.text == "Druid Debuff 1" and cells[13].cfg.text == "Rogue Debuff 1")
-assert(cells[14].cfg.text == "+ Add Debuff" and cells[15].cfg.text == "+ Add Combo")
-assert(cells[16].cfg.type == "label", "the odd last slot is not blank")
-Fire(cells[14].rgn._control, "OnClick")
-assert(uiMenus[cells[14].rgn._control].disabled("DRUID") and not uiMenus[cells[14].rgn._control].disabled("ROGUE"))
+assert(#uiCards == 2 and uiCards[1].tile.key == "DRUID" and uiCards[2].tile.key == "ROGUE" and uiHeaders[2] == "CLASSES")
+assert(uiCards[1].desc.text == "Debuffs: 10    Combos: 0" and math.abs(uiCards[2].hdr.children[1].children[1].coords[1] - .51) < 1e-9)
+local cells = Cells() -- 1-2: Debuff Coloring | Only My Debuffs; 3-4: Druid's column titles
+assert(cells[5].cfg.text == "1. Debuff" and cells[6].cfg.text == "+ Add Combo")
+assert(cells[7].cfg.text == "2. Debuff" and cells[8].cfg.type == "label",
+    "the combo column is not blank below Add Combo")
+assert(cells[23].cfg.text == "10. Debuff" and cells[25].cfg.text == "+ Add Debuff"
+    and cells[26].cfg.type == "label")
+assert(cells[25].cfg.disabled() and cells[25].cfg.disabledTooltip == "This class has ten debuffs.",
+    "Add Debuff is open on a full class")
+assert(cells[27].cfg.text == "DEBUFFS" and cells[28].cfg.text == "COMBOS")
+assert(cells[29].cfg.text == "1. Debuff" and cells[30].cfg.text == "+ Add Combo")
+assert(cells[30].cfg.disabled(), "Add Combo is open on a class without two debuffs")
+assert(cells[31].cfg.text == "+ Add Debuff" and not cells[31].cfg.disabled() and cells[32].cfg.type == "label")
+assert(#cells == 32 and AddClass())
+-- Add Debuff adds to its own class, not the player's.
+Fire(cells[31].rgn._control, "OnClick")
+assert(profile.debuffColorsROGUE == "703:1,1,1;0:1,0.43,0.04/" and profile.debuffColorsDRUID == ten .. "/",
+    "Add Debuff added to another class")
 
 -- Only My Debuffs applies at once too.
 requests = 0
@@ -1229,17 +1346,20 @@ assert(profile.debuffColorsPlayerOnly == false and requests == 1, "Only My Debuf
 -- as a custom spell, and a class without presets offers none.
 UseProfile({ debuffColorsEnabled=true, debuffColorsROGUE="589:1,1,1/", debuffColorsWARRIOR="0:1,1,1/" })
 EllesmereUI:RefreshPage(true)
-local r1 = Cell("Rogue Debuff 1")
+local r1 = CellIn("ROGUE", "1. Debuff")
 o = r1.cfg.order
 assert(#o == 5 and o[3] == "703" and o[4] == "1943" and o[5] == "589",
     "a Rogue debuff does not offer Garrote, Rupture and the spell it holds")
 assert(r1.cfg.getValue() == "589" and r1.cfg.values["589"] == "Spell 589",
     "another class's preset a row holds is not listed as its spell")
-assert(#Cell("Warrior Debuff 1").cfg.order == 2, "a class without presets offered some")
+-- Another class's card starts collapsed.
+assert(Card("WARRIOR") and not CellIn("WARRIOR", "1. Debuff"), "another class's card starts expanded")
+Fire(Card("WARRIOR").hdr, "OnClick")
+assert(#CellIn("WARRIOR", "1. Debuff").cfg.order == 2, "a class without presets offered some")
 -- A list saved with a duplicate: each row's own spell stays open (lit label).
 UseProfile({ debuffColorsEnabled=true, debuffColorsDRUID="1079:1,1,1;1079:1,1,1/" })
 EllesmereUI:RefreshPage(true)
-assert(not Cell("Druid Debuff 1").cfg.disabledValues("1079") and not Cell("Druid Debuff 2").cfg.disabledValues("1079"),
+assert(not CellIn("DRUID", "1. Debuff").cfg.disabledValues("1079") and not CellIn("DRUID", "2. Debuff").cfg.disabledValues("1079"),
     "a row's own spell is greyed")
 
 -- Debuff Coloring is a view over the saved keys: the old toggle's on reads
@@ -1305,13 +1425,15 @@ assert(profile.debuffColorsEnabled == false and profile.debuffColorsBorder == tr
 EllesmereUI.IS_FOREVER = true
 function EllesmereUI.ForeverClasses() return { "WARRIOR", "DRUID", "MAGE" } end
 function EllesmereUI.ForeverClassName(token) return token:sub(1, 1) .. token:sub(2):lower() end
+function EllesmereUI.ForeverClassIcon(token) return "icon-" .. token end
 UseProfile({ debuffColorsEnabled=true, debuffColorsDRUID="0:1,1,1/" })
 EllesmereUI:RefreshPage(true)
-d1 = Cell("Druid Debuff 1")
+d1 = CellIn("DRUID", "1. Debuff")
 assert(d1 and #d1.cfg.order == 2, "WoW Forever listed retail presets")
-Fire(Cell("+ Add Debuff").rgn._control, "OnClick")
-local fvOrder = uiMenus[Cell("+ Add Debuff").rgn._control].order
-assert(#fvOrder == 3 and fvOrder[1] == "DRUID" and fvOrder[2] == "MAGE", "WoW Forever class roster")
+assert(Card("DRUID").hdr.children[1].children[1].texture == "icon-DRUID", "WoW Forever card has no class icon")
+Fire(AddClass(), "OnClick")
+local fvOrder = uiMenus[AddClass()].order
+assert(#fvOrder == 2 and fvOrder[1] == "MAGE" and fvOrder[2] == "WARRIOR", "WoW Forever class roster")
 EllesmereUI.IS_FOREVER = false
 
 -- The search pre-build makes rows but no chrome.
@@ -1322,7 +1444,7 @@ EllesmereUI:RefreshPage(true)
 assert(#uiSwatches == 0 and #uiCB == 0 and #uiOnHide == 0)
 EllesmereUI._prebuilding = nil
 ''')
-print('PASS: options page: gate, live apply (every edit, color drags on picker close), class picker,')
+print('PASS: options page: gate, live apply (every edit, color drags on picker close), class cards,')
 print('      add/remove, reorder arrows, class-only presets, in-use spells greyed, custom spells (add-only,')
 print('      listed while held), combo list (2-4 spells, warn, remove), caps, prebuild, Debuff Coloring')
 print('      modes (a view over the saved keys), Color Border cog and its border gates.')
