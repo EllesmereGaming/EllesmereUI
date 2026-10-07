@@ -4486,3 +4486,20 @@ L["Separates the sidebar from the chat panel and gives it its own background and
 -- == Raid Tools (EllesmereUIQoL_RaidTools.lua) ==
 L["Target Markers"] = "Метки целей"
 L["World Markers"] = "Метки на земле"
+
+-- /way command (EllesmereUIQoL_Waypoint.lua)
+L["WAYPOINT COMMAND"] = "КОМАНДА ПУТЕВОЙ ТОЧКИ"
+L["Enable /way Command"] = "Включить команду /way"
+L["Places a native map pin: /way [#mapID or zone] x y [description]. /way clear removes it. /way is skipped when another addon already owns it; /euiway always works while enabled."] = "Ставит стандартную метку на карте: /way [#mapID или зона] x y [описание]. /way clear удаляет её. /way не регистрируется, если её уже использует другой аддон; /euiway работает всегда, пока функция включена."
+L["Changing the /way command requires a reload to update slash command registration."] = "Изменение команды /way требует перезагрузки интерфейса для обновления регистрации команд."
+L["Usage:"] = "Использование:"
+L["Remove the current map pin."] = "Удаляет текущую метку на карте."
+L["Map pin removed."] = "Метка на карте удалена."
+L["No map pin to remove."] = "Нет метки для удаления."
+L["Map pins cannot be placed on %1$s."] = "В зоне %1$s нельзя ставить метки на карте."
+L["Waypoint set: %1$s %2$s, %3$s"] = "Путевая точка установлена: %1$s %2$s, %3$s"
+L["Unknown map ID: %1$s"] = "Неизвестный ID карты: %1$s"
+L["Unknown zone: %1$s"] = "Неизвестная зона: %1$s"
+L["Several zones match \"%1$s\":"] = "Несколько зон соответствуют «%1$s»:"
+L["Cannot determine your current zone."] = "Не удалось определить вашу текущую зону."
+L["You have arrived at your destination."] = "Вы прибыли в пункт назначения."

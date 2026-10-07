@@ -60,6 +60,12 @@ local function TeleCfg()
     return EllesmereUIDB.teleportPrompt
 end
 
+local function WayCfg()
+    if not EllesmereUIDB then return {} end
+    EllesmereUIDB.waypointCmd = EllesmereUIDB.waypointCmd or {}
+    return EllesmereUIDB.waypointCmd
+end
+
 -- Built as the tail of the Quality of Life page (chained from BuildQoLPage),
 -- not as its own tab. Lays out from yOffset and returns the height used,
 -- like every other section builder.
@@ -184,6 +190,33 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
 
     _, h = W:Spacer(parent, y, 20); y = y - h
     end -- not IS_FOREVER
+
+    ---------------------------------------------------------------------------
+    --  WAYPOINT COMMAND (/way, runtime in EllesmereUIQoL_Waypoint.lua)
+    ---------------------------------------------------------------------------
+    _, h = W:SectionHeader(parent, "WAYPOINT COMMAND", y); y = y - h
+
+    _, h = W:DualRow(parent, y,
+        { type    = "toggle",
+          text    = "Enable /way Command",
+          tooltip = "Places a native map pin: /way [#mapID or zone] x y [description]. /way clear removes it. /way is skipped when another addon already owns it; /euiway always works while enabled.",
+          -- Off by default.
+          getValue = function() return WayCfg().enabled == true end,
+          setValue = function(v)
+              WayCfg().enabled = v
+              EllesmereUI:RefreshPage()
+              EllesmereUI:ShowConfirmPopup({
+                  title = "Reload Required",
+                  message = "Changing the /way command requires a reload to update slash command registration.",
+                  confirmText = "Reload",
+                  cancelText = "Later",
+                  reload    = true,
+              })
+          end },
+        EllesmereUI.BlankRowCfg()
+    ); y = y - h
+
+    _, h = W:Spacer(parent, y, 20); y = y - h
 
     ---------------------------------------------------------------------------
     --  AUTO COMBAT LOGGING

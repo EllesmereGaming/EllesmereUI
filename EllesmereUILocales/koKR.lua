@@ -8906,6 +8906,23 @@ L["Show Speed Text"] = "속도 글자 표시"
 L["Speed Text Position"] = "속도 글자 위치"
 L["Hash Marker"] = "눈금 표시"
 
+-- /way command (EllesmereUIQoL_Waypoint.lua)
+L["WAYPOINT COMMAND"] = "웨이포인트 명령어"
+L["Enable /way Command"] = "/way 명령어 사용"
+L["Places a native map pin: /way [#mapID or zone] x y [description]. /way clear removes it. /way is skipped when another addon already owns it; /euiway always works while enabled."] = "기본 지도 핀을 놓습니다: /way [#지도ID 또는 지역] x y [설명]. /way clear로 제거합니다. 다른 애드온이 이미 /way를 사용 중이면 등록하지 않으며, 활성화된 동안 /euiway는 항상 작동합니다."
+L["Changing the /way command requires a reload to update slash command registration."] = "/way 명령어를 변경하면 명령어 등록을 갱신하기 위해 UI를 다시 불러와야 합니다."
+L["Usage:"] = "사용법:"
+L["Remove the current map pin."] = "현재 지도 핀을 제거합니다."
+L["Map pin removed."] = "지도 핀을 제거했습니다."
+L["No map pin to remove."] = "제거할 지도 핀이 없습니다."
+L["Map pins cannot be placed on %1$s."] = "%1$s에는 지도 핀을 놓을 수 없습니다."
+L["Waypoint set: %1$s %2$s, %3$s"] = "웨이포인트 설정: %1$s %2$s, %3$s"
+L["Unknown map ID: %1$s"] = "알 수 없는 지도 ID: %1$s"
+L["Unknown zone: %1$s"] = "알 수 없는 지역: %1$s"
+L["Several zones match \"%1$s\":"] = "\"%1$s\"에 해당하는 지역이 여러 개입니다:"
+L["Cannot determine your current zone."] = "현재 지역을 확인할 수 없습니다."
+L["You have arrived at your destination."] = "목적지에 도착했습니다."
+
 -- Bag keystone dungeon abbreviation overrides (koKR). AbbrevDungeon in
 -- EllesmereUIBags cuts the localized dungeon name to first-letters, which in
 -- Korean yields awkward 2-char cuts; remap those to cleaner short names. DATA
