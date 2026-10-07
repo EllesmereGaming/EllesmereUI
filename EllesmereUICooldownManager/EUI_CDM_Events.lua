@@ -127,6 +127,9 @@ local function ScheduleTalentRebuild()
             if db and db.sv and db.sv.multiChargeSpells then
                 wipe(db.sv.multiChargeSpells)
             end
+            -- Hidden Outside Form/Stance answers (a talent can change which
+            -- forms a spell needs)
+            if ns.CdmWipeFormCache then ns.CdmWipeFormCache() end
         end
         -- Rebuild the cdID route map against the new talent set. The stored
         -- assignedSpells is left untouched (it's pure user intent); the route map is

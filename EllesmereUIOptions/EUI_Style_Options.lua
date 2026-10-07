@@ -112,7 +112,8 @@ end
 local IS_FOREVER = EllesmereUI.IS_FOREVER == true
 
 -- The WoW Forever variant is Blizzard Style everywhere a base style is
--- asked for (module seeds, the whole-UI font and window slots, Active()).
+-- asked for (module seeds, the whole-UI font slots, Active()); the window
+-- slots are the exception, where it is a look of its own.
 local function BaseKey(styleKey)
     if styleKey == "forever" then return "blizzard" end
     return styleKey
@@ -629,8 +630,8 @@ end
 
 -- The stock style most loaded modules use ("blizzard" on a tie or none):
 -- names the look a font or window record from before the slots belongs to.
--- WoW Forever counts as Blizzard Style (it shares that look's font and
--- window slots).
+-- WoW Forever counts as Blizzard Style (it shares that look's font slot, and
+-- such records predate its own window slot).
 local function InferredStockStyle()
     local b, c = 0, 0
     for i = 1, #MODULES do
@@ -753,15 +754,15 @@ end
 -- UI Enhanced module has no swapper and is left
 -- alone. The look is the active PROFILE's (profile-root windowSkinLook), so
 -- the account's windows swap back to each profile's look on a profile switch
--- (EllesmereUI.ReconcileWindowSkinLook). WoW Forever shares Blizzard Style's
--- window slot: both hand the windows back to Blizzard, whose windows on that
--- client are the Forever ones.
+-- (EllesmereUI.ReconcileWindowSkinLook). WoW Forever has a window slot of
+-- its own, whose first visit skins every window as the EllesmereUI look's
+-- does but the micro menu and the bag bar (Blizz Default); a window look
+-- recorded before that slot existed stays as it is.
 local function WholeUIWindowsPending(styleKey)
     local swap = EllesmereUI.SwapWindowSkinStyle
-    return swap ~= nil and swap(BaseKey(styleKey), true, InferredStockStyle())
+    return swap ~= nil and swap(styleKey, true, InferredStockStyle())
 end
 local function ApplyWholeUIWindows(styleKey, legacy)
-    styleKey = BaseKey(styleKey)
     local swap = EllesmereUI.SwapWindowSkinStyle
     if not swap then return end
     swap(styleKey, false, legacy or InferredStockStyle())
@@ -968,7 +969,7 @@ function _G._EUI_BuildStylePage(pageName, parent, yOffset)
     -- Sized host + single TOPLEFT point per the search framework's geometry
     -- contract; the search prebuild only needs the y advance.
     local CARDS_TOP = 140
-    local DD_GAP, DD_H, BTN_GAP, BTN_W, BTN_H = 14, 30, 26, 280, 50
+    local DD_GAP, DD_H, BTN_GAP, BTN_W, BTN_H = 14, 30, 26, 252, 45
     local DD_TOP = CARDS_TOP + (EllesmereUI.STYLE_CARD_H or 296) + DD_GAP
     local BTN_TOP = DD_TOP + DD_H + BTN_GAP
     local HERO_H = BTN_TOP + BTN_H + 4
@@ -1003,6 +1004,9 @@ function _G._EUI_BuildStylePage(pageName, parent, yOffset)
 
         local cards = EllesmereUI.BuildStyleCards(host, -CARDS_TOP, {
             buttonText = "Apply to All",
+            -- The card in use fades to half; its larger badge stays whole.
+            inUseAlpha = 0.5,
+            badgeSize = 13,
             onPick = function(styleKey)
                 PromptStyleChanges(StyleChangesFor(styleKey), styleKey)
             end,
@@ -1087,7 +1091,7 @@ function _G._EUI_BuildStylePage(pageName, parent, yOffset)
             applyBtn:SetFrameLevel(host:GetFrameLevel() + 3)
             PP.Size(applyBtn, BTN_W, BTN_H)
             PP.Point(applyBtn, "TOP", host, "TOP", 0, -BTN_TOP)
-            EllesmereUI.MakeStyledButton(applyBtn, "Apply Styles", 18, EllesmereUI.WB_COLOURS, function()
+            EllesmereUI.MakeStyledButton(applyBtn, "Apply Styles", 16, EllesmereUI.WB_COLOURS, function()
                 local changes = {}
                 for i = 1, #MODULES do
                     local m = MODULES[i]

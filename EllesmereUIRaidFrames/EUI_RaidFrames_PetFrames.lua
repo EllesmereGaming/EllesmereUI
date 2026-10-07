@@ -442,7 +442,7 @@ end
 -- its own), plus the UI scale its pixel-sized borders follow, gathered into a reused list, so a
 -- reload that changed none of them leaves the pets' fonts, textures and borders alone. The hover and
 -- target borders are painted, not styled.
-PF.STYLE_N = 35
+PF.STYLE_N = 36
 PF.fp = {}
 PF.fpNew = {}
 PF.StyleInputs = function(t, s, texPath)
@@ -461,6 +461,7 @@ PF.StyleInputs = function(t, s, texPath)
     t[32], t[33] = s.borderTextureShiftX, s.borderTextureShiftY
     t[34] = UIParent:GetEffectiveScale()
     t[35] = s.healthInvertFill
+    t[36] = s.cornerRadius
 end
 
 -- True when the inputs differ from the ones last styled under key ("hdr": the header, "owner": the

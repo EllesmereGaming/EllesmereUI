@@ -153,8 +153,10 @@ local function Paint(force)
         S.cur, S.mx = nil, nil
         sb:SetMinMaxValues(0, mx)
     end
-    if curPlain and not force then
-        sb:SetValue(cur, ns.EASE)
+    -- Eases only while the Power Bar's Smooth Bars item is on (its _smoothing)
+    local interp = curPlain and not force and S.pb and S.pb._smoothing
+    if interp then
+        sb:SetValue(cur, interp)
     else
         sb:SetValue(cur)
     end

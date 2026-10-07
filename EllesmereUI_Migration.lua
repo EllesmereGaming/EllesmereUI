@@ -4327,6 +4327,40 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- Spell ID on Tooltip became on by default (an unset showSpellID reads as on,
+-- EllesmereUI.SpellIDOn). An account from before keeps it off: its unset value
+-- is written off. Existing users ONLY: a fresh install or Reset ALL has no
+-- profiles yet, is genesis-stamped, and takes the new default.
+EllesmereUI.RegisterMigration({
+    id          = "spellid_default_on_v1",
+    scope       = "global",
+    description = "Keep Spell ID on Tooltip off for existing users after its default changed from off to on.",
+    body = function(ctx)
+        local db = ctx.db
+        if not (db.profiles and next(db.profiles)) then return end
+        if db.showSpellID == nil then
+            db.showSpellID = false
+        end
+    end,
+})
+
+-- The Bags sidebar's one-time "categories can be dragged" tip is for new
+-- users: an account that already ran Bags (it seeds its default category
+-- groups at its first login) starts with it seen. A fresh install or Reset ALL
+-- is genesis-stamped and sees it, and so does an account that turns Bags on
+-- for the first time later.
+EllesmereUI.RegisterMigration({
+    id          = "bags_category_tip_existing_seen_v1",
+    scope       = "global",
+    description = "Mark the Bags category drag tip as seen for existing Bags users, so only new users see it.",
+    body = function(ctx)
+        local db = ctx.db
+        if db.bagCategoryTipSeen == nil and db.bagDefaultGroupsSeeded then
+            db.bagCategoryTipSeen = true
+        end
+    end,
+})
+
 --------------------------------------------------------------------------------
 --  WOW FOREVER: ONE-TIME BUFF CLEAR
 --

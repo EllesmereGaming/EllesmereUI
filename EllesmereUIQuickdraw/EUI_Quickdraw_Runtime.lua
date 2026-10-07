@@ -331,8 +331,8 @@ local function PushPalette(index)
     -- early return past here; the clear at the bottom is unconditional.
     liveView.appIndex = index
 
-    -- The usable view, same as the live drawing reads (Hide Unusable
-    -- Entries): what a cell index fires and what it draws have to come off
+    -- The usable view, same as the live drawing reads (Hide Unavailable
+    -- Actions): what a cell index fires and what it draws have to come off
     -- the same list, and the memo behind UsableSlots is what pins the two
     -- together between this push and any open that follows it.
     local slotsEff = UsableSlots(palette, p)
@@ -801,6 +801,18 @@ local function BindWithModifiers(name, key, claimed)
     end
 end
 
+-- The palette that palette i's keys open in this spec: i itself while it loads
+-- (Assign to Spec); while it does not, the first palette that shares its keys
+-- and loads, if any -- the options page shares a key only between palettes
+-- that never load together. nil: the keys open nothing this spec.
+local function KeyTarget(i, count)
+    if ns.PaletteActive(i) then return i end
+    for j = 1, count do
+        if j ~= i and ns.ShareOwner(j) == i and ns.PaletteActive(j) then return j end
+    end
+    return nil
+end
+
 -- ClearOverrideBindings / SetOverrideBindingClick are protected, so a combat
 -- refresh is deferred to PLAYER_REGEN_ENABLED. Nothing is lost by waiting:
 -- the bindings already in place keep working until then.
@@ -821,6 +833,8 @@ function ns.UpdateBindings()
         local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
         sig = sig .. "|" .. (k1 or "") .. "/" .. (k2 or "")
         sig = sig .. ModifierSig(k1) .. ModifierSig(k2)
+        -- Which palette the keys open this spec
+        if k1 or k2 then sig = sig .. ">" .. (KeyTarget(i, count) or 0) end
     end
     if sig == bindingSig then return end
 
@@ -838,7 +852,7 @@ function ns.UpdateBindings()
     if not p.enabled then return end
     if not bindOwner then bindOwner = CreateFrame("Frame") end
 
-    -- A button is built only for a palette that has a key, so a profile that
+    -- A button is built only for a palette a key opens, so a profile that
     -- binds two of its sixteen pays for two. PushPalette skips an index with no
     -- button, so the ones left unbound cost no attribute writes either -- their
     -- entries still reach the sandbox through whichever palette nests them.
@@ -856,13 +870,19 @@ function ns.UpdateBindings()
     -- of these writes touch -- so it turns back at the guard and this stays the
     -- only pass; the table is what makes that true by construction rather than
     -- by argument. One per rebind, and a rebind is a keybind change.
+    --
+    -- A palette's keys go to its KeyTarget: itself, or in a spec it does not
+    -- load in, the palette sharing them that does. `targets` keeps that pick
+    -- for the second pass.
     local built = false
-    local claimed = {}
+    local claimed, targets = {}, {}
     for i = 1, count do
         local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
-        if k1 or k2 then
-            built = built or not secureButtons[i]
-            local name = GetSecureButton(i):GetName()
+        local target = (k1 or k2) and KeyTarget(i, count)
+        if target then
+            targets[i] = target
+            built = built or not secureButtons[target]
+            local name = GetSecureButton(target):GetName()
             if k1 then
                 SetOverrideBindingClick(bindOwner, false, k1, name)
                 claimed[k1] = true
@@ -874,9 +894,10 @@ function ns.UpdateBindings()
         end
     end
     for i = 1, count do
-        local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
-        if k1 or k2 then
-            local name = secureButtons[i]:GetName()
+        local target = targets[i]
+        if target then
+            local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
+            local name = secureButtons[target]:GetName()
             BindWithModifiers(name, k1, claimed)
             BindWithModifiers(name, k2, claimed)
         end
@@ -887,6 +908,34 @@ function ns.UpdateBindings()
     -- ask for a push. Without this, the first hold on a freshly bound key would
     -- open an empty palette.
     if built then RequestPush() end
+end
+
+-- Which palettes load right now, one character each: what a spec change or a
+-- loading screen compares against. Set at enable, by ns.Refresh and by
+-- SpecSync.
+local activeSig
+local function ActiveSig()
+    local sig = ""
+    for i = 1, PaletteCount() do sig = sig .. (ns.PaletteActive(i) and "1" or "0") end
+    return sig
+end
+
+-- A spec change (or the spec known at last after a login that read it too
+-- early) moves which palettes load: their keys re-route, and a nested palette
+-- that stopped or started loading leaves or joins its parent with the push.
+-- Nothing at all while the answer is unchanged, which is every loading screen
+-- and every spec change of a profile that assigns no specs. The event also
+-- fires for group members (its unit payload): only the player's counts.
+local function SpecSync(_, _, unit)
+    if unit and unit ~= "player" then return end
+    local p = P()
+    if not (p and p.enabled) then return end
+    EllesmereUI._RefreshSpecID()
+    local sig = ActiveSig()
+    if sig == activeSig then return end
+    activeSig = sig
+    ns.UpdateBindings()
+    RequestPush()
 end
 
 -------------------------------------------------------------------------------
@@ -943,6 +992,7 @@ end
 -- key-up; drop the palette rather than leave it stuck.
 local function OnEnteringWorld()
     ns.Close()
+    SpecSync()
 end
 
 -- Switched off, the module wants none of these -- except while something is
@@ -964,7 +1014,9 @@ function SetEventsEnabled(on)
         EQD:RegisterEvent("UPDATE_BINDINGS", OnUpdateBindings)
         EQD:RegisterEvent("PLAYER_REGEN_ENABLED", OnRegenEnabled)
         EQD:RegisterEvent("PLAYER_ENTERING_WORLD", OnEnteringWorld)
-        -- The usability filter's inputs (Hide Unusable Entries): the
+        -- Which palettes load (Assign to Spec)
+        EQD:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", SpecSync)
+        -- The usability filter's inputs (Hide Unavailable Actions): the
         -- spellbook and the macro set. A change re-pushes -- deferred and
         -- coalesced by RequestPush, refused in combat and paid off by
         -- PLAYER_REGEN_ENABLED like every other push.
@@ -1035,6 +1087,7 @@ function SetEventsEnabled(on)
         EQD:UnregisterEvent("UPDATE_BINDINGS")
         EQD:UnregisterEvent("PLAYER_REGEN_ENABLED")
         EQD:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        EQD:UnregisterEvent("PLAYER_SPECIALIZATION_CHANGED")
         EQD:UnregisterEvent("SPELLS_CHANGED")
         EQD:UnregisterEvent("UPDATE_MACROS")
         EQD:UnregisterEvent("TRANSMOG_OUTFITS_CHANGED")
@@ -1063,6 +1116,7 @@ function ns.Refresh()
 
     RefreshFonts()
     RequestPush()
+    activeSig = ActiveSig()
 
     if liveView and liveView:GetFrame():IsShown() then
         -- Read the selection before Layout, which clears it.
@@ -1146,6 +1200,7 @@ function EQD:OnEnable()
     for i = 1, PaletteCount() do EnsurePalette(i) end
     ns.UpdateBindings()
     PushAllPalettes()
+    activeSig = ActiveSig()
     SetEventsEnabled(true)
 end
 

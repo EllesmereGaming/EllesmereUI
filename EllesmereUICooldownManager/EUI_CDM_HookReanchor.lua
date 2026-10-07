@@ -1775,9 +1775,7 @@ local function CollectAndReanchor()
                                 if fcS then
                                     if fcS._cdStateShiftHidden then blocked = true; break end
                                     local ssS = ResolveSpellSettings(srcList[i], fcS.spellID, sdS, bd.key)
-                                    local effS = ns.GetSpellCdStateEffect(srcList[i], ssS)
-                                    if effS == "hiddenOnCDShift" or effS == "hiddenReadyShift"
-                                       or effS == "hiddenUnusableShift" then
+                                    if ns.CdStateShifts(ns.GetSpellCdStateEffect(srcList[i], ssS)) then
                                         blocked = true; break
                                     end
                                 end

@@ -1793,103 +1793,26 @@ function ns.ShowUnlockTip()
     if UM.unlockTipFrame and UM.unlockTipFrame:IsShown() then return end
 
     if not UM.unlockTipFrame then
-        local TIP_W, TIP_H = 450, 175
-        local ar, ag, ab = GetAccent()
-
-        local tip = CreateFrame("Frame", nil, UIParent)
-        tip:SetFrameStrata("TOOLTIP")
-        tip:SetFrameLevel(900)
-        tip:SetSize(TIP_W, TIP_H)
-        tip:EnableMouse(true)
-
-        -- Pixel-perfect scale (match banner)
+        -- The shared tip callout, its arrow pointing up at the banner
+        local tip = EllesmereUI.BuildTipCallout(UIParent, {
+            width = 450, height = 175, pp = EllesmereUI.PP,
+            strata = "TOOLTIP", level = 900, bgAlpha = 0.95,
+            font = FONT_PATH, fontFlags = "OUTLINE, SLUG",
+            text = EllesmereUI.L("This is where you can control the settings of Unlock Mode.\n\nElements can be repositioned by dragging or arrow keys (+shift)\nAnchor, Height Match, or Width match any element.\nSnapping is based on closest element, but you can snap only to\n a specific element via right click or the settings icon."),
+            btnW = 80, btnH = 24, btnBottom = 15, btnFontSize = 10,
+            onOkay = function()
+                if EllesmereUIDB then EllesmereUIDB.unlockTipSeen = true end
+            end,
+        })
+        -- Pixel-perfect scale (match banner), 100px from the top of the screen
         local physW = (GetPhysicalScreenSize())
         local ppScale = GetScreenWidth() / physW
         tip:SetScale(ppScale)
-
-        -- Position 100px from the top of the screen
         tip:SetPoint("TOP", UIParent, "TOP", 0, -100 / ppScale)
-
-        local bg = tip:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.077, 0.068, 0.058, 0.95)
-
-        EllesmereUI.MakeBorder(tip, ar, ag, ab, 0.25)
-
-        -- Smooth arrow pointing up: rotated squares for clean diagonal edges, using
-        -- SetClipsChildren to show only the top half of the diamond. No mask needed.
-        local ARROW_SZ = 16  -- diamond size
-        -- Clip frame: sits above the popup top edge, clips to show only top half
-        -- Shifted up 2px so the arrow appears 2px higher
-        local arrowClip = CreateFrame("Frame", nil, tip)
-        arrowClip:SetFrameStrata("TOOLTIP")
-        arrowClip:SetFrameLevel(tip:GetFrameLevel() + 10)
-        arrowClip:SetClipsChildren(true)
-        -- Clip region: tall enough for the top half of the diamond
-        local clipH = ARROW_SZ
-        arrowClip:SetSize(ARROW_SZ * 2, clipH)
-        arrowClip:SetPoint("BOTTOM", tip, "TOP", 0, -1)
-
-        -- The actual diamond frame inside the clip, positioned so its center
-        -- (widest point) is exactly at the clip's bottom edge
-        local arrowFrame = CreateFrame("Frame", nil, arrowClip)
-        arrowFrame:SetFrameLevel(arrowClip:GetFrameLevel() + 1)
-        arrowFrame:SetSize(ARROW_SZ + 4, ARROW_SZ + 4)
-        arrowFrame:SetPoint("CENTER", arrowClip, "BOTTOM", 0, 0)
-
-        -- Border diamond (accent, slightly larger for 1px border effect)
-        -- Alpha slightly lower than popup border (0.25) to compensate for
-        -- anti-aliased rotated edges appearing brighter than crisp 1px lines
-        local arrowBorder = arrowFrame:CreateTexture(nil, "ARTWORK", nil, 7)
-        arrowBorder:SetSize(ARROW_SZ + 2, ARROW_SZ + 2)
-        arrowBorder:SetPoint("CENTER")
-        arrowBorder:SetColorTexture(ar, ag, ab, 0.18)
-        arrowBorder:SetRotation(math.rad(45))
-        if arrowBorder.SetSnapToPixelGrid then arrowBorder:SetSnapToPixelGrid(false); arrowBorder:SetTexelSnappingBias(0) end
-
-        -- Fill diamond (same bg as popup: 0.077, 0.068, 0.058, 0.95)
-        local arrowFill = arrowFrame:CreateTexture(nil, "OVERLAY", nil, 6)
-        arrowFill:SetSize(ARROW_SZ, ARROW_SZ)
-        arrowFill:SetPoint("CENTER")
-        arrowFill:SetColorTexture(0.077, 0.068, 0.058, 0.95)
-        arrowFill:SetRotation(math.rad(45))
-        if arrowFill.SetSnapToPixelGrid then arrowFill:SetSnapToPixelGrid(false); arrowFill:SetTexelSnappingBias(0) end
-
-        local msg = tip:CreateFontString(nil, "OVERLAY")
-        msg:SetFont(FONT_PATH, 12, "OUTLINE, SLUG")
-        msg:SetTextColor(1, 1, 1, 0.85)
-        msg:SetPoint("TOP", tip, "TOP", 0, -17)
-        msg:SetWidth(TIP_W - 30)
-        msg:SetJustifyH("CENTER")
-        msg:SetSpacing(6)
-        msg:SetText(EllesmereUI.L("This is where you can control the settings of Unlock Mode.\n\nElements can be repositioned by dragging or arrow keys (+shift)\nAnchor, Height Match, or Width match any element.\nSnapping is based on closest element, but you can snap only to\n a specific element via right click or the settings icon."))
-
-        local okBtn = CreateFrame("Button", nil, tip)
-        okBtn:SetSize(80, 24)
-        okBtn:SetPoint("BOTTOM", tip, "BOTTOM", 0, 15)
-        EllesmereUI.MakeStyledButton(okBtn, "Okay", 10,
-            EllesmereUI.RB_COLOURS, function()
-                tip:Hide()
-                if EllesmereUIDB then EllesmereUIDB.unlockTipSeen = true end
-            end)
-
         UM.unlockTipFrame = tip
     end
 
-    UM.unlockTipFrame:SetAlpha(0)
-    UM.unlockTipFrame:Show()
-
-    -- Fade in over 0.3s
-    local fadeIn = 0
-    UM.unlockTipFrame:SetScript("OnUpdate", function(self, dt)
-        fadeIn = fadeIn + dt
-        if fadeIn >= 0.3 then
-            self:SetAlpha(1)
-            self:SetScript("OnUpdate", nil)
-            return
-        end
-        self:SetAlpha(fadeIn / 0.3)
-    end)
+    EllesmereUI.ShowTipCallout(UM.unlockTipFrame)
 end
 
 function ns.OpenUnlockMode()

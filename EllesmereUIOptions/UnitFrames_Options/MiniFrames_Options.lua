@@ -1733,6 +1733,7 @@ end
 function ns.UFO_BuildBossOptions(W, parent, y)
     local env = ns._UFO_OptEnv
     local AttachDebuffModeWarn, AttachFrameSourceCog, DebuffModeDropdownCfg, PP = env.AttachDebuffModeWarn, env.AttachFrameSourceCog, env.DebuffModeDropdownCfg, env.PP
+    local HideExhaustionRow = env.HideExhaustionRow
     local PromptReloadIfUnspawned, ReloadAndUpdate, SwapAuraSlot, abs = env.PromptReloadIfUnspawned, env.ReloadAndUpdate, env.SwapAuraSlot, env.abs
     local buffAnchorOrder, buffAnchorValues, buffGrowthOrder, buffGrowthValues = env.buffAnchorOrder, env.buffAnchorValues, env.buffGrowthOrder, env.buffGrowthValues
     local db = env.db
@@ -2591,6 +2592,15 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                 bossFilterRightSlot);  yy = yy - hh
             if not EllesmereUI._prebuilding then
                 AttachDebuffModeWarn(filterRow._leftRegion, BossS, filterOff)
+                -- Hide Exhaustion, the Debuff Filter cog row every unit shares.
+                EllesmereUI.BuildInlineCog(filterRow._leftRegion, {
+                    title = "Debuff Filter",
+                    tip = "Debuff Filter Options",
+                    disabled = filterOff,
+                    disabledTooltip = "Debuffs",
+                    requireState = "displayed",
+                    rows = { HideExhaustionRow(BossS, ReloadAndUpdate) },
+                })
             end
             -- Right slot: Boss Buff Filter (two-lane checkbox dropdown).
             if not EllesmereUI._prebuilding then

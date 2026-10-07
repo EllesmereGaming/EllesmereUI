@@ -73,6 +73,129 @@ EllesmereUI.MakeStyledButton = MakeStyledButton
 EllesmereUI.WB_COLOURS       = WB_COLOURS
 EllesmereUI.RB_COLOURS       = RB_COLOURS
 
+-------------------------------------------------------------------------------
+--  One-time tip callout
+-------------------------------------------------------------------------------
+-- A dark box with the accent border, a message, an Okay button and an arrow
+-- pointing at what it explains (the options sidebar's Unlock Mode tip, Unlock
+-- Mode's own first-open tip, the bag sidebar's category tip). Built hidden:
+-- the caller anchors (and, on UIParent, scales) it and shows it, faded in by
+-- EllesmereUI.ShowTipCallout. Okay hides it, then runs opts.onOkay (where the
+-- caller stores its seen flag).
+-- opts: width, height (nil = fit the content: textTop, the text, gap, the
+-- button and btnBottom), text (already translated, so the call site keeps its
+-- literal key for the locale extractor),
+-- onOkay, arrow ("top", the default: the box sits below its target; "left":
+-- the box sits right of it), arrowOffset (px along that edge from its
+-- centre), pp (default PanelPP), strata (default FULLSCREEN_DIALOG; false
+-- keeps the parent's), level (default 200), font (a path; default the panel
+-- font), fontFlags (with font; default none), fontSize (12), textTop (17),
+-- textInset (30), spacing (6), gap (12, text to button with a fitted height),
+-- bgAlpha (1), btnW (86), btnH (26), btnBottom (13), btnFontSize (11).
+local TIP_BG_R, TIP_BG_G, TIP_BG_B = 0.077, 0.068, 0.058
+local TIP_ARROW = 16
+
+local function TipArrowTex(holder, layer, sub, size, r, g, b, a)
+    local t = holder:CreateTexture(nil, layer, nil, sub)
+    t:SetSize(size, size)
+    t:SetPoint("CENTER")
+    t:SetColorTexture(r, g, b, a)
+    t:SetRotation(math.rad(45))
+    if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
+    return t
+end
+
+function EllesmereUI.BuildTipCallout(parent, opts)
+    local pp = opts.pp or PP
+    local strata = opts.strata
+    if strata == nil then strata = "FULLSCREEN_DIALOG" end
+    local accent = EllesmereUI.ELLESMERE_GREEN
+    local ar, ag, ab = accent.r, accent.g, accent.b
+    local bgA = opts.bgAlpha or 1
+    local w = opts.width
+
+    local tip = CreateFrame("Frame", nil, parent)
+    if strata then tip:SetFrameStrata(strata) end
+    tip:SetFrameLevel(opts.level or 200)
+    tip:SetWidth(w)
+    tip:EnableMouse(true)
+    tip:Hide()
+    SolidTex(tip, "BACKGROUND", TIP_BG_R, TIP_BG_G, TIP_BG_B, bgA):SetAllPoints()
+    MakeBorder(tip, ar, ag, ab, 0.25, pp)
+
+    -- The arrow: a rotated square whose inner half the box edge clips away
+    local off = opts.arrowOffset or 0
+    local clip = CreateFrame("Frame", nil, tip)
+    if strata then clip:SetFrameStrata(strata) end
+    clip:SetFrameLevel(tip:GetFrameLevel() + 10)
+    clip:SetClipsChildren(true)
+    local holder = CreateFrame("Frame", nil, clip)
+    holder:SetFrameLevel(clip:GetFrameLevel() + 1)
+    holder:SetSize(TIP_ARROW + 4, TIP_ARROW + 4)
+    if opts.arrow == "left" then
+        clip:SetSize(TIP_ARROW, TIP_ARROW * 2)
+        clip:SetPoint("RIGHT", tip, "LEFT", 1, off)
+        holder:SetPoint("CENTER", clip, "RIGHT", 0, 0)
+    else
+        clip:SetSize(TIP_ARROW * 2, TIP_ARROW)
+        clip:SetPoint("BOTTOM", tip, "TOP", off, -1)
+        holder:SetPoint("CENTER", clip, "BOTTOM", 0, 0)
+    end
+    TipArrowTex(holder, "ARTWORK", 7, TIP_ARROW + 2, ar, ag, ab, 0.18)
+    TipArrowTex(holder, "OVERLAY", 6, TIP_ARROW, TIP_BG_R, TIP_BG_G, TIP_BG_B, bgA)
+
+    local size = opts.fontSize or 12
+    local msg
+    if opts.font then
+        msg = tip:CreateFontString(nil, "OVERLAY")
+        msg:SetFont(opts.font, size, opts.fontFlags or "")
+        msg:SetTextColor(1, 1, 1, 0.85)
+    else
+        msg = MakeFont(tip, size, nil, 1, 1, 1, 0.85)
+    end
+    local textTop = opts.textTop or 17
+    msg:SetPoint("TOP", tip, "TOP", 0, -textTop)
+    msg:SetWidth(w - (opts.textInset or 30))
+    msg:SetJustifyH("CENTER")
+    msg:SetSpacing(opts.spacing or 6)
+    msg:SetText(opts.text)
+
+    local btnH, btnBottom = opts.btnH or 26, opts.btnBottom or 13
+    local h = opts.height
+    if not h then
+        h = math.ceil(textTop + msg:GetStringHeight() + (opts.gap or 12) + btnH + btnBottom)
+    end
+    pp.Size(tip, w, h)
+
+    local ok = CreateFrame("Button", nil, tip)
+    ok:SetSize(opts.btnW or 86, btnH)
+    ok:SetPoint("BOTTOM", tip, "BOTTOM", 0, btnBottom)
+    local onOkay = opts.onOkay
+    MakeStyledButton(ok, "Okay", opts.btnFontSize or 11, RB_COLOURS, function()
+        tip:Hide()
+        if onOkay then onOkay() end
+    end)
+    return tip
+end
+
+-- Shows a tip callout with a 0.3 s fade in (its OnUpdate ends with the fade).
+local function TipFadeIn(self, dt)
+    local t = self._fadeT + dt
+    if t >= 0.3 then
+        self:SetAlpha(1)
+        self:SetScript("OnUpdate", nil)
+        return
+    end
+    self._fadeT = t
+    self:SetAlpha(t / 0.3)
+end
+function EllesmereUI.ShowTipCallout(tip)
+    tip._fadeT = 0
+    tip:SetAlpha(0)
+    tip:Show()
+    tip:SetScript("OnUpdate", TipFadeIn)
+end
+
 -- Global disabled-widget tooltip: "This option requires ___ to be enabled". requirement = human-readable name ("Show Class Power", "a non-None slot"). state = "enabled" (default) or "disabled" picks the trailing verb.
 local function DisabledTooltip(requirement, state)
     -- Already a whole sentence: skip the wrapper but still translate it (the

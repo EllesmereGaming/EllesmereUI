@@ -635,6 +635,9 @@ function ns.ApplyCustomBorderStyle(plate, szOverride)
     -- The size it is drawn at (a target/hover effect size included): the cast bar
     -- wrap's lower piece and seam copy it (ns.NP_UpdateCustomBorderWrap).
     bf._cbTex, bf._cbSz, bf._cbPx = tex, sz, px
+    -- A target/hover effect size redraws a rounded glow at that size (ApplyBorder
+    -- rounds after its own call).
+    if szOverride and plate._npRounded then ns.NP_ApplyRounding(plate, "health") end
 end
 function ns.ApplyCustomBorderColor(plate)
     if not plate or not plate._customBorder then return end

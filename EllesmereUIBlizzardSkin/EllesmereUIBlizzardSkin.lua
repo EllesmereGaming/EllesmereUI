@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  context menu and static popup reskinning below.
 -------------------------------------------------------------------------------
 local ADDON_NAME = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.FriendsKit) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (FriendsForever reads the parent's friends kit)
 EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read this module ns via the registry
 EllesmereUI._ModuleNS[ADDON_NAME].CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -319,19 +319,21 @@ end
 -- A style chosen for the whole UI (the first-install picker, the Style page's
 -- Apply to All) swaps the window skins through per-style slots:
 -- EllesmereUIDB.windowSkinStyleSlots = { active = the look whose windows are
--- live, eui/blizzard/classic = that look's enable keys }. Leaving a look saves
--- its windows into its slot; entering one loads its slot, so each look comes
--- back as it was left, per-window picks included. First visit: a stock look
--- (Blizzard Style, Classic WoW UI) keeps Blizzard's own windows, every one at
--- Blizz Default; the EllesmereUI look puts every one back to its default
--- (on). The Friends List window rides them whatever the Friends module's
--- state (its pack stands down by itself under a stock Friends style), so a
--- key saved in one swap is always loaded back in the next. A slot holds
--- on/off booleans; a window a slot never recorded (one added later) takes the
--- look's first-visit value. Styles (blizzWindowSkinStyles) are never touched,
--- so a window turned back on keeps its skin -- except the character sheet's,
--- which the slots carry as `charsheetStyle`: Blizz Default is a style there
--- (the stock looks' first visit), and its Off (with the inspect sheet riding
+-- live, eui/blizzard/classic/forever = that look's enable keys }. Leaving a
+-- look saves its windows into its slot; entering one loads its slot, so each
+-- look comes back as it was left, per-window picks included. First visit:
+-- Blizzard Style and Classic WoW UI keep Blizzard's own windows, every one at
+-- Blizz Default; the EllesmereUI look and WoW Forever put every one back to
+-- its default (on), the character sheet on its EllesmereUI skin -- except
+-- that WoW Forever keeps the micro menu and the bag bar at Blizz Default. The Friends List window rides them whatever the
+-- Friends module's state (its pack stands down by itself under a stock
+-- Friends style), so a key saved in one swap is always loaded back in the
+-- next. A slot holds on/off booleans; a window a slot never recorded (one
+-- added later) takes the look's first-visit value. Styles
+-- (blizzWindowSkinStyles) are never touched, so a window turned back on keeps
+-- its skin -- except the character sheet's, which the slots carry as
+-- `charsheetStyle`: Blizz Default is a style there (Blizzard Style's and
+-- Classic WoW UI's first visit), and its Off (with the inspect sheet riding
 -- its card) stays out of the slots, so a sheet turned off stays off in every
 -- look. A one-way seed record from before the slots
 -- (windowSkinsStockSeeded) converts on the first swap: its windows were on
@@ -339,6 +341,13 @@ end
 -- dryRun: only report whether the whole UI's window look would change.
 local function WindowInSlots(winKey)
     return winKey ~= "charsheet" and winKey ~= "inspect"
+end
+-- The looks whose first visit skins the windows (winKey nil: the look as a
+-- whole). WoW Forever leaves the micro menu and the bag bar at Blizz Default.
+local FOREVER_STOCK = { micromenu = true, bagbar = true }
+local function LookSkinsWindows(look, winKey)
+    if look == "forever" then return not (winKey and FOREVER_STOCK[winKey]) end
+    return look == "eui"
 end
 function EllesmereUI.SwapWindowSkinStyle(to, dryRun, legacyStock)
     if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -376,19 +385,19 @@ function EllesmereUI.SwapWindowSkinStyle(to, dryRun, legacyStock)
     for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
         if WindowInSlots(winKey) then
             local v = saved and saved[ek]
-            if v == nil then v = (to == "eui") end
+            if v == nil then v = LookSkinsWindows(to, winKey) end
             -- On = nil (the install default), off = false. An explicit
             -- branch: `x and false or nil` can only ever yield nil.
             if v then EllesmereUIDB[ek] = nil else EllesmereUIDB[ek] = false end
         end
     end
     -- The character sheet's style. A look's first visit (or a slot saved
-    -- before the sheet rode them): Blizz Default on a stock look; on the
-    -- EllesmereUI look a Blizz Default goes back to the EllesmereUI skin and
-    -- any other pick stays.
+    -- before the sheet rode them): Blizz Default on Blizzard Style and
+    -- Classic WoW UI; on the EllesmereUI look and WoW Forever a Blizz Default
+    -- goes back to the EllesmereUI skin and any other pick stays.
     local cs = saved and saved.charsheetStyle
     if cs == nil then
-        if to ~= "eui" then
+        if not LookSkinsWindows(to) then
             cs = "blizzard"
         elseif styles and styles.charsheet == "blizzard" then
             cs = "eui"
@@ -417,6 +426,9 @@ end
 function EllesmereUI.ProfileWindowSkinLook(prof, liveFonts)
     if type(prof) ~= "table" then return nil end
     local look = prof.windowSkinLook
+    -- WoW Forever's own window look; a Forever profile imported on retail
+    -- renders Blizzard Style there, so it takes that look's windows.
+    if look == "forever" then return EllesmereUI.IS_FOREVER and "forever" or "blizzard" end
     if look == "eui" or look == "blizzard" or look == "classic" then return look end
     local fonts = liveFonts or prof.fonts
     local fs = type(fonts) == "table" and fonts._styleSlots
@@ -1053,8 +1065,14 @@ end
         local perRow = db.tooltipBuffsPerRow or 8
         local p = _TT_BUFF_POS[db.tooltipBuffPosition or "bottom"] or _TT_BUFF_POS.bottom
         local style = AK.styles.ttBuffs
-        style.width, style.height = size, size
-        AK.Restyle("ttBuffs")
+        -- Only a size change restyles, and through the deferred restyle: the
+        -- tooltip can be built from tainted code (a unit frame hover) while
+        -- auras are secret, when the engine's aura buttons refuse tainted calls,
+        -- and the deferred pass holds the restyle until that lifts.
+        if style.width ~= size or style.height ~= size then
+            style.width, style.height = size, size
+            AK.RestyleSoon("ttBuffs")
+        end
         c:SetAuraGroupLayout("buffs", { elementWidth = size, elementHeight = size, elementSpacing = 2, lineSpacing = 2 })
         AK.SetContainerRowWidth(c, perRow * size + (perRow - 1) * 2 + 0.4)
         c:ClearAllPoints()
@@ -1074,14 +1092,17 @@ end
         local AK = EllesmereUI.AuraKit
         if not _ttBuffs then
             -- noTooltips: no hover tooltips (they would take over GameTooltip);
-            -- AuraKit keeps the buttons mouse-free through every restyle.
-            AK.styles.ttBuffs = { width = 20, height = 20, iconCrop = true, hideDurationText = true,
+            -- AuraKit keeps the buttons mouse-free through every restyle. Built
+            -- at the saved size, so the buttons are decorated in the engine's
+            -- creation window and the first show needs no restyle.
+            local size = db.tooltipBuffSize or 20
+            AK.styles.ttBuffs = { width = size, height = size, iconCrop = true, hideDurationText = true,
                 noTooltips = true, border = { 0, 0, 0, 1, size = 1 } }
             local c = AK.CreateContainerShell(_GameTooltip, { point = { "TOPLEFT", _GameTooltip, "BOTTOMLEFT" } })
             -- Capped at 16 icons.
             AK.AddGroupToContainer(c, { key = "buffs", filter = { "HELPFUL" }, maxFrameCount = 16,
                 style = "ttBuffs",
-                layout = { elementWidth = 20, elementHeight = 20, elementSpacing = 2, lineSpacing = 2 } })
+                layout = { elementWidth = size, elementHeight = size, elementSpacing = 2, lineSpacing = 2 } })
             _ttBuffs = c
             _ttBuffsLayout()
             -- Cleared on every tooltip rebuild; the unit post-call re-shows it for players.
@@ -1582,9 +1603,10 @@ end
 
     ---------------------------------------------------------------------------
     --  Resurrect Accept Glow (resurrectAcceptGlow, default OFF)
-    --  Pulsating border around button1 of the RESURRECT StaticPopups. Independent
-    --  of reskinPopupsMenus. Zero cost until first enable: no hooks or frames exist
-    --  before then. The overlay is our own frame (state in FFD); the pulse is a C-side Alpha AnimationGroup, so no per-frame Lua.
+    --  Pulsating border around button1 of the RESURRECT StaticPopups. Runs only
+    --  while reskinPopupsMenus is on too (its options row greys out under it).
+    --  Zero cost until first enable: no hooks or frames exist before then. The
+    --  overlay is our own frame (state in FFD); the pulse is a C-side Alpha AnimationGroup, so no per-frame Lua.
     ---------------------------------------------------------------------------
     local RES_WHICH = {
         RESURRECT             = true,
@@ -1594,7 +1616,8 @@ end
     local _resGlowHooked = false
 
     local function _resGlowEnabled()
-        return EllesmereUIDB and EllesmereUIDB.resurrectAcceptGlow or false
+        local db = EllesmereUIDB
+        return db and db.resurrectAcceptGlow and db.reskinPopupsMenus ~= false or false
     end
 
     local function _resGlowButton(popup)

@@ -1338,10 +1338,21 @@ local function DebuffCandidateExtras(cfg)
     -- Duration; nil = Unlimited = no extras at all (the candidate fingerprint
     -- sees the cap value, so edits re-declare like any payload change).
     local cap = cfg.maxDurSec or (cfg.hasDuration and math.huge) or nil
+    local out
     if cap then
-        return { maxDuration = cap }
+        out = { maxDuration = cap }
     end
-    return nil
+    -- Hide Exhaustion (the Filters dropdown, off by default): the Bloodlust
+    -- lockouts leave every group of the bar. They are never-secret, so the
+    -- exclude works on the player. Fresh table: merged maps never alias the set.
+    local sated = cfg.hideExhaustion == true and ns.UF_SatedDebuffs
+    if sated then
+        out = out or {}
+        local ex = {}
+        for id in pairs(sated) do ex[id] = true end
+        out.excludeSpellIDs = ex
+    end
+    return out
 end
 
 -- Has Duration is an AND-MODIFIER (user directive 2026-08-16), not a broad

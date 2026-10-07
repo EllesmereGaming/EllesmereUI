@@ -510,7 +510,7 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUIDataBars", {
 
 -- Bags is the one auto-synced module: without this the bank position mirrors across profiles.
 EllesmereUI.RegisterSyncExclusions("EllesmereUIBags", {
-    "bankPosition",  -- bank window shift-drag position
+    "bankPosition",  -- bank window drag position
 })
 
 -------------------------------------------------------------------------------

@@ -634,6 +634,21 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
         end
         EllesmereUI.RegisterWidgetRefresh(UpdateSw)
         UpdateSw()
+        -- Corner Radius (EllesmereUI_RoundedCorners.lua): the boss table's own,
+        -- left of the swatch; while inheriting the main frames' radius applies.
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Corner Radius", tip = "Corner Radius",
+            disabled = function() return Inheriting() or not EllesmereUI.RoundedStyleOK(B.borderTexture) end,
+            disabledTooltip = function()
+                if Inheriting() then return NEEDS_STYLE end
+                return "This option requires the Solid, Glow or Shadow border style."
+            end,
+            rows = {
+                { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                  get = function() return Src().cornerRadius or 0 end,
+                  set = function(v) B.cornerRadius = v; onChange() end },
+            },
+        })
     end
     return y0 - y
 end
@@ -817,6 +832,19 @@ local function DebuffModeDropdownCfg(text, unitKey, getS, onChanged, extra)
         for k, val in pairs(extra) do cfg[k] = val end
     end
     return cfg
+end
+-- Hide Exhaustion: the Debuff Filter cog row of target, focus and boss (their
+-- filter is a single-pick mode list; the player's checkbox Debuff Filter has
+-- the same toggle as a row). s.debuffHideExhaustion, nil = on: the Bloodlust
+-- lockouts stay hidden until it is turned off (stored as false).
+local function HideExhaustionRow(getS, onChanged)
+    return { type = "toggle", label = "Hide Exhaustion",
+        tooltip = "Hides Sated, Exhaustion, Temporal Displacement and the other Bloodlust lockout debuffs.",
+        get = function() return getS().debuffHideExhaustion ~= false end,
+        set = function(v)
+            getS().debuffHideExhaustion = (not v) and false or nil
+            onChanged()
+        end }
 end
 -- The standard red empty-selection warning on the mode dropdown built by a
 -- DualRow slot (rgn._control): shown while Only Tracked Auras has no active
@@ -2855,7 +2883,7 @@ initFrame:SetScript("OnEvent", function(self)
         classPowerStyleValues = classPowerStyleValues, classThemeSubOrder = classThemeSubOrder, classThemeSubValues = classThemeSubValues,
         db = db, DebuffModeDropdownCfg = DebuffModeDropdownCfg, detPortraitShapeOrder = detPortraitShapeOrder,
         detPortraitShapeValues = detPortraitShapeValues, frames = frames, GetUFOptOutline = GetUFOptOutline,
-        GROUP_UNIT_ORDER = GROUP_UNIT_ORDER, healthTextOrder = healthTextOrder, healthTextOrderBoss = healthTextOrderBoss,
+        GROUP_UNIT_ORDER = GROUP_UNIT_ORDER, HideExhaustionRow = HideExhaustionRow, healthTextOrder = healthTextOrder, healthTextOrderBoss = healthTextOrderBoss,
         healthTextOrderPlayer = healthTextOrderPlayer, healthTextOrderTargetFocus = healthTextOrderTargetFocus, healthTextValues = healthTextValues,
         MINI_GROUP_ORDER = MINI_GROUP_ORDER, optState = optState, portraitArtOrder = portraitArtOrder,
         portraitArtValues = portraitArtValues, portraitModeOrder2 = portraitModeOrder2, portraitModeValues2 = portraitModeValues2,

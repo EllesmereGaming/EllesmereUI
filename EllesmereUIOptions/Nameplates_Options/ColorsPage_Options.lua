@@ -51,7 +51,7 @@ if EllesmereUI.IS_FOREVER then
 end
 
 -- EUI_DEBUFF_COLORS: the per-class debuff lists (the list kit lives in
--- EllesmereUINameplates_DebuffColors.lua). Under CLASSES one expandable card
+-- EllesmereUINameplates_DebuffColors.lua). One expandable card
 -- per class that holds an entry, its icon and its name in its class color on
 -- the header; Add Class, one wide button below them, starts one. Inside, the debuffs run down the left column
 -- and the combos down the right, each with up/down arrows beside its name
@@ -757,12 +757,9 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
         end
     end
 
-    -- The cards (the house module card, as on Global Settings > Fonts).
+    -- The cards (the house module card, as on Global Settings > Fonts), the
+    -- first right under the settings above.
     if debuffColorOpen[playerClass] == nil then debuffColorOpen[playerClass] = true end
-    -- CLASSES sits closer to the mode row than a full header's height.
-    if #listed > 0 then
-        _, h = W:SectionHeader(parent, "CLASSES", y + 12); y = y - h + 12
-    end
     for _, entry in ipairs(listed) do
         local class, singles, combos = entry.class, entry.singles, entry.combos
         local tile = { key = class, display = NAME[class],

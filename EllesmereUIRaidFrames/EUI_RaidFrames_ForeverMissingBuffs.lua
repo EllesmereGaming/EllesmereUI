@@ -5,15 +5,23 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Missing Buffs indicator: on each raid, party and Extra Frames button, the
 --  icon of every buff the member lacks that the PLAYER can cast --
 --  Fortitude and Spirit (priest; Spirit needs the Divine Spirit talent),
---  Mark of the Wild and Thorns (druid), Paladin Blessings (paladin: any
---  blessing, normal or Greater, counts) -- i.e. a trained rank or the group
---  version is in the player's spellbook. On the member every rank and the
---  group version count (looked up by name). Settings (Indicators section,
---  same shape as the raid marker): showMissingBuffs, missingBuffsPosition,
---  missingBuffsSize, missingBuffsOffsetX/Y, one switch per buff
---  (missingBuffsFort/Mark/Spirit/Thorns/Blessing, the cog's checkbox list, nil = on),
---  and the icons' glow on the shared prefix schema (missingBuffsGlow*,
---  EllesmereUI.Glows.PrefixKeys); Forever-only defaults in the main file.
+--  Mark of the Wild and Thorns (druid), a paladin blessing -- i.e. a trained
+--  rank or the group version is in the player's spellbook. On the member
+--  every rank and the group version count (looked up by name). A member gets
+--  at most one blessing: the one their assigned role takes (Tank / Healer /
+--  DPS Blessing; None = no reminder), or, with no role assigned, any blessing
+--  counts (shown with the Kings icon). Solo, only Kings is reminded, on the
+--  player, whatever the role. Thorns Only on Tank keeps Thorns to the
+--  group's tanks, and to the player while solo or in a group without one.
+--  Settings (Indicators section, same shape as the raid marker):
+--  showMissingBuffs, missingBuffsPosition, missingBuffsSize,
+--  missingBuffsOffsetX/Y, one switch per buff (missingBuffsFort/Mark/Spirit/
+--  Thorns, the cog's checkbox list, nil = on), missingBuffsThornsTank (nil =
+--  off), missingBuffsBlessingTank/Healer/DPS (a blessing key or "none"; unset
+--  = Might / Wisdom / Salvation, or "none" for all three while the retired
+--  single switch missingBuffsBlessing reads false), and the icons' glow on the
+--  shared prefix schema (missingBuffsGlow*, EllesmereUI.Glows.PrefixKeys);
+--  Forever-only defaults in the main file.
 --
 --  A member reads as unknown (no icon) while offline or out of sight (the
 --  client has no aura data then), and under the game's aura restriction a
@@ -27,10 +35,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  On: UNIT_AURA and
 --  UNIT_CONNECTION for the group tokens only, each aura event probing its
 --  own added and removed auras against these buffs before a member is
---  looked up again (coalesced to one pass per frame); the roster, the world
---  and each aura restriction edge re-read everyone once. While auras are
---  restricted the payload is secret, so an event re-reads its member only
---  while a buff the player provides stays readable.
+--  looked up again (coalesced to one pass per frame); the roster, the roles,
+--  the world and each aura restriction edge re-read everyone once. While
+--  auras are restricted the payload is secret, so an event re-reads its
+--  member only while a buff the player provides stays readable. A secret
+--  role reads as unknown: no blessing and no tank-only Thorns for it.
 --
 --  The main file calls ns.RF_FvMissingAnchor from each reload path and
 --  ns.RF_FvMissingPreview from the preview pass, the containers file
@@ -53,12 +62,16 @@ local FAMILIES = {
     { key = "mark",   class = "DRUID",  setting = "missingBuffsMark",   icon = 1126,  from = { "mark" } },
     { key = "spirit", class = "PRIEST", setting = "missingBuffsSpirit", icon = 14752, from = { "spirit" } },
     -- Thorns: six druid ranks (Balance), no group version.
-    { key = "thorns", class = "DRUID",  setting = "missingBuffsThorns", icon = 467,   from = { "thorns" } },
-    -- Paladin Blessings: one buff made of every blessing (Might, Wisdom, Kings,
-    -- Salvation, Light and their Greater versions), missing only while the
-    -- member has none of them; shown with the Kings icon.
-    { key = "blessing", class = "PALADIN", setting = "missingBuffsBlessing", icon = 20217,
-      from = { "might", "wisdom", "kings", "salvation", "light" } },
+    { key = "thorns", class = "DRUID",  setting = "missingBuffsThorns", icon = 467,   from = { "thorns" },
+      tankOnly = true },
+    -- The paladin blessings, normal and Greater: a member shows at most one,
+    -- by role (the role settings, not a switch, pick it). The keys are the
+    -- role settings' values.
+    { key = "might",     class = "PALADIN", blessing = true, icon = 19740, from = { "might" } },
+    { key = "wisdom",    class = "PALADIN", blessing = true, icon = 19742, from = { "wisdom" } },
+    { key = "kings",     class = "PALADIN", blessing = true, icon = 20217, from = { "kings" } },
+    { key = "salvation", class = "PALADIN", blessing = true, icon = 1038,  from = { "salvation" } },
+    { key = "light",     class = "PALADIN", blessing = true, icon = 19977, from = { "light" } },
 }
 local NUM_FAMILIES = #FAMILIES
 for i = 1, NUM_FAMILIES do
@@ -74,8 +87,37 @@ for i = 1, NUM_FAMILIES do
     fam.names, fam.ranks, fam.ids = names, ranks, ids
 end
 local FAMILY_BY_ID = {}  -- spell id -> family index
+local BLESSINGS, BLESS_INDEX = {}, {}  -- blessing family indices; key -> index
 for i = 1, NUM_FAMILIES do
     for _, id in ipairs(FAMILIES[i].ids) do FAMILY_BY_ID[id] = i end
+    if FAMILIES[i].blessing then
+        BLESSINGS[#BLESSINGS + 1] = i
+        BLESS_INDEX[FAMILIES[i].key] = i
+    end
+end
+
+-- The blessing a role takes in a settings table (raw reads, nil = unset):
+-- a blessing key or "none"; nil for a member with no assigned role (any
+-- blessing counts for them). Unset takes the role's default, or "none" while
+-- the retired single Paladin Blessings switch reads false (its users had
+-- turned blessings off). The options page reads through the same function.
+local BLESS_KEY = { TANK = "missingBuffsBlessingTank", HEALER = "missingBuffsBlessingHealer",
+    DAMAGER = "missingBuffsBlessingDPS" }
+local BLESS_DEFAULT = { TANK = "might", HEALER = "wisdom", DAMAGER = "salvation" }
+local function Choice(s, role)
+    local key = BLESS_KEY[role]
+    if not key then return nil end
+    local v = s[key]
+    if v == nil then
+        v = (s.missingBuffsBlessing == false) and "none" or BLESS_DEFAULT[role]
+    end
+    return v
+end
+ns.RF_FvBlessingChoice, ns.RF_FvBlessingKey = Choice, BLESS_KEY
+
+-- Blessings are on in a settings table while any role takes one.
+local function BlessingsOn(s)
+    return Choice(s, "TANK") ~= "none" or Choice(s, "HEALER") ~= "none" or Choice(s, "DAMAGER") ~= "none"
 end
 
 -- Only a priest, a druid or a paladin can ever cast one of these: every other
@@ -90,6 +132,9 @@ end
 -- (unknown); inst[unit] = the aura instances found, for the removed-aura probe.
 local state, inst = {}, {}
 local provider = {}      -- key -> the player can cast it (a rank in the spellbook)
+local blessCaster = false  -- the player can cast any blessing (every blessing is then read)
+local groupTank = false  -- a group member has the tank role (full passes)
+local solo = true        -- not in a group (full passes)
 local wantFam = {}       -- key -> switched on where the indicator shows (raid, party or Extra Frames)
 local enabled = false
 local trusted = {}       -- key -> readable right now (Trusted rebuilds it once per frame)
@@ -147,15 +192,73 @@ local function Trusted(i)
     return trusted[FAMILIES[i].key]
 end
 
--- A buff's own switch in one settings table (nil = on).
+-- A buff's own switch in one settings table (nil = on); the blessings follow
+-- the role settings as one.
 local function FamOn(s, fam)
+    if fam.blessing then return BlessingsOn(s) end
     return s[fam.setting] ~= false
 end
 
 -- Worth reading: the player can cast it and it is switched on somewhere.
+-- Every blessing is read while the player casts any: a member with no role
+-- counts any of them, other paladins' included.
 local function Tracked(i)
-    local key = FAMILIES[i].key
-    return provider[key] and wantFam[key]
+    local fam = FAMILIES[i]
+    local can = fam.blessing and blessCaster or provider[fam.key]
+    return can and wantFam[fam.key]
+end
+
+-- The member's assigned role ("TANK", "HEALER", "DAMAGER", "NONE"), or nil
+-- while it reads secret.
+local function RoleOf(unit)
+    local role = UnitGroupRolesAssigned(unit)
+    if issecretvalue(role) then return nil end
+    return role
+end
+
+-- Thorns Only on Tank: the group's tanks, or the player while solo or in a
+-- group without one.
+local function ThornsHere(s, unit)
+    if not s.missingBuffsThornsTank then return true end
+    if groupTank then return RoleOf(unit) == "TANK" end
+    return UnitIsUnit(unit, "player")
+end
+
+-- Solo or not, and whether a group member has the tank role (one roster
+-- walk per full pass).
+local TOKENS
+local function ScanTank()
+    groupTank = false
+    solo = not IsInGroup()
+    if solo then return end
+    for t = 1, #TOKENS do
+        local u = TOKENS[t]
+        if UnitExists(u) and RoleOf(u) == "TANK" then groupTank = true; return end
+    end
+end
+
+-- The blessing icon a member shows (a family index) or nil: solo, Kings on
+-- the player whatever the role (one reminder, no role picks); in a group,
+-- their role's blessing while the player can cast it and the member lacks
+-- it, and with no role the Kings icon while they lack every blessing.
+local function MissingBlessing(s, st, unit)
+    if solo then
+        if provider.kings and st.kings == false and UnitIsUnit(unit, "player") then return BLESS_INDEX.kings end
+        return nil
+    end
+    local role = RoleOf(unit)
+    if not role then return nil end
+    local want = Choice(s, role)
+    if want == "none" then return nil end
+    if want then
+        local i = BLESS_INDEX[want]
+        if i and provider[want] and st[want] == false then return i end
+        return nil
+    end
+    for b = 1, #BLESSINGS do
+        if st[FAMILIES[BLESSINGS[b]].key] ~= false then return nil end  -- has it, or unknown
+    end
+    return BLESS_INDEX.kings
 end
 
 -------------------------------------------------------------------------------
@@ -206,7 +309,7 @@ end
 
 -- Re-reads what the player can cast; true when any buff changed.
 local function ScanProviders()
-    local changed = false
+    local changed, anyBless = false, false
     for i = 1, NUM_FAMILIES do
         local fam = FAMILIES[i]
         local can = Knows(fam)
@@ -214,7 +317,9 @@ local function ScanProviders()
             provider[fam.key] = can
             changed = true
         end
+        if can and fam.blessing then anyBless = true end
     end
+    blessCaster = anyBless
     return changed
 end
 
@@ -357,9 +462,18 @@ local function PaintButton(btn, d)
             local key = fam.key
             -- This frame kind's own switch decides, so a buff turned off for
             -- party but on for raid shows on raid frames only.
-            if st[key] == false and provider[key] and FamOn(s, fam) then
+            if not fam.blessing and st[key] == false and provider[key] and FamOn(s, fam)
+               and (not fam.tankOnly or ThornsHere(s, unit)) then
                 n = n + 1
                 paintList[n] = i
+            end
+        end
+        -- One blessing at most, last: the member's role picks it.
+        if blessCaster and BlessingsOn(s) then
+            local bi = MissingBlessing(s, st, unit)
+            if bi then
+                n = n + 1
+                paintList[n] = bi
             end
         end
     end
@@ -426,6 +540,7 @@ local function Flush()
     if full then
         wipe(dirty); wipe(pendingBtns)
         ScanProviders()
+        ScanTank()
         wipe(state); wipe(inst)
         EvaluateList(ns._allButtons, restricted)
         EvaluateList(ns._partyAllButtons, restricted)
@@ -511,7 +626,8 @@ end
 
 -- RegisterUnitEvent takes two units: the 45 group tokens ride 23 frames
 -- (built here, so their events bill this module; registered only while on).
-local TOKENS = { "player" }
+-- ScanTank walks the same list (declared above it).
+TOKENS = { "player" }
 for i = 1, 4 do TOKENS[#TOKENS + 1] = "party" .. i end
 for i = 1, 40 do TOKENS[#TOKENS + 1] = "raid" .. i end
 local trackers = {}
@@ -552,6 +668,8 @@ local function SetEvents(on)
     end
     if on then
         world:RegisterEvent("GROUP_ROSTER_UPDATE")
+        -- Roles pick the blessing and the tank-only Thorns.
+        world:RegisterEvent("PLAYER_ROLES_ASSIGNED")
         world:RegisterEvent("PLAYER_ENTERING_WORLD")
         -- Every aura restriction edge (combat, encounters, instances).
         world:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
@@ -635,11 +753,19 @@ function ns.RF_FvMissingUnit(btn, d, unit)
 end
 
 -- Options preview: a fixed spread of missing buffs while the indicators
--- preview (the Indicators eye) is on, minus the buffs switched off.
+-- preview (the Indicators eye) is on, minus the buffs switched off. "B" is
+-- the blessing slot: the first role blessing that is not None (DPS first).
 local PREVIEW = {
-    [2] = { 1 }, [4] = { 1, 2 }, [7] = { 3, 5 }, [9] = { 1, 2, 3, 4, 5 },
-    [12] = { 2, 4 }, [15] = { 1, 3 }, [18] = { 4, 5 },
+    [2] = { 1 }, [4] = { 1, 2 }, [7] = { 3, "B" }, [9] = { 1, 2, 3, 4, "B" },
+    [12] = { 2, 4 }, [15] = { 1, 3 }, [18] = { 4, "B" },
 }
+local PREVIEW_ROLES = { "DAMAGER", "HEALER", "TANK" }
+local function PreviewBlessing(s)
+    for r = 1, #PREVIEW_ROLES do
+        local c = Choice(s, PREVIEW_ROLES[r])
+        if c ~= "none" then return BLESS_INDEX[c] end
+    end
+end
 local previewList = {}
 function ns.RF_FvMissingPreview(f, index, s, indVis)
     local spread = indVis and s.showMissingBuffs ~= false and f._health and PREVIEW[index]
@@ -647,7 +773,8 @@ function ns.RF_FvMissingPreview(f, index, s, indVis)
     if spread then
         for k = 1, #spread do
             local i = spread[k]
-            if FamOn(s, FAMILIES[i]) then
+            if i == "B" then i = PreviewBlessing(s) end
+            if i and (FAMILIES[i].blessing or FamOn(s, FAMILIES[i])) then
                 n = n + 1
                 previewList[n] = i
             end

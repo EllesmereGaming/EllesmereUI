@@ -85,21 +85,9 @@ initFrame:SetScript("OnEvent", function(self)
     --  Friends List Page
     ---------------------------------------------------------------------------
 
-    local ICON_STYLE_VALUES = {
-        blizzard = "Blizzard",
-        modern   = "Modern",
-        pixel    = "Pixel",
-        pixelsComic = "Pixels Comic",
-        glyph    = "Glyph",
-        arcade   = "Arcade",
-        legend   = "Legend",
-        midnight = "Midnight",
-        runic    = "Runic",
-    }
-    local ICON_STYLE_ORDER = {
-        "blizzard", "modern", "pixel", "pixelsComic", "glyph",
-        "arcade", "legend", "midnight", "runic",
-    }
+    -- Class Icon Theme choices (shared with the WoW Forever Friends List card)
+    local ICON_STYLE_VALUES = EllesmereUI.FriendsKit.ICON_STYLE_VALUES
+    local ICON_STYLE_ORDER  = EllesmereUI.FriendsKit.ICON_STYLE_ORDER
 
     -- Live repaint after a display toggle: the legacy list's row pass, plus a
     -- decoration-only pass over the 12.1 cards (never Blizzard's view:Refresh,

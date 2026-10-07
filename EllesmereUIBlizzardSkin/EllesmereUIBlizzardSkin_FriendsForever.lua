@@ -3,12 +3,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Friends list on WoW Forever
 --
 --  The Friends module (the retail friends list) stays off the Forever client,
---  and the Social UI pack in EllesmereUIBlizzardSkin_WindowPacks.lua never
---  applies there (its addon does not load), so Blizzard's own friends window
---  took no treatment. This gives it the standard window treatment under the
+--  and the Social UI pack in EllesmereUIBlizzardSkin_WindowPacks.lua skins
+--  only the Social UI window, so Blizzard's legacy friends window took no
+--  treatment. This gives it the standard window treatment under the
 --  SAME "Friends List" card and key the Social UI pack uses (winKey
 --  "socialui", enable key reskinSocialUI, the per-window style dropdown), so
---  every standard option applies and no retail table gains a key:
+--  every standard option applies and no enable or style key is added (the
+--  card's own settings, friendsListCard, joined the export allowlist and the
+--  module's reset list):
 --    - the shell, border, top bar and house close button through the engine;
 --      the corner portrait art, the nested inset box and the stock tab art
 --      gone; the title in the house font;
@@ -19,10 +21,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --      thin scrollbar under the window;
 --    - the pooled list rows keep Blizzard's own row colouring and icons and
 --      take the house font; the category headers lose their art.
+--  The card also hosts what the Friends module gives retail's friends list,
+--  from the shared friends kit (EllesmereUI_FriendsKit.lua), with its own
+--  settings on the card (EllesmereUIDB.friendsListCard): the EllesmereUI
+--  tiles on the Social UI window's friend cards while the card is skinned,
+--  and auto-accepting group invites from friends whatever the card's skin.
 --
 --  Cost: a one-time pass at login on frames that already exist, then one
---  font pass per row initialisation (Blizzard's own, on rows it recycles).
---  No events of our own. Nothing here runs on retail (IS_FOREVER is false).
+--  font pass per row initialisation (Blizzard's own, on rows it recycles),
+--  and the kit's paint per card initialisation; auto-accept's invite event
+--  only while it is on. Nothing here runs on retail (IS_FOREVER is false).
 --------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local EllesmereUI = _G.EllesmereUI
@@ -160,3 +168,57 @@ WSkin.RegisterWindow({
     key   = WIN,
     apply = SkinFriends,
 })
+
+--------------------------------------------------------------------------------
+--  The card's own settings: the friends kit reads them through a view that
+--  looks like the Friends module's profile table (an unset key reads that
+--  module's default); the options card writes through FriendsCardSet.
+--------------------------------------------------------------------------------
+local CARD_DEFAULTS = {
+    enabled = true, showClassIcons = true, iconStyle = "modern", classColorNames = true,
+    factionBanners = false, showRegionIcons = true,
+    autoAcceptFriendInvites = false, autoAcceptGuildInvites = false,
+}
+local cardView = setmetatable({}, { __index = function(_, k)
+    local t = EllesmereUIDB and EllesmereUIDB.friendsListCard
+    local v = t and t[k]
+    if v == nil then v = CARD_DEFAULTS[k] end
+    return v
+end })
+local function CardSettings() return cardView end
+
+function ns.FriendsCardGet(k)
+    return cardView[k]
+end
+
+function ns.FriendsCardSet(k, v)
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    local t = EllesmereUIDB.friendsListCard
+    if not t then t = {}; EllesmereUIDB.friendsListCard = t end
+    t[k] = v
+    if k == "autoAcceptFriendInvites" or k == "autoAcceptGuildInvites" then
+        EllesmereUI.FriendsKit.SyncAutoAccept(CardSettings)
+    else
+        EllesmereUI.FriendsKit.RedecorateTiles()
+    end
+end
+
+-- After a reset cleared the settings
+function ns.FriendsCardRefresh()
+    EllesmereUI.FriendsKit.SyncAutoAccept(CardSettings)
+    EllesmereUI.FriendsKit.RedecorateTiles()
+end
+
+-- The kit hooks the card mixin at PLAYER_LOGIN, before any card exists. The
+-- tiles follow the card's skin as it stands at login (a change across Blizz
+-- Default reloads); auto-accept runs whatever the skin.
+local boot = CreateFrame("Frame")
+boot:RegisterEvent("PLAYER_LOGIN")
+boot:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_LOGIN")
+    local Kit = EllesmereUI.FriendsKit
+    Kit.SyncAutoAccept(CardSettings)
+    if EllesmereUI.GetBlizzWindowStyle(WIN) ~= "off" then
+        Kit.StartTiles({ Settings = CardSettings, style = "eui", fontKey = "blizzardSkin" })
+    end
+end)

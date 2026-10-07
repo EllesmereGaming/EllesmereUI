@@ -257,7 +257,25 @@ end
 -- as modern there. Read-side only: the saved style is never rewritten.
 -- nil on every other client (readers test the field).
 if EllesmereUI.IS_FOREVER == true then
+    -- Rogues under the EllesmereUI look keep a class resource style of their
+    -- own, hidden until picked, so a rogue's choice
+    -- and the other classes' player.classPowerStyle never overwrite each
+    -- other on a shared profile. The key to write, or nil when the shared one
+    -- applies.
+    function ns.UF_RogueCPKey()
+        if ns.UF_Blizz() then return nil end
+        local _, classFile = UnitClass("player")
+        if classFile ~= "ROGUE" then return nil end
+        return "foreverRogueClassPowerStyle"
+    end
+    -- The player's built style: for a rogue it replaces the argument with the
+    -- rogue's own saved style, so call it for the player frame only.
     function ns.UF_ForeverCPStyle(style)
+        local rogueKey = ns.UF_RogueCPKey()
+        if rogueKey then
+            local p = db and db.profile and db.profile.player
+            style = (p and p[rogueKey]) or "none"
+        end
         if style == "blizzard" and not ns.UF_Forever() then return "modern" end
         return style
     end

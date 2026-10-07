@@ -123,9 +123,11 @@ end
 -- Junk: always the last category (InitCategories puts it there, and drags and
 -- moves never pass it), so turning the Junk Marker on or off never shifts
 -- another category's index (bagVisualOrder is index-keyed). No types: grey items
--- and marks are its members.
+-- and marks are its members. Its icon is the game's coin, as is the item badge
+-- (only the header button draws our own coin art).
+ns.JUNK_COIN = 133784
 DEFAULT_CATEGORIES[#DEFAULT_CATEGORIES + 1] = {
-    name = "Junk", types = {}, isJunk = true, appendLast = true, noGroup = true, icon = 133784,
+    name = "Junk", types = {}, isJunk = true, appendLast = true, noGroup = true, icon = ns.JUNK_COIN,
 }
 
 -------------------------------------------------------------------------------
@@ -228,7 +230,7 @@ function CategoryManager:InitCategories()
     for _, d in ipairs(rest) do orderedDefs[#orderedDefs + 1] = d end
     -- Junk goes last, and exists only while the Junk Marker is on (its marks
     -- stay saved meanwhile).
-    if junkDef and BP().bagJunkMarker then orderedDefs[#orderedDefs + 1] = junkDef end
+    if junkDef and self:IsJunkMarkerEnabled() then orderedDefs[#orderedDefs + 1] = junkDef end
 
     -- Build runtime categories from ordered defaults + user state.
     -- Custom category placeholders (_isCustom) are expanded inline so
@@ -1040,8 +1042,9 @@ end
 -------------------------------------------------------------------------------
 CategoryManager.JUNK_KEY = "Junk"
 
+-- The Junk Icon of Bag Top Bar Icons switches the whole Junk Marker
 function CategoryManager:IsJunkMarkerEnabled()
-    return BP().bagJunkMarker == true
+    return BP().bagShowJunkIcon ~= false
 end
 
 -- Marked, or grey and not filed in another category (a grey quest item files as

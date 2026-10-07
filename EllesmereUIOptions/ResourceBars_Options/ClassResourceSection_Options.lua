@@ -417,6 +417,29 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                 end,
                 true, 20)
             PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            rgn._lastInline = borderSwatch  -- the Corner Radius cog chains left of the swatch
+            -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
+            -- border size control. The stock styles keep the bars square.
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(classBsRow._rightRegion, {
+                    title = "Corner Radius", tip = "Corner Radius",
+                    disabled = function()
+                        if classOff() or EllesmereUI.BlizzStyle.Get("resourcebars") then return true end
+                        local c = cfg(); return not EllesmereUI.RoundedStyleOK(c and c.borderTexture)
+                    end,
+                    disabledTooltip = function()
+                        if EllesmereUI.BlizzStyle.Get("resourcebars") then return EllesmereUI.BlizzStyle.Label("resourcebars") end
+                        if classOff() then return "Class Resource" end
+                        return "This option requires the Solid, Glow or Shadow border style."
+                    end,
+                    requireState = function() return EllesmereUI.BlizzStyle.Get("resourcebars") and "disabled" or "enabled" end,
+                    rows = {
+                        { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                          get = function() local c = cfg(); return c and c.cornerRadius or 0 end,
+                          set = function(v) local c = cfg(); if not c then return end; c.cornerRadius = v; RebuildClass() end },
+                    },
+                })
+            end
             EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
         end
         if not EllesmereUI._prebuilding then
@@ -573,19 +596,20 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                     local r, g, b, a = p.secondary.borderR, p.secondary.borderG, p.secondary.borderB, p.secondary.borderA
                     local sz = p.secondary.borderSize or 1
                     local bt = p.secondary.borderTexture or "solid"
+                    local cr = p.secondary.cornerRadius or 0
                     p.primary.borderR, p.primary.borderG, p.primary.borderB, p.primary.borderA = r, g, b, a
-                    p.primary.borderSize = sz; p.primary.borderTexture = bt
+                    p.primary.borderSize = sz; p.primary.borderTexture = bt; p.primary.cornerRadius = cr
                     ns.ERB_CopyBorderPx(p.primary, p.secondary)
                     p.health.borderR, p.health.borderG, p.health.borderB, p.health.borderA = r, g, b, a
-                    p.health.borderSize = sz; p.health.borderTexture = bt
+                    p.health.borderSize = sz; p.health.borderTexture = bt; p.health.cornerRadius = cr
                     ns.ERB_CopyBorderPx(p.health, p.secondary)
                     SmoothRefresh(); EllesmereUI:RefreshPage(ns.ERB_TexturedBars(p) ~= was)
                 end,
                 isSynced = function()
                     local p = DB(); if not p then return false end
                     local sr, sg, sb, sa, ssz = p.secondary.borderR, p.secondary.borderG, p.secondary.borderB, p.secondary.borderA, p.secondary.borderSize or 1
-                    local sbt = p.secondary.borderTexture or "solid"
-                    local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt and ns.ERB_SameBorderPx(t, p.secondary) end
+                    local sbt, scr = p.secondary.borderTexture or "solid", p.secondary.cornerRadius or 0
+                    local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt and (t.cornerRadius or 0) == scr and ns.ERB_SameBorderPx(t, p.secondary) end
                     return eq(p.primary) and eq(p.health)
                 end,
                 flashTargets = function() return { ctx.syncRows.classBorder, ctx.syncRows.powerBorder, ctx.syncRows.healthBorder } end,
@@ -1224,54 +1248,15 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
         local CR_ROLE_DPS     = -3
         local _crRoleCache = {}
 
+        -- The shared spec list (WoW Forever: one row per class), locked by
+        -- what the existing entries claim; no role shortcut rows here.
         local function BuildSpecItems()
-            local items = {}
-            items[#items + 1] = { key = 0, label = "All Specs", isAction = true, lockedFn = ns.HasCRAllSpecs }
-            -- WoW Forever: one row per class, keyed by its class token, standing for
-            -- every retail spec of the class (the getter and setter expand it). A row
-            -- locks while any spec of its class is claimed.
-            if EllesmereUI.IS_FOREVER then
-                local classes = EllesmereUI.ForeverClasses()
-                for n = 1, #classes do
-                    local token = classes[n]
-                    local ids = EllesmereUI.ForeverClassSpecIDs(token)
-                    items[#items + 1] = { key = token, label = EllesmereUI.ForeverClassName(token), lockedFn = function()
-                        for i = 1, #ids do
-                            if ns.IsCRSpecClaimed(ids[i]) then return true end
-                        end
-                        return false
-                    end }
-                end
-                return items
-            end
-
-            local classList = {}
-            for classID = 1, (GetNumClasses and GetNumClasses() or 13) do
-                local className, classFile = GetClassInfo(classID)
-                if className then
-                    classList[#classList + 1] = { classID = classID, className = className }
-                end
-            end
-            table.sort(classList, function(a, b) return a.className < b.className end)
-
-            local healers, tanks, dps = {}, {}, {}
-            for _, cls in ipairs(classList) do
-                items[#items + 1] = { isHeader = true, label = cls.className }
-                local numSpecs = GetNumSpecializationsForClassID and GetNumSpecializationsForClassID(cls.classID) or 0
-                for specIndex = 1, numSpecs do
-                    local specID, specName, _, _, role = GetSpecializationInfoForClassID(cls.classID, specIndex)
-                    if specID and specName then
-                        local sid = specID
-                        items[#items + 1] = { key = specID, label = specName, lockedFn = function() return ns.IsCRSpecClaimed(sid) end }
-                        if role == "HEALER" then healers[#healers + 1] = specID
-                        elseif role == "TANK" then tanks[#tanks + 1] = specID
-                        else dps[#dps + 1] = specID end
-                    end
-                end
-            end
-            _crRoleCache[CR_ROLE_HEALERS] = healers
-            _crRoleCache[CR_ROLE_TANKS] = tanks
-            _crRoleCache[CR_ROLE_DPS] = dps
+            local items, roles = EllesmereUI.SpecPickItems({
+                lockedFn = function(id) return ns.IsCRSpecClaimed(id) end,
+                allLockedFn = ns.HasCRAllSpecs })
+            _crRoleCache[CR_ROLE_HEALERS] = roles[CR_ROLE_HEALERS]
+            _crRoleCache[CR_ROLE_TANKS] = roles[CR_ROLE_TANKS]
+            _crRoleCache[CR_ROLE_DPS] = roles[CR_ROLE_DPS]
             return items
         end
 

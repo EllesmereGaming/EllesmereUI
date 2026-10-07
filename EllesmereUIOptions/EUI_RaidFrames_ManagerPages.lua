@@ -616,6 +616,7 @@ local function BuildBaseDetailDM(frame, fontPath)
         if rgn._control then rgn._control:Hide() end
         local DM_ALL_KEY = "__all"
         local DM_DUR_KEY = "__hasDuration"
+        local DM_HIDE_EXH = "__hideExhaustion"
         local DM_MATCH_ANY = "__matchAny"
         local DM_MATCH_ALL = "__matchAll"
         local function AllOn() return dm.all ~= false end
@@ -625,6 +626,12 @@ local function BuildBaseDetailDM(frame, fontPath)
               tooltip = "Show every debuff. Use the Hide lane below to remove specific filters." },
             { key = DM_DUR_KEY, label = "Has Duration",
               tooltip = "Only show debuffs that have a duration, excluding permanent ones. Combines with the filters below; checked alone it shows every timed debuff." },
+            -- Hide Exhaustion: a view over the profile's hideLustDebuff (on by
+            -- default), which every raid and party debuff display reads. Kept out
+            -- of the summary, so the default reads as before.
+            { key = DM_HIDE_EXH, label = "Hide Exhaustion",
+              tooltip = "Hides Sated, Exhaustion, Temporal Displacement and the other Bloodlust lockout debuffs.",
+              excludeFromSummaryFn = function() return true end },
             -- Match Mode: modifier rows (out of the summary and the count), a
             -- radio pair over dm.match (nil = Match Any = the union). Locked
             -- while All Debuffs shows everything; the setting is kept.
@@ -760,6 +767,7 @@ local function BuildBaseDetailDM(frame, fontPath)
             function(k, neg)
                 if k == DM_ALL_KEY then return AllOn() end
                 if k == DM_DUR_KEY then return dm.hasDuration == true end
+                if k == DM_HIDE_EXH then return p.hideLustDebuff ~= false end
                 if k == DM_MATCH_ALL then return dm.match == "all" end
                 if k == DM_MATCH_ANY then return dm.match ~= "all" end
                 if k == "dispel_you" then
@@ -791,6 +799,12 @@ local function BuildBaseDetailDM(frame, fontPath)
                     -- AND-modifier: combines with All Debuffs or any show-lane
                     -- selection; checked alone it acts as the timed catch-all.
                     dm.hasDuration = v or nil
+                    DmApply()
+                    EllesmereUI:RefreshPage()
+                    return
+                end
+                if k == DM_HIDE_EXH then
+                    p.hideLustDebuff = v and true or false
                     DmApply()
                     EllesmereUI:RefreshPage()
                     return

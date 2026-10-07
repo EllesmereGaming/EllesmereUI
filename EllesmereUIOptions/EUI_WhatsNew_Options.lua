@@ -2,12 +2,18 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- Patch Notes and EUI Legends page builders; their content tables stay in EUI__General_Options.lua.
 
 -------------------------------------------------------------------------------
---  What's New page -- three tiers: hero cards (2/row), small clickable
---  listings, fix lines. Content: EllesmereUI._WHATSNEW_PATCHES (newest
---  first). Entry `nav` deep-links via NavigateToElementSettings (opens page,
---  pulses control); no `nav` = static non-clickable card. File-scope fn so
---  it adds no locals/upvalues to the deferred options closure.
+--  What's New page -- one expandable card per patch (the shared module card),
+--  newest first. A card's header counts the patch's major features,
+--  additional features and bug fixes; open, it shows the three tiers: hero
+--  cards (2/row), small clickable listings, fix lines. Content:
+--  EllesmereUI._WHATSNEW_PATCHES (newest first). Entry `nav` deep-links via
+--  NavigateToElementSettings (opens page, pulses control); no `nav` = static
+--  non-clickable card. File-scope fn so it adds no locals/upvalues to the
+--  deferred options closure. whatsNewOpen: the open cards by version, for the
+--  session (the newest starts open).
 -------------------------------------------------------------------------------
+local whatsNewOpen = {}
+local NOTES_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\sidebar\\notes-off.png"
 function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
     local PP  = EllesmereUI.PanelPP
     local EG  = EllesmereUI.ELLESMERE_GREEN
@@ -364,11 +370,12 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
     end
 
     -- Tier 2: clickable small listing -- title + subtitle, no card chrome, faint row highlight on hover.
-    local function MakeListing(cy, w, entry)
+    local function MakeListing(x, cy, w, entry)
         local ROW_H = 48
         local row = CreateFrame("Button", nil, parent)
         PP.Size(row, w, ROW_H)
-        PP.Point(row, "TOPLEFT", parent, "TOPLEFT", PAD, cy)
+        PP.Point(row, "TOPLEFT", parent, "TOPLEFT", x, cy)
+        row:SetFrameLevel(parent:GetFrameLevel() + 2)
 
         local hov = row:CreateTexture(nil, "BACKGROUND")
         hov:SetAllPoints()
@@ -403,18 +410,34 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         return ROW_H
     end
 
-    -- Tier 3: a plain bug-fix line (bullet + wrapping text, not clickable).
-    local function MakeFixLine(cy, text)
-        local dot = MakeFont(parent, 12, nil, EG.r, EG.g, EG.b, 0.55)
-        PP.Point(dot, "TOPLEFT", parent, "TOPLEFT", PAD + 2, cy - 1)
+    -- Tier 3: a plain bug-fix line (bullet + wrapping text, not clickable),
+    -- drawn on `host` (above the patch card's fill) from x to the card's inset.
+    local function MakeFixLine(host, x, rightInset, cy, text)
+        local dot = MakeFont(host, 12, nil, EG.r, EG.g, EG.b, 0.55)
+        PP.Point(dot, "TOPLEFT", parent, "TOPLEFT", x + 2, cy - 1)
         dot:SetText("\226\128\162")  -- bullet glyph (ASCII-safe UTF-8 escape)
-        local fs = MakeFont(parent, 12, nil, 1, 1, 1, 0.5)
-        PP.Point(fs, "TOPLEFT", parent, "TOPLEFT", PAD + 18, cy)
-        PP.Point(fs, "RIGHT", parent, "RIGHT", -PAD, 0)
+        local fs = MakeFont(host, 12, nil, 1, 1, 1, 0.5)
+        PP.Point(fs, "TOPLEFT", parent, "TOPLEFT", x + 18, cy)
+        PP.Point(fs, "RIGHT", parent, "RIGHT", -rightInset, 0)
         fs:SetJustifyH("LEFT"); fs:SetWordWrap(true)
         fs:SetText(text or "")
         local th = fs:GetStringHeight() or 14
         return math.max(22, math.ceil(th) + 8)
+    end
+
+    -- A tier's title (already localized) inside a patch card: the section label
+    -- colour and a faint rule under it, inset with the card's content.
+    local function TierHeader(host, x, cy, w, text)
+        local ts = EllesmereUI.TEXT_SECTION
+        local label = MakeFont(host, 12, nil, ts.r, ts.g, ts.b, ts.a)
+        PP.Point(label, "TOPLEFT", parent, "TOPLEFT", x, cy - 16)
+        label:SetText(text)
+        local rule = host:CreateTexture(nil, "ARTWORK")
+        rule:SetColorTexture(1, 1, 1, 0.07)
+        PP.Size(rule, w, 1)
+        PP.Point(rule, "TOPLEFT", parent, "TOPLEFT", x, cy - 34)
+        if PP.DisablePixelSnap then PP.DisablePixelSnap(rule) end
+        return 40
     end
 
     local patches = EllesmereUI._WHATSNEW_PATCHES
@@ -481,91 +504,117 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
 
     y = y - math.ceil(hint:GetStringHeight() or 14) - 20
 
-    -- Show only the newest MAX_PATCHES entries; older ones may stay in the data table unshown.
-    local MAX_PATCHES = 10
-    local shown = math.min(#patches, MAX_PATCHES)
-    for pi = 1, shown do
-        local patch = patches[pi]
-        -- A "mini" patch is bugfix-only: just a `fixes` tier, compact style.
+    -- A patch card's content sits inset from the card's edges.
+    local INSET = 16
+    local innerX, innerW = PAD + INSET, totalW - INSET * 2
+
+    -- One patch's tiers inside its open card, from cy down; returns the new cy.
+    -- Text goes on a holder above the card's fill (frames already sit above it).
+    local function BuildPatchContent(patch, cy)
+        -- A "mini" patch is bugfix-only: just a `fixes` tier.
         local isMini = patch.mini
-        -- Version header: full = 20px title + divider; mini = 15px title with a green "MINI PATCH" tag + tighter divider.
-        if isMini then
-            local ver = MakeFont(parent, 15, nil, 1, 1, 1, 0.9)
-            PP.Point(ver, "TOPLEFT", parent, "TOPLEFT", PAD, y)
-            ver:SetText("EllesmereUI " .. (patch.version or ""))
-            local tag = MakeFont(parent, 10, nil, EG.r, EG.g, EG.b, 0.85)
-            PP.Point(tag, "LEFT", ver, "RIGHT", 10, -1)
-            tag:SetText("MINI PATCH")
-            local uline = parent:CreateTexture(nil, "ARTWORK")
-            uline:SetColorTexture(1, 1, 1, 0.10)
-            PP.Size(uline, totalW, 1)
-            PP.Point(uline, "TOPLEFT", parent, "TOPLEFT", PAD, y - 24)
-            if PP.DisablePixelSnap then PP.DisablePixelSnap(uline) end
-            y = y - 34
-        else
-            local ver = MakeFont(parent, 20, nil, 1, 1, 1, 0.95)
-            PP.Point(ver, "TOPLEFT", parent, "TOPLEFT", PAD, y)
-            ver:SetText("EllesmereUI " .. (patch.version or ""))
-            local uline = parent:CreateTexture(nil, "ARTWORK")
-            uline:SetColorTexture(1, 1, 1, 0.12)
-            PP.Size(uline, totalW, 1)
-            PP.Point(uline, "TOPLEFT", parent, "TOPLEFT", PAD, y - 32)
-            if PP.DisablePixelSnap then PP.DisablePixelSnap(uline) end
-            y = y - 48
-        end
+        local host = CreateFrame("Frame", nil, parent)
+        host:SetAllPoints(parent)
+        host:SetFrameLevel(parent:GetFrameLevel() + 2)
+        cy = cy - 6
 
         -- Tier 1: hero cards, two per row, AUTHORED order (not module-sorted like features/fixes) -- reorder entries in _WHATSNEW_PATCHES to reorder cards.
         local heroes = patch.heroes or {}
         if #heroes > 0 then
-            local cardW = math.floor((totalW - CARD_GAP) / 2)
+            local cardW = math.floor((innerW - CARD_GAP) / 2)
             local CARD_H = 96
             -- Column state: heroes flow 2/row in authored order; a `banner` hero takes a full row, breaking then resuming the flow.
             local col = 0
             for _, hero in ipairs(heroes) do
                 if hero.videoBanner then
-                    if col == 1 then y = y - CARD_H - CARD_GAP; col = 0 end
-                    local bh = MakeVideoBannerCard(PAD, y, totalW, hero)
-                    y = y - bh - CARD_GAP
+                    if col == 1 then cy = cy - CARD_H - CARD_GAP; col = 0 end
+                    local bh = MakeVideoBannerCard(innerX, cy, innerW, hero)
+                    cy = cy - bh - CARD_GAP
                 elseif hero.banner then
-                    if col == 1 then y = y - CARD_H - CARD_GAP; col = 0 end
-                    local bh = MakeBannerCard(PAD, y, totalW, hero)
-                    y = y - bh - CARD_GAP
+                    if col == 1 then cy = cy - CARD_H - CARD_GAP; col = 0 end
+                    local bh = MakeBannerCard(innerX, cy, innerW, hero)
+                    cy = cy - bh - CARD_GAP
                 else
-                    local cx = PAD + col * (cardW + CARD_GAP)
-                    MakeHeroCard(cx, y, cardW, CARD_H, hero)
+                    local cx = innerX + col * (cardW + CARD_GAP)
+                    MakeHeroCard(cx, cy, cardW, CARD_H, hero)
                     col = col + 1
-                    if col == 2 then y = y - CARD_H - CARD_GAP; col = 0 end
+                    if col == 2 then cy = cy - CARD_H - CARD_GAP; col = 0 end
                 end
             end
-            if col == 1 then y = y - CARD_H - CARD_GAP end
-            y = y + CARD_GAP - 18
+            if col == 1 then cy = cy - CARD_H - CARD_GAP end
+            cy = cy + CARD_GAP - 4
         end
 
         -- Tier 2: small listings.
         local feats = SortByModule(patch.features or {})
         if #feats > 0 then
-            local _, sh = W:SectionHeader(parent, "ADDITIONAL FEATURES", y); y = y - sh
-            y = y - 5  -- extra spacing below the divider
+            cy = cy - TierHeader(host, innerX, cy, innerW, EllesmereUI.L("ADDITIONAL FEATURES"))
+            cy = cy - 5  -- extra spacing below the divider
             for _, f in ipairs(feats) do
-                local rh = MakeListing(y, totalW, f); y = y - rh
+                local rh = MakeListing(innerX, cy, innerW, f); cy = cy - rh
             end
-            y = y - 6
+            cy = cy - 6
         end
 
         -- Tier 3: bug-fix lines. Full patches get a "BUG FIXES" header; a fixes-only mini patch drops it (the whole block is fixes), but a mini that also lists features keeps it so the fixes do not run on under them.
         local fixes = SortByModule(patch.fixes or {})
         if #fixes > 0 then
             if not isMini or #feats > 0 then
-                local _, sh = W:SectionHeader(parent, "BUG FIXES", y); y = y - sh
-                y = y - 10  -- extra spacing below the divider
+                cy = cy - TierHeader(host, innerX, cy, innerW, EllesmereUI.L("BUG FIXES"))
+                cy = cy - 10  -- extra spacing below the divider
             end
             for _, fx in ipairs(fixes) do
-                local fh = MakeFixLine(y, PrefixOf(fx) .. (EllesmereUI.L(fx.text) or "")); y = y - fh
+                local fh = MakeFixLine(host, innerX, PAD + INSET, cy, PrefixOf(fx) .. (EllesmereUI.L(fx.text) or "")); cy = cy - fh
             end
         end
+        return cy - 4
+    end
 
-        if pi < shown then
-            local _, gap = W:Spacer(parent, y, 24); y = y - gap
+    -- One card per patch, newest first: the newest starts open. Show only the
+    -- newest MAX_PATCHES entries; older ones may stay in the data table unshown.
+    local MAX_PATCHES = 10
+    local shown = math.min(#patches, MAX_PATCHES)
+    local newestKey = patches[1].version or 1
+    if whatsNewOpen[newestKey] == nil then whatsNewOpen[newestKey] = true end
+    for pi = 1, shown do
+        local patch = patches[pi]
+        -- Header counts: hero cards (a launch-video banner is no feature), listings, fix lines.
+        local heroN = 0
+        for _, hero in ipairs(patch.heroes or {}) do
+            if not hero.videoBanner then heroN = heroN + 1 end
+        end
+        local featN, fixN = #(patch.features or {}), #(patch.fixes or {})
+        local parts = {}
+        if patch.mini then parts[#parts + 1] = EllesmereUI.L("Mini Patch") end
+        if heroN > 0 then parts[#parts + 1] = EllesmereUI.L("Major Features") .. ": " .. heroN end
+        if featN > 0 then parts[#parts + 1] = EllesmereUI.L("Additional Features") .. ": " .. featN end
+        if fixN > 0 then parts[#parts + 1] = EllesmereUI.L("Bug Fixes") .. ": " .. fixN end
+        local tile = { key = patch.version or pi, display = "EllesmereUI " .. (patch.version or ""),
+            desc = table.concat(parts, "    "),
+            buildContent = function(_, cy) return BuildPatchContent(patch, cy) end }
+        local newest = pi == 1
+        y = EllesmereUI.BuildModuleCard(parent, y, W, tile, {
+            enabled = true, expanded = whatsNewOpen, descW = 560, noSearch = true,
+            glyph = function(hdr)
+                local icon = hdr:CreateTexture(nil, "ARTWORK")
+                PP.Size(icon, 28, 20)
+                PP.Point(icon, "LEFT", hdr, "LEFT", 14, 0)
+                icon:SetTexture(NOTES_ICON)
+                if PP.DisablePixelSnap then PP.DisablePixelSnap(icon) end
+                if newest then
+                    icon:SetVertexColor(EG.r, EG.g, EG.b, 0.9)
+                else
+                    icon:SetVertexColor(1, 1, 1, 0.45)
+                end
+            end })
+        -- "Latest" beside the newest card's title (its description hangs off the title).
+        if newest then
+            local _, title = tile._descFS:GetPoint(1)
+            if title then
+                local tag = MakeFont(tile._hdr, 11, nil, EG.r, EG.g, EG.b, 0.9)
+                PP.Point(tag, "LEFT", title, "RIGHT", 10, 0)
+                tag:SetText(EllesmereUI.L("Latest"))
+            end
         end
     end
 

@@ -192,9 +192,11 @@ end
 -- allowed to go stale until the next push rather than ever disagreeing with
 -- what a cell index fires. Every input that can change an answer lands here
 -- through that same wipe: SPELLS_CHANGED and UPDATE_MACROS request a push,
--- every slot edit and the toggle itself request one through Refresh, class
--- and spec-list are fixed for the session, and a profile switch hands out
--- different palette tables (weak keys let the old ones go).
+-- every slot edit, the toggle itself and an Assign to Spec pick request one
+-- through Refresh, a spec change that moves which palettes load requests one
+-- through SpecSync, class and spec-list are fixed for the session, and a
+-- profile switch hands out different palette tables (weak keys let the old
+-- ones go).
 local usableMemo = setmetatable({}, { __mode = "k" })
 
 -- KnownForm, SpellKnownHere and SlotUsable are private to UsableSlots, and
@@ -263,26 +265,35 @@ local function SlotUsable(slot)
     return true
 end
 
--- The entries of the palette this character can use ("Hide Unusable
--- Entries"). A view, never a mutation: returns the stored array itself while
--- nothing is filtered or the setting is off, and a fresh dense array
--- otherwise -- the stored slots keep every entry for the characters that CAN
--- use them.
+-- The entries of the palette this character can use ("Hide Unavailable
+-- Actions"). A view, never a mutation: returns the stored array itself while
+-- nothing is filtered, and a fresh dense array otherwise -- the stored slots
+-- keep every entry for the characters that CAN use them. A nested palette
+-- that does not load in this spec (Assign to Spec) is left out whatever the
+-- setting says; with it off, everything else stays.
 function UsableSlots(palette, p)
     local slots = palette and palette.slots
     if not slots then return slots end
-    if p and p.hideUnusable == false then return slots end
     local memo = usableMemo[palette]
     if memo then return memo end
+    local all = p and p.hideUnusable == false
     local out
     for i = 1, #slots do
-        if not SlotUsable(slots[i]) then
+        local slot = slots[i]
+        local keep
+        if slot.kind == "palette" then
+            local child = ChildIndex(slot)
+            keep = not child or ns.PaletteActive(child)
+        else
+            keep = all or SlotUsable(slot)
+        end
+        if not keep then
             if not out then
                 out = {}
                 for j = 1, i - 1 do out[j] = slots[j] end
             end
         elseif out then
-            out[#out + 1] = slots[i]
+            out[#out + 1] = slot
         end
     end
     usableMemo[palette] = out or slots
@@ -949,7 +960,8 @@ local USABILITY_TINT = {
 --
 -- Every call here is secret-SAFE, and that was checked rather than assumed:
 -- C_Spell.IsSpellUsable, C_Spell.IsSpellInRange, C_Item.IsUsableItem,
--- C_Item.ItemHasRange and C_Item.IsItemInRange all carry no
+-- C_Item.ItemHasRange, C_Item.IsItemInRange,
+-- C_MountJournal.GetMountUsabilityByID and IsIndoors all carry no
 -- SecretWhenCooldownsRestricted flag in the generated documentation, unlike
 -- the cooldown and charge getters two functions up. So these results may be
 -- branched on. Secrecy is not protection, though: C_Item.IsItemInRange is
@@ -1001,6 +1013,30 @@ local function SlotUsability(slot)
 
     elseif k == "outfit" then
         return InCombatLockdown() and "UNUSABLE" or nil
+
+    elseif k == "mount" or k == "lastmount" or k == "randommount" then
+        -- The Mount Journal's own answer, the one behind its Summon button's
+        -- "You can't mount here" line, indoors counted (checkIndoors): plain
+        -- booleans, no secret flags, on both clients. A mount entry asks about
+        -- its mount and the last-mount entry about the mount it summons. The
+        -- random favorite summons whichever favorite is usable, so it has no
+        -- one mount to ask about: it dims only where no mount can be summoned,
+        -- indoors or in combat -- the test the last-mount entry falls back to
+        -- before a mount is tracked, or when the journal answers nothing (its
+        -- getter may return nothing).
+        if k == "randommount" then
+            return (IsIndoors() or InCombatLockdown()) and "UNUSABLE" or nil
+        end
+        local id = slot.id
+        if k == "lastmount" then
+            local pf = P()
+            id = pf and pf.lastMountID
+        end
+        if type(id) == "number" and id > 0 then
+            local usable = C_MountJournal.GetMountUsabilityByID(id, true)
+            if usable ~= nil then return usable == false and "UNUSABLE" or nil end
+        end
+        if k == "lastmount" and (IsIndoors() or InCombatLockdown()) then return "UNUSABLE" end
     end
 
     return nil

@@ -4617,16 +4617,13 @@ local function ShowSidebarUnlockTip()
     if not anchor then return end
 
     if not _sidebarUnlockTip then
-        local TIP_W, TIP_H = 320, 100
-        local EG = ELLESMERE_GREEN
-        local ar, ag, ab = EG.r, EG.g, EG.b
-
-        local tip = CreateFrame("Frame", nil, EllesmereUI._panelBody)
-        tip:SetFrameStrata("FULLSCREEN_DIALOG")
-        tip:SetFrameLevel(200)
-        PanelPP.Size(tip, TIP_W, TIP_H)
-        tip:EnableMouse(true)
-
+        local tip = EllesmereUI.BuildTipCallout(EllesmereUI._panelBody, {
+            width = 320, height = 100,
+            text = EllesmereUI.L("Unlock Mode is where you can adjust\npositioning for all the elements of EllesmereUI"),
+            onOkay = function()
+                if EllesmereUIDB then EllesmereUIDB.sidebarUnlockTipSeen = true end
+            end,
+        })
         -- Center horizontally on the Unlock Mode label text
         local lbl = anchor._label
         if lbl then
@@ -4634,77 +4631,10 @@ local function ShowSidebarUnlockTip()
         else
             tip:SetPoint("TOP", anchor, "BOTTOM", 60, -12)
         end
-
-        -- Background
-        local bg = SolidTex(tip, "BACKGROUND", 0.077, 0.068, 0.058, 1)
-        bg:SetAllPoints()
-
-        -- Border (pixel-perfect via PanelPP)
-        MakeBorder(tip, ar, ag, ab, 0.25, PanelPP)
-
-        -- Arrow pointing up (clipped diamond)
-        local ARROW_SZ = 16
-        local arrowClip = CreateFrame("Frame", nil, tip)
-        arrowClip:SetFrameStrata("FULLSCREEN_DIALOG")
-        arrowClip:SetFrameLevel(tip:GetFrameLevel() + 10)
-        arrowClip:SetClipsChildren(true)
-        local clipH = ARROW_SZ
-        arrowClip:SetSize(ARROW_SZ * 2, clipH)
-        arrowClip:SetPoint("BOTTOM", tip, "TOP", 0, -1)
-
-        local arrowFrame = CreateFrame("Frame", nil, arrowClip)
-        arrowFrame:SetFrameLevel(arrowClip:GetFrameLevel() + 1)
-        arrowFrame:SetSize(ARROW_SZ + 4, ARROW_SZ + 4)
-        arrowFrame:SetPoint("CENTER", arrowClip, "BOTTOM", 0, 0)
-
-        local arrowBorder = arrowFrame:CreateTexture(nil, "ARTWORK", nil, 7)
-        arrowBorder:SetSize(ARROW_SZ + 2, ARROW_SZ + 2)
-        arrowBorder:SetPoint("CENTER")
-        arrowBorder:SetColorTexture(ar, ag, ab, 0.18)
-        arrowBorder:SetRotation(math.rad(45))
-        if arrowBorder.SetSnapToPixelGrid then arrowBorder:SetSnapToPixelGrid(false); arrowBorder:SetTexelSnappingBias(0) end
-
-        local arrowFill = arrowFrame:CreateTexture(nil, "OVERLAY", nil, 6)
-        arrowFill:SetSize(ARROW_SZ, ARROW_SZ)
-        arrowFill:SetPoint("CENTER")
-        arrowFill:SetColorTexture(0.077, 0.068, 0.058, 1)
-        arrowFill:SetRotation(math.rad(45))
-        if arrowFill.SetSnapToPixelGrid then arrowFill:SetSnapToPixelGrid(false); arrowFill:SetTexelSnappingBias(0) end
-
-        -- Message
-        local msg = MakeFont(tip, 12, nil, 1, 1, 1, 0.85)
-        msg:SetPoint("TOP", tip, "TOP", 0, -17)
-        msg:SetWidth(TIP_W - 30)
-        msg:SetJustifyH("CENTER")
-        msg:SetSpacing(6)
-        msg:SetText(EllesmereUI.L("Unlock Mode is where you can adjust\npositioning for all the elements of EllesmereUI"))
-
-        -- Okay button
-        local okBtn = CreateFrame("Button", nil, tip)
-        okBtn:SetSize(86, 26)
-        okBtn:SetPoint("BOTTOM", tip, "BOTTOM", 0, 13)
-        EllesmereUI.MakeStyledButton(okBtn, "Okay", 11,
-            EllesmereUI.RB_COLOURS, function()
-                tip:Hide()
-                if EllesmereUIDB then EllesmereUIDB.sidebarUnlockTipSeen = true end
-            end)
-
         _sidebarUnlockTip = tip
     end
 
-    _sidebarUnlockTip:SetAlpha(0)
-    _sidebarUnlockTip:Show()
-
-    local fadeIn = 0
-    _sidebarUnlockTip:SetScript("OnUpdate", function(self, dt)
-        fadeIn = fadeIn + dt
-        if fadeIn >= 0.3 then
-            self:SetAlpha(1)
-            self:SetScript("OnUpdate", nil)
-            return
-        end
-        self:SetAlpha(fadeIn / 0.3)
-    end)
+    EllesmereUI.ShowTipCallout(_sidebarUnlockTip)
 end
 
 -- FIRST-OPEN SPLIT: the session's first open pays two heavy bills --

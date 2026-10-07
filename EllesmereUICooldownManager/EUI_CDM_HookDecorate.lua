@@ -1230,14 +1230,12 @@ local function DecorateFrame(frame, barData)
                 end
                 local ss2 = ResolveSpellSettings(frame, sid2, false)
                 local cse = ns.GetSpellCdStateEffect(frame, ss2)
-                -- Shift-Icons variants = base hidden mode + a bar-relayout
-                -- flag; normalize here so every comparison below is unchanged.
-                -- Hidden Until Usable = Hidden (On CD) + the usable flag.
-                local cseShift = (cse == "hiddenOnCDShift" or cse == "hiddenReadyShift"
-                    or cse == "hiddenUnusableShift")
-                local cseUsable = (cse == "hiddenUnusable" or cse == "hiddenUnusableShift")
-                if cse == "hiddenOnCDShift" or cseUsable then cse = "hiddenOnCD"
-                elseif cse == "hiddenReadyShift" then cse = "hiddenReady" end
+                -- The hide effects run as their base mode plus flags
+                -- (ns.CD_STATE_HIDE: Shift Icons, Hidden Until Usable, Hidden
+                -- Outside Form/Stance), so every comparison below is unchanged.
+                local m = cse and ns.CD_STATE_HIDE[cse]
+                local cseShift, cseUsable, cseForm
+                if m then cse, cseShift, cseUsable, cseForm = m.base, m.shift, m.usable, m.form end
                 if not cse then
                     if fd._cdStateGlowOn then
                         ns.StopCdGlow(fd)
@@ -1276,9 +1274,10 @@ local function DecorateFrame(frame, barData)
                 if cse == "hiddenOnCD" or cse == "hiddenReady" or cse == "lowerAlphaOnCD" then
                     ArmCdStateEval(frame, fd, cse, cseShift,
                         (ss2 and ss2.cdStateLowerAlpha) or 0.5,
-                        ss2 and ss2.chargeHideUntilSpent, cseUsable)
-                    -- Proc edges change only usability: SPELL_UPDATE_USABLE watch.
-                    if cseUsable then ns.WatchCdUsable(frame) end
+                        ss2 and ss2.chargeHideUntilSpent, cseUsable, cseForm)
+                    -- Proc and form edges never fire this hook: the usability /
+                    -- form watch re-arms on SPELL_UPDATE_USABLE / UPDATE_SHAPESHIFT_FORM.
+                    if cseUsable or cseForm then ns.WatchCdUsable(frame, cseForm) end
                     -- Hidden (CD Ready) on a charge spell also needs the refill-to-max
                     -- edge, which this hook never fires. Registered once per spell
                     -- binding (a pooled frame can be handed a different spell), so

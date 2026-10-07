@@ -1,7 +1,774 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
---  EUI_Friends_Tiles_121.lua
---  EllesmereUI tile styling for the 12.1 Social UI friends list.
+--  EllesmereUI_FriendsKit.lua
+--  The friends list pieces two modules share, so neither keeps a copy: the
+--  Friends List module on retail, and Blizzard Skins+ on WoW Forever, where
+--  the Friends List module never loads and the Window Skins "Friends List"
+--  card hosts them (EllesmereUIBlizzardSkin_FriendsForever.lua):
+--    - the realm -> region lookup and the region icons (public API);
+--    - the 12.1 Social UI friend tiles (EllesmereUI.FriendsKit.StartTiles);
+--    - auto-accepting group invites from friends (FriendsKit.SyncAutoAccept);
+--    - the Class Icon Theme choices both settings pages offer.
+--  At load this file only defines functions and constant tables: nothing
+--  runs, registers or builds until a host starts it.
+-------------------------------------------------------------------------------
+local Kit = {}
+EllesmereUI.FriendsKit = Kit
+
+local MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\friends\\"
+
+-------------------------------------------------------------------------------
+--  Realm -> region lookup for friend region detection
+--  Mini regions: namerica, samerica, australia, europe, russia, korea, taiwan, china
+--  Full regions: NA (namerica+samerica+australia), EU (europe+russia), KR, TW, CN
+-------------------------------------------------------------------------------
+local MINI_TO_FULL = {
+    namerica  = "NA",
+    samerica  = "NA",
+    australia  = "NA",
+    europe    = "EU",
+    russia    = "EU",
+    korea     = "KR",
+    taiwan    = "TW",
+    china     = "CN",
+}
+
+local REGION_ID_TO_FULL = {
+    [1] = "NA",  -- Americas + Oceania
+    [2] = "KR",
+    [3] = "EU",  -- Europe + Russia
+    [4] = "TW",
+    [5] = "CN",
+}
+
+-- The realm tables, built on the first lookup (only friends list code reads
+-- them, and only while a friends window is painted)
+local REALMS_NA, REALMS_EU, REALMS_ASIA
+local function LoadRealms()
+-- Region 1: Americas & Oceania
+REALMS_NA = {
+["Azralon"] = "samerica",
+["Gallywix"] = "samerica",
+["Goldrinn"] = "samerica",
+["Nemesis"] = "samerica",
+["TolBarad"] = "samerica",
+["Drakkari"] = "samerica",
+["Quel'Thalas"] = "samerica",
+["Ragnaros"] = "samerica",
+["Loatheb"] = "samerica",
+["Aman'Thul"] = "australia",
+["Barthilas"] = "australia",
+["Caelestrasz"] = "australia",
+["Dath'Remar"] = "australia",
+["Dreadmaul"] = "australia",
+["Frostmourne"] = "australia",
+["Gundrak"] = "australia",
+["Jubei'Thos"] = "australia",
+["Khaz'goroth"] = "australia",
+["Nagrand"] = "australia",
+["Saurfang"] = "australia",
+["Thaurissan"] = "australia",
+["Arugal"] = "australia",
+["Yojamba"] = "australia",
+["Remulos"] = "australia",
+["Felstriker"] = "australia",
+["Shadowstrike"] = "australia",
+["Penance"] = "australia",
+["Aegwynn"] = "namerica",
+["AeriePeak"] = "namerica",
+["Agamaggan"] = "namerica",
+["Aggramar"] = "namerica",
+["Akama"] = "namerica",
+["Alexstrasza"] = "namerica",
+["Alleria"] = "namerica",
+["AltarofStorms"] = "namerica",
+["AlteracMountains"] = "namerica",
+["Andorhal"] = "namerica",
+["Anetheron"] = "namerica",
+["Antonidas"] = "namerica",
+["Anub'arak"] = "namerica",
+["Anvilmar"] = "namerica",
+["Arathor"] = "namerica",
+["Archimonde"] = "namerica",
+["Area52"] = "namerica",
+["ArgentDawn"] = "namerica",
+["Arthas"] = "namerica",
+["Arygos"] = "namerica",
+["Auchindoun"] = "namerica",
+["Azgalor"] = "namerica",
+["AzjolNerub"] = "namerica",
+["Azshara"] = "namerica",
+["Azuremyst"] = "namerica",
+["Baelgun"] = "namerica",
+["Balnazzar"] = "namerica",
+["BlackDragonflight"] = "namerica",
+["Blackhand"] = "namerica",
+["Blackrock"] = "namerica",
+["BlackwaterRaiders"] = "namerica",
+["BlackwingLair"] = "namerica",
+["Blade'sEdge"] = "namerica",
+["Bladefist"] = "namerica",
+["BleedingHollow"] = "namerica",
+["BloodFurnace"] = "namerica",
+["Bloodhoof"] = "namerica",
+["Bloodscalp"] = "namerica",
+["Bonechewer"] = "namerica",
+["BoreanTundra"] = "namerica",
+["Boulderfist"] = "namerica",
+["Bronzebeard"] = "namerica",
+["BurningBlade"] = "namerica",
+["BurningLegion"] = "namerica",
+["Cairne"] = "namerica",
+["CenarionCircle"] = "namerica",
+["Cenarius"] = "namerica",
+["Cho'gall"] = "namerica",
+["Chromaggus"] = "namerica",
+["Coilfang"] = "namerica",
+["Crushridge"] = "namerica",
+["Daggerspine"] = "namerica",
+["Dalaran"] = "namerica",
+["Dalvengyr"] = "namerica",
+["DarkIron"] = "namerica",
+["Darkspear"] = "namerica",
+["Darrowmere"] = "namerica",
+["Dawnbringer"] = "namerica",
+["Deathwing"] = "namerica",
+["DemonSoul"] = "namerica",
+["Dentarg"] = "namerica",
+["Destromath"] = "namerica",
+["Dethecus"] = "namerica",
+["Detheroc"] = "namerica",
+["Doomhammer"] = "namerica",
+["Draenor"] = "namerica",
+["Dragonblight"] = "namerica",
+["Dragonmaw"] = "namerica",
+["Drenden"] = "namerica",
+["Dunemaul"] = "namerica",
+["Durotan"] = "namerica",
+["Duskwood"] = "namerica",
+["EarthenRing"] = "namerica",
+["EchoIsles"] = "namerica",
+["Eitrigg"] = "namerica",
+["Eldre'Thalas"] = "namerica",
+["Elune"] = "namerica",
+["EmeraldDream"] = "namerica",
+["Eonar"] = "namerica",
+["Eredar"] = "namerica",
+["Executus"] = "namerica",
+["Exodar"] = "namerica",
+["Farstriders"] = "namerica",
+["Feathermoon"] = "namerica",
+["Fenris"] = "namerica",
+["Firetree"] = "namerica",
+["Fizzcrank"] = "namerica",
+["Frostmane"] = "namerica",
+["Frostwolf"] = "namerica",
+["Galakrond"] = "namerica",
+["Garithos"] = "namerica",
+["Garona"] = "namerica",
+["Garrosh"] = "namerica",
+["Ghostlands"] = "namerica",
+["Gilneas"] = "namerica",
+["Gnomeregan"] = "namerica",
+["Gorefiend"] = "namerica",
+["Gorgonnash"] = "namerica",
+["Greymane"] = "namerica",
+["GrizzlyHills"] = "namerica",
+["Gul'dan"] = "namerica",
+["Gurubashi"] = "namerica",
+["Hakkar"] = "namerica",
+["Haomarush"] = "namerica",
+["Hellscream"] = "namerica",
+["Hydraxis"] = "namerica",
+["Hyjal"] = "namerica",
+["Icecrown"] = "namerica",
+["Illidan"] = "namerica",
+["Jaedenar"] = "namerica",
+["Kael'thas"] = "namerica",
+["Kalecgos"] = "namerica",
+["Kargath"] = "namerica",
+["Kel'Thuzad"] = "namerica",
+["Khadgar"] = "namerica",
+["KhazModan"] = "namerica",
+["Kil'jaeden"] = "namerica",
+["Kilrogg"] = "namerica",
+["KirinTor"] = "namerica",
+["Korgath"] = "namerica",
+["Korialstrasz"] = "namerica",
+["KulTiras"] = "namerica",
+["LaughingSkull"] = "namerica",
+["Lethon"] = "namerica",
+["Lightbringer"] = "namerica",
+["Lightning'sBlade"] = "namerica",
+["Lightninghoof"] = "namerica",
+["Llane"] = "namerica",
+["Lothar"] = "namerica",
+["Madoran"] = "namerica",
+["Maelstrom"] = "namerica",
+["Magtheridon"] = "namerica",
+["Maiev"] = "namerica",
+["Mal'Ganis"] = "namerica",
+["Malfurion"] = "namerica",
+["Malorne"] = "namerica",
+["Malygos"] = "namerica",
+["Mannoroth"] = "namerica",
+["Medivh"] = "namerica",
+["Misha"] = "namerica",
+["Mok'Nathal"] = "namerica",
+["MoonGuard"] = "namerica",
+["Moonrunner"] = "namerica",
+["Mug'thol"] = "namerica",
+["Muradin"] = "namerica",
+["Nathrezim"] = "namerica",
+["Nazgrel"] = "namerica",
+["Nazjatar"] = "namerica",
+["Ner'zhul"] = "namerica",
+["Nesingwary"] = "namerica",
+["Nordrassil"] = "namerica",
+["Norgannon"] = "namerica",
+["Onyxia"] = "namerica",
+["Perenolde"] = "namerica",
+["Proudmoore"] = "namerica",
+["Quel'dorei"] = "namerica",
+["Ravencrest"] = "namerica",
+["Ravenholdt"] = "namerica",
+["Rexxar"] = "namerica",
+["Rivendare"] = "namerica",
+["Runetotem"] = "namerica",
+["Sargeras"] = "namerica",
+["ScarletCrusade"] = "namerica",
+["Scilla"] = "namerica",
+["Sen'jin"] = "namerica",
+["Sentinels"] = "namerica",
+["ShadowCouncil"] = "namerica",
+["Shadowmoon"] = "namerica",
+["Shadowsong"] = "namerica",
+["Shandris"] = "namerica",
+["ShatteredHalls"] = "namerica",
+["ShatteredHand"] = "namerica",
+["Shu'halo"] = "namerica",
+["SilverHand"] = "namerica",
+["Silvermoon"] = "namerica",
+["SistersofElune"] = "namerica",
+["Skullcrusher"] = "namerica",
+["Skywall"] = "namerica",
+["Smolderthorn"] = "namerica",
+["Spinebreaker"] = "namerica",
+["Spirestone"] = "namerica",
+["Staghelm"] = "namerica",
+["SteamwheedleCartel"] = "namerica",
+["Stonemaul"] = "namerica",
+["Stormrage"] = "namerica",
+["Stormreaver"] = "namerica",
+["Stormscale"] = "namerica",
+["Suramar"] = "namerica",
+["Tanaris"] = "namerica",
+["Terenas"] = "namerica",
+["Terokkar"] = "namerica",
+["TheForgottenCoast"] = "namerica",
+["TheScryers"] = "namerica",
+["TheUnderbog"] = "namerica",
+["TheVentureCo"] = "namerica",
+["ThoriumBrotherhood"] = "namerica",
+["Thrall"] = "namerica",
+["Thunderhorn"] = "namerica",
+["Thunderlord"] = "namerica",
+["Tichondrius"] = "namerica",
+["Tortheldrin"] = "namerica",
+["Trollbane"] = "namerica",
+["Turalyon"] = "namerica",
+["TwistingNether"] = "namerica",
+["Uldaman"] = "namerica",
+["Uldum"] = "namerica",
+["Undermine"] = "namerica",
+["Ursin"] = "namerica",
+["Uther"] = "namerica",
+["Vashj"] = "namerica",
+["Vek'nilash"] = "namerica",
+["Velen"] = "namerica",
+["Warsong"] = "namerica",
+["Whisperwind"] = "namerica",
+["Wildhammer"] = "namerica",
+["Windrunner"] = "namerica",
+["Winterhoof"] = "namerica",
+["WyrmrestAccord"] = "namerica",
+["Ysera"] = "namerica",
+["Ysondre"] = "namerica",
+["Zangarmarsh"] = "namerica",
+["Zul'jin"] = "namerica",
+["Zuluhed"] = "namerica",
+["Ashkandi"] = "namerica",
+["Atiesh"] = "namerica",
+["Benediction"] = "namerica",
+["BloodsailBuccaneers"] = "namerica",
+["Faerlina"] = "namerica",
+["Grobbulus"] = "namerica",
+["Mankrik"] = "namerica",
+["OldBlanchy"] = "namerica",
+["Westfall"] = "namerica",
+["Whitemane"] = "namerica",
+["ChaosBolt"] = "namerica",
+["CrusaderStrike"] = "namerica",
+["DefiasPillager"] = "namerica",
+["Doomhowl"] = "namerica",
+["Dreamscythe"] = "namerica",
+["LavaLash"] = "namerica",
+["LivingFlame"] = "namerica",
+["LoneWolf"] = "namerica",
+["Nightslayer"] = "namerica",
+["Pagle"] = "namerica",
+["SkullRock"] = "namerica",
+["WildGrowth"] = "namerica",
+["Maladath"] = "australia",
+}
+
+-- Region 3: Europe & Russia
+REALMS_EU = {
+["Aegwynn"] = "europe",
+["Alexstrasza"] = "europe",
+["Alleria"] = "europe",
+["Ambossar"] = "europe",
+["Aman'Thul"] = "europe",
+["Antonidas"] = "europe",
+["Anub'arak"] = "europe",
+["Area52"] = "europe",
+["Arthas"] = "europe",
+["Arygos"] = "europe",
+["Azshara"] = "europe",
+["Baelgun"] = "europe",
+["Blackhand"] = "europe",
+["Blackmoore"] = "europe",
+["Blackrock"] = "europe",
+["Blutkessel"] = "europe",
+["Dalvengyr"] = "europe",
+["DasKonsortium"] = "europe",
+["DasSyndikat"] = "europe",
+["DerMithrilorden"] = "europe",
+["DerRatvonDalaran"] = "europe",
+["Destromath"] = "europe",
+["Dethecus"] = "europe",
+["DieAldor"] = "europe",
+["DieArguswacht"] = "europe",
+["DieewigeWacht"] = "europe",
+["DieNachtwache"] = "europe",
+["DieSilberneHand"] = "europe",
+["DieTodeskrallen"] = "europe",
+["DunMorogh"] = "europe",
+["Echsenkessel"] = "europe",
+["Eredar"] = "europe",
+["Everlook"] = "europe",
+["FestungderSt\195\188rme"] = "europe",
+["Forscherliga"] = "europe",
+["Frostmourne"] = "europe",
+["Frostwolf"] = "europe",
+["Garrosh"] = "europe",
+["Gilneas"] = "europe",
+["Gorgonnash"] = "europe",
+["Gul'dan"] = "europe",
+["Kargath"] = "europe",
+["Kel'Thuzad"] = "europe",
+["Khaz'goroth"] = "europe",
+["Kil'jaeden"] = "europe",
+["Krag'jin"] = "europe",
+["Lothar"] = "europe",
+["Madmortem"] = "europe",
+["Mal'Ganis"] = "europe",
+["Malfurion"] = "europe",
+["Malorne"] = "europe",
+["Malygos"] = "europe",
+["Mannoroth"] = "europe",
+["Mug'thol"] = "europe",
+["Nathrezim"] = "europe",
+["Nazjatar"] = "europe",
+["Nera'thor"] = "europe",
+["Nethersturm"] = "europe",
+["Norgannon"] = "europe",
+["Nozdormu"] = "europe",
+["Onyxia"] = "europe",
+["Perenolde"] = "europe",
+["Proudmoore"] = "europe",
+["Rajaxx"] = "europe",
+["Rexxar"] = "europe",
+["Sen'jin"] = "europe",
+["Shattrath"] = "europe",
+["Shen'dralar"] = "europe",
+["SteamwheedleCartel"] = "europe",
+["Taerar"] = "europe",
+["Teldrassil"] = "europe",
+["Terrordar"] = "europe",
+["Theradras"] = "europe",
+["Thrall"] = "europe",
+["Tichondrius"] = "europe",
+["Tirion"] = "europe",
+["Todeswache"] = "europe",
+["Ulduar"] = "europe",
+["Un'Goro"] = "europe",
+["Vek'lor"] = "europe",
+["Venoxis"] = "europe",
+["Wrathbringer"] = "europe",
+["Ysera"] = "europe",
+["ZirkeldesCenarius"] = "europe",
+["Zuluhed"] = "europe",
+["Arak-arahm"] = "europe",
+["Arathi"] = "europe",
+["Archimonde"] = "europe",
+["Auberdine"] = "europe",
+["Chants\195\169ternels"] = "europe",
+["Cho'gall"] = "europe",
+["Chromaggus"] = "europe",
+["Confr\195\169rieduThorium"] = "europe",
+["ConseildesOmbres"] = "europe",
+["CulteDeLaRiveNoire"] = "europe",
+["Dalaran"] = "europe",
+["Drek'Thar"] = "europe",
+["Eitrigg"] = "europe",
+["Eldre'Thalas"] = "europe",
+["Elune"] = "europe",
+["Garona"] = "europe",
+["Hyjal"] = "europe",
+["Illidan"] = "europe",
+["Kael'thas"] = "europe",
+["KhazModan"] = "europe",
+["KirinTor"] = "europe",
+["Krasus"] = "europe",
+["LaCroisade\195\169carlate"] = "europe",
+["LesClairvoyants"] = "europe",
+["LesSentinelles"] = "europe",
+["Mar\195\169cagedeZangar"] = "europe",
+["Medivh"] = "europe",
+["Naxxramas"] = "europe",
+["Ner'zhul"] = "europe",
+["Rashgarroth"] = "europe",
+["Sargeras"] = "europe",
+["Sinstralis"] = "europe",
+["Suramar"] = "europe",
+["Templenoir"] = "europe",
+["Throk'Feroth"] = "europe",
+["Uldaman"] = "europe",
+["Varimathras"] = "europe",
+["Vol'jin"] = "europe",
+["Ysondre"] = "europe",
+["C'Thun"] = "europe",
+["ColinasPardas"] = "europe",
+["DunModr"] = "europe",
+["Exodar"] = "europe",
+["LosErrantes"] = "europe",
+["Mandokir"] = "europe",
+["Minahonda"] = "europe",
+["Sanguino"] = "europe",
+["Shen'dralar"] = "europe",
+["Tyrande"] = "europe",
+["Uldum"] = "europe",
+["Zul'jin"] = "europe",
+["Nemesis"] = "europe",
+["Pozzodell'Eternit\195\160"] = "europe",
+["Aggra"] = "europe",
+["GrimBatol"] = "europe",
+["Ashenvale"] = "russia",
+["Azuregos"] = "russia",
+["Blackscar"] = "russia",
+["BootyBay"] = "russia",
+["BoreanTundra"] = "russia",
+["Chromie"] = "russia",
+["Deathguard"] = "russia",
+["Deepholm"] = "russia",
+["Eversong"] = "russia",
+["Flamegor"] = "russia",
+["Fordragon"] = "russia",
+["Galakrond"] = "russia",
+["Goldrinn"] = "russia",
+["Gordunni"] = "russia",
+["Grommash"] = "russia",
+["HowlingFjord"] = "russia",
+["LichKing"] = "russia",
+["MoltenCore"] = "russia",
+["Razuvious"] = "russia",
+["Soulflayer"] = "russia",
+["Theradras"] = "russia",
+["Thermaplugg"] = "russia",
+["Wyrmthalak"] = "russia",
+["Agamaggan"] = "europe",
+["Aggramar"] = "europe",
+["Ahn'Qiraj"] = "europe",
+["Al'Akir"] = "europe",
+["Alonsus"] = "europe",
+["Anachronos"] = "europe",
+["Arathor"] = "europe",
+["ArgentDawn"] = "europe",
+["Aszune"] = "europe",
+["Auchindoun"] = "europe",
+["AzjolNerub"] = "europe",
+["Azuremyst"] = "europe",
+["Balnazzar"] = "europe",
+["Blade'sEdge"] = "europe",
+["Bladefist"] = "europe",
+["Bloodfeather"] = "europe",
+["Bloodhoof"] = "europe",
+["Bloodscalp"] = "europe",
+["Boulderfist"] = "europe",
+["Bronzebeard"] = "europe",
+["BronzeDragonflight"] = "europe",
+["BurningBlade"] = "europe",
+["BurningLegion"] = "europe",
+["BurningSteppes"] = "europe",
+["ChamberofAspects"] = "europe",
+["Chromaggus"] = "europe",
+["Crushridge"] = "europe",
+["Daggerspine"] = "europe",
+["DarkmoonFaire"] = "europe",
+["Darksorrow"] = "europe",
+["Darkspear"] = "europe",
+["Deathwing"] = "europe",
+["DefiasBrotherhood"] = "europe",
+["Dentarg"] = "europe",
+["Doomhammer"] = "europe",
+["Draenor"] = "europe",
+["Dragonblight"] = "europe",
+["Dragonmaw"] = "europe",
+["Drak'thul"] = "europe",
+["Dunemaul"] = "europe",
+["EarthenRing"] = "europe",
+["EmeraldDream"] = "europe",
+["Emeriss"] = "europe",
+["Eonar"] = "europe",
+["Executus"] = "europe",
+["Frostmane"] = "europe",
+["Frostwhisper"] = "europe",
+["Genjuros"] = "europe",
+["Ghostlands"] = "europe",
+["GrimBatol"] = "europe",
+["Hakkar"] = "europe",
+["Haomarush"] = "europe",
+["Hellfire"] = "europe",
+["Hellscream"] = "europe",
+["Jaedenar"] = "europe",
+["Karazhan"] = "europe",
+["Kazzak"] = "europe",
+["Khadgar"] = "europe",
+["Kilrogg"] = "europe",
+["Kor'gall"] = "europe",
+["KulTiras"] = "europe",
+["LaughingSkull"] = "europe",
+["Lightbringer"] = "europe",
+["Lightning'sBlade"] = "europe",
+["Magtheridon"] = "europe",
+["Mazrigos"] = "europe",
+["Moonglade"] = "europe",
+["Nagrand"] = "europe",
+["Neptulon"] = "europe",
+["Nordrassil"] = "europe",
+["Outland"] = "europe",
+["Quel'Thalas"] = "europe",
+["Ragnaros"] = "europe",
+["Ravencrest"] = "europe",
+["Ravenholdt"] = "europe",
+["Runetotem"] = "europe",
+["Saurfang"] = "europe",
+["ScarshieldLegion"] = "europe",
+["Shadowsong"] = "europe",
+["ShatteredHalls"] = "europe",
+["ShatteredHand"] = "europe",
+["Silvermoon"] = "europe",
+["Skullcrusher"] = "europe",
+["Spinebreaker"] = "europe",
+["Sporeggar"] = "europe",
+["Stormrage"] = "europe",
+["Stormreaver"] = "europe",
+["Stormscale"] = "europe",
+["Sunstrider"] = "europe",
+["Sylvanas"] = "europe",
+["Talnivarr"] = "europe",
+["TarrenMill"] = "europe",
+["Terenas"] = "europe",
+["Terokkar"] = "europe",
+["TheMaelstrom"] = "europe",
+["TheSha'tar"] = "europe",
+["TheVentureCo"] = "europe",
+["Thunderhorn"] = "europe",
+["Trollbane"] = "europe",
+["Turalyon"] = "europe",
+["Twilight'sHammer"] = "europe",
+["TwistingNether"] = "europe",
+["Vashj"] = "europe",
+["Vek'nilash"] = "europe",
+["Wildhammer"] = "europe",
+["Xavius"] = "europe",
+["Zenedar"] = "europe",
+["Firemaw"] = "europe",
+["Gehennas"] = "europe",
+["Golemagg"] = "europe",
+["MirageRaceway"] = "europe",
+["Mograine"] = "europe",
+["Nek'Rosh"] = "europe",
+["PyrewoodVillage"] = "europe",
+["Soulseeker"] = "europe",
+["Spineshatter"] = "europe",
+["Stitches"] = "europe",
+["Thunderstrike"] = "europe",
+["WildGrowth"] = "europe",
+["ZandalarTribe"] = "europe",
+}
+
+-- Regions 2, 4, 5: Korea, Taiwan, China
+REALMS_ASIA = {
+["AbyssalMaw"] = "china",
+["AeriePeakCN"] = "china",
+["Akil'zon"] = "china",
+["Algalon"] = "china",
+["Chronos"] = "china",
+["Goldshire"] = "china",
+["LichKing"] = "china",
+["Onyxia"] = "china",
+["SilverHand"] = "china",
+["SilvermoonCN"] = "china",
+["TitanReforged"] = "china",
+["Azshara"] = "korea",
+["BurningLegion"] = "korea",
+["Cenarius"] = "korea",
+["Deathwing"] = "korea",
+["Durotan"] = "korea",
+["Frostmourne"] = "korea",
+["Hellscream"] = "korea",
+["Hyjal"] = "korea",
+["Ragnaros"] = "korea",
+["Windrunner"] = "korea",
+["Zul'jin"] = "korea",
+["Arthas"] = "taiwan",
+["Arygos"] = "taiwan",
+["BleedingHollow"] = "taiwan",
+["ChillwindPoint"] = "taiwan",
+["CrystalpineStinger"] = "taiwan",
+["DemonFallCanyon"] = "taiwan",
+["Dragonmaw"] = "taiwan",
+["Frostmane"] = "taiwan",
+["Global"] = "taiwan",
+["Icecrown"] = "taiwan",
+["KrolBlade"] = "taiwan",
+["Light'sHope"] = "taiwan",
+["Menethil"] = "taiwan",
+["Nightsong"] = "taiwan",
+["OldBlanchy"] = "taiwan",
+["OrderoftheCloudSerpent"] = "taiwan",
+["Quel'dorei"] = "taiwan",
+["Shadowmoon"] = "taiwan",
+["Skywall"] = "taiwan",
+["Spirestone"] = "taiwan",
+["Stormscale"] = "taiwan",
+["WorldTree"] = "taiwan",
+["Whisperwind"] = "taiwan",
+["Wrathbringer"] = "taiwan",
+["ZealotBlade"] = "taiwan",
+}
+end
+
+local REGION_ICON_PATH = MEDIA .. "regions\\"
+
+-- Lookup a realm name -> mini region realmName should have spaces removed
+local function GetRealmMiniRegion(realmName)
+    if not realmName or realmName == "" then return nil end
+    if not REALMS_NA then LoadRealms() end
+    local clean = realmName:gsub("%s+", "")
+    -- Check player's own region table first (handles overlapping realm names)
+    local myRegion = GetCurrentRegion()
+    local primary, secondary
+    if myRegion == 3 then
+        primary, secondary = REALMS_EU, REALMS_NA
+    elseif myRegion == 2 or myRegion == 4 or myRegion == 5 then
+        primary, secondary = REALMS_ASIA, REALMS_NA
+    else
+        primary, secondary = REALMS_NA, REALMS_EU
+    end
+    return primary[clean] or secondary[clean] or REALMS_ASIA[clean]
+end
+
+-- Get the mini region for a BNet friend's game account
+local function GetFriendMiniRegion(gameAccountInfo)
+    if not gameAccountInfo then return nil end
+    -- Try realmName first
+    local realm = gameAccountInfo.realmName
+    if realm and realm ~= "" then
+        local result = GetRealmMiniRegion(realm)
+        if result then return result end
+    end
+    -- Fallback: parse richPresence ("Zone - Realm" format)
+    -- If realmName was empty, the friend is likely cross-region, so check OTHER tables first
+    local rich = gameAccountInfo.richPresence
+    if rich and rich ~= "" then
+        local realmFromRich = rich:match("%s%-%s(.+)$")
+        if realmFromRich and realmFromRich ~= "" then
+            if not REALMS_NA then LoadRealms() end
+            local clean = realmFromRich:gsub("%s+", "")
+            local myRegion = GetCurrentRegion()
+            -- Check the opposite region first since empty realmName = cross-region friend
+            if myRegion == 1 then
+                return REALMS_EU[clean] or REALMS_ASIA[clean] or REALMS_NA[clean]
+            elseif myRegion == 3 then
+                return REALMS_NA[clean] or REALMS_ASIA[clean] or REALMS_EU[clean]
+            else
+                return REALMS_NA[clean] or REALMS_EU[clean] or REALMS_ASIA[clean]
+            end
+        end
+    end
+    return nil
+end
+
+-- Get the full region for a mini region
+local function GetFullRegion(miniRegion)
+    return miniRegion and MINI_TO_FULL[miniRegion]
+end
+
+-- Get the player's own full region
+local function GetMyFullRegion()
+    return REGION_ID_TO_FULL[GetCurrentRegion()] or "NA"
+end
+
+-- Get the icon path for a mini region
+local function GetRegionIcon(miniRegion)
+    if not miniRegion then return nil end
+    return REGION_ICON_PATH .. miniRegion .. ".png"
+end
+
+-- Public API
+EllesmereUI.GetRealmMiniRegion = GetRealmMiniRegion
+EllesmereUI.GetFriendMiniRegion = GetFriendMiniRegion
+EllesmereUI.GetFullRegion = GetFullRegion
+EllesmereUI.GetMyFullRegion = GetMyFullRegion
+EllesmereUI.GetRegionIcon = GetRegionIcon
+EllesmereUI.MINI_TO_FULL = MINI_TO_FULL
+
+-------------------------------------------------------------------------------
+--  Class colour escape per class file (lazy-built cache)
+-------------------------------------------------------------------------------
+local classColorCodes = {}
+function Kit.ClassColorCode(classFile)
+    local code = classColorCodes[classFile]
+    if code then return code end
+    local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+    if not cc then return nil end
+    code = EllesmereUI.HexColor(cc.r, cc.g, cc.b)
+    classColorCodes[classFile] = code
+    return code
+end
+
+-- Class Icon Theme: the choices both settings pages list
+Kit.ICON_STYLE_VALUES = {
+    blizzard = "Blizzard",
+    modern   = "Modern",
+    pixel    = "Pixel",
+    pixelsComic = "Pixels Comic",
+    glyph    = "Glyph",
+    arcade   = "Arcade",
+    legend   = "Legend",
+    midnight = "Midnight",
+    runic    = "Runic",
+}
+Kit.ICON_STYLE_ORDER = {
+    "blizzard", "modern", "pixel", "pixelsComic", "glyph",
+    "arcade", "legend", "midnight", "runic",
+}
+
+-------------------------------------------------------------------------------
+--  12.1 Social UI friend tiles
 --
 --  DECORATION ONLY. This file never creates a row, never writes element data,
 --  and never mutates Blizzard's data provider. That restraint is the entire
@@ -19,29 +786,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  Blizzard therefore owns: the ScrollBox, the provider, row creation, row
 --  population, the click handler and the right-click menu. We own: paint.
+--
+--  A host starts it once per session (Kit.StartTiles) with its settings,
+--  its look and its font; the host's settings page repaints through
+--  Kit.RedecorateTiles.
 -------------------------------------------------------------------------------
-local ADDON_NAME, ns = ...
-
-local EG = EllesmereUI.ELLESMERE_GREEN
-
--- Style page choice for this module: "eui" | "blizzard" | "classic", read from
--- the real profile once and latched for the session (a profile switch prompts
--- for a reload instead). Both stock styles mean the same here -- there is no
--- vanilla version of this list -- so they keep Blizzard's own list and cards
--- and add only the EllesmereUI decoration (class icon, class-coloured name,
--- region mark). The main file's legacy-skin switch reads it too.
-function ns.FR_Style()
-    local v = ns._frStyle
-    if v == nil then
-        local db = _G._EFR_DB
-        local p = db and db.profile and db.profile.friends
-        if not p then return "eui" end
-        v = (p.useClassicStyle and "classic") or (p.useBlizzardStyle and "blizzard") or "eui"
-        ns._frStyle = v
-    end
-    return v
-end
-
 -- External weak-keyed state. Never write custom keys onto a Blizzard frame.
 local FFD = setmetatable({}, { __mode = "k" })
 local function GetFFD(frame)
@@ -82,8 +831,10 @@ end
 -- through TextSizeManager:GetScaledValueWeighted with scaleWeight 0.6, so a
 -- below-default text size genuinely scales the row under 70.
 --
--- Permanently false. Do not re-attempt; both shapes are already disproven.
-local TILE_FORCE_HEIGHT = false
+-- So nothing here writes the row height. Do not re-attempt; both shapes are
+-- already disproven.
+--
+-- The tile's icon square: the name starts past it.
 local TILE_TARGET_H     = 46
 
 -- Kill switch for all tile decoration. Proven taint-free, so this is only a
@@ -119,10 +870,10 @@ local TILE_HOVER_ALPHA     = 0.2
 -- a selected row that is also hovered shows both and reads brighter.
 local TILE_SEL_ALPHA       = 0.4
 
-local OFFLINE_ICON         = "Interface\\AddOns\\EllesmereUIFriends\\Media\\offline.png"
-local FACTION_TEX_ALLIANCE = "Interface\\AddOns\\EllesmereUIFriends\\Media\\alliance.png"
-local FACTION_TEX_HORDE    = "Interface\\AddOns\\EllesmereUIFriends\\Media\\horde.png"
-local FACTION_TEX_NEUTRAL  = "Interface\\AddOns\\EllesmereUIFriends\\Media\\neutral.png"
+local OFFLINE_ICON         = MEDIA .. "offline.png"
+local FACTION_TEX_ALLIANCE = MEDIA .. "alliance.png"
+local FACTION_TEX_HORDE    = MEDIA .. "horde.png"
+local FACTION_TEX_NEUTRAL  = MEDIA .. "neutral.png"
 
 local CLASS_ICON_SPRITE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\"
 local CLASS_ICON_SPRITE_TEX = {}
@@ -131,6 +882,12 @@ for _, style in ipairs({ "modern", "dark", "light", "clean" }) do
 end
 local CLASS_SPRITE_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
 
+-- The class icon sprite sheet of a Class Icon Theme style (the tiles and the
+-- Friends module's legacy rows)
+function Kit.ClassIconSprite(style)
+    return CLASS_ICON_SPRITE_TEX[style] or (CLASS_ICON_SPRITE_BASE .. style .. ".tga")
+end
+
 local MINI_DISPLAY = {
     namerica = "North America", samerica = "South America",
     australia = "Australia", europe = "Europe",
@@ -138,8 +895,11 @@ local MINI_DISPLAY = {
     taiwan = "Taiwan", china = "China",
 }
 
+-- The status orb's atlas art, looked up at the first orb painted
 local _orbFile, _orbL, _orbR, _orbT, _orbB
-do
+local _orbLooked = false
+local function LookUpOrb()
+    _orbLooked = true
     local info = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("lootroll-animreveal-a")
     if info and info.file then
         _orbFile = info.file
@@ -149,32 +909,38 @@ do
     end
 end
 
+-- Paints the status orb's art (the atlas' first of 6 columns, top of 2 rows)
+-- on tex (the tiles and the Friends module's legacy rows)
+function Kit.StatusOrbArt(tex)
+    if not _orbLooked then LookUpOrb() end
+    if _orbFile then
+        tex:SetTexture(_orbFile)
+        tex:SetTexCoord(_orbL, _orbR, _orbT, _orbB)
+    else
+        tex:SetAtlas("lootroll-animreveal-a")
+        tex:SetTexCoord(0, 1 / 6, 0, 0.5)
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Helpers
 -------------------------------------------------------------------------------
-local function FriendsDB()
-    local db = _G._EFR_DB
-    return db and db.profile and db.profile.friends
+-- The host this session (Kit.StartTiles): its settings table (the Friends
+-- List profile's friends table, or the Blizzard Skins+ card's), its look and
+-- its font key.
+local host
+
+local function Settings()
+    return host and host.Settings()
 end
 
 local function Enabled()
-    local f = FriendsDB()
+    local f = Settings()
     return f ~= nil and f.enabled ~= false
 end
 
 local function FontPath()
-    return (EllesmereUI.GetFontPath("friends")) or STANDARD_TEXT_FONT
-end
-
-local classFileByLocalName = {}
-local function BuildClassNameLookup()
-    if next(classFileByLocalName) then return end
-    if LOCALIZED_CLASS_NAMES_MALE then
-        for token, name in pairs(LOCALIZED_CLASS_NAMES_MALE) do classFileByLocalName[name] = token end
-    end
-    if LOCALIZED_CLASS_NAMES_FEMALE then
-        for token, name in pairs(LOCALIZED_CLASS_NAMES_FEMALE) do classFileByLocalName[name] = token end
-    end
+    return (EllesmereUI.GetFontPath(host.fontKey)) or STANDARD_TEXT_FONT
 end
 
 local function GetClassFile(accountInfo)
@@ -185,8 +951,7 @@ local function GetClassFile(accountInfo)
         if classFile then return classFile end
     end
     if gi.className then
-        BuildClassNameLookup()
-        return classFileByLocalName[gi.className]
+        return EllesmereUI.ClassTokenFromLocalized(gi.className)
     end
     return nil
 end
@@ -297,24 +1062,19 @@ local function SkinStructure(card)
 
     d.orb = card:CreateTexture(nil, "OVERLAY", nil, 3)
     d.orb:SetSize(18, 18)
-    if _orbFile then
-        d.orb:SetTexture(_orbFile)
-        d.orb:SetTexCoord(_orbL, _orbR, _orbT, _orbB)
-    else
-        d.orb:SetAtlas("lootroll-animreveal-a")
-        d.orb:SetTexCoord(0, 1 / 6, 0, 0.5)
-    end
+    Kit.StatusOrbArt(d.orb)
 
     return d
 end
 
 -- Blizzard repopulates its card art on every recycle, so this runs per paint.
+local CARD_TEXT_KEYS = { "FriendName", "Name", "Level", "Class", "Location" }
 local function SuppressBlizzardArt(card)
     if card.Background then card.Background:Hide(); card.Background:SetAlpha(0) end
     local hl = card.GetHighlightTexture and card:GetHighlightTexture()
     if hl then hl:SetAlpha(0); hl:SetVertexColor(0, 0, 0, 0) end
-    for _, key in ipairs({ "FriendName", "Name", "Level", "Class", "Location" }) do
-        local fs = card[key]
+    for i = 1, #CARD_TEXT_KEYS do
+        local fs = card[CARD_TEXT_KEYS[i]]
         if fs then fs:Hide(); fs:SetAlpha(0) end
     end
     if card.PresenceHolder then card.PresenceHolder:Hide(); card.PresenceHolder:SetAlpha(0) end
@@ -325,7 +1085,7 @@ end
 -------------------------------------------------------------------------------
 --  Per-paint passes
 -------------------------------------------------------------------------------
-local ClassColorCode = _G._EFR_ClassColorCode
+local ClassColorCode = Kit.ClassColorCode
 
 -- Line 1: the Battle.net account name on its own.
 local function BuildName(accountInfo)
@@ -353,7 +1113,7 @@ local function BuildCharLine(accountInfo)
     if not (IsSameProjectOnline(gi) and charName and charName ~= "") then return "" end
 
     local shown = charName
-    local p = FriendsDB()
+    local p = Settings()
     if p and p.classColorNames then
         local code = ClassColorCode(GetClassFile(accountInfo) or "")
         if code then shown = code .. charName .. "|r" end
@@ -411,14 +1171,14 @@ local function SetClassIconTex(icon, style, classFile)
     else
         local coords = CLASS_SPRITE_COORDS[classFile]
         if coords then
-            icon:SetTexture(CLASS_ICON_SPRITE_TEX[style] or (CLASS_ICON_SPRITE_BASE .. style .. ".tga"))
+            icon:SetTexture(Kit.ClassIconSprite(style))
             icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
         end
     end
 end
 
 local function UpdateClassIcon(card, d, accountInfo)
-    local p = FriendsDB()
+    local p = Settings()
     if not (p and p.showClassIcons ~= false) then d.classIcon:Hide(); return end
 
     local h = (card:GetHeight() or 0) - 4
@@ -463,7 +1223,7 @@ end
 local function UpdateFaction(card, d, accountInfo)
     local gi = accountInfo.gameAccountInfo
     local isRetail = IsSameProjectOnline(gi)
-    local p = FriendsDB()
+    local p = Settings()
     local show = not p or p.factionBanners ~= false
 
     local path = FACTION_TEX_NEUTRAL
@@ -514,16 +1274,16 @@ end
 -- star, the info line and the logo).
 local STOCK_REGION_SIZE = 14
 local function UpdateStockRegion(card, d, accountInfo)
-    local p = FriendsDB()
+    local p = Settings()
     local gi = accountInfo and accountInfo.gameAccountInfo
     -- Same-region friends never carry a mark: skip the realm lookup for them.
     if (p and p.showRegionIcons == false) or not gi or gi.isInCurrentRegion == true then
         if d.regionMark then d.regionMark:Hide() end
         return
     end
-    local myFull = EllesmereUI.GetMyFullRegion and EllesmereUI.GetMyFullRegion()
-    local mini = EllesmereUI.GetFriendMiniRegion and EllesmereUI.GetFriendMiniRegion(gi)
-    local full = mini and EllesmereUI.GetFullRegion and EllesmereUI.GetFullRegion(mini)
+    local myFull = GetMyFullRegion()
+    local mini = GetFriendMiniRegion(gi)
+    local full = mini and GetFullRegion(mini)
     if not (mini and full and full ~= myFull) then
         if d.regionMark then d.regionMark:Hide() end
         return
@@ -544,48 +1304,44 @@ local function UpdateStockRegion(card, d, accountInfo)
     end
     if d.regionMini ~= mini then
         d.regionMini = mini
-        mark:SetTexture(EllesmereUI.GetRegionIcon and EllesmereUI.GetRegionIcon(mini))
+        mark:SetTexture(GetRegionIcon(mini))
         mark:SetTexCoord(0, 1, 0, 1)
     end
     mark:Show()
 end
 
-local function UpdateRegion(card, d, accountInfo)
-    local p = FriendsDB()
-    if p and p.showRegionIcons == false then
-        if d.regionBtn then d.regionBtn:Hide() end
-        return
-    end
-
-    local myFull = EllesmereUI.GetMyFullRegion and EllesmereUI.GetMyFullRegion()
-    local mini
-    if accountInfo.gameAccountInfo and EllesmereUI.GetFriendMiniRegion then
-        mini = EllesmereUI.GetFriendMiniRegion(accountInfo.gameAccountInfo)
-    end
-    local full = mini and EllesmereUI.GetFullRegion and EllesmereUI.GetFullRegion(mini)
-    if not (mini and full and full ~= myFull) then
+-- The region icon button on a friend's card or legacy row (frame; its state in
+-- d, the frame's FFD entry): shown while show is true and the friend plays in
+-- another region than ours, left of anchor (the frame's invite button) when
+-- there is one. The tooltip names the region.
+local function RegionOnEnter(self)
+    EllesmereUI.ShowWidgetTooltip(self, self._regionLabel or "")
+end
+local function RegionOnLeave()
+    EllesmereUI.HideWidgetTooltip()
+end
+function Kit.UpdateRegionButton(frame, d, gameAccountInfo, anchor, show)
+    local mini = show and gameAccountInfo and GetFriendMiniRegion(gameAccountInfo)
+    local full = mini and GetFullRegion(mini)
+    if not (mini and full and full ~= GetMyFullRegion()) then
         if d.regionBtn then d.regionBtn:Hide() end
         return
     end
 
     if not d.regionBtn then
-        local rb = CreateFrame("Button", nil, card)
-        rb:SetFrameLevel(card:GetFrameLevel() + 5)
+        local rb = CreateFrame("Button", nil, frame)
+        rb:SetFrameLevel(frame:GetFrameLevel() + 5)
         rb._tex = rb:CreateTexture(nil, "OVERLAY", nil, 7)
         rb._tex:SetAllPoints()
         rb._tex:SetAlpha(0.25)
-        rb:SetScript("OnEnter", function(self)
-            EllesmereUI.ShowWidgetTooltip(self, self._regionLabel or "")
-        end)
-        rb:SetScript("OnLeave", function()
-            EllesmereUI.HideWidgetTooltip()
-        end)
-        local iconH = math.floor((card:GetHeight() or 40) * 0.8)
+        rb:SetScript("OnEnter", RegionOnEnter)
+        rb:SetScript("OnLeave", RegionOnLeave)
+        local iconH = math.floor((frame:GetHeight() or 40) * 0.8)
         rb:SetSize(iconH, iconH)
-        if card.PartyButton then
-            rb:SetPoint("RIGHT", card.PartyButton, "LEFT", -2, 0)
+        if anchor then
+            rb:SetPoint("RIGHT", anchor, "LEFT", -2, 0)
         else
-            rb:SetPoint("RIGHT", card, "RIGHT", -30, 0)
+            rb:SetPoint("RIGHT", frame, "RIGHT", -30, 0)
         end
         d.regionBtn = rb
     end
@@ -593,11 +1349,17 @@ local function UpdateRegion(card, d, accountInfo)
     local rb = d.regionBtn
     if rb._lastMini ~= mini then
         rb._lastMini = mini
-        rb._tex:SetTexture(EllesmereUI.GetRegionIcon and EllesmereUI.GetRegionIcon(mini))
+        rb._tex:SetTexture(GetRegionIcon(mini))
         rb._tex:SetTexCoord(0, 1, 0, 1)
         rb._regionLabel = MINI_DISPLAY[mini] or mini
     end
     rb:Show()
+end
+
+local function UpdateRegion(card, d, accountInfo)
+    local p = Settings()
+    Kit.UpdateRegionButton(card, d, accountInfo.gameAccountInfo, card.PartyButton,
+        not (p and p.showRegionIcons == false))
 end
 
 -------------------------------------------------------------------------------
@@ -681,7 +1443,7 @@ local function DecorateStockCard(card)
     if not accountInfo then return end
 
     local d = GetFFD(card)
-    local p = FriendsDB()
+    local p = Settings()
     local gi = accountInfo.gameAccountInfo
     local classFile
     if IsSameProjectOnline(gi) then
@@ -787,7 +1549,7 @@ local function DecorateStockRow(button, restore)
 
     -- Every decoration off: stand down whatever is still painted and read no
     -- friend data at all.
-    local p = FriendsDB()
+    local p = Settings()
     if p and p.showClassIcons == false and not p.classColorNames and p.showRegionIcons == false then
         if d.stockClassIcon then d.stockClassIcon:Hide() end
         if d.stockLogoOff and restore and button.gameIcon then button.gameIcon:SetAlpha(1) end
@@ -809,8 +1571,7 @@ local function DecorateStockRow(button, restore)
     else
         info = C_FriendList.GetFriendInfoByIndex(button.id)
         if info and info.connected and info.className then
-            BuildClassNameLookup()
-            classFile = classFileByLocalName[info.className]
+            classFile = EllesmereUI.ClassTokenFromLocalized(info.className)
         end
     end
 
@@ -920,46 +1681,33 @@ end
 -------------------------------------------------------------------------------
 --  Hook
 --
---  Post-hook on the card mixin, installed at PLAYER_LOGIN -- before the friends
---  list is first shown and therefore before any card frame exists, so every
---  pooled card copies the hooked Initialize when Mixin() runs at creation.
+--  Post-hook on the card mixin, installed by the host's StartTiles at
+--  PLAYER_LOGIN -- before the friends list is first shown and therefore before
+--  any card frame exists, so every pooled card copies the hooked Initialize
+--  when Mixin() runs at creation.
 --
 --  This is the ONLY contact point with Blizzard's list (under the stock
 --  styles, plus the same kind of post-hook on the legacy window's row update
 --  and that list's OnShow). We do not touch the ScrollBox, the provider, or
 --  any element data.
 -------------------------------------------------------------------------------
--- Shrink the row. The extent previewer caches per template, so we overwrite the
--- stored calculator and drop the cache; the next Refresh recalculates at our
--- height. Guarded by a file-local flag rather than a marker on Blizzard's
--- table, so we add no key of our own to it.
-local heightApplied = false
-local function ApplyCompactRowHeight()
-    if not TILE_FORCE_HEIGHT or heightApplied then return end
-    local view = SocialUIFrame and SocialUIFrame.FriendsList
-    local regs = view and view.TemplateRegistrations
-    local reg  = regs and regs["FriendsListSocialCardTemplate"]
-    if not reg then return end
-
-    heightApplied = true
-    -- Plain number ONLY. Deliberately clearing their calculator rather than
-    -- replacing it: CalculateTemplateExtent falls back to registrationInfo
-    -- .baseHeight when there is no calculator, so nothing of ours executes
-    -- inside their layout pass. Blizzard's own code simply reads a number.
-    reg.baseHeightCalculator = nil
-    reg.baseHeight = TILE_TARGET_H
-    if view.ClearTemplateExtentCache then view:ClearTemplateExtentCache() end
-end
-
 -- The decorator the Initialize hook runs this session, chosen once from the
 -- style latch (pooled cards therefore never mix treatments).
 local activeDecorator
 
-local boot = CreateFrame("Frame")
-boot:RegisterEvent("PLAYER_LOGIN")
-boot:SetScript("OnEvent", function(self)
-    self:UnregisterEvent("PLAYER_LOGIN")
-    if ns.FR_Style() ~= "eui" then
+-- Starts the tiles for the session, once, from the host's PLAYER_LOGIN.
+-- h.Settings: returns the settings table (enabled, showClassIcons, iconStyle,
+-- classColorNames, factionBanners, showRegionIcons); h.style: "eui" paints
+-- the EllesmereUI tiles, any other look only decorates Blizzard's cards;
+-- h.fontKey: the font the tiles take.
+function Kit.StartTiles(h)
+    if host then return end
+    -- WoW Forever's Gamepad interface style navigates Blizzard's windows from
+    -- secure code, and the tile hover hooks are script hooks on Blizzard's
+    -- cards, so the tiles stand down for the session under it.
+    if EllesmereUI.PadGamepadUI() then return end
+    host = h
+    if h.style ~= "eui" then
         -- Stock styles decorate whichever window Blizzard shows (the switch
         -- is server-side and can flip mid-session). Blizzard keeps its own
         -- selection highlight, so the SetSelected hook below is not needed.
@@ -999,16 +1747,14 @@ boot:SetScript("OnEvent", function(self)
             d.selFill:SetShown(d.selected)
         end
     end)
-
-    ApplyCompactRowHeight()
-end)
+end
 
 -- Options-driven repaint that never goes through Blizzard's view: re-run this
 -- session's decorator on every card or legacy row we have decorated that is on
 -- screen now, from the data Blizzard already gave it. (view:Refresh
 -- regenerates the data provider from our execution -- the whisper-taint class
 -- above.)
-_G._EFR_RedecorateTiles = function()
+function Kit.RedecorateTiles()
     local fn = activeDecorator
     if not fn then return end
     for frame, d in pairs(FFD) do
@@ -1027,11 +1773,66 @@ _G._EFR_RedecorateTiles = function()
     end
 end
 
-_G._EFR_RepaintTiles = function()
-    -- Options-driven refresh: ask Blizzard to redraw, which re-runs Initialize
-    -- on every visible card and therefore our paint with it.
-    local view = SocialUIFrame and SocialUIFrame.FriendsList
-    if view and view.Refresh and view:IsShown() then
-        view:Refresh(ScrollBoxConstants.RetainScrollPosition)
+-------------------------------------------------------------------------------
+--  Auto-accept group invites from friends (and guildmates, when the host's
+--  settings say so). Independent of the friends window and its look: an
+--  invite is answered whichever window Blizzard shows. PARTY_INVITE_REQUEST
+--  is registered only while the toggle is on; GROUP_ROSTER_UPDATE only
+--  between an accept and its popup cleanup.
+-------------------------------------------------------------------------------
+local autoAcceptFrame, autoAcceptSettings
+local autoAcceptHidePopup = false
+
+local function AutoAcceptOnEvent(self, event, _, _, _, _, _, _, inviterGUID)
+    if event == "PARTY_INVITE_REQUEST" then
+        local fp = autoAcceptSettings and autoAcceptSettings()
+        if not fp or fp.enabled == false or not fp.autoAcceptFriendInvites then return end
+        if not inviterGUID or inviterGUID == "" or IsInGroup() then return end
+        local isFriend = false
+        if C_BattleNet and C_BattleNet.GetGameAccountInfoByGUID then
+            isFriend = C_BattleNet.GetGameAccountInfoByGUID(inviterGUID) ~= nil
+        end
+        if not isFriend and C_FriendList and C_FriendList.IsFriend then
+            isFriend = C_FriendList.IsFriend(inviterGUID)
+        end
+        if not isFriend and fp.autoAcceptGuildInvites then
+            isFriend = IsGuildMember(inviterGUID)
+        end
+        if isFriend then
+            AcceptGroup()
+            -- WoW Forever's Gamepad interface style runs Blizzard's popups from
+            -- secure code: its invite popup is left to it there.
+            if not EllesmereUI.PadGamepadUI() then
+                autoAcceptHidePopup = true
+                self:RegisterEvent("GROUP_ROSTER_UPDATE")
+            end
+        end
+    elseif event == "GROUP_ROSTER_UPDATE" and autoAcceptHidePopup then
+        autoAcceptHidePopup = false
+        self:UnregisterEvent("GROUP_ROSTER_UPDATE")
+        StaticPopup_Hide("PARTY_INVITE")
+        if LFGInvitePopup then
+            StaticPopupSpecial_Hide(LFGInvitePopup)
+        end
+    end
+end
+
+-- settings: the host's function returning its settings table (enabled,
+-- autoAcceptFriendInvites, autoAcceptGuildInvites). Call it at the host's
+-- load and after every change to those keys. The frame is made the first
+-- time the toggle is on.
+function Kit.SyncAutoAccept(settings)
+    autoAcceptSettings = settings
+    local fp = settings and settings()
+    local on = fp and fp.enabled ~= false and fp.autoAcceptFriendInvites
+    if on and not autoAcceptFrame then
+        autoAcceptFrame = CreateFrame("Frame")
+        autoAcceptFrame:SetScript("OnEvent", AutoAcceptOnEvent)
+    end
+    if not autoAcceptFrame then return end
+    if on then
+        autoAcceptFrame:RegisterEvent("PARTY_INVITE_REQUEST")
+    else
+        autoAcceptFrame:UnregisterEvent("PARTY_INVITE_REQUEST")
     end
 end

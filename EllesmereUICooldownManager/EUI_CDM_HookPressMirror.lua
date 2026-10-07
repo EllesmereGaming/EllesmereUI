@@ -2,7 +2,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_CDM_HookPressMirror.lua
 --
---  Mirror Key Presses.
+--  Mirror Key Presses, and the queued-attack highlight (WoW Forever), both
+--  drawn like the action bars' own buttons.
 --  Reads the earlier hook files through ns and ns._hookInternals.
 -------------------------------------------------------------------------------
 local _, ns = ...
@@ -34,6 +35,8 @@ do
     local AB_MEDIA      = "Interface\\AddOns\\EllesmereUIActionBars\\Media\\"
     local AB_HIGHLIGHT  = { AB_MEDIA .. "highlight-2.png", AB_MEDIA .. "highlight-3.png", AB_MEDIA .. "highlight-4.png" }
     local DEPRESS_TEX   = "Interface\\Buttons\\UI-Quickslot-Depress"
+    local CHECKED_TEX   = "Interface\\Buttons\\CheckButtonHilight"
+    local CHECKED_ATLAS = "UI-HUD-ActionBar-IconFrame-Mouseover"
     local DEPRESS_INSET = 0.14   -- crop the beveled border off the fallback texture
     local MIN_VISIBLE   = 0.05   -- floor so ultra-fast taps still show a press
     local MAX_HOLD      = 2.0    -- safety: never leave an icon stuck "pressed"
@@ -104,6 +107,34 @@ do
         return true
     end
 
+    -- Style tex as the bars' spell cast highlight (their CheckedTexture, drawn
+    -- additive in every look): EllesmereUI's highlight art, the Classic button
+    -- art or Blizzard's own (WoW Forever's while the bars wear that look), and
+    -- nothing while Show Highlight on Spell Cast is off. Show as Border swaps
+    -- the fill only on bars with a textured border, so a fill stands here.
+    -- Without the action bars: Blizzard's own art, as its bars show it.
+    local function StyleChecked(tex)
+        local p = GetABProfile()
+        if p and p.showCastHighlight == false then tex:SetAlpha(0); return false end
+        tex:SetTexCoord(0, 1, 0, 1)
+        tex:SetVertexColor(1, 1, 1, 1); tex:SetAlpha(1)
+        tex:SetBlendMode("ADD")
+        if not p then
+            tex:SetAtlas(CHECKED_ATLAS, false)
+        elseif p.useClassicStyle then
+            tex:SetAtlas(nil); tex:SetTexture(CHECKED_TEX)
+        elseif p.useBlizzardStyle then
+            if EllesmereUI.IS_FOREVER == true and p.useForeverStyle == true then
+                tex:SetAtlas(CHECKED_ATLAS, false)
+            else
+                EllesmereUI.StockAtlas(tex, CHECKED_ATLAS, false)
+            end
+        else
+            tex:SetAtlas(nil); tex:SetTexture(AB_HIGHLIGHT[1])
+        end
+        return true
+    end
+
     local function EnsureBorderEdges(ov)
         if ov._borderEdges then return ov._borderEdges end
         local edges = {}
@@ -145,16 +176,19 @@ do
         return t
     end
 
-    local function ShowPush(icon)
-        local ov = _pushOverlay[icon]
+    -- One overlay per icon in `store`, `level` above the icon (above the
+    -- cooldown swipe), fitted to the icon's shape and styled by `style`, which
+    -- returns false (nothing to show), "border" + r, g, b, size, or true.
+    local function ShowOverlay(icon, store, level, style)
+        local ov = store[icon]
         if not ov then
             ov = CreateFrame("Frame", nil, icon)
-            ov:SetFrameLevel(icon:GetFrameLevel() + 15)  -- above icon + cooldown swipe
+            ov:SetFrameLevel(icon:GetFrameLevel() + level)
             ov:Hide()
             local tex = ov:CreateTexture(nil, "OVERLAY")
             tex:SetAllPoints(ov)
             ov._tex = tex
-            _pushOverlay[icon] = ov
+            store[icon] = ov
         end
         -- Re-sync the shape mask on every press: the shape can change or be
         -- cleared between presses, and a cleared shapeMask is emptied + hidden
@@ -177,7 +211,7 @@ do
                 ov._blizzMask = bm
             end
         end
-        local result, cr, cg, cb, bsz = StylePush(ov._tex)
+        local result, cr, cg, cb, bsz = style(ov._tex)
         if not result then ov:Hide(); return nil end
         -- Shaped icons expand their icon texture past the frame (and expand the
         -- texcoords to match), so anchor to the frame itself -- the rect the
@@ -211,6 +245,10 @@ do
         end
         ov:Show()
         return ov
+    end
+
+    local function ShowPush(icon)
+        return ShowOverlay(icon, _pushOverlay, 15, StylePush)
     end
 
     ---------------------------------------------------------------------------
@@ -485,6 +523,70 @@ do
                 OnPress(_G[barName .. "Button" .. id], prefix and (prefix .. id) or nil)
             end)
         end
+    end)
+
+    ---------------------------------------------------------------------------
+    --  Queued attacks (WoW Forever): while an on-next-swing attack is queued
+    --  (EllesmereUI.FOREVER_NEXT_SWING: Heroic Strike, Cleave, Maul, Raptor
+    --  Strike), its CDM icons show the action bars' spell cast highlight, as
+    --  the bar button holding it does. ACTIONBAR_UPDATE_STATE, the edge those
+    --  buttons check on, is registered only for a class that has such an
+    --  attack; a burst folds into one pass on the next frame, which repaints
+    --  only when the queued attack changed. A restricted answer counts as not
+    --  queued.
+    ---------------------------------------------------------------------------
+    local _checkOverlay = setmetatable({}, { __mode = "k" })  -- [icon] = overlay frame
+    local _queueNames       -- the class's attack names, resolved at login
+    local _queued = false   -- the name painted, false = none
+    local _lit = {}         -- the overlays showing it
+    local _queueFlush = ns.TakeShell()
+    _queueFlush:Hide()
+    _queueFlush:SetScript("OnUpdate", function(self)
+        self:Hide()
+        local name = false
+        for i = 1, #_queueNames do
+            local cur = C_Spell.IsCurrentSpell(_queueNames[i])
+            if not issecretvalue(cur) and cur then name = _queueNames[i]; break end
+        end
+        if name == _queued then return end
+        _queued = name
+        for i = #_lit, 1, -1 do _lit[i]:Hide(); _lit[i] = nil end
+        if not (name and cdmBarIcons) then return end
+        for barKey, list in pairs(cdmBarIcons) do
+            local bd = barDataByKey and barDataByKey[barKey]
+            if bd and not ns.IsBarBuffFamily(bd) then
+                for i = 1, #list do
+                    local icon = list[i]
+                    if icon and icon:IsShown() then
+                        local sid = IconSpellID(icon)
+                        if not issecretvalue(sid) and sid and C_Spell.GetSpellName(sid) == name then
+                            local ov = ShowOverlay(icon, _checkOverlay, 14, StyleChecked)
+                            if ov then _lit[#_lit + 1] = ov end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    local qev = ns.TakeShell()
+    qev:RegisterEvent("PLAYER_LOGIN")
+    qev:SetScript("OnEvent", function(self, event)
+        if event ~= "PLAYER_LOGIN" then
+            _queueFlush:Show()
+            return
+        end
+        self:UnregisterEvent("PLAYER_LOGIN")
+        local lists = EllesmereUI.FOREVER_NEXT_SWING
+        local _, classFile = UnitClass("player")
+        local ids = lists and lists[classFile]
+        if not (ids and C_Spell.IsCurrentSpell) then return end
+        _queueNames = {}
+        for i = 1, #ids do
+            local n = C_Spell.GetSpellName(ids[i])
+            if not issecretvalue(n) and n then _queueNames[#_queueNames + 1] = n end
+        end
+        if #_queueNames > 0 then self:RegisterEvent("ACTIONBAR_UPDATE_STATE") end
     end)
 end
 I.broken = false

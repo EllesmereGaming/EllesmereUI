@@ -1042,7 +1042,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                 { label = "Window & Tooltip Skins", sum = "Window Skins",
                   enabled = stringHasBlizzSkin,
                   offTip = "This profile string does not carry any Window & Tooltip Skins settings.",
-                  tip   = "Apply the sharer's Blizzard Skins+ Window Skins and Tooltips, Menus & Popups settings. These are account-wide and will overwrite yours across ALL profiles. Off = keep your own.",
+                  tip   = "Apply the sharer's Blizzard Skins+ Window Skins and Tooltips & Menus settings. These are account-wide and will overwrite yours across ALL profiles. Off = keep your own.",
                   get   = function() return includeWindowSkinsImport end,
                   set   = function(refresh)
                       if includeWindowSkinsImport then
@@ -1051,7 +1051,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                       end
                       EllesmereUI:ShowConfirmPopup({
                           title       = EllesmereUI.L("Overwrite Window & Tooltip Settings?"),
-                          message     = EllesmereUI.L("This will replace YOUR Blizzard Skins+ settings (the Window Skins and Tooltips, Menus & Popups tabs) with the sharer's, across ALL of your profiles. Your current settings on those two tabs cannot be recovered afterward."),
+                          message     = EllesmereUI.L("This will replace YOUR Blizzard Skins+ settings (the Window Skins and Tooltips & Menus tabs) with the sharer's, across ALL of your profiles. Your current settings on those two tabs cannot be recovered afterward."),
                           confirmText = EllesmereUI.L("OK"),
                           cancelText  = EllesmereUI.L("Cancel"),
                           onConfirm   = function()
@@ -2345,7 +2345,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
             if hasBlizzSkinRow then
                 rowDefs[#rowDefs + 1] = {
                     label = "Window & Tooltip Skins",
-                    tip   = "Include your Blizzard Skins+ settings from the Window Skins and Tooltips, Menus & Popups tabs. These are account-wide: if the importer opts in, they overwrite that player's settings across ALL of their profiles.",
+                    tip   = "Include your Blizzard Skins+ settings from the Window Skins and Tooltips & Menus tabs. These are account-wide: if the importer opts in, they overwrite that player's settings across ALL of their profiles.",
                     get   = function() return includeWindowSkinsExport end,
                     set   = function() includeWindowSkinsExport = not includeWindowSkinsExport end }
             end

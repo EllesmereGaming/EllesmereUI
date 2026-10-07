@@ -2759,6 +2759,19 @@ local function ApplyPreviewData(f, index)
             EllesmereUI.BorderPx(s.borderSizePx, bs, s.borderTexture or "solid"))
         if f._ApplyBorderColor then f._ApplyBorderColor() end
     end
+    -- Rounded corners, as on the live cells (stock styles stay square).
+    if f._border then
+        local radius = (f.kit or f.stockEdge) and 0 or (s.cornerRadius or 0)
+        if radius > 0 then
+            EllesmereUI.RoundCorners(f, radius, {
+                roots = { f._health, f._power, f._topNameBar, f._powerBorder },
+                textures = { f._bg },
+                border = f._border, style = s.borderTexture or "solid",
+            })
+        else
+            EllesmereUI.RoundCorners(f, 0)
+        end
+    end
 
     -- Indicators visibility (eyeball toggle)
     local indVis = ns._indicatorsVisible ~= false

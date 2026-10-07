@@ -23,6 +23,7 @@ local _itemDragFrame = ns.itemDragFrame
 local _catHeaders = ns.catHeaders
 local _expSubHeaders = ns.expSubHeaders
 local QUEST_BORDER_COLOR = ns.QUEST_BORDER_COLOR
+local QualityBorderColor = ns.QualityBorderColor
 local BagsItemUnusable = ns.BagsItemUnusable
 local GetFont = ns.GetFont
 local GetCatTitleSize = ns.GetCatTitleSize
@@ -127,18 +128,29 @@ local function GetOrCreateSlot(idx)
 end
 ns.GetOrCreateSlot = GetOrCreateSlot
 
--- A slot's desaturation (locked, grey with the option on, Junk Marker junk)
--- and its Junk Marker coin badge, lifted past the bottom-left corner.
+-- A slot's desaturation (locked; grey items and Junk Marker junk while Junk
+-- Item Visuals' Desaturate is on) and its Junk Marker coin badge (its Show Coin
+-- Icon): the game's coin, cropped round, lifted past the bottom-left corner.
 local function PaintJunkState(btn, info, markerJunk)
+    local p = BP()
     local quality = info.quality or 1
-    SetItemButtonDesaturated(btn, info.isLocked or (BP().bagDesaturateJunkItems and quality == 0) or markerJunk)
-    if markerJunk then
-        if not btn._junkCoin then
-            btn._junkCoin = ns.JunkRoundTex(btn, "OVERLAY", 6, 133784)
-            btn._junkCoin:SetSize(12, 12)
-            btn._junkCoin:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", -3, -3)
+    SetItemButtonDesaturated(btn, info.isLocked
+        or (p.bagDesaturateJunkItems == true and (quality == 0 or markerJunk)) or false)
+    if markerJunk and p.bagShowJunkCoin == true then
+        local coin = btn._junkCoin
+        if not coin then
+            coin = btn:CreateTexture(nil, "OVERLAY", nil, 6)
+            coin:SetTexture(ns.JUNK_COIN)
+            coin:SetTexCoord(0.12, 0.88, 0.12, 0.88)
+            local mask = btn:CreateMaskTexture()
+            mask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            mask:SetAllPoints(coin)
+            coin:AddMaskTexture(mask)
+            coin:SetSize(12, 12)
+            coin:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", -3, -3)
+            btn._junkCoin = coin
         end
-        btn._junkCoin:Show()
+        coin:Show()
     elseif btn._junkCoin then
         btn._junkCoin:Hide()
     end
@@ -360,12 +372,8 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
             SetInsetBorderColor(btn, QUEST_BORDER_COLOR.r, QUEST_BORDER_COLOR.g, QUEST_BORDER_COLOR.b, filtered and 0.2 or 1)
         else
             SetInsetBorderThickness(btn, _bpx)
-            local c = ITEM_QUALITY_COLORS[quality]
-            if c then
-                SetInsetBorderColor(btn, c.r, c.g, c.b, filtered and 0.2 or 1)
-            else
-                SetInsetBorderColor(btn, 0.25, 0.25, 0.25, filtered and 0.2 or 1)
-            end
+            local r, g, b = QualityBorderColor(quality)
+            SetInsetBorderColor(btn, r, g, b, filtered and 0.2 or 1)
         end
         -- Quest marker atlas (lazy, reused). Only for items that START a quest you
         -- have not accepted; active-quest objective items get the border, no marker.
@@ -462,7 +470,7 @@ end
 -------------------------------------------------------------------------------
 function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, gridW, gridPadX, showPinned, pinnedSet)
     local selectedCategoryIndex, selectedGroupName = ns.GetSelection()
-    junkOn = BP().bagJunkMarker == true
+    junkOn = EUI_CategoryManager:IsJunkMarkerEnabled()
     compactOn = EUI_Bags.IsCompactMode() == true
 
     -- 5. Render grid into scroll child
@@ -477,6 +485,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
     local catTitleSize = GetCatTitleSize()
     for _, hdr in pairs(_catHeaders) do
         hdr:Hide(); hdr._hint:SetText("")
+        if hdr._hintText then ns.SetHeaderHint(hdr, nil) end
         if hdr._hideBtn then hdr._hideBtn:Hide() end
         if hdr._clearBtn then hdr._clearBtn:Hide() end
         hdr._line:ClearAllPoints()
@@ -496,7 +505,6 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
     end
     if EUI_Bags._pinOverlayBtn then EUI_Bags._pinOverlayBtn:Hide() end
     ResetAssignOverlays()
-    if EUI_Bags._oneBagWarning then EUI_Bags._oneBagWarning:Hide() end
 
     -- Items position relative to scroll child (startX = padding only, no sidebar offset)
     local startX = gridPadX + 5
@@ -759,29 +767,6 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
         local headerIdx = 0
         local isMulti = (selectedCategoryIndex == -2)
 
-        -- OneBag/MultiBag warning label (created once, reused)
-        if not EUI_Bags._oneBagWarning then
-            local warn = child:CreateFontString(nil, "OVERLAY")
-            SetBagFont(warn, 9)
-            warn:SetTextColor(0.5, 0.5, 0.5, 0.9)
-            warn:SetJustifyH("LEFT")
-            EUI_Bags._oneBagWarning = warn
-        end
-        local warn = EUI_Bags._oneBagWarning
-        local _warnHidden = BP().bagHideOneBagWarning
-        if not _warnHidden then
-            warn:SetParent(child)
-            warn:ClearAllPoints()
-            curY = curY - 5
-            warn:SetPoint("TOP", child, "TOP", 0, curY)
-            warn:SetJustifyH("CENTER")
-            warn:SetText(isMulti
-                and EllesmereUI.L("Changes made in MultiBag will affect the positions of items in default Blizzard bags")
-                or EllesmereUI.L("Changes made in OneBag will affect the positions of items in default Blizzard bags"))
-            warn:Show()
-            curY = curY - 14 - 5
-        end
-
         -- Pinned Items quickview (display-only duplicates)
         local showPinnedOneBag = (BP().bagPinnedInOneBag ~= false) and showPinned
         if showPinnedOneBag then
@@ -803,14 +788,13 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             pinHdr:ClearAllPoints()
             pinHdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
             pinHdr:SetWidth(columns * (SLOT_SIZE + SPACING))
-            local showTips = BP().bagShowPinRecentTips ~= false
             pinHdr._label:SetText(EllesmereUI.L("Pinned Items"))
-            pinHdr._hint:SetText(showTips and EllesmereUI.L("(Middle Click to Add or Remove)") or "")
+            ns.SetHeaderHint(pinHdr, EllesmereUI.L("Middle Click to Add or Remove"))
             local pinHide = GetHeaderHideButton(pinHdr)
             pinHide._dbKey = "bagPinnedInOneBag"
             pinHide._tooltip = "Hides Pinned Items. Re-show in settings."
             pinHdr._hideBtn:ClearAllPoints()
-            pinHdr._hideBtn:SetPoint("RIGHT", pinHdr, "RIGHT", _warnHidden and -5 or 0, 0)
+            pinHdr._hideBtn:SetPoint("RIGHT", pinHdr, "RIGHT", 0, 0)
             pinHdr._hideBtn:Show()
             pinHdr._line:ClearAllPoints()
             pinHdr._line:SetPoint("LEFT", pinHdr._hint, "RIGHT", 6, 0)
@@ -884,14 +868,13 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             recHdr:ClearAllPoints()
             recHdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
             recHdr:SetWidth(columns * (SLOT_SIZE + SPACING))
-            local showTips = BP().bagShowPinRecentTips ~= false
             recHdr._label:SetText(EllesmereUI.L("Recent Items"))
-            recHdr._hint:SetText(showTips and EllesmereUI.L("(Extra quickview display, your items are also in their category)") or "")
+            ns.SetHeaderHint(recHdr, EllesmereUI.L("Extra quickview display, your items are also in their category"))
             local recHide = GetHeaderHideButton(recHdr)
             recHide._dbKey = "bagRecentInOneBag"
             recHide._tooltip = "Hides Recent Items. Re-show in settings."
             recHdr._hideBtn:ClearAllPoints()
-            recHdr._hideBtn:SetPoint("RIGHT", recHdr, "RIGHT", (_warnHidden and not showPinnedOneBag) and -5 or 0, 0)
+            recHdr._hideBtn:SetPoint("RIGHT", recHdr, "RIGHT", 0, 0)
             recHdr._hideBtn:Show()
             local recLineAnchor = recHdr._hideBtn
             if BP().bagShowRecentClear == true
@@ -1104,16 +1087,12 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             hdr:ClearAllPoints()
             hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
             hdr:SetWidth(gridW)
-            local showTips = BP().bagShowPinRecentTips ~= false
-            if showPinAdd and showTips then
-                hdr._label:SetText(sectionName)
-                hdr._hint:SetText(EllesmereUI.L("(Middle Click to Add or Remove)"))
-            elseif alwaysShow and showTips then
-                hdr._label:SetText(sectionName)
-                hdr._hint:SetText(EllesmereUI.L("(Extra quickview display, your items are also in their category)"))
-            else
-                hdr._label:SetText(sectionName .. " (" .. itemCount .. ")")
-                hdr._hint:SetText("")
+            hdr._label:SetText(sectionName .. " (" .. itemCount .. ")")
+            -- Pinned / Recent: their hint shows while the label is hovered
+            if showPinAdd then
+                ns.SetHeaderHint(hdr, EllesmereUI.L("Middle Click to Add or Remove"))
+            elseif alwaysShow then
+                ns.SetHeaderHint(hdr, EllesmereUI.L("Extra quickview display, your items are also in their category"))
             end
             -- Hide button for Pinned / Recent sections
             if showPinAdd or alwaysShow then
@@ -1599,16 +1578,12 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                 hdr:ClearAllPoints()
                 hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
                 hdr:SetWidth(gridW)
-                local showTips = BP().bagShowPinRecentTips ~= false
-                if selCat and selCat.isPinned and showTips then
-                    hdr._label:SetText(headerName)
-                    hdr._hint:SetText(EllesmereUI.L("(Middle Click to Add or Remove)"))
-                elseif selCat and selCat.isRecent and showTips then
-                    hdr._label:SetText(headerName)
-                    hdr._hint:SetText(EllesmereUI.L("(Extra quickview display, your items are also in their category)"))
-                else
-                    hdr._label:SetText(headerName .. " (" .. #displayItems .. ")")
-                    hdr._hint:SetText("")
+                hdr._label:SetText(headerName .. " (" .. #displayItems .. ")")
+                -- Pinned / Recent: their hint shows while the label is hovered
+                if selCat and selCat.isPinned then
+                    ns.SetHeaderHint(hdr, EllesmereUI.L("Middle Click to Add or Remove"))
+                elseif selCat and selCat.isRecent then
+                    ns.SetHeaderHint(hdr, EllesmereUI.L("Extra quickview display, your items are also in their category"))
                 end
                 hdr:Show()
                 curY = curY - 22
@@ -1628,12 +1603,10 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                 end
                 -- The grid header's Pinned / Recent hint, on the label's hover
                 local hint
-                if selCat and BP().bagShowPinRecentTips ~= false then
-                    if selCat.isPinned then
-                        hint = EllesmereUI.L("(Middle Click to Add or Remove)")
-                    elseif selCat.isRecent then
-                        hint = EllesmereUI.L("(Extra quickview display, your items are also in their category)")
-                    end
+                if selCat and selCat.isPinned then
+                    hint = EllesmereUI.L("Middle Click to Add or Remove")
+                elseif selCat and selCat.isRecent then
+                    hint = EllesmereUI.L("Extra quickview display, your items are also in their category")
                 end
                 ns.CompactBagsSection(headerName or "", displayItems, useSlotNest and "slot" or "flat", aKey, true, hint)
             elseif useSlotNest then

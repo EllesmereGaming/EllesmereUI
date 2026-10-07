@@ -473,7 +473,8 @@ local MC_CARD_GAP   = 14
 -- enabled, expanded (session table keyed by tile.key), descW,
 -- glyph(hdr, enabled) builds the left glyph, headerDD(hdr) -> dd or nil,
 -- searchDesc: what search indexes (and the header's section name carries) in
--- place of tile.desc, for a card whose description is live (a count).
+-- place of tile.desc, for a card whose description is live (a count);
+-- noSearch: the header is no search entry (a card that holds no settings).
 -- A disabled module's card is inert: dimmed header, tag and tooltip only.
 -- Sets tile._hdr and tile._descFS (the header and its description line)
 -- before tile.buildContent runs, for content that updates the header.
@@ -499,11 +500,13 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
     local sDesc = opts.searchDesc
     if sDesc == nil then sDesc = tile.desc or "" end
     local searchName = tile.display .. " " .. sDesc
-    hdr._isSectionHeader = true
-    hdr._sectionName = searchName
-    local searchNameLoc = L(tile.display) .. " " .. L(sDesc)
-    if searchNameLoc ~= searchName then hdr._sectionNameLoc = searchNameLoc end
-    if EllesmereUI._RegisterSearchEntry then
+    if not opts.noSearch then
+        hdr._isSectionHeader = true
+        hdr._sectionName = searchName
+        local searchNameLoc = L(tile.display) .. " " .. L(sDesc)
+        if searchNameLoc ~= searchName then hdr._sectionNameLoc = searchNameLoc end
+    end
+    if EllesmereUI._RegisterSearchEntry and not opts.noSearch then
         local titleLoc = L(tile.display)
         local descSearch = sDesc
         local descLoc = L(sDesc)

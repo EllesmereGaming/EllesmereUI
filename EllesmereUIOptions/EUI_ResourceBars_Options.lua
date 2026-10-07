@@ -763,6 +763,29 @@ initFrame:SetScript("OnEvent", function(self)
                 pc._barBorderFrame:Show()
             end
 
+            -- Rounded corners, as on the live class resource (ns.ERB_RoundSecondary).
+            do
+                local radius = (not ns.ERB_BarsBlizz() and sp.cornerRadius) or 0
+                local style = sp.borderTexture or "solid"
+                local onPips = sp.borderOnPips and not isBar
+                if radius > 0 then
+                    EllesmereUI.RoundCorners(pc, radius, {
+                        style = style, border = not onPips and pc._barBorderFrame or nil,
+                    })
+                else
+                    EllesmereUI.RoundCorners(pc, 0)
+                end
+                local pipRadius = onPips and radius or 0
+                for i = 1, #_previewFrames.pips do
+                    local pip = _previewFrames.pips[i]
+                    if pipRadius > 0 then
+                        EllesmereUI.RoundCorners(pip, pipRadius, { style = style, border = pip._borderFrame })
+                    else
+                        EllesmereUI.RoundCorners(pip, 0)
+                    end
+                end
+            end
+
             -- Full-bar background for pips only; bar-type uses _barBg. Background on
             -- individual pips drops it, as on the live bar.
             if not isBar and not ns.ERB_PipBgOn(sp, false) then
@@ -2103,59 +2126,14 @@ initFrame:SetScript("OnEvent", function(self)
             return false
         end
 
+        -- The shared spec list (WoW Forever: one row per class, no role
+        -- shortcuts), locked by what the existing entries claim.
         local function BuildSpecItems_L()
-            local items = {}
-            items[#items + 1] = { key = 0, label = "All Specs", isAction = true, lockedFn = HasAllSpecsEntry }
-            -- WoW Forever: one row per class, keyed by its class token, standing for
-            -- every retail spec of the class (the getter and setter expand it); no
-            -- role shortcuts. A row locks while any spec of its class is claimed.
-            if EllesmereUI.IS_FOREVER then
-                local classes = EllesmereUI.ForeverClasses()
-                for n = 1, #classes do
-                    local token = classes[n]
-                    local ids = EllesmereUI.ForeverClassSpecIDs(token)
-                    items[#items + 1] = { key = token, label = EllesmereUI.ForeverClassName(token), lockedFn = function()
-                        for i = 1, #ids do
-                            if IsSpecClaimed(ids[i]) then return true end
-                        end
-                        return false
-                    end }
-                end
-                return items
-            end
-            items[#items + 1] = { key = ROLE_ALL_HEALERS, label = "All Healers", isAction = true, lockedFn = HasAllSpecsEntry }
-            items[#items + 1] = { key = ROLE_ALL_TANKS, label = "All Tanks", isAction = true, lockedFn = HasAllSpecsEntry }
-            items[#items + 1] = { key = ROLE_ALL_DPS, label = "All DPS", isAction = true, lockedFn = HasAllSpecsEntry }
-
-            -- Class list, sorted alphabetically by class name
-            local classList = {}
-            for classID = 1, (GetNumClasses and GetNumClasses() or 13) do
-                local className, classFile = GetClassInfo(classID)
-                if className then
-                    classList[#classList + 1] = { classID = classID, className = className, classFile = classFile }
-                end
-            end
-            table.sort(classList, function(a, b) return a.className < b.className end)
-
-            -- Spec rows per class, filling the role caches as we go
-            local healers, tanks, dps = {}, {}, {}
-            for _, cls in ipairs(classList) do
-                items[#items + 1] = { isHeader = true, label = cls.className }
-                local numSpecs = GetNumSpecializationsForClassID and GetNumSpecializationsForClassID(cls.classID) or 0
-                for specIndex = 1, numSpecs do
-                    local specID, specName, _, _, role = GetSpecializationInfoForClassID(cls.classID, specIndex)
-                    if specID and specName then
-                        local sid = specID
-                        items[#items + 1] = { key = specID, label = specName, lockedFn = function() return IsSpecClaimed(sid) end }
-                        if role == "HEALER" then healers[#healers + 1] = specID
-                        elseif role == "TANK" then tanks[#tanks + 1] = specID
-                        else dps[#dps + 1] = specID end
-                    end
-                end
-            end
-            _roleSpecCache[ROLE_ALL_HEALERS] = healers
-            _roleSpecCache[ROLE_ALL_TANKS] = tanks
-            _roleSpecCache[ROLE_ALL_DPS] = dps
+            local items, roles = EllesmereUI.SpecPickItems({
+                roles = true, lockedFn = IsSpecClaimed, allLockedFn = HasAllSpecsEntry })
+            _roleSpecCache[ROLE_ALL_HEALERS] = roles[ROLE_ALL_HEALERS]
+            _roleSpecCache[ROLE_ALL_TANKS] = roles[ROLE_ALL_TANKS]
+            _roleSpecCache[ROLE_ALL_DPS] = roles[ROLE_ALL_DPS]
             return items
         end
 

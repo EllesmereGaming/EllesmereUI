@@ -153,7 +153,7 @@ end
 --  slot.extra its second non-passive spell. slot.specialization resolves the
 --  first known specialization ability for Mining, Herbalism, or Skinning.
 --  Unlearned positions and professions with no second ability resolve to nil
---  and go dark under Hide Unusable Entries. Resolvers live on ns (from the
+--  and go dark under Hide Unavailable Actions. Resolvers live on ns (from the
 --  200-local ceiling of the module as one file). SlotUsable, ResolveAction
 --  and SlotDisplay share a memo per position and ability kind.
 --  PushAllPalettes wipes it beside usableMemo; SPELLS_CHANGED covers the
@@ -393,7 +393,7 @@ do
     -- loses its toggle. PanelAvailable then answers no, which keeps it out of
     -- the picker and the preset and makes it fire nothing, while a saved
     -- vault slot still draws its own icon and name and goes dark under Hide
-    -- Unusable Entries like any other panel the client cannot open.
+    -- Unavailable Actions like any other panel the client cannot open.
     -- Forever also splits the spellbook and the talents into two micro
     -- buttons. Its combined button still exists but opens on whichever tab
     -- was last shown, so there the spellbook entry clicks the spellbook's own
@@ -462,7 +462,7 @@ do
     -- Whether this client has the panel at all: Housing arrived in 12.0, the
     -- Shop is not built into every region's client, and a panel whose addon
     -- never loaded has no toggle to call. An entry that answers no goes dark
-    -- under Hide Unusable Entries rather than sitting there firing nothing.
+    -- under Hide Unavailable Actions rather than sitting there firing nothing.
     ns.PanelAvailable = function(def)
         if not def then return false end
         if def.button then return PanelButton(def) ~= nil end

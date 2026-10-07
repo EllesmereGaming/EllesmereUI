@@ -109,14 +109,8 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
 
         do
             local rgn = visRow1._leftRegion
-            -- Click Through sits in this row's cog, so it travels with the copy
-            -- (a visibility-only bar has none).
             local function CopyTo(key, src)
                 CopyVisibilitySettings(EAB.db.profile.bars[key], src, key)
-                if not visOnly then
-                    EAB.db.profile.bars[key].clickThrough = src.clickThrough or false
-                    EAB:ApplyClickThroughForBar(key)
-                end
             end
             EllesmereUI.BuildSyncIcon({
                 region  = rgn,
@@ -135,7 +129,6 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
                         local dst = EAB.db.profile.bars[key]
                         if not EllesmereUI.VisFullEquals(src, "barVisibility", dst, "barVisibility") then return false end
                         if (src.dragShow or false) ~= (dst.dragShow or false) then return false end
-                        if not visOnly and (src.clickThrough or false) ~= (dst.clickThrough or false) then return false end
                     end
                     return true
                 end,
@@ -191,19 +184,9 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
                       EllesmereUI:RefreshPage()
                   end }
             end
-            local rows = { SpellbookRow(), DragRow() }
-            if not visOnly then
-                rows[#rows + 1] = { type="toggle", label="Click Through",
-                  get=function() return SGet("clickThrough") end,
-                  set=function(v)
-                      SSet("clickThrough", v, function(k) EAB:ApplyClickThroughForBar(k) end)
-                      -- The Apply Visibility link compares this toggle.
-                      EllesmereUI:RefreshPage()
-                  end }
-            end
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Visibility",
-                rows = rows,
+                rows = { SpellbookRow(), DragRow() },
                 anchorTo = rgn._control,
             })
         end
@@ -212,8 +195,8 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
     -- Show All Bars on Mouseover: one setting for every bar (the profile's). It links
     -- every bar set to Mouseover, action bars, the micro menu, the bag bar and
     -- the data bars alike (the runtime's mouseoverEnabled), so it is offered
-    -- while any of them is. Beside End Caps, or on a row of its own where the
-    -- section has no End Caps (a visibility-only bar, the WoW Forever look).
+    -- while any of them is. It opens the section's third row, beside Click
+    -- Through (a visibility-only bar has none).
     local function AnyMouseoverBar()
         for _, s in pairs(EAB.db.profile.bars) do
             if type(s) == "table" and s.mouseoverEnabled then return true end
@@ -304,37 +287,52 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
         })
     end
 
-    -- The bar's end caps (EndCapsCtl). Under WoW Forever it opens LAYOUT
-    -- beside Show Bar Background; every other look puts it beside Show All
-    -- Bars on Mouseover. A change to Action Bar 1's caps also repaints a bar
-    -- carrying one of them (the first-install span).
-    local CAPS = (not visOnly) and EndCapsCtl({
-        key = SelectedKey, store = SB, label = "End Caps",
-        vertical = function() return not EAB:GetOrientationForBar(SelectedKey()) end,
-        write = function(k, v)
-            if k then
-                SSet(k, v, function(bk) EAB:ApplyPaddingForBar(bk) end)
-                SUpdatePreviewAndResize()
-            else
-                EAB:ApplyPaddingForBar(SelectedKey())
-                SUpdatePreviewAndResize()
-                EllesmereUI:RefreshPage()
-            end
-            if SelectedKey() == "MainBar" then ns.AB_CapsSpanApply() end
-        end,
-        copyApply = function(key)
-            EAB:ApplyPaddingForBar(key)
-            if key == "MainBar" then ns.AB_CapsSpanApply() end
-        end,
-        syncKeys = GROUP_BAR_ORDER, syncLabels = SHORT_LABELS,
-    }) or nil
-
-    if CAPS and not CAPS.forever then
-        local capsRow
-        capsRow, h = W:DualRow(parent, y, CAPS.Cfg(), ShowAllCfg());  y = y - h
-        CAPS.Build(capsRow._leftRegion)
-    else
+    if visOnly then
         _, h = W:DualRow(parent, y, ShowAllCfg(), EllesmereUI.BlankRowCfg());  y = y - h
+    else
+        local ctRow
+        ctRow, h = W:DualRow(parent, y, ShowAllCfg(),
+            { type="toggle", text="Click Through",
+              getValue=function() return SGet("clickThrough") end,
+              setValue=function(v)
+                  SSet("clickThrough", v, function(k) EAB:ApplyClickThroughForBar(k) end)
+                  -- Its Apply link compares this toggle.
+                  EllesmereUI:RefreshPage()
+              end });  y = y - h
+        do
+            local rgn = ctRow._rightRegion
+            local function CopyTo(key, v)
+                EAB.db.profile.bars[key].clickThrough = v
+                EAB:ApplyClickThroughForBar(key)
+            end
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Click Through to all Bars",
+                onClick = function()
+                    local v = SB().clickThrough or false
+                    for _, key in ipairs(GROUP_BAR_ORDER) do CopyTo(key, v) end
+                    EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = SB().clickThrough or false
+                    for _, key in ipairs(GROUP_BAR_ORDER) do
+                        if (EAB.db.profile.bars[key].clickThrough or false) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_BAR_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return SelectedKey() end,
+                    onApply       = function(checkedKeys)
+                        local v = SB().clickThrough or false
+                        for _, key in ipairs(checkedKeys) do CopyTo(key, v) end
+                        EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
     end
 
     if not visOnly then
@@ -379,60 +377,6 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
     -----------------------------------------------------------------------
     if not visOnly then
         _, h = W:SectionHeader(parent, SECTION_LAYOUT, y);  y = y - h
-
-        -- WoW Forever: the bar's end caps and the frame and dividers behind
-        -- its buttons (both on by default on Action Bar 1 only) open the
-        -- section.
-        if CAPS and CAPS.forever then
-            local capsRow
-            capsRow, h = W:DualRow(parent, y,
-                CAPS.Cfg(),
-                { type="toggle", text="Show Bar Background",
-                  tooltip="Show the frame and dividers behind the bar's buttons.",
-                  getValue=function() return ns.AB_ForeverBg(SelectedKey()) end,
-                  setValue=function(v)
-                      SSet("foreverBarBg", v and true or false, function(k) EAB:ApplyPaddingForBar(k) end)
-                      SUpdatePreviewAndResize()
-                  end });  y = y - h
-            CAPS.Build(capsRow._leftRegion)
-            do
-                local rgn = capsRow._rightRegion
-                local function BgTo(key, v)
-                    local d = EAB.db.profile.bars[key]
-                    if d then
-                        d.foreverBarBg = v
-                        EAB:ApplyPaddingForBar(key)
-                    end
-                end
-                EllesmereUI.BuildSyncIcon({
-                    region  = rgn,
-                    tooltip = "Apply Show Bar Background to all Bars",
-                    onClick = function()
-                        local v = ns.AB_ForeverBg(SelectedKey())
-                        for _, key in ipairs(GROUP_BAR_ORDER) do BgTo(key, v) end
-                        EllesmereUI:RefreshPage()
-                    end,
-                    isSynced = function()
-                        local v = ns.AB_ForeverBg(SelectedKey())
-                        for _, key in ipairs(GROUP_BAR_ORDER) do
-                            if ns.AB_ForeverBg(key) ~= v then return false end
-                        end
-                        return true
-                    end,
-                    flashTargets = function() return { rgn } end,
-                    multiApply = {
-                        elementKeys   = GROUP_BAR_ORDER,
-                        elementLabels = SHORT_LABELS,
-                        getCurrentKey = function() return SelectedKey() end,
-                        onApply       = function(checkedKeys)
-                            local v = ns.AB_ForeverBg(SelectedKey())
-                            for _, key in ipairs(checkedKeys) do BgTo(key, v) end
-                            EllesmereUI:RefreshPage()
-                        end,
-                    },
-                })
-            end
-        end
 
         local iconSizeRow
         iconSizeRow, h = W:DualRow(parent, y,
@@ -903,6 +847,85 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
                 })
             end
             end
+        end
+
+        -- The bar's end caps (EndCapsCtl) close the section: under WoW Forever
+        -- beside Show Bar Background (the frame and dividers behind its
+        -- buttons; both on by default on Action Bar 1 only), on a row of their
+        -- own on every other look. A change to Action Bar 1's caps also
+        -- repaints a bar carrying one of them (the first-install span).
+        local CAPS = EndCapsCtl({
+            key = SelectedKey, store = SB, label = "End Caps",
+            vertical = function() return not EAB:GetOrientationForBar(SelectedKey()) end,
+            write = function(k, v)
+                if k then
+                    SSet(k, v, function(bk) EAB:ApplyPaddingForBar(bk) end)
+                    SUpdatePreviewAndResize()
+                else
+                    EAB:ApplyPaddingForBar(SelectedKey())
+                    SUpdatePreviewAndResize()
+                    EllesmereUI:RefreshPage()
+                end
+                if SelectedKey() == "MainBar" then ns.AB_CapsSpanApply() end
+            end,
+            copyApply = function(key)
+                EAB:ApplyPaddingForBar(key)
+                if key == "MainBar" then ns.AB_CapsSpanApply() end
+            end,
+            syncKeys = GROUP_BAR_ORDER, syncLabels = SHORT_LABELS,
+        })
+        local capsRow
+        if CAPS.forever then
+            capsRow, h = W:DualRow(parent, y,
+                CAPS.Cfg(),
+                { type="toggle", text="Show Bar Background",
+                  tooltip="Show the frame and dividers behind the bar's buttons.",
+                  getValue=function() return ns.AB_ForeverBg(SelectedKey()) end,
+                  setValue=function(v)
+                      SSet("foreverBarBg", v and true or false, function(k) EAB:ApplyPaddingForBar(k) end)
+                      SUpdatePreviewAndResize()
+                  end });  y = y - h
+            CAPS.Build(capsRow._leftRegion)
+            do
+                local rgn = capsRow._rightRegion
+                local function BgTo(key, v)
+                    local d = EAB.db.profile.bars[key]
+                    if d then
+                        d.foreverBarBg = v
+                        EAB:ApplyPaddingForBar(key)
+                    end
+                end
+                EllesmereUI.BuildSyncIcon({
+                    region  = rgn,
+                    tooltip = "Apply Show Bar Background to all Bars",
+                    onClick = function()
+                        local v = ns.AB_ForeverBg(SelectedKey())
+                        for _, key in ipairs(GROUP_BAR_ORDER) do BgTo(key, v) end
+                        EllesmereUI:RefreshPage()
+                    end,
+                    isSynced = function()
+                        local v = ns.AB_ForeverBg(SelectedKey())
+                        for _, key in ipairs(GROUP_BAR_ORDER) do
+                            if ns.AB_ForeverBg(key) ~= v then return false end
+                        end
+                        return true
+                    end,
+                    flashTargets = function() return { rgn } end,
+                    multiApply = {
+                        elementKeys   = GROUP_BAR_ORDER,
+                        elementLabels = SHORT_LABELS,
+                        getCurrentKey = function() return SelectedKey() end,
+                        onApply       = function(checkedKeys)
+                            local v = ns.AB_ForeverBg(SelectedKey())
+                            for _, key in ipairs(checkedKeys) do BgTo(key, v) end
+                            EllesmereUI:RefreshPage()
+                        end,
+                    },
+                })
+            end
+        else
+            capsRow, h = W:DualRow(parent, y, CAPS.Cfg(), EllesmereUI.BlankRowCfg());  y = y - h
+            CAPS.Build(capsRow._leftRegion)
         end
     end  -- if not visOnly
 

@@ -245,6 +245,33 @@ local function OnPaletteUpdate(_, elapsed)
     liveView:AdvanceSlam(now)
 end
 
+-- The mount tint's events (see PaletteView:RefreshMountTints), registered only
+-- while a live menu holding a mount entry is up: the Mount Journal's own
+-- usability signal, the minimap's switch between its indoor and outdoor zoom
+-- (a doorway), and combat starting and ending. The frame is made the first
+-- time such a menu opens; ns.Open and ns.Close, every close's path, sync it.
+local mountWatch
+local MOUNT_WATCH_EVENTS = { "MOUNT_JOURNAL_USABILITY_CHANGED", "MINIMAP_UPDATE_ZOOM",
+                             "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }
+local function SyncMountWatch(on)
+    if on and not mountWatch then
+        mountWatch = CreateFrame("Frame")
+        mountWatch:SetScript("OnEvent", function()
+            if liveView and liveView:GetFrame():IsShown() then
+                liveView:RefreshMountTints()
+            end
+        end)
+    end
+    if not mountWatch then return end
+    for i = 1, #MOUNT_WATCH_EVENTS do
+        if on then
+            mountWatch:RegisterEvent(MOUNT_WATCH_EVENTS[i])
+        else
+            mountWatch:UnregisterEvent(MOUNT_WATCH_EVENTS[i])
+        end
+    end
+end
+
 -- forceFixed: ignore CURSOR mode and place the palette at its fixed position.
 -- Nothing passes it since the full-screen editor was retired; it stays because
 -- on-screen drag positioning is being reworked and needs exactly this. Fixed
@@ -328,6 +355,7 @@ function ns.Open(paletteIndex)
     UpdatePaletteAlpha()
     palette:SetScript("OnUpdate", OnPaletteUpdate)
     palette:Show()
+    SyncMountWatch(liveView:HasMountCells())
 end
 
 -- ESCAPE belongs to the game menu again. The release snippet drops this binding
@@ -362,6 +390,7 @@ function ns.Close()
     end
     palette:SetScript("OnUpdate", nil)
     palette:Hide()
+    SyncMountWatch(false)
     ReleaseSecureState(liveView:GetPaletteIndex())
     ReleaseEscape()
     -- Both, always together. fanVisual left behind at the strip's last centre

@@ -926,6 +926,7 @@ local function StyleButton(button)
             EllesmereUI.ApplyBorderStyle(d.borderFrame, 0, 0, 0, 0, 0, "solid")
             d.borderFrame._hlBorderSize = nil
             ApplyBorderColor()
+            EllesmereUI.RoundCorners(button, 0)
             return
         end
         if d.stockEdge then
@@ -934,6 +935,7 @@ local function StyleButton(button)
             d.borderFrame._hlBorderSize = nil
             ns.RF_StockSeat(d)
             ApplyBorderColor()
+            EllesmereUI.RoundCorners(button, 0)
             return
         end
         d.borderFrame:SetFrameLevel(s.borderBehind and math.max(0, pl - 1) or (pl + 8))
@@ -942,6 +944,18 @@ local function StyleButton(button)
             s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
             EllesmereUI.BorderPx(s.borderSizePx, bs, texKey))
         ApplyBorderColor()
+        -- Rounded corners (EllesmereUI_RoundedCorners.lua; nothing at radius 0).
+        -- The power border rides in the body so its edge strips round too.
+        local radius = s.cornerRadius or 0
+        if radius > 0 then
+            EllesmereUI.RoundCorners(button, radius, {
+                roots = { d.health, d.power, d.topNameBar, d.powerBorderFrame },
+                textures = { d.bg },
+                border = d.borderFrame, style = texKey,
+            })
+        else
+            EllesmereUI.RoundCorners(button, 0)
+        end
     end
     if ns.RF_Stock() and not d.kit then ns.RF_StockBuild(button, d, d.power) end
     UpdateBorder()

@@ -107,8 +107,11 @@ local _cdStateRules = {}                                -- subset: cas.cdStateEf
 local _cdEvalQueued = false
 local _hasUserRules = false                             -- any profile (user) rule armed
 -- Any cd-state rule on Hidden Until Usable: its proc edges change only
--- usability, so SPELL_UPDATE_USABLE joins the edges while one exists.
-local _needUsable = false
+-- usability, so SPELL_UPDATE_USABLE joins the edges while one exists. Any on
+-- Hidden Outside Form/Stance: UPDATE_SHAPESHIFT_FORM, likewise, and the
+-- player's UNIT_AURA for a powershift, whose return fires no form event
+-- (_formSeen: the form ID at the last form edge).
+local _needUsable, _needForms, _formSeen = false, false, nil
 
 -- CD-ready sound "armed" state, keyed by ability so it survives the rule-object
 -- churn of FakeActive_Rearm (rebuilds are frequent in M+ and would otherwise eat
@@ -970,8 +973,19 @@ end
 
 OnEvent = function(self, event, unit, _, spellID)
     if event == "UNIT_AURA" then
-        for i = 1, #_auraRules do OpenFromAura(_auraRules[i]) end
-        for i = 1, #_customRules do EvalCustom(_customRules[i]) end
+        -- Registered for aura rules, or for a form rule alone (powershift edge)
+        if _needAura then
+            for i = 1, #_auraRules do OpenFromAura(_auraRules[i]) end
+            for i = 1, #_customRules do EvalCustom(_customRules[i]) end
+        end
+        if _needForms then
+            local form = GetShapeshiftFormID() or 0
+            if form ~= _formSeen then
+                _formSeen = form
+                ns.CdmRetryUnreadForms()
+                QueueCdStateEval()
+            end
+        end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         _lastCast = spellID
         local hits = spellID and _castMap[spellID]
@@ -998,10 +1012,17 @@ OnEvent = function(self, event, unit, _, spellID)
         if unit == 13 or unit == 14 then
             ns.FakeActive_Rearm()
         end
-    elseif event == "PLAYER_REGEN_ENABLED" or event == "SPELL_UPDATE_USABLE" then
+    elseif event == "PLAYER_REGEN_ENABLED" or event == "SPELL_UPDATE_USABLE"
+        or event == "UPDATE_SHAPESHIFT_FORM" then
         -- Combat end: cooldown reads were secret-dropped during combat, so any
         -- fail-open cd-state paint corrects on this first plain re-read.
         -- SPELL_UPDATE_USABLE: a Hidden Until Usable proc edge.
+        -- UPDATE_SHAPESHIFT_FORM: a Hidden Outside Form/Stance edge; it and
+        -- combat end also retry form answers that could not be read.
+        if _needForms and event ~= "SPELL_UPDATE_USABLE" then
+            ns.CdmRetryUnreadForms()
+            if event == "UPDATE_SHAPESHIFT_FORM" then _formSeen = GetShapeshiftFormID() or 0 end
+        end
         QueueCdStateEval()
     end
 end
@@ -1012,10 +1033,12 @@ UpdateListeners = function()
             _events = CreateFrame("Frame")
             _events:SetScript("OnEvent", OnEvent)
         end
-        if _needAura then _events:RegisterUnitEvent("UNIT_AURA", "player")
+        if _needAura or _needForms then _events:RegisterUnitEvent("UNIT_AURA", "player")
         else _events:UnregisterEvent("UNIT_AURA") end
         if _needCast then _events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
         else _events:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED") end
+        if _needForms then _events:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+        else _events:UnregisterEvent("UPDATE_SHAPESHIFT_FORM") end
         -- Combat end re-syncs cd-state once: cooldown reads secret-drop during
         -- combat, so the first plain read corrects anything painted fail-open.
         if #_cdStateRules > 0 then _events:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -1195,17 +1218,18 @@ local function PresetCdReady(key, onCD)
     return ns.CdmCdStateReady(effKey, onCD)
 end
 
--- Hidden Until Usable on a preset (ns.CdmSpellNotUsable): spells only, through
--- the same override walk. An item key never reads unusable, so the mode acts
--- as Hidden (On CD) on items.
-local function PresetNotUsable(key)
+-- Hidden Until Usable (ns.CdmSpellNotUsable) and Hidden Outside Form/Stance
+-- (ns.CdmSpellOutsideForm) on a preset: spells only, through the same override
+-- walk. An item key never reads unusable or outside its form, so the first
+-- acts as Hidden (On CD) on items and the second always shows them.
+local function PresetSpellTest(key, test)
     if key <= 0 then return false end
     local effKey = key
     if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
         local ov = C_SpellBook.FindSpellOverrideByID(key)
         if ov and ov > 0 and ov ~= key then effKey = ov end
     end
-    return ns.CdmSpellNotUsable(effKey)
+    return test(effKey)
 end
 
 -- Normal (shown) alpha for a frame, from its bar's opacity (out-of-combat fade folded
@@ -1410,11 +1434,17 @@ EvalCdStateNow = function()
             -- ready only at max charges (items fall through to "not onCD").
             local ready = PresetCdReady(rule.spellID, onCD)
             -- Hidden Until Usable paints as Hidden (On CD) with "not usable"
-            -- counting as unavailable; the sound below keeps the plain onCD.
+            -- counting as unavailable, Hidden Outside Form/Stance with only the
+            -- form deciding (ns.CD_STATE_HIDE); the sound below keeps the plain onCD.
             local hideCD = onCD
-            if eff == "hiddenUnusable" or eff == "hiddenUnusableShift" then
-                eff = (eff == "hiddenUnusableShift") and "hiddenOnCDShift" or "hiddenOnCD"
-                if not onCD then hideCD = PresetNotUsable(rule.spellID) end
+            local m = eff and ns.CD_STATE_HIDE[eff]
+            if m and (m.usable or m.form) then
+                eff = m.shift and "hiddenOnCDShift" or "hiddenOnCD"
+                if m.form then
+                    hideCD = PresetSpellTest(rule.spellID, ns.CdmSpellOutsideForm)
+                elseif not onCD then
+                    hideCD = PresetSpellTest(rule.spellID, ns.CdmSpellNotUsable)
+                end
             end
             local sid = rule.spellID
             -- Sound only fires while the ability's icon is present on a bar.
@@ -1568,7 +1598,7 @@ function ns.FakeActive_Rearm()
     -- Re-read rather than wipe: a re-arm during the login window would leave
     -- the map empty and the lazy refresh in KeyMatches would just rebuild it.
     RefreshSlotItemKeys()
-    _needAura, _needCast, _armed, _hasUserRules, _needUsable = false, false, false, false, false
+    _needAura, _needCast, _armed, _hasUserRules, _needUsable, _needForms = false, false, false, false, false, false
     if FA121 then FA121.BeginSweep() end
 
     -- 1. Built-in rules (class/spec gated).
@@ -1626,7 +1656,9 @@ function ns.FakeActive_Rearm()
             if hasCd or hasSound then
                 -- Both effects ride the same cooldown poll (EvalCdStateNow).
                 _cdStateRules[#_cdStateRules + 1] = rule
-                if eff == "hiddenUnusable" or eff == "hiddenUnusableShift" then _needUsable = true end
+                local m = eff and ns.CD_STATE_HIDE[eff]
+                if m and m.usable then _needUsable = true end
+                if m and m.form then _needForms = true end
             end
         end
         local eq13 = GetInventoryItemID and GetInventoryItemID("player", 13) or nil

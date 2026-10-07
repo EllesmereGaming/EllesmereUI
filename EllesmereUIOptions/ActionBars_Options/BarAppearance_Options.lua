@@ -266,7 +266,7 @@ local function BuildBarAppearance(parent, y, ctx)
                   -- Full rebuild: the Width/Height Offset row exists only for a textured style.
                   EllesmereUI:RefreshPage(true)
               end },
-            EllesmereUI.BorderPxSliderCfg{ text="Border Size", tooltip=false,
+            EllesmereUI.BorderPxSliderCfg{ text="Border Size",
               disabled=BgDisabled,
               disabledTooltip="Bar Background Border",
               -- The step ApplyBackgroundForBar renders with: a thickness with no
@@ -625,7 +625,7 @@ local function BuildBarAppearance(parent, y, ctx)
                   SUpdatePreview()
               end }
         else
-            sizeCfg = EllesmereUI.BorderPxSliderCfg{ text="Border Size", tooltip=false,
+            sizeCfg = EllesmereUI.BorderPxSliderCfg{ text="Border Size",
               disabled=BlizzStyleOn, disabledTooltip=EllesmereUI.BlizzStyle.Label("actionbars"), requireState="disabled",
               -- The step the buttons render with (ResolveBorderThickness's regular
               -- column): an unknown or numeric thickness is thin.

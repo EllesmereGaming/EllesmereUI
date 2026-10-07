@@ -274,6 +274,7 @@ FB.StyleBorder = function(b)
         b._borderFrame._hlBorderSize = nil
         ns.RF_StockSeat(b)
         FB.ApplyBorderColor(b)
+        EllesmereUI.RoundCorners(b, 0)
         return
     end
     b._borderFrame:SetFrameLevel(s.borderBehind and math.max(0, pl - 1) or (pl + 8))
@@ -282,6 +283,17 @@ FB.StyleBorder = function(b)
         s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
         EllesmereUI.BorderPx(s.borderSizePx, bs, s.borderTexture or "solid"))
     FB.ApplyBorderColor(b)
+    -- Rounded corners with the owner's Corner Radius, as on the raid cells
+    -- (EllesmereUI_RoundedCorners.lua; nothing at radius 0).
+    local radius = s.cornerRadius or 0
+    if radius > 0 then
+        EllesmereUI.RoundCorners(b, radius, {
+            roots = { b._health }, textures = { b._bg },
+            border = b._borderFrame, style = s.borderTexture or "solid",
+        })
+    else
+        EllesmereUI.RoundCorners(b, 0)
+    end
 end
 
 -- Bar colour: the owner's own colour setting (default #17AC31). The raid color modes mislead here:

@@ -93,6 +93,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             PP.HideBorder(plate.health)
             ns.HideCustomBorder(plate)
             ns.NP_ApplyClassicHealthArt(plate)
+            ns.NP_ApplyRounding(plate)
             return
         end
         if ns.IsCustomBorderEnabled() then
@@ -116,6 +117,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         if (p and (p.castIconCustomBorder or p.castIconSeparator)) or (plate.cast and plate.cast._iconSeam) then
             ns.ApplyCastIconBorder(plate)
         end
+        ns.NP_ApplyRounding(plate)
     end
     function plate:ApplyBorderColor()
         if not PP then return end
@@ -139,7 +141,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 end
                 plate._hbThreatTint = nil
             else
-                PP.SetBorderColor(plate.health, plate._threatBdR, plate._threatBdG, plate._threatBdB, 1)
+                ns.NP_BasicBorderColor(plate, plate._threatBdR, plate._threatBdG, plate._threatBdB, 1)
                 -- The health border wears the parked tint now: UpdateBorderWrap reads this,
                 -- and every other border colour paint (base, target, hover) clears it.
                 plate._hbThreatTint = true
@@ -150,7 +152,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 ns.ApplyCustomBorderColor(plate)
             else
                 local cr, cg, cb = GetBorderColor()
-                PP.SetBorderColor(plate.health, cr, cg, cb, 1)
+                ns.NP_BasicBorderColor(plate, cr, cg, cb, 1)
             end
         end
         -- ...and border colour edits and the target tint's restore (a tint only), on the
@@ -271,6 +273,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         elseif PP.GetBorders(plate.cast) then
             PP.HideBorder(plate.cast)
         end
+        ns.NP_ApplyRounding(plate, "cast")
     end
     function plate:ApplyCastBorderColor()
         if not PP or not PP.GetBorders or not PP.GetBorders(plate.cast) then return end
@@ -359,7 +362,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 PP.SetBorderSize(plate.health, sz)
                 -- The re-snap just re-applied _bdColor to the health strips.
                 if thr then
-                    PP.SetBorderColor(plate.health, plate._threatBdR, plate._threatBdG, plate._threatBdB, 1)
+                    ns.NP_BasicBorderColor(plate, plate._threatBdR, plate._threatBdG, plate._threatBdB, 1)
                 end
                 -- Leave the cast bar's OWN border ACTIVE under the wrap (region border sits
                 -- higher and draws over it); only the icon-separator line is hidden so an
@@ -395,7 +398,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 PP.SetBorderSize(plate.health, sz)
                 -- The re-snap re-applied the last clean colour: put a threat tint back.
                 if plate._hbThreatTint and plate._threatBdOn then
-                    PP.SetBorderColor(plate.health, plate._threatBdR, plate._threatBdG, plate._threatBdB, 1)
+                    ns.NP_BasicBorderColor(plate, plate._threatBdR, plate._threatBdG, plate._threatBdB, 1)
                 end
             end
             if plate.castWrapRegion then

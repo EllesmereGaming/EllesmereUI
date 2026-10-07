@@ -303,6 +303,7 @@ local function EnsureTargetHighlight(plate)
         t:AddMaskTexture(plate._blizzBarMask)
         plate._blizzMaskedTarget = true
     end
+    ns.NP_ApplyRounding(plate, "health")
 end
 
 -- Target arrow styles: key -> { l=left texture, r=right texture, w=drawn width at height 16
@@ -472,6 +473,8 @@ local function EnsureFocusOverlay(plate)
     -- Creation-time texcoord for the STRIPE_TEX default; the state-gated apply re-runs it with the actual texture kind.
     ApplyOverlayGeometry(plate.focusOverlayFill, plate.focusOverlayBg, plate.health, true)
     plate.focusClipBg:Hide()
+    -- Rounded corners: the new overlay joins the rounded body
+    if plate._npRounded then ns.NP_ApplyRounding(plate, "health") end
 end
 
 ns.FOCUS_LETTER_ANCHORS = {
@@ -758,6 +761,8 @@ ns.EnsureHoverOverlay = function(plate)
     -- Creation-time texcoord for the STRIPE_TEX default; the state-gated apply re-runs it with the actual texture kind.
     ApplyOverlayGeometry(plate.hoverOverlayFill, plate.hoverOverlayBg, plate.health, true)
     plate.hoverClipBg:Hide()
+    -- Rounded corners: the new overlay joins the rounded body
+    if plate._npRounded then ns.NP_ApplyRounding(plate, "health") end
 end
 
 ns.EnsureTargetOverlay = function(plate)
@@ -798,6 +803,8 @@ ns.EnsureTargetOverlay = function(plate)
     -- Creation-time texcoord for the STRIPE_TEX default; the state-gated apply re-runs it with the actual texture kind.
     ApplyOverlayGeometry(plate.targetOverlayFill, plate.targetOverlayBg, plate.health, true)
     plate.targetClipBg:Hide()
+    -- Rounded corners: the new overlay joins the rounded body
+    if plate._npRounded then ns.NP_ApplyRounding(plate, "health") end
 end
 
 I.ApplyOverlayGeometry, I.EnsureArrows = ApplyOverlayGeometry, EnsureArrows

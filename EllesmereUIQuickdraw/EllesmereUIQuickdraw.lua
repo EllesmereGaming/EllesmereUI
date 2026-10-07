@@ -582,7 +582,7 @@ end
 --
 --  EVERY setting is a palette's own: its shape and place (layout, where it
 --  opens, its sizes), its nesting geometry, and its look (colors, cooldowns,
---  the caption). The options page's "Apply All Settings To" dropdown is the
+--  the caption). The options page's "Apply All Settings From" dropdown is the
 --  bridge between menus -- it copies one menu's effective values onto another
 --  wholesale.
 --
@@ -806,6 +806,74 @@ function ns.CanNest(parentIndex, childIndex)
         end
     end
     return true
+end
+
+-------------------------------------------------------------------------------
+--  Spec assignment ("Assign to Spec") and shared keys
+--
+--  palette.specs is a set of retail spec IDs ({ [specID] = true }); none (nil
+--  or empty) is every spec. A palette LOADS -- its key opens it, and it shows
+--  where it is nested -- only while the player counts as one of its specs
+--  (EllesmereUI.IsPlayerSpec: on WoW Forever any spec of the class).
+--
+--  palette.keyShare is the index of the palette whose key this one shares.
+--  WoW's binding system holds one action per key, so a shared key stays on its
+--  holder's EUI_RADIAL binding, and the override bindings send it to whichever
+--  of the two loads (see KeyTarget in EUI_Quickdraw_Runtime.lua). The options
+--  page makes a share only between palettes that can never load together.
+-------------------------------------------------------------------------------
+-- A palette's spec set, or nil for every spec.
+function ns.PaletteSpecs(index)
+    local p = P()
+    local palette = p and index and p.palettes and p.palettes[index]
+    local specs = type(palette) == "table" and palette.specs
+    if type(specs) ~= "table" or next(specs) == nil then return nil end
+    return specs
+end
+
+function ns.PaletteActive(index)
+    local specs = ns.PaletteSpecs(index)
+    if not specs then return true end
+    for id in pairs(specs) do
+        if EllesmereUI.IsPlayerSpec(id) then return true end
+    end
+    return false
+end
+
+-- Can palettes a and b never load at the same time? Only when both name specs
+-- and none could load both: on retail no spec in both sets, on WoW Forever no
+-- class in both (the player counts as every spec of the class there).
+function ns.PalettesExclusive(a, b)
+    local sa, sb = ns.PaletteSpecs(a), ns.PaletteSpecs(b)
+    if not sa or not sb then return false end
+    if EllesmereUI.IS_FOREVER then
+        for ida in pairs(sa) do
+            local cls = EllesmereUI.SpecClassOf(ida)
+            if cls then
+                for idb in pairs(sb) do
+                    if EllesmereUI.SpecClassOf(idb) == cls then return false end
+                end
+            end
+        end
+        return true
+    end
+    for id in pairs(sa) do
+        if sb[id] then return false end
+    end
+    return true
+end
+
+-- The palette whose key palette `index` shares, or nil for its own. A share
+-- always names the key's holder, never another palette sharing it.
+function ns.ShareOwner(index)
+    local p = P()
+    local palettes = p and p.palettes
+    local palette = palettes and palettes[index]
+    local owner = type(palette) == "table" and tonumber(palette.keyShare)
+    if not owner or owner == index or owner < 1 or owner > PaletteCount() then return nil end
+    local held = palettes[owner]
+    if type(held) == "table" and held.keyShare ~= nil then return nil end
+    return owner
 end
 
 -- p is the palette view the caller draws from (self:P()) -- the color keys

@@ -1684,8 +1684,7 @@ end
 --  spec: getStep() -> number step (labels mapped by the caller), setStep(step),
 --        getTex() -> texture key, getPx() -> raw *Px value, setPx(v), apply()
 --        (refresh/render after a write), plus any cfg fields to pass through
---        (disabled, disabledTooltip, requireState, rawTooltip, tooltip, text;
---        tooltip=false drops the default tooltip).
+--        (disabled, disabledTooltip, requireState, rawTooltip, tooltip, text).
 -------------------------------------------------------------------------------
 function EllesmereUI.BorderPxSliderCfg(spec)
     local gamePP = EllesmereUI.PP
@@ -1703,7 +1702,6 @@ function EllesmereUI.BorderPxSliderCfg(spec)
     local cfg = {
         type = "slider", text = spec.text or "Border Size",
         min = 0, max = spec.max or maxPx, step = 1,
-        tooltip = (spec.tooltip == nil) and "Border size in pixels; for a textured style this is the size of its edge art." or spec.tooltip,
         getValue = Shown,
         setValue = function(v)
             v = math.floor(v + 0.5)

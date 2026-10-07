@@ -63,6 +63,14 @@ local function HasLiveIcon(slot)
     return slot.kind == "macro" or slot.kind == "dynamicrez"
 end
 
+-- Does this cell's tint follow the mount rules (see SlotUsability)? Those are
+-- re-read on the game's own events while a live menu is up -- see
+-- RefreshMountTints.
+local function HasMountTint(slot)
+    local k = slot and slot.kind
+    return k == "mount" or k == "lastmount" or k == "randommount"
+end
+
 local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLabel,
                          iconSize, showUsability)
     w.isPlaceholder = placeholder
@@ -70,7 +78,9 @@ local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLa
     -- Read once per paint, which is once per open: range and resources do move
     -- while a palette is up, but a hold lasts a fraction of a second and a tint
     -- that changed under a settled hand would read as a flicker rather than as
-    -- information. ApplySlotVisual is what turns this into a colour.
+    -- information. Mounts are the exception (RefreshMountTints): where you can
+    -- mount changes a handful of times a session, at a doorway, and a menu
+    -- left open should follow it. ApplySlotVisual turns this into a colour.
     w.usability = (showUsability and not placeholder) and SlotUsability(slot) or nil
 
     local icon, name = SlotDisplay(slot)
@@ -163,7 +173,7 @@ function PaletteView:Layout(paletteIndex)
     self.paletteIndex = paletteIndex
     -- What this view draws: the stored slots for the editor -- assigning and
     -- arranging entries has to show all of them, whoever is logged in -- and
-    -- the usable view for everything else (Hide Unusable Entries). Kept on
+    -- the usable view for everything else (Hide Unavailable Actions). Kept on
     -- the view so CellSlot maps a cell index through the SAME list this
     -- drawing was laid out from.
     local slots = opts.interactive and palette.slots
@@ -287,6 +297,13 @@ function PaletteView:Layout(paletteIndex)
     if not pending then pending = {}; self._pendingCells = pending end
     for k = #pending, 1, -1 do pending[k] = nil end
 
+    -- The mount cells, collected the same way and kept the same way, for the
+    -- tint a live menu re-reads on events (see RefreshMountTints). None while
+    -- the tint is off.
+    local mountCells = self._mountCells
+    if not mountCells then mountCells = {}; self._mountCells = mountCells end
+    for k = #mountCells, 1, -1 do mountCells[k] = nil end
+
     for i = 1, shown do
         local w = self.widgets[i]
         -- Switching modes leaves the other mode's depth cues behind.
@@ -311,10 +328,11 @@ function PaletteView:Layout(paletteIndex)
         PaintCell(w, slots[i], slots[i] == nil,
                   showLabels, showCooldowns, not fan, iconSize, showUsability)
         -- slots, not palette.slots: the same list the cell was just painted
-        -- from. Once Hide Unusable Entries filters anything the two part
+        -- from. Once Hide Unavailable Actions filters anything the two part
         -- company, and testing the stored array would collect the wrong cells.
         if HasLiveIcon(slots[i]) then liveCells[#liveCells + 1] = i end
         if ns.WarmSlot(slots[i]) then pending[#pending + 1] = i end
+        if showUsability and HasMountTint(slots[i]) then mountCells[#mountCells + 1] = i end
         w:Show()
     end
 
@@ -350,6 +368,9 @@ function PaletteView:Layout(paletteIndex)
                 end
                 if ns.WarmSlot(c.slots[j]) then
                     pending[#pending + 1] = cells
+                end
+                if showUsability and HasMountTint(c.slots[j]) then
+                    mountCells[#mountCells + 1] = cells
                 end
                 -- Hidden until its own claim is opened -- see UpdateNestShown.
                 w:Hide()
@@ -647,6 +668,33 @@ function PaletteView:AdvanceLiveIcons()
             ApplyIconCrop(w.icon, icon)
         end
     end
+end
+
+-- The mount cells' tint, re-read when the game says where you can mount may
+-- have changed (a doorway, a no-mount area, combat): the mount watch in
+-- EUI_Quickdraw_Live.lua calls this while a live menu holding a mount entry is
+-- up. Only a cell whose tint changed is repainted.
+function PaletteView:RefreshMountTints()
+    local cells = self._mountCells
+    if not cells or #cells == 0 then return end
+    for k = 1, #cells do
+        local index = cells[k]
+        local w = self.widgets[index]
+        local slot = self:CellSlot(index)
+        if w and slot then
+            local u = SlotUsability(slot)
+            if u ~= w.usability then
+                w.usability = u
+                self:RepaintEntry(index)
+            end
+        end
+    end
+end
+
+-- Whether the last layout drew a mount entry with the tint on.
+function PaletteView:HasMountCells()
+    local cells = self._mountCells
+    return cells ~= nil and #cells > 0
 end
 
 -- The entries that were drawn before the client had their data. Repainted as

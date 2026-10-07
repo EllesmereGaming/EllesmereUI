@@ -5,8 +5,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- in the class resource bar's slot. The slot (ERB_SecondaryFrame) stays shown
 -- and sized at zero alpha, so its unlock element, anchors, shift and expand act
 -- exactly as with our pips. A host frame of ours covers the slot and holds
--- Blizzard's frame centred, scaled by the Scale cog; the class resource
--- visibility settings (combat, mouseover, opacity, fade, vehicle) ride the host.
+-- Blizzard's frame with its points centred (ArtOffset), scaled by the Scale
+-- cog; the class resource visibility settings (combat, mouseover, opacity,
+-- fade, vehicle) ride the host.
 --
 -- One owner: the Unit Frames "Blizzard" class resource style re-hosts the same
 -- frame on its player frame and wins it (ns.UF_OwnsBlizzClassPower). This side
@@ -14,10 +15,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- Unit Frames re-runs this module's apply when it takes or drops it.
 --
 -- Zero cost while off: nothing is created or hooked before the first claim, and
--- the one hook (OnShow on the claimed frame) returns on two compares once the
--- frame is handed back. No events or tickers: BuildBars decides ownership on its
--- own rebuilds (options, spec, talent, form, max power, login), and Blizzard's
--- own Setup keeps deciding when the frame shows. The one watcher is a
+-- the two hooks (OnShow and Layout on the claimed frame) return on a compare or
+-- two once the frame is handed back. No events or tickers: BuildBars decides
+-- ownership on its own rebuilds (options, spec, talent, form, max power, login),
+-- and Blizzard's own Setup keeps deciding when the frame shows. The one watcher is a
 -- PLAYER_LEVEL_UP registration that exists only while a held frame waits for
 -- its minimum level.
 --
@@ -212,6 +213,17 @@ local function Forget(bar, atHome)
     keyed = false
 end
 
+-- Where the frame's centre goes on the host so its points, not its rect, are
+-- centred: Blizzard's class resource frames are layout frames (Holy Power's
+-- aside) whose points sit inside their own padding (topPadding 5 to 10, the
+-- runes' and shards' leftPadding, the 6 and 7 point rogue bar's negative
+-- leftPadding), so the frame is offset by half the padding difference.
+local function ArtOffset(bar)
+    if not (bar.IsLayoutFrame and bar:IsLayoutFrame()) then return 0, 0 end
+    return ((bar.rightPadding or 0) - (bar.leftPadding or 0)) / 2,
+           ((bar.topPadding or 0) - (bar.bottomPadding or 0)) / 2
+end
+
 -- Seat the frame on the host, centred. With Blizzard's player frame taken down
 -- set Blizzard's opt-out first (the real field, not a cache: Unit Frames clears
 -- the same field when it drops the frame): a show would otherwise send the frame
@@ -232,7 +244,7 @@ local function Seat(bar)
         bar:SetMouseClickEnabled(false)
     end
     bar:ClearAllPoints()
-    bar:SetPoint("CENTER", host, "CENTER", 0, 0)
+    bar:SetPoint("CENTER", host, "CENTER", ArtOffset(bar))
     bar:SetFrameStrata(host:GetFrameStrata())
     if bar:GetParent() ~= host then bar:SetParent(host) end
     bar:SetFrameLevel(host:GetFrameLevel() + 2)
@@ -286,6 +298,19 @@ local function OnBarShow(bar)
             FinishRelease(bar)
         end
     end
+end
+
+-- The second hook, a posthook on the claimed frame's Layout: the rogue bar
+-- changes its leftPadding with its max points and lays out again, so the held
+-- frame is re-centred when its offset moved. Inert (a compare) when not ours.
+local function OnBarLayout(bar)
+    if bar ~= heldBar or bar:GetParent() ~= host then return end
+    local dx, dy = ArtOffset(bar)
+    local _, rel, _, x, y = bar:GetPoint(1)
+    if rel == host and x == dx and y == dy then return end
+    if Blocked(bar) then return end
+    bar:ClearAllPoints()
+    bar:SetPoint("CENTER", host, "CENTER", dx, dy)
 end
 
 -- Hand back. A frame Blizzard's layout still lists as showing must not be
@@ -345,6 +370,7 @@ local function Claim(bar, slot, sp, info)
     if not hooked[bar] then
         hooked[bar] = true
         bar:HookScript("OnShow", OnBarShow)
+        if bar.Layout then hooksecurefunc(bar, "Layout", OnBarLayout) end
     end
     parked = nil
     RecordHome(bar)

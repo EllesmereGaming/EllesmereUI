@@ -745,6 +745,7 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
         if rgn._control then rgn._control:Hide() end
         local PAB_ALL_DEBUFFS_KEY = "__allDebuffs"
         local PAB_DEBUFF_HAS_DUR_KEY = "__debuffHasDuration"
+        local PAB_HIDE_EXH_KEY = "__hideExhaustion"
         local PAB_MATCH_ANY_KEY = "__matchAny"
         local PAB_MATCH_ALL_KEY = "__matchAll"
         local function AllOn() return cfg.showAllDebuffs ~= false end
@@ -759,6 +760,12 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
                   tooltip = "Show every debuff. Use the Hide lane below to remove specific filters." },
                 { key = PAB_DEBUFF_HAS_DUR_KEY, label = "Has Duration",
                   tooltip = "Only show debuffs that have a duration, excluding permanent ones. Combines with the filters below; checked alone it shows every timed debuff." },
+                -- Hide Exhaustion (cfg.hideExhaustion, off by default): the
+                -- Bloodlust lockouts leave the bar (DebuffCandidateExtras). Kept out
+                -- of the summary, like the Raid Frames row.
+                { key = PAB_HIDE_EXH_KEY, label = "Hide Exhaustion",
+                  tooltip = "Hides Sated, Exhaustion, Temporal Displacement and the other Bloodlust lockout debuffs.",
+                  excludeFromSummaryFn = function() return true end },
                 -- Modifiers, not filters: how the Show picks combine (engine side:
                 -- DebuffChainFor). A radio pair over cfg.debuffMatch (nil = Match
                 -- Any, the union), kept out of the summary; locked while All
@@ -809,6 +816,7 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
             function(k, neg)
                 if k == PAB_ALL_DEBUFFS_KEY then return AllOn() end
                 if k == PAB_DEBUFF_HAS_DUR_KEY then return cfg.hasDuration == true end
+                if k == PAB_HIDE_EXH_KEY then return cfg.hideExhaustion == true end
                 if k == PAB_MATCH_ANY_KEY or k == PAB_MATCH_ALL_KEY then
                     return (k == PAB_MATCH_ALL_KEY) == MatchAll()
                 end
@@ -835,6 +843,12 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
                     -- class-filter selection; alone it acts as the timed
                     -- catch-all (DebuffCatchAllOn).
                     cfg.hasDuration = v or nil
+                    apply()
+                    EllesmereUI:RefreshPage()
+                    return
+                end
+                if k == PAB_HIDE_EXH_KEY then
+                    cfg.hideExhaustion = v or nil
                     apply()
                     EllesmereUI:RefreshPage()
                     return

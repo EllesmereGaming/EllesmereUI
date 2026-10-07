@@ -210,88 +210,24 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
             if ns._healthAnimActive then StopHealthAnim(); RefreshHealthEye() end
         end)
 
-        -- One-time eyeball hint, raid/main page only.
+        -- One-time eyeball hint, raid/main page only. On the panel body like
+        -- the other panel tips: it hides with the window when it collapses and
+        -- rides the panel scale.
         if not optState._partyCtx and not (EllesmereUIDB and EllesmereUIDB.rfEyeHintSeen) then
-            local TIP_W, TIP_H = 310, 82
-            local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.83, b = 0.62 }
-            local ar, ag, ab = EG.r, EG.g, EG.b
-
-            -- On the panel body like the other panel tips: it hides with the
-            -- window when it collapses and rides the panel scale.
-            local tip = CreateFrame("Frame", nil, EllesmereUI._panelBody)
-            tip:SetFrameStrata("FULLSCREEN_DIALOG")
-            tip:SetFrameLevel(200)
-            if PP then PP.Size(tip, TIP_W, TIP_H) end
-            tip:SetSize(TIP_W, TIP_H)
-            tip:EnableMouse(true)
-            tip:SetPoint("TOP", eyeBtn, "BOTTOM", 0, -14)
-
-            local tipBg = tip:CreateTexture(nil, "BACKGROUND")
-            tipBg:SetAllPoints()
-            tipBg:SetColorTexture(0.077, 0.068, 0.058, 0.95)
-
-            EllesmereUI.MakeBorder(tip, ar, ag, ab, 0.25, PP)
-
-            -- Arrow pointing up (clipped diamond)
-            local ARROW_SZ = 16
-            local arrowClip = CreateFrame("Frame", nil, tip)
-            arrowClip:SetFrameStrata("FULLSCREEN_DIALOG")
-            arrowClip:SetFrameLevel(tip:GetFrameLevel() + 10)
-            arrowClip:SetClipsChildren(true)
-            arrowClip:SetSize(ARROW_SZ * 2, ARROW_SZ)
-            arrowClip:SetPoint("BOTTOM", tip, "TOP", 0, -1)
-
-            local arrowFrame = CreateFrame("Frame", nil, arrowClip)
-            arrowFrame:SetFrameLevel(arrowClip:GetFrameLevel() + 1)
-            arrowFrame:SetSize(ARROW_SZ + 4, ARROW_SZ + 4)
-            arrowFrame:SetPoint("CENTER", arrowClip, "BOTTOM", 0, 0)
-
-            local arrowBorder = arrowFrame:CreateTexture(nil, "ARTWORK", nil, 7)
-            arrowBorder:SetSize(ARROW_SZ + 2, ARROW_SZ + 2)
-            arrowBorder:SetPoint("CENTER")
-            arrowBorder:SetColorTexture(ar, ag, ab, 0.18)
-            arrowBorder:SetRotation(math.rad(45))
-            if arrowBorder.SetSnapToPixelGrid then arrowBorder:SetSnapToPixelGrid(false); arrowBorder:SetTexelSnappingBias(0) end
-
-            local arrowFill = arrowFrame:CreateTexture(nil, "OVERLAY", nil, 6)
-            arrowFill:SetSize(ARROW_SZ, ARROW_SZ)
-            arrowFill:SetPoint("CENTER")
-            arrowFill:SetColorTexture(0.077, 0.068, 0.058, 0.95)
-            arrowFill:SetRotation(math.rad(45))
-            if arrowFill.SetSnapToPixelGrid then arrowFill:SetSnapToPixelGrid(false); arrowFill:SetTexelSnappingBias(0) end
-
-            local msg = EllesmereUI.MakeFont(tip, 10, nil, 1, 1, 1, 0.85)
-            msg:SetPoint("TOP", tip, "TOP", 0, -12)
-            msg:SetWidth(TIP_W - 24)
-            msg:SetJustifyH("CENTER")
-            msg:SetSpacing(4)
-            msg:SetText(EllesmereUI.L("Click this eye icon to preview live\nhealth bar effects like absorbs and healing."))
-
-            local okBtn = CreateFrame("Button", nil, tip)
-            okBtn:SetSize(70, 22)
-            okBtn:SetPoint("BOTTOM", tip, "BOTTOM", 0, 10)
-            EllesmereUI.MakeStyledButton(okBtn, "Okay", 10,
-                EllesmereUI.RB_COLOURS, function()
-                    tip:Hide()
+            local tip = EllesmereUI.BuildTipCallout(EllesmereUI._panelBody, {
+                width = 310, height = 82, pp = PP,
+                text = EllesmereUI.L("Click this eye icon to preview live\nhealth bar effects like absorbs and healing."),
+                fontSize = 10, textTop = 12, textInset = 24, spacing = 4, bgAlpha = 0.95,
+                btnW = 70, btnH = 22, btnBottom = 10, btnFontSize = 10,
+                onOkay = function()
                     ns._rfEyeHintTip = nil
                     EllesmereUIDB = EllesmereUIDB or {}
                     EllesmereUIDB.rfEyeHintSeen = true
-                end)
-
+                end,
+            })
+            tip:SetPoint("TOP", eyeBtn, "BOTTOM", 0, -14)
             ns._rfEyeHintTip = tip
-
-            tip:SetAlpha(0)
-            tip:Show()
-            local fadeIn = 0
-            tip:SetScript("OnUpdate", function(self, dt)
-                fadeIn = fadeIn + dt
-                if fadeIn >= 0.3 then
-                    self:SetAlpha(1)
-                    self:SetScript("OnUpdate", nil)
-                    return
-                end
-                self:SetAlpha(fadeIn / 0.3)
-            end)
+            EllesmereUI.ShowTipCallout(tip)
         end
     end  -- close do (health eyeball)
 

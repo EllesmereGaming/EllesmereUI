@@ -1900,6 +1900,50 @@ ReloadFramesBody = function()
     -- on the geometry the sweep just settled (returns at once everywhere else).
     ns.UF_ApplyForeverComboArc()
 
+    -- Rounded corners (EllesmereUI_RoundedCorners.lua), on the settled
+    -- geometry. The radius rides with the border source, like the border; a
+    -- detached power bar rounds on its own with the same radius. An attached
+    -- portrait joins with its own art only: the dragons on it reach past the
+    -- frame and stay whole.
+    for unit, frame in pairs(frames) do
+        if type(unit) == "string" and type(frame) == "table" and frame.unifiedBorder then
+            local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget")
+            local isBoss = unit:match("^boss%d$") and true or false
+            local src = isBoss and ns.UF_BossBorderSettings()
+                or (isMini and GetMiniDonorSettings(unit)) or GetSettingsForUnit(unit)
+            local us = GetSettingsForUnit(unit)
+            local radius = (not frame._blizzArtFrame and src and src.cornerRadius) or 0
+            local power = frame.Power
+            local pp = us and us.powerPosition or "below"
+            local det = pp == "detached_top" or pp == "detached_bottom"
+            if radius > 0 then
+                local ps = us and us.portraitStyle or profile.portraitStyle or "attached"
+                local attached = ps == "attached" or ((isMini or isBoss) and ps == "detached")
+                local bd = frame.Portrait and frame.Portrait.backdrop
+                if not (attached and bd and bd:IsShown()) then bd = nil end
+                local btb = frame.BottomTextBar
+                EllesmereUI.RoundCorners(frame, radius, {
+                    roots = { frame._barClip, btb and not btb._isDetached and btb or nil },
+                    textures = { bd and bd._bg, bd and bd._2d, bd and bd._class },
+                    border = frame.unifiedBorder,
+                    clip = frame._barClip,
+                    style = src.borderTexture or "solid",
+                })
+            else
+                EllesmereUI.RoundCorners(frame, 0)
+            end
+            if power then
+                if det and radius > 0 then
+                    EllesmereUI.RoundCorners(power, radius, {
+                        border = power._pbBorder, style = us.powerBorderStyle or "solid",
+                    })
+                else
+                    EllesmereUI.RoundCorners(power, 0)
+                end
+            end
+        end
+    end
+
     -- Player Aura Bars resolve font path and outline flag at style-build time; every
     -- settings path landing here (fonts, profiles, options) forces one explicit
     -- re-skin of the default and custom bars, both change-guarded no-ops when nothing changed.

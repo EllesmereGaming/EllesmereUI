@@ -1304,6 +1304,11 @@ local defaults = {
         dispelOverlayOpacity = 100,
         dispelOverlayByMe    = false,    -- only debuffs the player can dispel (engine filter token)
         dispelCustomBorder   = false,    -- Color Custom Borders: the frame border copied in the dispel type color
+        showDispelIcons      = false,    -- Type Icon Position: the type's icon on a health bar corner
+        dispelIconPosition   = "right",
+        dispelIconSize       = 16,
+        dispelIconOffsetX    = 0,
+        dispelIconOffsetY    = 0,
         dispelColorMagic   = { r = 0.349, g = 0.475, b = 1.0 },
         dispelColorCurse   = { r = 0.636, g = 0.0,   b = 0.64 },
         dispelColorDisease = { r = 0.671, g = 0.384, b = 0.098 },

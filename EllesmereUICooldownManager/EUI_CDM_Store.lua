@@ -683,6 +683,28 @@ function ns.GetSpellCdStateEffect(frame, settings)
     return settings and settings.cdStateEffect
 end
 
+-- The hide effects by saved value: the base mode the evaluators run, plus
+-- shift (the bar closes the gap: Shift Icons), usable (an unusable spell also
+-- hides: Hidden Until Usable) and form (only the spell's form or stance
+-- decides, whatever its cooldown: Hidden Outside Form/Stance). A new hide
+-- effect is one entry here.
+ns.CD_STATE_HIDE = {
+    hiddenOnCD          = { base = "hiddenOnCD" },
+    hiddenReady         = { base = "hiddenReady" },
+    hiddenUnusable      = { base = "hiddenOnCD", usable = true },
+    hiddenForm          = { base = "hiddenOnCD", form = true },
+    hiddenOnCDShift     = { base = "hiddenOnCD", shift = true },
+    hiddenReadyShift    = { base = "hiddenReady", shift = true },
+    hiddenUnusableShift = { base = "hiddenOnCD", shift = true, usable = true },
+    hiddenFormShift     = { base = "hiddenOnCD", shift = true, form = true },
+}
+
+-- True for a Shift Icons effect
+function ns.CdStateShifts(eff)
+    local m = eff and ns.CD_STATE_HIDE[eff]
+    return m and m.shift or false
+end
+
 -- CD Ready glow style (CDM saved numbering), read from the same settings table as
 -- the effect: the explicit pick, else what the effect name implies (pixel* =
 -- Pixel Glow, button* = Action Button Glow), so older settings render unchanged.

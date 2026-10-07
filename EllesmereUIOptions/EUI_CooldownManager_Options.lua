@@ -2073,76 +2073,15 @@ initFrame:SetScript("OnEvent", function(self)
         if _cdmButtonTip and _cdmButtonTip:IsShown() then return end
 
         if not _cdmButtonTip then
-            local TIP_W, TIP_H = 360, 105
-            local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
-            local ar, ag, ab = EG.r, EG.g, EG.b
-            local PP = EllesmereUI.PanelPP or EllesmereUI.PP
-
-            local tip = CreateFrame("Frame", nil, EllesmereUI._panelBody)
-            tip:SetFrameStrata("FULLSCREEN_DIALOG")
-            tip:SetFrameLevel(200)
-            if PP and PP.Size then PP.Size(tip, TIP_W, TIP_H) else tip:SetSize(TIP_W, TIP_H) end
-            tip:EnableMouse(true)
-
-            -- Background
-            local bg = tip:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            bg:SetColorTexture(0.077, 0.068, 0.058, 1)
-
-            -- Border
-            EllesmereUI.MakeBorder(tip, ar, ag, ab, 0.25, PP)
-
-            -- Arrow pointing up
-            local ARROW_SZ = 16
-            local arrowClip = CreateFrame("Frame", nil, tip)
-            arrowClip:SetFrameStrata("FULLSCREEN_DIALOG")
-            arrowClip:SetFrameLevel(tip:GetFrameLevel() + 10)
-            arrowClip:SetClipsChildren(true)
-            arrowClip:SetSize(ARROW_SZ * 2, ARROW_SZ)
-            arrowClip:SetPoint("BOTTOM", tip, "TOP", 0, -1)
-
-            local arrowFrame = CreateFrame("Frame", nil, arrowClip)
-            arrowFrame:SetFrameLevel(arrowClip:GetFrameLevel() + 1)
-            arrowFrame:SetSize(ARROW_SZ + 4, ARROW_SZ + 4)
-            arrowFrame:SetPoint("CENTER", arrowClip, "BOTTOM", 0, 0)
-
-            local arrowBorder = arrowFrame:CreateTexture(nil, "ARTWORK", nil, 7)
-            arrowBorder:SetSize(ARROW_SZ + 2, ARROW_SZ + 2)
-            arrowBorder:SetPoint("CENTER")
-            arrowBorder:SetColorTexture(ar, ag, ab, 0.18)
-            arrowBorder:SetRotation(math.rad(45))
-            if arrowBorder.SetSnapToPixelGrid then arrowBorder:SetSnapToPixelGrid(false); arrowBorder:SetTexelSnappingBias(0) end
-
-            local arrowFill = arrowFrame:CreateTexture(nil, "OVERLAY", nil, 6)
-            arrowFill:SetSize(ARROW_SZ, ARROW_SZ)
-            arrowFill:SetPoint("CENTER")
-            arrowFill:SetColorTexture(0.077, 0.068, 0.058, 1)
-            arrowFill:SetRotation(math.rad(45))
-            if arrowFill.SetSnapToPixelGrid then arrowFill:SetSnapToPixelGrid(false); arrowFill:SetTexelSnappingBias(0) end
-
-            -- Message
-            local FONT_PATH2 = (EllesmereUI.GetFontPath("cdm"))
-                or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
-            local msg = tip:CreateFontString(nil, "OVERLAY")
-            msg:SetFont(FONT_PATH2, 12, "")
-            msg:SetTextColor(1, 1, 1, 0.85)
-            msg:SetPoint("TOP", tip, "TOP", 0, -15)
-            msg:SetWidth(TIP_W - 30)
-            msg:SetJustifyH("CENTER")
-            msg:SetSpacing(4)
-            msg:SetText(EllesmereUI.L("CDM buttons can have their glow and active states\nset per icon or synced to the bar. Click a button\nto show its settings."))
-
-            -- Okay button
-            local okBtn = CreateFrame("Button", nil, tip)
-            okBtn:SetSize(86, 26)
-            okBtn:SetPoint("BOTTOM", tip, "BOTTOM", 0, 11)
-            EllesmereUI.MakeStyledButton(okBtn, "Okay", 11,
-                EllesmereUI.RB_COLOURS, function()
-                    tip:Hide()
+            _cdmButtonTip = EllesmereUI.BuildTipCallout(EllesmereUI._panelBody, {
+                width = 360, height = 105,
+                text = EllesmereUI.L("CDM buttons can have their glow and active states\nset per icon or synced to the bar. Click a button\nto show its settings."),
+                font = (EllesmereUI.GetFontPath("cdm")) or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",
+                textTop = 15, spacing = 4, btnBottom = 11,
+                onOkay = function()
                     if EllesmereUIDB then EllesmereUIDB.cdmButtonTipSeen = true end
-                end)
-
-            _cdmButtonTip = tip
+                end,
+            })
         end
 
         -- The preview is rebuilt with its page, so anchor on every show.

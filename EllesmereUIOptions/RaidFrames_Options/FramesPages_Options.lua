@@ -816,6 +816,18 @@ local function BuildMainPage(pageName, parent, yOffset)
         borderSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border") end)
         borderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         EllesmereUI.RegisterWidgetRefresh(function() updBorder() end)
+        -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog left
+        -- of the Border swatch.
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Corner Radius", tip = "Corner Radius",
+            disabled = function() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end,
+            disabledTooltip = "This option requires the Solid, Glow or Shadow border style.",
+            rows = {
+                { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                  get = function() return SVal("cornerRadius", 0) end,
+                  set = function(v) SSet("cornerRadius", v) end },
+            },
+        })
     end
 
     -- Width Offset | Height Offset: the textured edge's outward offsets as their

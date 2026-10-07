@@ -920,8 +920,72 @@ local function ApplyHealthBarTexture(plate)
     -- the bar's inner shadow (re-sized here on every appearance pass). The
     -- classic plate is the bare fill inside its 1px edge (the border path).
     if ns.NP_Style() == "blizzard" then ns.NP_ApplyBlizzBarArt(plate) end
+    ns.NP_ApplyRounding(plate, "health")
 end
 ns.ApplyHealthBarTexture = ApplyHealthBarTexture
+
+-- Rounded corners (EllesmereUI_RoundedCorners.lua; nothing at radius 0, under
+-- the stock styles, under a custom border style that cannot round, or while
+-- Wrap Border Around Castbar is on, which greys Corner Radius out). The body
+-- is listed texture by texture: glows and arrows on the health bar reach past
+-- it and must stay unmasked. Re-run after every retexture (a path swap mints a
+-- new fill object). The custom border frame is the shape while it is on.
+-- part: "health" or "cast" for one bar, nil for both. The opts tables are
+-- reused (the kit reads them during the call only).
+local NO_ROOTS, HP_ROOTS, HP_TEX, CAST_TEX = {}, {}, {}, {}
+local HP_OPTS = { roots = HP_ROOTS, textures = HP_TEX }
+local CAST_OPTS = { roots = NO_ROOTS, textures = CAST_TEX }
+function ns.NP_ApplyRounding(plate, part)
+    local health = plate.health
+    if not health then return end
+    local radius = (not ns.NP_Blizz() and p and p.cornerRadius) or 0
+    if radius > 0 and ns.GetWrapBorderCastbar() then radius = 0 end
+    local customOn = radius > 0 and ns.IsCustomBorderEnabled()
+    local style = customOn and ((p and p.customBorderTexture) or defaults.customBorderTexture) or "solid"
+    if not EllesmereUI.RoundedStyleOK(style) then radius = 0 end
+    -- Off: free on every spawn unless this plate was rounded before.
+    if radius <= 0 then
+        if plate._npRounded then
+            plate._npRounded = nil
+            EllesmereUI.RoundCorners(plate, 0)
+            if plate.cast then EllesmereUI.RoundCorners(plate.cast, 0) end
+        end
+        return
+    end
+    plate._npRounded = true
+    -- Basic draws Solid strips on the health bar; Custom draws its own style
+    -- on its own frame, which ApplyBorder builds and rounds right after.
+    local custom = customOn and plate._customBorder
+    if part ~= "cast" and (custom or not customOn) then
+        local shape = custom or health
+        HP_OPTS.rect, HP_OPTS.border, HP_OPTS.style = shape, shape, style
+        local ab, fw = plate.absorb, plate.absorbForward
+        HP_TEX[1], HP_TEX[2], HP_TEX[3] = health:GetStatusBarTexture(), plate.healthBG, plate.hashLine
+        HP_TEX[4], HP_TEX[5] = plate.highlight, plate.targetHighlight
+        HP_TEX[6] = ab and ab:GetStatusBarTexture()
+        HP_TEX[7] = fw and fw:GetStatusBarTexture()
+        -- The Target, Focus and Hover Texture overlays: one texture in each of
+        -- their clip frames (built on first use, nil until then)
+        HP_ROOTS[1], HP_ROOTS[2] = plate.targetClipFill, plate.targetClipBg
+        HP_ROOTS[3], HP_ROOTS[4] = plate.focusClipFill, plate.focusClipBg
+        HP_ROOTS[5], HP_ROOTS[6] = plate.hoverClipFill, plate.hoverClipBg
+        EllesmereUI.RoundCorners(plate, radius, HP_OPTS)
+    end
+    local cast = plate.cast
+    if cast and part ~= "health" then
+        CAST_OPTS.border = cast
+        CAST_TEX[1], CAST_TEX[2], CAST_TEX[3] = cast:GetStatusBarTexture(), plate.castBG, plate.castBarOverlay
+        EllesmereUI.RoundCorners(cast, radius, CAST_OPTS)
+    end
+end
+
+-- The Basic border's colour: its PP strips, plus the rounded ring that stands
+-- in for them while Corner Radius is on (the strips are masked out then). A
+-- hidden border still takes the colour, for its next show.
+function ns.NP_BasicBorderColor(plate, r, g, b, a)
+    EllesmereUI.PP.SetBorderColor(plate.health, r, g, b, a)
+    if plate._npRounded then EllesmereUI.RoundedBorderColor(plate.health, r, g, b, a) end
+end
 
 -- Cast bar texture: mirrors ApplyHealthBarTexture with the same texture set (EUI built-ins +
 -- SharedMedia, appended into ns.healthBarTextures at options-build time). On ns (local cap).
@@ -940,6 +1004,8 @@ function ns.ApplyCastBarTexture(plate)
     if plate.castBarOverlay then
         plate.castBarOverlay:SetTexture(path)
     end
+    -- A path swap mints a new fill object: it joins the rounded body.
+    if plate._npRounded then ns.NP_ApplyRounding(plate, "cast") end
 end
 
 function ns.ApplyAbsorbStyle(plate)
@@ -986,6 +1052,8 @@ function ns.ApplyAbsorbStyle(plate)
             plate:MarkHealthDirty()
         end
     end
+    -- A new shield texture is a new fill object: it joins the rounded body.
+    if plate._npRounded then ns.NP_ApplyRounding(plate, "health") end
 end
 
 -- Shield absorbs, drawn like the unit frames' and secret-safe: both bars take

@@ -2380,7 +2380,8 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
     sharedClassResHeader, h = W:SectionHeader(parent, "CLASS RESOURCE", y); y = y - h
 
     -- The class resource style that builds: WoW Forever outside its own
-    -- style builds a saved "blizzard" as modern (ns.UF_ForeverCPStyle, nil
+    -- style builds a saved "blizzard" as modern, and a rogue under the
+    -- EllesmereUI look reads its own style (ns.UF_ForeverCPStyle, nil
     -- elsewhere). Display and gating only; writes and syncs keep the saved value.
     local function SCPStyle()
         local v = SValSupported("classPowerStyle", "none")
@@ -2413,12 +2414,23 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
           -- is None; only the None <-> enabled flip forces the rebuild
           -- (style-to-style changes keep the cheap refresh path).
           setValue=EllesmereUI.DependentSetValue(
-              function() return SValSupported("classPowerStyle", "none") ~= "none" end,
+              function() return SCPStyle() ~= "none" end,
               function(v)
-                  SSetSupported("classPowerStyle", v)
-                  SSetSupported("showClassPowerBar", v ~= "none")
-                  if ns.frames and ns.frames._toggleClassPower then
-                      ns.frames._toggleClassPower(v)
+                  -- WoW Forever rogues under the EllesmereUI look pick their
+                  -- own style (ns.UF_RogueCPKey); the shared one stays as is.
+                  local rogueKey = ns.UF_RogueCPKey and ns.UF_RogueCPKey()
+                  if rogueKey then
+                      UNIT_DB_MAP[optState.selectedUnit]()[rogueKey] = v
+                      if ns.frames and ns.frames._toggleClassPower then
+                          ns.frames._toggleClassPower()
+                      end
+                      ReloadAndUpdate()
+                  else
+                      SSetSupported("classPowerStyle", v)
+                      SSetSupported("showClassPowerBar", v ~= "none")
+                      if ns.frames and ns.frames._toggleClassPower then
+                          ns.frames._toggleClassPower(v)
+                      end
                   end
                   UpdatePreview()
                   C_Timer.After(0, function() local rl = EllesmereUI._widgetRefreshList; if rl then for i = 1, #rl do rl[i]() end end end)
@@ -2599,7 +2611,7 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
 
     -- Rows 2-3 are HIDDEN entirely while Enable Class Resource is None
     -- (the dropdown's DependentSetValue forces the rebuild on flips).
-    if SValSupported("classPowerStyle", "none") ~= "none" then
+    if SCPStyle() ~= "none" then
     -- Row 2: Position (with cog for x/y) + Size
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Position", values=classPowerPosValues, order=classPowerPosOrder,

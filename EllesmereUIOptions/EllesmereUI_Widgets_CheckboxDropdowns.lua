@@ -1120,6 +1120,75 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
 end
 
 -------------------------------------------------------------------------------
+--  Spec picker items for BuildVisOptsCBDropdown (the "Select a Spec" lists):
+--  "All Specs" first (key EllesmereUI.SPEC_PICK_ALL, an action row), then on
+--  retail every class's specs under its class header, classes in alphabetical
+--  order, with opts.roles adding the All Healers / All Tanks / All DPS action
+--  rows (keys SPEC_PICK_HEALERS / _TANKS / _DPS) after it. WoW Forever lists
+--  one row per class instead, keyed by its class token and standing for every
+--  retail spec of the class (EllesmereUI.ForeverClassSpecIDs; the caller's
+--  getter and setter expand it), and no role rows. opts.allLockedFn locks the
+--  action rows; opts.lockedFn(specID) locks a spec row, and a Forever class row
+--  while any spec of its class is locked. Returns the items and the role table
+--  ({ [SPEC_PICK_HEALERS] = spec IDs, ... }, empty on Forever).
+-------------------------------------------------------------------------------
+EllesmereUI.SPEC_PICK_ALL, EllesmereUI.SPEC_PICK_HEALERS = 0, -1
+EllesmereUI.SPEC_PICK_TANKS, EllesmereUI.SPEC_PICK_DPS = -2, -3
+function EllesmereUI.SpecPickItems(opts)
+    opts = opts or {}
+    local lockedFn, allLockedFn = opts.lockedFn, opts.allLockedFn
+    local items, roles = {}, {}
+    items[1] = { key = EllesmereUI.SPEC_PICK_ALL, label = "All Specs", isAction = true, lockedFn = allLockedFn }
+    if EllesmereUI.IS_FOREVER then
+        local classes = EllesmereUI.ForeverClasses()
+        for n = 1, #classes do
+            local token = classes[n]
+            local ids = EllesmereUI.ForeverClassSpecIDs(token)
+            items[#items + 1] = { key = token, label = EllesmereUI.ForeverClassName(token),
+                lockedFn = lockedFn and function()
+                    for i = 1, #ids do
+                        if lockedFn(ids[i]) then return true end
+                    end
+                    return false
+                end or nil }
+        end
+        return items, roles
+    end
+    if opts.roles then
+        items[#items + 1] = { key = EllesmereUI.SPEC_PICK_HEALERS, label = "All Healers", isAction = true, lockedFn = allLockedFn }
+        items[#items + 1] = { key = EllesmereUI.SPEC_PICK_TANKS, label = "All Tanks", isAction = true, lockedFn = allLockedFn }
+        items[#items + 1] = { key = EllesmereUI.SPEC_PICK_DPS, label = "All DPS", isAction = true, lockedFn = allLockedFn }
+    end
+    local classList = {}
+    for classID = 1, (GetNumClasses and GetNumClasses() or 13) do
+        local className = GetClassInfo(classID)
+        if className then
+            classList[#classList + 1] = { classID = classID, className = className }
+        end
+    end
+    table.sort(classList, function(a, b) return a.className < b.className end)
+    local healers, tanks, dps = {}, {}, {}
+    for _, cls in ipairs(classList) do
+        items[#items + 1] = { isHeader = true, label = cls.className }
+        for specIndex = 1, (C_SpecializationInfo.GetNumSpecializationsForClassID(cls.classID) or 0) do
+            local specID, specName, _, _, role = GetSpecializationInfoForClassID(cls.classID, specIndex)
+            if specID and specName then
+                local sid = specID
+                items[#items + 1] = { key = specID, label = specName,
+                    lockedFn = lockedFn and function() return lockedFn(sid) end or nil }
+                if role == "HEALER" then healers[#healers + 1] = specID
+                elseif role == "TANK" then tanks[#tanks + 1] = specID
+                else dps[#dps + 1] = specID end
+            end
+        end
+    end
+    roles[EllesmereUI.SPEC_PICK_HEALERS] = healers
+    roles[EllesmereUI.SPEC_PICK_TANKS] = tanks
+    roles[EllesmereUI.SPEC_PICK_DPS] = dps
+    return items, roles
+end
+
+-------------------------------------------------------------------------------
 --  BuildReorderCBDropdown
 --  Checkbox dropdown whose rows can also be drag-reordered vertically. Row visuals match BuildVisOptsCBDropdown;
 --  the drag behavior matches the Macro Factory per-macro menus (3px threshold, floating row, insertion line, contents shuffle on drop).

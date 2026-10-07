@@ -5,7 +5,7 @@
 ## Group: EllesmereUI
 ## Notes: A simple Mythic+ timer with full tracking customizations.
 ## Author: Ellesmere
-## Version: 9.3.9
+## Version: 9.4
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIMythicTimerDB
 ## SavedVariablesPerCharacter: EllesmereUIMythicRunsDB

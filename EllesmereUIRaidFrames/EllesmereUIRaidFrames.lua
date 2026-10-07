@@ -478,6 +478,7 @@ local defaults = {
         borderAlpha      = 1,
         borderTexture    = "solid",
         borderBehind     = false,
+        cornerRadius     = 0,  -- rounded corners, 0 = off
         -- borderTextureOffset/OffsetY/ShiftX/ShiftY default via GetBorderDefaults
 
         -- Smooth bars

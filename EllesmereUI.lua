@@ -2922,7 +2922,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.3.9"
+EllesmereUI.VERSION = "9.4"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -3265,6 +3265,8 @@ SlashCmdList.EUIRESETHINT = function()
             EllesmereUIDB.sidebarUnlockTipSeen = nil
             EllesmereUIDB.rfEyeHintSeen = nil
             EllesmereUIDB.bmIconHintDismissed = nil
+            EllesmereUIDB.cdmButtonTipSeen = nil
+            EllesmereUIDB.bagCategoryTipSeen = nil
         end
         EllesmereUI.Print("|cff00ff00[EllesmereUI]|r All hints reset. /reload to see them again.")
     end)
@@ -3538,6 +3540,14 @@ do
     function EllesmereUI.HideMinimapButton()
         if btn then btn:Hide() end
     end
+end
+
+-- Spell ID on Tooltip (Blizzard Skins+ > Tooltips & Menus, Global Settings >
+-- Developer): on unless turned off. Accounts from before that default keep it
+-- off through the spellid_default_on_v1 migration (EllesmereUI_Migration.lua).
+function EllesmereUI.SpellIDOn()
+    local db = EllesmereUIDB
+    return db ~= nil and db.showSpellID ~= false
 end
 
 -------------------------------------------------------------------------------
@@ -4047,7 +4057,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- it re-asserts every login and on toggle edits. Modifier-gated configs skip it: the engine renders always-on, which would override the user's hold-a-modifier preference (their combat aura IDs stay unavailable -- inherent trade).
         function EllesmereUI.SyncAuraSpellIDCVar()
             local db = EllesmereUIDB
-            local on = db and db.showSpellID
+            local on = EllesmereUI.SpellIDOn()
                 and (db.spellIDModifier or "none") == "none"
             pcall(EllesmereUI.SetCVar, "tooltipShowAuraSpellIDs", on and "1" or "0")
         end
@@ -4098,7 +4108,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         end
 
         local function SpellIDTooltipHook(tooltip, data)
-            if not (EllesmereUIDB and EllesmereUIDB.showSpellID) then return end
+            if not EllesmereUI.SpellIDOn() then return end
             if not IsSpellIDModifierHeld() then return end
             if not data or not data.id then return end
             if _isSecret and _isSecret(data.id) then return end
@@ -4124,7 +4134,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         end
 
         local function ItemIDTooltipHook(tooltip, data)
-            if not (EllesmereUIDB and EllesmereUIDB.showSpellID) then return end
+            if not EllesmereUI.SpellIDOn() then return end
             if not IsSpellIDModifierHeld() then return end
             if not data or not data.id then return end
             if _isSecret and _isSecret(data.id) then return end
@@ -4173,7 +4183,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- them (GetSpell() also returns nil on a macro tooltip). The spell #showtooltip resolved
         -- to (honoring conditionals) is exposed as the FIRST tooltip line's tooltipID, read from the tooltip data.
         local function MacroSpellIDTooltipHook(tooltip, _data)
-            if not (EllesmereUIDB and EllesmereUIDB.showSpellID) then return end
+            if not EllesmereUI.SpellIDOn() then return end
             if not IsSpellIDModifierHeld() then return end
             if not tooltip or not tooltip.GetName or not tooltip.GetTooltipData then return end
             local ok, info = pcall(tooltip.GetTooltipData, tooltip)
@@ -4221,7 +4231,7 @@ initFrame:SetScript("OnEvent", function(self, event)
             local db = EllesmereUIDB
             if not db then return end
             local relevant =
-                (db.showSpellID and KeyMatchesModifier(key, db.spellIDModifier or "none"))
+                (EllesmereUI.SpellIDOn() and KeyMatchesModifier(key, db.spellIDModifier or "none"))
                 or (db.showItemMaxStacks and KeyMatchesModifier(key, db.itemStackModifier or "none"))
             if not relevant then return end
             if GameTooltip and GameTooltip:IsShown() and GameTooltip.RefreshData then

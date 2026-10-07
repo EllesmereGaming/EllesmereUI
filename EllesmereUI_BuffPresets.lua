@@ -603,3 +603,15 @@ if EllesmereUI.IS_FOREVER == true then
                     27578 } },
     }
 end
+
+-- WoW Forever on-next-swing attacks per class (base spell IDs; every rank
+-- shares the name the readers compare). While one is queued the Resource
+-- Bars swing timer paints its melee rows and the Cooldown Manager lights the
+-- attack's icons. Built on WoW Forever only: retail has no such attacks.
+if EllesmereUI.IS_FOREVER == true then
+    EllesmereUI.FOREVER_NEXT_SWING = {
+        WARRIOR = { 78, 845 },  -- Heroic Strike, Cleave
+        DRUID   = { 6807 },     -- Maul
+        HUNTER  = { 2973 },     -- Raptor Strike
+    }
+end

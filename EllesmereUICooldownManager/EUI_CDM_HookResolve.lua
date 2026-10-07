@@ -375,15 +375,12 @@ function ns.CdmBarHasShiftCdState(barKey)
                     local ss = ResolveSpellSettings(nil, sid, sd, barKey)
                     eff = ss and ss.cdStateEffect
                 end
-                if eff ~= "hiddenOnCDShift" and eff ~= "hiddenReadyShift" and eff ~= "hiddenUnusableShift"
-                   and ns.GetEffectiveCustomActiveState then
+                if not ns.CdStateShifts(eff) then
                     local cas = ns.GetEffectiveCustomActiveState(sid)
                     if cas and cas.cdStateEffect then eff = cas.cdStateEffect end
                 end
             end
-            if eff == "hiddenOnCDShift" or eff == "hiddenReadyShift" or eff == "hiddenUnusableShift" then
-                return true
-            end
+            if ns.CdStateShifts(eff) then return true end
         end
     end
     return false

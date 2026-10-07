@@ -597,7 +597,7 @@ function NameplateFrame:ApplyTarget()
                     EllesmereUI.SetBorderStyleColor(self._customBorder, bc.r, bc.g, bc.b, 1)
                 end
             else
-                PP.SetBorderColor(self.health, bc.r, bc.g, bc.b, 1)
+                ns.NP_BasicBorderColor(self, bc.r, bc.g, bc.b, 1)
             end
             self._hbThreatTint = nil
         end
@@ -732,7 +732,7 @@ function ns.ApplyHoverExtras(plate)
                     EllesmereUI.SetBorderStyleColor(plate._customBorder, bc.r, bc.g, bc.b, 1)
                 end
             else
-                PP.SetBorderColor(plate.health, bc.r, bc.g, bc.b, 1)
+                ns.NP_BasicBorderColor(plate, bc.r, bc.g, bc.b, 1)
             end
             plate._hbThreatTint = nil
             any = true

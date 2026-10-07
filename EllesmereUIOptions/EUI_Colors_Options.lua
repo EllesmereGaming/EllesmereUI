@@ -225,7 +225,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
         local fillRow
         fillRow, h = W:DualRow(parent, y,
             { type = "slider", text = "Dark Mode Fill",
-              min = 0, max = 100, step = 5,
+              min = 0, max = 100, step = 5, trackWidth = 120,
               tooltip = "Fill color and opacity of Dark Mode bars.",
               tooltipOnControl = "Fill Opacity",
               getValue = function()
@@ -238,7 +238,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
                   EllesmereUI.RefreshDarkMode()
               end },
             { type = "slider", text = "Background",
-              min = 0, max = 100, step = 5,
+              min = 0, max = 100, step = 5, trackWidth = 120,
               tooltip = "Color and opacity behind Dark Mode bars.",
               tooltipOnControl = "Background Opacity",
               getValue = function()
@@ -304,7 +304,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
                       d.fillR, d.fillG, d.fillB = r, g, b
                       EllesmereUI.RefreshDarkMode()
                   end },
-            })
+            }, { size = 20 })
             EllesmereUI.BuildInlineSwatches(fillRow._rightRegion, {
                 { tooltip = "Background Color",
                   getValue = function()
@@ -316,7 +316,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
                       d.bgR, d.bgG, d.bgB = r, g, b
                       EllesmereUI.RefreshDarkMode()
                   end },
-            })
+            }, { size = 20 })
         end
     end
 
