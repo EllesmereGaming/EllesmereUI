@@ -1401,7 +1401,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -----------------------------------------------------------------------
         --  WOW FOREVER section: on that client the rest of the page.
-        --  Camp Benefits toggle, a spell-ID entry that adds a custom reminder
+        --  Camp Benefits, Gathering Tracking and Find Treasure toggles, a spell-ID entry that adds a custom reminder
         --  and one row per tracked spell; the retail sections below never build.
         -----------------------------------------------------------------------
         if FOREVER then
@@ -1415,13 +1415,49 @@ initFrame:SetScript("OnEvent", function(self)
                 onChange = RefreshAll,
             });  y = y - h
 
-            -- Camp Benefits | Add Custom Spell
-            _, h = W:DualRow(parent, y,
+            -- Camp Benefits | Gathering Tracking (+ class tracking cog)
+            local campRow
+            campRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Camp Benefits",
                   tooltip="Reminds you when the Camp Benefits campfire buff is missing.",
                   getValue=function() local f = FDB(); return not f or f.camp ~= false end,
                   setValue=function(v)
                       local f = FDB(); if not f then return end; f.camp = v
+                      RefreshAll()
+                  end },
+                { type="toggle", text="Gathering Tracking",
+                  tooltip="Reminds you when Find Herbs or Find Minerals is known but neither is active. Click the reminder to cast it.",
+                  -- Off by default.
+                  getValue=function() local f = FDB(); return f and f.gather == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.gather = v
+                      RefreshAll()
+                      EllesmereUI:RefreshPage()
+                  end }
+            );  y = y - h
+
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(campRow._rightRegion, {
+                    title = "Gathering Tracking",
+                    disabled = function() local f = FDB(); return not (f and f.gather == true) end,
+                    disabledTooltip = "Gathering Tracking",
+                    rows = {
+                        { type="toggle", label="Class Tracking Counts",
+                          tooltip="Gathering and class tracking cannot be active together: when on, an active class tracking (Track Beasts, Sense Undead, Sense Demons...) also hides the reminder.",
+                          get=function() local f = FDB(); return not f or f.gatherClassTrack ~= false end,
+                          set=function(v) local f = FDB(); if f then f.gatherClassTrack = v; RefreshAll() end end },
+                    },
+                })
+            end
+
+            -- Find Treasure | Add Custom Spell (its tracked spells list right below)
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text=_G._EABR_SpellName(2481, "Find Treasure"),
+                  tooltip="Dwarf racial: reminds you when Find Treasure is known but not active. Click the reminder to cast it.",
+                  -- Off by default.
+                  getValue=function() local f = FDB(); return f and f.treasure == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.treasure = v
                       RefreshAll()
                   end },
                 { type="input", text="Add Custom Spell", inputStyle="popup", placeholder="Spell ID", inputWidth=110,

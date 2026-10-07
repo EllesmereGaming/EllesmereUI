@@ -13,13 +13,18 @@ local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 
 -- WoW Forever runs a reduced module: the Raid Buffs section over that client's
 -- four buffs (EABR.CollectForeverRaidBuffs) and one Forever-only section (the
--- Camp Benefits campfire buff plus custom spell IDs) collected by
+-- Camp Benefits campfire buff, gathering tracking, Find Treasure and custom spell IDs) collected by
 -- EABR.CollectForever, with every other retail collector, its events and its
 -- options sections off. Both values live on EABR because this file sits at
 -- Lua's 200-local ceiling; retail reads FOREVER as false at each gate and
 -- nothing else changes there.
 EABR.FOREVER = EllesmereUI.IS_FOREVER == true
 EABR.CAMP_BENEFITS = 1229741
+-- WoW Forever gathering trackers, in cast preference order: Find Herbs, Find
+-- Minerals. Both are self-buffs there and share one slot with the class
+-- trackers. Find Treasure (Dwarf) is no aura and stacks with any of them.
+EABR.GATHER_TRACKING = { 2383, 2580 }
+EABR.FIND_TREASURE = 2481
 
 local _B = {}  -- beacon state table, populated later
 local Known = function(id) return id and (IsPlayerSpell(id) or IsSpellKnown(id)) end
@@ -2306,6 +2311,9 @@ local defaults = {
 if EABR.FOREVER then
     defaults.profile.forever = {
         camp = false,       -- Camp Benefits reminder; opt-in, it shows whenever the buff is missing
+        gather = false,     -- gathering tracking reminder; opt-in, it shows while no tracker is up
+        gatherClassTrack = true,  -- an active class tracking also hides it
+        treasure = false,   -- Find Treasure reminder (Dwarf); opt-in, it shows while it is off
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added
     }
@@ -4286,6 +4294,21 @@ function EABR.BuildForeverFamilies()
     end
 end
 
+-- One pass over the minimap trackers, for those that are no auras there:
+-- whether Find Treasure is up (it stacks with any other tracking) and whether
+-- another spell tracking is (a class one: the gathering ones are already ruled
+-- out by their aura when this runs, and those share one slot with it).
+function EABR.FvTrackingState()
+    local treasure, class = false, false
+    for i = 1, C_Minimap.GetNumTrackingTypes() do
+        local info = C_Minimap.GetTrackingInfo(i)
+        if info and info.active and info.type == "spell" then
+            if info.spellID == EABR.FIND_TREASURE then treasure = true else class = true end
+        end
+    end
+    return treasure, class
+end
+
 -- WoW Forever collector: the Camp Benefits campfire buff and the user's custom
 -- spell IDs, absence only (no expiry thresholds). A custom ID counts as up
 -- while any spell of its rank family is (EABR.ForeverFamily). Entries are
@@ -4296,7 +4319,9 @@ end
 -- memo keep the pass allocation-free.
 function EABR.CollectForever(missing, inInstance, inPvP, restricted)
     local fo = db.profile.forever
-    if not fo or not EABR.SectionShows(fo.whereToShow, inInstance) then return end
+    if not fo then return end
+    EABR.FvSyncTrackingEvent((fo.gather == true and fo.gatherClassTrack ~= false) or fo.treasure == true)
+    if not EABR.SectionShows(fo.whereToShow, inInstance) then return end
     local ids = EABR._foreverIDs
     if not ids then ids = {}; EABR._foreverIDs = ids end
     if fo.camp ~= false and not inPvP and not restricted then
@@ -4307,6 +4332,46 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
             e.texture = Tex(EABR.CAMP_BENEFITS)
             e.label = EllesmereUI.L("Camp")
             e.cat = "forever"; e.dismissKey = "forever:camp"
+            missing[#missing+1] = e
+        end
+    end
+    -- Gathering tracking: shown while no tracker is up and the player knows
+    -- one; the button casts the first one known. The aura read goes first, so
+    -- the common case (a tracker up) skips the rest; class trackers are no
+    -- auras there, so the minimap is asked only after it.
+    local scanned, treasureUp, classUp
+    if fo.gather and not inPvP and not restricted then
+        local list = EABR.GATHER_TRACKING
+        if not PlayerHasAuraByID(list) then
+            if fo.gatherClassTrack ~= false then
+                scanned = true
+                treasureUp, classUp = EABR.FvTrackingState()
+            end
+            if not classUp then
+                for i = 1, #list do
+                    local id = list[i]
+                    if Known(id) then
+                        local e = AcquireEntry()
+                        e.mode = "spell"; e.spellID = id
+                        e.label = ShortLabel(SpellName(id) or tostring(id))
+                        e.cat = "forever"; e.dismissKey = "forever:gather"
+                        missing[#missing+1] = e
+                        break
+                    end
+                end
+            end
+        end
+    end
+    -- Find Treasure (Dwarf racial): no aura there, so read from the same
+    -- minimap pass when the gathering check already ran it.
+    local tid = EABR.FIND_TREASURE
+    if fo.treasure and not inPvP and not restricted and Known(tid) then
+        if not scanned then treasureUp = EABR.FvTrackingState() end
+        if not treasureUp then
+            local e = AcquireEntry()
+            e.mode = "spell"; e.spellID = tid
+            e.label = ShortLabel(SpellName(tid) or tostring(tid))
+            e.cat = "forever"; e.dismissKey = "forever:treasure"
             missing[#missing+1] = e
         end
     end
@@ -6271,6 +6336,17 @@ if EABR.FOREVER then
     mainFrame:RegisterEvent("PLAYER_DEAD")
     mainFrame:RegisterEvent("PLAYER_ALIVE")
     mainFrame:RegisterEvent("PLAYER_UNGHOST")
+    -- Class trackers and Find Treasure have no aura edge: their minimap event
+    -- is listened to only while a reminder reads them (EABR.CollectForever).
+    function EABR.FvSyncTrackingEvent(want)
+        if want == (EABR._fvTrackEv or false) then return end
+        EABR._fvTrackEv = want
+        if want then
+            mainFrame:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+        else
+            mainFrame:UnregisterEvent("MINIMAP_UPDATE_TRACKING")
+        end
+    end
 else
 mainFrame:RegisterEvent("ENCOUNTER_START")
 mainFrame:RegisterEvent("ENCOUNTER_END")
