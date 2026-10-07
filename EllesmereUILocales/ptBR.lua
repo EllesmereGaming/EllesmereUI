@@ -6807,11 +6807,6 @@ L["Tag each row with its weapon slot: MH (Main Hand), OH (Off Hand), R (Ranged).
 -- == Aura/Buff Reminders ================================================
 L["Camp"] = "Acampamento"
 L["Camp Benefits"] = "Benefícios do Acampamento"
-L["Gathering Tracking"] = "Rastreamento de Coleta"
-L["Reminds you when Find Herbs or Find Minerals is known but neither is active. Click the reminder to cast it."] = "Avisa quando você conhece Encontrar Ervas ou Encontrar Minerais, mas nenhum está ativo. Clique no aviso para lançá-lo."
-L["Class Tracking Counts"] = "Rastreamento de Classe Conta"
-L["Gathering and class tracking cannot be active together: when on, an active class tracking (Track Beasts, Sense Undead, Sense Demons...) also hides the reminder."] = "Rastreamento de coleta e de classe não podem ficar ativos juntos: quando ativado, um rastreamento de classe ativo (Rastrear Feras, Sentir Mortos-vivos, Sentir Demônios...) também oculta o aviso."
-L["Dwarf racial: reminds you when Find Treasure is known but not active. Click the reminder to cast it."] = "Racial de Anão: avisa quando você conhece Encontrar Tesouro, mas ele não está ativo. Clique no aviso para lançá-lo."
 L["Dungeons"] = "Masmorras"
 L["Lair"] = "Covil"
 L["Pick which content the WoW Forever reminders appear in.\nRested areas (cities and inns) always stay hidden."] = "Escolha em qual conteúdo os lembretes do WoW Forever aparecem.\nÁreas de descanso (cidades e estalagens) ficam sempre ocultas."
