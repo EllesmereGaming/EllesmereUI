@@ -7,6 +7,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    * Travel -- flight timer (built by EUI_ForeverEssentials_Travel_Options.lua)
 --    * Threat -- threat meter (built by EUI_ForeverEssentials_Threat_Options.lua)
 --    * Loot   -- loot feed (built by EUI_ForeverEssentials_Loot_Options.lua)
+--    * Targets -- target helper (built by EUI_ForeverEssentials_Targets_Options.lua)
 -------------------------------------------------------------------------------
 -- Page names are DEEP-LINK IDENTIFIERS: every NavigateToElementSettings tuple
 -- and What's New nav carries them as strings and fails SILENTLY on a mismatch.
@@ -16,6 +17,7 @@ local PAGE_GENERAL = "General"
 local PAGE_TRAVEL  = "Travel"
 local PAGE_THREAT  = "Threat"
 local PAGE_LOOT    = "Loot"
+local PAGE_TARGETS = "Targets"
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -25,8 +27,8 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIForeverEssentials", {
         title       = "Forever Essentials",
         description = "Essential tools for WoW Forever.",
-        pages       = { PAGE_GENERAL, PAGE_TRAVEL, PAGE_THREAT, PAGE_LOOT },
-        searchTerms = { "flight timer", "flight path", "threat", "threat meter", "aggro", "loot", "loot feed", "reputation", "currency", "uprank", "spell rank" },
+        pages       = { PAGE_GENERAL, PAGE_TRAVEL, PAGE_THREAT, PAGE_LOOT, PAGE_TARGETS },
+        searchTerms = { "flight timer", "flight path", "threat", "threat meter", "aggro", "loot", "loot feed", "reputation", "currency", "uprank", "spell rank", "target helper", "targets", "raid marker", "farm" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_GENERAL and _G._EUI_BuildForeverGeneralPage then
                 return _G._EUI_BuildForeverGeneralPage(pageName, parent, yOffset)
@@ -39,6 +41,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if pageName == PAGE_LOOT and _G._EUI_BuildLootFeedPage then
                 return _G._EUI_BuildLootFeedPage(pageName, parent, yOffset)
+            end
+            if pageName == PAGE_TARGETS and _G._EUI_BuildTargetHelperPage then
+                return _G._EUI_BuildTargetHelperPage(pageName, parent, yOffset)
             end
         end,
         -- The Travel, Threat and Loot previews live in the content header; declaring a
@@ -54,10 +59,12 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.threatMeter = nil
                 EllesmereUIDB.lootFeed = nil
                 EllesmereUIDB.spellUprank = nil
+                EllesmereUIDB.targetHelper = nil
                 if EllesmereUIDB.unlockAnchors then
                     EllesmereUIDB.unlockAnchors.EUI_FlightTimer = nil
                     EllesmereUIDB.unlockAnchors.EUI_ThreatMeter = nil
                     EllesmereUIDB.unlockAnchors.EUI_LootFeed = nil
+                    EllesmereUIDB.unlockAnchors.EUI_TargetHelper = nil
                 end
             end
             local FT = EllesmereUI._FlightTimer
@@ -79,6 +86,11 @@ initFrame:SetScript("OnEvent", function(self)
                 LF.ApplyPosition()
             end
             if EllesmereUI._SpellUprank then EllesmereUI._SpellUprank.Apply() end
+            local TG = EllesmereUI._TargetHelper
+            if TG then
+                TG.Apply()
+                TG.ApplyPosition()
+            end
             EllesmereUI:InvalidatePageCache()
         end,
     })

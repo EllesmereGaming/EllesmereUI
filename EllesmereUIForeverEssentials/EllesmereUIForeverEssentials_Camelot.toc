@@ -27,3 +27,7 @@ EllesmereUIForeverEssentials_ThreatFeed.lua
 
 # Loot (loot feed)
 EllesmereUIForeverEssentials_LootFeed.lua
+
+# Targets (target helper)
+EllesmereUIForeverEssentials_TargetHelperData.lua
+EllesmereUIForeverEssentials_TargetHelper.lua

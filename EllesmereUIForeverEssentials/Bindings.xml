@@ -1,0 +1,14 @@
+<Bindings>
+	<Binding name="CLICK EUI_TargetHelperButton1:LeftButton" header="EUI_TARGETHELPER" category="EllesmereUI" />
+	<Binding name="CLICK EUI_TargetHelperButton2:LeftButton" category="EllesmereUI" />
+	<Binding name="CLICK EUI_TargetHelperButton3:LeftButton" category="EllesmereUI" />
+	<Binding name="CLICK EUI_TargetHelperButton4:LeftButton" category="EllesmereUI" />
+	<Binding name="CLICK EUI_TargetHelperButton5:LeftButton" category="EllesmereUI" />
+	<Binding name="CLICK EUI_TargetHelperButton6:LeftButton" category="EllesmereUI" />
+	<Binding name="EUI_TARGETHELPER_ADD" category="EllesmereUI">
+		EllesmereUI._TargetHelper.AddCurrentTarget()
+	</Binding>
+	<Binding name="EUI_TARGETHELPER_TOGGLE" category="EllesmereUI">
+		EllesmereUI._TargetHelper.ToggleBar()
+	</Binding>
+</Bindings>
