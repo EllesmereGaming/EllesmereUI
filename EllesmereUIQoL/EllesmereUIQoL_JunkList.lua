@@ -345,6 +345,7 @@ end
 -------------------------------------------------------------------------------
 local eventFrame
 local function SyncEvents(on)
+    if not on and not eventFrame then return end  -- never built: nothing to unregister
     if not eventFrame then
         eventFrame = CreateFrame("Frame")
         eventFrame:SetScript("OnEvent", function(_, event)
