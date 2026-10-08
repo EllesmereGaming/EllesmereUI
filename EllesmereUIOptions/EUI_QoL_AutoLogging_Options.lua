@@ -199,7 +199,7 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     _, h = W:DualRow(parent, y,
         { type    = "toggle",
           text    = "Enable /way Command",
-          tooltip = "Places a native map pin: /way [#mapID or zone] x y [description]. /way clear removes it. /way is skipped when another addon already owns it; /euiway always works while enabled.",
+          tooltip = "Prints a clickable link that places a native map pin: /way [#mapID or zone] x y [description]. /way is skipped when another addon already owns it; /euiway always works while enabled.",
           -- Off by default.
           getValue = function() return WayCfg().enabled == true end,
           setValue = function(v)
@@ -213,7 +213,23 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
                   reload    = true,
               })
           end },
-        EllesmereUI.BlankRowCfg()
+        { type    = "toggle",
+          text    = "Show Pin in the World",
+          tooltip = "Toggles Blizzard's In-Game Navigation setting: the tracked map pin is shown in the game world, with its distance.",
+          getValue = function() return GetCVarBool("showInGameNavigation") end,
+          setValue = function(v)
+              if InCombatLockdown() then return end
+              -- CVAR_UPDATE fires inside this call; open world map pin
+              -- providers listen to it and would refresh tainted. The map
+              -- addon may not be loaded yet.
+              if WorldMapFrame and WorldMapFrame:IsShown() then
+                  EllesmereUI.Print(EllesmereUI.L("Close the world map first."))
+              else
+                  EllesmereUI.SetCVar("showInGameNavigation", v and "1" or "0", "EllesmereUIQoL")
+              end
+              -- Re-read the CVar so a refused change does not stay ticked.
+              EllesmereUI:RefreshPage()
+          end }
     ); y = y - h
 
     _, h = W:Spacer(parent, y, 20); y = y - h

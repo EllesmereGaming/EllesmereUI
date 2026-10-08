@@ -1,9 +1,15 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_Waypoint.lua
---  /way [#mapID | zone] x y [description] and /way clear, on Blizzard's native
---  map pin + super-tracking. The pin clears itself on arrival.
+--  /way [#mapID | zone] x y [description] [; ...] prints links that place
+--  Blizzard's native map pin when clicked, and announces arrival at each one.
 --  /way is only registered when free; /euiway always is.
+--
+--  Taint: never calls C_Map.SetUserWaypoint / ClearUserWaypoint or
+--  C_SuperTrack setters. They fire USER_WAYPOINT_UPDATED / SUPER_TRACKING_
+--  CHANGED synchronously, so Blizzard's map pin code would run inside this
+--  addon's call. The worldmap link is handled by Blizzard's own link handler
+--  on a hardware click; everything else here only reads.
 -------------------------------------------------------------------------------
 -- Off by default and reload-gated: while off, nothing below runs.
 do
@@ -12,14 +18,20 @@ do
 end
 
 local EUI = EllesmereUI
-local L, Lf = EUI.L, EUI.Lf
 
-local PREFIX = "|cff0CD29DEllesmereUI:|r "
+local C_ACCENT = "|cff0CD29D"
+local C_ZONE   = "|cffffffff"
+local C_COORD  = "|cffffd100"
+local C_DESC   = "|cff66ccff"
+local C_HINT   = "|cffff9f1a"
+
+local PREFIX = C_ACCENT .. "EllesmereUI:|r "
 
 local function Say(msg)  EUI.Print(PREFIX .. msg) end
 local function Fail(msg) EUI.Print(PREFIX .. "|cffff6060" .. msg .. "|r") end
+local function Hint(msg) EUI.Print("   " .. C_HINT .. "> " .. msg .. "|r") end
 
--- Created in the main chunk so its handlers bill to this addon.
+-- Created in the main chunk so its handler bills to this addon.
 local ev = CreateFrame("Frame")
 
 -------------------------------------------------------------------------------
@@ -85,108 +97,134 @@ local function FindZone(name)
 end
 
 -------------------------------------------------------------------------------
---  Clear on arrival
---  Events are registered only while a pin placed by /way exists. Blizzard
---  clears super-tracking itself on arrival (no type), so `tracked` only drops
---  when the player super-tracks something else.
+--  Links
 -------------------------------------------------------------------------------
-local target   -- { mapID, x, y } in 0..1, the pin /way placed
-local tracked  -- our pin is the super-tracked destination
-
-local function IsOurPin()
-    if not (target and C_Map.HasUserWaypoint()) then return false end
-    local pin = C_Map.GetUserWaypoint()
-    return pin and pin.uiMapID == target.mapID
-        and math.abs(pin.position.x - target.x) < 1e-4
-        and math.abs(pin.position.y - target.y) < 1e-4
-end
-
-local function StopWatch()
-    target, tracked = nil, false
-    ev:UnregisterEvent("NAVIGATION_DESTINATION_REACHED")
-    ev:UnregisterEvent("SUPER_TRACKING_CHANGED")
-    ev:UnregisterEvent("USER_WAYPOINT_UPDATED")
-end
-
--- Set before C_Map.SetUserWaypoint so the USER_WAYPOINT_UPDATED it fires
--- already sees the new pin as ours.
-local function StartWatch(mapID, x, y)
-    target = target or {}
-    target.mapID, target.x, target.y = mapID, x, y
-    tracked = true
-    ev:RegisterEvent("NAVIGATION_DESTINATION_REACHED")
-    ev:RegisterEvent("SUPER_TRACKING_CHANGED")
-    ev:RegisterEvent("USER_WAYPOINT_UPDATED")
-end
-
-local function OnWatchEvent(event, isWaypoint)
-    if event == "USER_WAYPOINT_UPDATED" then
-        if not IsOurPin() then StopWatch() end
-    elseif event == "SUPER_TRACKING_CHANGED" then
-        local t = C_SuperTrack.GetHighestPrioritySuperTrackingType()
-        if t then tracked = (t == Enum.SuperTrackingType.UserWaypoint) end
-    elseif not isWaypoint and tracked and IsOurPin() then
-        StopWatch()
-        C_Map.ClearUserWaypoint()
-        Say(L("You have arrived at your destination."))
-    end
-end
-
--------------------------------------------------------------------------------
---  Commands
--------------------------------------------------------------------------------
-local function PrintUsage()
-    Say(L("Usage:") .. " /way [#mapID | zone] x y [description]")
-    Say("/way clear - " .. L("Remove the current map pin."))
-end
-
-local function ClearWaypoint()
-    StopWatch()
-    if C_Map.HasUserWaypoint() then
-        C_Map.ClearUserWaypoint()
-        Say(L("Map pin removed."))
-    else
-        Say(L("No map pin to remove."))
-    end
-end
-
 local function MapLabel(mapID)
     local info = C_Map.GetMapInfo(mapID)
     return info and info.name or ("#" .. mapID)
 end
 
-local function SetWaypoint(mapID, x, y, desc)
-    if not C_Map.CanSetUserWaypointOnMap(mapID) then
-        Fail(Lf("Map pins cannot be placed on %1$s.", MapLabel(mapID)))
-        return
-    end
-    x, y = x / 100, y / 100
-    StartWatch(mapID, x, y)
-    C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(mapID, x, y))
-    C_SuperTrack.SetSuperTrackedUserWaypoint(true)
-
-    local link = C_Map.GetUserWaypointHyperlink()
-    local text = Lf("Waypoint set: %1$s %2$s, %3$s", MapLabel(mapID),
-        ("%.1f"):format(x * 100), ("%.1f"):format(y * 100))
-    if desc then text = text .. " - " .. desc end
-    if link then text = text .. " " .. link end
-    Say(text)
+-- Same format as C_Map.GetUserWaypointHyperlink: x, y in 0..100 travel as
+-- 0..10000.
+local function PinLink(mapID, x, y)
+    return ("|cffffff00|Hworldmap:%d:%d:%d|h[%s]|h|r"):format(mapID,
+        math.floor(x * 100 + 0.5), math.floor(y * 100 + 0.5), MAP_PIN_HYPERLINK)
 end
 
-local function SetWaypointInZone(zone, x, y, desc)
-    WithZoneTable(function()
-        local mapID, matches = FindZone(zone)
-        if mapID then SetWaypoint(mapID, x, y, desc) return end
-        if #matches == 0 then
-            Fail(Lf("Unknown zone: %1$s", zone))
+local function LinkLine(dest)
+    local text = PinLink(dest.mapID, dest.x, dest.y)
+        .. " " .. C_ZONE .. MapLabel(dest.mapID) .. "|r"
+        .. " " .. C_COORD .. ("%.1f, %.1f"):format(dest.x, dest.y) .. "|r"
+    if dest.desc then text = text .. "  " .. C_DESC .. dest.desc .. "|r" end
+    return text
+end
+
+-------------------------------------------------------------------------------
+--  Arrival
+--  NAVIGATION_DESTINATION_REACHED did not fire for the pin on Forever in
+--  testing (the target goes Invalid around 35 yd first), so the navigation
+--  distance is polled, only while a /way list is pending and the pin is
+--  super-tracked.
+-------------------------------------------------------------------------------
+local ARRIVE_YARDS  = 5
+local POLL_INTERVAL = 0.5
+local listed  -- destinations from the last /way, until all are reached
+local ticker
+local AnnounceArrival
+
+-- C_Map vectors: Vector2DMixin on retail, a plain { x, y } table on Forever.
+local function XY(v)
+    if v.GetXY then return v:GetXY() end
+    return v.x, v.y
+end
+
+-- Index in `listed` of the destination the native pin sits on, or nil.
+local function PinnedIndex()
+    if not (listed and C_Map.HasUserWaypoint()) then return nil end
+    local pin = C_Map.GetUserWaypoint()
+    local px, py = XY(pin.position)
+    for i, dest in ipairs(listed) do
+        -- The link rounds coordinates to 1/10000.
+        if dest.mapID == pin.uiMapID and math.abs(dest.x / 100 - px) < 2e-4
+            and math.abs(dest.y / 100 - py) < 2e-4 then
+            return i
+        end
+    end
+end
+
+local function CheckDistance()
+    local dist = C_Navigation.GetDistance()
+    if dist > 0 and dist <= ARRIVE_YARDS then AnnounceArrival() end
+end
+
+-- Runs on SUPER_TRACKING_CHANGED and whenever the list changes.
+local function UpdatePoll()
+    local want = listed ~= nil and C_SuperTrack.IsSuperTrackingUserWaypoint()
+    if want and not ticker then
+        ticker = C_Timer.NewTicker(POLL_INTERVAL, CheckDistance)
+    elseif not want and ticker then
+        ticker:Cancel()
+        ticker = nil
+    end
+end
+
+local function SetListed(dests)
+    listed = dests
+    if dests then
+        ev:RegisterEvent("SUPER_TRACKING_CHANGED")
+    else
+        ev:UnregisterEvent("SUPER_TRACKING_CHANGED")
+    end
+    UpdatePoll()
+end
+
+function AnnounceArrival()
+    local i = PinnedIndex()
+    local dest = i and listed[i]
+    if not dest or dest.reached then return end
+    dest.reached = true
+
+    local name = dest.desc or MapLabel(dest.mapID)
+    if #listed > 1 then name = i .. ". " .. name end
+    Say(C_ACCENT .. EllesmereUI.L("You have arrived:") .. "|r " .. C_DESC .. name .. "|r")
+
+    -- Next destination still to reach, after this one in list order.
+    for k = 1, #listed - 1 do
+        local j = (i + k - 1) % #listed + 1
+        if not listed[j].reached then
+            Hint(EllesmereUI.L("Next:") .. "|r " .. C_ACCENT .. j .. ".|r " .. LinkLine(listed[j]))
             return
         end
-        local names = {}
-        for i = 1, math.min(#matches, 8) do
-            names[i] = matches[i].name .. " (#" .. matches[i].id .. ")"
+    end
+    if #listed > 1 then
+        EUI.Print("   " .. C_ACCENT .. EllesmereUI.L("All waypoints reached.") .. "|r")
+    end
+    -- No Blizzard link clears the pin; point at the native gesture.
+    Hint(EllesmereUI.L("To remove the pin, ctrl-click it on the world map."))
+    SetListed(nil)
+end
+
+local function ShowDestinations(dests)
+    SetListed(dests)
+    if #dests == 1 then
+        Say(LinkLine(dests[1]))
+    else
+        Say(C_ACCENT .. EllesmereUI.Lf("%1$d waypoints", #dests) .. "|r")
+        for i, dest in ipairs(dests) do
+            EUI.Print("   " .. C_ACCENT .. i .. ".|r " .. LinkLine(dest))
         end
-        Fail(Lf("Several zones match \"%1$s\":", zone) .. " " .. table.concat(names, ", "))
-    end)
+    end
+    Hint(EllesmereUI.L("Click the link to place the pin, then click the pin on the map to show the arrow."))
+    if #dests > 1 then
+        Hint(EllesmereUI.L("Then click another link to switch destination; the arrow follows."))
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Parsing
+-------------------------------------------------------------------------------
+local function PrintUsage()
+    Say(EllesmereUI.L("Usage:") .. " /way [#mapID | zone] x y [description] [; ...]")
 end
 
 -- Coordinate token -> number in 0..100, or nil. Accepts "45.3", "45,3", "45.3,".
@@ -195,12 +233,8 @@ local function ParseCoord(tok)
     if n and n >= 0 and n <= 100 then return n end
 end
 
-local function HandleWay(msg)
-    msg = strtrim(msg or "")
-    if msg == "" then PrintUsage() return end
-    local lower = msg:lower()
-    if lower == "clear" or lower == "reset" or lower == "remove" then ClearWaypoint() return end
-
+-- One destination -> { mapID | zone, x, y, desc } in 0..100, or nil.
+local function ParseOne(msg)
     -- "45, 67" / "45. 67" -> "45 67", then split on spaces.
     msg = msg:gsub("(%d)[%.,]%s+(%d)", "%1 %2")
     local tokens = {}
@@ -212,27 +246,91 @@ local function HandleWay(msg)
         x, y = ParseCoord(tokens[i]), ParseCoord(tokens[i + 1])
         if x and y then idx = i break end
     end
-    if not idx then PrintUsage() return end
-    local desc = idx + 2 <= #tokens and table.concat(tokens, " ", idx + 2) or nil
+    if not idx then return nil end
+    local spec = { x = x, y = y }
+    spec.desc = idx + 2 <= #tokens and table.concat(tokens, " ", idx + 2) or nil
 
     if idx == 1 then
-        local mapID = C_Map.GetBestMapForUnit("player")
-        if not mapID then
-            Fail(L("Cannot determine your current zone."))
-            return
+        spec.mapID = C_Map.GetBestMapForUnit("player")
+        if not spec.mapID then
+            Fail(EllesmereUI.L("Cannot determine your current zone."))
+            return nil
         end
-        SetWaypoint(mapID, x, y, desc)
-        return
+        return spec
     end
 
     local zone = table.concat(tokens, " ", 1, idx - 1)
     local id = zone:match("^#(%d+)$")
-    if not id then SetWaypointInZone(zone, x, y, desc) return end
-    if not C_Map.GetMapInfo(tonumber(id)) then
-        Fail(Lf("Unknown map ID: %1$s", id))
+    if not id then spec.zone = zone return spec end
+    spec.mapID = tonumber(id)
+    if not C_Map.GetMapInfo(spec.mapID) then
+        Fail(EllesmereUI.Lf("Unknown map ID: %1$s", id))
+        return nil
+    end
+    return spec
+end
+
+-- spec -> uiMapID, or nil after reporting why. Zone names only resolve inside
+-- a WithZoneTable callback.
+local function Resolve(spec)
+    local mapID = spec.mapID
+    if not mapID then
+        local matches
+        mapID, matches = FindZone(spec.zone)
+        if not mapID then
+            if #matches == 0 then
+                Fail(EllesmereUI.Lf("Unknown zone: %1$s", spec.zone))
+                return nil
+            end
+            local names = {}
+            for i = 1, math.min(#matches, 8) do
+                names[i] = matches[i].name .. " (#" .. matches[i].id .. ")"
+            end
+            Fail(EllesmereUI.Lf("Several zones match %1$s:", spec.zone) .. " " .. table.concat(names, ", "))
+            return nil
+        end
+    end
+    if not C_Map.CanSetUserWaypointOnMap(mapID) then
+        Fail(EllesmereUI.Lf("Map pins cannot be placed on %1$s.", MapLabel(mapID)))
+        return nil
+    end
+    return mapID
+end
+
+-- Several destinations in one line: separated by ";" or pasted back to back
+-- ("/way A /way B").
+local function HandleWay(msg)
+    msg = strtrim(msg or "")
+    local lower = msg:lower()
+    if lower == "clear" or lower == "reset" or lower == "remove" then
+        Say(C_HINT .. EllesmereUI.L("To remove the pin, ctrl-click it on the world map.") .. "|r")
         return
     end
-    SetWaypoint(tonumber(id), x, y, desc)
+    msg = msg:gsub("/[Ee][Uu][Ii][Ww][Aa][Yy]%f[%s%z]", ";"):gsub("/[Ww][Aa][Yy]%f[%s%z]", ";")
+    local specs, needZones = {}, false
+    for part in msg:gmatch("[^;]+") do
+        part = strtrim(part)
+        if part ~= "" then
+            local spec = ParseOne(part)
+            if spec then
+                specs[#specs + 1] = spec
+                if spec.zone then needZones = true end
+            end
+        end
+    end
+    if #specs == 0 then PrintUsage() return end
+
+    local function Finish()
+        local dests = {}
+        for _, spec in ipairs(specs) do
+            local mapID = Resolve(spec)
+            if mapID then
+                dests[#dests + 1] = { mapID = mapID, x = spec.x, y = spec.y, desc = spec.desc }
+            end
+        end
+        if #dests > 0 then ShowDestinations(dests) end
+    end
+    if needZones then WithZoneTable(Finish) else Finish() end
 end
 
 -------------------------------------------------------------------------------
@@ -253,8 +351,8 @@ local function SlashTaken(cmd)
 end
 
 ev:RegisterEvent("PLAYER_LOGIN")
-ev:SetScript("OnEvent", function(self, event, ...)
-    if event ~= "PLAYER_LOGIN" then OnWatchEvent(event, ...) return end
+ev:SetScript("OnEvent", function(self, event)
+    if event == "SUPER_TRACKING_CHANGED" then UpdatePoll() return end
     self:UnregisterEvent("PLAYER_LOGIN")
     SLASH_EUIWAY1 = "/euiway"
     SlashCmdList["EUIWAY"] = HandleWay
