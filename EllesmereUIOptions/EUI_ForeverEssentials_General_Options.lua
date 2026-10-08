@@ -152,6 +152,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
     local SU = EllesmereUI._SpellUprank
     local MM = EllesmereUI._MacroManager
+    local QM = EllesmereUI._QuestMark
     local BLANK = EllesmereUI.BlankRowCfg
     local y = yOffset
     local _, h
@@ -186,38 +187,19 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         BLANK()
     );  y = y - h
 
-    ---------------------------------------------------------------------------
-    --  QUESTS: the Quest Tracker module's own key, written through (no row
-    --  while that module is off).
-    ---------------------------------------------------------------------------
-    local qtNS = EllesmereUI.ModuleNS("EllesmereUIQuestTracker")
-    local EQT = qtNS and qtNS.EQT
-    if EQT then
-        _, h = W:Spacer(parent, y, 20);  y = y - h
-        _, h = W:SectionHeader(parent, "QUESTS", y);  y = y - h
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "QUESTS", y);  y = y - h
 
-        local function MarkToggle(text, tooltip, key)
-            return { type = "toggle", text = text, tooltip = tooltip,
-                getValue = function() return EQT.Cfg(key) == true end,
-                setValue = function(v)
-                    EQT.Set(key, v)
-                    if EQT.ApplyForeverMarks then EQT.ApplyForeverMarks() end
-                end }
-        end
-        -- The tracker mark rides the EllesmereUI tracker skin; the stock tracker
-        -- styles keep Blizzard's blocks untouched, so the toggle is gated there.
-        local trackerCfg = MarkToggle("Mark Non-Classic in Tracker",
-            "Shows a blue infinity next to quests that are not from the original game (new in WoW Forever and later additions) in the quest tracker.",
-            "markNonClassicTracker")
-        local BS = EllesmereUI.BlizzStyle
-        if BS then BS.Gate("questtracker", trackerCfg) end
-        _, h = W:DualRow(parent, y,
-            trackerCfg,
-            MarkToggle("Mark Non-Classic in Quest Log",
-                "Shows a blue infinity next to quests that are not from the original game (new in WoW Forever and later additions) in the quest log.",
-                "markNonClassicLog")
-        );  y = y - h
-    end
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Mark Non-Classic Quests",
+          tooltip = "Shows a blue infinity in the quest log next to quests that are not from the original game (new in WoW Forever and later additions).",
+          getValue = function() return QM.Get("enabled") end,
+          setValue = function(v)
+              QM.Cfg().enabled = v
+              QM.Apply()
+          end },
+        BLANK()
+    );  y = y - h
 
     ---------------------------------------------------------------------------
     --  NAME FORMAT (while a module with a Name Format is on)
