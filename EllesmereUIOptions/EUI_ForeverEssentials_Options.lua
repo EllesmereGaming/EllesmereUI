@@ -7,6 +7,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    * Travel -- flight timer (built by EUI_ForeverEssentials_Travel_Options.lua)
 --    * Threat -- threat meter (built by EUI_ForeverEssentials_Threat_Options.lua)
 --    * Loot   -- loot feed (built by EUI_ForeverEssentials_Loot_Options.lua)
+--    * Macros -- macro manager (built by EUI_ForeverEssentials_Macros_Options.lua)
 -------------------------------------------------------------------------------
 -- Page names are DEEP-LINK IDENTIFIERS: every NavigateToElementSettings tuple
 -- and What's New nav carries them as strings and fails SILENTLY on a mismatch.
@@ -16,6 +17,7 @@ local PAGE_GENERAL = "General"
 local PAGE_TRAVEL  = "Travel"
 local PAGE_THREAT  = "Threat"
 local PAGE_LOOT    = "Loot"
+local PAGE_MACROS  = "Macros"
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -25,8 +27,8 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIForeverEssentials", {
         title       = "Forever Essentials",
         description = "Essential tools for WoW Forever.",
-        pages       = { PAGE_GENERAL, PAGE_TRAVEL, PAGE_THREAT, PAGE_LOOT },
-        searchTerms = { "flight timer", "flight path", "threat", "threat meter", "aggro", "loot", "loot feed", "reputation", "currency", "uprank", "spell rank" },
+        pages       = { PAGE_GENERAL, PAGE_TRAVEL, PAGE_THREAT, PAGE_LOOT, PAGE_MACROS },
+        searchTerms = { "flight timer", "flight path", "threat", "threat meter", "aggro", "loot", "loot feed", "reputation", "currency", "uprank", "spell rank", "macro", "macros", "macro manager" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_GENERAL and _G._EUI_BuildForeverGeneralPage then
                 return _G._EUI_BuildForeverGeneralPage(pageName, parent, yOffset)
@@ -40,13 +42,20 @@ initFrame:SetScript("OnEvent", function(self)
             if pageName == PAGE_LOOT and _G._EUI_BuildLootFeedPage then
                 return _G._EUI_BuildLootFeedPage(pageName, parent, yOffset)
             end
+            if pageName == PAGE_MACROS and _G._EUI_BuildForeverMacrosPage then
+                return _G._EUI_BuildForeverMacrosPage(pageName, parent, yOffset)
+            end
         end,
-        -- The Travel, Threat and Loot previews live in the content header; declaring a
+        -- The Travel, Threat, Loot and Macros headers live in the content header; declaring a
         -- page's builder makes a cached page whose header was dropped rebuild with it.
         getHeaderBuilder = function(pageName)
             if pageName == PAGE_TRAVEL then return _G._EUI_TravelHeaderBuilder end
             if pageName == PAGE_THREAT then return _G._EUI_ThreatHeaderBuilder end
             if pageName == PAGE_LOOT then return _G._EUI_LootHeaderBuilder end
+            if pageName == PAGE_MACROS then
+                local MM = EllesmereUI._MacroManager
+                if MM and MM.Enabled() then return _G._EUI_MacrosHeaderBuilder end
+            end
         end,
         onReset = function()
             if EllesmereUIDB then
@@ -54,6 +63,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.threatMeter = nil
                 EllesmereUIDB.lootFeed = nil
                 EllesmereUIDB.spellUprank = nil
+                -- The stored builder models are user data: only the switch resets.
+                if EllesmereUIDB.macroManager then EllesmereUIDB.macroManager.enabled = nil end
                 if EllesmereUIDB.unlockAnchors then
                     EllesmereUIDB.unlockAnchors.EUI_FlightTimer = nil
                     EllesmereUIDB.unlockAnchors.EUI_ThreatMeter = nil
