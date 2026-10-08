@@ -629,7 +629,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 -- Added from a bar's Add menu: page-only.
                 module = "Cooldown Manager",
                 title  = "Empty Slot",
-                desc   = "CD and utility bars can hold empty slots to space their icons into groups (Add menu > Empty Slot)",
+                desc   = "CD and utility bars can hold empty slots to space their icons into groups (Add menu > Empty Slot). Right-click an empty slot to set Talent Conditions for when it reserves space",
                 nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars" },
             },
             {
