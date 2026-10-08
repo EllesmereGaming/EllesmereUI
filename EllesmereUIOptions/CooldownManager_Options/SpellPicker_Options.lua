@@ -3759,6 +3759,78 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                     end
                                 end } })
 
+                -- APL Glow (APL_Glow fork): glow while APLforEUI reports this spell as next up.
+                -- Only offered when APLforEUI is installed. Runtime: EUI_CDM_APLGlow.lua.
+                if ns.APLGlow and ns.APLGlow.IsAvailable() then
+                    do
+                        local function RefreshAPL()
+                            if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                        end
+                        MakeSubnavRow("APL Glow", ACTIVE_GLOW_ITEMS,
+                            function() return ss.aplGlow end,
+                            function(v)
+                                EnsureSS(); SetOwn("aplGlow", v)
+                                if v and v > 0 then ns.APLGlow.MarkConfigured() end
+                                RefreshAPL()
+                            end,
+                            function() return not ss.aplGlow end,
+                            nil,
+                            { apply = { keys = { "aplGlow" },
+                                        write = function(t, v)
+                                            t.aplGlow = v
+                                            if v and v > 0 then ns.APLGlow.MarkConfigured() end
+                                        end } })
+                        MakeSubnavRow("APL Glow Color", GLOW_COLOR_ITEMS,
+                            function()
+                                if ss.aplGlowColor == "class" then return "class" end
+                                if ss.aplGlowColor == "custom" then return "custom" end
+                                return nil
+                            end,
+                            function(v)
+                                EnsureSS()
+                                SetOwn("aplGlowColor", v)
+                                if v == "custom" and not ss.aplGlowColorR then
+                                    ss.aplGlowColorR = 1; ss.aplGlowColorG = 0.788; ss.aplGlowColorB = 0.137
+                                end
+                                RefreshAPL()
+                            end,
+                            function() return not ss.aplGlowColor end,
+                            function(si, item, sub)
+                                if item.val == "custom" then
+                                    si._noCapture = true
+                                    local swatchBtn = EllesmereUI.BuildColorSwatch(si, si:GetFrameLevel() + 3,
+                                        function() return ss.aplGlowColorR or 1, ss.aplGlowColorG or 0.788, ss.aplGlowColorB or 0.137, 1 end,
+                                        function(r, g, b)
+                                            ss.aplGlowColorR = r; ss.aplGlowColorG = g; ss.aplGlowColorB = b
+                                            RefreshAPL()
+                                        end, false, 14)
+                                    swatchBtn:SetPoint("RIGHT", si, "RIGHT", -8, 0)
+                                    swatchBtn:HookScript("PreClick", function()
+                                        EnsureSS()
+                                        ss.aplGlowColor = "custom"
+                                        if not ss.aplGlowColorR then
+                                            ss.aplGlowColorR = 1; ss.aplGlowColorG = 0.788; ss.aplGlowColorB = 0.137
+                                        end
+                                        if sub._refreshSelection then sub._refreshSelection() end
+                                    end)
+                                end
+                            end,
+                            { apply = { keys = { "aplGlowColor", "aplGlowColorR", "aplGlowColorG", "aplGlowColorB" },
+                                        write = function(t, v)
+                                            t.aplGlowColor = v
+                                            if v == "custom" then
+                                                t.aplGlowColorR = ss.aplGlowColorR or 1
+                                                t.aplGlowColorG = ss.aplGlowColorG or 0.788
+                                                t.aplGlowColorB = ss.aplGlowColorB or 0.137
+                                            else
+                                                t.aplGlowColorR = nil
+                                                t.aplGlowColorG = nil
+                                                t.aplGlowColorB = nil
+                                            end
+                                        end } })
+                    end
+                end
+
                 end  -- not isCustomInjected
                 end  -- isBuffBar per-icon rows
 

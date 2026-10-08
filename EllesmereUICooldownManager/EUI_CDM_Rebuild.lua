@@ -862,6 +862,7 @@ BuildAllCDMBars = function()
     ns.RescanCustomIconFlag()     -- set the per-spell Custom Icon gate (once) before refresh
     ns.RescanActiveGlowFlag()     -- set the Active State Glow gate (once) before refresh
     ns.RescanTalentCondFlag()     -- set the Talent Conditions gate (once) before refresh
+    if ns.RescanAPLGlowFlag then ns.RescanAPLGlowFlag() end  -- APL_Glow fork
 
     local p = ECME.db.profile
 
