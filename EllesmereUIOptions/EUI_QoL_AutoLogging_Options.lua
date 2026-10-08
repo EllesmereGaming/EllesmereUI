@@ -213,23 +213,7 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
                   reload    = true,
               })
           end },
-        { type    = "toggle",
-          text    = "Show Pin in the World",
-          tooltip = "Toggles Blizzard's In-Game Navigation setting: the tracked map pin is shown in the game world, with its distance.",
-          getValue = function() return GetCVarBool("showInGameNavigation") end,
-          setValue = function(v)
-              if InCombatLockdown() then return end
-              -- CVAR_UPDATE fires inside this call; open world map pin
-              -- providers listen to it and would refresh tainted. The map
-              -- addon may not be loaded yet.
-              if WorldMapFrame and WorldMapFrame:IsShown() then
-                  EllesmereUI.Print(EllesmereUI.L("Close the world map first."))
-              else
-                  EllesmereUI.SetCVar("showInGameNavigation", v and "1" or "0", "EllesmereUIQoL")
-              end
-              -- Re-read the CVar so a refused change does not stay ticked.
-              EllesmereUI:RefreshPage()
-          end }
+        EllesmereUI.BlankRowCfg()
     ); y = y - h
 
     _, h = W:Spacer(parent, y, 20); y = y - h
