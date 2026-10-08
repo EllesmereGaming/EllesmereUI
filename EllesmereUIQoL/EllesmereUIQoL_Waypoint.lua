@@ -253,7 +253,9 @@ local function ParseOne(msg)
     if idx == 1 then
         spec.mapID = C_Map.GetBestMapForUnit("player")
         if not spec.mapID then
-            Fail(EllesmereUI.L("Cannot determine your current zone."))
+            -- Inside instances the player has no map on Forever.
+            Fail(IsInInstance() and EllesmereUI.L("Map pins cannot be placed inside instances.")
+                or EllesmereUI.L("Cannot determine your current zone."))
             return nil
         end
         return spec
