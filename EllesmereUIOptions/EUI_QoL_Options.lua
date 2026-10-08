@@ -623,7 +623,7 @@ initFrame:SetScript("OnEvent", function(self)
         if EllesmereUI.IS_FOREVER then
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Show Zone Levels",
-              tooltip="Adds each zone's level range to its name when you hover it on a continent of the world map, colored by difficulty.",
+              tooltip="Shows the level range of the zone you hover on a continent of the world map, under its name, colored by difficulty.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.mapZoneLevels == true
               end,

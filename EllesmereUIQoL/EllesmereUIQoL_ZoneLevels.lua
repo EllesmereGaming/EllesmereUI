@@ -2,11 +2,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_ZoneLevels.lua  (WoW Forever only)
---  Shows a zone's level range next to the world map's hover label, as the map
---  does on its own wherever C_Map.GetMapLevels has data (it returns 0 on
---  Forever), colored by the quest difficulty colors, for zones hovered on a
---  continent. Text of our own, anchored to Blizzard's label, which is never
---  written to.
+--  Shows the level range of the zone under the cursor on a continent map,
+--  as the map does on its own wherever C_Map.GetMapLevels has data (it
+--  returns 0 on Forever), colored by the quest difficulty colors.
+--
+--  Taint: nothing of Blizzard's map is hooked or written to, only read. A frame
+--  of our own, child of the map's scroll container (so it only updates while
+--  the map shows), reads the cursor and the canvas geometry through widget
+--  API and shows the range in a text of its own under the zone name.
 --  Setting: EllesmereUIDB.mapZoneLevels (off by default).
 -------------------------------------------------------------------------------
 local function Enabled()
@@ -63,8 +66,10 @@ local LEVELS = {
     [2521] = { 1, 12 },   -- Zephras Isle (Forever)
 }
 
-local hooked
-local suffix      -- ours: " (lo-hi)" right after the hovered name
+local UPDATE_INTERVAL = 0.1
+local TEXT_OFFSET_Y   = -50  -- just under the map's own area name
+
+local watcher  -- ours; nil until the setting is first on
 
 -- The map's own format: the range is colored like a quest of the nearest level.
 local function LevelsText(lv)
@@ -78,64 +83,72 @@ local function LevelsText(lv)
     else
         c = QuestDifficultyColors["difficult"]
     end
-    return ("|cff%02x%02x%02x (%d-%d)|r"):format(c.r * 255, c.g * 255, c.b * 255, lo, hi)
+    return ("|cff%02x%02x%02x(%d-%d)|r"):format(c.r * 255, c.g * 255, c.b * 255, lo, hi)
 end
 
--- Runs after the label's Name:SetText, which EvaluateLabels only calls when
--- the shown label changes: a zone hovered on a continent gets its range.
-local function OnNameSet(_, text)
-    suffix:Hide()
-    if not Enabled() or not text or issecretvalue(text) or text == "" then return end
-    -- The map label's own lookup: the child map under the cursor. Its name
-    -- being the shown one rules out POI and banner labels.
+-- The zone (child map) under the cursor, or nil. Same lookup as the map's own
+-- label, with the cursor normalized against the canvas by widget API only.
+local function HoveredZone(self)
+    if not self.scroll:IsMouseOver() then return nil end
+    local canvas = self.scroll.Child
+    local left, top = canvas:GetLeft(), canvas:GetTop()
+    local width, height = canvas:GetWidth(), canvas:GetHeight()
+    if not (left and top) or width == 0 or height == 0 then return nil end
+    local cx, cy = GetCursorPosition()
+    local scale = canvas:GetEffectiveScale()
+    local x = (cx / scale - left) / width
+    local y = (top - cy / scale) / height
     local mapID = WorldMapFrame:GetMapID()
-    local x, y = WorldMapFrame:GetNormalizedCursorPosition()
     local info = C_Map.GetMapInfoAtPosition(mapID, x, y)
-    if not (info and info.mapID ~= mapID and info.name == text) then return end
-    local lv = LEVELS[info.mapID]
+    if info and info.mapID ~= mapID then return info.mapID end
+end
+
+local function OnUpdate(self, elapsed)
+    self.elapsed = self.elapsed + elapsed
+    if self.elapsed < UPDATE_INTERVAL then return end
+    self.elapsed = 0
+    local zone = HoveredZone(self)
+    local lv = zone and LEVELS[zone]
+    if zone == self.zone and lv == self.lv then return end
+    self.zone, self.lv = zone, lv
     if lv then
-        suffix:SetText(LevelsText(lv))
-        suffix:Show()
+        self.text:SetText(LevelsText(lv))
+        self.text:Show()
+    else
+        self.text:Hide()
     end
 end
 
--- Finds the world map's area label (AreaLabelDataProvider) and hooks it once.
-local function Hook()
-    if hooked or not (WorldMapFrame and WorldMapFrame.dataProviders) then return end
-    for provider in pairs(WorldMapFrame.dataProviders) do
-        local label = provider.Label
-        if label and label.Name and label.EvaluateLabels then
-            local holder = CreateFrame("Frame", nil, label)
-            holder:SetAllPoints()
-            suffix = holder:CreateFontString(nil, "OVERLAY")
-            suffix:SetFontObject(label.Name:GetFontObject())
-            suffix:SetPoint("LEFT", label.Name, "RIGHT")
-            suffix:Hide()
-
-            hooksecurefunc(label.Name, "SetText", OnNameSet)
-            hooked = true
-            return
-        end
-    end
+local function Build()
+    local scroll = WorldMapFrame.ScrollContainer
+    watcher = CreateFrame("Frame", nil, scroll)
+    watcher:SetAllPoints()
+    watcher:SetFrameStrata("HIGH")
+    watcher.scroll = scroll
+    watcher.elapsed = 0
+    watcher.text = watcher:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    watcher.text:SetPoint("TOP", 0, TEXT_OFFSET_Y)
+    watcher.text:Hide()
+    watcher:SetScript("OnUpdate", OnUpdate)
 end
 
--- Nothing exists (no frame, event or hook) until the setting is first on; the
--- hook then idles while it is off. The world map loads on demand, so the hook
--- may wait for it.
+-- Nothing exists (no frame or event) until the setting is first on; while it
+-- is off the frame stays hidden, so it never updates. The world map loads on
+-- demand, so building may wait for it.
 local waiter
 local function Apply()
-    if hooked then
-        if not Enabled() then suffix:Hide() end
+    if watcher then
+        watcher:SetShown(Enabled())
         return
     end
     if not Enabled() then return end
-    if C_AddOns.IsAddOnLoaded("Blizzard_WorldMap") then Hook() return end
+    if C_AddOns.IsAddOnLoaded("Blizzard_WorldMap") then Build() return end
     if not waiter then
         waiter = CreateFrame("Frame")
         waiter:SetScript("OnEvent", function(self, _, name)
             if name ~= "Blizzard_WorldMap" then return end
             self:UnregisterEvent("ADDON_LOADED")
-            Hook()
+            Build()
         end)
     end
     waiter:RegisterEvent("ADDON_LOADED")
