@@ -60,6 +60,7 @@ EUI_ForeverEssentials_General_Options.lua
 EUI_ForeverEssentials_Travel_Options.lua
 EUI_ForeverEssentials_Threat_Options.lua
 EUI_ForeverEssentials_Loot_Options.lua
+EUI_ForeverEssentials_Macros_Options.lua
 EUI_Friends_Options.lua
 EUI_Minimap_Options.lua
 EUI_MythicTimer_Options.lua

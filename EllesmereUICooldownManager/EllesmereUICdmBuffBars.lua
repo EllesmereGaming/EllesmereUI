@@ -1034,6 +1034,12 @@ end
 _tbbWake:SetScript("OnEvent", _tbbWake.OnEvent)
 ns.WakeTBBTick = _tbbWake.Wake
 
+function ns.WakeTBBTickIfParked()
+    if _tbbWake._enabled and tbbTickFrame and not tbbTickFrame:IsShown() then
+        _tbbWake.Wake()
+    end
+end
+
 -- The Visibility edges (mount, shapeshift, gliding, target, group, zone, combat) are exactly
 -- the set the shared dispatcher already owns, so subscribe there instead of re-registering
 -- them on the sleeper. Without this a parked tick never learns that a Visibility condition
