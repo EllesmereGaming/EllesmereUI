@@ -12,8 +12,9 @@
 # Main Lua
 EllesmereUIForeverEssentials.lua
 
-# General (spell uprank)
+# General (spell uprank, zone levels)
 EllesmereUIForeverEssentials_Uprank.lua
+EllesmereUIForeverEssentials_ZoneLevels.lua
 
 # Travel (flight timer)
 EllesmereUIForeverEssentials_FlightTimerData.lua

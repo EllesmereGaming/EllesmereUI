@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 -------------------------------------------------------------------------------
---  EllesmereUIQoL_ZoneLevels.lua  (WoW Forever only)
+--  EllesmereUIForeverEssentials_ZoneLevels.lua  (WoW Forever only)
 --  Shows the level range of the zone under the cursor on a continent map,
 --  as the map does on its own wherever C_Map.GetMapLevels has data (it
 --  returns 0 on Forever), colored by the quest difficulty colors.
@@ -10,11 +10,11 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  of our own, child of the map's scroll container (so it only updates while
 --  the map shows), reads the cursor and the canvas geometry through widget
 --  API and shows the range in a text of its own under the zone name.
---  Setting: EllesmereUIDB.mapZoneLevels (off by default).
 -------------------------------------------------------------------------------
-local function Enabled()
-    return EllesmereUIDB and EllesmereUIDB.mapZoneLevels == true
-end
+local _, module = ...
+
+-- Settings live in EllesmereUIDB.zoneLevels; unset keys read these.
+local F = module.Feature("zoneLevels", { enabled = false })
 
 -- uiMapID = { min, max }
 local LEVELS = {
@@ -138,10 +138,10 @@ end
 local waiter
 local function Apply()
     if watcher then
-        watcher:SetShown(Enabled())
+        watcher:SetShown(F.Enabled())
         return
     end
-    if not Enabled() then return end
+    if not F.Enabled() then return end
     if C_AddOns.IsAddOnLoaded("Blizzard_WorldMap") then Build() return end
     if not waiter then
         waiter = CreateFrame("Frame")
@@ -154,8 +154,11 @@ local function Apply()
     waiter:RegisterEvent("ADDON_LOADED")
 end
 
--- EllesmereUIDB (a dependency's saved data) is already loaded here.
-Apply()
+-- Options-page entry points.
+EllesmereUI._ZoneLevels = {
+    Get = F.Get,
+    Cfg = F.Cfg,
+    Apply = Apply,
+}
 
--- Options toggle (Quality of Life page).
-EllesmereUI._applyMapZoneLevels = Apply
+F.Start(Apply)
