@@ -151,6 +151,7 @@ end
 _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
     local SU = EllesmereUI._SpellUprank
+    local MM = EllesmereUI._MacroManager
     local BLANK = EllesmereUI.BlankRowCfg
     local y = yOffset
     local _, h
@@ -165,6 +166,22 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
           setValue = function(v)
               SU.Cfg().enabled = v
               SU.Apply()
+          end },
+        BLANK()
+    );  y = y - h
+
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "MACROS", y);  y = y - h
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Macro Manager",
+          tooltip = "Adds the Macros tab: build macros by click and create many at once. /euimacros opens it.",
+          getValue = function() return MM.Get("enabled") end,
+          setValue = function(v)
+              MM.Cfg().enabled = v
+              MM.Apply()
+              -- The Macros tab rebuilds with or without its editor.
+              EllesmereUI:InvalidateModulePageCache("EllesmereUIForeverEssentials")
           end },
         BLANK()
     );  y = y - h
