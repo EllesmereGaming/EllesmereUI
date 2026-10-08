@@ -283,6 +283,14 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
         y = y - lustH
     end
 
+    ---------------------------------------------------------------------------
+    --  JUNK ITEMS (cheapest vendor stacks in your bags)
+    ---------------------------------------------------------------------------
+    if _G._EUI_BuildJunkListSection then
+        local junkH = _G._EUI_BuildJunkListSection(parent, y, W, EllesmereUI.PP)
+        y = y - junkH
+    end
+
     return math.abs(y - yOffset)
 end
 
