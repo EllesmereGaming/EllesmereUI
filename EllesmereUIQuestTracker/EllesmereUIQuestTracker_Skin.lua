@@ -638,29 +638,11 @@ do
     EQT._classifyFrameIdx = idx
 end
 
--- Hides Blizzard's built-in quest type icon(s) on a block (without
--- recursing into the block's children) and stamps ours on top.
-
-local function ApplyQuestTypeIcon(block)
-    if not block then return end
-
-    -- "Show Quest Icons" on: Blizzard's native icons are shown instead, so
-    -- never stamp our own custom icon (hide any we already created).
-    if NativeIcons() then
-        if _blockIcons[block] then _blockIcons[block]:Hide() end
-        return
-    end
-
-    local qID = block.id
-    if type(qID) ~= "number" then
-        if _blockIcons[block] then _blockIcons[block]:Hide() end
-        return
-    end
-
-    -- Suppress our custom icon when Blizzard's ItemButton or
-    -- groupFinderButton is already visible on this block. Probe the block
-    -- fields directly (the icon you SEE is Blizzard's, and our overlay
-    -- texture is mouse-pass-through, so it eats the visual click target).
+-- True when Blizzard's ItemButton or groupFinderButton is visible on the
+-- block's right edge. Probe the block fields directly (the icon you SEE is
+-- Blizzard's, and our overlay textures are mouse-pass-through, so they would
+-- eat the visual click target).
+local function RightEdgeBusy(block)
     local hasItem = (block.ItemButton and block.ItemButton.IsShown
                      and block.ItemButton:IsShown())
                  or (block.itemButton and block.itemButton.IsShown
@@ -675,7 +657,23 @@ local function ApplyQuestTypeIcon(block)
                      and block.groupFinderButton:IsShown())
                  or (block.rightEdgeFrame and block.rightEdgeFrame.IsShown
                      and block.rightEdgeFrame:IsShown())
-    if hasItem or hasLFG then
+    return hasItem or hasLFG
+end
+
+-- Hides Blizzard's built-in quest type icon(s) on a block (without
+-- recursing into the block's children) and stamps ours on top.
+local function ApplyQuestTypeIcon(block)
+    if not block then return end
+
+    -- "Show Quest Icons" on: Blizzard's native icons are shown instead, so
+    -- never stamp our own custom icon (hide any we already created).
+    if NativeIcons() then
+        if _blockIcons[block] then _blockIcons[block]:Hide() end
+        return
+    end
+
+    local qID = block.id
+    if type(qID) ~= "number" or RightEdgeBusy(block) then
         if _blockIcons[block] then _blockIcons[block]:Hide() end
         return
     end
@@ -723,6 +721,14 @@ local function GetBlockTitleFS(block)
         end
     end
     return nil
+end
+
+-- WoW Forever: non-classic quest mark (EllesmereUIQuestTracker_ForeverMark),
+-- for quest blocks only (the block's id is a quest in the log).
+local function ApplyForeverMark(block)
+    if not EQT.ApplyForeverMark then return end
+    EQT.ApplyForeverMark(block, GetBlockTitleFS(block), _classifyCache[block.id] ~= nil,
+        NativeIcons(), RightEdgeBusy(block))
 end
 
 -- Super-tracked quest ID cache. Updated only on SUPER_TRACKING_CHANGED so hover
@@ -1099,6 +1105,7 @@ local function SkinBlock(block)
     -- Quest type icons and focus highlight are cheap and re-applied below.
     if _skinned[block] then
         ApplyQuestTypeIcon(block)
+        ApplyForeverMark(block)
         ApplyFocusHighlight(block)
         return
     end
@@ -1136,6 +1143,7 @@ local function SkinBlock(block)
     -- Replace Blizzard's quest-type icon with ours, based on the quest's
     -- classification / frequency / turn-in state.
     ApplyQuestTypeIcon(block)
+    ApplyForeverMark(block)
 
     -- One-time title layout (font, anchor strip, width constraint).
     SetupTitleLayout(block)
@@ -1505,6 +1513,9 @@ end
 function EQT.InitSkin()
     STOCK = EQT.Blizz()
     CLASSIC = EQT.Classic()
+    -- WoW Forever: the quest log half of the non-classic quest mark, which
+    -- does not depend on the tracker style.
+    if EQT.InitForeverMarks then EQT.InitForeverMarks() end
     -- Stock styles (fixed until reload): the classify cache has no reader and
     -- the super-track frame needs only SUPER_TRACKING_CHANGED (the hidden
     -- tracker's POI mouse-off). Blanking their registration lists keeps

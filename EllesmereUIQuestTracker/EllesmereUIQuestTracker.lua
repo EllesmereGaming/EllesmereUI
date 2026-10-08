@@ -48,6 +48,10 @@ local QT_DEFAULTS = {
             -- Show Blizzard's native quest type icons/buttons (right side)
             -- instead of our custom classified icons. Off = our icons. Reload-gated.
             showQuestIcons       = false,
+            -- WoW Forever: blue infinity on non-classic quests (tracker and
+            -- quest log).
+            markNonClassicTracker = false,
+            markNonClassicLog     = false,
 
             -- Font sizes (single source of truth used by skin code)
             titleFontSize        = 12,

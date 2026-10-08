@@ -187,6 +187,39 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     );  y = y - h
 
     ---------------------------------------------------------------------------
+    --  QUESTS: the Quest Tracker module's own key, written through (no row
+    --  while that module is off).
+    ---------------------------------------------------------------------------
+    local qtNS = EllesmereUI.ModuleNS("EllesmereUIQuestTracker")
+    local EQT = qtNS and qtNS.EQT
+    if EQT then
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+        _, h = W:SectionHeader(parent, "QUESTS", y);  y = y - h
+
+        local function MarkToggle(text, tooltip, key)
+            return { type = "toggle", text = text, tooltip = tooltip,
+                getValue = function() return EQT.Cfg(key) == true end,
+                setValue = function(v)
+                    EQT.Set(key, v)
+                    if EQT.ApplyForeverMarks then EQT.ApplyForeverMarks() end
+                end }
+        end
+        -- The tracker mark rides the EllesmereUI tracker skin; the stock tracker
+        -- styles keep Blizzard's blocks untouched, so the toggle is gated there.
+        local trackerCfg = MarkToggle("Mark Non-Classic in Tracker",
+            "Shows a blue infinity next to quests that are not from the original game (new in WoW Forever and later additions) in the quest tracker.",
+            "markNonClassicTracker")
+        local BS = EllesmereUI.BlizzStyle
+        if BS then BS.Gate("questtracker", trackerCfg) end
+        _, h = W:DualRow(parent, y,
+            trackerCfg,
+            MarkToggle("Mark Non-Classic in Quest Log",
+                "Shows a blue infinity next to quests that are not from the original game (new in WoW Forever and later additions) in the quest log.",
+                "markNonClassicLog")
+        );  y = y - h
+    end
+
+    ---------------------------------------------------------------------------
     --  NAME FORMAT (while a module with a Name Format is on)
     ---------------------------------------------------------------------------
     local sources = NameFormatSources()

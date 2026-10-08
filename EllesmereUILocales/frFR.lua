@@ -5599,3 +5599,10 @@ L["This bar sizes its blocks itself, so the width is not this block's to choose.
 L["How precise the coordinates read. More decimals make the block wider."] = "Précision d'affichage des coordonnées. Plus il y a de décimales, plus le bloc est large."
 L["Hide in Instance"] = "Masquer en instance"
 L["Removes the block from the bar in instanced content, where player coordinates are unavailable."] = "Retire le bloc de la barre dans le contenu instancié, où les coordonnées du joueur ne sont pas disponibles."
+
+-- Mark Non-Classic Quests (EllesmereUIQuestTracker_ForeverMark.lua)
+L["QUESTS"] = "QUÊTES"
+L["Mark Non-Classic in Tracker"] = "Marquer les non classiques (suivi)"
+L["Mark Non-Classic in Quest Log"] = "Marquer les non classiques (journal)"
+L["Shows a blue infinity next to quests that are not from the original game (new in WoW Forever and later additions) in the quest tracker."] = "Affiche un symbole infini bleu à côté des quêtes qui ne viennent pas du jeu d'origine (nouveautés de WoW Forever et ajouts ultérieurs) dans le suivi de quêtes."
+L["Shows a blue infinity next to quests that are not from the original game (new in WoW Forever and later additions) in the quest log."] = "Affiche un symbole infini bleu à côté des quêtes qui ne viennent pas du jeu d'origine (nouveautés de WoW Forever et ajouts ultérieurs) dans le journal de quêtes."
