@@ -1401,8 +1401,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         -----------------------------------------------------------------------
         --  WOW FOREVER section: on that client the rest of the page.
-        --  Camp Benefits, Gathering Tracking and Find Treasure toggles, a spell-ID entry that adds a custom reminder
-        --  and one row per tracked spell; the retail sections below never build.
+        --  Camp Benefits, Gathering Tracking and Find Treasure toggles, a
+        --  spell-ID entry that adds a custom reminder and one row per tracked
+        --  spell; the retail sections below never build.
         -----------------------------------------------------------------------
         if FOREVER then
             _, h = W:SectionHeader(parent, SECTION_FOREVER, y);  y = y - h
@@ -1442,7 +1443,7 @@ initFrame:SetScript("OnEvent", function(self)
                     disabled = function() local f = FDB(); return not (f and f.gather == true) end,
                     disabledTooltip = "Gathering Tracking",
                     rows = {
-                        { type="toggle", label="Class Tracking Counts",
+                        { type="toggle", label="Ignore If Class Tracking Is Active",
                           tooltip="Gathering and class tracking cannot be active together: when on, an active class tracking (Track Beasts, Sense Undead, Sense Demons...) also hides the reminder.",
                           get=function() local f = FDB(); return not f or f.gatherClassTrack ~= false end,
                           set=function(v) local f = FDB(); if f then f.gatherClassTrack = v; RefreshAll() end end },

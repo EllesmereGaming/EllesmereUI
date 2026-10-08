@@ -13,11 +13,11 @@ local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 
 -- WoW Forever runs a reduced module: the Raid Buffs section over that client's
 -- four buffs (EABR.CollectForeverRaidBuffs) and one Forever-only section (the
--- Camp Benefits campfire buff, gathering tracking, Find Treasure and custom spell IDs) collected by
--- EABR.CollectForever, with every other retail collector, its events and its
--- options sections off. Both values live on EABR because this file sits at
--- Lua's 200-local ceiling; retail reads FOREVER as false at each gate and
--- nothing else changes there.
+-- Camp Benefits campfire buff, gathering tracking, Find Treasure and custom
+-- spell IDs) collected by EABR.CollectForever, with every other retail
+-- collector, its events and its options sections off. Both values live on
+-- EABR because this file sits at Lua's 200-local ceiling; retail reads FOREVER
+-- as false at each gate and nothing else changes there.
 EABR.FOREVER = EllesmereUI.IS_FOREVER == true
 EABR.CAMP_BENEFITS = 1229741
 -- WoW Forever gathering trackers, in cast preference order: Find Herbs, Find
@@ -4309,8 +4309,19 @@ function EABR.FvTrackingState()
     return treasure, class
 end
 
--- WoW Forever collector: the Camp Benefits campfire buff and the user's custom
--- spell IDs, absence only (no expiry thresholds). A custom ID counts as up
+-- A cast-on-click reminder for a WoW Forever tracking spell (gathering, Find
+-- Treasure).
+function EABR.FvSpellEntry(missing, id, dismissKey)
+    local e = AcquireEntry()
+    e.mode = "spell"; e.spellID = id
+    e.label = ShortLabel(SpellName(id) or tostring(id))
+    e.cat = "forever"; e.dismissKey = dismissKey
+    missing[#missing+1] = e
+end
+
+-- WoW Forever collector: the Camp Benefits campfire buff, the gathering and
+-- Find Treasure trackers and the user's custom spell IDs, absence only (no
+-- expiry thresholds). A custom ID counts as up
 -- while any spell of its rank family is (EABR.ForeverFamily). Entries are
 -- display-only textures carrying the spell for the tooltip; presence goes
 -- through PlayerHasAuraByID, so combat falls back to the pre-pull snapshot
@@ -4322,9 +4333,10 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
     if not fo then return end
     EABR.FvSyncTrackingEvent((fo.gather == true and fo.gatherClassTrack ~= false) or fo.treasure == true)
     if not EABR.SectionShows(fo.whereToShow, inInstance) then return end
+    local open = not inPvP and not restricted
     local ids = EABR._foreverIDs
     if not ids then ids = {}; EABR._foreverIDs = ids end
-    if fo.camp ~= false and not inPvP and not restricted then
+    if fo.camp ~= false and open then
         ids[1] = EABR.CAMP_BENEFITS
         if not PlayerHasAuraByID(ids) then
             local e = AcquireEntry()
@@ -4338,42 +4350,27 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
     -- Gathering tracking: shown while no tracker is up and the player knows
     -- one; the button casts the first one known. The aura read goes first, so
     -- the common case (a tracker up) skips the rest; class trackers are no
-    -- auras there, so the minimap is asked only after it.
+    -- auras there, so the minimap is asked only once a tracker is known.
     local scanned, treasureUp, classUp
-    if fo.gather and not inPvP and not restricted then
-        local list = EABR.GATHER_TRACKING
-        if not PlayerHasAuraByID(list) then
+    if fo.gather and open and not PlayerHasAuraByID(EABR.GATHER_TRACKING) then
+        local list, id = EABR.GATHER_TRACKING, nil
+        for i = 1, #list do
+            if Known(list[i]) then id = list[i] break end
+        end
+        if id then
             if fo.gatherClassTrack ~= false then
                 scanned = true
                 treasureUp, classUp = EABR.FvTrackingState()
             end
-            if not classUp then
-                for i = 1, #list do
-                    local id = list[i]
-                    if Known(id) then
-                        local e = AcquireEntry()
-                        e.mode = "spell"; e.spellID = id
-                        e.label = ShortLabel(SpellName(id) or tostring(id))
-                        e.cat = "forever"; e.dismissKey = "forever:gather"
-                        missing[#missing+1] = e
-                        break
-                    end
-                end
-            end
+            if not classUp then EABR.FvSpellEntry(missing, id, "forever:gather") end
         end
     end
     -- Find Treasure (Dwarf racial): no aura there, so read from the same
     -- minimap pass when the gathering check already ran it.
     local tid = EABR.FIND_TREASURE
-    if fo.treasure and not inPvP and not restricted and Known(tid) then
+    if fo.treasure and open and Known(tid) then
         if not scanned then treasureUp = EABR.FvTrackingState() end
-        if not treasureUp then
-            local e = AcquireEntry()
-            e.mode = "spell"; e.spellID = tid
-            e.label = ShortLabel(SpellName(tid) or tostring(tid))
-            e.cat = "forever"; e.dismissKey = "forever:treasure"
-            missing[#missing+1] = e
-        end
+        if not treasureUp then EABR.FvSpellEntry(missing, tid, "forever:treasure") end
     end
     local custom = fo.customIDs
     if not custom then return end
