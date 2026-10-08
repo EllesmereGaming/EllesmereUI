@@ -2,14 +2,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_Waypoint.lua
 --  /way [#mapID | zone] x y [description] [; ...] prints links that place
---  Blizzard's native map pin when clicked, and announces arrival at each one.
---  /way is only registered when free; /euiway always is.
+--  Blizzard's native map pin when clicked. /way is only registered when free;
+--  /euiway always is.
 --
 --  Taint: never calls C_Map.SetUserWaypoint / ClearUserWaypoint or
 --  C_SuperTrack setters. They fire USER_WAYPOINT_UPDATED / SUPER_TRACKING_
 --  CHANGED synchronously, so Blizzard's map pin code would run inside this
 --  addon's call. The worldmap link is handled by Blizzard's own link handler
---  on a hardware click; everything else here only reads.
+--  on a hardware click.
 -------------------------------------------------------------------------------
 -- Off by default and reload-gated: while off, nothing below runs.
 do
@@ -119,93 +119,7 @@ local function LinkLine(dest)
     return text
 end
 
--------------------------------------------------------------------------------
---  Arrival
---  NAVIGATION_DESTINATION_REACHED did not fire for the pin on Forever in
---  testing (the target goes Invalid around 35 yd first), so the navigation
---  distance is polled, only while a /way list is pending and the pin is
---  super-tracked.
--------------------------------------------------------------------------------
-local ARRIVE_YARDS  = 5
-local POLL_INTERVAL = 0.5
-local listed  -- destinations from the last /way, until all are reached
-local ticker
-local AnnounceArrival
-
--- C_Map vectors: Vector2DMixin on retail, a plain { x, y } table on Forever.
-local function XY(v)
-    if v.GetXY then return v:GetXY() end
-    return v.x, v.y
-end
-
--- Index in `listed` of the destination the native pin sits on, or nil.
-local function PinnedIndex()
-    if not (listed and C_Map.HasUserWaypoint()) then return nil end
-    local pin = C_Map.GetUserWaypoint()
-    local px, py = XY(pin.position)
-    for i, dest in ipairs(listed) do
-        -- The link rounds coordinates to 1/10000.
-        if dest.mapID == pin.uiMapID and math.abs(dest.x / 100 - px) < 2e-4
-            and math.abs(dest.y / 100 - py) < 2e-4 then
-            return i
-        end
-    end
-end
-
-local function CheckDistance()
-    local dist = C_Navigation.GetDistance()
-    if dist > 0 and dist <= ARRIVE_YARDS then AnnounceArrival() end
-end
-
--- Runs on SUPER_TRACKING_CHANGED and whenever the list changes.
-local function UpdatePoll()
-    local want = listed ~= nil and C_SuperTrack.IsSuperTrackingUserWaypoint()
-    if want and not ticker then
-        ticker = C_Timer.NewTicker(POLL_INTERVAL, CheckDistance)
-    elseif not want and ticker then
-        ticker:Cancel()
-        ticker = nil
-    end
-end
-
-local function SetListed(dests)
-    listed = dests
-    if dests then
-        ev:RegisterEvent("SUPER_TRACKING_CHANGED")
-    else
-        ev:UnregisterEvent("SUPER_TRACKING_CHANGED")
-    end
-    UpdatePoll()
-end
-
-function AnnounceArrival()
-    local i = PinnedIndex()
-    local dest = i and listed[i]
-    if not dest or dest.reached then return end
-    dest.reached = true
-
-    local name = dest.desc or MapLabel(dest.mapID)
-    if #listed > 1 then name = i .. ". " .. name end
-    Say(C_ACCENT .. EllesmereUI.L("You have arrived:") .. "|r " .. C_DESC .. name .. "|r")
-
-    -- Next destination still to reach, after this one in list order.
-    for k = 1, #listed - 1 do
-        local j = (i + k - 1) % #listed + 1
-        if not listed[j].reached then
-            Hint(EllesmereUI.L("Next:") .. "|r " .. C_ACCENT .. j .. ".|r " .. LinkLine(listed[j]))
-            return
-        end
-    end
-    if #listed > 1 then
-        EUI.Print("   " .. C_ACCENT .. EllesmereUI.L("All waypoints reached.") .. "|r")
-    end
-    -- No Blizzard link clears the pin; point at the native gesture.
-    Hint(EllesmereUI.L("To remove the pin, ctrl-click it on the world map."))
-    SetListed(nil)
-end
-
 local function ShowDestinations(dests)
-    SetListed(dests)
     if #dests == 1 then
         Say(LinkLine(dests[1]))
     else
@@ -353,8 +267,7 @@ local function SlashTaken(cmd)
 end
 
 ev:RegisterEvent("PLAYER_LOGIN")
-ev:SetScript("OnEvent", function(self, event)
-    if event == "SUPER_TRACKING_CHANGED" then UpdatePoll() return end
+ev:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
     SLASH_EUIWAY1 = "/euiway"
     SlashCmdList["EUIWAY"] = HandleWay
