@@ -66,7 +66,7 @@ local LEVELS = {
     [2521] = { 1, 12 },   -- Zephras Isle (Forever)
 }
 
-local UPDATE_INTERVAL = 0.1
+local UPDATE_INTERVAL = 0.15
 local TEXT_OFFSET_Y   = -50  -- just under the map's own area name
 
 local watcher  -- ours; nil until the setting is first on
