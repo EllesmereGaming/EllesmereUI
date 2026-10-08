@@ -196,7 +196,8 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     ---------------------------------------------------------------------------
     _, h = W:SectionHeader(parent, "WAYPOINT COMMAND", y); y = y - h
 
-    _, h = W:DualRow(parent, y,
+    local wayRow
+    wayRow, h = W:DualRow(parent, y,
         { type    = "toggle",
           text    = "Enable /way Command",
           tooltip = "Prints a clickable link that places a native map pin: /way [#mapID or zone] x y [description]. /way is skipped when another addon already owns it; /euiway always works while enabled.",
@@ -215,6 +216,22 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
           end },
         EllesmereUI.BlankRowCfg()
     ); y = y - h
+
+    -- The arrival message for hand-placed pins (off by default, read live by
+    -- EllesmereUIQoL_Waypoint.lua).
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(wayRow._leftRegion, {
+            title = "/way Command",
+            disabled = function() return WayCfg().enabled ~= true end,
+            disabledTooltip = "Enable /way Command",
+            rows = {
+                { type="toggle", label="Hand-Placed Pin Arrival",
+                  tooltip="Also announces arrival at a map pin you placed yourself (ctrl-click on the map).",
+                  get=function() return WayCfg().manualArrival == true end,
+                  set=function(v) WayCfg().manualArrival = v end },
+            },
+        })
+    end
 
     _, h = W:Spacer(parent, y, 20); y = y - h
 
