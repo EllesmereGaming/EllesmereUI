@@ -618,6 +618,24 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
+        -- Show Zone Levels: WoW Forever only (the map shows them itself on
+        -- retail); the row is not built elsewhere.
+        if EllesmereUI.IS_FOREVER then
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Zone Levels",
+              tooltip="Adds each zone's level range to its name when you hover it on a continent of the world map, colored by difficulty.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.mapZoneLevels == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.mapZoneLevels = v
+                  if EllesmereUI._applyMapZoneLevels then EllesmereUI._applyMapZoneLevels() end
+              end },
+            EllesmereUI.BlankRowCfg()
+        );  y = y - h
+        end -- IS_FOREVER
+
         -- Row 6: Hide Error Messages (left) | Hide Tutorial Pop-ups (right)
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Error Messages",
