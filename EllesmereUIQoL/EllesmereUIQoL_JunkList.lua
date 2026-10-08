@@ -125,10 +125,6 @@ end
 -------------------------------------------------------------------------------
 --  Item actions
 -------------------------------------------------------------------------------
-local function Say(msg)
-    print("|cff0cd29fEllesmereUI|r " .. msg)
-end
-
 local Refresh  -- forward
 
 -- DeleteCursorItem needs a hardware event, so pickup and delete both run inside
@@ -141,7 +137,6 @@ local function DeleteStack(bag, slot, itemID)
     local kind, id = GetCursorInfo()
     if kind == "item" and id == itemID then
         DeleteCursorItem()
-        if info.hyperlink then Say("Deleted " .. info.hyperlink) end
     elseif CursorHasItem() then
         ClearCursor()
     end
@@ -166,8 +161,6 @@ local function ExcludeItem(cell)
     local p = P(); if not p then return end
     p.excluded = p.excluded or {}
     p.excluded[cell.itemID] = true
-    local name = C_Item.GetItemNameByID(cell.itemID)
-    Say("Hidden from the junk list: " .. (name or ("item " .. cell.itemID)) .. ". Clear exclusions in Quality of Life options.")
     Refresh()
 end
 
