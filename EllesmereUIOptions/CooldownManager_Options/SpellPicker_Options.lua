@@ -1456,7 +1456,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     local sub
                     local function ShowSub()
                         local hostPanel = host and host.panel
-                        local openSib = hostPanel and hostPanel._openChild or menu._openSub
+                        -- Nested rows only ever close a sibling inside their own panel, never the panel they live in.
+                        local openSib
+                        if hostPanel then openSib = hostPanel._openChild else openSib = menu._openSub end
                         if openSib and openSib ~= sub and openSib.Hide then openSib:Hide() end
                         if sub and sub:IsShown() then return end
                         if not sub then
@@ -2042,7 +2044,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     local panel
                     local function ShowPanel()
                         local hostPanel = host and host.panel
-                        local openSib = hostPanel and hostPanel._openChild or menu._openSub
+                        -- Nested rows only ever close a sibling inside their own panel, never the panel they live in.
+                        local openSib
+                        if hostPanel then openSib = hostPanel._openChild else openSib = menu._openSub end
                         if openSib and openSib ~= panel and openSib.Hide then openSib:Hide() end
                         if panel and panel:IsShown() then return end
                         if not panel then
