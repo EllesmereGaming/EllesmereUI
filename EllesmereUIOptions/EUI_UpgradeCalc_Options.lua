@@ -261,5 +261,6 @@ _G._EUI_ResetUpgradeCalc = function()
     if EUIUpgCalc and EUIUpgCalc.GetOptsDB then
         local db = EUIUpgCalc.GetCalcDB and EUIUpgCalc.GetCalcDB()
         if db then db.queue = {}; db.crestManualAdds = {} end
+        if EUIUpgCalc.ResetCrestManualAdds then EUIUpgCalc.ResetCrestManualAdds() end
     end
 end

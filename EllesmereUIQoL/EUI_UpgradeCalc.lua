@@ -1004,6 +1004,10 @@ local function SaveQueue()
     for i, it in ipairs(queueItems) do db.queue[i] = it.slotID end
 end
 
+function EUIUpgCalc.ResetCrestManualAdds()
+    for k in pairs(crestManualAdds) do crestManualAdds[k] = 0 end
+end
+
 -- Persist the current crest manual-add offsets to the profile DB.
 local function SaveCrestManualAdds()
     local db = DB()
@@ -1663,7 +1667,7 @@ scanBtn:SetScript("OnClick", function()
         scanBtnTxt:SetText(EUI.L("Update at Upgrader"))
         scanBtn:SetAlpha(1)
         if ok then
-            for k in pairs(crestManualAdds) do crestManualAdds[k] = 0 end
+            EUIUpgCalc.ResetCrestManualAdds()
             SaveCrestManualAdds()
             PopulateGear()
         end
