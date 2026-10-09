@@ -186,6 +186,60 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         BLANK()
     );  y = y - h
 
+    -- Shown to every class, like the reminders' Pets and Warlock sections;
+    -- only a hunter can turn it on (no counter is built for other classes).
+    local AC = EllesmereUI._AmmoCounter
+    if AC then
+        local HUNTERS_ONLY = "This option is for hunters only."
+        local function counterOff() return not (AC.isHunter and AC.Get("enabled")) end
+        local function counterTip() return AC.isHunter and "Ammo Counter" or HUNTERS_ONLY end
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+        _, h = W:SectionHeader(parent, "AMMO (HUNTER)", y);  y = y - h
+
+        -- Ammo Counter (+ Low Ammo Alert cog) | Low Ammo Threshold
+        local ammoRow
+        ammoRow, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Ammo Counter",
+              tooltip = "Shows your equipped ammo and how many are left; move it in Unlock Mode.",
+              disabled = function() return not AC.isHunter end,
+              disabledTooltip = HUNTERS_ONLY,
+              getValue = function() return AC.isHunter and AC.Get("enabled") end,
+              setValue = function(v)
+                  AC.Cfg().enabled = v
+                  AC.Apply()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type = "slider", text = "Low Ammo Threshold", min = 0, max = 1000, step = 50,
+              tooltip = "Under this many, the count turns orange; under half of it, red.",
+              disabled = counterOff,
+              disabledTooltip = counterTip,
+              getValue = function() return AC.Get("warn") end,
+              setValue = function(v)
+                  AC.Cfg().warn = v
+                  AC.Update(true)
+              end }
+        );  y = y - h
+
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(ammoRow._leftRegion, {
+                title = "Ammo Counter",
+                rows = {
+                    { type = "toggle", label = "Low Ammo Alert",
+                      tooltip = "Like Low Durability, shows a pulsing warning above the middle of the screen while your ammo is under the Low Ammo Threshold. Hidden in combat.",
+                      get = function() return AC.Get("alert") end,
+                      set = function(v)
+                          AC.Cfg().alert = v
+                          AC.Apply()
+                      end },
+                },
+                gap = 9,
+                disabled = counterOff,
+                disabledTooltip = counterTip,
+            })
+        end
+    end
+
     ---------------------------------------------------------------------------
     --  NAME FORMAT (while a module with a Name Format is on)
     ---------------------------------------------------------------------------
