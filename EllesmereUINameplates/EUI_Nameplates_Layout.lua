@@ -484,14 +484,17 @@ ns.FindSlotForElement = FindSlotForElement
 local COMBO_HEALTH_ELEMENTS = {
     healthPctNum     = true, healthNumPct     = true,
     healthPctNumDash = true, healthNumPctDash = true,
+    healthNumMax     = true,  -- current / max number; no percent
 }
 local function IsComboHealthText(element)
     return COMBO_HEALTH_ELEMENTS[element] == true
 end
 ns.IsComboHealthText = IsComboHealthText
 
-local function SetCombinedHealthText(fs, element, pctText, numText)
-    if element == "healthPctNum" then
+local function SetCombinedHealthText(fs, element, pctText, numText, maxText)
+    if element == "healthNumMax" then
+        fs:SetFormattedText("%s / %s", numText, maxText or "")
+    elseif element == "healthPctNum" then
         fs:SetFormattedText("%s | %s", pctText, numText)
     elseif element == "healthNumPct" then
         fs:SetFormattedText("%s | %s", numText, pctText)
@@ -683,6 +686,7 @@ local healthTextWidths = {
     healthNumPct  = 75,
     healthPctNumDash = 75,
     healthNumPctDash = 75,
+    healthNumMax  = 75,
     level = 24,   -- standalone level: "70" / "??"
     targetOfTarget = 60,
 }

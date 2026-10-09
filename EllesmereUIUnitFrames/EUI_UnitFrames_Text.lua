@@ -353,20 +353,24 @@ end
 local TagFns = {}
 
 do
-  local function AbbrevHP(unit)
-    if not unit or not UnitExists(unit) then return "" end
-    if not UnitIsConnected(unit) then return "OFFLINE" end
-    if UnitIsDeadOrGhost(unit) then return "DEAD" end
-    local hp = UnitHealth(unit) or 0
-    local cfg = _G._EUI_AbbrevDecimalCfg
-    -- Boss frames use the 2-decimal config when "Show 2 for Boss" is on.
-    if _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss" then
-      cfg = _G._EUI_AbbrevDecimalCfg2
+  -- Abbreviated health for the curhpshort / maxhpshort tags.
+  local function MakeAbbrevHP(getHP)
+    return function(unit)
+      if not unit or not UnitExists(unit) then return "" end
+      if not UnitIsConnected(unit) then return "OFFLINE" end
+      if UnitIsDeadOrGhost(unit) then return "DEAD" end
+      local hp = getHP(unit) or 0
+      local cfg = _G._EUI_AbbrevDecimalCfg
+      -- Boss frames use the 2-decimal config when "Show 2 for Boss" is on.
+      if _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss" then
+        cfg = _G._EUI_AbbrevDecimalCfg2
+      end
+      return cfg and AbbreviateNumbers(hp, cfg) or AbbreviateNumbers(hp)
     end
-    return cfg and AbbreviateNumbers(hp, cfg) or AbbreviateNumbers(hp)
   end
 
-  TagFns.curhpshort = AbbrevHP
+  TagFns.curhpshort = MakeAbbrevHP(UnitHealth)
+  TagFns.maxhpshort = MakeAbbrevHP(UnitHealthMax)
 end
 
 do
@@ -812,6 +816,7 @@ do
 
     -- Function-registered tag methods are shared directly: one body, no drift.
     P.curhpshort  = TagFns.curhpshort
+    P.maxhpshort  = TagFns.maxhpshort
     P.perhp       = TagFns.perhp
     P.perhpnosign = TagFns.perhpnosign
     P.level       = TagFns.level
@@ -844,6 +849,10 @@ do
     P.curpp = function(u)
         local pType = _G._EUI_ResolvedPowerType[u] or UnitPowerType(u)
         return AbbreviateNumbers(UnitPower(u, pType))
+    end
+    P.maxpp = function(u)
+        local pType = _G._EUI_ResolvedPowerType[u] or UnitPowerType(u)
+        return AbbreviateNumbers(UnitPowerMax(u, pType))
     end
     P.absorb = function(u)
         if not u or not UnitExists(u) then return "" end
@@ -926,10 +935,12 @@ do
         perhpnum     = { "%s%% | %s", "perhp", "curhpshort" },
         perhpnumdash = { "%s%% - %s", "perhp", "curhpshort" },
         curhpshort   = { "%s", "curhpshort" },
+        curmaxhp     = { "%s / %s", "curhpshort", "maxhpshort" },
         perhp        = { "%s%%", "perhp" },
         perhpnosign  = { "%s", "perhpnosign" },
         perpp        = { "%s%%", "perpp" },
         curpp        = { "%s", "curpp" },
+        curmaxpp     = { "%s / %s", "curpp", "maxpp" },
         curhp_curpp  = { "%s | %s", "curhpshort", "curpp" },
         perhp_perpp  = { "%s%% | %s%%", "perhp", "perpp" },
         absorb       = { "%s", "absorb" },
@@ -1070,7 +1081,7 @@ do
     local function ReadsPower(pieces)
         for i = 1, #pieces do
             local p = pieces[i]
-            if p == P.perpp or p == P.curpp then return true end
+            if p == P.perpp or p == P.curpp or p == P.maxpp then return true end
         end
         return nil
     end

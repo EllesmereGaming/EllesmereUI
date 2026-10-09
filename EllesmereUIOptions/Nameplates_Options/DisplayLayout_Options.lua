@@ -17,7 +17,7 @@ if not ns then return end  -- module disabled: no options page
 -- leaves the position free.
 local KNOWN = { enemyName = true, levelName = true, nameLevel = true, level = true, targetOfTarget = true,
     healthPercent = true, healthPercentNoSign = true, healthNumber = true, healthPctNum = true,
-    healthNumPct = true, healthPctNumDash = true, healthNumPctDash = true }
+    healthNumPct = true, healthPctNumDash = true, healthNumPctDash = true, healthNumMax = true }
 -- Add Text Slot's text: the first of these whose font string no shown text
 -- uses (one per font string: name, health %, level, health #, Target of
 -- Target).
@@ -2346,9 +2346,10 @@ local function BuildDisplayLayout(parent, y, ctx)
         healthNumPct         = "Health # | %",
         healthPctNumDash     = "Health % - #",
         healthNumPctDash     = "Health # - %",
+        healthNumMax         = "Health # / Max #",
         none                 = "Remove",
     }
-    local textElementOrder = { "none", "---", "enemyName", "levelName", "nameLevel", "level", "targetOfTarget", "healthPercent", "healthPercentNoSign", "healthNumber", "healthPctNum", "healthNumPct", "healthPctNumDash", "healthNumPctDash" }
+    local textElementOrder = { "none", "---", "enemyName", "levelName", "nameLevel", "level", "targetOfTarget", "healthPercent", "healthPercentNoSign", "healthNumber", "healthPctNum", "healthNumPct", "healthPctNumDash", "healthNumPctDash", "healthNumMax" }
 
     local function TextSlotSetValue(slotKey, v)
         -- Target of Target starts in Class mode whenever a slot newly takes it;

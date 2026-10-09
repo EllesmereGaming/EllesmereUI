@@ -1142,7 +1142,7 @@ local DEFAULTS = {
             fillR       = CUSTOM_FILL_DEFAULT[1], fillG = CUSTOM_FILL_DEFAULT[2], fillB = CUSTOM_FILL_DEFAULT[3], fillA = 1,
             fillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             bgR         = 0x11/255, bgG = 0x11/255, bgB = 0x11/255, bgA = 0.75,
-            textFormat  = "none",  -- "none","both","curhpshort","perhp"
+            textFormat  = "none",  -- "none","both","curhpshort","curmaxhp","perhp"
             textSize    = 11,
             textXOffset = 0,
             textYOffset = 0,
@@ -1207,7 +1207,7 @@ local DEFAULTS = {
             fillR       = CUSTOM_FILL_DEFAULT[1], fillG = CUSTOM_FILL_DEFAULT[2], fillB = CUSTOM_FILL_DEFAULT[3], fillA = 1,
             fillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             bgR         = 0x11/255, bgG = 0x11/255, bgB = 0x11/255, bgA = 0.75,
-            textFormat  = "perpp",  -- "none","smart","curpp","perpp","both"
+            textFormat  = "perpp",  -- "none","smart","curpp","curmaxpp","perpp","both"
             showPercent = true,
             textSize    = 10,
             textXOffset = 0,
@@ -1268,7 +1268,7 @@ local DEFAULTS = {
                 height      = 6,
                 offsetX     = 0,
                 offsetY     = 0,
-                textFormat  = "none",   -- "none","smart","curpp","perpp","both"
+                textFormat  = "none",   -- "none","smart","curpp","curmaxpp","perpp","both"
                 showPercent = true,
                 textSize    = 8,
                 textXOffset = 0,
@@ -4570,6 +4570,8 @@ local function UpdateHealthBar()
             txt = curStr .. " | " .. pctStr .. "%"
         elseif fmt == "curhpshort" then
             txt = curStr
+        elseif fmt == "curmaxhp" then
+            txt = curStr .. " / " .. ns.AbbreviateNumbers(mx)
         elseif fmt == "perhp" then
             txt = pctStr .. "%"
         elseif fmt == "perhpnosign" then
@@ -4875,6 +4877,8 @@ local function UpdatePrimaryBar()
                 txt = ns.AbbreviateNumbers(cur) .. " | " .. percentText
             elseif fmt == "curpp" then
                 txt = ns.AbbreviateNumbers(cur)
+            elseif fmt == "curmaxpp" then
+                txt = ns.AbbreviateNumbers(cur) .. " / " .. ns.AbbreviateNumbers(mx)
             elseif fmt == "perpp" then
                 txt = percentText
             else
@@ -10803,6 +10807,7 @@ BuildGCDBar = function()
                 return nil
             end)
             if ok and elapsed and not (issecretvalue and (issecretvalue(elapsed) or issecretvalue(dur))) then
+                self._gcdUnread = nil
                 local actualStart = GetTime() - elapsed
                 -- (Re)start whenever this is a genuinely NEWER GCD than the one we
                 -- last captured. Do NOT gate on how far the GCD has elapsed:
@@ -10845,6 +10850,7 @@ BuildGCDBar = function()
                     self._nativeGCD = true
                     self._gcdStart = GetTime()
                     self._gcdDur = 1.6
+                    self._gcdUnread = true
                     self._gcdActualStart = nil
                     ns.GCDTick.Start()
                     UpdateGCDBar()
@@ -11164,6 +11170,20 @@ UpdateGCDBar = function(_dt)
             gcdBarFrame._gcdStart = nil
             gcdBarFrame._gcdDur = nil
             gcdBarFrame._gcdActualStart = nil
+            active = false
+        end
+    end
+
+    -- Secret values: the real length is unreadable, so the window above is only a ceiling.
+    -- The cooldown's isActive stays a plain boolean; end the window when the GCD is over.
+    if active and gcdBarFrame._gcdUnread then
+        local cd = C_Spell.GetSpellCooldown(EllesmereUI.GCD_SPELL)
+        local act = cd and cd.isActive
+        if not (issecretvalue and issecretvalue(act)) and act == false then
+            gcdBarFrame._gcdStart = nil
+            gcdBarFrame._gcdDur = nil
+            gcdBarFrame._gcdActualStart = nil
+            gcdBarFrame._gcdUnread = nil
             active = false
         end
     end

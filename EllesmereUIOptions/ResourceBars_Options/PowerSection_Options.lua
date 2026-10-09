@@ -622,8 +622,8 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
         { type = "dropdown", text = "Power Text",
           disabled = powerOff,
           disabledTooltip = powerDisTip,
-          values = { none = "None", smart = "Smart Text", curpp = "Power Value", perpp = "Power %", both = "Power Value | Power %" },
-          order = { "none", "smart", "curpp", "perpp", "both" },
+          values = { none = "None", smart = "Smart Text", curpp = "Power Value", curmaxpp = "Power Value / Max", perpp = "Power %", both = "Power Value | Power %" },
+          order = { "none", "smart", "curpp", "curmaxpp", "perpp", "both" },
           getValue = function() local c = cfg(); return c and c.textFormat or "none" end,
           setValue = function(v)
               local c = cfg(); if not c then return end

@@ -579,6 +579,8 @@ local function CreatePowerBar(frame, unit, settings)
         local TP = ns.TextPieces
         if fmt == "curpp" then
             ns.SetTextZoneRaw(frame, ppFS, "%s", { TP.curpp })
+        elseif fmt == "curmaxpp" then
+            ns.SetTextZoneRaw(frame, ppFS, "%s / %s", { TP.curpp, TP.maxpp })
         elseif fmt == "both" then
             ns.SetTextZoneRaw(frame, ppFS, "%s | %s" .. pctSuffix, { TP.curpp, TP.perpp })
         elseif fmt == "smart" then

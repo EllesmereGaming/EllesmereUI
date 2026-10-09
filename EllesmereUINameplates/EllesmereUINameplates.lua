@@ -135,6 +135,7 @@ local defaults = {
     -- EUI_DEBUFF_COLORS: optional player-debuff tinting (Colors page). The
     -- per-class lists ("debuffColors" .. class token) have no defaults: unset
     -- is an empty list (EllesmereUINameplates_DebuffColors.lua).
+    showAuraTooltips = false,  -- Buff / Debuff icons show their tooltip on hover
     debuffColorsEnabled = false,
     debuffColorsPlayerOnly = true,
     -- Debuff Coloring "Color Border": the color goes on the plate's border
