@@ -674,7 +674,7 @@ initFrame:SetScript("OnEvent", function(self)
         local function ResolveCoreMapping(element)
             local pos = FindCorePosForElement(element)
             if not pos then return { section = coreHeader, target = coreRow1 } end
-            local info = ctx.corePosToRegion[pos]
+            local info = ctx.corePosToRegion and ctx.corePosToRegion[pos]
             if not info then return { section = coreHeader, target = coreRow1 } end
             return { section = coreHeader, target = info[1], slotSide = (info[2] == "_leftRegion") and "left" or "right" }
         end
