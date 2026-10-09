@@ -642,8 +642,8 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Row: Hide Loot Rolls Window (left, with settings cog) | Combat
-        -- Alert (right, with its own settings cog below)
+        -- Row: Hide Loot Rolls Window (left, with settings cog). Combat Alert
+        -- now lives in the ALERTS section (EUI_QoL_Alerts_Options.lua).
         local lootHistRow
         lootHistRow, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Loot Rolls Window",
@@ -657,17 +657,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._applyHideLootHistory then EllesmereUI._applyHideLootHistory() end
                   EllesmereUI:RefreshPage()  -- update the cog disabled state
               end },
-            { type="toggle", text="Combat Alert",
-              tooltip="Shows a large on-screen text when you enter and/or leave combat (e.g. \"+Combat\" / \"-Combat\"). Use the cog to set the display text, size, colors and which transitions are shown; use Unlock Mode to reposition the alert.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.combatAlertEnabled or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.combatAlertEnabled = v
-                  if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
-                  EllesmereUI:RefreshPage()
-              end }
+            EllesmereUI.BlankRowCfg()
         );  y = y - h
 
         -- Inline cog (mode + auto-close delay) on the Hide Loot Rolls toggle
@@ -809,111 +799,6 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
                 gap = 9, disabled = deathOff, disabledTooltip = "Announce Group Deaths",
-            })
-        end
-
-        -- Inline cog (text, size, colors, mode) on the Combat Alert toggle
-        -- (the RIGHT slot of the Hide Loot Rolls row above).
-        if not EllesmereUI._prebuilding then
-            local leftRgn = lootHistRow._rightRegion
-            local function caOff()
-                return not (EllesmereUIDB and EllesmereUIDB.combatAlertEnabled)
-            end
-            local function enterClassOn()
-                return EllesmereUIDB and EllesmereUIDB.combatAlertEnterUseClassColor
-            end
-            local function leaveClassOn()
-                return EllesmereUIDB and EllesmereUIDB.combatAlertLeaveUseClassColor
-            end
-
-            local caModeValues = {
-                both  = "Enter & Leave",
-                enter = "Enter Only",
-                leave = "Leave Only",
-            }
-            local caModeOrder = { "both", "enter", "leave" }
-
-            EllesmereUI.BuildInlineCog(leftRgn, {
-                title = "Combat Alert Settings",
-                minWidth = 300,
-                rows = {
-                    { type="dropdown", label="Show On",
-                      values=caModeValues, order=caModeOrder,
-                      get=function() return (EllesmereUIDB and EllesmereUIDB.combatAlertMode) or "both" end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertMode = v
-                      end },
-                    { type="slider", label="Text Size",
-                      min=14, max=64, step=1,
-                      get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.combatAlertTextSize) or 22
-                      end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertTextSize = v
-                        if EllesmereUI._applyCombatAlertFrame then EllesmereUI._applyCombatAlertFrame() end
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
-                      end },
-                    { type="input", label="Enter Text", inputWidth=90,
-                      get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.combatAlertEnterText) or "+Combat"
-                      end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertEnterText = v
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
-                      end },
-                    { type="colorpicker", label="Enter Color",
-                      disabled=enterClassOn,
-                      disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
-                      get=function()
-                        local c = (EllesmereUIDB and EllesmereUIDB.combatAlertEnterColor) or { r=1.00, g=1.00, b=1.00 }
-                        return c.r, c.g, c.b
-                      end,
-                      set=function(r, g, b)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertEnterColor = { r=r, g=g, b=b }
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
-                      end },
-                    { type="toggle", label="Enter Class Color",
-                      get=function() return enterClassOn() end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertEnterUseClassColor = v
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
-                      end },
-                    { type="input", label="Leave Text", inputWidth=90,
-                      get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.combatAlertLeaveText) or "-Combat"
-                      end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertLeaveText = v
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("leave") end
-                      end },
-                    { type="colorpicker", label="Leave Color",
-                      disabled=leaveClassOn,
-                      disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
-                      get=function()
-                        local c = (EllesmereUIDB and EllesmereUIDB.combatAlertLeaveColor) or { r=1.00, g=1.00, b=1.00 }
-                        return c.r, c.g, c.b
-                      end,
-                      set=function(r, g, b)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertLeaveColor = { r=r, g=g, b=b }
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("leave") end
-                      end },
-                    { type="toggle", label="Leave Class Color",
-                      get=function() return leaveClassOn() end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertLeaveUseClassColor = v
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("leave") end
-                      end },
-                },
-                footer = { unlockKey = "EUI_CombatAlert" },
-                gap = 9, disabled = caOff, disabledTooltip = "Combat Alert",
             })
         end
 
@@ -2674,6 +2559,17 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.combatAlertLeaveColor = nil
                 EllesmereUIDB.combatAlertEnterUseClassColor = nil
                 EllesmereUIDB.combatAlertLeaveUseClassColor = nil
+                EllesmereUIDB.alertsPos = nil
+                EllesmereUIDB.potionAlertEnabled = false
+                EllesmereUIDB.potionAlertText = nil
+                EllesmereUIDB.potionAlertTextSize = nil
+                EllesmereUIDB.potionAlertColor = nil
+                EllesmereUIDB.potionAlertUseClassColor = nil
+                EllesmereUIDB.talentAlertEnabled = false
+                EllesmereUIDB.talentAlertText = nil
+                EllesmereUIDB.talentAlertTextSize = nil
+                EllesmereUIDB.talentAlertColor = nil
+                EllesmereUIDB.talentAlertUseClassColor = nil
                 EllesmereUIDB.targetDistanceEnabled = false
                 EllesmereUIDB.targetDistanceFormat = nil
                 EllesmereUIDB.targetDistanceAlign = nil
@@ -2696,6 +2592,8 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
             if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
             if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
+            if EllesmereUI._applyPotionAlert then EllesmereUI._applyPotionAlert() end
+            if EllesmereUI._applyTalentAlert then EllesmereUI._applyTalentAlert() end
             if EllesmereUI._applyTargetDistance then EllesmereUI._applyTargetDistance() end
             if EllesmereUI._applyHideTransforms then EllesmereUI._applyHideTransforms() end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end
