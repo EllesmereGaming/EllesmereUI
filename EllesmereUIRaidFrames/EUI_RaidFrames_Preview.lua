@@ -1392,7 +1392,7 @@ local function CreatePreviewFrame(index, party)
         -- tier-scaled, so the effective overlay may shadow them safely.
         local s = ns._previewSettingsOverride or (ns._partyPvActive and ns._scaledPartyProxy)
             or ns._pvOverlayProxy or ns._scaledProfile
-        local shared = f._partyFrame and ns.RF_PartySharedBorderOn(s)
+        local shared = ns.RF_SharedBorderOn(s, f._partyFrame, f._raidFrame)
         if not shared and bdrFrame._partyInsetHighlight then
             ns.ApplyPartyInsetHighlight(bdrFrame, s, nil, nil, true)
         end
@@ -1739,6 +1739,7 @@ end
 local function GetOrCreatePreviewFrame(index)
     if not previewFrames[index] then
         previewFrames[index] = CreatePreviewFrame(index)
+        previewFrames[index]._raidFrame = true
     end
     return previewFrames[index]
 end
@@ -2780,7 +2781,7 @@ local function ApplyPreviewData(f, index)
         local bc = s.borderColor or { r = 0, g = 0, b = 0 }
         local pl = f:GetFrameLevel()
         f._border:SetFrameLevel(s.borderBehind and math.max(0, pl - 1) or (pl + 8))
-        if f._partyFrame and s.partySharedBorder == true and ns.RF_PartySharedBorderOn(s) then
+        if ns.RF_SharedBorderOn(s, f._partyFrame, f._raidFrame) then
             EllesmereUI.ApplyBorderStyle(f._border, 0, 0, 0, 0, 0, "solid")
             f._border._hlBorderSize = nil
         else
@@ -2815,7 +2816,7 @@ local function ApplyPreviewData(f, index)
     if f._threatFrame and PP then
         local bs = s.threatBorderSize or 0
         local rc = s.threatCustomBorder == true and ns.RF_CustomBorderOn(s)
-        local shared = f._partyFrame and s.partySharedBorder == true and ns.RF_PartySharedBorderOn(s)
+        local shared = ns.RF_SharedBorderOn(s, f._partyFrame, f._raidFrame)
         local wantThreat = bs > 0 or rc
         if ns._testMode and ns._testThreat ~= nil then wantThreat = ns._testThreat end
         local showThreat = wantThreat and (ns._testMode or ns._healthAnimActive) and previewRoles._threatIndex == index
@@ -3828,6 +3829,9 @@ local function RefreshPreview()
         end
         overlayContainer:Show()
     end
+    if ns.RF_RaidSharedBorderOn(s) or ns._raidPvBorders then
+        ns._raidPvBorders = ns.RF_ApplyRaidBorders(ns._raidPvBorders, reparentTo, previewFrames, s, true)
+    end
 end
 
 -- Mouse-blocking overlays + alpha-based real-frame hide for the options preview.
@@ -3976,6 +3980,7 @@ end
 local function HidePreview(skipRestore)
     if not previewActive then return end
     previewActive = false
+    ns.RF_HideRaidBorders(ns._raidPvBorders)
     ns._previewInitialized = false
     previewRoles._randomized = nil  -- re-randomize on next preview open
     previewRoles._hpalPick = nil    -- re-roll the hpal Legends next open

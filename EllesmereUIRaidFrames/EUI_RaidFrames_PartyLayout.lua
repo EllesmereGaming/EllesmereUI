@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_RaidFrames_PartyLayout.lua
 --
---  The party layout, the kit portrait events, party visibility,
+--  Shared raid/party borders, the party layout, kit portrait events, party visibility,
 --  ReloadPartyFrames and the unlock mode registration.
 --  Reads the earlier Raid Frames files through ns and ns._internals.
 -------------------------------------------------------------------------------
@@ -66,19 +66,21 @@ function ns.RF_LayoutPartySeparators(host)
     if issecretvalue(es) or not es or es <= 0.01 then ns.RF_HidePartyBorder(host); return end
     local thick = EllesmereUI.BorderCompanionThickness(host._partyKey, host._partySize, host._partyPx, es)
     if not thick or thick <= 0 then return end
-    local growth = host._partyGrowth
-    local horizontal = growth == "RIGHT" or growth == "LEFT"
     local shiftY = PP.perfect / es
     local raise = PP.SnapForES(thick * 5 / 32, es) - PP.perfect / es
     for i = 2, host._partyCount do
         local seam = host._partySeps[i - 1]
         local tex = seam._tex
         local anchor = host._partyOrder[i].frame
+        local growth = host._partyOrder[i].growth or host._partyGrowth
+        local horizontal = growth == "RIGHT" or growth == "LEFT"
+        local x, y = 0, shiftY
+        if horizontal and host._raidFirst then x, y = -shiftY, 0 end
         seam:SetFrameStrata(host:GetFrameStrata())
         seam:SetFrameLevel(host:GetFrameLevel() + 1)
         seam:ClearAllPoints()
-        seam:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, shiftY)
-        seam:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", 0, shiftY)
+        seam:SetPoint("TOPLEFT", anchor, "TOPLEFT", x, y)
+        seam:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", x, y)
         if horizontal then
             EllesmereUI.PlaceBorderDividerV(tex, seam, growth == "LEFT", false,
                 host._partyKey, host._partySize, host._partyPx, es)
@@ -100,6 +102,32 @@ function ns.RF_LayoutPartySeparators(host)
         tex:Show()
         seam:Show()
     end
+end
+
+local function StyleSharedBorder(host, s, first, level, preview)
+    local count = host._partyCount
+    host:SetFrameStrata(first:GetFrameStrata())
+    host:SetFrameLevel(s.borderBehind and math.max(0, level - 1) or (level + 8))
+    host._partyKey, host._partySize = s.borderTexture, s.borderSize or 1
+    host._partyPx = EllesmereUI.BorderPx(s.borderSizePx, host._partySize, host._partyKey)
+    local c = s.borderColor
+    host._partyR, host._partyG, host._partyB = c and c.r or 0, c and c.g or 0, c and c.b or 0
+    host._partyAlpha = s.borderAlpha or 1
+    EllesmereUI.ApplyBorderStyle(host, host._partySize, host._partyR, host._partyG, host._partyB, host._partyAlpha,
+        host._partyKey, s.borderTextureOffset, s.borderTextureOffsetY,
+        s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", host._partySize, nil, host._partyPx)
+    for i = 1, count - 1 do
+        if not host._partySeps[i] then
+            local seam = CreateFrame("Frame", nil, host)
+            seam._tex = seam:CreateTexture(nil, "ARTWORK")
+            EllesmereUI.PP.DisablePixelSnap(seam._tex)
+            host._partySeps[i] = seam
+        end
+    end
+    for i = count, #host._partySeps do host._partySeps[i]:Hide() end
+    host:Show()
+    ns.RF_LayoutPartySeparators(host)
+    EllesmereUI.RegisterPxReapply(host, (not preview and host._partyCount > 0) and ns.RF_LayoutPartySeparators or nil)
 end
 
 -- Use occupied button bounds; the mover reserves five slots even for a smaller party.
@@ -169,28 +197,8 @@ function ns.RF_ApplyPartyBorder(host, parent, frames, s, preview)
     host:ClearAllPoints()
     host:SetPoint("TOPLEFT", forward and first or last, "TOPLEFT", 0, 0)
     host:SetPoint("BOTTOMRIGHT", forward and last or first, "BOTTOMRIGHT", 0, 0)
-    host:SetFrameStrata(first:GetFrameStrata())
-    host:SetFrameLevel(s.borderBehind and math.max(0, level - 1) or (level + 8))
     host._partyCount, host._partyGrowth = count, growth
-    host._partyKey, host._partySize = s.borderTexture, s.borderSize or 1
-    host._partyPx = EllesmereUI.BorderPx(s.borderSizePx, host._partySize, host._partyKey)
-    local c = s.borderColor
-    host._partyR, host._partyG, host._partyB = c and c.r or 0, c and c.g or 0, c and c.b or 0
-    host._partyAlpha = s.borderAlpha or 1
-    EllesmereUI.ApplyBorderStyle(host, host._partySize, host._partyR, host._partyG, host._partyB, host._partyAlpha,
-        host._partyKey, s.borderTextureOffset, s.borderTextureOffsetY,
-        s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", host._partySize, nil, host._partyPx)
-    for i = 1, count - 1 do
-        if not host._partySeps[i] then
-            local seam = CreateFrame("Frame", nil, host)
-            seam._tex = seam:CreateTexture(nil, "ARTWORK")
-            EllesmereUI.PP.DisablePixelSnap(seam._tex)
-            host._partySeps[i] = seam
-        end
-    end
-    for i = count, #host._partySeps do host._partySeps[i]:Hide() end
-    ns.RF_LayoutPartySeparators(host)
-    EllesmereUI.RegisterPxReapply(host, (not preview and host._partyCount > 0) and ns.RF_LayoutPartySeparators or nil)
+    StyleSharedBorder(host, s, first, level, preview)
     return host
 end
 
@@ -221,6 +229,169 @@ function ns.RF_QueuePartyBorder()
         ns._partyBorderTimer = nil
         if ns._partySharedBorderOn then ns.RF_RefreshPartyBorder() end
     end)
+end
+
+function ns.RF_RaidSharedBorderOn(s)
+    if not s or s.raidSharedBorder ~= true or ns.RF_Stock() then return false end
+    local key = s.borderTexture
+    return (key == "pixels" or key == "pixels-textured") and (s.borderSize or 1) > 0
+        and (EllesmereUI.PP.ToPixels(s.cellSpacing or 2) == 1
+            or EllesmereUI.PP.ToPixels(s.groupSpacing or 8) == 1)
+end
+
+function ns.RF_SharedBorderOn(s, party, raid)
+    return (party and ns.RF_PartySharedBorderOn(s)) or (raid and ns.RF_RaidSharedBorderOn(s)) or false
+end
+
+function ns.RF_HideRaidBorders(pool)
+    if not pool then return end
+    for _, host in ipairs(pool.hosts) do ns.RF_HidePartyBorder(host) end
+end
+
+do
+    local function Root(rect)
+        while rect.root ~= rect do rect = rect.root end
+        return rect
+    end
+
+    -- Connect only occupied cells sharing a one-pixel seam. This works for
+    -- either growth axis, merged headers, and the wrapped group layout.
+    function ns.RF_ApplyRaidBorders(pool, parent, frames, s, preview)
+        if not ns.RF_RaidSharedBorderOn(s) or not parent then
+            ns.RF_HideRaidBorders(pool)
+            return pool
+        end
+        local visible, es = parent:IsVisible(), parent:GetEffectiveScale()
+        if issecretvalue(visible) or issecretvalue(es) or not visible or not es or es <= 0.01 then
+            ns.RF_HideRaidBorders(pool)
+            return pool
+        end
+        if not pool then pool = { hosts = {}, rects = {}, order = {}, edges = {} } end
+        local order, edges = pool.order, pool.edges
+        wipe(order)
+        local px = EllesmereUI.PP.perfect
+        for _, frame in ipairs(frames) do
+            if preview or GetFFD(frame)._isRaid then
+                local shown = frame:IsVisible()
+                if issecretvalue(shown) then ns.RF_HideRaidBorders(pool); return pool end
+                local unit = shown and (preview or frame:GetAttribute("unit"))
+                if issecretvalue(unit) then ns.RF_HideRaidBorders(pool); return pool end
+                if unit then
+                    local l, b, w, h = frame:GetRect()
+                    local scale, level = frame:GetEffectiveScale(), frame:GetFrameLevel()
+                    if issecretvalue(l) or issecretvalue(b) or issecretvalue(w) or issecretvalue(h)
+                        or issecretvalue(scale) or issecretvalue(level) or not l or not b or not w or not h
+                        or not scale or not level or scale <= 0.01 or w <= 0 or h <= 0 then
+                        ns.RF_HideRaidBorders(pool)
+                        return pool
+                    end
+                    local rect = pool.rects[frame]
+                    if not rect then rect = { frame = frame }; pool.rects[frame] = rect end
+                    rect.l, rect.b = l * scale / px, b * scale / px
+                    rect.r, rect.t = (l + w) * scale / px, (b + h) * scale / px
+                    rect.level, rect.root, rect.host = level, rect, nil
+                    order[#order + 1] = rect
+                end
+            end
+        end
+        local edgeCount = 0
+        for i = 1, #order do
+            local a = order[i]
+            for j = i + 1, #order do
+                local b = order[j]
+                local anchor, growth
+                if math.abs(a.t - b.t) < 0.25 and math.abs(a.b - b.b) < 0.25 then
+                    if math.abs(b.l - a.r - 1) < 0.25 then anchor, growth = b.frame, "RIGHT"
+                    elseif math.abs(a.l - b.r - 1) < 0.25 then anchor, growth = a.frame, "RIGHT" end
+                elseif math.abs(a.l - b.l) < 0.25 and math.abs(a.r - b.r) < 0.25 then
+                    if math.abs(a.b - b.t - 1) < 0.25 then anchor, growth = b.frame, "DOWN"
+                    elseif math.abs(b.b - a.t - 1) < 0.25 then anchor, growth = a.frame, "DOWN" end
+                end
+                if anchor then
+                    Root(b).root = Root(a)
+                    edgeCount = edgeCount + 1
+                    local edge = edges[edgeCount]
+                    if not edge then edge = {}; edges[edgeCount] = edge end
+                    edge.rect, edge.frame, edge.growth = a, anchor, growth
+                end
+            end
+        end
+        local hostCount = 0
+        for _, rect in ipairs(order) do
+            local root = Root(rect)
+            local host = root.host
+            if not host then
+                hostCount = hostCount + 1
+                host = pool.hosts[hostCount]
+                if not host then
+                    host = CreateFrame("Frame", nil, parent)
+                    host._partyOrder, host._partySeps = {}, {}
+                    pool.hosts[hostCount] = host
+                elseif host:GetParent() ~= parent then
+                    host:SetParent(parent)
+                end
+                root.host = host
+                host._raidFirst, host._raidLevel = rect, rect.level
+                host._raidL, host._raidB, host._raidR, host._raidT = rect.l, rect.b, rect.r, rect.t
+                wipe(host._partyOrder)
+                host._partyCount = 1
+            else
+                host._raidL, host._raidB = math.min(host._raidL, rect.l), math.min(host._raidB, rect.b)
+                host._raidR, host._raidT = math.max(host._raidR, rect.r), math.max(host._raidT, rect.t)
+                host._raidLevel = math.max(host._raidLevel, rect.level)
+            end
+        end
+        for i = 1, edgeCount do
+            local edge = edges[i]
+            local host = Root(edge.rect).host
+            host._partyCount = host._partyCount + 1
+            host._partyOrder[host._partyCount] = edge
+        end
+        for i = 1, hostCount do
+            local host = pool.hosts[i]
+            local first = host._raidFirst
+            host:ClearAllPoints()
+            host:SetPoint("TOPLEFT", first.frame, "TOPLEFT",
+                (host._raidL - first.l) * px / es, (host._raidT - first.t) * px / es)
+            host:SetPoint("BOTTOMRIGHT", first.frame, "BOTTOMRIGHT",
+                (host._raidR - first.r) * px / es, (host._raidB - first.b) * px / es)
+            StyleSharedBorder(host, s, first.frame, host._raidLevel, preview)
+        end
+        for i = hostCount + 1, #pool.hosts do ns.RF_HidePartyBorder(pool.hosts[i]) end
+        return pool
+    end
+end
+
+function ns.RF_QueueRaidBorders()
+    if not ns._raidSharedBorderOn or ns._raidBorderTimer then return end
+    ns._raidBorderTimer = C_Timer.NewTimer(0, function()
+        ns._raidBorderTimer = nil
+        if ns._raidSharedBorderOn then ns.RF_RefreshRaidBorders() end
+    end)
+end
+
+function ns.RF_RefreshRaidBorders()
+    local s = ns._scaledProfile
+    ns._raidSharedBorderOn = ns.RF_RaidSharedBorderOn(s)
+    if ns._raidBorderTimer then ns._raidBorderTimer:Cancel(); ns._raidBorderTimer = nil end
+    if ns._raidSharedBorderOn then
+        for _, frame in ipairs(allButtons) do
+            local d = GetFFD(frame)
+            if d._isRaid and not d._raidBorderHooked then
+                d._raidBorderHooked = true
+                frame:HookScript("OnShow", ns.RF_QueueRaidBorders)
+                frame:HookScript("OnHide", ns.RF_QueueRaidBorders)
+            end
+        end
+    end
+    ns._raidBorders = ns.RF_ApplyRaidBorders(ns._raidBorders, containerFrame, allButtons, s)
+end
+
+function ns.RF_RaidBorderGridChanged()
+    local s = ns._scaledProfile
+    if not ns._raidSharedBorderOn and s.raidSharedBorder ~= true then return end
+    ns.ReloadFrames()
+    if ns.previewActive() then ns.ShowPreview() end
 end
 
 -- Layout party frames: apply unitGrowth direction and cell spacing to the header.

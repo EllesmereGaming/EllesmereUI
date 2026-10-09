@@ -111,6 +111,7 @@ ns._BuildHeaderSet = function(merge)
             for i = 1, 5 do
                 local btn = hdr[i]
                 if btn then
+                    I.GetFFD(btn)._isRaid = true
                     ns._StyleButtonSecure(btn)
                     allButtons[#allButtons + 1] = btn
                 end
@@ -151,6 +152,7 @@ ns._BuildHeaderSet = function(merge)
         for i = 1, 40 do
             local btn = ns._flatHeader[i]
             if btn then
+                I.GetFFD(btn)._isRaid = true
                 ns._StyleButtonSecure(btn)
                 allButtons[#allButtons + 1] = btn
                 ns._flatButtons[#ns._flatButtons + 1] = btn
@@ -520,6 +522,7 @@ ns._LayoutGroupsImpl = function()
 
     -- Update real-frame group numbers now that all headers are positioned.
     ns._UpdateGroupNumbers()
+    if ns._raidSharedBorderOn or ns.RF_RaidSharedBorderOn(s) or ns._raidBorders then ns.RF_RefreshRaidBorders() end
 end
 
 -- Coalescing re-entrancy guard: a re-entrant LayoutGroups() call is NOT dropped

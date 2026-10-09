@@ -739,13 +739,29 @@ local function BuildMainPage(pageName, parent, yOffset)
         return cfg
     end
 
+    local function RaidPixelsBorder()
+        local key = SGet("borderTexture")
+        return not ns.RF_Stock() and (key == "pixels" or key == "pixels-textured")
+    end
+    local function SetRaidSpacing(key, v)
+        local pixels = RaidPixelsBorder()
+        if pixels then v = math.max(v, EllesmereUI.PP.FromPixels(1)) end
+        SWrite(key, v)
+        SWrite("raidSharedBorder", pixels and (EllesmereUI.PP.ToPixels(SVal("cellSpacing", 2)) == 1
+            or EllesmereUI.PP.ToPixels(SVal("groupSpacing", 8)) == 1))
+        ReloadAndUpdate()
+    end
     _, h = W:DualRow(parent, y,
-        { type="slider", pixel=true, text="Frame Spacing", min=-1, max=15, step=1,
+        { type="slider", pixel=true, text="Frame Spacing",
+          min=RaidPixelsBorder() and EllesmereUI.PP.FromPixels(1) or -1, max=15, step=1,
+          tooltip="Pixels and Pixels Textured require at least 1 pixel of spacing. Selecting 1 joins frames with a shared border and separators. Set Group Spacing to 1 as well for one raid grid.",
           getValue=function() return SVal("cellSpacing", 2) end,
-          setValue=function(v) SSet("cellSpacing", v) end },
-        { type="slider", pixel=true, text="Group Spacing", min=-1, max=15, step=1,
+          setValue=function(v) SetRaidSpacing("cellSpacing", v) end },
+        { type="slider", pixel=true, text="Group Spacing",
+          min=RaidPixelsBorder() and EllesmereUI.PP.FromPixels(1) or -1, max=15, step=1,
+          tooltip="Pixels and Pixels Textured require at least 1 pixel of spacing. Selecting 1 joins adjacent groups with separators. Set Frame Spacing to 1 as well for one outer raid border.",
           getValue=function() return SVal("groupSpacing", 8) end,
-          setValue=function(v) SSet("groupSpacing", v) end });  y = y - h
+          setValue=function(v) SetRaidSpacing("groupSpacing", v) end });  y = y - h
 
     -- Border Style (+ options cog) | Border Size (+ Border swatch). Mirrors Unit Frames: ONE border recolored by state (hover/target), full SharedMedia support. Hover/Target swatches live on the row below.
     local bdrTexValues, bdrTexOrder = EllesmereUI.GetBorderTextureDropdown()
@@ -766,6 +782,13 @@ local function BuildMainPage(pageName, parent, yOffset)
               if defSz then SWrite("borderSize", defSz) end
               -- A style pick returns the size to its step: clear a set exact size.
               if SGetPx("borderSizePx", "borderSize") then SWrite("borderSizePx", false) end
+              if RaidPixelsBorder() then
+                  local one = EllesmereUI.PP.FromPixels(1)
+                  if EllesmereUI.PP.ToPixels(SVal("cellSpacing", 2)) <= 1 then SWrite("cellSpacing", one) end
+                  if EllesmereUI.PP.ToPixels(SVal("groupSpacing", 8)) <= 1 then SWrite("groupSpacing", one) end
+                  SWrite("raidSharedBorder", EllesmereUI.PP.ToPixels(SVal("cellSpacing", 2)) == 1
+                      or EllesmereUI.PP.ToPixels(SVal("groupSpacing", 8)) == 1)
+              end
               if (v == "pixels" or v == "pixels-textured") and PartyPixelsBorder()
                   and EllesmereUI.PP.ToPixels(db.profile.partyCellSpacing or db.profile.cellSpacing or 2) <= 1 then
                   db.profile.partyCellSpacing = EllesmereUI.PP.FromPixels(1)

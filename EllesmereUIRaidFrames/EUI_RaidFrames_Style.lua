@@ -1039,7 +1039,7 @@ local function StyleButton(button)
         if not (PP and d.borderFrame) then return end
         -- Re-called long after StyleButton: resolve LIVE (see LiveS note) so party overrides and profile swaps are honored.
         local s = LiveS()
-        local shared = d._isParty and ns.RF_PartySharedBorderOn(s)
+        local shared = ns.RF_SharedBorderOn(s, d._isParty, d._isRaid)
         if not shared and d.borderFrame._partyInsetHighlight then
             ns.ApplyPartyInsetHighlight(d.borderFrame, s)
         end
@@ -1111,7 +1111,7 @@ local function StyleButton(button)
         -- Re-called from Reload paths long after StyleButton: resolve LIVE (see LiveS note).
         local s = LiveS()
         local bs = s.borderSize or 1
-        if d._isParty and ns.RF_PartySharedBorderOn(s) then bs = 0 end
+        if ns.RF_SharedBorderOn(s, d._isParty, d._isRaid) then bs = 0 end
         local bc = s.borderColor or { r = 0, g = 0, b = 0 }
         local texKey = s.borderTexture or "solid"
         local pl = button:GetFrameLevel()
@@ -1293,6 +1293,7 @@ local function StyleButton(button)
     button:HookScript("OnAttributeChanged", function(self, name)
         if name ~= "unit" then return end
         if ns._partySharedBorderOn and GetFFD(self)._isParty then ns.RF_QueuePartyBorder() end
+        if ns._raidSharedBorderOn and GetFFD(self)._isRaid then ns.RF_QueueRaidBorders() end
         local u = self:GetAttribute("unit")
         if u and UnitExists(u) then
             -- Repaint + remap the instant the header (re)assigns this button, so a late assignment

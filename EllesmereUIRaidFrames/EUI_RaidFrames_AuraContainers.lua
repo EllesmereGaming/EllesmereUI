@@ -3338,6 +3338,7 @@ function ns.RFC_PixelGridChanged()
     else
         ns.RFC_ReloadAll()
         if ns.RF_PartyBorderGridChanged then ns.RF_PartyBorderGridChanged() end
+        if ns.RF_RaidBorderGridChanged then ns.RF_RaidBorderGridChanged() end
     end
 end
 _G._ERF_PixelGridChanged = ns.RFC_PixelGridChanged
@@ -3396,6 +3397,7 @@ bmRegen:SetScript("OnEvent", function(_, event, arg1)
     end
     if any then ns.RFC_ReloadAll() end
     if scaleDirty and ns.RF_PartyBorderGridChanged then ns.RF_PartyBorderGridChanged() end
+    if scaleDirty and ns.RF_RaidBorderGridChanged then ns.RF_RaidBorderGridChanged() end
 end)
 
 -- Event-driven gate re-evaluation (no polling): UNIT_PHASE fires exactly
