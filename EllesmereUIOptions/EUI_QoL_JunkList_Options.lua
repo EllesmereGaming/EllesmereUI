@@ -68,7 +68,7 @@ _G._EUI_BuildJunkListSection = function(parent, yOffset, W, PP)
         { type    = "slider",
           text    = "Icon Spacing",
           min     = 0, max = 30, step = 1, isPercent = false,
-          tooltip = "Horizontal space between icons. Columns are still widened automatically to fit long prices at the default; lower values can make neighbouring prices touch.",
+          tooltip = "Horizontal space between icons. Fixed regardless of the prices shown, so raise it if long prices touch their neighbours.",
           getValue = function() return Cfg("iconSpacing", 6) end,
           setValue = function(v) Set("iconSpacing", v); Refresh() end }
     ); y = y - h
@@ -77,7 +77,7 @@ _G._EUI_BuildJunkListSection = function(parent, yOffset, W, PP)
         { type    = "dropdown",
           text    = "Show Up To Quality",
           values  = QUALITY_VALUES, order = QUALITY_ORDER,
-          tooltip = "Lists items of this quality and below. At Uncommon (default) Poor, Common and Uncommon items are listed; Rare and better never appear.\n\nDeleting a Rare or better item always asks you to confirm first.",
+          tooltip = "Lists items of this quality and below. At Uncommon (default) Poor, Common and Uncommon items are listed; Rare and better never appear.\n\nDeleting a Rare or better item always shows Blizzard's type DELETE confirmation first.",
           getValue = function() return tostring(Cfg("qualityCap", 2)) end,
           setValue = function(v) Set("qualityCap", tonumber(v)); Refresh() end },
         { type    = "dropdown",

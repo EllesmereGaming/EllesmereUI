@@ -21,7 +21,7 @@ local defaults = {
             itemCount  = 4,      -- 1..MAX_CELLS
             iconSize   = 32,
             showFreeSlots = false,  -- title reads "Junk Items - free/total"; off hides the title
-            iconSpacing = 6,     -- offset from the automatic column width, px
+            iconSpacing = 6,     -- gap between icons, px
             priceSide  = "bottom",  -- bottom | top
             qualityCap = 2,      -- list items of this quality and below (2 = Uncommon)
             excluded   = {},     -- [itemID] = true
@@ -128,33 +128,28 @@ end
 local Refresh  -- forward
 
 -- DeleteCursorItem needs a hardware event, so pickup and delete both run inside
--- the click that called us (directly, or from the confirm popup's button).
-local function DeleteStack(bag, slot, itemID)
+-- the click that called us. DeleteCursorItem itself never asks anything, the
+-- type-DELETE dialog is raised by the client's drop-on-world path, so Rare and
+-- above is shown Blizzard's own dialog here (same pick as its
+-- DELETE_ITEM_CONFIRM handler) with the stack left on the cursor; its Yes
+-- button is the hardware click that deletes.
+local function RequestDelete(cell)
+    local bag, slot, itemID = cell.bag, cell.slot, cell.itemID
     if CursorHasItem() then return end
     local info = C_Container.GetContainerItemInfo(bag, slot)
     if not info or info.itemID ~= itemID or info.isLocked then return end
     C_Container.PickupContainerItem(bag, slot)
     local kind, id = GetCursorInfo()
-    if kind == "item" and id == itemID then
-        DeleteCursorItem()
-    elseif CursorHasItem() then
-        ClearCursor()
+    if kind ~= "item" or id ~= itemID then
+        if CursorHasItem() then ClearCursor() end
+        return
     end
-end
-
-local function RequestDelete(cell)
-    local bag, slot, itemID = cell.bag, cell.slot, cell.itemID
-    if (cell.quality or 0) < 3 then return DeleteStack(bag, slot, itemID) end
-    -- Rare and above always ask first.
-    local info = C_Container.GetContainerItemInfo(bag, slot)
-    if not info or info.itemID ~= itemID then return end
-    EUI:ShowConfirmPopup({
-        title       = "Delete Item",
-        message     = "Permanently delete " .. (info.hyperlink or "this item") .. "?",
-        confirmText = "Delete",
-        cancelText  = "Cancel",
-        onConfirm   = function() DeleteStack(bag, slot, itemID) end,
-    })
+    local quality = info.quality or 0
+    if quality >= Enum.ItemQuality.Rare and quality ~= Enum.ItemQuality.Heirloom then
+        StaticPopup_Show("DELETE_GOOD_ITEM", info.hyperlink or C_Item.GetItemNameByID(itemID) or "")
+    else
+        DeleteCursorItem()
+    end
 end
 
 local function ExcludeItem(cell)
@@ -272,8 +267,6 @@ Refresh = function()
     local iconSz = p.iconSize or 32
     local limit = math.max(1, math.min(MAX_CELLS, p.itemCount or 4))
 
-    -- Price text first: each column is as wide as the widest price (never narrower
-    -- than icon + gap) so neighbouring prices cannot run into each other.
     if p.showFreeSlots then
         local free, total = 0, 0
         for bag = 0, NUM_BAG_SLOTS + 1 do
@@ -287,16 +280,14 @@ Refresh = function()
     end
 
     local list = Scan(limit, p.excluded or {}, p.qualityCap or 2)
-    local cellW = iconSz + ICON_GAP
+    -- Column pitch is icon + the Icon Spacing slider and nothing else: it must
+    -- not follow the price text, or excluding cheap items (leaving pricier, wider
+    -- prices) would stretch the row.
+    local cellW = iconSz + (p.iconSpacing or ICON_GAP)
     for i = 1, limit do
         local item = list[i]
-        local cell = AcquireCell(i)
-        if item then
-            cell._price:SetText(FormatValue(item.total))
-            cellW = math.max(cellW, math.ceil(cell._price:GetStringWidth()) + 8)
-        end
+        if item then AcquireCell(i)._price:SetText(FormatValue(item.total)) end
     end
-    cellW = math.max(iconSz, cellW + (p.iconSpacing or ICON_GAP) - ICON_GAP)
     local w = math.max(PAD * 2 + limit * cellW, p.showFreeSlots and 140 or 110)  -- room for the end prices to overhang their icons
     local h = TITLE_H + PAD + iconSz + 3 + PRICE_H + PAD
     if PP and PP.Snap then w, h = PP.Snap(w), PP.Snap(h) end
