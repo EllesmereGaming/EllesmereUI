@@ -1117,6 +1117,7 @@ local function CreatePreviewFrame(index, party)
     local healthH = PixelSnap(h - ns.RF_HealthPowerInset(s, powerH))
 
     local f = CreateFrame("Frame", nil, previewContainer or containerFrame)
+    f._partyFrame = party or nil
     f:SetSize(w, h)
     f:SetFrameStrata("HIGH")
     f:Hide()
@@ -1391,6 +1392,10 @@ local function CreatePreviewFrame(index, party)
         -- tier-scaled, so the effective overlay may shadow them safely.
         local s = ns._previewSettingsOverride or (ns._partyPvActive and ns._scaledPartyProxy)
             or ns._pvOverlayProxy or ns._scaledProfile
+        local shared = f._partyFrame and ns.RF_PartySharedBorderOn(s)
+        if not shared and bdrFrame._partyInsetHighlight then
+            ns.ApplyPartyInsetHighlight(bdrFrame, s, nil, nil, true)
+        end
         if f.kit then
             ns.RF_KitHighlight(f, bdrFrame, s, f._hovered and s.hoverBorderEnabled ~= false,
                 f._isTarget and s.targetBorderEnabled ~= false)
@@ -1456,8 +1461,22 @@ local function CreatePreviewFrame(index, party)
             return
         end
         if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b) end
-        bdrFrame._hlBorderSize = nil
-        EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
+        if shared then
+            ns.ApplyPartyInsetHighlight(bdrFrame, s, f._hovered, f._isTarget, true, f._pvAggroBdr)
+            if f._pvDispelBdrC then
+                local size = s.borderSize or 1
+                local c = f._pvDispelBdrC
+                ns.ApplyHighlightBorder(bdrFrame, s, size, c.r, c.g, c.b, c.a or 1,
+                    EllesmereUI.BorderPx(s.borderSizePx, size, s.borderTexture or "solid"))
+            else
+                EllesmereUI.HideBorderStyle(bdrFrame)
+                bdrFrame:Hide()
+                bdrFrame._hlBorderSize = nil
+            end
+        else
+            bdrFrame._hlBorderSize = nil
+            EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
+        end
         if s.powerBorderMatchColor == true and f._powerBorder and f._powerBorder._powerArtMode == "divider" then
             ns.RF_ColorPowerDivider(f._powerBorder, r, g, b, a)
         end
@@ -2761,10 +2780,15 @@ local function ApplyPreviewData(f, index)
         local bc = s.borderColor or { r = 0, g = 0, b = 0 }
         local pl = f:GetFrameLevel()
         f._border:SetFrameLevel(s.borderBehind and math.max(0, pl - 1) or (pl + 8))
-        EllesmereUI.ApplyBorderStyle(f._border, bs, bc.r, bc.g, bc.b, s.borderAlpha or 1,
-            s.borderTexture or "solid", s.borderTextureOffset, s.borderTextureOffsetY,
-            s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
-            EllesmereUI.BorderPx(s.borderSizePx, bs, s.borderTexture or "solid"))
+        if f._partyFrame and s.partySharedBorder == true and ns.RF_PartySharedBorderOn(s) then
+            EllesmereUI.ApplyBorderStyle(f._border, 0, 0, 0, 0, 0, "solid")
+            f._border._hlBorderSize = nil
+        else
+            EllesmereUI.ApplyBorderStyle(f._border, bs, bc.r, bc.g, bc.b, s.borderAlpha or 1,
+                s.borderTexture or "solid", s.borderTextureOffset, s.borderTextureOffsetY,
+                s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
+                EllesmereUI.BorderPx(s.borderSizePx, bs, s.borderTexture or "solid"))
+        end
         if f._ApplyBorderColor then f._ApplyBorderColor() end
     end
     -- Rounded corners, as on the live cells (stock styles stay square).
@@ -2790,6 +2814,7 @@ local function ApplyPreviewData(f, index)
     if f._threatFrame and PP then
         local bs = s.threatBorderSize or 0
         local rc = s.threatCustomBorder == true and ns.RF_CustomBorderOn(s)
+        local shared = f._partyFrame and s.partySharedBorder == true and ns.RF_PartySharedBorderOn(s)
         local wantThreat = bs > 0 or rc
         if ns._testMode and ns._testThreat ~= nil then wantThreat = ns._testThreat end
         local showThreat = wantThreat and (ns._testMode or ns._healthAnimActive) and previewRoles._threatIndex == index
@@ -2797,12 +2822,12 @@ local function ApplyPreviewData(f, index)
         if f.stockHl then
             f._threatFrame:Hide()
             ns.RF_StockAggro(f, showThreat and 3 or nil)
-        elseif showThreat and not rc then
+        elseif showThreat and not rc and not shared then
             PP.UpdateBorder(f._threatFrame, bs > 0 and bs or 1, 1, 0, 0, 1)
             f._threatFrame:Show()
         else
             f._threatFrame:Hide()
-            agg = (showThreat and rc) and true or nil
+            agg = (showThreat and (rc or shared)) and true or nil
         end
         if f._pvAggroBdr ~= agg then
             f._pvAggroBdr = agg
@@ -4859,6 +4884,11 @@ local function RefreshPartyPreview()
         end
     end
 
+    if (ns._scaledPartyProxy.partySharedBorder == true and ns.RF_PartySharedBorderOn(ns._scaledPartyProxy))
+        or ns._partyPvBorder then
+        ns._partyPvBorder = ns.RF_ApplyPartyBorder(ns._partyPvBorder, parentFrame,
+            ns._partyPvFrames, ns._scaledPartyProxy, true)
+    end
 end
 
 local function ShowPartyPreview()
@@ -4905,6 +4935,7 @@ local function HidePartyPreview(skipRestore)
     for i = 1, 5 do
         if ns._partyPvFrames[i] then ns._partyPvFrames[i]:Hide() end
     end
+    if ns._partyPvBorder then ns.RF_HidePartyBorder(ns._partyPvBorder) end
     if ns._partyOC then ns._partyOC:Hide() end
     ns.PF_HidePreview()
     ns.PT_HidePreview()

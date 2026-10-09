@@ -764,6 +764,7 @@ local defaults = {
         partyShowSelfFirst = true,
         partySelfLast      = false,
         partyHorizontal   = false,
+        partySharedBorder = false,
         partyFlipGrowth   = false,  -- false=default growth, true=DOWN->UP / RIGHT->LEFT flip, "centered"=stack centered in the 5-slot container
         partyHideSelf     = false,
         partyUnlockPos    = nil,
@@ -1147,6 +1148,7 @@ function ns.RF_PaintThreat(d, s, unit)
     if not tf then return end
     local bs = s.threatBorderSize or 0
     local rc = s.threatCustomBorder == true and ns.RF_CustomBorderOn(s)
+    local shared = d._isParty and s.partySharedBorder == true and ns.RF_PartySharedBorderOn(s)
     local status
     if bs > 0 or rc then
         status = UnitThreatSituation(unit)
@@ -1160,12 +1162,12 @@ function ns.RF_PaintThreat(d, s, unit)
         ns.RF_StockAggro(d, on and status or nil)
         return
     end
-    local agg = (rc and on) or nil
+    local agg = ((rc or shared) and on) or nil
     if d._aggroBdr ~= agg then
         d._aggroBdr = agg
         if d.ApplyBorderColor then d.ApplyBorderColor() end
     end
-    if on and not rc then
+    if on and not rc and not shared then
         PP.UpdateBorder(tf, bs, 1, 0, 0, 1)
         tf:Show()
     else

@@ -338,6 +338,7 @@ local function OnEvent(self, event, arg1, ...)
                             end
                         end
                     end
+                    if ns._partySharedBorderOn then ns.RF_RefreshPartyBorder() end
                 end)
             end
             return

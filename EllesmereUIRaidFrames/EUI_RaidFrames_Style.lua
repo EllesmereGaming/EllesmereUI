@@ -323,6 +323,66 @@ function ns.RF_VisibleHighlight(s, r, g, b)
     return 1, 1, 1
 end
 
+function ns.RF_LayoutPartyInsetHighlight(host)
+    local es = host:GetEffectiveScale()
+    local level = host:GetParent():GetFrameLevel()
+    if issecretvalue(es) or issecretvalue(level) or not es or es <= 0.01 or not level then
+        host:Hide()
+        EllesmereUI.RegisterPxReapply(host, nil)
+        return false
+    end
+    local strata = host._partyInsetAnchor:GetFrameStrata()
+    if host:GetFrameStrata() ~= strata then host:SetFrameStrata(strata) end
+    level = level + 6
+    if host:GetFrameLevel() ~= level then host:SetFrameLevel(level) end
+    local container = PP.GetBorders(host)
+    if container then
+        if container:GetFrameLevel() ~= level + 1 then container:SetFrameLevel(level + 1) end
+        PP.SetBorderSize(host, 2)
+    end
+    return true
+end
+
+function ns.ApplyPartyInsetHighlight(bf, s, hover, target, preview, threat)
+    if not (PP and bf) then return end
+    local host = bf._partyInsetHighlight
+    local c, a
+    local r, g, b
+    if hover and s.hoverBorderEnabled ~= false then
+        c, a = s.hoverBorderColor, s.hoverBorderAlpha or 1
+    elseif target and s.targetBorderEnabled ~= false then
+        c, a = s.targetBorderColor, s.targetBorderAlpha or 1
+    elseif threat then
+        r, g, b, a = 1, 0, 0, 1
+    else
+        if host then
+            host:Hide()
+            EllesmereUI.RegisterPxReapply(host, nil)
+        end
+        return
+    end
+    if not host then
+        -- Dispel copies anchor the original border frame, so keep its bounds intact.
+        host = CreateFrame("Frame", nil, bf:GetParent())
+        host._partyInsetAnchor = bf
+        host:SetPoint("TOPLEFT", bf, "TOPLEFT", 0, 0)
+        host:SetPoint("BOTTOMRIGHT", bf, "BOTTOMRIGHT", 0, 0)
+        bf._partyInsetHighlight = host
+    end
+    if not ns.RF_LayoutPartyInsetHighlight(host) then return end
+    if not r then
+        r, g, b = ns.RF_VisibleHighlight(s, c and c.r or 1, c and c.g or 1, c and c.b or 1)
+    end
+    if PP.GetBorders(host) then
+        PP.SetBorderColor(host, r, g, b, a)
+        PP.ShowBorder(host)
+    else
+        PP.CreateBorder(host, r, g, b, a, 2, "OVERLAY", 7)
+    end
+    host:Show()
+    EllesmereUI.RegisterPxReapply(host, not preview and ns.RF_LayoutPartyInsetHighlight or nil)
+end
+
 function ns.RF_ColorPowerDivider(host, r, g, b, a)
     if not host or host._powerArtMode ~= "divider" then return end
     host._powerArtR, host._powerArtG, host._powerArtB, host._powerArtAlpha = r, g, b, a
@@ -972,13 +1032,17 @@ local function StyleButton(button)
         if bd then bd:SetFrameLevel(lvl) end
     end
 
-    -- Recolor the single border for the current state: hover > target > aggro (Threat
-    -- Borders' Color Custom Borders, flagged by ns.RF_PaintThreat) > normal. A borderless
+    -- Recolor the single border for the current state: hover > target > aggro
+    -- (flagged by ns.RF_PaintThreat) > normal. A borderless
     -- frame has nothing to recolor, so the highlight draws its own (ns.ApplyHighlightBorder).
     local function ApplyBorderColor()
         if not (PP and d.borderFrame) then return end
         -- Re-called long after StyleButton: resolve LIVE (see LiveS note) so party overrides and profile swaps are honored.
         local s = LiveS()
+        local shared = d._isParty and ns.RF_PartySharedBorderOn(s)
+        if not shared and d.borderFrame._partyInsetHighlight then
+            ns.ApplyPartyInsetHighlight(d.borderFrame, s)
+        end
         -- Party Frames kit: hover and target glow along the frame art.
         if d.kit then
             ApplyBorderLevel(false, s)
@@ -994,6 +1058,8 @@ local function StyleButton(button)
             ns.RF_StockHighlight(d, d.borderFrame, s, hover, d._isTarget and s.targetBorderEnabled ~= false)
             return
         end
+        local aggro = d._aggroBdr and ((s.threatCustomBorder == true and ns.RF_CustomBorderOn(s))
+            or (shared and (s.threatBorderSize or 0) > 0))
         local r, g, b, a
         local raised, hlSize, hlPx = false, nil, nil
         if d._hovered and s.hoverBorderEnabled ~= false then
@@ -1006,7 +1072,7 @@ local function StyleButton(button)
             r, g, b, a = c.r, c.g, c.b, s.targetBorderAlpha or 1
             raised, hlSize = true, s.targetBorderSize or 1
             hlPx = EllesmereUI.BorderPx(s.targetBorderSizePx, hlSize, s.borderTexture or "solid")
-        elseif d._aggroBdr and s.threatCustomBorder == true and ns.RF_CustomBorderOn(s) then
+        elseif aggro then
             -- The threat color, raised like hover/target so it also covers the dispel
             -- Color Custom Borders copies (base + 9). Settings re-checked live: a
             -- restyle can run before the next threat paint clears the flag.
@@ -1022,8 +1088,13 @@ local function StyleButton(button)
             return
         end
         if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b) end
-        d.borderFrame._hlBorderSize = nil
-        EllesmereUI.SetBorderStyleColor(d.borderFrame, r, g, b, a)
+        if shared then
+            ns.ApplyPartyInsetHighlight(d.borderFrame, s, d._hovered, d._isTarget, nil, aggro)
+            ns.ApplyHighlightBorder(d.borderFrame, s, nil, r, g, b, a)
+        else
+            d.borderFrame._hlBorderSize = nil
+            EllesmereUI.SetBorderStyleColor(d.borderFrame, r, g, b, a)
+        end
         if s.powerBorderMatchColor == true and d.powerBorderFrame and d.powerBorderFrame._powerArtMode == "divider" then
             ns.RF_ColorPowerDivider(d.powerBorderFrame, r, g, b, a)
         end
@@ -1040,6 +1111,7 @@ local function StyleButton(button)
         -- Re-called from Reload paths long after StyleButton: resolve LIVE (see LiveS note).
         local s = LiveS()
         local bs = s.borderSize or 1
+        if d._isParty and ns.RF_PartySharedBorderOn(s) then bs = 0 end
         local bc = s.borderColor or { r = 0, g = 0, b = 0 }
         local texKey = s.borderTexture or "solid"
         local pl = button:GetFrameLevel()
@@ -1220,6 +1292,7 @@ local function StyleButton(button)
     -- secure header's own handlers; helpers go through ns because they are defined later.
     button:HookScript("OnAttributeChanged", function(self, name)
         if name ~= "unit" then return end
+        if ns._partySharedBorderOn and GetFFD(self)._isParty then ns.RF_QueuePartyBorder() end
         local u = self:GetAttribute("unit")
         if u and UnitExists(u) then
             -- Repaint + remap the instant the header (re)assigns this button, so a late assignment

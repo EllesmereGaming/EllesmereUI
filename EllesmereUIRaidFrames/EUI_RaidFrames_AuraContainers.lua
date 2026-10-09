@@ -3333,7 +3333,12 @@ bmRegen:RegisterEvent("PLAYER_ENTERING_WORLD")
 bmRegen:RegisterEvent("UI_SCALE_CHANGED")
 bmRegen:RegisterEvent("DISPLAY_SIZE_CHANGED")
 function ns.RFC_PixelGridChanged()
-    if InCombatLockdown() then ns._rfcScaleDirty = true else ns.RFC_ReloadAll() end
+    if InCombatLockdown() then
+        ns._rfcScaleDirty = true
+    else
+        ns.RFC_ReloadAll()
+        if ns.RF_PartyBorderGridChanged then ns.RF_PartyBorderGridChanged() end
+    end
 end
 _G._ERF_PixelGridChanged = ns.RFC_PixelGridChanged
 -- The poison dispel-slot filter depends on Poison Cleansing Totem being talented
@@ -3379,7 +3384,8 @@ bmRegen:SetScript("OnEvent", function(_, event, arg1)
         return
     end
     if ns._rfcTotemDirty then RecheckTotem() end
-    local any = ns._rfcScaleDirty or false
+    local scaleDirty = ns._rfcScaleDirty
+    local any = scaleDirty or false
     ns._rfcScaleDirty = nil
     for i = 1, #registry do
         local d = ns.GetFFD and ns.GetFFD(registry[i])
@@ -3389,6 +3395,7 @@ bmRegen:SetScript("OnEvent", function(_, event, arg1)
         end
     end
     if any then ns.RFC_ReloadAll() end
+    if scaleDirty and ns.RF_PartyBorderGridChanged then ns.RF_PartyBorderGridChanged() end
 end)
 
 -- Event-driven gate re-evaluation (no polling): UNIT_PHASE fires exactly

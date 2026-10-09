@@ -335,6 +335,16 @@ end
 ---------------------------------------------------------------------------
 --  Page Builder
 ---------------------------------------------------------------------------
+local function PartyPixelsBorder()
+    if ns.RF_PartyKit() or ns.RF_Stock() then return false end
+    local p = ns._RFO_OptEnv.db.profile
+    local key = p.borderTexture
+    if ns._IsPartySectionCustom(ns._PARTY_KEY_SECTION.borderTexture) then
+        key = p.party_borderTexture or key
+    end
+    return key == "pixels" or key == "pixels-textured"
+end
+
 local function BuildMainPage(pageName, parent, yOffset)
     local env = ns._RFO_OptEnv
     local allGrowthOrder, BuildPreviewModeRow, BuildVisualSections, db = env.allGrowthOrder, env.BuildPreviewModeRow, env.BuildVisualSections, env.db
@@ -756,6 +766,11 @@ local function BuildMainPage(pageName, parent, yOffset)
               if defSz then SWrite("borderSize", defSz) end
               -- A style pick returns the size to its step: clear a set exact size.
               if SGetPx("borderSizePx", "borderSize") then SWrite("borderSizePx", false) end
+              if (v == "pixels" or v == "pixels-textured") and PartyPixelsBorder()
+                  and EllesmereUI.PP.ToPixels(db.profile.partyCellSpacing or db.profile.cellSpacing or 2) <= 1 then
+                  db.profile.partyCellSpacing = EllesmereUI.PP.FromPixels(1)
+                  db.profile.partySharedBorder = true
+              end
               -- Rebuild: the offset row below exists only for a textured style.
               ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
           end }),
@@ -1652,12 +1667,19 @@ local function BuildPartyPage(pageName, parent, yOffset)
         -- (The Party Frames kit keeps its own spacing, set in its Frame
         -- Scale cog, so the Raid Frames layout's value survives a switch
         -- between the two.)
-        ns.RF_PartyKitGate({ type="slider", pixel=true, text="Frame Spacing", min=-1, max=15, step=1,
+        ns.RF_PartyKitGate({ type="slider", pixel=true, text="Frame Spacing",
+          min=PartyPixelsBorder() and EllesmereUI.PP.FromPixels(1) or -1, max=15, step=1,
+          tooltip="Pixels and Pixels Textured require at least 1 pixel of spacing. Selecting 1 enables compact mode with one party border and separators.",
           getValue=function()
               if ns.RF_PartyKit() then return db.profile.partyKitSpacing or ns.RF_KIT_SPACING or 6 end
               return SVal("partyCellSpacing", db.profile.cellSpacing or 2)
           end,
-          setValue=function(v) PSSet(ns.RF_PartyKit() and "partyKitSpacing" or "partyCellSpacing", v) end }));  y = y - h
+          setValue=function(v)
+              local pixels = PartyPixelsBorder()
+              if pixels then v = math.max(v, EllesmereUI.PP.FromPixels(1)) end
+              db.profile.partySharedBorder = pixels and EllesmereUI.PP.ToPixels(v) == 1
+              PSSet(ns.RF_PartyKit() and "partyKitSpacing" or "partyCellSpacing", v)
+          end }));  y = y - h
     -- Auto Resize Icons sits in the LEFT slot here; same conversion pattern as the Frames tab.
     if not EllesmereUI._prebuilding then
         local leftRgn = partyAutoResizeRow._leftRegion

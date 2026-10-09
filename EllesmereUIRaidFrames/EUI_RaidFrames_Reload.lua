@@ -431,6 +431,7 @@ ns._ResizePartyButtons = function(w, h)
         local _, _, pcs = ns.RF_PartyDims(s)
         ns._PositionPartySlots(bw, bh, PixelSnap(pcs) + ns.PT_AlongPitch(s), ns._PartyGrowth(s))
     end
+    if ns._partySharedBorderOn then ns.RF_RefreshPartyBorder() end
 end
 
 -- Convert a saved (point, relPoint, x, y) UIParent anchor to the TOPLEFT
