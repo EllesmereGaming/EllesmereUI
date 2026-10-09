@@ -2215,6 +2215,7 @@ local function BuildDisplayLayout(parent, y, ctx)
         topleft  = { coreRow3, "_leftRegion" },
         bottom   = { coreRow3, "_rightRegion" },
     }
+    ctx.corePosToRegion = posToRegion
 
     -- Eye icon that follows whichever Core Positions dropdown has "Raid Marker"
     do

@@ -2522,12 +2522,6 @@ function ns.OpenUnlockMode()
             UM.unlockFrame._anchorLineFrame:Show()
         end
 
-        -- ReapplyAllAnchors during open sets hasChanges; reset ONLY if
-        -- the user hasn't already interacted (e.g. dragged during animation).
-        if not next(pendingPositions) then
-            UM.hasChanges = false
-        end
-
         -- Auto-select a mover if requested (e.g. from cog popup link)
         if EllesmereUI._unlockAutoSelectKey then
             local autoKey = EllesmereUI._unlockAutoSelectKey

@@ -1355,6 +1355,7 @@ do
         borders = setmetatable({}, { __mode = "k" }),        -- borderFrame -> true (backdrop path)
         secret = setmetatable({}, { __mode = "k" }),         -- borderFrame -> state (8-slice path)
         owners = setmetatable({}, { __mode = "k" }),         -- owner -> fn (RegisterPxReapply)
+        edgeFill = setmetatable({}, { __mode = "k" }),       -- borderFrame -> true (SetBorderEdgeFill)
     }
 
     --- px, step, tex of a *Px value; nil for nil / false / anything else.
@@ -1467,6 +1468,18 @@ do
         end
         tex:SetWidth(thick)
         tex:Show()
+    end
+
+    -- The Pixels styles: their solid line sits just past their frame's edge (texels 13-16).
+    EllesmereUI._pixelArtBorders = { pixels = true, ["pixels-textured"] = true }
+
+    --- A scaleOffset texture's base offset (half its edge). For the Pixels styles a tie
+    --- rounds toward the frame, or an odd size leaves their line short of the frame.
+    function EllesmereUI.BorderHalfEdge(textureKey, edge, es)
+        if not EllesmereUI._pixelArtBorders[textureKey] then return edge / 2 end
+        local PP = EllesmereUI.PP
+        if not (PP.IsNum(es) and es > 0) then es = 1 end
+        return PP.SnapForES(edge / 2 - 0.002 * PP.perfect / es, es)
     end
 
     --- Check if a border texture uses scaled offset (edgeSize/2 base).
@@ -1651,14 +1664,6 @@ do
             sx, sy = sx * ratio, sy * ratio
             -- scaleOffset textures: base = edgeSize/2 (border tracks the edge at any size) plus fine-tune adj; other textures: absolute offset, no base.
             -- EllesmereUI.BorderReach mirrors this placement for size matching: change the two together.
-            local offsetX, offsetY
-            if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
-                offsetX = (edgeSize / 2) + adjX
-                offsetY = (edgeSize / 2) + adjY
-            else
-                offsetX = adjX
-                offsetY = adjY
-            end
             -- Snap the four anchor offsets to whole physical pixels at the backdrop's own
             -- scale. Offset/shift are units, and at any UI scale where a unit is not a whole
             -- pixel (1.75 px/unit: 2 units = 3.5 px) the backdrop's edges land between pixels;
@@ -1667,6 +1672,15 @@ do
             -- already on the grid (PP.Point/PP.Size); this keeps the border there with it.
             local sok, ses = pcall(bdFrame.GetEffectiveScale, bdFrame)
             if not (sok and ses and ses > 0.01) then ses = UIParent and UIParent:GetEffectiveScale() or 1 end
+            local offsetX, offsetY
+            if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
+                local half = EllesmereUI.BorderHalfEdge(textureKey, edgeSize, ses)
+                offsetX = half + adjX
+                offsetY = half + adjY
+            else
+                offsetX = adjX
+                offsetY = adjY
+            end
             -- Snap the offset once and mirror it (not each corner: round-half-up would put
             -- -3.5 at -3 and +3.5 at +4, one pixel more on the right/top than the left/bottom).
             offsetX, offsetY = PP.SnapForES(offsetX, ses), PP.SnapForES(offsetY, ses)
@@ -1674,6 +1688,49 @@ do
             bdFrame:ClearAllPoints()
             bdFrame:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", -offsetX + sx, offsetY + sy)
             bdFrame:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", offsetX + sx, -offsetY + sy)
+            -- Edge fill (SetBorderEdgeFill): on an owner that moves by sub-pixels the Pixels
+            -- line covers the owner's edge pixel only with its soft fade; hard strips under it.
+            local fill = bdFrame._edgeFill
+            if _px.edgeFill[borderFrame] and EllesmereUI._pixelArtBorders[textureKey]
+                and adjX == 0 and adjY == 0 and sx == 0 and sy == 0 then
+                if not fill then
+                    fill = {}
+                    for i = 1, 4 do
+                        fill[i] = bdFrame:CreateTexture(nil, "BACKGROUND")
+                        fill[i]:SetColorTexture(1, 1, 1, 1)
+                    end
+                    bdFrame._edgeFill = fill
+                    -- Opaque only: under translucent art a strip would stack darker.
+                    hooksecurefunc(bdFrame, "SetBackdropBorderColor", function(self, cr, cg, cb, ca)
+                        local f = self._edgeFill
+                        for i = 1, 4 do f[i]:SetVertexColor(cr, cg, cb, 1) end
+                        local opaque = (ca or 1) >= 0.999
+                        if f.opaque ~= opaque then
+                            f.opaque = opaque
+                            EllesmereUI.SyncBorderEdgeFill(self:GetParent())
+                        end
+                    end)
+                end
+                -- 1px in; out no further than the solid line reaches (3/28 of the edge).
+                local px1 = PP.perfect / ses
+                local out = math.min(px1, edgeSize * 3 / 28)
+                local t, bt, l, rt = fill[1], fill[2], fill[3], fill[4]
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", 0, out)
+                t:SetPoint("BOTTOMRIGHT", borderFrame, "TOPRIGHT", 0, -px1)
+                bt:ClearAllPoints()
+                bt:SetPoint("TOPLEFT", borderFrame, "BOTTOMLEFT", 0, px1)
+                bt:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", 0, -out)
+                l:ClearAllPoints()
+                l:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", -out, 0)
+                l:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMLEFT", px1, 0)
+                rt:ClearAllPoints()
+                rt:SetPoint("TOPLEFT", borderFrame, "TOPRIGHT", -px1, 0)
+                rt:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", out, 0)
+                fill.on = true
+            elseif fill then
+                fill.on = nil
+            end
             -- SetBackdrop re-runs the nine-slice texcoord math, dividing by THIS frame's current
             -- width/height, and owners' sizes can be secret (map-pin tooltips); the upstream
             -- owner-width guard can pass while this anchored rect resolves secret, so the guard
@@ -1696,6 +1753,7 @@ do
             bdFrame:SetBackdropBorderColor(r, g, b, a)
             bdFrame:Show()
             borderFrame:Show()
+            if fill then EllesmereUI.SyncBorderEdgeFill(borderFrame) end
             -- An exact edge is pixels at UIParent scale, so a UI scale change must re-apply
             -- it (the legacy edge is UI units and needs nothing): keep the call's arguments
             -- on our backdrop frame (scalars, no table per apply) for ReapplyPxBorders.
@@ -1763,14 +1821,15 @@ do
         end
         local ox, oy = (offX or dox) * ratio, (offY or doy) * ratio
         local sx, sy = (shX or dsx) * ratio, (shY or dsy) * ratio
-        if EllesmereUI.BorderTextureUsesScaleOffset(tex) then
-            ox, oy = edge / 2 + ox, edge / 2 + oy
-        end
         -- ApplyBorderStyle puts the backdrop's anchors on whole pixels at its own
         -- effective scale; the reach snaps the same four values the same way (the
         -- ink below stays fractional: it is texture content, not an anchor).
         if not (es and es > 0.01) then
             es = (UIParent and UIParent:GetEffectiveScale() or 1) / ratio
+        end
+        if EllesmereUI.BorderTextureUsesScaleOffset(tex) then
+            local half = EllesmereUI.BorderHalfEdge(tex, edge, es)
+            ox, oy = half + ox, half + oy
         end
         ox, oy = PP.SnapForES(ox, es), PP.SnapForES(oy, es)
         sx, sy = PP.SnapForES(sx, es), PP.SnapForES(sy, es)
@@ -1964,14 +2023,15 @@ do
         ox = offsetX ~= nil and offsetX or ox; oy = offsetY ~= nil and offsetY or oy
         sx = shiftX ~= nil and shiftX or sx; sy = shiftY ~= nil and shiftY or sy
         ox, oy, sx, sy = ox * edgeScale, oy * edgeScale, sx * edgeScale, sy * edgeScale
-        if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
-            ox, oy = edgeSize / 2 + ox, edgeSize / 2 + oy
-        end
         -- Same pixel snap as ApplyBorderStyle's backdrop anchors (see there): the
         -- corner pieces carry the outer edges, so their four anchor offsets go on the grid.
         local sok, ses = pcall(owner.GetEffectiveScale, owner)
         if not (sok and ses and ses > 0.01) then ses = UIParent and UIParent:GetEffectiveScale() or 1 end
         local PP = EllesmereUI.PP
+        if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
+            local half = EllesmereUI.BorderHalfEdge(textureKey, edgeSize, ses)
+            ox, oy = half + ox, half + oy
+        end
         ox, oy = PP.SnapForES(ox, ses), PP.SnapForES(oy, ses)
         sx, sy = PP.SnapForES(sx, ses), PP.SnapForES(sy, ses)
         return edgeSize, -ox + sx, oy + sy, ox + sx, -oy + sy
@@ -2016,6 +2076,24 @@ do
         local bdFrame = _bdBorderData[borderFrame]
         if bdFrame then bdFrame:Hide() end
         if bdFrame and bdFrame._pxEdge then bdFrame._pxEdge = nil; _px.borders[borderFrame] = nil end
+    end
+
+    --- Opts a border into the Pixels edge fill (see ApplyBorderStyle) from its next apply.
+    function EllesmereUI.SetBorderEdgeFill(borderFrame, on)
+        _px.edgeFill[borderFrame] = on or nil
+    end
+
+    --- Shows each edge fill strip only while its edge piece draws; call after hiding a piece.
+    function EllesmereUI.SyncBorderEdgeFill(borderFrame)
+        local bdFrame = _bdBorderData[borderFrame]
+        local fill = bdFrame and bdFrame._edgeFill
+        if not fill then return end
+        local on = fill.on == true and fill.opaque ~= false
+        local te, be, le, re = bdFrame.TopEdge, bdFrame.BottomEdge, bdFrame.LeftEdge, bdFrame.RightEdge
+        fill[1]:SetShown(on and te ~= nil and te:IsShown())
+        fill[2]:SetShown(on and be ~= nil and be:IsShown())
+        fill[3]:SetShown(on and le ~= nil and le:IsShown())
+        fill[4]:SetShown(on and re ~= nil and re:IsShown())
     end
 end
 

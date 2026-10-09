@@ -45,12 +45,12 @@ Data.tracks = {
         ranks = { 246, 250, 253, 256, 259, 263 },
     },
     Hero = {
-        crestName = "Hero Mistcrest",
+        crestName = "Hero Mistcrest", manualAdds = true,
         hexColor = "|cffff8000", currID = 3445, tier = 4,
         ranks = { 259, 263, 266, 269, 272, 276 },
     },
     Myth = {
-        crestName = "Myth Mistcrest",
+        crestName = "Myth Mistcrest", manualAdds = true,
         hexColor = "|cffffd100", currID = 3446, tier = 5,
         ranks = { 272, 276, 279, 282, 285, 289 },
     },
@@ -992,7 +992,10 @@ local queueItems   = {}   -- ordered list of tileEntry tables
 local queueSlotSet = {}   -- slotName -> position in queueItems
 local _queueLoaded = false  -- true once saved queue has been applied after session start
 
-local crestManualAdds = { ["Hero Crest"] = 0, ["Myth Crest"] = 0 }
+local crestManualAdds = {}
+for _, td in pairs(Data.tracks) do
+    if td.manualAdds then crestManualAdds[td.crestName] = 0 end
+end
 
 -- Persist the current queue (slot IDs only) to the profile DB.
 local function SaveQueue()
@@ -1004,7 +1007,7 @@ end
 -- Persist the current crest manual-add offsets to the profile DB.
 local function SaveCrestManualAdds()
     local db = DB()
-    db.crestManualAdds = db.crestManualAdds or {}
+    db.crestManualAdds = {}
     for k, v in pairs(crestManualAdds) do db.crestManualAdds[k] = v end
 end
 
@@ -1199,7 +1202,7 @@ for ri, trackName in ipairs(Data.trackOrder) do
     local earnLbl = MakeCell(CC_EARN_X, CC_EARN_W, "RIGHT")
     local remLbl  = MakeCell(CC_REM_X,  CC_REM_W,  "RIGHT")
     local minusBtn, plusBtn
-    if trackName == "Hero" or trackName == "Myth" then
+    if td and td.manualAdds then
         minusBtn = MakeButton(row, "-80", CC_BTN_W, CROW_H - 4, -2, CC_MINUS_X)
         plusBtn  = MakeButton(row, "+80", CC_BTN_W, CROW_H - 4, -2, CC_PLUS_X)
         do
@@ -1660,8 +1663,7 @@ scanBtn:SetScript("OnClick", function()
         scanBtnTxt:SetText(EUI.L("Update at Upgrader"))
         scanBtn:SetAlpha(1)
         if ok then
-            crestManualAdds["Hero Crest"] = 0
-            crestManualAdds["Myth Crest"] = 0
+            for k in pairs(crestManualAdds) do crestManualAdds[k] = 0 end
             SaveCrestManualAdds()
             PopulateGear()
         end

@@ -51,12 +51,12 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
     side = side or "left"
 
     -- Mini frames (ToT/FoT/Pet) render no power bar, debuffs or castbar at
-    -- runtime, so the preview must match. WoW Forever's pet has power: its
+    -- runtime (the pet's buffs and debuffs are opt-in), so the preview must match. WoW Forever's pet has power: its
     -- bar draws here in the EUI look (the stock styles paint their own).
     local isMiniPreview = (unitKey == "targettarget" or unitKey == "focustarget" or unitKey == "pet")
     local noPowerPreview = isMiniPreview
         and not (unitKey == "pet" and ns.UF_PetHasPower and not ResolveBlizzPreview(unitKey, settings))
-    local noDebuffPreview = isMiniPreview
+    local noDebuffPreview = isMiniPreview and unitKey ~= "pet"
     local noCastbarPreview = isMiniPreview
 
     local hasPortraitSupport = (settings.showPortrait ~= nil or settings.portraitMode ~= nil)

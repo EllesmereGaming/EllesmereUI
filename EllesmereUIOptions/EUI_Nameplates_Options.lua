@@ -646,14 +646,6 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         local PlaySettingGlow = EllesmereUI.MakeSettingGlow({ color = EllesmereUI.ELLESMERE_GREEN, thickness = function() return PP.Scale(2) end, noSnap = true })
 
-        -- Maps Core Position slot keys to their row/region
-        local corePosToRow = {
-            top      = { row = coreRow1, side = "_leftRegion" },
-            right    = { row = coreRow1, side = "_rightRegion" },
-            left     = { row = coreRow2, side = "_leftRegion" },
-            topright = { row = coreRow2, side = "_rightRegion" },
-            topleft  = { row = coreRow3, side = "_leftRegion" },
-        }
 
         -- Maps Core Text Position slot keys to their row/region (the cells of
         -- the texts the list shows)
@@ -682,9 +674,9 @@ initFrame:SetScript("OnEvent", function(self)
         local function ResolveCoreMapping(element)
             local pos = FindCorePosForElement(element)
             if not pos then return { section = coreHeader, target = coreRow1 } end
-            local info = corePosToRow[pos]
+            local info = ctx.corePosToRegion[pos]
             if not info then return { section = coreHeader, target = coreRow1 } end
-            return { section = coreHeader, target = info.row, slotSide = (info.side == "_leftRegion") and "left" or "right" }
+            return { section = coreHeader, target = info[1], slotSide = (info[2] == "_leftRegion") and "left" or "right" }
         end
 
         local clickMappings = {
