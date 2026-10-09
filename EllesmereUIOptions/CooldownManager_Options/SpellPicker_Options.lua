@@ -3766,18 +3766,47 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         local function RefreshAPL()
                             if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
                         end
-                        MakeSubnavRow("APL Glow", ACTIVE_GLOW_ITEMS,
+                        local function SetAPLStyle(v)
+                            EnsureSS(); SetOwn("aplGlow", v)
+                            if v and v > 0 then ns.APLGlow.MarkConfigured() end
+                            RefreshAPL()
+                        end
+                        -- Same styles as Active State Glow plus Blackout (the solid fill, with its opacity prompt).
+                        local APL_GLOW_ITEMS = {}
+                        for i, it in ipairs(ACTIVE_GLOW_ITEMS) do APL_GLOW_ITEMS[i] = it end
+                        APL_GLOW_ITEMS[#APL_GLOW_ITEMS + 1] = { val = 8, label = ns.GLOW_STYLES[8].name }
+                        MakeSubnavRow("APL Glow", APL_GLOW_ITEMS,
                             function() return ss.aplGlow end,
-                            function(v)
-                                EnsureSS(); SetOwn("aplGlow", v)
-                                if v and v > 0 then ns.APLGlow.MarkConfigured() end
-                                RefreshAPL()
-                            end,
+                            SetAPLStyle,
                             function() return not ss.aplGlow end,
-                            nil,
-                            { apply = { keys = { "aplGlow" },
+                            function(si, item)
+                                -- Blackout: clicking prompts for the opacity percent, then selects it.
+                                if item.val == 8 then
+                                    item.dynamicLabel = function()
+                                        local base = EllesmereUI.L(ns.GLOW_STYLES[8].name)
+                                        if ss.aplGlow == 8 then
+                                            local pct = math.floor(((ss.aplGlowAlpha or 1) * 100) + 0.5)
+                                            return pct .. "% " .. base
+                                        end
+                                        return base
+                                    end
+                                    si:SetScript("OnClick", function()
+                                        local cur = math.floor(((ss.aplGlowAlpha or 1) * 100) + 0.5)
+                                        menu:Hide()
+                                        ShowAlphaPopup(cur, function(pct)
+                                            EnsureSS()
+                                            ss.aplGlowAlpha = pct / 100
+                                            SetAPLStyle(8)
+                                        end, EllesmereUI.L("Glow Opacity"), EllesmereUI.L("Blackout glow opacity (1-100%)"))
+                                    end)
+                                end
+                            end,
+                            { apply = { keys = { "aplGlow", "aplGlowAlpha" },
+                                        -- The opacity rides along with the Blackout value only.
+                                        payload = function(item) return item.val == 8 end,
                                         write = function(t, v)
                                             t.aplGlow = v
+                                            t.aplGlowAlpha = (v == 8) and ss.aplGlowAlpha or nil
                                             if v and v > 0 then ns.APLGlow.MarkConfigured() end
                                         end } })
                         MakeSubnavRow("APL Glow Color", GLOW_COLOR_ITEMS,

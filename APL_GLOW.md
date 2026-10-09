@@ -7,7 +7,7 @@ the APLforEUI addon. Not intended for upstream.
 
 Right-click a CDM icon (CDM Bars preview) and, only when APLforEUI is installed:
 
-- **APL Glow** - glow style (Pixel, Action Button, Auto-Cast, Shape, GCD, Modern, Classic). Has the usual Apply to Spell / Bar / Bar (All Specs) strip.
+- **APL Glow** - glow style (Pixel, Action Button, Auto-Cast, Shape, GCD, Modern, Classic, Blackout). Blackout prompts for an opacity and draws below the cooldown swipe/text, like the CD-state glow. Has the usual Apply to Spell / Bar / Bar (All Specs) strip.
 - **APL Glow Color** - Default / Class Color / Custom, same strip.
 
 The glow shows on the icon whose spell APLforEUI reports as next up. APLforEUI only
@@ -23,7 +23,7 @@ reports in combat, so the glow is combat-only.
 | `EllesmereUICooldownManager/EUI_CDM_Rebuild.lua` | 1 line: `ns.RescanAPLGlowFlag()` next to the other gate scans. |
 | `EllesmereUIOptions/CooldownManager_Options/SpellPicker_Options.lua` | One `if ns.APLGlow.IsAvailable()` block after the Glow Effect Color row. |
 
-Saved keys (per-spell settings): `aplGlow`, `aplGlowColor`, `aplGlowColorR/G/B`.
+Saved keys (per-spell settings): `aplGlow`, `aplGlowAlpha` (Blackout only), `aplGlowColor`, `aplGlowColorR/G/B`.
 
 ## Contract with APLforEUI
 

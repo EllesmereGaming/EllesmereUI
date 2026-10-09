@@ -73,12 +73,13 @@ local function EvalFrame(frame)
     local fd = ns._hookFrameData and ns._hookFrameData[frame]
     if not fd then return end
     local fc = ns._ecmeFC[frame]
-    local style, r, g, b
+    local style, alpha, r, g, b
     if nextSpellID and fc and watch[frame] then
         local ss = SettingsFor(frame, fc)
         local st = ss and ss.aplGlow
         if st and st > 0 and FrameShowsSpell(fc, nextSpellID) then
             style = st
+            alpha = (ns.GLOW_STYLES[st] and ns.GLOW_STYLES[st].solidFill) and ss.aplGlowAlpha or nil
             r, g, b = ResolveColor(ss)
         end
     end
@@ -86,7 +87,7 @@ local function EvalFrame(frame)
         StopFrame(fd)
         return
     end
-    if fd._aplGlowOn and fd._aplGlowStyle == style
+    if fd._aplGlowOn and fd._aplGlowStyle == style and fd._aplGlowAlpha == alpha
        and fd._aplGlowR == r and fd._aplGlowG == g and fd._aplGlowB == b then
         return
     end
@@ -99,10 +100,14 @@ local function EvalFrame(frame)
         ov:EnableMouse(false)
         fd.aplGlowOverlay = ov
     end
-    ov:SetFrameLevel(frame:GetFrameLevel() + 17)
-    ns.StartNativeGlow(ov, style, r, g, b)
+    -- Blackout is a solid fill: keep it below the cooldown widget (as the CD-state glow does) so swipe and countdown text stay readable.
+    local solid = ns.GLOW_STYLES[style] and ns.GLOW_STYLES[style].solidFill
+    ov:SetFrameLevel(frame:GetFrameLevel() + (solid and 12 or 17))
+    -- A fresh opts table per start: StartNativeGlow keeps it by reference for its combat-only replay.
+    ns.StartNativeGlow(ov, style, r, g, b, solid and { alpha = alpha } or nil)
     fd._aplGlowOn = true
-    fd._aplGlowStyle, fd._aplGlowR, fd._aplGlowG, fd._aplGlowB = style, r, g, b
+    fd._aplGlowStyle, fd._aplGlowAlpha = style, alpha
+    fd._aplGlowR, fd._aplGlowG, fd._aplGlowB = r, g, b
 end
 
 local function OnNextSpell(spellID)
