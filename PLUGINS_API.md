@@ -4,6 +4,9 @@ Give your addon its own settings pages inside the EllesmereUI options panel.
 A plugin registers once and gets a new section of its own in the EUI sidebar,
 with one or more modules (sidebar rows) under it, each with its own page tabs.
 
+To glow Cooldown Manager icons from your addon instead, see
+[PLUGIN_GLOWS_API.md](PLUGIN_GLOWS_API.md).
+
 ## Quick start
 
 1. Depend on EllesmereUI so it loads before you:
