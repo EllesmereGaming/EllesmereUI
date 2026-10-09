@@ -643,11 +643,15 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
                 if Inheriting() then return NEEDS_STYLE end
                 return "This option requires the Solid, Glow or Shadow border style."
             end,
-            rows = {
+            rows = EllesmereUI.RoundedJoinRow(EllesmereUI.RoundedCornerRows({
                 { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
                   get = function() return Src().cornerRadius or 0 end,
                   set = function(v) B.cornerRadius = v; onChange() end },
-            },
+            }, function() return Src().cornerMask end, function(v) B.cornerMask = v; onChange() end),
+                "Join Power Bar", "Rounds a detached power bar right above or below the frame as one shape with it.",
+                function() return B.cornerJoinPower end, function(v) B.cornerJoinPower = v; onChange() end,
+                function() local pos = B.powerPosition or "below"; return pos == "detached_top" or pos == "detached_bottom" end,
+                "Detached Power Bar"),
         })
     end
     return y0 - y

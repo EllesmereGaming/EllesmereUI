@@ -951,7 +951,7 @@ local function StyleButton(button)
             EllesmereUI.RoundCorners(button, radius, {
                 roots = { d.health, d.power, d.topNameBar, d.powerBorderFrame },
                 textures = { d.bg },
-                border = d.borderFrame, style = texKey,
+                border = d.borderFrame, style = texKey, corners = s.cornerMask,
             })
         else
             EllesmereUI.RoundCorners(button, 0)

@@ -479,6 +479,7 @@ local defaults = {
         borderTexture    = "solid",
         borderBehind     = false,
         cornerRadius     = 0,  -- rounded corners, 0 = off
+        cornerMask       = 15, -- the corners that round (bits: 1 TL, 2 TR, 4 BL, 8 BR)
         -- borderTextureOffset/OffsetY/ShiftX/ShiftY default via GetBorderDefaults
 
         -- Smooth bars
