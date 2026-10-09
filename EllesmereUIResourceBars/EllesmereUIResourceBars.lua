@@ -2515,6 +2515,10 @@ local function RegisterUnlockElements()
                 local w, h = OrientedSize(s.width or 214, s.height or 14, ori)
                 return ns.ERB_ClassicMatchPad(w, h, IsVerticalOrientation(ori), ns.ERB_BarFrameK(s))
             end,
+            -- WoW Forever druid: the mover wraps the Mana Bar while Shapeshifted
+            -- shown below the bar (EUI_ResourceBars_ForeverDruidMana.lua); nil
+            -- on every other client and class.
+            getBottomExtra = ns.FDM_BottomExtra,
             setWidth = function(_, w)
                 local s, g = SS(), ERB.db.profile.general
                 if IsVerticalOrientation(s.orientation or (g and g.orientation)) then
@@ -3254,15 +3258,22 @@ end
 
 -- Value mode needs a readable max: getMaxFn returns the current max; if it is
 -- secret, fall back to the last-known-good value cached on the bar frame.
+-- Source: the active threshold entry when it has its own hash lines, else the
+-- bar-wide hashEnabled/hashValues (which Spec Override / conditional layers can set).
 function ns.ApplyHashLines(sb, cfg, getMaxFn)
     if not sb then return end
     local tickCache = sb._userHashTicks
-    if not (cfg and cfg.hashEnabled) then
-        if tickCache then for i = 1, #tickCache do tickCache[i]:Hide() end end
+    local ent = cfg and ResolveThresholdSpecEntry(cfg)
+    if not (ent and ent.hashValues and ent.hashValues ~= "") then
+        ent = cfg and cfg.hashEnabled and cfg or nil
+    end
+    local hashStr = ent and ent.hashValues
+    if not hashStr or hashStr == "" then
+        if tickCache then HideResourceBarTicks(tickCache, sb) end
         return
     end
     if not tickCache then tickCache = {}; sb._userHashTicks = tickCache end
-    local isPercent = (cfg.hashMode or "percent") == "percent"
+    local isPercent = (ent.hashMode or "percent") == "percent"
     local maxVal
     if isPercent then
         maxVal = 100
@@ -3285,8 +3296,8 @@ function ns.ApplyHashLines(sb, cfg, getMaxFn)
         hbs = EllesmereUI.BorderPx(cfg.borderSizePx, hbs, htex) or hbs
     end
     local vInset = hbs * ((PP and PP.mult) or 1)
-    ApplyResourceBarTicks(sb, maxVal, cfg.hashValues, tickCache,
-        cfg.hashWidth, cfg.hashColorR, cfg.hashColorG, cfg.hashColorB, cfg.hashColorA,
+    ApplyResourceBarTicks(sb, maxVal, hashStr, tickCache,
+        ent.hashWidth, ent.hashColorR, ent.hashColorG, ent.hashColorB, ent.hashColorA,
         isPercent, nil, vInset)
 end
 
@@ -3314,6 +3325,7 @@ function ns.ERB_RoundBar(bar, cfg)
     EllesmereUI.RoundCorners(bar, radius, {
         roots = { bar._sb }, clip = bar._sb,
         border = bar._border and bar._border._frame, style = cfg.borderTexture or "solid",
+        corners = cfg.cornerMask,
     })
 end
 -- Class resource: the whole row rounds its outline; with Border on Pips each
@@ -3322,7 +3334,7 @@ end
 -- or were rounded before.
 do
     local pipsRounded = false
-    local function RoundPipList(list, radius, style)
+    local function RoundPipList(list, radius, style, corners)
         for i = 1, #list do
             local pip = list[i]
             if radius <= 0 then
@@ -3330,6 +3342,7 @@ do
             elseif pip:IsShown() then
                 EllesmereUI.RoundCorners(pip, radius, {
                     style = style, border = pip._border and pip._border._frame,
+                    corners = corners,
                 })
             end
         end
@@ -3344,14 +3357,15 @@ do
                 style = style,
                 border = not onPips and rowBorder and rowBorder._frame or nil,
                 clip = isBarType and secondaryBar and secondaryBar._sb or nil,
+                corners = sp.cornerMask,
             })
         else
             EllesmereUI.RoundCorners(secondaryFrame, 0)
         end
         local pipRadius = onPips and radius or 0
         if pipRadius > 0 or pipsRounded then
-            RoundPipList(pips, pipRadius, style)
-            RoundPipList(runeFrames, pipRadius, style)
+            RoundPipList(pips, pipRadius, style, sp.cornerMask)
+            RoundPipList(runeFrames, pipRadius, style, sp.cornerMask)
             pipsRounded = pipRadius > 0
         end
     end

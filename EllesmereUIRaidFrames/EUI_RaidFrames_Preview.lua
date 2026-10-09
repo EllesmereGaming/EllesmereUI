@@ -2799,6 +2799,7 @@ local function ApplyPreviewData(f, index)
                 roots = { f._health, f._power, f._topNameBar, f._powerBorder },
                 textures = { f._bg },
                 border = f._border, style = s.borderTexture or "solid",
+                corners = s.cornerMask,
             })
         else
             EllesmereUI.RoundCorners(f, 0)

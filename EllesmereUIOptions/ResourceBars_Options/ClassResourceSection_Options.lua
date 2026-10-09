@@ -433,11 +433,12 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                         return "This option requires the Solid, Glow or Shadow border style."
                     end,
                     requireState = function() return EllesmereUI.BlizzStyle.Get("resourcebars") and "disabled" or "enabled" end,
-                    rows = {
+                    rows = EllesmereUI.RoundedCornerRows({
                         { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
                           get = function() local c = cfg(); return c and c.cornerRadius or 0 end,
                           set = function(v) local c = cfg(); if not c then return end; c.cornerRadius = v; RebuildClass() end },
-                    },
+                    }, function() local c = cfg(); return c and c.cornerMask end,
+                       function(v) local c = cfg(); if not c then return end; c.cornerMask = v; RebuildClass() end),
                 })
             end
             EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
@@ -596,20 +597,20 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                     local r, g, b, a = p.secondary.borderR, p.secondary.borderG, p.secondary.borderB, p.secondary.borderA
                     local sz = p.secondary.borderSize or 1
                     local bt = p.secondary.borderTexture or "solid"
-                    local cr = p.secondary.cornerRadius or 0
+                    local cr, cm = p.secondary.cornerRadius or 0, p.secondary.cornerMask
                     p.primary.borderR, p.primary.borderG, p.primary.borderB, p.primary.borderA = r, g, b, a
-                    p.primary.borderSize = sz; p.primary.borderTexture = bt; p.primary.cornerRadius = cr
+                    p.primary.borderSize = sz; p.primary.borderTexture = bt; p.primary.cornerRadius = cr; p.primary.cornerMask = cm
                     ns.ERB_CopyBorderPx(p.primary, p.secondary)
                     p.health.borderR, p.health.borderG, p.health.borderB, p.health.borderA = r, g, b, a
-                    p.health.borderSize = sz; p.health.borderTexture = bt; p.health.cornerRadius = cr
+                    p.health.borderSize = sz; p.health.borderTexture = bt; p.health.cornerRadius = cr; p.health.cornerMask = cm
                     ns.ERB_CopyBorderPx(p.health, p.secondary)
                     SmoothRefresh(); EllesmereUI:RefreshPage(ns.ERB_TexturedBars(p) ~= was)
                 end,
                 isSynced = function()
                     local p = DB(); if not p then return false end
                     local sr, sg, sb, sa, ssz = p.secondary.borderR, p.secondary.borderG, p.secondary.borderB, p.secondary.borderA, p.secondary.borderSize or 1
-                    local sbt, scr = p.secondary.borderTexture or "solid", p.secondary.cornerRadius or 0
-                    local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt and (t.cornerRadius or 0) == scr and ns.ERB_SameBorderPx(t, p.secondary) end
+                    local sbt, scr, scm = p.secondary.borderTexture or "solid", p.secondary.cornerRadius or 0, p.secondary.cornerMask or 15
+                    local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt and (t.cornerRadius or 0) == scr and (t.cornerMask or 15) == scm and ns.ERB_SameBorderPx(t, p.secondary) end
                     return eq(p.primary) and eq(p.health)
                 end,
                 flashTargets = function() return { ctx.syncRows.classBorder, ctx.syncRows.powerBorder, ctx.syncRows.healthBorder } end,

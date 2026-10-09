@@ -136,7 +136,7 @@ do
             "combatIndicatorSize", "combatIndicatorPosition", "combatIndicatorOffsetX", "combatIndicatorOffsetY",
             "borderSize", "borderColor", "borderAlpha", "borderTexture",
             "borderBehind", "borderTextureOffset", "borderTextureOffsetY",
-            "borderTextureShiftX", "borderTextureShiftY", "cornerRadius",
+            "borderTextureShiftX", "borderTextureShiftY", "cornerRadius", "cornerMask",
             "hoverBorderEnabled", "hoverBorderSize", "hoverBorderColor", "hoverBorderAlpha",
             "targetBorderEnabled", "targetBorderSize", "targetBorderColor", "targetBorderAlpha",
             -- Exact-size companions (see ns._PARTY_PX_SIBLING): same section as their siblings.

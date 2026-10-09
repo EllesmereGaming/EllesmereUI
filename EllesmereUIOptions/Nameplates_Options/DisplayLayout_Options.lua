@@ -154,11 +154,15 @@ local function BuildDisplayLayout(parent, y, ctx)
                 return "This option requires the Solid, Glow or Shadow border style."
             end,
             requireState = "disabled",
-            rows = {
+            rows = EllesmereUI.RoundedJoinRow(EllesmereUI.RoundedCornerRows({
                 { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
                   get = function() return DBVal("cornerRadius") or 0 end,
                   set = function(v) DB().cornerRadius = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end },
-            },
+            }, function() return DBVal("cornerMask") end,
+               function(v) DB().cornerMask = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end),
+                "Join Cast Bar", "While a cast shows, rounds the health bar and the cast bar under it as one shape.",
+                function() return DBVal("cornerJoinCast") end,
+                function(v) DB().cornerJoinCast = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end),
         })
     end
     -- Inline swatch on the Border dropdown: standard (Basic) border color, dimmed unless mode is Basic.

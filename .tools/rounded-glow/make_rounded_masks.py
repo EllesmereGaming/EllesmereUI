@@ -6,6 +6,10 @@ circles of radius n round the slice corners, a 1-texel straight run between
 them. The code sets n texel slice margins, so the corners are the slices and
 the straight run is what the edges stretch.
 
+rounded-<n>-<c>.tga and rounded-inv-<n>-<c>.tga: the same with only some
+corners round, c = the round corners' bits (1 top left, 2 top right, 4 bottom
+left, 8 bottom right) for c = 1..14; the other corners stay square.
+
 The texture is only as large as its slices need: the client shrinks a sliced
 texture's corners on a region smaller than the texture itself, so a 64 texel
 mask lost most of its rounding on a thin bar. The code caps the radius so a
@@ -26,8 +30,12 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUT = os.path.join(ROOT, "media", "rounded")
 
 
-def covered(x, y, n):
-    """Inside the rounded square of side 2n + 1 with corner radius n."""
+ALL = 15
+
+
+def covered(x, y, n, corners=ALL):
+    """Inside the rounded square of side 2n + 1 with corner radius n (only the
+    corners in the bit set round)."""
     size = 2 * n + 1
     if x < 0 or y < 0 or x > size or y > size:
         return False
@@ -35,10 +43,13 @@ def covered(x, y, n):
     cy = n if y < n else (n + 1 if y > n + 1 else None)
     if cx is None or cy is None:
         return True                             # the straight runs
+    bit = (1 if cx == n else 2) * (1 if cy == n else 4)
+    if not (corners & bit):
+        return True                             # a square corner
     return (x - cx) ** 2 + (y - cy) ** 2 <= n * n
 
 
-def render(n):
+def render(n, corners=ALL):
     size = 2 * n + 1
     img = []
     for ty in range(size):
@@ -47,7 +58,7 @@ def render(n):
             hits = 0
             for sy in range(SUB):
                 for sx in range(SUB):
-                    if covered(tx + (sx + 0.5) / SUB, ty + (sy + 0.5) / SUB, n):
+                    if covered(tx + (sx + 0.5) / SUB, ty + (sy + 0.5) / SUB, n, corners):
                         hits += 1
             row.append(int(round(255.0 * hits / (SUB * SUB))))
         img.append(row)
@@ -75,7 +86,13 @@ def main():
         write_tga(os.path.join(OUT, "rounded-%d.tga" % n), img, header, footer)
         inv = [[255 - a for a in row] for row in img]
         write_tga(os.path.join(OUT, "rounded-inv-%d.tga" % n), inv, header, footer)
-    print("wrote rounded-1..%d and rounded-inv-1..%d to %s" % (MAX_N, MAX_N, OUT))
+        for c in range(1, ALL):
+            img = render(n, c)
+            write_tga(os.path.join(OUT, "rounded-%d-%d.tga" % (n, c)), img, header, footer)
+            inv = [[255 - a for a in row] for row in img]
+            write_tga(os.path.join(OUT, "rounded-inv-%d-%d.tga" % (n, c)), inv, header, footer)
+    print("wrote rounded-1..%d and rounded-inv-1..%d (all corners and 1..%d) to %s"
+          % (MAX_N, MAX_N, ALL - 1, OUT))
 
 
 if __name__ == "__main__":

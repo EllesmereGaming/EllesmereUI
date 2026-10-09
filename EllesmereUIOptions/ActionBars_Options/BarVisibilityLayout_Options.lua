@@ -18,6 +18,11 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
     local SSetColor, SUpdatePreview, SUpdatePreviewAndResize, SVal = ctx.SSetColor, ctx.SUpdatePreview, ctx.SUpdatePreviewAndResize, ctx.SVal
     local visOnly = ctx.visOnly
     local W = ctx.W
+    -- Visibility updates do not run ApplyAll. Recompile page-cycle macros when
+    -- the set of reserved action pages changes (never/always etc.).
+    local function RefreshPageCycle()
+        if ns.RefreshPagingCycleMacros then ns.RefreshPagingCycleMacros() end
+    end
     local _, h
     local row
     -- Declared out here, not in the `do` block that builds it: the Toggle Action Bar
@@ -90,6 +95,7 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
                   EAB:RefreshRuntimeVisibility()
                   EAB:RefreshMouseover()
                   EAB:ApplyCombatVisibility()
+                  RefreshPageCycle()
               end,
               -- Option axes recompile the secure driver through the same chain the
               -- old Visibility Options dropdown used. The gate refresh first: a lane
@@ -121,6 +127,7 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
                     EAB:RefreshRuntimeVisibility()
                     EAB:RefreshMouseover()
                     EAB:ApplyCombatVisibility()
+                    RefreshPageCycle()
                     EllesmereUI:RefreshPage()
                 end,
                 isSynced = function()
@@ -143,6 +150,7 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
                         EAB:RefreshRuntimeVisibility()
                         EAB:RefreshMouseover()
                         EAB:ApplyCombatVisibility()
+                        RefreshPageCycle()
                         EllesmereUI:RefreshPage()
                     end,
                 },

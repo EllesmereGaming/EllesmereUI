@@ -290,6 +290,7 @@ FB.StyleBorder = function(b)
         EllesmereUI.RoundCorners(b, radius, {
             roots = { b._health }, textures = { b._bg },
             border = b._borderFrame, style = s.borderTexture or "solid",
+            corners = s.cornerMask,
         })
     else
         EllesmereUI.RoundCorners(b, 0)

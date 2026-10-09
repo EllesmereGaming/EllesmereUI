@@ -1114,13 +1114,19 @@ local function BuildNameplatePreview(parent, parentW)
                     bc.r, bc.g, bc.b, 1, "solid")
             end
             if radius > 0 then
+                -- Join Cast Bar: the preview always shows its cast bar.
+                local corners, castCorners = DBVal("cornerMask"), DBVal("cornerMask")
+                if DBVal("cornerJoinCast") then
+                    corners, castCorners = EllesmereUI.RoundedJoinCorners(corners)
+                end
                 EllesmereUI.RoundCorners(pf, radius, {
                     roots = {}, rect = health, border = pcb, style = style,
+                    corners = corners,
                     textures = { health:GetStatusBarTexture(), healthBG,
                         pvAbs.absorb:GetStatusBarTexture(), pvAbs.absorbForward:GetStatusBarTexture() },
                 })
                 EllesmereUI.RoundCorners(cast, radius, {
-                    roots = {}, border = cast,
+                    roots = {}, border = cast, corners = castCorners,
                     textures = { cast:GetStatusBarTexture(), castBG },
                 })
             else

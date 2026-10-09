@@ -54,3 +54,4 @@ ignore:
   - EllesmereUILocales/_keys.txt
   - README.md
   - CHANGELOG.md
+  - AGENTS.md

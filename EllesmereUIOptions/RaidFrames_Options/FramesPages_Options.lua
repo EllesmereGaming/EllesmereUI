@@ -837,11 +837,11 @@ local function BuildMainPage(pageName, parent, yOffset)
             title = "Corner Radius", tip = "Corner Radius",
             disabled = function() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end,
             disabledTooltip = "This option requires the Solid, Glow or Shadow border style.",
-            rows = {
+            rows = EllesmereUI.RoundedCornerRows({
                 { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
                   get = function() return SVal("cornerRadius", 0) end,
                   set = function(v) SSet("cornerRadius", v) end },
-            },
+            }, function() return SGet("cornerMask") end, function(v) SSet("cornerMask", v) end),
         })
     end
 
