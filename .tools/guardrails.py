@@ -100,22 +100,27 @@ def check_client_gate(change, errors):
                           f"'{GUARD.decode()} -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)'")
 
 
-REGEN_RE = re.compile(r"RegisterEvent\(\s*[\"']PLAYER_REGEN_ENABLED[\"']")
-REGEN_DISABLED_RE = re.compile(rb"RegisterEvent\(\s*[\"']PLAYER_REGEN_DISABLED[\"']")
+REGEN_RE = re.compile(r"(\S*?)\s*:\s*RegisterEvent\(\s*[\"']PLAYER_REGEN_ENABLED[\"']")
+REGEN_DISABLED_RE = re.compile(r"(\S*?)\s*:\s*RegisterEvent\(\s*[\"']PLAYER_REGEN_DISABLED[\"']")
+PAIR_WINDOW = 3
 
 
 def check_combat_deferral(change, errors):
     """Work deferred to combat end goes through the shared combat queue."""
-    tracks_combat = {}
+    lines = {}
     for path, lineno, text in change.added_lines:
-        if not REGEN_RE.search(text):
+        m = REGEN_RE.search(text)
+        if not m:
             continue
-        if path not in tracks_combat:
-            # A file that also listens for PLAYER_REGEN_DISABLED tracks combat
-            # state; that is not a deferral.
-            tracks_combat[path] = bool(REGEN_DISABLED_RE.search(change.read(path)))
+        if path not in lines:
+            lines[path] = change.read(path).decode("utf-8", "replace").splitlines()
+        # The same frame registering PLAYER_REGEN_DISABLED next to it tracks
+        # combat state; that is not a deferral.
+        near = lines[path][max(0, lineno - 1 - PAIR_WINDOW):lineno + PAIR_WINDOW]
+        if any(d.group(1) == m.group(1) for d in map(REGEN_DISABLED_RE.search, near) if d):
+            continue
         where = f"{path}:{lineno}"
-        if tracks_combat[path] or allowed("combat-deferral", text, errors, where):
+        if allowed("combat-deferral", text, errors, where):
             continue
         errors.append(f"{where}: new PLAYER_REGEN_ENABLED registration. Defer with "
                       f"EllesmereUI.CombatQueue.Defer(key, fn) in the parent addon, or the "
@@ -130,21 +135,34 @@ DEPRECATED = {
     "GetItemInfoInstant": "C_Item.GetItemInfoInstant",
     "GetItemQualityColor": "C_Item.GetItemQualityColor",
 }
-DEPRECATED_RE = re.compile(r"(?<![\w.:])(" + "|".join(DEPRECATED) + r")\b")
+GETGLOBAL_RE = re.compile(r"^\s*\d+\s+\[(\d+)\]\s+GETGLOBAL\b.*;\s*(\w+)\s*$", re.M)
+
+
+def global_reads(change, path):
+    """(line, name) for each global read in the compiled file, so strings,
+    comments and locals in scope never count."""
+    src = change.read(path).lstrip(b"\xef\xbb\xbf")
+    res = subprocess.run([os.environ.get("LUAC", "luac5.1"), "-l", "-p", "-"],
+                         input=src, capture_output=True)
+    if res.returncode != 0:
+        return [], []  # check_compile reports it
+    return ([(int(n), g) for n, g in GETGLOBAL_RE.findall(res.stdout.decode("utf-8", "replace"))],
+            src.decode("utf-8", "replace").splitlines())
 
 
 def check_deprecated_globals(change, errors):
     """Bare deprecated API globals break the Forever client."""
-    aliases = {}
+    added = {}
     for path, lineno, text in change.added_lines:
-        code = text.split("--", 1)[0]
-        for m in DEPRECATED_RE.finditer(code):
-            name = m.group(1)
-            if re.match(r"\s*local\s+" + name + r"\s*=\s*C_", code):
+        added.setdefault(path, set()).add(lineno)
+    for path, linenos in added.items():
+        reads, lines = global_reads(change, path)
+        for lineno, name in sorted(set(reads)):
+            if name not in DEPRECATED or lineno not in linenos:
                 continue
-            if path not in aliases:
-                aliases[path] = change.read(path).decode("utf-8", "replace")
-            if re.search(r"^\s*local\s+" + name + r"\s*=\s*C_", aliases[path], re.M):
+            text = lines[lineno - 1]
+            # A fallback behind the namespace form: (C_Item and C_Item.NAME) or NAME
+            if re.search(r"\bC_\w+\." + name + r"\b", text):
                 continue
             where = f"{path}:{lineno}"
             if allowed("deprecated-global", text, errors, where):
