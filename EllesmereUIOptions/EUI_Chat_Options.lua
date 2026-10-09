@@ -460,7 +460,10 @@ initFrame:SetScript("OnEvent", function(self)
         local sidebarOrderedKeys = ECHAT.ResolveSidebarIconOrder and ECHAT.ResolveSidebarIconOrder()
             or { "showFriends", "showGuild", "showDurability", "showCopy", "showPortals", "showVoice", "showSettings" }
         for _, k in ipairs(sidebarOrderedKeys) do
-            sidebarIconItems[#sidebarIconItems + 1] = { key = k, label = SIDEBAR_ICON_LABELS[k] }
+            -- Language has no toggle: always shown, so it has no row.
+            if SIDEBAR_ICON_LABELS[k] then
+                sidebarIconItems[#sidebarIconItems + 1] = { key = k, label = SIDEBAR_ICON_LABELS[k] }
+            end
         end
         sidebarIconItems[#sidebarIconItems + 1] = { key = "showScroll", label = "Scroll to Bottom", fixed = true }
         local sidebarRow

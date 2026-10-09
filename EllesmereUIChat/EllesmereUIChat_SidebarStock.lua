@@ -5,9 +5,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  The chat sidebar under the stock styles (Global Settings > Style):
 --  Blizzard Style dresses it as Blizzard's own chat button column (the
 --  ButtonFrame seat, a copy of its bordered backdrop in the window colour,
---  the chat button plates, the QuickJoin friends button, the voice plate, the
---  settings gear and the return-to-bottom arrow); Classic WoW UI dresses it
---  as the vanilla column (bevelled square buttons, the chat menu button, the
+--  the chat button plates, the QuickJoin friends button, the voice plate and
+--  the return-to-bottom arrow); Classic WoW UI dresses it
+--  as the vanilla column (bevelled square buttons, the chat bubble button, the
 --  scroll-down button, no backdrop). Where Blizzard has no art for one of our
 --  buttons (guild, copy, portals) our own glyph sits on the kit's button in
 --  Blizzard's gold. Durability matches them (our glyph in gold on the kit's
@@ -62,13 +62,6 @@ local BEVEL = {   -- the vanilla square chat bevel (the gold square button, desa
     p = { file = "Interface\\Buttons\\UI-SquareButton-Down", desat = true },
     hl = HILIGHT, hlBlend = "ADD", push = true,
 }
-local GEAR = {    -- the Damage Meter settings gear: the whole button is the art
-    idle = "common-dropdown-a-button-settings-shadowless",
-    over = "common-dropdown-a-button-settings-hover-shadowless",
-    down = "common-dropdown-a-button-settings-pressed-shadowless",
-    both = "common-dropdown-a-button-settings-pressedhover-shadowless",
-}
-local GEAR_PROBE = { atlas = GEAR.idle }
 
 ECHAT.SB_KITS = {
     blizzard = {
@@ -80,8 +73,8 @@ ECHAT.SB_KITS = {
         copy       = Entry(PLATE, { glyph = { PNG("chat_copy.png") } }),
         portals    = Entry(PLATE, { glyph = { PNG("chat_portal.png") } }),
         voice      = Entry(PLATE, { glyph = { { atlas = "chatframe-button-icon-voicechat", w = 15, h = 15 } } }),
-        settings   = { w = 27, h = 27, padT = 1, padB = 1, gear = true,
-                       alt = Entry(PLATE, { glyph = { PNG("chat_settings.png") } }) },
+        settings   = Entry(PLATE, { glyph = { PNG("chat_settings.png") } }),
+        language   = Entry(PLATE, { glyph = { PNG("chat_language.png") } }),
         scroll = {
             sidebar = { w = 32, h = 32,
                         n = { file = "Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up" },
@@ -108,7 +101,8 @@ ECHAT.SB_KITS = {
         voice      = Entry(BEVEL, { glyph = {
                         { file = "Interface\\Common\\VoiceChat-Speaker",
                           tc = { 0, 0.59375, 0.15625, 0.90625 }, w = 11, h = 14 } } }),
-        settings   = { w = 32, h = 32, padT = 3, padB = 3,
+        settings   = Entry(BEVEL, { glyph = { PNG("chat_settings.png") } }),
+        language   = { w = 32, h = 32, padT = 3, padB = 3,
                        n = { file = "Interface\\ChatFrame\\UI-ChatIcon-Chat-Up" },
                        p = { file = "Interface\\ChatFrame\\UI-ChatIcon-Chat-Down" },
                        hl = HILIGHT, hlBlend = "ADD" },
@@ -133,7 +127,7 @@ ECHAT.SB_KITS.classic.scroll.chat = Entry(ECHAT.SB_KITS.classic.scroll.sidebar, 
 ECHAT.SB_ALERT = { [0] = { GOLD_R, GOLD_G, GOLD_B, 1 }, { 1, 0.5, 0.1, 1 }, { 0.93, 0.07, 0.07, 1 } }
 ECHAT.SB_REF = {
     friends = "friendsBtn", guild = "guildBtn", durability = "durabilityBtn", copy = "copyBtn",
-    portals = "portalBtn", voice = "voiceBtn", settings = "settingsBtn",
+    portals = "portalBtn", voice = "voiceBtn", settings = "settingsBtn", language = "languageBtn",
 }
 ECHAT._sbBdMemo = {}
 
@@ -314,47 +308,16 @@ function ECHAT.SB_GlyphUp(self)
         ic:ClearAllPoints(); ic:SetPoint("CENTER", self, "CENTER", 0, self._sbGYs or 0); ic:SetAlpha(1)
     end
 end
--- The gear's states follow Blizzard's own order (pressed-hover, hover,
--- pressed, idle).
-function ECHAT.SB_GearPaint(self)
-    local ic = self._icon
-    if not ic then return end
-    local a = (self._sbDown and self._sbOver and GEAR.both) or (self._sbOver and GEAR.over)
-        or (self._sbDown and GEAR.down) or GEAR.idle
-    if self._sbGearArt ~= a then self._sbGearArt = a; ic:SetAtlas(a) end
-end
-function ECHAT.SB_GearEnter(self) self._sbOver = true; ECHAT.SB_GearPaint(self) end
-function ECHAT.SB_GearLeave(self) self._sbOver = nil; ECHAT.SB_GearPaint(self) end
-function ECHAT.SB_GearDown(self, button)
-    if button and button ~= "LeftButton" then return end
-    self._sbDown = true; ECHAT.SB_GearPaint(self)
-end
-function ECHAT.SB_GearUp(self) self._sbDown = nil; ECHAT.SB_GearPaint(self) end
 
 -- Dress one of our sidebar buttons with the kit's entry for `key`.
 function ECHAT.SB_Dress(btn, key)
     local kit = ECHAT.SB_KIT
     local e = kit and kit[key]
     if not e then return end
-    if e.gear and not ECHAT.SB_ArtOK(GEAR_PROBE) then e = e.alt end
     btn._sbEntry = e
     btn._sbKey = key
     btn._sbTailInside = (e.count == "inside") or nil
     local icon = btn._icon
-    if e.gear then
-        icon:SetDrawLayer("ARTWORK")
-        icon:ClearAllPoints()
-        icon:SetAllPoints(btn)
-        icon:SetDesaturated(false)
-        icon:SetVertexColor(1, 1, 1, 1)
-        ECHAT.SB_GearPaint(btn)
-        btn:HookScript("OnEnter", ECHAT.SB_GearEnter)
-        btn:HookScript("OnLeave", ECHAT.SB_GearLeave)
-        btn:HookScript("OnMouseDown", ECHAT.SB_GearDown)
-        btn:HookScript("OnMouseUp", ECHAT.SB_GearUp)
-        btn:HookScript("OnHide", ECHAT.SB_GearUp)
-        return
-    end
     SetStateArt(btn, "Normal", Pick(e.n))
     SetStateArt(btn, "Pushed", Pick(e.p))
     SetStateArt(btn, "Highlight", Pick(e.hl), e.hlBlend)

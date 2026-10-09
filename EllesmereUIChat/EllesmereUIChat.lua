@@ -121,6 +121,7 @@ local CHAT_DEFAULTS = {
             showPortals = true,
             showVoice = false,
             showSettings = true,
+            showLanguage = true,  -- no option: the Language button is always shown
             showScroll = true,
             hideTooltipOnHover = true,
             sidebarRight = false,
@@ -150,7 +151,8 @@ local CHAT_DEFAULTS = {
                 showCopy = 1,
                 showPortals = 2,
                 showVoice = 3,
-                showSettings = 4,
+                showLanguage = 4,
+                showSettings = 5,
             },
             -- Session chat history (EllesmereUIChat_SessionHistory.lua, SavedVariablesPerCharacter)
             persistChatHistory = true,
@@ -1464,6 +1466,7 @@ ECHAT.SIDEBAR_CHAIN_REFS = {
     showPortals    = { btn = "portalBtn" },
     showVoice      = { btn = "voiceBtn" },
     showSettings   = { btn = "settingsBtn" },
+    showLanguage   = { btn = "languageBtn" },
 }
 function ECHAT.ApplySidebarIcons()
     local cfg = ECHAT.DB()
@@ -1553,6 +1556,7 @@ local SIDEBAR_ICON_REFS = {
     showPortals    = "portalBtn",
     showVoice      = "voiceBtn",
     showSettings   = "settingsBtn",
+    showLanguage   = "languageBtn",
     showScroll     = "scrollBtn",
 }
 
@@ -1562,7 +1566,7 @@ local SIDEBAR_ICON_REFS = {
 -- still order Friends, Durability, then the middle group. Scroll is not part
 -- of the chain -- it stays pinned at the sidebar bottom.
 local SIDEBAR_CHAIN_KEYS = {
-    "showFriends", "showGuild", "showDurability", "showCopy", "showPortals", "showVoice", "showSettings",
+    "showFriends", "showGuild", "showDurability", "showCopy", "showPortals", "showVoice", "showLanguage", "showSettings",
 }
 -- No keystones on Forever, so no season portals (the Minimap button is never
 -- built there either): the M+ Portals icon leaves the chain, which also drops
@@ -1574,7 +1578,7 @@ if EllesmereUI.IS_FOREVER then
 end
 local SIDEBAR_FALLBACK_ORDER = {
     showFriends = -20, showGuild = -15, showDurability = -10,
-    showCopy = 1, showPortals = 2, showVoice = 3, showSettings = 4,
+    showCopy = 1, showPortals = 2, showVoice = 3, showLanguage = 4, showSettings = 5,
 }
 
 -- Chain-icon keys sorted into the user's saved order. Used by the sidebar
@@ -2544,12 +2548,12 @@ function ECHAT.ApplyIconColor()
     local ICON_LABELS = {
         friendsBtn = "Friends", guildBtn = "Guild", durabilityBtn = "Durability", copyBtn = "Copy Chat",
         portalBtn = "M+ Portals", voiceBtn = "Voice/Channels", settingsBtn = "Settings",
-        scrollBtn = "Scroll to Bottom",
+        languageBtn = "Language", scrollBtn = "Scroll to Bottom",
     }
     local fc = d.friendsCount
     local gc = d.guildCount
     local dp = d.durabilityPct
-    for _, key in ipairs({ "friendsBtn", "guildBtn", "durabilityBtn", "copyBtn", "portalBtn", "voiceBtn", "settingsBtn", "scrollBtn" }) do
+    for _, key in ipairs({ "friendsBtn", "guildBtn", "durabilityBtn", "copyBtn", "portalBtn", "voiceBtn", "settingsBtn", "languageBtn", "scrollBtn" }) do
         local btn = CFD(cf1)[key]
         if btn and btn._icon then
             btn._icon:SetVertexColor(r, g, b, ICON_ALPHA)
@@ -2646,7 +2650,7 @@ function ECHAT.ApplySidebarIconScale()
     -- _freeMoveH mirrors each icon's height from these constants so
     -- TopYFromSidebarTop never calls GetHeight() -- a geometry resolve that
     -- can taint the Edit-Mode ChatFrame1. Our own frames, so writing is safe.
-    for _, key in ipairs({ "durabilityBtn", "copyBtn", "portalBtn", "voiceBtn", "settingsBtn", "scrollBtn" }) do
+    for _, key in ipairs({ "durabilityBtn", "copyBtn", "portalBtn", "voiceBtn", "settingsBtn", "languageBtn", "scrollBtn" }) do
         local btn = CFD(cf1)[key]
         if btn then
             btn:SetSize(BASE_ICON * scale, BASE_ICON * scale)
@@ -2830,6 +2834,7 @@ function ECHAT.ApplyIconFreeMove()
         { ref = "portalBtn",     key = "portals" },
         { ref = "voiceBtn",      key = "voice" },
         { ref = "settingsBtn",   key = "settings" },
+        { ref = "languageBtn",   key = "language" },
         { ref = "scrollBtn",     key = "scroll" },
     }
 
@@ -4601,7 +4606,7 @@ local function SkinChatFrame(cf)
         -- Chain icons are created in the saved order (drag-to-reorder in the
         -- options dropdown; a new order takes effect on the next reload).
         local anchor = nil
-        local friendsBtn, friendsCount, durabilityBtn, durabilityPct, copyBtn, portalBtn, voiceBtn, settingsBtn
+        local friendsBtn, friendsCount, durabilityBtn, durabilityPct, copyBtn, portalBtn, voiceBtn, settingsBtn, languageBtn
         local guildBtn, guildCount
 
         local function ChainAnchor(btn)
@@ -4804,6 +4809,7 @@ local function SkinChatFrame(cf)
             showPortals  = { tex = "chat_portal.png", size = 26, key = "portals" },
             showVoice    = { tex = "chat_voice.png", key = "voice" },
             showSettings = { tex = "chat_settings.png", key = "settings" },
+            showLanguage = { tex = "chat_language.png", key = "language" },
         }
         local middleBtns = {}
         local chainOrder = ECHAT.ResolveSidebarIconOrder()
@@ -4826,6 +4832,7 @@ local function SkinChatFrame(cf)
         portalBtn   = middleBtns["showPortals"]
         voiceBtn    = middleBtns["showVoice"]
         settingsBtn = middleBtns["showSettings"]
+        languageBtn = middleBtns["showLanguage"]
 
         -- Scroll is pinned to the sidebar bottom, outside the chain.
         local scrollBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_scroll2.png", nil, nil, nil, "scroll")
@@ -4845,6 +4852,7 @@ local function SkinChatFrame(cf)
         if copyBtn then HookIconTooltip(copyBtn, "Copy Chat") end
         if voiceBtn then HookIconTooltip(voiceBtn, "Voice/Channels") end
         if settingsBtn then HookIconTooltip(settingsBtn, "Settings") end
+        if languageBtn then HookIconTooltip(languageBtn, "Language") end
         HookIconTooltip(scrollBtn, "Scroll to Bottom")
 
         -- Scroll to bottom: acts on OUR message frame for the selected window.
@@ -4931,6 +4939,26 @@ local function SkinChatFrame(cf)
         end)
         end
 
+        -- Spoken language: the list Blizzard's chat menu offers, picked through the
+        -- edit box's own SetGameLanguage (the call that menu makes).
+        if languageBtn then
+        languageBtn:SetScript("OnClick", function(self)
+            if InCombatLockdown() then return end
+            local box = DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox
+            if not box then return end
+            local items = {}
+            for i = 1, GetNumLanguages() do
+                local language, languageID = GetLanguageByIndex(i)
+                items[#items + 1] = {
+                    text = language,
+                    isActive = box.languageID == languageID,
+                    onClick = function() box:SetGameLanguage(language, languageID) end,
+                }
+            end
+            EUI.ShowContextMenu(self, items)
+        end)
+        end
+
         local sbd = CFD(cf)
         sbd.friendsBtn = friendsBtn
         sbd.guildBtn = guildBtn
@@ -4939,6 +4967,7 @@ local function SkinChatFrame(cf)
         sbd.portalBtn = portalBtn
         sbd.voiceBtn = voiceBtn
         sbd.settingsBtn = settingsBtn
+        sbd.languageBtn = languageBtn
         sbd.scrollBtn = scrollBtn
         -- Order snapshot for ApplySidebarIcons: live visibility toggles keep this
         -- session's layout; a changed saved order applies on reload.
@@ -6035,6 +6064,7 @@ initFrame:SetScript("OnEvent", function(self)
             if _sbd.portalBtn then _sbd.portalBtn:SetShown(_cfg.showPortals ~= false) end
             if _sbd.voiceBtn then _sbd.voiceBtn:SetShown(_cfg.showVoice ~= false) end
             if _sbd.settingsBtn then _sbd.settingsBtn:SetShown(_cfg.showSettings ~= false) end
+            if _sbd.languageBtn then _sbd.languageBtn:SetShown(_cfg.showLanguage == true) end
         end
     end
     ECHAT.ApplySidebarWidth()
@@ -6067,6 +6097,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if _sbd.portalBtn then _sbd.portalBtn:SetShown(_cfg.showPortals ~= false) end
                 if _sbd.voiceBtn then _sbd.voiceBtn:SetShown(_cfg.showVoice ~= false) end
                 if _sbd.settingsBtn then _sbd.settingsBtn:SetShown(_cfg.showSettings ~= false) end
+                if _sbd.languageBtn then _sbd.languageBtn:SetShown(_cfg.showLanguage == true) end
             end
         end
         ECHAT.ApplySidebarWidth()

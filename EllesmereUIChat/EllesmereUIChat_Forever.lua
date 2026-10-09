@@ -312,6 +312,7 @@ if EUI.IS_FOREVER and Entry and ECHAT.SB_KITS then
         portals    = Entry(FSQ, { glyph = { P("chat_portal.png") } }),
         voice      = Entry(FSQ, { glyph = { A("chatframe-button-icon-voicechat", 20, 20) } }),
         settings   = Entry(FSQ, { glyph = { P("chat_settings.png") } }),
+        language   = Entry(FSQ, { glyph = { P("chat_language.png") } }),
         scroll = {
             sidebar = { w = 34, h = 34, plate = true,
                         glyph = { A("minimal-scrollbar-arrow-returntobottom", 17, 15) },
