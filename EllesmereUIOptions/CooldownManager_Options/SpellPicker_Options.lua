@@ -433,6 +433,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         or (t.buffLostSoundKey and t.buffLostSoundKey ~= "none") then
                         ns._cdmAnyBuffSound = true
                     end
+                    if ns.PluginGlowsFlipGate then ns.PluginGlowsFlipGate(t) end
                 end
 
                 -- Any Resource Aware CD-ready glow already saved in this spec
@@ -2058,10 +2059,11 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             local bg = panel:CreateTexture(nil, "BACKGROUND")
                             bg:SetAllPoints()
                             bg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
-                            EllesmereUI.MakeBorder(panel, 1, 1, 1, mBrdA, EllesmereUI.PP)
                         else
                             for _, ch in ipairs({panel:GetChildren()}) do ch:Hide(); ch:SetParent(nil) end
                         end
+                        -- The border lives in a child frame, so it is rebuilt after every wipe (like the subnav flyouts do).
+                        EllesmereUI.MakeBorder(panel, 1, 1, 1, mBrdA, EllesmereUI.PP)
                         panel._openChild = nil
                         panel:ClearAllPoints()
                         panel:SetPoint("TOPLEFT", row, "TOPRIGHT", 2, 0)

@@ -168,6 +168,15 @@ local function RefreshAllBars()
     for barKey in pairs(ns.barDataByKey) do ns.RefreshCDMIconAppearance(barKey) end
 end
 
+-- Menu hook: a bar-tier write (Apply to Bar / All Specs) just stamped this table.
+function ns.PluginGlowsFlipGate(t)
+    if not t then return end
+    for i = 1, #list do
+        local reg = list[i]
+        if (t[reg.keys.style] or 0) > 0 then MarkInUse(reg) end
+    end
+end
+
 -- Menu hook: a style was applied/removed through any scope for this bar.
 function ns.PluginGlowsSettingsChanged(barKey)
     ns.RescanPluginGlowFlag()

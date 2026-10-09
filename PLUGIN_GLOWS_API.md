@@ -167,7 +167,7 @@ end
 | `EllesmereUICooldownManager/EllesmereUICooldownManager.toc` | Loads the file above. |
 | `EllesmereUICooldownManager/EUI_CDM_Icons.lua` | `RefreshCDMIconAppearance` calls `ns.PluginGlowRefreshIcon` (gated on `ns._cdmAnyPluginGlow`). |
 | `EllesmereUICooldownManager/EUI_CDM_Rebuild.lua` | `BuildAllCDMBars` calls `ns.RescanPluginGlowFlag` with the other gate scans. |
-| `EllesmereUIOptions/CooldownManager_Options/SpellPicker_Options.lua` | `AB.MakePanelRow` (nested flyouts; `MakeSubnavRow` gained `opts.host` / `opts.onApplied`) and the Plugin Glows rows. |
+| `EllesmereUIOptions/CooldownManager_Options/SpellPicker_Options.lua` | `AB.MakePanelRow` (nested flyouts; `MakeSubnavRow` gained `opts.host` / `opts.onApplied`), the Plugin Glows rows, and one line in `AB.FlipSessionGates` that arms the glow when Apply to Bar writes a style. |
 
 Saved keys, per source id: `pluginGlow:<id>:style`, `:alpha` (Blackout opacity),
 `:color` (`"class"` / `"custom"`), `:colorR`, `:colorG`, `:colorB`.
