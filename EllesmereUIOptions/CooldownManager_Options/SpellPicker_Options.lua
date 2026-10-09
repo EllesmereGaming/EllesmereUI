@@ -2083,7 +2083,21 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             y = y + ITEM_H
                         end
                         populate(add)
-                        local w = FitMenuWidth(labels, 180, 48)
+                        -- Measure the captions on a hidden FontString (FitMenuWidth wants FontStrings, not text).
+                        local meas = panel._meas
+                        if not meas then
+                            meas = panel:CreateFontString(nil, "OVERLAY")
+                            meas:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                            meas:Hide()
+                            panel._meas = meas
+                        end
+                        local widest = 0
+                        for i = 1, #labels do
+                            meas:SetText(labels[i])
+                            local tw = meas:GetStringWidth() or 0
+                            if tw > widest then widest = tw end
+                        end
+                        local w = math.min(340, math.max(180, math.ceil(widest + 48)))
                         panel:SetSize(w, y + 4)
                         pInner:SetSize(w, y + 4)
                         panel:Show()
