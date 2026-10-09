@@ -455,6 +455,7 @@ ns._PaintPower = function(button, d, s, unit)
                 d._appliedHidePower = hidePower
                 if hidePower then
                     power:Hide()
+                    if d.powerBorderFrame and d.powerBorderFrame._powerArtKey then ns.RF_ClearPowerBorderArt(d.powerBorderFrame) end
                     if d.powerBorderFrame then d.powerBorderFrame:Hide() end
                     if d._pwtMode then d.powerText:Hide(); d._pwtMode = nil end
                     -- Expand health bar to full frame height (minus the Top Name Bar)

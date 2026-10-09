@@ -100,7 +100,7 @@ do
         },
         powerBar = {
             "showPowerBar", "powerHeight", "powerBgDarkness", "powerBgColor", "powerBgPowerColored",
-            "powerBorderStyle", "powerBorderSize", "powerBorderColor", "powerBorderAlpha",
+            "powerBorderStyle", "powerBorderMatchFrame", "powerBorderMatchColor", "powerBorderSize", "powerBorderColor", "powerBorderAlpha",
             "powerShowForHealer", "powerShowForTank", "powerShowForDPS", "smoothPowerBars",
             "powerUniformAnchors", "extendHealthBehindPower",
         },
@@ -159,6 +159,7 @@ do
         },
         topNameBar = {
             "topNameBarEnabled", "topNameBarHeight",
+            "topNameBarDivider", "topNameBarDividerMatchColor",
             "topNameBarBgColor", "topNameBarBgOpacity",
             "topNameBarTextSize", "topNameBarTextColorMode", "topNameBarTextColor",
             "topNameBarTextOffsetX", "topNameBarTextOffsetY", "topNameBarTextAlign",
