@@ -627,38 +627,20 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         return "INV_MISC_QUESTIONMARK"
     end
 
-    local pendingMacroUpdates = {}
-
     local function UpdateMacro(def, db)
         local idx = GetMacroIndexByName(def.name)
         if idx ~= 0 then
             if InCombatLockdown() then
-                pendingMacroUpdates[def.name] = true
+                EllesmereUI.CombatQueue.Defer("MacroFactory:" .. def.name, function()
+                    local i = GetMacroIndexByName(def.name)
+                    if i == 0 then return end
+                    local body = BuildMacroBody(def, GetMacroDB(def.name))
+                    if body then EditMacro(i, nil, nil, body) end
+                end)
             else
                 local body = BuildMacroBody(def, db)
                 if body then EditMacro(idx, nil, nil, body) end
             end
-        end
-    end
-
-    local function ProcessPendingMacroUpdates()
-        for macroName in pairs(pendingMacroUpdates) do
-            local mdef = nil
-            for _, def in ipairs(GENERAL_DEFS) do
-                if def.name == macroName then
-                    mdef = def
-                    break
-                end
-            end
-            if mdef then
-                local idx = GetMacroIndexByName(mdef.name)
-                if idx ~= 0 then
-                    local db = GetMacroDB(mdef.name)
-                    local body = BuildMacroBody(mdef, db)
-                    if body then EditMacro(idx, nil, nil, body) end
-                end
-            end
-            pendingMacroUpdates[macroName] = nil
         end
     end
 
@@ -1372,7 +1354,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:SetScript("OnEvent", function(self, event)
         if event == "PLAYER_REGEN_ENABLED" then
-            ProcessPendingMacroUpdates()
             UpdateInventoryDependentMacros()
         elseif event == "PLAYER_ENTERING_WORLD" then
             C_Timer.After(1, UpdateInventoryDependentMacros)

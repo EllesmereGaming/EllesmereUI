@@ -25,6 +25,7 @@ EABR.CAMP_BENEFITS = 1229741
 -- trackers. Find Treasure (Dwarf) is no aura and stacks with any of them.
 EABR.GATHER_TRACKING = { 2383, 2580 }
 EABR.FIND_TREASURE = 2481
+EABR.WELL_FED = 19705
 
 local _B = {}  -- beacon state table, populated later
 local Known = function(id) return id and (IsPlayerSpell(id) or IsSpellKnown(id)) end
@@ -2314,6 +2315,7 @@ if EABR.FOREVER then
         gather = false,     -- gathering tracking reminder; opt-in, it shows while no tracker is up
         gatherClassTrack = true,  -- an active class tracking also hides it
         treasure = false,   -- Find Treasure reminder (Dwarf); opt-in, it shows while it is off
+        wellFed = false,    -- Well Fed reminder; opt-in, matched by aura name (every food has its own spell ID)
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added
     }
@@ -4371,6 +4373,18 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
     if fo.treasure and open and Known(tid) then
         if not scanned then treasureUp = EABR.FvTrackingState() end
         if not treasureUp then EABR.FvSpellEntry(missing, tid, "forever:treasure") end
+    end
+    if fo.wellFed and open then
+        local name = SpellName(EABR.WELL_FED) or "Well Fed"
+        local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
+        if ok and not isSecret(aura) and not aura then
+            local e = AcquireEntry()
+            e.mode = "texture"; e.spellID = EABR.WELL_FED
+            e.texture = Tex(EABR.WELL_FED)
+            e.label = name
+            e.cat = "forever"; e.dismissKey = "forever:wellfed"
+            missing[#missing+1] = e
+        end
     end
     local custom = fo.customIDs
     if not custom then return end

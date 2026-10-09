@@ -1416,9 +1416,8 @@ initFrame:SetScript("OnEvent", function(self)
                 onChange = RefreshAll,
             });  y = y - h
 
-            -- Camp Benefits | Gathering Tracking (+ class tracking cog)
-            local campRow
-            campRow, h = W:DualRow(parent, y,
+            -- Camp Benefits | Well Fed
+            _, h = W:DualRow(parent, y,
                 { type="toggle", text="Camp Benefits",
                   tooltip="Reminds you when the Camp Benefits campfire buff is missing.",
                   getValue=function() local f = FDB(); return not f or f.camp ~= false end,
@@ -1426,6 +1425,18 @@ initFrame:SetScript("OnEvent", function(self)
                       local f = FDB(); if not f then return end; f.camp = v
                       RefreshAll()
                   end },
+                { type="toggle", text="Well Fed",
+                  tooltip="Reminds you when you have no Well Fed buff.",
+                  getValue=function() local f = FDB(); return f and f.wellFed == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.wellFed = v
+                      RefreshAll()
+                  end }
+            );  y = y - h
+
+            -- Gathering Tracking (+ class tracking cog) | Find Treasure
+            local gatherRow
+            gatherRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Gathering Tracking",
                   tooltip="Reminds you when Find Herbs or Find Minerals is known but neither is active. Click the reminder to cast it.",
                   -- Off by default.
@@ -1434,11 +1445,19 @@ initFrame:SetScript("OnEvent", function(self)
                       local f = FDB(); if not f then return end; f.gather = v
                       RefreshAll()
                       EllesmereUI:RefreshPage()
+                  end },
+                { type="toggle", text=_G._EABR_SpellName(2481, "Find Treasure"),
+                  tooltip="Dwarf racial: reminds you when Find Treasure is known but not active. Click the reminder to cast it.",
+                  -- Off by default.
+                  getValue=function() local f = FDB(); return f and f.treasure == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.treasure = v
+                      RefreshAll()
                   end }
             );  y = y - h
 
             if not EllesmereUI._prebuilding then
-                EllesmereUI.BuildInlineCog(campRow._rightRegion, {
+                EllesmereUI.BuildInlineCog(gatherRow._leftRegion, {
                     title = "Gathering Tracking",
                     disabled = function() local f = FDB(); return not (f and f.gather == true) end,
                     disabledTooltip = "Gathering Tracking",
@@ -1451,16 +1470,8 @@ initFrame:SetScript("OnEvent", function(self)
                 })
             end
 
-            -- Find Treasure | Add Custom Spell (its tracked spells list right below)
+            -- Add Custom Spell (its tracked spells list right below)
             _, h = W:DualRow(parent, y,
-                { type="toggle", text=_G._EABR_SpellName(2481, "Find Treasure"),
-                  tooltip="Dwarf racial: reminds you when Find Treasure is known but not active. Click the reminder to cast it.",
-                  -- Off by default.
-                  getValue=function() local f = FDB(); return f and f.treasure == true end,
-                  setValue=function(v)
-                      local f = FDB(); if not f then return end; f.treasure = v
-                      RefreshAll()
-                  end },
                 { type="input", text="Add Custom Spell", inputStyle="popup", placeholder="Spell ID", inputWidth=110,
                   tooltip="Type a spell ID and press Enter to be reminded whenever that buff is missing.\nUnknown IDs are ignored.",
                   getValue=function() return "" end,
@@ -1475,9 +1486,9 @@ initFrame:SetScript("OnEvent", function(self)
                       end
                       f.customIDs[#f.customIDs + 1] = id
                       RefreshAll()
-                      -- Rebuilds the page once the edit box has finished its commit.
                       C_Timer.After(0, function() EllesmereUI:RefreshPage(true) end)
-                  end }
+                  end },
+                EllesmereUI.BlankRowCfg()
             );  y = y - h
 
             y = BuildForeverCustomRows(parent, y)

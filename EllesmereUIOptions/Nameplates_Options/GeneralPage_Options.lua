@@ -641,7 +641,14 @@ local function BuildGeneralPage(pageName, parent, yOffset)
           end,
           tooltip="Maximum number of debuff icons shown on enemy nameplates." }
     local debuffRow1
-        debuffRow1, h = W:DualRow(parent, y, maxDbfCfg, { type="label", text="" });  y = y - h
+        debuffRow1, h = W:DualRow(parent, y, maxDbfCfg,
+        { type="toggle", text="Show Buff / Debuff Tooltips",
+          tooltip="Show the spell tooltip when you hover a buff or debuff icon on a nameplate.\n\nWhile the cursor is over an icon, the plate behind it will not highlight or take mouseover targeting.",
+          getValue=function() return DBVal("showAuraTooltips") == true end,
+          setValue=function(v)
+            DB().showAuraTooltips = v
+            if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
+          end });  y = y - h
 
     -- --- Dispellable Buff Glow ----------------------------------------
     local GO = EllesmereUI.GlowOptions

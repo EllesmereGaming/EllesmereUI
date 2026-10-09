@@ -775,16 +775,13 @@ local function GetReactionColor(unit)
     if UnitIsPlayer(unit) and UnitCanAttack("player", unit) then
         local _, class = UnitClass(unit)
         -- A secret class token (identity-restricted, i.e. instanced PvP) cannot key a
-        -- color table. Blizzard resolves the same lookup UNTAINTED on its own plate and
-        -- its bar keeps updating under our suppression, so flag the plate here and let
-        -- UpdateHealthColor copy that color across without ever inspecting it. We still
-        -- fall through to the reaction color so every plain-number consumer downstream
-        -- (the skip-if-unchanged compare, the No Tint overlay tints) keeps plain numbers.
-        -- Gated on the CVar because that is what decides whether Blizzard's bar is a class
-        -- color at all: with it off the bar carries a selection/threat color, and copying
-        -- that would overwrite the user's Enemy Types color with red.
+        -- plain color table, but C_ClassColor accepts it and returns a color that may only
+        -- reach setters. Flag the plate so UpdateHealthColor paints the bar that way. We
+        -- still fall through to the reaction color so every plain-number consumer
+        -- downstream (the skip-if-unchanged compare, the No Tint overlay tints) keeps
+        -- plain numbers.
         if issecretvalue(class) then
-            ns._reactionMirrorClass = GetCVarBool("nameplateShowClassColor") == true
+            ns._reactionMirrorClass = true
             class = nil
         end
         local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]

@@ -3007,9 +3007,10 @@ do
             return
         end
         -- An open Unlock Mode session owns the anchor frame (live drags + uncommitted edits): re-parking from saved would snap it back mid-session, so pin to wherever the session has it.
+        -- A screen-edge link in Unlock Mode owns the position too: re-parking would pull the box off the edge until the anchor chain moves it back a frame later.
         if EllesmereUI._unlockActive then
             EnsureSeeded()
-        else
+        elseif not EllesmereUI.IsUnlockAnchored("EUI_TooltipAnchor") then
             PositionFromSaved()
         end
         tooltip:SetOwner(parent, "ANCHOR_NONE")

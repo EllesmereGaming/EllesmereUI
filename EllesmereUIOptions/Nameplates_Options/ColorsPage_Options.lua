@@ -922,7 +922,8 @@ local function MakeColorPreviewBar(parentRow, colorType, colorKey, anchorFrame)
                 elseif ns.IsComboHealthText(element) then
                     local valStr = tostring(healthVal):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
                     pctFS:SetTextColor(sc.r, sc.g, sc.b, 1)
-                    ns.SetCombinedHealthText(pctFS, element, healthPct .. "%", valStr)
+                    local maxStr = tostring(FAKE_MAX_HP):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+                    ns.SetCombinedHealthText(pctFS, element, healthPct .. "%", valStr, maxStr)
                     pctFS:SetPoint(slot.anchor, health, slot.anchor, slot.xOff, 0)
                     pctFS:Show()
                 end

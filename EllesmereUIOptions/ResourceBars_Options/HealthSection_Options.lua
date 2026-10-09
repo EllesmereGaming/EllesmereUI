@@ -682,8 +682,8 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         { type = "dropdown", text = "Health Text",
           disabled = healthOff,
           disabledTooltip = "Health Bar",
-          values = { none = "None", perhp = "Health %", perhpnosign = "Health % (No Sign)", curhpshort = "Health #", perhpnum = "Health % | #", both = "Health # | %" },
-          order = { "none", "---", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both" },
+          values = { none = "None", perhp = "Health %", perhpnosign = "Health % (No Sign)", curhpshort = "Health #", curmaxhp = "Health # / Max #", perhpnum = "Health % | #", both = "Health # | %" },
+          order = { "none", "---", "perhp", "perhpnosign", "curhpshort", "curmaxhp", "perhpnum", "both" },
           getValue = function() local c = cfg(); return c and c.textFormat or "none" end,
           setValue = function(v)
               local c = cfg(); if not c then return end

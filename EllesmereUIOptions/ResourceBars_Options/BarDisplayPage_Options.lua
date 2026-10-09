@@ -998,8 +998,8 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                     { type="dropdown", text="Mana Bar Text",
                       disabled = FdmOff,
                       disabledTooltip = FdmOffTip,
-                      values = { none = "None", smart = "Smart Text", curpp = "Power Value", perpp = "Power %", both = "Power Value | Power %" },
-                      order = { "none", "smart", "curpp", "perpp", "both" },
+                      values = { none = "None", smart = "Smart Text", curpp = "Power Value", curmaxpp = "Power Value / Max", perpp = "Power %", both = "Power Value | Power %" },
+                      order = { "none", "smart", "curpp", "curmaxpp", "perpp", "both" },
                       getValue = function()
                           local t = FdmCfg(); return t and t.textFormat or "none"
                       end,
