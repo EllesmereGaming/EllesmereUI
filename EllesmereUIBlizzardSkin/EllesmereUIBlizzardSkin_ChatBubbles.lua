@@ -16,18 +16,16 @@ local PP = EUI.PP
 -- whatever the client formatted into it carries over. Nothing runs while off.
 
 local C_CVar, C_Timer = C_CVar, C_Timer
-local InCombatLockdown, IsInInstance = InCombatLockdown, IsInInstance
+local InCombatLockdown, IsInInstance, GetTime = InCombatLockdown, IsInInstance, GetTime
 
 local MIN_WIDTH = 40
 local WHITE = "Interface\\Buttons\\WHITE8X8"
--- How long we keep looking for the bubble a chat line just produced. The engine builds it
--- within a frame or two; anything still unmatched after this never had one (a channel
--- Blizzard does not bubble, or a speaker out of range). The first passes run on consecutive
--- frames rather than a step apart, because a bubble on a frame we have never seen is visible
--- until we find it; the rest space out so a slow moment keeps roughly the same total grace.
-local SWEEP_STEP = 0.05
-local SWEEP_FAST_TRIES = 2
-local SWEEP_TRIES = 8
+-- Recent chat lines, kept to tell which channel and speaker a bubble belongs to. Count-capped
+-- rather than timed, so a bubble the engine only shows once its speaker comes on screen still
+-- finds its line.
+local RECENT_MAX = 16
+-- Next-frame passes after a line arrives, for a bubble built on a frame not hooked yet.
+local RETRY_TRIES = 2
 
 -- Blizzard's three bubble switches. chatBubbles is taken over as soon as any of say, yell,
 -- emotes or NPC lines is ticked, since that is what the feature exists to restyle and there
@@ -133,7 +131,7 @@ end
 
 local active = false          -- events registered and CVars asserted
 local suspended = false       -- inside an instance, where we never draw
-local ours = {}               -- Blizzard bubble frame -> our frame riding on it
+local ours = {}               -- Blizzard bubble frame -> our frame, while both are shown
 -- Side tables keyed by Blizzard's frame, never fields written onto it: every other access to
 -- these frames is guarded because one can be reclassified as forbidden under us, and writing
 -- a marker onto a forbidden frame raises. Weak keys, the house pattern for this, so nothing
@@ -141,19 +139,18 @@ local ours = {}               -- Blizzard bubble frame -> our frame riding on it
 local WEAK_KEYS = { __mode = "k" }
 local hooked = setmetatable({}, WEAK_KEYS)   -- frame -> true, hooks are for the session
 local childOf = setmetatable({}, WEAK_KEYS)  -- frame -> its templated child
--- Appearance order. A bubble already on screen when a line arrived cannot be the bubble that
--- line produced, however well the text matches, so both sides carry a stamp off this counter
--- and the match below refuses to look backwards.
-local seenTick = 0
-local seenAt = setmetatable({}, WEAK_KEYS)   -- frame -> the tick it last appeared on
-local pending = {}            -- chat lines still looking for their bubble
--- Bubbles blanked the moment they appeared, before their text could be read. Value is the
--- sweep count they have survived: the sweep either claims one or hands its chrome back.
-local blanked = {}
-local pool = {}
+-- One frame of ours per engine frame, built on first claim and kept. Blizzard recycles a
+-- small set, so this is bounded by their pool.
+local overlay = setmetatable({}, WEAK_KEYS)
+-- frame -> the line it last drew, so the same bubble is redrawn when it comes back on screen
+local bound = setmetatable({}, WEAK_KEYS)
+local recent = {}             -- chat lines not matched to a bubble yet, oldest first
+-- frame -> GetTime() of its last appearance. Frame time, constant within a frame, so a bubble
+-- the engine built in the same frame as its chat event still counts as after the line.
+local shownAt = setmetatable({}, WEAK_KEYS)
 local eventFrame
 local EnsureFrame
-local sweepScheduled = false
+local retryLeft = 0
 
 -- DEFAULTS (enabled = false) for a profile without settings, so a switch to it still hands
 -- back any CVars we hold. Read only.
@@ -285,7 +282,7 @@ local _partsOuter, _partsChild, _partsFS
 local function RawResolveParts()
     if not _partsChild then
         -- Resolved once: GetChildren hands back every child as varargs and allocates on every
-        -- call, and this runs per bubble per sweep plus on every hide.
+        -- call, and this runs per bubble on every show and hide.
         _partsChild = _partsOuter:GetChildren()
     end
     if _partsChild then _partsFS = _partsChild.String end
@@ -405,68 +402,22 @@ local function NewBubble()
     return f
 end
 
-local function Acquire()
-    local f = table.remove(pool)
-    if not f then f = NewBubble() end
-    f.inUse = true
-    return f
-end
-
--- Ours lives exactly as long as Blizzard's, which is why nothing here fades: the frame we are
--- anchored to is recycled for the next speaker the moment theirs ends, so anything outliving
--- it would have to freeze its own position first. The chrome is handed back in ReleaseBlizz.
-local function Release(f)
-    -- Guarded because ReleaseAll and an OnHide for the same frame can both land here.
-    if not f.inUse then return end
-    f.inUse = false
-
-    if f.outer then
-        ours[f.outer] = nil
-        f.outer = nil
-    end
+-- Hides ours and hands the chrome back, so the next speaker on this recycled frame, whose
+-- channel we may not draw, gets Blizzard's balloon. The binding stays for a re-show.
+local function ReleaseBlizz(outer)
+    local f = ours[outer]
+    if not f then return end
+    ours[outer] = nil
     f:ClearAllPoints()
     f:Hide()
-    -- Cleared so the next speaker on this frame gets their own colour, or the configured one,
-    -- never the last speaker's.
-    f.blizzR, f.blizzG, f.blizzB = nil, nil, nil
-    f.speaker, f.channel = nil, nil
-    -- Deliberately uncapped. Every bubble frame also builds a PP border container, and PP
-    -- registers those permanently (PP.ResnapAllBorders walks the list on each scale or
-    -- resolution change and it never shrinks), so the count worth bounding is the number of
-    -- frames ever CREATED. An unbounded pool bounds it at peak concurrency.
-    pool[#pool + 1] = f
-end
-
--- Blizzard is done with this bubble: let ours go and hand the chrome back, so the recycled
--- frame draws normally for the next speaker, whose channel we may not even be drawing.
-local function ReleaseBlizz(outer)
-    -- Nothing of ours on this frame, so there is nothing to hand back. The hooks outlive both
-    -- the claim and the feature being switched off, so without this every bubble in the game
-    -- would pay for a hide of ours for the rest of the session, and one we never touched
-    -- would have its alpha rewritten behind Blizzard's back.
-    if not ours[outer] and blanked[outer] == nil then return end
-    local f = ours[outer]
-    if f then Release(f) end
-    blanked[outer] = nil
     local child = BlizzParts(outer)
     SetBlizzAlpha(child, 1)
-end
-
--- Every bubble we blanked on sight but never claimed gets its chrome back. Called whenever
--- the sweep can no longer match one, so a channel we do not draw is never left invisible.
-local function RestoreBlanked()
-    for outer in pairs(blanked) do
-        blanked[outer] = nil
-        local child = BlizzParts(outer)
-        SetBlizzAlpha(child, 1)
-    end
 end
 
 local function ReleaseAll()
     for outer in pairs(ours) do
         ReleaseBlizz(outer)
     end
-    RestoreBlanked()
 end
 
 -- Appearance and geometry in ONE pass, never separately: font size, padding and max width all
@@ -568,9 +519,11 @@ end
 
 local _anchorFrame, _anchorTo, _anchorOff
 
--- Concentric with Blizzard's frame, not stacked above it: theirs is already where the speaker
--- is, and the two grow to different sizes around the same text. offsetY is the only nudge the
--- user gets, and it rides in on PP.Point so it lands on the pixel grid.
+-- Concentric with Blizzard's balloon, not stacked above it: theirs is already where the speaker
+-- is, and the two grow to different sizes around the same text. Anchored to the child that
+-- draws the balloon, not the outer frame: after a bubble goes off screen and back, the outer
+-- can sit away from the balloon. offsetY is the only nudge the user gets, and it rides in on
+-- PP.Point so it lands on the pixel grid.
 --
 -- Guarded, because PP.Point ends in a plain SetPoint and anchoring to a frame that has been
 -- reclassified as forbidden raises there, not inside PP. The claim proved the frame readable
@@ -587,7 +540,7 @@ local function Anchor(f, cfg)
     local d = DEFAULTS
     local off = cfg.offsetY or d.offsetY or 0
     f:ClearAllPoints()
-    _anchorFrame, _anchorTo, _anchorOff = f, f.outer, off
+    _anchorFrame, _anchorTo, _anchorOff = f, childOf[f.outer] or f.outer, off
     local ok = pcall(RawAnchor)
     _anchorFrame, _anchorTo = nil, nil
     return ok
@@ -601,20 +554,30 @@ local function OnBlizzHide(outer)
     ReleaseBlizz(outer)
 end
 
--- Assigned further down, next to the matching it needs. Declared here so that definition
--- binds this local instead of creating a global.
-local HookOuter
+-- Newest first: an older unmatched line with the same text is the stale one. Exact match
+-- before containment, which is the fallback for formats Blizzard fills in itself. A bubble
+-- already standing when a line arrived cannot be the bubble that line produced.
+local function MatchRecent(text, at)
+    for i = #recent, 1, -1 do
+        if recent[i].at <= at and SafeEq(text, recent[i].text) then return i end
+    end
+    for i = #recent, 1, -1 do
+        if recent[i].at <= at and SafeContains(text, recent[i].text) then return i end
+    end
+    return nil
+end
 
-local function Claim(outer, child, fs, text, line)
+local function Draw(outer, child, fs, text, line)
     local cfg = Cfg()
     if not cfg then return end
 
-    local f = Acquire()
+    local f = overlay[outer]
+    if not f then
+        f = NewBubble()
+        overlay[outer] = f
+    end
     f.outer = outer
     ours[outer] = f
-    blanked[outer] = nil
-    -- Taken now, while the bubble is still untouched, and kept for the life of the claim so
-    -- RefreshStyle can switch between the two colours without the bubble being rebuilt.
     f.blizzR, f.blizzG, f.blizzB = BlizzTextColor(fs)
     f.speaker, f.channel = line.speaker, line.channel
     f.text:SetText(text)
@@ -624,9 +587,7 @@ local function Claim(outer, child, fs, text, line)
     f:SetAlpha(0)
     f:Show()
     Layout(f, cfg)
-    -- Before the chrome is blanked, never after: a claim that cannot anchor has to leave
-    -- Blizzard's own bubble drawing. ReleaseBlizz undoes the whole claim and puts the chrome
-    -- back at alpha 1, which also covers a frame that reached here already blanked on sight.
+    -- Before the chrome is blanked: a claim that cannot anchor leaves Blizzard's bubble drawing.
     if not Anchor(f, cfg) then
         ReleaseBlizz(outer)
         return
@@ -636,82 +597,34 @@ local function Claim(outer, child, fs, text, line)
     SetBlizzAlpha(child, 0)
 end
 
-local Sweep
-
--- Zero is not "now": C_Timer.After(0) runs at the start of the next frame, which is the
--- earliest anything in Lua can react to a frame the engine built after we last looked.
-local function ScheduleSweep()
-    if sweepScheduled then return end
-    local delay = SWEEP_STEP
-    for i = 1, #pending do
-        if pending[i].tries <= SWEEP_FAST_TRIES then delay = 0 break end
-    end
-    sweepScheduled = true
-    C_Timer.After(delay, Sweep)
-end
-
--- A bubble already standing when a line arrived cannot be the bubble that line produced, so
--- the stamps decide. The gate rests on Blizzard hiding a frame before reusing it, which is
--- what re-stamps it through our OnHide/OnShow pair. That is engine behaviour Lua cannot
--- prove, so a line on its LAST try drops the gate: degrading to the old text-only match
--- beats leaving a bubble unstyled if the assumption ever stops holding.
-local function Ordered(e, at)
-    return e.stamp < at or e.tries >= SWEEP_TRIES - 1
-end
-
--- Which pending line, if any, this bubble is showing. Exact match first: containment is the
--- fallback for the formats Blizzard fills in itself, and on its own it would let a short line
--- claim the bubble of a longer one that quotes it.
-local function MatchPending(text, at)
-    -- type() rather than "== nil", for the reason spelled out over SafeEq.
-    if type(text) ~= "string" then return nil end
-    for i = 1, #pending do
-        if Ordered(pending[i], at) and SafeEq(text, pending[i].text) then return i end
-    end
-    for i = 1, #pending do
-        if Ordered(pending[i], at) and SafeContains(text, pending[i].text) then return i end
-    end
-    return nil
-end
-
--- The engine shows the bubble before we can possibly know about it, so waiting for the sweep
--- means Blizzard's balloon is visible for a sweep step every time. This closes that window:
--- the text is usually already set, so the bubble is claimed in the same frame it appears. If
--- it is not readable yet, we blank it on sight while a line of ours is waiting, and the sweep
--- below then either claims it or hands the chrome straight back.
-local function OnBlizzShow(outer)
-    if not active or suspended then return end
-    -- Stamped before every early return below: a bubble that appears while nothing is pending
-    -- is exactly the one a later identical line must not be allowed to claim.
-    seenTick = seenTick + 1
-    seenAt[outer] = seenTick
-    if #pending == 0 or ours[outer] or blanked[outer] then return end
-
+-- Draws this bubble if it shows a line of ours: a recent one, which binds it, or the one it
+-- is already bound to, back on screen after going off it. Answers whether it is ours.
+local function TryClaim(outer)
+    if ours[outer] then return true end
     local child, fs = BlizzParts(outer)
-    if not child then return end
-
+    if not child then return false end
     local text = BlizzText(fs)
-    -- type() is the existence test, never "~= nil": GetText answers with a secret string in
-    -- chat messaging lockdown, and comparing one to nil raises. See SafeEq.
-    if type(text) == "string" then
-        -- A secret string can be shown but never compared, so it can never be matched to its
-        -- chat line. Leaving it to Blizzard beats blanking a bubble we cannot replace.
-        if not IsSecret(text) then
-            local idx = MatchPending(text, seenAt[outer])
-            if idx then
-                local line = table.remove(pending, idx)
-                -- Blizzard's own text, not the chat event's: the client has already formatted
-                -- it (an emote carries the speaker's name, a monster emote its filled token),
-                -- and it is the string the bubble we are covering actually shows.
-                Claim(outer, child, fs, text, line)
-            end
-        end
-        return
+    -- type() first, then the secret guard, then the compares. See SafeEq for why the nil
+    -- test cannot lead here. A secret string can be shown but never matched.
+    if type(text) ~= "string" or IsSecret(text) then return false end
+    local cfg = Cfg()
+    local idx = MatchRecent(text, shownAt[outer] or 0)
+    local line
+    if idx then
+        line = recent[idx]
+        -- A channel switched off since the line arrived.
+        if cfg[line.channel] ~= true then return false end
+        table.remove(recent, idx)
+        -- Blizzard's own text, not the chat event's: the client has already formatted it, and
+        -- it is what a re-show of this bubble is compared against.
+        line.text = text
+        bound[outer] = line
+    else
+        line = bound[outer]
+        if not (line and SafeEq(text, line.text)) or cfg[line.channel] ~= true then return false end
     end
-
-    SetBlizzAlpha(child, 0)
-    blanked[outer] = 0
-    ScheduleSweep()
+    Draw(outer, child, fs, text, line)
+    return true
 end
 
 -- One hook pair per frame for the life of the session. Blizzard recycles a small set of
@@ -719,13 +632,14 @@ end
 -- after a handful of messages. This is what keeps the feature free of per-frame work: the
 -- engine tells us when a bubble starts and ends instead of us watching for it.
 local _hookTarget
+local OnBlizzShow
 
 local function RawHookOuter()
     _hookTarget:HookScript("OnShow", OnBlizzShow)
     _hookTarget:HookScript("OnHide", OnBlizzHide)
 end
 
-function HookOuter(outer)
+local function HookOuter(outer)
     if hooked[outer] then return end
     -- Marked BEFORE the guarded call, not after: the pair has to stay one-per-frame, and a
     -- retry that found the first HookScript already installed would stack a second OnShow.
@@ -737,76 +651,66 @@ function HookOuter(outer)
     _hookTarget = nil
 end
 
--- direct is set only by the chat handler running a pass ahead of the timer. Any timer already
--- armed stays armed in that case, so an early pass cannot fork the schedule into two chains.
-function Sweep(direct)
-    if not direct then sweepScheduled = false end
-    if suspended or not active then
-        RestoreBlanked()
+local _shownFrame, _shownOut
+
+local function RawShown()
+    _shownOut = _shownFrame:IsShown()
+end
+
+-- A listed bubble can be hidden (speaker off screen); ours would float at its stale spot, so
+-- that one waits for its OnShow.
+local function BlizzShown(outer)
+    _shownFrame, _shownOut = outer, false
+    local ok = pcall(RawShown)
+    _shownFrame = nil
+    return ok and _shownOut == true
+end
+
+-- Hooks every bubble the engine lists and claims what it can. Without includeForbidden on
+-- purpose: a forbidden bubble can be neither read nor blanked.
+local function ClaimListed()
+    if not C_ChatBubbles or not C_ChatBubbles.GetAllChatBubbles then return end
+    local ok, list = pcall(C_ChatBubbles.GetAllChatBubbles)
+    if not ok or type(list) ~= "table" then return end
+    for i = 1, #list do
+        local outer = list[i]
+        if outer then
+            HookOuter(outer)
+            -- First sighting with no stamp: shown before our hook existed on it, so newer
+            -- than every line waiting.
+            if not shownAt[outer] then shownAt[outer] = GetTime() end
+            if #recent > 0 and BlizzShown(outer) then TryClaim(outer) end
+        end
+    end
+end
+
+-- Zero is not "now": C_Timer.After(0) runs at the start of the next frame, which is the
+-- earliest anything in Lua can react to a frame the engine built after we last looked.
+local function Retry()
+    retryLeft = retryLeft - 1
+    if not active or suspended or #recent == 0 then
+        retryLeft = 0
         return
     end
-    if not C_ChatBubbles or not C_ChatBubbles.GetAllChatBubbles then
-        wipe(pending)
-        RestoreBlanked()
-        return
-    end
+    ClaimListed()
+    if retryLeft > 0 then C_Timer.After(0, Retry) end
+end
 
-    if #pending > 0 then
-        -- Without includeForbidden on purpose: a forbidden bubble cannot be read or blanked,
-        -- and taking it out of the list here is cheaper than guarding every access below.
-        local ok, list = pcall(C_ChatBubbles.GetAllChatBubbles)
-        if ok and type(list) == "table" then
-            for i = 1, #list do
-                local outer = list[i]
-                if outer and not ours[outer] then
-                    -- Hooked on first sighting, not only when claimed: a frame we hook now is
-                    -- one that cannot flash the next time the engine reuses it.
-                    HookOuter(outer)
-                    local at = seenAt[outer]
-                    if not at then
-                        -- Reaching a frame here with no stamp means the engine built and
-                        -- showed it before our OnShow hook existed on it, so it is newer than
-                        -- every line currently waiting. SetActive stamps the frames that were
-                        -- already up, so those can never land in this branch.
-                        seenTick = seenTick + 1
-                        at = seenTick
-                        seenAt[outer] = at
-                    end
-                    local child, fs = BlizzParts(outer)
-                    local text = BlizzText(fs)
-                    -- type() first, then the secret guard, then the compare inside
-                    -- MatchPending. See SafeEq for why the nil test cannot lead here.
-                    if type(text) == "string" and not IsSecret(text) then
-                        local idx = MatchPending(text, at)
-                        if idx then
-                            local line = table.remove(pending, idx)
-                            Claim(outer, child, fs, text, line)
-                        end
-                    end
-                end
-            end
-        end
+local function ScheduleRetry()
+    if retryLeft > 0 then return end
+    retryLeft = RETRY_TRIES
+    C_Timer.After(0, Retry)
+end
 
-        for i = #pending, 1, -1 do
-            pending[i].tries = pending[i].tries + 1
-            if pending[i].tries >= SWEEP_TRIES then table.remove(pending, i) end
-        end
-    end
-
-    -- Same budget as a pending line: a bubble blanked on sight that never matched one of ours
-    -- belongs to a channel we do not draw, and gets its own chrome back.
-    for outer, tries in pairs(blanked) do
-        tries = tries + 1
-        if tries >= SWEEP_TRIES then
-            blanked[outer] = nil
-            local child = BlizzParts(outer)
-            SetBlizzAlpha(child, 1)
-        else
-            blanked[outer] = tries
-        end
-    end
-
-    if #pending > 0 or next(blanked) then ScheduleSweep() end
+-- The text is usually already set when the engine shows the bubble, so it is claimed in the
+-- frame it appears. When it is not readable yet, a next-frame pass reads it again.
+function OnBlizzShow(outer)
+    if not active or suspended then return end
+    -- Stamped before the early return: a bubble shown while nothing waits must not be claimed
+    -- by a later identical line.
+    shownAt[outer] = GetTime()
+    if #recent == 0 and not bound[outer] then return end
+    if not TryClaim(outer) and #recent > 0 then ScheduleRetry() end
 end
 
 -------------------------------------------------------------------------------
@@ -996,7 +900,7 @@ local function OnEvent(_, event, ...)
     if event == "PLAYER_ENTERING_WORLD" then
         AssertCVars()
         if suspended then
-            wipe(pending)
+            wipe(recent)
             ReleaseAll()
         end
         return
@@ -1019,20 +923,20 @@ local function OnEvent(_, event, ...)
     -- protect. See SafeEq.
     if type(text) ~= "string" or IsSecret(text) then return end
 
-    -- The stamp is read, not advanced: only a bubble APPEARING moves the counter, so every
-    -- bubble that shows up from here on compares as newer than this line.
     -- Sender shares the lockdown; a secret one is dropped, never compared or shown.
     local speaker
     if type(sender) == "string" and not IsSecret(sender) and sender ~= "" then
         speaker = Ambiguate(sender, "short")
     end
-    pending[#pending + 1] = { text = text, tries = 0, stamp = seenTick, speaker = speaker, channel = channel }
-    -- Swept right here, not a timer later: if the engine already built the bubble before it
-    -- dispatched this event, we claim it in the same frame and nothing of Blizzard's is ever
-    -- drawn, not even on the very first message of a session, where no frame of theirs exists
-    -- yet for our OnShow hook to sit on. A miss costs one walk of a list with a handful of
-    -- entries, and the sweep then continues on its timer as before.
-    Sweep(true)
+    if #recent >= RECENT_MAX then table.remove(recent, 1) end
+    local line = { text = text, speaker = speaker, channel = channel, at = GetTime() }
+    recent[#recent + 1] = line
+    -- Claimed right here when the engine built the bubble before dispatching this event,
+    -- including the first message of a session, before any frame of theirs is hooked.
+    ClaimListed()
+    -- Still unmatched: the bubble may land a frame later, or only once its speaker is on
+    -- screen, where the OnShow hook finds the line.
+    if recent[#recent] == line then ScheduleRetry() end
 end
 
 local CHAT_EVENTS = {}
@@ -1078,7 +982,8 @@ local function SetActive(on)
         active = false
         eventFrame:UnregisterAllEvents()
         wipe(registeredChat)
-        wipe(pending)
+        wipe(recent)
+        wipe(bound)
         ReleaseAll()
         return
     end
@@ -1101,12 +1006,8 @@ local function SetActive(on)
                     local outer = list[i]
                     if outer then
                         HookOuter(outer)
-                        -- Stamped as already standing, so a line typed after switching on
-                        -- cannot claim a bubble that was on screen before it.
-                        if not seenAt[outer] then
-                            seenTick = seenTick + 1
-                            seenAt[outer] = seenTick
-                        end
+                        -- Already standing, so a line typed after switching on cannot claim it.
+                        shownAt[outer] = GetTime()
                     end
                 end
             end
@@ -1165,7 +1066,7 @@ function CB.RefreshStyle()
     if not cfg then return end
     for _, f in pairs(ours) do
         Layout(f, cfg)
-        -- Same hand-back as in Claim. Clearing the key of the entry we are standing on is
+        -- Same hand-back as in Draw. Clearing the key of the entry we are standing on is
         -- allowed during a pairs traversal, which is what ReleaseAll has always relied on.
         if not Anchor(f, cfg) then ReleaseBlizz(f.outer) end
     end
@@ -1196,7 +1097,7 @@ function CB.Refresh()
     AssertCVars()
     if not on then return end
     if suspended then
-        wipe(pending)
+        wipe(recent)
         ReleaseAll()
         return
     end

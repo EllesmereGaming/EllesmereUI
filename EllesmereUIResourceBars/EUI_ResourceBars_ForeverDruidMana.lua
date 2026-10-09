@@ -171,6 +171,8 @@ local function Paint(force)
         local pctRaw = UnitPowerPercent and UnitPowerPercent("player", MANA, true, CurveConstants and CurveConstants.ScaleTo100) or 0
         local percentText = format("%d", pctRaw) .. S.suffix
         txt = (fmt == "both") and (ns.AbbreviateNumbers(cur) .. " | " .. percentText) or percentText
+    elseif fmt == "curmaxpp" then
+        txt = ns.AbbreviateNumbers(cur) .. " / " .. ns.AbbreviateNumbers(UnitPowerMax("player", MANA))
     else
         txt = ns.AbbreviateNumbers(cur)
     end

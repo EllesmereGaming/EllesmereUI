@@ -967,11 +967,15 @@ end
 -- resolved spell arrays, recomputed per call (the legacy editor mutates
 -- indicator tables directly, so an edit-generation cache is unsound).
 -- Indicators resolving to EMPTY are skipped (empty include map = unverified
--- semantics). The views are STABLE, one per store indicator (weak keys) and
--- refreshed IN PLACE: the container machinery captures them in its per-button
--- meta at build time and re-reads them on every geometry fingerprint/anchor
--- pass, so a fresh table per call freezes position/growth edits until reload.
-local bm2ViewCache = setmetatable({}, { __mode = "k" })
+-- semantics). The views are STABLE, one per bucket + indicator id (list
+-- position when id-less, matching BmSignature), and refreshed IN PLACE: the
+-- container machinery captures them in its per-button meta at build time and
+-- re-reads them on every geometry fingerprint/anchor pass, so a fresh table
+-- per call freezes position/growth edits until reload. Not keyed by the store
+-- table: an override layer swap replaces every store indicator with a copy
+-- (_ERF_BM2ApplyLayer) without changing the container signature. Bounded by
+-- the indicators ever rendered this session.
+local bm2ViewCache = {}
 
 -- Show In as rendered: an Anchor To member continues its root's run, so the
 -- terminal root's value decides (the member's own is not offered while it is
@@ -1033,7 +1037,7 @@ function ns.BM2_SpecIndicators(frameKind)
     -- groupKey marks a GROUP bucket's contribution: the active spec's
     -- per-spec disable set drops those indicators here (render side); the
     -- indicator itself is untouched for every other spec.
-    local function Append(list, idOffset, groupKey)
+    local function Append(list, idOffset, groupKey, bucket)
         if not list then return end
         for i = 1, #list do
             local ind = list[i]
@@ -1045,8 +1049,9 @@ function ns.BM2_SpecIndicators(frameKind)
             end
             local resolved = not drop and ns.BM2_ResolveSpells(ind) or nil
             if resolved and #resolved > 0 then
-                local v = bm2ViewCache[ind]
-                if not v then v = {}; bm2ViewCache[ind] = v end
+                local viewKey = tostring(bucket) .. ":" .. tostring(ind.id or ("x" .. i))
+                local v = bm2ViewCache[viewKey]
+                if not v then v = {}; bm2ViewCache[viewKey] = v end
                 for k in pairs(v) do v[k] = nil end
                 for k, val in pairs(ind) do v[k] = val end
                 v.spells = resolved
@@ -1068,10 +1073,10 @@ function ns.BM2_SpecIndicators(frameKind)
     end
     -- For non-healer specs the active bucket IS the All Non Healers/Aug
     -- group, so its rows honor the per-spec disable set too.
-    Append(inds, nil, (not tracked) and "nonhealer" or nil)
-    Append(ownInds, 1000000, nil)
-    Append(allInds, 2000000, "allspecs")
-    Append(roleInds, 3000000, roleKey)
+    Append(inds, nil, (not tracked) and "nonhealer" or nil, specKey)
+    Append(ownInds, 1000000, nil, specID and ("spec" .. specID))
+    Append(allInds, 2000000, "allspecs", "allspecs")
+    Append(roleInds, 3000000, roleKey, roleKey)
     return out, specKey, "custom"
 end
 

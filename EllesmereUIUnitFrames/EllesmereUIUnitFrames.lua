@@ -882,6 +882,22 @@ local defaults = {
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
+            -- Buffs and Debuffs on the pet frame (opt-in: the containers are only
+            -- built once one of the two is on).
+            showBuffs = false,
+            buffAnchor = "topleft",
+            buffGrowth = "auto",
+            maxBuffs = 4,
+            buffSize = 22,
+            buffOffsetX = 0,
+            buffOffsetY = 0,
+            debuffAnchor = "none",
+            debuffGrowth = "auto",
+            maxDebuffs = 10,
+            debuffSize = 22,
+            debuffOffsetX = 0,
+            debuffOffsetY = 0,
+            onlyPlayerDebuffs = false,
             -- WoW Forever pets have power (hunter pet focus, warlock pet mana), so
             -- the pet frame carries a power bar there (retail: none).
             powerPosition = (EllesmereUI.IS_FOREVER == true) and "below" or "none",

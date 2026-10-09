@@ -1377,8 +1377,8 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     local ppPosOrder = { "below", "above", "---", "detached_bottom", "detached_top", "---", "none" }
     local ppTextValues = { ["none"]="None", ["left"]="Left", ["right"]="Right", ["center"]="Center" }
     local ppTextOrder = { "none", "---", "left", "right", "center" }
-    local ppFmtValues = { ["none"]="None", ["smart"]="Smart Text", ["curpp"]="Power Value", ["perpp"]="Power %", ["both"]="Value | %" }
-    local ppFmtOrder = { "none", "smart", "curpp", "perpp", "both" }
+    local ppFmtValues = { ["none"]="None", ["smart"]="Smart Text", ["curpp"]="Power Value", ["curmaxpp"]="Power Value / Max", ["perpp"]="Power %", ["both"]="Value | %" }
+    local ppFmtOrder = { "none", "smart", "curpp", "curmaxpp", "perpp", "both" }
 
     -- Row 1: Bar Height + Bar Position
     local sharedPowerRow1
@@ -1518,7 +1518,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     if not EllesmereUI._prebuilding then
         local fmtRgn = sharedPowerRow2._leftRegion
         EllesmereUI.BuildInlineCog(fmtRgn, {
-            disabled = function() local fmt = SVal("powerTextFormat", "perpp"); return fmt == "none" or fmt == "curpp" end,
+            disabled = function() local fmt = SVal("powerTextFormat", "perpp"); return fmt == "none" or fmt == "curpp" or fmt == "curmaxpp" end,
             disabledTooltip = "This option is only available for formats that display a percentage.",
             title = "Power Text",
             rows = {

@@ -1539,6 +1539,12 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
+    local function RestorePartyCtx(saved, ok, ...)
+        optState._partyCtx = saved
+        if not ok then error((...), 0) end
+        return ...
+    end
+
     EllesmereUI:RegisterModule("EllesmereUIRaidFrames", {
         title       = "Raid Frames",
         description = "Configure raid frame appearance and behavior.",
@@ -1549,14 +1555,13 @@ initFrame:SetScript("OnEvent", function(self)
             -- The cleanup/preview logic below acts on live state (BM/CC roots, raid/party preview overlays over the player's real frames) keyed only on the pageName being built, not what the player is actually looking at. An off-screen search pre-build cycles pageName through every page in `pages`, so NONE of it may run here.
             -- PAGE_BUFFS / PAGE_CLICKCAST go further: their builders (BuildBuffManagerPage -> ns.BM_BuildPage, ns.CC_BuildPage) bypass `parent` and build directly onto the live shared EllesmereUI._scrollFrame, so building them here would inject visible UI over whatever is on screen. Skip them; they index normally on the player's first live visit.
             --
-            -- _partyCtx (read by SGet/SSet/SVal in the value closures) is left
-            -- untouched: this hidden pass's widgets and closures are discarded
-            -- with the wrapper and never invoked, so only the live path needs it.
+            -- The pre-build must not leave the live page's _partyCtx changed.
             if EllesmereUI._prebuilding then
-                if pageName == PAGE_MAIN then
-                    return ns.RFO_BuildMainPage(pageName, parent, yOffset)
-                elseif pageName == PAGE_PARTY then
-                    return ns.RFO_BuildPartyPage(pageName, parent, yOffset)
+                if pageName == PAGE_MAIN or pageName == PAGE_PARTY then
+                    local saved = optState._partyCtx
+                    optState._partyCtx = (pageName == PAGE_PARTY)
+                    local build = (pageName == PAGE_PARTY) and ns.RFO_BuildPartyPage or ns.RFO_BuildMainPage
+                    return RestorePartyCtx(saved, pcall(build, pageName, parent, yOffset))
                 end
                 return
             end

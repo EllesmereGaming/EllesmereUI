@@ -118,9 +118,14 @@ local function ResumeQTEvents()
         for i, f in ipairs(EQT._eventFrames) do
             local evts = EQT._eventRegistrations[i]
             if evts then
+                local refresh
                 for _, ev in ipairs(evts) do
                     f:RegisterEvent(ev)
+                    if ev == "PLAYER_ENTERING_WORLD" then refresh = true end
                 end
+                -- Catch up on what was missed while unregistered.
+                local onEvent = refresh and f:GetScript("OnEvent")
+                if onEvent then onEvent(f, "PLAYER_ENTERING_WORLD") end
             end
         end
     end
@@ -130,11 +135,6 @@ end
 -- suppression composes with the user's chosen visibility mode / options.
 function EQT.ApplySuppression(on)
     _eqtSuppressed = on and true or false
-    if _eqtSuppressed then
-        SuspendQTEvents()
-    else
-        ResumeQTEvents()
-    end
     if EQT.UpdateVisibility then EQT.UpdateVisibility() end
 end
 
@@ -183,6 +183,7 @@ end
 
 local function UpdateVisibility()
     InstallShowHook()
+    if _eqtSuppressed or ShouldAutoHide() then SuspendQTEvents() else ResumeQTEvents() end
     local otf = GetTracker()
     if not otf then return end
 
@@ -191,13 +192,11 @@ local function UpdateVisibility()
     -- Also suspend all QT event frames so quest events don't burn CPU
     -- processing skin/resize/classify work for a hidden tracker.
     if ShouldAutoHide() then
-        SuspendQTEvents()
         HardHide(otf)
         if _bgFrame then _bgFrame:Hide() end
         return
     end
 
-    ResumeQTEvents()
     if not otf:IsShown() then
         -- Show() is protected in combat like Hide() (see HardHide). Skip;
         -- the dispatcher's PLAYER_REGEN_ENABLED pass re-runs us and the

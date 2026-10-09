@@ -389,7 +389,7 @@ local function BuildNPStyle(kind, variant)
         blizzBorder = harmfulClassic,
         cooldownReverse = true,
         noDefaultFonts = true,
-        noTooltips = true,
+        noTooltips = PVal("showAuraTooltips") ~= true,
         applyExtra = ApplyNPText,
         durSize = dur.size,
         durColor = dur.color,
@@ -1679,7 +1679,8 @@ local function StyleFPFor(kind, idx)
         -- NOT `fn(kind) or true`: the getter legitimately returns false, and
         -- `false or true` would pin this fingerprint input to a constant so
         -- the toggle never restyles (the ternary-falsy trap).
-        (not ns.GetIconBorderEnabled) or ns.GetIconBorderEnabled(kind), cbFP)
+        (not ns.GetIconBorderEnabled) or ns.GetIconBorderEnabled(kind), cbFP,
+        PVal("showAuraTooltips") == true)
 end
 
 local function GeoFP()

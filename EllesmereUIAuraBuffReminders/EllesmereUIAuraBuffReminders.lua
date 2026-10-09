@@ -20,6 +20,7 @@ local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 -- nothing else changes there.
 EABR.FOREVER = EllesmereUI.IS_FOREVER == true
 EABR.CAMP_BENEFITS = 1229741
+EABR.WELL_FED = 19705
 
 local _B = {}  -- beacon state table, populated later
 local Known = function(id) return id and (IsPlayerSpell(id) or IsSpellKnown(id)) end
@@ -2306,6 +2307,7 @@ local defaults = {
 if EABR.FOREVER then
     defaults.profile.forever = {
         camp = false,       -- Camp Benefits reminder; opt-in, it shows whenever the buff is missing
+        wellFed = false,    -- Well Fed reminder; opt-in, matched by aura name (every food has its own spell ID)
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added
     }
@@ -4307,6 +4309,18 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
             e.texture = Tex(EABR.CAMP_BENEFITS)
             e.label = EllesmereUI.L("Camp")
             e.cat = "forever"; e.dismissKey = "forever:camp"
+            missing[#missing+1] = e
+        end
+    end
+    if fo.wellFed and not inPvP and not restricted then
+        local name = SpellName(EABR.WELL_FED) or "Well Fed"
+        local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
+        if ok and not isSecret(aura) and not aura then
+            local e = AcquireEntry()
+            e.mode = "texture"; e.spellID = EABR.WELL_FED
+            e.texture = Tex(EABR.WELL_FED)
+            e.label = name
+            e.cat = "forever"; e.dismissKey = "forever:wellfed"
             missing[#missing+1] = e
         end
     end

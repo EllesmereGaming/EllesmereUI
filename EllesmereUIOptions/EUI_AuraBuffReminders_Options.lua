@@ -1415,7 +1415,7 @@ initFrame:SetScript("OnEvent", function(self)
                 onChange = RefreshAll,
             });  y = y - h
 
-            -- Camp Benefits | Add Custom Spell
+            -- Camp Benefits | Well Fed
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Camp Benefits",
                   tooltip="Reminds you when the Camp Benefits campfire buff is missing.",
@@ -1424,6 +1424,17 @@ initFrame:SetScript("OnEvent", function(self)
                       local f = FDB(); if not f then return end; f.camp = v
                       RefreshAll()
                   end },
+                { type="toggle", text="Well Fed",
+                  tooltip="Reminds you when you have no Well Fed buff.",
+                  getValue=function() local f = FDB(); return f and f.wellFed == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.wellFed = v
+                      RefreshAll()
+                  end }
+            );  y = y - h
+
+            -- Add Custom Spell
+            _, h = W:DualRow(parent, y,
                 { type="input", text="Add Custom Spell", inputStyle="popup", placeholder="Spell ID", inputWidth=110,
                   tooltip="Type a spell ID and press Enter to be reminded whenever that buff is missing.\nUnknown IDs are ignored.",
                   getValue=function() return "" end,
@@ -1438,9 +1449,9 @@ initFrame:SetScript("OnEvent", function(self)
                       end
                       f.customIDs[#f.customIDs + 1] = id
                       RefreshAll()
-                      -- Rebuilds the page once the edit box has finished its commit.
                       C_Timer.After(0, function() EllesmereUI:RefreshPage(true) end)
-                  end }
+                  end },
+                EllesmereUI.BlankRowCfg()
             );  y = y - h
 
             y = BuildForeverCustomRows(parent, y)
