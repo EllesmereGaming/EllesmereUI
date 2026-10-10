@@ -311,7 +311,7 @@ local function BuildLivePreview(parent, yOff)
         local mcColor   = settings.macroFontColor or { r = 1, g = 1, b = 1 }
 
         -- Shape settings: derive from unified border system
-        local btnShape = settings.buttonShape or "none"
+        local btnShape = ns.MasqueOwnsBar(SelectedKey()) and "none" or settings.buttonShape or "none"
         local shapeBrdOn = resolvedBrdSize > 0
         local shapeBrdColor = settings.shapeBorderColor or settings.borderColor or { r = 0, g = 0, b = 0, a = 1 }
         local shapeBrdSize = resolvedBrdSize

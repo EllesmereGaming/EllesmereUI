@@ -12,6 +12,7 @@ if not ns then return end  -- module disabled: no options page
 
 local function BuildBarAppearance(parent, y, ctx)
     local env = ns._ABO_OptEnv
+    local MASQUE_BAR_ORDER, IsMasqueAvailable = env.MASQUE_BAR_ORDER, env.IsMasqueAvailable
     local EAB, GROUP_BAR_ORDER, InCombatLockdown, PP = env.EAB, env.GROUP_BAR_ORDER, env.InCombatLockdown, env.PP
     local SB, SECTION_ICON_APPEARANCE, SECTION_TEXT, SelectedKey = env.SB, env.SECTION_ICON_APPEARANCE, env.SECTION_TEXT, env.SelectedKey
     local SHORT_LABELS, ShownBorderDefaults, TEXT_ANCHOR_DROPDOWN_ORDER, TEXT_ANCHOR_LABELS = env.SHORT_LABELS, env.ShownBorderDefaults, env.TEXT_ANCHOR_DROPDOWN_ORDER, env.TEXT_ANCHOR_LABELS
@@ -554,6 +555,13 @@ local function BuildBarAppearance(parent, y, ctx)
     iconsSectionHeader, h = W:SectionHeader(parent, SECTION_ICON_APPEARANCE, y);  y = y - h
     y = EllesmereUI.BlizzStyle.Note(parent, y, "actionbars")
 
+    local function MasqueEnabledValue()
+        for _, key in ipairs(MASQUE_BAR_ORDER) do
+            if EAB.db.profile.bars[key].masqueEnabled ~= true then return false end
+        end
+        return true
+    end
+
     -- Stock mode (Blizzard Style or Classic WoW UI): the shared gate.
     local function BlizzStyleOn()
         return EllesmereUI.BlizzStyle.Get("actionbars")
@@ -1072,7 +1080,12 @@ local function BuildBarAppearance(parent, y, ctx)
     local classColorBorderRow
     classColorBorderRow, h = W:DualRow(parent, y,
         EllesmereUI.BlizzStyle.Gate("actionbars", { type="dropdown", text="Custom Button Shape",
-          disabled=BlizzStyleOn, disabledTooltip=EllesmereUI.BlizzStyle.Label("actionbars"), requireState="disabled",
+          disabled=function() return BlizzStyleOn() or ns.MasqueOwnsBar(SelectedKey()) end,
+          disabledTooltip=function()
+              if ns.MasqueOwnsBar(SelectedKey()) then return "Masque" end
+              return "Blizzard Style Action Bars"
+          end,
+          requireState="disabled",
           values=SHAPE_VALUES, order=SHAPE_ORDER,
           itemDisabled=function(val)
               if val ~= "none" and val ~= "cropped" and (SGet("borderTexture") or "solid") ~= "solid" then return true end
@@ -1402,6 +1415,35 @@ local function BuildBarAppearance(parent, y, ctx)
             sbgUpdateSwatch()
         end)
     end
+    _, h = W:DualRow(parent, y,
+        { type="toggle", text="Enable Masque Support",
+          tooltip="Allows Masque to skin the buttons on Action Bars 1-10. Requires a UI reload to apply.",
+          disabled=function() return not IsMasqueAvailable() end,
+          disabledTooltip=function()
+              if not IsMasqueAvailable() then return "Masque is not installed or enabled." end
+              return "Masque is available for Action Bars 1-10."
+          end,
+          requireState="disabled",
+          getValue=MasqueEnabledValue,
+          setValue=function(v)
+              EllesmereUI:ShowConfirmPopup({
+                  title       = "Reload Required",
+                  message     = "Changing Masque for Action Bars 1-10 requires a UI reload.",
+                  confirmText = "Reload Now",
+                  cancelText  = "Cancel",
+                  reload      = true,
+                  onConfirm   = function()
+                      for _, key in ipairs(MASQUE_BAR_ORDER) do
+                          EAB.db.profile.bars[key].masqueEnabled = v and true or false
+                      end
+                  end,
+                  onCancel    = function()
+                      EllesmereUI:RefreshPage()
+                  end,
+              })
+          end },
+        { type="label", text="" });  y = y - h
+
     -------------------------------------------------------------------
     --  ICON EFFECTS
     -------------------------------------------------------------------

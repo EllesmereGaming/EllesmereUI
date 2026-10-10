@@ -17,6 +17,15 @@ local TEXT_ANCHOR_LABELS = {
 local TEXT_ANCHOR_DROPDOWN_ORDER = { "default" }
 for i, a in ipairs(EAB and EAB.TEXT_ANCHOR_ORDER or {}) do TEXT_ANCHOR_DROPDOWN_ORDER[i + 1] = a end
 
+-- Fall back to LibStub if Action Bars hasn't added the helper yet.
+-- Masque can be available even before we've created a group.
+local function IsMasqueAvailable()
+    if ns.IsMasqueAvailable then
+        return ns.IsMasqueAvailable()
+    end
+    return LibStub and LibStub("Masque", true) ~= nil
+end
+
 
 -- The registry offsets/shifts a border renders with when the user has set none
 -- (the Border Options cog's shown Shift defaults; the Width/Height Offset row
@@ -67,9 +76,14 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Filtered bar list for multi-edit: action bars only (no MicroBar/BagBar)
     local GROUP_BAR_ORDER = {}
+    local MASQUE_BAR_ORDER = {}
     for _, key in ipairs(BAR_DROPDOWN_ORDER) do
         if not VISIBILITY_ONLY[key] then
             GROUP_BAR_ORDER[#GROUP_BAR_ORDER + 1] = key
+            local info = BAR_LOOKUP[key]
+            if info and not info.isStance and not info.isPetBar then
+                MASQUE_BAR_ORDER[#MASQUE_BAR_ORDER + 1] = key
+            end
         end
     end
 
@@ -316,6 +330,8 @@ initFrame:SetScript("OnEvent", function(self)
         Bar6     = "Bar 6",
         Bar7     = "Bar 7",
         Bar8     = "Bar 8",
+        Bar9     = "Bar 9",
+        Bar10    = "Bar 10",
         StanceBar = "Stance",
         PetBar   = "Pet",
         MicroBar = "Micro",
@@ -852,6 +868,7 @@ initFrame:SetScript("OnEvent", function(self)
         CopyVisibilitySettings = CopyVisibilitySettings, EAB = EAB, EndCapsCtl = EndCapsCtl,
         FirstBarButton = FirstBarButton, floor = floor, GetVisibilityKey = GetVisibilityKey,
         GROUP_BAR_ORDER = GROUP_BAR_ORDER, InCombatLockdown = InCombatLockdown,
+        MASQUE_BAR_ORDER = MASQUE_BAR_ORDER, IsMasqueAvailable = IsMasqueAvailable,
         IsDataBar = IsDataBar, optState = optState, pcall = pcall, PP = PP,
         RANGE_INDICATOR = RANGE_INDICATOR, SB = SB,
         SECTION_ICON_APPEARANCE = SECTION_ICON_APPEARANCE, SECTION_LAYOUT = SECTION_LAYOUT,
@@ -932,6 +949,16 @@ initFrame:SetScript("OnEvent", function(self)
             -- No reload here: the footer Reset popup (reload = true) reloads after this returns.
         end,
     })
+
+    -- Search skips Bar Display because building it opens the bar edit overlay.
+    -- Add Masque here so search can find it before the page has been opened.
+    if EllesmereUI._RegisterSearchEntry then
+        EllesmereUI._RegisterSearchEntry(
+            "Enable Masque Support", nil,
+            "Allows Masque to skin the buttons on Action Bars 1-10. Requires a UI reload to apply.",
+            "EllesmereUIActionBars", PAGE_DISPLAY, SECTION_ICON_APPEARANCE,
+            EllesmereUI._setActionBarKey, "MainBar")
+    end
 end)
 -- LoadOnDemand: this addon loads after PLAYER_LOGIN, so the event above will never fire; run the init now.
 if IsLoggedIn() then initFrame:GetScript("OnEvent")(initFrame) end

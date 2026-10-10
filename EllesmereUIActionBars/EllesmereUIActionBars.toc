@@ -6,6 +6,7 @@
 ## Author: Ellesmere
 ## Version: 9.4
 ## Dependencies: EllesmereUI
+## OptionalDeps: Masque
 ## SavedVariables: EllesmereUIActionBarsDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 

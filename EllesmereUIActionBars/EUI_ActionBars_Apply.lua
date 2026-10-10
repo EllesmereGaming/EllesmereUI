@@ -66,11 +66,25 @@ function EAB:ApplyBordersForBar(barKey)
     local above = s.borderAboveEffects
     local buttons = barButtons[barKey]
     if not buttons then return end
+    local masqueOwns = ns.MasqueOwnsBar(barKey)
     for i = 1, #buttons do
         local btn = buttons[i]
         if btn then
             EFD(btn).barKey = barKey
-            ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, texShiftX, texShiftY, "actionbars", thicknessKey, behind, px, above)
+            if masqueOwns then
+                local fd = EFD(btn)
+                EllesmereUI.HideBorderStyle(btn)
+                if EllesmereUI._bdBorderData then
+                    local bdFrame = EllesmereUI._bdBorderData[btn]
+                    if bdFrame then bdFrame:Hide() end
+                end
+                if fd.shapeBorder then
+                    fd.shapeBorder:Hide()
+                    EFD(fd.shapeBorder).wantsShow = false
+                end
+            else
+                ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, texShiftX, texShiftY, "actionbars", thicknessKey, behind, px, above)
+            end
         end
     end
     -- Match Bar Border copies follow the bar border (one boolean read while off).
@@ -103,10 +117,22 @@ function EAB:ApplyShapesForBar(barKey)
     end
     local buttons = barButtons[barKey]
     if not buttons then return end
+    local masqueOwns = ns.MasqueOwnsBar(barKey)
     for i = 1, #buttons do
         local btn = buttons[i]
         if btn then
-            ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brdSz, zoom)
+            if masqueOwns then
+                btn:SetHitRectInsets(0, 0, 0, 0)
+                local fd = EFD(btn)
+                if fd.shapeApplied or fd.cropped then
+                    ApplyShapeToButton(btn, "none", false, brdR, brdG, brdB, brdA, brdSz, zoom)
+                elseif fd.shapeBorder then
+                    fd.shapeBorder:Hide()
+                    EFD(fd.shapeBorder).wantsShow = false
+                end
+            else
+                ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brdSz, zoom)
+            end
         end
     end
     LayoutBar(barKey)
@@ -1094,4 +1120,3 @@ function EAB_VTABLE.MainBarPageSync.InstallButton(btn)
 
     btn:SetAttributeNoHandler("_eabPageSyncInstalled", true)
 end
-

@@ -13,6 +13,27 @@ EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns
 local EAB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.EAB = EAB
 
+function ns.IsMasqueAvailable()
+    return LibStub and LibStub("Masque", true) ~= nil
+end
+
+function ns.InitializeMasque()
+    if ns.MasqueGroup then return true end
+    local masque = LibStub and LibStub("Masque", true)
+    if not masque then return false end
+    ns.MasqueGroup = masque:Group(ADDON_NAME, "Action Bars")
+    return ns.MasqueGroup ~= nil
+end
+
+-- Released core versions may predate the CVar tracking helper.
+-- Prefer tracking when available; otherwise use Blizzard's setter.
+local function SetActionBarCVar(name, value, owner)
+    if EllesmereUI.SetCVar then
+        return EllesmereUI.SetCVar(name, value, owner)
+    end
+    return C_CVar.SetCVar(name, value)
+end
+
 local PP = EllesmereUI.PP
 
 -- CPU-attribution shell pool: the engine bills a handler's whole call tree to the addon
@@ -230,7 +251,8 @@ end
 -- buttons take neither the shape expansion nor the Cropped squash, whatever
 -- the EllesmereUI-style setting holds. Icon Size itself applies in every
 -- style (stock buttons scale their native art to it).
-function ns.AB_LayoutShape(s)
+function ns.AB_LayoutShape(s, barKey)
+    if barKey and ns.MasqueOwnsBar(barKey) then return "none" end
     if ns.AB_Style() ~= "eui" then return "none" end
     return (s and s.buttonShape) or "none"
 end
@@ -297,6 +319,28 @@ for _, info in ipairs(EXTRA_BARS) do ALL_BARS[#ALL_BARS + 1] = info end
 local BAR_LOOKUP = {}
 for _, info in ipairs(BAR_CONFIG) do BAR_LOOKUP[info.key] = info end
 for _, info in ipairs(EXTRA_BARS) do BAR_LOOKUP[info.key] = info end
+
+local function LatchMasqueBarOwnership()
+    local latched = {}
+    local bars = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars
+    if bars then
+        for _, info in ipairs(BAR_CONFIG) do
+            if not info.isStance and not info.isPetBar then
+                local settings = bars[info.key]
+                latched[info.key] = settings and settings.masqueEnabled == true or false
+            end
+        end
+    end
+    ns._masqueBarsLatched = latched
+end
+
+function ns.MasqueOwnsBar(key)
+    local info = BAR_LOOKUP[key]
+    if not (ns.MasqueGroup and info) then return false end
+    if info.isStance or info.isPetBar then return false end
+    local latched = ns._masqueBarsLatched
+    return latched and latched[key] == true or false
+end
 
 -- Expose AB bar keys immediately so unlock mode's ApplyAnchorPosition can gate
 -- edge logic to CDM/AB without waiting for deferred RegisterWithUnlockMode.
@@ -610,6 +654,7 @@ for _, info in ipairs(BAR_CONFIG) do
         bgExpandDirectionY = "up",
         outOfRangeColoring = false,
         outOfRangeColor = { r = 0.8, g = 0.1, b = 0.1 },
+        masqueEnabled = false,
         buttonShape = "none",
         shapeBorderEnabled = true,
         shapeBorderColor = { r = 0, g = 0, b = 0, a = 1 },
@@ -1957,10 +2002,10 @@ local function HideBlizzardBars()
     -- owned by Blizzard's ValidateActionBarTransition(). No RegisterAttributeDriver on
     -- Blizzard-owned frames -- risks tainting protected state OverrideActionBar buttons
     -- inherit. Force all Blizzard action bars "enabled" via CVars so buttons work.
-    EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_1", "1", "EllesmereUIActionBars")
-    EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_2", "1", "EllesmereUIActionBars")
-    EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_3", "1", "EllesmereUIActionBars")
-    EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_4", "1", "EllesmereUIActionBars")
+    SetActionBarCVar("SHOW_MULTI_ACTIONBAR_1", "1", "EllesmereUIActionBars")
+    SetActionBarCVar("SHOW_MULTI_ACTIONBAR_2", "1", "EllesmereUIActionBars")
+    SetActionBarCVar("SHOW_MULTI_ACTIONBAR_3", "1", "EllesmereUIActionBars")
+    SetActionBarCVar("SHOW_MULTI_ACTIONBAR_4", "1", "EllesmereUIActionBars")
 
 end
 
@@ -2291,6 +2336,15 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
         end
     end
 
+    if ns.MasqueOwnsBar(info.key) then
+        -- Masque buttons skip MakeButtonSquare(), so mark them separately to keep the yellow proc glow working.
+        EFD(btn).masqueOwned = true
+        EAB_VTABLE.SetupCastAnimSuppression(btn)
+        EAB_VTABLE.SetupAssistRotationSuppression(btn)
+        if EAB_VTABLE.HookCooldownVisualsForButton then
+            EAB_VTABLE.HookCooldownVisualsForButton(btn)
+        end
+    end
     RegisterButtonWithController(btn)
     allButtons[slot] = btn
     return btn
@@ -3208,13 +3262,15 @@ ns.BuildBarButtons = function(info, frame, skipProtected)
     local buttons = {}
     -- The layout shape: stock styles draw no custom shape, so their hit rects stay full.
     local buttonShape = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars[key]
-        and ns.AB_LayoutShape(EAB.db.profile.bars[key]) or "none"
+        and ns.AB_LayoutShape(EAB.db.profile.bars[key], key) or "none"
 
     if info.isStance then
         -- Stance bar: reuse StanceButton1-N
         for i = 1, info.count do
             local btn = _G["StanceButton" .. i]
             if btn then
+                -- Stance buttons skip GetOrCreateButton, so set the Masque flag here.
+                EFD(btn).masqueOwned = ns.MasqueOwnsBar(key) or nil
                 if not skipProtected then
                     ApplyShapeHitRects(btn, buttonShape)
                     btn:SetAttributeNoHandler("statehidden", nil)
@@ -3229,6 +3285,8 @@ ns.BuildBarButtons = function(info, frame, skipProtected)
         for i = 1, info.count do
             local btn = _G["PetActionButton" .. i]
             if btn then
+                -- Pet buttons skip GetOrCreateButton, so set the Masque flag before laying them out and styling them.
+                EFD(btn).masqueOwned = ns.MasqueOwnsBar(key) or nil
                 if not skipProtected then
                     ApplyShapeHitRects(btn, buttonShape)
                     btn:SetAttributeNoHandler("statehidden", nil)
@@ -3734,7 +3792,7 @@ local function ComputeBarLayout(key)
     local padding = s.buttonPadding or 2
     local isVertical = (s.orientation == "vertical")
     local growDir = EAB:ResolveGrowDirectionForLayout(key, s)
-    local shape = ns.AB_LayoutShape(s)
+    local shape = ns.AB_LayoutShape(s, key)
 
     local base = barBaseSize[key]
     local baseW = base and base.w or 45
@@ -3892,6 +3950,8 @@ local function LayoutBar(key)
     if not frame or not buttons then return end
 
     local s = EAB.db.profile.bars[key]
+    local masqueOwnsBar = ns.MasqueOwnsBar(key)
+    local masqueNeedsReskin = false
     -- LAYOUT STAMP: skips a re-layout whose inputs are unchanged (the combat-exit
     -- ApplyAll re-ran this full layout for nothing). EVERY input the body reads
     -- folds into one string: raw settings, profile flags, barPositions, base sizes,
@@ -3984,7 +4044,7 @@ local function LayoutBar(key)
     local padding = s.buttonPadding or 2
     local isVertical = (s.orientation == "vertical")
     local growDir = EAB:ResolveGrowDirectionForLayout(key, s)
-    local shape = ns.AB_LayoutShape(s)
+    local shape = ns.AB_LayoutShape(s, key)
 
     local base = barBaseSize[key]
     local baseW = base and base.w or 45
@@ -4052,6 +4112,11 @@ local function LayoutBar(key)
             if demote and btn:IsShown() then lfd.parkA0 = 1 end
 
             local col, row
+            local preSizeW, preSizeH, preScale
+            if masqueOwnsBar and not masqueNeedsReskin then
+                preSizeW, preSizeH = btn:GetSize()
+                preScale = btn:GetScale() or 1
+            end
             if isVertical then
                 if cornerFill then
                     -- Corner modes fill across columns first, then wrap down a
@@ -4118,6 +4183,15 @@ local function LayoutBar(key)
                 btn:SetPoint(anchor, frame, anchor, xOff, yOff)
                 btn:SetSize(thisBtnW, thisBtnH)
             end
+            if masqueOwnsBar and not masqueNeedsReskin then
+                local postSizeW, postSizeH = btn:GetSize()
+                local postScale = btn:GetScale() or 1
+                if abs((postSizeW or 0) - (preSizeW or 0)) > 0.01
+                   or abs((postSizeH or 0) - (preSizeH or 0)) > 0.01
+                   or abs(postScale - preScale) > 0.001 then
+                    masqueNeedsReskin = true
+                end
+            end
             HideSlotArt(btn)
 
             -- Stock styles: counter-scale SpellActivationAlert so the native
@@ -4132,7 +4206,7 @@ local function LayoutBar(key)
             end
 
             -- Resize the autocast overlay to match the button size
-            if btn.AutoCastOverlay then
+            if btn.AutoCastOverlay and not ns.MasqueOwnsBar(key) then
                 btn.AutoCastOverlay:SetAllPoints(btn)
             end
 
@@ -4460,6 +4534,9 @@ local function LayoutBar(key)
     -- links, profile swaps, ...), because hooking one leaves the rest applying a stale
     -- size. Cheap when nothing changed: the per-frame stamp no-ops unless size differs.
     EAB:ApplyCooldownFontsForBar(key)
+    if masqueNeedsReskin and ns.MasqueGroup and ns.MasqueGroup.ReSkin then
+        ns.MasqueGroup:ReSkin()
+    end
     -- A shown fitted-or-fittable assist ring on this bar: refit or restore it
     -- on the next assist pass (coalesced; never queued with the option off).
     if assistRefit then ns.QueueAssistRescan() end
@@ -6151,6 +6228,13 @@ local function ApplyAll()
     -- the engine's SetPoint hook.
     ns.PartySpin_Refresh()
 
+    -- Register with Masque after sizing and layout, since AddButton skins immediately.
+    EAB_VTABLE.RegisterMasqueButtons()
+    if ns.MasqueGroup then
+        EAB:ApplyPushedTextures()
+        EAB:ApplyHighlightTextures()
+    end
+
     if not inCombat then ns.RefreshPagingCycleMacros() end
     _isApplyingAll = false
 end
@@ -6324,6 +6408,7 @@ local function RegisterWithUnlockMode()
             -- paints with; nil for custom shapes (their ring sits inside the
             -- button), stock looks and non-square icons.
             getMatchPad = function()
+                if ns.MasqueOwnsBar(info.key) then return nil end
                 local p = EAB.db and EAB.db.profile
                 if not (p and p.squareIcons) or ns.AB_Style() ~= "eui" then return nil end
                 local s = p.bars[info.key]
@@ -6348,7 +6433,7 @@ local function RegisterWithUnlockMode()
                 if stride < 1 then stride = 1 end
                 local isVert   = (s.orientation == "vertical")
                 local pad      = s.buttonPadding or 2
-                local shape    = ns.AB_LayoutShape(s)
+                local shape    = ns.AB_LayoutShape(s, info.key)
                 local cols     = isVert and numRows or stride
                 local PP = EllesmereUI and EllesmereUI.PP
                 local onePx = PP and PP.mult or 1
@@ -6388,7 +6473,7 @@ local function RegisterWithUnlockMode()
                 if stride < 1 then stride = 1 end
                 local isVert   = (s.orientation == "vertical")
                 local pad      = s.buttonPadding or 2
-                local shape    = ns.AB_LayoutShape(s)
+                local shape    = ns.AB_LayoutShape(s, info.key)
                 local rows     = isVert and stride or numRows
                 local PP = EllesmereUI and EllesmereUI.PP
                 local onePx = PP and PP.mult or 1
@@ -6626,6 +6711,10 @@ function EAB:OnInitialize()
         or (rawDB.profiles and not next(rawDB.profiles))
 
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIActionBarsDB", defaults, true)
+
+    -- Copy the main bar's Masque setting to the stance bar for older profiles.
+    self.db.profile.bars.StanceBar.masqueEnabled = self.db.profile.bars.MainBar.masqueEnabled == true
+
     -- Expose for ApplyAnchorPosition's growth-direction edge read.
     EllesmereUI._abBarPositions = self.db.profile.barPositions
 
@@ -7044,6 +7133,12 @@ end
 local function SyncEditModeIconCounts()
     if InCombatLockdown() then return end
     if not C_EditMode or not C_EditMode.GetLayouts or not C_EditMode.SaveLayouts then return end
+    -- A missing shared helper must not abort visual setup before proc-glow
+    -- events are registered. Skip the sync rather than save layouts without
+    -- the shared preset merge and restore tracking.
+    if type(EllesmereUI.EditModeOpen) ~= "function"
+       or type(EllesmereUI.EditModeLayoutsForSave) ~= "function"
+       or type(EllesmereUI.NoteEditModeSetting) ~= "function" then return end
 
     -- Never write while Blizzard's Edit Mode is open. The manager keeps its OWN copy of
     -- layoutInfo for the whole session and pushes that copy whole on Save, so a write from here
@@ -7140,6 +7235,18 @@ function EAB:FinishSetup()
     -- can't be unhooked -- and the pet/stance event frames would duplicate.
     if ns._eabFinishSetupDone then return end
     ns._eabFinishSetupDone = true
+
+    -- Masque group and AddButton registration are one-time for the session, so
+    -- lock ownership to the current profile snapshot before any layout or style
+    -- path asks ns.MasqueOwnsBar().
+    LatchMasqueBarOwnership()
+    for _, info in ipairs(BAR_CONFIG) do
+        if ns._masqueBarsLatched[info.key] == true then
+            ns.InitializeMasque()
+            break
+        end
+    end
+
     local function DoSetupSecure()
         -- Non-protected setup: create bar frames, compute layout, register events.
         -- Protected operations (SetParent, SetPoint on Blizzard buttons) are
@@ -7175,10 +7282,10 @@ function EAB:FinishSetup()
             -- Combat reload: non-protected setup only; secure handler does the rest.
             -- Stock bar disposal (including ActionBarParent) already happened at
             -- file load time. OverrideActionBar is fully Blizzard-owned.
-            EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_1", "1", "EllesmereUIActionBars")
-            EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_2", "1", "EllesmereUIActionBars")
-            EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_3", "1", "EllesmereUIActionBars")
-            EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_4", "1", "EllesmereUIActionBars")
+            SetActionBarCVar("SHOW_MULTI_ACTIONBAR_1", "1", "EllesmereUIActionBars")
+            SetActionBarCVar("SHOW_MULTI_ACTIONBAR_2", "1", "EllesmereUIActionBars")
+            SetActionBarCVar("SHOW_MULTI_ACTIONBAR_3", "1", "EllesmereUIActionBars")
+            SetActionBarCVar("SHOW_MULTI_ACTIONBAR_4", "1", "EllesmereUIActionBars")
 
             -- Create bar frames and buttons (no protected ops)
             for _, info in ipairs(BAR_CONFIG) do
