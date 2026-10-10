@@ -136,10 +136,44 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
               setValue=function(v) SSet("missingBuffsSize", v) end });  y = y - h
         do
             local rgn = mbRow._leftRegion
+            -- The role blessings, None first: the client's own spell names minus
+            -- the words every blessing starts with ("Blessing of ", in any
+            -- language; names sharing no leading word stay whole), English
+            -- if the names are not loaded. Reads go through the runtime's
+            -- resolver over the page's raw, party-aware reads, so an unset
+            -- role shows what it does.
+            local blessOrder = { "none", "might", "wisdom", "kings", "salvation", "light" }
+            local BLESS_ID = { might = 19740, wisdom = 19742, kings = 20217, salvation = 1038, light = 19977 }
+            local BLESS_EN = { might = "Might", wisdom = "Wisdom", kings = "Kings", salvation = "Salvation", light = "Light" }
+            local blessValues = { none = "None" }
+            local full, common = {}, nil
+            for i = 2, #blessOrder do
+                local n = C_Spell.GetSpellName(BLESS_ID[blessOrder[i]])
+                if not n then full = nil; break end
+                full[blessOrder[i]] = n
+                local j = 0
+                if common then
+                    while j < #common and j < #n and common:byte(j + 1) == n:byte(j + 1) do j = j + 1 end
+                end
+                common = common and common:sub(1, j) or n
+            end
+            local cut = full and common and common:match("^(.*%s)")
+            for i = 2, #blessOrder do
+                local k = blessOrder[i]
+                local n = full and full[k]
+                blessValues[k] = (n and cut) and n:sub(#cut + 1) or n or BLESS_EN[k]
+            end
+            local view = setmetatable({}, { __index = function(_, k) return SGet(k) end })
+            local function BlessRow(label, tip, role)
+                return { type="dropdown", label=label, tooltip=tip, values=blessValues, order=blessOrder,
+                  get=function() return ns.RF_FvBlessingChoice(view, role) end,
+                  set=function(v) SSet(ns.RF_FvBlessingKey[role], v) end }
+            end
             local rows = {
                 -- One switch per buff (all on by default). The list is the
                 -- profile's, shared across classes, so every buff is listed;
-                -- only the ones this character can cast ever show.
+                -- only the ones this character can cast ever show. The
+                -- paladin blessings follow the role rows below instead.
                 { type="reordercheck", label="Buffs", ddWidth=170,  -- the Glow dropdown's width
                   hint="Only buffs you can cast show",
                   items={
@@ -147,10 +181,20 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                       { key="missingBuffsMark",   label="Mark of the Wild", fixed=true },
                       { key="missingBuffsSpirit", label="Spirit",           fixed=true },
                       { key="missingBuffsThorns", label="Thorns",           fixed=true },
-                      { key="missingBuffsBlessing", label="Paladin Blessings", fixed=true },
                   },
                   get=function(key) return SVal(key, true) end,
                   set=function(key, on) SSet(key, on) end },
+                -- Stored false, not nil, so a party tab with its own settings
+                -- can turn it off over a raid value that is on.
+                { type="toggle", label="Thorns Only on Tank",
+                  tooltip="Thorns shows on tanks only while the group has one, and on you while solo or without a tank.",
+                  disabled=function() return not SVal("missingBuffsThorns", true) end,
+                  disabledTooltip="Thorns",
+                  get=function() return SVal("missingBuffsThornsTank", false) end,
+                  set=function(v) SSet("missingBuffsThornsTank", v and true or false) end },
+                BlessRow("Tank Blessing", "Reminds you while a tank lacks this blessing. Members with no assigned role count any blessing.", "TANK"),
+                BlessRow("Healer Blessing", "Reminds you while a healer lacks this blessing.", "HEALER"),
+                BlessRow("DPS Blessing", "Reminds you while a damage dealer lacks this blessing.", "DAMAGER"),
                 { type="slider", label="Offset X", min=-50, max=50, step=1,
                   get=function() return SVal("missingBuffsOffsetX", 0) end,
                   set=function(v) SSet("missingBuffsOffsetX", v) end },
@@ -342,7 +386,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         })
     end
 
-    -- Rows below Marker Position are the less-common indicators. The RAID tab collapses them behind the shared session expander (BuildLessCommonExpander in EllesmereUI_Widgets.lua, honors the global Auto Expand Less Common Settings toggle); the party tab always shows them.
+    -- Rows below Marker Position are the less-common indicators. The RAID tab collapses them behind the shared session expander (BuildLessCommonExpander in EllesmereUI_Widgets_RowAddons.lua); the party tab always shows them.
     local lessCommonOpen = true
     if not optState._partyCtx then
         lessCommonOpen, y = EllesmereUI.BuildLessCommonExpander(parent, y,
@@ -919,6 +963,31 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         { type="slider", text="Height", min=8, max=40, step=1,
           getValue=function() return SVal("topNameBarHeight", 20) end,
           setValue=function(v) SSet("topNameBarHeight", v) end });  y = y - h
+
+    if not TNBOff() and not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(row._rightRegion, {
+            disabled=function()
+                local key = SGet("borderTexture")
+                return TNBOff() or EllesmereUI.BlizzStyle.Get("raidframes")
+                    or (key ~= "pixels" and key ~= "pixels-textured")
+            end,
+            disabledTooltip=function() return TNBOff() and "Enable Top Name Bar" or "Pixels or Pixels Textured Border Style" end,
+            title="Top Name Bar Options",
+            rows={
+                { type="toggle", label="Divider",
+                  tooltip="Draw a separator matching the frame's Pixels style, size, color and transparency. Hidden below Height 4.",
+                  get=function() return SVal("topNameBarDivider", false) end,
+                  set=function(v) SSet("topNameBarDivider", v) end },
+                { type="toggle", label="Match Highlight Colors",
+                  tooltip="Divider follows the frame border's highlight colors and transparency, including hover and target. When off, it keeps the normal frame border color.",
+                  disabled=function() return not SVal("topNameBarDivider", false) end,
+                  disabledTooltip="Requires Divider.",
+                  rawTooltip=true,
+                  get=function() return SVal("topNameBarDividerMatchColor", false) end,
+                  set=function(v) SSet("topNameBarDividerMatchColor", v) end },
+            },
+        })
+    end
 
     if not TNBOff() then
     local tnbRow2

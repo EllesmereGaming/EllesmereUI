@@ -172,11 +172,13 @@ do
                 { key = "unitFrames", label = "Unit Frames" },
                 { key = "resource",   label = "Resource Bars" },
                 { key = "power",      label = "Power Bars" },
+                { key = "partyFrames", label = "Party Frames" },
+                { key = "raidFrames",  label = "Raid Frames" },
             }
             local spinRow
             spinRow, h = W:DualRow(parent, y,
                 { type="dropdown", text="Spinning",
-                  tooltip="Slowly orbits the checked elements while Party Mode is active; they stay upright and pause in combat.",
+                  tooltip="Orbits the checked elements while Party Mode is active.",
                   values={ ["_placeholder"]="..." }, order={ "_placeholder" },
                   getValue=function() return "_placeholder" end,
                   setValue=function() end },

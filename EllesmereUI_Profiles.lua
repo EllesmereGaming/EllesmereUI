@@ -899,14 +899,14 @@ local function RepointAllDBs(profileName)
         -- The fonts DB was just rewritten in place; drop the resolution cache.
         EllesmereUI.InvalidateFontCache()
     end
-    -- Custom colors: with "Apply to All Profiles" ON (default) the shared palette
-    -- doesn't change with the active profile, so nothing to re-apply on switch.
-    -- In per-profile mode (toggle OFF) the colours DO change with the active
-    -- profile, so re-apply them. GetCustomColorsDB() resolves the right table
-    -- LIVE (edits write straight to the profile's own customColors -- never a
-    -- wipe/restore, which is what once let a combat-end spec switch reset colours).
-    -- ApplyColorsToOUF self-guards combat on its action-bar branch.
-    if EllesmereUIDB and EllesmereUIDB.colorsApplyToAllProfiles == false and EllesmereUI.ApplyColorsToOUF then
+    -- Custom colors: a section with "Apply to All Profiles" ON (default) keeps its
+    -- shared palette whatever the active profile, so nothing to re-apply on switch.
+    -- A per-profile section (toggle OFF) DOES change with the active profile, so
+    -- re-apply when any section is per-profile. GetCustomColorsDB() resolves the
+    -- right tables LIVE (edits write straight to the profiles' own customColors --
+    -- never a wipe/restore, which is what once let a combat-end spec switch reset
+    -- colours). ApplyColorsToOUF self-guards combat on its action-bar branch.
+    if EllesmereUIDB and EllesmereUI.AnyColorSectionPerProfile() and EllesmereUI.ApplyColorsToOUF then
         EllesmereUI.ApplyColorsToOUF()
     end
     -- Dark Mode settings are ALWAYS per-profile, so the active profile's dark
@@ -1405,11 +1405,15 @@ local REFRESH_ADDON_STEPS = {
     function() if _G._EQT_RefreshAll then _G._EQT_RefreshAll() end end,
     -- Chat (sidebar icons, borders, fonts, visibility)
     function() if _G._ECHAT_RefreshAll then _G._ECHAT_RefreshAll() end end,
-    -- Bags (window order follows the selected profile immediately)
+    -- Chat Bubbles (Blizz UI Enhanced; settings on the profile root)
+    function() if _G._EBS_RefreshChatBubbles then _G._EBS_RefreshChatBubbles() end end,
+    -- Bags (window order, categories and the Junk Marker follow the selected
+    -- profile immediately)
     function()
         if _G.EUI_Bags and _G.EUI_Bags.ApplyWindowLayering then
             _G.EUI_Bags:ApplyWindowLayering()
         end
+        if _G.EUI_Bags and _G.EUI_Bags.OnProfileApplied then _G.EUI_Bags:OnProfileApplied() end
     end,
     -- Friends List + Mythic Timer
     function()
@@ -2045,6 +2049,8 @@ do
         "tooltipHealthStripTexture", "tooltipHealthStripHeight",
         "tooltipAnchorCursor", "tooltipCursorPosition",
         "tooltipCursorOffsetX", "tooltipCursorOffsetY",
+        "tooltipShowBuffs", "tooltipBuffPosition", "tooltipBuffSize",
+        "tooltipBuffsPerRow", "tooltipBuffOffsetX", "tooltipBuffOffsetY",
         "tooltipBgColor", "tooltipBgOpacity", "tooltipBorderSize",
         "showSpellID", "spellIDModifier", "showIconID", "showItemID",
         "showItemMaxStacks", "itemStackModifier",
@@ -2103,15 +2109,18 @@ do
         "flyoutItemLevels", "showCharSheetDurability", "charSheetDurabilityLocation",
         "charSheetDurabilityShowLabel", "showSecondaryRaw", "showSecondaryBoth",
         "showTertiaryRaw", "showTertiaryBoth", "showAdjustedStats",
-        "showManaStat",
+        "showManaStat", "highlightSecondaryItems", "highlightTertiaryItems",
         -- Character Sheet stock styles' "Blizzard UI Color" (the style itself
         -- is per profile, on the profile root, and rides the profile)
         "charSheetBlizzColors",
         -- Inspect card
-        "inspectShowEnchants", "inspectShowItemLevel", "inspectShowUpgradeTrack",
+        "inspectShowEnchants", "inspectEnchantNames", "inspectEnchantSize",
+        "inspectShowItemLevel", "inspectShowUpgradeTrack",
         -- LFG / Merchant cards
         "lfgRememberRoles",
         "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel",
+        -- Friends List card (WoW Forever: the friend tiles and auto-accept)
+        "friendsListCard",
     })
 end
 
@@ -3574,16 +3583,15 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         -- apply of any later session; value harvests are never suppressed.
         db.profiles[profileName]._importEstablishPending = true
         EllesmereUI._importGuardArmedNow = true
-        -- Custom colours resolve live via GetCustomColorsDB. In GLOBAL colour mode the
-        -- shared palette comes from colorsPullFrom (or the first profile); a recipient
-        -- who pinned a specific source would store the imported palette but keep seeing
-        -- their own. When the import actually carries colours, point the global source
-        -- at the imported profile so its palette is what shows. Getter-redirect only --
-        -- never wipes or restores a live colour table (that is banned). Per-profile
-        -- mode reads the active (now imported) profile already, so it needs no change.
-        if imported.customColors and EllesmereUIDB
-           and EllesmereUIDB.colorsApplyToAllProfiles ~= false then
-            EllesmereUIDB.colorsPullFrom = profileName
+        -- Custom colours resolve live via GetCustomColorsDB. A GLOBAL-mode colour
+        -- section takes its palette from its Pull Colors From (or the first profile); a
+        -- recipient who pinned a specific source would store the imported palette but
+        -- keep seeing their own. When the import actually carries colours, point every
+        -- global-mode section at the imported profile so its palette is what shows.
+        -- Getter-redirect only -- never wipes or restores a live colour table (that is
+        -- banned). Per-profile sections read the active (now imported) profile already.
+        if imported.customColors and EllesmereUIDB then
+            EllesmereUI.PointColorSectionsAt(profileName)
         end
         -- Apply imported data into the live db.profile tables. We MUST pass
         -- payload.data here (a SEPARATE table) and NOT merged: RepointAllDBs already
@@ -3753,12 +3761,11 @@ function EllesmereUI.DeleteProfile(name)
             end
         end
     end
-    -- Global colour source: deleting the source profile must not leave a
-    -- dangling pointer (the stale name showed in Pull Colors From, the shared
-    -- palette silently fell back, and colour editing locked because the user
-    -- could never be "on" the deleted source). nil = default (first profile).
-    if EllesmereUIDB.colorsPullFrom == name then
-        EllesmereUIDB.colorsPullFrom = nil
+    -- Colour sources: deleting a source profile must not leave a dangling pointer
+    -- (the stale name showed in Pull Colors From, the shared palette silently fell
+    -- back, and colour editing locked because the user could never be "on" the
+    -- deleted source). nil = default (first profile), per section too.
+    if EllesmereUI.ColorSourcesProfileRemoved(name) then
         EllesmereUI.ApplyColorsToOUF()
     end
     -- Clean up keybind
@@ -3808,11 +3815,9 @@ function EllesmereUI.RenameProfile(oldName, newName)
             end
         end
     end
-    -- Keep the global colour source following the renamed profile (same
-    -- palette table, so no colour refresh is needed).
-    if EllesmereUIDB.colorsPullFrom == oldName then
-        EllesmereUIDB.colorsPullFrom = newName
-    end
+    -- Keep every colour source following the renamed profile (same palette
+    -- tables, so no colour refresh is needed).
+    EllesmereUI.ColorSourcesProfileRenamed(oldName, newName)
     if db.activeProfile == oldName then
         -- Rename repoints the SAME profile table: unlockLayout rides it, so
         -- the stamp is a no-op unless the table never had one.
@@ -4459,7 +4464,7 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     popup:EnableMouse(true)
     local bg = popup:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+    bg:SetColorTexture(0.077, 0.068, 0.058, 1)
     EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
 
     -- Title

@@ -257,6 +257,22 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
                     RefreshST(); EllesmereUI:RefreshPage()
                 end, true, 20)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            rgn._lastInline = swatch  -- the Corner Radius cog chains left of the swatch
+            -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
+            -- border size control.
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(bsRow._rightRegion, {
+                    title = "Corner Radius", tip = "Corner Radius",
+                    disabled = function() if stOff() then return true end; local p = DB(); return not EllesmereUI.RoundedStyleOK(p and p.swingTimer.borderTexture) end,
+                    disabledTooltip = function() if stOff() then return ST_TIP end; return "This option requires the Solid, Glow or Shadow border style." end,
+                    rows = EllesmereUI.RoundedCornerRows({
+                        { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                          get = function() local p = DB(); return p and p.swingTimer.cornerRadius or 0 end,
+                          set = function(v) local p = DB(); if not p then return end; p.swingTimer.cornerRadius = v; RefreshST() end },
+                    }, function() local p = DB(); return p and p.swingTimer.cornerMask end,
+                       function(v) local p = DB(); if not p then return end; p.swingTimer.cornerMask = v; RefreshST() end),
+                })
+            end
             local block = CreateFrame("Frame", nil, swatch)
             block:SetAllPoints()
             block:SetFrameLevel(swatch:GetFrameLevel() + 10)
@@ -479,7 +495,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
     );  y = y - h
 
     -- Row: Range Check (+ out-of-range alpha cog) | Highlight Queued Attacks
-    -- (+ inline Heroic Strike / Maul and Cleave colour swatches)
+    -- (+ inline Heroic Strike / Maul / Raptor Strike and Cleave colour swatches)
     local queueRow
     queueRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Range Check",
@@ -488,7 +504,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           getValue = function() local p = DB(); return p and p.swingTimer.rangeCheck ~= false end,
           setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.rangeCheck = v; RefreshST() end },
         { type = "toggle", text = "Highlight Queued Attacks",
-          tooltip = "While an on-next-swing attack is queued, the Main Hand and Off Hand rows take its color and show its name (Heroic Strike and Maul share one color, Cleave has its own).",
+          tooltip = "While an on-next-swing attack is queued, the Main Hand and Off Hand rows take its color and show its name (Heroic Strike, Maul and Raptor Strike share one color, Cleave has its own).",
           disabled = stOff, disabledTooltip = ST_TIP,
           getValue = function() local p = DB(); return p and p.swingTimer.queueHighlight ~= false end,
           setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.queueHighlight = v; RefreshST(); EllesmereUI:RefreshPage() end }
@@ -507,7 +523,8 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
     if not EllesmereUI._prebuilding then
         local rgn = queueRow._rightRegion
         local ctrl = rgn._control
-        -- Heroic Strike / Maul (the "queue" keys) beside the toggle, Cleave to its left.
+        -- Heroic Strike / Maul / Raptor Strike (the "queue" keys) beside the toggle,
+        -- Cleave to its left.
         local qSwatch, qUpdateSwatch = EllesmereUI.BuildColorSwatch(
             rgn, queueRow:GetFrameLevel() + 3,
             function() local p = DB(); return (p and p.swingTimer.queueR or 1), (p and p.swingTimer.queueG or 0.70), (p and p.swingTimer.queueB or 0.20), (p and p.swingTimer.queueA or 1) end,
@@ -529,7 +546,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
             end)
             sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         end
-        SwatchTip(qSwatch, "Heroic Strike / Maul Color")
+        SwatchTip(qSwatch, "Heroic Strike / Maul / Raptor Strike Color")
         SwatchTip(cSwatch, "Cleave Color")
         local function UpdateQueueSwatch()
             local p = DB()

@@ -21,6 +21,12 @@ if not ns then return end  -- module disabled: no options page
 local DATA_BAR_KEYS = EllesmereUI.IS_FOREVER and { "XPBar", "RepBar" }
     or { "XPBar", "RepBar", "FavorBar" }
 local DATA_BAR_LABELS = { XPBar = "XP Bar", RepBar = "Reputation Bar", FavorBar = "House Favor Bar" }
+-- The bars whose borders sync with each other: the rep bars. The XP bar's
+-- border is its own and never syncs (a lone rep bar, on Forever, has nothing
+-- to sync with).
+local BORDER_SYNC_KEYS = EllesmereUI.IS_FOREVER and { "RepBar" } or { "RepBar", "FavorBar" }
+local BORDER_SYNCS = {}
+for _, k in ipairs(BORDER_SYNC_KEYS) do BORDER_SYNCS[k] = #BORDER_SYNC_KEYS > 1 end
 local ORIENT_VALUES = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" }
 local ORIENT_ORDER  = { "HORIZONTAL", "VERTICAL" }
 -- Representative colors for the "Reactive (Default)" swatch.
@@ -281,7 +287,7 @@ local function DataBarKit(parent)
     end
 
     -- Custom Border (each data-bar section's opt-in). Its two sync links copy
-    -- between the built data bars (DATA_BAR_KEYS) only. The style link
+    -- between the built rep bars (BORDER_SYNC_KEYS) only. The style link
     -- carries the style, its offsets, shifts and Show Behind plus the colour
     -- a style pick seeds; the size link carries the size and the colour. Both
     -- turn the target's Custom Border on, so a target never holds values it
@@ -330,8 +336,7 @@ local function DataBarKit(parent)
     -- One "Apply to: All | Multiple" link on a Custom Border row half. A target
     -- whose Custom Border was off gains rows, and one that moves between Solid
     -- and a textured style gains or loses its offset row, so those rebuild the
-    -- page; the data bars sit on two pages, so the other one is rebuilt on its
-    -- next visit.
+    -- page.
     local function DataBarSyncIcon(region, srcKey, tooltip, copyFn, sameFn)
         local function ApplyTo(keys)
             local src = EAB.db.profile.bars[srcKey]
@@ -346,16 +351,15 @@ local function DataBarKit(parent)
                     ns.ApplyDataBarLayout(k)
                 end
             end
-            if reveal then EllesmereUI:InvalidateModulePageCache("EllesmereUIActionBars") end
             EllesmereUI:RefreshPage(reveal)
         end
         EllesmereUI.BuildSyncIcon({
             region = region,
             tooltip = tooltip,
-            onClick = function() ApplyTo(DATA_BAR_KEYS) end,
+            onClick = function() ApplyTo(BORDER_SYNC_KEYS) end,
             isSynced = function()
                 local src = EAB.db.profile.bars[srcKey]
-                for _, k in ipairs(DATA_BAR_KEYS) do
+                for _, k in ipairs(BORDER_SYNC_KEYS) do
                     local t = EAB.db.profile.bars[k]
                     if t and not sameFn(t, src) then return false end
                 end
@@ -363,7 +367,7 @@ local function DataBarKit(parent)
             end,
             flashTargets = function() return { region } end,
             multiApply = {
-                elementKeys = DATA_BAR_KEYS,
+                elementKeys = BORDER_SYNC_KEYS,
                 elementLabels = DATA_BAR_LABELS,
                 getCurrentKey = function() return srcKey end,
                 onApply = ApplyTo,
@@ -372,12 +376,12 @@ local function DataBarKit(parent)
     end
 
     -- One bar's border rows: Border Style | Border Size (with the colour, the
-    -- Border Options cog and the two sync links), then Width Offset | Height
-    -- Offset for a textured style. implicit (the XP Bar page, which has no
-    -- Custom Border toggle): until the bar's Custom Border is on, the rows
-    -- show the plain line it draws (Solid, 1px, black) and the first edit
-    -- turns it on from those values, dropping what a border once turned off
-    -- left behind; the sync links appear once it is on.
+    -- Border Options cog and, on a rep bar, the two sync links), then Width
+    -- Offset | Height Offset for a textured style. implicit (the XP Bar page,
+    -- which has no Custom Border toggle): until the bar's Custom Border is on,
+    -- the rows show the plain line it draws (Solid, 1px, black) and the first
+    -- edit turns it on from those values, dropping what a border once turned
+    -- off left behind.
     local NO_BORDER = {}
     function K.BorderRows(y, barKey, implicit)
         local _, h
@@ -417,7 +421,6 @@ local function DataBarKit(parent)
         local brdRow
         brdRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Border Style",
-              tooltip="The border drawn around this bar.",
               disabled=_blizzDis, disabledTooltip=BLIZZ_DIS_TIP, rawTooltip=true,
               values=texValues, order=texOrder,
               getValue=function() return V().borderTexture or "solid" end,
@@ -460,7 +463,7 @@ local function DataBarKit(parent)
         if Textured() then
             local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs{
                 addonKey="actionbars",
-                tooltip="How far the textured border reaches past the bar's sides (Width) or top and bottom (Height).",
+                tooltip="How far the border reaches past the bar.",
                 disabled=_blizzDis, disabledTooltip=BLIZZ_DIS_TIP, rawTooltip=true,
                 getTex=function() return V().borderTexture or "solid" end,
                 getStep=function() return (ns.ResolveBorderThickness(V())) end,
@@ -557,10 +560,10 @@ local function DataBarKit(parent)
                 rawTooltip = true,
             })
 
-            if S().customBorder == true then
-                DataBarSyncIcon(lRgn, barKey, "Apply Border Style to all Data Bars",
+            if S().customBorder == true and BORDER_SYNCS[barKey] then
+                DataBarSyncIcon(lRgn, barKey, "Apply Border Style to all Rep Bars",
                     CopyDataBarStyle, SameDataBarStyle)
-                DataBarSyncIcon(brdRow._rightRegion, barKey, "Apply Border Size and Color to all Data Bars",
+                DataBarSyncIcon(brdRow._rightRegion, barKey, "Apply Border Size and Color to all Rep Bars",
                     CopyDataBarSize, SameDataBarSize)
             end
         end
@@ -672,12 +675,16 @@ local function DataBarKit(parent)
     function K.ClickThroughCfg(barKey)
         local function S() return EAB.db.profile.bars[barKey] end
         return { type="toggle", text="Click Through",
-              tooltip="Mouse clicks pass through the bar. Disable to allow the mouseover tooltip.",
               getValue=function() return S().clickThrough end,
               setValue=function(v)
                   S().clickThrough = v
                   EAB:ApplyClickThroughForBar(barKey)
               end }
+    end
+    -- The same toggle as a cog row (the XP bar's Visibility cog).
+    function K.ClickThroughRow(barKey)
+        local cfg = K.ClickThroughCfg(barKey)
+        return { type="toggle", label=cfg.text, get=cfg.getValue, set=cfg.setValue }
     end
 
     function K.TextSizeCfg(barKey)
@@ -692,7 +699,7 @@ local function DataBarKit(parent)
     end
 
     -- The Bar Text Offsets cog on a Text Size control: the anchor and
-    -- offsets, then extraRows (the XP bar's Show %).
+    -- offsets, then extraRows (the XP bar text's Show Rested).
     function K.TextCog(region, barKey, extraRows)
         if EllesmereUI._prebuilding then return end
         local function S() return EAB.db.profile.bars[barKey] end
@@ -726,15 +733,17 @@ local function DataBarKit(parent)
         })
     end
 
-    -- One data bar's section (the Menu, Bags & Rep Bars page): Visibility |
-    -- Custom Border, its border rows while on, Width | Height, Color | Bar
-    -- Texture, Click Through | Text Size. While Never only the Visibility
-    -- row is built. Returns the new y and the Visibility row.
-    function K.Section(y, barKey, sectionTitle, visLabel)
+    -- One data bar's section (the Menu, Bags & Rep Bars page): lead's rows
+    -- (optional, lead(y) -> y; built even while Never), Visibility | Custom
+    -- Border, its border rows while on, Width | Height, Color | Bar Texture,
+    -- Click Through | Text Size. While Never only the rows up to Visibility
+    -- are built. Returns the new y and the Visibility row.
+    function K.Section(y, barKey, sectionTitle, visLabel, lead)
         local _, h
         local function S() return EAB.db.profile.bars[barKey] end
 
         _, h = W:SectionHeader(parent, sectionTitle, y);  y = y - h
+        if lead then y = lead(y) end
         -- Custom Border, the opt-in for this bar's own border style, size and
         -- color, fills the Visibility row's free slot. Its rows below are built
         -- only while it is on (the toggle rebuilds the page). Left out while
@@ -798,10 +807,18 @@ local function BuildMenuBagsRepPage(pageName, parent, yOffset)
         microOpts.rightVis = VisOpts("BagBar", "Bag Bar Visibility")
         _, h = EllesmereUI.BuildVisibilityRow(W, parent, y, microOpts);  y = y - h
     end
-    -- Their end caps, as an action bar's (sized from Action Bar 1's
-    -- buttons). No Apply to All link: a first-install span makes the two
-    -- differ on purpose.
+    -- Their skins: the Blizzard Skins+ Micro Menu and Bag Bar cards' style,
+    -- mirrored (one setting; none while that module is off, and no Bag Bar
+    -- skin off WoW Forever). Then their end caps, as an action bar's (sized
+    -- from Action Bar 1's buttons; no Apply to All link: a first-install span
+    -- makes the two differ on purpose). Without the Bag Bar skin the slots
+    -- fill in order, so no blank is left mid-section.
     do
+        local SkinCfg = EllesmereUI.WindowSkinStyleCfg
+        local microSkin = SkinCfg and SkinCfg("micromenu", "Micro Menu Skin",
+            "Same setting as the Micro Menu card on Blizzard Skins+ > Window Skins.")
+        local bagSkin = SkinCfg and SkinCfg("bagbar", "Bag Bar Skin",
+            "Same setting as the Bag Bar card on Blizzard Skins+ > Window Skins.")
         local function Ctl(key, label)
             return EndCapsCtl({
                 key = function() return key end,
@@ -816,11 +833,43 @@ local function BuildMenuBagsRepPage(pageName, parent, yOffset)
             })
         end
         local mc, bc = Ctl("MicroBar", "Micro Menu End Caps"), Ctl("BagBar", "Bag Bar End Caps")
-        local capsRow
-        capsRow, h = W:DualRow(parent, y, mc.Cfg(), bc.Cfg());  y = y - h
-        mc.Build(capsRow._leftRegion)
-        bc.Build(capsRow._rightRegion)
+        local row
+        if microSkin and bagSkin then
+            _, h = W:DualRow(parent, y, microSkin, bagSkin);  y = y - h
+        end
+        if microSkin and not bagSkin then
+            row, h = W:DualRow(parent, y, microSkin, mc.Cfg());  y = y - h
+            mc.Build(row._rightRegion)
+            row, h = W:DualRow(parent, y, bc.Cfg(), EllesmereUI.BlankRowCfg());  y = y - h
+            bc.Build(row._leftRegion)
+        else
+            row, h = W:DualRow(parent, y, mc.Cfg(), bc.Cfg());  y = y - h
+            mc.Build(row._leftRegion)
+            bc.Build(row._rightRegion)
+        end
     end
+
+    _, h = W:Spacer(parent, y, 12);  y = y - h
+
+    -------------------------------------------------------------------
+    --  REPUTATION BAR / HOUSE FAVOR BAR
+    -------------------------------------------------------------------
+    -- The Reputation Bar section opens with Use Blizzard's Rep Bars, the one
+    -- saved switch for Blizzard's XP, reputation and House Favor bars (shared
+    -- with the XP Bar page's Style, its Blizz Default) | Orientation, which
+    -- flips the reputation and House Favor bars together.
+    y = K.Section(y, "RepBar", "REPUTATION BAR", "Rep Bar Visibility", function(ry)
+        return K.StyleRow(ry,
+            { type="toggle", text="Use Blizzard's Rep Bars",
+              tooltip="Tied to the XP bar: Blizzard's XP and reputation bars switch together, so this also sets the XP Bar style to Blizz Default.",
+              getValue=function() return EAB.db.profile.useBlizzardDataBars end,
+              setValue=function(v) K.AfterSwitch(ns.SetUseBlizzardDataBars(v)) end },
+            { "RepBar", "FavorBar" })
+    end)
+    if not EllesmereUI.IS_FOREVER then
+    _, h = W:Spacer(parent, y, 12);  y = y - h
+    y = K.Section(y, "FavorBar", "HOUSE FAVOR BAR", "Favor Bar Visibility")
+    end -- not IS_FOREVER
 
     _, h = W:Spacer(parent, y, 12);  y = y - h
 
@@ -839,32 +888,6 @@ local function BuildMenuBagsRepPage(pageName, parent, yOffset)
           end,
           tooltip="Hide Blizzard's stock vehicle and override bar." },
         { type="label", text="" });  y = y - h
-
-    -------------------------------------------------------------------
-    --  REP BAR STYLE
-    -------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "REP BAR STYLE", y);  y = y - h
-
-    -- The one saved switch for Blizzard's XP, reputation and House Favor
-    -- bars, shared with the XP Bar page's Style (its Blizz Default).
-    -- Orientation flips the reputation and House Favor bars together.
-    y = K.StyleRow(y,
-        { type="toggle", text="Use Blizzard's Rep Bars",
-          tooltip="Tied to the XP bar: Blizzard's XP and reputation bars switch together, so this also sets the XP Bar style to Blizz Default.",
-          getValue=function() return EAB.db.profile.useBlizzardDataBars end,
-          setValue=function(v) K.AfterSwitch(ns.SetUseBlizzardDataBars(v)) end },
-        { "RepBar", "FavorBar" })
-
-    _, h = W:Spacer(parent, y, 12);  y = y - h
-
-    -------------------------------------------------------------------
-    --  REPUTATION BAR / HOUSE FAVOR BAR
-    -------------------------------------------------------------------
-    y = K.Section(y, "RepBar", "REPUTATION BAR", "Rep Bar Visibility")
-    if not EllesmereUI.IS_FOREVER then
-    _, h = W:Spacer(parent, y, 12);  y = y - h
-    y = K.Section(y, "FavorBar", "HOUSE FAVOR BAR", "Favor Bar Visibility")
-    end -- not IS_FOREVER
 
     return math.abs(y)
 end

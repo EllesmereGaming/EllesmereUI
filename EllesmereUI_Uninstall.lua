@@ -3,7 +3,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUI_Uninstall.lua
 --  The game settings EllesmereUI changes that outlive it, and what puts them
 --  back: the login pass that puts back the CVars of a module turned off, and
---  the Uninstall EUI action (Global Settings > Profiles) for everything.
+--  the Uninstall EUI action (Global Settings > General) for everything.
 --
 --  Every such change goes through the setters here: CVars (whole values and
 --  single bits), Edit Mode layout settings, chat window font sizes and the
@@ -28,7 +28,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  mistaken for one of EllesmereUI's.
 --
 --  The settings Optimize My FPS and Graphics changes stay out of all of this:
---  it keeps its own backup and Restore button (gfxBackup).
+--  it keeps its own backup (gfxBackup), which its card restores.
 --
 --  Snapshots are kept only on an account that started on this build or later,
 --  or since Uninstall EUI ran (fresh), and only for the Edit Mode layouts
@@ -49,7 +49,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --             v = the value then, o = owner }
 --    bits     [lowercase name] = { [bit index] = { b, a, o } }
 --    em       [layout name] = { [system * 1000 + index] = { [setting] =
---             { b, a, f = fallback, p = the setting it goes back with } } }
+--             { b, a, f = fallback, p = the setting it goes back with },
+--             anchor = { b, a } } } (b: a position, { i = anchorInfo,
+--             i2 = anchorInfo2, d = isInDefaultPosition }; a = EllesmereUI's
+--             anchorInfo)
 --    emKnown  [layout name] = true: the layouts there were at EllesmereUI's
 --             first Edit Mode note (listed on a fresh account only)
 --    bind     [key] = the action it had before EllesmereUI took it (false: none)
@@ -474,6 +477,33 @@ local function ListLayouts(acct, mine)
     if m then mine.emKnown = m end
 end
 
+-- The record of key (a setting, or "anchor") of sysInfo in layout, made on
+-- the first note with the value from before (fresh, a layout there was at
+-- the first note) or else fallback. nil while the character is unknown.
+local function EditModeEntry(layout, sysInfo, key, before, fallback)
+    local r = Record()
+    local isChar = layout.layoutType == CHAR_LAYOUT
+    local mine
+    if r.fresh or isChar then mine = CharRecord() end
+    if r.fresh then ListLayouts(r, mine) end
+    local root
+    if isChar then root = mine else root = r end
+    if not root then return nil end
+    local t = Sub(Sub(Sub(root, "em"), layout.layoutName), sysInfo.system * 1000 + (sysInfo.systemIndex or 0))
+    local e = t[key]
+    if not e then
+        e = {}
+        t[key] = e
+        local known = root.emKnown
+        if r.fresh and (known == nil or known[layout.layoutName]) then
+            e.b = before
+        else
+            e.f = fallback
+        end
+    end
+    return e
+end
+
 --- Before EllesmereUI writes value into setting of sysInfo (a system entry of
 --- layout, a saved layout from C_EditMode.GetLayouts): records the row's
 --- value then (before) and value. fallback is what Uninstall puts back when
@@ -485,28 +515,37 @@ end
 function EllesmereUI.NoteEditModeSetting(layout, sysInfo, setting, before, value, fallback, pair)
     if _fresh == nil or before == nil then return end
     if type(layout) ~= "table" or type(layout.layoutName) ~= "string" then return end
-    local r = Record()
-    local isChar = layout.layoutType == CHAR_LAYOUT
-    local mine
-    if r.fresh or isChar then mine = CharRecord() end
-    if r.fresh then ListLayouts(r, mine) end
-    local root
-    if isChar then root = mine else root = r end
-    if not root then return end
-    local t = Sub(Sub(Sub(root, "em"), layout.layoutName), sysInfo.system * 1000 + (sysInfo.systemIndex or 0))
-    local e = t[setting]
-    if not e then
-        e = {}
-        t[setting] = e
-        local known = root.emKnown
-        if r.fresh and (known == nil or known[layout.layoutName]) then
-            e.b = before
-        else
-            e.f = fallback
-        end
-    end
+    local e = EditModeEntry(layout, sysInfo, setting, before, fallback)
+    if not e then return end
     e.a = value
     e.p = pair
+end
+
+local function AnchorCopy(info)
+    if type(info) ~= "table" then return nil end
+    return {
+        point = info.point, relativeTo = info.relativeTo, relativePoint = info.relativePoint,
+        offsetX = info.offsetX, offsetY = info.offsetY,
+    }
+end
+
+-- A system's position: its anchors and whether Edit Mode counts it as the
+-- default one.
+local function Position(sys)
+    return { i = AnchorCopy(sys.anchorInfo), i2 = AnchorCopy(sys.anchorInfo2), d = sys.isInDefaultPosition == true }
+end
+
+--- Before EllesmereUI moves sysInfo (a system entry of layout, as for
+--- NoteEditModeSetting) to anchor, its only anchor from then on: records the
+--- system's position then and anchor. Where the position from before is
+--- unknown, Uninstall leaves the system where it is.
+function EllesmereUI.NoteEditModeAnchor(layout, sysInfo, anchor)
+    if _fresh == nil or type(anchor) ~= "table" then return end
+    if type(sysInfo) ~= "table" or type(sysInfo.anchorInfo) ~= "table" then return end
+    if type(layout) ~= "table" or type(layout.layoutName) ~= "string" then return end
+    local e = EditModeEntry(layout, sysInfo, "anchor", Position(sysInfo))
+    if not e then return end
+    e.a = AnchorCopy(anchor)
 end
 
 -- The rows of one system that go back, as row -> value (nil: none).
@@ -531,6 +570,30 @@ local function SystemRestores(sys, bySys)
     return out
 end
 
+-- Within Edit Mode's own tolerance for anchors (0.1).
+local function SameAnchor(a, b)
+    return type(a) == "table" and type(b) == "table"
+        and a.point == b.point and a.relativeTo == b.relativeTo and a.relativePoint == b.relativePoint
+        and type(a.offsetX) == "number" and type(b.offsetX) == "number"
+        and type(a.offsetY) == "number" and type(b.offsetY) == "number"
+        and math.abs(a.offsetX - b.offsetX) < 0.1 and math.abs(a.offsetY - b.offsetY) < 0.1
+end
+
+-- Puts the system's position back while it is still EllesmereUI's (its only
+-- anchor); true when it changed.
+local function RestoreAnchor(sys, e)
+    if type(e) ~= "table" or sys.anchorInfo2 ~= nil or not SameAnchor(sys.anchorInfo, e.a) then
+        return false
+    end
+    local want = e.b
+    if type(want) ~= "table" or not want.i then return false end
+    if want.i2 == nil and SameAnchor(sys.anchorInfo, want.i) then return false end
+    sys.anchorInfo = AnchorCopy(want.i)
+    sys.anchorInfo2 = AnchorCopy(want.i2)
+    sys.isInDefaultPosition = want.d == true
+    return true
+end
+
 -- True once the layouts were gone through (false: they could not be read).
 local function RestoreEditMode(acct, mine)
     if not (acct or mine) then return true end
@@ -550,6 +613,7 @@ local function RestoreEditMode(acct, mine)
                     for row, want in pairs(out) do row.value = want end
                     changed = true
                 end
+                if bySys and RestoreAnchor(sys, bySys.anchor) then changed = true end
             end
         end
     end

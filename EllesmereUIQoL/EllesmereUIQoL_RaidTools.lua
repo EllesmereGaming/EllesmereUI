@@ -266,7 +266,7 @@ local Apply                    -- forward: the event handler closes over it
 --
 -- The keybind clicks the button, which is the only thing that works during combat. Out
 -- of combat the same snippet is run through SecureHandlerExecute instead of being
--- re-implemented in Lua. EllesmereUIRaidFrames.lua does exactly this, for exactly this
+-- re-implemented in Lua. EUI_RaidFrames_BossFrames.lua does exactly this, for exactly this
 -- reason: the driver manager only fires the attribute handlers on value CHANGES, so a
 -- reapply with unchanged states would otherwise never run.
 local RUN_APPLY = [[ self:RunAttribute("apply") ]]
@@ -1037,8 +1037,8 @@ end
 -- Row order matches how they are used: unit markers first, ground markers
 -- under them. Labels reach L as variables (see the SECTIONS comment).
 local MARKER_ROWS = {
-    { kind = "target", label = "Target" },
-    { kind = "world",  label = "World"  },
+    { kind = "target", label = "Target Markers" },
+    { kind = "world",  label = "World Markers"  },
 }
 
 local function BuildMarkersContent()

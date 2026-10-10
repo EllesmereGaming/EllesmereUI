@@ -4,8 +4,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  SetupOptionsPanel, run one frame after the frames build: publishes the ns
 --  fields the options pages read (ns.db, ns.frames, ns.ReloadFrames, ...) and
---  builds the boss frame preview. Reads the main file through ns and
---  ns._internals; db is set through I.dbSetters.
+--  builds the boss frame preview. Published as I.SetupOptionsPanel for
+--  EUI_UnitFrames_Lifecycle.lua (EnableBody schedules it). Reads the main file
+--  through ns and ns._internals; db is set through I.dbSetters.
 -------------------------------------------------------------------------------
 local _, ns = ...
 
@@ -18,7 +19,7 @@ local ApplyBlizzCastbarState, ApplyUnitFrameCastColor = I.ApplyBlizzCastbarState
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
-function SetupOptionsPanel()
+local function SetupOptionsPanel()
     ns.db = db
     ns.frames = frames
 
@@ -677,3 +678,5 @@ function SetupOptionsPanel()
     -- instead of riding this execution (login budget split rule).
     if ns.PAB_CreateBars then C_Timer.After(0, ns.PAB_CreateBars) end
 end
+
+I.SetupOptionsPanel = SetupOptionsPanel

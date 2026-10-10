@@ -251,11 +251,12 @@ ns.HasCRAllSpecs = function()
 end
 
 -- An entry counts as configured when its single threshold is on (a missing flag
--- means on, for migrated entries) or when multi-band coloring replaces it. The
--- band fallbacks mirror ResolveThresholdSpecEntry's ResolveBandConfig: both the
--- enable flag and the band list fall back to the bar table.
+-- means on, for migrated entries), it has hash lines, or when multi-band coloring
+-- replaces it. The band fallbacks mirror ResolveThresholdSpecEntry's
+-- ResolveBandConfig: both the enable flag and the band list fall back to the bar table.
 local function ThresholdEntryConfigured(bd, entry)
 	if entry.thresholdEnabled ~= false then return true end
+	if entry.hashValues and entry.hashValues ~= "" then return true end
 	local multi = entry.multiBandEnabled
 	if multi == nil then multi = bd.multiBandEnabled end
 	if not multi then return false end

@@ -22,6 +22,14 @@ local DeselectMover, GetActionBarVisualSize, SortMoverFrameLevels = UM.DeselectM
 
 local _mouseHeld = false       -- true while left mouse button is held down anywhere
 
+-- True while any part of a frame's rect reads secret: all of it when the frame
+-- rides an engine aura container, its size alone when only one edge does (a
+-- Blizzard Style unit frame's box around its aura stack). Nothing measures it then.
+local function RectSecret(f)
+    return issecretvalue and (issecretvalue(f:GetLeft()) or issecretvalue(f:GetTop())
+        or issecretvalue(f:GetWidth()) or issecretvalue(f:GetHeight())) or false
+end
+
 local function CreateMover(barKey)
     local elem = registeredElements[barKey]
     local existing = movers[barKey]
@@ -217,8 +225,9 @@ local function CreateMover(barKey)
 
     -- Determine if this element supports resizing
     local canResize = not (elem and elem.noResize)
-    -- Determine if this element can be anchored to other elements
-    local canAnchorTo = not (elem and elem.noAnchorTo)
+    -- Determine if this element can be anchored to other elements (an element
+    -- that places itself, ownsPosition, takes no link either)
+    local canAnchorTo = not (elem and (elem.noAnchorTo or elem.ownsPosition))
 
     -- Grow direction: action bars 1-8 and CDM bars (both horizontal and vertical)
     local _GROW_KEYS = {
@@ -329,8 +338,7 @@ local function CreateMover(barKey)
             -- A bar riding an engine aura container reports a secret rect
             -- outside unlock mode (the follow provider is inert inside it, so
             -- the bar rests plain there): nothing to attach to yet.
-            local bl0 = b:GetLeft()
-            if issecretvalue and issecretvalue(bl0) then return end
+            if RectSecret(b) then return end
             local s = b:GetEffectiveScale()
             local uiS = UIParent:GetEffectiveScale()
             local elemScale = s / uiS
@@ -410,7 +418,8 @@ local function CreateMover(barKey)
 
     -- Update the name label color based on anchor state
     local function RefreshAnchoredIdle()
-        local ai = GetAnchorInfo(barKey)
+        -- A link on an element that places itself (ownsPosition) is inert.
+        local ai = not (elem and elem.ownsPosition) and GetAnchorInfo(barKey) or nil
         isAnchored = ai ~= nil or ns.IsMoverPosLocked(barKey)
         nameFS:SetText(EllesmereUI.L(label))
         if isAnchored then
@@ -907,7 +916,7 @@ local function CreateMover(barKey)
 
         local ddBg = UM.growDropdownFrame:CreateTexture(nil, "BACKGROUND")
         ddBg:SetAllPoints()
-        ddBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+        ddBg:SetColorTexture(0.103, 0.095, 0.088, 0.95)
         EllesmereUI.MakeBorder(UM.growDropdownFrame, 1, 1, 1, 0.20)
 
         local ddY = -4
@@ -1227,9 +1236,9 @@ local function CreateMover(barKey)
         -- re-apply its anchor now -- the follow provider is inert in unlock
         -- mode, so that places it absolutely -- and sync from the plain rect.
         -- If the rect has not resolved yet, sync again next frame.
-        if issecretvalue and issecretvalue(b:GetLeft()) then
+        if RectSecret(b) then
             if EllesmereUI.ReapplyOwnAnchor then EllesmereUI.ReapplyOwnAnchor(bk) end
-            if issecretvalue(b:GetLeft()) then
+            if RectSecret(b) then
                 self:Hide()
                 local n = self._secretResync or 0
                 if n < 2 then
@@ -1446,8 +1455,8 @@ local function CreateMover(barKey)
                 if not lockY then barY0 = PPd.SnapForES(barY0, bS0) end
             end
             pcall(function()
-                bar0:ClearAllPoints()
-                bar0:SetPoint("TOPLEFT", UIParent, "TOPLEFT", barX0, barY0)
+                EllesmereUI.ClearFramePoints(bar0)
+                EllesmereUI.SetFramePoint(bar0, "TOPLEFT", UIParent, "TOPLEFT", barX0, barY0)
             end)
             -- Element follow-up to the one-point placement above (an element
             -- whose rect needs a second anchor -- main chat's size corner --
@@ -1535,8 +1544,8 @@ local function CreateMover(barKey)
                     if not lockY then barY = PPd.SnapForES(barY, bS) end
                 end
                 pcall(function()
-                    bar:ClearAllPoints()
-                    bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", barX, barY)
+                    EllesmereUI.ClearFramePoints(bar)
+                    EllesmereUI.SetFramePoint(bar, "TOPLEFT", UIParent, "TOPLEFT", barX, barY)
                 end)
                 -- Anchor mover directly to bar TOPLEFT for pixel-perfect overlay
                 s:ClearAllPoints()
@@ -1929,7 +1938,7 @@ local function CreateMover(barKey)
                         CancelPickMode()
                         FlashRedBorder(self)
                         local tLabel = UM.GetBarLabel(targetKey) or targetKey
-                        RejectH.ShowTooltip("Elements cannot size match to\n" .. tLabel)
+                        RejectH.ShowTooltip(EllesmereUI.Lf("Elements cannot size match to\n%1$s", EllesmereUI.L(tLabel)))
                         return
                     end
                     if RejectH.IsActionBar(sourceKey) and not RejectH.IsActionBar(targetKey) then
@@ -1966,7 +1975,7 @@ local function CreateMover(barKey)
                         CancelPickMode()
                         FlashRedBorder(self)
                         local tLabel = UM.GetBarLabel(targetKey) or targetKey
-                        RejectH.ShowTooltip("Elements cannot size match to\n" .. tLabel)
+                        RejectH.ShowTooltip(EllesmereUI.Lf("Elements cannot size match to\n%1$s", EllesmereUI.L(tLabel)))
                         return
                     end
                     local hdb = MatchH.GetHeightMatchDB()
@@ -2011,7 +2020,7 @@ local function CreateMover(barKey)
                         CancelPickMode()
                         FlashRedBorder(self)
                         local targetLabel = UM.GetBarLabel(targetKey) or targetKey
-                        RejectH.ShowTooltip("Elements cannot be anchored to\n" .. targetLabel)
+                        RejectH.ShowTooltip(EllesmereUI.Lf("Elements cannot be anchored to\n%1$s", EllesmereUI.L(targetLabel)))
                         return
                     end
 
@@ -2149,7 +2158,7 @@ local function CreateMover(barKey)
 
                     local ddBg = UM.anchorDropdownFrame:CreateTexture(nil, "BACKGROUND")
                     ddBg:SetAllPoints()
-                    ddBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+                    ddBg:SetColorTexture(0.103, 0.095, 0.088, 0.95)
                     EllesmereUI.MakeBorder(UM.anchorDropdownFrame, 1, 1, 1, 0.20)
 
                     local ddY = -4
@@ -2537,7 +2546,7 @@ local function CreateMover(barKey)
     do
         local bg = cogBtn:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+        bg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
         cogBtn._bg = bg
         local brd = EllesmereUI.MakeBorder(cogBtn, 1, 1, 1, 0.20)
         cogBtn._brd = brd
@@ -2548,7 +2557,7 @@ local function CreateMover(barKey)
         icon:SetAlpha(0.7)
         cogBtn._icon = icon
         cogBtn:SetScript("OnEnter", function(self)
-            self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
+            self._bg:SetColorTexture(0.103, 0.095, 0.088, 0.98)
             self._brd:SetColor(1, 1, 1, 0.30)
             self._icon:SetAlpha(1)
             mover:SetFrameLevel(mover._raisedLevel + 100)
@@ -2556,7 +2565,7 @@ local function CreateMover(barKey)
             if not UM.darkOverlaysEnabled then mover:SetAlpha(MOVER_HOVER) end
         end)
         cogBtn:SetScript("OnLeave", function(self)
-            self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+            self._bg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
             self._brd:SetColor(1, 1, 1, 0.20)
             self._icon:SetAlpha(0.7)
         end)
@@ -2575,7 +2584,7 @@ local function CreateMover(barKey)
 
     -- Re-set cogBtn hover scripts now that fade helpers are in scope
     cogBtn:SetScript("OnEnter", function(self)
-        self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
+        self._bg:SetColorTexture(0.103, 0.095, 0.088, 0.98)
         self._brd:SetColor(1, 1, 1, 0.30)
         self._icon:SetAlpha(1)
         -- Restore mover highlight immediately (mover:OnLeave resets it when mouse moves to cog)
@@ -2584,7 +2593,7 @@ local function CreateMover(barKey)
         if not UM.darkOverlaysEnabled then mover:SetAlpha(MOVER_HOVER) end
     end)
     cogBtn:SetScript("OnLeave", function(self)
-        self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+        self._bg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
         self._brd:SetColor(1, 1, 1, 0.20)
         self._icon:SetAlpha(0.7)
     end)
@@ -2599,7 +2608,7 @@ local function CreateMover(barKey)
     snapDD:SetSize(DD_W, 30)
     local snapDDBg = snapDD:CreateTexture(nil, "BACKGROUND")
     snapDDBg:SetAllPoints()
-    snapDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+    snapDDBg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
     snapDD._bg = snapDDBg
     local snapDDBrd = EllesmereUI.MakeBorder(snapDD, 1, 1, 1, 0.20)
     snapDD._brd = snapDDBrd
@@ -2619,14 +2628,14 @@ local function CreateMover(barKey)
             EllesmereUI.ShowWidgetTooltip(self, "This feature requires Snap Elements to be enabled")
             return
         end
-        self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
+        self._bg:SetColorTexture(0.103, 0.095, 0.088, 0.98)
         self._brd:SetColor(1, 1, 1, 0.30)
         snapDDLbl:SetTextColor(1, 1, 1, 0.60)
     end)
     snapDD:SetScript("OnLeave", function(self)
         EllesmereUI.HideWidgetTooltip()
         if not UM.snapEnabled then return end
-        self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+        self._bg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
         self._brd:SetColor(1, 1, 1, 0.20)
         snapDDLbl:SetTextColor(1, 1, 1, 0.50)
     end)
@@ -2635,12 +2644,12 @@ local function CreateMover(barKey)
     -- Helper: apply grayed-out or normal visual state to the dropdown
     local function RefreshSnapDDState()
         if not UM.snapEnabled then
-            snapDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.50)
+            snapDDBg:SetColorTexture(0.103, 0.095, 0.088, 0.50)
             snapDDBrd:SetColor(1, 1, 1, 0.07)
             snapDDLbl:SetTextColor(1, 1, 1, 0.20)
             snapDDArrow:SetAlpha(0.10)
         else
-            snapDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+            snapDDBg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
             snapDDBrd:SetColor(1, 1, 1, 0.20)
             snapDDLbl:SetTextColor(1, 1, 1, 0.50)
             snapDDArrow:SetAlpha(1)
@@ -2697,7 +2706,7 @@ local function CreateMover(barKey)
         -- Background + border
         local menuBg = snapMenu:CreateTexture(nil, "BACKGROUND")
         menuBg:SetAllPoints()
-        menuBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+        menuBg:SetColorTexture(0.103, 0.095, 0.088, 0.95)
         EllesmereUI.MakeBorder(snapMenu, 1, 1, 1, 0.20)
 
         local ITEM_H = 24
@@ -2850,7 +2859,7 @@ local function CreateMover(barKey)
                 regSub:SetPoint("TOPLEFT", rgItem, "TOPRIGHT", 2, 0)
                 local rsBg = regSub:CreateTexture(nil, "BACKGROUND")
                 rsBg:SetAllPoints()
-                rsBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+                rsBg:SetColorTexture(0.103, 0.095, 0.088, 0.95)
                 EllesmereUI.MakeBorder(regSub, 1, 1, 1, 0.20)
                 local rsYOff = -4
                 for _, eInfo in ipairs(gElems) do
@@ -3043,7 +3052,7 @@ local function CreateMover(barKey)
 
         local menuBg = cogMenu:CreateTexture(nil, "BACKGROUND")
         menuBg:SetAllPoints()
-        menuBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+        menuBg:SetColorTexture(0.103, 0.095, 0.088, 0.95)
         EllesmereUI.MakeBorder(cogMenu, 1, 1, 1, 0.20)
 
         local ITEM_H = 24
@@ -3207,8 +3216,9 @@ local function CreateMover(barKey)
                     box:SetTextColor(0.4, 0.4, 0.4, 0.7)
                     local targetName = UM.GetBarLabel(matchTarget) or matchTarget
                     box:SetScript("OnEnter", function()
-                        EllesmereUI.ShowWidgetTooltip(box,
-                            axis .. " matched to " .. targetName .. ". Unmatch to edit.")
+                        EllesmereUI.ShowWidgetTooltip(box, isWidth
+                            and EllesmereUI.Lf("Width matched to %1$s. Unmatch to edit.", EllesmereUI.L(targetName))
+                            or EllesmereUI.Lf("Height matched to %1$s. Unmatch to edit.", EllesmereUI.L(targetName)))
                     end)
                     box:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 end
@@ -3788,7 +3798,8 @@ local function CreateMover(barKey)
         -- The minimap and kin carry it while EllesmereUI owns their position. Only a
         -- Blizzard-owned position must stay out, or the two fight over the frame.
         local NO_SCREEN_ANCHOR = { QueueStatus = true }   -- Blizzard Edit Mode owns it
-        if not NO_SCREEN_ANCHOR[barKey] and not ns.IsMoverPosLocked(barKey) then
+        if not NO_SCREEN_ANCHOR[barKey] and not ns.IsMoverPosLocked(barKey)
+           and not (registeredElements[barKey] and registeredElements[barKey].ownsPosition) then
             -- Primary link to a screen edge. The capture comes first: on an
             -- offset-less link ApplyAnchorPosition's side-snap branch stores the FLUSH
             -- offsets (0/0) before its no-move capture runs, and the next apply would
@@ -3926,7 +3937,7 @@ local function CreateMover(barKey)
                 seSub:SetPoint("TOPLEFT", seItem, "TOPRIGHT", 2, 0)
                 local seBg = seSub:CreateTexture(nil, "BACKGROUND")
                 seBg:SetAllPoints()
-                seBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+                seBg:SetColorTexture(0.103, 0.095, 0.088, 0.95)
                 EllesmereUI.MakeBorder(seSub, 1, 1, 1, 0.20)
                 -- Two rows can be active at once: a primary edge plus the cross-axis
                 -- one. Center is active exactly while neither exists.
@@ -4158,7 +4169,7 @@ local function CreateMover(barKey)
                         sub:SetPoint("BOTTOMLEFT", item, "BOTTOMRIGHT", 2, 0)
                         local sBg = sub:CreateTexture(nil, "BACKGROUND")
                         sBg:SetAllPoints()
-                        sBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+                        sBg:SetColorTexture(0.103, 0.095, 0.088, 0.95)
                         EllesmereUI.MakeBorder(sub, 1, 1, 1, 0.20)
                         local entries = buildEntries()
                         local rsY = -4
@@ -4254,7 +4265,7 @@ local function CreateMover(barKey)
                     if EllesmereUI._HasOverrideAnchor and EllesmereUI._HasOverrideAnchor(barKey, og.id) then
                         local gid = og.id
                         local gname = og.name or ("Group " .. tostring(gid))
-                        OvSubnavItem("Edit Override: " .. gname, function()
+                        OvSubnavItem(EllesmereUI.Lf("Edit Override: %1$s", gname), function()
                             return {
                                 { text = gname, title = true },
                                 { text = EllesmereUI.L("Edit Anchor"), fn = function()

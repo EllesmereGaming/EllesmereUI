@@ -3,12 +3,69 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Nameplates_Options\DisplayLayout_Options.lua
 --  Nameplates options: the Style, Core Positions and Core Text Positions
 --  sections of the Display page. Called by BuildDisplayPage; returns y, the
---  rows its click navigation maps to, and the cog popup and texture helpers
---  DisplayBars_Options.lua uses. Shared helpers come from ns._NPO_OptEnv, the
---  per-build slot helpers from ctx.
+--  rows and text cells its click navigation maps to, and the cog popup and
+--  texture helpers DisplayBars_Options.lua uses. The Core Text Coloring
+--  section under Core Text Positions lives in CoreTextColoring_Options.lua
+--  (called from here; it reads the text slot table defined below). Shared
+--  helpers come from ns._NPO_OptEnv, the per-build slot helpers from ctx.
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUINameplates"]
 if not ns then return end  -- module disabled: no options page
+
+-- Core Text Positions. KNOWN: the elements a text position draws; any other
+-- saved value (None, unset, one this build does not know) shows nothing and
+-- leaves the position free.
+local KNOWN = { enemyName = true, levelName = true, nameLevel = true, level = true, targetOfTarget = true,
+    healthPercent = true, healthPercentNoSign = true, healthNumber = true, healthPctNum = true,
+    healthNumPct = true, healthPctNumDash = true, healthNumPctDash = true, healthNumMax = true }
+-- Add Text Slot's text: the first of these whose font string no shown text
+-- uses (one per font string: name, health %, level, health #, Target of
+-- Target).
+local ADD_ORDER = { "enemyName", "healthPercent", "level", "healthNumber", "targetOfTarget" }
+-- Keys a moved text takes along: as saved (MOVE_RAW), and as the difference
+-- from each position's default (MOVE_OFFSETS). Its Size and colour mode go
+-- along through MoveText too.
+local MOVE_RAW = { "Strata", "Color", "NameColorOn", "NameColor", "LevelColorOn", "LevelColor", "LevelDiffOn",
+                   "WidthPct", "Wrap", "PctDecimal", "NameFormat" }
+local MOVE_OFFSETS = { "XOffset", "YOffset" }
+
+-- The six text positions in ns.textSlotKeys order: the order of the Core Text
+-- Positions list, its position menus and the Core Text Coloring section
+-- (CoreTextColoring_Options.lua reads this table at build time).
+ns.NPO_TEXT_SLOTS = {
+    { key = "textSlotTop",         label = "Top Text",          menu = "Top",          coloring = "Top Text Coloring" },
+    { key = "textSlotRight",       label = "Right Text",        menu = "Right",        coloring = "Right Text Coloring" },
+    { key = "textSlotLeft",        label = "Left Text",         menu = "Left",         coloring = "Left Text Coloring" },
+    { key = "textSlotCenter",      label = "Center Text",       menu = "Center",       coloring = "Center Text Coloring" },
+    { key = "textSlotBottomLeft",  label = "Bottom Left Text",  menu = "Bottom Left",  coloring = "Bottom Left Text Coloring" },
+    { key = "textSlotBottomRight", label = "Bottom Right Text", menu = "Bottom Right", coloring = "Bottom Right Text Coloring" },
+}
+local POS_ORDER, POS_VALUES = {}, {}
+for i = 1, #ns.NPO_TEXT_SLOTS do
+    local s = ns.NPO_TEXT_SLOTS[i]
+    POS_ORDER[i] = s.key
+    POS_VALUES[s.key] = s.menu
+end
+
+-- A position shows a text while its element is a KNOWN one.
+function ns.NPO_TextSlotShown(slotKey) return KNOWN[ns._NPO_OptEnv.DBVal(slotKey)] == true end
+
+-- The texts' structure: each position's element and, for a shown text, its
+-- colour mode (which decides its Core Text Coloring controls). Taken at each
+-- page build; a cached Display page whose structure changed behind it is
+-- rebuilt on restore (EUI_Nameplates_Options.lua, onPageCacheRestore).
+function ns.NPO_TextStructureFP()
+    local env = ns._NPO_OptEnv
+    local DBVal, db = env.DBVal, env.DB()
+    local parts = {}
+    for i = 1, #POS_ORDER do
+        local key = POS_ORDER[i]
+        local el = DBVal(key)
+        parts[#parts + 1] = tostring(el)
+        if KNOWN[el] then parts[#parts + 1] = ns.NP_SlotColorMode(key, db) end
+    end
+    return table.concat(parts, "\31")
+end
 
 local function BuildDisplayLayout(parent, y, ctx)
     local env = ns._NPO_OptEnv
@@ -80,6 +137,34 @@ local function BuildDisplayLayout(parent, y, ctx)
             UpdatePreview()
           end }))
     y = y - h
+    -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
+    -- border size control. The stock styles keep every plate square, and so
+    -- does Wrap Around Castbar (the plates stand rounding down while it is on).
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(borderStyleRow._rightRegion, {
+            title = "Corner Radius", tip = "Corner Radius",
+            disabled = function()
+                if EllesmereUI.BlizzStyle.Get("nameplates") then return true end
+                if DBVal("wrapBorderCastbar") == true then return true end
+                return DBVal("customBorderEnabled") and not EllesmereUI.RoundedStyleOK(DBVal("customBorderTexture") or defaults.customBorderTexture)
+            end,
+            disabledTooltip = function()
+                if EllesmereUI.BlizzStyle.Get("nameplates") then return EllesmereUI.BlizzStyle.Label("nameplates") end
+                if DBVal("wrapBorderCastbar") == true then return "Wrap Around Castbar" end
+                return "This option requires the Solid, Glow or Shadow border style."
+            end,
+            requireState = "disabled",
+            rows = EllesmereUI.RoundedJoinRow(EllesmereUI.RoundedCornerRows({
+                { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                  get = function() return DBVal("cornerRadius") or 0 end,
+                  set = function(v) DB().cornerRadius = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end },
+            }, function() return DBVal("cornerMask") end,
+               function(v) DB().cornerMask = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end),
+                "Join Cast Bar", "While a cast shows, rounds the health bar and the cast bar under it as one shape.",
+                function() return DBVal("cornerJoinCast") end,
+                function(v) DB().cornerJoinCast = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end),
+        })
+    end
     -- Inline swatch on the Border dropdown: standard (Basic) border color, dimmed unless mode is Basic.
     if not EllesmereUI._prebuilding then
         local leftRgn = borderStyleRow._leftRegion
@@ -143,8 +228,10 @@ local function BuildDisplayLayout(parent, y, ctx)
                 DB().wrapBorderCastbar = v
                 -- Unconditional re-apply so toggling OFF also unwraps any plate mid-cast and wrapped.
                 ns.ApplyBorderWrapToAll()
+                -- Corner Radius stands down while the wrap is on: square or re-round the plates.
+                if (DBVal("cornerRadius") or 0) > 0 then ns.RefreshBorder(); ns.RefreshCastBorder() end
                 UpdatePreview()
-                -- Show Seam Line's disabled state follows this toggle.
+                -- Show Seam Line's and Corner Radius's disabled states follow this toggle.
                 EllesmereUI:RefreshPage()
               end },
         }
@@ -562,7 +649,8 @@ local function BuildDisplayLayout(parent, y, ctx)
                   end },
                 -- Same placements as the unit frames' Absorb Rendering cog, except
                 -- that Overlay Reverse here keeps a shield larger than current
-                -- health (the unit frames clip that excess).
+                -- health, as their Overlay Reverse (Full) does (their plain
+                -- Overlay Reverse clips that excess).
                 { type = "dropdown", label = "Placement",
                   tooltip = "Overlay fills empty health first, then draws any excess over current health. Overlay Reverse draws the shield back over current health; a shield larger than current health spans from the bar's left end. From Right Edge and From Left Edge grow the whole shield from that end of the bar.",
                   values = { overlay = "Overlay", overlayReverse = "Overlay Reverse",
@@ -950,7 +1038,7 @@ local function BuildDisplayLayout(parent, y, ctx)
                 EllesmereUI._popupFrames[#EllesmereUI._popupFrames + 1] = { popup = pf }
             end
 
-            local bg = SolidTex(pf, "BACKGROUND", 0.06, 0.08, 0.10, 0.95)
+            local bg = SolidTex(pf, "BACKGROUND", 0.077, 0.068, 0.058, 0.95)
             bg:SetAllPoints()
             MakeBorder(pf, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15)
 
@@ -2131,6 +2219,7 @@ local function BuildDisplayLayout(parent, y, ctx)
         topleft  = { coreRow3, "_leftRegion" },
         bottom   = { coreRow3, "_rightRegion" },
     }
+    ctx.corePosToRegion = posToRegion
 
     -- Eye icon that follows whichever Core Positions dropdown has "Raid Marker"
     do
@@ -2262,9 +2351,10 @@ local function BuildDisplayLayout(parent, y, ctx)
         healthNumPct         = "Health # | %",
         healthPctNumDash     = "Health % - #",
         healthNumPctDash     = "Health # - %",
-        none                 = "None",
+        healthNumMax         = "Health # / Max #",
+        none                 = "Remove",
     }
-    local textElementOrder = { "none", "---", "enemyName", "levelName", "nameLevel", "level", "targetOfTarget", "healthPercent", "healthPercentNoSign", "healthNumber", "healthPctNum", "healthNumPct", "healthPctNumDash", "healthNumPctDash" }
+    local textElementOrder = { "none", "---", "enemyName", "levelName", "nameLevel", "level", "targetOfTarget", "healthPercent", "healthPercentNoSign", "healthNumber", "healthPctNum", "healthNumPct", "healthPctNumDash", "healthNumPctDash", "healthNumMax" }
 
     local function TextSlotSetValue(slotKey, v)
         -- Target of Target starts in Class mode whenever a slot newly takes it;
@@ -2280,7 +2370,7 @@ local function BuildDisplayLayout(parent, y, ctx)
             end
         end
         ns.RefreshAllSettings()
-        -- Rebuild: the Text Coloring rows, their modes and cogs follow the
+        -- Rebuild: the list and the Core Text Coloring section follow the
         -- slotted elements (a slot change can also clear another slot).
         UpdatePreview(); EllesmereUI:RefreshPage(true)
     end
@@ -2383,11 +2473,10 @@ local function BuildDisplayLayout(parent, y, ctx)
             if EllesmereUI.IS_FOREVER and (ns.IsNameElement(slotEl) or slotEl == "targetOfTarget") then
                 local nfKey = slotKey .. "NameFormat"
                 cogOpts.dropdown2Label = "Name Format"
-                cogOpts.dropdown2Values = {
-                    { value = "first", label = "First Name" },
-                    { value = "last",  label = "Last Name" },
-                    { value = "full",  label = "First and Last" },
-                }
+                cogOpts.dropdown2Values = {}
+                for _, k in ipairs(EllesmereUI.NAME_FORMAT_ORDER) do
+                    cogOpts.dropdown2Values[#cogOpts.dropdown2Values + 1] = { value = k, label = EllesmereUI.NAME_FORMAT_VALUES[k] }
+                end
                 cogOpts.dropdown2Get = function() return DBVal(nfKey) or "full" end
                 cogOpts.dropdown2Set = function(v)
                     DB()[nfKey] = (v ~= "full") and v or nil
@@ -2413,272 +2502,176 @@ local function BuildDisplayLayout(parent, y, ctx)
 
     parent._showRowDivider = true
 
-    -- Text Coloring rows: one under each position row, its halves mirroring that
-    -- row (a None slot's half stays blank). The dropdown picks the slot's colour
-    -- mode; ns.NP_SlotColorMode reads the saved mode, or derives it from the older
-    -- colour keys until one is picked, so the page and the plates always agree.
-    -- Custom paints the slot colour; Hostility / Class paints enemy players by
-    -- class and NPCs by the Tapped / Neutral / Hostile name colours every slot
-    -- shares (Target of Target: the target's class, else the slot colour); Level
-    -- Difficulty paints the unit's level difficulty colour (every text but Target
-    -- of Target, which names another unit).
-    local COLOR_MODE_ORDER = { "custom", "class" }
-    local COLOR_MODE_ORDER_LEVEL = { "custom", "class", "level" }
-    local function TextColoringCfg(slotKey, label)
-        local el = DBVal(slotKey)
-        if el == "none" then return EllesmereUI.BlankRowCfg() end
-        local values, order
-        if el == "targetOfTarget" then
-            values, order = { custom = "Custom", class = "Class" }, COLOR_MODE_ORDER
-        else
-            values = { custom = "Custom", class = "Hostility / Class", level = "Level Difficulty" }
-            order = COLOR_MODE_ORDER_LEVEL
+    -- The list: one cell per position that shows a text, two to a row in
+    -- position order, then Add Text Slot. A text's name opens the positions it
+    -- can move to, its dropdown picks what it shows (Remove takes it off; the
+    -- position keeps its other settings) and its cog holds Size, offsets and
+    -- the rest. Every check runs at click time, so a menu that outlived a
+    -- change writes nothing stale; each structure change rebuilds the page.
+    local function IsAssigned(slotKey) return KNOWN[DBVal(slotKey)] == true end
+    local function IsFree(slotKey) return not IsAssigned(slotKey) end
+
+    -- Add Text Slot's text: the first of ADD_ORDER whose font string no shown
+    -- text uses, so adding never takes one off (nil when every one is used).
+    local function FontStringUsed(fsKey)
+        for i = 1, #POS_ORDER do
+            local s = POS_ORDER[i]
+            if IsAssigned(s) and ns.NP_ElementFSKey(DBVal(s)) == fsKey then return true end
         end
-        return { type="dropdown", text=label, values=values, order=order,
-          getValue=function() return ns.NP_SlotColorMode(slotKey, DB()) end,
-          -- The mode is saved only when the pick differs from what the slot derives
-          -- with none saved, so picking the derived value pins nothing. Rebuild: the
-          -- shared NPC swatches exist only on a Hostility / Class half.
-          setValue=function(v)
-            local db = DB()
-            db[slotKey .. "ColorMode"] = nil
-            if ns.NP_SlotColorMode(slotKey, db) ~= v then
-                db[slotKey .. "ColorMode"] = v
+        return false
+    end
+    local function AddCandidate()
+        for i = 1, #ADD_ORDER do
+            local el = ADD_ORDER[i]
+            if not FontStringUsed(ns.NP_ElementFSKey(el)) then return el end
+        end
+    end
+    -- Why Add Text Slot is greyed (nil while a text can be added).
+    local function AddBlocked()
+        local full = true
+        for i = 1, #POS_ORDER do
+            if IsFree(POS_ORDER[i]) then full = false end
+        end
+        if full then return "Every text position is full." end
+        if not AddCandidate() then return "Every text is already shown." end
+    end
+    -- Adds AddCandidate's text at the free position P, exactly as picking that
+    -- element in an empty slot (TextSlotSetValue rebuilds the page, where the
+    -- new text's cell reports the write to Spec Overrides). A position taken
+    -- or every font string used since the menu opened only resyncs the page.
+    local function AddText(P)
+        local cand = AddCandidate()
+        if not IsFree(P) or not cand then EllesmereUI:RefreshPage(true); return end
+        optState._npNotifySlot = P
+        TextSlotSetValue(P, cand)
+        optState._npNotifySlot = nil
+    end
+
+    -- Moves the text at S to the free position T with its look: its element,
+    -- its effective Size, its offsets (the tweak from S's default, added to
+    -- T's default), the MOVE_RAW keys as saved and its colour mode (saved only
+    -- when T would derive another, as the coloring dropdown does). T's old
+    -- keys are replaced; S keeps its other keys, unused. A cell gone stale
+    -- since its menu opened only resyncs the page.
+    local function MoveText(S, T)
+        if S == T then return end
+        if not IsAssigned(S) or not IsFree(T) then EllesmereUI:RefreshPage(true); return end
+        local db = DB()
+        local mode = ns.NP_SlotColorMode(S, db)   -- read before any write
+        local el = DBVal(S)
+        local size = DBVal(S .. "Size")
+        local tSize = DBVal(T .. "Size")
+        for i = 1, #MOVE_OFFSETS do
+            local suf = MOVE_OFFSETS[i]
+            local sDef = defaults[S .. suf] or 0
+            local sv = db[S .. suf]
+            if sv == nil then sv = sDef end
+            local v = (defaults[T .. suf] or 0) + (sv - sDef)
+            if db[T .. suf] ~= v then db[T .. suf] = v end
+        end
+        for i = 1, #MOVE_RAW do
+            local suf = MOVE_RAW[i]
+            local v = db[S .. suf]
+            if type(v) == "table" then v = CopyTable(v) end
+            db[T .. suf] = v
+        end
+        if size ~= tSize then db[T .. "Size"] = size end
+        db[T] = el
+        db[S] = "none"
+        db[T .. "ColorMode"] = nil
+        if ns.NP_SlotColorMode(T, db) ~= mode then db[T .. "ColorMode"] = mode end
+        ns.RefreshAllSettings(); UpdatePreview()
+        -- The moved text's new cell reports the write to Spec Overrides.
+        optState._npNotifySlot = T; EllesmereUI:RefreshPage(true); optState._npNotifySlot = nil
+    end
+
+    -- A combined health text cannot sit Left or Right while a name is centered
+    -- on the health bar (the texts would overlap).
+    local function COMBO_VS_CENTER_NAME(k)
+        if ns.IsComboHealthText(k) and ns.IsNameElement(DBVal("textSlotCenter")) then
+            return "Disabled when the Name/Level text is centered on the health bar due to overlapping text"
+        end
+    end
+    -- A text's position menu: its own position selected (picking it does
+    -- nothing), a taken one greyed, Left / Right greyed by the rule above;
+    -- every item greyed on a cell gone stale.
+    local function MoveDisabled(S)
+        return function(v)
+            if not IsAssigned(S) then return true end
+            if v == S then return nil end
+            if IsAssigned(v) then return true end
+            if v == "textSlotLeft" or v == "textSlotRight" then return COMBO_VS_CENTER_NAME(DBVal(S)) end
+        end
+    end
+
+    local function TextCellCfg(s)
+        return { type="dropdown", text=s.label, values=textElementValues, order=textElementOrder,
+          getValue=function() return DBVal(s.key) end,
+          setValue=function(v) TextSlotSetValue(s.key, v) end,
+          disabledValues = (s.key == "textSlotLeft" or s.key == "textSlotRight") and COMBO_VS_CENTER_NAME or nil }
+    end
+    local addOpen   -- the Add Text Slot menu's toggle, once its row is built
+    local addCfg = { type="button", text="+ Add Text Slot", width=220,
+          onClick=function() if addOpen then addOpen() end end,
+          disabled=function() return AddBlocked() ~= nil end,
+          disabledTooltip=function() return AddBlocked() end, rawTooltip=true }
+
+    local cells = {}
+    for i = 1, #ns.NPO_TEXT_SLOTS do
+        local s = ns.NPO_TEXT_SLOTS[i]
+        if IsAssigned(s.key) then cells[#cells + 1] = s end
+    end
+    cells[#cells + 1] = addCfg
+    local function CellCfg(c)
+        if c == nil then return EllesmereUI.BlankRowCfg() end
+        if c == addCfg then return addCfg end
+        return TextCellCfg(c)
+    end
+    -- After its row: a text cell is recorded for the preview's click
+    -- navigation (search pre-build too). Row chrome, never on the pre-build's
+    -- rows: Add Text Slot's position menu, and a text's name menu, cog and
+    -- Spec Overrides report.
+    local textSlotCells, textFirstRow = {}, nil
+    local function FinishCell(row, side, c)
+        if c == nil then return end
+        textFirstRow = textFirstRow or row
+        local rgn = row[side]
+        if c == addCfg then
+            if not EllesmereUI._prebuilding then
+                addOpen = EllesmereUI.AttachButtonMenu(rgn._control, { width = 220, order = POS_ORDER,
+                    values = POS_VALUES, setValue = AddText,
+                    itemDisabled = function(v) if IsAssigned(v) or not AddCandidate() then return true end end })
             end
-            ns.RefreshAllSettings()
-            UpdatePreview(); EllesmereUI:RefreshPage(true)
-          end }
-    end
-
-    -- A Text Coloring half's inline controls. Level | Name and Name | Level get a
-    -- cog beside the dropdown with the name and level part colours (inline escapes
-    -- on that part only; the rest of the text keeps the mode's colour). The
-    -- swatches chain left of it, shown by the mode from the page refresh: Custom
-    -- the slot colour, Hostility / Class the three shared NPC colours (Target of
-    -- Target: the slot colour, used for an NPC target), Level Difficulty none. The
-    -- NPC swatches are built only on a Hostility / Class half, so no other half
-    -- traces the shared keys for Spec Overrides. Every write goes through the
-    -- dropdown, a cog row or a swatch, which the Spec Overrides capture follows on
-    -- its own.
-    local npcSwatchUpdates = {}  -- the shared NPC swatches of every row, repainted together
-    local function MakeTextColoringInline(row, regionKey, slotKey, title)
-        local el = DBVal(slotKey)
-        if el == "none" then return end
-        local rgn = row[regionKey]
-        local colorKey = slotKey .. "Color"
-        local isToT = el == "targetOfTarget"
-        local function Mode() return ns.NP_SlotColorMode(slotKey, DB()) end
-        local function Apply()
-            ns.RefreshAllSettings()
-            UpdatePreview()
+            return
         end
-
-        if el == "levelName" or el == "nameLevel" then
-            local nameOnKey, nameColorKey = slotKey .. "NameColorOn", slotKey .. "NameColor"
-            local lvlOnKey, lvlColorKey = slotKey .. "LevelColorOn", slotKey .. "LevelColor"
-            local diffKey = slotKey .. "LevelDiffOn"
-            -- A part colour not picked yet starts from the slot colour.
-            local function PartColor(key)
-                local db = DB()
-                local c = (db and (db[key] or db[colorKey])) or defaults[colorKey]
-                return c.r, c.g, c.b
-            end
-            EllesmereUI.BuildInlineCog(rgn, {
-                title = title,
-                captureRegion = rgn,
-                rows = {
-                    { type="toggle", label="Custom Name Color",
-                      get=function() return DBVal(nameOnKey) == true end,
-                      set=function(v) DB()[nameOnKey] = v; Apply() end },
-                    { type="colorpicker", label="Name Color",
-                      hidden=function() return DBVal(nameOnKey) ~= true end,
-                      get=function() return PartColor(nameColorKey) end,
-                      set=function(r, g, b) DB()[nameColorKey] = { r = r, g = g, b = b }; Apply() end },
-                    { type="toggle", label="Custom Level Color",
-                      get=function() return DBVal(lvlOnKey) == true end,
-                      set=function(v)
-                        DB()[lvlOnKey] = v
-                        if v then DB()[diffKey] = false end
-                        Apply()
-                      end },
-                    { type="colorpicker", label="Level Color",
-                      hidden=function() return DBVal(lvlOnKey) ~= true end,
-                      get=function() return PartColor(lvlColorKey) end,
-                      set=function(r, g, b) DB()[lvlColorKey] = { r = r, g = g, b = b }; Apply() end },
-                    -- The whole text already takes the difficulty colour in Level
-                    -- Difficulty mode.
-                    { type="toggle", label="Level Difficulty Color",
-                      hidden=function() return Mode() == "level" end,
-                      get=function() return ns.NP_SlotLevelDiff(slotKey, DB()) end,
-                      set=function(v)
-                        DB()[diffKey] = v
-                        if v then DB()[lvlOnKey] = false end
-                        Apply()
-                      end },
-                },
-            })
+        textSlotCells[c.key] = { row = row, side = side }
+        if EllesmereUI._prebuilding then return end
+        EllesmereUI.BuildRowLabelMenu(rgn, { order = POS_ORDER, values = POS_VALUES,
+            getValue = function() return c.key end,
+            setValue = function(v) MoveText(c.key, v) end,
+            itemDisabled = MoveDisabled(c.key),
+            tooltip = "Choose this text's slot position." })
+        MakeTextCogIcon(row, side, c.key, c.label)
+        if optState._npNotifySlot == c.key then
+            optState._npNotifySlot = nil
+            EllesmereUI._NotifySettingWrite(rgn)
         end
-
-        local anchor = rgn._lastInline or rgn._control
-        local gap = rgn._lastInline and -8 or -12
-        local custom, updateCustom = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-            function()
-                local c = (DB() and DB()[colorKey]) or defaults[colorKey]
-                return c.r, c.g, c.b
-            end,
-            function(r, g, b)
-                DB()[colorKey] = { r = r, g = g, b = b }
-                Apply()
-            end, nil, 20)
-        PP.Point(custom, "RIGHT", anchor, "LEFT", gap, 0)
-        custom:SetScript("OnEnter", function()
-            if isToT and Mode() == "class" then
-                EllesmereUI.ShowWidgetTooltip(custom, EllesmereUI.L("NPC Target Color"))
-            else
-                EllesmereUI.ShowWidgetTooltip(custom, EllesmereUI.L("Custom Color"))
-            end
-        end)
-        custom:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        rgn._lastInline = custom
-
-        -- Hostility / Class: Tapped / Neutral / Hostile left to right, Hostile in
-        -- the custom swatch's place.
-        local npc, npcUpd
-        if not isToT and Mode() == "class" then
-            npc, npcUpd = {}, {}
-            local prev, prevGap = anchor, gap
-            local function NPCSwatch(key, fallbackKey, tip)
-                local sw, upd = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                    function()
-                        local c = (DB() and DB()[key]) or defaults[fallbackKey]
-                        return c.r, c.g, c.b
-                    end,
-                    -- Read live by the per-unit painter, so a health colour pass repaints.
-                    function(r, g, b)
-                        DB()[key] = { r = r, g = g, b = b }
-                        RefreshAllPlates()
-                        UpdatePreview()
-                        for i = 1, #npcSwatchUpdates do npcSwatchUpdates[i]() end
-                    end, nil, 20)
-                PP.Point(sw, "RIGHT", prev, "LEFT", prevGap, 0)
-                prev, prevGap = sw, -8
-                sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, tip) end)
-                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                npc[#npc + 1] = sw
-                npcUpd[#npcUpd + 1] = upd
-                npcSwatchUpdates[#npcSwatchUpdates + 1] = upd
-                return sw
-            end
-            NPCSwatch("enemyNameHostileColor", "hostile", EllesmereUI.L("Hostile Color"))
-            NPCSwatch("enemyNameNeutralColor", "neutral", EllesmereUI.L("Neutral Color"))
-            -- Leftmost built item: the label clamp keeps the label clear of it.
-            rgn._lastInline = NPCSwatch("enemyNameTappedColor", "tapped", EllesmereUI.L("Tapped Color"))
-        end
-
-        local function ShowForMode()
-            local m = Mode()
-            custom:SetShown(m == "custom" or (isToT and m == "class"))
-            updateCustom()
-            if npc then
-                local on = m == "class"
-                for i = 1, #npc do
-                    npc[i]:SetShown(on)
-                    npcUpd[i]()
-                end
-            end
-        end
-        EllesmereUI.RegisterWidgetRefresh(ShowForMode)
-        ShowForMode()
     end
-
-    -- Builds the Text Coloring row under a position row while either of its slots
-    -- shows a text; returns the new y.
-    local function TextColoringRow(rowY, leftSlot, leftLabel, rightSlot, rightLabel)
-        if DBVal(leftSlot) == "none" and DBVal(rightSlot) == "none" then return rowY end
-        local row, rowH = W:DualRow(parent, rowY,
-            TextColoringCfg(leftSlot, leftLabel), TextColoringCfg(rightSlot, rightLabel))
-        if not EllesmereUI._prebuilding then
-            MakeTextColoringInline(row, "_leftRegion", leftSlot, leftLabel)
-            MakeTextColoringInline(row, "_rightRegion", rightSlot, rightLabel)
-        end
-        return rowY - rowH
+    for k = 1, #cells, 2 do
+        local row
+        row, h = W:DualRow(parent, y, CellCfg(cells[k]), CellCfg(cells[k + 1]));  y = y - h
+        FinishCell(row, "_leftRegion", cells[k])
+        FinishCell(row, "_rightRegion", cells[k + 1])
     end
-
-    local textRow1, textRow2, textRow3
-
-    -- Row 1: Top Text | Right Text
-    textRow1, h = W:DualRow(parent, y,
-        { type="dropdown", text="Top Text", values=textElementValues,
-          getValue=function() return DBVal("textSlotTop") end,
-          setValue=function(v) TextSlotSetValue("textSlotTop", v) end,
-          order=textElementOrder,
-          disabled=function() return DBVal("textSlotTop") == "none" end,
-          disabledTooltip="This option requires a text to be assigned", rawTooltip=true,
-          labelOnlyDisabled=true },
-        { type="dropdown", text="Right Text", values=textElementValues,
-          getValue=function() return DBVal("textSlotRight") end,
-          setValue=function(v) TextSlotSetValue("textSlotRight", v) end,
-          order=textElementOrder,
-          disabled=function() return DBVal("textSlotRight") == "none" end,
-          disabledTooltip="This option requires a text to be assigned", rawTooltip=true,
-          labelOnlyDisabled=true,
-          disabledValues=function(k) if ns.IsComboHealthText(k) and ns.IsNameElement(DBVal("textSlotCenter")) then return "Disabled when the Name/Level text is centered on the health bar due to overlapping text" end end });  y = y - h
-    if not EllesmereUI._prebuilding then
-    MakeTextCogIcon(textRow1, "_leftRegion",  "textSlotTop",   "Top Text")
-    MakeTextCogIcon(textRow1, "_rightRegion", "textSlotRight", "Right Text")
-    end
-    y = TextColoringRow(y, "textSlotTop", "Top Text Coloring", "textSlotRight", "Right Text Coloring")
-
-    -- Row 2: Left Text | Center Text
-    textRow2, h = W:DualRow(parent, y,
-        { type="dropdown", text="Left Text", values=textElementValues,
-          getValue=function() return DBVal("textSlotLeft") end,
-          setValue=function(v) TextSlotSetValue("textSlotLeft", v) end,
-          order=textElementOrder,
-          disabled=function() return DBVal("textSlotLeft") == "none" end,
-          disabledTooltip="This option requires a text to be assigned", rawTooltip=true,
-          labelOnlyDisabled=true,
-          disabledValues=function(k) if ns.IsComboHealthText(k) and ns.IsNameElement(DBVal("textSlotCenter")) then return "Disabled when the Name/Level text is centered on the health bar due to overlapping text" end end },
-        { type="dropdown", text="Center Text", values=textElementValues,
-          getValue=function() return DBVal("textSlotCenter") end,
-          setValue=function(v) TextSlotSetValue("textSlotCenter", v) end,
-          order=textElementOrder,
-          disabled=function() return DBVal("textSlotCenter") == "none" end,
-          disabledTooltip="This option requires a text to be assigned", rawTooltip=true,
-          labelOnlyDisabled=true });  y = y - h
-    if not EllesmereUI._prebuilding then
-    MakeTextCogIcon(textRow2, "_leftRegion",  "textSlotLeft",   "Left Text")
-    MakeTextCogIcon(textRow2, "_rightRegion", "textSlotCenter", "Center Text")
-    end
-    y = TextColoringRow(y, "textSlotLeft", "Left Text Coloring", "textSlotCenter", "Center Text Coloring")
-
-    -- Row 3: Bottom Left Text | Bottom Right Text (under the health bar's corners,
-    -- below the cast bar while one shows)
-    textRow3, h = W:DualRow(parent, y,
-        { type="dropdown", text="Bottom Left Text", values=textElementValues,
-          getValue=function() return DBVal("textSlotBottomLeft") end,
-          setValue=function(v) TextSlotSetValue("textSlotBottomLeft", v) end,
-          order=textElementOrder,
-          disabled=function() return DBVal("textSlotBottomLeft") == "none" end,
-          disabledTooltip="This option requires a text to be assigned", rawTooltip=true,
-          labelOnlyDisabled=true },
-        { type="dropdown", text="Bottom Right Text", values=textElementValues,
-          getValue=function() return DBVal("textSlotBottomRight") end,
-          setValue=function(v) TextSlotSetValue("textSlotBottomRight", v) end,
-          order=textElementOrder,
-          disabled=function() return DBVal("textSlotBottomRight") == "none" end,
-          disabledTooltip="This option requires a text to be assigned", rawTooltip=true,
-          labelOnlyDisabled=true });  y = y - h
-    if not EllesmereUI._prebuilding then
-    MakeTextCogIcon(textRow3, "_leftRegion",  "textSlotBottomLeft",  "Bottom Left Text")
-    MakeTextCogIcon(textRow3, "_rightRegion", "textSlotBottomRight", "Bottom Right Text")
-    end
-    y = TextColoringRow(y, "textSlotBottomLeft", "Bottom Left Text Coloring", "textSlotBottomRight", "Bottom Right Text Coloring")
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
-    return y, styleHeader, coreHeader, coreRow1, coreRow2, coreRow3, coreTextHeader, textRow1,
-        textRow2, textRow3, ShowCogPopup, CogPopupOpen, RefreshAllTextures
+    y = ns.NPO_BuildCoreTextColoring(parent, y, W)
+    -- The structure this build shows, for the cached page's restore check.
+    if not EllesmereUI._prebuilding then optState._npTextFP = ns.NPO_TextStructureFP() end
+
+    return y, styleHeader, coreHeader, coreRow1, coreRow2, coreRow3, coreTextHeader, textSlotCells,
+        textFirstRow, ShowCogPopup, CogPopupOpen, RefreshAllTextures
 end
 
 -- Used by EUI_Nameplates_Options.lua

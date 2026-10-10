@@ -1175,23 +1175,36 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(refreshLeft)
             refreshLeft()
 
-            -- Inline cog: left text X/Y offsets (live via ns.ApplyBarTextOffsets)
+            -- Inline cog: left text X/Y offsets (live via ns.ApplyBarTextOffsets).
+            -- WoW Forever heads it with the Name Format (a player's first or
+            -- last name; in combat other players' names are secret and show whole).
+            local leftRows = {
+                { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
+                  get = function() return Cfg("leftTextOffsetX") or 0 end,
+                  set = function(v)
+                      Set("leftTextOffsetX", v)
+                      if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
+                  end },
+                { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
+                  get = function() return Cfg("leftTextOffsetY") or 0 end,
+                  set = function(v)
+                      Set("leftTextOffsetY", v)
+                      if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
+                  end },
+            }
+            if EllesmereUI.IS_FOREVER then
+                local nameFormat = EllesmereUI.NameFormatCogRow(
+                    function() return Cfg("nameFormat") end,
+                    function(v)
+                        Set("nameFormat", v)
+                        ns.RefreshNames()
+                    end)
+                nameFormat.tooltip = "Other players' names show in full during combat."
+                table.insert(leftRows, 1, nameFormat)
+            end
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Left Text",
-                rows = {
-                    { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
-                      get = function() return Cfg("leftTextOffsetX") or 0 end,
-                      set = function(v)
-                          Set("leftTextOffsetX", v)
-                          if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
-                      end },
-                    { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
-                      get = function() return Cfg("leftTextOffsetY") or 0 end,
-                      set = function(v)
-                          Set("leftTextOffsetY", v)
-                          if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
-                      end },
-                },
+                rows = leftRows,
                 anchorTo = classSwatch, chain = false,
             })
         end

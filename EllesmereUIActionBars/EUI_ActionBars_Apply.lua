@@ -567,15 +567,18 @@ function EAB:ApplyCooldownFonts()
     end
 end
 
--- Immediate re-apply of the Hide Count at 0 alpha on every button, so the options
--- toggle applies on click instead of waiting for the next count event. Alpha only --
--- the count TEXT stays whatever its owners last wrote. Cold path: options clicks only.
--- Show Equipped Border, live: every square button's Border takes the look
--- (and shows on an equipped item's button) or hides again. The Blizzard and
--- Classic styles keep their own equipped border, so EllesmereUI style only.
-function EAB:ApplyEquippedBorder()
+-- Show Equipped Item Color, live: every square button's Border takes the look
+-- (and shows on an equipped item's button, in its rarity color) or hides
+-- again. The Blizzard and Classic styles keep their own equipped border, so
+-- EllesmereUI style only. changedOnly (ApplyAll: profile / spec switches,
+-- imports) repaints only when the value differs from the one last painted;
+-- the first pass just records it, as button setup painted from it.
+function EAB:ApplyEquippedBorder(changedOnly)
+    local on = self.db.profile.showEquippedBorder and true or false
+    local was = ns._eabEqBorderOn
+    ns._eabEqBorderOn = on
+    if changedOnly and (was == nil or was == on) then return end
     if ns.AB_Style() ~= "eui" then return end
-    local on = self.db.profile.showEquippedBorder
     for _, info in ipairs(BAR_CONFIG) do
         local btns = barButtons[info.key]
         if btns then
@@ -583,9 +586,7 @@ function EAB:ApplyEquippedBorder()
                 local bd = btn.Border
                 if bd and EFD(btn).squared then
                     if on then
-                        ns.AB_EquippedBorderLook(bd)
-                        local a = btn:GetAttribute("action")
-                        bd:SetShown(a and IsEquippedAction(a) and true or false)
+                        ns.AB_SyncEquippedBorder(btn, btn:GetAttribute("action"))
                     else
                         bd:Hide()
                         bd:SetAlpha(0)
@@ -596,6 +597,9 @@ function EAB:ApplyEquippedBorder()
     end
 end
 
+-- Immediate re-apply of the Hide Count at 0 alpha on every button, so the options
+-- toggle applies on click instead of waiting for the next count event. Alpha only --
+-- the count TEXT stays whatever its owners last wrote. Cold path: options clicks only.
 function EAB:RefreshAllCounts()
     if not (C_ActionBar and C_ActionBar.GetActionDisplayCount) then return end
     for _, info in ipairs(BAR_CONFIG) do

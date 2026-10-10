@@ -20,28 +20,20 @@ EllesmereUI.IS_FOREVER = (EUI_CLIENT_FOREVER == true)
 -- Classic's 29515.
 EllesmereUI.GCD_SPELL = EllesmereUI.IS_FOREVER and 29515 or 61304
 
--- The options-panel scale is exposed as a fixed-step dropdown ("EUI Options
--- Panel Scale"), NOT a free slider, and its getValue matches exact percentages
--- and falls through to "Normal (100%)" for anything else. So a seeded value
--- that is not one of these steps leaves the control reading 100% while the
--- panel renders at something else, and the user is snapped the moment they
--- open that dropdown. Every seeder must round onto this list.
+-- The options-panel scale moves in 5% steps from 75% to 200% (the Window Scale
+-- slider in the panel header). Every seeder rounds onto those steps, so the
+-- slider always reads exactly what the panel renders at.
 --
 -- Lives here (first file in the TOC) so the Startup seed, the migration and the panel
--- itself share ONE list -- three copies of these literals is how they drift apart.
-EllesmereUI.PANEL_SCALE_STEPS = { 0.75, 0.90, 1.00, 1.10, 1.25, 1.50, 2.00 }
+-- itself share ONE range -- copies of these literals is how they drift apart.
+EllesmereUI.PANEL_SCALE_MIN, EllesmereUI.PANEL_SCALE_MAX = 0.75, 2.00
 
--- Nearest allowed step to v. Ties round up (harmless: the panel reads large
--- rather than small, which is the direction this whole seed exists to fix).
+-- Nearest 5% step to v, inside the range. Ties round up (harmless: the panel reads
+-- large rather than small, which is the direction this whole seed exists to fix).
 function EllesmereUI.SnapPanelScale(v)
     if type(v) ~= "number" or v ~= v then return 1.00 end
-    local steps = EllesmereUI.PANEL_SCALE_STEPS
-    local best, bestDiff = steps[1], math.abs(v - steps[1])
-    for i = 2, #steps do
-        local diff = math.abs(v - steps[i])
-        if diff <= bestDiff then best, bestDiff = steps[i], diff end
-    end
-    return best
+    v = math.floor(v * 20 + 0.5) / 20
+    return math.max(EllesmereUI.PANEL_SCALE_MIN, math.min(EllesmereUI.PANEL_SCALE_MAX, v))
 end
 
 -- Lua APIs

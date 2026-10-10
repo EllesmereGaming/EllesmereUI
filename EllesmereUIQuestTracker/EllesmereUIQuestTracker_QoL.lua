@@ -47,17 +47,27 @@ end
 -------------------------------------------------------------------------------
 -- Auto-accept / auto-turn-in
 -------------------------------------------------------------------------------
+-- Blizzard's trivial flag never fires for a quest that scales to the player,
+-- so quests from an earlier expansion have a toggle of their own. Leveling
+-- (below max level or in Chromie Time) runs through older content, so that
+-- toggle waits for max level; WoW Forever has no older expansions.
+local function IsIgnoredQuest(questID, isTrivial)
+    if isTrivial and Cfg("autoAcceptIgnoreTrivial") then return true end
+    if not Cfg("autoAcceptIgnoreOldExpansion") or not questID or questID == 0 then return false end
+    if EllesmereUI.IS_FOREVER or C_PlayerInfo.IsPlayerInChromieTime()
+        or UnitLevel("player") < GetMaxLevelForPlayerExpansion() then
+        return false
+    end
+    local expansion = GetQuestExpansion(questID)
+    return expansion ~= nil and expansion >= 0 and expansion < GetServerExpansionLevel()
+end
+
 local function InstallAutoQuests()
     local autoFrame = CreateFrame("Frame")
     local autoPreventNPCGUID = nil
     autoFrame:RegisterEvent("QUEST_DETAIL")
     autoFrame:RegisterEvent("QUEST_COMPLETE")
     autoFrame:RegisterEvent("GOSSIP_SHOW")
-    if not EQT._eventFrames then EQT._eventFrames = {} end
-    if not EQT._eventRegistrations then EQT._eventRegistrations = {} end
-    local aidx = #EQT._eventFrames + 1
-    EQT._eventFrames[aidx] = autoFrame
-    EQT._eventRegistrations[aidx] = {"QUEST_DETAIL", "QUEST_COMPLETE", "GOSSIP_SHOW"}
     autoFrame:SetScript("OnEvent", function(_, event, ...)
         if Cfg("enabled") == false then return end
 
@@ -77,6 +87,13 @@ local function InstallAutoQuests()
                 if Cfg("autoAccept") and C_GossipInfo.GetAvailableQuests then
                     if Cfg("autoAcceptShiftSkip") and IsShiftKeyDown() then return end
                     local available = C_GossipInfo.GetAvailableQuests()
+                    if available then
+                        for i = #available, 1, -1 do
+                            if IsIgnoredQuest(available[i].questID, available[i].isTrivial) then
+                                table.remove(available, i)
+                            end
+                        end
+                    end
                     if available and #available > 0 then
                         local npcGUID = UnitGUID("npc")
                         if Cfg("autoAcceptPreventMulti") then
@@ -110,6 +127,8 @@ local function InstallAutoQuests()
         if event == "QUEST_DETAIL" then
             if not Cfg("autoAccept") then return end
             if Cfg("autoAcceptShiftSkip") and IsShiftKeyDown() then return end
+            local questID = GetQuestID()
+            if IsIgnoredQuest(questID, C_QuestLog.IsQuestTrivial(questID)) then return end
             AcceptQuest()
         elseif event == "QUEST_COMPLETE" then
             if not Cfg("autoTurnIn") then return end

@@ -2,8 +2,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUI_Widgets_CheckboxDropdowns.lua
 --  Checkbox dropdowns shared by the options pages: the empty-filter
---  warning, BuildVisOptsCBDropdown and its drag-reorder variant. Loads
---  right after EllesmereUI_Widgets.lua.
+--  warning, BuildVisOptsCBDropdown and its drag-reorder variant, and the
+--  slider dropdown (BuildSliderDropdown). Loads right after
+--  EllesmereUI_Widgets.lua.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 
@@ -78,6 +79,12 @@ end
 --  getFn(key) -> bool, setFn(key, bool)
 --  onMenuClosed (optional) fires once each time the open menu hides --
 --  callers that defer page rebuilds while the menu is open flush there.
+--  opts.dimLocked: locked rows dim their checkbox too, not only the label.
+--  opts.noAllLabel: the summary names every checked row even when all are
+--  checked (a selection, not a filter: never "All").
+--  opts.disabled (fn) + disabledTooltip/rawTooltip/requireState (as
+--  ResolveDisabledTip): greyed and click-blocked while it answers true, the
+--  reason on hover, re-checked with the page's widgets.
 --  Returns: ddBtn, refreshFn
 -------------------------------------------------------------------------------
 function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, getFn, setFn, onChanged, maxVisibleItems, searchable, closeButton, onMenuClosed, opts)
@@ -143,7 +150,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         -- the way the conditions actually combine.
         local sep = opts.separatorFn and opts.separatorFn() or ", "
         if #names == 0 then base = opts.emptyLabel and EllesmereUI.L(opts.emptyLabel) or EllesmereUI.L("None")
-        elseif #names == total then base = EllesmereUI.L("All")
+        elseif #names == total and not opts.noAllLabel then base = EllesmereUI.L("All")
         else base = table.concat(names, sep) end
         if hiddenCount > 0 then base = base .. " (-" .. hiddenCount .. ")" end
         return base
@@ -194,7 +201,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         end
         local mBg = menu:CreateTexture(nil, "BACKGROUND")
         mBg:SetAllPoints()
-        mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA or 0.92)
+        mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
         EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
         local ppScale = EllesmereUI.GetPopupScale() or 1
         menu:SetScale(ppScale)
@@ -492,7 +499,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 box:SetPoint("LEFT", row, "LEFT", 10, 0)
                 local boxBg = box:CreateTexture(nil, "BACKGROUND")
                 boxBg:SetAllPoints()
-                boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
                 boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
                 chk = box:CreateTexture(nil, "ARTWORK")
                 PP.SetInside(chk, box, 2, 2)
@@ -514,12 +521,19 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                 lblAnchor = ico
             end
+            -- Opt-in dimmed rows (item.dimFn): a pick that has no effect here right now
+            -- (it shows somewhere else) rests dimmed but stays clickable, and hovering it
+            -- shows item.dimTooltip (string or function) in place of item.tooltip.
+            local function Dimmed()
+                return (item.dimFn and item.dimFn()) and true or false
+            end
             -- Modifier rows rest in the accent only while active; read live, since a
             -- sibling's click flips the checked state (UpdateCheck runs on every row).
             local function RestColor()
                 if item.isModifier and getFn(item.key) then
                     return EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b
                 end
+                if Dimmed() then return 0.5, 0.5, 0.5 end
                 return 0.75, 0.75, 0.75
             end
             local lbl = row:CreateFontString(nil, "OVERLAY")
@@ -551,12 +565,36 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 negBox:SetFrameLevel(row:GetFrameLevel() + 1)
                 local negBg = negBox:CreateTexture(nil, "BACKGROUND")
                 negBg:SetAllPoints()
-                negBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                negBg:SetColorTexture(0.114, 0.106, 0.099, 1)
                 negBrd = EllesmereUI.MakeBorder(negBox, 0.4, 0.4, 0.4, 0.6, PP)
                 negChk = negBox:CreateTexture(nil, "ARTWORK")
                 PP.SetInside(negChk, negBox, 2, 2)
                 negChk:SetColorTexture(0.85, 0.3, 0.3, 1)
                 negChk:SetSnapToPixelGrid(false)
+            end
+            -- Opt-in colour swatch (item.swatch = { get = fn -> r, g, b, a, set = fn(r, g, b, a),
+            -- hasAlpha, disabled = fn, disabledTooltip (+ rawTooltip / requireState, as
+            -- ResolveDisabledTip) }): its own button at the row's right edge, so a click
+            -- opens the colour picker and never toggles the row. While disabled it dims
+            -- and a blocker takes its clicks and explains the requirement.
+            local sw, swUpdate, swBlock
+            if item.swatch then
+                local spec = item.swatch
+                sw, swUpdate = EllesmereUI.BuildColorSwatch(row, row:GetFrameLevel() + 1,
+                    spec.get, spec.set, spec.hasAlpha, 16)
+                sw:ClearAllPoints()
+                sw:SetPoint("RIGHT", row, "RIGHT", negBox and -32 or -10, 0)
+                lbl:SetPoint("RIGHT", sw, "LEFT", -6, 0)
+                swBlock = CreateFrame("Frame", nil, sw)
+                swBlock:SetAllPoints()
+                swBlock:SetFrameLevel(sw:GetFrameLevel() + 10)
+                swBlock:EnableMouse(true)
+                swBlock:SetScript("OnEnter", function()
+                    local tip = EllesmereUI.ResolveDisabledTip(spec)
+                    if tip then EllesmereUI.ShowWidgetTooltip(sw, tip) end
+                end)
+                swBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                swBlock:Hide()
             end
             local function ShowLaneLocked()
                 return item.showLockedFn and item.showLockedFn() or false
@@ -605,6 +643,12 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                         negBrd:SetColor(0.4, 0.4, 0.4, 0.6)
                     end
                 end
+                if sw then
+                    swUpdate()
+                    local off = item.swatch.disabled and item.swatch.disabled() or false
+                    sw:SetAlpha(off and 0.3 or 1)
+                    swBlock:SetShown(off and true or false)
+                end
                 -- Radio partners refresh each other, so this also runs on the hovered row;
                 -- repainting that one would drop its hover white until the mouse re-enters.
                 if item.isModifier and not row._isLocked and not row:IsMouseOver() then
@@ -625,6 +669,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 lbl:SetTextColor(1, 1, 1, 1)
                 hl:SetColorTexture(1, 1, 1, 0.04)
                 local tip = item.tooltip
+                if item.dimTooltip and Dimmed() then tip = item.dimTooltip end
                 if type(tip) == "function" then tip = tip() end
                 if tip then
                     EllesmereUI.ShowWidgetTooltip(row, tip)
@@ -639,7 +684,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 end
                 lbl:SetTextColor(RestColor())
                 hl:SetColorTexture(1, 1, 1, 0)
-                if item.tooltip then
+                if item.tooltip or item.dimTooltip then
                     EllesmereUI.HideWidgetTooltip()
                 end
             end)
@@ -651,6 +696,12 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                     lbl:SetTextColor(0.4, 0.4, 0.4, 0.5)
                 else
                     lbl:SetTextColor(RestColor())
+                end
+                -- opts.dimLocked: a locked row's checkbox dims with its label, so a
+                -- checked one reads as fixed rather than clickable (dual rows keep
+                -- their own lane dimming).
+                if opts.dimLocked and box and not item.dual then
+                    box:SetAlpha(isLocked and 0.4 or 1)
                 end
             end
             row._updateLocked = UpdateLocked
@@ -984,8 +1035,11 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         -- Track the open menu globally so popup outside-click watchers don't treat clicks on rows that extend below the popup as a dismissing outside click.
         EllesmereUI._openDropdownMenu = menu
         menu:SetScript("OnUpdate", function(self)
-            -- Close when left-clicking outside the menu and button
-            if not self:IsMouseOver() and not ddBtn:IsMouseOver() and IsMouseButtonDown("LeftButton") then
+            -- Close when left-clicking outside the menu and button. The shared colour
+            -- picker is a separate popup a row swatch opens: working in it keeps the menu.
+            local cp = EllesmereUI._colorPickerPopup
+            if not self:IsMouseOver() and not ddBtn:IsMouseOver() and IsMouseButtonDown("LeftButton")
+                and not (cp and cp:IsShown()) then
                 self:Hide()
                 return
             end
@@ -1042,7 +1096,96 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             if menu._ovSeal then menu._ovSeal:SetShown(opts.ovLockedFn()) end
         end
     end
+
+    if opts.disabled then
+        local block = CreateFrame("Frame", nil, ddBtn)
+        block:SetAllPoints()
+        block:SetFrameLevel(ddBtn:GetFrameLevel() + 20)
+        block:EnableMouse(true)
+        block:SetScript("OnEnter", function()
+            local tip = EllesmereUI.ResolveDisabledTip(opts)
+            if tip then EllesmereUI.ShowWidgetTooltip(ddBtn, tip) end
+        end)
+        block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        local function DisabledState()
+            local off = opts.disabled() and true or false
+            ddBtn:SetAlpha(off and 0.4 or 1)
+            block:SetShown(off)
+            if off and menu then menu:Hide() end
+        end
+        DisabledState()
+        EllesmereUI.RegisterWidgetRefresh(DisabledState)
+    end
     return ddBtn, RefreshAll
+end
+
+-------------------------------------------------------------------------------
+--  Spec picker items for BuildVisOptsCBDropdown (the "Select a Spec" lists):
+--  "All Specs" first (key EllesmereUI.SPEC_PICK_ALL, an action row), then on
+--  retail every class's specs under its class header, classes in alphabetical
+--  order, with opts.roles adding the All Healers / All Tanks / All DPS action
+--  rows (keys SPEC_PICK_HEALERS / _TANKS / _DPS) after it. WoW Forever lists
+--  one row per class instead, keyed by its class token and standing for every
+--  retail spec of the class (EllesmereUI.ForeverClassSpecIDs; the caller's
+--  getter and setter expand it), and no role rows. opts.allLockedFn locks the
+--  action rows; opts.lockedFn(specID) locks a spec row, and a Forever class row
+--  while any spec of its class is locked. Returns the items and the role table
+--  ({ [SPEC_PICK_HEALERS] = spec IDs, ... }, empty on Forever).
+-------------------------------------------------------------------------------
+EllesmereUI.SPEC_PICK_ALL, EllesmereUI.SPEC_PICK_HEALERS = 0, -1
+EllesmereUI.SPEC_PICK_TANKS, EllesmereUI.SPEC_PICK_DPS = -2, -3
+function EllesmereUI.SpecPickItems(opts)
+    opts = opts or {}
+    local lockedFn, allLockedFn = opts.lockedFn, opts.allLockedFn
+    local items, roles = {}, {}
+    items[1] = { key = EllesmereUI.SPEC_PICK_ALL, label = "All Specs", isAction = true, lockedFn = allLockedFn }
+    if EllesmereUI.IS_FOREVER then
+        local classes = EllesmereUI.ForeverClasses()
+        for n = 1, #classes do
+            local token = classes[n]
+            local ids = EllesmereUI.ForeverClassSpecIDs(token)
+            items[#items + 1] = { key = token, label = EllesmereUI.ForeverClassName(token),
+                lockedFn = lockedFn and function()
+                    for i = 1, #ids do
+                        if lockedFn(ids[i]) then return true end
+                    end
+                    return false
+                end or nil }
+        end
+        return items, roles
+    end
+    if opts.roles then
+        items[#items + 1] = { key = EllesmereUI.SPEC_PICK_HEALERS, label = "All Healers", isAction = true, lockedFn = allLockedFn }
+        items[#items + 1] = { key = EllesmereUI.SPEC_PICK_TANKS, label = "All Tanks", isAction = true, lockedFn = allLockedFn }
+        items[#items + 1] = { key = EllesmereUI.SPEC_PICK_DPS, label = "All DPS", isAction = true, lockedFn = allLockedFn }
+    end
+    local classList = {}
+    for classID = 1, (GetNumClasses and GetNumClasses() or 13) do
+        local className = GetClassInfo(classID)
+        if className then
+            classList[#classList + 1] = { classID = classID, className = className }
+        end
+    end
+    table.sort(classList, function(a, b) return a.className < b.className end)
+    local healers, tanks, dps = {}, {}, {}
+    for _, cls in ipairs(classList) do
+        items[#items + 1] = { isHeader = true, label = cls.className }
+        for specIndex = 1, (C_SpecializationInfo.GetNumSpecializationsForClassID(cls.classID) or 0) do
+            local specID, specName, _, _, role = GetSpecializationInfoForClassID(cls.classID, specIndex)
+            if specID and specName then
+                local sid = specID
+                items[#items + 1] = { key = specID, label = specName,
+                    lockedFn = lockedFn and function() return lockedFn(sid) end or nil }
+                if role == "HEALER" then healers[#healers + 1] = specID
+                elseif role == "TANK" then tanks[#tanks + 1] = specID
+                else dps[#dps + 1] = specID end
+            end
+        end
+    end
+    roles[EllesmereUI.SPEC_PICK_HEALERS] = healers
+    roles[EllesmereUI.SPEC_PICK_TANKS] = tanks
+    roles[EllesmereUI.SPEC_PICK_DPS] = dps
+    return items, roles
 end
 
 -------------------------------------------------------------------------------
@@ -1052,7 +1195,7 @@ end
 --  items: array in initial display order:
 --      { key = "...", label = "...", fixed = true|nil }
 --  fixed rows are checkbox-only and pinned below the movable rows.
---  getFn(key) -> checked; setFn(key, checked) fires on row click.
+--  getFn(key) -> checked; setFn(key, checked, orderedMovableKeys) fires on row click.
 --  opts = {
 --      setOrder = function(orderedMovableKeys),  -- fired on every drop
 --      onClose  = function(orderChanged),        -- fired once per menu close
@@ -1060,7 +1203,14 @@ end
 --      hint2    = "...",                         -- optional second hint line
 --      canReorder = function() -> boolean,       -- optional drag guard
 --      summaryLabel = function(movable, fixed, getFn) -> string,
---  }
+--      head     = { { key, label }, ... },       -- plain rows (no box) at the top, a divider under them
+--      onHead   = function(key),
+--      tail     = { { key, label }, ... },       -- plain rows at the bottom, a divider above them
+--      onTail   = function(key),
+--      tailSelected = function(key) -> boolean,  -- shows a tail row as the current choice
+--      openOrder = function() -> keys | nil,     -- on every open: these movable rows first, in this
+--  }                                             -- order, the rest in their first order
+--  A plain row calls its callback, then closes the menu (onClose sees the pick).
 --  Returns ddBtn, RefreshAll (same contract as BuildVisOptsCBDropdown).
 -------------------------------------------------------------------------------
 function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, getFn, setFn, opts)
@@ -1075,6 +1225,19 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
     for _, it in ipairs(items) do
         if it.fixed then fixedItems[#fixedItems + 1] = it
         else movable[#movable + 1] = it end
+    end
+    local head, tail = opts.head or {}, opts.tail or {}
+    -- The movable rows' first order (opts.openOrder sorts from it).
+    local baseMovable = {}
+    for i = 1, #movable do baseMovable[i] = movable[i] end
+    local function MovableKeys()
+        local keys = {}
+        for i = 1, #movable do keys[i] = movable[i].key end
+        return keys
+    end
+    local plainPaints = {}
+    local function PaintPlainRows()
+        for i = 1, #plainPaints do plainPaints[i]() end
     end
 
     local ddBtn = CreateFrame("Button", nil, parentFrame)
@@ -1124,9 +1287,11 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
 
     local function EnsureMenu()
         if menu then return end
-        local ROWS_BASE_Y = -4 - HINT_H
-        local menuH = 4 + HINT_H + #movable * ITEM_H
-            + ((#fixedItems > 0) and (DIV_H + #fixedItems * ITEM_H) or 0) + 4
+        local HEAD_H = (#head > 0) and (#head * ITEM_H + DIV_H) or 0
+        local TAIL_H = (#tail > 0) and (DIV_H + #tail * ITEM_H) or 0
+        local ROWS_BASE_Y = -4 - HEAD_H - HINT_H
+        local menuH = 4 + HEAD_H + HINT_H + #movable * ITEM_H
+            + ((#fixedItems > 0) and (DIV_H + #fixedItems * ITEM_H) or 0) + TAIL_H + 4
         menu = CreateFrame("Frame", nil, EllesmereUI.OverlayParent())
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
         menu:SetFrameLevel(200)
@@ -1137,7 +1302,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
         menu:Hide()
         local mBg = menu:CreateTexture(nil, "BACKGROUND")
         mBg:SetAllPoints()
-        mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA or 0.92)
+        mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
         EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
         -- Controller cursor: the list blocks what is under it but is not a stop itself;
         -- Cancel clicks the dropdown button (it toggles the list closed).
@@ -1151,16 +1316,63 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
         hint:SetFont(fontPath, 10, "")
         hint:SetTextColor(1, 1, 1, 0.25)
         if opts.hint2 then
-            hint:SetPoint("TOP", menu, "TOP", 0, -6)
+            hint:SetPoint("TOP", menu, "TOP", 0, -6 - HEAD_H)
             local hint2 = menu:CreateFontString(nil, "OVERLAY")
             hint2:SetFont(fontPath, 9, "")
             hint2:SetTextColor(1, 1, 1, 0.25)
             hint2:SetPoint("TOP", hint, "BOTTOM", 0, -3)
             hint2:SetText(EllesmereUI.L(opts.hint2))
         else
-            hint:SetPoint("TOP", menu, "TOP", 0, -4 - (HINT_H - 10) / 2)
+            hint:SetPoint("TOP", menu, "TOP", 0, -4 - HEAD_H - (HINT_H - 10) / 2)
         end
         hint:SetText(EllesmereUI.L(opts.hint or "Drag to Reorder"))
+
+        -- A plain row (head or tail): its label alone; its callback runs before
+        -- the menu closes, so onClose sees the pick. A tail row shows the
+        -- current choice.
+        local function BuildPlainRow(item, slotY, onPick, selFn)
+            local row = CreateFrame("Button", nil, menu)
+            row:SetHeight(ITEM_H)
+            row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, slotY)
+            row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, slotY)
+            row:SetFrameLevel(menu:GetFrameLevel() + 2)
+            local lbl = row:CreateFontString(nil, "OVERLAY")
+            lbl:SetFont(fontPath, 13, "")
+            lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
+            lbl:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+            lbl:SetJustifyH("LEFT")
+            lbl:SetWordWrap(false)
+            lbl:SetMaxLines(1)
+            lbl:SetText(EllesmereUI.L(item.label))
+            local hl = row:CreateTexture(nil, "ARTWORK")
+            hl:SetAllPoints()
+            local hover = false
+            local function Paint()
+                local lit = hover or (selFn and selFn(item.key))
+                lbl:SetTextColor(lit and 1 or 0.75, lit and 1 or 0.75, lit and 1 or 0.75, 1)
+                hl:SetColorTexture(1, 1, 1, lit and 0.04 or 0)
+            end
+            Paint()
+            plainPaints[#plainPaints + 1] = Paint
+            row:SetScript("OnEnter", function() hover = true; Paint() end)
+            row:SetScript("OnLeave", function() hover = false; Paint() end)
+            row:SetScript("OnClick", function()
+                hover = false
+                if onPick then onPick(item.key) end
+                menu:Hide()
+                UpdateLabel()
+            end)
+        end
+        for i = 1, #head do
+            BuildPlainRow(head[i], -4 - (i - 1) * ITEM_H, opts.onHead)
+        end
+        if #head > 0 then
+            local hd = menu:CreateTexture(nil, "ARTWORK")
+            hd:SetHeight(1)
+            hd:SetPoint("TOPLEFT", menu, "TOPLEFT", 10, -4 - #head * ITEM_H - 3)
+            hd:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -10, -4 - #head * ITEM_H - 3)
+            hd:SetColorTexture(1, 1, 1, 0.08)
+        end
 
         local isDragging = false
         local insLine = menu:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -1183,7 +1395,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             box:SetPoint("LEFT", row, "LEFT", 10, 0)
             local boxBg = box:CreateTexture(nil, "BACKGROUND")
             boxBg:SetAllPoints()
-            boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+            boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
             local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
             local chk = box:CreateTexture(nil, "ARTWORK")
             PP.SetInside(chk, box, 2, 2)
@@ -1226,11 +1438,12 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             row:SetScript("OnClick", function()
                 if row._suppressClick then row._suppressClick = nil; return end
                 if isDragging then return end
-                setFn(row._item.key, not getFn(row._item.key))
+                setFn(row._item.key, not getFn(row._item.key), MovableKeys())
                 UpdateLabel()
                 for _, r in ipairs(allRows) do
                     if r._updateCheck then r._updateCheck() end
                 end
+                PaintPlainRows()
             end)
             allRows[#allRows + 1] = row
             return row
@@ -1373,11 +1586,49 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             end
         end
 
-        -- Refresh check visuals whenever the menu opens
+        -- Divider + plain tail rows at the bottom
+        if #tail > 0 then
+            local tailTop = ROWS_BASE_Y - #movable * ITEM_H
+                - ((#fixedItems > 0) and (DIV_H + #fixedItems * ITEM_H) or 0)
+            local td = menu:CreateTexture(nil, "ARTWORK")
+            td:SetHeight(1)
+            td:SetPoint("TOPLEFT", menu, "TOPLEFT", 10, tailTop - 3)
+            td:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -10, tailTop - 3)
+            td:SetColorTexture(1, 1, 1, 0.08)
+            for i = 1, #tail do
+                BuildPlainRow(tail[i], tailTop - DIV_H - (i - 1) * ITEM_H, opts.onTail, opts.tailSelected)
+            end
+        end
+
+        -- Every open: the caller's row order (opts.openOrder), then the check
+        -- and choice visuals.
         menu:HookScript("OnShow", function()
+            if opts.openOrder then
+                local keys = opts.openOrder()
+                local byKey, used, n = {}, {}, 0
+                for _, it in ipairs(baseMovable) do byKey[it.key] = it end
+                if keys then
+                    for _, k in ipairs(keys) do
+                        local it = byKey[k]
+                        if it and not used[k] then
+                            n = n + 1
+                            movable[n] = it
+                            used[k] = true
+                        end
+                    end
+                end
+                for _, it in ipairs(baseMovable) do
+                    if not used[it.key] then
+                        n = n + 1
+                        movable[n] = it
+                    end
+                end
+                RefreshMovableRows()
+            end
             for _, r in ipairs(allRows) do
                 if r._updateCheck then r._updateCheck() end
             end
+            PaintPlainRows()
         end)
 
         -- One close notification per open/close cycle (reload prompts hook this)
@@ -1438,6 +1689,196 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
         UpdateLabel()
         for _, r in ipairs(allRows) do
             if r._updateCheck then r._updateCheck() end
+        end
+        PaintPlainRows()
+    end
+    return ddBtn, RefreshAll
+end
+
+-------------------------------------------------------------------------------
+--  Slider dropdown: a dropdown button whose menu is a short stack of sliders
+--  (label, track and value box per row), several related amounts behind one
+--  control. items[i] = { label, tooltip, min, max, step, get = fn -> number,
+--  set = fn(v) }; tooltip shows over the row's label. The button reads the
+--  labels of the rows away from their minimum ("None" when none, "All" when
+--  every one). opts.menuW = the menu width (default 320); the menu opens
+--  right-aligned under the button, stays open while a slider is dragged past
+--  its edge and runs nothing while closed.
+--  Returns: ddBtn, refreshFn
+-------------------------------------------------------------------------------
+function EllesmereUI.BuildSliderDropdown(parentFrame, ddW, fLevel, items, opts)
+    local PP = EllesmereUI.PP
+    opts = opts or {}
+    local fontPath = EllesmereUI.EXPRESSWAY
+    local ddBtn = CreateFrame("Button", nil, parentFrame)
+    PP.Size(ddBtn, ddW, 30)
+    ddBtn:SetFrameLevel(fLevel)
+    local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
+    ddBg:SetAllPoints()
+    local ddBrd = EllesmereUI.MakeBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+    local ddLbl = ddBtn:CreateFontString(nil, "OVERLAY")
+    ddLbl:SetFont(fontPath, 13, "")
+    ddLbl:SetJustifyH("LEFT")
+    ddLbl:SetWordWrap(false)
+    ddLbl:SetMaxLines(1)
+    ddLbl:SetPoint("LEFT", ddBtn, "LEFT", 12, 0)
+    local arrow = EllesmereUI.MakeDropdownArrow(ddBtn, 12, PP)
+    ddLbl:SetPoint("RIGHT", arrow, "LEFT", -5, 0)
+
+    local function Paint(hover)
+        ddLbl:SetTextColor(1, 1, 1, hover and EllesmereUI.DD_TXT_HA or EllesmereUI.DD_TXT_A)
+        ddBrd:SetColor(1, 1, 1, hover and EllesmereUI.DD_BRD_HA or EllesmereUI.DD_BRD_A)
+        ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B,
+            hover and EllesmereUI.DD_BG_HA or EllesmereUI.DD_BG_A)
+    end
+    Paint(false)
+
+    local function UpdateLabel()
+        local names = {}
+        for _, item in ipairs(items) do
+            local v = item.get()
+            if v and v ~= (item.min or 0) then names[#names + 1] = EllesmereUI.L(item.label) end
+        end
+        if #names == 0 then
+            ddLbl:SetText(EllesmereUI.L("None"))
+        elseif #names == #items then
+            ddLbl:SetText(EllesmereUI.L("All"))
+        else
+            ddLbl:SetText(table.concat(names, ", "))
+        end
+    end
+    UpdateLabel()
+
+    local menu, refreshers
+    local ROW_H, PAD, TRACK_W = 34, 6, 140
+    local function EnsureMenu()
+        if menu then return end
+        menu = CreateFrame("Frame", nil, EllesmereUI.OverlayParent())
+        menu:SetFrameStrata("FULLSCREEN_DIALOG")
+        menu:SetFrameLevel(200)
+        menu:SetClampedToScreen(true)
+        menu:EnableMouse(true)
+        -- The page under the menu must not scroll away from it.
+        menu:EnableMouseWheel(true)
+        menu:SetScript("OnMouseWheel", function() end)
+        menu:SetSize(opts.menuW or 320, PAD * 2 + #items * ROW_H)
+        menu:SetPoint("TOPRIGHT", ddBtn, "BOTTOMRIGHT", 0, -2)
+        menu:Hide()
+        -- Controller cursor: the menu blocks what is under it but is not a stop
+        -- itself; Cancel clicks the button (it toggles the menu closed).
+        if EllesmereUI.PadCP() then
+            EllesmereUI.PadHint(menu, "nodepass")
+            menu.CloseButton = ddBtn
+        end
+        local mBg = menu:CreateTexture(nil, "BACKGROUND")
+        mBg:SetAllPoints()
+        mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+        EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+
+        refreshers = {}
+        for i, item in ipairs(items) do
+            local y = -(PAD + (i - 1) * ROW_H)
+            local row = CreateFrame("Frame", nil, menu)
+            row:SetHeight(ROW_H)
+            row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, y)
+            row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, y)
+            row:SetFrameLevel(menu:GetFrameLevel() + 2)
+            local track, valBox, refresh = EllesmereUI.BuildSliderCore(row, TRACK_W, 4, 14, 40, 24, 12,
+                EllesmereUI.SL_INPUT_A, item.min or 0, item.max or 100, item.step or 1,
+                item.get,
+                function(v)
+                    item.set(v)
+                    UpdateLabel()
+                    -- Attributed to the button: its row carries the override
+                    -- capture config, the menu sits on the overlay parent.
+                    EllesmereUI._NotifySettingWrite(ddBtn)
+                end, true)
+            PP.Point(valBox, "RIGHT", row, "RIGHT", -12, 0)
+            PP.Point(track, "RIGHT", valBox, "LEFT", -12, 0)
+            refreshers[i] = refresh
+            local lbl = row:CreateFontString(nil, "OVERLAY")
+            lbl:SetFont(fontPath, 13, "")
+            lbl:SetTextColor(1, 1, 1, 0.85)
+            lbl:SetJustifyH("LEFT")
+            lbl:SetWordWrap(false)
+            lbl:SetPoint("LEFT", row, "LEFT", 14, 0)
+            lbl:SetPoint("RIGHT", track, "LEFT", -12, 0)
+            lbl:SetText(EllesmereUI.L(item.label))
+            if item.tooltip then
+                row:EnableMouse(true)
+                row:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(lbl, item.tooltip) end)
+                row:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            end
+            if i < #items then
+                local div = row:CreateTexture(nil, "ARTWORK")
+                div:SetColorTexture(1, 1, 1, 0.06)
+                div:SetHeight(1)
+                div:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 10, 0)
+                div:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -10, 0)
+            end
+        end
+
+        menu:SetScript("OnHide", function(self)
+            self:SetScript("OnUpdate", nil)
+            if EllesmereUI._openDropdownMenu == self then EllesmereUI._openDropdownMenu = nil end
+            Paint(ddBtn:IsMouseOver())
+            -- Controller cursor: back onto the button (a no-op once that is hidden too).
+            if EllesmereUI.PadCursorShown() then EllesmereUI.PadFocus(ddBtn) end
+        end)
+        if EllesmereUI.PadCP() then EllesmereUI.TrackOverlay(menu) end
+    end
+
+    -- Whether the button scrolls with the page (decided on the first open).
+    local inScroll
+    local function ShowMenu()
+        EnsureMenu()
+        if menu:IsShown() then
+            menu:Hide()
+            return
+        end
+        for i = 1, #refreshers do refreshers[i]() end
+        -- The menu lives on the overlay parent: match the panel's scale.
+        menu:SetScale(ddBtn:GetEffectiveScale() / UIParent:GetEffectiveScale())
+        Paint(true)
+        menu:Show()
+        EllesmereUI._openDropdownMenu = menu
+        local sf = EllesmereUI._scrollFrame
+        if inScroll == nil then
+            inScroll = false
+            local child = sf and sf.GetScrollChild and sf:GetScrollChild()
+            local p = ddBtn:GetParent()
+            while child and p do
+                if p == child then inScroll = true; break end
+                p = p:GetParent()
+            end
+        end
+        menu:SetScript("OnUpdate", function(self)
+            -- A left click outside the menu and its button closes it; never
+            -- mid-drag, so a slider dragged past the menu's edge keeps it.
+            if not EllesmereUI._sliderDragging and IsMouseButtonDown("LeftButton")
+               and not self:IsMouseOver() and not ddBtn:IsMouseOver() then
+                self:Hide()
+                return
+            end
+            -- The button scrolled out of the page's visible area.
+            if inScroll then
+                local top, bot, b = sf:GetTop(), sf:GetBottom(), ddBtn:GetBottom()
+                if top and bot and b and (b < bot or b > top) then self:Hide() end
+            end
+        end)
+        if EllesmereUI.PadCursorShown() then EllesmereUI.PadFocus(menu) end
+    end
+    ddBtn:SetScript("OnEnter", function() Paint(true) end)
+    ddBtn:SetScript("OnLeave", function()
+        if not (menu and menu:IsShown()) then Paint(false) end
+    end)
+    ddBtn:SetScript("OnClick", ShowMenu)
+    ddBtn:HookScript("OnHide", function() if menu then menu:Hide() end end)
+
+    local function RefreshAll()
+        UpdateLabel()
+        if menu and menu:IsShown() then
+            for i = 1, #refreshers do refreshers[i]() end
         end
     end
     return ddBtn, RefreshAll

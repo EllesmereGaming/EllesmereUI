@@ -61,6 +61,39 @@ local BuildToggleControl = EllesmereUI.BuildToggleControl
 local BuildCheckboxControl = EllesmereUI.BuildCheckboxControl
 local BuildColorSwatch = EllesmereUI.BuildColorSwatch
 
+-- cfg.tooltipOnControl: a slider's tooltip also shows while hovering the slider
+-- itself, not only its label (true = cfg.tooltip; a string = its own text for
+-- the slider, the label keeping cfg.tooltip). One motion-only hit frame spans
+-- the track, thumb and value box, so crossing the thumb or the gap never blinks
+-- the tooltip. A frame that takes motion is still the mouse focus and would
+-- drop every click, so clicks (and motion, for the value box's text cursor)
+-- propagate to the controls beneath. Never shown mid-drag or while disabled
+-- (the disabled tooltip covers that); a press hides it.
+local function AttachSliderTooltip(region, label, cfg, trackFrame, thumb, valBox)
+    local own = type(cfg.tooltipOnControl) == "string" and cfg.tooltipOnControl
+    if not (own or (cfg.tooltip and cfg.tooltipOnControl)) then return end
+    local hit = CreateFrame("Frame", nil, region)
+    -- Starts half a thumb before the track: the thumb overhangs it at the minimum.
+    local overhang = thumb and thumb:GetWidth() / 2 or 0
+    hit:SetPoint("TOPLEFT", trackFrame, "LEFT", -overhang, valBox:GetHeight() / 2)
+    hit:SetPoint("BOTTOMRIGHT", valBox, "BOTTOMRIGHT")
+    -- Above the thumb and value box, below the disabled-tooltip hit (+10).
+    hit:SetFrameLevel(trackFrame:GetFrameLevel() + 5)
+    hit:SetMouseClickEnabled(false)
+    EllesmereUI.PadHint(hit, "nodeignore")
+    hit:SetScript("OnEnter", function()
+        if EllesmereUI._sliderDragging or (cfg.disabled and cfg.disabled()) then return end
+        ShowWidgetTooltip(hit, own or LabelTooltipText(region, label, cfg.tooltip), cfg.tooltipOpts)
+    end)
+    local function Hide() HideWidgetTooltip() end
+    hit:SetScript("OnLeave", Hide)
+    hit:SetPropagateMouseClicks(true)
+    hit:SetPropagateMouseMotion(true)
+    trackFrame:HookScript("OnMouseDown", Hide)
+    if thumb then thumb:HookScript("OnMouseDown", Hide) end
+    valBox:HookScript("OnMouseDown", Hide)
+end
+
 -- Button  (execute action, matches the reset/reload button style)
 function WidgetFactory:Button(parent, text, yOffset, onClick)
     local ROW_H = 50
@@ -357,7 +390,8 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
         region._labelHasHit = (cfg.tooltip or cfg.disabledTooltip) and true or false
 
         -- Label tooltip. For dropdowns the hitFrame is created after the dropdown button so it can check whether the menu is open.
-        if (cfg.tooltip or cfg.disabledTooltip) and t ~= "dropdown" then
+        -- A half-row button hides its label (the button explains its own lock, below).
+        if (cfg.tooltip or cfg.disabledTooltip) and t ~= "dropdown" and t ~= "button" then
             local ttOpts = cfg.tooltipOpts
             local hitFrame = CreateFrame("Frame", nil, region)
             hitFrame:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
@@ -433,10 +467,11 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                 valBox:SetAlpha(off and 0.3 or 1)
                 if slThumb then slThumb._sliderDisabled = off end
             end
+            AttachSliderTooltip(region, label, cfg, trackFrame, slThumb, valBox)
             controlAnchor = trackFrame
 
         elseif t == "dropdown" then
-            local DD_W = 170
+            local DD_W = cfg.dropdownWidth or 170
             -- Bridge itemDisabled/itemDisabledTooltip into disabledValuesFn
             local ddDisabledFn = cfg.disabledValues
             if not ddDisabledFn and cfg.itemDisabled then
@@ -543,6 +578,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             MakeStyledButton(btn, cfg.text or "", 13, RB_COLOURS, cfg.onClick)
             controlFrame = btn
             controlAnchor = btn
+            AddControlDisabledTooltip(btn, cfg)
             RegisterWidgetRefresh(function() ApplyDisabledState() end)
             ApplyDisabledState()
 
@@ -867,6 +903,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
                 valBox:SetAlpha(off and 0.3 or 1)
                 if slThumb then slThumb._sliderDisabled = off end
             end
+            AttachSliderTooltip(region, label, cfg, trackFrame, slThumb, valBox)
             controlAnchor = trackFrame
 
         elseif t == "dropdown" then

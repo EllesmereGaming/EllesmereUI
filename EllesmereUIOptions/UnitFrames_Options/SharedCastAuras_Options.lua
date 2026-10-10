@@ -1084,6 +1084,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     local AttachDebuffModeWarn, DebuffModeDropdownCfg, GROUP_UNIT_ORDER, PP = env.AttachDebuffModeWarn, env.DebuffModeDropdownCfg, env.GROUP_UNIT_ORDER, env.PP
     local RegisterWidgetRefresh, ReloadAndUpdate, SHORT_LABELS, SwapAuraSlot = env.RegisterWidgetRefresh, env.ReloadAndUpdate, env.SHORT_LABELS, env.SwapAuraSlot
     local UF_PurgeGlowDesc, UNIT_DB_MAP, UNIT_LABELS_SUP, UpdatePreview = env.UF_PurgeGlowDesc, env.UNIT_DB_MAP, env.UNIT_LABELS_SUP, env.UpdatePreview
+    local HideExhaustionRow = env.HideExhaustionRow
     local buffAnchorOrder, buffAnchorValues, buffGrowthOrder, buffGrowthValues = env.buffAnchorOrder, env.buffAnchorValues, env.buffGrowthOrder, env.buffGrowthValues
     local db, frames, optState = env.db, env.frames, env.optState
     local W, SApplySupport, SDB, SGet = ctx.W, ctx.SApplySupport, ctx.SDB, ctx.SGet
@@ -1941,6 +1942,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             do
                 local ps = UNIT_DB_MAP[optState.selectedUnit]()
                 local ALL_KEY, DUR_KEY = "__allDebuffs", "__debuffHasDuration"
+                local HIDE_EXH_KEY = "__hideExhaustion"
                 local function AllOn() return ps.debuffShowAll ~= false end
                 -- Hovering a dimmed Show box explains the dim (the lane is inert
                 -- while All Debuffs already shows everything), same wording as
@@ -1971,6 +1973,12 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                           tooltip = "Show every debuff. Use the Hide lane below to remove specific filters." },
                         { key = DUR_KEY, label = "Has Duration",
                           tooltip = "Only show debuffs that have a duration, excluding permanent ones. Combines with the filters below; checked alone it shows every timed debuff." },
+                        -- Hide Exhaustion (ps.debuffHideExhaustion, nil = on), as in
+                        -- the Player Aura Bars and Raid Frames Filters; kept out of
+                        -- the summary.
+                        { key = HIDE_EXH_KEY, label = "Hide Exhaustion",
+                          tooltip = "Hides Sated, Exhaustion, Temporal Displacement and the other Bloodlust lockout debuffs.",
+                          excludeFromSummaryFn = function() return true end },
                         { isHeader = true, label = "Match Mode" },
                         { key = "__matchAny", label = EllesmereUI.L("Match Any Filter"), isModifier = true,
                           lockedFn = AllOn, lockedTooltip = matchLockTip,
@@ -2011,6 +2019,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                     function(k, neg)
                         if k == ALL_KEY then return AllOn() end
                         if k == DUR_KEY then return ps.debuffHasDuration == true end
+                        if k == HIDE_EXH_KEY then return ps.debuffHideExhaustion ~= false end
                         if k == "__matchAny" or k == "__matchAll" then
                             return (k == "__matchAll") == (ps.debuffFilterMatch == "all")
                         end
@@ -2021,6 +2030,12 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                         return ps["debuff" .. k] == true
                     end,
                     function(k, v, neg)
+                        if k == HIDE_EXH_KEY then
+                            ps.debuffHideExhaustion = (not v) and false or nil
+                            ReloadAndUpdate()
+                            EllesmereUI:RefreshPage()
+                            return
+                        end
                         if k == "__matchAny" or k == "__matchAll" then
                             -- Radio: the clicked row wins whatever its checked
                             -- state was (re-clicking the active row keeps it).
@@ -2119,6 +2134,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                           SDB().debuffHasDuration = v or nil
                           ReloadAndUpdate()
                       end },
+                    HideExhaustionRow(SDB, ReloadAndUpdate),
                 },
             })
         end
@@ -2240,10 +2256,6 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                     { type="slider", label="Overlay Opacity", min=5, max=100, step=1,
                       get=function() return db.profile.dispelOverlayOpacity or 100 end,
                       set=function(v) db.profile.dispelOverlayOpacity = v; DispelRefresh() end },
-                    { type="toggle", label="Only Dispellable by You",
-                      tooltip="Shows the overlay only for debuffs you can currently dispel.",
-                      get=function() return db.profile.dispelOverlayByMe == true end,
-                      set=function(v) db.profile.dispelOverlayByMe = v and true or false; DispelRefresh() end },
                     { type="toggle", label="Color Custom Borders",
                       tooltip="Recolors the frame border, portrait outer ring and enabled power and portrait separators in the dispel type color while a debuff of that type is shown.",
                       -- Copies the frame's own border: only over a custom border (CustomBorderOff).
@@ -2256,6 +2268,56 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                           db.profile.dispelCustomBorder = v and true or false
                           DispelRefresh(); EllesmereUI:RefreshPage()
                       end },
+                },
+            })
+        end
+
+        -- Type Icon Position (Raid Frames parity: the dispel type's icon on a
+        -- corner of the health bar, its size and offsets in the cog) | Only
+        -- Dispellable by You, out of the overlay cog since it narrows the
+        -- overlay, the icon and the border copies alike.
+        local iconPosOrder = { "none" }
+        for i, k in ipairs(EllesmereUI.POSITION_GRID_ORDER) do iconPosOrder[i + 1] = k end
+        local iconRow
+        iconRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Type Icon Position",
+              values=EllesmereUI.POSITION_GRID_VALUES_NONE, order=iconPosOrder,
+              getValue=function()
+                  local p = db.profile
+                  if p.showDispelIcons ~= true then return "none" end
+                  return p.dispelIconPosition or "right"
+              end,
+              setValue=function(v)
+                  local p = db.profile
+                  if v == "none" then
+                      p.showDispelIcons = false
+                  else
+                      p.showDispelIcons = true
+                      p.dispelIconPosition = v
+                  end
+                  -- RefreshPage (fast path) so the cog's disabled state follows.
+                  DispelRefresh(); EllesmereUI:RefreshPage()
+              end },
+            { type="toggle", text="Only Dispellable by You",
+              tooltip="Shows the overlay, type icon and border colors only for debuffs you can currently dispel.",
+              getValue=function() return db.profile.dispelOverlayByMe == true end,
+              setValue=function(v) db.profile.dispelOverlayByMe = v and true or false; DispelRefresh() end });  y = y - h
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(iconRow._leftRegion, {
+                icon = EllesmereUI.RESIZE_ICON,
+                disabled = function() return db.profile.showDispelIcons ~= true end,
+                disabledTooltip = "This option requires a Type Icon Position other than None",
+                title = "Dispel Icon",
+                rows = {
+                    { type="slider", label="Icon Size", min=8, max=48, step=1,
+                      get=function() return db.profile.dispelIconSize or 16 end,
+                      set=function(v) db.profile.dispelIconSize = v; DispelRefresh() end },
+                    { type="slider", label="Offset X", min=-50, max=50, step=1,
+                      get=function() return db.profile.dispelIconOffsetX or 0 end,
+                      set=function(v) db.profile.dispelIconOffsetX = v; DispelRefresh() end },
+                    { type="slider", label="Offset Y", min=-50, max=50, step=1,
+                      get=function() return db.profile.dispelIconOffsetY or 0 end,
+                      set=function(v) db.profile.dispelIconOffsetY = v; DispelRefresh() end },
                 },
             })
         end

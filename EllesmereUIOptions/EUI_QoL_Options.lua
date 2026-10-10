@@ -82,7 +82,7 @@ local function ShowTransformsPopup()
 
         local bg = popup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+        bg:SetColorTexture(0.077, 0.068, 0.058, 1)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
 
         local title = popup:CreateFontString(nil, "OVERLAY")
@@ -171,7 +171,7 @@ local function ShowTransformsPopup()
                 box:SetFrameLevel(row:GetFrameLevel() + 1)
                 local boxBg = box:CreateTexture(nil, "BACKGROUND")
                 boxBg:SetAllPoints()
-                boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
                 row._boxBorder = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
                 local check = box:CreateTexture(nil, "ARTWORK")
                 check:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
@@ -205,7 +205,7 @@ local function ShowTransformsPopup()
         applyBtn:SetPoint("BOTTOM", popup, "BOTTOM", 0, 38)
         local applyBg = applyBtn:CreateTexture(nil, "BACKGROUND")
         applyBg:SetAllPoints()
-        applyBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+        applyBg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
         local applyBrd = EllesmereUI.MakeBorder(applyBtn, EG.r, EG.g, EG.b, 0.9, PP)
         local applyLbl = applyBtn:CreateFontString(nil, "OVERLAY")
         applyLbl:SetFont(FONT, 16, "")
@@ -303,7 +303,7 @@ local function BuildSelfCombatTextSection(parent, y)
         { type="toggle", text="Self Combat Text",
           tooltip="Shows your damage taken, healing, avoids and combat enter/leave above the player frame instead of Blizzard's combat text, whose other messages are hidden while this is on. Move it in Unlock Mode.",
           getValue=function() return not sctOff() end,
-          setValue=function(v) SCTSet("enabled", v); EllesmereUI:RefreshPage() end },
+          setValue=EllesmereUI.SectionToggleSetValue(function(v) SCTSet("enabled", v) end) },
         { type="slider", text="Combat Text Size", min=10, max=48, step=1,
           disabled=sctOff, disabledTooltip="Self Combat Text",
           getValue=function() return SCTGet("size") end,
@@ -322,11 +322,16 @@ local function BuildSelfCombatTextSection(parent, y)
                   get=function() return SCTGet("critScale") end,
                   set=function(v) SCTSet("critScale", v) end },
                 { type="toggle", label="Stagger Hits",
+                  tooltip="Spaces out hits that land together so none hides another.",
                   get=function() return SCTGet("stagger") end,
                   set=function(v) SCTSet("stagger", v) end },
             },
         })
     end
+
+    -- Section gate: the rows below exist only while Self Combat Text is on (the
+    -- toggle's SectionToggleSetValue rebuilds the page).
+    if sctOff() then return y end
 
     _, h = W:DualRow(parent, y,
         sctDropdown("Animation", "anim",
@@ -389,8 +394,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- player's real EUI_* macros on bag/spec events), so the hidden search
         -- pre-build must never run it, and its rows are kept out of the search index so
         -- results can never point into it (the index would otherwise deep-link to rows
-        -- whose page state the factory manages itself).
-        if EllesmereUI.BuildMacroFactory and not EllesmereUI._prebuilding then
+        -- whose page state the factory manages itself). WoW Forever has no Macro
+        -- Factory: never built there, so none of its machinery runs.
+        if EllesmereUI.BuildMacroFactory and not EllesmereUI._prebuilding and not EllesmereUI.IS_FOREVER then
             EllesmereUI._searchIndexSuppress = true
             local mfH = EllesmereUI.BuildMacroFactory(parent, y, PP)
             EllesmereUI._searchIndexSuppress = nil
@@ -925,6 +931,81 @@ initFrame:SetScript("OnEvent", function(self)
                 gap = 9, tip = EllesmereUI.L("Choose which transforms are removed"),
                 disabled = hitOff, disabledTooltip = "Hide Item Transforms",
                 show = function() ShowTransformsPopup() end,
+            })
+        end
+
+        -- Row: Auto Select Single Gossip (left, with cog)
+        local gossipRow
+        gossipRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Auto Select Single Gossip",
+              tooltip="Picks an NPC's only dialog option for you.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.autoGossip or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.autoGossip = v
+                  if EllesmereUI._applyAutoGossip then EllesmereUI._applyAutoGossip() end
+                  EllesmereUI:RefreshPage()
+              end },
+            -- Cooldown Manager registers /cd at load from this key, so a change reloads
+            { type="toggle", text="Type /cd to open Blizzard CDM",
+              tooltip="Lets /cd open or close Blizzard's Cooldown Manager settings.",
+              disabled=function() return not EllesmereUI._ModuleNS["EllesmereUICooldownManager"] end,
+              disabledTooltip="Cooldown Manager",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.blizzCDMSlash == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.blizzCDMSlash = v and true or nil
+                  EllesmereUI:ShowConfirmPopup({
+                      title       = "Reload Required",
+                      message     = "The /cd change applies after a UI reload.",
+                      confirmText = "Reload Now",
+                      cancelText  = "Later",
+                      reload      = true,
+                  })
+              end }
+        );  y = y - h
+
+        if not EllesmereUI._prebuilding then
+            local leftRgn = gossipRow._leftRegion
+            local function gossipOff()
+                return not (EllesmereUIDB and EllesmereUIDB.autoGossip)
+            end
+
+            EllesmereUI.BuildInlineCog(leftRgn, {
+                title = "Auto Gossip Settings",
+                rows = {
+                    { type="toggle", label="Hold Shift to Skip",
+                      get=function()
+                          if not EllesmereUIDB then return true end
+                          return EllesmereUIDB.autoGossipShiftSkip ~= false
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.autoGossipShiftSkip = v
+                      end },
+                    { type="toggle", label="Disable in Instances",
+                      get=function()
+                          if not EllesmereUIDB then return true end
+                          return EllesmereUIDB.autoGossipDisableInstance ~= false
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.autoGossipDisableInstance = v
+                      end },
+                    { type="toggle", label="Ignore Low Level Quests",
+                      get=function()
+                          return EllesmereUIDB and EllesmereUIDB.autoGossipIgnoreTrivial or false
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.autoGossipIgnoreTrivial = v
+                      end },
+                },
+                gap = 9, disabled = gossipOff, disabledTooltip = "Auto Select Single Gossip",
             })
         end
 
@@ -2491,11 +2572,12 @@ initFrame:SetScript("OnEvent", function(self)
     -- (its resident file returns at load, so the page builder never exists either).
     if not EllesmereUI.IS_FOREVER then pages[#pages + 1] = PAGE_UPGCALC end
     local searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown" }
-    -- Terms for features WoW Forever does not have (the Battle Res indicator)
-    -- are dropped there, so a sidebar search for them does not list this
-    -- module; retail keeps the full list.
+    -- Terms for features WoW Forever does not have (the Battle Res indicator,
+    -- the Macro Factory) are dropped there, so a sidebar search for them does
+    -- not list this module; retail keeps the full list.
     if EllesmereUI.IS_FOREVER then
-        local foreverDrop = { ["brez"] = true, ["bres"] = true, ["battle res"] = true, ["combat res"] = true }
+        local foreverDrop = { ["brez"] = true, ["bres"] = true, ["battle res"] = true, ["combat res"] = true,
+            ["macro"] = true }
         for i = #searchTerms, 1, -1 do
             if foreverDrop[searchTerms[i]] then table.remove(searchTerms, i) end
         end
@@ -2547,6 +2629,10 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUIDB then
                 EllesmereUIDB.hideBlizzardPartyFrame = false
                 EllesmereUIDB.quickLoot = false
+                EllesmereUIDB.autoGossip = false
+                EllesmereUIDB.autoGossipShiftSkip = nil
+                EllesmereUIDB.autoGossipDisableInstance = nil
+                EllesmereUIDB.autoGossipIgnoreTrivial = nil
                 EllesmereUIDB.skipCinematics = false
                 EllesmereUIDB.skipCinematicsAuto = false
                 EllesmereUIDB.autoFillDelete = false
@@ -2615,6 +2701,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end
             if EllesmereUI._applyPersistSignupNote then EllesmereUI._applyPersistSignupNote() end
             if EllesmereUI._applyQuickLoot then EllesmereUI._applyQuickLoot() end
+            if EllesmereUI._applyAutoGossip then EllesmereUI._applyAutoGossip() end
             if EllesmereUI._applyInstanceResetAnnounce then EllesmereUI._applyInstanceResetAnnounce() end
             if EllesmereUI._applyAutoOpenContainers then EllesmereUI._applyAutoOpenContainers() end
             if EllesmereUI._ShutdownShifter then EllesmereUI._ShutdownShifter() end

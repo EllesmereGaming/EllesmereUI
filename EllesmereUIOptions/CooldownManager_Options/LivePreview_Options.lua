@@ -49,7 +49,7 @@ local function BuildCDMLivePreview(parent, yOff)
     sf:EnableMouseWheel(true)
 
     local UpdatePVThumb = EllesmereUI.AttachSmoothScrollbar(sf, {
-        step = 40, thumbMin = 20, trackParent = wrapper, topInset = 2, level = 5 })
+        step = 40, thumbMin = 20, trackParent = wrapper, topInset = 2, level = 5, panelWheel = true })
 
     -- Store refs for height management after Update()
     pf._wrapper = wrapper

@@ -599,7 +599,7 @@ local function BuildBarAppearance(parent, y, ctx)
         local sizeCfg
         if ShapeIsCustom() then
             sizeCfg = { type="dropdown", text="Border Size",
-              disabled=BlizzStyleOn, disabledTooltip="Blizzard Style Action Bars", requireState="disabled",
+              disabled=BlizzStyleOn, disabledTooltip=EllesmereUI.BlizzStyle.Label("actionbars"), requireState="disabled",
               values=ns.BORDER_THICKNESS_LABELS, order=ns.BORDER_THICKNESS_ORDER,
               itemDisabled=function(val)
                   if ShapeIsCustom() and (val == "thin" or val == "normal" or val == "heavy") then return true end
@@ -634,7 +634,7 @@ local function BuildBarAppearance(parent, y, ctx)
               end }
         else
             sizeCfg = EllesmereUI.BorderPxSliderCfg{ text="Border Size",
-              disabled=BlizzStyleOn, disabledTooltip="Blizzard Style Action Bars", requireState="disabled",
+              disabled=BlizzStyleOn, disabledTooltip=EllesmereUI.BlizzStyle.Label("actionbars"), requireState="disabled",
               -- The step the buttons render with (ResolveBorderThickness's regular
               -- column): an unknown or numeric thickness is thin.
               getStep=function()
@@ -717,7 +717,7 @@ local function BuildBarAppearance(parent, y, ctx)
             if btnTex ~= "" and btnTex ~= "solid" then
                 local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs{
                     addonKey="actionbars",
-                    disabled=BlizzStyleOn, disabledTooltip="Blizzard Style Action Bars", requireState="disabled",
+                    disabled=BlizzStyleOn, disabledTooltip=EllesmereUI.BlizzStyle.Label("actionbars"), requireState="disabled",
                     getTex=function() return SGet("borderTexture") or "solid" end,
                     getStep=function() return (ns.ResolveBorderThickness(SB())) end,
                     getSizeKey=function() return SGet("borderThickness") or "thin" end,
@@ -1140,7 +1140,7 @@ local function BuildBarAppearance(parent, y, ctx)
               EllesmereUI:RefreshPage(true)
           end }),
         EllesmereUI.BlizzStyle.Gate("actionbars", { type="slider", text="Icon Zoom", min=0, max=10, step=0.5,
-          disabled=BlizzStyleOn, disabledTooltip="Blizzard Style Action Bars", requireState="disabled",
+          disabled=BlizzStyleOn, disabledTooltip=EllesmereUI.BlizzStyle.Label("actionbars"), requireState="disabled",
           getValue=function() return SVal("iconZoom", EAB.db.profile.iconZoom or 5.5) end,
           setValue=function(v)
               SSet("iconZoom", v, function(k)
@@ -1275,12 +1275,12 @@ local function BuildBarAppearance(parent, y, ctx)
         })
     end
 
-    -- "Show Cooldown Numbers" LIVE-toggles Blizzard's countdownForCooldowns CVar and is never
+    -- "Cooldown Numbers" LIVE-toggles Blizzard's countdownForCooldowns CVar and is never
     -- stored in our DB; the CVar is written only on an actual user flip.
     local zoomIbgRow
     zoomIbgRow, h = W:DualRow(parent, y,
-        { type="toggle", text="Show Blizzard Icon Background",
-          tooltip="Shows Blizzard's default icon slot background texture behind empty action bar slots.",
+        { type="toggle", text="Blizzard Icon Background",
+          tooltip="Shows Blizzard's slot art on empty slots.",
           getValue=function() return EAB.db.profile.showBlizzIconBg or false end,
           setValue=function(v)
               EAB.db.profile.showBlizzIconBg = v
@@ -1289,8 +1289,8 @@ local function BuildBarAppearance(parent, y, ctx)
               end
               EllesmereUI:RefreshPage()
           end },
-        { type="toggle", text="Show Cooldown Numbers",
-          tooltip="Toggles Blizzard's Show Numbers for Cooldowns setting, which will show number text on any spells that are on cooldown on your action bars.",
+        { type="toggle", text="Cooldown Numbers",
+          tooltip="Toggles Blizzard's cooldown numbers setting.",
           getValue=function() return GetCVarBool("countdownForCooldowns") end,
           setValue=function(v)
               if InCombatLockdown() then return end
@@ -1304,7 +1304,7 @@ local function BuildBarAppearance(parent, y, ctx)
             title = "Icon Background",
             anchorTo = rgn._control,
             disabled = function() return not (EAB.db.profile.showBlizzIconBg or false) end,
-            disabledTooltip = "Show Blizzard Icon Background",
+            disabledTooltip = "Blizzard Icon Background",
             rows = {
                 { type="slider", label="Opacity", min=0, max=100, step=1,
                   tooltip="Controls the opacity of the Blizzard icon slot background texture.",
@@ -1318,7 +1318,7 @@ local function BuildBarAppearance(parent, y, ctx)
             },
         })
     end
-    -- Inline cog: Show Cooldown Numbers (right). Holds the charge-spell recharge toggle
+    -- Inline cog: Cooldown Numbers (right). Holds the charge-spell recharge toggle
     -- (our feature, DB-saved); dimmed when the CVar is off, since no numbers show then.
     do
         local rgn = zoomIbgRow._rightRegion
@@ -1326,7 +1326,7 @@ local function BuildBarAppearance(parent, y, ctx)
             title = "Cooldown Numbers",
             anchorTo = rgn._control,
             disabled = function() return not GetCVarBool("countdownForCooldowns") end,
-            disabledTooltip = "Show Cooldown Numbers",
+            disabledTooltip = "Cooldown Numbers",
             rows = {
                 { type="toggle", label="Charge Recharge Numbers",
                   tooltip="Show the recharge countdown on charge spells while a charge is still banked. When off, the recharge timer only appears at 0 charges (Blizzard default).",
@@ -1342,8 +1342,7 @@ local function BuildBarAppearance(parent, y, ctx)
     local slotBgRow
     slotBgRow, h = W:DualRow(parent, y,
         EllesmereUI.BlizzStyle.Gate("actionbars", { type="slider", text="Icon Background", min=0, max=100, step=1,
-          tooltip="Controls the opacity of the flat color background behind action button icons.",
-          disabled=BlizzStyleOn, disabledTooltip="Blizzard Style Action Bars", requireState="disabled",
+          disabled=BlizzStyleOn, disabledTooltip=EllesmereUI.BlizzStyle.Label("actionbars"), requireState="disabled",
           getValue=function()
               local v = EAB.db.profile.slotBgOpacity
               if v == nil then v = 50 end
@@ -1354,7 +1353,6 @@ local function BuildBarAppearance(parent, y, ctx)
               EAB:ApplySlotBackgroundColor()
           end }),
         { type="toggle", text="One Button Assist Icon",
-          tooltip="Shows the rotation-helper ring on the button holding the One Button Assist action.",
           getValue=function() return EAB.db.profile.obaIconEnabled ~= false end,
           setValue=function(v)
               EAB.db.profile.obaIconEnabled = v
@@ -1691,9 +1689,10 @@ local function BuildBarAppearance(parent, y, ctx)
         block:SetShown(off0)
     end
 
-    -- Row: Hide Count at 0 | Show Equipped Border (Blizzard's green border on
-    -- an equipped item's button, kept in our square art; the Blizzard and
-    -- Classic styles draw their own, so it locks under them).
+    -- Row: Hide Count at 0 | Show Equipped Item Color (Blizzard's equipped-item
+    -- border, kept in our square art and the item's rarity color; the Blizzard
+    -- and Classic styles draw their own, so it locks under them). It saves
+    -- false, not nil: WoW Forever defaults it on.
     _, h = W:DualRow(parent, y,
         { type="toggle", text="Hide Charge Count at 0",
           tooltip="Hide the charge number on action buttons when it reaches 0, instead of showing a 0. The number returns as soon as a charge or item comes back.",
@@ -1702,14 +1701,13 @@ local function BuildBarAppearance(parent, y, ctx)
               EAB.db.profile.hideZeroCount = v or nil
               if EAB.RefreshAllCounts then EAB:RefreshAllCounts() end
           end },
-        { type="toggle", text="Show Equipped Border",
-          tooltip="Shows Blizzard's green border on action buttons that hold an equipped item, such as your trinkets.",
-          disabled=function() return ns.AB_Style() ~= "eui" end,
-          disabledTooltip="The Blizzard and Classic styles show their own equipped border.",
-          rawTooltip=true,
+        { type="toggle", text="Show Equipped Item Color",
+          tooltip="Equipped items get a rarity color border.",
+          disabled=BlizzStyleOn,
+          disabledTooltip=EllesmereUI.BlizzStyle.Label("actionbars"), requireState="disabled",
           getValue=function() return EAB.db.profile.showEquippedBorder or false end,
           setValue=function(v)
-              EAB.db.profile.showEquippedBorder = v or nil
+              EAB.db.profile.showEquippedBorder = v and true or false
               EAB:ApplyEquippedBorder()
           end });  y = y - h
 
@@ -1793,34 +1791,87 @@ local function BuildBarAppearance(parent, y, ctx)
                     { type="toggle", text="Disable Form Paging",
                       getValue=function() return SGet("disableFormPaging") or false end,
                       setValue=function(v) SetAutoPageOptOut("disableFormPaging", v) end,
-                      tooltip="Keep Action Bar 1 on its current page when you shapeshift, stealth, or change stance, instead of swapping to that form's bar.\n\nKeybinds follow what the bar shows, so the key always casts the icon you see. Press-and-hold repeat casting is turned off on Action Bar 1 while this is enabled." },
+                      tooltip="Keeps this bar on its page in any form." },
                     { type="toggle", text="Disable Skyriding Paging",
                       getValue=function() return SGet("disableSkyridingPaging") or false end,
                       setValue=function(v) SetAutoPageOptOut("disableSkyridingPaging", v) end,
-                      tooltip="Keep Action Bar 1 on its current page while skyriding, instead of swapping to the skyriding bar.\n\nYour skyriding abilities live on that bar, so put them on another bar before enabling this. Press-and-hold repeat casting is turned off on Action Bar 1 while this is enabled." });  y = y - h
+                      tooltip="Keeps this bar on its page while skyriding." });  y = y - h
             end
 
-            local pagingArrowsWidget
             if selKey == "MainBar" then
-                pagingArrowsWidget = { type="toggle", text="Show Paging Arrows",
+                _, h = W:DualRow(parent, y,
+                    { type="toggle", text="Skip Visible Bars When Paging",
+                      getValue=function() return SGet("skipVisiblePagingBars") or false end,
+                      setValue=function(v)
+                          SSet("skipVisiblePagingBars", v, function()
+                              if ns.RefreshPagingCycleMacros then ns.RefreshPagingCycleMacros() end
+                          end)
+                      end,
+                      tooltip="Skips pages assigned to other enabled action bars, including mouseover and conditional bars. Applies to Next/Previous Action Bar keybindings and paging arrows." },
+                    EllesmereUI.BlankRowCfg()); y = y - h
+            end
+
+            local function PagingDropdown(stateId, text)
+                return { type="dropdown", text=text,
+                  values=pagingValues, order=pagingOrder,
+                  getValue=function() return GetPagingVal(stateId) end,
+                  setValue=function(v) SetPagingVal(stateId, v) end }
+            end
+            -- Modifier/Target Paging: until set, on while any of its five states
+            -- holds a page. Off hides them and the bar stops paging on them; their
+            -- picks are kept for when it is turned back on.
+            local function ModTargetOn()
+                local v = SGet("modTargetPaging")
+                if v ~= nil then return v end
+                local paging = SGet("paging")
+                if paging then
+                    for stateId in pairs(EAB_VT.MOD_TARGET_PAGING) do
+                        if paging[stateId] then return true end
+                    end
+                end
+                return false
+            end
+
+            -- The section's slots in order, paired into rows.
+            local slots = {}
+            if selKey == "MainBar" then
+                slots[#slots + 1] = { type="toggle", text="Paging Arrows",
                   getValue=function() return SGet("showPagingArrows") or false end,
                   setValue=function(v)
                       SSet("showPagingArrows", v, function()
                           if ns.LayoutPagingFrame then ns.LayoutPagingFrame() end
                       end)
+                      SUpdatePreviewAndResize()
                       EllesmereUI:RefreshPage()
-                  end,
-                  tooltip="Show page up/down arrows next to Action Bar 1 for cycling through action bar pages 1-6." }
-            else
-                pagingArrowsWidget = { type="label", text="" }
+                  end }
+            end
+            slots[#slots + 1] = { type="toggle", text="Modifier/Target Paging",
+              getValue=ModTargetOn,
+              setValue=EllesmereUI.SectionToggleSetValue(function(v)
+                  SSet("modTargetPaging", v and true or false, function(k)
+                      if ns.RebuildBarPaging then ns.RebuildBarPaging(k) end
+                  end)
+              end) }
+            if ModTargetOn() then
+                slots[#slots + 1] = PagingDropdown("shift", "Shift Modifier")
+                slots[#slots + 1] = PagingDropdown("ctrl", "Ctrl Modifier")
+                slots[#slots + 1] = PagingDropdown("alt", "Alt Modifier")
+                slots[#slots + 1] = PagingDropdown("help", "Friendly Target")
+                slots[#slots + 1] = PagingDropdown("harm", "Hostile Target")
+            end
+            -- Class form dropdowns
+            local classStatesLocal = PG_STATES.class and PG_STATES.class[playerClass]
+            if classStatesLocal then
+                for _, st in ipairs(classStatesLocal) do
+                    slots[#slots + 1] = PagingDropdown(st.id, st.label)
+                end
             end
             local pagingRow
-            pagingRow, h = W:DualRow(parent, y,
-                pagingArrowsWidget,
-                { type="dropdown", text="Shift Modifier",
-                  values=pagingValues, order=pagingOrder,
-                  getValue=function() return GetPagingVal("shift") end,
-                  setValue=function(v) SetPagingVal("shift", v) end });  y = y - h
+            for i = 1, #slots, 2 do
+                local r
+                r, h = W:DualRow(parent, y, slots[i], slots[i + 1] or EllesmereUI.BlankRowCfg());  y = y - h
+                pagingRow = pagingRow or r
+            end
 
             if selKey == "MainBar" then
                 local lRgn = pagingRow._leftRegion
@@ -1828,7 +1879,7 @@ local function BuildBarAppearance(parent, y, ctx)
                 EllesmereUI.BuildInlineCog(lRgn, {
                     title = "Paging Arrow Settings",
                     anchorTo = lRgn._control,
-                    disabled = pagingOff, disabledTooltip = "Show Paging Arrows",
+                    disabled = pagingOff, disabledTooltip = "Paging Arrows",
                     rows = {
                         { type="toggle", label="Show Arrows on Right",
                           get=function() return SGet("pagingArrowsRight") or false end,
@@ -1836,53 +1887,10 @@ local function BuildBarAppearance(parent, y, ctx)
                               SSet("pagingArrowsRight", v, function()
                                   if ns.LayoutPagingFrame then ns.LayoutPagingFrame() end
                               end)
+                              SUpdatePreviewAndResize()
                           end },
                     },
                 })
-            end
-
-            _, h = W:DualRow(parent, y,
-                { type="dropdown", text="Ctrl Modifier",
-                  values=pagingValues, order=pagingOrder,
-                  getValue=function() return GetPagingVal("ctrl") end,
-                  setValue=function(v) SetPagingVal("ctrl", v) end },
-                { type="dropdown", text="Alt Modifier",
-                  values=pagingValues, order=pagingOrder,
-                  getValue=function() return GetPagingVal("alt") end,
-                  setValue=function(v) SetPagingVal("alt", v) end });  y = y - h
-
-            _, h = W:DualRow(parent, y,
-                { type="dropdown", text="Friendly Target",
-                  values=pagingValues, order=pagingOrder,
-                  getValue=function() return GetPagingVal("help") end,
-                  setValue=function(v) SetPagingVal("help", v) end },
-                { type="dropdown", text="Hostile Target",
-                  values=pagingValues, order=pagingOrder,
-                  getValue=function() return GetPagingVal("harm") end,
-                  setValue=function(v) SetPagingVal("harm", v) end });  y = y - h
-
-            -- Class form dropdowns (paired into DualRows)
-            local classStatesLocal = PG_STATES.class and PG_STATES.class[playerClass]
-            if classStatesLocal then
-                for i = 1, #classStatesLocal, 2 do
-                    local left = classStatesLocal[i]
-                    local right = classStatesLocal[i + 1]
-                    local rightWidget
-                    if right then
-                        rightWidget = { type="dropdown", text=right.label,
-                          values=pagingValues, order=pagingOrder,
-                          getValue=function() return GetPagingVal(right.id) end,
-                          setValue=function(v) SetPagingVal(right.id, v) end }
-                    else
-                        rightWidget = { type="label", text="" }
-                    end
-                    _, h = W:DualRow(parent, y,
-                        { type="dropdown", text=left.label,
-                          values=pagingValues, order=pagingOrder,
-                          getValue=function() return GetPagingVal(left.id) end,
-                          setValue=function(v) SetPagingVal(left.id, v) end },
-                        rightWidget);  y = y - h
-                end
             end
         end
     end

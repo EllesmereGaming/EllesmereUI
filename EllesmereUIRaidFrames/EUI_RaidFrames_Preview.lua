@@ -3,8 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EUI_RaidFrames_Preview.lua
 --
 --  Options preview for the raid and party frames: fake members, the preview
---  aura ticker, the real-frame overlay and the size preview. Loads right
---  after the main file and reads it through ns only.
+--  aura ticker, the real-frame overlay and the size preview. Loads behind
+--  the EUI_RaidFrames_*.lua chain and reads it through ns and ns._internals.
 -------------------------------------------------------------------------------
 local _, ns = ...
 
@@ -24,6 +24,8 @@ local CreateFrame           = CreateFrame
 
 local PixelSnap, UpdateVisibility = ns.PixelSnap, ns.UpdateVisibility
 local I = ns._internals
+-- EllesmereUIRaidFrames.lua or one of the EUI_RaidFrames_*.lua files failed to load.
+if not I or I.broken then return end
 local ApplyFont, ApplyRoleIcon, DISPEL_ICON_ATLAS = I.ApplyFont, I.ApplyRoleIcon, I.DISPEL_ICON_ATLAS
 local GetDispelColor, IsPowerBarEnabled, LayoutGroups = I.GetDispelColor, I.IsPowerBarEnabled, I.LayoutGroups
 local LayoutTopNameBar, MOVER_GROUPS, ResolveHealthTexture = I.LayoutTopNameBar, I.MOVER_GROUPS, I.ResolveHealthTexture
@@ -302,7 +304,7 @@ local function PvAuraAnchor(icon, f, auraType, slot, totalShown)
     -- frames) so the preview matches exactly -- including row wrapping and CENTER
     -- per-row centering. `slot` is the 0-based index among visible icons.
     if auraType ~= "def" then
-        local sz = s2.debuffSize or 18
+        local sz = ns.RFC_DebuffSize(s2)
         icon:SetSize(sz, sz)
         icon:ClearAllPoints()
         local corner, fx, fy = ns.DebuffGridPoint(s2, slot, totalShown)
@@ -590,7 +592,7 @@ local function PvAuraTick()
                     icon._tex:SetTexture(5927657)
                     local _z = s2.debuffIconZoom or 0.08
                     icon._tex:SetTexCoord(_z, 1 - _z, _z, 1 - _z)
-                    icon:SetSize(s2.debuffSize or 18, s2.debuffSize or 18)
+                    icon:SetSize(ns.RFC_DebuffSize(s2), ns.RFC_DebuffSize(s2))
                     if icon._cooldown then
                         icon._cooldown:SetCooldown(now, dur)
                         icon._cooldown:SetDrawSwipe(s2.debuffShowSwipe ~= false)
@@ -790,7 +792,7 @@ local function GetConfiguredBuffSpells()
                         id = sid, icon = iconTex,
                         indType = ind.type,
                         color = (ind.spellColors and ind.spellColors[sid]) or ind.color,
-                        size = spellSz,
+                        size = ns.RFC_SnapSize(spellSz),
                         position = ind.position or "TOPLEFT",
                         offsetX = ind.offsetX or 0,
                         offsetY = ind.offsetY or 0,
@@ -1031,7 +1033,7 @@ ns.RefreshPvAuraVisuals = function()
         if f._pvDebuffs then
             for _, ic in ipairs(f._pvDebuffs) do
                 if ic:IsShown() then
-                    ic:SetSize(s2.debuffSize or 18, s2.debuffSize or 18)
+                    ic:SetSize(ns.RFC_DebuffSize(s2), ns.RFC_DebuffSize(s2))
                     ic._tex:SetTexCoord(dbZ, 1 - dbZ, dbZ, 1 - dbZ)
                     if ic._borderFrame and _PP then
                         if dbBdrSz > 0 then
@@ -1456,6 +1458,12 @@ local function CreatePreviewFrame(index, party)
         if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b) end
         bdrFrame._hlBorderSize = nil
         EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
+        if s.powerBorderMatchColor == true and f._powerBorder and f._powerBorder._powerArtMode == "divider" then
+            ns.RF_ColorPowerDivider(f._powerBorder, r, g, b, a)
+        end
+        if s.topNameBarDividerMatchColor == true and f._topNameBar and f._topNameBar._divider then
+            ns.RF_ColorPowerDivider(f._topNameBar._divider, r, g, b, a)
+        end
     end
     f._ApplyBorderColor = PvApplyBorderColor
 
@@ -1688,11 +1696,11 @@ local function CreatePreviewFrame(index, party)
     -- frame can showcase a full wrapping layout; only a few are shown otherwise.
     f._pvDebuffs = {}
     for i = 1, 8 do
-        f._pvDebuffs[i] = MakePreviewAuraIcon(f, f:GetFrameLevel() + ns.LVL_AURA, s.debuffSize or 18)
+        f._pvDebuffs[i] = MakePreviewAuraIcon(f, f:GetFrameLevel() + ns.LVL_AURA, ns.RFC_DebuffSize(s))
     end
 
     -- Static dispel debuff icon (shown when dispel eyeball is on)
-    f._pvDispelDebuff = MakePreviewAuraIcon(f, f:GetFrameLevel() + ns.LVL_AURA, s.debuffSize or 18)
+    f._pvDispelDebuff = MakePreviewAuraIcon(f, f:GetFrameLevel() + ns.LVL_AURA, ns.RFC_DebuffSize(s))
 
     -- Defensive preview icons
     f._pvDefs = {}
@@ -1997,7 +2005,7 @@ local function ApplyPreviewData(f, index)
 
     -- Health bar height/anchor + Top Name Bar (helper re-anchors health top to
     -- -topBarH; the per-unit power block below re-sets only the height)
-    LayoutTopNameBar(s, h, powerH, f._health, f._topNameBar, f._topNameBarBg, f._topNameBarText, f._power)
+    LayoutTopNameBar(s, h, powerH, f._health, f._topNameBar, f._topNameBarBg, f._topNameBarText, f._power, true)
 
     -- Health bar
     if f._health then
@@ -2691,8 +2699,10 @@ local function ApplyPreviewData(f, index)
     -- the frame border below)
     if f._powerBorder and PP then
         if hidePower or f.stockDiv or f.kitG then
+            if f._powerBorder._powerArtKey then ns.RF_ClearPowerBorderArt(f._powerBorder) end
             f._powerBorder:Hide()
-        else
+        elseif not ((s.powerBorderMatchFrame == true or f._powerBorder._powerArtKey)
+            and ns.RF_ApplyPowerBorderArt(f._powerBorder, s, true, true)) then
             local pbStyle = s.powerBorderStyle or "eui"
             if pbStyle == "eui" then
                 PP.UpdateBorder(f._powerBorder, 1, 1, 1, 1, 0.2)
@@ -2756,6 +2766,20 @@ local function ApplyPreviewData(f, index)
             s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
             EllesmereUI.BorderPx(s.borderSizePx, bs, s.borderTexture or "solid"))
         if f._ApplyBorderColor then f._ApplyBorderColor() end
+    end
+    -- Rounded corners, as on the live cells (stock styles stay square).
+    if f._border then
+        local radius = (f.kit or f.stockEdge) and 0 or (s.cornerRadius or 0)
+        if radius > 0 then
+            EllesmereUI.RoundCorners(f, radius, {
+                roots = { f._health, f._power, f._topNameBar, f._powerBorder },
+                textures = { f._bg },
+                border = f._border, style = s.borderTexture or "solid",
+                corners = s.cornerMask,
+            })
+        else
+            EllesmereUI.RoundCorners(f, 0)
+        end
     end
 
     -- Indicators visibility (eyeball toggle)
@@ -2892,7 +2916,7 @@ local function ApplyPreviewData(f, index)
             -- preview icon follows that location, its offsets and its size.
             local dispSplit = (s.dispellableDebuffLocation or "same") ~= "same"
             local dbSz
-            if dispSplit then dbSz = ns.DispellableDebuffSize(s) else dbSz = s.debuffSize or 18 end
+            if dispSplit then dbSz = ns.RFC_SnapSize(ns.DispellableDebuffSize(s)) else dbSz = ns.RFC_DebuffSize(s) end
             ddi:SetSize(dbSz, dbSz)
             ddi._tex:SetTexture(ns._PV_DISPEL_DB_ICONS[dispelType])
             local _z = s.debuffIconZoom or 0.08
@@ -3353,7 +3377,7 @@ local function ApplyPreviewData(f, index)
                 local rc = f._roleIcon:GetParent()
                 if rc then
                     rc:SetFrameLevel(f:GetFrameLevel()
-                        + (s.roleIconBehindBorder and (ns.LVL_RAISE - 1) or (ns.LVL_AURA - 1)))
+                        + (s.roleIconBehindBorder and 7 or (ns.LVL_AURA - 1)))
                 end
                 f._roleIcon:ClearAllPoints()
                 local pos = (s.roleIconPosition or "bottomleft"):upper()
@@ -3534,6 +3558,10 @@ local function RefreshPreview()
     local s = ns._pvOverlayProxy or db.profile
     local groupGrowth = s.groupGrowth or "RIGHT"
     local unitGrowth  = s.unitGrowth or "DOWN"
+    -- The same self-heal the live layout runs, so the preview cannot render a
+    -- grid where merged mode lays out a row (Blizzard's flat header has one
+    -- column axis and cannot wrap into one).
+    unitGrowth, groupGrowth = ns._RFEffectiveGrowth(unitGrowth, groupGrowth, s.mergeGroups)
     local bw = PixelSnap(s.frameWidth or 72)
     local bh = PixelSnap(s.frameHeight or 46)
     local cs = PixelSnap(s.cellSpacing or 2)
@@ -3549,27 +3577,10 @@ local function RefreshPreview()
         groupH = 5 * bh + 4 * cs
     end
 
-    -- Group step along growth axis
-    local stepX, stepY = 0, 0
-    if groupGrowth == "DOWN" then
-        stepY = -(groupH + gs)
-    elseif groupGrowth == "UP" then
-        stepY = (groupH + gs)
-    elseif groupGrowth == "RIGHT" then
-        stepX = (groupW + gs)
-    else -- LEFT
-        stepX = -(groupW + gs)
-    end
-
-    -- Raw group positions + normalize
-    local rawGX, rawGY = {}, {}
-    local minGX, maxGY = 0, 0
-    for i = 0, 3 do
-        rawGX[i] = i * stepX
-        rawGY[i] = i * stepY
-        if rawGX[i] < minGX then minGX = rawGX[i] end
-        if rawGY[i] > maxGY then maxGY = rawGY[i] end
-    end
+    -- Group slot origins along the growth flow (plain direction = one run,
+    -- grid flow = ns._RF_GRID_ROWS per column), same helper the live layout
+    -- places real groups through.
+    local gSlots, minGX, maxGY = ns._RFGroupFlow(groupGrowth, groupW, groupH, gs, 4)
 
     -- Unit step within a group
     local uStepX, uStepY = 0, 0
@@ -3606,15 +3617,10 @@ local function RefreshPreview()
         topExtra = 25
     end
 
-    -- Container size (4 groups)
-    local totalW, totalH
-    if groupGrowth == "DOWN" or groupGrowth == "UP" then
-        totalW = groupW
-        totalH = MOVER_GROUPS * groupH + (MOVER_GROUPS - 1) * gs
-    else
-        totalW = MOVER_GROUPS * groupW + (MOVER_GROUPS - 1) * gs
-        totalH = groupH
-    end
+    -- Container size, through the SAME ns._RFFootprint the live container is
+    -- sized with. The old one-row formula drew a 4x1 box around the grid flow's
+    -- 2x2 block.
+    local totalW, totalH = ns._RFFootprint(bw, bh, unitGrowth, groupGrowth, cs, gs)
 
     -- Pets (Show Pets on the Raid tab) go before the first or after the last group. The overlay
     -- grows to hold them; at the real position the groups stay put and the pets hang off them.
@@ -3622,8 +3628,8 @@ local function RefreshPreview()
     local petX, petY, padL, padT, padR, padB = 0, 0, 0, 0, 0, 0
     if petSpec then
         local slot = petSpec.before and 0 or (MOVER_GROUPS - 1)
-        petX = rawGX[slot] - minGX + petSpec.ox
-        petY = rawGY[slot] - maxGY + petSpec.oy
+        petX = gSlots[slot][1] - minGX + petSpec.ox
+        petY = gSlots[slot][2] - maxGY + petSpec.oy
         if isOverlay then
             padL = max(0, -petX)
             padT = max(0, petY)
@@ -3655,9 +3661,9 @@ local function RefreshPreview()
     local frameIdx = 0
     for g = 0, 3 do
         local displaySlot = previewSlotByGroup and previewSlotByGroup[g + 1] or g
-        local gx = rawGX[displaySlot] - minGX
-        local gy = rawGY[displaySlot] - maxGY
-        local firstFrame
+        local gx = gSlots[displaySlot][1] - minGX
+        local gy = gSlots[displaySlot][2] - maxGY
+        local firstFrame   -- the group's u == 0 frame, the group-number anchor
         for u = 0, 4 do
             frameIdx = frameIdx + 1
             local f = GetOrCreatePreviewFrame(frameIdx)
@@ -4099,14 +4105,6 @@ ns._ShowSizePreview = function(tier)
         groupH = perGroup * bh + (perGroup - 1) * cs
     end
 
-    -- Step between groups along groupGrowth axis
-    local stepX, stepY = 0, 0
-    if groupGrowth == "DOWN" then       stepY = -(groupH + gs)
-    elseif groupGrowth == "UP" then     stepY = (groupH + gs)
-    elseif groupGrowth == "RIGHT" then  stepX = (groupW + gs)
-    else                                stepX = -(groupW + gs)
-    end
-
     -- Unit step within a group along unitGrowth axis
     local uStepX, uStepY = 0, 0
     if unitGrowth == "DOWN" then        uStepY = -(bh + cs)
@@ -4124,11 +4122,9 @@ ns._ShowSizePreview = function(tier)
         if py > maxUY then maxUY = py end
     end
 
-    -- Total bounding box: the 4-group mover footprint via the SAME ns._RFFootprint the
-    -- live container sizing and the corner origin use (one formula, so preview and live
-    -- can never drift). MOVER_GROUPS stays 4 for the group normalization below -- it
-    -- must keep matching the real LayoutGroups container, which also normalizes over 4.
-    local MOVER_GROUPS = 4
+    -- Total bounding box: the tier's group mover footprint via the SAME
+    -- ns._RFFootprint the live container sizing and the corner origin use (one
+    -- formula, so preview and live can never drift).
     local totalW, totalH = ns._RFFootprint(bw, bh, unitGrowth, groupGrowth, cs, gs)
 
     -- Tier offset
@@ -4168,14 +4164,13 @@ ns._ShowSizePreview = function(tier)
     local fontPath = (EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
     local nameSize = s.nameSize or 10
 
-    -- Normalize origin over MOVER_GROUPS (matching real LayoutGroups container)
-    local minX, maxY = 0, 0
-    for g = 0, MOVER_GROUPS - 1 do
-        local gx = g * stepX
-        local gy = g * stepY
-        if gx < minX then minX = gx end
-        if gy > maxY then maxY = gy end
-    end
+    -- Group slot origins along the growth flow, normalized over MOVER_GROUPS
+    -- (matching the real LayoutGroups container). At least MOVER_GROUPS slots
+    -- are generated even when the tier shows fewer groups: the normalization
+    -- origin is what puts slot 0 at the growth corner, so normalizing over a
+    -- 2- or 3-group prefix would place the preview on the wrong side of the
+    -- box for LEFT/UP growth. The extra slots are simply not drawn.
+    local gSlots, minX, maxY = ns._RFGroupFlow(groupGrowth, groupW, groupH, gs, max(numGroups, MOVER_GROUPS))
 
     local groupOrder = s.customGroupOrder and not s.mergeGroups
         and ns._RFValidatedGroupOrder(s.groupOrder)
@@ -4298,8 +4293,8 @@ ns._ShowSizePreview = function(tier)
 
         -- Group origin (TOPLEFT-relative, adjusted for growth direction)
         local displaySlot = sizePreviewSlotByGroup and sizePreviewSlotByGroup[groupIdx + 1] or groupIdx
-        local gx = displaySlot * stepX - minX
-        local gy = displaySlot * stepY - maxY
+        local gx = gSlots[displaySlot][1] - minX
+        local gy = gSlots[displaySlot][2] - maxY
 
         -- Unit offset within group (TOPLEFT-normalized, matching RefreshPreview)
         local ux = unitIdx * uStepX - minUX

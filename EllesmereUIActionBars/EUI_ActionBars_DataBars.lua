@@ -253,7 +253,7 @@ local function ApplyDataBarLayout(barKey)
     frame._bar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 4)
     if frame._restedBar then
         frame._restedBar:SetStatusBarTexture(texPath)
-        frame._restedBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 2)
+        frame._restedBar:GetStatusBarTexture():SetDrawLayer("ARTWORK", 1)
     end
 
     frame._bar:SetOrientation(orient)

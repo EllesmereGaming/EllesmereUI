@@ -38,7 +38,7 @@ function EllesmereUI.BuildUnlockPlaceholder(opts)
     -- Dark background matching unlock mode movers
     local bg = f:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+    bg:SetColorTexture(0.103, 0.095, 0.088, 0.95)
     f._bg = bg
 
     -- Accent border at 60% alpha
@@ -205,6 +205,250 @@ function EllesmereUI.BuildLinkRow(parent, y, label, module, page, section, highl
     return y - ROW_H
 end
 
+-- A row of action cards across the page (icon, title, a short description;
+-- the whole card is the click). cards[i] = { icon, title, desc, onClick,
+-- accent, hero, iconSize, sizeAlso } -- accent { r, g, b } tints the icon
+-- (and a box's top edge), the theme accent when nil; iconSize (px) draws art
+-- that fills more of its canvas smaller, centred in the same slot (the text
+-- never moves). By default the cards are equal boxes side by side across
+-- opts.width (a fraction of the content width, centred). opts.inline lays
+-- them out in ONE line instead: plain text buttons with a thin divider
+-- between items, each as wide as its text (sizeAlso { title, desc } also fits
+-- the other text a card can switch to), the texts shrinking together when the
+-- line would not fit opts.width, centred; a hero card there is a button in
+-- the equal cards' boxed look. opts.footer (px, inline) leaves that much free
+-- under the line for the caller (a link). Returns the new y and the card
+-- buttons (in cards order); card:SetCardContent(icon, title, desc) swaps all
+-- three in place.
+local function BuildInlineRow(parent, y, cards, availW, fullW, footer)
+    local PP = EllesmereUI.PanelPP
+    local L  = EllesmereUI.L
+    local ROW_H, ICON, DIV_GAP, DIV_H = 60, 26, 24, 40
+    local TITLE_SZ, DESC_SZ, DESC_GAP = 13, 11, 4
+    -- Plain items, and the boxed hero in the equal cards' values (left pad,
+    -- icon-to-text gap, right pad, alphas, outline).
+    local GAP, ICON_A, TITLE_A, DESC_A = 14, 0.75, 0.9, 0.45
+    local BOX_L, BOX_GAP, BOX_R, BOX_ICON_A, BOX_DESC_A, BOX_BRD_A = 24, 20, 14, 0.6, 0.35, 0.12
+    local n = #cards
+    local blockH = ROW_H + (footer or 0)
+    local rowFrame = CreateFrame("Frame", nil, parent)
+
+    -- Build each item and measure its text: the wider of its two lines, over
+    -- every text it can show.
+    local parts, built, sumText, fixed = {}, {}, 0, (n - 1) * (DIV_GAP * 2 + 1)
+    for i = 1, n do
+        local spec = cards[i]
+        local boxed = spec.hero and true or false
+        local p = { boxed = boxed,
+            padL = boxed and BOX_L or 0, gap = boxed and BOX_GAP or GAP, padR = boxed and BOX_R or 0,
+            iconA = boxed and BOX_ICON_A or ICON_A, descA = boxed and BOX_DESC_A or DESC_A }
+        local card = CreateFrame("Button", nil, rowFrame)
+        card:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
+        local icon = card:CreateTexture(nil, "ARTWORK")
+        if icon.SetSnapToPixelGrid then icon:SetSnapToPixelGrid(false); icon:SetTexelSnappingBias(0) end
+        icon:SetAlpha(p.iconA)
+        local titleFs = EllesmereUI.MakeFont(card, TITLE_SZ, nil, 1, 1, 1, TITLE_A)
+        titleFs:SetJustifyH("LEFT")
+        titleFs:SetWordWrap(false)
+        local descFs = EllesmereUI.MakeFont(card, DESC_SZ, nil, 1, 1, 1, p.descA)
+        descFs:SetJustifyH("LEFT")
+        descFs:SetWordWrap(true)
+        descFs:SetMaxLines(2)
+        function card:SetCardContent(iconPath, cardTitle, cardDesc)
+            icon:SetTexture(iconPath)
+            titleFs:SetText(L(cardTitle))
+            descFs:SetText(L(cardDesc))
+        end
+        local w = 0
+        local function Measure(t, d)
+            titleFs:SetText(L(t))
+            descFs:SetText(L(d))
+            w = math.max(w, math.ceil(titleFs:GetStringWidth()), math.ceil(descFs:GetStringWidth()))
+        end
+        if spec.sizeAlso then Measure(spec.sizeAlso[1], spec.sizeAlso[2]) end
+        Measure(spec.title, spec.desc)
+        card:SetCardContent(spec.icon, spec.title, spec.desc)
+        p.card, p.icon, p.titleFs, p.descFs, p.textW = card, icon, titleFs, descFs, w
+        parts[i] = p
+        sumText = sumText + w
+        fixed = fixed + p.padL + ICON + p.gap + p.padR
+        built[i] = card
+    end
+
+    local scale = 1
+    if sumText > 0 and fixed + sumText > availW then
+        scale = math.max(0, availW - fixed) / sumText
+    end
+    local totalW = fixed
+    for i = 1, n do
+        parts[i].textW = math.floor(parts[i].textW * scale)
+        totalW = totalW + parts[i].textW
+    end
+    PP.Size(rowFrame, totalW, blockH)
+    PP.Point(rowFrame, "TOPLEFT", parent, "TOPLEFT",
+        EllesmereUI.CONTENT_PAD + math.floor((fullW - totalW) / 2), y)
+
+    local x = 0
+    for i = 1, n do
+        local spec, p = cards[i], parts[i]
+        local card, icon, titleFs, descFs, boxed = p.card, p.icon, p.titleFs, p.descFs, p.boxed
+        if i > 1 then
+            local div = rowFrame:CreateTexture(nil, "ARTWORK")
+            div:SetColorTexture(1, 1, 1, 0.10)
+            div:SetWidth(1)
+            div:SetHeight(DIV_H)
+            PP.Point(div, "TOPLEFT", rowFrame, "TOPLEFT", x + DIV_GAP, -math.floor((ROW_H - DIV_H) / 2))
+            x = x + DIV_GAP * 2 + 1
+        end
+        local w = p.padL + ICON + p.gap + p.textW + p.padR
+        PP.Size(card, w, ROW_H)
+        PP.Point(card, "TOPLEFT", rowFrame, "TOPLEFT", x, 0)
+        x = x + w
+
+        local iconSz = spec.iconSize or ICON
+        icon:SetSize(iconSz, iconSz)
+        PP.Point(icon, "LEFT", card, "LEFT", p.padL + math.floor((ICON - iconSz) / 2), 0)
+        PP.Point(titleFs, "TOPLEFT", card, "LEFT", p.padL + ICON + p.gap, ICON / 2 + 2)
+        titleFs:SetWidth(p.textW)
+        PP.Point(descFs, "TOPLEFT", titleFs, "BOTTOMLEFT", 0, -DESC_GAP)
+        descFs:SetWidth(p.textW)
+
+        -- The equal cards' box: dark fill, thin outline, an accent top edge.
+        local bg, brd, accentLine
+        if boxed then
+            bg = card:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints()
+            brd = EllesmereUI.MakeBorder(card, 1, 1, 1, BOX_BRD_A, PP)
+            accentLine = card:CreateTexture(nil, "ARTWORK", nil, 7)
+            PP.Point(accentLine, "TOPLEFT", card, "TOPLEFT", 1, -1)
+            PP.Point(accentLine, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
+            accentLine:SetHeight(2)
+            if accentLine.SetSnapToPixelGrid then accentLine:SetSnapToPixelGrid(false); accentLine:SetTexelSnappingBias(0) end
+        end
+        -- The accent is read at paint time, so an accent change repaints it.
+        local function Paint(hover)
+            local ac = spec.accent or EllesmereUI.ELLESMERE_GREEN
+            icon:SetVertexColor(ac.r, ac.g, ac.b)
+            if boxed then
+                accentLine:SetColorTexture(ac.r, ac.g, ac.b, 0.6)
+                if hover then bg:SetColorTexture(0.119, 0.111, 0.104, 0.50)
+                else bg:SetColorTexture(0.077, 0.068, 0.058, 0.50) end
+                brd:SetColor(1, 1, 1, hover and (BOX_BRD_A + 0.10) or BOX_BRD_A)
+            end
+        end
+        Paint(false)
+        if not spec.accent then
+            EllesmereUI.RegisterWidgetRefresh(function() Paint(card:IsMouseOver()) end)
+        end
+        card:SetScript("OnEnter", function()
+            Paint(true)
+            icon:SetAlpha(boxed and (BOX_ICON_A + 0.25) or 1)
+            titleFs:SetAlpha(1)
+            if not boxed then descFs:SetAlpha(DESC_A + 0.15) end
+        end)
+        card:SetScript("OnLeave", function()
+            Paint(false)
+            icon:SetAlpha(p.iconA)
+            titleFs:SetAlpha(TITLE_A)
+            descFs:SetAlpha(p.descA)
+        end)
+        if spec.onClick then card:SetScript("OnClick", spec.onClick) end
+    end
+    return y - blockH, built
+end
+
+function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
+    local PP = EllesmereUI.PanelPP
+    local L  = EllesmereUI.L
+    local n = #cards
+    local fullW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
+    local totalW = (opts and opts.width) and math.floor(fullW * opts.width) or fullW
+    if opts and opts.inline then
+        return BuildInlineRow(parent, y, cards, totalW, fullW, opts.footer)
+    end
+
+    local CARD_H, CARD_GAP = 66, 14
+    local M = { icon = 26, iconX = 24, title = 13, titleGap = 20, titleY = 2,
+                desc = 11, descGap = 4, descA = 0.35, pad = 14 }
+    local left = EllesmereUI.CONTENT_PAD + math.floor((fullW - totalW) / 2)
+    local cardW = math.floor((totalW - CARD_GAP * (n - 1)) / n)
+
+    local rowFrame = CreateFrame("Frame", nil, parent)
+    PP.Size(rowFrame, totalW, CARD_H)
+    PP.Point(rowFrame, "TOPLEFT", parent, "TOPLEFT", left, y)
+
+    local built = {}
+    for i = 1, n do
+        local spec = cards[i]
+        local ac = spec.accent or EllesmereUI.ELLESMERE_GREEN
+        local card = CreateFrame("Button", nil, rowFrame)
+        PP.Size(card, cardW, CARD_H)
+        PP.Point(card, "TOPLEFT", rowFrame, "TOPLEFT", (i - 1) * (cardW + CARD_GAP), 0)
+        card:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
+
+        local bg = card:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
+        local BRD_A = 0.12
+        local brd = EllesmereUI.MakeBorder(card, 1, 1, 1, BRD_A, PP)
+
+        -- Accent top edge
+        local accentLine = card:CreateTexture(nil, "ARTWORK", nil, 7)
+        accentLine:SetColorTexture(ac.r, ac.g, ac.b, 0.6)
+        PP.Point(accentLine, "TOPLEFT", card, "TOPLEFT", 1, -1)
+        PP.Point(accentLine, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
+        accentLine:SetHeight(2)
+        if accentLine.SetSnapToPixelGrid then accentLine:SetSnapToPixelGrid(false); accentLine:SetTexelSnappingBias(0) end
+
+        local ICON_A, TITLE_A = 0.6, 0.9
+        local icon = card:CreateTexture(nil, "ARTWORK")
+        icon:SetVertexColor(ac.r, ac.g, ac.b)
+        icon:SetAlpha(ICON_A)
+        if icon.SetSnapToPixelGrid then icon:SetSnapToPixelGrid(false); icon:SetTexelSnappingBias(0) end
+
+        -- Icon on the left, title and description to its right.
+        local iconSz = spec.iconSize or M.icon
+        icon:SetSize(iconSz, iconSz)
+        PP.Point(icon, "LEFT", card, "LEFT", M.iconX + math.floor((M.icon - iconSz) / 2), 0)
+        local titleFs = EllesmereUI.MakeFont(card, M.title, nil, 1, 1, 1, TITLE_A)
+        -- Off the icon slot, not the icon, so every card's text lines up.
+        PP.Point(titleFs, "TOPLEFT", card, "LEFT", M.iconX + M.icon + M.titleGap, M.icon / 2 + M.titleY)
+        PP.Point(titleFs, "RIGHT", card, "RIGHT", -M.pad, 0)
+        titleFs:SetJustifyH("LEFT")
+        titleFs:SetWordWrap(false)
+        local descFs = EllesmereUI.MakeFont(card, M.desc, nil, 1, 1, 1, M.descA)
+        PP.Point(descFs, "TOPLEFT", titleFs, "BOTTOMLEFT", 0, -M.descGap)
+        PP.Point(descFs, "RIGHT", card, "RIGHT", -M.pad, 0)
+        descFs:SetJustifyH("LEFT")
+        -- Two lines at most: a narrow card is short of room in longer languages.
+        descFs:SetWordWrap(true)
+        descFs:SetMaxLines(2)
+
+        function card:SetCardContent(iconPath, cardTitle, cardDesc)
+            icon:SetTexture(iconPath)
+            titleFs:SetText(L(cardTitle))
+            descFs:SetText(L(cardDesc))
+        end
+        card:SetCardContent(spec.icon, spec.title, spec.desc)
+
+        card:SetScript("OnEnter", function()
+            bg:SetColorTexture(0.119, 0.111, 0.104, 0.50)
+            brd:SetColor(1, 1, 1, BRD_A + 0.10)
+            titleFs:SetAlpha(1)
+            icon:SetAlpha(ICON_A + 0.25)
+        end)
+        card:SetScript("OnLeave", function()
+            bg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
+            brd:SetColor(1, 1, 1, BRD_A)
+            titleFs:SetAlpha(TITLE_A)
+            icon:SetAlpha(ICON_A)
+        end)
+        if spec.onClick then card:SetScript("OnClick", spec.onClick) end
+        built[i] = card
+    end
+    return y - CARD_H, built
+end
+
 -- Dim note row shown inside a card when its module is disabled.
 function EllesmereUI.BuildNoteRow(parent, y, text)
     local PP = EllesmereUI.PanelPP
@@ -229,7 +473,8 @@ local MC_CARD_GAP   = 14
 -- enabled, expanded (session table keyed by tile.key), descW,
 -- glyph(hdr, enabled) builds the left glyph, headerDD(hdr) -> dd or nil,
 -- searchDesc: what search indexes (and the header's section name carries) in
--- place of tile.desc, for a card whose description is live (a count).
+-- place of tile.desc, for a card whose description is live (a count);
+-- noSearch: the header is no search entry (a card that holds no settings).
 -- A disabled module's card is inert: dimmed header, tag and tooltip only.
 -- Sets tile._hdr and tile._descFS (the header and its description line)
 -- before tile.buildContent runs, for content that updates the header.
@@ -255,11 +500,13 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
     local sDesc = opts.searchDesc
     if sDesc == nil then sDesc = tile.desc or "" end
     local searchName = tile.display .. " " .. sDesc
-    hdr._isSectionHeader = true
-    hdr._sectionName = searchName
-    local searchNameLoc = L(tile.display) .. " " .. L(sDesc)
-    if searchNameLoc ~= searchName then hdr._sectionNameLoc = searchNameLoc end
-    if EllesmereUI._RegisterSearchEntry then
+    if not opts.noSearch then
+        hdr._isSectionHeader = true
+        hdr._sectionName = searchName
+        local searchNameLoc = L(tile.display) .. " " .. L(sDesc)
+        if searchNameLoc ~= searchName then hdr._sectionNameLoc = searchNameLoc end
+    end
+    if EllesmereUI._RegisterSearchEntry and not opts.noSearch then
         local titleLoc = L(tile.display)
         local descSearch = sDesc
         local descLoc = L(sDesc)
@@ -362,7 +609,7 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
     bg:SetFrameLevel(parent:GetFrameLevel())
     PP.Size(bg, cardW, cardTop - y)
     PP.Point(bg, "TOPLEFT", hdr, "TOPLEFT", 0, 0)
-    local fill = EllesmereUI.SolidTex(bg, "BACKGROUND", 0.06, 0.08, 0.10, 0.5)
+    local fill = EllesmereUI.SolidTex(bg, "BACKGROUND", 0.077, 0.068, 0.058, 0.5)
     fill:SetAllPoints()
     brd = EllesmereUI.MakeBorder(bg, 1, 1, 1, expanded and 0.16 or 0.12, PP)
 
@@ -608,7 +855,7 @@ function EllesmereUI.BuildActivationOverlay(outerRoot, opts)
     ov._searchIgnore = true
     local bg = ov:CreateTexture(nil, "OVERLAY")
     bg:SetAllPoints()
-    bg:SetColorTexture(13/255, 17/255, 25/255, 0.98)
+    bg:SetColorTexture(17/255, 15/255, 12/255, 0.98)
     local title = ov:CreateFontString(nil, "OVERLAY")
     title:SetFont(fontPath, 15, "")
     title:SetPoint("CENTER", ov, "CENTER", 0, 60)

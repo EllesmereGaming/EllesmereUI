@@ -151,6 +151,19 @@ local function TileSubtitle(t)
     return table.concat(names, ", ")
 end
 
+-- An indicator's display name, as its sidebar row titles it.
+local function TileName(t)
+    return t.name or L(TYPE_NAMES[t.type] or t.type)
+end
+
+-- The category a Filters row edits: the two dispel rows and the two
+-- Non-Player rows are flavors of one category each.
+local function RowCat(k)
+    if k == "dispel_you" or k == "dispel_typed" then return "dispel" end
+    if k == "anyplayer" then return "nonplayer" end
+    return k
+end
+
 -- EFFECTS section (base + grid tile panes): each effect is one DualRow --
 -- left = the filters it applies to (checkbox dropdown), right = the effect
 -- control. First effect: Icon Glow, a 1:1 copy of the BM display-level
@@ -305,6 +318,45 @@ local function TileLaneItems(t)
     end
     return items
 end
+-- Owner hints on an indicator's Filters rows: each debuff shows in one place,
+-- so a category an indicator before this one already shows renders only
+-- there -- its row here dims and names that indicator, and All Debuffs does
+-- the same while an earlier indicator hosts the catch-all. Match All
+-- indicators and frame effects take no hints (claims never stop them). Read
+-- once per page build (an edit elsewhere rebuilds the page); hinted rows are
+-- copies, never the shared TILE_LANE_ITEMS rows.
+local function WithOwnerHints(items, t)
+    if t.type ~= "icons" and t.type ~= "square" then return items end
+    local claims, claimsAll, pos = ns.DM_ClaimOwners(dmSpecSel)
+    local mine = pos[t]
+    if not mine then return items end
+    local function Earlier(owner)
+        if owner and pos[owner] < mine then return owner end
+    end
+    local out = {}
+    for i = 1, #items do
+        local it = items[i]
+        local owner
+        if it.dual then
+            owner = Earlier(claims[RowCat(it.key)])
+        elseif it.key == TILE_CA_ALL then
+            owner = Earlier(claimsAll)
+        end
+        if owner then
+            local row = CopyTable(it)
+            if it.key == TILE_CA_ALL then
+                row.dimFn = function() return true end
+            else
+                row.dimFn = function() return not ns.DM_TileMatchOn(t) end
+            end
+            row.dimTooltip = EllesmereUI.Lf("Shown by %1$s, which comes first.", TileName(owner))
+            out[#out + 1] = row
+        else
+            out[#out + 1] = it
+        end
+    end
+    return out
+end
 local function BuildTileFiltersDD(rgn, t, dm)
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
     if rgn._control then rgn._control:Hide() end
@@ -314,7 +366,7 @@ local function BuildTileFiltersDD(rgn, t, dm)
     local warnClosed
     local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
         rgn, 190, rgn:GetFrameLevel() + 2,
-        TileLaneItems(t),
+        WithOwnerHints(TileLaneItems(t), t),
         function(k, neg)
             if k == TILE_MATCH_ALL then return t.match == "all" end
             if k == TILE_MATCH_ANY then return t.match ~= "all" end
@@ -564,6 +616,7 @@ local function BuildBaseDetailDM(frame, fontPath)
         if rgn._control then rgn._control:Hide() end
         local DM_ALL_KEY = "__all"
         local DM_DUR_KEY = "__hasDuration"
+        local DM_HIDE_EXH = "__hideExhaustion"
         local DM_MATCH_ANY = "__matchAny"
         local DM_MATCH_ALL = "__matchAll"
         local function AllOn() return dm.all ~= false end
@@ -573,6 +626,12 @@ local function BuildBaseDetailDM(frame, fontPath)
               tooltip = "Show every debuff. Use the Hide lane below to remove specific filters." },
             { key = DM_DUR_KEY, label = "Has Duration",
               tooltip = "Only show debuffs that have a duration, excluding permanent ones. Combines with the filters below; checked alone it shows every timed debuff." },
+            -- Hide Exhaustion: a view over the profile's hideLustDebuff (on by
+            -- default), which every raid and party debuff display reads. Kept out
+            -- of the summary, so the default reads as before.
+            { key = DM_HIDE_EXH, label = "Hide Exhaustion",
+              tooltip = "Hides Sated, Exhaustion, Temporal Displacement and the other Bloodlust lockout debuffs.",
+              excludeFromSummaryFn = function() return true end },
             -- Match Mode: modifier rows (out of the summary and the count), a
             -- radio pair over dm.match (nil = Match Any = the union). Locked
             -- while All Debuffs shows everything; the setting is kept.
@@ -636,6 +695,20 @@ local function BuildBaseDetailDM(frame, fontPath)
                 end
             end
         end
+        -- Each debuff shows in one place: a category an indicator shows is
+        -- never shown here, so its row dims and names that indicator. Read
+        -- once per page build (an edit on an indicator rebuilds the page).
+        do
+            local claims = ns.DM_ClaimOwners(dmSpecSel)
+            for i = 1, #FILTER_ITEMS do
+                local it = FILTER_ITEMS[i]
+                local owner = it.dual and claims[RowCat(it.key)]
+                if owner then
+                    it.dimFn = function() return true end
+                    it.dimTooltip = EllesmereUI.Lf("Shown by %1$s instead.", TileName(owner))
+                end
+            end
+        end
         local function NegHas(cat)
             return dm.neg ~= nil and dm.neg[cat] == true
         end
@@ -694,6 +767,7 @@ local function BuildBaseDetailDM(frame, fontPath)
             function(k, neg)
                 if k == DM_ALL_KEY then return AllOn() end
                 if k == DM_DUR_KEY then return dm.hasDuration == true end
+                if k == DM_HIDE_EXH then return p.hideLustDebuff ~= false end
                 if k == DM_MATCH_ALL then return dm.match == "all" end
                 if k == DM_MATCH_ANY then return dm.match ~= "all" end
                 if k == "dispel_you" then
@@ -725,6 +799,12 @@ local function BuildBaseDetailDM(frame, fontPath)
                     -- AND-modifier: combines with All Debuffs or any show-lane
                     -- selection; checked alone it acts as the timed catch-all.
                     dm.hasDuration = v or nil
+                    DmApply()
+                    EllesmereUI:RefreshPage()
+                    return
+                end
+                if k == DM_HIDE_EXH then
+                    p.hideLustDebuff = v and true or false
                     DmApply()
                     EllesmereUI:RefreshPage()
                     return
@@ -2050,6 +2130,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     sidebarScroll:SetScrollChild(sidebarChild)
     sidebarScroll:EnableMouseWheel(true)
     sidebarScroll:SetScript("OnMouseWheel", function(self, delta)
+        if EllesmereUI._ShiftWheelScale(delta) then return end
         local scroll = self:GetVerticalScroll()
         local maxS = max(0, sidebarChild:GetHeight() - self:GetHeight())
         self:SetVerticalScroll(max(0, math.min(maxS, scroll - delta * 30)))
@@ -2118,7 +2199,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 tileY = tileY - EllesmereUI.BuildManagerTile(sidebarChild, tileY, {
                     width = sidebarW, fontPath = fontPath,
                     icon = TileFaceTexture(t),
-                    title = t.name or L(TYPE_NAMES[t.type] or t.type),
+                    title = TileName(t),
                     posText = posText,
                     subtitle = gname,
                     inheritedTooltip = EllesmereUI.Lf("Inherited from %1$s. Editable only there.", gname),
@@ -2158,7 +2239,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
             -- User-typed name over the type-name default. Display-only
             -- (additive key; DM_CfgFP serializes explicit fields, so a
             -- rename never re-declares containers).
-            title = t.name or L(TYPE_NAMES[t.type] or t.type),
+            title = TileName(t),
             posText = posText,
             -- Live: filter and Match Mode clicks refresh without a rebuild.
             subtitleFn = function() return TileSubtitle(t) end,
@@ -2193,7 +2274,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
             end,
             editTooltip = L("Rename Indicator"),
             onEdit = function()
-                local cur = t.name or L(TYPE_NAMES[t.type] or t.type)
+                local cur = TileName(t)
                 EllesmereUI:ShowInputPopup({
                     title = L("Rename Indicator"),
                     message = L("Enter a new name for this indicator:"),
@@ -2609,7 +2690,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         local ginfo2 = ns.BM_GROUP_BUCKET_INFO and ns.BM_GROUP_BUCKET_INFO[dmInhSel.group]
         local gname2 = ginfo2 and L(ginfo2.name) or dmInhSel.group
         settingsTitle:SetTextColor(0.55, 0.72, 1)
-        settingsTitle:SetText(inhSelTile.name or L(TYPE_NAMES[inhSelTile.type] or inhSelTile.type))
+        settingsTitle:SetText(TileName(inhSelTile))
         subTitle:SetText("(" .. EllesmereUI.Lf("Inherited from %1$s", gname2) .. ")")
     elseif dmInhSel and inhSelBase then
         settingsTitle:SetTextColor(0.55, 0.72, 1)
@@ -2656,7 +2737,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
 
     local UpdateThumb = EllesmereUI.AttachSmoothScrollbar(settingsScroll, {
         step = 60, width = 5, rightInset = 31, topInset = 12, level = 20,
-        trackAlpha = 0.05, thumbAlpha = 0.22, child = settingsChild })
+        trackAlpha = 0.05, thumbAlpha = 0.22, child = settingsChild, panelWheel = true })
 
     -- Read-only pane for an INHERITED row (group tile or the All Specs base
     -- grid): where it lives, a jump link to the owning group, and a pointer
@@ -2805,7 +2886,7 @@ function ns.BMP_ShowFilterEditor()
     popup:SetFrameStrata("FULLSCREEN_DIALOG")
     popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
     popup:EnableMouse(true)
-    local popBg = EllesmereUI.SolidTex(popup, "BACKGROUND", 0.06, 0.08, 0.10, 1)
+    local popBg = EllesmereUI.SolidTex(popup, "BACKGROUND", 0.077, 0.068, 0.058, 1)
     popBg:SetAllPoints()
     EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15)
     local ppScale = EllesmereUI.GetPopupScale() or 1
@@ -3223,7 +3304,7 @@ function ns.BMP_ShowFilterEditor()
         box:SetPoint("LEFT", srow, "LEFT", 6, 0)
         local boxBg = box:CreateTexture(nil, "BACKGROUND")
         boxBg:SetAllPoints()
-        boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+        boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
         local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6)
         local chk = box:CreateTexture(nil, "ARTWORK")
         chk:SetPoint("TOPLEFT", box, "TOPLEFT", 2, -2)

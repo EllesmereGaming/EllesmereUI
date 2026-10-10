@@ -29,6 +29,11 @@ local function ModuleLabel(config, folder)
     return title, title
 end
 
+-- A page's name as its tab shows it (EllesmereUI.TAB_LABEL_OVERRIDES), localized.
+local function PageLabel(page)
+    return EllesmereUI.L(EllesmereUI.TAB_LABEL_OVERRIDES[page] or page)
+end
+
 -------------------------------------------------------------------------------
 --  Index storage
 -------------------------------------------------------------------------------
@@ -175,14 +180,19 @@ local function BuildCoarseCandidates()
             -- moduleText is the plain-text form used in the haystack.
             local moduleLabel, moduleText = ModuleLabel(config, folder)
             for _, page in ipairs(config.pages) do
-                local pageLabel = EllesmereUI.L(page)
+                local pageLabel = PageLabel(page)
+                -- A relabeled tab stays findable by its page identity too.
+                local pageText = pageLabel
+                if EllesmereUI.TAB_LABEL_OVERRIDES[page] then
+                    pageText = pageLabel .. " " .. EllesmereUI.L(page)
+                end
                 _coarseCandidates[#_coarseCandidates + 1] = {
                     kind = "page",
                     -- Combined haystack so a query spanning both module and page words
                     -- (e.g. "damage spell") still matches, not just one half of it.
-                    label = moduleText .. " " .. pageLabel,
-                    lLabel = (moduleText .. " " .. pageLabel):lower(),
-                    nLabel = ((moduleText .. pageLabel):lower():gsub(" ", "")),
+                    label = moduleText .. " " .. pageText,
+                    lLabel = (moduleText .. " " .. pageText):lower(),
+                    nLabel = ((moduleText .. pageText):lower():gsub(" ", "")),
                     displayLabel = pageLabel,
                     moduleLabel = moduleLabel,
                     module = folder,
@@ -231,6 +241,8 @@ local function BuildModuleAliases()
     local EXTRA_ALIASES = {
         EllesmereUIMythicTimer     = { "m+ timer", "m+", "m+ tools", "mythic+ timer" },
         EllesmereUICooldownManager = { "cdm" },
+        -- Without the "+", and the module's former name.
+        EllesmereUIBlizzardSkin    = { "blizzard skins", "blizz ui enhanced" },
         EllesmereUIQuickdraw       = { "radial", "wheel", "ring menu", "palette", "grid", "arc", "fan", "action wheel", "action palette", "action menu" },
     }
     for folder, list in pairs(EXTRA_ALIASES) do
@@ -299,7 +311,13 @@ local QUERY_SYNONYMS = {
     { "transparent",     { "fade" } },
     { "hide when",       { "fade" } },
     { "quest",           { "objective", "tracker" } },
+    -- A choice inside a dropdown (dropdown values are not indexed): its row
+    { "compact",         { "bag display", "bank display" } },
 }
+-- WoW Forever's Name Format (first or last names; Forever Essentials > General).
+if EllesmereUI.IS_FOREVER then
+    QUERY_SYNONYMS[#QUERY_SYNONYMS + 1] = { "surname", { "name format" } }
+end
 local SYNONYM_MIN_PREFIX = 3
 
 local function SearchIndex(query, maxResults)
@@ -777,7 +795,9 @@ local function RunPrebuildPass(onComplete)
                 -- buildPage captures to hidden-build versions that a later
                 -- cache-restore could pick up instead of the live ones.
                 local cacheKey = folder .. "::" .. page
-                if not (ns.pageCache and ns.pageCache[cacheKey]) then
+                -- A link tab (config.pageLinks) has no page of its own to build.
+                if not (ns.pageCache and ns.pageCache[cacheKey])
+                   and not (config.pageLinks and config.pageLinks[page]) then
                     -- Selector-driven pages (CDM bar / unit dropdowns) expand to one
                     -- job PER variant so each tick stays one build; the last variant
                     -- job carries the restore of the player's own selection.
@@ -939,7 +959,7 @@ local function EnsureSearchUI()
     popup:Hide()
     local popupBg = popup:CreateTexture(nil, "BACKGROUND")
     popupBg:SetAllPoints()
-    popupBg:SetColorTexture(0.10, 0.10, 0.12, 0.97)
+    popupBg:SetColorTexture(0.098, 0.090, 0.082, 0.97)
     EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.12, PP)
 
     local resultsFrame = CreateFrame("Frame", nil, popup)
@@ -1031,10 +1051,10 @@ local function EnsureSearchUI()
                         name = name .. "  (" .. TitleCaseSection(entry.labelLoc) .. ")"
                     end
                     row._label:SetText(accentHex .. EllesmereUI.L("Section") .. ":|r " .. name)
-                    row._sub:SetText(JoinBreadcrumb(GetModuleDisplayName(entry.module), EllesmereUI.L(entry.page)))
+                    row._sub:SetText(JoinBreadcrumb(GetModuleDisplayName(entry.module), PageLabel(entry.page)))
                 else
                     row._label:SetText(entry.labelLoc and (entry.label .. "  (" .. entry.labelLoc .. ")") or entry.label)
-                    row._sub:SetText(JoinBreadcrumb(GetModuleDisplayName(entry.module), EllesmereUI.L(entry.page)))
+                    row._sub:SetText(JoinBreadcrumb(GetModuleDisplayName(entry.module), PageLabel(entry.page)))
                 end
                 row:SetScript("OnClick", function() JumpToResult(entry, sidebarSearchBox) end)
                 row:Show()

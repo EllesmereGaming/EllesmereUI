@@ -82,7 +82,7 @@ local function RefreshChecks()
                 r.brd:SetColor(ACCENT.r, ACCENT.g, ACCENT.b, 0.8)
             else
                 r.fill:Hide()
-                r.brd:SetColor(0.25, 0.25, 0.28, 0.6)
+                r.brd:SetColor(0.224, 0.215, 0.207, 0.6)
             end
         end
     end
@@ -140,8 +140,8 @@ local function Row(i)
     cb:SetFrameLevel(r:GetFrameLevel() + 1)
     local cbBg = cb:CreateTexture(nil, "BACKGROUND")
     cbBg:SetAllPoints()
-    cbBg:SetColorTexture(0.12, 0.12, 0.14, 1)
-    r.brd = EllesmereUI.MakeBorder(cb, 0.25, 0.25, 0.28, 0.6, EllesmereUI.PanelPP)
+    cbBg:SetColorTexture(0.114, 0.106, 0.099, 1)
+    r.brd = EllesmereUI.MakeBorder(cb, 0.224, 0.215, 0.207, 0.6, EllesmereUI.PanelPP)
     local ACCENT = EllesmereUI.ELLESMERE_GREEN
     r.fill = cb:CreateTexture(nil, "ARTWORK")
     r.fill:SetSnapToPixelGrid(false)

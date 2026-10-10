@@ -37,7 +37,6 @@ local FILL_VIEWS = { "LFGListingFrame", "LFGBrowseFrame", "LFGWhoListFrame",
 local SHOW_VIEWS = { "LFGListingFrame", "LFGBrowseFrame", "LFGWhoListFrame",
     "LFGListingFrameCategoryView", "LFGListingFrameActivityView" }
 local BUTTONS = {
-    "LFGBrowseFrameRefreshButton", "LFGBrowseFrameOptionsButton",
     "LFGBrowseFrameSendMessageButton", "LFGBrowseFrameGroupInviteButton",
     "LFGListingFrameBackButton", "LFGListingFramePostButton",
 }
@@ -245,8 +244,39 @@ local function Skin_LFGVanilla()
     if not f then return end
     WSkin.Shell("lfg", f)
     WSkin.RemovePortrait(f)
+    -- The big animated eye in the portrait slot is a button of its own (no
+    -- portrait key) that Blizzard shows on every open: gone by alpha, with
+    -- the mouse off so the invisible 64 px HIGH-strata button catches no
+    -- clicks over the window's corner.
+    local eye = _G.LFGParentFramePortrait
+    if eye then
+        eye:SetAlpha(0)
+        eye:EnableMouse(false)
+    end
     WSkin.CommonChrome(f, "LFGParentFrame")
     FadeLFGArt(f, 0)
+    -- The List Self role header's art runs a few pixels past the divider
+    -- line at the inset's top; a mask ends it on the line, so the header and
+    -- the body meet there (the art keeps its size and coordinates).
+    local lf = _G.LFGListingFrame
+    local roles, inset = lf and lf.RolesSection, lf and lf.Inset
+    if roles and inset and not GetFFD(roles).mask then
+        local regions = { roles:GetRegions() }
+        for i = 1, #regions do
+            local r = regions[i]
+            local a = r.GetAtlas and r:GetAtlas()
+            if a and a:lower() == "groupfinder-roles-background" then
+                local mask = roles:CreateMaskTexture()
+                mask:SetTexture("Interface\\Buttons\\WHITE8X8", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+                mask:SetPoint("TOPLEFT", r, "TOPLEFT")
+                mask:SetPoint("RIGHT", r, "RIGHT")
+                mask:SetPoint("BOTTOM", inset, "TOP")
+                r:AddMaskTexture(mask)
+                GetFFD(roles).mask = mask
+                break
+            end
+        end
+    end
     for _, vn in ipairs(FILL_VIEWS) do
         local v = _G[vn]
         if v then
@@ -273,6 +303,15 @@ local function Skin_LFGVanilla()
     for _, n in ipairs(BUTTONS) do
         local b = _G[n]
         if b then WSkin.Button(b); WSkin.WhiteButtonLabel(b) end
+    end
+    -- The browser's refresh button: the house glyph, as on retail.
+    WSkin.RefreshGlyph(_G.LFGBrowseFrameRefreshButton)
+    -- Its options cog (Show All Level Ranges) stays a bare cog, white like the
+    -- refresh glyph; Blizzard's own hover still lifts it from 0.8 to full.
+    local cog = _G.LFGBrowseFrameOptionsButton
+    if cog and cog.Icon then
+        cog.Icon:SetDesaturated(true)
+        cog.Icon:SetVertexColor(1, 1, 1)
     end
     local who = _G.LFGWhoListFrame
     if who and who.EditBox then WSkin.EditBox(who.EditBox) end

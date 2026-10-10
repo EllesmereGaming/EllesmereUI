@@ -13,8 +13,9 @@ EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns
 ns.addon = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 
 -------------------------------------------------------------------------------
---  Feature kit, for the features drawn on one frame of ours that unlock mode
---  places (Travel, Loot).
+--  Feature kit: settings and the login boot for every feature, plus placement
+--  and the unlock element for the ones drawn on one frame of ours that unlock
+--  mode places (Travel, Loot).
 --  Settings are account-wide in EllesmereUIDB[dbKey]: Read() never creates the
 --  table, so a feature nobody touches saves nothing; Cfg() is the write
 --  accessor and Get() falls back to defaults. pos (point, relPoint, x, y) is
@@ -55,8 +56,9 @@ function ns.Feature(dbKey, defaults, defaultPos)
     end
     F.Read, F.Cfg, F.Get, F.Enabled, F.Place = Read, Cfg, Get, Enabled, Place
 
-    -- At login: apply(), then the unlock element. The frame's height follows
-    -- its settings, so unlock mode sizes the width only.
+    -- At login: apply(), then the unlock element when the feature has a frame
+    -- (no u: nothing on screen). The frame's height follows its settings, so
+    -- unlock mode sizes the width only.
     --   u.key, u.label, u.order, u.minWidth
     --   u.frame(build)   the frame (nil until built); build builds it first
     --   u.height()       the frame's height
@@ -69,6 +71,7 @@ function ns.Feature(dbKey, defaults, defaultPos)
         boot:SetScript("OnEvent", function(self)
             self:UnregisterAllEvents()
             apply()
+            if not u then return end
             EllesmereUI:RegisterUnlockElements({
                 EllesmereUI.MakeUnlockElement({
                     key      = u.key,

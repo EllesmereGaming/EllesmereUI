@@ -90,6 +90,23 @@ function EllesmereUI.SetElementVisibility(frame, visible)
 end
 
 -------------------------------------------------------------------------------
+--  Anchoring a frame that may be a Blizzard Edit Mode system (ChatFrame1, the
+--  action bars, the quest tracker, ...). Edit Mode replaces those frames'
+--  SetPoint and ClearAllPoints with Lua overrides that, called from our code,
+--  mark Edit Mode's anchor sweep and the frame's snap state as written by us.
+--  These call the saved C methods instead; any other frame uses its own.
+-------------------------------------------------------------------------------
+function EllesmereUI.ClearFramePoints(frame)
+    local clear = frame.ClearAllPointsBase or frame.ClearAllPoints
+    clear(frame)
+end
+
+function EllesmereUI.SetFramePoint(frame, point, relativeTo, relativePoint, x, y)
+    local setPoint = frame.SetPointBase or frame.SetPoint
+    setPoint(frame, point, relativeTo, relativePoint, x, y)
+end
+
+-------------------------------------------------------------------------------
 --  Blizzard Cast Bar Event Ownership -- standalone cast bar addons claim Blizzard's
 --  player/pet cast bars by unregistering their events. oUF's Castbar element writes the same
 --  state -- it silences those frames when it enables on the player frame and re-arms them when
@@ -254,22 +271,43 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
             blizzBar:SetParent(hiddenParent)
         end
 
-        -- Edit Mode tries to re-anchor the cast bar during layout changes; keep re-applying our hidden parent while any EUI owner suppresses it.
+        -- Edit Mode re-anchors the cast bar on every layout apply (spec changes, and every
+        -- level-up on WoW Forever); keep re-applying our hidden parent while any EUI owner
+        -- suppresses it. The re-park runs in the SAME frame from a one-shot OnUpdate on a
+        -- frame of ours (after this frame's handlers, before it renders; a timer showed
+        -- Blizzard's bar for a frame), so no addon code runs inside Blizzard's call. In
+        -- combat it waits for PLAYER_REGEN_ENABLED instead of being dropped: leaving the
+        -- managed layout must not run from addon code in combat, and a dropped re-park
+        -- left Blizzard's bar on screen for the rest of the session.
         if not EllesmereUI._GetFFD(blizzBar).setParentHooked then
             EllesmereUI._GetFFD(blizzBar).setParentHooked = true
+            local repark = CreateFrame("Frame")
+            repark:Hide()
+            local function Repark()
+                -- Never re-parent while Edit Mode is open: SetParent fires Blizzard's
+                -- synchronous layout handlers under addon taint and poisons the manager's state for its next pass (the Edit Mode close hook in UnitFrames re-applies suppression).
+                if EllesmereUI._GetFFD(blizzBar).castBarSuppressed
+                   and not (EditModeManagerFrame and EditModeManagerFrame:IsShown())
+                   and blizzBar:GetParent() ~= EllesmereUI._playerCastBarHiddenParent
+                then
+                    blizzBar:SetParent(EllesmereUI._playerCastBarHiddenParent)
+                end
+            end
+            repark:SetScript("OnUpdate", function(self)
+                self:Hide()
+                if InCombatLockdown() then
+                    self:RegisterEvent("PLAYER_REGEN_ENABLED")
+                else
+                    Repark()
+                end
+            end)
+            repark:SetScript("OnEvent", function(self)
+                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+                Repark()
+            end)
             hooksecurefunc(blizzBar, "SetParent", function(self, newParent)
                 if EllesmereUI._GetFFD(self).castBarSuppressed and newParent ~= EllesmereUI._playerCastBarHiddenParent then
-                    C_Timer.After(0, function()
-                        -- Never re-parent while Edit Mode is open, even from a timer: SetParent
-                        -- fires Blizzard's synchronous layout handlers under addon taint and poisons the manager's state for its next pass (the Edit Mode close hook in UnitFrames re-applies suppression).
-                        if EllesmereUI._GetFFD(self).castBarSuppressed
-                           and not InCombatLockdown()
-                           and not (EditModeManagerFrame and EditModeManagerFrame:IsShown())
-                           and self:GetParent() ~= EllesmereUI._playerCastBarHiddenParent
-                        then
-                            self:SetParent(EllesmereUI._playerCastBarHiddenParent)
-                        end
-                    end)
+                    repark:Show()
                 end
             end)
         end

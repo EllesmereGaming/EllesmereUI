@@ -51,12 +51,12 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
     side = side or "left"
 
     -- Mini frames (ToT/FoT/Pet) render no power bar, debuffs or castbar at
-    -- runtime, so the preview must match. WoW Forever's pet has power: its
+    -- runtime (the pet's buffs and debuffs are opt-in), so the preview must match. WoW Forever's pet has power: its
     -- bar draws here in the EUI look (the stock styles paint their own).
     local isMiniPreview = (unitKey == "targettarget" or unitKey == "focustarget" or unitKey == "pet")
     local noPowerPreview = isMiniPreview
         and not (unitKey == "pet" and ns.UF_PetHasPower and not ResolveBlizzPreview(unitKey, settings))
-    local noDebuffPreview = isMiniPreview
+    local noDebuffPreview = isMiniPreview and unitKey ~= "pet"
     local noCastbarPreview = isMiniPreview
 
     local hasPortraitSupport = (settings.showPortrait ~= nil or settings.portraitMode ~= nil)
@@ -517,11 +517,12 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             if content == "level" then return lvl
             elseif content == "levelname" then return lvl .. " | " .. _pvName()
             else return _pvName() .. " | " .. lvl end
-        elseif content == "both" or content == "bothdash" or content == "curhpshort" or content == "perhp" or content == "perhpnosign" or content == "perhpnum" or content == "perhpnumdash" then
+        elseif content == "both" or content == "bothdash" or content == "curhpshort" or content == "curmaxhp" or content == "perhp" or content == "perhpnosign" or content == "perhpnum" or content == "perhpnumdash" then
             local maxHP = UnitHealthMax("player") or 1
             local pct = optState._previewHealthPct or 0.70
             local curHP = math.floor(maxHP * pct)
             if content == "curhpshort" then return _pvAbbrev(curHP)
+            elseif content == "curmaxhp" then return _pvAbbrev(curHP) .. " / " .. _pvAbbrev(maxHP)
             elseif content == "perhp" then return _pvPct(pct) .. "%"
             elseif content == "perhpnosign" then return _pvPct(pct)
             elseif content == "perhpnum" then return _pvPct(pct) .. "% | " .. _pvAbbrev(curHP)
@@ -535,6 +536,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             local maxPP = UnitPowerMax("player") or 100
             local ppPct = optState._previewPowerPct or 0.85
             return ns.AbbreviateNumbers(math.floor(maxPP * ppPct))
+        elseif content == "curmaxpp" then
+            local maxPP = UnitPowerMax("player") or 100
+            local ppPct = optState._previewPowerPct or 0.85
+            return ns.AbbreviateNumbers(math.floor(maxPP * ppPct)) .. " / " .. ns.AbbreviateNumbers(maxPP)
         elseif content == "curhp_curpp" then
             local maxHP = UnitHealthMax("player") or 1
             local pct = optState._previewHealthPct or 0.70
@@ -586,7 +591,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
     -- Power color override for preview (takes priority over class color for power-related text)
     local function PreviewPowerColor(fs, contentKey, usePowerColor)
         if not fs or not usePowerColor then return end
-        if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
+        if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curmaxpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
             local pcR, pcG, pcB = EllesmereUI.ResolveUnitPowerColor("player")
             local info = pcR and { r = pcR, g = pcG, b = pcB }
             if info then fs:SetTextColor(info.r, info.g, info.b)
@@ -660,7 +665,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             local barW = s.frameWidth or 181
             if rc ~= "none" then
                 local UF_TEXT_PADDING = 10
-                local ufTW = { both = 75, curhpshort = 38, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
+                local ufTW = { both = 75, curhpshort = 38, curmaxhp = 75, curmaxpp = 75, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
                 local rightUsed = (ufTW[rc] or 0) + UF_TEXT_PADDING
                 PP.Width(leftFS, math.max(barW - rightUsed - 10, 20))
             else
@@ -2176,8 +2181,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         local bh = hh + pvPpExtra
         -- Class power "above" position adds height above health bar ("top" floats outside)
         local cpStyle = (unitKey == "player") and (s.classPowerStyle or "none") or "none"
-        -- The style that builds (WoW Forever reads a saved "blizzard" as modern).
-        if ns.UF_ForeverCPStyle then cpStyle = ns.UF_ForeverCPStyle(cpStyle) end
+        -- The style that builds (WoW Forever reads a saved "blizzard" as modern,
+        -- and a rogue's own style); only the player frame has a class resource.
+        if unitKey == "player" and ns.UF_ForeverCPStyle then cpStyle = ns.UF_ForeverCPStyle(cpStyle) end
         local cpPos = (cpStyle == "modern") and (s.classPowerPosition or "top") or "none"
         local cpAboveH = 0
         if cpStyle == "modern" and cpPos == "above" and cpPips then
@@ -2623,6 +2629,8 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                     ppTxt = ppPctRaw .. ppSuffix  -- preview always shows percent for smart
                 elseif ppFmt == "curpp" then
                     ppTxt = ppCurFake
+                elseif ppFmt == "curmaxpp" then
+                    ppTxt = ppCurFake .. " / " .. ns.AbbreviateNumbers(22000)
                 elseif ppFmt == "both" then
                     ppTxt = ppCurFake .. " | " .. ppPctRaw .. ppSuffix
                 else  -- "perpp"
@@ -3214,6 +3222,29 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             elseif cbPv then
                 cbPv:Hide()
             end
+            -- Type Icon Position: the eye also shows the Magic type icon on its
+            -- corner of the health bar, over the border (runtime twin:
+            -- ApplyDispelSlotStyle). Built on first use.
+            local tiPv = pf._pvDispelIcon
+            local dp = db.profile
+            if optState.showDispelOverlayPreview and dp.showDispelIcons == true then
+                if not tiPv then
+                    tiPv = CreateFrame("Frame", nil, pf)
+                    local tex = tiPv:CreateTexture(nil, "ARTWORK")
+                    tex:SetAllPoints(tiPv)
+                    tex:SetAtlas("RaidFrame-Icon-DebuffMagic")
+                    pf._pvDispelIcon = tiPv
+                end
+                local sz = dp.dispelIconSize or 16
+                local corner = (dp.dispelIconPosition or "right"):upper()
+                tiPv:SetFrameLevel(border:GetFrameLevel() + 2)
+                tiPv:SetSize(sz, sz)
+                tiPv:ClearAllPoints()
+                tiPv:SetPoint(corner, health, corner, dp.dispelIconOffsetX or 0, dp.dispelIconOffsetY or 0)
+                tiPv:Show()
+            elseif tiPv then
+                tiPv:Hide()
+            end
         end
 
         -- Buff icons -- reposition based on anchor/growth/size/offset settings
@@ -3620,6 +3651,41 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             local bTex2 = bds.borderTexture or "solid"
             EllesmereUI.ApplyBorderStyle(border, bs2, (bds.borderColor or {r=0,g=0,b=0}).r, (bds.borderColor or {r=0,g=0,b=0}).g, (bds.borderColor or {r=0,g=0,b=0}).b, bds.borderAlpha or 1, bTex2, bds.borderTextureOffset, bds.borderTextureOffsetY, bds.borderTextureShiftX, bds.borderTextureShiftY, "unitframes", bs2, nil,
                 EllesmereUI.BorderPx((not s.borderSizeOverride) and bds.borderSizePx, bs2, bTex2))
+        end
+        -- Rounded corners, as on the live frame: the border frame is the shape
+        -- (health + power + attached portrait and text bar); the fill sits on
+        -- pf, under the bars. The portrait joins with its own art only.
+        do
+            local radius = (not ResolveBlizzPreview(unitKey, s) and bds.cornerRadius) or 0
+            local det = pvPpPos == "detached_top" or pvPpPos == "detached_bottom"
+            local corners, pCorners = bds.cornerMask, bds.cornerMask
+            if det and s.cornerJoinPower then
+                local upper, lower = EllesmereUI.RoundedJoinCorners(corners)
+                if pvPpPos == "detached_bottom" then corners, pCorners = upper, lower
+                else corners, pCorners = lower, upper end
+            end
+            if radius > 0 then
+                local port = sp and isAttached and portraitFrame and portraitFrame:IsShown() and portraitFrame or nil
+                EllesmereUI.RoundCorners(pf, radius, {
+                    roots = { health, (pvPpPos == "below" or pvPpPos == "above") and power or nil,
+                        s.bottomTextBar and btbIsAtt and btbFrame or nil },
+                    textures = { port and port._previewBg, port and port._previewTex },
+                    border = border, rect = border, style = bds.borderTexture or "solid",
+                    corners = corners,
+                })
+            else
+                EllesmereUI.RoundCorners(pf, 0)
+            end
+            if power then
+                if det and radius > 0 then
+                    EllesmereUI.RoundCorners(power, radius, {
+                        border = power._pbBorder, style = s.powerBorderStyle or "solid",
+                        corners = pCorners,
+                    })
+                else
+                    EllesmereUI.RoundCorners(power, 0)
+                end
+            end
         end
         if castbar then
             if PP.GetBorders(castbar) then PP.SetBorderSize(castbar, 1) end

@@ -206,6 +206,30 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                 end,
                 true, 20)
             PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            rgn._lastInline = borderSwatch  -- the Corner Radius cog chains left of the swatch
+            -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
+            -- border size control. The stock styles keep the bars square.
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(pwrBsRow._rightRegion, {
+                    title = "Corner Radius", tip = "Corner Radius",
+                    disabled = function()
+                        if powerOff() or EllesmereUI.BlizzStyle.Get("resourcebars") then return true end
+                        local c = cfg(); return not EllesmereUI.RoundedStyleOK(c and c.borderTexture)
+                    end,
+                    disabledTooltip = function()
+                        if EllesmereUI.BlizzStyle.Get("resourcebars") then return EllesmereUI.BlizzStyle.Label("resourcebars") end
+                        if powerOff() then return powerDisTip end
+                        return "This option requires the Solid, Glow or Shadow border style."
+                    end,
+                    requireState = function() return EllesmereUI.BlizzStyle.Get("resourcebars") and "disabled" or "enabled" end,
+                    rows = EllesmereUI.RoundedCornerRows({
+                        { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                          get = function() local c = cfg(); return c and c.cornerRadius or 0 end,
+                          set = function(v) local c = cfg(); if not c then return end; c.cornerRadius = v; RebuildPower() end },
+                    }, function() local c = cfg(); return c and c.cornerMask end,
+                       function(v) local c = cfg(); if not c then return end; c.cornerMask = v; RebuildPower() end),
+                })
+            end
             EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
             local swBlock = CreateFrame("Frame", nil, borderSwatch)
             swBlock:SetAllPoints()
@@ -372,19 +396,20 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                     local r, g, b, a = p.primary.borderR, p.primary.borderG, p.primary.borderB, p.primary.borderA
                     local sz = p.primary.borderSize or 1
                     local bt = p.primary.borderTexture or "solid"
+                    local cr, cm = p.primary.cornerRadius or 0, p.primary.cornerMask
                     p.secondary.borderR, p.secondary.borderG, p.secondary.borderB, p.secondary.borderA = r, g, b, a
-                    p.secondary.borderSize = sz; p.secondary.borderTexture = bt
+                    p.secondary.borderSize = sz; p.secondary.borderTexture = bt; p.secondary.cornerRadius = cr; p.secondary.cornerMask = cm
                     ns.ERB_CopyBorderPx(p.secondary, p.primary)
                     p.health.borderR, p.health.borderG, p.health.borderB, p.health.borderA = r, g, b, a
-                    p.health.borderSize = sz; p.health.borderTexture = bt
+                    p.health.borderSize = sz; p.health.borderTexture = bt; p.health.cornerRadius = cr; p.health.cornerMask = cm
                     ns.ERB_CopyBorderPx(p.health, p.primary)
                     SmoothRefresh(); EllesmereUI:RefreshPage(ns.ERB_TexturedBars(p) ~= was)
                 end,
                 isSynced = function()
                     local p = DB(); if not p then return false end
                     local sr, sg, sb, sa, ssz = p.primary.borderR, p.primary.borderG, p.primary.borderB, p.primary.borderA, p.primary.borderSize or 1
-                    local sbt = p.primary.borderTexture or "solid"
-                    local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt and ns.ERB_SameBorderPx(t, p.primary) end
+                    local sbt, scr, scm = p.primary.borderTexture or "solid", p.primary.cornerRadius or 0, p.primary.cornerMask or 15
+                    local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt and (t.cornerRadius or 0) == scr and (t.cornerMask or 15) == scm and ns.ERB_SameBorderPx(t, p.primary) end
                     return eq(p.secondary) and eq(p.health)
                 end,
                 flashTargets = function() return { ctx.syncRows.powerBorder, ctx.syncRows.classBorder, ctx.syncRows.healthBorder } end,
@@ -417,6 +442,19 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
     );  y = y - h
     -- Fill Color inline swatches: gradient end / custom / power
     if not EllesmereUI._prebuilding then
+    -- Spender Colors paint the fill flat once a row names a spell, as the bar does
+    -- (unless they recolor the text instead).
+    local function SpendersFlatten(c, tse)
+        if not (tse and tse.spenderColorEnabled) then return false end
+        if tse.thresholdTextInstead and c.textFormat ~= "none" then return false end
+        local list = tse.spenderColors
+        if list then
+            for i = 1, #list do
+                if list[i].spellID then return true end
+            end
+        end
+        return false
+    end
     EllesmereUI.BuildInlineSwatches(powerBorderRow._rightRegion, {
             { tooltip = "Gradient End Color", hasAlpha = true,
               disabled = function()
@@ -424,6 +462,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                   if not c.enabled then return true end
                   local tse = _G._ERB_ResolveThresholdSpecEntry and _G._ERB_ResolveThresholdSpecEntry(c)
                   if tse and (tse.thresholdEnabled ~= false) then return true end
+                  if SpendersFlatten(c, tse) then return true end
                   return not c.gradientEnabled
               end,
               disabledTooltip = function()
@@ -431,6 +470,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                   if not c or not c.enabled then return powerDisTip end
                   local tse = _G._ERB_ResolveThresholdSpecEntry and _G._ERB_ResolveThresholdSpecEntry(c)
                   if tse and (tse.thresholdEnabled ~= false) then return "This option requires Threshold Settings to be disabled" end
+                  if SpendersFlatten(c, tse) then return "This option requires Spender Colors to be disabled" end
                   return "Gradient"
               end,
               getValue = function()
@@ -583,8 +623,8 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
         { type = "dropdown", text = "Power Text",
           disabled = powerOff,
           disabledTooltip = powerDisTip,
-          values = { none = "None", smart = "Smart Text", curpp = "Power Value", perpp = "Power %", both = "Power Value | Power %" },
-          order = { "none", "smart", "curpp", "perpp", "both" },
+          values = { none = "None", smart = "Smart Text", curpp = "Power Value", curmaxpp = "Power Value / Max", perpp = "Power %", both = "Power Value | Power %" },
+          order = { "none", "smart", "curpp", "curmaxpp", "perpp", "both" },
           getValue = function() local c = cfg(); return c and c.textFormat or "none" end,
           setValue = function(v)
               local c = cfg(); if not c then return end
@@ -645,7 +685,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
           } }
     );  y = y - h
 
-    -- Row 5: Text Size | Threshold Settings
+    -- Row 5: Text Size | Threshold & Hash Lines
     local powerColorRow
     powerColorRow, h = W:DualRow(parent, y,
         { type = "slider", text = "Text Size", min = 8, max = 24, step = 1,
@@ -656,7 +696,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
               local c = cfg(); if not c then return end
               c.textSize = v; RefreshPower()
           end },
-        { type = "label", text = "Threshold Settings" }
+        { type = "label", text = "Threshold & Hash Lines" }
     );  y = y - h
     -- Power Text inline cog: percent sign, anchor, x/y offsets
     if not EllesmereUI._prebuilding then
@@ -704,20 +744,22 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
         getBarData = function() return cfg() end,
         noticeFn = function() if _thrNoticeP then _thrNoticeP() end end,
         singleSpec = ctx.advanced or nil,
+        specID = ctx.specID,
+        pageParent = parent, pageTopY = _advTop, pageBotY = function() return y end,
         refreshFn = function() RefreshPower(); SmoothRefresh() end,
         rebuildFn = function() RebuildPower() end,
         disabledFn = powerOff,
         disabledTip = "Power Bar",
-        showHash = false,
         showPartialCog = true,
+        showSpenders = true,
         thresholdLabel = "Threshold %",
         threshMin = 1, threshMax = 99,
-        popupTitle = "Power Bar Threshold",
         defaultR = 1.0, defaultG = 0.2, defaultB = 0.2, defaultA = 1,
         formCapable = true,
     })
     _thrNoticeP = AttachThresholdNotice(powerSettingsBtn, cfg, ctx.advanced and ctx.specID or nil)
 
+    -- Bar-wide hash lines (the fallback when the active threshold entry has none of its own).
     BuildHashCog({
         parentRgn = powerColorRow._rightRegion,
         anchorTo = powerSettingsBtn,

@@ -571,13 +571,13 @@ ns.ApplyBarDormancy = function(key, dormant)
         if a and HasAction(a) then
             -- Icon/count/name/cooldown/desat/usable in one existing helper.
             EAB_VTABLE.ForceButtonRefresh(btn, a)
-            -- Two channels ForceButtonRefresh doesn't own, whose events were
-            -- gated: checked state and the equipped-item border.
+            -- Checked state: a channel ForceButtonRefresh doesn't own, whose
+            -- events were gated.
             btn:SetChecked((IsCurrentAction(a) or IsAutoRepeatAction(a)) and true or false)
-            if btn.Border then
-                btn.Border:SetShown(IsEquippedAction(a) and true or false)
-            end
         end
+        -- The equipped-item border too, empty slots included: one emptied
+        -- while the bar was Never kept its border.
+        if a then ns.AB_SyncEquippedBorder(btn, a) end
     end
     -- A bar revealed OUT of Never was skipped by the AlwaysShow pass while
     -- gated (grid state can be stale for hide-empty configs); heal once
@@ -1065,6 +1065,10 @@ do
                 if bfd and bfd.classicArt then
                     ns.AB_ClassicSlotRing(btn, filled)
                 end
+                -- Equipped-item border, same edge: an item dragged on or off
+                -- kept the old border (or none) until a hover ran Blizzard's
+                -- Update.
+                ns.AB_SyncEquippedBorder(btn, action)
             end
         end
         -- The cast kick: ONE authoritative next-frame pass, shared by the
@@ -2193,9 +2197,7 @@ do
                                     -- equipped border, both stale after page/form flips.
                                     if infreqAction then
                                         btn:SetChecked((IsCurrentAction(infreqAction) or IsAutoRepeatAction(infreqAction)) and true or false)
-                                        if btn.Border then
-                                            btn.Border:SetShown(IsEquippedAction(infreqAction) and true or false)
-                                        end
+                                        ns.AB_SyncEquippedBorder(btn, infreqAction)
                                     end
                                     -- Classic WoW UI: a third such channel, the slot ring
                                     -- vs empty-slot art (one field read on every other look).

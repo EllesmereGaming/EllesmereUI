@@ -191,9 +191,11 @@ end
 -------------------------------------------------------------------------------
 local EUI_Bank = CreateFrame("Frame", "EUI_BankFrame", UIParent)
 EUI_Bank:SetToplevel(true)
-local allowOtherWindows = BP().bagAllowWindowsOverBags ~= false
-EUI_Bank:SetFrameStrata(allowOtherWindows and "MEDIUM" or "HIGH")
-EUI_Bank:SetFrameLevel(allowOtherWindows and 1 or 50)
+do
+    local strata = ns.BagFrameStrata()
+    EUI_Bank:SetFrameStrata(strata)
+    EUI_Bank:SetFrameLevel(strata == "HIGH" and 50 or 1)
+end
 EUI_Bank:EnableMouse(true)
 EUI_Bank:SetMovable(true)
 EUI_Bank:SetClampedToScreen(true)
@@ -277,7 +279,7 @@ bankSearch:SetScript("OnTextChanged", function(self)
     local text = self:GetText()
     searchPlaceholder:SetShown(text == "")
     searchClear:SetShown(text ~= "")
-    C_Container.SetItemSearch(text)
+    EUI_Bags.SetSearchText(text)
     if EUI_Bank:IsVisible() then EUI_Bank:RefreshBank() end
     if EUI_Bags and EUI_Bags:IsVisible() and EUI_Bags.RefreshInventory then
         EUI_Bags:RefreshInventory()
@@ -476,9 +478,8 @@ if EUI.IS_FOREVER then
             end
             -- quality is nilable (item data not cached yet).
             local q = info and info.quality
-            local c = q and q > 0 and ITEM_QUALITY_COLORS[q]
-            if c then
-                btn._bdrR, btn._bdrG, btn._bdrB = c.r, c.g, c.b
+            if q and q > 0 then
+                btn._bdrR, btn._bdrG, btn._bdrB = ns.QualityBorderColor(q)
             else
                 btn._bdrR, btn._bdrG, btn._bdrB = 0.25, 0.25, 0.25
             end
@@ -686,11 +687,11 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Shift+Drag to Move
+--  Drag to Move (not while the footer's lock icon is locked)
 -------------------------------------------------------------------------------
 EUI_Bank:SetScript("OnMouseDown", function(self, button)
     self:Raise()
-    if button == "LeftButton" and IsShiftKeyDown() then
+    if button == "LeftButton" and not BP().bankWindowLocked then
         self:StartMoving()
         self._moving = true
     end
@@ -1046,10 +1047,10 @@ do
 end
 
 function EUI_Bank:ApplyWindowLayering()
-    local allowOtherWindows = BP().bagAllowWindowsOverBags ~= false
-    local strata = allowOtherWindows and "MEDIUM" or "HIGH"
+    local strata = ns.BagFrameStrata()
     self:SetFrameStrata(strata)
-    self:SetFrameLevel(allowOtherWindows and 1 or 50)
+    -- High starts above that layer's other windows (see EUI_Bags:ApplyWindowLayering)
+    self:SetFrameLevel(strata == "HIGH" and 50 or 1)
     if bankBagsWindow then
         bankBagsWindow:SetFrameLevel(self:GetFrameLevel() + 20)
     end
@@ -1444,8 +1445,17 @@ function EUI_Bank:QueueTransfer(srcBag, srcSlot)
     end
 end
 
+-- A slot or row skipped in combat is filled by one refresh at combat end
+-- (RefreshBank returns while the bank is closed).
+local function RetryBankRefresh() EUI_Bank:RefreshBank() end
+local function QueueBankRetry()
+    ns.CombatQueue.Defer("bankRetry", RetryBankRefresh)
+end
+
+-- Never created in combat (tainted secure button); the slot is skipped instead.
 local function GetOrCreateBankSlot(idx)
     if _bankSlots[idx] then return _bankSlots[idx] end
+    if InCombatLockdown() then QueueBankRetry(); return nil end
     local slotParent = CreateFrame("Frame", nil, EUI_Bank)
     slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
     local btn = CreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
@@ -1481,34 +1491,26 @@ end
 local _bankRows = {}
 
 -- Latched on the first read after the profile loads, like EUI_Bags.IsListMode:
--- switching needs a reload, so only one bank pool ever builds per session.
-local _bankListMode
+-- switching needs a reload, so only one bank display builds per session.
+-- "grid" | "list" | "compact", from ns.BankDisplayMode (EllesmereUIBags_Compact.lua).
+local _bankMode
 function EUI_Bank.IsListMode()
-    if _bankListMode == nil then
+    if _bankMode == nil then
         if not EUI.Lite.IsDBReady() then return nil end
-        _bankListMode = BP().bankListView == true
+        _bankMode = ns.BankDisplayMode(BP())
     end
-    return _bankListMode
+    return _bankMode == "list"
 end
-
--- A row skipped in combat is filled by one refresh at combat end (the event is
--- registered only after a skip).
-local _bankRowRetry
-local function QueueBankRowRetry()
-    if not _bankRowRetry then
-        _bankRowRetry = CreateFrame("Frame")
-        _bankRowRetry:SetScript("OnEvent", function(self)
-            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-            if EUI_Bank:IsVisible() then EUI_Bank:RefreshBank() end
-        end)
-    end
-    _bankRowRetry:RegisterEvent("PLAYER_REGEN_ENABLED")
+-- Compact display: the grid's entries packed into full rows (same latch)
+function EUI_Bank.IsCompactMode()
+    if EUI_Bank.IsListMode() == nil then return nil end
+    return _bankMode == "compact"
 end
 
 -- Never created in combat (tainted secure button); the row is skipped instead.
 local function GetOrCreateBankRow(idx)
     if _bankRows[idx] then return _bankRows[idx] end
-    if InCombatLockdown() then QueueBankRowRetry(); return nil end
+    if InCombatLockdown() then QueueBankRetry(); return nil end
     local btn = ns.CreateListRow(EUI_Bank)
     btn:HookScript("PostClick", function(self)
         EUI_Bags.ShowStackSplitter(self, EUI_Bank:GetSplitTargetBags(self:GetParent():GetID()), EUI_Bank)
@@ -1527,6 +1529,8 @@ end
 local function ToListLayout(layout, startX, listX)
     local ROW_H = ns.ListRowH()
     ns.ListSortSetup()
+    -- Upgrade tracks only while the Track column shows or sorts the list
+    local wantTrack = GetUpgradeTrack and ns.ListUsesColumn("track")
     local out, run = {}, {}
     local function Flush()
         table.sort(run, ns.ListCompare)
@@ -1547,7 +1551,7 @@ local function ToListLayout(layout, startX, listX)
             if d._isGear then
                 d._giIlvl = GetItemLevelAtLocation(ItemLocation:CreateFromBagAndSlot(e.bagID, e.slot), link)
                 -- Track column, same rule as the bags scan
-                if GetUpgradeTrack then
+                if wantTrack then
                     local rankText, trackColor = GetUpgradeTrack(link)
                     if rankText ~= "" then
                         d._giTrackRank, d._giTrackColor = rankText, trackColor
@@ -1587,6 +1591,74 @@ local function ToListLayout(layout, startX, listX)
         end
     end
     return placed, y
+end
+
+-------------------------------------------------------------------------------
+--  Compact view (bankCompactView): groups laid out by EllesmereUIBags_Compact.lua
+-------------------------------------------------------------------------------
+-- Rebuilds a grid layout as the Compact display: the same entries, each group
+-- a block in bands (EllesmereUIBags_Compact.lua), its label in the band above
+-- its first column. Returns the layout, its bottom y, and the px width it
+-- gives the grid (nil for the grid's own; see CompactPack's out.contentW).
+local ToCompactLayout
+do
+    local size, labelW, labelText, labelEntry = {}, {}, {}, {}
+    local out
+    -- One label entry per pooled label, built once with every field and reused:
+    -- it takes its group's header entry's place in the layout, so the header
+    -- tables the view builders make per refresh never grow
+    local labelEntries = {}
+    -- Label size of the bank's top-level headers
+    local LABEL_SIZE = 11
+    ToCompactLayout = function(layout, startX, columns)
+        if not out then out = ns.CompactNewOut() end
+        local pool = EUI_Bank._compactLabels
+        if not pool then pool = {}; EUI_Bank._compactLabels = pool end
+        ns.CompactHideLabels(pool, 1)
+        local n = ns.CompactSegmentLayout(layout, size, labelText, labelEntry)
+        local bandH = ns.CompactBandHeight(LABEL_SIZE)
+        local k = 0
+        for g = 1, n do
+            local text = labelText[g]
+            if text then
+                k = k + 1
+                labelW[g] = ns.CompactMeasureLabel(ns.CompactLabel(pool, k, EUI_Bank), text, LABEL_SIZE)
+                local le = labelEntries[k]
+                if not le then
+                    le = { isHeader = true, compact = true, headerIdx = k,
+                           label = text, textW = 0, x = 0, y = 0, w = 0, h = bandH, bw = 0 }
+                    labelEntries[k] = le
+                end
+                labelEntry[g] = le
+            else
+                labelW[g] = 0
+            end
+        end
+        local _, _, bottomY = ns.CompactPack(size, labelW, n, columns, bandH, -6, out)
+        local cellX, cellY = out.cellX, out.cellY
+        local li, ci = 0, 0
+        for g = 1, n do
+            local le = labelEntry[g]
+            if le then
+                li = li + 1
+                layout[li] = le
+                le.label = labelText[g]
+                le.textW = labelW[g]
+                le.x = startX + out.groupX[g]
+                le.y = out.groupY[g]
+                le.w = out.labelRoom[g]
+                le.h = bandH
+                le.bw = out.groupW[g]  -- the divider runs to the block's right edge
+            end
+            for _ = 1, size[g] do
+                li, ci = li + 1, ci + 1
+                local e = layout[li]
+                e.x = startX + cellX[ci]
+                e.y = cellY[ci]
+            end
+        end
+        return layout, bottomY, out.contentW
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -1992,12 +2064,14 @@ local _bankGripCfg = {
         EUI_Bank:RefreshBank()
     end,
     -- The warband gold text sits at the footer's right edge
-    inset = function(shown)
+    inset = function(px)
         local wg = EUI_Bank._warbandGoldText
         if not wg then return end
         wg:ClearAllPoints()
-        wg:SetPoint("RIGHT", wg:GetParent(), "RIGHT", shown and -26 or -10, 0)
+        wg:SetPoint("RIGHT", wg:GetParent(), "RIGHT", -(8 + px), 0)
     end,
+    isLocked = function() return BP().bankWindowLocked == true end,
+    setLocked = function(v) BP().bankWindowLocked = v and true or false end,
 }
 
 -- List View: free width in pixels (rows have no cell grid)
@@ -2064,6 +2138,7 @@ function EUI_Bank:RefreshBank()
         if not hasSearch then return true end
         local info = C_Container.GetContainerItemInfo(bagID, slot)
         if not info then return false end
+        EUI_Bags.ApplyBindKeyword(info, bagID, slot)
         return not info.isFiltered
     end
 
@@ -2118,7 +2193,7 @@ function EUI_Bank:RefreshBank()
         local indent = depth * 12
         _layout[#_layout + 1] = {
             isHeader = true, depth = depth, headerIdx = headerIdx,
-            label = label .. " (" .. count .. ")",
+            label = label .. " (" .. count .. ")", name = label,
             x = startX + indent, y = curY, w = gridW - indent,
         }
         curY = curY - (depth == 0 and 22 or 18)
@@ -2281,6 +2356,7 @@ function EUI_Bank:RefreshBank()
                 for slot = 1, tab.numSlots do
                     local info = C_Container.GetContainerItemInfo(tab.bagID, slot)
                     if info then used = used + 1 end
+                    EUI_Bags.ApplyBindKeyword(info, tab.bagID, slot)
                     -- use native search filter so type keywords work too
                     if not hasSearch or (info and not info.isFiltered) then
                         visibleSlots[#visibleSlots + 1] = { slot = slot, _cachedInfo = info }
@@ -2290,7 +2366,7 @@ function EUI_Bank:RefreshBank()
                     headerIdx = headerIdx + 1
                     _layout[#_layout + 1] = {
                         isHeader = true, headerIdx = headerIdx,
-                        label = tab.name .. " (" .. used .. ")",
+                        label = tab.name .. " (" .. used .. ")", name = tab.name,
                         x = startX, y = curY, w = gridW,
                     }
                     curY = curY - 22
@@ -2365,6 +2441,7 @@ function EUI_Bank:RefreshBank()
             for slot = 1, tab.numSlots do
                 local info = C_Container.GetContainerItemInfo(tab.bagID, slot)
                 if info then used = used + 1 end
+                EUI_Bags.ApplyBindKeyword(info, tab.bagID, slot)
                 allSlots[#allSlots + 1] = { slot = slot, _cachedInfo = info }
             end
             local visibleSlots = allSlots
@@ -2381,7 +2458,7 @@ function EUI_Bank:RefreshBank()
             headerIdx = headerIdx + 1
             _layout[#_layout + 1] = {
                 isHeader = true, headerIdx = headerIdx,
-                label = tab.name .. " (" .. used .. ")",
+                label = tab.name .. " (" .. used .. ")", name = tab.name,
                 x = startX, y = curY, w = gridW,
             }
             curY = curY - 22
@@ -2410,6 +2487,25 @@ function EUI_Bank:RefreshBank()
         listCols = ns.ListLayoutColumns(listRowW)
         local hdrH = ns.UpdateListHeaderBar(EUI_Bank, listCols, sidebarW, -HEADER_H, listX)
         sf:SetPoint("TOPLEFT", EUI_Bank, "TOPLEFT", sidebarW, -(HEADER_H + hdrH))
+    elseif EUI_Bank.IsCompactMode() then
+        -- Compact: the same entries as blocks, each under a thin label band.
+        -- The window drops the remainder its widest band leaves short of the
+        -- columns, less than a cell; while open it only grows back, and a new
+        -- column count, or a close, starts over (as the bag window does).
+        local contentW
+        _layout, curY, contentW = ToCompactLayout(_layout, startX, COLUMNS)
+        if contentW and contentW < gridW then
+            if EUI_Bank._compactCols ~= COLUMNS then
+                EUI_Bank._compactCols, EUI_Bank._compactW = COLUMNS, contentW
+            elseif contentW > (EUI_Bank._compactW or 0) then
+                EUI_Bank._compactW = contentW
+            end
+            gridW = EUI_Bank._compactW
+        else
+            EUI_Bank._compactCols, EUI_Bank._compactW = COLUMNS, gridW
+        end
+        EUI_Bank:SetWidth(sidebarW + gridW + gridPadX * 2 + SCROLLBAR_HIT_W + 2)
+        child:SetWidth(gridW + gridPadX * 2 + SCROLLBAR_HIT_W)
     end
 
     -- Update deposit button based on current view
@@ -2422,8 +2518,7 @@ function EUI_Bank:RefreshBank()
     -- Set scroll child height from layout
     child:SetHeight(math.abs(curY) + 10)
 
-    -- Phase 2: Render only visible entries (viewport culling).
-    -- Re-runs on scroll to update which buttons are shown.
+    -- Phase 2: render the layout, 100 entries per frame (all at once while the resize grip is dragged).
     EUI_Bank._layout = _layout
     EUI_Bank._layoutStartX = startX
     EUI_Bank._layoutGridW = gridW
@@ -2431,6 +2526,10 @@ function EUI_Bank:RefreshBank()
     -- Shared slot render: updates a single button with item or empty state
     -- One reused data table for third-party overlay painters (EUI_Bags.RunItemOverlays).
     local overlayData = {}
+    -- Junk Item Visuals' Desaturate greys grey items and Junk Marker junk here
+    -- as on the bank's list rows (read once per refresh)
+    local junkOn = _G.EUI_CategoryManager:IsJunkMarkerEnabled()
+    local desatJunk = BP().bagDesaturateJunkItems == true
     local function RenderSlotContent(btn, bagID, slot, cachedInfo)
         if btn.ProfessionQualityOverlay then btn.ProfessionQualityOverlay:SetAlpha(0) end
         if btn.IconOverlay then btn.IconOverlay:SetAlpha(0); btn.IconOverlay:Hide() end
@@ -2455,9 +2554,10 @@ function EUI_Bank:RefreshBank()
             if btn.icon then btn.icon:Show() end
             btn:SetItemButtonTexture(info.iconFileID)
             btn:SetItemButtonCount(info.stackCount)
-            SetItemButtonDesaturated(btn, info.isLocked)
-            local itemLink = C_Container.GetContainerItemLink(bagID, slot)
             local quality = info.quality or 1
+            SetItemButtonDesaturated(btn, info.isLocked or (desatJunk and (quality == 0
+                or (junkOn and _G.EUI_CategoryManager:IsJunk(info.itemID, quality)))) or false)
+            local itemLink = C_Container.GetContainerItemLink(bagID, slot)
             if itemLink then btn:SetItemButtonQuality(quality, itemLink, false, false) end
             if btn.ProfessionQualityOverlay and btn.ProfessionQualityOverlay:IsShown() and btn._textOverlay then
                 btn.ProfessionQualityOverlay:SetAlpha(1)
@@ -2482,9 +2582,8 @@ function EUI_Bank:RefreshBank()
             end
             if btn.IconBorder then btn.IconBorder:Hide() end
             if btn.NormalTexture then btn.NormalTexture:SetAlpha(0) end
-            local c = ITEM_QUALITY_COLORS[quality]
-            if c then SetInsetBorderColor(btn, c.r, c.g, c.b, 1)
-            else SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1) end
+            local qr, qg, qb = ns.QualityBorderColor(quality)
+            SetInsetBorderColor(btn, qr, qg, qb, 1)
 
             -- One gear check + one GetItemInfo fetch shared by the bind-type
             -- and item-level texts
@@ -2564,6 +2663,11 @@ function EUI_Bank:RefreshBank()
         for li = rendered + 1, batchEnd do
             local entry = _layout[li]
             if entry.isHeader then
+                if entry.compact then
+                    -- Compact group label (font and text set by ToCompactLayout)
+                    local lf = ns.CompactLabel(EUI_Bank._compactLabels, entry.headerIdx, EUI_Bank)
+                    ns.CompactShowLabel(lf, child, entry.x, entry.y, entry.w, entry.h, entry.label, entry.textW, nil, 0, entry.bw)
+                else
                 local hdr = GetOrCreateBankHeader(entry.headerIdx)
                 hdr:SetParent(child)
                 hdr:ClearAllPoints()
@@ -2587,6 +2691,7 @@ function EUI_Bank:RefreshBank()
                 end
                 hdr._label:SetText(entry.label)
                 hdr:Show()
+                end -- compact label vs grid header
             elseif entry.isRow then
                 local btn = GetOrCreateBankRow(rowIdx + 1)
                 if btn then
@@ -2596,7 +2701,9 @@ function EUI_Bank:RefreshBank()
                 end
             else
                 slotIdx = slotIdx + 1
+                -- nil in combat: the cell stays empty until the combat-end refresh
                 local btn = GetOrCreateBankSlot(slotIdx)
+                if btn then
                 btn:GetParent():SetParent(child)
                 local parent = btn:GetParent()
                 parent:ClearAllPoints()
@@ -2607,6 +2714,7 @@ function EUI_Bank:RefreshBank()
                 parent:SetID(entry.bagID)
 
                 RenderSlotContent(btn, entry.bagID, entry.slot, entry._cachedInfo)
+                end -- slot built
             end
         end
         rendered = batchEnd
@@ -2827,7 +2935,9 @@ function BuildBankSidebar()
         else
             -- Through the client icon map, like the bag window's sidebar: a
             -- default the Forever client cannot draw takes its stand-in there.
+            -- Cropped on every paint (a pooled row may last have drawn an atlas).
             btn._icon:SetTexture(EllesmereUI.ClientIcon(icon))
+            btn._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         end
         btn._icon:SetAlpha(isSelected and 1 or 0.75)
 
@@ -3250,6 +3360,8 @@ end
 
 -- Close bank when pressing Escape
 EUI_Bank:SetScript("OnHide", function()
+    -- The Compact display's grow-only width (RefreshBank)
+    EUI_Bank._compactCols, EUI_Bank._compactW = nil, nil
     if EUI_BankTabConfigFrame then
         EUI_BankTabConfigFrame:Hide()
     end

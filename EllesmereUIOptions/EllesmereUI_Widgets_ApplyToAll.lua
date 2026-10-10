@@ -172,7 +172,7 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
     applyRow:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -PAD, -PAD)
     applyRow:SetFrameLevel(menu:GetFrameLevel() + 2)
 
-    local DB_BG = EllesmereUI.DARK_BG or { r = 0.05, g = 0.07, b = 0.09 }
+    local DB_BG = EllesmereUI.DARK_BG
     local applyBg = applyRow:CreateTexture(nil, "BACKGROUND")
     applyBg:SetAllPoints()
     applyBg:SetColorTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
@@ -256,7 +256,7 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
         box:SetPoint("LEFT", row, "LEFT", 10, 0)
         local boxBg = box:CreateTexture(nil, "BACKGROUND")
         boxBg:SetAllPoints()
-        boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+        boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
         local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
 
         local chk = box:CreateTexture(nil, "ARTWORK")

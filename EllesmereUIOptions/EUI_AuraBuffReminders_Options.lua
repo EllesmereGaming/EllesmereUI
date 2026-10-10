@@ -12,9 +12,10 @@ local PAGE_REMINDERS = "Auras, Buffs & Consumables"
 local PAGE_TALENTS   = "Talent Reminders"
 local PAGE_UNLOCK    = "Unlock Mode"
 
--- WoW Forever: the page keeps CORE and DISPLAY and swaps every retail section
--- for the one Forever section (Camp Benefits + custom spell IDs); the Talent
--- Reminders page does not exist there.
+-- WoW Forever: the page keeps CORE, DISPLAY and RAID BUFFS (that client's
+-- locations and four buffs) and swaps every other retail section for the one
+-- Forever section (Camp Benefits + custom spell IDs); the Talent Reminders
+-- page does not exist there.
 local FOREVER = EllesmereUI.IS_FOREVER == true
 
 local SECTION_CORE         = "CORE"
@@ -586,6 +587,7 @@ initFrame:SetScript("OnEvent", function(self)
         { key="timewalking",       label="Timewalking" },
         { key="delve",             label="Delve" },
         { key="lair",              label="Lair" },
+        { key="scenario",          label="Scenario" },
         -- Orthogonal state gate (not a location): unchecking hides this
         -- section while in combat.
         { key="in_combat",         label="In Combat" },
@@ -814,10 +816,10 @@ initFrame:SetScript("OnEvent", function(self)
 
                 local boxBg = box:CreateTexture(nil, "BACKGROUND")
                 boxBg:SetAllPoints()
-                boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
                 if boxBg.SetSnapToPixelGrid then boxBg:SetSnapToPixelGrid(false); boxBg:SetTexelSnappingBias(0) end
 
-                local boxBrd = EllesmereUI.MakeBorder(box, 0.25, 0.25, 0.28, 0.6, EllesmereUI.PanelPP)
+                local boxBrd = EllesmereUI.MakeBorder(box, 0.224, 0.215, 0.207, 0.6, EllesmereUI.PanelPP)
 
                 local check = box:CreateTexture(nil, "ARTWORK")
                 check:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
@@ -839,7 +841,7 @@ initFrame:SetScript("OnEvent", function(self)
                     else
                         check:Hide()
                         label:SetAlpha(0.5)
-                        boxBrd:SetColor(0.25, 0.25, 0.28, 0.6)
+                        boxBrd:SetColor(0.224, 0.215, 0.207, 0.6)
                     end
                 end
                 ApplyVisual()
@@ -984,11 +986,7 @@ initFrame:SetScript("OnEvent", function(self)
             line1:SetTextColor(1, 1, 1, 0.75)
             line1:SetPoint("TOP", infoFrame, "TOP", 0, 0)
             line1:SetJustifyH("CENTER")
-            if FOREVER then
-                line1:SetText(EllesmereUI.L("Middle Click a reminder to hide it until the next load screen"))
-            else
-                line1:SetText(EllesmereUI.L("Left Click to apply buffs (out of combat), Middle Click to hide until next load screen"))
-            end
+            line1:SetText(EllesmereUI.L("Left Click to apply buffs (out of combat), Middle Click to hide until next load screen"))
             y = y - 32
         end
 
@@ -1365,64 +1363,15 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -----------------------------------------------------------------------
-        --  WOW FOREVER section: on that client the whole page past DISPLAY.
-        --  Camp Benefits toggle, a spell-ID entry that adds a custom reminder
-        --  and one row per tracked spell; the retail sections below never build.
-        -----------------------------------------------------------------------
-        if FOREVER then
-            _, h = W:SectionHeader(parent, SECTION_FOREVER, y);  y = y - h
-
-            -- Where to Show | Reminder Sound
-            _, h = SectionControlRow(parent, y, {
-                whereStore = FWhere, whereItems = FOREVER_WHERE_ITEMS,
-                whereTooltip = "Pick which content the WoW Forever reminders appear in.\nRested areas (cities and inns) always stay hidden.",
-                soundSec = FDB, soundField = "sectionSound",
-                onChange = RefreshAll,
-            });  y = y - h
-
-            -- Camp Benefits | Add Custom Spell
-            _, h = W:DualRow(parent, y,
-                { type="toggle", text="Camp Benefits",
-                  tooltip="Reminds you when the Camp Benefits campfire buff is missing.",
-                  getValue=function() local f = FDB(); return not f or f.camp ~= false end,
-                  setValue=function(v)
-                      local f = FDB(); if not f then return end; f.camp = v
-                      RefreshAll()
-                  end },
-                { type="input", text="Add Custom Spell", inputStyle="popup", placeholder="Spell ID", inputWidth=110,
-                  tooltip="Type a spell ID and press Enter to be reminded whenever that buff is missing.\nUnknown IDs are ignored.",
-                  getValue=function() return "" end,
-                  setValue=function(text)
-                      local id = tonumber((text or ""):match("^%s*(%d+)%s*$"))
-                      local f = FDB()
-                      if not (id and f) then return end
-                      if not (C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(id)) then return end
-                      f.customIDs = f.customIDs or {}
-                      for i = 1, #f.customIDs do
-                          if f.customIDs[i] == id then return end
-                      end
-                      f.customIDs[#f.customIDs + 1] = id
-                      RefreshAll()
-                      -- Rebuilds the page once the edit box has finished its commit.
-                      C_Timer.After(0, function() EllesmereUI:RefreshPage(true) end)
-                  end }
-            );  y = y - h
-
-            y = BuildForeverCustomRows(parent, y)
-
-            -- No preview header here, so no click-to-scroll mappings to wire.
-            return math.abs(y)
-        end
-
-        -----------------------------------------------------------------------
-        --  RAID BUFFS section
+        --  RAID BUFFS section (WoW Forever: its own locations and its four
+        --  buffs, which the module exports as the raid buff list there)
         -----------------------------------------------------------------------
         local raidBufHdr
         raidBufHdr, h = W:SectionHeader(parent, SECTION_RAID_BUFFS, y);  y = y - h
 
         -- Where to Show | Show When (+ reminder sound cog)
         _, h = SectionControlRow(parent, y, {
-            whereStore = RWhere,
+            whereStore = RWhere, whereItems = FOREVER and FOREVER_WHERE_ITEMS or nil,
             whereTooltip = "Pick which content this section's reminders appear in.\nRested areas (cities and inns) always stay hidden.",
             showWhenStore = RShowWhen,
             showWhenTooltip = "Others are missing my buff: remind when a groupmate is missing a buff you can cast.\nI am missing others' buffs: remind when you are missing a buff a groupmate could give you (only shown when someone who can cast it is present). Off by default.",
@@ -1449,6 +1398,67 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        -----------------------------------------------------------------------
+        --  WOW FOREVER section: on that client the rest of the page.
+        --  Camp Benefits toggle, a spell-ID entry that adds a custom reminder
+        --  and one row per tracked spell; the retail sections below never build.
+        -----------------------------------------------------------------------
+        if FOREVER then
+            _, h = W:SectionHeader(parent, SECTION_FOREVER, y);  y = y - h
+
+            -- Where to Show | Reminder Sound
+            _, h = SectionControlRow(parent, y, {
+                whereStore = FWhere, whereItems = FOREVER_WHERE_ITEMS,
+                whereTooltip = "Pick which content the WoW Forever reminders appear in.\nRested areas (cities and inns) always stay hidden.",
+                soundSec = FDB, soundField = "sectionSound",
+                onChange = RefreshAll,
+            });  y = y - h
+
+            -- Camp Benefits | Well Fed
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Camp Benefits",
+                  tooltip="Reminds you when the Camp Benefits campfire buff is missing.",
+                  getValue=function() local f = FDB(); return not f or f.camp ~= false end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.camp = v
+                      RefreshAll()
+                  end },
+                { type="toggle", text="Well Fed",
+                  tooltip="Reminds you when you have no Well Fed buff.",
+                  getValue=function() local f = FDB(); return f and f.wellFed == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.wellFed = v
+                      RefreshAll()
+                  end }
+            );  y = y - h
+
+            -- Add Custom Spell
+            _, h = W:DualRow(parent, y,
+                { type="input", text="Add Custom Spell", inputStyle="popup", placeholder="Spell ID", inputWidth=110,
+                  tooltip="Type a spell ID and press Enter to be reminded whenever that buff is missing.\nUnknown IDs are ignored.",
+                  getValue=function() return "" end,
+                  setValue=function(text)
+                      local id = tonumber((text or ""):match("^%s*(%d+)%s*$"))
+                      local f = FDB()
+                      if not (id and f) then return end
+                      if not (C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(id)) then return end
+                      f.customIDs = f.customIDs or {}
+                      for i = 1, #f.customIDs do
+                          if f.customIDs[i] == id then return end
+                      end
+                      f.customIDs[#f.customIDs + 1] = id
+                      RefreshAll()
+                      C_Timer.After(0, function() EllesmereUI:RefreshPage(true) end)
+                  end },
+                EllesmereUI.BlankRowCfg()
+            );  y = y - h
+
+            y = BuildForeverCustomRows(parent, y)
+
+            -- No preview header here, so no click-to-scroll mappings to wire.
+            return math.abs(y)
+        end
 
         -----------------------------------------------------------------------
         --  AURAS section
@@ -1809,7 +1819,7 @@ initFrame:SetScript("OnEvent", function(self)
             local rgn = row._rightRegion
             local eg = EllesmereUI.ELLESMERE_GREEN or {r=0, g=0.82, b=0.62}
             local lerp = EllesmereUI.lerp
-            local DARK_BG = EllesmereUI.DARK_BG or { r = 0.05, g = 0.07, b = 0.09 }
+            local DARK_BG = EllesmereUI.DARK_BG
 
             local zoneBtn = CreateFrame("Button", nil, rgn)
             zoneBtn:SetSize(110, 24)
@@ -2190,7 +2200,7 @@ initFrame:SetScript("OnEvent", function(self)
         zoneDDBtn:SetFrameLevel(zoneRow:GetFrameLevel() + 1)
         local zoneDDBg = zoneDDBtn:CreateTexture(nil, "BACKGROUND")
         zoneDDBg:SetAllPoints()
-        zoneDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+        zoneDDBg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
         EllesmereUI.MakeBorder(zoneDDBtn, 1, 1, 1, 0.20, EllesmereUI.PanelPP)
 
         local zoneDDLbl = zoneDDBtn:CreateFontString(nil, "OVERLAY")
@@ -2218,7 +2228,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local popupBg = zonePopup:CreateTexture(nil, "BACKGROUND")
         popupBg:SetAllPoints()
-        popupBg:SetColorTexture(0.10, 0.10, 0.12, 0.97)
+        popupBg:SetColorTexture(0.098, 0.090, 0.082, 0.97)
         EllesmereUI.MakeBorder(zonePopup, 1, 1, 1, 0.12, EllesmereUI.PanelPP)
 
         -- Search box at top of zone popup
@@ -2280,7 +2290,7 @@ initFrame:SetScript("OnEvent", function(self)
             cb:SetPoint("LEFT", item, "LEFT", 10, 0)
             local cbBg = cb:CreateTexture(nil, "BACKGROUND")
             cbBg:SetAllPoints()
-            cbBg:SetColorTexture(0.06, 0.06, 0.08, 1)
+            cbBg:SetColorTexture(0.064, 0.052, 0.041, 1)
             EllesmereUI.MakeBorder(cb, 1, 1, 1, 0.12, EllesmereUI.PanelPP)
             local cbCheck = cb:CreateTexture(nil, "OVERLAY")
             cbCheck:SetSize(10, 10)
@@ -2364,10 +2374,10 @@ initFrame:SetScript("OnEvent", function(self)
             if zonePopup:IsShown() then zonePopup:Hide() else zonePopup:Show() end
         end)
         zoneDDBtn:SetScript("OnEnter", function()
-            zoneDDBg:SetColorTexture(0.095, 0.143, 0.181, 1)
+            zoneDDBg:SetColorTexture(0.128, 0.120, 0.113, 1)
         end)
         zoneDDBtn:SetScript("OnLeave", function()
-            zoneDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+            zoneDDBg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
         end)
 
         y = y - ZONE_ROW_H
@@ -2404,7 +2414,7 @@ initFrame:SetScript("OnEvent", function(self)
             btn:SetFrameLevel(parentRow:GetFrameLevel() + 1)
             local btnBg = btn:CreateTexture(nil, "BACKGROUND")
             btnBg:SetAllPoints()
-            btnBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+            btnBg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
             EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.20, EllesmereUI.PanelPP)
             local btnLbl = btn:CreateFontString(nil, "OVERLAY")
             btnLbl:SetFont(fontPath, 13, GetABROptOutline())
@@ -2416,8 +2426,8 @@ initFrame:SetScript("OnEvent", function(self)
             local arrow = EllesmereUI.MakeDropdownArrow(btn, 12, EllesmereUI.PanelPP)
             btnLbl:SetPoint("LEFT", btn, "LEFT", 12, 0)
             btnLbl:SetPoint("RIGHT", arrow, "LEFT", -5, 0)
-            btn:SetScript("OnEnter", function() btnBg:SetColorTexture(0.095, 0.143, 0.181, 1) end)
-            btn:SetScript("OnLeave", function() btnBg:SetColorTexture(0.075, 0.113, 0.141, 0.9) end)
+            btn:SetScript("OnEnter", function() btnBg:SetColorTexture(0.128, 0.120, 0.113, 1) end)
+            btn:SetScript("OnLeave", function() btnBg:SetColorTexture(0.103, 0.095, 0.088, 0.9) end)
 
             -- Popup with search
             local T_ITEM_H = 26
@@ -2430,7 +2440,7 @@ initFrame:SetScript("OnEvent", function(self)
             popup:Hide()
             local popBg = popup:CreateTexture(nil, "BACKGROUND")
             popBg:SetAllPoints()
-            popBg:SetColorTexture(0.10, 0.10, 0.12, 0.97)
+            popBg:SetColorTexture(0.098, 0.090, 0.082, 0.97)
             EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.12, EllesmereUI.PanelPP)
 
             -- Search
@@ -2568,7 +2578,7 @@ initFrame:SetScript("OnEvent", function(self)
         addBtn:SetSize(160, 36)
         addBtn:SetPoint("CENTER", addBtnFrame, "CENTER", 0, 0)
 
-        local DARK_BG = EllesmereUI.DARK_BG or { r = 0.05, g = 0.07, b = 0.09 }
+        local DARK_BG = EllesmereUI.DARK_BG
         local addBtnBg = EllesmereUI.SolidTex(addBtn, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, 0.92)
         addBtnBg:SetAllPoints()
 
@@ -2828,7 +2838,7 @@ initFrame:SetScript("OnEvent", function(self)
                 toggleBox:SetPoint("RIGHT", row, "RIGHT", -SIDE_PAD, 0)
                 local toggleBg = toggleBox:CreateTexture(nil, "BACKGROUND")
                 toggleBg:SetAllPoints()
-                toggleBg:SetColorTexture(0.06, 0.06, 0.08, 1)
+                toggleBg:SetColorTexture(0.064, 0.052, 0.041, 1)
                 EllesmereUI.MakeBorder(toggleBox, 1, 1, 1, 0.12, EllesmereUI.PanelPP)
                 local toggleCheck = toggleBox:CreateTexture(nil, "OVERLAY")
                 toggleCheck:SetSize(12, 12)

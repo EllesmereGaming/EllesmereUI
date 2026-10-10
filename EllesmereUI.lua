@@ -163,8 +163,11 @@ end
 -- would push this main chunk past Lua 5.1's 200-active-locals limit. Read them
 -- as STYLE.X here; other files get them through the EllesmereUI.X exports below.
 local STYLE = {
+    -- The dark surfaces below (and the options' popups) share one faint warm
+    -- tint, that of #100d0a, each at its own lightness.
+
     -- Panel background
-    PANEL_BG_R = 0.05, PANEL_BG_G = 0.07, PANEL_BG_B = 0.09,
+    PANEL_BG_R = 0.069, PANEL_BG_G = 0.058, PANEL_BG_B = 0.047,
 
     -- Global border  (white + alpha -- adapts to any background tint)
     BORDER_R = 1, BORDER_G = 1, BORDER_B = 1,
@@ -185,7 +188,7 @@ local STYLE = {
     SL_TRACK_R = 1, SL_TRACK_G = 1, SL_TRACK_B = 1,        -- track bg (white + alpha)
     SL_TRACK_A = 0.16,                                     -- track bg alpha
     SL_FILL_A = 0.75,                                      -- filled portion alpha (colour = accent)
-    SL_INPUT_R = 0.02, SL_INPUT_G = 0.03, SL_INPUT_B = 0.04, -- input box background (darker than bg, stays as-is)
+    SL_INPUT_R = 0.030, SL_INPUT_G = 0.023, SL_INPUT_B = 0.018, -- input box background (darker than bg, stays as-is)
     SL_INPUT_A = 0.25,                                     -- input box alpha (all sliders)
     SL_INPUT_BRD_A = 0.02,                                 -- input box border alpha (white)
 
@@ -203,11 +206,11 @@ local STYLE = {
     TG_KNOB_ON_A = 1,                                      -- knob ON alpha
 
     -- Checkbox
-    CB_BOX_R = 0.10, CB_BOX_G = 0.12, CB_BOX_B = 0.16,     -- box background
+    CB_BOX_R = 0.112, CB_BOX_G = 0.105, CB_BOX_B = 0.098,  -- box background
     CB_BRD_A = 0.05, CB_ACT_BRD_A = 0.15,                  -- box border alpha / checked border alpha
 
     -- Button / WideButton
-    BTN_BG_R = 0.061, BTN_BG_G = 0.095, BTN_BG_B = 0.120,  -- background
+    BTN_BG_R = 0.089, BTN_BG_G = 0.080, BTN_BG_B = 0.072,  -- background
     BTN_BG_A = 0.6,
     BTN_BG_HA = 0.65,                                      -- background alpha hovered
     BTN_BRD_A = 0.3,                                       -- border alpha (colour = white)
@@ -216,7 +219,7 @@ local STYLE = {
     BTN_TXT_HA = 0.70,                                     -- text alpha hovered
 
     -- Dropdown
-    DD_BG_R = 0.075, DD_BG_G = 0.113, DD_BG_B = 0.141,     -- background
+    DD_BG_R = 0.103, DD_BG_G = 0.095, DD_BG_B = 0.088,     -- background
     DD_BG_A = 0.9,
     DD_BG_HA = 0.98,                                       -- background alpha hovered
     DD_BRD_A = 0.20,                                       -- border alpha (colour = white)
@@ -685,7 +688,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIAuraBuffReminders", display = "AuraBuff Reminders",   search_name = "EllesmereUI AuraBuff Reminders"      },
     { folder = "EllesmereUIQoL",               display = "Quality of Life",      search_name = "EllesmereUI Quality of Life"         },
     { folder = "EllesmereUIForeverEssentials", display = "Forever Essentials",   search_name = "EllesmereUI Forever Essentials"      },
-    { folder = "EllesmereUIBlizzardSkin",      display = "Blizz UI Enhanced",    search_name = "EllesmereUI Blizz UI Enhanced",      syncFolder = "EllesmereUIDragonRiding", syncDisplay = "Dragon Riding" },
+    { folder = "EllesmereUIBlizzardSkin",      display = "Blizzard Skins+",      search_name = "EllesmereUI Blizzard Skins+",      syncFolder = "EllesmereUIDragonRiding", syncDisplay = "Dragon Riding" },
     { folder = "EllesmereUIFriends",           display = "Friends List",         search_name = "EllesmereUI Friends List"            },
     { folder = "EllesmereUIMythicTimer",       display = "Mythic+ Tools",        search_name = "EllesmereUI Mythic+ Tools Timer"     },
     { folder = "EllesmereUIQuestTracker",      display = "Quest Tracker",        search_name = "EllesmereUI Quest Tracker"           },
@@ -1107,14 +1110,9 @@ local function MakeBorder(parent, r, g, b, a, ppOverride)
     bf:SetFrameLevel(parent:GetFrameLevel() + 1)
     bf:EnableMouse(false)
 
-    -- Unified border system (single BackdropTemplate frame)
+    -- PP.CreateBorder's four strips. A border inside the options panel re-snaps with
+    -- the rest of it in SetPanelScale's settle pass, never through a hook of its own.
     local brd = PP.CreateBorder(bf, r, g, b, alpha, 1, "BORDER", 7)
-
-    -- Re-snap edges when panel scale changes
-    if not EllesmereUI._onScaleChanged then EllesmereUI._onScaleChanged = {} end
-    EllesmereUI._onScaleChanged[#EllesmereUI._onScaleChanged + 1] = function()
-        PP.SetBorderSize(bf, 1)
-    end
 
     return {
         _frame = bf,
@@ -2176,7 +2174,8 @@ end
 -- Smooth wheel scroll + thin draggable scrollbar (shown only on overflow) for a ScrollFrame.
 -- opts: step (45), thumbMin (30), width (4), rightInset (2), topInset (4), bottomInset (topInset),
 -- trackParent (sf), level (2, above trackParent), trackAlpha (0.02), thumbAlpha (0.27),
--- child (range = child height - sf height, else SafeScrollRange), onScroll(v), thumb (false = wheel only).
+-- child (range = child height - sf height, else SafeScrollRange), onScroll(v), thumb (false = wheel only),
+-- panelWheel (true: a surface inside the options panel, where Shift + wheel scales the panel instead).
 -- Returns UpdateThumb, ScrollTo(v) (immediate: stops the lerp, clamps, syncs the thumb).
 -- While a controller is in use the bar also carries step arrows and a page strip.
 function EllesmereUI.AttachSmoothScrollbar(sf, opts)
@@ -2249,7 +2248,9 @@ function EllesmereUI.AttachSmoothScrollbar(sf, opts)
         Set(math.max(0, math.min(maxScroll, cur + diff * math.min(1, 12 * elapsed))))
     end)
     sf:EnableMouseWheel(true)
+    local panelWheel = opts.panelWheel
     sf:SetScript("OnMouseWheel", function(self, delta)
+        if panelWheel and EllesmereUI._ShiftWheelScale(delta) then return end
         local maxScroll = MaxScroll()
         if maxScroll <= 0 then return end
         local base = smoothing and target or self:GetVerticalScroll()
@@ -2400,6 +2401,11 @@ EllesmereUI._IS_STANDALONE  = IS_STANDALONE
 --    onLiveMove (function(key))  called after every mover-driven placement of
 --               the frame: drag start, each drag frame, drag stop, arrow/cog
 --               nudge. Runs before the anchor chain reads the frame's rect.
+--    ownsPosition (boolean) the module alone places the frame from its saved
+--               position (main chat, whose spot Blizzard's Edit Mode also
+--               applies): anchor links never move it and it offers no link or
+--               screen-edge menu, so no link becomes a third owner of the frame.
+--               Mover drags and nudges still move it and save through savePos
 --    linkedKeys (table)  list of element keys that move with this one
 --    noResize   (boolean) true for Blizzard elements that cannot be resized
 --    sizeFixedByLook (boolean) the current look fixes the element's size
@@ -2441,6 +2447,7 @@ function EllesmereUI.MakeUnlockElement(opts)
         isHidden      = opts.isHidden,
         isAnchored    = opts.isAnchored,
         onLiveMove    = opts.onLiveMove,
+        ownsPosition  = opts.ownsPosition,
         linkedKeys    = opts.linkedKeys,
         noResize          = opts.noResize,
         linkedDimensions  = opts.linkedDimensions,
@@ -2915,7 +2922,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.3.5"
+EllesmereUI.VERSION = "9.4"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -3083,11 +3090,7 @@ EllesmereUI._RunConflictCheck = function()
         local pending = {}
         for _, entry in ipairs(conflicts) do
             local moduleActive = not entry.moduleCheck or entry.moduleCheck()
-            -- Suppress Ayije_CDM here if the CDM module's crash-prevention early-bail already fired -- its own popup supersedes this one.
-            local suppressedBySpecific =
-                (entry.addon == "Ayije_CDM" and _G._EUI_ECME_HandledAyijeCDM)
-            if entry.addon ~= EUI_HOST_ADDON and IsLoaded(entry.addon)
-               and moduleActive and not suppressedBySpecific then
+            if entry.addon ~= EUI_HOST_ADDON and IsLoaded(entry.addon) and moduleActive then
                 local affected = {}
                 if entry.targets == "all" then
                     local allTargets = {
@@ -3262,6 +3265,8 @@ SlashCmdList.EUIRESETHINT = function()
             EllesmereUIDB.sidebarUnlockTipSeen = nil
             EllesmereUIDB.rfEyeHintSeen = nil
             EllesmereUIDB.bmIconHintDismissed = nil
+            EllesmereUIDB.cdmButtonTipSeen = nil
+            EllesmereUIDB.bagCategoryTipSeen = nil
         end
         EllesmereUI.Print("|cff00ff00[EllesmereUI]|r All hints reset. /reload to see them again.")
     end)
@@ -3535,6 +3540,14 @@ do
     function EllesmereUI.HideMinimapButton()
         if btn then btn:Hide() end
     end
+end
+
+-- Spell ID on Tooltip (Blizzard Skins+ > Tooltips & Menus, Global Settings >
+-- Developer): on unless turned off. Accounts from before that default keep it
+-- off through the spellid_default_on_v1 migration (EllesmereUI_Migration.lua).
+function EllesmereUI.SpellIDOn()
+    local db = EllesmereUIDB
+    return db ~= nil and db.showSpellID ~= false
 end
 
 -------------------------------------------------------------------------------
@@ -4044,7 +4057,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- it re-asserts every login and on toggle edits. Modifier-gated configs skip it: the engine renders always-on, which would override the user's hold-a-modifier preference (their combat aura IDs stay unavailable -- inherent trade).
         function EllesmereUI.SyncAuraSpellIDCVar()
             local db = EllesmereUIDB
-            local on = db and db.showSpellID
+            local on = EllesmereUI.SpellIDOn()
                 and (db.spellIDModifier or "none") == "none"
             pcall(EllesmereUI.SetCVar, "tooltipShowAuraSpellIDs", on and "1" or "0")
         end
@@ -4095,7 +4108,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         end
 
         local function SpellIDTooltipHook(tooltip, data)
-            if not (EllesmereUIDB and EllesmereUIDB.showSpellID) then return end
+            if not EllesmereUI.SpellIDOn() then return end
             if not IsSpellIDModifierHeld() then return end
             if not data or not data.id then return end
             if _isSecret and _isSecret(data.id) then return end
@@ -4121,7 +4134,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         end
 
         local function ItemIDTooltipHook(tooltip, data)
-            if not (EllesmereUIDB and EllesmereUIDB.showSpellID) then return end
+            if not EllesmereUI.SpellIDOn() then return end
             if not IsSpellIDModifierHeld() then return end
             if not data or not data.id then return end
             if _isSecret and _isSecret(data.id) then return end
@@ -4170,7 +4183,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- them (GetSpell() also returns nil on a macro tooltip). The spell #showtooltip resolved
         -- to (honoring conditionals) is exposed as the FIRST tooltip line's tooltipID, read from the tooltip data.
         local function MacroSpellIDTooltipHook(tooltip, _data)
-            if not (EllesmereUIDB and EllesmereUIDB.showSpellID) then return end
+            if not EllesmereUI.SpellIDOn() then return end
             if not IsSpellIDModifierHeld() then return end
             if not tooltip or not tooltip.GetName or not tooltip.GetTooltipData then return end
             local ok, info = pcall(tooltip.GetTooltipData, tooltip)
@@ -4218,7 +4231,7 @@ initFrame:SetScript("OnEvent", function(self, event)
             local db = EllesmereUIDB
             if not db then return end
             local relevant =
-                (db.showSpellID and KeyMatchesModifier(key, db.spellIDModifier or "none"))
+                (EllesmereUI.SpellIDOn() and KeyMatchesModifier(key, db.spellIDModifier or "none"))
                 or (db.showItemMaxStacks and KeyMatchesModifier(key, db.itemStackModifier or "none"))
             if not relevant then return end
             if GameTooltip and GameTooltip:IsShown() and GameTooltip.RefreshData then
