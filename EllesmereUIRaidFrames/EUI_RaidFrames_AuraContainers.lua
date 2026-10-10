@@ -1158,6 +1158,8 @@ local function BmSignature(inds, specKey, mode)
                 -- Anchor To is structural: the composition decides how many
                 -- groups each pool container declares.
                 .. ":@" .. tostring(ind.anchorTo or "")
+                -- Pandemic regions must be registered in the creation callback.
+                .. (((ind.type or "icon") == "icon" and ind.pandemicBorderEnabled) and ":p" or "")
         end
     end
     return table.concat(parts, "|")
@@ -1318,9 +1320,43 @@ local function ApplyBmIconGlow(button, dd, style)
     end
 end
 
--- applyExtra for icon slots: shared text pass + opacity + BM frame levels.
--- hideIcon = legacy text-only mode (icon/swipe/border hidden via style flags;
--- duration text and stacks unaffected).
+local function ApplyBmPandemicBorder(button, dd, style)
+    -- Disabled displays allocate nothing. Opted-in chains register every pooled
+    -- button at creation; per-member restyles only recolor the child textures.
+    if not style.bmPandemicEnabled and not style.bmPandemicRegister and not dd.bmPandemic then return end
+    if not dd.bmPandemic and not dd.bmRegistered and button.AddPandemicRegion then
+        local holder = CreateFrame("Frame", nil, button)
+        holder:SetAllPoints(button)
+        holder:EnableMouse(false)
+        holder:Hide()
+        dd.bmPandemic = holder
+        dd.bmPandemicEdges = {}
+        for i = 1, 4 do
+            dd.bmPandemicEdges[i] = holder:CreateTexture(nil, "OVERLAY")
+        end
+        local top, bottom, left, right = unpack(dd.bmPandemicEdges)
+        top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT")
+        bottom:SetPoint("BOTTOMLEFT"); bottom:SetPoint("BOTTOMRIGHT")
+        left:SetPoint("TOPLEFT"); left:SetPoint("BOTTOMLEFT")
+        right:SetPoint("TOPRIGHT"); right:SetPoint("BOTTOMRIGHT")
+    end
+    local holder = dd.bmPandemic
+    if not holder then return end
+    holder:SetFrameLevel(dd.stackCarrier:GetFrameLevel() - 1)
+    local width = style.bmPandemicWidth or 2
+    local r, g, b = BmColor(style.bmPandemicColor, 1, 0.2, 0.2)
+    local alpha = style.bmPandemicEnabled and not style.hideIcon and 1 or 0
+    for i, edge in ipairs(dd.bmPandemicEdges) do
+        if i <= 2 then edge:SetHeight(width) else edge:SetWidth(width) end
+        edge:SetColorTexture(r, g, b, alpha)
+    end
+    if not dd.bmPandemicBound then
+        button:AddPandemicRegion(holder)
+        dd.bmPandemicBound = true
+    end
+end
+
+-- Icon text, opacity and frame levels also apply to text-only indicators.
 local function ApplyBmIconExtra(button, dd, style)
     ApplyRFDebuffText(button, dd, style)
     -- "Hide Icons" gate: like the hidden swipe (see AuraKit's style pass), a
@@ -1371,6 +1407,7 @@ local function ApplyBmIconExtra(button, dd, style)
     if dd.stackCarrier then dd.stackCarrier:SetFrameLevel(base + BM_FRAMELVL_TEXT) end
     BmRebindDurationCurve(button, dd, style)
     ApplyBmIconGlow(button, dd, style)
+    ApplyBmPandemicBorder(button, dd, style)
 end
 
 -- Buff/HoT tooltip gate (profile-root "Hide Buff Tooltips", default hidden). Engine
@@ -1421,6 +1458,9 @@ local function BuildBmIconStyle(ind, iscale, size)
         tooltipCombatHide = BmTipMode() == "combat",
         tooltipAnchor = (BmTipMode() == "cursor") and "cursor" or nil,
         bmGlowInd = ind,
+        bmPandemicEnabled = ind.pandemicBorderEnabled == true,
+        bmPandemicColor = ind.pandemicBorderColor,
+        bmPandemicWidth = ind.pandemicBorderWidth or 2,
         applyExtra = ApplyBmIconExtra,
     }
 end
@@ -2068,6 +2108,7 @@ local function BmVisualKey(kind, ind, size, font, spellID)
     if kind == "icon" then
         return FP(font, size, (ns.db and ns.db.profile and ns.db.profile.bmIconZoom) or 0.08,
             ind.iconOpacity, ind.hideIcon, ind.indBorderSize, CK(ind.indBorderColor),
+            ind.pandemicBorderEnabled, CK(ind.pandemicBorderColor), ind.pandemicBorderWidth,
             ind.showDuration, ind.showDurationText, ind.durationTextSize, CK(ind.durationTextColor),
             ind.durationTextOffsetX, ind.durationTextOffsetY, ind.thresholdEnabled, ind.threshold,
             CK(ind.thresholdColor), ind.showStacks, ind.stacksTextSize, CK(ind.stacksTextColor),
@@ -2207,6 +2248,16 @@ local function BmAcquireChain(button, d, health, ch, iscale, counters)
         totalGroups = totalGroups + (segsBy[j] and #segsBy[j] or 1)
     end
     local ck = kind .. ":" .. table.concat(ownPat)
+    local anyPandemic = false
+    if kind == "icon" then
+        for j = 1, #members do
+            anyPandemic = anyPandemic or members[j].ind.pandemicBorderEnabled == true
+        end
+        -- A shared engine pool can reuse buttons across members. Register all
+        -- buttons in the opted-in container, but keep visibility per member.
+        -- Only two variants are needed, regardless of the member enable pattern.
+        if anyPandemic then ck = ck .. ":p:" end
+    end
     if anySegs then
         -- Segment shape joins the pool key (group sets are add-only, so a
         -- differently-segmented chain needs its own container). The trailing
@@ -2232,6 +2283,7 @@ local function BmAcquireChain(button, d, health, ch, iscale, counters)
         if bmStyleFP[sk] ~= vk then
             bmStyleFP[sk] = vk
             AK.styles[sk] = BuildBmStyleFor(kind, mInd, iscale, msize)
+            AK.styles[sk].bmPandemicRegister = anyPandemic
             AK.RestyleSoon(sk)
         end
     end
