@@ -473,34 +473,81 @@ end
 
 function EAB_VTABLE.RegisterMasqueButtons()
     if not ns.MasqueGroup then return end
-    if not ns._masqueInteractionReskinHooked and ns.MasqueGroup.ReSkin then
-        ns._masqueInteractionReskinHooked = true
-        hooksecurefunc(ns.MasqueGroup, "ReSkin", function()
-            EAB:ApplyPushedTextures()
-            EAB:ApplyHighlightTextures()
-        end)
+    if not ns._masqueInteractionReskinHooked then
+        local function QueueInteractionReskin()
+            if ns._masqueInteractionReskinQueued then return end
+            ns._masqueInteractionReskinQueued = true
+            C_Timer_After(0, function()
+                ns._masqueInteractionReskinQueued = false
+                EAB:ApplyPushedTextures()
+                EAB:ApplyHighlightTextures()
+            end)
+        end
+        if ns.MasqueGroup.RegisterCallback then
+            ns.MasqueGroup:RegisterCallback("OnSkin", QueueInteractionReskin)
+            ns._masqueInteractionReskinHooked = true
+        elseif ns.MasqueGroup.ReSkin then
+            hooksecurefunc(ns.MasqueGroup, "ReSkin", QueueInteractionReskin)
+            ns._masqueInteractionReskinHooked = true
+        end
     end
     -- AddButton skins the button right away, so wait until layout is done.
     -- Registering in GetOrCreateButton uses the template size and leaves the skin too large until Masque reskins it.
     for _, info in ipairs(BAR_CONFIG) do
-        if ns.MasqueOwnsBar(info.key) then
+        if not info.isStance and not info.isPetBar and ns.MasqueOwnsBar(info.key) then
             local buttons = barButtons[info.key]
             if buttons then
                 for _, btn in ipairs(buttons) do
                     local fd = EFD(btn)
                     if not fd.masqueRegistered then
-                        -- Use Masque's pet skin and autocast art for pet buttons.
-                        ns.MasqueGroup:AddButton(btn, nil, info.isPetBar and "Pet" or nil)
+                        ns.MasqueGroup:AddButton(btn)
                         fd.masqueRegistered = true
                     end
-                    if not info.isPetBar and not info.isStance then
-                        EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
-                        EAB_VTABLE.SyncMasqueEmptySlotGloss(btn)
-                    end
+                    EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
+                    EAB_VTABLE.SyncMasqueEmptySlotGloss(btn)
                 end
             end
         end
     end
+end
+
+function EAB_VTABLE.SetupAssistRotationSuppression(btn)
+    local fd = EFD(btn)
+    if fd.rotHooked or not btn.UpdateAssistedCombatRotationFrame then return end
+    -- Masque buttons skip MakeButtonSquare, so they need this hook too.
+    hooksecurefunc(btn, "UpdateAssistedCombatRotationFrame", function(self)
+        -- Fires at Blizzard's combat cadence while a rotation action is on
+        -- a bar: change-guard so steady-state fires cost only the reads.
+        local rtf = self.AssistedCombatRotationFrame
+        if rtf and (EFD(self).squared or EFD(self).masqueOwned) then
+            local s = (self:GetWidth() or 45) / 45
+            if rtf:GetScale() ~= s then rtf:SetScale(s) end
+        end
+        -- Blizzard's swirl frame stays permanently hidden (its Lua OnUpdate polls
+        -- every render frame while shown); our script-free spinner clone replaces
+        -- it. UpdateState (the caller we hook behind) re-Shows it every call and
+        -- this hook runs right after, synchronously, so it never renders.
+        if rtf then
+            if rtf:IsShown() then rtf:Hide() end
+            local spin = ns.EnsureAssistSpinner(self, rtf)
+            local p2 = EAB.db and EAB.db.profile
+            local enabled = not p2 or p2.obaIconEnabled ~= false
+            local action = self.GetAttribute and self:GetAttribute("action") or self.action
+            local isAssist = action and C_ActionBar and C_ActionBar.IsAssistedCombatAction
+                and C_ActionBar.IsAssistedCombatAction(action) or false
+            spin:SetShown(enabled and isAssist)
+            -- Suggested-spell icon updates ride the assist ticker, armed
+            -- here on the only signal that identifies an assist button (see
+            -- ns._ArmAssistTicker for cost discipline). When the assist
+            -- action leaves, stop the ticker if no assist button remains.
+            if isAssist then
+                if ns._ArmAssistTicker then ns._ArmAssistTicker() end
+            elseif ns._assistTicker and ns._assistTicker.IsPlaying() then
+                if ns.RepaintAssistIcons() == 0 then ns._assistTicker.Stop() end
+            end
+        end
+    end)
+    fd.rotHooked = true
 end
 
 local function MakeButtonSquare(btn)
@@ -562,43 +609,7 @@ local function MakeButtonSquare(btn)
         end)
         fd.artHooked = true
     end
-    -- Hook UpdateAssistedCombatRotationFrame to scale the rotation frame
-    -- when Blizzard creates it lazily (default 45x45, needs our button size).
-    if not fd.rotHooked and btn.UpdateAssistedCombatRotationFrame then
-        hooksecurefunc(btn, "UpdateAssistedCombatRotationFrame", function(self)
-            -- Fires at Blizzard's combat cadence while a rotation action is on
-            -- a bar: change-guard so steady-state fires cost only the reads.
-            local rtf = self.AssistedCombatRotationFrame
-            if rtf and EFD(self).squared then
-                local s = (self:GetWidth() or 45) / 45
-                if rtf:GetScale() ~= s then rtf:SetScale(s) end
-            end
-            -- Blizzard's swirl frame stays permanently hidden (its Lua OnUpdate polls
-            -- every render frame while shown); our script-free spinner clone replaces
-            -- it. UpdateState (the caller we hook behind) re-Shows it every call and
-            -- this hook runs right after, synchronously, so it never renders.
-            if rtf then
-                if rtf:IsShown() then rtf:Hide() end
-                local spin = ns.EnsureAssistSpinner(self, rtf)
-                local p2 = EAB.db and EAB.db.profile
-                local enabled = not p2 or p2.obaIconEnabled ~= false
-                local action = self.GetAttribute and self:GetAttribute("action") or self.action
-                local isAssist = action and C_ActionBar and C_ActionBar.IsAssistedCombatAction
-                    and C_ActionBar.IsAssistedCombatAction(action) or false
-                spin:SetShown(enabled and isAssist)
-                -- Suggested-spell icon updates ride the assist ticker, armed
-                -- here on the only signal that identifies an assist button (see
-                -- ns._ArmAssistTicker for cost discipline). When the assist
-                -- action leaves, stop the ticker if no assist button remains.
-                if isAssist then
-                    if ns._ArmAssistTicker then ns._ArmAssistTicker() end
-                elseif ns._assistTicker and ns._assistTicker.IsPlaying() then
-                    if ns.RepaintAssistIcons() == 0 then ns._assistTicker.Stop() end
-                end
-            end
-        end)
-        fd.rotHooked = true
-    end
+    EAB_VTABLE.SetupAssistRotationSuppression(btn)
     SetSquareTexture(btn.HighlightTexture, HIGHLIGHT_TEXTURES[1])
     SetSquareTexture(btn.NewActionTexture, HIGHLIGHT_TEXTURES[1])
     SetSquareTexture(btn.PushedTexture, HIGHLIGHT_TEXTURES[2])

@@ -975,7 +975,8 @@ local function _FlushCDPatch()
 end
 
 local function HookButtonCooldownEdge(btn)
-    if not btn or not EFD(btn).squared then return end
+    local bfd = btn and EFD(btn)
+    if not btn or not bfd or not (bfd.squared or bfd.masqueOwned) then return end
     if EFD(btn).cdEdgeHooked then return end
     EFD(btn).cdEdgeHooked = true
 
@@ -1027,6 +1028,14 @@ local function HookButtonCooldownEdge(btn)
     end
 end
 
+function EAB_VTABLE.HookCooldownVisualsForButton(btn)
+    if not btn then return end
+    HookButtonCooldownEdge(btn)
+    if EAB_VTABLE.CooldownFonts and EAB_VTABLE.CooldownFonts.HookButton then
+        EAB_VTABLE.CooldownFonts.HookButton(btn)
+    end
+end
+
 EAB_VTABLE.CooldownFonts.pending = {}
 EAB_VTABLE.CooldownFonts.timerScheduled = false
 
@@ -1061,7 +1070,7 @@ local function HookCooldownEdge()
         if buttons then
             for i = 1, #buttons do
                 local btn = buttons[i]
-                if btn and EFD(btn).squared then
+                if btn and (EFD(btn).squared or EFD(btn).masqueOwned) then
                     HookButtonCooldownEdge(btn)
                 end
             end
@@ -1080,7 +1089,8 @@ function EAB:ApplyCooldownEdge()
         if buttons then
             for i = 1, #buttons do
                 local btn = buttons[i]
-                if btn and EFD(btn).squared then
+                if btn and (EFD(btn).squared or EFD(btn).masqueOwned) then
+                    HookButtonCooldownEdge(btn)
                     -- Clear edge cache so the hook re-applies on next cooldown
                     if btn.cooldown then EFD(btn.cooldown).edgeDone = nil end
                     if btn.chargeCooldown then EFD(btn.chargeCooldown).edgeDone = nil end
@@ -1204,4 +1214,3 @@ function EAB:RefreshChargeRechargeNumbers()
         end
     end
 end
-

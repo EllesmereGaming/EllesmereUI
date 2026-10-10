@@ -73,7 +73,7 @@ function EAB:ApplyBordersForBar(barKey)
             EFD(btn).barKey = barKey
             if masqueOwns then
                 local fd = EFD(btn)
-                if fd.borders then PP.HideBorder(btn) end
+                EllesmereUI.HideBorderStyle(btn)
                 if EllesmereUI._bdBorderData then
                     local bdFrame = EllesmereUI._bdBorderData[btn]
                     if bdFrame then bdFrame:Hide() end
@@ -1120,4 +1120,3 @@ function EAB_VTABLE.MainBarPageSync.InstallButton(btn)
 
     btn:SetAttributeNoHandler("_eabPageSyncInstalled", true)
 end
-

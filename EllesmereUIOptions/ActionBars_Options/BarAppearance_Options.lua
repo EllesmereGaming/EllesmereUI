@@ -1417,25 +1417,25 @@ local function BuildBarAppearance(parent, y, ctx)
     end
     _, h = W:DualRow(parent, y,
         { type="toggle", text="Enable Masque Support",
-          tooltip="Allows Masque to skin the buttons on Action Bars 1-10, the Pet Bar, and the Stance Bar. Requires a UI reload to apply.",
+          tooltip="Allows Masque to skin the buttons on Action Bars 1-10. Requires a UI reload to apply.",
           disabled=function() return not IsMasqueAvailable() end,
           disabledTooltip=function()
               if not IsMasqueAvailable() then return "Masque is not installed or enabled." end
-              return "Masque is available for Action Bars 1-10, the Pet Bar, and the Stance Bar."
+              return "Masque is available for Action Bars 1-10."
           end,
           requireState="disabled",
           getValue=MasqueEnabledValue,
           setValue=function(v)
               EllesmereUI:ShowConfirmPopup({
                   title       = "Reload Required",
-                  message     = "Changing Masque for all action bars, the pet bar, and the stance bar requires a UI reload.",
+                  message     = "Changing Masque for Action Bars 1-10 requires a UI reload.",
                   confirmText = "Reload Now",
                   cancelText  = "Cancel",
+                  reload      = true,
                   onConfirm   = function()
                       for _, key in ipairs(MASQUE_BAR_ORDER) do
                           EAB.db.profile.bars[key].masqueEnabled = v and true or false
                       end
-                      ReloadUI()
                   end,
                   onCancel    = function()
                       EllesmereUI:RefreshPage()

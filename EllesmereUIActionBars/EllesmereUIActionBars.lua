@@ -319,12 +319,27 @@ for _, info in ipairs(EXTRA_BARS) do ALL_BARS[#ALL_BARS + 1] = info end
 local BAR_LOOKUP = {}
 for _, info in ipairs(BAR_CONFIG) do BAR_LOOKUP[info.key] = info end
 for _, info in ipairs(EXTRA_BARS) do BAR_LOOKUP[info.key] = info end
+
+local function LatchMasqueBarOwnership()
+    local latched = {}
+    local bars = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars
+    if bars then
+        for _, info in ipairs(BAR_CONFIG) do
+            if not info.isStance and not info.isPetBar then
+                local settings = bars[info.key]
+                latched[info.key] = settings and settings.masqueEnabled == true or false
+            end
+        end
+    end
+    ns._masqueBarsLatched = latched
+end
+
 function ns.MasqueOwnsBar(key)
     local info = BAR_LOOKUP[key]
     if not (ns.MasqueGroup and info) then return false end
-    local bars = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars
-    local settings = bars and bars[key]
-    return settings and settings.masqueEnabled == true
+    if info.isStance or info.isPetBar then return false end
+    local latched = ns._masqueBarsLatched
+    return latched and latched[key] == true or false
 end
 
 -- Expose AB bar keys immediately so unlock mode's ApplyAnchorPosition can gate
@@ -2325,6 +2340,10 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
         -- Masque buttons skip MakeButtonSquare(), so mark them separately to keep the yellow proc glow working.
         EFD(btn).masqueOwned = true
         EAB_VTABLE.SetupCastAnimSuppression(btn)
+        EAB_VTABLE.SetupAssistRotationSuppression(btn)
+        if EAB_VTABLE.HookCooldownVisualsForButton then
+            EAB_VTABLE.HookCooldownVisualsForButton(btn)
+        end
     end
     RegisterButtonWithController(btn)
     allButtons[slot] = btn
@@ -3930,6 +3949,8 @@ local function LayoutBar(key)
     if not frame or not buttons then return end
 
     local s = EAB.db.profile.bars[key]
+    local masqueOwnsBar = ns.MasqueOwnsBar(key)
+    local masqueNeedsReskin = false
     -- LAYOUT STAMP: skips a re-layout whose inputs are unchanged (the combat-exit
     -- ApplyAll re-ran this full layout for nothing). EVERY input the body reads
     -- folds into one string: raw settings, profile flags, barPositions, base sizes,
@@ -4090,6 +4111,11 @@ local function LayoutBar(key)
             if demote and btn:IsShown() then lfd.parkA0 = 1 end
 
             local col, row
+            local preSizeW, preSizeH, preScale
+            if masqueOwnsBar and not masqueNeedsReskin then
+                preSizeW, preSizeH = btn:GetSize()
+                preScale = btn:GetScale() or 1
+            end
             if isVertical then
                 if cornerFill then
                     -- Corner modes fill across columns first, then wrap down a
@@ -4155,6 +4181,15 @@ local function LayoutBar(key)
             else
                 btn:SetPoint(anchor, frame, anchor, xOff, yOff)
                 btn:SetSize(thisBtnW, thisBtnH)
+            end
+            if masqueOwnsBar and not masqueNeedsReskin then
+                local postSizeW, postSizeH = btn:GetSize()
+                local postScale = btn:GetScale() or 1
+                if abs((postSizeW or 0) - (preSizeW or 0)) > 0.01
+                   or abs((postSizeH or 0) - (preSizeH or 0)) > 0.01
+                   or abs(postScale - preScale) > 0.001 then
+                    masqueNeedsReskin = true
+                end
             end
             HideSlotArt(btn)
 
@@ -4498,6 +4533,9 @@ local function LayoutBar(key)
     -- links, profile swaps, ...), because hooking one leaves the rest applying a stale
     -- size. Cheap when nothing changed: the per-frame stamp no-ops unless size differs.
     EAB:ApplyCooldownFontsForBar(key)
+    if masqueNeedsReskin and ns.MasqueGroup and ns.MasqueGroup.ReSkin then
+        ns.MasqueGroup:ReSkin()
+    end
     -- A shown fitted-or-fittable assist ring on this bar: refit or restore it
     -- on the next assist pass (coalesced; never queued with the option off).
     if assistRefit then ns.QueueAssistRescan() end
@@ -6676,14 +6714,6 @@ function EAB:OnInitialize()
     -- Copy the main bar's Masque setting to the stance bar for older profiles.
     self.db.profile.bars.StanceBar.masqueEnabled = self.db.profile.bars.MainBar.masqueEnabled == true
 
-    -- Only create a Masque group if the user has enabled it in settings.
-    for _, info in ipairs(BAR_CONFIG) do
-        local settings = self.db.profile.bars[info.key]
-        if settings and settings.masqueEnabled == true then
-            ns.InitializeMasque()
-            break
-        end
-    end
     -- Expose for ApplyAnchorPosition's growth-direction edge read.
     EllesmereUI._abBarPositions = self.db.profile.barPositions
 
@@ -7204,6 +7234,18 @@ function EAB:FinishSetup()
     -- can't be unhooked -- and the pet/stance event frames would duplicate.
     if ns._eabFinishSetupDone then return end
     ns._eabFinishSetupDone = true
+
+    -- Masque group and AddButton registration are one-time for the session, so
+    -- lock ownership to the current profile snapshot before any layout or style
+    -- path asks ns.MasqueOwnsBar().
+    LatchMasqueBarOwnership()
+    for _, info in ipairs(BAR_CONFIG) do
+        if ns._masqueBarsLatched[info.key] == true then
+            ns.InitializeMasque()
+            break
+        end
+    end
+
     local function DoSetupSecure()
         -- Non-protected setup: create bar frames, compute layout, register events.
         -- Protected operations (SetParent, SetPoint on Blizzard buttons) are

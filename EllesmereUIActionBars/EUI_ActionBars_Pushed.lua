@@ -416,7 +416,7 @@ function EAB:ApplyPushedTextures()
                 if btn and btn.PushedTexture then
                     local masque = ns.MasqueOwnsBar(info.key) and abStyle == "eui"
                     local pushed = masque and ns.MasqueInteractionTexture(btn, "PushedTexture") or btn.PushedTexture
-                    pushed:SetParent(abStyle == "eui" and PressHost(btn) or btn)
+                    pushed:SetParent(masque and PressHost(btn) or btn)
                     if ns.MasqueOwnsBar(info.key) and abStyle ~= "eui" then
                         ns._hideBorderEdges(btn, "_pushedBorder")
                     elseif abStyle ~= "eui" then
@@ -675,4 +675,3 @@ function EAB:ApplyHighlightTextures()
     -- Keep their QuickKeybind highlight aligned with the EUI button art too.
     _quickKeybindState.art.ForEachSpecialButton(_quickKeybindState.art.InitializeButton)
 end
-

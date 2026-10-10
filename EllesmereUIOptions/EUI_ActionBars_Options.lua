@@ -81,7 +81,7 @@ initFrame:SetScript("OnEvent", function(self)
         if not VISIBILITY_ONLY[key] then
             GROUP_BAR_ORDER[#GROUP_BAR_ORDER + 1] = key
             local info = BAR_LOOKUP[key]
-            if info then
+            if info and not info.isStance and not info.isPetBar then
                 MASQUE_BAR_ORDER[#MASQUE_BAR_ORDER + 1] = key
             end
         end
@@ -955,7 +955,7 @@ initFrame:SetScript("OnEvent", function(self)
     if EllesmereUI._RegisterSearchEntry then
         EllesmereUI._RegisterSearchEntry(
             "Enable Masque Support", nil,
-            "Allows Masque to skin the buttons on Action Bars 1-10, the Pet Bar, and the Stance Bar. Requires a UI reload to apply.",
+            "Allows Masque to skin the buttons on Action Bars 1-10. Requires a UI reload to apply.",
             "EllesmereUIActionBars", PAGE_DISPLAY, SECTION_ICON_APPEARANCE,
             EllesmereUI._setActionBarKey, "MainBar")
     end
