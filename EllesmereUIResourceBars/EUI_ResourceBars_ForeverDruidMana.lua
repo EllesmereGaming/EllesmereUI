@@ -7,8 +7,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- It is a child of the Power Bar frame: it moves, fades, hides and
 -- mouseover-reveals with it, and it is not an unlock element, an anchor target
 -- or part of size matching. Below / Above sit it outside the bar's frame (a
--- vertical bar: right / left side); Inside lays it over the bar's bottom edge
--- (a vertical bar: its right edge), above the fill and under the bar's text.
+-- vertical bar: right / left side), and elements linked to that side of the
+-- Power Bar measure from this bar's far edge instead (anchor extent below);
+-- Inside lays it over the bar's bottom edge (a vertical bar: its right edge),
+-- above the fill and under the bar's text.
 -- The look follows the Power Bar (texture, background, border, fill opacity,
 -- orientation); the fill is the mana power colour.
 --
@@ -20,7 +22,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 -- Cost: off = no frames, no events. On: UNIT_DISPLAYPOWER (form edges) only;
 -- the mana events are registered only while this bar is shown and the Power
--- Bar can show, and a paint with unchanged mana and max does nothing.
+-- Bar can show, and a paint with unchanged mana and max does nothing. The
+-- Power Bar's anchor links re-cascade only when this bar's edge changes.
 
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
@@ -44,7 +47,9 @@ local evf = CreateFrame("Frame")
 -- registered), shown (the form wants this bar), pbVis (the Power Bar's
 -- visibility pass lets it show), live (shown and pbVis: mana events
 -- registered), cur / mx (last painted values), texPath (fill file last set),
--- textOn / fmt / suffix (text settings as last applied).
+-- textOn / fmt / suffix (text settings as last applied), extSide / extSig
+-- (the Power Bar side this bar extends and its layout, nil for Inside),
+-- extLast (the extent last cascaded).
 local S = { enabled = false, shown = false, live = false, pbVis = true }
 
 -------------------------------------------------------------------------------
@@ -195,6 +200,19 @@ local function UpdateLive()
     end
 end
 
+-- Elements linked to the Power Bar re-cascade only when the edge this bar
+-- lends them changes (shown / hidden, side, size, gap, offsets): a rebuild
+-- that leaves it in place schedules no anchor work. Unlock mode re-applies
+-- every link on exit, so a change there only records.
+local function NotifyExtent()
+    local sig = (S.shown and S.extSide) and S.extSig or nil
+    if sig == S.extLast then return end
+    S.extLast = sig
+    if not EllesmereUI._unlockActive and EllesmereUI.PropagateAnchorChain then
+        EllesmereUI.PropagateAnchorChain("ERB_Power")
+    end
+end
+
 -- Form edge: show or hide for the form's power, then the event set.
 local function Refresh()
     local shown = S.enabled and FormWantsBar() or false
@@ -203,6 +221,7 @@ local function Refresh()
         S.host:SetShown(shown)
     end
     UpdateLive()
+    NotifyExtent()
 end
 
 evf:SetScript("OnEvent", function(_, event, _, powerType)
@@ -289,6 +308,7 @@ local function Layout(pb, pp, g, c)
             host:SetPoint("BOTTOMRIGHT", pb, "BOTTOMRIGHT", ox - i, oy + i)
             host:SetHeight(thick)
         end
+        S.extSide, S.extSig = nil, nil
         return ori, true
     end
 
@@ -323,6 +343,13 @@ local function Layout(pb, pp, g, c)
         end
         host:SetHeight(thick)
     end
+    -- The anchor side this bar extends past (NotifyExtent compares extSig).
+    if vertical then
+        S.extSide = above and "LEFT" or "RIGHT"
+    else
+        S.extSide = above and "TOP" or "BOTTOM"
+    end
+    S.extSig = format("%s:%s:%s:%s:%s", S.extSide, thick, d, ox, oy)
     return ori, false
 end
 
@@ -400,13 +427,14 @@ local function ApplyText(c, r, g, b)
     fs:SetShown(S.textOn)
 end
 
--- Off: every event dropped, the bar hidden (nothing anchors to it).
+-- Off: every event dropped, the bar hidden and its anchor extent handed back.
 local function Teardown()
     if not S.enabled then return end
     S.enabled, S.shown, S.live = false, false, false
     S.cur, S.mx = nil, nil
     evf:UnregisterAllEvents()
     S.host:Hide()
+    NotifyExtent()
 end
 
 -------------------------------------------------------------------------------
@@ -455,4 +483,47 @@ function ns.FDM_Visibility(vis)
     if on == S.pbVis then return end
     S.pbVis = on
     if S.enabled then UpdateLive() end
+end
+
+-- Anchor-target edge for the unlock anchor system: while this bar shows
+-- Below / Above the Power Bar, an element linked to that side of "ERB_Power"
+-- measures from this bar's far edge, so a form change moves it clear of the
+-- mana bar instead of leaving it overlapped. The Power Bar keeps its own
+-- edges everywhere else. Live in unlock mode too, so a linked element's mover
+-- stays clear of the bar and a drag measures from the same edge (Below: the
+-- Power Bar's mover wraps this bar, ns.FDM_BottomExtra). Chained in front of
+-- any provider installed before this file loaded.
+local prevExtent = EllesmereUI._GetAnchorTargetExtent
+EllesmereUI._GetAnchorTargetExtent = function(targetKey, side)
+    if targetKey == "ERB_Power" and S.shown and side == S.extSide then
+        local host, pb = S.host, S.pb
+        local v, pv
+        if side == "BOTTOM" then v, pv = host:GetBottom(), pb:GetBottom()
+        elseif side == "TOP" then v, pv = host:GetTop(), pb:GetTop()
+        elseif side == "LEFT" then v, pv = host:GetLeft(), pb:GetLeft()
+        else v, pv = host:GetRight(), pb:GetRight() end
+        if v and pv then
+            -- Only ever outward: an offset that tucks it back toward the
+            -- Power Bar leaves the Power Bar's edge in charge.
+            if side == "BOTTOM" or side == "LEFT" then
+                if pv < v then v = pv end
+            elseif pv > v then
+                v = pv
+            end
+            return v * host:GetEffectiveScale() / UIParent:GetEffectiveScale()
+        end
+    end
+    if prevExtent then return prevExtent(targetKey, side) end
+    return nil
+end
+
+-- Unlock mode: the Power Bar's getBottomExtra (main file). While this bar
+-- shows Below a horizontal Power Bar, the mover grows down to wrap it, to
+-- the same edge linked elements measure from; 0 otherwise. Power Bar units
+-- (this bar is its child: one scale).
+function ns.FDM_BottomExtra()
+    if not (S.shown and S.extSide == "BOTTOM") then return 0 end
+    local hb, pb = S.host:GetBottom(), S.pb:GetBottom()
+    if not (hb and pb) or hb >= pb then return 0 end
+    return pb - hb
 end

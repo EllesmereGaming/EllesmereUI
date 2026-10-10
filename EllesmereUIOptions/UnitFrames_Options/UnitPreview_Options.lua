@@ -3657,6 +3657,13 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         -- pf, under the bars. The portrait joins with its own art only.
         do
             local radius = (not ResolveBlizzPreview(unitKey, s) and bds.cornerRadius) or 0
+            local det = pvPpPos == "detached_top" or pvPpPos == "detached_bottom"
+            local corners, pCorners = bds.cornerMask, bds.cornerMask
+            if det and s.cornerJoinPower then
+                local upper, lower = EllesmereUI.RoundedJoinCorners(corners)
+                if pvPpPos == "detached_bottom" then corners, pCorners = upper, lower
+                else corners, pCorners = lower, upper end
+            end
             if radius > 0 then
                 local port = sp and isAttached and portraitFrame and portraitFrame:IsShown() and portraitFrame or nil
                 EllesmereUI.RoundCorners(pf, radius, {
@@ -3664,15 +3671,16 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                         s.bottomTextBar and btbIsAtt and btbFrame or nil },
                     textures = { port and port._previewBg, port and port._previewTex },
                     border = border, rect = border, style = bds.borderTexture or "solid",
+                    corners = corners,
                 })
             else
                 EllesmereUI.RoundCorners(pf, 0)
             end
             if power then
-                local det = pvPpPos == "detached_top" or pvPpPos == "detached_bottom"
                 if det and radius > 0 then
                     EllesmereUI.RoundCorners(power, radius, {
                         border = power._pbBorder, style = s.powerBorderStyle or "solid",
+                        corners = pCorners,
                     })
                 else
                     EllesmereUI.RoundCorners(power, 0)

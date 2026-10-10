@@ -111,7 +111,7 @@ local _hasUserRules = false                             -- any profile (user) ru
 -- Hidden Outside Form/Stance: UPDATE_SHAPESHIFT_FORM, likewise, and the
 -- player's UNIT_AURA for a powershift, whose return fires no form event
 -- (_formSeen: the form ID at the last form edge).
-local _needUsable, _needForms, _formSeen = false, false, nil
+local _needUsable, _needForms, _needFormAuras, _formSeen = false, false, false, nil
 
 -- CD-ready sound "armed" state, keyed by ability so it survives the rule-object
 -- churn of FakeActive_Rearm (rebuilds are frequent in M+ and would otherwise eat
@@ -979,10 +979,13 @@ OnEvent = function(self, event, unit, _, spellID)
             for i = 1, #_customRules do EvalCustom(_customRules[i]) end
         end
         if _needForms then
-            local form = GetShapeshiftFormID() or 0
+            local form = ns.CdmCurrentFormID()
             if form ~= _formSeen then
                 _formSeen = form
                 ns.CdmRetryUnreadForms()
+                QueueCdStateEval()
+            elseif _needFormAuras then
+                ns.CdmInvalidateFormAuras()
                 QueueCdStateEval()
             end
         end
@@ -1021,7 +1024,7 @@ OnEvent = function(self, event, unit, _, spellID)
         -- combat end also retry form answers that could not be read.
         if _needForms and event ~= "SPELL_UPDATE_USABLE" then
             ns.CdmRetryUnreadForms()
-            if event == "UPDATE_SHAPESHIFT_FORM" then _formSeen = GetShapeshiftFormID() or 0 end
+            if event == "UPDATE_SHAPESHIFT_FORM" then _formSeen = ns.CdmCurrentFormID() end
         end
         QueueCdStateEval()
     end
@@ -1598,7 +1601,7 @@ function ns.FakeActive_Rearm()
     -- Re-read rather than wipe: a re-arm during the login window would leave
     -- the map empty and the lazy refresh in KeyMatches would just rebuild it.
     RefreshSlotItemKeys()
-    _needAura, _needCast, _armed, _hasUserRules, _needUsable, _needForms = false, false, false, false, false, false
+    _needAura, _needCast, _armed, _hasUserRules, _needUsable, _needForms, _needFormAuras = false, false, false, false, false, false, false
     if FA121 then FA121.BeginSweep() end
 
     -- 1. Built-in rules (class/spec gated).
@@ -1658,7 +1661,10 @@ function ns.FakeActive_Rearm()
                 _cdStateRules[#_cdStateRules + 1] = rule
                 local m = eff and ns.CD_STATE_HIDE[eff]
                 if m and m.usable then _needUsable = true end
-                if m and m.form then _needForms = true end
+                if m and m.form then
+                    _needForms = true
+                    if ns.CdmFormNeedsAura(matchKey) then _needFormAuras = true end
+                end
             end
         end
         local eq13 = GetInventoryItemID and GetInventoryItemID("player", 13) or nil

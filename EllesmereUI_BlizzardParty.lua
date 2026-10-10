@@ -40,7 +40,6 @@ local function ApplyHideBlizzardPartyFrame()
         end
     elseif _partyOrigParent and mgr:GetParent() ~= _partyOrigParent then
         mgr:SetParent(_partyOrigParent)
-        mgr:Show()
     end
 end
 

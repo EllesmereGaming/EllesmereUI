@@ -142,7 +142,7 @@ local function ReloadFrames(skipButtons)
             d.powerBg:SetColorTexture((s.powerBgColor or {}).r or 0, (s.powerBgColor or {}).g or 0, (s.powerBgColor or {}).b or 0, (s.powerBgDarkness or 70) / 100)
             d._pwBgTintType = nil
         end
-        if d.UpdatePowerBorder then d.UpdatePowerBorder() end
+        if d.UpdatePowerBorder then d.UpdatePowerBorder(true) end
 
         -- Name text
         if d.nameText then

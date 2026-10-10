@@ -591,6 +591,7 @@ for _, info in ipairs(BAR_CONFIG) do
         reverseIconOrder = false,
         alwaysShowButtons = true,
         showPagingArrows = false,
+        skipVisiblePagingBars = false,
         pagingArrowsRight = false,
         paging = {},
         -- Auto-paging opt-outs (MainBar only; see BuildPagingConditions).
@@ -1922,18 +1923,28 @@ local function HideBlizzardBars()
         end
         return curPage, maxPages
     end
-    ActionBar_PageUp = function()
+    -- Keep the non-secure legacy functions consistent with the secure wheel
+    -- buttons. The skip mask is derived from configured bars, not live visibility
+    -- (which can change in combat and cannot safely rewrite secure macros).
+    local function ChangeManualPage(delta)
         local curPage, maxPages = CurrentManualPage()
-        local newPage = curPage + 1
-        if newPage > maxPages then newPage = 1 end
-        ChangeActionBarPage(newPage)
+        local bars = EAB.db and EAB.db.profile and EAB.db.profile.bars
+        if not (bars and bars.MainBar and bars.MainBar.skipVisiblePagingBars) then
+            ChangeActionBarPage((curPage - 1 + delta + maxPages) % maxPages + 1)
+            return
+        end
+        local skip = ns.GetPagingSkipMask()
+        local newPage = curPage
+        for _ = 1, maxPages do
+            newPage = (newPage - 1 + delta + maxPages) % maxPages + 1
+            if not skip[newPage] then
+                ChangeActionBarPage(newPage)
+                return
+            end
+        end
     end
-    ActionBar_PageDown = function()
-        local curPage, maxPages = CurrentManualPage()
-        local newPage = curPage - 1
-        if newPage < 1 then newPage = maxPages end
-        ChangeActionBarPage(newPage)
-    end
+    ActionBar_PageUp = function() ChangeManualPage(1) end
+    ActionBar_PageDown = function() ChangeManualPage(-1) end
 
     -- Hide status tracking bar manager (unless user wants Blizzard data bars)
     if not (EAB.db and EAB.db.profile.useBlizzardDataBars) then
@@ -2342,6 +2353,7 @@ EAB_VTABLE.PAGING_STATES = {
         WARRIOR = {
             { id = "battle",    macro = "[bonusbar:1]", label = "Battle Stance" },
             { id = "defensive", macro = "[bonusbar:2]", label = "Defensive Stance" },
+            { id = "berserker", macro = "[bonusbar:3]", label = "Berserker Stance" },
         },
         EVOKER = {
             { id = "soar", macro = "[bonusbar:1]", label = "Soar" },
@@ -2537,9 +2549,74 @@ for i = 1, NUM_AB_PAGES - 1 do
     _macroPrev = _macroPrev .. "; [bar:" .. (i + 1) .. "] " .. i
 end
 
+-- Shared by the secure paging macros and the legacy non-secure functions.
+-- Only configured-on bars reserve their underlying page; hide-on-mouseover
+-- still reserves a page, while disabled/always-hidden bars do not.
+function ns.GetPagingSkipMask()
+    local skip = {}
+    local bars = EAB.db and EAB.db.profile and EAB.db.profile.bars
+    if not (bars and bars.MainBar and bars.MainBar.skipVisiblePagingBars) then return skip end
+    for barKey, page in pairs(EAB_VTABLE.BAR_KEY_TO_PAGE) do
+        if barKey ~= "MainBar" and page >= 1 and page <= NUM_AB_PAGES then
+            local settings = bars[barKey]
+            if settings and settings.enabled ~= false and not settings.alwaysHidden then
+                skip[page] = true
+            end
+        end
+    end
+    return skip
+end
+
+local function BuildFilteredPageMacro(delta, skip)
+    local macro = {}
+    for page = 1, NUM_AB_PAGES do
+        local target = page
+        for _ = 1, NUM_AB_PAGES do
+            target = (target - 1 + delta + NUM_AB_PAGES) % NUM_AB_PAGES + 1
+            if not skip[target] then break end
+        end
+        macro[#macro + 1] = "[bar:" .. page .. "] " .. target
+    end
+    return "/changeactionbar " .. table.concat(macro, "; ")
+end
+
 local function WireSecurePagingButton(btn, delta)
     btn:SetAttribute("type", "macro")
     btn:SetAttribute("macrotext", delta > 0 and _macroNext or _macroPrev)
+end
+
+local _filteredPagingActive = false
+
+-- Changes to secure macrotext must happen out of combat. Memoization avoids
+-- rewriting protected attributes during routine ApplyAll calls.
+function ns.RefreshPagingCycleMacros()
+    if InCombatLockdown() then return end
+
+    local bars = EAB.db and EAB.db.profile and EAB.db.profile.bars
+    local enabled = bars and bars.MainBar and bars.MainBar.skipVisiblePagingBars
+
+    if not enabled and not _filteredPagingActive then return end
+
+    local nextMacro, prevMacro
+    if enabled then
+        local skip = ns.GetPagingSkipMask()
+        nextMacro = BuildFilteredPageMacro(1, skip)
+        prevMacro = BuildFilteredPageMacro(-1, skip)
+    else
+        nextMacro = _macroNext
+        prevMacro = _macroPrev
+    end
+
+    local function UpdateButton(button, macro)
+        if button and button:GetAttribute("macrotext") ~= macro then
+            button:SetAttribute("macrotext", macro)
+        end
+    end
+    UpdateButton(_pagingFrame and _pagingFrame._upBtn, nextMacro)
+    UpdateButton(_pagingFrame and _pagingFrame._downBtn, prevMacro)
+    UpdateButton(_G.EABPageNext, nextMacro)
+    UpdateButton(_G.EABPagePrev, prevMacro)
+    _filteredPagingActive = not not enabled
 end
 
 local function InitPagingQuickKeybindButton(btn, atlas)
@@ -4333,6 +4410,7 @@ local function LayoutBar(key)
             prevBtn:SetAlpha(0)
             prevBtn:RegisterForClicks("AnyUp", "AnyDown")
             WireSecurePagingButton(prevBtn, -1)
+            ns.RefreshPagingCycleMacros()
 
             local function ApplyPageBindings()
                 if InCombatLockdown() then return end
@@ -6073,6 +6151,7 @@ local function ApplyAll()
     -- the engine's SetPoint hook.
     ns.PartySpin_Refresh()
 
+    if not inCombat then ns.RefreshPagingCycleMacros() end
     _isApplyingAll = false
 end
 
@@ -7092,11 +7171,6 @@ function EAB:FinishSetup()
                 end
             end
             RestoreBarPositions()
-            local vBtn = MainMenuBarVehicleLeaveButton
-            if vBtn and barFrames["MainBar"] then
-                vBtn:ClearAllPoints()
-                vBtn:SetPoint("BOTTOM", barFrames["MainBar"], "TOPRIGHT", -15, 2)
-            end
         else
             -- Combat reload: non-protected setup only; secure handler does the rest.
             -- Stock bar disposal (including ActionBarParent) already happened at

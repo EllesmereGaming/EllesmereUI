@@ -31,6 +31,7 @@ local BAGS_DEFAULTS = {
         bagShowPinnedItems    = true,
         bagShowRecentItems    = true,
         bagPinnedInOneBag     = true,
+        bagHidePinnedInCategories = false,
         bagRecentInOneBag     = false,
         bagShowRecentClear    = false,
         -- Bag Top Bar Icons: the header's Show Bags, Junk Marker and Sort icons

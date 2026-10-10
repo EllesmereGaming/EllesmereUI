@@ -411,6 +411,8 @@ local defaults = {
         powerBgColor     = { r = 107/255, g = 107/255, b = 107/255 },
         powerBgPowerColored = false,
         powerBorderStyle = "eui",      -- "eui", "divider", "border"
+        powerBorderMatchFrame = false,
+        powerBorderMatchColor = false,
         powerBorderSize  = 1,
         powerBorderColor = { r = 0, g = 0, b = 0 },
         powerBorderAlpha = 1,
@@ -424,6 +426,8 @@ local defaults = {
         -- Top Name Bar: reserves height from the frame TOP (as the power bar does from the bottom); suppresses the in-frame Name.
         topNameBarEnabled       = false,
         topNameBarHeight        = 20,
+        topNameBarDivider       = false,
+        topNameBarDividerMatchColor = false,
         topNameBarBgColor       = { r = 17/255, g = 17/255, b = 17/255 },
         topNameBarBgOpacity     = 80,
         topNameBarTextSize      = 11,
@@ -479,6 +483,7 @@ local defaults = {
         borderTexture    = "solid",
         borderBehind     = false,
         cornerRadius     = 0,  -- rounded corners, 0 = off
+        cornerMask       = 15, -- the corners that round (bits: 1 TL, 2 TR, 4 BL, 8 BR)
         -- borderTextureOffset/OffsetY/ShiftX/ShiftY default via GetBorderDefaults
 
         -- Smooth bars
@@ -534,7 +539,7 @@ local defaults = {
         roleIconOffsetX  = 0,
         roleIconOffsetY  = 0,
         roleIconHideInCombat = false,
-        roleIconBehindBorder = false,  -- drop the carrier below the hover/target raise so borders draw over the icon
+        roleIconBehindBorder = false,  -- drop the carrier below the normal border so borders draw over the icon
         showRoleForTank    = true,
         showRoleForHealer  = true,
         showRoleForDPS     = false,

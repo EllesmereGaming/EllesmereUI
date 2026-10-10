@@ -548,7 +548,7 @@ local function ApplyRowLook(row, cfg, w, h)
         EllesmereUI.RoundCorners(row, radius, {
             roots = { clip }, textures = { row._bg },
             border = not merged and bdr or nil, clip = clip,
-            style = cfg.borderTexture or "solid",
+            style = cfg.borderTexture or "solid", corners = cfg.cornerMask,
         })
     else
         EllesmereUI.RoundCorners(row, 0)

@@ -279,7 +279,7 @@ bankSearch:SetScript("OnTextChanged", function(self)
     local text = self:GetText()
     searchPlaceholder:SetShown(text == "")
     searchClear:SetShown(text ~= "")
-    C_Container.SetItemSearch(text)
+    EUI_Bags.SetSearchText(text)
     if EUI_Bank:IsVisible() then EUI_Bank:RefreshBank() end
     if EUI_Bags and EUI_Bags:IsVisible() and EUI_Bags.RefreshInventory then
         EUI_Bags:RefreshInventory()
@@ -2138,6 +2138,7 @@ function EUI_Bank:RefreshBank()
         if not hasSearch then return true end
         local info = C_Container.GetContainerItemInfo(bagID, slot)
         if not info then return false end
+        EUI_Bags.ApplyBindKeyword(info, bagID, slot)
         return not info.isFiltered
     end
 
@@ -2355,6 +2356,7 @@ function EUI_Bank:RefreshBank()
                 for slot = 1, tab.numSlots do
                     local info = C_Container.GetContainerItemInfo(tab.bagID, slot)
                     if info then used = used + 1 end
+                    EUI_Bags.ApplyBindKeyword(info, tab.bagID, slot)
                     -- use native search filter so type keywords work too
                     if not hasSearch or (info and not info.isFiltered) then
                         visibleSlots[#visibleSlots + 1] = { slot = slot, _cachedInfo = info }
@@ -2439,6 +2441,7 @@ function EUI_Bank:RefreshBank()
             for slot = 1, tab.numSlots do
                 local info = C_Container.GetContainerItemInfo(tab.bagID, slot)
                 if info then used = used + 1 end
+                EUI_Bags.ApplyBindKeyword(info, tab.bagID, slot)
                 allSlots[#allSlots + 1] = { slot = slot, _cachedInfo = info }
             end
             local visibleSlots = allSlots

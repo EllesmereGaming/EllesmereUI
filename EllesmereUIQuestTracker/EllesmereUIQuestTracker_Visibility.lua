@@ -102,8 +102,9 @@ EQT.TrackerIsVisible = TrackerIsVisible
 -- events (QUEST_LOG_UPDATE etc.) from doing skin/resize/classify work when
 -- the tracker is hidden anyway. Re-registers on zone-out / unsuppress.
 local _eventsSuspended = false
+-- Not guarded on _eventsSuspended: frames can enroll after an early suspend,
+-- and each pass while hidden must catch them.
 local function SuspendQTEvents()
-    if _eventsSuspended then return end
     _eventsSuspended = true
     if EQT._eventFrames then
         for _, f in ipairs(EQT._eventFrames) do
@@ -183,15 +184,14 @@ end
 
 local function UpdateVisibility()
     InstallShowHook()
-    if _eqtSuppressed or ShouldAutoHide() then SuspendQTEvents() else ResumeQTEvents() end
+    local autoHide = ShouldAutoHide()
+    if _eqtSuppressed or autoHide then SuspendQTEvents() else ResumeQTEvents() end
     local otf = GetTracker()
     if not otf then return end
 
     -- Raid/arena auto-hide takes precedence and uses a hard Hide(); the
     -- Show-hook re-hides if Blizzard tries to bring it back.
-    -- Also suspend all QT event frames so quest events don't burn CPU
-    -- processing skin/resize/classify work for a hidden tracker.
-    if ShouldAutoHide() then
+    if autoHide then
         HardHide(otf)
         if _bgFrame then _bgFrame:Hide() end
         return
