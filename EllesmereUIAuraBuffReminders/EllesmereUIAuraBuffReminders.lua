@@ -1833,6 +1833,39 @@ local function PlayerHasWellFed()
     return false
 end
 
+-- WoW Forever's XP foods have individual spell IDs and textures. Check their
+-- readable aura tooltips instead of maintaining a list of every food spell.
+function EABR.PlayerHasForeverWellFed()
+    if InPvPInstance() then return true end
+    if EABR.ConsumablePresenceUnverifiable() then return true end
+    if not (C_TooltipInfo and C_TooltipInfo.GetUnitAura) then return true end
+    for i = 1, AURA_SCAN_LIMIT do
+        local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+        if not ok or isSecret(aura) then return true end
+        if not aura then break end
+        local tooltipOK, tooltip = pcall(C_TooltipInfo.GetUnitAura, "player", i, "HELPFUL")
+        if not tooltipOK or isSecret(tooltip) or not tooltip then return true end
+        local lines = tooltip.lines
+        if not lines or isSecret(lines) then return true end
+        local hasWellFed, hasExperience, sawText = false, false, false
+        for j = 1, #lines do
+            local line = lines[j]
+            local text = line and line.leftText
+            if text and not isSecret(text) then
+                sawText = true
+                text = text:lower()
+                if text:find("well fed", 1, true) then hasWellFed = true end
+                if text:find("experience", 1, true) or text:find("xp", 1, true) then
+                    hasExperience = true
+                end
+            end
+        end
+        if not sawText then return true end
+        if hasWellFed and hasExperience then return true end
+    end
+    return false
+end
+
 local function PlayerHasFlaskBuff()
     if InPvPInstance() then return true end
     if EABR.ConsumablePresenceUnverifiable() then return true end
@@ -2307,7 +2340,7 @@ local defaults = {
 if EABR.FOREVER then
     defaults.profile.forever = {
         camp = false,       -- Camp Benefits reminder; opt-in, it shows whenever the buff is missing
-        wellFed = false,    -- Well Fed reminder; opt-in, matched by aura name (every food has its own spell ID)
+        wellFed = false,    -- Well Fed reminder; opt-in, detected from XP food aura tooltip text
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added
     }
@@ -4312,17 +4345,14 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
             missing[#missing+1] = e
         end
     end
-    if fo.wellFed and not inPvP and not restricted then
+    if fo.wellFed and not EABR.PlayerHasForeverWellFed() then
         local name = SpellName(EABR.WELL_FED) or "Well Fed"
-        local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
-        if ok and not isSecret(aura) and not aura then
-            local e = AcquireEntry()
-            e.mode = "texture"; e.spellID = EABR.WELL_FED
-            e.texture = Tex(EABR.WELL_FED)
-            e.label = name
-            e.cat = "forever"; e.dismissKey = "forever:wellfed"
-            missing[#missing+1] = e
-        end
+        local e = AcquireEntry()
+        e.mode = "texture"; e.spellID = EABR.WELL_FED
+        e.texture = Tex(EABR.WELL_FED)
+        e.label = name
+        e.cat = "forever"; e.dismissKey = "forever:wellfed"
+        missing[#missing+1] = e
     end
     local custom = fo.customIDs
     if not custom then return end
