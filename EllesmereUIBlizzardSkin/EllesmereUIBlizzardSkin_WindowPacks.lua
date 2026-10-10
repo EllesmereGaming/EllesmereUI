@@ -66,32 +66,8 @@ local function LeftAlignFilterLabel(dd)
     end
 end
 
--- Active-filter reset "X": strips Blizzard's glyph, draws house
--- uitools-icon-close above the dropdown border (white 0.9->1 on hover).
--- `host` = the dropdown it rides (frame-level layering); idempotent via FFD.x.
-local function SkinFilterResetX(rb, host)
-    if not rb or rb:IsForbidden() then return end
-    local rd = GetFFD(rb)
-    if rd.x then return end
-    local regions = { rb:GetRegions() }
-    for i = 1, #regions do
-        local r = regions[i]
-        if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
-    end
-    for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture" }) do
-        local t = rb[g] and rb[g](rb)
-        if t and t.SetAlpha then t:SetAlpha(0) end
-    end
-    if host then rb:SetFrameLevel(host:GetFrameLevel() + 5) end
-    local x = rb:CreateTexture(nil, "OVERLAY", nil, 7)
-    x:SetAtlas("uitools-icon-close", false)
-    x:SetSize(10, 10)
-    x:SetPoint("CENTER", rb, "CENTER", 0, 0)
-    x:SetVertexColor(1, 1, 1, 0.9)
-    rd.x = x
-    rb:HookScript("OnEnter", function() x:SetVertexColor(1, 1, 1, 1) end)
-    rb:HookScript("OnLeave", function() x:SetVertexColor(1, 1, 1, 0.9) end)
-end
+-- Active-filter reset "X": WSkin.FilterResetX (the window engine).
+local SkinFilterResetX = WSkin.FilterResetX
 
 do
 local PREVIEW_JOURNALS = { WarbandSceneJournal = true }  -- texture previews are content
@@ -5535,7 +5511,13 @@ local function Skin_RepCurrency()
     -- these tabs included.
     if ns.CharSheetStock and ns.CharSheetStock() then return end
     local rep = _G.ReputationFrame
-    if rep then
+    -- WoW Forever keeps the list, its filter and the detail pane Blizzard's on
+    -- the sheet's backdrop, like that client's other character tabs (Skills,
+    -- PvP, Currency); only the list's scroll bar takes the house style, as
+    -- the Currency and stats lists' do.
+    if rep and EllesmereUI.IS_FOREVER then
+        if rep.ScrollBar then WSkin.ScrollBar(rep.ScrollBar) end
+    elseif rep then
         if rep.filterDropdown then WSkin.Dropdown(rep.filterDropdown) end
         WSkin.ScrollBarsIn(rep)
         HookRCScrollBox(rep.ScrollBox)
@@ -8934,34 +8916,11 @@ local function Skin_AuctionHouse()
             end
         end
     end
-    -- Refresh corner: reload button becomes flat UI-RefreshButton glyph (desaturated+white vertex); quantity goes white.
+    -- Refresh corner: the house refresh glyph; quantity goes white.
     local function SkinRefresh(rf)
         if not rf then return end
         if rf.TotalQuantity then WSkin.White(rf.TotalQuantity) end
-        local rb = rf.RefreshButton
-        if rb and not GetFFD(rb).glyph
-           and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("UI-RefreshButton") then
-            local d = GetFFD(rb)
-            local regions = { rb:GetRegions() }
-            for i = 1, #regions do
-                local r = regions[i]
-                if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
-            end
-            for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture",
-                                 "GetHighlightTexture", "GetDisabledTexture" }) do
-                local t = rb[g] and rb[g](rb)
-                if t and t.SetAlpha then t:SetAlpha(0) end
-            end
-            local glyph = rb:CreateTexture(nil, "OVERLAY")
-            glyph:SetAtlas("UI-RefreshButton", false)
-            glyph:SetSize(16, 16)
-            glyph:SetPoint("CENTER")
-            glyph:SetDesaturated(true)
-            glyph:SetVertexColor(1, 1, 1, 0.9)
-            d.glyph = glyph
-            rb:HookScript("OnEnter", function() glyph:SetVertexColor(1, 1, 1, 1) end)
-            rb:HookScript("OnLeave", function() glyph:SetVertexColor(1, 1, 1, 0.9) end)
-        end
+        WSkin.RefreshGlyph(rf.RefreshButton)
     end
     -- List panel: framed chrome off, slim scrollbar, headers when present.
     -- seatTop: top-anchored views seat header row at the wash top; item-detail views keep stock header position.
@@ -10381,31 +10340,6 @@ local function Skin_CraftOrders()
             end
         end
     end
-    local function SkinRefreshBtn(rb)
-        if rb and not GetFFD(rb).glyph
-           and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("UI-RefreshButton") then
-            local d = GetFFD(rb)
-            local regions = { rb:GetRegions() }
-            for i = 1, #regions do
-                local r = regions[i]
-                if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
-            end
-            for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture",
-                                 "GetHighlightTexture", "GetDisabledTexture" }) do
-                local t = rb[g] and rb[g](rb)
-                if t and t.SetAlpha then t:SetAlpha(0) end
-            end
-            local glyph = rb:CreateTexture(nil, "OVERLAY")
-            glyph:SetAtlas("UI-RefreshButton", false)
-            glyph:SetSize(16, 16)
-            glyph:SetPoint("CENTER")
-            glyph:SetDesaturated(true)
-            glyph:SetVertexColor(1, 1, 1, 0.9)
-            d.glyph = glyph
-            rb:HookScript("OnEnter", function() glyph:SetVertexColor(1, 1, 1, 1) end)
-            rb:HookScript("OnLeave", function() glyph:SetVertexColor(1, 1, 1, 0.9) end)
-        end
-    end
     local function List(list)
         if not list then return end
         local ld = GetFFD(list)
@@ -10767,7 +10701,7 @@ local function Skin_CraftOrders()
             ad.moShowHook = true
             mo:HookScript("OnShow", WSkin.Debounce(function() Skin_CraftOrders() end))
         end
-        SkinRefreshBtn(mo.RefreshButton)
+        WSkin.RefreshGlyph(mo.RefreshButton)
         List(mo.OrderList)
     end
 

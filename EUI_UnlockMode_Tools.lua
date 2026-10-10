@@ -788,7 +788,10 @@ local function NudgeMover(dx, dy, targetMover, skipCollapse)
     local bar = UM.GetBarFrame(m._barKey)
     if not bar then return end
 
-    local ai = GetAnchorInfo(m._barKey)
+    -- An element that places itself (ownsPosition) moves like an unanchored one:
+    -- its links are inert.
+    local elem = registeredElements[m._barKey]
+    local ai = not (elem and elem.ownsPosition) and GetAnchorInfo(m._barKey) or nil
     if ai and ai.target then
         -- Anchored: adjust offset relative to target frame (not UIParent). Reading
         -- GetPoint(1) on an anchored element returns args relative to the target frame -- applying those to UIParent teleports the bar.
@@ -821,8 +824,8 @@ local function NudgeMover(dx, dy, targetMover, skipCollapse)
         local pt, _, relPt, offX, offY = bar:GetPoint(1)
         if not pt then return end
         pcall(function()
-            bar:ClearAllPoints()
-            bar:SetPoint(pt, UIParent, relPt, offX + dx, offY + dy)
+            EllesmereUI.ClearFramePoints(bar)
+            EllesmereUI.SetFramePoint(bar, pt, UIParent, relPt, offX + dx, offY + dy)
         end)
         -- Keep the LOGICAL pending value exact for CENTER/CENTER elements: previous
         -- pending/stored value + the exact delta, never a live geometry read-back.
@@ -851,7 +854,6 @@ local function NudgeMover(dx, dy, targetMover, skipCollapse)
     -- Same element follow-up the drag gives after each placement (main chat
     -- restores its size corner), before the mover and the anchor chain read
     -- the frame's rect.
-    local elem = registeredElements[m._barKey]
     if elem and elem.onLiveMove then
         pcall(elem.onLiveMove, m._barKey)
     end
@@ -965,8 +967,8 @@ EllesmereUI._unlockSetGrowDirection = function(barKey, val)
             if math.abs(dx) > 0.5 or math.abs(dy) > 0.5 then
                 local pt, relTo, relPt, offX, offY = barFrame:GetPoint(1)
                 if pt then
-                    barFrame:ClearAllPoints()
-                    barFrame:SetPoint(pt, relTo, relPt, offX + dx, offY + dy)
+                    EllesmereUI.ClearFramePoints(barFrame)
+                    EllesmereUI.SetFramePoint(barFrame, pt, relTo, relPt, offX + dx, offY + dy)
                 end
             end
         end
@@ -1182,7 +1184,7 @@ local function CreateBlizzOwnedOverlay(def, parent)
     -- Background: same as regular movers
     local bg = ov:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+    bg:SetColorTexture(0.103, 0.095, 0.088, 0.95)
     -- Border: accent at idle, white on hover
     local brd = EllesmereUI.MakeBorder(ov, ar, ag, ab, 0.6)
     ov._brd = brd

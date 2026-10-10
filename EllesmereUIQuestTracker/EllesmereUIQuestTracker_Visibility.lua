@@ -102,8 +102,9 @@ EQT.TrackerIsVisible = TrackerIsVisible
 -- events (QUEST_LOG_UPDATE etc.) from doing skin/resize/classify work when
 -- the tracker is hidden anyway. Re-registers on zone-out / unsuppress.
 local _eventsSuspended = false
+-- Not guarded on _eventsSuspended: frames can enroll after an early suspend,
+-- and each pass while hidden must catch them.
 local function SuspendQTEvents()
-    if _eventsSuspended then return end
     _eventsSuspended = true
     if EQT._eventFrames then
         for _, f in ipairs(EQT._eventFrames) do
@@ -118,9 +119,14 @@ local function ResumeQTEvents()
         for i, f in ipairs(EQT._eventFrames) do
             local evts = EQT._eventRegistrations[i]
             if evts then
+                local refresh
                 for _, ev in ipairs(evts) do
                     f:RegisterEvent(ev)
+                    if ev == "PLAYER_ENTERING_WORLD" then refresh = true end
                 end
+                -- Catch up on what was missed while unregistered.
+                local onEvent = refresh and f:GetScript("OnEvent")
+                if onEvent then onEvent(f, "PLAYER_ENTERING_WORLD") end
             end
         end
     end
@@ -130,11 +136,6 @@ end
 -- suppression composes with the user's chosen visibility mode / options.
 function EQT.ApplySuppression(on)
     _eqtSuppressed = on and true or false
-    if _eqtSuppressed then
-        SuspendQTEvents()
-    else
-        ResumeQTEvents()
-    end
     if EQT.UpdateVisibility then EQT.UpdateVisibility() end
 end
 
@@ -183,21 +184,19 @@ end
 
 local function UpdateVisibility()
     InstallShowHook()
+    local autoHide = ShouldAutoHide()
+    if _eqtSuppressed or autoHide then SuspendQTEvents() else ResumeQTEvents() end
     local otf = GetTracker()
     if not otf then return end
 
     -- Raid/arena auto-hide takes precedence and uses a hard Hide(); the
     -- Show-hook re-hides if Blizzard tries to bring it back.
-    -- Also suspend all QT event frames so quest events don't burn CPU
-    -- processing skin/resize/classify work for a hidden tracker.
-    if ShouldAutoHide() then
-        SuspendQTEvents()
+    if autoHide then
         HardHide(otf)
         if _bgFrame then _bgFrame:Hide() end
         return
     end
 
-    ResumeQTEvents()
     if not otf:IsShown() then
         -- Show() is protected in combat like Hide() (see HardHide). Skip;
         -- the dispatcher's PLAYER_REGEN_ENABLED pass re-runs us and the

@@ -116,7 +116,7 @@ local function EnsureAssignedSpells(barKeyE)
         -- after its left neighbour so it takes its true Blizzard-CDM position;
         -- appending at the end piled talent-swap spells after trinket/racial slots and
         -- never survived /reload. Presence check AND position cursor must be
-        -- variant-aware (mirrors the reseed pass in EllesmereUICooldownManager.lua): an
+        -- variant-aware (mirrors the reseed pass in EUI_CDM_Reconcile.lua): an
         -- exact-match set misses a stored entry with a different variant form, re-inserting a duplicate the normalize pass above then dedupes by deleting the saved slot.
         local insertPos = nil
         for _, icon in ipairs(liveIcons) do
@@ -330,7 +330,7 @@ local function EnsureAssignedSpells(barKeyE)
     -- Keep/drop reconciliation now lives in the resident module (single
     -- implementation shared with the automatic reseed/settings-close
     -- triggers -- see ns.ReconcileAssignedSpellDrops in
-    -- EllesmereUICooldownManager.lua for the full decision ladder).
+    -- EUI_CDM_Reconcile.lua for the full decision ladder).
     if ns.ReconcileAssignedSpellDrops then
         sd = ns.ReconcileAssignedSpellDrops(barKeyE) or sd
     end
@@ -383,7 +383,7 @@ local function ShowCustomSpellIDPopup(barKey, withDuration, onAdded, hideChargeW
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
-        popBg:SetAllPoints(); popBg:SetColorTexture(0.06, 0.08, 0.10, 1)
+        popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
 
         local title = popup:CreateFontString(nil, "OVERLAY")
@@ -403,7 +403,7 @@ local function ShowCustomSpellIDPopup(barKey, withDuration, onAdded, hideChargeW
         editBox:SetTextColor(1, 1, 1, 0.9)
         editBox:SetJustifyH("CENTER")
         local ebBg = editBox:CreateTexture(nil, "BACKGROUND")
-        ebBg:SetAllPoints(); ebBg:SetColorTexture(0.04, 0.06, 0.08, 1)
+        ebBg:SetAllPoints(); ebBg:SetColorTexture(0.060, 0.049, 0.037, 1)
         EllesmereUI.MakeBorder(editBox, 1, 1, 1, 0.12, EllesmereUI.PP)
 
         local placeholder = editBox:CreateFontString(nil, "ARTWORK")
@@ -485,7 +485,7 @@ local function ShowCustomSpellIDPopup(barKey, withDuration, onAdded, hideChargeW
         durBox:SetTextColor(1, 1, 1, 0.9)
         durBox:SetJustifyH("CENTER")
         local durBg = durBox:CreateTexture(nil, "BACKGROUND")
-        durBg:SetAllPoints(); durBg:SetColorTexture(0.04, 0.06, 0.08, 1)
+        durBg:SetAllPoints(); durBg:SetColorTexture(0.060, 0.049, 0.037, 1)
         EllesmereUI.MakeBorder(durBox, 1, 1, 1, 0.12, EllesmereUI.PP)
         local durPlaceholder = durBox:CreateFontString(nil, "ARTWORK")
         durPlaceholder:SetFont(FONT_PATH, 12, GetCDMOptOutline())
@@ -503,7 +503,7 @@ local function ShowCustomSpellIDPopup(barKey, withDuration, onAdded, hideChargeW
     end
 
     local function SetStatus(text, r, g, b)
-        popup._status:SetText(text)
+        popup._status:SetText(EllesmereUI.L(text))
         popup._status:SetTextColor(r or 1, g or 0.3, b or 0.3, 1)
         if popup._statusTimer then popup._statusTimer:Cancel() end
         if text ~= "" then
@@ -622,7 +622,7 @@ local function ShowCustomItemIDPopup(barKey, onAdded)
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
-        popBg:SetAllPoints(); popBg:SetColorTexture(0.06, 0.08, 0.10, 1)
+        popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
 
         local title = popup:CreateFontString(nil, "OVERLAY")
@@ -642,7 +642,7 @@ local function ShowCustomItemIDPopup(barKey, onAdded)
         editBox:SetTextColor(1, 1, 1, 0.9)
         editBox:SetJustifyH("CENTER")
         local ebBg = editBox:CreateTexture(nil, "BACKGROUND")
-        ebBg:SetAllPoints(); ebBg:SetColorTexture(0.04, 0.06, 0.08, 1)
+        ebBg:SetAllPoints(); ebBg:SetColorTexture(0.060, 0.049, 0.037, 1)
         EllesmereUI.MakeBorder(editBox, 1, 1, 1, 0.12, EllesmereUI.PP)
 
         local placeholder = editBox:CreateFontString(nil, "ARTWORK")
@@ -700,7 +700,7 @@ local function ShowCustomItemIDPopup(barKey, onAdded)
     end
 
     local function SetStatus(text, r, g, b)
-        popup._status:SetText(text)
+        popup._status:SetText(EllesmereUI.L(text))
         popup._status:SetTextColor(r or 1, g or 0.3, b or 0.3, 1)
         if popup._statusTimer then popup._statusTimer:Cancel() end
         if text ~= "" then
@@ -777,7 +777,7 @@ local function ShowEquipmentSlotPopup(barKey, onAdded)
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
-        popBg:SetAllPoints(); popBg:SetColorTexture(0.06, 0.08, 0.10, 1)
+        popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
 
         local title = popup:CreateFontString(nil, "OVERLAY")
@@ -797,7 +797,7 @@ local function ShowEquipmentSlotPopup(barKey, onAdded)
         editBox:SetTextColor(1, 1, 1, 0.9)
         editBox:SetJustifyH("CENTER")
         local ebBg = editBox:CreateTexture(nil, "BACKGROUND")
-        ebBg:SetAllPoints(); ebBg:SetColorTexture(0.04, 0.06, 0.08, 1)
+        ebBg:SetAllPoints(); ebBg:SetColorTexture(0.060, 0.049, 0.037, 1)
         EllesmereUI.MakeBorder(editBox, 1, 1, 1, 0.12, EllesmereUI.PP)
 
         local placeholder = editBox:CreateFontString(nil, "ARTWORK")
@@ -877,7 +877,7 @@ local function ShowEquipmentSlotPopup(barKey, onAdded)
     end
 
     local function SetStatus(text, r, g, b)
-        popup._status:SetText(text)
+        popup._status:SetText(EllesmereUI.L(text))
         popup._status:SetTextColor(r or 1, g or 0.3, b or 0.3, 1)
         if popup._statusTimer then popup._statusTimer:Cancel() end
         if text ~= "" then
@@ -1514,7 +1514,7 @@ local function ShowDurationPopup(currentVal, onConfirm)
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
-        popBg:SetAllPoints(); popBg:SetColorTexture(0.06, 0.08, 0.10, 1)
+        popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
         popup._dimmer = dimmer
 
@@ -1540,7 +1540,7 @@ local function ShowDurationPopup(currentVal, onConfirm)
         durBox:SetTextColor(1, 1, 1, 0.9)
         durBox:SetJustifyH("CENTER")
         local durBg = durBox:CreateTexture(nil, "BACKGROUND")
-        durBg:SetAllPoints(); durBg:SetColorTexture(0.04, 0.06, 0.08, 1)
+        durBg:SetAllPoints(); durBg:SetColorTexture(0.060, 0.049, 0.037, 1)
         EllesmereUI.MakeBorder(durBox, 1, 1, 1, 0.12, EllesmereUI.PP)
         popup._durBox = durBox
 
@@ -1619,7 +1619,7 @@ local function ShowAlphaPopup(currentPct, onConfirm, title, hint)
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
-        popBg:SetAllPoints(); popBg:SetColorTexture(0.06, 0.08, 0.10, 1)
+        popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
         popup._dimmer = dimmer
 
@@ -1645,7 +1645,7 @@ local function ShowAlphaPopup(currentPct, onConfirm, title, hint)
         box:SetTextColor(1, 1, 1, 0.9)
         box:SetJustifyH("CENTER")
         local boxBg = box:CreateTexture(nil, "BACKGROUND")
-        boxBg:SetAllPoints(); boxBg:SetColorTexture(0.04, 0.06, 0.08, 1)
+        boxBg:SetAllPoints(); boxBg:SetColorTexture(0.060, 0.049, 0.037, 1)
         EllesmereUI.MakeBorder(box, 1, 1, 1, 0.12, EllesmereUI.PP)
         popup._box = box
 
@@ -1725,7 +1725,7 @@ local function ShowThresholdSecondsPopup(currentVal, onConfirm)
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
-        popBg:SetAllPoints(); popBg:SetColorTexture(0.06, 0.08, 0.10, 1)
+        popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
         popup._dimmer = dimmer
 
@@ -1751,7 +1751,7 @@ local function ShowThresholdSecondsPopup(currentVal, onConfirm)
         box:SetTextColor(1, 1, 1, 0.9)
         box:SetJustifyH("CENTER")
         local boxBg = box:CreateTexture(nil, "BACKGROUND")
-        boxBg:SetAllPoints(); boxBg:SetColorTexture(0.04, 0.06, 0.08, 1)
+        boxBg:SetAllPoints(); boxBg:SetColorTexture(0.060, 0.049, 0.037, 1)
         EllesmereUI.MakeBorder(box, 1, 1, 1, 0.12, EllesmereUI.PP)
         popup._box = box
 
@@ -1831,7 +1831,7 @@ ns.ShowCDMCustomIconPopup = function(currentID, onConfirm)
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
-        popBg:SetAllPoints(); popBg:SetColorTexture(0.06, 0.08, 0.10, 1)
+        popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
         popup._dimmer = dimmer
 
@@ -1857,7 +1857,7 @@ ns.ShowCDMCustomIconPopup = function(currentID, onConfirm)
         box:SetTextColor(1, 1, 1, 0.9)
         box:SetJustifyH("CENTER")
         local boxBg = box:CreateTexture(nil, "BACKGROUND")
-        boxBg:SetAllPoints(); boxBg:SetColorTexture(0.04, 0.06, 0.08, 1)
+        boxBg:SetAllPoints(); boxBg:SetColorTexture(0.060, 0.049, 0.037, 1)
         EllesmereUI.MakeBorder(box, 1, 1, 1, 0.12, EllesmereUI.PP)
         popup._box = box
 

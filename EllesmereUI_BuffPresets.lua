@@ -8,6 +8,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --      ids are checkbox rows; alts ride include maps behind their primary).
 --    * Player Aura Bars derives its filter seed + class hints at load,
 --      flattening alts into their own rows (PAB has no primary/alt tiers).
+--  Also the WoW Forever buff families (EllesmereUI.FOREVER_BUFF_FAMILIES, at
+--  the end): every spell that gives each group buff there.
 --  ADD OR EDIT CURATED IDS HERE ONLY -- never in the consumer files.
 --------------------------------------------------------------------------------
 
@@ -549,3 +551,67 @@ end
 EllesmereUI.BUFF_PRESET_IDS = IdSets(RUNNING)
 EllesmereUI.BUFF_PRESET_OTHER_IDS = IdSets(OTHER)
 EllesmereUI.BUFF_PRESET_OTHER_FILTERS = OTHER.filters
+
+-- WoW Forever buff families: one per group buff, every spell that gives it.
+-- Read by the Raid Frames Missing Buffs indicator and by Aura Buff Reminders
+-- (its Raid Buffs and the rank families of custom spells). names = spells
+-- whose (localized) names cover every rank and the group version; single /
+-- group = the trainable ranks of the buff and of its group version, lowest
+-- first; ids = every spell that applies it (ranks, group version, NPC and
+-- item casts, i.e. every spell of those names on the client). Built on WoW
+-- Forever only.
+if EllesmereUI.IS_FOREVER == true then
+    EllesmereUI.FOREVER_BUFF_FAMILIES = {
+        fort = { names = { 1243, 21562 },
+            single = { 1243, 1244, 1245, 2791, 10937, 10938 }, group = { 21562, 21564 },
+            ids = { 1243, 1244, 1245, 2791, 10937, 10938, 10939, 10940, 13864, 23947, 23948,
+                    21562, 21564, 450086 } },
+        mark = { names = { 1126, 21849 },
+            single = { 1126, 5232, 6756, 5234, 8907, 9884, 9885 }, group = { 21849, 21850 },
+            ids = { 1126, 5232, 5234, 5286, 5287, 6756, 8907, 8908, 9884, 9885, 16878, 24752,
+                    364163, 1291335, 1310503, 21849, 21850 } },
+        spirit = { names = { 14752, 27681 },
+            single = { 14752, 14818, 14819, 27841 }, group = { 27681 },
+            ids = { 14752, 14818, 14819, 16875, 27841, 27681 } },
+        thorns = { names = { 467 },
+            single = { 467, 782, 1075, 8914, 9756, 9910 }, group = {},
+            ids = { 467, 782, 1075, 8914, 9756, 9910, 15438, 16877, 21335, 21337, 22128, 22351, 22696,
+                    25640, 25777, 438294, 438326, 1213813, 1213816, 1213834, 1236308, 1291338, 1312955 } },
+        -- Paladin blessings, each with its Greater version (1213408 Kings and
+        -- 26650 Light are the client's two non-trainable copies).
+        might = { names = { 19740, 25782 },
+            single = { 19740, 19834, 19835, 19836, 19837, 19838, 25291 }, group = { 25782, 25916 },
+            ids = { 19740, 19834, 19835, 19836, 19837, 19838, 25291, 25782, 25916 } },
+        wisdom = { names = { 19742, 25894 },
+            single = { 19742, 19850, 19852, 19853, 19854, 25290 }, group = { 25894, 25918 },
+            ids = { 19742, 19850, 19852, 19853, 19854, 25290, 25894, 25918 } },
+        kings = { names = { 20217, 25898 },
+            single = { 20217 }, group = { 25898 },
+            ids = { 20217, 1213408, 25898 } },
+        salvation = { names = { 1038, 25895 },
+            single = { 1038 }, group = { 25895 },
+            ids = { 1038, 25895 } },
+        light = { names = { 19977, 25890 },
+            single = { 19977, 19978, 19979 }, group = { 25890 },
+            ids = { 19977, 19978, 19979, 26650, 25890 } },
+        ai = { names = { 1459, 23028 },
+            single = { 1459, 1460, 1461, 10156, 10157 }, group = { 23028 },
+            ids = { 1459, 1460, 1461, 10156, 10157, 13326, 16876, 364161, 23028 } },
+        bshout = { names = { 6673 },
+            single = { 6673, 5242, 6192, 11549, 11550, 11551, 25289 }, group = {},
+            ids = { 6673, 5242, 6192, 11549, 11550, 11551, 25289, 9128, 24438, 25101, 26043, 26099,
+                    27578 } },
+    }
+end
+
+-- WoW Forever on-next-swing attacks per class (base spell IDs; every rank
+-- shares the name the readers compare). While one is queued the Resource
+-- Bars swing timer paints its melee rows and the Cooldown Manager lights the
+-- attack's icons. Built on WoW Forever only: retail has no such attacks.
+if EllesmereUI.IS_FOREVER == true then
+    EllesmereUI.FOREVER_NEXT_SWING = {
+        WARRIOR = { 78, 845 },  -- Heroic Strike, Cleave
+        DRUID   = { 6807 },     -- Maul
+        HUNTER  = { 2973 },     -- Raptor Strike
+    }
+end

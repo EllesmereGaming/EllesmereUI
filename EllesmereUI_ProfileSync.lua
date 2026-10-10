@@ -510,7 +510,7 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUIDataBars", {
 
 -- Bags is the one auto-synced module: without this the bank position mirrors across profiles.
 EllesmereUI.RegisterSyncExclusions("EllesmereUIBags", {
-    "bankPosition",  -- bank window shift-drag position
+    "bankPosition",  -- bank window drag position
 })
 
 -------------------------------------------------------------------------------
@@ -542,7 +542,7 @@ do
             nf:SetFrameLevel(150)
             nf:EnableMouse(true)
             local bg = nf:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints(); bg:SetColorTexture(15/255, 17/255, 22/255, 1)
+            bg:SetAllPoints(); bg:SetColorTexture(17/255, 15/255, 12/255, 1)
             nf._bg = bg
             -- Fullscreen dimmer: darkens and click-blocks everything behind
             local dim = CreateFrame("Frame", nil, overlayParent)
@@ -651,7 +651,7 @@ do
             return btn
         end
 
-        local cancelBtn = MakeBtn(EllesmereUI.L("Cancel"), 0.18, 0.19, 0.22, 0.9, 0.25, 0.26, 0.3)
+        local cancelBtn = MakeBtn(EllesmereUI.L("Cancel"), 0.172, 0.164, 0.156, 0.9, 0.231, 0.222, 0.215)
         cancelBtn:SetPoint("TOPRIGHT", f, "TOP", -6, cy)
         local confirmBtn = MakeBtn(EllesmereUI.L("Sync"), 0.05, 0.52, 0.39, 0.8, 0.07, 0.62, 0.49)
         confirmBtn:SetPoint("TOPLEFT", f, "TOP", 6, cy)
@@ -744,7 +744,7 @@ do
             _syncPopup:SetFrameLevel(200)
             _syncPopup:EnableMouse(true)
             local bg = _syncPopup:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints(); bg:SetColorTexture(15/255, 17/255, 22/255, 1)
+            bg:SetAllPoints(); bg:SetColorTexture(17/255, 15/255, 12/255, 1)
             _syncPopup._bg = bg
             -- Born hidden, so the Show below runs its OnShow (the click-away)
             -- on the first open too.

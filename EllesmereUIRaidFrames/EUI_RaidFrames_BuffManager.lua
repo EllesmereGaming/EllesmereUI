@@ -71,7 +71,7 @@ local function BuildPTROverlay(parentFrame, label, fontSize)
     ov:EnableMouse(true)
     local bg = ov:CreateTexture(nil, "OVERLAY")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.10, 0.10, 0.12, 0.95)
+    bg:SetColorTexture(0.098, 0.090, 0.082, 0.95)
     local fs = ov:CreateFontString(nil, "OVERLAY")
     local fp = (EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
     fs:SetFont(fp, fontSize or 12, "")
@@ -1575,7 +1575,12 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
     bg:SetAllPoints()
 
     local rawPowerH = (s.powerShowForHealer or s.powerShowForTank or s.powerShowForDPS) and (s.powerHeight or 4) or 0
+    local matchPowerBorder = s.powerBorderMatchFrame == true and rawPowerH > 0
+        and (s.powerBorderStyle == "divider" or s.powerBorderStyle == "border") and not ns.RF_Stock()
+        and (s.borderTexture == "pixels" or s.borderTexture == "pixels-textured")
     local rawTopBarH = s.topNameBarEnabled and (s.topNameBarHeight or 20) or 0
+    local matchTopNameDivider = s.topNameBarDivider == true and rawTopBarH >= 4 and (s.borderSize or 1) > 0
+        and not ns.RF_Stock() and (s.borderTexture == "pixels" or s.borderTexture == "pixels-textured")
     -- Show on Bottom: the bar takes the bottom edge, health starts at the top and
     -- the power bar sits on the bar (as the live LayoutTopNameBar lays it out).
     local rawBottomY = (s.topNameBarEnabled and s.topNameBarBottom == true) and rawTopBarH or 0
@@ -1672,19 +1677,21 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
             ns.RF_StockBuild(pvFrame, pvFrame, power)
             ns.RF_StockDivider(pvFrame)
         elseif PP and s.powerBorderStyle and s.powerBorderStyle ~= "none" then
-            local pbSize = s.powerBorderSize or 1
+            local pbSize = matchPowerBorder and (s.borderSize or 1) or (s.powerBorderSize or 1)
             if pbSize > 0 then
                 local pwBdr = CreateFrame("Frame", nil, pvFrame)
                 pwBdr:SetAllPoints(power)
                 pwBdr:SetFrameLevel(power:GetFrameLevel() + 1)
                 PP.CreateBorder(pwBdr, 0, 0, 0, 1, 1)
-                local pBc = s.powerBorderColor or { r=0, g=0, b=0 }
-                PP.UpdateBorder(pwBdr, pbSize, pBc.r, pBc.g, pBc.b, s.powerBorderAlpha or 1)
-                local ppC = PP.GetBorders(pwBdr)
-                if ppC and s.powerBorderStyle == "divider" then
-                    if ppC._bottom then ppC._bottom:SetAlpha(0) end
-                    if ppC._left then ppC._left:SetAlpha(0) end
-                    if ppC._right then ppC._right:SetAlpha(0) end
+                if not (matchPowerBorder and ns.RF_ApplyPowerBorderArt(pwBdr, s, true, true)) then
+                    local pBc = s.powerBorderColor or { r=0, g=0, b=0 }
+                    PP.UpdateBorder(pwBdr, pbSize, pBc.r, pBc.g, pBc.b, s.powerBorderAlpha or 1)
+                    local ppC = PP.GetBorders(pwBdr)
+                    if ppC and s.powerBorderStyle == "divider" then
+                        if ppC._bottom then ppC._bottom:SetAlpha(0) end
+                        if ppC._left then ppC._left:SetAlpha(0) end
+                        if ppC._right then ppC._right:SetAlpha(0) end
+                    end
                 end
             end
         end
@@ -1700,7 +1707,14 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
             bdr:SetFrameLevel(pvFrame:GetFrameLevel() + 8)
             PP.CreateBorder(bdr, 0, 0, 0, 1, 1)
             local bc = s.borderColor or { r=0, g=0, b=0 }
-            PP.UpdateBorder(bdr, bsz, bc.r, bc.g, bc.b, s.borderAlpha or 1)
+            if matchPowerBorder or matchTopNameDivider then
+                EllesmereUI.ApplyBorderStyle(bdr, bsz, bc.r, bc.g, bc.b, s.borderAlpha or 1,
+                    s.borderTexture, s.borderTextureOffset, s.borderTextureOffsetY,
+                    s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bsz, nil,
+                    EllesmereUI.BorderPx(s.borderSizePx, bsz, s.borderTexture))
+            else
+                PP.UpdateBorder(bdr, bsz, bc.r, bc.g, bc.b, s.borderAlpha or 1)
+            end
         end
     end
 
@@ -1801,6 +1815,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         else
             tnbText:SetTextColor(1, 1, 1)
         end
+        if s.topNameBarDivider == true then ns.RF_ApplyTopNameDivider(tnb, s, true) end
     end
 
     local htMode = s.healthTextMode or "none"
@@ -2979,7 +2994,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     -- Scrollbar: thin track + thumb at the viewport's right edge (shown only on overflow).
     local UpdateThumb = EllesmereUI.AttachSmoothScrollbar(settingsScroll, {
         step = 60, width = 5, rightInset = 31, topInset = 12, level = 20,
-        trackAlpha = 0.05, thumbAlpha = 0.22, child = settingsChild })
+        trackAlpha = 0.05, thumbAlpha = 0.22, child = settingsChild, panelWheel = true })
 
     -- From here, DualRows build inside the scroll child
     leftFrame = settingsChild

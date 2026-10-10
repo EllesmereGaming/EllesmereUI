@@ -567,8 +567,8 @@ do
             end
         end
         pcall(function()
-            childBar:ClearAllPoints()
-            childBar:SetPoint("CENTER", UIParent, "CENTER", bCenterX, bCenterY)
+            EllesmereUI.ClearFramePoints(childBar)
+            EllesmereUI.SetFramePoint(childBar, "CENTER", UIParent, "CENTER", bCenterX, bCenterY)
         end)
         -- Children anchored to THIS element must follow it to the override spot.
         UM._pendingAnchorKeys[childKey] = "all"
@@ -1056,6 +1056,9 @@ UM.ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fro
     -- chained to its group anchor): never reposition it, or its relative SetPoint to the anchor gets clobbered, in or out of combat.
     local cElem = registeredElements[childKey]
     if cElem and cElem.isAnchored and cElem.isAnchored(childKey) then return end
+    -- The module alone places this frame from its saved spot (ownsPosition: main
+    -- chat): a link would be a third owner beside it and Blizzard's Edit Mode.
+    if cElem and cElem.ownsPosition then return end
     -- Override anchor (opt-in, Resource Bars): while a spec-override group's
     -- stored position is engaged it owns this element outright -- it wins over
     -- the anchor link exactly like it wins over the saved position.
@@ -1644,8 +1647,8 @@ UM.ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fro
             end
             if not skip then
                 pcall(function()
-                    childBar:ClearAllPoints()
-                    childBar:SetPoint(cdmEdgeAnchor, UIParent, "CENTER", bEdgeX, bEdgeY)
+                    EllesmereUI.ClearFramePoints(childBar)
+                    EllesmereUI.SetFramePoint(childBar, cdmEdgeAnchor, UIParent, "CENTER", bEdgeX, bEdgeY)
                 end)
                 UM._pendingAnchorKeys[childKey] = "all"
                 ScheduleAnchorBatch()
@@ -1692,8 +1695,8 @@ UM.ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fro
             end
             if not skip then
                 pcall(function()
-                    childBar:ClearAllPoints()
-                    childBar:SetPoint("TOP", follow, "BOTTOM", fx, fy)
+                    EllesmereUI.ClearFramePoints(childBar)
+                    EllesmereUI.SetFramePoint(childBar, "TOP", follow, "BOTTOM", fx, fy)
                 end)
                 UM._pendingAnchorKeys[childKey] = "all"
                 ScheduleAnchorBatch()
@@ -1735,8 +1738,8 @@ UM.ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fro
             end
             if not skip then
                 pcall(function()
-                    childBar:ClearAllPoints()
-                    childBar:SetPoint("CENTER", UIParent, "CENTER", bCenterX, bCenterY)
+                    EllesmereUI.ClearFramePoints(childBar)
+                    EllesmereUI.SetFramePoint(childBar, "CENTER", UIParent, "CENTER", bCenterX, bCenterY)
                 end)
                 UM._pendingAnchorKeys[childKey] = "all"
                 ScheduleAnchorBatch()
@@ -2079,7 +2082,8 @@ EllesmereUI.ReapplyAllUnlockAnchorsForced = function()
             end
             if childBar and (targetBar or info.fallback ~= nil)
                and not (inCombat and childBar:IsProtected())
-               and not (rcElem and rcElem.isAnchored and rcElem.isAnchored(childKey)) then
+               and not (rcElem and rcElem.isAnchored and rcElem.isAnchored(childKey))
+               and not (rcElem and rcElem.ownsPosition) then
                 -- AB growth bars: skip entirely -- applyPos from barPositions is
                 -- authoritative (edge format, width-independent, per LayoutBar).
                 local isABGrow = false
@@ -2367,14 +2371,14 @@ UM.ApplyCenterPosition = function(barKey, pos)
             -- Keyed by frame so repeated calls overwrite instead of stacking
             EllesmereUI._UnlockCombatQueue.Defer(frame, function()
                 pcall(function()
-                    frame:ClearAllPoints()
-                    frame:SetPoint(anchor, UIParent, "CENTER", adjX, adjY)
+                    EllesmereUI.ClearFramePoints(frame)
+                    EllesmereUI.SetFramePoint(frame, anchor, UIParent, "CENTER", adjX, adjY)
                 end)
             end)
             return
         end
-        frame:ClearAllPoints()
-        frame:SetPoint(anchor, UIParent, "CENTER", adjX, adjY)
+        EllesmereUI.ClearFramePoints(frame)
+        EllesmereUI.SetFramePoint(frame, anchor, UIParent, "CENTER", adjX, adjY)
     end)
     return true
 end
@@ -2511,8 +2515,8 @@ local function MigrateAndApplyPosition(barKey, pos, frame)
             py = PPa.SnapForES(py, es)
         end
         pcall(function()
-            frame:ClearAllPoints()
-            frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, px, py)
+            EllesmereUI.ClearFramePoints(frame)
+            EllesmereUI.SetFramePoint(frame, pos.point, UIParent, pos.relPoint or pos.point, px, py)
         end)
     end
     return true
@@ -2573,8 +2577,9 @@ local function ApplySavedPositions()
                and EllesmereUI._TryOverrideAnchor(key, UM.GetBarFrame(key)) then
                 -- Override anchor owns this element's position while its
                 -- spec-override group is active (Resource Bars opt-in).
-            elseif not addonAnchored and not unlockAnchored then
-                -- Override position with centralized grow-direction logic
+            elseif not addonAnchored and not unlockAnchored and not elem.ownsPosition then
+                -- Override position with centralized grow-direction logic (an
+                -- element that places itself already did, in applyPosition)
                 local pos = elem.loadPosition and elem.loadPosition(key)
                 if pos then
                     local frame = UM.GetBarFrame(key)
@@ -2736,9 +2741,9 @@ local function InstallAnchorGuard(bar, barKey)
                 -- Use centralized apply for grow-direction-aware positioning
                 if not UM.ApplyCenterPosition(barKey, db[barKey]) then
                     pcall(function()
-                        self:ClearAllPoints()
-                        self:SetPoint(db[barKey].point, UIParent, db[barKey].relPoint,
-                                      db[barKey].x, db[barKey].y)
+                        EllesmereUI.ClearFramePoints(self)
+                        EllesmereUI.SetFramePoint(self, db[barKey].point, UIParent, db[barKey].relPoint,
+                                                  db[barKey].x, db[barKey].y)
                     end)
                 end
             end)

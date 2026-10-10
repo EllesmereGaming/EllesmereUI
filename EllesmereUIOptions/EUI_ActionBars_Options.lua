@@ -189,7 +189,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             local bg = editOverlayFrame:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
-            bg:SetColorTexture(0.075, 0.113, 0.141, 0.85)
+            bg:SetColorTexture(0.103, 0.095, 0.088, 0.85)
             editOverlayFrame._bg = bg
 
             if EllesmereUI and EllesmereUI.MakeBorder then
@@ -746,8 +746,44 @@ initFrame:SetScript("OnEvent", function(self)
                     if not IsBarEnabled(key) then return EllesmereUI.DisabledTooltip("this action bar") end
                 end
             )
-            PP.Point(ddBtn, "TOP", hdr, "TOP", 0, fy)
+            -- The Quick Keybind Mode key button sits KB_GAP left of the
+            -- dropdown, and the two are centred as one block.
+            local KB_GAP = 5
+            PP.Point(ddBtn, "TOP", hdr, "TOP", (DD_H + KB_GAP) / 2, fy)
             ddBtn:SetHeight(DD_H)
+
+            -- Quick Keybind Mode: a square key button in the dropdown's style.
+            do
+                local kbBtn = CreateFrame("Button", nil, hdr)
+                PP.Size(kbBtn, DD_H, DD_H)
+                PP.Point(kbBtn, "RIGHT", ddBtn, "LEFT", -KB_GAP, 0)
+                kbBtn:SetFrameLevel(hdr:GetFrameLevel() + 5)
+                EllesmereUI.MakeStyledButton(kbBtn, "", 13, EllesmereUI.RD_DD_COLOURS, function()
+                    if InCombatLockdown() then return end
+                    if not C_AddOns.IsAddOnLoaded("Blizzard_QuickKeybind") then
+                        C_AddOns.LoadAddOn("Blizzard_QuickKeybind")
+                    end
+                    if QuickKeybindFrame then
+                        EllesmereUI.HideWidgetTooltip()
+                        EllesmereUI:Toggle()
+                        QuickKeybindFrame:Show()
+                    end
+                end)
+                local kbIcon = kbBtn:CreateTexture(nil, "ARTWORK")
+                kbIcon:SetSize(24, 24)
+                kbIcon:SetPoint("CENTER")
+                if kbIcon.SetSnapToPixelGrid then kbIcon:SetSnapToPixelGrid(false); kbIcon:SetTexelSnappingBias(0) end
+                kbIcon:SetTexture(EllesmereUI.MEDIA_PATH .. "icons\\eui-keyboard.png")
+                kbIcon:SetAlpha(EllesmereUI.DD_TXT_A)
+                kbBtn:HookScript("OnEnter", function(self)
+                    kbIcon:SetAlpha(EllesmereUI.DD_TXT_HA)
+                    EllesmereUI.ShowWidgetTooltip(self, "Quick Keybind Mode (/kb)")
+                end)
+                kbBtn:HookScript("OnLeave", function()
+                    kbIcon:SetAlpha(EllesmereUI.DD_TXT_A)
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+            end
             fy = fy - DD_H - PV_PAD
 
             local previewH = ns.ABO_BuildLivePreview(hdr, fy)
@@ -782,64 +818,6 @@ initFrame:SetScript("OnEvent", function(self)
             return barsHeaderBaseH + hintH
         end
         EllesmereUI:SetContentHeader(_barsHeaderBuilder)
-
-        -------------------------------------------------------------------
-        --  Top action buttons: Quick Keybind + Blizzard/EUI Style toggle
-        -------------------------------------------------------------------
-        do
-            local BTN_W = 312
-            local BTN_H = 38
-            local GAP = 40
-            local ROW_H = BTN_H + 20
-            local rowFrame = CreateFrame("Frame", nil, parent)
-            local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
-            PP.Size(rowFrame, totalW, ROW_H)
-            PP.Point(rowFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
-
-            local qkbBtn = CreateFrame("Button", nil, rowFrame)
-            PP.Size(qkbBtn, BTN_W, BTN_H)
-            PP.Point(qkbBtn, "RIGHT", rowFrame, "CENTER", -(GAP / 2), 0)
-            qkbBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 1)
-            EllesmereUI.MakeStyledButton(qkbBtn, "Quick Keybind Mode (/kb)", 14,
-                EllesmereUI.WB_COLOURS, function()
-                    if InCombatLockdown() then return end
-                    if not C_AddOns.IsAddOnLoaded("Blizzard_QuickKeybind") then
-                        C_AddOns.LoadAddOn("Blizzard_QuickKeybind")
-                    end
-                    if QuickKeybindFrame then
-                        EllesmereUI:Toggle()
-                        QuickKeybindFrame:Show()
-                    end
-                end)
-
-            -- A stock style on (Blizzard, Classic or WoW Forever) offers the
-            -- way back to the EUI look; off, the way to Blizzard Style. Classic
-            -- WoW UI and WoW Forever are the Style page's; the write is the
-            -- Style page's own switch, so leaving WoW Forever here brings the
-            -- queue eye's spot back as a Style row does.
-            local isStock = EllesmereUI.BlizzStyle.Get("actionbars")
-            local styleBtn = CreateFrame("Button", nil, rowFrame)
-            PP.Size(styleBtn, BTN_W, BTN_H)
-            PP.Point(styleBtn, "LEFT", rowFrame, "CENTER", GAP / 2, 0)
-            styleBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 1)
-            local _, _, styleLbl = EllesmereUI.MakeStyledButton(styleBtn,
-                isStock and "EUI Style Action Bars" or "Blizzard Style Action Bars", 14,
-                EllesmereUI.WB_COLOURS, function()
-                    local toBlizz = not EllesmereUI.BlizzStyle.Get("actionbars")
-                    EllesmereUI:ShowConfirmPopup({
-                        title       = "Reload Required",
-                        message     = "Changing icon style requires a UI reload to apply.",
-                        confirmText = "Reload Now",
-                        cancelText  = "Cancel",
-                        reload      = true,
-                        onConfirm   = function()
-                            EllesmereUI.BlizzStyle.Switch("actionbars", toBlizz and "blizzard" or "eui")
-                        end,
-                    })
-                end)
-
-            y = y - ROW_H
-        end
 
         -------------------------------------------------------------------
         --  Build shared settings (single mode)

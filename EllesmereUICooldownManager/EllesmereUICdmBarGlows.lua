@@ -7,7 +7,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
--- Glow functions from main file (available after main file loads)
+-- Glow functions from EUI_CDM_Glows.lua (available after it loads)
 local StartNativeGlow = function(...) if ns.StartNativeGlow then return ns.StartNativeGlow(...) end end
 local StopNativeGlow  = function(...) if ns.StopNativeGlow then return ns.StopNativeGlow(...) end end
 
@@ -322,7 +322,7 @@ local function SetupOverlays()
     end
 
     -- Whether the buff-tick's aura pool-walk should bother reading applications
-    -- at all (EllesmereUICdmHooks.lua): the set of spellIDs stack-gated
+    -- at all (EUI_CDM_HookViewers.lua): the set of spellIDs stack-gated
     -- entries name, nil when there are none. Only frames resolving to one of
     -- these ids pay the applications read; no gated entry = no reads at all.
     local stackSids

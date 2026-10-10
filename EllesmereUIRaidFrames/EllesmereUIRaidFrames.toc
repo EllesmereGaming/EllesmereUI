@@ -4,13 +4,30 @@
 ## Group: EllesmereUI
 ## Notes: Incredibly light performance, modern raid frames with endless flexibility.
 ## Author: Ellesmere
-## Version: 9.3.5
+## Version: 9.4
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIRaidFramesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Luas
 EllesmereUIRaidFrames.lua
+EUI_RaidFrames_Colors.lua
+EUI_RaidFrames_Absorb.lua
+EUI_RaidFrames_Style.lua
+EUI_RaidFrames_Update.lua
+EUI_RaidFrames_BossFrames.lua
+EUI_RaidFrames_ExtraFrames.lua
+EUI_RaidFrames_PetFrames.lua
+EUI_RaidFrames_Sort.lua
+EUI_RaidFrames_Layout.lua
+EUI_RaidFrames_Reload.lua
+EUI_RaidFrames_Visibility.lua
+EUI_RaidFrames_Events.lua
+EUI_RaidFrames_Party.lua
+EUI_RaidFrames_PartyTargets.lua
+EUI_RaidFrames_PartyLayout.lua
+EUI_RaidFrames_Extras.lua
+EUI_RaidFrames_Lifecycle.lua
 
 # Options preview (fake raid/party members while the options panel is open)
 EUI_RaidFrames_Preview.lua

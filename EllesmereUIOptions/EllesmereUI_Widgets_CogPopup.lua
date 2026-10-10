@@ -184,7 +184,7 @@ local function BuildCogPopup(opts)
             EllesmereUI._popupFrames[#EllesmereUI._popupFrames + 1] = { popup = pf }
         end
 
-        local bg = SolidTex(pf, "BACKGROUND", 0.06, 0.08, 0.10, opts.bgAlpha or 0.95)
+        local bg = SolidTex(pf, "BACKGROUND", 0.077, 0.068, 0.058, opts.bgAlpha or 0.95)
         bg:SetAllPoints()
         MakeBorder(pf, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15, PP)
 
@@ -194,6 +194,27 @@ local function BuildCogPopup(opts)
         titleFS:SetText(EllesmereUI.L(opts.title or ""))
 
         local curY = -(TOP_PAD + TITLE_H + TITLE_GAP)
+        -- A dropdown-height row's disabled overlay (row.disabled set): dims the row,
+        -- blocks it and explains the lock; the refresh shows it while disabled.
+        local function RowDisabledOverlay(row, y)
+            if not row.disabled then return nil end
+            local dis = CreateFrame("Frame", nil, pf)
+            dis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, y)
+            dis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, y)
+            dis:SetHeight(DROPDOWN_ROW_H)
+            dis:SetFrameLevel(pf:GetFrameLevel() + 10)
+            dis:EnableMouse(true)
+            local disTex = SolidTex(dis, "OVERLAY", 0.077, 0.068, 0.058, 0.70)
+            disTex:SetAllPoints()
+            dis:SetScript("OnEnter", function(self)
+                local tip = ResolveDisabledTip(row)
+                if tip and EllesmereUI.ShowWidgetTooltip then
+                    EllesmereUI.ShowWidgetTooltip(self, tip)
+                end
+            end)
+            dis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            return dis
+        end
         for i, row in ipairs(rows) do
             if i > 1 then curY = curY - GAP end
 
@@ -231,7 +252,7 @@ local function BuildCogPopup(opts)
                     sliderDis:SetHeight(ROW_H)
                     sliderDis:SetFrameLevel(pf:GetFrameLevel() + 10)
                     sliderDis:EnableMouse(true)
-                    local disTex = SolidTex(sliderDis, "OVERLAY", 0.06, 0.08, 0.10, 0.70)
+                    local disTex = SolidTex(sliderDis, "OVERLAY", 0.077, 0.068, 0.058, 0.70)
                     disTex:SetAllPoints()
                     sliderDis:SetScript("OnEnter", function(self)
                         local tip = ResolveDisabledTip(row)
@@ -284,7 +305,7 @@ local function BuildCogPopup(opts)
                     toggleDis:SetHeight(TOGGLE_ROW_H)
                     toggleDis:SetFrameLevel(pf:GetFrameLevel() + 10)
                     toggleDis:EnableMouse(true)
-                    local disTex = SolidTex(toggleDis, "OVERLAY", 0.06, 0.08, 0.10, 0.70)
+                    local disTex = SolidTex(toggleDis, "OVERLAY", 0.077, 0.068, 0.058, 0.70)
                     disTex:SetAllPoints()
                     toggleDis:SetScript("OnEnter", function(self)
                         local tip = ResolveDisabledTip(row)
@@ -327,24 +348,7 @@ local function BuildCogPopup(opts)
                 end)
 
                 -- Disabled overlay, mirroring slider/input handling
-                local ddDis
-                if row.disabled then
-                    ddDis = CreateFrame("Frame", nil, pf)
-                    ddDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
-                    ddDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
-                    ddDis:SetHeight(DROPDOWN_ROW_H)
-                    ddDis:SetFrameLevel(pf:GetFrameLevel() + 10)
-                    ddDis:EnableMouse(true)
-                    local disTex = SolidTex(ddDis, "OVERLAY", 0.06, 0.08, 0.10, 0.70)
-                    disTex:SetAllPoints()
-                    ddDis:SetScript("OnEnter", function(self)
-                        local tip = ResolveDisabledTip(row)
-                        if tip and EllesmereUI.ShowWidgetTooltip then
-                            EllesmereUI.ShowWidgetTooltip(self, tip)
-                        end
-                    end)
-                    ddDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                end
+                local ddDis = RowDisabledOverlay(row, curY)
 
                 rowWidgets[#rowWidgets + 1] = { type = 'dropdown', btn = ddBtn, lbl = ddLbl, get = row.get, values = row.values, refresh = ddBtn._ddRefresh, disOverlay = ddDis, disCheck = row.disabled }
                 curY = curY - DROPDOWN_ROW_H
@@ -378,8 +382,9 @@ local function BuildCogPopup(opts)
                         self._ddMenu:SetFrameLevel(pf:GetFrameLevel() + 30)
                     end
                 end)
+                local rcDis = RowDisabledOverlay(row, curY)
 
-                rowWidgets[#rowWidgets + 1] = { type = 'reordercheck', btn = ddBtn, refresh = refresh }
+                rowWidgets[#rowWidgets + 1] = { type = 'reordercheck', btn = ddBtn, refresh = refresh, disOverlay = rcDis, disCheck = row.disabled }
                 curY = curY - DROPDOWN_ROW_H
             elseif row.type == 'segmented' then
                 local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
@@ -410,7 +415,7 @@ local function BuildCogPopup(opts)
                     segDis:SetHeight(TOGGLE_ROW_H)
                     segDis:SetFrameLevel(pf:GetFrameLevel() + 10)
                     segDis:EnableMouse(true)
-                    local disTex = SolidTex(segDis, "OVERLAY", 0.06, 0.08, 0.10, 0.70)
+                    local disTex = SolidTex(segDis, "OVERLAY", 0.077, 0.068, 0.058, 0.70)
                     disTex:SetAllPoints()
                     segDis:SetScript("OnEnter", function(self)
                         local tip = ResolveDisabledTip(row)
@@ -550,7 +555,7 @@ local function BuildCogPopup(opts)
                     mswDis:SetHeight(ROW_H)
                     mswDis:SetFrameLevel(pf:GetFrameLevel() + 10)
                     mswDis:EnableMouse(true)
-                    local disTex = SolidTex(mswDis, "OVERLAY", 0.06, 0.08, 0.10, 0.70)
+                    local disTex = SolidTex(mswDis, "OVERLAY", 0.077, 0.068, 0.058, 0.70)
                     disTex:SetAllPoints()
                     mswDis:SetScript("OnEnter", function(self)
                         local tip = ResolveDisabledTip(row)
@@ -666,7 +671,7 @@ local function BuildCogPopup(opts)
                     inputDis:SetHeight(ROW_H)
                     inputDis:SetFrameLevel(pf:GetFrameLevel() + 10)
                     inputDis:EnableMouse(true)
-                    local disTex = SolidTex(inputDis, "OVERLAY", 0.06, 0.08, 0.10, 0.70)
+                    local disTex = SolidTex(inputDis, "OVERLAY", 0.077, 0.068, 0.058, 0.70)
                     disTex:SetAllPoints()
                     inputDis:SetScript("OnEnter", function(self)
                         local tip = ResolveDisabledTip(row)
@@ -977,7 +982,7 @@ local function BuildCogPopup(opts)
                     reorderDis:SetHeight(DROPDOWN_ROW_H)
                     reorderDis:SetFrameLevel(pf:GetFrameLevel() + 12)
                     reorderDis:EnableMouse(true)
-                    local disTex = SolidTex(reorderDis, "OVERLAY", 0.06, 0.08, 0.10, 0.70)
+                    local disTex = SolidTex(reorderDis, "OVERLAY", 0.077, 0.068, 0.058, 0.70)
                     disTex:SetAllPoints()
                     reorderDis:SetScript("OnEnter", function(self)
                         local tip = ResolveDisabledTip(row)
@@ -1113,6 +1118,12 @@ local function BuildCogPopup(opts)
                         end
                     end
                 elseif rw.type == 'reordercheck' then
+                    if rw.disOverlay then
+                        local dis = rw.disCheck
+                        if type(dis) == "function" then dis = dis() end
+                        rw.disOverlay:SetShown(dis and true or false)
+                        if dis and rw.btn._ddMenu then rw.btn._ddMenu:Hide() end
+                    end
                     if rw.refresh then rw.refresh() end
                 end
             end

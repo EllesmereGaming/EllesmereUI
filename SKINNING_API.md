@@ -143,7 +143,7 @@ login; no OnUpdate handlers, no events, no per-frame work. Re-calls on
 already-skinned frames bail after one lookup.
 
 **Can users turn it off?** Yes -- per addon, in EllesmereUI options under
-Blizz UI Enhanced > Blizzard Window Skins > Third-Party Addons. Your callback
+Blizzard Skins+ > Window Skins > Third-Party Addons. Your callback
 simply doesn't run.
 
 **What if two addons register the same name?** First registration wins; use

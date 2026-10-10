@@ -389,7 +389,7 @@ local function BuildNPStyle(kind, variant)
         blizzBorder = harmfulClassic,
         cooldownReverse = true,
         noDefaultFonts = true,
-        noTooltips = true,
+        noTooltips = PVal("showAuraTooltips") ~= true,
         applyExtra = ApplyNPText,
         durSize = dur.size,
         durColor = dur.color,
@@ -1423,8 +1423,8 @@ function ns.NPC_UpdateLockout(plate)
             local kit = AK or EllesmereUI.AuraKit
             local swipe = px == 0 and not ns.NP_Classic() and kit and kit.BLIZZ_ROUND_SWIPE
             if swipe and f.cd.SetSwipeTexture then f.cd:SetSwipeTexture(swipe) end
-            local PP = EllesmereUI.PP
-            if PP and PP.CreateBorder then PP.CreateBorder(f, 0, 0, 0, 1, 1) end
+            -- scaleGuard: a plate child, as every Basic nameplate border
+            EllesmereUI.PP.CreateBorder(f, 0, 0, 0, 1, 1, nil, nil, true)
             NPLockoutBorder(f)
             plate.npcLockout = f
         end
@@ -1679,7 +1679,8 @@ local function StyleFPFor(kind, idx)
         -- NOT `fn(kind) or true`: the getter legitimately returns false, and
         -- `false or true` would pin this fingerprint input to a constant so
         -- the toggle never restyles (the ternary-falsy trap).
-        (not ns.GetIconBorderEnabled) or ns.GetIconBorderEnabled(kind), cbFP)
+        (not ns.GetIconBorderEnabled) or ns.GetIconBorderEnabled(kind), cbFP,
+        PVal("showAuraTooltips") == true)
 end
 
 local function GeoFP()

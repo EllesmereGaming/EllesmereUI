@@ -1,10 +1,10 @@
 ## Interface: 120000, 120001, 120005, 120007, 120100, 16001
-## Title: |cff0cd29fEllesmereUI|r Blizz UI Enhanced
+## Title: |cff0cd29fEllesmereUI|r Blizzard Skins+
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: Clean and beautiful visual refreshes for Blizzard UI elements.
 ## Author: Ellesmere
-## Version: 9.3.5
+## Version: 9.4
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIBlizzardSkinDB, EllesmereUIDragonRidingDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -17,6 +17,9 @@ EllesmereUIBlizzardSkin_SocketPanel.lua
 EllesmereUIBlizzardSkin_InspectSheet.lua
 EllesmereUIBlizzardSkin_DragonRiding.lua
 EllesmereUIBlizzardSkin_GreatVault.lua
+# Chat bubbles: Blizzard's own bubbles stay on, we blank their chrome and draw a styled
+# frame on the frame that carries their position.
+EllesmereUIBlizzardSkin_ChatBubbles.lua
 
 # Window Skins (shared engine + per-window packs)
 EllesmereUIBlizzardSkin_WindowEngine.lua

@@ -1717,9 +1717,39 @@ local function FormatBarValue(amt, perSec, numFmt)
     return AbbrevNumber(amt)
 end
 
-local function StripRealm(name)
+-- A combatant's name without its realm. On WoW Forever the Name Format
+-- (dm.nameFormat, the Left Text cog) then keeps a PLAYER's first or last name:
+-- src is the meter row the name belongs to (a player has a class, no creature
+-- id and is no Threat list pet; the Pull Aggro line has no class), attacker an
+-- Enemy Damage Taken attacker (AggregateEnemyPlayers: a class, neither pet nor
+-- mob); with neither, the name is only stripped. Your own row (isLocalPlayer
+-- is never secret) always takes your name from your unit, so it reads the same
+-- in and out of combat; any other secret name (combat) cannot be split and
+-- shows whole. ForeverShortName is nil off Forever, so src and attacker are
+-- never read there.
+local ForeverShortName = EUI.ForeverShortName
+local function StripRealm(name, src, attacker)
     if not name then return "Unknown" end
-    if Ambiguate then return Ambiguate(name, "short") or name end
+    if Ambiguate then name = Ambiguate(name, "short") or name end
+    if not (ForeverShortName and (src or attacker)) then return name end
+    local player
+    if not src then
+        local cls = attacker.class
+        player = cls ~= nil and cls ~= "" and not attacker.isPet and not attacker.isMob
+    else
+        local own = src.isLocalPlayer
+        if own ~= nil and not issecretvalue(own) and own == true then
+            local mode = DB().nameFormat
+            if not mode then return name end
+            return ForeverShortName(EUI.WithSurname(UnitName("player")), mode) or name
+        end
+        if issecretvalue(name) then return name end
+        local cls = src.classFilename
+        player = cls ~= nil and cls ~= "" and src.sourceCreatureID == nil and not src.threatPet
+    end
+    if not player then return name end
+    local mode = DB().nameFormat
+    if mode then return ForeverShortName(name, mode) end
     return name
 end
 
@@ -2010,6 +2040,12 @@ local function AggregateEnemyPlayers(srcData, duration)
                 local p = byName[name]
                 if not p then
                     p = { name = name, class = det.unitClassFilename, specIcon = det.specIconID, total = 0 }
+                    -- WoW Forever: the Name Format leaves a pet's or a mob's name
+                    -- whole (StripRealm); a flag that cannot be read counts as set.
+                    if ForeverShortName then
+                        local pet, mob = det.isPet, det.isMob
+                        p.isPet, p.isMob = issecretvalue(pet) or pet, issecretvalue(mob) or mob
+                    end
                     byName[name] = p
                     list[#list + 1] = p
                 end
@@ -2323,7 +2359,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
         -- Reverse to oldest-first
         local reversed = {}
         for ri = #raw, 1, -1 do reversed[#reversed + 1] = raw[ri] end
-        ApplyTTHeader(StripRealm(bar._src.name), EllesmereUI.L("Death Recap"))
+        ApplyTTHeader(StripRealm(bar._src.name, bar._src), EllesmereUI.L("Death Recap"))
         local texPath, texKey = GetBreakdownBarTexturePath()
         local deathTime = reversed[#reversed] and reversed[#reversed].timestamp
         if IsSecret(deathTime) then deathTime = nil end
@@ -2414,7 +2450,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
         local players = AggregateEnemyPlayers(srcData, GetBreakdownDuration(curSession, curSessionID))
         if not players then return false end
 
-        ApplyTTHeader(StripRealm(bar._src.name) or "Unknown", L("Damage Taken"))
+        ApplyTTHeader(StripRealm(bar._src.name, bar._src) or "Unknown", L("Damage Taken"))
         local texPath, texKey = GetBreakdownBarTexturePath()
         local maxAmt = players[1].total
         local ttMax = TT_MAX()
@@ -2447,7 +2483,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                 if cc then b.fill:SetStatusBarColor(cc.r, cc.g, cc.b)
                 else b.fill:SetStatusBarColor(0x33/255, 0x33/255, 0x33/255) end
                 b.label:SetTextColor(1, 1, 1); b.amount:SetTextColor(1, 1, 1)
-                b.label:SetText(StripRealm(p.name))
+                b.label:SetText(StripRealm(p.name, nil, p))
                 b.amount:SetText(FormatBarValue(p.total, p.amountPerSecond, numFmt))
                 b.row:Show()
             else b.row:Hide() end
@@ -2480,7 +2516,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     end
     if not srcData or not srcData.combatSpells or #srcData.combatSpells == 0 then return false end
 
-    ApplyTTHeader(StripRealm(bar._src.name), L(DM_TYPE_NAMES[curDMType] or "Damage Done"))
+    ApplyTTHeader(StripRealm(bar._src.name, bar._src), L(DM_TYPE_NAMES[curDMType] or "Damage Done"))
 
     wipe(_ttSorted)
     for _, spell in ipairs(srcData.combatSpells) do
@@ -3150,7 +3186,7 @@ local function CreateDMWindow(winIdx)
                 end
                 if not hasRecap then
                     EnsureTooltipFrame()
-                    local playerName = StripRealm(bar._src.name)
+                    local playerName = StripRealm(bar._src.name, bar._src)
                     _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's Death Recap", playerName))
                     local cfg2 = DB()
                     local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
@@ -3180,7 +3216,7 @@ local function CreateDMWindow(winIdx)
                and not ns._ResolveGroupGUID(bar._src) then
                 EnsureTooltipFrame()
                 -- Show header with player name + type
-                local playerName = StripRealm(bar._src and bar._src.name)
+                local playerName = StripRealm(bar._src and bar._src.name, bar._src)
                 local typeName = L(DM_TYPE_NAMES[W.curDMType] or "Damage Done")
                 _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's %2$s Breakdown", playerName, typeName))
                 local cfg2 = DB()
@@ -4299,11 +4335,11 @@ local function CreateDMWindow(winIdx)
         -- Name: only when source name changes (guard secret values)
         local srcName = src.name
         if issecretvalue and issecretvalue(srcName) then
-            bar.label:SetText(StripRealm(srcName))
+            bar.label:SetText(StripRealm(srcName, src))
             W._stickyNameCache = nil
         elseif srcName ~= W._stickyNameCache then
             W._stickyNameCache = srcName
-            bar.label:SetText(StripRealm(srcName))
+            bar.label:SetText(StripRealm(srcName, src))
         end
         if isDeaths then
             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
@@ -4505,11 +4541,11 @@ local function CreateDMWindow(winIdx)
                         -- Name
                         local srcName = src.name
                         if isSecret and issecretvalue(srcName) then
-                            bar.label:SetText(StripRealm(srcName))
+                            bar.label:SetText(StripRealm(srcName, src))
                             bar._cachedSrcName = nil
                         elseif srcName ~= bar._cachedSrcName then
                             bar._cachedSrcName = srcName
-                            bar._cachedDisplayName = StripRealm(srcName)
+                            bar._cachedDisplayName = StripRealm(srcName, src)
                             bar.label:SetText(bar._cachedDisplayName)
                         end
 
@@ -4824,7 +4860,7 @@ local function CreateDMWindow(winIdx)
                     else local ar2, ag2, ab2 = GetAccentRGB(); bar.fill:SetStatusBarColor(ar2, ag2, ab2) end
                     SetDMFont(bar.label, leftFS); SetDMFont(bar.amount, rightFS)
                     bar.label:SetTextColor(1, 1, 1); bar.amount:SetTextColor(1, 1, 1)
-                    bar.label:SetText(StripRealm(p.name))
+                    bar.label:SetText(StripRealm(p.name, nil, p))
                     bar.amount:SetText(FormatBarValue(p.total, p.amountPerSecond, c.numberFormat or 2)); bar._spellID = nil
                 else bar.row:Hide(); bar._spellID = nil end
             end
@@ -5447,6 +5483,23 @@ ns.RefreshColors = function()
 end
 -- Exposed on the shared table so the parent addon's ApplyColorsToOUF can repaint damage meters when global custom class colors change
 EllesmereUI._DM_RefreshColors = ns.RefreshColors
+
+-- WoW Forever: a Name Format change (the Left Text cog, Forever Essentials).
+-- The row and pinned-row name memos are keyed on the raw name, so they are
+-- dropped before the repaint; the breakdown rows and hover headers are rebuilt
+-- on every refresh and show. A hidden window catches up when it shows.
+if ForeverShortName then
+    ns.RefreshNames = function()
+        for _, w in ipairs(_windows) do
+            local pool = w.rowPool
+            if pool then
+                for i = 1, #pool do pool[i]._cachedSrcName = nil end
+            end
+            w._stickyNameCache = nil
+            w.Refresh()
+        end
+    end
+end
 
 ns.ApplyBorder = function()
     for _, w in ipairs(_windows) do

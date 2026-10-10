@@ -34,6 +34,8 @@ local OUTLINES = { __global = "EUI Global Default", none = "Drop Shadow", outlin
 local OUTLINE_ORDER = { "__global", "none", "outline", "thick" }
 local PCT_POSITIONS = { RIGHT = "Inside Right", LEFT = "Inside Left", CENTER = "Inside Center" }
 local PCT_POSITION_ORDER = { "RIGHT", "LEFT", "CENTER" }
+local PCT_MODES = { percent = "Threat %", gap = "Threat Gap" }
+local PCT_MODE_ORDER = { "percent", "gap" }
 
 _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
@@ -166,18 +168,22 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
     local function Swatch(region, sc)
         EllesmereUI.BuildInlineSwatches(region, { sc })
     end
-    local function OffsetCog(region, title, keyX, keyY, disabled, disabledTooltip, rawTooltip)
+    -- head (optional): a row above the offsets; the cog then takes the
+    -- settings icon, as it holds more than a position.
+    local function OffsetCog(region, title, keyX, keyY, disabled, disabledTooltip, rawTooltip, head)
+        local rows = {
+            { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
+              get = function() return GetStyle(keyX[1], keyX[2]) end,
+              set = function(v) ns.SetStyleValue(keyX[1], keyX[2], v) end },
+            { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
+              get = function() return GetStyle(keyY[1], keyY[2]) end,
+              set = function(v) ns.SetStyleValue(keyY[1], keyY[2], v) end },
+        }
+        if head then table.insert(rows, 1, head) end
         EllesmereUI.BuildInlineCog(region, {
-            title = title, icon = EllesmereUI.DIRECTIONS_ICON,
+            title = title, icon = not head and EllesmereUI.DIRECTIONS_ICON or nil,
             disabled = disabled, disabledTooltip = disabledTooltip, rawTooltip = rawTooltip,
-            rows = {
-                { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
-                  get = function() return GetStyle(keyX[1], keyX[2]) end,
-                  set = function(v) ns.SetStyleValue(keyX[1], keyX[2], v) end },
-                { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
-                  get = function() return GetStyle(keyY[1], keyY[2]) end,
-                  set = function(v) ns.SetStyleValue(keyY[1], keyY[2], v) end },
-            },
+            rows = rows,
         })
     end
 
@@ -272,8 +278,9 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
         -- Toggle | Position, the Threat % cog on the dropdown. blocked (optional)
         -- greys the row with blockedTip; a toggle left on stays clickable so it
         -- can still be turned off. positions / positionOrder (optional) replace
-        -- the three inside spots.
-        local function PctRow(text, tooltip, profile, apply, blocked, blockedTip, positions, positionOrder)
+        -- the three inside spots. withGap (the nameplates) moves Color by Threat
+        -- out of the cog into a Text Shows | Color by Threat row below.
+        local function PctRow(text, tooltip, profile, apply, blocked, blockedTip, positions, positionOrder, withGap)
             local function PGet(key) return profile()[key] end
             local function PSet(key, v)
                 profile()[key] = v
@@ -297,7 +304,8 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                   getValue = function() return PGet("threatPctEnabled") end,
                   setValue = function(v)
                       PSet("threatPctEnabled", v)
-                      EllesmereUI:RefreshPage()
+                      -- The withGap row is built while the text is on.
+                      EllesmereUI:RefreshPage(withGap)
                   end },
                 { type = "dropdown", text = "Position",
                   values = positions or PCT_POSITIONS, order = positionOrder or PCT_POSITION_ORDER,
@@ -306,18 +314,56 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                   setValue = function(v) PSet("threatPctPosition", v) end }
             );  y = y - h
             if not EllesmereUI._prebuilding then
+                local rows = {
+                    Offset("threatPctSize", "Size", 6, 20),
+                    Offset("threatPctXOffset", "X Offset", -100, 100),
+                    Offset("threatPctYOffset", "Y Offset", -100, 100),
+                }
+                if not withGap then
+                    table.insert(rows, 1, { type = "toggle", label = "Color by Threat",
+                        tooltip = "Colors the number by threat status. Off shows it in white.",
+                        get = function() return PGet("threatPctColorByThreat") end,
+                        set = function(v) PSet("threatPctColorByThreat", v) end })
+                end
                 EllesmereUI.BuildInlineCog(row._rightRegion, {
                     title = "Threat %", disabled = pctOff, disabledTooltip = pctOffTip,
-                    rows = {
-                        { type = "toggle", label = "Color by Threat",
-                          tooltip = "Colors the number by threat status. Off shows it in white.",
-                          get = function() return PGet("threatPctColorByThreat") end,
-                          set = function(v) PSet("threatPctColorByThreat", v) end },
-                        Offset("threatPctSize", "Size", 6, 20),
-                        Offset("threatPctXOffset", "X Offset", -100, 100),
-                        Offset("threatPctYOffset", "Y Offset", -100, 100),
-                    },
+                    rows = rows,
                 })
+            end
+            -- What the text shows and how it is coloured. The Threat Gap colours
+            -- sit on Color by Threat while the gap is picked.
+            if withGap and PGet("threatPctEnabled") then
+                local function Gap() return PGet("threatPctMode") == "gap" end
+                local function ColorOff() return not PGet("threatPctColorByThreat") end
+                local modeRow
+                modeRow, h = W:DualRow(parent, y,
+                    { type = "dropdown", text = "Text Shows", values = PCT_MODES, order = PCT_MODE_ORDER,
+                      tooltip = "Threat Gap shows on your target's plate only.",
+                      getValue = function() return PGet("threatPctMode") or "percent" end,
+                      setValue = EllesmereUI.DependentSetValue(Gap, function(v) PSet("threatPctMode", v) end) },
+                    { type = "toggle", text = "Color by Threat",
+                      tooltip = "Colors the number. Off shows it in white.",
+                      getValue = function() return PGet("threatPctColorByThreat") end,
+                      setValue = function(v)
+                          PSet("threatPctColorByThreat", v)
+                          EllesmereUI:RefreshPage()
+                      end }
+                );  y = y - h
+                if Gap() and not EllesmereUI._prebuilding then
+                    local function GapSwatch(key, label)
+                        return { tooltip = label, disabled = ColorOff, disabledTooltip = "Color by Threat",
+                            getValue = function()
+                                local c = PGet(key)
+                                if c then return c.r, c.g, c.b end
+                                return 1, 1, 1
+                            end,
+                            setValue = function(r, g, b) PSet(key, { r = r, g = g, b = b }) end }
+                    end
+                    EllesmereUI.BuildInlineSwatches(modeRow._rightRegion, {
+                        GapSwatch("threatGapAheadColor", "Ahead Color"),
+                        GapSwatch("threatGapBehindColor", "Behind Color"),
+                    })
+                end
             end
             return row, pctOff, pctOffTip
         end
@@ -326,7 +372,8 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
             PctRow("Show on Nameplates",
                 "Shows your threat percentage on each enemy nameplate while you are in combat with it.",
                 function() return np.db.profile end,
-                function() np.RefreshThreatPct() end)
+                function() np.RefreshThreatPct() end,
+                nil, nil, nil, nil, true)
         end
         if hasUF then
             -- The unit frames add the outside spots (the Unit Frames page's list).
@@ -549,8 +596,12 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
     if not EllesmereUI._prebuilding then
         Swatch(nameRow._leftRegion, AlternativeTo(StyleSwatch("colors", "leftTextColor", "Name Color"),
             "colors", "leftTextUseClassColor"))
-        OffsetCog(nameRow._leftRegion, "Name Position", { "bars", "leftTextOffsetX" }, { "bars", "leftTextOffsetY" },
-            off, "Threat Meter")
+        -- Name Text: the Name Format (a player's first or last name; First and
+        -- Last is the unset default) above the name's offsets.
+        OffsetCog(nameRow._leftRegion, "Name Text", { "bars", "leftTextOffsetX" }, { "bars", "leftTextOffsetY" },
+            off, "Threat Meter", nil,
+            EllesmereUI.NameFormatCogRow(function() return Get("nameFormat") end,
+                function(v) Set("nameFormat", v) end))
         local valueSwatch = AlternativeTo(StyleSwatch("colors", "rightTextColor", "Value Color"),
             "colors", "rightTextUseClassColor")
         valueSwatch.disabled, valueSwatch.disabledTooltip, valueSwatch.rawTooltip = valueOff, valueTip, valueRaw

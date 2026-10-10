@@ -463,16 +463,19 @@ end
 -- The enchant name through the retail sheet's reader, which takes the
 -- engine-tagged permanent enchant tooltip line. A vanilla line is the effect
 -- itself ("+7 Agility"): the plus the reader trims goes back on, and an
--- "Enchanted: " prefix, where the client adds one, comes off.
+-- "Enchanted: " prefix, where the client adds one, comes off. The inspect
+-- sheet names its enchants through the same function.
 local ENCHANT_PREFIX = ENCHANTED_TOOLTIP_LINE and ENCHANTED_TOOLTIP_LINE:match("^(.-)%%s")
-local function EnchantName(slotID)
-    local text = EllesmereUI.GetEnchantText(slotID)
+function ns.ForeverEnchantName(text)
     if text == "" then return text end
     if ENCHANT_PREFIX and ENCHANT_PREFIX ~= "" and text:sub(1, #ENCHANT_PREFIX) == ENCHANT_PREFIX then
         text = text:sub(#ENCHANT_PREFIX + 1)
     end
     if text:find("^%d") then text = "+" .. text end
     return text
+end
+local function EnchantName(slotID)
+    return ns.ForeverEnchantName(EllesmereUI.GetEnchantText(slotID))
 end
 
 local textVer = 1               -- bumped by every options refresh
@@ -693,10 +696,10 @@ local function PaintSlotText(slot)
         d.hasStats, d.hasDps = statText ~= "", dpsText ~= ""
     end
 
-    -- Vanilla enchants carry no icon, so the name always shows; Show Enchant
-    -- Names gives it retail's name look (outlined, tinted from the item's
-    -- colour). Capped at 45% of the gap between the columns, as on retail,
-    -- less Blizz Default's extra inset on each side (so the two
+    -- Vanilla enchants carry no icon, so the name always shows; Enchants set
+    -- to Colored Text gives it retail's name look (outlined, tinted from the
+    -- item's colour). Capped at 45% of the gap between the columns, as on
+    -- retail, less Blizz Default's extra inset on each side (so the two
     -- columns' enchants keep a gap in the middle).
     local name = DB("showEnchants") ~= false and EnchantName(slotID) or ""
     ench:SetText(name)
@@ -1010,7 +1013,6 @@ local function SkinFrame()
     if title and WSkin.Font then WSkin.Font(title, 1, 1, 1) end
     local level = _G.CharacterLevelText
     if level and WSkin.Font then WSkin.Font(level) end
-    if _G.CharacterLevelTextBackground then _G.CharacterLevelTextBackground:SetAlpha(0) end
 
     -- Pane backdrops, the stone header, the divider strip, the stats box
     -- chrome (inside frame, scroll line, class crest) and the model backdrop.
@@ -1027,6 +1029,7 @@ local function SkinFrame()
     Fade(_G.CharacterStatsPaneScrollBox)
     Fade(_G.CharacterStatsPanePetScrollBox)
     Fade(_G.PaperDollFrame)
+    Fade(_G.PaperDollFrame.TopBackgroundStripHost)
     Fade(_G.CharacterModelScene)
     local shell = WSkin.GetFFD and WSkin.GetFFD(frame)
     local topBar = shell and shell.topBar

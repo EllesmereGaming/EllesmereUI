@@ -728,7 +728,9 @@ local function UpdateObjectives()
                     obj.elapsed = elapsed
                     -- Persist for reload survival
                     if db and db.profile then
-                        if not db.profile._activeRunSplits then db.profile._activeRunSplits = {} end
+                        if not db.profile._activeRunSplits then
+                            db.profile._activeRunSplits = { mapID = currentRun.mapID, level = currentRun.level }
+                        end
                         db.profile._activeRunSplits[i] = elapsed
                     end
                 end
@@ -967,6 +969,18 @@ local function StartRun()
     currentRun.mapID         = mapID
     currentRun.mapName       = mapName or "Unknown"
     currentRun.level         = level or 0
+    local splits = db and db.profile and db.profile._activeRunSplits
+    if splits then
+        local stale = splits.mapID ~= currentRun.mapID or splits.level ~= currentRun.level
+        -- A reload mid-key resumes past every saved split; a fresh key starts near 0.
+        local _, now = GetWorldElapsedTime(1)
+        if not stale and type(now) == "number" and not (issecretvalue and issecretvalue(now)) and now > 0 then
+            for k, t in pairs(splits) do
+                if type(k) == "number" and t > now then stale = true; break end
+            end
+        end
+        if stale then db.profile._activeRunSplits = nil end
+    end
     currentRun.maxTime       = timeLimit or 0
     currentRun.elapsed       = 0
     currentRun.deaths        = 0

@@ -120,7 +120,7 @@ local function ShowSpecOverridesPopup()
             (i - 1.5) * (CARD_W + CARD_GAP), MIDLINE)
         local cbg = card:CreateTexture(nil, "BACKGROUND")
         cbg:SetAllPoints()
-        cbg:SetColorTexture(0.12, 0.13, 0.15, 1)
+        cbg:SetColorTexture(0.121, 0.113, 0.106, 1)
 
         -- Icon row, centered: class glyphs (spec card) or conditional icons.
         local ICON = 24

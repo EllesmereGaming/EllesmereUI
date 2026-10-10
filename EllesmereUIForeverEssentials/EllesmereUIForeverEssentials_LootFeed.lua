@@ -14,6 +14,7 @@ local GAP = 2
 local FADE_IN = 0.35
 local FADE_OUT = 0.8
 local SLIDE = 24 -- px a new row glides in from the left
+local CALLOUT_GAP = 6 -- Icon Tray: space between the name row and the tiles
 local MONEY_ICON = "Interface\\Icons\\INV_Misc_Coin_02"
 local REP_ICON = "Interface\\Icons\\INV_Misc_Note_02"
 local SKILL_ICON = "Interface\\Icons\\INV_Misc_Book_08"
@@ -23,8 +24,11 @@ local DEFAULTS = {
     enabled = false,
     items = true, money = true, reputation = true, currency = true, skills = true,
     minQuality = 0, showIlvl = true, showPrice = true,
+    -- BOX: bordered rows, BAR: accent bar on a fading background, TRAY: icon
+    -- tiles with a name row, TOAST: framed plates.
+    style = "BAR",
     width = 300, rowHeight = 36, maxRows = 6, duration = 5, grow = "UP",
-    textSize = 13,
+    textSize = 13, barWidth = 3,
     bgR = 0.05, bgG = 0.05, bgB = 0.05, bgA = 0.3,
     borderSize = 1, borderR = 0, borderG = 0, borderB = 0, qualityBorder = true,
 }
@@ -35,6 +39,9 @@ local Get, Cfg, Enabled = F.Get, F.Cfg, F.Enabled
 local anchor, events
 local active = {} -- shown rows, newest first
 local pool = {}
+-- A row set: the frame its rows are laid out in, its rows (newest first) and
+-- the Icon Tray name row. The live feed and the options preview are one each.
+local feed = { rows = active }
 
 -- v when it is a readable value of type kind (never a secret one).
 local function Plain(v, kind)
@@ -85,31 +92,233 @@ local function StyleFont(fs, size)
     EllesmereUI.ApplyModuleFont(fs, nil, size, "essentials")
 end
 
-local function AnchorHeight()
-    return Get("maxRows") * (Get("rowHeight") + GAP) - GAP
+-- Toast plates draw a frame 1 px outside the row, so they need more space.
+local function Gap()
+    return Get("style") == "TOAST" and GAP + 2 or GAP
+end
+
+-- Icon Tray: tiles per line and lines needed for n tiles.
+local function TrayGrid(n)
+    local step = Get("rowHeight") + GAP
+    local cols = math.max(1, math.floor((Get("width") + GAP) / step))
+    return cols, math.ceil(n / cols)
+end
+
+-- Height of a set with n rows, Max Rows when n is nil.
+local function AnchorHeight(n)
+    local h = Get("rowHeight")
+    n = n or Get("maxRows")
+    if Get("style") == "TRAY" then
+        local _, lines = TrayGrid(n)
+        return h + CALLOUT_GAP + lines * (h + GAP) - GAP
+    end
+    local gap = Gap()
+    return n * (h + gap) - gap
+end
+
+local function Accent()
+    local c = EllesmereUI.ELLESMERE_GREEN
+    if c then return c.r, c.g, c.b end
+    return 0.05, 0.82, 0.62
+end
+
+-- Gradient end colours, refilled for each paint (SetGradient copies them).
+local gradFrom, gradTo = CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0)
+
+-- Solid, or a two-colour fade to transparent (BAR).
+local function PaintBackground(tex, fade)
+    local r, g, b, a = Get("bgR"), Get("bgG"), Get("bgB"), Get("bgA")
+    tex:SetColorTexture(1, 1, 1, 1)
+    gradFrom:SetRGBA(r, g, b, a)
+    gradTo:SetRGBA(r, g, b, fade and 0 or a)
+    tex:SetGradient("HORIZONTAL", gradFrom, gradTo)
+end
+
+-- Item rows take their quality colour when quality colouring is on;
+-- everything else the accent (BAR, the Icon Tray name row) or the border colour.
+local function RowColor(d, accent)
+    if d.border and Get("qualityBorder") then return d.border.r, d.border.g, d.border.b end
+    if accent then return Accent() end
+    return Get("borderR"), Get("borderG"), Get("borderB")
+end
+
+local TOAST_GOLD = { 0.69, 0.54, 0.23 }
+local TOAST_EDGE = { 0.35, 0.27, 0.14 } -- icon frame of rows without a quality
+local TOAST_TOP = { 0.19, 0.14, 0.09 }
+local TOAST_BOTTOM = { 0.055, 0.04, 0.024 }
+
+-- TOAST: a black 1 px frame around the gold one, with a gold stud at each
+-- end. Made the first time a row is drawn as a toast.
+local function ToastChrome(r)
+    if r.outer then return r.outer end
+    local o = CreateFrame("Frame", nil, r)
+    o:SetPoint("TOPLEFT", -1, 1)
+    o:SetPoint("BOTTOMRIGHT", 1, -1)
+    EllesmereUI.PP.CreateBorder(o, 0, 0, 0, 1, 1, "OVERLAY", 1)
+    for _, side in ipairs({ "LEFT", "RIGHT" }) do
+        local edge = o:CreateTexture(nil, "OVERLAY", nil, 3)
+        edge:SetColorTexture(0, 0, 0, 1)
+        edge:SetSize(8, 8)
+        edge:SetRotation(math.rad(45))
+        edge:SetPoint("CENTER", o, side)
+        local stud = o:CreateTexture(nil, "OVERLAY", nil, 4)
+        stud:SetColorTexture(0.85, 0.70, 0.34, 1)
+        stud:SetSize(6, 6)
+        stud:SetRotation(math.rad(45))
+        stud:SetPoint("CENTER", edge)
+    end
+    r.outer = o
+    return o
 end
 
 local function StyleRow(r)
-    local h, size = Get("rowHeight"), Get("textSize")
-    r:SetSize(Get("width"), h)
-    r.icon:SetSize(h, h)
-    r.bg:SetColorTexture(Get("bgR"), Get("bgG"), Get("bgB"), Get("bgA"))
+    local h, size, style = Get("rowHeight"), Get("textSize"), Get("style")
+    local tray, bar, toast = style == "TRAY", style == "BAR", style == "TOAST"
+    r:SetSize(tray and h or Get("width"), h)
+    r.icon:ClearAllPoints()
+    if bar then
+        local bw = Get("barWidth")
+        r.bar:SetWidth(math.max(bw, 1))
+        r.bar:SetShown(bw > 0)
+        r.icon:SetSize(h - 8, h - 8)
+        r.icon:SetPoint("LEFT", bw > 0 and bw + 5 or 4, 0)
+    elseif toast then
+        r.bar:Hide()
+        r.icon:SetSize(h - 10, h - 10)
+        r.icon:SetPoint("LEFT", 6, 0)
+    else
+        r.bar:Hide()
+        r.icon:SetSize(h, h)
+        r.icon:SetPoint("LEFT")
+    end
+    -- Icon frame: 1 px black (BAR) or 2 px quality colour (TOAST, set by Fill).
+    local edge = toast and 2 or 1
+    r.iconBg:ClearAllPoints()
+    r.iconBg:SetPoint("TOPLEFT", r.icon, "TOPLEFT", -edge, edge)
+    r.iconBg:SetPoint("BOTTOMRIGHT", r.icon, "BOTTOMRIGHT", edge, -edge)
+    if bar then r.iconBg:SetColorTexture(0, 0, 0, 1) end
+    r.iconBg:SetShown(bar or toast)
+    if toast then
+        ToastChrome(r):SetShown(Get("borderSize") > 0)
+        local a = Get("bgA")
+        r.bg:SetColorTexture(1, 1, 1, 1)
+        gradFrom:SetRGBA(TOAST_BOTTOM[1], TOAST_BOTTOM[2], TOAST_BOTTOM[3], a)
+        gradTo:SetRGBA(TOAST_TOP[1], TOAST_TOP[2], TOAST_TOP[3], a)
+        r.bg:SetGradient("VERTICAL", gradFrom, gradTo)
+    else
+        if r.outer then r.outer:Hide() end
+        if not tray then PaintBackground(r.bg, bar) end
+    end
+    r.bg:SetShown(not tray)
+    r.name:SetShown(not tray)
+    r.value:SetShown(not tray)
+    r.badge:SetShown(tray)
+    -- Second line: game gold on toasts, a quiet grey on bars.
+    if toast then
+        r.sub:SetTextColor(1, 0.82, 0)
+    elseif bar then
+        r.sub:SetTextColor(0.7, 0.7, 0.7)
+    else
+        r.sub:SetTextColor(1, 1, 1)
+    end
     StyleFont(r.name, size)
     StyleFont(r.value, size)
     StyleFont(r.sub, size - 2)
+    StyleFont(r.badge, size - 1)
     r.fade.alpha:SetStartDelay(Get("duration"))
 end
 
-local function Layout()
+local function Text(r)
+    local fs = r:CreateFontString(nil, "OVERLAY")
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    return fs
+end
+
+-- Icon Tray: the newest gain's name row above the tiles (on top with grow
+-- Down). It is a child of that gain's tile, so it fades with it.
+local function ShowCallout(set)
+    local c = set.callout
+    if not c then
+        c = CreateFrame("Frame", nil, set.frame)
+        c.bg = c:CreateTexture(nil, "BACKGROUND")
+        c.bg:SetAllPoints()
+        c.bar = c:CreateTexture(nil, "ARTWORK")
+        c.bar:SetPoint("TOPRIGHT")
+        c.bar:SetPoint("BOTTOMRIGHT")
+        c.name, c.sub, c.value = Text(c), Text(c), Text(c)
+        c.value:SetJustifyH("RIGHT")
+        set.callout = c
+    end
+    local r = set.rows[1]
+    local d = r.data
+    local h, bw, size = Get("rowHeight"), Get("barWidth"), Get("textSize")
+    c:SetParent(r)
+    c:SetSize(Get("width"), h)
+    c:ClearAllPoints()
+    if Get("grow") == "UP" then
+        local _, lines = TrayGrid(#set.rows)
+        c:SetPoint("BOTTOMRIGHT", set.frame, "BOTTOMRIGHT", 0, lines * (h + GAP) - GAP + CALLOUT_GAP)
+    else
+        c:SetPoint("TOPRIGHT", set.frame, "TOPRIGHT", 0, 0)
+    end
+    PaintBackground(c.bg, false)
+    c.bar:SetWidth(math.max(bw, 1))
+    c.bar:SetShown(bw > 0)
+    c.bar:SetColorTexture(RowColor(d, true))
+    StyleFont(c.name, size)
+    StyleFont(c.value, size)
+    StyleFont(c.sub, size - 2)
+    c.name:SetText(d.text)
+    c.value:SetText(d.value or "")
+    c.sub:SetText(d.sub or "")
+    c.sub:SetShown(d.sub ~= nil)
+    c.name:ClearAllPoints()
+    c.sub:ClearAllPoints()
+    c.value:ClearAllPoints()
+    local right = -(bw + 8)
+    if d.sub then
+        -- Name across the top, progress and value below it.
+        c.name:SetPoint("BOTTOMLEFT", c, "LEFT", 8, 1)
+        c.name:SetPoint("RIGHT", c, "RIGHT", right, 0)
+        c.value:SetPoint("TOPRIGHT", c, "RIGHT", right, -1)
+        c.sub:SetPoint("TOPLEFT", c, "LEFT", 8, -1)
+        c.sub:SetPoint("RIGHT", c.value, "LEFT", -8, 0)
+    else
+        c.value:SetPoint("RIGHT", c, "RIGHT", right, 0)
+        c.name:SetPoint("LEFT", c, "LEFT", 8, 0)
+        c.name:SetPoint("RIGHT", c.value, "LEFT", -8, 0)
+    end
+    c:Show()
+end
+
+local function Layout(set)
+    set = set or feed
+    local frame = set.frame
     local up = Get("grow") == "UP"
-    local step = Get("rowHeight") + GAP
-    for i, r in ipairs(active) do
+    local tray = Get("style") == "TRAY"
+    local step = Get("rowHeight") + (tray and GAP or Gap())
+    local cols = TrayGrid(1)
+    local below = Get("rowHeight") + CALLOUT_GAP -- grow Down: tiles start under the name row
+    for i, r in ipairs(set.rows) do
         r:ClearAllPoints()
-        if up then
-            r:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", 0, (i - 1) * step)
+        if tray then
+            local col, line = (i - 1) % cols, math.floor((i - 1) / cols)
+            if up then
+                r:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -col * step, line * step)
+            else
+                r:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -col * step, -(below + line * step))
+            end
+        elseif up then
+            r:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, (i - 1) * step)
         else
-            r:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -(i - 1) * step)
+            r:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -(i - 1) * step)
         end
+    end
+    if tray and set.rows[1] then
+        ShowCallout(set)
+    elseif set.callout then
+        set.callout:Hide()
     end
 end
 
@@ -131,41 +340,47 @@ end
 
 -- Starts the wait-then-fade-out, unless the row is still fading in (its
 -- end starts it) or hovered (leaving starts it).
+-- Preview rows never fade.
 local function ArmFade(r)
-    if r.show:IsPlaying() then return end
+    if r.preview or r.show:IsPlaying() then return end
     r.fade:Stop()
     r:SetAlpha(1)
     if not r:IsMouseOver() then r.fade:Play() end
 end
 
--- Hover shows the item tooltip and holds the fade.
+-- Hover shows the item tooltip and holds the fade. Icon Tray tiles show no
+-- text, so for them the tooltip carries it.
 local function RowEnter(r)
     if not r.show:IsPlaying() then
         r.fade:Stop()
         r:SetAlpha(1)
     end
-    local link = r.data and r.data.link
-    if link then
+    local d = r.data
+    if not d then return end
+    if d.link then
         GameTooltip:SetOwner(r, "ANCHOR_LEFT")
-        GameTooltip:SetHyperlink(link)
+        GameTooltip:SetHyperlink(d.link)
         GameTooltip:Show()
+    elseif Get("style") == "TRAY" then
+        local text = d.text
+        if d.sub then text = text .. "\n" .. EllesmereUI.COLOR_CODES.DIM .. d.sub .. "|r" end
+        if d.value then text = text .. "\n" .. d.value end
+        r.tip = true
+        EllesmereUI.ShowWidgetTooltip(r, text, { anchor = "left" })
     end
 end
 
 local function RowLeave(r)
     if GameTooltip:IsOwned(r) then GameTooltip:Hide() end
+    if r.tip then
+        r.tip = nil
+        EllesmereUI.HideWidgetTooltip()
+    end
     ArmFade(r)
 end
 
 local function ShowDone(g) ArmFade(g:GetParent()) end
 local function FadeDone(g) Release(g:GetParent()) end
-
-local function Text(r)
-    local fs = r:CreateFontString(nil, "OVERLAY")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    return fs
-end
 
 -- One animation of group g: step order, seconds, easing.
 local function Anim(g, kind, order, secs, smoothing)
@@ -176,13 +391,18 @@ local function Anim(g, kind, order, secs, smoothing)
     return a
 end
 
-local function NewRow()
-    local r = CreateFrame("Frame", nil, anchor)
+local function NewRow(parent)
+    local r = CreateFrame("Frame", nil, parent or anchor)
     r.bg = r:CreateTexture(nil, "BACKGROUND")
     r.bg:SetAllPoints()
-    r.icon = r:CreateTexture(nil, "ARTWORK")
-    r.icon:SetPoint("LEFT")
+    r.bar = r:CreateTexture(nil, "ARTWORK")
+    r.bar:SetPoint("TOPLEFT")
+    r.bar:SetPoint("BOTTOMLEFT")
+    r.icon = r:CreateTexture(nil, "ARTWORK", nil, 1)
     r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the icon frame
+    r.iconBg = r:CreateTexture(nil, "ARTWORK")
+    r.badge = r:CreateFontString(nil, "OVERLAY")
+    r.badge:SetPoint("BOTTOMRIGHT", -2, 2)
     r.name, r.sub, r.value = Text(r), Text(r), Text(r)
     r.value:SetJustifyH("RIGHT")
     r.value:SetPoint("RIGHT", -6, 0)
@@ -211,25 +431,47 @@ local function NewRow()
 end
 
 -- Fills a row from its data: icon, text (first line), sub (second line,
--- optional), value (right side, optional), border (quality colour, optional).
+-- optional), value (right side, optional), badge (Icon Tray tile text),
+-- border (quality colour, optional). Box rows keep their one-line form
+-- (flat) and show no quest line.
 local function Fill(r)
-    local d, PP = r.data, EllesmereUI.PP
+    local d, PP, style = r.data, EllesmereUI.PP, Get("style")
+    local text, sub, value = d.text, d.sub or d.questSub, d.value
+    if style == "BOX" then
+        sub = not d.flat and d.sub or nil
+        if d.flat then text, value = d.flat, nil end
+    elseif style == "TRAY" then
+        sub = nil
+    end
     r.icon:SetTexture(d.icon)
-    r.name:SetText(d.text)
-    r.sub:SetText(d.sub or "")
-    r.sub:SetShown(d.sub ~= nil)
-    r.value:SetText(d.value or "")
+    r.name:SetText(text)
+    r.sub:SetText(sub or "")
+    r.sub:SetShown(sub ~= nil)
+    r.value:SetText(value or "")
+    r.badge:SetText(d.badge or "")
     r.name:ClearAllPoints()
     r.name:SetPoint("RIGHT", r.value, "LEFT", -8, 0)
-    if d.sub then
+    if sub then
         r.name:SetPoint("BOTTOMLEFT", r.icon, "RIGHT", 6, 1)
     else
         r.name:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
     end
+    if style == "BAR" then r.bar:SetColorTexture(RowColor(d, true)) end
+    if style == "TOAST" then
+        if d.border and Get("qualityBorder") then
+            r.iconBg:SetColorTexture(d.border.r, d.border.g, d.border.b, 1)
+        else
+            r.iconBg:SetColorTexture(TOAST_EDGE[1], TOAST_EDGE[2], TOAST_EDGE[3], 1)
+        end
+    end
     local size = Get("borderSize")
-    if size > 0 then
-        local br, bg, bb = Get("borderR"), Get("borderG"), Get("borderB")
-        if d.border and Get("qualityBorder") then br, bg, bb = d.border.r, d.border.g, d.border.b end
+    if size > 0 and style ~= "BAR" then
+        local br, bg, bb
+        if style == "TOAST" then
+            br, bg, bb = TOAST_GOLD[1], TOAST_GOLD[2], TOAST_GOLD[3]
+        else
+            br, bg, bb = RowColor(d, false)
+        end
         PP.UpdateBorder(r, size, br, bg, bb, 1)
         PP.ShowBorder(r)
     else
@@ -243,8 +485,13 @@ local function FindRow(key)
     end
 end
 
+-- While the options preview collects its samples, the Show functions add
+-- their rows to this list (newest first) instead of the feed.
+local collect
+
 -- amount plus what the row showing key already adds up to.
 local function Total(key, amount)
+    if collect then return amount end
     local r = FindRow(key)
     return amount + (r and r.data.amount or 0)
 end
@@ -276,11 +523,25 @@ local function Push(key, data)
     end
 end
 
+local function Emit(key, data)
+    if collect then
+        collect[#collect + 1] = data
+    else
+        Push(key, data)
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Sources
 -------------------------------------------------------------------------------
 local function Money(copper)
     return C_CurrencyInfo.GetCoinTextureString(copper, Get("textSize"))
+end
+
+-- The largest coin only, for an Icon Tray badge.
+local function ShortMoney(copper)
+    local unit = copper >= 10000 and 10000 or copper >= 100 and 100 or 1
+    return Money(copper - copper % unit)
 end
 
 local function ShowItem(link, count, retried)
@@ -299,18 +560,22 @@ local function ShowItem(link, count, retried)
     local color = ITEM_QUALITY_COLORS[quality or 1] or ITEM_QUALITY_COLORS[1]
     local text = color.hex .. name .. "|r"
     if count > 1 then text = count .. "x " .. text end
-    local sub
+    local sub, questSub
     if Get("showIlvl") and (classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor) then
         local ilvl = C_Item.GetDetailedItemLevelInfo(link) or itemLevel
         if ilvl and ilvl > 0 then sub = EllesmereUI.Lf("ilvl: %d", ilvl) end
+    elseif classID == Enum.ItemClass.Questitem and ITEM_BIND_QUEST then
+        questSub = "|cffffd100" .. ITEM_BIND_QUEST .. "|r"
     end
     local value = Get("showPrice") and sellPrice and sellPrice > 0 and Money(sellPrice * count) or nil
-    Push(key, { icon = icon, text = text, sub = sub, value = value, border = color, link = link, amount = count })
+    Emit(key, { icon = icon, text = text, sub = sub, questSub = questSub, value = value, border = color, link = link,
+        amount = count, badge = count > 1 and count or nil })
 end
 
 local function ShowMoney(copper)
     copper = Total("money", copper)
-    Push("money", { icon = MONEY_ICON, text = EllesmereUI.L("Money"), value = Money(copper), amount = copper })
+    Emit("money", { icon = MONEY_ICON, text = EllesmereUI.L("Money"), value = Money(copper), amount = copper,
+        badge = ShortMoney(copper) })
 end
 
 -- A faction's or skill line's data by name. ids keeps the id a scan of the
@@ -332,14 +597,18 @@ end
 local function ShowReputation(faction, delta)
     local key = "rep:" .. faction
     delta = Total(key, delta)
-    local text = (delta >= 0 and "|cff00ff00+" or "|cffff4040") .. delta .. "|r " .. faction
+    local change = (delta >= 0 and "|cff00ff00+" or "|cffff4040") .. delta .. "|r"
+    local flat = change .. " " .. faction
     local d = Lookup(factionIDs, faction, C_Reputation.GetFactionDataByID, C_Reputation.GetNumFactions,
         C_Reputation.GetFactionDataByIndex, "factionID")
+    local progress
     if d then
-        text = text .. string.format(" (%s / %s)", BreakUpLargeNumbers(d.currentStanding - d.currentReactionThreshold),
+        progress = string.format("%s / %s", BreakUpLargeNumbers(d.currentStanding - d.currentReactionThreshold),
             BreakUpLargeNumbers(d.nextReactionThreshold - d.currentReactionThreshold))
+        flat = flat .. " (" .. progress .. ")"
     end
-    Push(key, { icon = REP_ICON, text = text, amount = delta })
+    Emit(key, { icon = REP_ICON, text = faction, sub = progress, value = change, flat = flat, badge = change,
+        amount = delta })
 end
 
 -- With the total held, red at the cap.
@@ -353,14 +622,17 @@ local function ShowCurrency(id, change)
         total = total .. " / " .. BreakUpLargeNumbers(info.maxQuantity)
         if info.quantity >= info.maxQuantity then total = "|cffff4040" .. total .. "|r" end
     end
-    Push(key, { icon = info.iconFileID, text = change .. "x " .. info.name .. " (" .. total .. ")", amount = change })
+    local text = change .. "x " .. info.name
+    Emit(key, { icon = info.iconFileID, text = text, sub = total, flat = text .. " (" .. total .. ")", badge = change,
+        amount = change })
 end
 
 local function ShowSkill(skill, rank)
     local d = Lookup(skillIDs, skill, C_SkillInfo.GetSkillLineInfoByID, C_SkillInfo.GetNumSkillLines,
         C_SkillInfo.GetSkillLineInfo, "skillID")
     local max = d and d.maxRank > 0 and (" / " .. d.maxRank) or ""
-    Push("skill:" .. skill, { icon = SKILL_ICON, text = skill .. " " .. EllesmereUI.COLOR_CODES.WHITE .. rank .. max .. "|r" })
+    Emit("skill:" .. skill, { icon = SKILL_ICON, text = skill, value = rank .. max, badge = rank,
+        flat = skill .. " " .. EllesmereUI.COLOR_CODES.WHITE .. rank .. max .. "|r" })
 end
 
 -- Own loot only: the *_SELF lines, the multiple-item formats (link and count)
@@ -426,7 +698,10 @@ end
 -------------------------------------------------------------------------------
 --  Setup
 -------------------------------------------------------------------------------
+local RefreshPreview
+
 local function ApplyStyle()
+    RefreshPreview()
     if not anchor then return end
     anchor:SetSize(Get("width"), AnchorHeight())
     -- Pooled rows are styled when Push takes them.
@@ -442,6 +717,7 @@ local function CreateAnchor()
     if anchor then return end
     anchor = CreateFrame("Frame", nil, UIParent)
     anchor:SetFrameStrata("MEDIUM")
+    feed.frame = anchor
     ApplyStyle()
     F.Place(anchor)
 end
@@ -486,6 +762,116 @@ local function Preview()
     end
 end
 
+-------------------------------------------------------------------------------
+--  Options preview: the same rows with a sample of every enabled source,
+--  drawn in the options content header. Built when the Loot page first
+--  opens; it never fades and listens to no events.
+-------------------------------------------------------------------------------
+local preview -- row set plus its view and every row frame made so far
+
+local requested = {} -- preview items asked of the client, once each
+
+-- The Preview samples, newest first, as data. An item the client has not
+-- cached yet is asked for once a session and redraws the preview when its
+-- load ends; the client also calls back when the load fails, so asking again
+-- from the redraw would never stop.
+local function PreviewSamples()
+    local list, items = {}, Get("items")
+    collect = list
+    if items then
+        for i = 1, #PREVIEW_ITEMS, 2 do
+            local link = "item:" .. PREVIEW_ITEMS[i]
+            if C_Item.GetItemInfo(link) then ShowItem(link, PREVIEW_ITEMS[i + 1]) end
+        end
+    end
+    if Get("money") then ShowMoney(12345) end
+    if Get("reputation") then
+        local capital = C_Reputation.GetFactionDataByID(UnitFactionGroup("player") == "Horde" and 76 or 72)
+        if capital then ShowReputation(capital.name, 250) end
+    end
+    if Get("skills") then ShowSkill(EllesmereUI.L("Swords"), 42) end
+    collect = nil
+    -- Asked for once the samples are in: the callback can run right away.
+    if items then
+        for i = 1, #PREVIEW_ITEMS, 2 do
+            local id = PREVIEW_ITEMS[i]
+            if not requested[id] and not C_Item.GetItemInfo(id) then
+                requested[id] = true
+                Item:CreateFromItemID(id):ContinueOnItemLoad(function() RefreshPreview() end)
+            end
+        end
+    end
+    return list
+end
+
+-- force: draw while the header is still being built (not shown yet).
+RefreshPreview = function(force)
+    local v = preview
+    if not (v and (force or v.view:IsVisible())) then return end
+    local samples = PreviewSamples()
+    local n = math.min(#samples, Get("maxRows"))
+    for i = 1, n do
+        local r = v.all[i]
+        if not r then
+            r = NewRow(v.frame)
+            r.preview = true
+            v.all[i] = r
+        end
+        r.data = samples[i]
+        StyleRow(r)
+        Fill(r)
+        r:SetAlpha(1)
+        r:Show()
+        v.rows[i] = r
+    end
+    for i = n + 1, #v.all do
+        v.all[i]:Hide()
+        v.rows[i] = nil
+    end
+    local w = Get("width")
+    local h = n > 0 and AnchorHeight(n) or Get("rowHeight")
+    local pw = v.view:GetParent():GetWidth()
+    local available = (pw > 0 and pw) or v.availableWidth or w + 40
+    local scale = math.min(1, math.max(100, available - 40) / w)
+    v.frame:SetSize(w, h)
+    v.frame:SetScale(scale)
+    Layout(v)
+    v.previewHeight = h * scale + 30
+    v.view:SetHeight(v.previewHeight)
+    if v.onHeightChanged then v.onHeightChanged(v.previewHeight) end
+end
+
+local hookedParents = {}
+local function CreateSettingsPreview(parent, availableWidth, onHeightChanged)
+    local v = preview
+    if not v then
+        v = { rows = {}, all = {} }
+        v.view = CreateFrame("Frame", nil, parent)
+        v.frame = CreateFrame("Frame", nil, v.view)
+        v.frame:SetPoint("CENTER")
+        v.view:SetScript("OnShow", function() RefreshPreview() end)
+        preview = v
+    end
+    -- Frames outlive a page rebuild, so the view is reused.
+    v.availableWidth, v.onHeightChanged = availableWidth, onHeightChanged
+    v.view:SetParent(parent)
+    v.view:ClearAllPoints()
+    v.view:SetPoint("TOPLEFT")
+    v.view:SetPoint("TOPRIGHT")
+    if not hookedParents[parent] then
+        hookedParents[parent] = true
+        local lastWidth
+        parent:HookScript("OnSizeChanged", function(_, width)
+            if width == lastWidth then return end
+            lastWidth = width
+            if v.view:GetParent() == parent then RefreshPreview() end
+        end)
+    end
+    v.view:Show()
+    RefreshPreview(true)
+    return v
+end
+
 -- Options-page entry points.
 EllesmereUI._LootFeed = {
     Get = Get,
@@ -494,6 +880,8 @@ EllesmereUI._LootFeed = {
     ApplyStyle = ApplyStyle,
     ApplyPosition = function() F.Place(anchor) end,
     Preview = Preview,
+    CreateSettingsPreview = CreateSettingsPreview,
+    RefreshPreview = function() RefreshPreview() end,
 }
 
 F.Start(Apply, {

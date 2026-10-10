@@ -56,7 +56,7 @@ function ns.RF_OptMoveFramesButton(row, rgn, opts)
     btn:SetFrameLevel(row:GetFrameLevel() + 5)
     local bbg = btn:CreateTexture(nil, "BACKGROUND")
     bbg:SetAllPoints()
-    bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+    bbg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
     EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.25)
     local lbl = btn:CreateFontString(nil, "OVERLAY")
     EllesmereUI.ApplyModuleFont(lbl, nil, 13, "raidFrames")
@@ -378,7 +378,7 @@ function ns.RF_BuildPartyTargets(parent, y, W)
         ns._PT_Layout()
         Preview()
     end
-    local DARK_TIP = "Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors."
+    local DARK_TIP = "Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Colors."
 
     _, h = W:SectionHeader(parent, "PARTY TARGETS", y); y = y - h
 
@@ -845,8 +845,31 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local allGrowthOrder        = { "DOWN", "UP", "RIGHT", "LEFT" }
 
+    -- Group Growth additionally offers the grid flow: ns._RF_GRID_ROWS groups
+    -- stack down the first column (G1 above G2) before the next column starts to
+    -- the right (G3 above G4) -- a 2x2 raid block instead of one long run. Unit
+    -- Growth has no such mode: a header's children only ever run along one axis.
+    local groupGrowthValues = {
+        DOWN      = "Down",
+        UP        = "Up",
+        RIGHT     = "Right",
+        LEFT      = "Left",
+        DOWNRIGHT = "Down and then Right",
+    }
+    local groupGrowthOrder  = { "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT" }
+
+    -- Merge Groups renders through Blizzard's flat header, which has a single
+    -- column axis and cannot wrap into a grid, so the grid flow degrades to the
+    -- plain RIGHT run there (same self-heal as ns._RFEffectiveGrowth in the
+    -- runtime). Report what actually renders instead of showing a value the
+    -- merged grid ignores.
+    local function ReadGroupGrowth(v)
+        if v == "DOWNRIGHT" and SVal("mergeGroups", false) then return "RIGHT" end
+        return v
+    end
+
     -- ns._RFGrowthIsVertical is the runtime module's single source of truth for
-    -- this check (EllesmereUIRaidFrames.lua); reuse it here rather than a second copy.
+    -- this check (EUI_RaidFrames_Reload.lua); reuse it here rather than a second copy.
     local GrowthIsVertical = ns._RFGrowthIsVertical
 
     -- Merge Groups renders through Blizzard's flat SecureGroupHeader, whose column
@@ -1113,7 +1136,7 @@ initFrame:SetScript("OnEvent", function(self)
         panel:Hide()  -- shown once the overlay container is positioned
         panel:SetFrameLevel(testModeFrame:GetFrameLevel() + 5)
         local panelBg = panel:CreateTexture(nil, "BACKGROUND")
-        panelBg:SetAllPoints(); panelBg:SetColorTexture(15/255, 17/255, 22/255, 0.9)
+        panelBg:SetAllPoints(); panelBg:SetColorTexture(17/255, 15/255, 12/255, 0.9)
         EllesmereUI.MakeBorder(panel, 1, 1, 1, 0.1, PP)
 
         local function MakeFont(p, size, r, g, b, a)
@@ -1460,7 +1483,8 @@ initFrame:SetScript("OnEvent", function(self)
         AbbreviateNumbers = AbbreviateNumbers, absorbStyleOrder = absorbStyleOrder,
         absorbStyleValues = absorbStyleValues, allGrowthOrder = allGrowthOrder,
         BuildPreviewModeRow = BuildPreviewModeRow, BuildVisualSections = BuildVisualSections,
-        db = db, floor = floor, growthValues = growthValues, hbtOrder = hbtOrder,
+        db = db, floor = floor, growthValues = growthValues, groupGrowthOrder = groupGrowthOrder,
+        groupGrowthValues = groupGrowthValues, hbtOrder = hbtOrder,
         hbtValues = hbtValues, healAbsorbStyleOrder = healAbsorbStyleOrder,
         healthColorOrder = healthColorOrder, healthColorValues = healthColorValues,
         healthTextOrder = healthTextOrder, healthTextValues = healthTextValues,
@@ -1468,7 +1492,8 @@ initFrame:SetScript("OnEvent", function(self)
         maxHealthStyleOrder = maxHealthStyleOrder, MissingGlowDesc = MissingGlowDesc,
         namePositionOrder = namePositionOrder, namePositionOrderName = namePositionOrderName,
         namePositionValues = namePositionValues, namePositionValuesName = namePositionValuesName,
-        optState = optState, PP = PP, ReloadAndUpdate = ReloadAndUpdate, SGet = SGet,
+        optState = optState, PP = PP, ReadGroupGrowth = ReadGroupGrowth,
+        ReloadAndUpdate = ReloadAndUpdate, SGet = SGet,
         SGetPx = SGetPx, SSet = SSet, SVal = SVal, SWrite = SWrite,
     }
 
@@ -1514,6 +1539,13 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
+    local function WithStack(err) return tostring(err) .. "\n" .. debugstack(2) end
+    local function RestorePartyCtx(saved, ok, ...)
+        optState._partyCtx = saved
+        if not ok then error((...), 0) end
+        return ...
+    end
+
     EllesmereUI:RegisterModule("EllesmereUIRaidFrames", {
         title       = "Raid Frames",
         description = "Configure raid frame appearance and behavior.",
@@ -1524,14 +1556,13 @@ initFrame:SetScript("OnEvent", function(self)
             -- The cleanup/preview logic below acts on live state (BM/CC roots, raid/party preview overlays over the player's real frames) keyed only on the pageName being built, not what the player is actually looking at. An off-screen search pre-build cycles pageName through every page in `pages`, so NONE of it may run here.
             -- PAGE_BUFFS / PAGE_CLICKCAST go further: their builders (BuildBuffManagerPage -> ns.BM_BuildPage, ns.CC_BuildPage) bypass `parent` and build directly onto the live shared EllesmereUI._scrollFrame, so building them here would inject visible UI over whatever is on screen. Skip them; they index normally on the player's first live visit.
             --
-            -- _partyCtx (read by SGet/SSet/SVal in the value closures) is left
-            -- untouched: this hidden pass's widgets and closures are discarded
-            -- with the wrapper and never invoked, so only the live path needs it.
+            -- The pre-build must not leave the live page's _partyCtx changed.
             if EllesmereUI._prebuilding then
-                if pageName == PAGE_MAIN then
-                    return ns.RFO_BuildMainPage(pageName, parent, yOffset)
-                elseif pageName == PAGE_PARTY then
-                    return ns.RFO_BuildPartyPage(pageName, parent, yOffset)
+                if pageName == PAGE_MAIN or pageName == PAGE_PARTY then
+                    local saved = optState._partyCtx
+                    optState._partyCtx = (pageName == PAGE_PARTY)
+                    local build = (pageName == PAGE_PARTY) and ns.RFO_BuildPartyPage or ns.RFO_BuildMainPage
+                    return RestorePartyCtx(saved, xpcall(build, WithStack, pageName, parent, yOffset))
                 end
                 return
             end

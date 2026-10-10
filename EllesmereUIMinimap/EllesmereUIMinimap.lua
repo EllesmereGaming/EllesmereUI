@@ -3369,15 +3369,27 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         local rowGap = PP.SnapForES(p.btnRowSpacing or 0, rowES)
         local rowX = PP.SnapForES(rowBaseX, rowES)
         local rowY = PP.SnapForES(rowBaseY, rowES)
-        -- Stock styles: the row follows the ring instead of the square's edge,
-        -- as the stock map's addon buttons do -- each button centred on the
-        -- circle just outside the map (the stock addon-button radius, 5px scaled
-        -- with the map, plus Distance from Map), starting at the row's corner and
-        -- walking round in its growth direction; Icon Spacing becomes the arc gap.
+        -- Round maps: the row follows the ring instead of the square's edge,
+        -- starting at the row's corner and walking round in its growth
+        -- direction; Icon Spacing becomes the arc gap. Stock styles centre each
+        -- button on the circle just outside the map, as the stock map's addon
+        -- buttons do (the stock addon-button radius, 5px scaled with the map,
+        -- plus Distance from Map). The EllesmereUI look's circle centres each
+        -- button on the map's edge, half over the map so it reads as attached,
+        -- Distance from Map further out, with a base gap between buttons. With
+        -- Free Move on it keeps the straight row: saved offsets are relative to
+        -- the row slots they were dragged from.
         local arcR, arcT, arcDir
-        if blizzHdr then
+        local arcGap = 0
+        if blizzHdr or (circleMode and not p.freeMoveBtns) then
             local mapW = minimap:GetWidth() or 140
-            arcR = mapW / 2 + 5 * (mapW / 198) + (p.btnRowDistance or 0)
+            if blizzHdr then
+                arcR = mapW / 2 + 5 * (mapW / 198) + (p.btnRowDistance or 0)
+            else
+                local edge = (p.shape == "textured_circle") and 2 or (p.borderSize or 1)
+                arcR = mapW / 2 + edge + (p.btnRowDistance or 0)
+                arcGap = PP.SnapForES(4, rowES)
+            end
             arcT = math.rad(rowMode.arc or 225)
             arcDir = rowMode.arcDir or -1
         end
@@ -3386,7 +3398,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
             adv = math.floor(adv / rowPx + 0.001) * rowPx + rowGap
             if arcR then
                 EBS._ArcPoint(btn, minimap, arcR, arcT, rowES)
-                arcT = arcT + arcDir * adv / arcR
+                arcT = arcT + arcDir * (adv + arcGap) / arcR
             else
                 btn:SetPoint(rowMode.point, mapAnchor, rowMode.rel, rowX, rowY)
                 rowX = rowX + adv * rowMode.dirX
@@ -3396,15 +3408,16 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         -- Stock styles: every button on the ring wears the round minimap-button
         -- look -- ours dressed by EBS._ClassicRingButton, addon buttons in
         -- their own native dress (the common minimap-button library draws
-        -- exactly that look).
-        if arcR then EBS._ClassicRingButton(flyoutToggle, 0.12, flyoutToggle._norm, flyoutToggle._pushed, flyoutToggle._hl) end
+        -- exactly that look). The EllesmereUI circle keeps the look's own dress.
+        local ringDress = blizzHdr and true or false
+        if ringDress then EBS._ClassicRingButton(flyoutToggle, 0.12, flyoutToggle._norm, flyoutToggle._pushed, flyoutToggle._hl) end
         -- WoW Forever: a row starting at the bottom-left corner starts past
         -- the queue eye Action Bars parks there (half the 45px eye, the gap
         -- and half a ring button, as arc length).
         if arcR and EllesmereUI.IS_FOREVER and rowMode.arc == 225 then
             local ab = EllesmereUI._ModuleNS.EllesmereUIActionBars
             if ab and ab.AB_ForeverEyeParked() then
-                arcT = arcT + arcDir * (22.5 + rowGap + flyoutToggle:GetWidth() / 2) / arcR
+                arcT = arcT + arcDir * (22.5 + rowGap + arcGap + flyoutToggle:GetWidth() / 2) / arcR
             end
         end
         flyoutToggle:ClearAllPoints()
@@ -3443,7 +3456,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
             -- own dress (the common library dress is the stock round minimap
             -- button) at its native size, restored BEFORE placement so the row
             -- advances by the size the button really draws at.
-            local rowBoxes = showBg and not arcR
+            local rowBoxes = showBg and not ringDress
             if rowBoxes then
                 -- Strip BEFORE resize so the snapshot captures the real native size.
                 StripButtonDecorations(btn)
@@ -3501,7 +3514,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                         _greatVaultBtn:Hide()
                     else
                         SizeGreatVaultBtn(_greatVaultBtn, showBg)
-                        if arcR then EBS._ClassicRingButton(_greatVaultBtn, nil, _greatVaultBtn._whole) end
+                        if ringDress then EBS._ClassicRingButton(_greatVaultBtn, nil, _greatVaultBtn._whole) end
                         _greatVaultBtn:SetParent(minimap)
                         _greatVaultBtn:SetFrameLevel(minimap:GetFrameLevel() + 11)
                         _greatVaultBtn:ClearAllPoints()
@@ -3516,7 +3529,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                     else
                         ci.friends:SetSize(sz, sz)
                         if ci.friends._bg then ci.friends._bg:SetShown(showBg) end
-                        if arcR then EBS._ClassicRingButton(ci.friends, nil, ci.friends._icon) end
+                        if ringDress then EBS._ClassicRingButton(ci.friends, nil, ci.friends._icon) end
                         ci.friends:SetParent(minimap)
                         ci.friends:SetFrameLevel(minimap:GetFrameLevel() + 11)
                         ci.friends:ClearAllPoints()
@@ -3530,7 +3543,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                         _portalBtn:Hide()
                     else
                         SizePortalBtn(_portalBtn, showBg)
-                        if arcR then EBS._ClassicRingButton(_portalBtn, nil, _portalBtn._icon) end
+                        if ringDress then EBS._ClassicRingButton(_portalBtn, nil, _portalBtn._icon) end
                         _portalBtn:SetParent(minimap)
                         _portalBtn:SetFrameLevel(minimap:GetFrameLevel() + 11)
                         _portalBtn:ClearAllPoints()

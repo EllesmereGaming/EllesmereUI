@@ -1377,8 +1377,8 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     local ppPosOrder = { "below", "above", "---", "detached_bottom", "detached_top", "---", "none" }
     local ppTextValues = { ["none"]="None", ["left"]="Left", ["right"]="Right", ["center"]="Center" }
     local ppTextOrder = { "none", "---", "left", "right", "center" }
-    local ppFmtValues = { ["none"]="None", ["smart"]="Smart Text", ["curpp"]="Power Value", ["perpp"]="Power %", ["both"]="Value | %" }
-    local ppFmtOrder = { "none", "smart", "curpp", "perpp", "both" }
+    local ppFmtValues = { ["none"]="None", ["smart"]="Smart Text", ["curpp"]="Power Value", ["curmaxpp"]="Power Value / Max", ["perpp"]="Power %", ["both"]="Value | %" }
+    local ppFmtOrder = { "none", "smart", "curpp", "curmaxpp", "perpp", "both" }
 
     -- Row 1: Bar Height + Bar Position
     local sharedPowerRow1
@@ -1518,7 +1518,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     if not EllesmereUI._prebuilding then
         local fmtRgn = sharedPowerRow2._leftRegion
         EllesmereUI.BuildInlineCog(fmtRgn, {
-            disabled = function() local fmt = SVal("powerTextFormat", "perpp"); return fmt == "none" or fmt == "curpp" end,
+            disabled = function() local fmt = SVal("powerTextFormat", "perpp"); return fmt == "none" or fmt == "curpp" or fmt == "curmaxpp" end,
             disabledTooltip = "This option is only available for formats that display a percentage.",
             title = "Power Text",
             rows = {
@@ -1637,7 +1637,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
               refreshAlpha = function()
                   return SVal("powerPercentPowerColor", true) and 0.3 or 1
               end },
-            { tooltip = "Power Colored Fill. Power colors can be adjusted in Global Settings -> Fonts & Colors.",
+            { tooltip = "Power Colored Fill. Power colors can be adjusted in Global Settings -> Colors.",
               hasAlpha = false,
               getValue = function()
                   local _, pToken = UnitPowerType("player")
@@ -1674,7 +1674,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             SSet("powerBgPowerColored", true)
             ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
         end)
-        bgPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSw, "Power Colored Background. Power colors can be adjusted in Global Settings -> Fonts & Colors.") end)
+        bgPwrSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSw, "Power Colored Background. Power colors can be adjusted in Global Settings -> Colors.") end)
         bgPwrSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         PP.Point(bgPwrSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = bgPwrSw
@@ -2380,7 +2380,8 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
     sharedClassResHeader, h = W:SectionHeader(parent, "CLASS RESOURCE", y); y = y - h
 
     -- The class resource style that builds: WoW Forever outside its own
-    -- style builds a saved "blizzard" as modern (ns.UF_ForeverCPStyle, nil
+    -- style builds a saved "blizzard" as modern, and a rogue under the
+    -- EllesmereUI look reads its own style (ns.UF_ForeverCPStyle, nil
     -- elsewhere). Display and gating only; writes and syncs keep the saved value.
     local function SCPStyle()
         local v = SValSupported("classPowerStyle", "none")
@@ -2394,7 +2395,7 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
           -- Forever ships no class resource bar that can be re-parented: the
           -- per-class globals the Blizzard style adopts are all Mainline-only.
           -- Under the WoW Forever style the entry is the combo point arc
-          -- round the target portrait instead, and stays live.
+          -- instead (placed by Combo Points, below), and stays live.
           disabledValues=function(k)
               if k == "blizzard" and EllesmereUI.IS_FOREVER and not EllesmereUI.BlizzStyle.Forever("unitframes") then
                   return "This option requires the WoW Forever style."
@@ -2413,15 +2414,38 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
           -- is None; only the None <-> enabled flip forces the rebuild
           -- (style-to-style changes keep the cheap refresh path).
           setValue=EllesmereUI.DependentSetValue(
-              function() return SValSupported("classPowerStyle", "none") ~= "none" end,
+              function() return SCPStyle() ~= "none" end,
               function(v)
-                  SSetSupported("classPowerStyle", v)
-                  SSetSupported("showClassPowerBar", v ~= "none")
-                  if ns.frames and ns.frames._toggleClassPower then
-                      ns.frames._toggleClassPower(v)
+                  -- WoW Forever rogues under the EllesmereUI look pick their
+                  -- own style (ns.UF_RogueCPKey); the shared one stays as is.
+                  local rogueKey = ns.UF_RogueCPKey and ns.UF_RogueCPKey()
+                  if rogueKey then
+                      UNIT_DB_MAP[optState.selectedUnit]()[rogueKey] = v
+                      if ns.frames and ns.frames._toggleClassPower then
+                          ns.frames._toggleClassPower()
+                      end
+                      ReloadAndUpdate()
+                  else
+                      SSetSupported("classPowerStyle", v)
+                      SSetSupported("showClassPowerBar", v ~= "none")
+                      if ns.frames and ns.frames._toggleClassPower then
+                          ns.frames._toggleClassPower(v)
+                      end
                   end
                   UpdatePreview()
                   C_Timer.After(0, function() local rl = EllesmereUI._widgetRefreshList; if rl then for i = 1, #rl do rl[i]() end end end)
+                  -- WoW Forever: Blizzard's own combo points (beside Blizzard's
+                  -- own target frame) went to the hidden parent for another
+                  -- Combo Points spot: only a reload brings them back.
+                  if v == "none" and ns._ufComboFrameByLoc then
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Blizzard's combo points return to its target frame after a UI reload.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Later",
+                          reload      = true,
+                      })
+                  end
               end) },
         { type="multiSwatch", text="Fill Color",
           disabled=function() return SCPStyle() ~= "modern" end,
@@ -2587,7 +2611,7 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
 
     -- Rows 2-3 are HIDDEN entirely while Enable Class Resource is None
     -- (the dropdown's DependentSetValue forces the rebuild on flips).
-    if SValSupported("classPowerStyle", "none") ~= "none" then
+    if SCPStyle() ~= "none" then
     -- Row 2: Position (with cog for x/y) + Size
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Position", values=classPowerPosValues, order=classPowerPosOrder,
@@ -2799,6 +2823,39 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
                 end,
             },
         })
+    end
+
+    -- WoW Forever: where the "Blizzard" class resource (the combo point arc)
+    -- shows -- the target frame (the stock spot), the player frame, or
+    -- nowhere. The section's last row, built under the WoW Forever style for
+    -- the classes with combo points there.
+    if EllesmereUI.IS_FOREVER == true and EllesmereUI.BlizzStyle.Forever("unitframes")
+       and ns.UF_ComboClass() then
+        _, h = W:DualRow(parent, y,
+            { type="dropdown", text="Combo Points",
+              tooltip="Choose where your combo points show.",
+              values={ target = "Target Frame", player = "Player Frame", never = "Never" },
+              order={ "target", "player", "never" },
+              disabled=function() return SCPStyle() ~= "blizzard" end,
+              disabledTooltip="Class Resource must be set to Blizzard", rawTooltip=true,
+              getValue=function() return ns.UF_ComboLocation() end,
+              setValue=function(v)
+                  UNIT_DB_MAP["player"]().foreverComboLocation = v
+                  ns.UF_ApplyForeverComboArc()
+                  -- Blizzard's own, beside Blizzard's own target frame, went
+                  -- to the hidden parent for another spot: only a reload
+                  -- brings it back.
+                  if v == "target" and ns._ufComboFrameByLoc then
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Blizzard's combo points return to its target frame after a UI reload.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Later",
+                          reload      = true,
+                      })
+                  end
+              end },
+            EllesmereUI.BlankRowCfg());  y = y - h
     end
     end   -- close Class Resource hidden-while-None gate
 

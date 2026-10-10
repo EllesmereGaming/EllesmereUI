@@ -42,9 +42,10 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
     local y = yOffset
     local _, h
     local MakeFont = EllesmereUI.MakeFont
-    -- Swatches read/write the EFFECTIVE palette (per-profile -> active
-    -- profile's own; global -> shared source profile's). Every editable
-    -- case IS the active profile's table; the one locked case (global mode on a non-source profile) is gated by an overlay below.
+    -- Swatches read/write the EFFECTIVE palette, resolved per section (per-profile
+    -- -> the active profile's own; global -> that section's source profile's). Every
+    -- editable case IS the active profile's table; the one locked case (a global
+    -- section viewed from a non-source profile) is gated by that section's overlay below.
     local GetCustomColorsDB = EllesmereUI.GetCustomColorsDB
     local CLASS_COLOR_MAP = EllesmereUI.CLASS_COLOR_MAP
     local DEFAULT_POWER_COLORS = EllesmereUI.DEFAULT_POWER_COLORS
@@ -168,51 +169,65 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
     do
         local DM_DEF = EllesmereUI.DEFAULT_DARK_MODE
 
-        -- Master switches: pure views over their group of per-module providers (on only when every provider is on). Left drives Unit
-        -- Frames + Raid Frames, right the class resource bar alone.
-        local function _dmIsRB(p) return p.id == "resourceBars" end
-        local function _dmNotRB(p) return p.id ~= "resourceBars" end
-        local dmMasterRow
-        dmMasterRow, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Dark Mode",
-              tooltip = "Turns Dark Mode on or off for Unit Frames and Raid Frames at once.",
-              getValue = function() return EllesmereUI.IsDarkModeAllOn(_dmNotRB) end,
-              setValue = function(v)
-                  EllesmereUI.SetDarkModeAll(v, _dmNotRB)
-                  EllesmereUI:RefreshPage()
-              end },
-            { type = "toggle", text = "Dark Mode (Class Resource Bar)",
-              tooltip = "Turns Dark Mode on or off for the class resource bar.",
-              getValue = function() return EllesmereUI.IsDarkModeAllOn(_dmIsRB) end,
-              setValue = function(v)
-                  EllesmereUI.SetDarkModeAll(v, _dmIsRB)
-                  EllesmereUI:RefreshPage()
-              end });  y = y - h
-        -- MAIN master writes the UF+RF dark flags = the Dark Mode conditional-override condition's inputs, so it locks during a Dark Mode
-        -- conditional edit session (an override must not capture a change that flips its own condition). Class Resource Bar master is NOT
-        -- a condition input (DarkModeMasterOn excludes it) and stays editable. SetDarkModeAll's tail rechecks the condition live for both.
-        if EllesmereUI.SpecOverrides_AttachEditLock and not EllesmereUI._prebuilding then
-            EllesmereUI.SpecOverrides_AttachEditLock(dmMasterRow._leftRegion,
-                "Dark Mode drives a Dark Mode override condition and can't be changed while editing an override",
-                EllesmereUI.SpecOverrides_DarkCondEditActive)
+        -- Dark Mode: one checkbox dropdown with each module's own Dark Mode, a
+        -- pure view over the registered per-module providers (no stored key). A
+        -- tick writes through SetDarkModeAll with a one-provider filter, so its
+        -- tail rechecks the override condition exactly as before. The Dark Mode
+        -- override condition still reads "every provider but the class resource
+        -- bar on" (DarkModeMasterOn), which is what the old main toggle showed.
+        -- Those providers are its inputs, so they lock while a Dark Mode override
+        -- is edited (an override must not capture a change that flips its own
+        -- condition); the class resource bar never does.
+        local DM_ITEMS = {
+            { key = "unitFrames",   label = "Unit Frames" },
+            { key = "raidFrames",   label = "Raid Frames" },
+            { key = "resourceBars", label = "Class Resource Bar" },
+        }
+        local function DMProvider(id)
+            for _, p in ipairs(EllesmereUI._darkModeToggles) do
+                if p.id == id then return p end
+            end
+        end
+        local function CondEditLocked()
+            return EllesmereUI.SpecOverrides_DarkCondEditActive ~= nil
+                and EllesmereUI.SpecOverrides_DarkCondEditActive() or false
+        end
+        local dmItems = {}
+        for _, it in ipairs(DM_ITEMS) do
+            -- A module that is off registers no provider: no row for it.
+            if DMProvider(it.key) then
+                if it.key ~= "resourceBars" then
+                    it.lockedFn = CondEditLocked
+                    it.lockedTooltip = "Dark Mode drives a Dark Mode override condition and can't be changed while editing an override"
+                end
+                dmItems[#dmItems + 1] = it
+            end
         end
 
-        -- Row 1: Dark Mode Fill Color | Dark Mode Fill Opacity
-        _, h = W:DualRow(parent, y,
-            { type = "colorpicker", text = "Dark Mode Fill Color", hasAlpha = false,
-              tooltip = "The flat fill colour bars use when Dark Mode is enabled (Unit Frames, Raid Frames, Resource Bars).",
-              getValue = function()
-                  local d = EllesmereUI.GetDarkModeDB()
-                  return d.fillR or DM_DEF.fillR, d.fillG or DM_DEF.fillG, d.fillB or DM_DEF.fillB, 1
-              end,
-              setValue = function(r, g, b)
-                  local d = EllesmereUI.GetDarkModeDB()
-                  d.fillR, d.fillG, d.fillB = r, g, b
-                  EllesmereUI.RefreshDarkMode()
-              end },
-            { type = "slider", text = "Dark Mode Fill Opacity",
-              min = 0, max = 100, step = 5,
-              tooltip = "Fill opacity for Dark Mode bars. Applies to Unit Frames and Raid Frames only (Resource Bars ignore it).",
+        -- Row 1: Dark Mode (checkbox dropdown) | Color Darkening (slider
+        -- dropdown: the class / resource / power / BG power darken amounts).
+        local dmRow
+        dmRow, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Dark Mode",
+              tooltip = "Turns Dark Mode on or off for each module.",
+              values = { ["_placeholder"] = "..." }, order = { "_placeholder" },
+              getValue = function() return "_placeholder" end,
+              setValue = function() end },
+            { type = "dropdown", text = "Color Darkening",
+              tooltip = "Darkens class, resource and power colors.",
+              values = { ["_placeholder"] = "..." }, order = { "_placeholder" },
+              getValue = function() return "_placeholder" end,
+              setValue = function() end });  y = y - h
+
+        -- Row 2: Dark Mode Fill | Background -- each an opacity slider with its
+        -- colour as an inline swatch (Resource Bars use the colours but ignore
+        -- the opacity).
+        local fillRow
+        fillRow, h = W:DualRow(parent, y,
+            { type = "slider", text = "Dark Mode Fill",
+              min = 0, max = 100, step = 5, trackWidth = 120,
+              tooltip = "Fill color and opacity of Dark Mode bars.",
+              tooltipOnControl = "Fill Opacity",
               getValue = function()
                   local d = EllesmereUI.GetDarkModeDB()
                   return math.floor((d.fillA or DM_DEF.fillA) * 100 + 0.5)
@@ -221,24 +236,11 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
                   local d = EllesmereUI.GetDarkModeDB()
                   d.fillA = v / 100
                   EllesmereUI.RefreshDarkMode()
-              end });  y = y - h
-
-        -- Row 2: Background Color | Background Opacity
-        _, h = W:DualRow(parent, y,
-            { type = "colorpicker", text = "Background Color", hasAlpha = false,
-              tooltip = "The background colour behind Dark Mode bars (Unit Frames, Raid Frames, Resource Bars).",
-              getValue = function()
-                  local d = EllesmereUI.GetDarkModeDB()
-                  return d.bgR or DM_DEF.bgR, d.bgG or DM_DEF.bgG, d.bgB or DM_DEF.bgB, 1
-              end,
-              setValue = function(r, g, b)
-                  local d = EllesmereUI.GetDarkModeDB()
-                  d.bgR, d.bgG, d.bgB = r, g, b
-                  EllesmereUI.RefreshDarkMode()
               end },
-            { type = "slider", text = "Background Opacity",
-              min = 0, max = 100, step = 5,
-              tooltip = "Background opacity for Dark Mode bars. Applies to Unit Frames and Raid Frames only (Resource Bars ignore it).",
+            { type = "slider", text = "Background",
+              min = 0, max = 100, step = 5, trackWidth = 120,
+              tooltip = "Color and opacity behind Dark Mode bars.",
+              tooltipOnControl = "Background Opacity",
               getValue = function()
                   local d = EllesmereUI.GetDarkModeDB()
                   return math.floor((d.bgA or DM_DEF.bgA) * 100 + 0.5)
@@ -249,88 +251,118 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
                   EllesmereUI.RefreshDarkMode()
               end });  y = y - h
 
-        -- Row 3: Class Color Darken | Power Color Darken
-        _, h = W:DualRow(parent, y,
-            { type = "slider", text = "Class Color Darken",
-              min = 0, max = 100, step = 5,
-              tooltip = "Blackens every class colour by this amount, everywhere class colours are used.",
-              getValue = function() return EllesmereUI.GetDarkModeDB().classDarken or 0 end,
-              setValue = function(v)
-                  EllesmereUI.GetDarkModeDB().classDarken = v
-                  EllesmereUI.RefreshDarkMode()
-              end },
-            { type = "slider", text = "Power Color Darken",
-              min = 0, max = 100, step = 5,
-              tooltip = "Blackens every power colour by this amount, everywhere power colours are used.",
-              getValue = function() return EllesmereUI.GetDarkModeDB().powerDarken or 0 end,
-              setValue = function(v)
-                  EllesmereUI.GetDarkModeDB().powerDarken = v
-                  EllesmereUI.RefreshDarkMode()
-              end });  y = y - h
+        if not EllesmereUI._prebuilding then
+            local rgn = dmRow._leftRegion
+            if rgn._control then rgn._control:Hide() end
+            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rgn, 210, rgn:GetFrameLevel() + 2, dmItems,
+                function(id)
+                    local p = DMProvider(id)
+                    if not p then return false end
+                    local ok, on = pcall(p.isOn)
+                    return (ok and on) and true or false
+                end,
+                function(id, v)
+                    EllesmereUI.SetDarkModeAll(v, function(p) return p.id == id end)
+                    EllesmereUI:RefreshPage()
+                end)
+            PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = cbDD
+            rgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
 
-        -- Row 4: Resource Color Darken | BG Power Color Darken
-        _, h = W:DualRow(parent, y,
-            { type = "slider", text = "Resource Color Darken",
-              min = 0, max = 100, step = 5,
-              tooltip = "Blackens every class-resource colour by this amount, everywhere class-resource colours are used.",
-              getValue = function() return EllesmereUI.GetDarkModeDB().resourceDarken or 0 end,
-              setValue = function(v)
-                  EllesmereUI.GetDarkModeDB().resourceDarken = v
-                  EllesmereUI.RefreshDarkMode()
-              end },
-            { type = "slider", text = "BG Power Color Darken",
-              min = 0, max = 100, step = 5,
-              tooltip = "Blackens power-colored Power Bar backgrounds (Unit Frames and Raid Frames) by this amount, on top of Power Color Darken.",
-              getValue = function() return EllesmereUI.GetDarkModeDB().powerBgDarken or 0 end,
-              setValue = function(v)
-                  EllesmereUI.GetDarkModeDB().powerBgDarken = v
-                  EllesmereUI.RefreshDarkMode()
-              end });  y = y - h
+            -- The four darken amounts (same keys and ranges the old rows had).
+            local function Darken(key, label, tip)
+                return { label = label, tooltip = tip, min = 0, max = 100, step = 5,
+                    get = function() return EllesmereUI.GetDarkModeDB()[key] or 0 end,
+                    set = function(v)
+                        EllesmereUI.GetDarkModeDB()[key] = v
+                        EllesmereUI.RefreshDarkMode()
+                    end }
+            end
+            local drgn = dmRow._rightRegion
+            if drgn._control then drgn._control:Hide() end
+            local sDD, sDDRefresh = EllesmereUI.BuildSliderDropdown(drgn, 210, drgn:GetFrameLevel() + 2, {
+                Darken("classDarken", "Class", "Darkens every class color."),
+                Darken("resourceDarken", "Resource", "Darkens every class resource color."),
+                Darken("powerDarken", "Power", "Darkens every power color."),
+                Darken("powerBgDarken", "BG Power", "Darkens power-colored bar backgrounds."),
+            })
+            PP.Point(sDD, "RIGHT", drgn, "RIGHT", -20, 0)
+            drgn._control = sDD
+            drgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(sDDRefresh)
+
+            EllesmereUI.BuildInlineSwatches(fillRow._leftRegion, {
+                { tooltip = "Fill Color",
+                  getValue = function()
+                      local d = EllesmereUI.GetDarkModeDB()
+                      return d.fillR or DM_DEF.fillR, d.fillG or DM_DEF.fillG, d.fillB or DM_DEF.fillB, 1
+                  end,
+                  setValue = function(r, g, b)
+                      local d = EllesmereUI.GetDarkModeDB()
+                      d.fillR, d.fillG, d.fillB = r, g, b
+                      EllesmereUI.RefreshDarkMode()
+                  end },
+            }, { size = 20 })
+            EllesmereUI.BuildInlineSwatches(fillRow._rightRegion, {
+                { tooltip = "Background Color",
+                  getValue = function()
+                      local d = EllesmereUI.GetDarkModeDB()
+                      return d.bgR or DM_DEF.bgR, d.bgG or DM_DEF.bgG, d.bgB or DM_DEF.bgB, 1
+                  end,
+                  setValue = function(r, g, b)
+                      local d = EllesmereUI.GetDarkModeDB()
+                      d.bgR, d.bgG, d.bgB = r, g, b
+                      EllesmereUI.RefreshDarkMode()
+                  end },
+            }, { size = 20 })
+        end
     end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
     -------------------------------------------------------------------
-    --  GLOBAL COLORS section
+    --  Colour sections. Each opens with its own "Apply to All Profiles" |
+    --  "Pull Colors From" row (EllesmereUI.ColorSectionApplyAll / ColorSectionPullFrom;
+    --  a section with no setting of its own reads the old shared pair). While a
+    --  section mirrors another profile's colours (global mode, viewed from a
+    --  different profile) its grid -- not its source row -- gets a click-blocking
+    --  overlay, built at the end of this builder from the bounds captured below.
     -------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "GLOBAL COLORS", y);  y = y - h
-    do
-        local profileOrder = select(1, EllesmereUI.GetProfileList()) or {}
-        local pullValues = {}
-        for _, n in ipairs(profileOrder) do pullValues[n] = n end
+    local profileOrder = select(1, EllesmereUI.GetProfileList()) or {}
+    local pullValues = {}
+    for _, n in ipairs(profileOrder) do pullValues[n] = n end
+    local _colorGates = {}   -- { section, top, bot } per section grid
+    local function SectionSourceRow(section)
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Apply to All Profiles",
-              tooltip="On (default): one profile's palette is shared across every profile (chosen via Pull Colors From). Off: each profile keeps its own custom colors (Power, Class Resource, Class, Resource).",
-              -- Default ON (nil treated as on) = global colours for all profiles.
-              getValue=function() return EllesmereUIDB.colorsApplyToAllProfiles ~= false end,
+              tooltip="Share this section's colors across profiles.",
+              getValue=function() return EllesmereUI.ColorSectionApplyAll(section) end,
               setValue=function(v)
-                  EllesmereUIDB.colorsApplyToAllProfiles = v
+                  EllesmereUI.SetColorSectionApplyAll(section, v)
                   EllesmereUI.ApplyColorsToOUF()
-                  -- Force rebuild: toggle flips the dropdown's enabled state and the editing-gate, which a fast-path refresh won't redo.
+                  -- Force rebuild: the toggle flips the dropdown's enabled state and the section's gate.
                   EllesmereUI:RefreshPage(true)
               end },
-            -- Global-mode source: which single profile's palette all profiles use. Enabled only while "Apply to All Profiles" is ON.
             { type="dropdown", text="Pull Colors From",
               values=pullValues, order=profileOrder,
-              disabled=function() return EllesmereUIDB.colorsApplyToAllProfiles == false end,
+              disabled=function() return not EllesmereUI.ColorSectionApplyAll(section) end,
               disabledTooltip="Apply to All Profiles",
-              getValue=function() return EllesmereUIDB.colorsPullFrom or profileOrder[1] end,
+              getValue=function() return EllesmereUI.ColorSectionPullFrom(section) end,
               setValue=function(v)
-                  EllesmereUIDB.colorsPullFrom = v
+                  EllesmereUI.SetColorSectionPullFrom(section, v)
                   EllesmereUI.ApplyColorsToOUF()
                   EllesmereUI:RefreshPage()
               end });  y = y - h
+        _colorGates[#_colorGates + 1] = { section = section, top = y }
     end
-    -- Colour-edit gate: when this profile mirrors another's colours (GLOBAL mode on a different profile), each section grid gets its OWN
-    -- click-blocking overlay (built at the end of this builder). Grid bounds {top, bot} are captured into _colorGates as sections lay out.
-    local _colorGates = {}
-    _, h = W:Spacer(parent, y, 20);  y = y - h
 
     -------------------------------------------------------------------
     --  CLASS COLORS section
     -------------------------------------------------------------------
     _, h = W:SectionHeader(parent, "CLASS COLORS", y);  y = y - h
-    _colorGates[1] = { top = y }
+    SectionSourceRow("class")
 
     local classItems = {}
     for _, token in ipairs(CLASS_ORDER) do
@@ -357,7 +389,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
 
     h = BuildColorGrid(parent, y, classItems)
     y = y - h
-    _colorGates[1].bot = y
+    _colorGates[#_colorGates].bot = y
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -365,7 +397,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
     --  POWER COLORS section
     -------------------------------------------------------------------
     _, h = W:SectionHeader(parent, "POWER COLORS", y);  y = y - h
-    _colorGates[2] = { top = y }
+    SectionSourceRow("power")
 
     local POWER_ORDER = {
         "MANA", "RAGE", "FOCUS", "ENERGY", "RUNIC_POWER", "FURY",
@@ -395,7 +427,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
 
     h = BuildColorGrid(parent, y, powerItems)
     y = y - h
-    _colorGates[2].bot = y
+    _colorGates[#_colorGates].bot = y
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -404,7 +436,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
     --  POWER COLORS pattern, saved under the "classResource" custom-colors category (not yet consumed).
     -------------------------------------------------------------------
     _, h = W:SectionHeader(parent, "CLASS RESOURCE COLORS", y);  y = y - h
-    _colorGates[3] = { top = y }
+    SectionSourceRow("classResource")
     do
         -- Order + labels only; defaults live in the shared DEFAULT_CLASS_RESOURCE_COLORS, the source the resource bar's "Class Resource
         -- Color" fill mode reads.
@@ -444,17 +476,17 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
         h = BuildColorGrid(parent, y, resourceItems)
     end
     y = y - h
-    _colorGates[3].bot = y
+    _colorGates[#_colorGates].bot = y
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
-    -- Colour-edit gate: in GLOBAL mode the shared palette comes from ONE profile, so editing is blocked while viewing any other. ONE overlay
-    -- PER SECTION, sized to that section's grid. Always created; a shared refresh callback shows/hides them and updates the message, so they
-    -- stay correct after a profile or global-source change even on a cached page.
+    -- Colour-edit gate: a GLOBAL-mode section takes its palette from ONE profile, so its editing is blocked while viewing any other. ONE
+    -- overlay PER SECTION, sized to that section's grid, judged by that section's own setting. Always created; a shared refresh callback
+    -- shows/hides them and updates the message, so they stay correct after a profile or source change even on a cached page.
     do
         local gates = {}
         local CPAD = EllesmereUI.CONTENT_PAD or 20  -- side inset so the overlay matches the grid content width
-        local function MakeColorGate(topY, botY)
+        local function MakeColorGate(section, topY, botY)
             if not topY or not botY then return end
             local ov = CreateFrame("Frame", nil, parent)
             ov:SetPoint("TOPLEFT", parent, "TOPLEFT", CPAD, topY)
@@ -465,27 +497,22 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
             ov:Hide()
             local tex = ov:CreateTexture(nil, "OVERLAY")
             tex:SetAllPoints()
-            tex:SetColorTexture(13/255, 17/255, 25/255, 0.98)
+            tex:SetColorTexture(17/255, 15/255, 12/255, 0.98)
             local msg = EllesmereUI.MakeFont(ov, 13, nil, 1, 1, 1)
             msg:SetTextColor(1, 1, 1, 0.56)
             msg:SetWidth(parent:GetWidth() - 100)
             msg:SetJustifyH("CENTER")
             msg:SetPoint("CENTER", ov, "CENTER", 0, 0)
             ov._msg = msg
+            ov._section = section
             gates[#gates + 1] = ov
         end
-        for _, g in ipairs(_colorGates) do MakeColorGate(g.top, g.bot) end
+        for _, g in ipairs(_colorGates) do MakeColorGate(g.section, g.top, g.bot) end
         local function UpdateColorGate()
-            local locked = EllesmereUI.IsColorEditingLocked()
-            local text
-            if locked then
-                local p = EllesmereUI.GetProfilesDB()
-                local srcName = EllesmereUIDB.colorsPullFrom or (p.profileOrder and p.profileOrder[1]) or ""
-                text = EllesmereUI.Lf("Colors are shared globally from the \"%1$s\" profile.\nSwitch to it (or set Pull Colors From to this profile) to edit.", srcName)
-            end
             for _, ov in ipairs(gates) do
-                if locked then
-                    ov._msg:SetText(text)
+                if EllesmereUI.IsColorEditingLocked(ov._section) then
+                    local srcName = EllesmereUI.ColorSectionPullFrom(ov._section) or ""
+                    ov._msg:SetText(EllesmereUI.Lf("Colors are shared globally from the \"%1$s\" profile.\nSwitch to it (or set Pull Colors From to this profile) to edit.", srcName))
                     ov:Show()
                 else
                     ov:Hide()

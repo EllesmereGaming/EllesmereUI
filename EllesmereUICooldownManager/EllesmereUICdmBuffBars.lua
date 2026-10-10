@@ -1034,6 +1034,12 @@ end
 _tbbWake:SetScript("OnEvent", _tbbWake.OnEvent)
 ns.WakeTBBTick = _tbbWake.Wake
 
+function ns.WakeTBBTickIfParked()
+    if _tbbWake._enabled and tbbTickFrame and not tbbTickFrame:IsShown() then
+        _tbbWake.Wake()
+    end
+end
+
 -- The Visibility edges (mount, shapeshift, gliding, target, group, zone, combat) are exactly
 -- the set the shared dispatcher already owns, so subscribe there instead of re-registering
 -- them on the sleeper. Without this a parked tick never learns that a Visibility condition
@@ -2079,7 +2085,7 @@ end
 
 function ns.IsTBBRebuildPending() return _tbbRebuildPending end
 
--- No-ops kept because options/main file may still reference them.
+-- No-ops kept because options or the other CDM files may still reference them.
 ns.RefreshTBBResolvedIDs = function() end
 ns.RefreshBuffBarGating  = function() end
 
@@ -5529,7 +5535,7 @@ end
 
 -------------------------------------------------------------------------------
 --  "Visibility" gate (CDM-Bars-style mode + options, TBB-scoped)
---  Mirrors _CDMApplyVisibility's priority-2/3 checks (EllesmereUICooldownManager.lua),
+--  Mirrors _CDMApplyVisibility's priority-2/3 checks (EUI_CDM_Rebuild.lua),
 --  but folded into TBB's own tick since TBB bars are not native CDM bars.
 --  Zero cost for bars without a condition: the tick consults the gate only
 --  for bars flagged at build (bar._tbbVisCond) and fills the shared state

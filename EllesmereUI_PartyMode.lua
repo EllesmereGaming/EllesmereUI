@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_PartyMode.lua
---  Full-screen disco spotlight overlay — toggled from Global Settings.
+--  Full-screen disco spotlight overlay -- toggled from Global Settings.
 --  Cone-shaped beams shine down from the top of the screen like stage
 --  spotlights. Each beam uses 3 overlapping layers (wide dim outer,
 --  medium mid, narrow bright core) to create the cone/spotlight look.
@@ -11,11 +11,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Beams are extra tall so edges never show at screen bottom.
 --
 --  Performance:
---    • Zero CPU when disabled — container hidden, OnUpdate doesn't fire.
---    • OnUpdate throttled to ~30fps.
---    • Screen dimensions cached; refreshed on resize.
+--    - Zero CPU when disabled -- container hidden, OnUpdate doesn't fire.
+--    - OnUpdate throttled to ~30fps.
+--    - Screen dimensions cached; refreshed on resize.
 --
---  Shared across all EllesmereUI addons — only the first to load runs.
+--  Shared across all EllesmereUI addons -- only the first to load runs.
 -------------------------------------------------------------------------------
 if _G._EllesmereUIPartyModeLoaded then return end
 _G._EllesmereUIPartyModeLoaded = true
@@ -43,7 +43,7 @@ local math_pi     = math.pi
 local math_rad    = math.rad
 
 -------------------------------------------------------------------------------
---  Keybind registration (pure Lua — no Bindings.xml needed)
+--  Keybind registration (pure Lua -- no Bindings.xml needed)
 --  Uses a hidden button + SetOverrideBindingClick. Only the first addon
 --  to load creates the button; subsequent addons skip if it already exists.
 --  The bound key is saved in EllesmereUIDB.partyModeKey (nil = unbound).
@@ -93,7 +93,7 @@ function EllesmereUI_RestoreDimLights()
 end
 
 -------------------------------------------------------------------------------
---  Beam definitions — 12 beams
+--  Beam definitions -- 12 beams
 --  Each beam gets 3 layers: wide outer glow, medium mid, narrow core
 --  This creates the cone/spotlight spread effect
 --
@@ -106,9 +106,9 @@ end
 --  brightness, hue, phaseOff: visual tuning
 -------------------------------------------------------------------------------
 local BEAM_DEFS = {
-    -- Far left edge — steep inward angle
+    -- Far left edge -- steep inward angle
     { originX=-0.65, baseAngle=-60, sweepDeg=20, sweepSpeed=1.6, width=0.10, brightness=0.90, hue=0.00, phaseOff=0.0 },
-    -- Left — moderate inward
+    -- Left -- moderate inward
     { originX=-0.40, baseAngle=-35, sweepDeg=22, sweepSpeed=2.0, width=0.10, brightness=0.85, hue=0.12, phaseOff=1.8 },
     -- Left-center
     { originX=-0.20, baseAngle=-18, sweepDeg=18, sweepSpeed=1.8, width=0.10, brightness=0.90, hue=0.25, phaseOff=3.5 },
@@ -122,13 +122,13 @@ local BEAM_DEFS = {
     { originX= 0.25, baseAngle= 20, sweepDeg=20, sweepSpeed=1.9, width=0.10, brightness=0.85, hue=0.72, phaseOff=4.1 },
     -- Right
     { originX= 0.40, baseAngle= 35, sweepDeg=22, sweepSpeed=2.3, width=0.10, brightness=0.85, hue=0.82, phaseOff=5.8 },
-    -- Far right edge — steep inward angle
+    -- Far right edge -- steep inward angle
     { originX= 0.65, baseAngle= 60, sweepDeg=20, sweepSpeed=1.6, width=0.10, brightness=0.90, hue=0.92, phaseOff=1.3 },
     -- Extra center fill
     { originX=-0.10, baseAngle=-10, sweepDeg=16, sweepSpeed=2.4, width=0.10, brightness=0.80, hue=0.45, phaseOff=3.0 },
-    -- Far top-left gap filler — steep inward
+    -- Far top-left gap filler -- steep inward
     { originX=-0.50, baseAngle=-48, sweepDeg=18, sweepSpeed=1.8, width=0.10, brightness=0.88, hue=0.06, phaseOff=4.6 },
-    -- Far top-right gap filler — steep inward
+    -- Far top-right gap filler -- steep inward
     { originX= 0.50, baseAngle= 48, sweepDeg=18, sweepSpeed=1.8, width=0.10, brightness=0.88, hue=0.88, phaseOff=2.0 },
 }
 local NUM_BEAMS = #BEAM_DEFS
@@ -402,7 +402,7 @@ EllesmereUI:RegisterOnShow(OnSettingsOpen)
 EllesmereUI:RegisterOnHide(OnSettingsClose)
 
 -------------------------------------------------------------------------------
---  Init frame — handles PLAYER_LOGIN, events, PLAYER_LOGOUT
+--  Init frame -- handles PLAYER_LOGIN, events, PLAYER_LOGOUT
 -------------------------------------------------------------------------------
 -- Bloodlust celebration trigger: same player-only Sated/Exhaustion debuff edge
 -- detection used by the CDM lust bar. Fires a celebration the instant lust goes
@@ -672,7 +672,9 @@ local function Measure(f, rec)
     rec.w, rec.h = f:GetWidth(), f:GetHeight()
     local cx, cy = f:GetCenter()
     local px, py = rec.pivot:GetCenter()
-    if not (cx and px) then rec.dx = nil; return end
+    -- No rect yet: Tick retries it on rec.dx. Left dirty, it would make the
+    -- settle pass restore the whole set every frame.
+    if not (cx and px) then rec.dx, rec.dirty = nil, false; return end
     local fs, ps = f:GetEffectiveScale(), rec.pivot:GetEffectiveScale()
     rec.dx, rec.dy = cx * fs - px * ps, cy * fs - py * ps
     rec.dirty = false

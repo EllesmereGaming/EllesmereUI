@@ -173,7 +173,7 @@ local function BuildColorPickerPopup()
     end)
 
     local bg = popup:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(); bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+    bg:SetAllPoints(); bg:SetColorTexture(0.077, 0.068, 0.058, 1)
 
     MakeBorder(popup, BORDER_R, BORDER_G, BORDER_B, 0.15, PP)
 
@@ -445,7 +445,7 @@ local function BuildColorPickerPopup()
     hexBox:SetMaxLetters(6); hexBox:SetAutoFocus(false); hexBox:EnableMouse(true)
     hexBox:SetJustifyH("CENTER")
     local hbg = hexBox:CreateTexture(nil, "BACKGROUND")
-    hbg:SetAllPoints(); hbg:SetColorTexture(0.22, 0.24, 0.28, 0.5)
+    hbg:SetAllPoints(); hbg:SetColorTexture(0.213, 0.204, 0.196, 0.5)
     MakeBorder(hexBox, 1, 1, 1, 0.04, PP)
 
     local lastValidHex = "FFFFFF"
@@ -500,7 +500,7 @@ local function BuildColorPickerPopup()
     opacityBox:SetMaxLetters(3); opacityBox:SetAutoFocus(false); opacityBox:EnableMouse(true)
     opacityBox:SetNumeric(true); opacityBox:SetJustifyH("CENTER")
     local obg = opacityBox:CreateTexture(nil, "BACKGROUND")
-    obg:SetAllPoints(); obg:SetColorTexture(0.22, 0.24, 0.28, 0.5)
+    obg:SetAllPoints(); obg:SetColorTexture(0.213, 0.204, 0.196, 0.5)
     MakeBorder(opacityBox, 1, 1, 1, 0.04, PP)
 
     local lastOpacityPct = -1

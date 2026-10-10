@@ -1121,6 +1121,14 @@ qolFrame:SetScript("OnEvent", function(self)
         end
 
         SellJunk = function()
+            -- Bags' Junk Marker on: sell what it calls junk (marked items, and
+            -- greys not filed in another category) instead of every grey. The
+            -- merchant is vouched for only while it is open: a sweep the repair
+            -- watch held back can run after it closed.
+            local bags, cats = _G.EUI_Bags, _G.EUI_CategoryManager
+            if bags and bags.SellJunk and cats and cats:IsJunkMarkerEnabled() then
+                return bags:SellJunk(merchantOpen)
+            end
             if not (C_MerchantFrame and C_MerchantFrame.SellAllJunkItems) then return end
             StopJunkSweep()
             passes, lastCount, stalls, warned = 0, math.huge, 0, false
@@ -1355,6 +1363,77 @@ qolFrame:SetScript("OnEvent", function(self)
             end
         end
         EllesmereUI._applyQuickLoot()
+    end
+
+    ---------------------------------------------------------------------------
+    --  Auto Select Single Gossip -- picks the only gossip option. Skipped when
+    --  the NPC offers a quest or has one ready to turn in. GOSSIP_SHOW and
+    --  GOSSIP_CLOSED are registered only while the toggle is on.
+    ---------------------------------------------------------------------------
+    do
+        local gossipFrame
+        -- Page and option pairs picked in this conversation (cleared when it
+        -- ends): each is picked once, so two single-option pages that lead to
+        -- each other cannot flip back and forth.
+        local picked = {}
+
+        local function OnGossipShow()
+            local db = EllesmereUIDB
+            if db.autoGossipShiftSkip ~= false and IsShiftKeyDown() then return end
+            if db.autoGossipDisableInstance ~= false and IsInInstance() then return end
+
+            local options = C_GossipInfo.GetOptions()
+            if not options or #options ~= 1 then return end
+            local option = options[1]
+            -- A locked or unavailable option would only fail again.
+            if option.status ~= Enum.GossipOptionStatus.Available then return end
+            local key = (C_GossipInfo.GetText() or "") .. "\0" .. (option.gossipOptionID or option.name)
+            if picked[key] then return end
+
+            -- Trivial quests only stay ignorable if Quest Tracker auto-accept also ignores them.
+            local qtDB = _G._EQT_DB
+            local qt = qtDB and qtDB.profile and qtDB.profile.questTracker
+            local ignoreTrivial = db.autoGossipIgnoreTrivial
+                and not (qt and qt.enabled ~= false and qt.autoAccept and not qt.autoAcceptIgnoreTrivial)
+            for _, quest in ipairs(C_GossipInfo.GetAvailableQuests()) do
+                if not (ignoreTrivial and quest.isTrivial) then return end
+            end
+            local active = C_GossipInfo.GetActiveQuests()
+            for _, quest in ipairs(active) do
+                if quest.isComplete then return end
+            end
+
+            -- Blizzard already auto-selects this case itself.
+            if #active == 0 and C_GossipInfo.GetNumAvailableQuests() == 0
+                and option.selectOptionWhenOnlyOption then return end
+
+            picked[key] = true
+            C_GossipInfo.SelectOptionByIndex(option.orderIndex)
+        end
+
+        local function OnGossipEvent(_, event)
+            if event == "GOSSIP_CLOSED" then
+                wipe(picked)
+            else
+                OnGossipShow()
+            end
+        end
+
+        EllesmereUI._applyAutoGossip = function()
+            if EllesmereUIDB and EllesmereUIDB.autoGossip then
+                if not gossipFrame then
+                    gossipFrame = CreateFrame("Frame")
+                    gossipFrame:SetScript("OnEvent", OnGossipEvent)
+                end
+                gossipFrame:RegisterEvent("GOSSIP_SHOW")
+                gossipFrame:RegisterEvent("GOSSIP_CLOSED")
+            elseif gossipFrame then
+                gossipFrame:UnregisterEvent("GOSSIP_SHOW")
+                gossipFrame:UnregisterEvent("GOSSIP_CLOSED")
+                wipe(picked)
+            end
+        end
+        EllesmereUI._applyAutoGossip()
     end
 
     ---------------------------------------------------------------------------
@@ -1675,7 +1754,7 @@ qolFrame:SetScript("OnEvent", function(self)
 
                 local buttonBg = button:CreateTexture(nil, "BACKGROUND")
                 buttonBg:SetAllPoints()
-                buttonBg:SetColorTexture(0.02, 0.03, 0.04, 0.92)
+                buttonBg:SetColorTexture(0.030, 0.023, 0.018, 0.92)
                 local buttonBorder = EllesmereUI.MakeBorder(button, EG.r, EG.g, EG.b, 0.72, PP)
 
                 local buttonText = button:CreateFontString(nil, "OVERLAY")
@@ -1696,7 +1775,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 copyBox:EnableMouse(true)
                 local copyBg = copyBox:CreateTexture(nil, "BACKGROUND")
                 copyBg:SetAllPoints()
-                copyBg:SetColorTexture(0.02, 0.03, 0.04, 1)
+                copyBg:SetColorTexture(0.030, 0.023, 0.018, 1)
                 EllesmereUI.MakeBorder(copyBox, EG.r, EG.g, EG.b, 0.9, PP)
                 copyBox:Hide()
 

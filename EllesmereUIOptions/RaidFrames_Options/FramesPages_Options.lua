@@ -339,11 +339,20 @@ local function BuildMainPage(pageName, parent, yOffset)
     local env = ns._RFO_OptEnv
     local allGrowthOrder, BuildPreviewModeRow, BuildVisualSections, db = env.allGrowthOrder, env.BuildPreviewModeRow, env.BuildVisualSections, env.db
     local growthValues, KeepGrowthPerpendicular, PP, ReloadAndUpdate = env.growthValues, env.KeepGrowthPerpendicular, env.PP, env.ReloadAndUpdate
+    local groupGrowthValues, groupGrowthOrder, ReadGroupGrowth = env.groupGrowthValues, env.groupGrowthOrder, env.ReadGroupGrowth
     local SGet, SGetPx, SSet, SVal = env.SGet, env.SGetPx, env.SSet, env.SVal
     local SWrite = env.SWrite
     local W = EllesmereUI.Widgets
     local _, h
     local row
+
+    -- Both Group Growth menus grey out the grid flow while groups are merged,
+    -- where it would render as Right (ReadGroupGrowth).
+    local function GridFlowOff(v)
+        if v == "DOWNRIGHT" and SVal("mergeGroups", false) then
+            return EllesmereUI.DisabledTooltip("Merge Groups", "disabled")
+        end
+    end
 
     parent._showRowDivider = true
     local y = yOffset
@@ -571,10 +580,13 @@ local function BuildMainPage(pageName, parent, yOffset)
                                   ReloadAndUpdate()
                               end },
                             { type="dropdown", label="Group Growth",
-                              values=growthValues, order=allGrowthOrder,
+                              values=groupGrowthValues, order=groupGrowthOrder,
+                              itemDisabled=GridFlowOff,
                               get=function()
                                   local ov = db.profile.raidSizeOverrides
-                                  return ov and ov[tier] and ov[tier].groupGrowth or db.profile.groupGrowth or "RIGHT"
+                                  return ReadGroupGrowth(
+                                      ov and ov[tier] and ov[tier].groupGrowth
+                                      or db.profile.groupGrowth or "RIGHT")
                               end,
                               set=function(v)
                                   -- Separated groups allow every combination (see
@@ -804,6 +816,18 @@ local function BuildMainPage(pageName, parent, yOffset)
         borderSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border") end)
         borderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         EllesmereUI.RegisterWidgetRefresh(function() updBorder() end)
+        -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog left
+        -- of the Border swatch.
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Corner Radius", tip = "Corner Radius",
+            disabled = function() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end,
+            disabledTooltip = "This option requires the Solid, Glow or Shadow border style.",
+            rows = EllesmereUI.RoundedCornerRows({
+                { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                  get = function() return SVal("cornerRadius", 0) end,
+                  set = function(v) SSet("cornerRadius", v) end },
+            }, function() return SGet("cornerMask") end, function(v) SSet("cornerMask", v) end),
+        })
     end
 
     -- Width Offset | Height Offset: the textured edge's outward offsets as their
@@ -982,10 +1006,13 @@ local function BuildMainPage(pageName, parent, yOffset)
     -------------------------------------------------------------------
     _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
 
-    -- Group Growth | Unit Growth: separated groups (Merge Groups off) support all
-    -- 16 combinations, but merged mode's single Blizzard flat header can only make
-    -- its column direction perpendicular to Unit Growth, so a same-axis pair there
-    -- gets silently reinterpreted (see the colAnchor comment in EllesmereUIRaidFrames.lua)
+    -- Group Growth | Unit Growth: separated groups (Merge Groups off) support every
+    -- combination of the two axes (5 Group Growth values x 4 Unit Growth ones), but
+    -- merged mode's single Blizzard flat header can only make its column direction
+    -- perpendicular to Unit Growth, so a same-axis pair -- and the two-axis grid
+    -- flow, which it renders as a plain RIGHT run (see ReadGroupGrowth in
+    -- EUI_RaidFrames_Options.lua) -- gets silently reinterpreted (see the colAnchor
+    -- comment in EUI_RaidFrames_Layout.lua)
     -- -- KeepGrowthPerpendicular bumps the other axis instead. A base edit can also
     -- leave a per-tier override same-axis (an override that only set one axis
     -- inherits the other from base), so fix those up too.
@@ -1002,8 +1029,9 @@ local function BuildMainPage(pageName, parent, yOffset)
     end
 
     _, h = W:DualRow(parent, y,
-        { type="dropdown", text="Group Growth", values=growthValues, order=allGrowthOrder,
-          getValue=function() return SVal("groupGrowth", "RIGHT") end,
+        { type="dropdown", text="Group Growth", values=groupGrowthValues, order=groupGrowthOrder,
+          disabledValues=GridFlowOff,
+          getValue=function() return ReadGroupGrowth(SVal("groupGrowth", "RIGHT")) end,
           setValue=function(v)
               db.profile.groupGrowth = v
               if SVal("mergeGroups", false) then
@@ -1714,7 +1742,7 @@ local function BuildPartyPage(pageName, parent, yOffset)
         ov:EnableMouse(true)
         local bg = ov:CreateTexture(nil, "OVERLAY")
         bg:SetAllPoints()
-        bg:SetColorTexture(13/255, 17/255, 25/255, 0.98)
+        bg:SetColorTexture(17/255, 15/255, 12/255, 0.98)
         local label = ov:CreateFontString(nil, "OVERLAY")
         label:SetFont(FONT, 13, "")
         label:SetPoint("CENTER", ov, "CENTER", 0, 0)

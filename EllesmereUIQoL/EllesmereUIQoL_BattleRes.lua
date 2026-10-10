@@ -86,7 +86,7 @@ end
 
 -------------------------------------------------------------------------------
 --  Font resolution -- mirrors the Chat module's font / outline settings:
---  "__global" follows the EUI Fonts & Colors defaults, a named key resolves
+--  "__global" follows the EUI global font defaults, a named key resolves
 --  through the shared font registry, and outline overrides stay slug-gated.
 -------------------------------------------------------------------------------
 local function GetBrezFont()

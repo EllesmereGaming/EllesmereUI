@@ -26,6 +26,8 @@ local POOL_SIZE  = 12
 local FADE_FRAC  = 0.3   -- fade over the last 30% of the scroll
 local UNLOCK_KEY = "EUI_SelfCombatText"
 local BOX_W, BOX_H = 200, 30
+local LINE_H   = 1.15    -- a message's line height per point of font size
+local LINE_GAP = 2       -- px kept between staggered messages
 
 local DEFAULTS = {
     enabled = false,
@@ -204,7 +206,7 @@ local function Build()
         fs.fade = ag:CreateAnimation("Alpha")
         fs.fade:SetFromAlpha(1)
         fs.fade:SetToAlpha(0)
-        ag:SetScript("OnFinished", function() fs:Hide() end)
+        ag:SetScript("OnFinished", function() fs:Hide(); fs.live = nil end)
         fs.ag = ag
         pool[i] = fs
     end
@@ -219,22 +221,74 @@ local function Build()
     RegisterMover()
 end
 
+-- How far along its scroll a message is at `now`, as a fraction of the
+-- distance: linear for Straight, the arc's height for Fountain (its control
+-- points are evenly spaced in time), none for Static.
+local function Travel(m, now)
+    local mode = S.anim
+    if mode == "static" then return 0 end
+    local f = (now - m.t0) / S.duration
+    if f > 1 then f = 1 end
+    if mode ~= "fountain" then return f end
+    local seg = f * #ARC
+    local i = math.floor(seg)
+    if i >= #ARC then return ARC[#ARC][2] end
+    local from = i > 0 and ARC[i][2] or 0
+    return from + (ARC[i + 1][2] - from) * (seg - i)
+end
+
+-- Stagger Hits: before a message of line height h starts at the anchor, push
+-- its lane's live messages (the whole stream, or one side of the fountain) on
+-- along the scroll until the one nearest the anchor sits clear of it. They all
+-- move together, so the spacing holds, and the newest always starts at the
+-- anchor; Static stacks the same way.
+local function ClearLane(lane, h)
+    local now, dur, dy = GetTime(), S.duration, S.dy
+    local s = dy < 0 and -1 or 1
+    local near, nearD
+    for i = 1, POOL_SIZE do
+        local m = pool[i]
+        if m.live and m.lane == lane and now - m.t0 < dur then
+            local d = s * (m.y0 + dy * Travel(m, now))
+            if not nearD or d < nearD then near, nearD = m, d end
+        end
+    end
+    if not near then return end
+    -- Scrolling up, the new message's top must clear the nearest one's bottom;
+    -- scrolling down, the nearest one's top must clear the anchor.
+    local need = (s > 0 and h or near.h) + LINE_GAP - nearD
+    if need <= 0 then return end
+    local shift = s * need
+    for i = 1, POOL_SIZE do
+        local m = pool[i]
+        if m.live and m.lane == lane and now - m.t0 < dur then
+            m.y0 = m.y0 + shift
+            m:SetPoint("BOTTOM", anchor, "BOTTOM", 0, m.y0)
+        end
+    end
+end
+
 -- Round-robin pool: a burst past POOL_SIZE restarts the oldest message.
 local function Emit(fmt, value, c, crit)
     nextIdx = nextIdx % POOL_SIZE + 1
     local fs = pool[nextIdx]
-    local stagger = (not crit and S.stagger) and fastrandom(-20, 20) or 0
     fs.ag:Stop()
+    fs.live = nil
+    local lane = 0
     if S.anim == "fountain" then
         -- Alternate sides, like Blizzard's fountain
         xDir = -xDir
+        lane = xDir
         local rise, sy = S.rise, S.dy
         for j = 1, #ARC do
             fs.cps[j]:SetOffset(xDir * ARC[j][1] * rise, ARC[j][2] * sy)
         end
     end
+    local h = (crit and S.critSize or S.size) * LINE_H
+    if S.stagger then ClearLane(lane, h) end
+    fs.t0, fs.y0, fs.h, fs.lane, fs.live = GetTime(), 0, h, lane, true
     fs:ClearAllPoints()
-    fs:SetPoint("BOTTOM", anchor, "BOTTOM", stagger, 0)
+    fs:SetPoint("BOTTOM", anchor, "BOTTOM", 0, 0)
     -- A pooled string's font changes only with the settings or between a hit
     -- and a crit.
     local kind = crit and 2 or 1

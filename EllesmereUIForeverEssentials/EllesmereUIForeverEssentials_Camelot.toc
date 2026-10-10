@@ -5,12 +5,15 @@
 ## Group: EllesmereUI
 ## Notes: Essential tools for WoW Forever.
 ## Author: Ellesmere
-## Version: 9.3.5
+## Version: 9.4
 ## Dependencies: EllesmereUI
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Lua
 EllesmereUIForeverEssentials.lua
+
+# General (spell uprank)
+EllesmereUIForeverEssentials_Uprank.lua
 
 # Travel (flight timer)
 EllesmereUIForeverEssentials_FlightTimerData.lua
@@ -24,3 +27,7 @@ EllesmereUIForeverEssentials_ThreatFeed.lua
 
 # Loot (loot feed)
 EllesmereUIForeverEssentials_LootFeed.lua
+
+# Macros (macro manager)
+EllesmereUIForeverEssentials_MacroBuilder.lua
+EllesmereUIForeverEssentials_MacroManager.lua

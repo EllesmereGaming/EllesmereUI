@@ -82,7 +82,7 @@ local function Build()
     pf[#pf + 1] = { popup = panel }
     EllesmereUI.PadHint(panel, "nodepass")
 
-    EllesmereUI.SolidTex(panel, "BACKGROUND", 0.06, 0.08, 0.10, 1):SetAllPoints()
+    EllesmereUI.SolidTex(panel, "BACKGROUND", 0.077, 0.068, 0.058, 1):SetAllPoints()
     EllesmereUI.MakeBorder(panel, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
 
     local title = EllesmereUI.MakeFont(panel, 18, "", 1, 1, 1)

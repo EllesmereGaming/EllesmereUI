@@ -11,8 +11,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- Known behavior deltas vs the old element (documented for patch notes):
 --   * icon caps apply per enabled class, not as one total across the union
 --   * sorting applies within each class group, not across all shown icons
---   * sated/always-hidden spellID excludes are inert on assistable units
---     (engine identity gate); enemy units filter exactly as before
+--   * on assistable units the spellID excludes (always-hidden, Hide
+--     Exhaustion) work only for never-secret spells (the engine's identity
+--     gate exempts them; Exhaustion/Sated are); enemy units filter exactly as
+--     before
 
 local _, ns = ...
 
@@ -22,10 +24,14 @@ local AURA_CROP_HEIGHT = 0.80
 local AURA_ZOOM = 0.07
 local FALLBACK_FONT = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
 
+-- The Bloodlust lockouts: hidden while the unit's Hide Exhaustion (its Debuff
+-- Filter, s.debuffHideExhaustion, nil = on) is on. Player Aura Bars' own Hide
+-- Exhaustion reads the same set.
 local SATED_DEBUFFS = {
     [57723] = true, [57724] = true, [80354] = true, [95809] = true,
     [160455] = true, [264689] = true, [390435] = true,
 }
+ns.UF_SatedDebuffs = SATED_DEBUFFS
 local ALWAYS_HIDE_DEBUFFS = {
     [1254550] = true, -- Arcane Empowerment
     [308312]  = true, -- Time Trial Practice
@@ -1125,7 +1131,9 @@ local function PlayerDebuffChain(s)
     end
     local ex = {}
     for id in pairs(ALWAYS_HIDE_DEBUFFS) do ex[id] = true end
-    for id in pairs(SATED_DEBUFFS) do ex[id] = true end
+    if s.debuffHideExhaustion ~= false then
+        for id in pairs(SATED_DEBUFFS) do ex[id] = true end
+    end
     local cand = { excludeSpellIDs = ex }
     if subCand then
         for k, v in pairs(subCand) do cand[k] = v end
@@ -1485,7 +1493,7 @@ local function ElementSize(unit, base, s)
         -- strips skip pixel snapping while the icon texture snaps, so a
         -- fractional far edge leaves the border off the icon at a
         -- non-pixel-perfect scale.
-        size = math.floor(size / m + 0.5 + 0.001) * m
+        size = PP.FromPixels(PP.ToPixels(size))
     end
     local cropped = Pick(isBuff, s.buffCropIcons, s.debuffCropIcons)
     local h = size
@@ -1718,7 +1726,7 @@ local function CastbarBelowFrame(unit, frame)
         vb = b or 0
     end
     -- frame.Castbar is the status bar; its PARENT is the holder the unlock
-    -- system moves (see CreateCastBar in EllesmereUIUnitFrames.lua).
+    -- system moves (see CreateCastBar in EUI_UnitFrames_Castbar.lua).
     local cb = frame and frame.Castbar and frame.Castbar:GetParent()
     if not cb then return true end
     local fl, fr, fb = frame:GetLeft(), frame:GetRight(), frame:GetBottom()
@@ -2201,13 +2209,16 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
     end
     AK.SetContainerRowWidth(container, rowWidth)
 
-    -- Candidate filters: (debuffs) the sated/always-hide excludes. Caster
-    -- scope rides the chain links' own PLAYER tokens, never this table.
+    -- Candidate filters: (debuffs) the always-hide and Hide Exhaustion
+    -- excludes. Caster scope rides the chain links' own PLAYER tokens, never
+    -- this table.
     local cand = nil
     if not isBuff then
         local ex = {}
         for id in pairs(ALWAYS_HIDE_DEBUFFS) do ex[id] = true end
-        for id in pairs(SATED_DEBUFFS) do ex[id] = true end
+        if s.debuffHideExhaustion ~= false then
+            for id in pairs(SATED_DEBUFFS) do ex[id] = true end
+        end
         -- Tracked Auras (target/focus/boss): user excludes hide everywhere; active
         -- INCLUDES are excluded from every OTHER group while an include link renders
         -- them (its own cand overrides both spell-ID sets). Show All carries no
@@ -2404,7 +2415,7 @@ local function CfgFP(unit, base, s, frame)
     -- merge flag or buff visibility flips. Off (the default), the extra
     -- slots are constant nils so no existing fingerprint ever moves.
     local mAB = s.debuffAnchorBuffs == true
-    return FP(size, h, spX, spY, simpleOn, simpleMode, sOffX, sOffY,
+    local fp = FP(size, h, spX, spY, simpleOn, simpleMode, sOffX, sOffY,
         Pick(isBuff, s.buffAnchor, s.debuffAnchor), Pick(isBuff, s.buffGrowth, s.debuffGrowth),
         Pick(isBuff, s.buffOffsetX, s.debuffOffsetX), Pick(isBuff, s.buffOffsetY, s.debuffOffsetY),
         showCb, cbH, Pick(isBuff, s.maxBuffs, s.maxDebuffs),
@@ -2420,6 +2431,10 @@ local function CfgFP(unit, base, s, frame)
         -- include between the two scope links.
         TriListFP(s.debuffExclude), TriListFP(s.debuffInclude),
         TriListFP(s.debuffIncludeAnyCaster), TriListFP(s.debuffIncludeMine))
+    -- Hide Exhaustion (debuffs; nil = on) feeds ApplyGroupConfig's excludes.
+    -- Marked only while off, so a default fingerprint stays as it was.
+    if not isBuff and s.debuffHideExhaustion == false then fp = fp .. "|lx0" end
+    return fp
 end
 
 ------------------------------------------------------------------------------
@@ -2433,11 +2448,11 @@ end
 ------------------------------------------------------------------------------
 
 local DISPEL_SLOTS = {
-    { key = "magic",   colorKey = "dispelColorMagic",   fallback = { 0.349, 0.475, 1.0 },  level = 5 },
-    { key = "curse",   colorKey = "dispelColorCurse",   fallback = { 0.636, 0.0, 0.64 },   level = 4 },
-    { key = "disease", colorKey = "dispelColorDisease", fallback = { 0.671, 0.384, 0.098 }, level = 3 },
-    { key = "poison",  colorKey = "dispelColorPoison",  fallback = { 0.0, 0.706, 0.286 },  level = 2 },
-    { key = "bleed",   colorKey = "dispelColorBleed",   fallback = { 0.75, 0.15, 0.15 },   level = 1 },
+    { key = "magic",   colorKey = "dispelColorMagic",   fallback = { 0.349, 0.475, 1.0 },  level = 5, atlas = "RaidFrame-Icon-DebuffMagic" },
+    { key = "curse",   colorKey = "dispelColorCurse",   fallback = { 0.636, 0.0, 0.64 },   level = 4, atlas = "RaidFrame-Icon-DebuffCurse" },
+    { key = "disease", colorKey = "dispelColorDisease", fallback = { 0.671, 0.384, 0.098 }, level = 3, atlas = "RaidFrame-Icon-DebuffDisease" },
+    { key = "poison",  colorKey = "dispelColorPoison",  fallback = { 0.0, 0.706, 0.286 },  level = 2, atlas = "RaidFrame-Icon-DebuffPoison" },
+    { key = "bleed",   colorKey = "dispelColorBleed",   fallback = { 0.75, 0.15, 0.15 },   level = 1, atlas = "RaidFrame-Icon-DebuffBleed" },
 }
 local DISPEL_TYPE_TOKENS = { magic = "Magic", curse = "Curse", disease = "Disease", poison = "Poison", bleed = "Bleed" }
 
@@ -2656,6 +2671,30 @@ local function ApplyDispelSlotStyle(button, d, style)
         ApplyDispelSeparatorCopy(button, d, "ufPowerSeam", ub and uf.Power and uf.Power._pbSeam, c)
         ApplyDispelSeparatorCopy(button, d, "ufPortraitSeam", ub and uf._portraitSeparator, c)
     end
+
+    -- Type Icon Position: the type's icon on a corner of the health bar (Raid
+    -- Frames parity). Only the live twin carries style.icon. health+18+level
+    -- (frame+21..+25) draws it over the border and the texts (frame+20), in
+    -- the Magic > ... > Bleed order, at most level with the raid marker.
+    local ic = style.icon
+    if ic then
+        if not d.ufIconHost then
+            local host = CreateFrame("Frame", nil, button)
+            local tex = host:CreateTexture(nil, "ARTWORK")
+            tex:SetAllPoints(host)
+            d.ufIconTex = tex
+            d.ufIconHost = host
+        end
+        local host = d.ufIconHost
+        host:SetFrameLevel(health:GetFrameLevel() + 18 + (style.level or 1))
+        d.ufIconTex:SetAtlas(ic.atlas)
+        host:SetSize(ic.size, ic.size)
+        host:ClearAllPoints()
+        host:SetPoint(ic.corner, health, ic.corner, ic.offX, ic.offY)
+        host:Show()
+    elseif d.ufIconHost then
+        d.ufIconHost:Hide()
+    end
 end
 
 local function DispelStyleKey(slotKey)
@@ -2669,10 +2708,12 @@ local function DispelCustomBorderOn(p)
     return p.dispelCustomBorder == true and ns.UF_CustomBorderOn(p.player)
 end
 
--- The slots show while the overlay or Color Custom Borders needs them; both off
--- (the default), the container stays hidden and parses nothing.
+-- The slots show while the overlay, Color Custom Borders or the type icon
+-- needs them; all off (the default), the container stays hidden and parses
+-- nothing.
 local function DispelSlotsShown(p)
     return (p.dispelOverlay or "none") ~= "none" or DispelCustomBorderOn(p)
+        or p.showDispelIcons == true
 end
 
 local function BuildDispelStyles(frame)
@@ -2699,6 +2740,8 @@ local function BuildDispelStyles(frame)
             px = EllesmereUI.BorderPx(s.borderSizePx, bs, btex),
         }
     end
+    -- Type Icon Position: one geometry for every type's icon (its art per slot).
+    local iconCorner = p.showDispelIcons == true and (p.dispelIconPosition or "right"):upper() or nil
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
         -- A type the engine token can never match keeps using the PLAIN slot in
@@ -2708,9 +2751,16 @@ local function BuildDispelStyles(frame)
         local byMeLive = byMe and not tokenBlind
         local col = p[slot.colorKey]
         local color = { r = col and col.r or slot.fallback[1], g = col and col.g or slot.fallback[2], b = col and col.b or slot.fallback[3] }
-        -- The border copy rides the live twin only; the inactive one draws nothing.
+        -- The border copy and the type icon ride the live twin only; the inactive
+        -- one draws nothing.
         local plainCB, byMeCB
         if byMeLive then byMeCB = customBorder else plainCB = customBorder end
+        local icon = iconCorner and {
+            atlas = slot.atlas, corner = iconCorner, size = p.dispelIconSize or 16,
+            offX = p.dispelIconOffsetX or 0, offY = p.dispelIconOffsetY or 0,
+        } or nil
+        local plainIcon, byMeIcon
+        if byMeLive then byMeIcon = icon else plainIcon = icon end
         AK.styles[DispelStyleKey(slot.key)] = {
             width = 1, height = 1,
             noRegions = true,
@@ -2721,6 +2771,7 @@ local function BuildDispelStyles(frame)
             healthFrame = frame.Health,
             unitFrame = frame,
             customBorder = plainCB,
+            icon = plainIcon,
             applyExtra = ApplyDispelSlotStyle,
         }
         AK.styles[DispelStyleKey(slot.key .. "_byme")] = {
@@ -2733,6 +2784,7 @@ local function BuildDispelStyles(frame)
             healthFrame = frame.Health,
             unitFrame = frame,
             customBorder = byMeCB,
+            icon = byMeIcon,
             applyExtra = ApplyDispelSlotStyle,
         }
     end
@@ -2809,7 +2861,7 @@ local function DispelFP(p)
     -- dimensions follow the source texture anchors without a restyle.
     local s = p.player
     local cb = p.dispelCustomBorder == true and s ~= nil
-    return FP(p.dispelOverlay, p.dispelOverlayOpacity, p.dispelOverlayByMe == true,
+    local fp = FP(p.dispelOverlay, p.dispelOverlayOpacity, p.dispelOverlayByMe == true,
         TokenBlindDispelSlot("poison") and 1 or 0,
         CK(p.dispelColorMagic), CK(p.dispelColorCurse),
         CK(p.dispelColorDisease), CK(p.dispelColorPoison), CK(p.dispelColorBleed),
@@ -2820,6 +2872,12 @@ local function DispelFP(p)
             s.portraitSize, s.detachedPortraitShape, s.detachedPortraitOuterRing,
             s.detachedPortraitOuterRingScale, s.borderPowerSeam, s.powerPosition,
             s.powerHeight, s.portraitSeparator) or false)
+    -- Type Icon Position: marked only while on, so an off print stays as it was.
+    if p.showDispelIcons == true then
+        fp = fp .. "|ti|" .. FP(p.dispelIconPosition, p.dispelIconSize,
+            p.dispelIconOffsetX, p.dispelIconOffsetY)
+    end
+    return fp
 end
 
 local function ReloadDispelSlots(frame, entry)

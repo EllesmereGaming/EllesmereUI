@@ -43,10 +43,11 @@ local function HideBorder(button)
         button.NormalTexture:SetAlpha(0)
     end
     if button.Border then
-        -- Show Equipped Border (Icon Effects) keeps Blizzard's equipped-item
-        -- border, in our square art; its shown state stays with the updates.
+        -- Show Equipped Item Color (Icon Effects) keeps Blizzard's
+        -- equipped-item border, in our square art; its shown state stays
+        -- with the updates.
         if EAB.db.profile.showEquippedBorder then
-            ns.AB_EquippedBorderLook(button.Border)
+            ns.AB_EquippedBorderLook(button.Border, button)
         else
             button.Border:Hide()
             button.Border:SetAlpha(0)
@@ -72,19 +73,64 @@ local function SetSquareTexture(texture, texPath)
     texture:SetAllPoints(texture:GetParent())
 end
 
--- Show Equipped Border (Icon Effects, profile.showEquippedBorder): Blizzard's
--- equipped-item border on a square button, in our square highlight art and
--- Blizzard's own green at half opacity. The art swap fires the Border's
+-- Show Equipped Item Color (Icon Effects, profile.showEquippedBorder):
+-- Blizzard's equipped-item border on a square button, in our square highlight
+-- art and the equipped item's rarity color (Blizzard's own green at half
+-- opacity when the item cannot be found). The art swap fires the Border's
 -- SetAtlas hook (MakeButtonSquare) again, which `busy` turns away.
 do
     local busy = false
-    function ns.AB_EquippedBorderLook(bd)
+    local IsEquippedAction, GetActionTexture = C_ActionBar.IsEquippedAction, C_ActionBar.GetActionTexture
+
+    -- Rarity of the equipped item an action holds, read from the slot that
+    -- holds it (an item's quality can differ from its base record): an item
+    -- action by its ID, anything else (a macro) by its icon.
+    local function EquippedQuality(action)
+        local aType, id = GetActionInfo(action)
+        local isItem = aType == "item" and id
+        local tex = not isItem and GetActionTexture(action)
+        if not (isItem or tex) then return end
+        for slot = 1, 19 do
+            local hit
+            if isItem then
+                hit = GetInventoryItemID("player", slot) == id
+            else
+                hit = GetInventoryItemTexture("player", slot) == tex
+            end
+            if hit then return GetInventoryItemQuality("player", slot) end
+        end
+        if isItem then return C_Item.GetItemQualityByID(id) end
+    end
+
+    function ns.AB_EquippedBorderLook(bd, btn)
         if busy then return end
         busy = true
         SetSquareTexture(bd, HIGHLIGHT_TEXTURES[1])
         busy = false
-        bd:SetVertexColor(0, 1, 0, 0.5)
+        local a = btn and btn:GetAttribute("action")
+        local q = a and IsEquippedAction(a) and EquippedQuality(a)
+        if q then
+            local r, g, b = C_Item.GetItemQualityColor(q)
+            bd:SetVertexColor(r, g, b, 1)
+        else
+            bd:SetVertexColor(0, 1, 0, 0.5)
+        end
         bd:SetAlpha(1)
+    end
+
+    -- The equipped-item Border from live slot contents, for every path that
+    -- changes what a button holds (slot changes, page flips, bar reveals,
+    -- setup). Our square buttons show it only with Show Equipped Item Color
+    -- on; the Blizzard and Classic styles keep Blizzard's own look.
+    function ns.AB_SyncEquippedBorder(btn, action)
+        local bd = btn.Border
+        if not bd then return end
+        local fd = ns._eabFD[btn]
+        local square = fd and fd.squared
+        if square and not EAB.db.profile.showEquippedBorder then return end
+        local on = action and IsEquippedAction(action) and true or false
+        if square and on then ns.AB_EquippedBorderLook(bd, btn) end
+        bd:SetShown(on)
     end
 end
 
@@ -506,12 +552,13 @@ local function MakeButtonSquare(btn)
         end
     end
     -- Blizzard's equipped-item Border: it calls Border:SetAtlas()/Show() on
-    -- refreshes and EAB owns the visible border, so it is suppressed, unless
-    -- Show Equipped Border keeps it (in our square art).
+    -- refreshes (its Show follows a green SetVertexColor) and EAB owns the
+    -- visible border, so it is suppressed, unless Show Equipped Item Color
+    -- keeps it (in our square art and the item's rarity color).
     if btn.Border and not fd.borderHooked then
         local function BorderRefresh(self)
             if EAB.db.profile.showEquippedBorder then
-                ns.AB_EquippedBorderLook(self)
+                ns.AB_EquippedBorderLook(self, btn)
             else
                 self:SetAlpha(0)
                 EAB_VTABLE.HideRegionDeferred(self)
@@ -788,7 +835,8 @@ local function ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brd
                 if bdFrame then bdFrame:Hide() end
             end
         end
-        -- Re-enable Blizzard's Border texture (was hidden for custom shapes)
+        -- Re-enable Blizzard's Border texture (a custom shape hides it while
+        -- Show Equipped Item Color is off)
         if btn.Border then
             SetSquareTexture(btn.Border, HIGHLIGHT_TEXTURES[1])
         end
@@ -885,10 +933,11 @@ local function ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brd
     if btn.NewActionTexture then pcall(btn.NewActionTexture.AddMaskTexture, btn.NewActionTexture, overlayMask) end
     if btn.Flash then pcall(btn.Flash.AddMaskTexture, btn.Flash, overlayMask) end
     if btn.QuickKeybindHighlightTexture then pcall(btn.QuickKeybindHighlightTexture.AddMaskTexture, btn.QuickKeybindHighlightTexture, overlayMask) end
-    -- Blizzard's item-quality Border uses a round atlas that does not match
-    -- non-square shapes, so hide it whenever a custom shape is on.
+    -- The equipped-item Border follows the shape like the overlays above
+    -- (Show Equipped Item Color); with that option off it stays hidden.
     if btn.Border then
-        btn.Border:Hide()
+        pcall(btn.Border.AddMaskTexture, btn.Border, overlayMask)
+        if not EAB.db.profile.showEquippedBorder then btn.Border:Hide() end
     end
     if fd.slotBG then pcall(fd.slotBG.AddMaskTexture, fd.slotBG, mask) end
     if fd.iconBg then pcall(fd.iconBg.AddMaskTexture, fd.iconBg, mask) end

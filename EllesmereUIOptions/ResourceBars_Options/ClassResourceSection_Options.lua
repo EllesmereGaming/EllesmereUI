@@ -55,6 +55,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
     local DB, PP, SmoothRefresh, RefreshClass = env.DB, env.PP, env.SmoothRefresh, env.RefreshClass
     local RebuildClass, RebuildPower, AddFormBarBtn, AddFormTextBtn = env.RebuildClass, env.RebuildPower, env.AddFormBarBtn, env.AddFormTextBtn
     local AttachThresholdNotice, ShowBandEditor, ShowBuffEditor, ShowSpenderEditor = env.AttachThresholdNotice, env.ShowBandEditor, env.ShowBuffEditor, env.ShowSpenderEditor
+    local SkinCardButton = env.SkinCardButton
     local BAND_HELP_TIP, BAND_REPLACES_TIP, BUFF_HELP_TIP, SPENDER_HELP_TIP = env.BAND_HELP_TIP, env.BAND_REPLACES_TIP, env.BUFF_HELP_TIP, env.SPENDER_HELP_TIP
     local STAGGER_PCT_TIP, CLASS_COLORS, SIDE_PAD, THR_BORDER_WHITE = env.STAGGER_PCT_TIP, env.CLASS_COLORS, env.SIDE_PAD, env.THR_BORDER_WHITE
     local PAGE_DISPLAY = env.PAGE_DISPLAY
@@ -416,6 +417,30 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                 end,
                 true, 20)
             PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            rgn._lastInline = borderSwatch  -- the Corner Radius cog chains left of the swatch
+            -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
+            -- border size control. The stock styles keep the bars square.
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(classBsRow._rightRegion, {
+                    title = "Corner Radius", tip = "Corner Radius",
+                    disabled = function()
+                        if classOff() or EllesmereUI.BlizzStyle.Get("resourcebars") then return true end
+                        local c = cfg(); return not EllesmereUI.RoundedStyleOK(c and c.borderTexture)
+                    end,
+                    disabledTooltip = function()
+                        if EllesmereUI.BlizzStyle.Get("resourcebars") then return EllesmereUI.BlizzStyle.Label("resourcebars") end
+                        if classOff() then return "Class Resource" end
+                        return "This option requires the Solid, Glow or Shadow border style."
+                    end,
+                    requireState = function() return EllesmereUI.BlizzStyle.Get("resourcebars") and "disabled" or "enabled" end,
+                    rows = EllesmereUI.RoundedCornerRows({
+                        { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                          get = function() local c = cfg(); return c and c.cornerRadius or 0 end,
+                          set = function(v) local c = cfg(); if not c then return end; c.cornerRadius = v; RebuildClass() end },
+                    }, function() local c = cfg(); return c and c.cornerMask end,
+                       function(v) local c = cfg(); if not c then return end; c.cornerMask = v; RebuildClass() end),
+                })
+            end
             EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
         end
         if not EllesmereUI._prebuilding then
@@ -572,19 +597,20 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                     local r, g, b, a = p.secondary.borderR, p.secondary.borderG, p.secondary.borderB, p.secondary.borderA
                     local sz = p.secondary.borderSize or 1
                     local bt = p.secondary.borderTexture or "solid"
+                    local cr, cm = p.secondary.cornerRadius or 0, p.secondary.cornerMask
                     p.primary.borderR, p.primary.borderG, p.primary.borderB, p.primary.borderA = r, g, b, a
-                    p.primary.borderSize = sz; p.primary.borderTexture = bt
+                    p.primary.borderSize = sz; p.primary.borderTexture = bt; p.primary.cornerRadius = cr; p.primary.cornerMask = cm
                     ns.ERB_CopyBorderPx(p.primary, p.secondary)
                     p.health.borderR, p.health.borderG, p.health.borderB, p.health.borderA = r, g, b, a
-                    p.health.borderSize = sz; p.health.borderTexture = bt
+                    p.health.borderSize = sz; p.health.borderTexture = bt; p.health.cornerRadius = cr; p.health.cornerMask = cm
                     ns.ERB_CopyBorderPx(p.health, p.secondary)
                     SmoothRefresh(); EllesmereUI:RefreshPage(ns.ERB_TexturedBars(p) ~= was)
                 end,
                 isSynced = function()
                     local p = DB(); if not p then return false end
                     local sr, sg, sb, sa, ssz = p.secondary.borderR, p.secondary.borderG, p.secondary.borderB, p.secondary.borderA, p.secondary.borderSize or 1
-                    local sbt = p.secondary.borderTexture or "solid"
-                    local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt and ns.ERB_SameBorderPx(t, p.secondary) end
+                    local sbt, scr, scm = p.secondary.borderTexture or "solid", p.secondary.cornerRadius or 0, p.secondary.cornerMask or 15
+                    local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt and (t.cornerRadius or 0) == scr and (t.cornerMask or 15) == scm and ns.ERB_SameBorderPx(t, p.secondary) end
                     return eq(p.primary) and eq(p.health)
                 end,
                 flashTargets = function() return { ctx.syncRows.classBorder, ctx.syncRows.powerBorder, ctx.syncRows.healthBorder } end,
@@ -847,7 +873,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
     }, { disabled = function() local c = cfg(); return (not c) or (not c.enabled) or c.darkTheme end,
          disabledTooltip = function()
              local c = cfg()
-             if c and c.darkTheme then return "This option requires Dark Mode Class Resource to be disabled. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors." end
+             if c and c.darkTheme then return "This option requires Class Resource Bar Dark Mode to be off. Dark Mode colors can be adjusted in Global Settings -> Colors." end
              return "Class Resource"
          end })
     -- Fill Color inline cog: Charged Combo Point color
@@ -1223,54 +1249,15 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
         local CR_ROLE_DPS     = -3
         local _crRoleCache = {}
 
+        -- The shared spec list (WoW Forever: one row per class), locked by
+        -- what the existing entries claim; no role shortcut rows here.
         local function BuildSpecItems()
-            local items = {}
-            items[#items + 1] = { key = 0, label = "All Specs", isAction = true, lockedFn = ns.HasCRAllSpecs }
-            -- WoW Forever: one row per class, keyed by its class token, standing for
-            -- every retail spec of the class (the getter and setter expand it). A row
-            -- locks while any spec of its class is claimed.
-            if EllesmereUI.IS_FOREVER then
-                local classes = EllesmereUI.ForeverClasses()
-                for n = 1, #classes do
-                    local token = classes[n]
-                    local ids = EllesmereUI.ForeverClassSpecIDs(token)
-                    items[#items + 1] = { key = token, label = EllesmereUI.ForeverClassName(token), lockedFn = function()
-                        for i = 1, #ids do
-                            if ns.IsCRSpecClaimed(ids[i]) then return true end
-                        end
-                        return false
-                    end }
-                end
-                return items
-            end
-
-            local classList = {}
-            for classID = 1, (GetNumClasses and GetNumClasses() or 13) do
-                local className, classFile = GetClassInfo(classID)
-                if className then
-                    classList[#classList + 1] = { classID = classID, className = className }
-                end
-            end
-            table.sort(classList, function(a, b) return a.className < b.className end)
-
-            local healers, tanks, dps = {}, {}, {}
-            for _, cls in ipairs(classList) do
-                items[#items + 1] = { isHeader = true, label = cls.className }
-                local numSpecs = GetNumSpecializationsForClassID and GetNumSpecializationsForClassID(cls.classID) or 0
-                for specIndex = 1, numSpecs do
-                    local specID, specName, _, _, role = GetSpecializationInfoForClassID(cls.classID, specIndex)
-                    if specID and specName then
-                        local sid = specID
-                        items[#items + 1] = { key = specID, label = specName, lockedFn = function() return ns.IsCRSpecClaimed(sid) end }
-                        if role == "HEALER" then healers[#healers + 1] = specID
-                        elseif role == "TANK" then tanks[#tanks + 1] = specID
-                        else dps[#dps + 1] = specID end
-                    end
-                end
-            end
-            _crRoleCache[CR_ROLE_HEALERS] = healers
-            _crRoleCache[CR_ROLE_TANKS] = tanks
-            _crRoleCache[CR_ROLE_DPS] = dps
+            local items, roles = EllesmereUI.SpecPickItems({
+                lockedFn = function(id) return ns.IsCRSpecClaimed(id) end,
+                allLockedFn = ns.HasCRAllSpecs })
+            _crRoleCache[CR_ROLE_HEALERS] = roles[CR_ROLE_HEALERS]
+            _crRoleCache[CR_ROLE_TANKS] = roles[CR_ROLE_TANKS]
+            _crRoleCache[CR_ROLE_DPS] = roles[CR_ROLE_DPS]
             return items
         end
 
@@ -1331,7 +1318,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 				backBtn:SetFrameLevel(thrPage:GetFrameLevel() + 2)
 				local backBg = backBtn:CreateTexture(nil, "BACKGROUND")
 				backBg:SetAllPoints()
-				backBg:SetColorTexture(0.06, 0.08, 0.10, 0.50)
+				backBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
 				local backBrd = EllesmereUI.MakeBorder(backBtn, 1, 1, 1, 0.12, PP)
 
 				local backIcon = backBtn:CreateTexture(nil, "ARTWORK")
@@ -1349,13 +1336,13 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 				backLbl:SetText(EllesmereUI.L("Back"))
 
 				backBtn:SetScript("OnEnter", function()
-					backBg:SetColorTexture(0.11, 0.13, 0.15, 0.50)
+					backBg:SetColorTexture(0.119, 0.111, 0.104, 0.50)
 					backBrd:SetColor(1, 1, 1, 0.22)
 					backIcon:SetAlpha(0.85)
 					backLbl:SetAlpha(0.85)
 				end)
 				backBtn:SetScript("OnLeave", function()
-					backBg:SetColorTexture(0.06, 0.08, 0.10, 0.50)
+					backBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
 					backBrd:SetColor(1, 1, 1, 0.12)
 					backIcon:SetAlpha(0.6)
 					backLbl:SetAlpha(0.55)
@@ -1460,7 +1447,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 					PP.Size(addBtn, ADD_W, BUTTON_H)
 					addBtn:SetPoint("LEFT", specDDHost, "RIGHT", GAP_L, 0)
 					addBtn:SetFrameLevel(ddRow:GetFrameLevel() + 2)
-					local addBg = EllesmereUI.SolidTex(addBtn, "BACKGROUND", 0.05, 0.07, 0.09, 0.92)
+					local addBg = EllesmereUI.SolidTex(addBtn, "BACKGROUND", 0.069, 0.058, 0.047, 0.92)
 					addBg:SetAllPoints()
 					addBtn._border = EllesmereUI.MakeBorder(addBtn, 1, 1, 1, 0.4, PP)
 					local addLbl = EllesmereUI.MakeFont(addBtn, 11, nil, 1, 1, 1)
@@ -1552,7 +1539,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 
 				local bg = specContainer:CreateTexture(nil, "BACKGROUND")
 				bg:SetAllPoints()
-				bg:SetColorTexture(0.06, 0.08, 0.10, 0.95)
+				bg:SetColorTexture(0.077, 0.068, 0.058, 0.95)
 				PP.CreateBorder(specContainer, 1, 1, 1, 0.15, 1, "BORDER", 7)
 
 				local headerH = math.abs(curY)
@@ -1626,7 +1613,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 				PP.Size(detailC, contentHalfSize, specContainerH + (ROW_H - INNERPAD))
 				local dBg = detailC:CreateTexture(nil, "BACKGROUND")
 				dBg:SetAllPoints()
-				dBg:SetColorTexture(0.06, 0.08, 0.10, 0.95)
+				dBg:SetColorTexture(0.077, 0.068, 0.058, 0.95)
 				PP.CreateBorder(detailC, 1, 1, 1, 0.15, 1, "BORDER", 7)
 				detailC:EnableMouse(true)
 
@@ -1749,7 +1736,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 				talentDis:EnableMouse(true)
 				local talentDisTex = talentDis:CreateTexture(nil, "OVERLAY")
 				talentDisTex:SetAllPoints()
-				talentDisTex:SetColorTexture(0.06, 0.08, 0.10, 0.6)
+				talentDisTex:SetColorTexture(0.077, 0.068, 0.058, 0.6)
 				talentDis:SetScript("OnEnter", function()
 					EllesmereUI.ShowWidgetTooltip(talentDis, EllesmereUI.L("Talent gating is only available while playing this spec's class"))
 				end)
@@ -1976,7 +1963,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 				threshDis:EnableMouse(true)
 				local threshDisTex = threshDis:CreateTexture(nil, "OVERLAY")
 				threshDisTex:SetAllPoints()
-				threshDisTex:SetColorTexture(0.06, 0.08, 0.10, 0.7)
+				threshDisTex:SetColorTexture(0.077, 0.068, 0.058, 0.7)
 				threshDis:SetScript("OnEnter", function()
 					local tip = (threshRow._disTip == "MULTI") and BAND_REPLACES_TIP
 						or EllesmereUI.DisabledTooltip("Threshold Color")
@@ -1991,21 +1978,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 				PP.Size(bandsBtn, 60, 22)
 				bandsBtn:SetPoint("RIGHT", multiRow, "RIGHT", 0, 0)
 				bandsBtn:SetFrameLevel(multiRow:GetFrameLevel() + 4)
-				local bbBg = bandsBtn:CreateTexture(nil, "BACKGROUND")
-				bbBg:SetAllPoints()
-				bbBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-				bandsBtn._border = EllesmereUI.MakeBorder(bandsBtn, 1, 1, 1, 0.08, PP)
-				local bbLbl = EllesmereUI.MakeFont(bandsBtn, 12, nil, 1, 1, 1)
-				bbLbl:SetAlpha(0.8); bbLbl:SetPoint("CENTER")
-				bbLbl:SetText(EllesmereUI.L("Bands"))
-				bandsBtn:SetScript("OnEnter", function(self)
-					bbBg:SetColorTexture(0.16, 0.16, 0.16, 0.9)
-					EllesmereUI.ShowWidgetTooltip(self, BAND_HELP_TIP)
-				end)
-				bandsBtn:SetScript("OnLeave", function(self)
-					bbBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-					EllesmereUI.HideWidgetTooltip()
-				end)
+				SkinCardButton(bandsBtn, EllesmereUI.L("Bands"), BAND_HELP_TIP)
 				bandsBtn:SetScript("OnClick", function(self)
 					local ent = CurEntry(); if not ent then return end
 					local isStag
@@ -2050,7 +2023,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 				multiDis:EnableMouse(true)
 				local multiDisTex = multiDis:CreateTexture(nil, "OVERLAY")
 				multiDisTex:SetAllPoints()
-				multiDisTex:SetColorTexture(0.06, 0.08, 0.10, 0.7)
+				multiDisTex:SetColorTexture(0.077, 0.068, 0.058, 0.7)
 				multiDis:SetScript("OnEnter", function()
 					EllesmereUI.ShowWidgetTooltip(multiDis, EllesmereUI.L("Unavailable with Enhancement 5-bar style."))
 				end)
@@ -2064,13 +2037,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 				PP.Size(buffsBtn, 60, 22)
 				buffsBtn:SetPoint("RIGHT", buffRow, "RIGHT", 0, 0)
 				buffsBtn:SetFrameLevel(buffRow:GetFrameLevel() + 4)
-				local fbBg = buffsBtn:CreateTexture(nil, "BACKGROUND"); fbBg:SetAllPoints()
-				fbBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-				buffsBtn._border = EllesmereUI.MakeBorder(buffsBtn, 1, 1, 1, 0.08, PP)
-				local fbLbl = EllesmereUI.MakeFont(buffsBtn, 12, nil, 1, 1, 1)
-				fbLbl:SetAlpha(0.8); fbLbl:SetPoint("CENTER"); fbLbl:SetText(EllesmereUI.L("Buffs"))
-				buffsBtn:SetScript("OnEnter", function(self) fbBg:SetColorTexture(0.16, 0.16, 0.16, 0.9); EllesmereUI.ShowWidgetTooltip(self, BUFF_HELP_TIP) end)
-				buffsBtn:SetScript("OnLeave", function(self) fbBg:SetColorTexture(0.12, 0.12, 0.12, 0.8); EllesmereUI.HideWidgetTooltip() end)
+				SkinCardButton(buffsBtn, EllesmereUI.L("Buffs"), BUFF_HELP_TIP)
 				buffsBtn:SetScript("OnClick", function(self)
 					local ent = CurEntry(); if not ent then return end
 					ShowBuffEditor({
@@ -2103,13 +2070,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 				PP.Size(spendersBtn, 60, 22)
 				spendersBtn:SetPoint("RIGHT", spenderRow, "RIGHT", 0, 0)
 				spendersBtn:SetFrameLevel(spenderRow:GetFrameLevel() + 4)
-				local sbBg = spendersBtn:CreateTexture(nil, "BACKGROUND"); sbBg:SetAllPoints()
-				sbBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-				spendersBtn._border = EllesmereUI.MakeBorder(spendersBtn, 1, 1, 1, 0.08, PP)
-				local sbLbl = EllesmereUI.MakeFont(spendersBtn, 12, nil, 1, 1, 1)
-				sbLbl:SetAlpha(0.8); sbLbl:SetPoint("CENTER"); sbLbl:SetText(EllesmereUI.L("Spenders"))
-				spendersBtn:SetScript("OnEnter", function(self) sbBg:SetColorTexture(0.16, 0.16, 0.16, 0.9); EllesmereUI.ShowWidgetTooltip(self, SPENDER_HELP_TIP) end)
-				spendersBtn:SetScript("OnLeave", function(self) sbBg:SetColorTexture(0.12, 0.12, 0.12, 0.8); EllesmereUI.HideWidgetTooltip() end)
+				SkinCardButton(spendersBtn, EllesmereUI.L("Spenders"), SPENDER_HELP_TIP)
 				spendersBtn:SetScript("OnClick", function(self)
 					local ent = CurEntry(); if not ent then return end
 					ShowSpenderEditor({
@@ -2157,7 +2118,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 				textInsteadDis:EnableMouse(true)
 				local textInsteadDisTex = textInsteadDis:CreateTexture(nil, "OVERLAY")
 				textInsteadDisTex:SetAllPoints()
-				textInsteadDisTex:SetColorTexture(0.06, 0.08, 0.10, 0.7)
+				textInsteadDisTex:SetColorTexture(0.077, 0.068, 0.058, 0.7)
 				textInsteadDis:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(textInsteadDis, EllesmereUI.L(TI_BLOCK_TIP)) end)
 				textInsteadDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 				textInsteadDis:Hide()
@@ -2592,7 +2553,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                 if not _addNewBtn then
                     local b = CreateFrame("Button", nil, scrollChild)
                     PP.Size(b, contentHalfSize - 12, 30)
-                    local bbg = EllesmereUI.SolidTex(b, "BACKGROUND", 0.05, 0.07, 0.09, 0.92)
+                    local bbg = EllesmereUI.SolidTex(b, "BACKGROUND", 0.069, 0.058, 0.047, 0.92)
                     bbg:SetAllPoints()
                     b._border = EllesmereUI.MakeBorder(b, 1, 1, 1, 0.4, PP)
                     local blbl = EllesmereUI.MakeFont(b, 12, nil, 1, 1, 1)

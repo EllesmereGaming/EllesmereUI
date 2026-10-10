@@ -17,6 +17,7 @@ local frames, defaults, ResolveFontPath = I.frames, I.defaults, I.ResolveFontPat
 local healthBarTextureNames, healthBarTextureOrder, healthBarTextures =
     I.healthBarTextureNames, I.healthBarTextureOrder, I.healthBarTextures
 local RegisterUFUnlockElements = I.RegisterUFUnlockElements
+local InitializeFrames, SetupOptionsPanel = I.InitializeFrames, I.SetupOptionsPanel
 local db -- assigned by EllesmereUF:OnInitialize below, no setter
 
 local EllesmereUF = EllesmereUI.Lite.NewAddon("EllesmereUIUnitFrames")

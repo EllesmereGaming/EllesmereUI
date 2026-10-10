@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: EllesmereUI settings panel. Loads on demand when you open EllesmereUI options.
 ## Author: Ellesmere
-## Version: 9.3.5
+## Version: 9.4
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -56,13 +56,16 @@ EUI_CooldownManager_BarGlowConditions.lua
 EUI_DamageMeters_Options.lua
 EllesmereUIDataBars_Options.lua
 EUI_ForeverEssentials_Options.lua
+EUI_ForeverEssentials_General_Options.lua
 EUI_ForeverEssentials_Travel_Options.lua
 EUI_ForeverEssentials_Threat_Options.lua
 EUI_ForeverEssentials_Loot_Options.lua
+EUI_ForeverEssentials_Macros_Options.lua
 EUI_Friends_Options.lua
 EUI_Minimap_Options.lua
 EUI_MythicTimer_Options.lua
 Nameplates_Options\ColorsPage_Options.lua
+Nameplates_Options\CoreTextColoring_Options.lua
 Nameplates_Options\DisplayBars_Options.lua
 Nameplates_Options\DisplayLayout_Options.lua
 Nameplates_Options\GeneralPage_Options.lua

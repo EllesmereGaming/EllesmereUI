@@ -326,12 +326,12 @@ end
 -- Nearest physical pixel at UIParent scale, for every PAB grid number (icon size,
 -- padding, row gap). Not PP.Scale: it truncates, and the per-icon loss adds up
 -- along a row, so a bar measured a different number of UI units per resolution.
--- Rounds like EllesmereUIActionBars.lua's ComputeBarLayout, plus the 0.001 tie
--- guard PP.SnapForES uses, so an exact half pixel cannot flip between sessions.
+-- PP.ToPixels rounds with the 0.001 tie guard, so an exact half pixel cannot flip
+-- between sessions.
 local function PabSnap(x)
-    local m = EllesmereUI.PP.mult
-    if x == 0 or m == 1 then return x end
-    return math.floor(x / m + 0.5 + 0.001) * m
+    local PP = EllesmereUI.PP
+    if x == 0 or PP.mult == 1 then return x end
+    return PP.FromPixels(PP.ToPixels(x))
 end
 
 -- On ns, not file locals: this chunk sits near Lua's 200-local cap. The need
@@ -1338,10 +1338,21 @@ local function DebuffCandidateExtras(cfg)
     -- Duration; nil = Unlimited = no extras at all (the candidate fingerprint
     -- sees the cap value, so edits re-declare like any payload change).
     local cap = cfg.maxDurSec or (cfg.hasDuration and math.huge) or nil
+    local out
     if cap then
-        return { maxDuration = cap }
+        out = { maxDuration = cap }
     end
-    return nil
+    -- Hide Exhaustion (the Filters dropdown, off by default): the Bloodlust
+    -- lockouts leave every group of the bar. They are never-secret, so the
+    -- exclude works on the player. Fresh table: merged maps never alias the set.
+    local sated = cfg.hideExhaustion == true and ns.UF_SatedDebuffs
+    if sated then
+        out = out or {}
+        local ex = {}
+        for id in pairs(sated) do ex[id] = true end
+        out.excludeSpellIDs = ex
+    end
+    return out
 end
 
 -- Has Duration is an AND-MODIFIER (user directive 2026-08-16), not a broad
@@ -4946,22 +4957,9 @@ local function ReloadCustomDebuffBarImpl(barId)
     if not AK then return end
     local bar, barBucket = ns.PAB_GetCustomDebuffBar(barId)
     if not bar then
-        if customDebuffContainers[barId] then
-            -- Groups cannot be un-declared, so zero every group's frame count instead:
-            -- icons disappear even though the container itself is never released.
-            -- "__cand|" entries are generation metadata, not group keys (same skip
-            -- as ApplyGroupConfig's active-set sweep) -- passing one to the engine
-            -- errors with "aura group was not found".
-            for key in pairs(customDebuffDeclared[barId] or {}) do
-                if key:sub(1, 7) ~= "__cand|" then
-                    customDebuffContainers[barId]:SetAuraGroupMaxFrameCount(key, 0)
-                end
-            end
-        end
+        if customDebuffContainers[barId] then RetireContainer(customDebuffContainers[barId], customDebuffDeclared[barId]) end
         if customDebuffParents[barId] then customDebuffParents[barId]:Hide() end
-        -- Bar IDs are never reused, so this entry is never looked up again: drop our
-        -- tracking-table references (container stays alive engine-side, only
-        -- addon-side bookkeeping clears) so tables don't grow unbounded over time.
+        -- Bar IDs are never reused, so this entry is never looked up again.
         customDebuffParents[barId], customDebuffContainers[barId], customDebuffDeclared[barId] = nil, nil, nil
         return
     end

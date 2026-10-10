@@ -104,10 +104,10 @@ local function BuildAddonListRow(scrollChild, i, item, totalW, o)
 
     local chkBg = chkFrame:CreateTexture(nil, "BACKGROUND")
     chkBg:SetAllPoints()
-    chkBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+    chkBg:SetColorTexture(0.114, 0.106, 0.099, 1)
     if chkBg.SetSnapToPixelGrid then chkBg:SetSnapToPixelGrid(false); chkBg:SetTexelSnappingBias(0) end
 
-    local chkBrd = EllesmereUI.MakeBorder(chkFrame, 0.25, 0.25, 0.28, 0.6, PP)
+    local chkBrd = EllesmereUI.MakeBorder(chkFrame, 0.224, 0.215, 0.207, 0.6, PP)
 
     local chkMark = chkFrame:CreateTexture(nil, "ARTWORK")
     chkMark:SetPoint("TOPLEFT", chkFrame, "TOPLEFT", 3, -3)
@@ -138,7 +138,7 @@ local function BuildAddonListRow(scrollChild, i, item, totalW, o)
             descFs:SetAlpha(0.20)
             chkMark:Hide()
             chkBg:SetAlpha(1)
-            chkBrd:SetColor(0.25, 0.25, 0.28, 0.6)
+            chkBrd:SetColor(0.224, 0.215, 0.207, 0.6)
             statusFs:SetText(EllesmereUI.L("Skipped"))
             statusFs:SetTextColor(1, 1, 1, 0.35)
         end
@@ -433,7 +433,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
 
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
         popBg:SetAllPoints()
-        popBg:SetColorTexture(0.06, 0.08, 0.10, 0.97)
+        popBg:SetColorTexture(0.077, 0.068, 0.058, 0.97)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.20, PP)
 
         local title = EllesmereUI.MakeFont(popup, 14, nil, 1, 1, 1)
@@ -567,7 +567,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
 
         local backBg = backBtn:CreateTexture(nil, "BACKGROUND")
         backBg:SetAllPoints()
-        backBg:SetColorTexture(0.06, 0.08, 0.10, 0.50)
+        backBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
         local backBrd = EllesmereUI.MakeBorder(backBtn, 1, 1, 1, 0.12, PP)
 
         local backIcon = backBtn:CreateTexture(nil, "ARTWORK")
@@ -583,13 +583,13 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         backLbl:SetText(EllesmereUI.L("Back"))
 
         backBtn:SetScript("OnEnter", function()
-            backBg:SetColorTexture(0.11, 0.13, 0.15, 0.50)
+            backBg:SetColorTexture(0.119, 0.111, 0.104, 0.50)
             backBrd:SetColor(1, 1, 1, 0.22)
             backIcon:SetAlpha(0.85)
             backLbl:SetAlpha(0.85)
         end)
         backBtn:SetScript("OnLeave", function()
-            backBg:SetColorTexture(0.06, 0.08, 0.10, 0.50)
+            backBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
             backBrd:SetColor(1, 1, 1, 0.12)
             backIcon:SetAlpha(0.6)
             backLbl:SetAlpha(0.55)
@@ -775,7 +775,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         sectionBg:EnableMouse(false)
         local sBgTex = sectionBg:CreateTexture(nil, "BACKGROUND")
         sBgTex:SetAllPoints()
-        sBgTex:SetColorTexture(0.06, 0.08, 0.10, 0.50)
+        sBgTex:SetColorTexture(0.077, 0.068, 0.058, 0.50)
         EllesmereUI.MakeBorder(sectionBg, 1, 1, 1, 0.10, PP)
 
         local hdrFrame = CreateFrame("Frame", nil, importPage)
@@ -912,6 +912,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         local scrollOffset = 0
         scrollClip:EnableMouseWheel(true)
         scrollClip:SetScript("OnMouseWheel", function(_, delta)
+            if EllesmereUI._ShiftWheelScale(delta) then return end
             local maxScroll = math.max(0, contentH - scrollH)
             scrollOffset = math.max(0, math.min(maxScroll, scrollOffset - delta * ROW_H_A))
             scrollFr:SetVerticalScroll(scrollOffset)
@@ -975,8 +976,8 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
             box:SetSize(CHK_SZ, CHK_SZ)
             box:SetPoint("LEFT", aaBtn, "LEFT", 0, 0)
             local bg = box:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints()
-            bg:SetColorTexture(0.12, 0.12, 0.14, 1)
-            EllesmereUI.MakeBorder(box, 0.25, 0.25, 0.28, 0.6, PP)
+            bg:SetColorTexture(0.114, 0.106, 0.099, 1)
+            EllesmereUI.MakeBorder(box, 0.224, 0.215, 0.207, 0.6, PP)
             local mark = box:CreateTexture(nil, "ARTWORK")
             mark:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
             mark:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
@@ -1041,7 +1042,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                 { label = "Window & Tooltip Skins", sum = "Window Skins",
                   enabled = stringHasBlizzSkin,
                   offTip = "This profile string does not carry any Window & Tooltip Skins settings.",
-                  tip   = "Apply the sharer's Blizz UI Enhanced Window Skins and Tooltips, Menus & Popups settings. These are account-wide and will overwrite yours across ALL profiles. Off = keep your own.",
+                  tip   = "Apply the sharer's Blizzard Skins+ Window Skins and Tooltips & Menus settings. These are account-wide and will overwrite yours across ALL profiles. Off = keep your own.",
                   get   = function() return includeWindowSkinsImport end,
                   set   = function(refresh)
                       if includeWindowSkinsImport then
@@ -1050,7 +1051,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                       end
                       EllesmereUI:ShowConfirmPopup({
                           title       = EllesmereUI.L("Overwrite Window & Tooltip Settings?"),
-                          message     = EllesmereUI.L("This will replace YOUR Blizz UI Enhanced settings (the Window Skins and Tooltips, Menus & Popups tabs) with the sharer's, across ALL of your profiles. Your current settings on those two tabs cannot be recovered afterward."),
+                          message     = EllesmereUI.L("This will replace YOUR Blizzard Skins+ settings (the Window Skins and Tooltips & Menus tabs) with the sharer's, across ALL of your profiles. Your current settings on those two tabs cannot be recovered afterward."),
                           confirmText = EllesmereUI.L("OK"),
                           cancelText  = EllesmereUI.L("Cancel"),
                           onConfirm   = function()
@@ -1096,8 +1097,8 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                 box:SetSize(CHK_SZ, CHK_SZ)
                 box:SetPoint("LEFT", row, "LEFT", 6, 0)
                 local bbg = box:CreateTexture(nil, "BACKGROUND"); bbg:SetAllPoints()
-                bbg:SetColorTexture(0.12, 0.12, 0.14, 1)
-                EllesmereUI.MakeBorder(box, 0.25, 0.25, 0.28, 0.6, PP)
+                bbg:SetColorTexture(0.114, 0.106, 0.099, 1)
+                EllesmereUI.MakeBorder(box, 0.224, 0.215, 0.207, 0.6, PP)
                 local mark = box:CreateTexture(nil, "ARTWORK")
                 mark:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
                 mark:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
@@ -1351,7 +1352,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
 
         local backBg = backBtn:CreateTexture(nil, "BACKGROUND")
         backBg:SetAllPoints()
-        backBg:SetColorTexture(0.06, 0.08, 0.10, 0.50)
+        backBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
         local backBrd = EllesmereUI.MakeBorder(backBtn, 1, 1, 1, 0.12, PP)
 
         local backIcon = backBtn:CreateTexture(nil, "ARTWORK")
@@ -1367,13 +1368,13 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         backLbl:SetText(EllesmereUI.L("Back"))
 
         backBtn:SetScript("OnEnter", function()
-            backBg:SetColorTexture(0.11, 0.13, 0.15, 0.50)
+            backBg:SetColorTexture(0.119, 0.111, 0.104, 0.50)
             backBrd:SetColor(1, 1, 1, 0.22)
             backIcon:SetAlpha(0.85)
             backLbl:SetAlpha(0.85)
         end)
         backBtn:SetScript("OnLeave", function()
-            backBg:SetColorTexture(0.06, 0.08, 0.10, 0.50)
+            backBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
             backBrd:SetColor(1, 1, 1, 0.12)
             backIcon:SetAlpha(0.6)
             backLbl:SetAlpha(0.55)
@@ -1397,7 +1398,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         PP.Point(panelFrame, "TOPLEFT", pastePage, "TOPLEFT", PAD, py)
         local panelBg = panelFrame:CreateTexture(nil, "BACKGROUND")
         panelBg:SetAllPoints()
-        panelBg:SetColorTexture(0.06, 0.08, 0.10, 0.50)
+        panelBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
         EllesmereUI.MakeBorder(panelFrame, 1, 1, 1, 0.10, PP)
 
         local pasteSF = CreateFrame("ScrollFrame", nil, panelFrame)
@@ -1527,155 +1528,24 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
 
 
     -------------------------------------------------------------------
-    --  TOP SECTION: Import | Popular Presets | Uninstall EUI (3 action cards)
+    --  TOP SECTION: Import | Popular Presets (2 action cards)
     --  Exporting lives solely in the per-addon "Export Profile" section below -- all modules checked is the full export.
     -------------------------------------------------------------------
     _, h = W:Spacer(parent, y, 10);  y = y - h
 
-    do
-        local CARD_H     = 66
-        local CARD_GAP   = 14
-        local CARD_ICON  = 26
-        local totalW     = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
-        local CARD_W     = math.floor((totalW - CARD_GAP * 2) / 3)
-
-        local rowFrame = CreateFrame("Frame", nil, parent)
-        PP.Size(rowFrame, totalW, CARD_H)
-        PP.Point(rowFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
-
-        -- Builds one action card: icon + title + description. accent (r, g, b) tints the
-        -- top edge and icon; the theme accent when nil.
-        local function MakeActionCard(parentRow, xOff, iconPath, cardTitle, cardDesc, onClick, accent)
-            local ac = accent or EG
-            local card = CreateFrame("Button", nil, parentRow)
-            PP.Size(card, CARD_W, CARD_H)
-            PP.Point(card, "TOPLEFT", parentRow, "TOPLEFT", xOff, 0)
-            card:SetFrameLevel(parentRow:GetFrameLevel() + 2)
-
-            local bg = card:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            bg:SetColorTexture(0.06, 0.08, 0.10, 0.50)
-
-            local brd = EllesmereUI.MakeBorder(card, 1, 1, 1, 0.12, PP)
-
-            -- Accent top edge
-            local accentLine = card:CreateTexture(nil, "ARTWORK", nil, 7)
-            accentLine:SetColorTexture(ac.r, ac.g, ac.b, 0.6)
-            PP.Point(accentLine, "TOPLEFT", card, "TOPLEFT", 1, -1)
-            PP.Point(accentLine, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
-            accentLine:SetHeight(2)
-            if accentLine.SetSnapToPixelGrid then accentLine:SetSnapToPixelGrid(false); accentLine:SetTexelSnappingBias(0) end
-
-            local icon = card:CreateTexture(nil, "ARTWORK")
-            icon:SetSize(CARD_ICON, CARD_ICON)
-            PP.Point(icon, "LEFT", card, "LEFT", 24, 0)
-            icon:SetTexture(iconPath)
-            icon:SetVertexColor(ac.r, ac.g, ac.b)
-            icon:SetAlpha(0.6)
-            if icon.SetSnapToPixelGrid then icon:SetSnapToPixelGrid(false); icon:SetTexelSnappingBias(0) end
-
-            local titleFs = EllesmereUI.MakeFont(card, 13, nil, 1, 1, 1, 0.9)
-            PP.Point(titleFs, "TOPLEFT", icon, "TOPRIGHT", 20, 2)
-            PP.Point(titleFs, "RIGHT", card, "RIGHT", -14, 0)
-            titleFs:SetJustifyH("LEFT")
-            titleFs:SetWordWrap(false)
-            titleFs:SetText(EllesmereUI.L(cardTitle))
-
-            local descFs = EllesmereUI.MakeFont(card, 11, nil, 1, 1, 1, 0.35)
-            PP.Point(descFs, "TOPLEFT", titleFs, "BOTTOMLEFT", 0, -4)
-            PP.Point(descFs, "RIGHT", card, "RIGHT", -14, 0)
-            descFs:SetJustifyH("LEFT")
-            -- Two lines at most: a third of the row is narrow for longer languages.
-            descFs:SetWordWrap(true)
-            descFs:SetMaxLines(2)
-            descFs:SetText(EllesmereUI.L(cardDesc))
-
-            card:SetScript("OnEnter", function()
-                bg:SetColorTexture(0.11, 0.13, 0.15, 0.50)
-                brd:SetColor(1, 1, 1, 0.22)
-                titleFs:SetAlpha(1)
-                icon:SetAlpha(0.85)
-            end)
-            card:SetScript("OnLeave", function()
-                bg:SetColorTexture(0.06, 0.08, 0.10, 0.50)
-                brd:SetColor(1, 1, 1, 0.12)
-                titleFs:SetAlpha(0.9)
-                icon:SetAlpha(0.6)
-            end)
-            if onClick then
-                card:SetScript("OnClick", onClick)
-            end
-
-            return card
-        end
-
-        -- Import Profile
-        local cardX = 0
-        MakeActionCard(rowFrame, cardX, MEDIA .. "icons\\import.png",
-            EllesmereUI.L("Import Profile"), EllesmereUI.L("Import a profile from string."), function()
-                ShowPastePage()
-            end)
-
-        -- Popular Presets: the in-game browser is retired; presets live on
-        -- the EllesmereUI website. The card opens the announcement-style
-        -- popup with the copyable link (same one the Presets tab shows).
-        cardX = cardX + CARD_W + CARD_GAP
-        MakeActionCard(rowFrame, cardX, MEDIA .. "icons\\dark-overlay.png",
-            EllesmereUI.L("Popular Presets"), EllesmereUI.L("Browse community presets."), function()
-                if EllesmereUI.VideoGuides then EllesmereUI.VideoGuides.Show("presets_website") end
-            end)
-
-        -- Uninstall EUI is refused in combat (it reloads) and while Edit Mode is open (it
-        -- saves its own copy of the layouts on exit, over the ones put back). True when
-        -- it was refused.
-        local function UninstallRefused()
-            local msg
-            if InCombatLockdown() then
-                msg = EllesmereUI.L("Uninstalling reloads the UI and cannot run in combat. Leave combat and try again.")
-            elseif EllesmereUI.EditModeOpen() then
-                msg = EllesmereUI.L("Close Edit Mode first, then try again.")
-            end
-            if not msg then return false end
-            EllesmereUI:ShowConfirmPopup({
-                title       = EllesmereUI.L("Uninstall EUI"),
-                message     = msg,
-                confirmText = EllesmereUI.L("OK"),
-                hideCancel  = true,
-            })
-            return true
-        end
-        -- Uninstall EUI: puts back the game settings EllesmereUI changed, turns it off for
-        -- every character and reloads (EllesmereUI_Uninstall.lua). Profiles are kept. The
-        -- reload is a RequestReload after the typed confirm, not reload = true: the typed
-        -- confirm cannot gate WoW Forever's /reload click.
-        cardX = cardX + CARD_W + CARD_GAP
-        MakeActionCard(rowFrame, cardX, MEDIA .. "icons\\power.png",
-            EllesmereUI.L("Uninstall EUI"), EllesmereUI.L("Revert EUI's changes and disable."), function()
-                if UninstallRefused() then return end
-                local message = EllesmereUI.L("Puts back the game settings EUI changed, such as nameplate, action bar, chat and tooltip options, and turns EUI off for every character, then reloads the UI.") .. "\n\n"
-                    .. EllesmereUI.L("Your profiles are kept, so you can turn EUI back on later in the AddOns list.")
-                if EllesmereUIDB and EllesmereUIDB.gfxBackup then
-                    message = message .. "\n\n" .. EllesmereUI.L("Graphics changed by Optimize My FPS and Graphics stay as they are. To undo them, click Restore My Settings on Global Settings > General first.")
-                end
-                EllesmereUI:ShowConfirmPopup({
-                    title         = EllesmereUI.L("Uninstall EUI"),
-                    message       = message,
-                    disclaimer    = (not EllesmereUI.UninstallKnowsOriginals())
-                        and EllesmereUI.L("EUI was installed before it kept a record of your original settings, so the settings it still manages go back to the game's defaults.")
-                        or nil,
-                    typeToConfirm = "Confirm",
-                    confirmText   = EllesmereUI.L("Uninstall & Reload"),
-                    cancelText    = EllesmereUI.L("Cancel"),
-                    onConfirm     = function()
-                        if UninstallRefused() then return end
-                        EllesmereUI.RequestReload(EllesmereUI.L("Uninstall EUI"),
-                            EllesmereUI.L("Reload to finish uninstalling EUI."), EllesmereUI.Uninstall)
-                    end,
-                })
-            end, { r = 0.9, g = 0.3, b = 0.3 })
-
-        y = y - CARD_H
-    end
+    -- Popular Presets: the in-game browser is retired; presets live on the
+    -- EllesmereUI website. The card opens the announcement-style popup with
+    -- the copyable link (same one the Presets tab shows).
+    y = EllesmereUI.BuildActionCardRow(parent, y, {
+        { icon = MEDIA .. "icons\\import.png",
+          title = EllesmereUI.L("Import Profile"), desc = EllesmereUI.L("Import a profile from string."),
+          onClick = function() ShowPastePage() end },
+        { icon = MEDIA .. "icons\\dark-overlay.png",
+          title = EllesmereUI.L("Popular Presets"), desc = EllesmereUI.L("Browse community presets."),
+          onClick = function()
+              if EllesmereUI.VideoGuides then EllesmereUI.VideoGuides.Show("presets_website") end
+          end },
+    })
 
     -------------------------------------------------------------------
     --  MIDDLE SECTION: Active Profile | Assign to Spec | Create New
@@ -1702,7 +1572,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         -- Background panel
         local rowBg = rowFrame:CreateTexture(nil, "BACKGROUND")
         rowBg:SetAllPoints()
-        rowBg:SetColorTexture(0.06, 0.08, 0.10, 0.50)
+        rowBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
         local rowBrd = EllesmereUI.MakeBorder(rowFrame, 1, 1, 1, 0.10, PP)
 
         -- "Active Profile" label
@@ -2157,7 +2027,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         sectionBg:EnableMouse(false)
         local sBg = sectionBg:CreateTexture(nil, "BACKGROUND")
         sBg:SetAllPoints()
-        sBg:SetColorTexture(0.06, 0.08, 0.10, 0.50)
+        sBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
         EllesmereUI.MakeBorder(sectionBg, 1, 1, 1, 0.10, PP)
 
         local hdrFrame = CreateFrame("Frame", nil, parent)
@@ -2357,6 +2227,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         local scrollOffset = 0
         scrollClip:EnableMouseWheel(true)
         scrollClip:SetScript("OnMouseWheel", function(_, delta)
+            if EllesmereUI._ShiftWheelScale(delta) then return end
             local maxScroll = math.max(0, contentH - scrollH)
             scrollOffset = math.max(0, math.min(maxScroll, scrollOffset - delta * ROW_H_A))
             scrollFrame:SetVerticalScroll(scrollOffset)
@@ -2474,7 +2345,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
             if hasBlizzSkinRow then
                 rowDefs[#rowDefs + 1] = {
                     label = "Window & Tooltip Skins",
-                    tip   = "Include your Blizz UI Enhanced settings from the Window Skins and Tooltips, Menus & Popups tabs. These are account-wide: if the importer opts in, they overwrite that player's settings across ALL of their profiles.",
+                    tip   = "Include your Blizzard Skins+ settings from the Window Skins and Tooltips & Menus tabs. These are account-wide: if the importer opts in, they overwrite that player's settings across ALL of their profiles.",
                     get   = function() return includeWindowSkinsExport end,
                     set   = function() includeWindowSkinsExport = not includeWindowSkinsExport end }
             end
@@ -2496,8 +2367,8 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                 box:SetSize(CHK_SZ, CHK_SZ)
                 box:SetPoint("LEFT", row, "LEFT", 6, 0)
                 local bbg = box:CreateTexture(nil, "BACKGROUND"); bbg:SetAllPoints()
-                bbg:SetColorTexture(0.12, 0.12, 0.14, 1)
-                EllesmereUI.MakeBorder(box, 0.25, 0.25, 0.28, 0.6, PP)
+                bbg:SetColorTexture(0.114, 0.106, 0.099, 1)
+                EllesmereUI.MakeBorder(box, 0.224, 0.215, 0.207, 0.6, PP)
                 local mark = box:CreateTexture(nil, "ARTWORK")
                 mark:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
                 mark:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)

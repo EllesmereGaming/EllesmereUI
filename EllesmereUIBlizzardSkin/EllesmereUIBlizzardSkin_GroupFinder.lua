@@ -402,25 +402,8 @@ local function SkinScrollBar(sb)
     end
 end
 
--- Close (X) button -> strip art, draw the house close glyph.
-local function SkinCloseButton(btn)
-    if not btn or btn:IsForbidden() then return end
-    local d = GetFFD(btn)
-    if d.x then return end
-    if btn.SetNormalTexture then btn:SetNormalTexture("") end
-    if btn.SetPushedTexture then btn:SetPushedTexture("") end
-    if btn.SetHighlightTexture then btn:SetHighlightTexture("") end
-    if btn.SetDisabledTexture then btn:SetDisabledTexture("") end
-    FadeRegions(btn)
-    local x = btn:CreateTexture(nil, "OVERLAY")
-    x:SetAtlas("uitools-icon-close")
-    x:SetSize(14, 14)
-    x:SetPoint("CENTER", -2, 0)
-    x:SetVertexColor(1, 1, 1, 0.75)
-    d.x = x
-    btn:HookScript("OnEnter", function() if d.x then d.x:SetVertexColor(1, 1, 1, 1) end end)
-    btn:HookScript("OnLeave", function() if d.x then d.x:SetVertexColor(1, 1, 1, 0.75) end end)
-end
+-- Close (X) button -> strip art, draw the house close glyph (the engine's).
+local SkinCloseButton = WSkin.CloseButton
 
 -- PVEFrame bottom tab -> CharacterSheet tab pattern (bg + accent underline when
 -- active). Visuals driven by UpdateTabVisuals (reads PVEFrame.selectedTab).
@@ -843,33 +826,6 @@ local function UpdateLFGCategorySelection()
     end
 end
 
--- Refresh button -> strip art, draw the house white UI-RefreshButton glyph (desaturated
--- + white vertex, 0.9 -> 1 on hover). Matches the Auction House refresh button.
-local function SkinRefreshGlyph(rb)
-    if not rb or rb:IsForbidden() then return end
-    local d = GetFFD(rb)
-    if d.glyph then return end
-    if not (C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("UI-RefreshButton")) then return end
-    local regions = { rb:GetRegions() }
-    for i = 1, #regions do
-        local r = regions[i]
-        if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
-    end
-    for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetDisabledTexture" }) do
-        local t = rb[g] and rb[g](rb)
-        if t and t.SetAlpha then t:SetAlpha(0) end
-    end
-    local glyph = rb:CreateTexture(nil, "OVERLAY")
-    glyph:SetAtlas("UI-RefreshButton", false)
-    glyph:SetSize(16, 16)
-    glyph:SetPoint("CENTER")
-    glyph:SetDesaturated(true)
-    glyph:SetVertexColor(1, 1, 1, 0.9)
-    d.glyph = glyph
-    rb:HookScript("OnEnter", function() glyph:SetVertexColor(1, 1, 1, 1) end)
-    rb:HookScript("OnLeave", function() glyph:SetVertexColor(1, 1, 1, 0.9) end)
-end
-
 local function Skin_LFGList()
     if not LFGListFrame then return end
 
@@ -908,12 +864,15 @@ local function Skin_LFGList()
         if SP.ResultsInset then FadeInset(SP.ResultsInset) end
         if SP.SearchBox then SkinEditBox(SP.SearchBox) end
         if SP.FilterButton then SkinButton(SP.FilterButton) end
-        if SP.RefreshButton then SkinRefreshGlyph(SP.RefreshButton) end
+        if SP.RefreshButton then WSkin.RefreshGlyph(SP.RefreshButton) end
         if SP.BackButton then SkinButton(SP.BackButton) end
         if SP.BackToGroupButton then SkinButton(SP.BackToGroupButton) end
         if SP.SignUpButton then SkinButton(SP.SignUpButton) end
         if SP.ScrollBar then SkinScrollBar(SP.ScrollBar) end
-        if SP.FilterButton and SP.FilterButton.ResetButton then SkinCloseButton(SP.FilterButton.ResetButton) end
+        -- The active-filter X, as on every other filter dropdown: it straddles
+        -- the filter button's top edge, above the button's border.
+        local reset = SP.FilterButton and SP.FilterButton.ResetButton
+        if reset then WSkin.FilterResetX(reset, SP.FilterButton) end
     end
 
     local EC = LFGListFrame.EntryCreation
@@ -949,7 +908,7 @@ local function Skin_LFGList()
     if AV and not AV:IsProtected() then
         SkinPanel(AV, { noBg = true, noBorder = true })
         if AV.Inset then FadeInset(AV.Inset) end
-        if AV.RefreshButton then SkinRefreshGlyph(AV.RefreshButton) end
+        if AV.RefreshButton then WSkin.RefreshGlyph(AV.RefreshButton) end
         if AV.RemoveEntryButton then SkinButton(AV.RemoveEntryButton) end
         if AV.EditButton then SkinButton(AV.EditButton) end
         if AV.BrowseGroupsButton then SkinButton(AV.BrowseGroupsButton) end

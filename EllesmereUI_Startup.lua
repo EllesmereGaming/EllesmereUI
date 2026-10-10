@@ -150,9 +150,9 @@ do
                 -- screen fraction on any display, and 4K seeds 1.5 to read exactly like
                 -- a 2K monitor. Floored at 1 so 1080p (which runs a slightly larger
                 -- fraction, uncomplained-about) keeps its current size rather than
-                -- shrinking, then snapped onto the dropdown's real steps (see
-                -- EllesmereUI.SnapPanelScale) -- an off-menu value leaves the control
-                -- reading 100% while the panel renders larger.
+                -- shrinking, then snapped onto the Window Scale slider's 5% steps
+                -- (see EllesmereUI.SnapPanelScale), so the slider reads exactly what
+                -- the panel renders at.
                 --
                 -- This sits INSIDE the ppUIScale == nil guard on purpose: it is
                 -- the first-install path only. Existing saves never reach here

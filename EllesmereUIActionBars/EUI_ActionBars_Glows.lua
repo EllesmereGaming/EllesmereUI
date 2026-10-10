@@ -1183,7 +1183,7 @@ end
 
 -- Re-apply charge-spell recharge-number visibility across all buttons. Same
 -- logic the dispatcher's per-tick + CVAR_UPDATE paths use; called when the
--- "Show Cooldown Numbers" cog toggle flips so the change is immediate (a DB
+-- "Cooldown Numbers" cog toggle flips so the change is immediate (a DB
 -- toggle does not fire CVAR_UPDATE). Cached per chargeCd, so it is near-free.
 function EAB:RefreshChargeRechargeNumbers()
     for _, info in ipairs(BAR_CONFIG) do

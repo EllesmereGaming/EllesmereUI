@@ -347,7 +347,7 @@ local DisabledTooltip = EllesmereUI.DisabledTooltip
 -- Final disabled-tooltip string for a widget cfg (or cog-popup row / inline sub-config); nil = nothing to show. Honors:
 --   cfg.disabledTooltip -- string OR fn returning requirement text/sentence
 --   cfg.rawTooltip      -- bool OR fn; true => verbatim, skip the wrapper
---   cfg.requireState    -- "enabled" (default) or "disabled"; wrapper verb
+--   cfg.requireState    -- "enabled" (default) or "disabled", OR fn returning one; wrapper verb
 local function ResolveDisabledTip(cfg)
     local tt = cfg.disabledTooltip
     if type(tt) == "function" then tt = tt() end
@@ -356,7 +356,9 @@ local function ResolveDisabledTip(cfg)
     if type(raw) == "function" then raw = raw() end
     -- rawTooltip skips the wrapper sentence, not the translation.
     if raw then return EllesmereUI.L(tt) end
-    return DisabledTooltip(tt, cfg.requireState)
+    local state = cfg.requireState
+    if type(state) == "function" then state = state() end
+    return DisabledTooltip(tt, state)
 end
 -- Shared with hand-placed controls that explain a site's lock the way its widgets do.
 EllesmereUI.ResolveDisabledTip = ResolveDisabledTip
@@ -1700,7 +1702,6 @@ function EllesmereUI.BorderPxSliderCfg(spec)
     local cfg = {
         type = "slider", text = spec.text or "Border Size",
         min = 0, max = spec.max or maxPx, step = 1,
-        tooltip = spec.tooltip or "Border size in pixels; for a textured style this is the size of its edge art.",
         getValue = Shown,
         setValue = function(v)
             v = math.floor(v + 0.5)

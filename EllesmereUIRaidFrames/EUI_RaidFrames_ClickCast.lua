@@ -884,11 +884,13 @@ local rezItemID = nil
 -- has no rez kit and carries no combat rez item. Never includes /stopmacro --
 -- caller adds that for oocOnly.
 -- standalone marks the dedicated rez binding, where these lines are the whole
--- macro rather than a [dead] prefix in front of somebody else's action.
-local function BuildRezLines(binding, guard, standalone)
+-- macro rather than a [dead] prefix in front of somebody else's action. noItem
+-- leaves the combat rez item out (a Smart Rez macro short of room).
+local function BuildRezLines(binding, guard, standalone, noItem)
     local _, pClass = UnitClass("player")
     local kit = REZ_BY_CLASS[pClass]
-    if not kit and not rezItemID then return nil end
+    local item = not noItem and rezItemID
+    if not kit and not item then return nil end
     local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
     -- A slot is one spell ID or a list of rank IDs. The first rank found in the
     -- book answers: every rank shares the name, and /cast by name casts the
@@ -926,9 +928,9 @@ local function BuildRezLines(binding, guard, standalone)
             combatCond = ",nocombat"
         end
         lines[#lines + 1] = "/cast [@mouseover,help,dead" .. combatCond .. guard .. "] " .. battleName
-    elseif rezItemID and not binding.oocOnly then
+    elseif item and not binding.oocOnly then
         -- No battle rez in the class: the carried combat rez item instead.
-        lines[#lines + 1] = "/use [@mouseover,help,dead,combat" .. guard .. "] item:" .. rezItemID
+        lines[#lines + 1] = "/use [@mouseover,help,dead,combat" .. guard .. "] item:" .. item
     end
     if groupName then
         lines[#lines + 1] = "/cast [@mouseover,help,dead,nocombat" .. guard .. "] " .. groupName
@@ -1115,13 +1117,36 @@ local function AddTargetingClears(text)
     return result
 end
 
+-- Secure macro text is capped at 255 characters, the macro limit, and an
+-- action button's macrotext is held to it too: a binding macro past the cap
+-- does not run as written, and its own action is the line that goes. Counted
+-- in bytes. A HoverCast macro over the cap trades the mount guard on every
+-- conditional for one leading /stopmacro, which runs the same.
+local MACRO_MAX = 255
+local GUARD_STOP = "/stopmacro [mounted][flying]\n"
+local function FitMacro(text, hover)
+    if not text or #text <= MACRO_MAX then return text end
+    if hover then
+        local body = text:gsub("/stopmacro %[mounted%]%[flying%]\n", "")
+        body = body:gsub(",nomounted,noflying%]", "]")
+        local compact = GUARD_STOP .. body
+        if #compact <= MACRO_MAX then return compact end
+    end
+    return nil
+end
+
 -- Wraps base macrotext with Smart Rez: when binding.smartRez is set, dynamic-rez
 -- /cast lines are prepended (they fail their [dead] condition on a living unit,
--- so the macro falls through to the normal action).
+-- so the macro falls through to the normal action). Every result fits the
+-- macro cap: the clears go first, then Smart Rez's combat rez item, then Smart
+-- Rez itself, never the binding's own action.
 local function BuildMacroText(binding)
-    local base = BuildBaseMacroText(binding)
+    local hover = binding.hovercast and true or false
+    local plain = BuildBaseMacroText(binding)
     -- A user macro body is theirs: only the lines this file writes get clears.
-    if binding.type ~= "macro" then base = AddTargetingClears(base) end
+    local cleared = plain
+    if binding.type ~= "macro" then cleared = AddTargetingClears(plain) end
+    local base = FitMacro(cleared, hover) or FitMacro(plain, hover) or plain
     if not binding.smartRez then return base end
     -- A pinned WoW Forever rez rank is the rez itself: the by-name rez lines
     -- would cast the top rank ahead of it on every dead target.
@@ -1130,22 +1155,32 @@ local function BuildMacroText(binding)
     if binding.type == "target" or binding.type == "menu" or binding.type == "dynamicrez" then
         return base
     end
-    local guard = binding.hovercast and MOUNT_GUARD or ""
+    local guard = hover and MOUNT_GUARD or ""
     local rez = BuildRezLines(binding, guard)
     if not rez or #rez == 0 then return base end
-    local rezText = AddTargetingClears(table.concat(rez, "\n"))
-
-    if base then
-        return rezText .. "\n" .. base
-    end
     -- A plain spell binding produces no base macro (applied as a direct spell);
     -- convert it to a macro so the rez lines can lead, then cast on the same unit.
-    if binding.type == "spell" then
-        local line = SpellCastLine(binding, "[@mouseover,exists,nodead" .. guard .. "]")
-        if not line then return rezText end
-        return rezText .. "\n" .. AddTargetingClears(line)
+    if not plain and binding.type == "spell" then
+        plain = SpellCastLine(binding, "[@mouseover,exists,nodead" .. guard .. "]")
+        cleared = AddTargetingClears(plain)
     end
-    return rezText
+    local function Join(rezText, action)
+        if action then return rezText .. "\n" .. action end
+        return rezText
+    end
+    -- The richest form that fits: clears on every line, then on the action
+    -- only, then none, then without the combat rez item.
+    local rezText = table.concat(rez, "\n")
+    local text = FitMacro(Join(AddTargetingClears(rezText), cleared), hover)
+        or FitMacro(Join(rezText, cleared), hover)
+        or FitMacro(Join(rezText, plain), hover)
+    if not text and rezItemID then
+        local spells = BuildRezLines(binding, guard, false, true)
+        if spells and #spells > 0 then
+            text = FitMacro(Join(table.concat(spells, "\n"), plain), hover)
+        end
+    end
+    return text or base
 end
 
 function ns.CC_GetBindingIcon(b)
@@ -3388,7 +3423,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     stickyLeftBg:SetPoint("BOTTOMRIGHT", leftOuter, "BOTTOMRIGHT", 0, 0)
     stickyLeftBg:SetFrameLevel(leftOuter:GetFrameLevel() + 4)
     local slbTex = stickyLeftBg:CreateTexture(nil, "BACKGROUND")
-    slbTex:SetAllPoints(); slbTex:SetColorTexture(15/255, 17/255, 22/255, 1)
+    slbTex:SetAllPoints(); slbTex:SetColorTexture(17/255, 15/255, 12/255, 1)
     stickyLeftBg:Hide()
 
     local stickyGlobalBtn = CreateFrame("Button", nil, leftOuter)
@@ -4013,7 +4048,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     stickyRightBg:SetPoint("BOTTOMRIGHT", rightOuter, "BOTTOMRIGHT", 0, 0)
     stickyRightBg:SetFrameLevel(rightOuter:GetFrameLevel() + 4)
     local srbTex = stickyRightBg:CreateTexture(nil, "BACKGROUND")
-    srbTex:SetAllPoints(); srbTex:SetColorTexture(15/255, 17/255, 22/255, 1)
+    srbTex:SetAllPoints(); srbTex:SetColorTexture(17/255, 15/255, 12/255, 1)
     stickyRightBg:Hide()
 
     local stickySpecBtn = CreateFrame("Button", nil, rightOuter)

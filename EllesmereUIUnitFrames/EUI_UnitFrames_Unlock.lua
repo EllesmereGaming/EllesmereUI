@@ -304,8 +304,14 @@ local function RegisterUFUnlockElements()
             elements[#elements + 1] = bossElem
         end
 
-        -- Conditional elements
-        if ns.GetUnitFrameSource("player") == "eui" and db.profile.player.showClassPowerBar and not db.profile.player.lockClassPowerToFrame then
+        -- Conditional elements. WoW Forever: the style that builds
+        -- (ns.UF_ForeverCPStyle; a rogue under the EllesmereUI look reads its
+        -- own), not the shared showClassPowerBar.
+        local cpShown = db.profile.player.showClassPowerBar
+        if ns.UF_ForeverCPStyle then
+            cpShown = ns.UF_ForeverCPStyle(db.profile.player.classPowerStyle or "none") ~= "none"
+        end
+        if ns.GetUnitFrameSource("player") == "eui" and cpShown and not db.profile.player.lockClassPowerToFrame then
             elements[#elements + 1] = MakeUFElement("classPower", 9)
         end
 
