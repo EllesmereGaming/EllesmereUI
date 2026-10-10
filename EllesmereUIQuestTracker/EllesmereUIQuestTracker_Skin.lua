@@ -800,6 +800,63 @@ local function ApplyFocusHighlight(block)
     fs:SetTextColor(r, g, b)
 end
 
+-- Objective line colors: a red-to-green progress gradient and/or dimmed
+-- finished lines. Blizzard recolors a line only when its color style changes,
+-- so ours holds between passes; re-applied after each tracker update.
+local _objColored = setmetatable({}, { __mode = "k" })
+
+-- Three color stops (start, middle, end) from the Colors cog; defaults are
+-- a red-yellow-green softened toward white so it reads as text.
+local function ProgressRGB(f)
+    local c = EQT.DB()
+    local r1, g1, b1, r2, g2, b2
+    if f < 0.5 then
+        r1, g1, b1 = c.objStartR or 1.0, c.objStartG or 0.4, c.objStartB or 0.4
+        r2, g2, b2 = c.objMidR or 1.0, c.objMidG or 1.0, c.objMidB or 0.4
+        f = f * 2
+    else
+        r1, g1, b1 = c.objMidR or 1.0, c.objMidG or 1.0, c.objMidB or 0.4
+        r2, g2, b2 = c.objEndR or 0.4, c.objEndG or 1.0, c.objEndB or 0.4
+        f = f * 2 - 1
+    end
+    return r1 + (r2 - r1) * f, g1 + (g2 - g1) * f, b1 + (b2 - b1) * f
+end
+
+local function ColorObjectiveLines(block)
+    local lines = block and block.usedLines
+    if not lines then return end
+    local progress, dim = EQT.Cfg("objProgressColor"), EQT.Cfg("objDimCompleted")
+    if not progress and not dim and next(_objColored) == nil then return end
+    local questID = type(block.id) == "number" and block.id
+    local objectives = (progress or dim) and questID and C_QuestLog.GetQuestObjectives(questID)
+    for key, line in pairs(lines) do
+        local fs = line.Text
+        local obj = objectives and type(key) == "number" and objectives[key]
+        if fs and obj then
+            local style = fs.colorStyle
+            local r, g, b = 1, 1, 1
+            if style then r, g, b = style.r, style.g, style.b end
+            local req = obj.numRequired
+            if progress then
+                -- Finished lines take the End Color, not Blizzard's grey.
+                if obj.finished then
+                    r, g, b = ProgressRGB(1)
+                elseif type(req) == "number" and req > 0 then
+                    r, g, b = ProgressRGB((obj.numFulfilled or 0) / req)
+                end
+            end
+            fs:SetTextColor(r, g, b, (dim and obj.finished) and (EQT.Cfg("objDimAlpha") or 45) / 100 or 1)
+            _objColored[fs] = true
+        elseif fs and _objColored[fs] then
+            -- Feature off or a non-objective line on a recycled frame:
+            -- back to Blizzard's color.
+            local style = fs.colorStyle
+            if style then fs:SetTextColor(style.r, style.g, style.b, 1) end
+            _objColored[fs] = nil
+        end
+    end
+end
+
 -- Skip all skinning work when the tracker is force-hidden (M+, raid, arena).
 -- Uses the cached suppression flag only (set by ApplySuppression /
 -- UpdateVisibility). No per-call API queries.
@@ -818,6 +875,8 @@ local function HookBlockLineMethods(block)
     -- gold/focus color we chose is what the player sees.
     local function reassertTitle()
         ApplyFocusHighlight(block)
+        -- Hover highlight swaps line colors too.
+        ColorObjectiveLines(block)
     end
     if block.HookScript then
         block:HookScript("OnEnter", reassertTitle)
@@ -1193,6 +1252,7 @@ local function SkinExistingBlocks(tracker)
                     StyleObjectiveLine(line)
                 end
             end
+            ColorObjectiveLines(block)
         end
     end
 end
@@ -1349,6 +1409,7 @@ local function HookTracker(tracker)
                 _updateDirty = false
                 local skip = STOCK or ShouldSkipSkin()
                 local mouseOff = EQT._trackerMouseOff
+                local colorLines = EQT.Cfg("objProgressColor") or EQT.Cfg("objDimCompleted")
                 if skip and not mouseOff then return end
                 if not skip then
                     if tracker.Header then EnsureAccentDivider(tracker.Header) end
@@ -1359,7 +1420,10 @@ local function HookTracker(tracker)
                         if type(byTemplate) == "table" then
                             for _, block in pairs(byTemplate) do
                                 if type(block) == "table" then
-                                    if not skip then SuppressPOI(block) end
+                                    if not skip then
+                                        SuppressPOI(block)
+                                        if colorLines then ColorObjectiveLines(block) end
+                                    end
                                     -- Blizzard's own Update re-enables bonus
                                     -- blocks; this lands after it.
                                     if mouseOff then ApplyBlockMouse(block) end

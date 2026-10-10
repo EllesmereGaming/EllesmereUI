@@ -7,6 +7,7 @@
 ## Version: 9.4
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIQuestTrackerDB
+## SavedVariablesPerCharacter: EllesmereUIQuestTrackerCharDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Loader
