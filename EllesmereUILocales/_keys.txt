@@ -14,6 +14,7 @@
 %1$d condition(s), not met by your current talents: the icon is hidden.
 %1$d did not fit
 %1$d picked: %2$d new, %3$d updated, %4$d skipped. Free macro slots: %5$d
+%1$d waypoints
 %1$d. Combo
 %1$d. Debuff
 %1$s (max %2$s)
@@ -225,6 +226,7 @@ CHOOSE YOUR LOOK
 Calendar
 Camp
 Cancel
+Cannot determine your current zone.
 Cannot open the Cooldown Manager during combat.
 Cannot open the Cooldown Manager with the Gamepad interface style.
 Cannot reload during combat. Type /reload instead.
@@ -257,6 +259,7 @@ Click a talent to require it: Taken, then Not Taken, then cleared. Every conditi
 Click any new feature to go directly to the setting
 Click elements to scroll to and highlight their options
 Click items to mark or unmark them as junk.
+Click the link to place the pin, then click the pin on the map to show the arrow.
 Click the link, then Ctrl+C to copy it
 Click this eye icon to preview live\nhealth bar effects like absorbs and healing.
 Click to close.
@@ -609,6 +612,8 @@ Macros can't be changed in combat.
 Macros: %1$d created, %2$d updated, %3$d skipped.
 Main Bags (%d / %d)
 Major Features
+Map pins cannot be placed inside instances.
+Map pins cannot be placed on %1$s.
 Match All Filters
 Match Any Filter
 Match Mode
@@ -653,6 +658,7 @@ New Macro
 New Patch Reminder Dot
 New Profile
 Next sockets
+Next:
 No
 No Bars - Click to Add
 No Items
@@ -877,6 +883,7 @@ Set per filter
 Set per filter and tile
 Set per indicator
 Settings
+Several zones match %1$s:
 Shadow Res
 Shared with %1$s.
 Shift + Left-Click Drag to permanently save a panel's position.
@@ -983,6 +990,7 @@ The scriptProfile CVar is enabled.
 The single stack threshold is off while Multiple Thresholds is on.
 The taintLog CVar is enabled.
 The taintLog and scriptProfile CVars are enabled.
+Then click another link to switch destination; the arrow follows.
 These are the same settings found on each module's own pages, not separate ones.
 These filters can never match together.
 Thickness
@@ -1016,6 +1024,7 @@ Thresholds configured for:
 Time this level: %s
 Time this session: %s
 To keep its settings safe, EllesmereUI now gives other addons their own section in the panel instead of letting them change its pages. The addons below haven't caught up yet, so those changes are hidden until they're updated. Everything else works as usual.
+To remove the pin, ctrl-click it on the world map.
 Toggle On/Off Keybind
 Too long: %1$d / %2$d characters.
 Top Left
@@ -1050,7 +1059,9 @@ Unknown Item
 Unknown Macro
 Unknown Spell
 Unknown error
+Unknown map ID: %1$s
 Unknown talent
+Unknown zone: %1$s
 Unlock Mode
 Unlock Mode is where you can adjust\npositioning for all the elements of EllesmereUI
 Unlock the Omnium Folio to use this shortcut.
@@ -1062,6 +1073,7 @@ Up to
 Update Sync Group
 Upranked %1$s on %2$d action slots.
 Upranked %s on 1 action slot.
+Usage:
 Use Multiple Thresholds
 Use a bonus roll?
 Use arrow keys to move selected element 1px any direction
@@ -1105,6 +1117,7 @@ You
 You are displaying NO buffs at all.
 You are displaying NO debuffs at all.
 You don't have this item in your bags
+You have arrived:
 You have not learned %1$s.
 You may only have %1$d windows active
 Your Keystone

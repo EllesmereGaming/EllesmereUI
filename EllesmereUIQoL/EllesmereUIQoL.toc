@@ -18,6 +18,7 @@ EllesmereUIQoL_Bloodlust.lua
 EllesmereUIQoL_AutoLogging.lua
 EllesmereUIQoL_Keys.lua
 EllesmereUIQoL_TeleportPrompt.lua
+EllesmereUIQoL_Waypoint.lua
 EllesmereUIQoL_Shifter.lua
 EllesmereUIQoL_MovementAlert.lua
 EllesmereUIQoL_RaidTools.lua
