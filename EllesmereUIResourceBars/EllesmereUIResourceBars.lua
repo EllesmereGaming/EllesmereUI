@@ -136,10 +136,12 @@ local CHANNEL_TICK_DATA = {
     [15407]   = { ticks = 6 },                                     -- Mind Flay
     [48045]   = { ticks = 6 },                                     -- Mind Sear
     [64843]   = { ticks = 4 },                                     -- Divine Hymn
-    [47757]   = { ticks = 3 },                                     -- Penance (Heal)
-    [47758]   = { ticks = 3 },                                     -- Penance (DPS)
-    [373129]  = { ticks = 3 },                                     -- Penance / Dark Reprimand (DPS)
-    [400171]  = { ticks = 3 },                                     -- Penance / Dark Reprimand (Heal)
+    -- Penance hits 3 times over 2s with the first at the cast (ticks = 2);
+    -- Castigation (193134) adds a hit (ticks = 3).
+    [47757]   = { ticks = 2, modSpell = 193134, modTicks = 3 },    -- Penance (Heal)
+    [47758]   = { ticks = 2, modSpell = 193134, modTicks = 3 },    -- Penance (DPS)
+    [373129]  = { ticks = 2, modSpell = 193134, modTicks = 3 },    -- Penance / Dark Reprimand (DPS)
+    [400171]  = { ticks = 2, modSpell = 193134, modTicks = 3 },    -- Penance / Dark Reprimand (Heal)
     -- Mage
     -- Arcane Missiles: 5 missiles, fenceposted (see the missiles model
     -- above), so only 3 interior marks base. Amplification (236628) adds 2
@@ -170,6 +172,26 @@ local CHANNEL_TICK_DATA = {
     -- Racial
     [291944]  = { ticks = 6 },                                     -- Regeneratin (Zandalari)
 }
+
+-- WoW Forever: every rank is its own spell ID.
+-- Mind flay differs from Retail, as it ticks immediately at the start of the cast.
+-- Penance acts like Retail where it ticks immediately at the start of the cast.
+-- Mind flay hits 4 times over 3 seconds so we want 2 dividers (tick @ 0s, tick @ 1s divider, tick @ 2s divider, tick @ 3s)
+-- Penance hits 3 times over 2 seconds so we want 1 divider (tick @ 0s, tick @ 1s divider, tick @ 2s)
+-- The number of dividers is equal to ticks - 1
+if EllesmereUI.IS_FOREVER then
+    for _, id in ipairs({ 15407, 17311, 17312, 17313, 17314, 18807 }) do
+        CHANNEL_TICK_DATA[id] = { ticks = 3 }                      -- Mind Flay
+    end
+    for _, id in ipairs({
+        402174, 402284, 402289,                                    -- Penance rank 1
+        1240720, 1240723, 1240727,                                 -- rank 2
+        1240721, 1240724, 1240730,                                 -- rank 3
+        1316991, 1316993, 1316995,                                 -- rank 4
+    }) do
+        CHANNEL_TICK_DATA[id] = { ticks = 2 }                      -- Penance
+    end
+end
 
 
 -------------------------------------------------------------------------------
