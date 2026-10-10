@@ -642,9 +642,8 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Row: Hide Loot Rolls Window (left, with settings cog) | Announce Group
-        -- Deaths (right, with Text Size cog). Combat Alert lives in the ALERTS
-        -- section (EUI_QoL_Alerts_Options.lua).
+        -- Row: Hide Loot Rolls Window (left, with settings cog) | Hide Item
+        -- Transforms (right, with picker cog)
         local lootHistRow
         lootHistRow, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Loot Rolls Window",
@@ -658,16 +657,18 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._applyHideLootHistory then EllesmereUI._applyHideLootHistory() end
                   EllesmereUI:RefreshPage()  -- update the cog disabled state
               end },
-            { type="toggle", text="Announce Group Deaths",
-              tooltip="Shows a large on-screen alert (e.g. \"Player DIED!\") whenever a party or raid member dies, so you immediately notice deaths during dungeons and raids. Use Unlock Mode to reposition the alert.",
+            { type="toggle", text="Hide Item Transforms (ex: Chef's Hat)",
+              tooltip="Automatically removes cosmetic transforms when they are applied to you, such as profession gear, holiday costumes, toys and consumables. Use the cog to pick exactly which transforms are removed. Transforms applied during combat are removed when combat ends.",
               getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.announceGroupDeaths or false
+                  return EllesmereUIDB and EllesmereUIDB.hideTransforms or false
               end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.announceGroupDeaths = v
-                  if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
-                  EllesmereUI:RefreshPage()
+                  EllesmereUIDB.hideTransforms = v
+                  if EllesmereUI._applyHideTransforms then
+                      EllesmereUI._applyHideTransforms()
+                  end
+                  EllesmereUI:RefreshPage()  -- update the picker cog disabled state
               end }
         );  y = y - h
 
@@ -717,109 +718,13 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row 7: Hide Item Transforms (left, with picker cog) | Auto Select
-        -- Single Gossip (right, with settings cog)
-        local deathRow
-        deathRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Hide Item Transforms (ex: Chef's Hat)",
-              tooltip="Automatically removes cosmetic transforms when they are applied to you, such as profession gear, holiday costumes, toys and consumables. Use the cog to pick exactly which transforms are removed. Transforms applied during combat are removed when combat ends.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.hideTransforms or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.hideTransforms = v
-                  if EllesmereUI._applyHideTransforms then
-                      EllesmereUI._applyHideTransforms()
-                  end
-                  EllesmereUI:RefreshPage()  -- update the picker cog disabled state
-              end },
-            { type="toggle", text="Auto Select Single Gossip",
-              tooltip="Picks an NPC's only dialog option for you.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.autoGossip or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.autoGossip = v
-                  if EllesmereUI._applyAutoGossip then EllesmereUI._applyAutoGossip() end
-                  EllesmereUI:RefreshPage()
-              end }
-        );  y = y - h
-
-        -- Inline cog (Text Size) on the Announce Group Deaths toggle
-        if not EllesmereUI._prebuilding then
-            local leftRgn = lootHistRow._rightRegion
-            local function deathOff()
-                return not (EllesmereUIDB and EllesmereUIDB.announceGroupDeaths)
-            end
-
-            -- Sound dropdown values (mirrors Chat's "Whisper Sound"): shallow-copy
-            -- the runtime name table and attach _menuOpts so each row gets a
-            -- click-to-preview speaker icon.
-            local gdSoundPaths = EllesmereUI._groupDeathSoundPaths or {}
-            local gdSoundNames = EllesmereUI._groupDeathSoundNames or { none = "None" }
-            local gdSoundOrder = EllesmereUI._groupDeathSoundOrder or { "none" }
-            local gdSoundValues = {}
-            for k, v in pairs(gdSoundNames) do gdSoundValues[k] = v end
-            gdSoundValues._menuOpts = {
-                itemHeight = 26,
-                maxTextWidthPct = 0.8,
-                searchable = true,
-                iconAtlas = function(key)
-                    if key == "none" then return nil end
-                    if not gdSoundPaths[key] then return nil end
-                    return EllesmereUI.SOUND_ICON_ATLAS
-                end,
-                iconPressedAtlas = function(key)
-                    if key == "none" then return nil end
-                    return EllesmereUI.SOUND_ICON_PRESSED_ATLAS
-                end,
-                iconOnClick = function(key)
-                    local path = gdSoundPaths[key]
-                    if path then PlaySoundFile(path, "Master") end
-                end,
-                iconTooltip = function() return "Preview Sound" end,
-            }
-
-            EllesmereUI.BuildInlineCog(leftRgn, {
-                title = "Group Death Alert Settings",
-                rows = {
-                    { type="slider", label="Text Size",
-                      min=14, max=64, step=1,
-                      get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.groupDeathTextSize) or 34
-                      end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.groupDeathTextSize = v
-                        if EllesmereUI._applyGroupDeathAlert then EllesmereUI._applyGroupDeathAlert() end
-                        if EllesmereUI._groupDeathShowVisual then EllesmereUI._groupDeathShowVisual() end
-                      end },
-                    { type="dropdown", label="Sound",
-                      values=gdSoundValues, order=gdSoundOrder,
-                      get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.groupDeathSoundKey) or "none"
-                      end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.groupDeathSoundKey = v
-                        if v ~= "none" and EllesmereUI._groupDeathPlaySound then
-                            EllesmereUI._groupDeathPlaySound()
-                        end
-                      end },
-                },
-                gap = 9, disabled = deathOff, disabledTooltip = "Announce Group Deaths",
-            })
-        end
-
         -- (Target Distance Text moved to the EXTRAS section, Row 4 right slot.)
 
-        -- Inline picker cog on Hide Item Transforms (right slot of the death
-        -- row): opens the item checklist popup. Dimmed and inert while the
+        -- Inline picker cog on Hide Item Transforms (right slot of the loot
+        -- rolls row): opens the item checklist popup. Dimmed and inert while the
         -- toggle is off, mirroring the resource-bar spec-picker button.
         if not EllesmereUI._prebuilding then
-            local rgn = deathRow._leftRegion
+            local rgn = lootHistRow._rightRegion
             local function hitOff()
                 return not (EllesmereUIDB and EllesmereUIDB.hideTransforms)
             end
@@ -830,10 +735,20 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row: Type /cd to open Blizzard CDM (last row of the section, so the
-        -- right slot may stay empty)
+        -- Row: Auto Select Single Gossip (left, with cog)
         local gossipRow
         gossipRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Auto Select Single Gossip",
+              tooltip="Picks an NPC's only dialog option for you.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.autoGossip or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.autoGossip = v
+                  if EllesmereUI._applyAutoGossip then EllesmereUI._applyAutoGossip() end
+                  EllesmereUI:RefreshPage()
+              end },
             -- Cooldown Manager registers /cd at load from this key, so a change reloads
             { type="toggle", text="Type /cd to open Blizzard CDM",
               tooltip="Lets /cd open or close Blizzard's Cooldown Manager settings.",
@@ -852,12 +767,11 @@ initFrame:SetScript("OnEvent", function(self)
                       cancelText  = "Later",
                       reload      = true,
                   })
-              end },
-            EllesmereUI.BlankRowCfg()
+              end }
         );  y = y - h
 
         if not EllesmereUI._prebuilding then
-            local leftRgn = deathRow._rightRegion
+            local leftRgn = gossipRow._leftRegion
             local function gossipOff()
                 return not (EllesmereUIDB and EllesmereUIDB.autoGossip)
             end

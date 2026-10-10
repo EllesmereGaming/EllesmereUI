@@ -215,6 +215,7 @@ function Alerts.Color(prefix, dr, dg, db)
 end
 
 local function RegisterUnlock()
+    if not (EUI.RegisterUnlockElements and EUI.MakeUnlockElement) then return end
     EUI:RegisterUnlockElements({
         EUI.MakeUnlockElement({
             key      = "EUI_Alerts",
@@ -267,6 +268,7 @@ end)
 --  Potion Ready
 --  The potion you drank is found from its on-use spell (UNIT_SPELLCAST_SUCCEEDED),
 --  its cooldown is read once from the item API, and one timer fires at the end.
+--  The item cooldown API is not secret-restricted, so it is readable in combat.
 --  BAG_UPDATE_COOLDOWN is only listened to while a potion is waiting to start or
 --  finish, so presses of other abilities cost nothing in between.
 -------------------------------------------------------------------------------
@@ -274,14 +276,13 @@ do
     local POTION_CLASS = Enum.ItemClass.Consumable
     local POTION_SUBCLASS = 1   -- Enum.ItemConsumableSubclass.Potion
     local MIN_CD = 1.5   -- anything longer is the potion's own cooldown, not the GCD
-    local GetInstant = C_Item.GetItemInfoInstant
-    local GetUseSpell = C_Item.GetItemSpell
+    local GetInstant = C_Item and C_Item.GetItemInfoInstant
+    local GetUseSpell = C_Item and C_Item.GetItemSpell
 
     local watcher
     local installed = false
     local spellToItem = {}  -- on-use spellID -> itemID, for potions seen in bags
     local seen = {}         -- itemID -> true (mapped potion) / false (not a potion)
-    local knownDur = {}     -- itemID -> last readable cooldown length
     local timer, pendingItem, usedItem
 
     local function ShowAlert(preview)
@@ -290,10 +291,10 @@ do
         Alerts.Line("potion").Show(DB("potionAlertText") or D.text, r, g, b, preview)
     end
 
-    -- start, duration; nil when the client hides the values (combat).
+    -- start, duration; nil if the item has no cooldown data.
     local function ReadCD(itemID)
         local start, dur = C_Container.GetItemCooldown(itemID)
-        if IsSecret(start) or IsSecret(dur) then return nil end
+        if not start or IsSecret(start) or IsSecret(dur) then return nil end
         return start, dur
     end
 
@@ -318,6 +319,8 @@ do
         local itemID = pendingItem
         pendingItem = nil
         if not itemID then UpdateCooldownEvent(); return end
+        -- Last one used up: nothing to be ready for.
+        if (C_Item.GetItemCount(itemID) or 0) <= 0 then UpdateCooldownEvent(); return end
         -- A cooldown extended since we armed is re-read here, so the alert is
         -- only for a potion that is really ready.
         local start, dur = ReadCD(itemID)
@@ -341,26 +344,25 @@ do
         local itemID = usedItem
         if not itemID then return true end
         local start, dur = ReadCD(itemID)
-        if start and dur and dur > MIN_CD then
+        if not start then
             usedItem = nil
-            knownDur[itemID] = dur
-            ArmTimer(itemID, start + dur - GetTime())
+            UpdateCooldownEvent()
             return true
         end
-        if start == nil then
-            -- Values hidden: fall back to the length last read for this potion.
+        if dur > MIN_CD then
             usedItem = nil
-            if knownDur[itemID] then ArmTimer(itemID, knownDur[itemID]) else UpdateCooldownEvent() end
+            ArmTimer(itemID, start + dur - GetTime())
             return true
         end
         return false   -- cooldown not started yet; wait for BAG_UPDATE_COOLDOWN
     end
 
+    -- Item IDs only (no per-slot tables); each item is classified once.
     local function ScanBags()
+        if not (GetInstant and GetUseSpell) then return end
         for bag = 0, NUM_BAG_SLOTS do
             for slot = 1, C_Container.GetContainerNumSlots(bag) do
-                local info = C_Container.GetContainerItemInfo(bag, slot)
-                local id = info and info.itemID
+                local id = C_Container.GetContainerItemID(bag, slot)
                 if id and seen[id] == nil then
                     local _, _, _, _, _, classID, subID = GetInstant(id)
                     if classID == POTION_CLASS and subID == POTION_SUBCLASS then

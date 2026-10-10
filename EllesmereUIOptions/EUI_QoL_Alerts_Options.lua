@@ -1,9 +1,10 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_QoL_Alerts_Options.lua
---  ALERTS section: Combat Alert, Potion Ready Alert and Unspent Talents Alert.
---  They share one movable anchor (Unlock Mode: Alerts); each has its own text,
---  size and color. The runtime is EllesmereUIQoL_Alerts.lua.
+--  ALERTS section: Combat Alert, Potion Ready Alert, Unspent Talents Alert and
+--  Announce Group Deaths. The first three share one movable anchor (Unlock Mode:
+--  Alerts) and have their own text, size and color; their runtime is
+--  EllesmereUIQoL_Alerts.lua. Group Deaths keeps its own overlay (EllesmereUIQoL.lua).
 -------------------------------------------------------------------------------
 
 if not EllesmereUI._ModuleNS["EllesmereUIQoL"] then return end  -- module disabled: no options page
@@ -92,7 +93,17 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
               if EllesmereUI._applyTalentAlert then EllesmereUI._applyTalentAlert() end
               EllesmereUI:RefreshPage()
           end },
-        EllesmereUI.BlankRowCfg()
+        { type="toggle", text="Announce Group Deaths",
+          tooltip="Shows a large on-screen alert (e.g. \"Player DIED!\") whenever a party or raid member dies, so you immediately notice deaths during dungeons and raids. Use Unlock Mode to reposition the alert.",
+          getValue=function()
+              return EllesmereUIDB and EllesmereUIDB.announceGroupDeaths or false
+          end,
+          setValue=function(v)
+              if not EllesmereUIDB then EllesmereUIDB = {} end
+              EllesmereUIDB.announceGroupDeaths = v
+              if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
+              EllesmereUI:RefreshPage()
+          end }
     );  y = y - h
 
     -- Inline cog (text, size, colors, mode) on the Combat Alert toggle.
@@ -218,6 +229,69 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
             gap = 9,
             disabled = function() return not (EllesmereUIDB and EllesmereUIDB.talentAlertEnabled) end,
             disabledTooltip = "Unspent Talents Alert",
+        })
+
+        -- Inline cog (Text Size, Sound) on the Announce Group Deaths toggle
+        local function deathOff()
+            return not (EllesmereUIDB and EllesmereUIDB.announceGroupDeaths)
+        end
+
+        -- Sound dropdown values (mirrors Chat's "Whisper Sound"): shallow-copy
+        -- the runtime name table and attach _menuOpts so each row gets a
+        -- click-to-preview speaker icon.
+        local gdSoundPaths = EllesmereUI._groupDeathSoundPaths or {}
+        local gdSoundNames = EllesmereUI._groupDeathSoundNames or { none = "None" }
+        local gdSoundOrder = EllesmereUI._groupDeathSoundOrder or { "none" }
+        local gdSoundValues = {}
+        for k, v in pairs(gdSoundNames) do gdSoundValues[k] = v end
+        gdSoundValues._menuOpts = {
+            itemHeight = 26,
+            maxTextWidthPct = 0.8,
+            searchable = true,
+            iconAtlas = function(key)
+                if key == "none" then return nil end
+                if not gdSoundPaths[key] then return nil end
+                return EllesmereUI.SOUND_ICON_ATLAS
+            end,
+            iconPressedAtlas = function(key)
+                if key == "none" then return nil end
+                return EllesmereUI.SOUND_ICON_PRESSED_ATLAS
+            end,
+            iconOnClick = function(key)
+                local path = gdSoundPaths[key]
+                if path then PlaySoundFile(path, "Master") end
+            end,
+            iconTooltip = function() return "Preview Sound" end,
+        }
+
+        EllesmereUI.BuildInlineCog(row2._rightRegion, {
+            title = "Group Death Alert Settings",
+            rows = {
+                { type="slider", label="Text Size",
+                  min=14, max=64, step=1,
+                  get=function()
+                    return (EllesmereUIDB and EllesmereUIDB.groupDeathTextSize) or 34
+                  end,
+                  set=function(v)
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    EllesmereUIDB.groupDeathTextSize = v
+                    if EllesmereUI._applyGroupDeathAlert then EllesmereUI._applyGroupDeathAlert() end
+                    if EllesmereUI._groupDeathShowVisual then EllesmereUI._groupDeathShowVisual() end
+                  end },
+                { type="dropdown", label="Sound",
+                  values=gdSoundValues, order=gdSoundOrder,
+                  get=function()
+                    return (EllesmereUIDB and EllesmereUIDB.groupDeathSoundKey) or "none"
+                  end,
+                  set=function(v)
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    EllesmereUIDB.groupDeathSoundKey = v
+                    if v ~= "none" and EllesmereUI._groupDeathPlaySound then
+                        EllesmereUI._groupDeathPlaySound()
+                    end
+                  end },
+            },
+            gap = 9, disabled = deathOff, disabledTooltip = "Announce Group Deaths",
         })
     end
 
