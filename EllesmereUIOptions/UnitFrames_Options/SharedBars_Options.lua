@@ -2281,75 +2281,85 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             },
         }
         local classAlts = SPEC_POWER_ALTS[playerClass]
-        -- Retail only: these alternatives are retail spec resources, and the
-        -- WoW Forever classes have no specs to key them on.
-        if classAlts and not EllesmereUI.IS_FOREVER then
-            local GetSpec = C_SpecializationInfo.GetSpecialization
-            -- Labels follow the CURRENT spec: the page is built once and
-            -- cached, so they are refilled on every spec change (see
-            -- UpdatePowerTypeRow), never only at build time.
-            local ptValues = {}
-            local ptOrder  = { "default", "alt" }
-            local function FillPowerTypeValues(s)
-                local data = s and classAlts[s]
-                ptValues["default"] = data and data[1] or nil
-                ptValues["alt"]     = data and data[2] or nil
-            end
-            local labelSpec = GetSpec()
-            FillPowerTypeValues(labelSpec)
+        local GetSpec = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization
+        local ptValues = {}
+        local ptOrder  = { "default", "alt" }
+        local function FillPowerTypeValues(s)
+            local data = s and classAlts and classAlts[s]
+            ptValues["default"] = data and data[1] or "Default"
+            ptValues["alt"]     = data and data[2] or "Alternate"
+        end
+        local labelSpec = GetSpec and GetSpec()
+        FillPowerTypeValues(labelSpec)
 
-            local sharedPowerRow5
-            sharedPowerRow5, h = W:DualRow(parent, y,
-                { type="dropdown", text="Power Type",
-                  values = ptValues, order = ptOrder,
-                  -- Stored by SPEC ID, not the GetSpecialization() index: one
-                  -- profile holds one set, so an index key collides across
-                  -- classes (slot 3 is Guardian, Shadow AND Augmentation).
-                  -- classAlts stays index-keyed, it is already per class.
-                  getValue = function()
-                      local s = GetSpec()
-                      if not s or not classAlts[s] then return "default" end
-                      local sid = C_SpecializationInfo
-                          and C_SpecializationInfo.GetSpecializationInfo(s)
-                      if not sid then return "default" end
-                      local ov = UNIT_DB_MAP["player"]().powerTypeOverride
-                      if ov and ov[sid] then return "alt" end
-                      return "default"
-                  end,
-                  setValue = function(v)
-                      local s = GetSpec()
-                      if not s then return end
-                      local sid = C_SpecializationInfo
-                          and C_SpecializationInfo.GetSpecializationInfo(s)
-                      if not sid then return end
-                      local pdb = UNIT_DB_MAP["player"]()
-                      if v == "alt" then
-                          if not pdb.powerTypeOverride then pdb.powerTypeOverride = {} end
-                          pdb.powerTypeOverride[sid] = true
-                      else
-                          if pdb.powerTypeOverride then pdb.powerTypeOverride[sid] = nil end
-                      end
-                      ReloadAndUpdate()
-                  end },
-                { type="label", text="" }); y = y - h
+        local sharedPowerRow5
+        sharedPowerRow5, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Boss Health Marker",
+              tooltip = "Shows a vertical marker on your power bar indicating the primary boss's health percentage.",
+              getValue = function() return SVal("bossPacingEnabled", false) end,
+              setValue = function(v)
+                  SSet("bossPacingEnabled", v)
+                  ReloadAndUpdate()
+              end },
+            { type = "dropdown", text = "Power Type",
+              values = ptValues,
+              order = ptOrder,
+              disabled = function()
+                  local s = GetSpec and GetSpec()
+                  return not (classAlts and not EllesmereUI.IS_FOREVER and s and classAlts[s])
+              end,
+              disabledTooltip = function()
+                  return "No alternate power type for the current specialization."
+              end,
+              getValue = function()
+                  local s = GetSpec and GetSpec()
+                  if not s or not classAlts or not classAlts[s] then return "default" end
+                  local sid = C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo(s)
+                  if not sid then return "default" end
+                  local ov = UNIT_DB_MAP["player"]().powerTypeOverride
+                  if ov and ov[sid] then return "alt" end
+                  return "default"
+              end,
+              setValue = function(v)
+                  local s = GetSpec and GetSpec()
+                  if not s then return end
+                  local sid = C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo(s)
+                  if not sid then return end
+                  local pdb = UNIT_DB_MAP["player"]()
+                  if v == "alt" then
+                      if not pdb.powerTypeOverride then pdb.powerTypeOverride = {} end
+                      pdb.powerTypeOverride[sid] = true
+                  else
+                      if pdb.powerTypeOverride then pdb.powerTypeOverride[sid] = nil end
+                  end
+                  ReloadAndUpdate()
+              end }
+        ); y = y - h
 
-            local function UpdatePowerTypeRow()
-                local s = GetSpec()
+        local function UpdatePowerRow5()
+            if optState.selectedUnit == "player" then
+                sharedPowerRow5:Show()
+                local s = GetSpec and GetSpec()
                 if s ~= labelSpec then
                     labelSpec = s
                     FillPowerTypeValues(s)
-                    local dd = sharedPowerRow5._leftRegion and sharedPowerRow5._leftRegion._control
+                    local dd = sharedPowerRow5._rightRegion and sharedPowerRow5._rightRegion._control
                     if dd and dd._invalidateMenu then dd._invalidateMenu() end
                 end
-                if optState.selectedUnit == "player" and s and classAlts[s] then
-                    sharedPowerRow5:Show()
-                else
-                    sharedPowerRow5:Hide()
+                local hasAlts = classAlts and not EllesmereUI.IS_FOREVER and s and classAlts[s]
+                if sharedPowerRow5._rightRegion then
+                    if hasAlts then
+                        sharedPowerRow5._rightRegion:Show()
+                    else
+                        sharedPowerRow5._rightRegion:Hide()
+                    end
                 end
+            else
+                sharedPowerRow5:Hide()
             end
-            RegisterWidgetRefresh(UpdatePowerTypeRow)
-            UpdatePowerTypeRow()
         end
+        RegisterWidgetRefresh(UpdatePowerRow5)
+        UpdatePowerRow5()
     end
 
     _, h = W:Spacer(parent, y, 20); y = y - h

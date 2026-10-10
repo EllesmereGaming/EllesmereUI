@@ -773,6 +773,21 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
         EllesmereUI.SpecOverrides_AttachEditLock(powerColorRow._rightRegion,
             "Thresholds have their own per-spec system and can't be edited while editing a spec group")
     end
+
+    -- Boss Health Marker
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Boss Health Marker",
+          tooltip = "Shows a vertical marker on your power bar indicating the primary boss's health percentage.",
+          disabled = powerOff,
+          disabledTooltip = powerDisTip,
+          getValue = function() local c = cfg(); return c and c.bossPacingEnabled == true end,
+          setValue = function(v)
+              local c = cfg(); if not c then return end
+              c.bossPacingEnabled = v and true or false
+              RebuildPower()
+          end },
+        { type = "label", text = "" }
+    );  y = y - h
     end   -- close Power Bar hidden-while-disabled gate
 
     -- Simple page: cover these controls when the current spec overrides Power in Advanced, so edits here aren't silently ignored.
