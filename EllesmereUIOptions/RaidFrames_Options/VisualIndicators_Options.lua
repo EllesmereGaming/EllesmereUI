@@ -263,15 +263,33 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     if not EllesmereUI._prebuilding then
         local rightRgn = row._rightRegion
         if rightRgn._control then rightRgn._control:Hide() end
-        local showRoleItems = {
-            { key = "tank",   label = "Tank" },
-            { key = "healer", label = "Healer" },
-            { key = "dps",    label = "DPS" },
-        }
+        local function ShowRoleItems()
+            local items = {
+                { key = "tank",   label = "Tank" },
+                { key = "healer", label = "Healer" },
+                { key = "dps",    label = "DPS" },
+            }
+            if SVal("roleText", false) then
+                for _, item in ipairs(items) do
+                    local colorKey = "roleText" .. item.label .. "Color"
+                    item.swatch = {
+                        get = function()
+                            local c = SGet(colorKey) or ns._internals.defaults.profile[colorKey]
+                            return c.r, c.g, c.b
+                        end,
+                        set = function(r, g, b)
+                            SSet(colorKey, { r = r, g = g, b = b })
+                            if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end
+                        end,
+                    }
+                end
+            end
+            return items
+        end
         local roleKeyMap = { tank = "showRoleForTank", healer = "showRoleForHealer", dps = "showRoleForDPS" }
         local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
             rightRgn, 170, rightRgn:GetFrameLevel() + 2,
-            showRoleItems,
+            ShowRoleItems,
             function(k) return SVal(roleKeyMap[k], true) end,
             function(k, v)
                 SSet(roleKeyMap[k], v)
