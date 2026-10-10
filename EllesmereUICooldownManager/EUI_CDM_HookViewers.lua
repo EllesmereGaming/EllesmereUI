@@ -224,7 +224,9 @@ function ns.SetupViewerHooks()
                         _activeStateReanchorPending = false
                         QueueReanchor()
                     end)
+                    local isBarViewer = viewer == _G["BuffBarCooldownViewer"]
                     hooksecurefunc(frame, "OnActiveStateChanged", function()
+                        if isBarViewer and ns.WakeTBBTickIfParked then ns.WakeTBBTickIfParked() end
                         ReapplyPositions()
                         if _activeStateReanchorPending then return end
                         _activeStateReanchorPending = true

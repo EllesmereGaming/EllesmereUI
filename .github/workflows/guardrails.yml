@@ -1,0 +1,36 @@
+name: Guardrails
+
+# Mechanical checks for mistakes that kept landing on main. Same command as
+# local: python3 .tools/guardrails.py --base <ref>. AGENTS.md lists the rule
+# each check enforces.
+
+on:
+  pull_request:
+    paths:
+      - '**/*.lua'
+      - '.tools/guardrails.py'
+      - '.github/workflows/guardrails.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Lua 5.1
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lua5.1
+
+      - name: Run guardrails
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then BASE=HEAD~1; fi
+          python3 .tools/guardrails.py --base "$BASE" --head HEAD

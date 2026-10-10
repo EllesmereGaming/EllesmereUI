@@ -510,7 +510,7 @@ ns.ReloadPartyFrames = function(skipButtons)
             d.powerBg:SetColorTexture((raw.powerBgColor or {}).r or 0, (raw.powerBgColor or {}).g or 0, (raw.powerBgColor or {}).b or 0, (raw.powerBgDarkness or 70) / 100)
             d._pwBgTintType = nil
         end
-        if d.UpdatePowerBorder then d.UpdatePowerBorder() end
+        if d.UpdatePowerBorder then d.UpdatePowerBorder(true) end
 
         -- Name text
         if d.nameText then

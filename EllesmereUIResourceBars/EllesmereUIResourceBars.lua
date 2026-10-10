@@ -136,10 +136,12 @@ local CHANNEL_TICK_DATA = {
     [15407]   = { ticks = 6 },                                     -- Mind Flay
     [48045]   = { ticks = 6 },                                     -- Mind Sear
     [64843]   = { ticks = 4 },                                     -- Divine Hymn
-    [47757]   = { ticks = 3 },                                     -- Penance (Heal)
-    [47758]   = { ticks = 3 },                                     -- Penance (DPS)
-    [373129]  = { ticks = 3 },                                     -- Penance / Dark Reprimand (DPS)
-    [400171]  = { ticks = 3 },                                     -- Penance / Dark Reprimand (Heal)
+    -- Penance hits 3 times over 2s with the first at the cast (ticks = 2);
+    -- Castigation (193134) adds a hit (ticks = 3).
+    [47757]   = { ticks = 2, modSpell = 193134, modTicks = 3 },    -- Penance (Heal)
+    [47758]   = { ticks = 2, modSpell = 193134, modTicks = 3 },    -- Penance (DPS)
+    [373129]  = { ticks = 2, modSpell = 193134, modTicks = 3 },    -- Penance / Dark Reprimand (DPS)
+    [400171]  = { ticks = 2, modSpell = 193134, modTicks = 3 },    -- Penance / Dark Reprimand (Heal)
     -- Mage
     -- Arcane Missiles: 5 missiles, fenceposted (see the missiles model
     -- above), so only 3 interior marks base. Amplification (236628) adds 2
@@ -170,6 +172,26 @@ local CHANNEL_TICK_DATA = {
     -- Racial
     [291944]  = { ticks = 6 },                                     -- Regeneratin (Zandalari)
 }
+
+-- WoW Forever: every rank is its own spell ID.
+-- Mind flay differs from Retail, as it ticks immediately at the start of the cast.
+-- Penance acts like Retail where it ticks immediately at the start of the cast.
+-- Mind flay hits 4 times over 3 seconds so we want 2 dividers (tick @ 0s, tick @ 1s divider, tick @ 2s divider, tick @ 3s)
+-- Penance hits 3 times over 2 seconds so we want 1 divider (tick @ 0s, tick @ 1s divider, tick @ 2s)
+-- The number of dividers is equal to ticks - 1
+if EllesmereUI.IS_FOREVER then
+    for _, id in ipairs({ 15407, 17311, 17312, 17313, 17314, 18807 }) do
+        CHANNEL_TICK_DATA[id] = { ticks = 3 }                      -- Mind Flay
+    end
+    for _, id in ipairs({
+        402174, 402284, 402289,                                    -- Penance rank 1
+        1240720, 1240723, 1240727,                                 -- rank 2
+        1240721, 1240724, 1240730,                                 -- rank 3
+        1316991, 1316993, 1316995,                                 -- rank 4
+    }) do
+        CHANNEL_TICK_DATA[id] = { ticks = 2 }                      -- Penance
+    end
+end
 
 
 -------------------------------------------------------------------------------
@@ -1142,7 +1164,7 @@ local DEFAULTS = {
             fillR       = CUSTOM_FILL_DEFAULT[1], fillG = CUSTOM_FILL_DEFAULT[2], fillB = CUSTOM_FILL_DEFAULT[3], fillA = 1,
             fillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             bgR         = 0x11/255, bgG = 0x11/255, bgB = 0x11/255, bgA = 0.75,
-            textFormat  = "none",  -- "none","both","curhpshort","perhp"
+            textFormat  = "none",  -- "none","both","curhpshort","curmaxhp","perhp"
             textSize    = 11,
             textXOffset = 0,
             textYOffset = 0,
@@ -1207,7 +1229,7 @@ local DEFAULTS = {
             fillR       = CUSTOM_FILL_DEFAULT[1], fillG = CUSTOM_FILL_DEFAULT[2], fillB = CUSTOM_FILL_DEFAULT[3], fillA = 1,
             fillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             bgR         = 0x11/255, bgG = 0x11/255, bgB = 0x11/255, bgA = 0.75,
-            textFormat  = "perpp",  -- "none","smart","curpp","perpp","both"
+            textFormat  = "perpp",  -- "none","smart","curpp","curmaxpp","perpp","both"
             showPercent = true,
             textSize    = 10,
             textXOffset = 0,
@@ -1268,7 +1290,7 @@ local DEFAULTS = {
                 height      = 6,
                 offsetX     = 0,
                 offsetY     = 0,
-                textFormat  = "none",   -- "none","smart","curpp","perpp","both"
+                textFormat  = "none",   -- "none","smart","curpp","curmaxpp","perpp","both"
                 showPercent = true,
                 textSize    = 8,
                 textXOffset = 0,
@@ -2515,6 +2537,10 @@ local function RegisterUnlockElements()
                 local w, h = OrientedSize(s.width or 214, s.height or 14, ori)
                 return ns.ERB_ClassicMatchPad(w, h, IsVerticalOrientation(ori), ns.ERB_BarFrameK(s))
             end,
+            -- WoW Forever druid: the mover wraps the Mana Bar while Shapeshifted
+            -- shown below the bar (EUI_ResourceBars_ForeverDruidMana.lua); nil
+            -- on every other client and class.
+            getBottomExtra = ns.FDM_BottomExtra,
             setWidth = function(_, w)
                 local s, g = SS(), ERB.db.profile.general
                 if IsVerticalOrientation(s.orientation or (g and g.orientation)) then
@@ -3254,15 +3280,22 @@ end
 
 -- Value mode needs a readable max: getMaxFn returns the current max; if it is
 -- secret, fall back to the last-known-good value cached on the bar frame.
+-- Source: the active threshold entry when it has its own hash lines, else the
+-- bar-wide hashEnabled/hashValues (which Spec Override / conditional layers can set).
 function ns.ApplyHashLines(sb, cfg, getMaxFn)
     if not sb then return end
     local tickCache = sb._userHashTicks
-    if not (cfg and cfg.hashEnabled) then
-        if tickCache then for i = 1, #tickCache do tickCache[i]:Hide() end end
+    local ent = cfg and ResolveThresholdSpecEntry(cfg)
+    if not (ent and ent.hashValues and ent.hashValues ~= "") then
+        ent = cfg and cfg.hashEnabled and cfg or nil
+    end
+    local hashStr = ent and ent.hashValues
+    if not hashStr or hashStr == "" then
+        if tickCache then HideResourceBarTicks(tickCache, sb) end
         return
     end
     if not tickCache then tickCache = {}; sb._userHashTicks = tickCache end
-    local isPercent = (cfg.hashMode or "percent") == "percent"
+    local isPercent = (ent.hashMode or "percent") == "percent"
     local maxVal
     if isPercent then
         maxVal = 100
@@ -3285,8 +3318,8 @@ function ns.ApplyHashLines(sb, cfg, getMaxFn)
         hbs = EllesmereUI.BorderPx(cfg.borderSizePx, hbs, htex) or hbs
     end
     local vInset = hbs * ((PP and PP.mult) or 1)
-    ApplyResourceBarTicks(sb, maxVal, cfg.hashValues, tickCache,
-        cfg.hashWidth, cfg.hashColorR, cfg.hashColorG, cfg.hashColorB, cfg.hashColorA,
+    ApplyResourceBarTicks(sb, maxVal, hashStr, tickCache,
+        ent.hashWidth, ent.hashColorR, ent.hashColorG, ent.hashColorB, ent.hashColorA,
         isPercent, nil, vInset)
 end
 
@@ -3314,6 +3347,7 @@ function ns.ERB_RoundBar(bar, cfg)
     EllesmereUI.RoundCorners(bar, radius, {
         roots = { bar._sb }, clip = bar._sb,
         border = bar._border and bar._border._frame, style = cfg.borderTexture or "solid",
+        corners = cfg.cornerMask,
     })
 end
 -- Class resource: the whole row rounds its outline; with Border on Pips each
@@ -3322,7 +3356,7 @@ end
 -- or were rounded before.
 do
     local pipsRounded = false
-    local function RoundPipList(list, radius, style)
+    local function RoundPipList(list, radius, style, corners)
         for i = 1, #list do
             local pip = list[i]
             if radius <= 0 then
@@ -3330,6 +3364,7 @@ do
             elseif pip:IsShown() then
                 EllesmereUI.RoundCorners(pip, radius, {
                     style = style, border = pip._border and pip._border._frame,
+                    corners = corners,
                 })
             end
         end
@@ -3344,14 +3379,15 @@ do
                 style = style,
                 border = not onPips and rowBorder and rowBorder._frame or nil,
                 clip = isBarType and secondaryBar and secondaryBar._sb or nil,
+                corners = sp.cornerMask,
             })
         else
             EllesmereUI.RoundCorners(secondaryFrame, 0)
         end
         local pipRadius = onPips and radius or 0
         if pipRadius > 0 or pipsRounded then
-            RoundPipList(pips, pipRadius, style)
-            RoundPipList(runeFrames, pipRadius, style)
+            RoundPipList(pips, pipRadius, style, sp.cornerMask)
+            RoundPipList(runeFrames, pipRadius, style, sp.cornerMask)
             pipsRounded = pipRadius > 0
         end
     end
@@ -4570,6 +4606,8 @@ local function UpdateHealthBar()
             txt = curStr .. " | " .. pctStr .. "%"
         elseif fmt == "curhpshort" then
             txt = curStr
+        elseif fmt == "curmaxhp" then
+            txt = curStr .. " / " .. ns.AbbreviateNumbers(mx)
         elseif fmt == "perhp" then
             txt = pctStr .. "%"
         elseif fmt == "perhpnosign" then
@@ -4875,6 +4913,8 @@ local function UpdatePrimaryBar()
                 txt = ns.AbbreviateNumbers(cur) .. " | " .. percentText
             elseif fmt == "curpp" then
                 txt = ns.AbbreviateNumbers(cur)
+            elseif fmt == "curmaxpp" then
+                txt = ns.AbbreviateNumbers(cur) .. " / " .. ns.AbbreviateNumbers(mx)
             elseif fmt == "perpp" then
                 txt = percentText
             else
@@ -10803,6 +10843,7 @@ BuildGCDBar = function()
                 return nil
             end)
             if ok and elapsed and not (issecretvalue and (issecretvalue(elapsed) or issecretvalue(dur))) then
+                self._gcdUnread = nil
                 local actualStart = GetTime() - elapsed
                 -- (Re)start whenever this is a genuinely NEWER GCD than the one we
                 -- last captured. Do NOT gate on how far the GCD has elapsed:
@@ -10845,6 +10886,7 @@ BuildGCDBar = function()
                     self._nativeGCD = true
                     self._gcdStart = GetTime()
                     self._gcdDur = 1.6
+                    self._gcdUnread = true
                     self._gcdActualStart = nil
                     ns.GCDTick.Start()
                     UpdateGCDBar()
@@ -11164,6 +11206,20 @@ UpdateGCDBar = function(_dt)
             gcdBarFrame._gcdStart = nil
             gcdBarFrame._gcdDur = nil
             gcdBarFrame._gcdActualStart = nil
+            active = false
+        end
+    end
+
+    -- Secret values: the real length is unreadable, so the window above is only a ceiling.
+    -- The cooldown's isActive stays a plain boolean; end the window when the GCD is over.
+    if active and gcdBarFrame._gcdUnread then
+        local cd = C_Spell.GetSpellCooldown(EllesmereUI.GCD_SPELL)
+        local act = cd and cd.isActive
+        if not (issecretvalue and issecretvalue(act)) and act == false then
+            gcdBarFrame._gcdStart = nil
+            gcdBarFrame._gcdDur = nil
+            gcdBarFrame._gcdActualStart = nil
+            gcdBarFrame._gcdUnread = nil
             active = false
         end
     end

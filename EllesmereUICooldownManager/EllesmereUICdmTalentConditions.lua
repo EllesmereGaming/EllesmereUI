@@ -6,6 +6,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  A condition that fails drops the icon from the reanchor pass exactly like an
 --  unlearned spell (ns.TalentCondFilterPass, called by CollectAndReanchor before
 --  Phase 3): Phase 4 parks it and the icons after it close the gap.
+--  Empty Slots store conditions under their unique marker in the same CD-family
+--  store and check them during injection, after the Blizzard-frame filter.
 --
 --  Stored on the spell's own per-spell entry (spellSettingsCD[sid]):
 --      talentConditions = { { nodeID = n, entryID = e, spellID = s, taken = bool }, ... }
@@ -96,6 +98,15 @@ end
 -- True when every condition in the list holds (an empty or missing list holds).
 function ns.TalentConditionsHold(conds)
     return Hold(conds, C_ClassTalents.GetActiveConfigID())
+end
+
+-- Empty Slots are injected after TalentCondFilterPass, with no spell resolver.
+function ns.EmptySlotTalentConditionsHold(barKey, marker)
+    if not ns._cdmAnyTalentCond then return true end
+    local store = ns.GetSpellSettingsStore(barKey)
+    local entry = store and store[marker]
+    local conds = type(entry) == "table" and rawget(entry, "talentConditions")
+    return not conds or ns.TalentConditionsHold(conds)
 end
 
 -------------------------------------------------------------------------------

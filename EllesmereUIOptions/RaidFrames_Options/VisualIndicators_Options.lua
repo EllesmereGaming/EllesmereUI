@@ -249,10 +249,12 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     local roleStyleOrder = { "none", "modern", "blizzLight", "pixels", "modernCircle", "styled", "classicCircle", "classic", "blizzDefault" }
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Role Icons", values=roleStyleValues, order=roleStyleOrder,
+          disabled=function() return SVal("roleText", false) end,
+          disabledTooltip="Role Text", requireState="disabled",
           getValue=function() return SVal("roleIconStyle", "modern") end,
           setValue=function(v) SSet("roleIconStyle", v); EllesmereUI:RefreshPage() end },
         { type="dropdown", text="Show Role",
-          disabled=function() return SVal("roleIconStyle", "modern") == "none" end,
+          disabled=function() return not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none" end,
           disabledTooltip="Role Icons",
           values={ __placeholder = "All Roles" }, order={ "__placeholder" },
           getValue=function() return "__placeholder" end,
@@ -261,15 +263,33 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     if not EllesmereUI._prebuilding then
         local rightRgn = row._rightRegion
         if rightRgn._control then rightRgn._control:Hide() end
-        local showRoleItems = {
-            { key = "tank",   label = "Tank" },
-            { key = "healer", label = "Healer" },
-            { key = "dps",    label = "DPS" },
-        }
+        local function ShowRoleItems()
+            local items = {
+                { key = "tank",   label = "Tank" },
+                { key = "healer", label = "Healer" },
+                { key = "dps",    label = "DPS" },
+            }
+            if SVal("roleText", false) then
+                for _, item in ipairs(items) do
+                    local colorKey = "roleText" .. item.label .. "Color"
+                    item.swatch = {
+                        get = function()
+                            local c = SGet(colorKey) or ns._internals.defaults.profile[colorKey]
+                            return c.r, c.g, c.b
+                        end,
+                        set = function(r, g, b)
+                            SSet(colorKey, { r = r, g = g, b = b })
+                            if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end
+                        end,
+                    }
+                end
+            end
+            return items
+        end
         local roleKeyMap = { tank = "showRoleForTank", healer = "showRoleForHealer", dps = "showRoleForDPS" }
         local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
             rightRgn, 170, rightRgn:GetFrameLevel() + 2,
-            showRoleItems,
+            ShowRoleItems,
             function(k) return SVal(roleKeyMap[k], true) end,
             function(k, v)
                 SSet(roleKeyMap[k], v)
@@ -283,6 +303,10 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Role Icons",
             rows = {
+                { type="toggle", label="Role Text",
+                  tooltip="Show Healer, Tank, or DPS text instead of the role icon, using the same size, position, and Show Role settings.",
+                  get=function() return SVal("roleText", false) end,
+                  set=function(v) SSet("roleText", v); if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end; EllesmereUI:RefreshPage() end },
                 { type="toggle", label="Hide In Combat",
                   tooltip="Hide role icons while you are in combat.",
                   get=function() return SVal("roleIconHideInCombat", false) end,
@@ -311,12 +335,12 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     -- (their offset cogs stay live).
     roleRow2, h = W:DualRow(parent, y,
         ns.RF_PartyKitGate({ type="dropdown", text="Role Position", values=rolePositionValues, order=rolePositionOrder,
-          disabled=function() return SVal("roleIconStyle", "modern") == "none" end,
+          disabled=function() return not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none" end,
           disabledTooltip="Role Icons",
           getValue=function() return SVal("roleIconPosition", "bottomleft") end,
           setValue=function(v) SSet("roleIconPosition", v) end }),
         { type="slider", text="Role Icon Size", min=8, max=30, step=1,
-          disabled=function() return SVal("roleIconStyle", "modern") == "none" end,
+          disabled=function() return not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none" end,
           disabledTooltip="Role Icons",
           getValue=function() return SVal("roleIconSize", 14) end,
           setValue=function(v) SSet("roleIconSize", v) end });  y = y - h
@@ -963,6 +987,31 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         { type="slider", text="Height", min=8, max=40, step=1,
           getValue=function() return SVal("topNameBarHeight", 20) end,
           setValue=function(v) SSet("topNameBarHeight", v) end });  y = y - h
+
+    if not TNBOff() and not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(row._rightRegion, {
+            disabled=function()
+                local key = SGet("borderTexture")
+                return TNBOff() or EllesmereUI.BlizzStyle.Get("raidframes")
+                    or (key ~= "pixels" and key ~= "pixels-textured")
+            end,
+            disabledTooltip=function() return TNBOff() and "Enable Top Name Bar" or "Pixels or Pixels Textured Border Style" end,
+            title="Top Name Bar Options",
+            rows={
+                { type="toggle", label="Divider",
+                  tooltip="Draw a separator matching the frame's Pixels style, size, color and transparency. Hidden below Height 4.",
+                  get=function() return SVal("topNameBarDivider", false) end,
+                  set=function(v) SSet("topNameBarDivider", v) end },
+                { type="toggle", label="Match Highlight Colors",
+                  tooltip="Divider follows the frame border's highlight colors and transparency, including hover and target. When off, it keeps the normal frame border color.",
+                  disabled=function() return not SVal("topNameBarDivider", false) end,
+                  disabledTooltip="Requires Divider.",
+                  rawTooltip=true,
+                  get=function() return SVal("topNameBarDividerMatchColor", false) end,
+                  set=function(v) SSet("topNameBarDividerMatchColor", v) end },
+            },
+        })
+    end
 
     if not TNBOff() then
     local tnbRow2

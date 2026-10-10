@@ -191,6 +191,17 @@ local function CreateTargetAuras(frame, unit)
     return ns.UF_CreateAuraContainers(frame, unit or "target")
 end
 
+-- Pet frame buffs and debuffs are opt-in: the containers are only built once one
+-- of the two is on (here at spawn, or from the options when it gets turned on).
+function ns.UF_EnsurePetAuras(frame)
+    frame = frame or (ns.frames and ns.frames.pet)
+    local s = frame and GetSettingsForUnit("pet")
+    if not s then return end
+    if s.showBuffs == true or (s.debuffAnchor or "none") ~= "none" then
+        CreateTargetAuras(frame, "pet")
+    end
+end
+
 -- "Absorb Short" zero-hide: a binary StatusBar gate (max 1) fed the raw absorb clips
 -- the abbreviated text away at zero shield, secret-safely (absorb only feeds SetValue,
 -- never compared). The zone FontString is reparented into a clip frame that tracks the
@@ -1042,6 +1053,7 @@ local function StyleSimpleFrame(frame, unit)
     end
     ApplyTextPositions(settings)
     frame._applyTextPositions = ApplyTextPositions
+    if unit == "pet" then ns.UF_EnsurePetAuras(frame) end
 end
 
 

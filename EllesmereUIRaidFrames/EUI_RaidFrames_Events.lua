@@ -36,6 +36,17 @@ I.readyCheckActiveSetters[#I.readyCheckActiveSetters + 1] = function(v) readyChe
 local framesVisible = false
 I.framesVisibleSetters[#I.framesVisibleSetters + 1] = function(v) framesVisible = v end
 
+-- Healer Mana Display: its rebuild normally rides the raid/party frame paths
+-- (UpdatePowerEventRegistration tails). A roster change that lands with BOTH
+-- frame sets hidden -- leaving a raid to solo, or to a party while EUI party
+-- frames are disabled -- skips every rebuild, so the display would keep its
+-- last group's content (raid-mode names included) indefinitely.
+local function RebuildHealerManaIfFramesHidden()
+    if not framesVisible and not ns._partyFramesVisible and ns.HM_Rebuild then
+        ns.HM_Rebuild()
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Event handlers
 -------------------------------------------------------------------------------
@@ -166,6 +177,7 @@ local function OnEvent(self, event, arg1, ...)
             if ns._partyFramesVisible then
                 ns._LayoutPartyFrames()
             end
+            if rosterDirty then RebuildHealerManaIfFramesHidden() end
         end
         -- Party container geometry deferred by a combat-time _ERF_RefreshAll.
         if ns._partyGeomDirtyInCombat then
@@ -387,15 +399,7 @@ local function OnEvent(self, event, arg1, ...)
             if ns._partyFramesVisible then
                 ns._LayoutPartyFrames()
             end
-            -- Healer Mana Display: its rebuild normally rides the raid/party
-            -- frame paths above (UpdatePowerEventRegistration tails). A roster
-            -- change that lands with BOTH frame sets hidden -- leaving a raid
-            -- to solo, or to a party while EUI party frames are disabled --
-            -- skipped every rebuild, so the display kept its last group's
-            -- content (raid-mode names included) indefinitely.
-            if not framesVisible and not ns._partyFramesVisible then
-                if ns.HM_Rebuild then ns.HM_Rebuild() end
-            end
+            RebuildHealerManaIfFramesHidden()
             -- Pet frames: once per roster pass, after the groups they attach to are laid out.
             ns.PF_Flush()
         end)

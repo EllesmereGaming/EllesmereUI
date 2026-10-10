@@ -530,11 +530,13 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 local oy = SGet("borderTextureOffsetY")
                 local sx = SGet("borderTextureShiftX")
                 local sy = SGet("borderTextureShiftY")
-                local cr = SVal("cornerRadius", 0)
+                local cr, cm, cj = SVal("cornerRadius", 0), SGet("cornerMask"), SGet("cornerJoinPower")
                 for _, key in ipairs(GROUP_UNIT_ORDER) do
                     if key ~= optState.selectedUnit then
                         UNIT_DB_MAP[key]().borderSize = bs
                         UNIT_DB_MAP[key]().cornerRadius = cr
+                        UNIT_DB_MAP[key]().cornerMask = cm
+                        UNIT_DB_MAP[key]().cornerJoinPower = cj
                         -- Verbatim (string / false / nil): the value only counts beside the same step and texture.
                         do
                             -- A source with no exact size clears a set one with
@@ -560,7 +562,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
             isSynced = function()
                 local bs = SVal("borderSize", 1)
                 local bt = SGet("borderTexture") or "solid"
-                local cr = SVal("cornerRadius", 0)
+                local cr, cm, cj = SVal("cornerRadius", 0), SGet("cornerMask"), SGet("cornerJoinPower")
                 -- Exact sizes compare as rendered (a cleared or stale value equals none).
                 local bpx = EllesmereUI.BorderPx(SGet("borderSizePx"), bs, bt)
                 for _, key in ipairs(GROUP_UNIT_ORDER) do
@@ -568,6 +570,8 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                     if (UNIT_DB_MAP[key]().borderTexture or "solid") ~= bt then return false end
                     if EllesmereUI.BorderPx(UNIT_DB_MAP[key]().borderSizePx, bs, bt) ~= bpx then return false end
                     if (UNIT_DB_MAP[key]().cornerRadius or 0) ~= cr then return false end
+                    if (UNIT_DB_MAP[key]().cornerMask or 15) ~= (cm or 15) then return false end
+                    if (UNIT_DB_MAP[key]().cornerJoinPower == true) ~= (cj == true) then return false end
                 end
                 return true
             end,
@@ -588,10 +592,12 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                     local oy = SGet("borderTextureOffsetY")
                     local sx = SGet("borderTextureShiftX")
                     local sy = SGet("borderTextureShiftY")
-                    local cr = SVal("cornerRadius", 0)
+                    local cr, cm, cj = SVal("cornerRadius", 0), SGet("cornerMask"), SGet("cornerJoinPower")
                     for _, key in ipairs(checkedKeys) do
                         UNIT_DB_MAP[key]().borderSize = bs
                         UNIT_DB_MAP[key]().cornerRadius = cr
+                        UNIT_DB_MAP[key]().cornerMask = cm
+                        UNIT_DB_MAP[key]().cornerJoinPower = cj
                         do
                             -- A source with no exact size clears a set one with
                             -- false (nil would not travel through mirror sync).
@@ -644,11 +650,15 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 title = "Corner Radius", tip = "Corner Radius",
                 disabled = function() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end,
                 disabledTooltip = "This option requires the Solid, Glow or Shadow border style.",
-                rows = {
+                rows = EllesmereUI.RoundedJoinRow(EllesmereUI.RoundedCornerRows({
                     { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
                       get = function() return SVal("cornerRadius", 0) end,
                       set = function(v) SSet("cornerRadius", v) end },
-                },
+                }, function() return SGet("cornerMask") end, function(v) SSet("cornerMask", v) end),
+                    "Join Power Bar", "Rounds a detached power bar right above or below the frame as one shape with it.",
+                    function() return SGet("cornerJoinPower") end, function(v) SSet("cornerJoinPower", v) end,
+                    function() local pos = SGet("powerPosition") or "below"; return pos == "detached_top" or pos == "detached_bottom" end,
+                    "Detached Power Bar"),
             })
         end
         borderSwatch:SetScript("OnEnter", function()

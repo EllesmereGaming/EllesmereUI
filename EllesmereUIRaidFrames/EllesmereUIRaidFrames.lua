@@ -233,6 +233,28 @@ local function ApplyRoleIcon(texture, role, style)
     return true
 end
 
+-- Text shares the icon's carrier and anchor, and is created only when enabled.
+function ns.ApplyRoleText(icon, role, s)
+    if not s.roleText then return end
+    local text = icon._roleText
+    if not text then
+        text = icon:GetParent():CreateFontString(nil, "OVERLAY")
+        icon._roleText = text
+    end
+    local colorKey = role == "TANK" and "roleTextTankColor"
+        or role == "HEALER" and "roleTextHealerColor" or "roleTextDPSColor"
+    local color = s[colorKey] or ns._internals.defaults.profile[colorKey]
+    text:SetTextColor(color.r, color.g, color.b)
+    EllesmereUI.ApplyModuleFont(text, nil, s.roleIconSize or 14, "raidFrames")
+    local pos = icon:GetPoint() or "CENTER"
+    text:ClearAllPoints()
+    text:SetPoint(pos, icon, pos, 0, 0)
+    text:SetText(role == "TANK" and EllesmereUI.L("Tank")
+        or role == "HEALER" and EllesmereUI.L("Healer") or EllesmereUI.L("DPS"))
+    icon:Hide()
+    text:Show()
+end
+
 -- Raid marker textures
 local RAID_MARKER_TEXCOORDS = {
     [1] = { 0,    0.25, 0,    0.25 },  -- Star
@@ -411,6 +433,8 @@ local defaults = {
         powerBgColor     = { r = 107/255, g = 107/255, b = 107/255 },
         powerBgPowerColored = false,
         powerBorderStyle = "eui",      -- "eui", "divider", "border"
+        powerBorderMatchFrame = false,
+        powerBorderMatchColor = false,
         powerBorderSize  = 1,
         powerBorderColor = { r = 0, g = 0, b = 0 },
         powerBorderAlpha = 1,
@@ -424,6 +448,8 @@ local defaults = {
         -- Top Name Bar: reserves height from the frame TOP (as the power bar does from the bottom); suppresses the in-frame Name.
         topNameBarEnabled       = false,
         topNameBarHeight        = 20,
+        topNameBarDivider       = false,
+        topNameBarDividerMatchColor = false,
         topNameBarBgColor       = { r = 17/255, g = 17/255, b = 17/255 },
         topNameBarBgOpacity     = 80,
         topNameBarTextSize      = 11,
@@ -479,6 +505,7 @@ local defaults = {
         borderTexture    = "solid",
         borderBehind     = false,
         cornerRadius     = 0,  -- rounded corners, 0 = off
+        cornerMask       = 15, -- the corners that round (bits: 1 TL, 2 TR, 4 BL, 8 BR)
         -- borderTextureOffset/OffsetY/ShiftX/ShiftY default via GetBorderDefaults
 
         -- Smooth bars
@@ -529,12 +556,16 @@ local defaults = {
 
         -- Indicators
         roleIconStyle    = "modern",  -- none/modern/modernCircle/styled/classicCircle/classic/blizzDefault/blizzLight/pixels
+        roleText         = false,
+        roleTextTankColor   = { r = 59/255, g = 130/255, b = 246/255 },
+        roleTextHealerColor = { r = 32/255, g = 201/255, b = 151/255 },
+        roleTextDPSColor    = { r = 240/255, g = 100/255, b = 54/255 },
         roleIconSize     = 13,
         roleIconPosition = "bottomleft",  -- topleft/top/topright/left/center/right/bottomleft/bottom/bottomright
         roleIconOffsetX  = 0,
         roleIconOffsetY  = 0,
         roleIconHideInCombat = false,
-        roleIconBehindBorder = false,  -- drop the carrier below the hover/target raise so borders draw over the icon
+        roleIconBehindBorder = false,  -- drop the carrier below the normal border so borders draw over the icon
         showRoleForTank    = true,
         showRoleForHealer  = true,
         showRoleForDPS     = false,

@@ -1613,7 +1613,7 @@ local function CreateHeader()
         local text = self:GetText()
         placeholder:SetShown(text == "")
         clear:SetShown(text ~= "")
-        C_Container.SetItemSearch(text)
+        EUI_Bags.SetSearchText(text)
         if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
         -- SetItemSearch is client-global and the bank reads isFiltered too:
         -- re-render an open bank so both windows always show the same filter
@@ -3385,6 +3385,40 @@ function EUI_Bags.SetBindTypeText(fs, isWuE, bindType, quality)
         return
     end
     if c then fs:SetTextColor(c.r, c.g, c.b) else fs:SetTextColor(1, 1, 1) end
+end
+
+-------------------------------------------------------------------------------
+--  Bind keyword search (shared by bags and bank): typing exactly BoP / BoE /
+--  WuE (any case) filters by bind type instead of the native tooltip search.
+-------------------------------------------------------------------------------
+local BIND_KEYWORDS = { bop = true, boe = true, wue = true }
+
+function EUI_Bags.SetSearchText(text)
+    local k = strtrim(text or ""):lower()
+    EUI_Bags._bindKeyword = BIND_KEYWORDS[k] and k or nil
+    C_Container.SetItemSearch(text)
+end
+
+-- Overrides info.isFiltered for the active keyword; no-op when none is active.
+function EUI_Bags.ApplyBindKeyword(info, bag, slot)
+    local k = EUI_Bags._bindKeyword
+    if not k or not info then return end
+    local match = false
+    local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
+    if loc and C_Item.DoesItemExist(loc) then
+        local isWuE = not info.isBound and C_Item.IsBoundToAccountUntilEquip(loc)
+        if k == "wue" then
+            match = isWuE
+        else
+            local bindType = info.hyperlink and select(14, GetItemInfo(info.hyperlink))
+            if k == "boe" then
+                match = bindType == Enum.ItemBind.OnEquip and not isWuE and not info.isBound
+            else
+                match = bindType == Enum.ItemBind.OnAcquire
+            end
+        end
+    end
+    info.isFiltered = not match
 end
 
 -------------------------------------------------------------------------------
@@ -6523,6 +6557,7 @@ function EUI_Bags:RefreshInventory()
                 local itemLink = C_Container.GetContainerItemLink(bag, slot)
                 local d = AcquireSlotTable()
                 d.bag = bag; d.slot = slot; d.info = info; d.itemLink = itemLink
+                EUI_Bags.ApplyBindKeyword(info, bag, slot)
                 -- Pre-cache per-item data for RenderButton (zero API calls at render time)
                 if itemLink then
                     local _, _, q, _, _, _, _, _, _, _, _, _, _, bindType = GetItemInfo(itemLink)
@@ -6623,7 +6658,7 @@ function EUI_Bags:RefreshInventory()
         end
     end
 
-    -- 2b. Compute display-only counts (pinned + recent stay in normal categories)
+    -- 2b. Compute display-only counts for pinned and recent items
     local recentCatIdx, pinnedCatIdx
     do
         local cats = EUI_CategoryManager:GetCategories()
@@ -6632,26 +6667,33 @@ function EUI_Bags:RefreshInventory()
             if cat.isPinned then pinnedCatIdx = i end
         end
     end
-    local recentCount = 0
-    local showRecent = BP().bagShowRecentItems ~= false
-    if recentCatIdx and EUI_Bags._recentItems and showRecent then
-        for _, data in ipairs(tempItems) do
-            if data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
-                recentCount = recentCount + 1
-            end
-        end
-        categoryCounts[recentCatIdx] = recentCount
-    end
     local showPinned = BP().bagShowPinnedItems ~= false
     local pinnedSet = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+    local hidePinned = BP().bagHidePinnedInCategories == true
     if pinnedCatIdx and pinnedSet and showPinned then
         local pinnedCount = 0
         for _, data in ipairs(tempItems) do
             if data.info and data.info.itemID and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID) then
                 pinnedCount = pinnedCount + 1
+                if hidePinned then
+                    -- Keep the category for sorting and gear/stack handling.
+                    data._pinnedOnly = true
+                    local ci = data.categoryIndex
+                    if ci then categoryCounts[ci] = categoryCounts[ci] - 1 end
+                end
             end
         end
         categoryCounts[pinnedCatIdx] = pinnedCount
+    end
+    local recentCount = 0
+    local showRecent = BP().bagShowRecentItems ~= false
+    if recentCatIdx and EUI_Bags._recentItems and showRecent then
+        for _, data in ipairs(tempItems) do
+            if not data._pinnedOnly and data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
+                recentCount = recentCount + 1
+            end
+        end
+        categoryCounts[recentCatIdx] = recentCount
     end
 
     -- 3. Update sidebar
@@ -6699,6 +6741,7 @@ function EUI_Bags:RefreshInventory()
         elseif filterSet then
             show = data.categoryIndex and filterSet[data.categoryIndex]
         end
+        if data._pinnedOnly and (isRecentView or filterSet) then show = false end
         if show and data.info and data.info.isFiltered then show = false end
         if show then displayItems[#displayItems + 1] = data end
     end
@@ -7444,6 +7487,27 @@ local function StartAddon()
             end
         end
     end
+
+    local characterBagHooksInstalled = false
+    function ns.ToggleBagsWithCharacterFrame()
+        if not BP().bagOpenWithCharacter then return end
+        local frame = _G.CharacterFrame
+        if not frame then return end
+        if not characterBagHooksInstalled then
+            characterBagHooksInstalled = true
+            frame:HookScript("OnShow", function()
+                if BP().bagOpenWithCharacter and not EUI_Bags:IsVisible() then
+                    ToggleEUI()
+                end
+            end)
+            frame:HookScript("OnHide", function()
+                if BP().bagOpenWithCharacter and EUI_Bags:IsVisible() then
+                    ToggleEUI()
+                end
+            end)
+        end
+    end
+    ns.ToggleBagsWithCharacterFrame()
 
     local _lastToggleTime = 0
     local function SmartToggleBags()

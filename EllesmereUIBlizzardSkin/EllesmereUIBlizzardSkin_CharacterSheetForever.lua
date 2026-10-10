@@ -1013,7 +1013,6 @@ local function SkinFrame()
     if title and WSkin.Font then WSkin.Font(title, 1, 1, 1) end
     local level = _G.CharacterLevelText
     if level and WSkin.Font then WSkin.Font(level) end
-    if _G.CharacterLevelTextBackground then _G.CharacterLevelTextBackground:SetAlpha(0) end
 
     -- Pane backdrops, the stone header, the divider strip, the stats box
     -- chrome (inside frame, scroll line, class crest) and the model backdrop.
@@ -1030,6 +1029,7 @@ local function SkinFrame()
     Fade(_G.CharacterStatsPaneScrollBox)
     Fade(_G.CharacterStatsPanePetScrollBox)
     Fade(_G.PaperDollFrame)
+    Fade(_G.PaperDollFrame.TopBackgroundStripHost)
     Fade(_G.CharacterModelScene)
     local shell = WSkin.GetFFD and WSkin.GetFFD(frame)
     local topBar = shell and shell.topBar

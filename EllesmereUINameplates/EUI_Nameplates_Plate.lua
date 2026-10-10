@@ -781,7 +781,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
     if self.totText then self.totText:Hide() end
     -- Slot assignments may change element kinds: drop the value memo so the
     -- next UpdateHealthValues rewrites every slot's content.
-    self._hpTxtPct, self._hpTxtCur = nil, nil
+    self._hpTxtPct, self._hpTxtCur, self._hpTxtMax = nil, nil, nil
     if not self._cachedHealthSlots then
         self._cachedHealthSlots = { _count = 0 }
     end
@@ -1162,7 +1162,7 @@ function NameplateFrame:ClearUnit()
     self._scUnit = nil
     -- Health-text value memo (UpdateHealthValues): a recycled plate must
     -- always write its first values, never skip against the old unit's.
-    self._hpTxtPct, self._hpTxtCur = nil, nil
+    self._hpTxtPct, self._hpTxtCur, self._hpTxtMax = nil, nil, nil
     self._ovFocShown, self._ovTgtShown = nil, nil
     self._focusLetterShown = nil
     if self._tptShown then self.threatPctText:Hide() end

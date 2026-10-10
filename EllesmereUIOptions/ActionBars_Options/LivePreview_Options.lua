@@ -623,18 +623,19 @@ local function BuildLivePreview(parent, yOff)
                     end
                     local adjX = (settings.borderTextureOffset or dox) * ratio
                     local adjY = (settings.borderTextureOffsetY or doy) * ratio
+                    -- Whole pixels at the preview's own scale, as ApplyBorderStyle snaps the live anchors.
+                    local snapES = (pvES > 0.01) and pvES or uiES
                     local offX, offY
                     if EllesmereUI.BorderTextureUsesScaleOffset(brdTexKey) then
-                        offX = (edgeSize / 2) + adjX
-                        offY = (edgeSize / 2) + adjY
+                        local half = EllesmereUI.BorderHalfEdge(brdTexKey, edgeSize, snapES)
+                        offX = half + adjX
+                        offY = half + adjY
                     else
                         offX = adjX
                         offY = adjY
                     end
                     local sx = (settings.borderTextureShiftX or dsx) * ratio
                     local sy = (settings.borderTextureShiftY or dsy) * ratio
-                    -- Whole pixels at the preview's own scale, as ApplyBorderStyle snaps the live anchors.
-                    local snapES = (pvES > 0.01) and pvES or uiES
                     offX, offY = gamePP.SnapForES(offX, snapES), gamePP.SnapForES(offY, snapES)
                     sx, sy = gamePP.SnapForES(sx, snapES), gamePP.SnapForES(sy, snapES)
                     bdPv:ClearAllPoints()

@@ -51,12 +51,12 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
     side = side or "left"
 
     -- Mini frames (ToT/FoT/Pet) render no power bar, debuffs or castbar at
-    -- runtime, so the preview must match. WoW Forever's pet has power: its
+    -- runtime (the pet's buffs and debuffs are opt-in), so the preview must match. WoW Forever's pet has power: its
     -- bar draws here in the EUI look (the stock styles paint their own).
     local isMiniPreview = (unitKey == "targettarget" or unitKey == "focustarget" or unitKey == "pet")
     local noPowerPreview = isMiniPreview
         and not (unitKey == "pet" and ns.UF_PetHasPower and not ResolveBlizzPreview(unitKey, settings))
-    local noDebuffPreview = isMiniPreview
+    local noDebuffPreview = isMiniPreview and unitKey ~= "pet"
     local noCastbarPreview = isMiniPreview
 
     local hasPortraitSupport = (settings.showPortrait ~= nil or settings.portraitMode ~= nil)
@@ -517,11 +517,12 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             if content == "level" then return lvl
             elseif content == "levelname" then return lvl .. " | " .. _pvName()
             else return _pvName() .. " | " .. lvl end
-        elseif content == "both" or content == "bothdash" or content == "curhpshort" or content == "perhp" or content == "perhpnosign" or content == "perhpnum" or content == "perhpnumdash" then
+        elseif content == "both" or content == "bothdash" or content == "curhpshort" or content == "curmaxhp" or content == "perhp" or content == "perhpnosign" or content == "perhpnum" or content == "perhpnumdash" then
             local maxHP = UnitHealthMax("player") or 1
             local pct = optState._previewHealthPct or 0.70
             local curHP = math.floor(maxHP * pct)
             if content == "curhpshort" then return _pvAbbrev(curHP)
+            elseif content == "curmaxhp" then return _pvAbbrev(curHP) .. " / " .. _pvAbbrev(maxHP)
             elseif content == "perhp" then return _pvPct(pct) .. "%"
             elseif content == "perhpnosign" then return _pvPct(pct)
             elseif content == "perhpnum" then return _pvPct(pct) .. "% | " .. _pvAbbrev(curHP)
@@ -535,6 +536,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             local maxPP = UnitPowerMax("player") or 100
             local ppPct = optState._previewPowerPct or 0.85
             return ns.AbbreviateNumbers(math.floor(maxPP * ppPct))
+        elseif content == "curmaxpp" then
+            local maxPP = UnitPowerMax("player") or 100
+            local ppPct = optState._previewPowerPct or 0.85
+            return ns.AbbreviateNumbers(math.floor(maxPP * ppPct)) .. " / " .. ns.AbbreviateNumbers(maxPP)
         elseif content == "curhp_curpp" then
             local maxHP = UnitHealthMax("player") or 1
             local pct = optState._previewHealthPct or 0.70
@@ -586,7 +591,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
     -- Power color override for preview (takes priority over class color for power-related text)
     local function PreviewPowerColor(fs, contentKey, usePowerColor)
         if not fs or not usePowerColor then return end
-        if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
+        if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curmaxpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
             local pcR, pcG, pcB = EllesmereUI.ResolveUnitPowerColor("player")
             local info = pcR and { r = pcR, g = pcG, b = pcB }
             if info then fs:SetTextColor(info.r, info.g, info.b)
@@ -660,7 +665,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             local barW = s.frameWidth or 181
             if rc ~= "none" then
                 local UF_TEXT_PADDING = 10
-                local ufTW = { both = 75, curhpshort = 38, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
+                local ufTW = { both = 75, curhpshort = 38, curmaxhp = 75, curmaxpp = 75, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
                 local rightUsed = (ufTW[rc] or 0) + UF_TEXT_PADDING
                 PP.Width(leftFS, math.max(barW - rightUsed - 10, 20))
             else
@@ -2624,6 +2629,8 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                     ppTxt = ppPctRaw .. ppSuffix  -- preview always shows percent for smart
                 elseif ppFmt == "curpp" then
                     ppTxt = ppCurFake
+                elseif ppFmt == "curmaxpp" then
+                    ppTxt = ppCurFake .. " / " .. ns.AbbreviateNumbers(22000)
                 elseif ppFmt == "both" then
                     ppTxt = ppCurFake .. " | " .. ppPctRaw .. ppSuffix
                 else  -- "perpp"
@@ -3650,6 +3657,13 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         -- pf, under the bars. The portrait joins with its own art only.
         do
             local radius = (not ResolveBlizzPreview(unitKey, s) and bds.cornerRadius) or 0
+            local det = pvPpPos == "detached_top" or pvPpPos == "detached_bottom"
+            local corners, pCorners = bds.cornerMask, bds.cornerMask
+            if det and s.cornerJoinPower then
+                local upper, lower = EllesmereUI.RoundedJoinCorners(corners)
+                if pvPpPos == "detached_bottom" then corners, pCorners = upper, lower
+                else corners, pCorners = lower, upper end
+            end
             if radius > 0 then
                 local port = sp and isAttached and portraitFrame and portraitFrame:IsShown() and portraitFrame or nil
                 EllesmereUI.RoundCorners(pf, radius, {
@@ -3657,15 +3671,16 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                         s.bottomTextBar and btbIsAtt and btbFrame or nil },
                     textures = { port and port._previewBg, port and port._previewTex },
                     border = border, rect = border, style = bds.borderTexture or "solid",
+                    corners = corners,
                 })
             else
                 EllesmereUI.RoundCorners(pf, 0)
             end
             if power then
-                local det = pvPpPos == "detached_top" or pvPpPos == "detached_bottom"
                 if det and radius > 0 then
                     EllesmereUI.RoundCorners(power, radius, {
                         border = power._pbBorder, style = s.powerBorderStyle or "solid",
+                        corners = pCorners,
                     })
                 else
                     EllesmereUI.RoundCorners(power, 0)

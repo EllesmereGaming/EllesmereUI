@@ -296,7 +296,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             ); y = y - h
 
-            -- Inline cog for Show Pinned Items: "Show in OneBag"
+            -- Inline cog for Show Pinned Items
             if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildInlineCog(pinRecRow._leftRegion, {
                     chain = false,
@@ -308,6 +308,13 @@ initFrame:SetScript("OnEvent", function(self)
                           get=function() return db.profile.bagPinnedInOneBag ~= false end,
                           set=function(v)
                               db.profile.bagPinnedInOneBag = v
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                        { type="toggle", label="Hide from Other Categories",
+                          tooltip="Show pinned items only in Pinned Items, hiding them from other categories and Recent Items. OneBag/MultiBag keep their normal slots. Unpinning an item returns it to its category.",
+                          get=function() return db.profile.bagHidePinnedInCategories == true end,
+                          set=function(v)
+                              db.profile.bagHidePinnedInCategories = v
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
                     },
@@ -1028,7 +1035,13 @@ initFrame:SetScript("OnEvent", function(self)
                   tooltip="Also use the split dialog with Auto Split in OneBag, MultiBag, the reagent bag, the bank and the guild bank, replacing Blizzard's split popup there. All Items and category views always use it.",
                   getValue=function() return db.profile.bagStackSplitter == true end,
                   setValue=function(v) db.profile.bagStackSplitter = v and true or false end },
-                EllesmereUI.BlankRowCfg()
+                { type="toggle", text="Toggle Bags with Character Window",
+                  tooltip="The bags automatically open when the character window is opened and close again when the character window is closed.",
+                  getValue=function() return db.profile.bagOpenWithCharacter == true end,
+                  setValue=function(v)
+                      db.profile.bagOpenWithCharacter = v and true or false
+                      BagsNS.ToggleBagsWithCharacterFrame()
+                  end }
             ); y = y - h
 
             _, h = W:Spacer(parent, y, 20); y = y - h

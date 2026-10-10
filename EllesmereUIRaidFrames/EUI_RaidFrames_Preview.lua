@@ -1458,6 +1458,12 @@ local function CreatePreviewFrame(index, party)
         if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b) end
         bdrFrame._hlBorderSize = nil
         EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
+        if s.powerBorderMatchColor == true and f._powerBorder and f._powerBorder._powerArtMode == "divider" then
+            ns.RF_ColorPowerDivider(f._powerBorder, r, g, b, a)
+        end
+        if s.topNameBarDividerMatchColor == true and f._topNameBar and f._topNameBar._divider then
+            ns.RF_ColorPowerDivider(f._topNameBar._divider, r, g, b, a)
+        end
     end
     f._ApplyBorderColor = PvApplyBorderColor
 
@@ -1999,7 +2005,7 @@ local function ApplyPreviewData(f, index)
 
     -- Health bar height/anchor + Top Name Bar (helper re-anchors health top to
     -- -topBarH; the per-unit power block below re-sets only the height)
-    LayoutTopNameBar(s, h, powerH, f._health, f._topNameBar, f._topNameBarBg, f._topNameBarText, f._power)
+    LayoutTopNameBar(s, h, powerH, f._health, f._topNameBar, f._topNameBarBg, f._topNameBarText, f._power, true)
 
     -- Health bar
     if f._health then
@@ -2693,8 +2699,10 @@ local function ApplyPreviewData(f, index)
     -- the frame border below)
     if f._powerBorder and PP then
         if hidePower or f.stockDiv or f.kitG then
+            if f._powerBorder._powerArtKey then ns.RF_ClearPowerBorderArt(f._powerBorder) end
             f._powerBorder:Hide()
-        else
+        elseif not ((s.powerBorderMatchFrame == true or f._powerBorder._powerArtKey)
+            and ns.RF_ApplyPowerBorderArt(f._powerBorder, s, true, true)) then
             local pbStyle = s.powerBorderStyle or "eui"
             if pbStyle == "eui" then
                 PP.UpdateBorder(f._powerBorder, 1, 1, 1, 1, 0.2)
@@ -2767,6 +2775,7 @@ local function ApplyPreviewData(f, index)
                 roots = { f._health, f._power, f._topNameBar, f._powerBorder },
                 textures = { f._bg },
                 border = f._border, style = s.borderTexture or "solid",
+                corners = s.cornerMask,
             })
         else
             EllesmereUI.RoundCorners(f, 0)
@@ -3355,25 +3364,27 @@ local function ApplyPreviewData(f, index)
 
     -- Role icon (not affected by indicators toggle)
     if f._roleIcon then
+        if f._roleIcon._roleText then f._roleIcon._roleText:Hide() end
         local style = s.roleIconStyle or "modern"
-        if style ~= "none" then
+        if s.roleText or style ~= "none" then
             local role = previewRoles[index] or "DAMAGER"
             local showForRole = (role == "TANK" and s.showRoleForTank)
                 or (role == "HEALER" and s.showRoleForHealer)
                 or (role == "DAMAGER" and s.showRoleForDPS)
-            if showForRole ~= false and ApplyRoleIcon(f._roleIcon, role, style) then
+            if showForRole ~= false and (s.roleText or ApplyRoleIcon(f._roleIcon, role, style)) then
                 local riSz = PixelSnap(s.roleIconSize or 14)
                 f._roleIcon:SetSize(riSz, riSz)
                 -- Mirror the live carrier's "Show Behind Border" level (see AnchorRoleIcon).
                 local rc = f._roleIcon:GetParent()
                 if rc then
                     rc:SetFrameLevel(f:GetFrameLevel()
-                        + (s.roleIconBehindBorder and (ns.LVL_RAISE - 1) or (ns.LVL_AURA - 1)))
+                        + (s.roleIconBehindBorder and 7 or (ns.LVL_AURA - 1)))
                 end
                 f._roleIcon:ClearAllPoints()
                 local pos = (s.roleIconPosition or "bottomleft"):upper()
                 f._roleIcon:SetPoint(pos, ns.RF_AnchorHost(f._health, s), pos, s.roleIconOffsetX or 0, s.roleIconOffsetY or 0)
                 f._roleIcon:Show()
+                if s.roleText then ns.ApplyRoleText(f._roleIcon, role, s) end
             else
                 f._roleIcon:Hide()
             end
@@ -4258,7 +4269,10 @@ ns._ShowSizePreview = function(tier)
         f._bg:SetColorTexture(0.09, 0.09, 0.11, 1)
         if f._power then f._power:Hide() end
         if f._topNameBar then f._topNameBar:Hide() end
-        if f._roleIcon then f._roleIcon:Hide() end
+        if f._roleIcon then
+            f._roleIcon:Hide()
+            if f._roleIcon._roleText then f._roleIcon._roleText:Hide() end
+        end
 
         -- Thin neutral outline so each block and the spacing between them reads clearly.
         if f._border and PP then

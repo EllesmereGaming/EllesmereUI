@@ -26,7 +26,7 @@ local CreateFrame           = CreateFrame
 local allButtons, ApplyFont, GetFFD = I.allButtons, I.ApplyFont, I.GetFFD
 local IsPowerBarEnabled, PixelSnap = I.IsPowerBarEnabled, I.PixelSnap
 local unitToButton, StyleButton, UpdateButton = I.unitToButton, I.StyleButton, I.UpdateButton
-local UpdateReadyCheck = I.UpdateReadyCheck
+local UpdateReadyCheck, LayoutTopNameBar = I.UpdateReadyCheck, I.LayoutTopNameBar
 
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
@@ -260,6 +260,14 @@ XF.Layout = function()
         -- the extra proxy (mirrors ReloadFrames per-button styling) so texts/
         -- indicators/auras/BM buffs auto-resize. Bounded to the built slots.
         local xs = ns._scaledExtraProxy
+        if xs.topNameBarDivider == true or (d.topNameBar and d.topNameBar._divider) then
+            LayoutTopNameBar(xs, h, (d.power and d.power:IsShown()) and powerH or 0,
+                d.health, d.topNameBar, d.topNameBarBg, d.topNameBarText, d.power)
+            if xs.topNameBarDividerMatchColor == true and d.topNameBar and d.topNameBar._divider
+                and d.topNameBar._divider._powerArtMode == "divider" then
+                d.ApplyBorderColor()
+            end
+        end
         if d.nameText then
             ApplyFont(d.nameText, xs.nameSize or 10)
             if d.AnchorNameText then d.AnchorNameText() end

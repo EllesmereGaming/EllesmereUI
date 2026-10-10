@@ -323,6 +323,126 @@ function ns.RF_VisibleHighlight(s, r, g, b)
     return 1, 1, 1
 end
 
+function ns.RF_ColorPowerDivider(host, r, g, b, a)
+    if not host or host._powerArtMode ~= "divider" then return end
+    host._powerArtR, host._powerArtG, host._powerArtB, host._powerArtAlpha = r, g, b, a
+    host._powerArtTex:SetVertexColor(r, g, b, a)
+end
+
+function ns.RF_ClearPowerBorderArt(host)
+    if not host or not host._powerArtKey then return end
+    if host._powerArtTex then host._powerArtTex:Hide() end
+    if host._powerArtSeam then host._powerArtSeam:Hide() end
+    EllesmereUI.HideBorderStyle(host)
+    EllesmereUI.RegisterPxReapply(host, nil)
+    PP.ShowBorder(host)
+    host._powerArtKey = nil
+    host._powerArtMode = nil
+end
+
+function ns.RF_LayoutPowerBorderArt(host)
+    if not host:IsShown() or not host._powerArtKey then return end
+    if host._powerArtMode == "border" then
+        EllesmereUI.ApplyBorderStyle(host, host._powerArtSize, host._powerArtR, host._powerArtG, host._powerArtB,
+            host._powerArtAlpha, host._powerArtKey, host._powerArtOffset, host._powerArtOffsetY,
+            host._powerArtShiftX, host._powerArtShiftY, "unitframes", host._powerArtSize, nil, host._powerArtPx)
+        return
+    end
+    local seam = host._powerArtSeam
+    seam:SetFrameStrata(host:GetFrameStrata())
+    seam:SetFrameLevel(host:GetParent():GetFrameLevel() + ns.LVL_TEXT - 1)
+    local es = host:GetEffectiveScale()
+    if not (es and es > 0.01) then es = UIParent:GetEffectiveScale() end
+    local thick = EllesmereUI.BorderCompanionThickness(host._powerArtKey, host._powerArtSize, host._powerArtPx, es)
+    local realPP = EllesmereUI.PP
+    local raise = realPP.SnapForES(thick * 5 / 32, es) - realPP.perfect / es
+    local t = host._powerArtTex
+    t:ClearAllPoints()
+    if host._powerArtEdge == "BOTTOM" then
+        t:SetTexCoord(0, 1, 1, 0)
+        t:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 0, -raise)
+        t:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", 0, -raise)
+    else
+        t:SetTexCoord(0, 1, 0, 1)
+        t:SetPoint("TOPLEFT", host, "TOPLEFT", 0, raise)
+        t:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, raise)
+    end
+    t:SetHeight(thick)
+    t:Show()
+    seam:Show()
+end
+
+-- Settings passes refresh the cached art; ordinary power paints reuse it.
+function ns.RF_ApplyPowerBorderArt(host, s, force, preview, nameBar)
+    local mode = nameBar and "divider" or (s.powerBorderStyle or "eui")
+    local key = ((nameBar and s.topNameBarDivider == true) or (not nameBar and s.powerBorderMatchFrame == true))
+        and not ns.RF_Stock() and s.borderTexture
+    if (key ~= "pixels" and key ~= "pixels-textured") or (mode ~= "divider" and mode ~= "border") then
+        ns.RF_ClearPowerBorderArt(host)
+        return false
+    end
+    local size = s.borderSize or 1
+    local height = nameBar and (s.topNameBarHeight or 20) or (s.powerHeight or 4)
+    if size <= 0 or (mode == "divider" and height < 4) then
+        ns.RF_ClearPowerBorderArt(host)
+        host:Hide()
+        return true
+    end
+    if not force and host._powerArtKey == key and host._powerArtMode == mode and host._powerArtSize == size then
+        host:Show()
+        return true
+    end
+    EllesmereUI.HideBorderStyle(host)
+    if host._powerArtTex then host._powerArtTex:Hide() end
+    if host._powerArtSeam then host._powerArtSeam:Hide() end
+    host._powerArtKey, host._powerArtMode = key, mode
+    host._powerArtEdge = (nameBar and not s.topNameBarBottom) and "BOTTOM" or "TOP"
+    host._powerArtSize = size
+    host._powerArtPx = EllesmereUI.BorderPx(s.borderSizePx, size, key)
+    local c = s.borderColor
+    host._powerArtR, host._powerArtG, host._powerArtB = c and c.r or 0, c and c.g or 0, c and c.b or 0
+    host._powerArtAlpha = s.borderAlpha or 1
+    host._powerArtOffset, host._powerArtOffsetY = s.borderTextureOffset, s.borderTextureOffsetY
+    host._powerArtShiftX, host._powerArtShiftY = s.borderTextureShiftX, s.borderTextureShiftY
+    if mode == "divider" then
+        local t = host._powerArtTex
+        if not t then
+            local seam = CreateFrame("Frame", nil, host)
+            seam:SetAllPoints(host)
+            host._powerArtSeam = seam
+            t = seam:CreateTexture(nil, "ARTWORK")
+            PP.DisablePixelSnap(t)
+            host._powerArtTex = t
+        end
+        t:SetTexture(EllesmereUI.GetBorderCompanion(key, "sepH"))
+        t:SetVertexColor(host._powerArtR, host._powerArtG, host._powerArtB, host._powerArtAlpha)
+    end
+    host:Show()
+    ns.RF_LayoutPowerBorderArt(host)
+    EllesmereUI.RegisterPxReapply(host, (mode == "divider" and not preview) and ns.RF_LayoutPowerBorderArt or nil)
+    return true, true
+end
+
+function ns.RF_ApplyTopNameDivider(tnb, s, preview)
+    local host = tnb._divider
+    local key = s.borderTexture
+    if not PP or not s.topNameBarEnabled or s.topNameBarDivider ~= true or ns.RF_Stock()
+        or (key ~= "pixels" and key ~= "pixels-textured") or (s.borderSize or 1) <= 0
+        or (s.topNameBarHeight or 20) < 4 then
+        if host then
+            ns.RF_ClearPowerBorderArt(host)
+            host:Hide()
+        end
+        return
+    end
+    if not host then
+        host = CreateFrame("Frame", nil, tnb:GetParent())
+        host:SetAllPoints(tnb)
+        tnb._divider = host
+    end
+    ns.RF_ApplyPowerBorderArt(host, s, true, preview, true)
+end
+
 -------------------------------------------------------------------------------
 --  Style a single button (called once per button at creation time)
 -------------------------------------------------------------------------------
@@ -613,11 +733,9 @@ local function StyleButton(button)
 
     local function AnchorRoleIcon()
         local s = LiveS()   -- party/extra-aware (see LiveS note above)
-        -- "Show Behind Border": LVL_RAISE - 1 (9) sits just under the hover/target raise (+10,
-        -- strips +11) and under the base border strips (+9 tie: strips are created after this
-        -- carrier, so they win the tie and draw over the icon). Default: text band.
+        -- The normal textured border is +8, so the enabled carrier must sit below it.
         roleCarrier:SetFrameLevel(button:GetFrameLevel()
-            + (s.roleIconBehindBorder and (ns.LVL_RAISE - 1) or (ns.LVL_AURA - 1)))
+            + (s.roleIconBehindBorder and 7 or (ns.LVL_AURA - 1)))
         local health = ns.RF_AnchorHost(health, s)   -- Uniform Icon Anchoring host swap
         roleIcon:ClearAllPoints()
         -- Party Frames kit: the stock spot plus the user's offsets.
@@ -906,6 +1024,12 @@ local function StyleButton(button)
         if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b) end
         d.borderFrame._hlBorderSize = nil
         EllesmereUI.SetBorderStyleColor(d.borderFrame, r, g, b, a)
+        if s.powerBorderMatchColor == true and d.powerBorderFrame and d.powerBorderFrame._powerArtMode == "divider" then
+            ns.RF_ColorPowerDivider(d.powerBorderFrame, r, g, b, a)
+        end
+        if s.topNameBarDividerMatchColor == true and d.topNameBar and d.topNameBar._divider then
+            ns.RF_ColorPowerDivider(d.topNameBar._divider, r, g, b, a)
+        end
     end
     d.ApplyBorderColor = ApplyBorderColor
 
@@ -951,7 +1075,7 @@ local function StyleButton(button)
             EllesmereUI.RoundCorners(button, radius, {
                 roots = { d.health, d.power, d.topNameBar, d.powerBorderFrame },
                 textures = { d.bg },
-                border = d.borderFrame, style = texKey,
+                border = d.borderFrame, style = texKey, corners = s.cornerMask,
             })
         else
             EllesmereUI.RoundCorners(button, 0)
@@ -962,23 +1086,37 @@ local function StyleButton(button)
     d.UpdateBorder = UpdateBorder
 
     -- Apply power border
-    local function UpdatePowerBorder()
+    local function UpdatePowerBorder(force)
         -- Party Frames kit: the mana bar sits in the art's own track.
         if d.kit then
+            ns.RF_ClearPowerBorderArt(d.powerBorderFrame)
             if d.powerBorderFrame then d.powerBorderFrame:Hide() end
             return
         end
         -- No-op while the power bar is hidden: the border frame always exists and unconditional
         -- callers must not draw over a hidden bar. UpdateButton calls this AFTER power:Show().
-        if not PP or not d.powerBorderFrame or (d.power and not d.power:IsShown()) then return end
+        if not PP or not d.powerBorderFrame then return end
+        if d.power and not d.power:IsShown() then
+            ns.RF_ClearPowerBorderArt(d.powerBorderFrame)
+            d.powerBorderFrame:Hide()
+            return
+        end
         -- Classic WoW UI: the stock health/power divider in place of the power border.
         if d.stockDiv then
+            ns.RF_ClearPowerBorderArt(d.powerBorderFrame)
             d.powerBorderFrame:Hide()
             ns.RF_StockDivider(d)
             return
         end
         -- Re-called long after StyleButton: resolve LIVE (see LiveS note) -- a captured `s` misses party overrides and profile swaps.
         local s = LiveS()
+        if s.powerBorderMatchFrame == true or d.powerBorderFrame._powerArtKey then
+            local handled, refreshed = ns.RF_ApplyPowerBorderArt(d.powerBorderFrame, s, force)
+            if handled then
+                if refreshed and s.powerBorderMatchColor == true and d.powerBorderFrame._powerArtMode == "divider" then ApplyBorderColor() end
+                return
+            end
+        end
         local style = s.powerBorderStyle or "eui"
         if style == "eui" then
             -- EUI style: 1px divider, white at 20% opacity

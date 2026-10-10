@@ -4957,22 +4957,9 @@ local function ReloadCustomDebuffBarImpl(barId)
     if not AK then return end
     local bar, barBucket = ns.PAB_GetCustomDebuffBar(barId)
     if not bar then
-        if customDebuffContainers[barId] then
-            -- Groups cannot be un-declared, so zero every group's frame count instead:
-            -- icons disappear even though the container itself is never released.
-            -- "__cand|" entries are generation metadata, not group keys (same skip
-            -- as ApplyGroupConfig's active-set sweep) -- passing one to the engine
-            -- errors with "aura group was not found".
-            for key in pairs(customDebuffDeclared[barId] or {}) do
-                if key:sub(1, 7) ~= "__cand|" then
-                    customDebuffContainers[barId]:SetAuraGroupMaxFrameCount(key, 0)
-                end
-            end
-        end
+        if customDebuffContainers[barId] then RetireContainer(customDebuffContainers[barId], customDebuffDeclared[barId]) end
         if customDebuffParents[barId] then customDebuffParents[barId]:Hide() end
-        -- Bar IDs are never reused, so this entry is never looked up again: drop our
-        -- tracking-table references (container stays alive engine-side, only
-        -- addon-side bookkeeping clears) so tables don't grow unbounded over time.
+        -- Bar IDs are never reused, so this entry is never looked up again.
         customDebuffParents[barId], customDebuffContainers[barId], customDebuffDeclared[barId] = nil, nil, nil
         return
     end

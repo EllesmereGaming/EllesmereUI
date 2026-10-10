@@ -141,6 +141,8 @@ local ufTextWidths = {
     perhpnum    = 75,  -- "86% | 132 K"
     perhpnumdash = 75, -- "86% - 132 K"
     curhpshort  = 38,  -- "132 K"
+    curmaxhp    = 75,  -- "132 K / 150 K"
+    curmaxpp    = 75,  -- "132 K / 150 K"
     perhp       = 38,  -- "86%"
     perhpnosign = 30,  -- "86"
     perpp       = 38,  -- "86%"
@@ -284,7 +286,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     -- flag) keeps it ~free when unused.
     local function ApplyBTBPowerColor(fs, contentKey, usePowerColor)
         if not fs or not usePowerColor then return end
-        if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
+        if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curmaxpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
             -- Secret-safe per-unit power color: player resolves via the clean
             -- string token; non-player units recover it from the clean integer
             -- power type instead of falling back to white.
