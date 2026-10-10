@@ -4478,10 +4478,8 @@ do
     end
 
     local function ShowAlert(which, preview)
-        local alerts = EllesmereUI.Alerts
-        if not alerts then return end
         local r, g, b = ResolveColor(which)
-        alerts.Line("combat").Show(AlertText(which), r, g, b, preview)
+        EllesmereUI.Alerts.Line("combat").Show(AlertText(which), r, g, b, preview)
     end
 
     local function OnCombatEvent(_, event)
@@ -4504,9 +4502,9 @@ do
         elseif not on and installed then
             watcher:UnregisterAllEvents()
             installed = false
-            if EllesmereUI.Alerts then EllesmereUI.Alerts.Hide("combat") end
+            EllesmereUI.Alerts.Hide("combat")
         end
-        if EllesmereUI.Alerts then EllesmereUI.Alerts.Refresh() end
+        EllesmereUI.Alerts.Refresh()
     end
     EllesmereUI._applyCombatAlert = ApplyCombatAlert
 
@@ -4514,9 +4512,7 @@ do
     EllesmereUI._combatAlertPreview = function(which) ShowAlert(which, true) end
 
     -- Re-apply size/position (called from the Text Size slider).
-    EllesmereUI._applyCombatAlertFrame = function()
-        if EllesmereUI.Alerts then EllesmereUI.Alerts.Refresh() end
-    end
+    EllesmereUI._applyCombatAlertFrame = function() EllesmereUI.Alerts.Refresh() end
 
     watcher = CreateFrame("Frame")
     watcher:SetScript("OnEvent", OnCombatEvent)

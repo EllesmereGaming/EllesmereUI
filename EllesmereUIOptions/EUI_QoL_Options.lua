@@ -642,8 +642,9 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Row: Hide Loot Rolls Window (left, with settings cog). Combat Alert
-        -- now lives in the ALERTS section (EUI_QoL_Alerts_Options.lua).
+        -- Row: Hide Loot Rolls Window (left, with settings cog) | Announce Group
+        -- Deaths (right, with Text Size cog). Combat Alert lives in the ALERTS
+        -- section (EUI_QoL_Alerts_Options.lua).
         local lootHistRow
         lootHistRow, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Loot Rolls Window",
@@ -657,7 +658,17 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._applyHideLootHistory then EllesmereUI._applyHideLootHistory() end
                   EllesmereUI:RefreshPage()  -- update the cog disabled state
               end },
-            EllesmereUI.BlankRowCfg()
+            { type="toggle", text="Announce Group Deaths",
+              tooltip="Shows a large on-screen alert (e.g. \"Player DIED!\") whenever a party or raid member dies, so you immediately notice deaths during dungeons and raids. Use Unlock Mode to reposition the alert.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.announceGroupDeaths or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.announceGroupDeaths = v
+                  if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
+                  EllesmereUI:RefreshPage()
+              end }
         );  y = y - h
 
         -- Inline cog (mode + auto-close delay) on the Hide Loot Rolls toggle
@@ -706,21 +717,10 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row 7: Announce Group Deaths (left, with Text Size cog) | Hide Item
-        -- Transforms (right, with picker cog)
+        -- Row 7: Hide Item Transforms (left, with picker cog) | Auto Select
+        -- Single Gossip (right, with settings cog)
         local deathRow
         deathRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Announce Group Deaths",
-              tooltip="Shows a large on-screen alert (e.g. \"Player DIED!\") whenever a party or raid member dies, so you immediately notice deaths during dungeons and raids. Use Unlock Mode to reposition the alert.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.announceGroupDeaths or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.announceGroupDeaths = v
-                  if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
-                  EllesmereUI:RefreshPage()
-              end },
             { type="toggle", text="Hide Item Transforms (ex: Chef's Hat)",
               tooltip="Automatically removes cosmetic transforms when they are applied to you, such as profession gear, holiday costumes, toys and consumables. Use the cog to pick exactly which transforms are removed. Transforms applied during combat are removed when combat ends.",
               getValue=function()
@@ -733,12 +733,23 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI._applyHideTransforms()
                   end
                   EllesmereUI:RefreshPage()  -- update the picker cog disabled state
+              end },
+            { type="toggle", text="Auto Select Single Gossip",
+              tooltip="Picks an NPC's only dialog option for you.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.autoGossip or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.autoGossip = v
+                  if EllesmereUI._applyAutoGossip then EllesmereUI._applyAutoGossip() end
+                  EllesmereUI:RefreshPage()
               end }
         );  y = y - h
 
         -- Inline cog (Text Size) on the Announce Group Deaths toggle
         if not EllesmereUI._prebuilding then
-            local leftRgn = deathRow._leftRegion
+            local leftRgn = lootHistRow._rightRegion
             local function deathOff()
                 return not (EllesmereUIDB and EllesmereUIDB.announceGroupDeaths)
             end
@@ -808,7 +819,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- row): opens the item checklist popup. Dimmed and inert while the
         -- toggle is off, mirroring the resource-bar spec-picker button.
         if not EllesmereUI._prebuilding then
-            local rgn = deathRow._rightRegion
+            local rgn = deathRow._leftRegion
             local function hitOff()
                 return not (EllesmereUIDB and EllesmereUIDB.hideTransforms)
             end
@@ -819,20 +830,10 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row: Auto Select Single Gossip (left, with cog)
+        -- Row: Type /cd to open Blizzard CDM (last row of the section, so the
+        -- right slot may stay empty)
         local gossipRow
         gossipRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Auto Select Single Gossip",
-              tooltip="Picks an NPC's only dialog option for you.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.autoGossip or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.autoGossip = v
-                  if EllesmereUI._applyAutoGossip then EllesmereUI._applyAutoGossip() end
-                  EllesmereUI:RefreshPage()
-              end },
             -- Cooldown Manager registers /cd at load from this key, so a change reloads
             { type="toggle", text="Type /cd to open Blizzard CDM",
               tooltip="Lets /cd open or close Blizzard's Cooldown Manager settings.",
@@ -851,11 +852,12 @@ initFrame:SetScript("OnEvent", function(self)
                       cancelText  = "Later",
                       reload      = true,
                   })
-              end }
+              end },
+            EllesmereUI.BlankRowCfg()
         );  y = y - h
 
         if not EllesmereUI._prebuilding then
-            local leftRgn = gossipRow._leftRegion
+            local leftRgn = deathRow._rightRegion
             local function gossipOff()
                 return not (EllesmereUIDB and EllesmereUIDB.autoGossip)
             end

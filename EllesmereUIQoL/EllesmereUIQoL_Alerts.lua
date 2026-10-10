@@ -11,6 +11,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Nothing is built or registered for an alert until it is enabled.
 -------------------------------------------------------------------------------
 
+local ns = select(2, ...)
 local EUI = EllesmereUI
 local FALLBACK_FONT = "Fonts\\FRIZQT__.TTF"
 local DEFAULT_SIZE = 22
@@ -214,7 +215,6 @@ function Alerts.Color(prefix, dr, dg, db)
 end
 
 local function RegisterUnlock()
-    if not (EUI.RegisterUnlockElements and EUI.MakeUnlockElement) then return end
     EUI:RegisterUnlockElements({
         EUI.MakeUnlockElement({
             key      = "EUI_Alerts",
@@ -272,10 +272,10 @@ end)
 -------------------------------------------------------------------------------
 do
     local POTION_CLASS = Enum.ItemClass.Consumable
-    local POTION_SUBCLASS = (Enum.ItemConsumableSubclass and Enum.ItemConsumableSubclass.Potion) or 1
+    local POTION_SUBCLASS = 1   -- Enum.ItemConsumableSubclass.Potion
     local MIN_CD = 1.5   -- anything longer is the potion's own cooldown, not the GCD
-    local GetInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
-    local GetUseSpell = (C_Item and C_Item.GetItemSpell) or GetItemSpell
+    local GetInstant = C_Item.GetItemInfoInstant
+    local GetUseSpell = C_Item.GetItemSpell
 
     local watcher
     local installed = false
@@ -290,14 +290,10 @@ do
         Alerts.Line("potion").Show(DB("potionAlertText") or D.text, r, g, b, preview)
     end
 
+    -- start, duration; nil when the client hides the values (combat).
     local function ReadCD(itemID)
-        local start, dur
-        if C_Container and C_Container.GetItemCooldown then start, dur = C_Container.GetItemCooldown(itemID) end
+        local start, dur = C_Container.GetItemCooldown(itemID)
         if IsSecret(start) or IsSecret(dur) then return nil end
-        if not (start and dur and dur > MIN_CD) and C_Item and C_Item.GetItemCooldown then
-            start, dur = C_Item.GetItemCooldown(itemID)
-            if IsSecret(start) or IsSecret(dur) then return nil end
-        end
         return start, dur
     end
 
@@ -361,11 +357,9 @@ do
     end
 
     local function ScanBags()
-        local getInfo = C_Container and C_Container.GetContainerItemInfo
-        if not (getInfo and GetInstant and GetUseSpell) then return end
         for bag = 0, NUM_BAG_SLOTS do
             for slot = 1, C_Container.GetContainerNumSlots(bag) do
-                local info = getInfo(bag, slot)
+                local info = C_Container.GetContainerItemInfo(bag, slot)
                 local id = info and info.itemID
                 if id and seen[id] == nil then
                     local _, _, _, _, _, classID, subID = GetInstant(id)
@@ -449,10 +443,11 @@ end
 --  back when new points appear, and waits for combat to end before showing.
 -------------------------------------------------------------------------------
 do
-    local EVENTS = {
-        "PLAYER_ENTERING_WORLD", "PLAYER_TALENT_UPDATE", "PLAYER_SPECIALIZATION_CHANGED",
-        "PLAYER_LEVEL_CHANGED", "CHARACTER_POINTS_CHANGED", "PLAYER_REGEN_ENABLED",
-    }
+    -- Blizzard's own trigger events for its talent alert (retail), and the
+    -- classic talent events (WoW Forever).
+    local EVENTS = EUI.IS_FOREVER
+        and { "PLAYER_ENTERING_WORLD", "PLAYER_TALENT_UPDATE", "PLAYER_LEVEL_UP", "CHARACTER_POINTS_CHANGED" }
+        or { "PLAYER_ENTERING_WORLD", "PLAYER_TALENT_UPDATE", "PLAYER_SPECIALIZATION_CHANGED", "PLAYER_LEVEL_CHANGED" }
 
     local watcher
     local installed = false
@@ -461,14 +456,9 @@ do
     local dirty = false
 
     local function HasUnspent()
-        local CT = C_ClassTalents
-        if CT and CT.HasUnspentTalentPoints then
-            local SI = C_SpecializationInfo
-            if SI and SI.CanPlayerUseTalentUI and not SI.CanPlayerUseTalentUI() then return false end
-            return (CT.HasUnspentTalentPoints() or (CT.HasUnspentHeroTalentPoints and CT.HasUnspentHeroTalentPoints())) and true or false
-        end
-        if GetUnspentTalentPoints then return (GetUnspentTalentPoints() or 0) > 0 end
-        return false
+        if EUI.IS_FOREVER then return (GetUnspentTalentPoints() or 0) > 0 end
+        if not C_SpecializationInfo.CanPlayerUseTalentUI() then return false end
+        return (C_ClassTalents.HasUnspentTalentPoints() or C_ClassTalents.HasUnspentHeroTalentPoints()) and true or false
     end
 
     local function Line()
@@ -486,10 +476,11 @@ do
     local function Evaluate()
         dirty = false
         if not installed then return end
+        if InCombatLockdown() then ns.CombatQueue.Defer("TalentAlert", Evaluate); return end
         local has = HasUnspent()
         if has then
             if not lastHad then dismissed = false end        -- new points: show again
-            if not dismissed and not InCombatLockdown() then ShowAlert() end
+            if not dismissed then ShowAlert() end
         else
             dismissed = false
             Alerts.Hide("talent")
@@ -506,7 +497,7 @@ do
     local function Apply()
         local on = DB("talentAlertEnabled")
         if on and not installed then
-            for _, e in ipairs(EVENTS) do pcall(watcher.RegisterEvent, watcher, e) end
+            for _, e in ipairs(EVENTS) do watcher:RegisterEvent(e) end
             installed = true
             lastHad, dismissed = false, false
             MarkDirty()
