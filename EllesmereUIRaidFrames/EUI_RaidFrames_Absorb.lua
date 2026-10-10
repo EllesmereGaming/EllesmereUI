@@ -24,6 +24,15 @@ local GetFFD, PixelSnap = I.GetFFD, I.PixelSnap
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
+-- AddMaskTexture errors at the 3-mask cap even when the mask is already attached, and the
+-- fill object survives SetStatusBarTexture. With rounded corners on, RoundCorners seats its
+-- body mask on every texture under the health bar, so the backfill fill is already full
+-- (absorbMask + curMask + body) and any style re-apply errored. Drop the mask first.
+local function AddMaskOnce(tex, mask)
+    pcall(tex.RemoveMaskTexture, tex, mask)
+    tex:AddMaskTexture(mask)
+end
+
 -------------------------------------------------------------------------------
 --  Absorb style application. Single-fill styles match the unit-frame look; the
 --  RF-only compound "Blizzard (Modern)" style layers a tiled stripe fill over a
@@ -44,7 +53,7 @@ ns.ApplyModernAbsorbBar = function(bar, mask)
         fill:SetDrawLayer("ARTWORK", 1)
         fill:SetHorizTile(true)
         fill:SetVertTile(true)
-        if mask then fill:AddMaskTexture(mask) end
+        if mask then AddMaskOnce(fill, mask) end
         local base = bar._modernBase
         if base then base:SetAllPoints(fill); base:Show() end
     end
@@ -72,7 +81,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
         if bfFill then
             bfFill:SetDrawLayer("ARTWORK", 1)
             bfFill:SetHorizTile(false); bfFill:SetVertTile(false)
-            if mask then bfFill:AddMaskTexture(mask) end
+            if mask then AddMaskOnce(bfFill, mask) end
         end
         return
     end
@@ -92,7 +101,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
         fill:SetDrawLayer("ARTWORK", 1)
         fill:SetHorizTile(tiled)
         fill:SetVertTile(tiled)
-        if mask then fill:AddMaskTexture(mask) end
+        if mask then AddMaskOnce(fill, mask) end
     end
     -- New fill object + new tiling state: re-derive rotation.
     ns.RF_ApplyFillRotation(absorbBar)
@@ -104,7 +113,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
             fwFill:SetDrawLayer("ARTWORK", 1)
             fwFill:SetHorizTile(tiled)
             fwFill:SetVertTile(tiled)
-            if mask then fwFill:AddMaskTexture(mask) end
+            if mask then AddMaskOnce(fwFill, mask) end
         end
         ns.RF_ApplyFillRotation(fw)
     end
@@ -126,7 +135,7 @@ ns.ApplyHealAbsorbStyle = function(haBar, style, settings)
         fill:SetDrawLayer("ARTWORK", 2)
         fill:SetHorizTile(tiled)
         fill:SetVertTile(tiled)
-        if mask then fill:AddMaskTexture(mask) end
+        if mask then AddMaskOnce(fill, mask) end
     end
     ns.RF_ApplyFillRotation(haBar)
 end

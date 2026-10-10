@@ -974,7 +974,7 @@ local function StartRun()
         local stale = splits.mapID ~= currentRun.mapID or splits.level ~= currentRun.level
         -- A reload mid-key resumes past every saved split; a fresh key starts near 0.
         local _, now = GetWorldElapsedTime(1)
-        if not stale and type(now) == "number" and not (issecretvalue and issecretvalue(now)) then
+        if not stale and type(now) == "number" and not (issecretvalue and issecretvalue(now)) and now > 0 then
             for k, t in pairs(splits) do
                 if type(k) == "number" and t > now then stale = true; break end
             end
