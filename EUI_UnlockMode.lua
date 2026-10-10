@@ -634,6 +634,7 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["EUI_SecondaryStats"] = { module = "EllesmereUIQoL", page = "QoL", sectionName = "EXTRAS", highlightText = "Secondary Stat Display" },
 
     -- Battle Res + Bloodlust (bottom of the Quality of Life page)
+    ["EUI_Alerts"]         = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "ALERTS",            highlightText = "Combat Alert" },
     ["EUI_BattleRes"]      = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "BATTLE RES",        highlightText = "Enable BattleRes Icon" },
     ["EUI_Bloodlust"]      = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "BLOODLUST TRACKER", highlightText = "Enable Bloodlust Icon" },
 

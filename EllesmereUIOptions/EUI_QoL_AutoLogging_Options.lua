@@ -266,6 +266,14 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     _, h = W:Spacer(parent, y, 20); y = y - h
 
     ---------------------------------------------------------------------------
+    --  ALERTS (Combat Alert, Potion Ready, Unspent Talents; one shared anchor)
+    ---------------------------------------------------------------------------
+    if _G._EUI_BuildAlertsSection then
+        local alertsH = _G._EUI_BuildAlertsSection(parent, y, W, EllesmereUI.PP)
+        y = y - alertsH
+    end
+
+    ---------------------------------------------------------------------------
     --  BATTLE RES (no shared battle res charges on WoW Forever: the indicator
     --  runtime builds nothing there and the section is not built)
     ---------------------------------------------------------------------------
