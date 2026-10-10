@@ -895,6 +895,10 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     -- and Color Custom Borders (the frame's own border copied in the dispel type color).
     if not EllesmereUI._prebuilding then
         local rgn = row._leftRegion
+        local function CompactDispelBorder()
+            if optState._partyCtx then return ns.RF_PartySharedBorderOn(ns._scaledPartyProxy) end
+            return ns.RF_RaidSharedBorderOn(db.profile)
+        end
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Dispel Border",
             rows = {
@@ -904,9 +908,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   set=function(v) SSet("dispelIconBorderSize", v) end },
                 { type="toggle", label="Color Custom Borders",
                   tooltip="Recolors the frame border in the dispel type color while a debuff of that type is shown.",
-                  -- Copies the frame's own border: only over a custom border (CustomBorderOff).
-                  disabled=CustomBorderOff,
-                  disabledTooltip=CustomBorderOffTip,
+                  disabled=function() return CompactDispelBorder() or CustomBorderOff() end,
+                  disabledTooltip=function()
+                      if CompactDispelBorder() then return "This option is unavailable while Compact Mode is active." end
+                      return CustomBorderOffTip()
+                  end,
                   requireState="disabled",
                   get=function() return SVal("dispelCustomBorder", false) end,
                   set=function(v) SSet("dispelCustomBorder", v) end },

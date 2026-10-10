@@ -743,25 +743,42 @@ local function BuildMainPage(pageName, parent, yOffset)
         local key = SGet("borderTexture")
         return not ns.RF_Stock() and (key == "pixels" or key == "pixels-textured")
     end
-    local function SetRaidSpacing(key, v)
-        local pixels = RaidPixelsBorder()
-        if pixels then v = math.max(v, EllesmereUI.PP.FromPixels(1)) end
-        SWrite(key, v)
-        SWrite("raidSharedBorder", pixels and (EllesmereUI.PP.ToPixels(SVal("cellSpacing", 2)) == 1
-            or EllesmereUI.PP.ToPixels(SVal("groupSpacing", 8)) == 1))
-        ReloadAndUpdate()
-    end
-    _, h = W:DualRow(parent, y,
-        { type="slider", pixel=true, text="Frame Spacing",
-          min=RaidPixelsBorder() and EllesmereUI.PP.FromPixels(1) or -1, max=15, step=1,
-          tooltip="Pixels and Pixels Textured require at least 1 pixel of spacing. Selecting 1 joins frames with a shared border and separators. Set Group Spacing to 1 as well for one raid grid.",
+    local spacingRow
+    spacingRow, h = W:DualRow(parent, y,
+        { type="slider", pixel=true, text="Frame Spacing", min=-1, max=15, step=1,
+          tooltip="Compact Mode uses a 1 physical pixel gap without changing this saved spacing.",
+          disabled=function() return ns.RF_RaidSharedBorderOn(db.profile) end,
           getValue=function() return SVal("cellSpacing", 2) end,
-          setValue=function(v) SetRaidSpacing("cellSpacing", v) end },
-        { type="slider", pixel=true, text="Group Spacing",
-          min=RaidPixelsBorder() and EllesmereUI.PP.FromPixels(1) or -1, max=15, step=1,
-          tooltip="Pixels and Pixels Textured require at least 1 pixel of spacing. Selecting 1 joins adjacent groups with separators. Set Frame Spacing to 1 as well for one outer raid border.",
+          setValue=function(v) SSet("cellSpacing", v) end },
+        { type="slider", pixel=true, text="Group Spacing", min=-1, max=15, step=1,
+          tooltip="Grid Mode uses a 1 physical pixel gap without changing this saved spacing.",
+          disabled=function() return ns.RF_RaidSharedBorderOn(db.profile) and SVal("raidCompactJoinGroups", false) end,
           getValue=function() return SVal("groupSpacing", 8) end,
-          setValue=function(v) SetRaidSpacing("groupSpacing", v) end });  y = y - h
+          setValue=function(v) SSet("groupSpacing", v) end }); y = y - h
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(spacingRow._leftRegion, {
+            title = "Frame Spacing",
+            rows = {
+                { type="toggle", label="Compact Mode",
+                  tooltip="Join raid frames with a shared border and separators at 1 physical pixel. Your normal spacing is preserved.",
+                  disabled=function() return not RaidPixelsBorder() end,
+                  disabledTooltip="Requires the Pixels or Pixels Textured border style.", rawTooltip=true,
+                  get=function() return SVal("raidCompactEnabled", false) end,
+                  set=function(v) SSet("raidCompactEnabled", v); EllesmereUI:RefreshPage() end },
+            },
+        })
+        EllesmereUI.BuildInlineCog(spacingRow._rightRegion, {
+            title = "Group Spacing",
+            rows = {
+                { type="toggle", label="Grid Mode",
+                  tooltip="Join compact raid groups into one bordered grid at 1 physical pixel. Your normal group spacing is preserved.",
+                  disabled=function() return not ns.RF_RaidSharedBorderOn(db.profile) end,
+                  disabledTooltip="Requires Compact Mode with the Pixels or Pixels Textured border style.", rawTooltip=true,
+                  get=function() return SVal("raidCompactJoinGroups", false) end,
+                  set=function(v) SSet("raidCompactJoinGroups", v); EllesmereUI:RefreshPage() end },
+            },
+        })
+    end
 
     -- Border Style (+ options cog) | Border Size (+ Border swatch). Mirrors Unit Frames: ONE border recolored by state (hover/target), full SharedMedia support. Hover/Target swatches live on the row below.
     local bdrTexValues, bdrTexOrder = EllesmereUI.GetBorderTextureDropdown()
@@ -782,18 +799,6 @@ local function BuildMainPage(pageName, parent, yOffset)
               if defSz then SWrite("borderSize", defSz) end
               -- A style pick returns the size to its step: clear a set exact size.
               if SGetPx("borderSizePx", "borderSize") then SWrite("borderSizePx", false) end
-              if RaidPixelsBorder() then
-                  local one = EllesmereUI.PP.FromPixels(1)
-                  if EllesmereUI.PP.ToPixels(SVal("cellSpacing", 2)) <= 1 then SWrite("cellSpacing", one) end
-                  if EllesmereUI.PP.ToPixels(SVal("groupSpacing", 8)) <= 1 then SWrite("groupSpacing", one) end
-                  SWrite("raidSharedBorder", EllesmereUI.PP.ToPixels(SVal("cellSpacing", 2)) == 1
-                      or EllesmereUI.PP.ToPixels(SVal("groupSpacing", 8)) == 1)
-              end
-              if (v == "pixels" or v == "pixels-textured") and PartyPixelsBorder()
-                  and EllesmereUI.PP.ToPixels(db.profile.partyCellSpacing or db.profile.cellSpacing or 2) <= 1 then
-                  db.profile.partyCellSpacing = EllesmereUI.PP.FromPixels(1)
-                  db.profile.partySharedBorder = true
-              end
               -- Rebuild: the offset row below exists only for a textured style.
               ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
           end }),
@@ -1691,20 +1696,29 @@ local function BuildPartyPage(pageName, parent, yOffset)
         -- Scale cog, so the Raid Frames layout's value survives a switch
         -- between the two.)
         ns.RF_PartyKitGate({ type="slider", pixel=true, text="Frame Spacing",
-          min=PartyPixelsBorder() and EllesmereUI.PP.FromPixels(1) or -1, max=15, step=1,
-          tooltip="Pixels and Pixels Textured require at least 1 pixel of spacing. Selecting 1 enables compact mode with one party border and separators.",
+          min=-1, max=15, step=1,
+          tooltip="Compact Mode uses a 1 physical pixel gap without changing this saved spacing.",
+          disabled=function() return ns.RF_PartySharedBorderOn(ns._scaledPartyProxy) end,
           getValue=function()
               if ns.RF_PartyKit() then return db.profile.partyKitSpacing or ns.RF_KIT_SPACING or 6 end
               return SVal("partyCellSpacing", db.profile.cellSpacing or 2)
           end,
           setValue=function(v)
-              local pixels = PartyPixelsBorder()
-              if pixels then v = math.max(v, EllesmereUI.PP.FromPixels(1)) end
-              db.profile.partySharedBorder = pixels and EllesmereUI.PP.ToPixels(v) == 1
               PSSet(ns.RF_PartyKit() and "partyKitSpacing" or "partyCellSpacing", v)
           end }));  y = y - h
     -- Auto Resize Icons sits in the LEFT slot here; same conversion pattern as the Frames tab.
     if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(partyAutoResizeRow._rightRegion, {
+            title = "Frame Spacing",
+            rows = {
+                { type="toggle", label="Compact Mode",
+                  tooltip="Join party frames with one border and separators at 1 physical pixel. Your normal spacing is preserved; suspended while target frames occupy the gaps between party frames.",
+                  disabled=function() return not PartyPixelsBorder() end,
+                  disabledTooltip="Requires the Raid Frames style with a Pixels or Pixels Textured border.", rawTooltip=true,
+                  get=function() return db.profile.partyCompactEnabled == true end,
+                  set=function(v) PSSet("partyCompactEnabled", v); EllesmereUI:RefreshPage() end },
+            },
+        })
         local leftRgn = partyAutoResizeRow._leftRegion
         if leftRgn._control then leftRgn._control:Hide() end
         local arKeyMap = { indicators = "partyAutoResizeIndicators", trackedBuffs = "partyAutoResizeTrackedBuffs" }

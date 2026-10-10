@@ -307,7 +307,8 @@ local defaults = {
         frameHeight      = 60,
         cellSpacing      = -1,
         groupSpacing     = -1,
-        raidSharedBorder = false,
+        raidCompactEnabled = false,
+        raidCompactJoinGroups = false,
         groupGrowth      = "RIGHT",  -- "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT" (grid: ns._RF_GRID_ROWS per column)
         unitGrowth       = "DOWN",   -- any direction; same-axis as groupGrowth = one continuous line
         sortMode         = "ROLE",   -- "INDEX" (by group) or "ROLE" (by assigned role)
@@ -766,7 +767,7 @@ local defaults = {
         partyShowSelfFirst = true,
         partySelfLast      = false,
         partyHorizontal   = false,
-        partySharedBorder = false,
+        partyCompactEnabled = false,
         partyFlipGrowth   = false,  -- false=default growth, true=DOWN->UP / RIGHT->LEFT flip, "centered"=stack centered in the 5-slot container
         partyHideSelf     = false,
         partyUnlockPos    = nil,
@@ -1160,21 +1161,16 @@ function ns.RF_PaintThreat(d, s, unit)
     end
     local on = status and THREAT_ACTIVE[status] and PP and true or false
     if d.stockHl then
-        tf:Hide()
+        ns.RF_ApplyThreatBorder(tf, s, false, false)
         ns.RF_StockAggro(d, on and status or nil)
         return
     end
-    local agg = ((rc or shared) and on) or nil
+    local agg = (rc and not shared and on) or nil
     if d._aggroBdr ~= agg then
         d._aggroBdr = agg
         if d.ApplyBorderColor then d.ApplyBorderColor() end
     end
-    if on and not rc and not shared then
-        PP.UpdateBorder(tf, bs, 1, 0, 0, 1)
-        tf:Show()
-    else
-        tf:Hide()
-    end
+    ns.RF_ApplyThreatBorder(tf, s, on and (shared or not rc), shared)
 end
 
 -- Vertical health fill: SetOrientation drives the fill AXIS. Raid and party

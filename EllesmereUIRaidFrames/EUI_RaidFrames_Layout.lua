@@ -66,7 +66,7 @@ ns._BuildHeaderSet = function(merge)
     -- own per-tier resolution and self-heal.
     local initUnitGrowth, initGroupGrowth = ns._RFEffectiveGrowth(
         s.unitGrowth or "DOWN", s.groupGrowth or "RIGHT", merge)
-    local csInit = PixelSnap(s.cellSpacing or 2)
+    local csInit = PixelSnap(ns.RF_RaidSpacing(s))
     local initPoint, initXOff, initYOff = ns._RFHeaderPoint(initUnitGrowth, csInit)
 
     -- A header makes children only while visible (IsVisible walks the parent
@@ -112,6 +112,7 @@ ns._BuildHeaderSet = function(merge)
                 local btn = hdr[i]
                 if btn then
                     I.GetFFD(btn)._isRaid = true
+                    I.GetFFD(btn)._raidGroup = group
                     ns._StyleButtonSecure(btn)
                     allButtons[#allButtons + 1] = btn
                 end
@@ -138,7 +139,7 @@ ns._BuildHeaderSet = function(merge)
         ns._flatHeader:SetAttribute("showSolo", s.showWhenSolo or false)
         ns._flatHeader:SetAttribute("unitsPerColumn", 5)
         ns._flatHeader:SetAttribute("maxColumns", 8)
-        ns._flatHeader:SetAttribute("columnSpacing", PixelSnap(s.groupSpacing or 8))
+        ns._flatHeader:SetAttribute("columnSpacing", PixelSnap(ns.RF_RaidSpacing(s, true)))
         ns._flatHeader:SetAttribute("columnAnchorPoint", ns._RFColAnchor(initUnitGrowth, initGroupGrowth))
         ns._flatHeader:SetAttribute("sortMethod", "INDEX")
 
@@ -153,6 +154,7 @@ ns._BuildHeaderSet = function(merge)
             local btn = ns._flatHeader[i]
             if btn then
                 I.GetFFD(btn)._isRaid = true
+                I.GetFFD(btn)._raidGroup = math.floor((i - 1) / 5) + 1
                 ns._StyleButtonSecure(btn)
                 allButtons[#allButtons + 1] = btn
                 ns._flatButtons[#ns._flatButtons + 1] = btn
@@ -299,8 +301,8 @@ ns._LayoutGroupsImpl = function()
     unitGrowth, groupGrowth = ns._RFEffectiveGrowth(unitGrowth, groupGrowth, merged)
     local bw = PixelSnap(ns._activeSizeW or s.frameWidth or 72)
     local bh = PixelSnap(ns._activeSizeH or s.frameHeight or 46)
-    local cs = PixelSnap(s.cellSpacing or 2)
-    local gs = PixelSnap(s.groupSpacing or 8)
+    local cs = PixelSnap(ns.RF_RaidSpacing(s))
+    local gs = PixelSnap(ns.RF_RaidSpacing(s, true))
 
     -- Header attributes for unit growth direction
     local hdrPoint, hdrXOff, hdrYOff = ns._RFHeaderPoint(unitGrowth, cs)
@@ -522,7 +524,7 @@ ns._LayoutGroupsImpl = function()
 
     -- Update real-frame group numbers now that all headers are positioned.
     ns._UpdateGroupNumbers()
-    if ns._raidSharedBorderOn or ns.RF_RaidSharedBorderOn(s) or ns._raidBorders then ns.RF_RefreshRaidBorders() end
+    if ns._raidSharedBorderOn or ns.RF_RaidSharedBorderOn(s) or ns._raidBorders then ns.RF_QueueRaidBorders() end
 end
 
 -- Coalescing re-entrancy guard: a re-entrant LayoutGroups() call is NOT dropped

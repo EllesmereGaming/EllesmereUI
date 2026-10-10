@@ -649,7 +649,7 @@ function ns.RF_PartyDims(s)
     local w = s.partyFrameWidth or s.frameWidth or 125
     local h = s.partyFrameHeight or s.frameHeight or 60
     local res = ns.RF_PtReserve and ns.RF_PtReserve(s, h) or 0
-    return w + res, h, s.partyCellSpacing or s.cellSpacing or 2, res
+    return w + res, h, ns.RF_PartySpacing(s), res
 end
 
 -- Friendly Boss "Show in Dungeons" beside the party container under the kit:

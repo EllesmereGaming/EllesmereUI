@@ -38,11 +38,30 @@ local framesVisible = false
 I.framesVisibleSetters[#I.framesVisibleSetters + 1] = function(v) framesVisible = v end
 
 function ns.RF_PartySharedBorderOn(s)
-    if not s or s.partySharedBorder ~= true or ns.RF_Stock() then return false end
-    local key = s.borderTexture
+    if not s or s.partyCompactEnabled ~= true or ns.RF_Stock() then return false end
+    local key, size = s.borderTexture, s.borderSize
+    if ns._IsPartySectionCustom(ns._PARTY_KEY_SECTION.borderTexture) then
+        key, size = s.party_borderTexture or key, s.party_borderSize or size
+    end
     return (key == "pixels" or key == "pixels-textured")
-        and EllesmereUI.PP.ToPixels(s.partyCellSpacing or s.cellSpacing or 2) == 1
-        and (s.borderSize or 1) > 0
+        and (size or 1) > 0 and not ns.PT_AlongStack(s, s.partyShowTargets == true)
+end
+
+function ns.RF_OnePixel(host)
+    return EllesmereUI.PP.perfect / (host or containerFrame or UIParent):GetEffectiveScale()
+end
+
+function ns.RF_PartySpacing(s)
+    if ns.RF_PartySharedBorderOn(s) then return ns.RF_OnePixel(ns._partyContainerFrame) end
+    return s.partyCellSpacing or s.cellSpacing or 2
+end
+
+function ns.RF_RaidSpacing(s, group)
+    if ns.RF_RaidSharedBorderOn(s) and (not group or s.raidCompactJoinGroups == true) then
+        return ns.RF_OnePixel()
+    end
+    if group then return s.groupSpacing or 8 end
+    return s.cellSpacing or 2
 end
 
 function ns.RF_HidePartyBorder(host)
@@ -51,10 +70,64 @@ function ns.RF_HidePartyBorder(host)
     EllesmereUI.HideBorderStyle(host)
     EllesmereUI.RegisterPxReapply(host, nil)
     host._partyCount = 0
+    if host._sharedCache then host._sharedCache.valid = false end
 end
 
 local function PartyBorderOrder(a, b)
     return a.pos < b.pos
+end
+
+local sharedStyleKeys = { "borderTexture", "borderSize", "borderSizePx", "borderAlpha", "borderBehind",
+    "borderTextureOffset", "borderTextureOffsetY", "borderTextureShiftX", "borderTextureShiftY",
+    "partyHorizontal", "partyFlipGrowth", "unitGrowth", "raidCompactJoinGroups" }
+
+-- Snapshot scalar inputs, including in-place color edits. No render writes on an unchanged pass.
+local function SharedBorderUnchanged(owner, parent, frames, s, preview, raid)
+    local cache = owner._sharedCache
+    if not cache then cache = { frames = {} }; owner._sharedCache = cache end
+    local changed = not cache.valid or cache.parent ~= parent or cache.preview ~= preview
+        or cache.perfect ~= EllesmereUI.PP.perfect or cache.count ~= #frames
+    cache.parent, cache.preview, cache.perfect, cache.count = parent, preview, EllesmereUI.PP.perfect, #frames
+    local es = parent:GetEffectiveScale()
+    if issecretvalue(es) or not es or es <= 0.01 then cache.valid = false; return false end
+    if cache.es ~= es then changed = true; cache.es = es end
+    for _, key in ipairs(sharedStyleKeys) do
+        local value = s[key]
+        if cache[key] ~= value then changed = true; cache[key] = value end
+    end
+    local c = s.borderColor
+    local r, g, b = c and c.r or 0, c and c.g or 0, c and c.b or 0
+    if cache.r ~= r or cache.g ~= g or cache.b ~= b then changed = true end
+    cache.r, cache.g, cache.b = r, g, b
+    for i, frame in ipairs(frames) do
+        local entry = cache.frames[i]
+        if not entry then entry = {}; cache.frames[i] = entry end
+        local visible = frame:IsVisible()
+        if issecretvalue(visible) then cache.valid = false; return false end
+        local unit = visible and (preview or frame:GetAttribute("unit"))
+        if issecretvalue(unit) then cache.valid = false; return false end
+        local eligible = not raid or preview or GetFFD(frame)._isRaid
+        local shown = eligible and unit and true or false
+        if entry.frame ~= frame or entry.shown ~= shown then changed = true end
+        entry.frame, entry.shown = frame, shown
+        if shown then
+            local l, bottom, w, h = frame:GetRect()
+            local scale, level = frame:GetEffectiveScale(), frame:GetFrameLevel()
+            if issecretvalue(l) or issecretvalue(bottom) or issecretvalue(w) or issecretvalue(h)
+                or issecretvalue(scale) or issecretvalue(level) or not l or not bottom or not w or not h
+                or not scale or not level or scale <= 0.01 or w <= 0 or h <= 0 then
+                cache.valid = false
+                return false
+            end
+            local strata = frame:GetFrameStrata()
+            if entry.l ~= l or entry.b ~= bottom or entry.w ~= w or entry.h ~= h
+                or entry.scale ~= scale or entry.level ~= level or entry.strata ~= strata then changed = true end
+            entry.l, entry.b, entry.w, entry.h = l, bottom, w, h
+            entry.scale, entry.level, entry.strata = scale, level, strata
+        end
+    end
+    cache.valid = true
+    return not changed
 end
 
 function ns.RF_LayoutPartySeparators(host)
@@ -71,16 +144,17 @@ function ns.RF_LayoutPartySeparators(host)
     for i = 2, host._partyCount do
         local seam = host._partySeps[i - 1]
         local tex = seam._tex
-        local anchor = host._partyOrder[i].frame
-        local growth = host._partyOrder[i].growth or host._partyGrowth
+        local entry = host._partyOrder[i]
+        local anchor = entry.frame
+        local growth = entry.growth or host._partyGrowth
         local horizontal = growth == "RIGHT" or growth == "LEFT"
-        local x, y = 0, shiftY
-        if horizontal and host._raidFirst then x, y = -shiftY, 0 end
+        local x, y = 0, growth == "UP" and -shiftY or shiftY
+        if horizontal then x, y = growth == "LEFT" and shiftY or -shiftY, 0 end
         seam:SetFrameStrata(host:GetFrameStrata())
         seam:SetFrameLevel(host:GetFrameLevel() + 1)
         seam:ClearAllPoints()
-        seam:SetPoint("TOPLEFT", anchor, "TOPLEFT", x, y)
-        seam:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", x, y)
+        seam:SetPoint("TOPLEFT", anchor, "TOPLEFT", x, y + (entry.extendTop and shiftY or 0))
+        seam:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", x, y - (entry.extendBottom and shiftY or 0))
         if horizontal then
             EllesmereUI.PlaceBorderDividerV(tex, seam, growth == "LEFT", false,
                 host._partyKey, host._partySize, host._partyPx, es)
@@ -107,7 +181,8 @@ end
 local function StyleSharedBorder(host, s, first, level, preview)
     local count = host._partyCount
     host:SetFrameStrata(first:GetFrameStrata())
-    host:SetFrameLevel(s.borderBehind and math.max(0, level - 1) or (level + 8))
+    -- Shared edges cover the inset highlights, below the text band.
+    host:SetFrameLevel(s.borderBehind and math.max(0, level - 1) or (level + ns.LVL_RAISE))
     host._partyKey, host._partySize = s.borderTexture, s.borderSize or 1
     host._partyPx = EllesmereUI.BorderPx(s.borderSizePx, host._partySize, host._partyKey)
     local c = s.borderColor
@@ -147,6 +222,7 @@ function ns.RF_ApplyPartyBorder(host, parent, frames, s, preview)
     elseif host:GetParent() ~= parent then
         host:SetParent(parent)
     end
+    if SharedBorderUnchanged(host, parent, frames, s, preview) then return host end
     local order = host._partyOrder
     wipe(order)
     local growth = ns._PartyGrowth(s)
@@ -209,14 +285,26 @@ function ns.RF_RefreshPartyBorder()
         ns._partyBorderTimer:Cancel()
         ns._partyBorderTimer = nil
     end
+    -- Target-side changes can relayout without the full party restyle.
+    local changed
+    for _, frame in ipairs(ns._partyAllButtons) do
+        local d = GetFFD(frame)
+        if d.UpdateBorder and d._compactBorderApplied ~= ns._partySharedBorderOn then
+            d.UpdateBorder()
+            local unit = frame:GetAttribute("unit")
+            if not issecretvalue(unit) and unit and UnitExists(unit) then ns.RF_PaintThreat(d, s, unit) end
+            changed = true
+        end
+    end
+    if changed and ns.RFC_ReloadAll then ns.RFC_ReloadAll() end
     ns._partyBorder = ns.RF_ApplyPartyBorder(ns._partyBorder, ns._partyContainerFrame, ns._partyAllButtons, s)
 end
 
 function ns.RF_PartyBorderGridChanged()
     local s = ns._scaledPartyProxy
-    if not ns._partySharedBorderOn and s.partySharedBorder ~= true then return end
+    if not ns._partySharedBorderOn and s.partyCompactEnabled ~= true then return end
     local on = ns.RF_PartySharedBorderOn(s)
-    if on ~= (ns._partySharedBorderOn == true) then ns.ReloadPartyFrames() end
+    ns.ReloadPartyFrames()
     if ns._partyPvActive and (on or (ns._partyPvBorder and ns._partyPvBorder._partyCount > 0)) then
         ns.ShowPartyPreview()
     end
@@ -224,7 +312,12 @@ end
 
 -- Header unit assignments precede its final size and visibility writes.
 function ns.RF_QueuePartyBorder()
-    if not ns._partySharedBorderOn or ns._partyBorderTimer then return end
+    ns._partySharedBorderOn = ns.RF_PartySharedBorderOn(ns._scaledPartyProxy)
+    if not ns._partySharedBorderOn then
+        ns.RF_RefreshPartyBorder()
+        return
+    end
+    if ns._partyBorderTimer then return end
     ns._partyBorderTimer = C_Timer.NewTimer(0, function()
         ns._partyBorderTimer = nil
         if ns._partySharedBorderOn then ns.RF_RefreshPartyBorder() end
@@ -232,11 +325,9 @@ function ns.RF_QueuePartyBorder()
 end
 
 function ns.RF_RaidSharedBorderOn(s)
-    if not s or s.raidSharedBorder ~= true or ns.RF_Stock() then return false end
+    if not s or s.raidCompactEnabled ~= true or ns.RF_Stock() then return false end
     local key = s.borderTexture
     return (key == "pixels" or key == "pixels-textured") and (s.borderSize or 1) > 0
-        and (EllesmereUI.PP.ToPixels(s.cellSpacing or 2) == 1
-            or EllesmereUI.PP.ToPixels(s.groupSpacing or 8) == 1)
 end
 
 function ns.RF_SharedBorderOn(s, party, raid)
@@ -246,6 +337,7 @@ end
 function ns.RF_HideRaidBorders(pool)
     if not pool then return end
     for _, host in ipairs(pool.hosts) do ns.RF_HidePartyBorder(host) end
+    if pool._sharedCache then pool._sharedCache.valid = false end
 end
 
 do
@@ -267,6 +359,7 @@ do
             return pool
         end
         if not pool then pool = { hosts = {}, rects = {}, order = {}, edges = {} } end
+        if SharedBorderUnchanged(pool, parent, frames, s, preview, true) then return pool end
         local order, edges = pool.order, pool.edges
         wipe(order)
         local px = EllesmereUI.PP.perfect
@@ -290,6 +383,8 @@ do
                     rect.l, rect.b = l * scale / px, b * scale / px
                     rect.r, rect.t = (l + w) * scale / px, (b + h) * scale / px
                     rect.level, rect.root, rect.host = level, rect, nil
+                    rect.above, rect.below = nil, nil
+                    rect.group = preview and frame._raidGroup or GetFFD(frame)._raidGroup
                     order[#order + 1] = rect
                 end
             end
@@ -307,12 +402,16 @@ do
                     if math.abs(a.b - b.t - 1) < 0.25 then anchor, growth = b.frame, "DOWN"
                     elseif math.abs(b.b - a.t - 1) < 0.25 then anchor, growth = a.frame, "DOWN" end
                 end
-                if anchor then
+                if anchor and (s.raidCompactJoinGroups == true or a.group == b.group) then
                     Root(b).root = Root(a)
                     edgeCount = edgeCount + 1
                     local edge = edges[edgeCount]
                     if not edge then edge = {}; edges[edgeCount] = edge end
-                    edge.rect, edge.frame, edge.growth = a, anchor, growth
+                    edge.rect, edge.other, edge.frame, edge.growth = a, b, anchor, growth
+                    if growth == "DOWN" then
+                        if anchor == b.frame then a.below, b.above = b, a
+                        else b.below, a.above = a, b end
+                    end
                 end
             end
         end
@@ -343,6 +442,15 @@ do
         end
         for i = 1, edgeCount do
             local edge = edges[i]
+            edge.extendTop, edge.extendBottom = false, false
+            if s.raidCompactJoinGroups == true and edge.growth == "RIGHT" then
+                local a, b = edge.rect, edge.other
+                -- The lower segment owns each crossing; a terminal segment
+                -- also fills its bottom T-junction when no segment continues.
+                edge.extendTop = a.above ~= nil or b.above ~= nil
+                local continues = a.below and b.below and math.abs(a.below.b - b.below.b) < 0.25
+                edge.extendBottom = (a.below ~= nil or b.below ~= nil) and not continues
+            end
             local host = Root(edge.rect).host
             host._partyCount = host._partyCount + 1
             host._partyOrder[host._partyCount] = edge
@@ -363,7 +471,13 @@ do
 end
 
 function ns.RF_QueueRaidBorders()
-    if not ns._raidSharedBorderOn or ns._raidBorderTimer then return end
+    ns._raidSharedBorderOn = ns.RF_RaidSharedBorderOn(ns._scaledProfile)
+    if not ns._raidSharedBorderOn then
+        if ns._raidBorderTimer then ns._raidBorderTimer:Cancel(); ns._raidBorderTimer = nil end
+        ns.RF_HideRaidBorders(ns._raidBorders)
+        return
+    end
+    if ns._raidBorderTimer then return end
     ns._raidBorderTimer = C_Timer.NewTimer(0, function()
         ns._raidBorderTimer = nil
         if ns._raidSharedBorderOn then ns.RF_RefreshRaidBorders() end
@@ -389,7 +503,7 @@ end
 
 function ns.RF_RaidBorderGridChanged()
     local s = ns._scaledProfile
-    if not ns._raidSharedBorderOn and s.raidSharedBorder ~= true then return end
+    if not ns._raidSharedBorderOn and s.raidCompactEnabled ~= true then return end
     ns.ReloadFrames()
     if ns.previewActive() then ns.ShowPreview() end
 end
@@ -400,6 +514,11 @@ ns._LayoutPartyFrames = function()
     if InCombatLockdown() then return end
 
     local s = db.profile
+    -- Target options take a lightweight path outside the settings-proxy invalidation funnel.
+    if s.partyCompactEnabled and (ns._scaledPartyProxy.partyShowTargets ~= s.partyShowTargets
+        or ns._scaledPartyProxy.partyTargetPosition ~= s.partyTargetPosition) then
+        ns._RefreshProxyModes()
+    end
     local pw, ph, pcs = ns.RF_PartyDims(s)
     local bw, bh, cs = PixelSnap(pw), PixelSnap(ph), PixelSnap(pcs)
     -- Party target frames along the stack sit between the frames: the pitch opens by their room.
@@ -554,7 +673,7 @@ ns._LayoutPartyFrames = function()
     -- The party target frames ride FB_ReAnchor above; this covers the raid branch that skips it
     -- (delta-gated, a no-op after it).
     ns._PT_Layout()
-    if ns._partySharedBorderOn or ns._partyBorder or ns.RF_PartySharedBorderOn(ns._scaledPartyProxy) then ns.RF_RefreshPartyBorder() end
+    if ns._partySharedBorderOn or ns._partyBorder or ns.RF_PartySharedBorderOn(ns._scaledPartyProxy) then ns.RF_QueuePartyBorder() end
 end
 
 -- Party visibility: show/hide based on group state.
@@ -697,7 +816,6 @@ ns._UpdatePartyVisibility = function()
         ns._ptVisState = visible
         if visible and ptWas then ns._PT_RefreshAll() end
     end
-    if ns._partySharedBorderOn or ns._partyBorder then ns.RF_RefreshPartyBorder() end
 end
 
 -- Combat half of the two passes above. In combat the visibility drivers show
@@ -995,7 +1113,6 @@ ns.ReloadPartyFrames = function(skipButtons)
         ns.PF_PartyRestyle()
         ns._PT_Restyle()
     end
-    if ns._partySharedBorderOn or ns._partyBorder or ns.RF_PartySharedBorderOn(pp) then ns.RF_RefreshPartyBorder() end
 end
 
 local function RegisterWithUnlockMode()

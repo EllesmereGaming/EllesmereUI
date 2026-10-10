@@ -22,7 +22,6 @@ It needs a Lua 5.1 `luac` (`luac5.1` on PATH, or set `LUAC=/path/to/luac`).
 | After you add or change an `L["..."]` key, run `bash .tools/extract-locale-keys.sh` and commit `EllesmereUILocales/_keys.txt`. | `locale-check.yml` (PRs and pushes to main) |
 | Do not compare, index, or do arithmetic on secret values (12.x combat aura and unit data). Pass them straight to the widget API that accepts them. | Judgment only. No reliable mechanical check. |
 | Do not write to protected Blizzard frames or call protected functions from insecure code, and do not do it in combat. Hook with `hooksecurefunc` and keep the work cosmetic. | Judgment only. No reliable mechanical check. |
-| Compact raid vertical separator hosts sit one physical pixel left of the unit edge, with no upward offset. Preserve horizontal and party separator alignment. | `.tools/tests/test_raid_shared_border.py` |
 
 ## Exceptions
 

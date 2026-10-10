@@ -1292,6 +1292,7 @@ function ns.PF_PreviewSpec(party, s, w, h, sp, boxW, boxH, ptSpec)
         else side = before and "LEFT" or "RIGHT" end
     else
         gap = PixelSnap(s.groupSpacing or 8)
+        sp = PixelSnap(s.cellSpacing or -1)
         grow = s.unitGrowth or "DOWN"
         side = s.groupGrowth or "RIGHT"
         -- The grid flow ends in the rightmost column too, so the pets hang off

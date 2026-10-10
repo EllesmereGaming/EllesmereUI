@@ -333,7 +333,7 @@ function ns.RF_LayoutPartyInsetHighlight(host)
     end
     local strata = host._partyInsetAnchor:GetFrameStrata()
     if host:GetFrameStrata() ~= strata then host:SetFrameStrata(strata) end
-    level = level + 6
+    level = level + ns.LVL_RAISE - 2
     if host:GetFrameLevel() ~= level then host:SetFrameLevel(level) end
     local container = PP.GetBorders(host)
     if container then
@@ -343,7 +343,7 @@ function ns.RF_LayoutPartyInsetHighlight(host)
     return true
 end
 
-function ns.ApplyPartyInsetHighlight(bf, s, hover, target, preview, threat)
+function ns.ApplyPartyInsetHighlight(bf, s, hover, target, preview)
     if not (PP and bf) then return end
     local host = bf._partyInsetHighlight
     local c, a
@@ -352,8 +352,6 @@ function ns.ApplyPartyInsetHighlight(bf, s, hover, target, preview, threat)
         c, a = s.hoverBorderColor, s.hoverBorderAlpha or 1
     elseif target and s.targetBorderEnabled ~= false then
         c, a = s.targetBorderColor, s.targetBorderAlpha or 1
-    elseif threat then
-        r, g, b, a = 1, 0, 0, 1
     else
         if host then
             host:Hide()
@@ -381,6 +379,63 @@ function ns.ApplyPartyInsetHighlight(bf, s, hover, target, preview, threat)
     end
     host:Show()
     EllesmereUI.RegisterPxReapply(host, not preview and ns.RF_LayoutPartyInsetHighlight or nil)
+end
+
+function ns.RF_LayoutCompactThreat(host)
+    local es = host:GetEffectiveScale()
+    local parent = host:GetParent()
+    local level = parent:GetFrameLevel()
+    if issecretvalue(es) or issecretvalue(level) or not es or es <= 0.01 or not level then
+        host:Hide()
+        return false
+    end
+    local inset = 2 * EllesmereUI.PP.perfect / es
+    if host._threatInset ~= inset then
+        host:ClearAllPoints()
+        host:SetPoint("TOPLEFT", parent, "TOPLEFT", inset, -inset)
+        host:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -inset, inset)
+        host._threatInset = inset
+    end
+    level = level + ns.LVL_RAISE - 2
+    if host:GetFrameLevel() ~= level then host:SetFrameLevel(level) end
+    local border = PP.GetBorders(host)
+    if border and border:GetFrameLevel() ~= level + 1 then
+        border:SetFrameLevel(level + 1)
+    end
+    return true
+end
+
+function ns.RF_ApplyThreatBorder(host, s, on, shared, preview)
+    if not host or not PP then return end
+    if shared and on then
+        if not ns.RF_LayoutCompactThreat(host) then on = false end
+    elseif not shared and host._threatInset then
+        local parent = host:GetParent()
+        local level = parent:GetFrameLevel()
+        if issecretvalue(level) or not level then
+            on = false
+        else
+            host:ClearAllPoints()
+            host:SetAllPoints(parent)
+            level = level + ns.LVL_RAISE
+            host:SetFrameLevel(level)
+            local border = PP.GetBorders(host)
+            if border then border:SetFrameLevel(level + 1) end
+            host._threatInset = nil
+        end
+    end
+    if on then
+        local size = s.threatBorderSize or 0
+        PP.UpdateBorder(host, size > 0 and size or ((preview and not shared) and 1 or 2), 1, 0, 0, 1)
+        host:Show()
+    else
+        host:Hide()
+    end
+    local reapply = shared and on and not preview and true or false
+    if reapply ~= (host._threatPxOn == true) then
+        EllesmereUI.RegisterPxReapply(host, reapply and ns.RF_LayoutCompactThreat or nil)
+        host._threatPxOn = reapply
+    end
 end
 
 function ns.RF_ColorPowerDivider(host, r, g, b, a)
@@ -1089,7 +1144,7 @@ local function StyleButton(button)
         end
         if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b) end
         if shared then
-            ns.ApplyPartyInsetHighlight(d.borderFrame, s, d._hovered, d._isTarget, nil, aggro)
+            ns.ApplyPartyInsetHighlight(d.borderFrame, s, d._hovered, d._isTarget)
             ns.ApplyHighlightBorder(d.borderFrame, s, nil, r, g, b, a)
         else
             d.borderFrame._hlBorderSize = nil
@@ -1111,7 +1166,8 @@ local function StyleButton(button)
         -- Re-called from Reload paths long after StyleButton: resolve LIVE (see LiveS note).
         local s = LiveS()
         local bs = s.borderSize or 1
-        if ns.RF_SharedBorderOn(s, d._isParty, d._isRaid) then bs = 0 end
+        d._compactBorderApplied = ns.RF_SharedBorderOn(s, d._isParty, d._isRaid)
+        if d._compactBorderApplied then bs = 0 end
         local bc = s.borderColor or { r = 0, g = 0, b = 0 }
         local texKey = s.borderTexture or "solid"
         local pl = button:GetFrameLevel()
