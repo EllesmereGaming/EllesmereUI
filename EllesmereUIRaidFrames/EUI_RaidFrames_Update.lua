@@ -228,16 +228,18 @@ end
 ns._UpdateRoleIcon = function(d, s, unit)
     local roleIcon = d.roleIcon
     if not roleIcon then return end
+    if roleIcon._roleText then roleIcon._roleText:Hide() end
     local style = s.roleIconStyle or "modern"
-    if style == "none" then roleIcon:Hide(); return end
+    if style == "none" and not s.roleText then roleIcon:Hide(); return end
     if s.roleIconHideInCombat and inCombat then roleIcon:Hide(); return end
     local role = EllesmereUI.UnitEffectiveRole(unit)
     if role and not issecretvalue(role) then
         local showForRole = (role == "TANK" and s.showRoleForTank)
             or (role == "HEALER" and s.showRoleForHealer)
             or (role == "DAMAGER" and s.showRoleForDPS)
-        if showForRole and ApplyRoleIcon(roleIcon, role, style) then
+        if showForRole and (s.roleText or ApplyRoleIcon(roleIcon, role, style)) then
             roleIcon:Show()
+            if s.roleText then ns.ApplyRoleText(roleIcon, role, s) end
         else
             roleIcon:Hide()
         end
