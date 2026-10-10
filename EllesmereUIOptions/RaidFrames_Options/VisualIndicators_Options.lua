@@ -249,10 +249,12 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     local roleStyleOrder = { "none", "modern", "blizzLight", "pixels", "modernCircle", "styled", "classicCircle", "classic", "blizzDefault" }
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Role Icons", values=roleStyleValues, order=roleStyleOrder,
+          disabled=function() return SVal("roleText", false) end,
+          disabledTooltip="Role Text", requireState="disabled",
           getValue=function() return SVal("roleIconStyle", "modern") end,
           setValue=function(v) SSet("roleIconStyle", v); EllesmereUI:RefreshPage() end },
         { type="dropdown", text="Show Role",
-          disabled=function() return SVal("roleIconStyle", "modern") == "none" end,
+          disabled=function() return not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none" end,
           disabledTooltip="Role Icons",
           values={ __placeholder = "All Roles" }, order={ "__placeholder" },
           getValue=function() return "__placeholder" end,
@@ -283,6 +285,10 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Role Icons",
             rows = {
+                { type="toggle", label="Role Text",
+                  tooltip="Show Healer, Tank, or DPS text instead of the role icon, using the same size, position, and Show Role settings.",
+                  get=function() return SVal("roleText", false) end,
+                  set=function(v) SSet("roleText", v); if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end; EllesmereUI:RefreshPage() end },
                 { type="toggle", label="Hide In Combat",
                   tooltip="Hide role icons while you are in combat.",
                   get=function() return SVal("roleIconHideInCombat", false) end,
@@ -311,12 +317,12 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     -- (their offset cogs stay live).
     roleRow2, h = W:DualRow(parent, y,
         ns.RF_PartyKitGate({ type="dropdown", text="Role Position", values=rolePositionValues, order=rolePositionOrder,
-          disabled=function() return SVal("roleIconStyle", "modern") == "none" end,
+          disabled=function() return not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none" end,
           disabledTooltip="Role Icons",
           getValue=function() return SVal("roleIconPosition", "bottomleft") end,
           setValue=function(v) SSet("roleIconPosition", v) end }),
         { type="slider", text="Role Icon Size", min=8, max=30, step=1,
-          disabled=function() return SVal("roleIconStyle", "modern") == "none" end,
+          disabled=function() return not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none" end,
           disabledTooltip="Role Icons",
           getValue=function() return SVal("roleIconSize", 14) end,
           setValue=function(v) SSet("roleIconSize", v) end });  y = y - h

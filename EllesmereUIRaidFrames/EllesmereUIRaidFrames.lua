@@ -233,6 +233,25 @@ local function ApplyRoleIcon(texture, role, style)
     return true
 end
 
+-- Text shares the icon's carrier and anchor, and is created only when enabled.
+function ns.ApplyRoleText(icon, role, s)
+    if not s.roleText then return end
+    local text = icon._roleText
+    if not text then
+        text = icon:GetParent():CreateFontString(nil, "OVERLAY")
+        text:SetTextColor(1, 1, 1)
+        icon._roleText = text
+    end
+    EllesmereUI.ApplyModuleFont(text, nil, s.roleIconSize or 14, "raidFrames")
+    local pos = icon:GetPoint() or "CENTER"
+    text:ClearAllPoints()
+    text:SetPoint(pos, icon, pos, 0, 0)
+    text:SetText(role == "TANK" and EllesmereUI.L("Tank")
+        or role == "HEALER" and EllesmereUI.L("Healer") or EllesmereUI.L("DPS"))
+    icon:Hide()
+    text:Show()
+end
+
 -- Raid marker textures
 local RAID_MARKER_TEXCOORDS = {
     [1] = { 0,    0.25, 0,    0.25 },  -- Star
@@ -534,6 +553,7 @@ local defaults = {
 
         -- Indicators
         roleIconStyle    = "modern",  -- none/modern/modernCircle/styled/classicCircle/classic/blizzDefault/blizzLight/pixels
+        roleText         = false,
         roleIconSize     = 13,
         roleIconPosition = "bottomleft",  -- topleft/top/topright/left/center/right/bottomleft/bottom/bottomright
         roleIconOffsetX  = 0,
