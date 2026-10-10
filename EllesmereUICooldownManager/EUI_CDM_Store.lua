@@ -1060,6 +1060,20 @@ function ns.RescanReverseSwipeFlag()
     end
 end
 
+-- Glow When Visible gate: set ns._cdmAnyGlowVisible once if any saved spell (any spec) has
+-- the per-spell toggle on; the cd-state and buff glow paths skip it for non-users.
+function ns.RescanGlowVisibleFlag()
+    if ns._cdmAnyGlowVisible or ns._glowVisibleFlagScanned then return end
+    if not EllesmereUIDB then return end
+    ns._glowVisibleFlagScanned = true
+    ns.ForEachSavedSettingsBlock(function(ss)
+        if ss.glowWhenVisible then
+            ns._cdmAnyGlowVisible = true
+            return true
+        end
+    end)
+end
+
 -- Threshold Text gate: set ns._cdmAnyThresholdText once if any saved spell (any spec) has
 -- Threshold Seconds armed -- per-spell family stores, bar tiers, or preset/custom
 -- customActiveStates entries. Skips the formatter attach in RefreshCDMIconAppearance (and the fake-active/custom-buff attach sites) for non-users. Same monotonic, scanned-once contract.

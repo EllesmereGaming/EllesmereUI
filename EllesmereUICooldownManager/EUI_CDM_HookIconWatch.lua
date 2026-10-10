@@ -672,6 +672,14 @@ function ns.CdmSpellNotUsable(liveSid)
     return not (usable or noPower)
 end
 
+-- The icon Hidden Until Usable shows: off cooldown (the GCD does not count)
+-- and usable. Read outside a cooldown event it can misjudge the GCD tail.
+function ns.CdmSpellPressable(liveSid)
+    local info = C_Spell.GetSpellCooldown(liveSid)
+    if info and info.isActive and not info.isOnGCD then return false end
+    return not ns.CdmSpellNotUsable(liveSid)
+end
+
 -- Hidden Outside Form/Stance: the spell's form requirement line, which Blizzard
 -- draws red while the current form or stance does not meet it. That answer
 -- changes only with the form, so it is kept per spell and form ID: once a pair
@@ -1021,6 +1029,7 @@ local function ArmCdStateEval(frame, fd, cse, cseShift, lowAlpha, hideUntilSpent
                         ns.SetCdStateShiftHidden(fc3, false)
                     end
                 end
+                if ns._cdmAnyGlowVisible then ns.CdVisibleGlowSync(fd, nil, false) end
             else
                 local hide
                 if myCse == "hiddenOnCD" then
@@ -1036,6 +1045,9 @@ local function ArmCdStateEval(frame, fd, cse, cseShift, lowAlpha, hideUntilSpent
                     if ns.SetCdStateShiftHidden then
                         ns.SetCdStateShiftHidden(fc3, self.shift and hide or false)
                     end
+                end
+                if ns._cdmAnyGlowVisible then
+                    ns.CdVisibleGlowSync(fd, ResolveSpellSettings(frame, sid3, false), not hide)
                 end
             end
         end)

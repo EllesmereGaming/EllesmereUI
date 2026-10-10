@@ -662,7 +662,22 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- The shared Bar Glows buff menu (EUI_CooldownManager_BarGlowConditions.lua):
         -- one reused frame, the boxes repainted after each toggle.
+        -- The top "Glow When Usable" row stands for the button's own ability.
+        local usableIcon
+        local abilitySid = tonumber(assignKey:match("^spell_(%d+)$"))
+        do
+            local prefix = BAR_BUTTON_PREFIXES[barIdx]
+            local realBtn = prefix and _G[prefix .. btnIdx]
+            local aID = abilitySid
+            if not aID and realBtn and realBtn.action then
+                local aType, id = GetActionInfo(realBtn.action)
+                aID = aType == "spell" and id or nil
+            end
+            local info = aID and C_Spell.GetSpellInfo(aID)
+            usableIcon = info and info.iconID
+        end
         local menu = ns.ShowBarGlowBuffMenu(anchorFrame, {
+            usableItem = { icon = usableIcon },
             isChecked = function(sid) return assignedSet[sid] end,
             onClick = function(sp, refreshChecks)
                 if assignedSet[sp.spellID] then
@@ -679,7 +694,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local newEntry = {
                         spellID = sp.spellID,
                         glowStyle = 1,
-                        mode = "ACTIVE",
+                        mode = sp.usable and "USABLE" or "ACTIVE",
                         onlyInCombat = false,
                     }
                     local prefix = BAR_BUTTON_PREFIXES[barIdx]
@@ -690,6 +705,7 @@ initFrame:SetScript("OnEvent", function(self)
                             newEntry.actionSpellID = aID
                         end
                     end
+                    if abilitySid then newEntry.actionSpellID = abilitySid end
                     buffList[#buffList + 1] = newEntry
                 end
                 refreshChecks()
@@ -1062,7 +1078,8 @@ initFrame:SetScript("OnEvent", function(self)
                 if isCDMBar and realBtn and realBtn.cooldownID then
                     assignKey = "cdm_" .. realBtn.cooldownID
                 else
-                    assignKey = barIdx .. "_" .. i
+                    -- Per ability, so a stance's repaged bar never shares glows.
+                    assignKey = (ns.BarGlowAbilityKey and ns.BarGlowAbilityKey(realBtn)) or (barIdx .. "_" .. i)
                 end
                 bf._assignKey = assignKey
                 local assigns = bgData.assignments[assignKey]
@@ -1314,7 +1331,11 @@ initFrame:SetScript("OnEvent", function(self)
                     assignKey = "cdm_" .. icon.cooldownID
                 end
             end
-            if not assignKey then assignKey = curBar .. "_" .. curBtn end
+            if not assignKey then
+                local prefix = BAR_BUTTON_PREFIXES[curBar]
+                local curRealBtn = prefix and _G[prefix .. curBtn]
+                assignKey = (ns.BarGlowAbilityKey and ns.BarGlowAbilityKey(curRealBtn)) or (curBar .. "_" .. curBtn)
+            end
             local buffList = bg.assignments[assignKey] or {}
             parent._showRowDivider = true
 
@@ -1374,8 +1395,8 @@ initFrame:SetScript("OnEvent", function(self)
                         stackRow, h = W:DualRow(parent, y,
                             { type = "toggle", text = "At Stacks",
                               tooltip = "Only glow once the buff's stack count matches the comparison set via the gear.",
-                              disabled = function() return entry.mode == "MISSING" end,
-                              disabledTooltip = "Not available in Buff Missing mode",
+                              disabled = function() return entry.mode == "MISSING" or entry.mode == "USABLE" end,
+                              disabledTooltip = "Only available for a buff in Active mode",
                               getValue = function() return entry.stackEnabled == true end,
                               setValue = function(v)
                                   entry.stackEnabled = v or nil
@@ -1403,9 +1424,11 @@ initFrame:SetScript("OnEvent", function(self)
                             local rgn = stackRow._leftRegion
                             EllesmereUI.BuildInlineCog(rgn, {
                                 title = "At Stacks",
-                                disabled = function() return entry.mode == "MISSING" or not entry.stackEnabled end,
+                                disabled = function() return entry.mode == "MISSING" or entry.mode == "USABLE" or not entry.stackEnabled end,
                                 disabledTooltip = function()
-                                    return entry.mode == "MISSING" and "This option is not available in Buff Missing mode" or "At Stacks"
+                                    if entry.mode == "MISSING" then return "This option is not available in Buff Missing mode" end
+                                    if entry.mode == "USABLE" then return "This option is not available in Glow When Usable mode" end
+                                    return "At Stacks"
                                 end,
                                 frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,
                                 rows = {

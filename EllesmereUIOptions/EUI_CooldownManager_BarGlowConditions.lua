@@ -64,6 +64,8 @@ end
 --                                       repaint the boxes, or hide the menu
 --    opts.emptyText                     shown when nothing is listed (nil: the
 --                                       menu does not open then)
+--    opts.usableItem = { icon = id }    adds a top "Glow When Usable" row (the
+--                                       button's own ability; spellID 0, usable = true)
 --  Returns the menu frame, or nil when it did not open.
 -------------------------------------------------------------------------------
 local MENU_W, ITEM_H, MAX_H = 240, 26, 300
@@ -184,7 +186,7 @@ function ns.ShowBarGlowBuffMenu(anchor, opts)
     if ns.GetAllCDMBuffSpells then tracked, untracked = ns.GetAllCDMBuffSpells() end
     tracked, untracked = tracked or {}, untracked or {}
     local bars = ns.GetTrackedBarSpells and ns.GetTrackedBarSpells() or {}
-    if #tracked == 0 and #untracked == 0 and #bars == 0 and not opts.emptyText then return nil end
+    if #tracked == 0 and #untracked == 0 and #bars == 0 and not opts.emptyText and not opts.usableItem then return nil end
     if not menu then BuildMenu() end
     menuOpts, menuAnchor = opts, anchor
     menu._btnIdx = nil
@@ -214,6 +216,20 @@ function ns.ShowBarGlowBuffMenu(anchor, opts)
         r:Show()
         mH = mH + ITEM_H
     end
+    local function AddUsable(item)
+        n = n + 1
+        local r = Row(n)
+        r.sp = { spellID = 0, usable = true }
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+        r:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+        r.ico:SetTexture(item.icon or 134400)
+        r.lbl:SetFont(font, 11, outline)
+        r.lbl:SetText(EllesmereUI.L("Glow When Usable"))
+        r.lbl:SetTextColor(EllesmereUI.TEXT_DIM_R, EllesmereUI.TEXT_DIM_G, EllesmereUI.TEXT_DIM_B, EllesmereUI.TEXT_DIM_A)
+        r:Show()
+        mH = mH + ITEM_H
+    end
     local function Divider()
         nd = nd + 1
         local d = divs[nd]
@@ -230,6 +246,10 @@ function ns.ShowBarGlowBuffMenu(anchor, opts)
         mH = mH + 9
     end
 
+    if opts.usableItem then
+        AddUsable(opts.usableItem)
+        if #tracked > 0 or #untracked > 0 or #bars > 0 then Divider() end
+    end
     for _, sp in ipairs(tracked) do Add(sp) end
     if #tracked > 0 and #untracked > 0 then Divider() end
     for _, sp in ipairs(untracked) do Add(sp) end
@@ -278,6 +298,9 @@ end
 -- (c.state = "missing" | nil), both standard option dropdowns.
 local STATE_VALUES = { ACTIVE = "Active", MISSING = "Missing" }
 local STATE_ORDER = { "ACTIVE", "MISSING" }
+-- Glow When Usable has the one state: the button's own ability can be pressed.
+local USABLE_VALUES = { USABLE = "Usable" }
+local USABLE_ORDER = { "USABLE" }
 
 -- Row 1 of a glow, two columns:
 --   left:  When Fingers of Frost Is                               [Active v]
@@ -288,14 +311,19 @@ local STATE_ORDER = { "ACTIVE", "MISSING" }
 function ns.BuildBarGlowWhenRow(W, parent, y, entry, onChange)
     local c = Cond(entry)
     local Paint  -- forward: the toggle repaints the right column
-    local sid = tonumber(entry.spellID) or 0
-    local ownName = (sid > 0) and SpellLabel(sid) or "buff"
+    local usable = entry.mode == "USABLE"
+    local sid = tonumber(usable and entry.actionSpellID or entry.spellID) or 0
+    local ownName = (sid > 0) and SpellLabel(sid) or (usable and EllesmereUI.L("this ability") or "buff")
 
     local row, h = W:DualRow(parent, y,
         { type = "dropdown", text = EllesmereUI.Lf("When %1$s Is", ownName),
-          values = STATE_VALUES, order = STATE_ORDER,
-          getValue = function() return entry.mode == "MISSING" and "MISSING" or "ACTIVE" end,
+          values = usable and USABLE_VALUES or STATE_VALUES, order = usable and USABLE_ORDER or STATE_ORDER,
+          getValue = function()
+              if usable then return "USABLE" end
+              return entry.mode == "MISSING" and "MISSING" or "ACTIVE"
+          end,
           setValue = function(v)
+              if usable then return end
               entry.mode = v
               if onChange then onChange() end
               EllesmereUI:RefreshPage()
@@ -516,11 +544,12 @@ function ns.BuildBarGlowHeader(parent, y, entry, aIdx)
     end
     PaintArrow(1, 1, 1, 0.7)
 
-    local ico = ns.BarGlowSpellIcon(bar, 26, entry.spellID)
+    local usable = entry.mode == "USABLE"
+    local ico = ns.BarGlowSpellIcon(bar, 26, usable and entry.actionSpellID or entry.spellID)
     ico:SetPoint("LEFT", arrow, "RIGHT", 11, 0)
     local title = EllesmereUI.MakeFont(bar, 13, nil, 1, 1, 1)
     title:SetPoint("LEFT", ico, "RIGHT", 10, 0)
-    title:SetText((SpellLabel(entry.spellID)))
+    title:SetText(usable and EllesmereUI.L("Glow When Usable") or (SpellLabel(entry.spellID)))
 
     local EG = EllesmereUI.ELLESMERE_GREEN
     bar:SetScript("OnEnter", function()
