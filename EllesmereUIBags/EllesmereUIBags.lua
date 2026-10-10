@@ -7488,6 +7488,27 @@ local function StartAddon()
         end
     end
 
+    local characterBagHooksInstalled = false
+    function ns.ToggleBagsWithCharacterFrame()
+        if not BP().bagOpenWithCharacter then return end
+        local frame = _G.CharacterFrame
+        if not frame then return end
+        if not characterBagHooksInstalled then
+            characterBagHooksInstalled = true
+            frame:HookScript("OnShow", function()
+                if BP().bagOpenWithCharacter and not EUI_Bags:IsVisible() then
+                    ToggleEUI()
+                end
+            end)
+            frame:HookScript("OnHide", function()
+                if BP().bagOpenWithCharacter and EUI_Bags:IsVisible() then
+                    ToggleEUI()
+                end
+            end)
+        end
+    end
+    ns.ToggleBagsWithCharacterFrame()
+
     local _lastToggleTime = 0
     local function SmartToggleBags()
         -- Debounce: Blizzard keybinds can fire both ToggleAllBags and C_Container.ToggleAllBags in the same frame, causing a double-toggle.
