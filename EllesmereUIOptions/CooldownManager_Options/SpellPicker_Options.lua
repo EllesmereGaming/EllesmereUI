@@ -482,6 +482,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         or (t.buffLostSoundKey and t.buffLostSoundKey ~= "none") then
                         ns._cdmAnyBuffSound = true
                     end
+                    if ns.PluginGlowsFlipGate then ns.PluginGlowsFlipGate(t) end
                 end
 
                 -- Any Resource Aware CD-ready glow already saved in this spec
@@ -1458,12 +1459,16 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 -- Helper: subnav flyout (same style as Potions & Healthstone)
                 -- isDefault: function returning true when the setting is at default value
                 -- onItemCreated: optional callback(si, item, sub) for custom widgets per subnav item
+                -- opts.host (optional) nests the row inside a parent flyout (see AB.MakePanelRow):
+                -- { parent = frame holding the row, panel = the parent flyout, y = top offset, level = frame level }.
                 local function MakeSubnavRow(label, items, getVal, setVal, isDefault, onItemCreated, opts)
-                    local row = CreateFrame("Button", nil, inner)
+                    local host = opts and opts.host
+                    local rowParent = host and host.parent or inner
+                    local row = CreateFrame("Button", nil, rowParent)
                     row:SetHeight(ITEM_H)
-                    row:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
-                    row:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
-                    row:SetFrameLevel(menu:GetFrameLevel() + 2)
+                    row:SetPoint("TOPLEFT", rowParent, "TOPLEFT", 1, -(host and host.y or mH))
+                    row:SetPoint("TOPRIGHT", rowParent, "TOPRIGHT", -1, -(host and host.y or mH))
+                    row:SetFrameLevel(host and host.level or (menu:GetFrameLevel() + 2))
 
                     local acR, acG, acB = EllesmereUI.GetAccentColor()
 
@@ -1500,12 +1505,16 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
 
                     local sub
                     local function ShowSub()
-                        if menu._openSub and menu._openSub ~= sub and menu._openSub.Hide then menu._openSub:Hide() end
+                        local hostPanel = host and host.panel
+                        -- Nested rows only ever close a sibling inside their own panel, never the panel they live in.
+                        local openSib
+                        if hostPanel then openSib = hostPanel._openChild else openSib = menu._openSub end
+                        if openSib and openSib ~= sub and openSib.Hide then openSib:Hide() end
                         if sub and sub:IsShown() then return end
                         if not sub then
-                            sub = CreateFrame("Frame", nil, menu)
+                            sub = CreateFrame("Frame", nil, hostPanel or menu)
                             sub:SetFrameStrata("FULLSCREEN_DIALOG")
-                            sub:SetFrameLevel(menu:GetFrameLevel() + 5)
+                            sub:SetFrameLevel((hostPanel or menu):GetFrameLevel() + (hostPanel and 3 or 5))
                             sub:SetClampedToScreen(true)
                             sub:EnableMouse(true)
                         else
@@ -1747,6 +1756,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                             -- mutual exclusion AND toggles), then the collapsed row label.
                                             RefreshFlyoutSelection()
                                             UpdateLabelColor()
+                                            if opts and opts.onApplied then opts.onApplied() end
                                         end,
                                     })
                                 end
@@ -2019,7 +2029,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             sub:SetSize(subW, totalSubH)
                         end
                         sub:Show()
-                        menu._openSub = sub
+                        if hostPanel then hostPanel._openChild = sub else menu._openSub = sub end
                     end
 
                     row:SetScript("OnEnter", function()
@@ -2043,8 +2053,123 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         -- 3. An option is clicked (OnClick hides sub)
                     end)
 
-                    mH = mH + ITEM_H
+                    if not host then mH = mH + ITEM_H end
                     return row, sub
+                end
+
+                -- Panel row: a flyout whose entries are themselves rows, for nested menus
+                -- (Plugin Glows > source > Glow Style). populate(add) fills the panel on every open:
+                --   add.Subnav(label, items, getVal, setVal, isDefault, onItemCreated, opts)  -- MakeSubnavRow
+                --   add.Panel(label, populate, isDefault)                                      -- a deeper panel
+                -- host nests this row inside another panel the same way MakeSubnavRow's opts.host does.
+                AB.MakePanelRow = function(label, populate, isDefault, host)
+                    local rowParent = host and host.parent or inner
+                    local row = CreateFrame("Button", nil, rowParent)
+                    row:SetHeight(ITEM_H)
+                    row:SetPoint("TOPLEFT", rowParent, "TOPLEFT", 1, -(host and host.y or mH))
+                    row:SetPoint("TOPRIGHT", rowParent, "TOPRIGHT", -1, -(host and host.y or mH))
+                    row:SetFrameLevel(host and host.level or (menu:GetFrameLevel() + 2))
+                    local acR, acG, acB = EllesmereUI.GetAccentColor()
+                    local lbl = row:CreateFontString(nil, "OVERLAY")
+                    lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                    lbl:SetPoint("LEFT", 10, 0)
+                    lbl:SetJustifyH("LEFT")
+                    lbl:SetText(EllesmereUI.L(label))
+                    local function UpdateLabelColor()
+                        if isDefault and not isDefault() then
+                            lbl:SetTextColor(acR, acG, acB, 1)
+                        else
+                            lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                        end
+                    end
+                    UpdateLabelColor()
+                    local arrow = row:CreateTexture(nil, "ARTWORK")
+                    arrow:SetSize(10, 10)
+                    arrow:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+                    arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.png")
+                    arrow:SetAlpha(0.7)
+                    local hl = row:CreateTexture(nil, "ARTWORK")
+                    hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0); hl:SetAlpha(0)
+
+                    local panel
+                    local function ShowPanel()
+                        local hostPanel = host and host.panel
+                        -- Nested rows only ever close a sibling inside their own panel, never the panel they live in.
+                        local openSib
+                        if hostPanel then openSib = hostPanel._openChild else openSib = menu._openSub end
+                        if openSib and openSib ~= panel and openSib.Hide then openSib:Hide() end
+                        if panel and panel:IsShown() then return end
+                        if not panel then
+                            panel = CreateFrame("Frame", nil, hostPanel or menu)
+                            panel:SetFrameStrata("FULLSCREEN_DIALOG")
+                            panel:SetFrameLevel((hostPanel or menu):GetFrameLevel() + (hostPanel and 3 or 5))
+                            panel:SetClampedToScreen(true)
+                            panel:EnableMouse(true)
+                            local bg = panel:CreateTexture(nil, "BACKGROUND")
+                            bg:SetAllPoints()
+                            bg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
+                        else
+                            for _, ch in ipairs({panel:GetChildren()}) do ch:Hide(); ch:SetParent(nil) end
+                        end
+                        -- The border lives in a child frame, so it is rebuilt after every wipe (like the subnav flyouts do).
+                        EllesmereUI.MakeBorder(panel, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                        panel._openChild = nil
+                        panel:ClearAllPoints()
+                        panel:SetPoint("TOPLEFT", row, "TOPRIGHT", 2, 0)
+
+                        local pInner = CreateFrame("Frame", nil, panel)
+                        pInner:SetPoint("TOPLEFT")
+                        local y, labels = 4, {}
+                        local function hostFor()
+                            return { parent = pInner, panel = panel, y = y, level = panel:GetFrameLevel() + 2 }
+                        end
+                        local add = {}
+                        add.Subnav = function(lab, items, getVal, setVal, isDef, onCreated, o)
+                            local o2 = {}
+                            if o then for k, v in pairs(o) do o2[k] = v end end
+                            o2.host = hostFor()
+                            MakeSubnavRow(lab, items, getVal, setVal, isDef, onCreated, o2)
+                            labels[#labels + 1] = EllesmereUI.L(lab)
+                            y = y + ITEM_H
+                        end
+                        add.Panel = function(lab, pop, isDef)
+                            AB.MakePanelRow(lab, pop, isDef, hostFor())
+                            labels[#labels + 1] = EllesmereUI.L(lab)
+                            y = y + ITEM_H
+                        end
+                        populate(add)
+                        -- Measure the captions on a hidden FontString (FitMenuWidth wants FontStrings, not text).
+                        local meas = panel._meas
+                        if not meas then
+                            meas = panel:CreateFontString(nil, "OVERLAY")
+                            meas:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                            meas:Hide()
+                            panel._meas = meas
+                        end
+                        local widest = 0
+                        for i = 1, #labels do
+                            meas:SetText(labels[i])
+                            local tw = meas:GetStringWidth() or 0
+                            if tw > widest then widest = tw end
+                        end
+                        local w = math.min(340, math.max(180, math.ceil(widest + 48)))
+                        panel:SetSize(w, y + 4)
+                        pInner:SetSize(w, y + 4)
+                        panel:Show()
+                        if hostPanel then hostPanel._openChild = panel else menu._openSub = panel end
+                    end
+
+                    row:SetScript("OnEnter", function()
+                        lbl:SetTextColor(1, 1, 1, 1)
+                        hl:SetColorTexture(1, 1, 1, hlA); hl:SetAlpha(1)
+                        ShowPanel()
+                    end)
+                    row:SetScript("OnLeave", function()
+                        UpdateLabelColor()
+                        hl:SetAlpha(0)
+                    end)
+                    if not host then mH = mH + ITEM_H end
+                    return row
                 end
 
                 -- "Threshold Text" per-spell subnav, shared by the buff, cd/util
@@ -3808,6 +3933,121 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                     end
                                 end } })
 
+                -- Plugin Glows: a Glow Style + Glow Color per source registered through
+                -- EllesmereUI.PluginGlows (EUI_CDM_PluginGlows.lua). Not shown when nothing is registered.
+                local pgList = ns.PluginGlowsGetList and ns.PluginGlowsGetList()
+                if pgList and #pgList > 0 then
+                    do
+                        -- Same styles as Active State Glow (None + styles) plus Blackout, which prompts for its opacity.
+                        local PG_STYLE_ITEMS = {}
+                        for i, it in ipairs(ACTIVE_GLOW_ITEMS) do PG_STYLE_ITEMS[i] = it end
+                        PG_STYLE_ITEMS[#PG_STYLE_ITEMS + 1] = { val = 8, label = ns.GLOW_STYLES[8].name }
+                        local function onApplied() ns.PluginGlowsSettingsChanged(barKey) end
+                        local function SourceDefault(k) return not ss[k.style] and not ss[k.color] end
+                        AB.MakePanelRow("Plugin Glows", function(add)
+                            for _, reg in ipairs(pgList) do
+                                local k = reg.keys
+                                add.Panel(reg.name, function(add2)
+                                    local function SetStyle(v)
+                                        EnsureSS(); SetOwn(k.style, v)
+                                        if v and v > 0 then ns.PluginGlowsMarkInUse(reg.id) end
+                                        ns.PluginGlowsSettingsChanged(barKey)
+                                    end
+                                    add2.Subnav("Glow Style", PG_STYLE_ITEMS,
+                                        function() return ss[k.style] end,
+                                        SetStyle,
+                                        function() return not ss[k.style] end,
+                                        function(si, item)
+                                            -- Blackout: clicking prompts for the opacity percent, then selects it.
+                                            if item.val == 8 then
+                                                item.dynamicLabel = function()
+                                                    local base = EllesmereUI.L(ns.GLOW_STYLES[8].name)
+                                                    if ss[k.style] == 8 then
+                                                        local pct = math.floor(((ss[k.alpha] or 1) * 100) + 0.5)
+                                                        return pct .. "% " .. base
+                                                    end
+                                                    return base
+                                                end
+                                                si:SetScript("OnClick", function()
+                                                    local cur = math.floor(((ss[k.alpha] or 1) * 100) + 0.5)
+                                                    menu:Hide()
+                                                    ShowAlphaPopup(cur, function(pct)
+                                                        EnsureSS()
+                                                        ss[k.alpha] = pct / 100
+                                                        SetStyle(8)
+                                                    end, EllesmereUI.L("Glow Opacity"), EllesmereUI.L("Blackout glow opacity (1-100%)"))
+                                                end)
+                                            end
+                                        end,
+                                        { onApplied = onApplied,
+                                          apply = { keys = { k.style, k.alpha },
+                                                    -- The opacity rides along with the Blackout value only.
+                                                    payload = function(item) return item.val == 8 end,
+                                                    write = function(t, v)
+                                                        t[k.style] = v
+                                                        t[k.alpha] = (v == 8) and ss[k.alpha] or nil
+                                                    end } })
+                                    add2.Subnav("Glow Color", GLOW_COLOR_ITEMS,
+                                        function()
+                                            if ss[k.color] == "class" then return "class" end
+                                            if ss[k.color] == "custom" then return "custom" end
+                                            return nil
+                                        end,
+                                        function(v)
+                                            EnsureSS()
+                                            SetOwn(k.color, v)
+                                            if v == "custom" and not ss[k.colorR] then
+                                                ss[k.colorR] = 1; ss[k.colorG] = 0.788; ss[k.colorB] = 0.137
+                                            end
+                                            ns.PluginGlowsSettingsChanged(barKey)
+                                        end,
+                                        function() return not ss[k.color] end,
+                                        function(si, item, sub)
+                                            if item.val == "custom" then
+                                                si._noCapture = true
+                                                local swatchBtn = EllesmereUI.BuildColorSwatch(si, si:GetFrameLevel() + 3,
+                                                    function() return ss[k.colorR] or 1, ss[k.colorG] or 0.788, ss[k.colorB] or 0.137, 1 end,
+                                                    function(r, g, b)
+                                                        ss[k.colorR] = r; ss[k.colorG] = g; ss[k.colorB] = b
+                                                        ns.PluginGlowsSettingsChanged(barKey)
+                                                    end, false, 14)
+                                                swatchBtn:SetPoint("RIGHT", si, "RIGHT", -8, 0)
+                                                swatchBtn:HookScript("PreClick", function()
+                                                    EnsureSS()
+                                                    ss[k.color] = "custom"
+                                                    if not ss[k.colorR] then
+                                                        ss[k.colorR] = 1; ss[k.colorG] = 0.788; ss[k.colorB] = 0.137
+                                                    end
+                                                    if sub._refreshSelection then sub._refreshSelection() end
+                                                end)
+                                            end
+                                        end,
+                                        { onApplied = onApplied,
+                                          apply = { keys = { k.color, k.colorR, k.colorG, k.colorB },
+                                                    write = function(t, v)
+                                                        t[k.color] = v
+                                                        if v == "custom" then
+                                                            -- Push this spell's current color.
+                                                            t[k.colorR] = ss[k.colorR] or 1
+                                                            t[k.colorG] = ss[k.colorG] or 0.788
+                                                            t[k.colorB] = ss[k.colorB] or 0.137
+                                                        else
+                                                            t[k.colorR] = nil
+                                                            t[k.colorG] = nil
+                                                            t[k.colorB] = nil
+                                                        end
+                                                    end } })
+                                end, function() return SourceDefault(k) end)
+                            end
+                        end, function()
+                            for _, reg in ipairs(pgList) do
+                                if not SourceDefault(reg.keys) then return false end
+                            end
+                            return true
+                        end)
+                    end
+                end
+
                 end  -- not isCustomInjected
                 end  -- isBuffBar per-icon rows
 
@@ -4016,8 +4256,16 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
             -- A cog flyout (Duration/Charge-Stack) drives itself through this menu, so also
             -- treat "mouse over the flyout's open dropdown menu" as over-the-sub. Without this, picking a Position option whose list extends below the flyout reads as an outside click and closes the whole menu.
             local sub = m._openSub
-            local overSub = sub and sub:IsShown()
-                and (sub:IsMouseOver() or (sub._anyDropdownHovered and sub._anyDropdownHovered()))
+            -- Nested flyouts (Plugin Glows) hang off their parent panel's _openChild; any panel in the chain counts as "over the sub".
+            local overSub = false
+            local chain = sub
+            while chain and chain:IsVisible() do
+                if chain:IsMouseOver() or (chain._anyDropdownHovered and chain._anyDropdownHovered()) then
+                    overSub = true
+                    break
+                end
+                chain = chain._openChild
+            end
             -- "Apply to Bar" strip: same lifecycle as a subnav flyout -- it never hides on
             -- hover-out (that made the 2px gap unreachable). It dies with its owner item: flyout closed, rebuilt, or the items reparented away (IsVisible sees through a hidden parent; IsShown would not).
             local strip = m._applyStrip

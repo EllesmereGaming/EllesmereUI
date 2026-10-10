@@ -592,6 +592,10 @@ local function RefreshCDMIconAppearance(barKey)
         if ns._cdmAnyMaxStacksGlow and not isBuffFamilyBar and ns.WatchMaxStacksIfEnabled then
             ns.WatchMaxStacksIfEnabled(icon)
         end
+        -- Plugin Glows: enroll/refresh this icon for externally registered glow sources.
+        if ns._cdmAnyPluginGlow and not isBuffFamilyBar and ns.PluginGlowRefreshIcon then
+            ns.PluginGlowRefreshIcon(icon)
+        end
         -- Same for "Hide CD Text (Charges)": a charge spell at max shows no recharge text and never fires the swipe hook. Same feature-flag gate.
         if ns._cdmAnyChargeHideCdText and not isBuffFamilyBar and ns.WatchChargeCdTextIfEnabled then
             ns.WatchChargeCdTextIfEnabled(icon)

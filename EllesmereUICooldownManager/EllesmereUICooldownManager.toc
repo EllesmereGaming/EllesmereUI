@@ -45,5 +45,6 @@ EllesmereUICdmTbbDecimals.lua
 EllesmereUICdmFakeActive.lua
 EllesmereUICdmRPTSync.lua
 EllesmereUICdmTalentConditions.lua
+EUI_CDM_PluginGlows.lua
 
 # Options
