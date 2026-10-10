@@ -1117,6 +1117,7 @@ local function CreatePreviewFrame(index, party)
     local healthH = PixelSnap(h - ns.RF_HealthPowerInset(s, powerH))
 
     local f = CreateFrame("Frame", nil, previewContainer or containerFrame)
+    f._partyFrame = party or nil
     f:SetSize(w, h)
     f:SetFrameStrata("HIGH")
     f:Hide()
@@ -1391,6 +1392,10 @@ local function CreatePreviewFrame(index, party)
         -- tier-scaled, so the effective overlay may shadow them safely.
         local s = ns._previewSettingsOverride or (ns._partyPvActive and ns._scaledPartyProxy)
             or ns._pvOverlayProxy or ns._scaledProfile
+        local shared = ns.RF_SharedBorderOn(s, f._partyFrame, f._raidFrame)
+        if not shared and bdrFrame._partyInsetHighlight then
+            ns.ApplyPartyInsetHighlight(bdrFrame, s, nil, nil, true)
+        end
         if f.kit then
             ns.RF_KitHighlight(f, bdrFrame, s, f._hovered and s.hoverBorderEnabled ~= false,
                 f._isTarget and s.targetBorderEnabled ~= false)
@@ -1442,6 +1447,7 @@ local function CreatePreviewFrame(index, party)
         -- Guard the level writes so a refresh only touches them on a real change.
         local pl = f:GetFrameLevel()
         local lvl = s.borderBehind and math.max(0, pl - 1) or (pl + (raised and ns.LVL_RAISE or 8))
+        if shared then lvl = s.borderBehind and pl or (pl + 9) end
         local container = PP.GetBorders(bdrFrame)
         if bdrFrame:GetFrameLevel() ~= lvl
            or (container and container:GetFrameLevel() ~= lvl + 1) then
@@ -1456,8 +1462,15 @@ local function CreatePreviewFrame(index, party)
             return
         end
         if hlSize then r, g, b = ns.RF_VisibleHighlight(s, r, g, b) end
-        bdrFrame._hlBorderSize = nil
-        EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
+        if shared then
+            ns.ApplyPartyInsetHighlight(bdrFrame, s, f._hovered, f._isTarget, true)
+            EllesmereUI.HideBorderStyle(bdrFrame)
+            bdrFrame:Hide()
+            bdrFrame._hlBorderSize = nil
+        else
+            bdrFrame._hlBorderSize = nil
+            EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
+        end
         if s.powerBorderMatchColor == true and f._powerBorder and f._powerBorder._powerArtMode == "divider" then
             ns.RF_ColorPowerDivider(f._powerBorder, r, g, b, a)
         end
@@ -1720,6 +1733,8 @@ end
 local function GetOrCreatePreviewFrame(index)
     if not previewFrames[index] then
         previewFrames[index] = CreatePreviewFrame(index)
+        previewFrames[index]._raidFrame = true
+        previewFrames[index]._raidGroup = math.floor((index - 1) / 5) + 1
     end
     return previewFrames[index]
 end
@@ -2761,10 +2776,15 @@ local function ApplyPreviewData(f, index)
         local bc = s.borderColor or { r = 0, g = 0, b = 0 }
         local pl = f:GetFrameLevel()
         f._border:SetFrameLevel(s.borderBehind and math.max(0, pl - 1) or (pl + 8))
-        EllesmereUI.ApplyBorderStyle(f._border, bs, bc.r, bc.g, bc.b, s.borderAlpha or 1,
-            s.borderTexture or "solid", s.borderTextureOffset, s.borderTextureOffsetY,
-            s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
-            EllesmereUI.BorderPx(s.borderSizePx, bs, s.borderTexture or "solid"))
+        if ns.RF_SharedBorderOn(s, f._partyFrame, f._raidFrame) then
+            EllesmereUI.ApplyBorderStyle(f._border, 0, 0, 0, 0, 0, "solid")
+            f._border._hlBorderSize = nil
+        else
+            EllesmereUI.ApplyBorderStyle(f._border, bs, bc.r, bc.g, bc.b, s.borderAlpha or 1,
+                s.borderTexture or "solid", s.borderTextureOffset, s.borderTextureOffsetY,
+                s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
+                EllesmereUI.BorderPx(s.borderSizePx, bs, s.borderTexture or "solid"))
+        end
         if f._ApplyBorderColor then f._ApplyBorderColor() end
     end
     -- Rounded corners, as on the live cells (stock styles stay square).
@@ -2791,6 +2811,7 @@ local function ApplyPreviewData(f, index)
     if f._threatFrame and PP then
         local bs = s.threatBorderSize or 0
         local rc = s.threatCustomBorder == true and ns.RF_CustomBorderOn(s)
+        local shared = ns.RF_SharedBorderOn(s, f._partyFrame, f._raidFrame)
         local wantThreat = bs > 0 or rc
         if ns._testMode and ns._testThreat ~= nil then wantThreat = ns._testThreat end
         local showThreat = wantThreat and (ns._testMode or ns._healthAnimActive) and previewRoles._threatIndex == index
@@ -2798,12 +2819,9 @@ local function ApplyPreviewData(f, index)
         if f.stockHl then
             f._threatFrame:Hide()
             ns.RF_StockAggro(f, showThreat and 3 or nil)
-        elseif showThreat and not rc then
-            PP.UpdateBorder(f._threatFrame, bs > 0 and bs or 1, 1, 0, 0, 1)
-            f._threatFrame:Show()
         else
-            f._threatFrame:Hide()
-            agg = (showThreat and rc) and true or nil
+            ns.RF_ApplyThreatBorder(f._threatFrame, s, showThreat and (shared or not rc), shared, true)
+            agg = (showThreat and rc and not shared) and true or nil
         end
         if f._pvAggroBdr ~= agg then
             f._pvAggroBdr = agg
@@ -2821,6 +2839,7 @@ local function ApplyPreviewData(f, index)
     -- frames; a change repaints it, the border pass above ran first.
     do
         local bdrC = dispVis and dispelDC and s.dispelCustomBorder == true
+            and not ns.RF_SharedBorderOn(s, f._partyFrame, f._raidFrame)
             and (dispelDC.a or 1) > 0 and ns.RF_CustomBorderOn(s) and dispelDC or nil
         if f._pvDispelBdrC ~= bdrC then
             f._pvDispelBdrC = bdrC
@@ -2832,7 +2851,14 @@ local function ApplyPreviewData(f, index)
         local dcA = dispelDC.a or 1
         -- Dispel border (PP.UpdateBorder handles physical pixel sizing internally)
         local dbs = s.dispelBorderSize or 2
+        local shared = ns.RF_SharedBorderOn(s, f._partyFrame, f._raidFrame)
         if f._dispelBdrFrame and PP and dbs > 0 then
+            f._dispelBdrFrame:ClearAllPoints()
+            f._dispelBdrFrame:SetAllPoints(f._health)
+            local level = f:GetFrameLevel() + (shared and 7 or 10)
+            f._dispelBdrFrame:SetFrameLevel(level)
+            local strips = PP.GetBorders(f._dispelBdrFrame)
+            if strips then strips:SetFrameLevel(level + 1) end
             PP.UpdateBorder(f._dispelBdrFrame, dbs, dispelDC.r, dispelDC.g, dispelDC.b, dcA)
             f._dispelBdrFrame:Show()
         elseif f._dispelBdrFrame then
@@ -3566,8 +3592,8 @@ local function RefreshPreview()
     unitGrowth, groupGrowth = ns._RFEffectiveGrowth(unitGrowth, groupGrowth, s.mergeGroups)
     local bw = PixelSnap(s.frameWidth or 72)
     local bh = PixelSnap(s.frameHeight or 46)
-    local cs = PixelSnap(s.cellSpacing or 2)
-    local gs = PixelSnap(s.groupSpacing or 8)
+    local cs = PixelSnap(ns.RF_RaidSpacing(s))
+    local gs = PixelSnap(ns.RF_RaidSpacing(s, true))
 
     -- Group bounding box
     local groupW, groupH
@@ -3805,6 +3831,9 @@ local function RefreshPreview()
         end
         overlayContainer:Show()
     end
+    if ns.RF_RaidSharedBorderOn(s) or ns._raidPvBorders then
+        ns._raidPvBorders = ns.RF_ApplyRaidBorders(ns._raidPvBorders, reparentTo, previewFrames, s, true)
+    end
 end
 
 -- Mouse-blocking overlays + alpha-based real-frame hide for the options preview.
@@ -3953,6 +3982,7 @@ end
 local function HidePreview(skipRestore)
     if not previewActive then return end
     previewActive = false
+    ns.RF_HideRaidBorders(ns._raidPvBorders)
     ns._previewInitialized = false
     previewRoles._randomized = nil  -- re-randomize on next preview open
     previewRoles._hpalPick = nil    -- re-roll the hpal Legends next open
@@ -4089,8 +4119,8 @@ ns._ShowSizePreview = function(tier)
     local ov = overrides[tier]
     local bw = PixelSnap(ov.width or s.frameWidth or 125)
     local bh = PixelSnap(ov.height or s.frameHeight or 60)
-    local cs = PixelSnap(s.cellSpacing or 2)
-    local gs = PixelSnap(s.groupSpacing or 8)
+    local cs = PixelSnap(ns.RF_RaidSpacing(s))
+    local gs = PixelSnap(ns.RF_RaidSpacing(s, true))
     local unitGrowth, groupGrowth = ns._RFEffectiveGrowth(
         ov.unitGrowth or s.unitGrowth or "DOWN", ov.groupGrowth or s.groupGrowth or "RIGHT", s.mergeGroups)
     local frameCount  = tier
@@ -4865,6 +4895,11 @@ local function RefreshPartyPreview()
         end
     end
 
+    if (ns.RF_PartySharedBorderOn(ns._scaledPartyProxy))
+        or ns._partyPvBorder then
+        ns._partyPvBorder = ns.RF_ApplyPartyBorder(ns._partyPvBorder, parentFrame,
+            ns._partyPvFrames, ns._scaledPartyProxy, true)
+    end
 end
 
 local function ShowPartyPreview()
@@ -4911,6 +4946,7 @@ local function HidePartyPreview(skipRestore)
     for i = 1, 5 do
         if ns._partyPvFrames[i] then ns._partyPvFrames[i]:Hide() end
     end
+    if ns._partyPvBorder then ns.RF_HidePartyBorder(ns._partyPvBorder) end
     if ns._partyOC then ns._partyOC:Hide() end
     ns.PF_HidePreview()
     ns.PT_HidePreview()

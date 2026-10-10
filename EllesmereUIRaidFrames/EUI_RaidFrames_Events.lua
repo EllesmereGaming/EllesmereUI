@@ -338,6 +338,8 @@ local function OnEvent(self, event, arg1, ...)
                             end
                         end
                     end
+                    if ns._partySharedBorderOn then ns.RF_QueuePartyBorder() end
+                    if ns._raidSharedBorderOn then ns.RF_QueueRaidBorders() end
                 end)
             end
             return

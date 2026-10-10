@@ -335,6 +335,16 @@ end
 ---------------------------------------------------------------------------
 --  Page Builder
 ---------------------------------------------------------------------------
+local function PartyPixelsBorder()
+    if ns.RF_PartyKit() or ns.RF_Stock() then return false end
+    local p = ns._RFO_OptEnv.db.profile
+    local key = p.borderTexture
+    if ns._IsPartySectionCustom(ns._PARTY_KEY_SECTION.borderTexture) then
+        key = p.party_borderTexture or key
+    end
+    return key == "pixels" or key == "pixels-textured"
+end
+
 local function BuildMainPage(pageName, parent, yOffset)
     local env = ns._RFO_OptEnv
     local allGrowthOrder, BuildPreviewModeRow, BuildVisualSections, db = env.allGrowthOrder, env.BuildPreviewModeRow, env.BuildVisualSections, env.db
@@ -729,13 +739,46 @@ local function BuildMainPage(pageName, parent, yOffset)
         return cfg
     end
 
-    _, h = W:DualRow(parent, y,
+    local function RaidPixelsBorder()
+        local key = SGet("borderTexture")
+        return not ns.RF_Stock() and (key == "pixels" or key == "pixels-textured")
+    end
+    local spacingRow
+    spacingRow, h = W:DualRow(parent, y,
         { type="slider", pixel=true, text="Frame Spacing", min=-1, max=15, step=1,
+          tooltip="Compact Mode uses a 1 physical pixel gap without changing this saved spacing.",
+          disabled=function() return ns.RF_RaidSharedBorderOn(db.profile) end,
           getValue=function() return SVal("cellSpacing", 2) end,
           setValue=function(v) SSet("cellSpacing", v) end },
         { type="slider", pixel=true, text="Group Spacing", min=-1, max=15, step=1,
+          tooltip="Grid Mode uses a 1 physical pixel gap without changing this saved spacing.",
+          disabled=function() return ns.RF_RaidSharedBorderOn(db.profile) and SVal("raidCompactJoinGroups", false) end,
           getValue=function() return SVal("groupSpacing", 8) end,
-          setValue=function(v) SSet("groupSpacing", v) end });  y = y - h
+          setValue=function(v) SSet("groupSpacing", v) end }); y = y - h
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(spacingRow._leftRegion, {
+            title = "Frame Spacing",
+            rows = {
+                { type="toggle", label="Compact Mode",
+                  tooltip="Join raid frames with a shared border and separators at 1 physical pixel. Your normal spacing is preserved.",
+                  disabled=function() return not RaidPixelsBorder() end,
+                  disabledTooltip="Requires the Pixels or Pixels Textured border style.", rawTooltip=true,
+                  get=function() return SVal("raidCompactEnabled", false) end,
+                  set=function(v) SSet("raidCompactEnabled", v); EllesmereUI:RefreshPage() end },
+            },
+        })
+        EllesmereUI.BuildInlineCog(spacingRow._rightRegion, {
+            title = "Group Spacing",
+            rows = {
+                { type="toggle", label="Grid Mode",
+                  tooltip="Join compact raid groups into one bordered grid at 1 physical pixel. Your normal group spacing is preserved.",
+                  disabled=function() return not ns.RF_RaidSharedBorderOn(db.profile) end,
+                  disabledTooltip="Requires Compact Mode with the Pixels or Pixels Textured border style.", rawTooltip=true,
+                  get=function() return SVal("raidCompactJoinGroups", false) end,
+                  set=function(v) SSet("raidCompactJoinGroups", v); EllesmereUI:RefreshPage() end },
+            },
+        })
+    end
 
     -- Border Style (+ options cog) | Border Size (+ Border swatch). Mirrors Unit Frames: ONE border recolored by state (hover/target), full SharedMedia support. Hover/Target swatches live on the row below.
     local bdrTexValues, bdrTexOrder = EllesmereUI.GetBorderTextureDropdown()
@@ -1652,14 +1695,30 @@ local function BuildPartyPage(pageName, parent, yOffset)
         -- (The Party Frames kit keeps its own spacing, set in its Frame
         -- Scale cog, so the Raid Frames layout's value survives a switch
         -- between the two.)
-        ns.RF_PartyKitGate({ type="slider", pixel=true, text="Frame Spacing", min=-1, max=15, step=1,
+        ns.RF_PartyKitGate({ type="slider", pixel=true, text="Frame Spacing",
+          min=-1, max=15, step=1,
+          tooltip="Compact Mode uses a 1 physical pixel gap without changing this saved spacing.",
+          disabled=function() return ns.RF_PartySharedBorderOn(ns._scaledPartyProxy) end,
           getValue=function()
               if ns.RF_PartyKit() then return db.profile.partyKitSpacing or ns.RF_KIT_SPACING or 6 end
               return SVal("partyCellSpacing", db.profile.cellSpacing or 2)
           end,
-          setValue=function(v) PSSet(ns.RF_PartyKit() and "partyKitSpacing" or "partyCellSpacing", v) end }));  y = y - h
+          setValue=function(v)
+              PSSet(ns.RF_PartyKit() and "partyKitSpacing" or "partyCellSpacing", v)
+          end }));  y = y - h
     -- Auto Resize Icons sits in the LEFT slot here; same conversion pattern as the Frames tab.
     if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(partyAutoResizeRow._rightRegion, {
+            title = "Frame Spacing",
+            rows = {
+                { type="toggle", label="Compact Mode",
+                  tooltip="Join party frames with one border and separators at 1 physical pixel. Your normal spacing is preserved; suspended while target frames occupy the gaps between party frames.",
+                  disabled=function() return not PartyPixelsBorder() end,
+                  disabledTooltip="Requires the Raid Frames style with a Pixels or Pixels Textured border.", rawTooltip=true,
+                  get=function() return db.profile.partyCompactEnabled == true end,
+                  set=function(v) PSSet("partyCompactEnabled", v); EllesmereUI:RefreshPage() end },
+            },
+        })
         local leftRgn = partyAutoResizeRow._leftRegion
         if leftRgn._control then leftRgn._control:Hide() end
         local arKeyMap = { indicators = "partyAutoResizeIndicators", trackedBuffs = "partyAutoResizeTrackedBuffs" }

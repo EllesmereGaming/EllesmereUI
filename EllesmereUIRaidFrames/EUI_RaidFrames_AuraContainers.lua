@@ -671,16 +671,28 @@ local function ApplyRFDispelSlot(button, dd, style)
     end
 
     -- Type-colored border around the health bar.
-    if (style.borderSize or 0) > 0 and PP then
+    local ub = dd.rfUnitBtn
+    local fd = ub and ns.GetFFD(ub)
+    local compact = fd and ((fd._isParty and style.compactParty) or (fd._isRaid and style.compactRaid))
+    local borderSize = style.borderSize or 0
+    if borderSize > 0 and PP then
         if not dd.borderHost then
             dd.borderHost = CreateFrame("Frame", nil, button)
-            dd.borderHost:SetAllPoints(health)
         end
-        dd.borderHost:SetFrameLevel(health:GetFrameLevel() + 6 + def.level)
+        local anchor = health
+        if dd.borderAnchor ~= anchor then
+            dd.borderHost:ClearAllPoints()
+            dd.borderHost:SetAllPoints(anchor)
+            dd.borderAnchor = anchor
+        end
+        local level = health:GetFrameLevel() + (compact and 0 or 6) + def.level
+        dd.borderHost:SetFrameLevel(level)
+        local strips = PP.GetBorders(dd.borderHost)
+        if strips then strips:SetFrameLevel(level + 1) end
         if dd.borderMade then
-            PP.UpdateBorder(dd.borderHost, style.borderSize, r, g, b, typeA)
+            PP.UpdateBorder(dd.borderHost, borderSize, r, g, b, typeA)
         else
-            PP.CreateBorder(dd.borderHost, r, g, b, typeA, style.borderSize, "OVERLAY", 7)
+            PP.CreateBorder(dd.borderHost, r, g, b, typeA, borderSize, "OVERLAY", 7)
             dd.borderMade = true
         end
         dd.borderHost:Show()
@@ -688,6 +700,7 @@ local function ApplyRFDispelSlot(button, dd, style)
         dd.borderHost:Hide()
     end
 
+    -- Compact mode disables Color Custom Borders; the normal dispel ring stays independent.
     -- Color Custom Borders: a copy of the unit frame's own border (same style, size,
     -- offsets and exact pixels) in this type's color. It rides the slot's engine
     -- visibility, so it covers the normal border only while the type is present.
@@ -700,8 +713,7 @@ local function ApplyRFDispelSlot(button, dd, style)
     -- secret-safe renderer needs no size reads and no scripts (scripts never run
     -- under a slot button). Per-type alpha 0 opts the type out, as for the ring.
     local cb = style.customBorder
-    local ub = dd.rfUnitBtn
-    if cb and ub and PP and typeA > 0 then
+    if cb and not compact and ub and PP and typeA > 0 then
         if not dd.cbHost then
             -- Published only once anchored: a denied write leaves no half-built host,
             -- and the next restyle simply tries again.
@@ -794,6 +806,8 @@ local function BuildDispelStyle(s)
         mode = s.dispelOverlay or "fill",
         opacity = s.dispelOverlayOpacity or 100,
         borderSize = s.dispelBorderSize or 0,
+        compactParty = ns.RF_PartySharedBorderOn(s),
+        compactRaid = ns.RF_RaidSharedBorderOn(s),
         showIcon = s.showDispelIcons == true,
         iconSize = s.dispelIconSize or 16,
         iconPos = s.dispelIconPosition or "right",
@@ -864,7 +878,8 @@ local function CKA(c)
 end
 
 local function DispelStyleFP(s)
-    return FP(s.dispelOverlay, s.dispelOverlayOpacity, s.dispelBorderSize, s.showDispelIcons,
+    return FP(ns.RF_PartySharedBorderOn(s), ns.RF_RaidSharedBorderOn(s),
+        s.dispelOverlay, s.dispelOverlayOpacity, s.dispelBorderSize, s.showDispelIcons,
         s.dispelIconSize, s.dispelIconPosition, s.dispelIconOffsetX, s.dispelIconOffsetY,
         CKA(s.dispelColorMagic), CKA(s.dispelColorCurse), CKA(s.dispelColorDisease),
         CKA(s.dispelColorPoison), CKA(s.dispelColorBleed), s.powerUniformAnchors,
@@ -3333,7 +3348,13 @@ bmRegen:RegisterEvent("PLAYER_ENTERING_WORLD")
 bmRegen:RegisterEvent("UI_SCALE_CHANGED")
 bmRegen:RegisterEvent("DISPLAY_SIZE_CHANGED")
 function ns.RFC_PixelGridChanged()
-    if InCombatLockdown() then ns._rfcScaleDirty = true else ns.RFC_ReloadAll() end
+    if InCombatLockdown() then
+        ns._rfcScaleDirty = true
+    else
+        ns.RFC_ReloadAll()
+        if ns.RF_PartyBorderGridChanged then ns.RF_PartyBorderGridChanged() end
+        if ns.RF_RaidBorderGridChanged then ns.RF_RaidBorderGridChanged() end
+    end
 end
 _G._ERF_PixelGridChanged = ns.RFC_PixelGridChanged
 -- The poison dispel-slot filter depends on Poison Cleansing Totem being talented
@@ -3379,7 +3400,8 @@ bmRegen:SetScript("OnEvent", function(_, event, arg1)
         return
     end
     if ns._rfcTotemDirty then RecheckTotem() end
-    local any = ns._rfcScaleDirty or false
+    local scaleDirty = ns._rfcScaleDirty
+    local any = scaleDirty or false
     ns._rfcScaleDirty = nil
     for i = 1, #registry do
         local d = ns.GetFFD and ns.GetFFD(registry[i])
@@ -3389,6 +3411,8 @@ bmRegen:SetScript("OnEvent", function(_, event, arg1)
         end
     end
     if any then ns.RFC_ReloadAll() end
+    if scaleDirty and ns.RF_PartyBorderGridChanged then ns.RF_PartyBorderGridChanged() end
+    if scaleDirty and ns.RF_RaidBorderGridChanged then ns.RF_RaidBorderGridChanged() end
 end)
 
 -- Event-driven gate re-evaluation (no polling): UNIT_PHASE fires exactly

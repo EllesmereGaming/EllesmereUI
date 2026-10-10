@@ -450,11 +450,15 @@ end
 -- on the stacking axis plus the gap past them. From the settings, so every slot placer agrees
 -- whichever runs first. on: the enable state to read (the live one unless given; previews pass
 -- the setting).
-function ns.PT_AlongPitch(s, on)
+function ns.PT_AlongStack(s, on)
     if on == nil then on = ns._ptEnabled end
-    if not on then return 0 end
+    if not on then return false end
     local _, _, across = PT_Side(s)
-    if across then return 0 end
+    return not across
+end
+
+function ns.PT_AlongPitch(s, on)
+    if not ns.PT_AlongStack(s, on) then return 0 end
     return PixelSnap(s.partyHorizontal and (s.partyTargetWidth or 70) or (s.partyTargetHeight or 33))
         + PixelSnap(PT_Gap(s))
 end

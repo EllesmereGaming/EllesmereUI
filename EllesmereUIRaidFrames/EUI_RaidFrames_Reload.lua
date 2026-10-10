@@ -431,6 +431,7 @@ ns._ResizePartyButtons = function(w, h)
         local _, _, pcs = ns.RF_PartyDims(s)
         ns._PositionPartySlots(bw, bh, PixelSnap(pcs) + ns.PT_AlongPitch(s), ns._PartyGrowth(s))
     end
+    if ns._partySharedBorderOn then ns.RF_QueuePartyBorder() end
 end
 
 -- Convert a saved (point, relPoint, x, y) UIParent anchor to the TOPLEFT
@@ -543,8 +544,8 @@ ns._RFBaseTopLeft = function()
     local s = db.profile
     local pos = s.unlockPos
     if not pos then return nil end
-    local cs = PixelSnap(s.cellSpacing or 2)
-    local gs = PixelSnap(s.groupSpacing or 8)
+    local cs = PixelSnap(ns.RF_RaidSpacing(s))
+    local gs = PixelSnap(ns.RF_RaidSpacing(s, true))
     local ug, gg = ns._RFEffectiveGrowth(s.unitGrowth or "DOWN", s.groupGrowth or "RIGHT", s.mergeGroups)
     local w, h = ns._RFFootprint(s.frameWidth or 72, s.frameHeight or 46, ug, gg, cs, gs)
     local l, t = ns._RFPosTopLeft(pos, w, h)
@@ -700,8 +701,8 @@ ns._RFRebaseSavedCenter = function(cx, cy)
     local s = db.profile
     local _, ov = ns._RFResolveTierOverride(ns._GetEffectiveRaidSize())
     if not ov then return cx, cy end
-    local cs = PixelSnap(s.cellSpacing or 2)
-    local gs = PixelSnap(s.groupSpacing or 8)
+    local cs = PixelSnap(ns.RF_RaidSpacing(s))
+    local gs = PixelSnap(ns.RF_RaidSpacing(s, true))
     local bug, bgg = ns._RFEffectiveGrowth(s.unitGrowth or "DOWN", s.groupGrowth or "RIGHT", s.mergeGroups)
     local bw, bh = ns._RFFootprint(s.frameWidth or 72, s.frameHeight or 46, bug, bgg, cs, gs)
     local ug, gg = ns._RFEffectiveGrowth(
@@ -767,8 +768,8 @@ ns._NormalizeTierOffsetAnchors = function()
         end
     end
     if ov._topLeftAnchored and ov._cornerAnchored then return end
-    local cs = PixelSnap(s.cellSpacing or 2)
-    local gs = PixelSnap(s.groupSpacing or 8)
+    local cs = PixelSnap(ns.RF_RaidSpacing(s))
+    local gs = PixelSnap(ns.RF_RaidSpacing(s, true))
     local pos = s.unlockPos
     local bl, bt, bw, bh = ns._RFBaseTopLeft()
     if not ov._topLeftAnchored then
@@ -851,8 +852,8 @@ ns._ApplyTierOffset = function()
     local s = db.profile
     if not s.unlockPos then return end
     local _, ov = ns._RFResolveTierOverride(ns._GetEffectiveRaidSize())
-    local cs = PixelSnap(s.cellSpacing or 2)
-    local gs = PixelSnap(s.groupSpacing or 8)
+    local cs = PixelSnap(ns.RF_RaidSpacing(s))
+    local gs = PixelSnap(ns.RF_RaidSpacing(s, true))
     local fw = (ov and ov.width) or s.frameWidth or 72
     local fh = (ov and ov.height) or s.frameHeight or 46
     local ug, gg = ns._RFEffectiveGrowth(
