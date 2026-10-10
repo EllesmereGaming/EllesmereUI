@@ -506,6 +506,23 @@ function ns.StopCdGlow(fd)
     if bo and bo._glowActive then StopNativeGlow(bo) end
 end
 
+-- Glow When Visible on a hide-mode cooldown icon: lit while the evaluator
+-- leaves the icon shown, down when it hides or the option is off. Reuses the
+-- CD Ready glow style/color and its _cdStateGlowOn bookkeeping.
+function ns.CdVisibleGlowSync(fd, ss, visible)
+    if not fd then return end
+    if visible and ss and ss.glowWhenVisible and fd.glowOverlay then
+        if not fd._cdStateGlowOn then
+            local style = ns.CdReadyGlowStyle(nil, ss)
+            local cr, cg, cb = ns.CdReadyGlowColor(style, ss)
+            fd._cdStateGlowOn = ns.StartCdGlow(fd, style, cr, cg, cb, ns.CdReadyGlowAlpha(ss)) ~= nil
+        end
+    elseif fd._cdStateGlowOn then
+        ns.StopCdGlow(fd)
+        fd._cdStateGlowOn = false
+    end
+end
+
 -- Combat edges for Show Glows Only in Combat. Entering combat replays what was
 -- suppressed; leaving combat takes the running glows down but keeps their
 -- records, so the next pull lights them again without waiting for their owners

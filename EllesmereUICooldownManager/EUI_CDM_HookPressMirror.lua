@@ -398,6 +398,7 @@ do
         end
         return nil
     end
+    ns.SlotSpellID = SlotSpellID
 
     -- Base key of a (possibly modified) binding, e.g. "SHIFT-1" -> "1".
     local function BaseKey(binding)

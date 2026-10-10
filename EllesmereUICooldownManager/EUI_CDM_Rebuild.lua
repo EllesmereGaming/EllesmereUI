@@ -859,6 +859,7 @@ BuildAllCDMBars = function()
     ns.RescanCustomRangeColorFlag() -- set the "Out of Range Coloring" custom-spell gate (once)
     ns.RescanReverseSwipeFlag()   -- set the Reverse Swipe gate (once) before refresh
     ns.RescanThresholdTextFlag()  -- set the Threshold Text gate (once) before refresh
+    ns.RescanGlowVisibleFlag()    -- set the Glow When Visible gate (once) before refresh
     ns.RescanCustomIconFlag()     -- set the per-spell Custom Icon gate (once) before refresh
     ns.RescanActiveGlowFlag()     -- set the Active State Glow gate (once) before refresh
     ns.RescanTalentCondFlag()     -- set the Talent Conditions gate (once) before refresh

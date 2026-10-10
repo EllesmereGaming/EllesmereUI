@@ -658,13 +658,18 @@ local function RefreshCDMIconAppearance(barKey)
             if icon._isCustomBuffFrame or not ns.StackGlow_Configure then
                 nThreshold, nOperator = nil, nil
             end
+            -- Glow When Visible: the BuffTicker lights the glow whenever the icon is shown
+            -- (a Show When Missing placeholder included); Glow at Stacks wins over it.
+            local nVisible = (ssb and ssb.glowWhenVisible) or nil
             if fd then
                 if fd._bgT ~= nT or fd._bgColor ~= nColor
                    or fd._bgR ~= nR or fd._bgG ~= nG or fd._bgB ~= nB
-                   or fd._bgThreshold ~= nThreshold or fd._bgStackOperator ~= nOperator then
+                   or fd._bgThreshold ~= nThreshold or fd._bgStackOperator ~= nOperator
+                   or fd._bgVisible ~= nVisible then
                     fd._bgT = nT; fd._bgColor = nColor; fd._bgR = nR; fd._bgG = nG; fd._bgB = nB
                     fd._bgThreshold = nThreshold
                     fd._bgStackOperator = nOperator
+                    fd._bgVisible = nVisible
                     if fd.buffGlowActive and fd.buffGlowOverlay then
                         StopNativeGlow(fd.buffGlowOverlay)
                         fd.buffGlowActive = false
@@ -1070,10 +1075,12 @@ local function RefreshCDMIconAppearance(barKey)
                             ns.SetCdStateShiftHidden(fc, cseShift and hide or false)
                         end
                     end
+                    if ns._cdmAnyGlowVisible then ns.CdVisibleGlowSync(ifd, csSs, not hide) end
                 elseif cse == "lowerAlphaOnCD" then
                     -- Identical to hiddenOnCD but with a customizable opacity instead of 0. Reuse
                     -- the _cdStateHidden flag as "cd-state owns this alpha" so the opacity appliers leave the lowered value alone. A visibility-hidden bar stays at 0 in both states.
                     local csBase = IconShownAlpha(fc, barData)
+                    if ns._cdmAnyGlowVisible then ns.CdVisibleGlowSync(ifd, nil, false) end
                     icon:SetAlpha(csBase == 0 and 0
                         or (onCD and (csSs.cdStateLowerAlpha or 0.5) or csBase))
                     if fc then

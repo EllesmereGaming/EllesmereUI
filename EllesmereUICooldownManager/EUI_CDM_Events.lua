@@ -186,8 +186,15 @@ local function ScheduleRosterRebuild()
     if ns.QueueReanchor then ns.QueueReanchor() end
 end
 
+-- Events that can move an ability to another action button (Bar Glows keyed per ability).
+local BAR_REBIND_EVENTS = {
+    ACTIONBAR_SLOT_CHANGED = true, ACTIONBAR_PAGE_CHANGED = true, UPDATE_BONUS_ACTIONBAR = true,
+    UPDATE_SHAPESHIFT_FORM = true, SPELLS_CHANGED = true,
+}
+
 eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     if not ECME.db then return end
+    if ns._barGlowRebindOn and BAR_REBIND_EVENTS[event] then ns.QueueBarGlowRebind() end
     if event == "PLAYER_LOGOUT" then
         ns.SaveCachedBarSizes()
         return

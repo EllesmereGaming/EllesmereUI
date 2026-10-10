@@ -1441,6 +1441,19 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     { val = nil,  label = "Off" },
                     { val = true, label = "Reverse Swipe" },
                 }
+                -- Glow When Visible (per-spell): the icon glows whenever it is shown, so a
+                -- Show When Missing buff or a Hidden Until Usable ability lights up on appearing.
+                local GLOW_VISIBLE_ITEMS = {
+                    { val = nil,  label = "Off" },
+                    { val = true, label = "On" },
+                }
+                local function SetGlowWhenVisible(v)
+                    EnsureSS(); SetOwn("glowWhenVisible", v or nil)
+                    if v then ns._cdmAnyGlowVisible = true end
+                    if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                end
+                local GLOW_VISIBLE_APPLY = { apply = { keys = { "glowWhenVisible" },
+                                                       write = function(t, v) t.glowWhenVisible = v or false end } }
                 -- Cooldown Swipe (cd/utility spells + presets): a 3-way single-select over
                 -- two independent keys (reverseSwipe, hideCDSwipe). "Off" clears both; getVal/setVal below map the selection to the keys.
                 local CD_SWIPE_ITEMS = {
@@ -2230,6 +2243,15 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         nil,
                         { apply = { keys = { "buffGlow" },
                                     write = function(t, v) t.buffGlow = v end } })
+
+                    -- Glow When Visible: glows while the icon shows (Show When Missing placeholder
+                    -- or present buff), using the Buff Glow style above (Modern WoW Glow if None).
+                    MakeSubnavRow("Glow when Visible", GLOW_VISIBLE_ITEMS,
+                        function() return ss.glowWhenVisible and true or nil end,
+                        SetGlowWhenVisible,
+                        function() return ss.glowWhenVisible == nil end,
+                        nil,
+                        GLOW_VISIBLE_APPLY)
 
                     local BUFF_GLOW_COLOR_ITEMS = {
                         { val = nil,      label = "Default" },
@@ -3635,7 +3657,10 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                 end)
                             end
                         end,
-                        { disabled = function() return not CD_GLOW_EFFECT[ss.cdStateEffect] end,
+                        { disabled = function()
+                              return not (CD_GLOW_EFFECT[ss.cdStateEffect]
+                                  or (ss.glowWhenVisible and ns.CD_STATE_HIDE[ss.cdStateEffect]))
+                          end,
                           apply = { keys = { "cdStateGlowStyle", "cdStateGlowAlpha" },
                                     -- The Blackout opacity rides along with the Blackout value
                                     -- only: a spell that set its own opacity pushes it to the bar
@@ -3645,6 +3670,18 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                         t.cdStateGlowStyle = v
                                         t.cdStateGlowAlpha = (v == 8) and ss.cdStateGlowAlpha or nil
                                     end } })
+
+                    -- Glow When Visible: with a Hidden effect (e.g. Hidden Until Usable) the icon
+                    -- glows, in the Glow Style above, whenever it is shown.
+                    local gvOpts = { disabled = function() return not ns.CD_STATE_HIDE[ss.cdStateEffect] end,
+                                     disabledTooltip = "Needs a Hidden effect in Cooldown State Effect",
+                                     apply = GLOW_VISIBLE_APPLY.apply }
+                    MakeSubnavRow("Glow when Visible", GLOW_VISIBLE_ITEMS,
+                        function() return ss.glowWhenVisible and true or nil end,
+                        SetGlowWhenVisible,
+                        function() return ss.glowWhenVisible == nil end,
+                        nil,
+                        gvOpts)
                 end
 
                 -- 4a. Threshold Text: decimals/color change on this spell's countdowns
