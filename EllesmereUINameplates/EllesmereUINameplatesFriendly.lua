@@ -948,6 +948,11 @@ local function SuppressBlizzardUF(unit, nameplate)
     -- invisible. We do NOT unregister events because we need Blizzard's UF to stay
     -- functional for when we restore it (e.g. toggling back to name-only mode).
     uf:SetParent(hiddenFrame)
+    -- Keep UI widgets (progress gauges on untargetable objectives) visible, as the
+    -- enemy plate does.
+    if uf.WidgetContainer then
+        uf.WidgetContainer:SetParent(nameplate)
+    end
 
     modifiedUFs[unit] = { uf = uf, nameplate = nameplate }
 
@@ -975,6 +980,9 @@ local function RestoreBlizzardUF(unit)
     -- Restore UnitFrame back to its nameplate parent
     local uf = entry.uf
     uf:SetParent(entry.nameplate)
+    if uf.WidgetContainer then
+        uf.WidgetContainer:SetParent(uf)
+    end
     uf:SetAlpha(1)
     uf:Show()
 end
