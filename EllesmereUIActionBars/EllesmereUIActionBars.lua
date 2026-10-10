@@ -2353,6 +2353,7 @@ EAB_VTABLE.PAGING_STATES = {
         WARRIOR = {
             { id = "battle",    macro = "[bonusbar:1]", label = "Battle Stance" },
             { id = "defensive", macro = "[bonusbar:2]", label = "Defensive Stance" },
+            { id = "berserker", macro = "[bonusbar:3]", label = "Berserker Stance" },
         },
         EVOKER = {
             { id = "soar", macro = "[bonusbar:1]", label = "Soar" },
@@ -7170,11 +7171,6 @@ function EAB:FinishSetup()
                 end
             end
             RestoreBarPositions()
-            local vBtn = MainMenuBarVehicleLeaveButton
-            if vBtn and barFrames["MainBar"] then
-                vBtn:ClearAllPoints()
-                vBtn:SetPoint("BOTTOM", barFrames["MainBar"], "TOPRIGHT", -15, 2)
-            end
         else
             -- Combat reload: non-protected setup only; secure handler does the rest.
             -- Stock bar disposal (including ActionBarParent) already happened at

@@ -636,6 +636,7 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     -- Battle Res + Bloodlust (bottom of the Quality of Life page)
     ["EUI_BattleRes"]      = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "BATTLE RES",        highlightText = "Enable BattleRes Icon" },
     ["EUI_Bloodlust"]      = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "BLOODLUST TRACKER", highlightText = "Enable Bloodlust Icon" },
+    ["EUI_JunkList"]       = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "JUNK ITEMS",        highlightText = "Enable Junk Items Window" },
 
     -- Mythic+ Tools
     ["EMT_MythicTimer"]    = { module = "EllesmereUIMythicTimer",     page = "Mythic+ Timer",     sectionName = "DISPLAY",           highlightText = "Scale" },

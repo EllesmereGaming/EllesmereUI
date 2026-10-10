@@ -3390,13 +3390,14 @@ local function ApplyPreviewData(f, index)
 
     -- Role icon (not affected by indicators toggle)
     if f._roleIcon then
+        if f._roleIcon._roleText then f._roleIcon._roleText:Hide() end
         local style = s.roleIconStyle or "modern"
-        if style ~= "none" then
+        if s.roleText or style ~= "none" then
             local role = previewRoles[index] or "DAMAGER"
             local showForRole = (role == "TANK" and s.showRoleForTank)
                 or (role == "HEALER" and s.showRoleForHealer)
                 or (role == "DAMAGER" and s.showRoleForDPS)
-            if showForRole ~= false and ApplyRoleIcon(f._roleIcon, role, style) then
+            if showForRole ~= false and (s.roleText or ApplyRoleIcon(f._roleIcon, role, style)) then
                 local riSz = PixelSnap(s.roleIconSize or 14)
                 f._roleIcon:SetSize(riSz, riSz)
                 -- Mirror the live carrier's "Show Behind Border" level (see AnchorRoleIcon).
@@ -3409,6 +3410,7 @@ local function ApplyPreviewData(f, index)
                 local pos = (s.roleIconPosition or "bottomleft"):upper()
                 f._roleIcon:SetPoint(pos, ns.RF_AnchorHost(f._health, s), pos, s.roleIconOffsetX or 0, s.roleIconOffsetY or 0)
                 f._roleIcon:Show()
+                if s.roleText then ns.ApplyRoleText(f._roleIcon, role, s) end
             else
                 f._roleIcon:Hide()
             end
@@ -4297,7 +4299,10 @@ ns._ShowSizePreview = function(tier)
         f._bg:SetColorTexture(0.09, 0.09, 0.11, 1)
         if f._power then f._power:Hide() end
         if f._topNameBar then f._topNameBar:Hide() end
-        if f._roleIcon then f._roleIcon:Hide() end
+        if f._roleIcon then
+            f._roleIcon:Hide()
+            if f._roleIcon._roleText then f._roleIcon._roleText:Hide() end
+        end
 
         -- Thin neutral outline so each block and the spacing between them reads clearly.
         if f._border and PP then

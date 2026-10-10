@@ -6658,7 +6658,7 @@ function EUI_Bags:RefreshInventory()
         end
     end
 
-    -- 2b. Compute display-only counts (pinned + recent stay in normal categories)
+    -- 2b. Compute display-only counts for pinned and recent items
     local recentCatIdx, pinnedCatIdx
     do
         local cats = EUI_CategoryManager:GetCategories()
@@ -6667,26 +6667,33 @@ function EUI_Bags:RefreshInventory()
             if cat.isPinned then pinnedCatIdx = i end
         end
     end
-    local recentCount = 0
-    local showRecent = BP().bagShowRecentItems ~= false
-    if recentCatIdx and EUI_Bags._recentItems and showRecent then
-        for _, data in ipairs(tempItems) do
-            if data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
-                recentCount = recentCount + 1
-            end
-        end
-        categoryCounts[recentCatIdx] = recentCount
-    end
     local showPinned = BP().bagShowPinnedItems ~= false
     local pinnedSet = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+    local hidePinned = BP().bagHidePinnedInCategories == true
     if pinnedCatIdx and pinnedSet and showPinned then
         local pinnedCount = 0
         for _, data in ipairs(tempItems) do
             if data.info and data.info.itemID and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID) then
                 pinnedCount = pinnedCount + 1
+                if hidePinned then
+                    -- Keep the category for sorting and gear/stack handling.
+                    data._pinnedOnly = true
+                    local ci = data.categoryIndex
+                    if ci then categoryCounts[ci] = categoryCounts[ci] - 1 end
+                end
             end
         end
         categoryCounts[pinnedCatIdx] = pinnedCount
+    end
+    local recentCount = 0
+    local showRecent = BP().bagShowRecentItems ~= false
+    if recentCatIdx and EUI_Bags._recentItems and showRecent then
+        for _, data in ipairs(tempItems) do
+            if not data._pinnedOnly and data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
+                recentCount = recentCount + 1
+            end
+        end
+        categoryCounts[recentCatIdx] = recentCount
     end
 
     -- 3. Update sidebar
@@ -6734,6 +6741,7 @@ function EUI_Bags:RefreshInventory()
         elseif filterSet then
             show = data.categoryIndex and filterSet[data.categoryIndex]
         end
+        if data._pinnedOnly and (isRecentView or filterSet) then show = false end
         if show and data.info and data.info.isFiltered then show = false end
         if show then displayItems[#displayItems + 1] = data end
     end
@@ -7479,6 +7487,27 @@ local function StartAddon()
             end
         end
     end
+
+    local characterBagHooksInstalled = false
+    function ns.ToggleBagsWithCharacterFrame()
+        if not BP().bagOpenWithCharacter then return end
+        local frame = _G.CharacterFrame
+        if not frame then return end
+        if not characterBagHooksInstalled then
+            characterBagHooksInstalled = true
+            frame:HookScript("OnShow", function()
+                if BP().bagOpenWithCharacter and not EUI_Bags:IsVisible() then
+                    ToggleEUI()
+                end
+            end)
+            frame:HookScript("OnHide", function()
+                if BP().bagOpenWithCharacter and EUI_Bags:IsVisible() then
+                    ToggleEUI()
+                end
+            end)
+        end
+    end
+    ns.ToggleBagsWithCharacterFrame()
 
     local _lastToggleTime = 0
     local function SmartToggleBags()

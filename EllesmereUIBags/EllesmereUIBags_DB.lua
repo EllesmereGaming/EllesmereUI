@@ -31,6 +31,7 @@ local BAGS_DEFAULTS = {
         bagShowPinnedItems    = true,
         bagShowRecentItems    = true,
         bagPinnedInOneBag     = true,
+        bagHidePinnedInCategories = false,
         bagRecentInOneBag     = false,
         bagShowRecentClear    = false,
         -- Bag Top Bar Icons: the header's Show Bags, Junk Marker and Sort icons
@@ -53,6 +54,7 @@ local BAGS_DEFAULTS = {
         bagHideAddCategory    = false,
         bagWindowLocked       = false,   -- footer lock icon: no resizing or moving
         bankWindowLocked      = false,
+        bagOpenWithCharacter  = false,
         -- bagFrameStrata has no default: unset reads the retired
         -- bagAllowWindowsOverBags (ns.BagFrameStrata)
         bagStackSplitter      = false,

@@ -1539,6 +1539,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
+    local function WithStack(err) return tostring(err) .. "\n" .. debugstack(2) end
     local function RestorePartyCtx(saved, ok, ...)
         optState._partyCtx = saved
         if not ok then error((...), 0) end
@@ -1561,7 +1562,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local saved = optState._partyCtx
                     optState._partyCtx = (pageName == PAGE_PARTY)
                     local build = (pageName == PAGE_PARTY) and ns.RFO_BuildPartyPage or ns.RFO_BuildMainPage
-                    return RestorePartyCtx(saved, pcall(build, pageName, parent, yOffset))
+                    return RestorePartyCtx(saved, xpcall(build, WithStack, pageName, parent, yOffset))
                 end
                 return
             end

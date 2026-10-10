@@ -675,12 +675,10 @@ end
 -- Hidden Outside Form/Stance: the spell's form requirement line, which Blizzard
 -- draws red while the current form or stance does not meet it. That answer
 -- changes only with the form, so it is kept per spell and form ID: once a pair
--- is read, a form change costs a table lookup. A spell whose tooltip names no
--- form (a caster spell such as Moonfire) is outside its form while shapeshifted
--- when the game says it cannot be cast now for a reason other than power,
--- asked live, provided it could be cast when last seen in caster form: a
--- warrior (never in caster form) and a spell waiting on a proc never hide this
--- way. A pair whose tooltip cannot be read (not loaded yet, or secret in
+-- is read, a form change costs a table lookup. Caster spells can omit that
+-- line and report usable through auto-unshifting; their known restrictions
+-- are checked separately, including readable form-casting exceptions.
+-- A pair whose tooltip cannot be read (not loaded yet, or secret in
 -- combat) shows its icon and is read again only at the next form change or
 -- combat end (ns.CdmRetryUnreadForms), never per evaluation; a talent change
 -- clears the table (ScheduleTalentRebuild).
@@ -695,10 +693,141 @@ do
     local LINE_REQ, LINE_NONE, REQ_FORM = LINE_TYPES.UsageRequirement, LINE_TYPES.None, REQ_TYPES.ShapeshiftForm
     local TEMPLATES = { SPELL_REQUIRED_FORM, SPELL_REQUIRED_FORM_NOSPACE }
     local formNames, formCount  -- the player's form names, read when the count changes
+    local casterRules, knownProcs, auraState
 
     -- Tooltip data can come back as secret tables, and indexing one throws
     local function Readable(t)
-        return type(t) == "table" and (not canaccesstable or canaccesstable(t))
+        return not issecretvalue(t) and type(t) == "table" and (not canaccesstable or canaccesstable(t))
+    end
+
+    local function CasterRule(sid)
+        if not casterRules then
+            -- Only common exclusions for shared spell IDs; unknown forms stay visible.
+            local beasts = { [1]=true, [3]=true, [4]=true, [5]=true, [8]=true, [27]=true, [29]=true, [37]=true }
+            local heals = { [1]=true, [3]=true, [4]=true, [5]=true, [8]=true, [27]=true, [29]=true, [31]=true, [35]=true, [37]=true }
+            local castProcs = { [132158]=132158, [69369]=16974, [372152]=372119 }
+            casterRules = {}
+            local heal, caster = { forms=heals }, { forms=beasts }
+            -- Healing families, including learned ranks and replacement spells.
+            for _, id in ipairs({ 740, 774, 1058, 1430, 2090, 2091, 3627, 8910, 8918, 8938, 8939,
+                8940, 8941, 9750, 9839, 9840, 9841, 9856, 9857, 9858, 9862, 9863, 17116, 18562,
+                25299, 33763, 408124, 145205 }) do
+                casterRules[id] = heal
+            end
+            -- Dispel, buff and resurrection families that also permit Moonkin.
+            for _, id in ipairs({ 2893, 5232, 5234, 5570, 6756, 8907, 8946, 9884, 9885,
+                21849, 21850, 18960, 193753, 417148, 437138, 473909, 474750,
+                1237948, 1237949, 1237950, 1237951 }) do
+                casterRules[id] = caster
+            end
+            -- Cat/Bear grant utility exceptions; shared IDs keep only common exclusions.
+            local utility = { forms={ [3]=true, [4]=true, [8]=true, [27]=true, [29]=true, [37]=true } }
+            for _, id in ipairs({ 2782, 88423, 440015 }) do casterRules[id] = utility end
+            casterRules[29166] = { forms=utility.forms, procs={ [456325]=false, [1232896]=false } }
+            local revive = { forms={ [1]=true, [3]=true, [4]=true, [5]=true, [8]=true, [27]=true, [29]=true, [31]=true, [37]=true } }
+            casterRules[50769], casterRules[212040] = revive, revive
+            casterRules[102342] = { forms={ [1]=true, [3]=true, [4]=true, [5]=true, [27]=true, [29]=true, [31]=true, [35]=true } }
+            local growth = { forms=heals, procs={ [467206]=false } }
+            for _, id in ipairs({ 48438, 408120, 1238214, 1238215 }) do casterRules[id] = growth end
+            local touch = { forms=heals, procs={ [414800]=false } }
+            for _, id in ipairs({ 5185, 5186, 5187, 5188, 5189, 6778, 8903, 9758, 9888, 9889, 25297, 408247 }) do
+                casterRules[id] = touch
+            end
+            casterRules[8936] = { forms=beasts, procs=castProcs }
+            casterRules[339] = { forms=beasts, talent=202226, procs={ [132158]=132158, [69369]=16974 } }
+            -- Lunar Inspiration permits Cat; Guardian permits Bear independently.
+            local moonfire = { forms=beasts, formTalents={ [1]=155580, [5]=137010, [8]=137010 } }
+            for _, id in ipairs({ 8921, 8924, 8925, 8926, 8927, 8928, 8929, 9833, 9834, 9835, 155625 }) do
+                casterRules[id] = moonfire
+            end
+            local rebirth = { forms={ [1]=true, [3]=true, [4]=true, [8]=true, [27]=true, [29]=true, [37]=true },
+                procs={ [132158]=132158, [145162]=false, [456325]=false, [1232896]=false, [1301005]=false } }
+            for _, id in ipairs({ 20484, 20739, 20742, 20747, 20748 }) do casterRules[id] = rebirth end
+        end
+        return casterRules[sid]
+    end
+
+    local function KnowsProc(sid, talent)
+        if not knownProcs then knownProcs = {} end
+        local v = knownProcs[sid]
+        if v == nil then
+            -- Gear/proc effects need not be in the spellbook; absent IDs do no aura work.
+            local fn
+            if talent then fn = C_SpellBook and C_SpellBook.IsSpellKnown
+            else fn = C_Spell.DoesSpellExist end
+            v = fn and fn(talent or sid)
+            if issecretvalue(v) or type(v) ~= "boolean" then v = UNREAD end
+            knownProcs[sid] = v
+        end
+        return v
+    end
+
+    local function ProcActive(sid)
+        local secrets = C_Secrets
+        if not (secrets and secrets.ShouldAurasBeSecret and secrets.ShouldSpellAuraBeSecret) then return nil end
+        local allSecret, spellSecret = secrets.ShouldAurasBeSecret(), secrets.ShouldSpellAuraBeSecret(sid)
+        if issecretvalue(allSecret) or issecretvalue(spellSecret) or allSecret ~= false or spellSecret ~= false then return nil end
+        if not auraState then auraState = {} end
+        local v = auraState[sid]
+        if v == nil then
+            local AK = EllesmereUI and EllesmereUI.AuraKit
+            local fn = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
+            if not (AK and AK.AurasRestricted and fn) or AK.AurasRestricted() then
+                v = UNREAD
+            else
+                local ok, aura = pcall(fn, sid)
+                if not ok or issecretvalue(aura) or (aura ~= nil and not Readable(aura)) then v = UNREAD
+                else v = aura ~= nil end
+            end
+            auraState[sid] = v
+        end
+        if v ~= UNREAD then return v end
+    end
+
+    function ns.CdmFormNeedsAura(sid)
+        if issecretvalue(sid) or type(sid) ~= "number" or sid <= 0 then return false end
+        if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+            local override = C_SpellBook.FindSpellOverrideByID(sid)
+            if issecretvalue(override) then return false end
+            if type(override) == "number" and override > 0 then sid = override end
+        end
+        local rule = CasterRule(sid)
+        if rule and rule.procs then
+            for aura, talent in pairs(rule.procs) do
+                if KnowsProc(aura, talent) ~= false then return true end
+            end
+        end
+        return false
+    end
+
+    function ns.CdmInvalidateFormAuras()
+        if auraState then wipe(auraState) end
+    end
+
+    function ns.CdmCurrentFormID()
+        local form = GetShapeshiftFormID()
+        if issecretvalue(form) then return nil end
+        if form == nil then return 0 end
+        if type(form) == "number" then return form end
+    end
+
+    local function CasterOutside(rule, form)
+        if not rule.forms[form] then return false end
+        local talent = rule.talent or (rule.formTalents and rule.formTalents[form])
+        if talent and KnowsProc(talent, talent) ~= false then return false end
+        local uncertain = false
+        if rule.procs then
+            for aura, talent in pairs(rule.procs) do
+                local known = KnowsProc(aura, talent)
+                if known == UNREAD then uncertain = true
+                elseif known then
+                    local active = ProcActive(aura)
+                    if active then return false end
+                    if active == nil then uncertain = true end
+                end
+            end
+        end
+        return not uncertain
     end
 
     -- Text test for a line not typed as a shapeshift requirement: it names one
@@ -718,13 +847,17 @@ do
             if not fits then return false end
         end
         local n = GetNumShapeshiftForms()
+        if issecretvalue(n) or type(n) ~= "number" or n <= 0 then return nil end
         if n ~= formCount then
-            formNames, formCount = {}, n
+            local names = {}
             for i = 1, n do
                 local _, _, _, formSid = GetShapeshiftFormInfo(i)
+                if issecretvalue(formSid) or type(formSid) ~= "number" or formSid <= 0 then return nil end
                 local name = formSid and C_Spell.GetSpellName(formSid)
-                if name then formNames[#formNames + 1] = name end
+                if issecretvalue(name) or type(name) ~= "string" or name == "" then return nil end
+                names[#names + 1] = name
             end
+            formNames, formCount = names, n
         end
         for i = 1, #formNames do
             if text:find(formNames[i], 1, true) then return true end
@@ -758,14 +891,15 @@ do
                         unread = true
                     elseif type(text) == "string" then
                         isForm = NamesForm(text, LINE_REQ ~= nil and t == LINE_REQ)
+                        if isForm == nil then unread = true end
                     end
                 end
                 if isForm then
                     local c = line.leftColor
                     if not Readable(c) then return nil end
                     local r, g, b = c.r, c.g, c.b
-                    if r == nil or g == nil or b == nil
-                        or issecretvalue(r) or issecretvalue(g) or issecretvalue(b) then return nil end
+                    if issecretvalue(r) or issecretvalue(g) or issecretvalue(b)
+                        or type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then return nil end
                     return r >= 0.9 and g <= 0.2 and b <= 0.2
                 end
             end
@@ -775,8 +909,22 @@ do
     end
 
     function ns.CdmSpellOutsideForm(sid)
-        local form = GetShapeshiftFormID() or 0
+        if issecretvalue(sid) or type(sid) ~= "number" or sid <= 0 then return false end
+        local form = ns.CdmCurrentFormID()
+        if form == nil then return false end
+        local rule = CasterRule(sid)
+        local casterOutside = rule and CasterOutside(rule, form)
         local row = outside[sid]
+        if rule and rule.procs and rule.forms[form] then
+            -- A real exception edge can change the requirement color in the same form.
+            if row and row.procOutside ~= casterOutside then
+                for key, v in pairs(row) do
+                    if v ~= NO_LINE and v ~= UNREAD then row[key] = nil end
+                end
+            end
+            if not row then row = {}; outside[sid] = row end
+            row.procOutside = casterOutside
+        end
         local v = row and row[form]
         if v == nil then
             if not row then row = {}; outside[sid] = row end
@@ -787,7 +935,10 @@ do
             end
             row[form] = v
         end
-        if v ~= NO_LINE then return v == true end
+        if v ~= NO_LINE and v ~= UNREAD then return v == true end
+        if rule and rule.procs and rule.forms[form] and not casterOutside then return false end
+        if rule then return casterOutside end
+        if v == UNREAD then return false end
         if form == 0 then
             casterOK[sid] = not ns.CdmSpellNotUsable(sid)
             return false
@@ -797,6 +948,10 @@ do
 
     -- A form change or combat end: answers that could not be read are read again
     function ns.CdmRetryUnreadForms()
+        ns.CdmInvalidateFormAuras()
+        if knownProcs then
+            for sid, v in pairs(knownProcs) do if v == UNREAD then knownProcs[sid] = nil end end
+        end
         if unreadN == 0 then return end
         unreadN = 0
         for _, row in pairs(outside) do
@@ -809,6 +964,8 @@ do
     function ns.CdmWipeFormCache()
         wipe(outside)
         wipe(casterOK)
+        if knownProcs then wipe(knownProcs) end
+        ns.CdmInvalidateFormAuras()
         unreadN, formCount = 0, nil
     end
 end
@@ -973,10 +1130,11 @@ end
 do
     local watch = setmetatable({}, { __mode = "k" })  -- icon frame -> true
     local eventFrame, flushFrame
-    local usableOn, formOn = false, false
+    local usableOn, formOn, auraOn = false, false, false
     local flushedForm  -- the form ID the last pass evaluated
 
-    local function SyncEvents(usable, form)
+    local function SyncEvents(usable, form, aura)
+        auraOn = aura == true
         if usable ~= usableOn then
             usableOn = usable
             if usable then eventFrame:RegisterEvent("SPELL_UPDATE_USABLE")
@@ -1003,8 +1161,10 @@ do
 
     local function Flush(self)
         self:Hide()
-        flushedForm = GetShapeshiftFormID() or 0
-        local usable, form = false, false
+        local auraOnly = self.auraOnly
+        self.auraOnly = nil
+        flushedForm = ns.CdmCurrentFormID()
+        local usable, form, aura = false, false, false
         for frame in pairs(watch) do
             local fd = hookFrameData[frame]
             local fc = _ecmeFC[frame]
@@ -1020,19 +1180,27 @@ do
             if m and (m.usable or m.form) then
                 usable = usable or m.usable == true
                 form = form or m.form == true
-                ArmCdStateEval(frame, fd, m.base, m.shift, nil, nil, m.usable, m.form)
+                local needsAura = m.form and ns.CdmFormNeedsAura(sid)
+                aura = aura or needsAura == true
+                if not auraOnly or needsAura then
+                    ArmCdStateEval(frame, fd, m.base, m.shift, nil, nil, m.usable, m.form)
+                end
             else
                 watch[frame] = nil
             end
         end
-        SyncEvents(usable, form)
+        SyncEvents(usable, form, aura)
     end
 
     -- Called wherever the mode is resolved for an icon (SetDesaturated hook,
     -- RefreshCDMIconAppearance); form = the icon runs Hidden Outside
-    -- Form/Stance. One table read once the icon is watched.
+    -- Form/Stance. Exception availability is cached while watched.
     function ns.WatchCdUsable(frame, form)
-        if watch[frame] and ((form and formOn) or (not form and usableOn)) then return end
+        local fc = form and _ecmeFC[frame]
+        local sid = fc and fc.spellID
+        local needsAura = sid and ns.CdmFormNeedsAura(sid)
+        if watch[frame] and ((form and formOn) or (not form and usableOn))
+            and (not needsAura or auraOn) then return end
         watch[frame] = true
         if not eventFrame then
             flushFrame = ns.TakeShell()
@@ -1040,13 +1208,18 @@ do
             flushFrame:SetScript("OnUpdate", Flush)
             eventFrame = ns.TakeShell()
             eventFrame:SetScript("OnEvent", function(_, event)
-                -- UNIT_AURA counts only when the form changed since the last pass
-                if event == "UNIT_AURA" and (GetShapeshiftFormID() or 0) == flushedForm then return end
-                if event ~= "SPELL_UPDATE_USABLE" then ns.CdmRetryUnreadForms() end
+                local auraOnly = event == "UNIT_AURA" and ns.CdmCurrentFormID() == flushedForm
+                if auraOnly and not auraOn then return end
+                if auraOnly then ns.CdmInvalidateFormAuras() end
+                if not auraOnly and event ~= "SPELL_UPDATE_USABLE" then ns.CdmRetryUnreadForms() end
+                -- A queued form/usability edge must retain its full pass.
+                if not flushFrame:IsShown() then flushFrame.auraOnly = auraOnly
+                elseif not auraOnly then flushFrame.auraOnly = false end
                 flushFrame:Show()
             end)
         end
-        SyncEvents(usableOn or not form, formOn or form == true)
+        SyncEvents(usableOn or not form, formOn or form == true,
+            auraOn or needsAura)
     end
 end
 
