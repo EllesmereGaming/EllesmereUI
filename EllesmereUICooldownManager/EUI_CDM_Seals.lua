@@ -51,16 +51,17 @@ local AURA_REFRESH_INTERVAL = 0.2
 -- Picker art while the spell texture is not loaded yet (same fallback the other presets use).
 local FALLBACK_ICON = 134400
 
--- One rank-1 Blizzard spell id per seal (Classic-era data, which Forever reuses). They only
+-- One Blizzard spell id per seal (rank 1 from Classic-era data, which Forever reuses). They only
 -- resolve the localized seal names; every other rank shares its seal's name. To track a
 -- further seal, cast it, run "/euiseals auras" for its id and add it here.
 local SEAL_SPELL_IDS = {
-    20154,  -- Seal of Righteousness
-    21082,  -- Seal of the Crusader
-    20375,  -- Seal of Command
-    20164,  -- Seal of Justice
-    20165,  -- Seal of Light
-    20166,  -- Seal of Wisdom
+    20154,    -- Seal of Righteousness
+    21082,    -- Seal of the Crusader
+    20375,    -- Seal of Command
+    20164,    -- Seal of Justice
+    20165,    -- Seal of Light
+    20166,    -- Seal of Wisdom
+    1311649,  -- Seal of Fury (Forever only; id read from its aura)
 }
 
 -- Events the tracker listens to while a Seals bar exists. The first group is player-scoped.
