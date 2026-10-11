@@ -13,7 +13,7 @@ local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 
 -- WoW Forever runs a reduced module: the Raid Buffs section over that client's
 -- four buffs (EABR.CollectForeverRaidBuffs) and one Forever-only section (the
--- Camp Benefits campfire buff plus custom spell IDs) collected by
+-- Camp Benefits campfire buff, weapon buffs and custom spell IDs) collected by
 -- EABR.CollectForever, with every other retail collector, its events and its
 -- options sections off. Both values live on EABR because this file sits at
 -- Lua's 200-local ceiling; retail reads FOREVER as false at each gate and
@@ -1128,9 +1128,12 @@ do
         for i = 1, select("#", ...) do local v = select(i, ...); if v ~= nil then t[v] = true end end
         return t
     end
-    BLADED_SET = setFrom(W.Axe1H, W.Axe2H, W.Sword1H, W.Sword2H, W.Dagger, W.Polearm, W.Warglaive)
-    BLUNT_SET  = setFrom(W.Mace1H, W.Mace2H, W.Staff, W.Fist)
-    RANGED_SET = setFrom(W.Bow, W.Gun, W.Crossbow, W.Wand)
+    -- Numeric fallbacks are the classic ItemWeaponSubclass values. Forever's
+    -- client may expose only the legacy item-info API rather than the enum.
+    BLADED_SET = setFrom(W.Axe1H or 0, W.Axe2H or 1, W.Sword1H or 7, W.Sword2H or 8,
+        W.Dagger or 15, W.Polearm or 6, W.Warglaive or 9)
+    BLUNT_SET  = setFrom(W.Mace1H or 4, W.Mace2H or 5, W.Staff or 10, W.Fist or 13)
+    RANGED_SET = setFrom(W.Bow or 2, W.Gun or 3, W.Crossbow or 18, W.Wand or 19)
 end
 
 local function GetWeaponCategory(slotID)
@@ -1934,6 +1937,32 @@ local function CachedGetItemCount(itemID)
     return _bagCounts[itemID] or 0
 end
 
+function EABR.HasForeverWeaponBuffItem(weaponType)
+    local items = EABR._foreverWeaponBuffItems
+    if not items then
+        items = {
+            { itemID=2862,  weaponType="BLADED" }, -- Rough Sharpening Stone
+            { itemID=2863,  weaponType="BLADED" }, -- Coarse Sharpening Stone
+            { itemID=2871,  weaponType="BLADED" }, -- Heavy Sharpening Stone
+            { itemID=7964,  weaponType="BLADED" }, -- Solid Sharpening Stone
+            { itemID=12404, weaponType="BLADED" }, -- Dense Sharpening Stone
+            { itemID=18262, weaponType="BLADED" }, -- Elemental Sharpening Stone
+            { itemID=3240,  weaponType="BLUNT" },  -- Rough Weightstone
+            { itemID=3241,  weaponType="BLUNT" },  -- Coarse Weightstone
+            { itemID=3242,  weaponType="BLUNT" },  -- Heavy Weightstone
+            { itemID=7965,  weaponType="BLUNT" },  -- Solid Weightstone
+            { itemID=12643, weaponType="BLUNT" },  -- Dense Weightstone
+        }
+        EABR._foreverWeaponBuffItems = items
+    end
+    for _, item in ipairs(items) do
+        if item.weaponType == weaponType and CachedGetItemCount(item.itemID) > 0 then
+            return true
+        end
+    end
+    return false
+end
+
 -------------------------------------------------------------------------------
 --  Helpers: Find best item in bags for a preferred choice
 -------------------------------------------------------------------------------
@@ -2312,6 +2341,8 @@ if EABR.FOREVER then
     defaults.profile.forever = {
         camp = false,       -- Camp Benefits reminder; opt-in, it shows whenever the buff is missing
         wellFed = false,    -- Well Fed reminder; opt-in, matched by aura name (every food has its own spell ID)
+        weaponBuffs = false,-- Weapon buff reminder; opt-in, checks equipped bladed and blunt weapons
+        weaponBuffRequireItem = false, -- Cog: hide until a compatible sharpening stone or weightstone is in bags
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added
     }
@@ -4293,13 +4324,15 @@ function EABR.BuildForeverFamilies()
 end
 
 -- WoW Forever collector: the Camp Benefits campfire buff, Well Fed (any food
--- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS) and the user's
+-- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS), temporary weapon
+-- buffs and the user's
 -- custom spell IDs, absence only (no expiry thresholds). A custom ID counts as
 -- up while any spell of its rank family is (EABR.ForeverFamily). Entries are
 -- display-only textures carrying the spell for the tooltip; presence goes
 -- through PlayerHasAuraByID, so combat falls back to the pre-pull snapshot
 -- exactly like the Auras section. Camp Benefits and Well Fed are skipped under
--- the aura lock and in PvP. The one-slot id table, the cached families and the
+-- the aura lock and in PvP. Weapon buffs use the temporary-enchant summary API.
+-- The one-slot id table, the cached families and the
 -- dismiss-key memo keep the pass allocation-free.
 function EABR.CollectForever(missing, inInstance, inPvP, restricted)
     local fo = db.profile.forever
@@ -4327,6 +4360,24 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
             e.label = name
             e.cat = "forever"; e.dismissKey = "forever:wellfed"
             missing[#missing+1] = e
+        end
+    end
+    if fo.weaponBuffs and not inPvP then
+        local hasMH, _, _, _, hasOH = EABR.WeaponEnchants()
+        for slot = 16, 17 do
+            local weaponType = GetWeaponCategory(slot)
+            local hasEnchant
+            if slot == 16 then hasEnchant = hasMH else hasEnchant = hasOH end
+            local applicable = weaponType == "BLADED" or weaponType == "BLUNT"
+            if applicable and not hasEnchant
+               and (not fo.weaponBuffRequireItem or EABR.HasForeverWeaponBuffItem(weaponType)) then
+                local e = AcquireEntry()
+                e.mode = "texture"
+                e.texture = GetInventoryItemTexture("player", slot) or 134400
+                e.label = ShortLabel(EllesmereUI.L(slot == 16 and "Main Hand" or "Off Hand"))
+                e.cat = "forever"; e.dismissKey = "forever:weaponbuff:" .. slot
+                missing[#missing+1] = e
+            end
         end
     end
     local custom = fo.customIDs
@@ -6272,10 +6323,11 @@ end
 
 if EABR.FOREVER then
     -- WoW Forever: only what its sections need -- combat edges, zone changes,
-    -- the player's own aura changes, vehicles, the death states, the rested
-    -- state's edges and newly learned spells (a rank joins the custom spells'
-    -- families, a raid buff becomes castable). Raid Buffs adds its group
-    -- events itself (EABR.FvSyncGroupWatch).
+    -- the player's own aura changes, bags, equipped weapons, their temporary
+    -- enchants, vehicles, the death states, the rested state's edges and newly
+    -- learned spells (a rank joins the custom spells' families, a raid buff
+    -- becomes castable). Raid Buffs adds its group events itself
+    -- (EABR.FvSyncGroupWatch).
     mainFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
     mainFrame:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
     mainFrame:RegisterEvent("ENCOUNTER_START")
@@ -6285,6 +6337,9 @@ if EABR.FOREVER then
     mainFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     mainFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     mainFrame:RegisterUnitEvent("UNIT_AURA", "player")
+    mainFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+    mainFrame:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
+    mainFrame:RegisterEvent("WEAPON_ENCHANT_CHANGED")
     mainFrame:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
     mainFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
     mainFrame:RegisterEvent("PLAYER_DEAD")
