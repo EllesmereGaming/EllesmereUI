@@ -259,7 +259,16 @@ ns._ixHookPress = function(btn, fd)
     btn:HookScript("OnMouseDown", ns._ixPressOn)
     btn:HookScript("OnMouseUp", ns._ixPressOff)
     btn:HookScript("OnHide", ns._ixPressOff)
-    if _controllerButtons[btn] then btn:HookScript("OnDragStart", ns._ixPressOff) end
+    if _controllerButtons[btn] then
+        btn:HookScript("OnDragStart", function(self)
+            ns._ixPressOff(self)
+            local fd = EFD(self)
+            if fd and fd.ixOver then
+                fd.ixOver = nil
+                ns._ixPaint(self, fd)
+            end
+        end)
+    end
 end
 
 -- Reads the checked state and paints only when it really changed. A secret
@@ -337,9 +346,21 @@ ns._ixRole = function(btn, s, role, on)
     return false
 end
 
+local function ClearDragHoverState(btn)
+    local fd = EFD(btn)
+    if not fd then return end
+    if fd.ixOver then
+        fd.ixOver = nil
+        ns._ixPaint(btn, fd)
+    end
+    if fd.masqueHighlightTexture then fd.masqueHighlightTexture:SetAlpha(0) end
+    if fd.masquePushedTexture then fd.masquePushedTexture:SetAlpha(0) end
+end
+
 -- Use separate hover and press textures so Masque won't overwrite them on reskin.
 -- HIGHLIGHT handles hover and locked highlights; the press texture follows
--- mouse clicks and EUI's keyboard flash.
+-- mouse clicks and EUI's keyboard flash. Dragging a button can keep a hover
+-- highlight alive without an OnLeave, so clear the hover state on pickup.
 function ns.MasqueInteractionTexture(btn, role)
     local fd = EFD(btn)
     local native = btn[role]
@@ -349,6 +370,12 @@ function ns.MasqueInteractionTexture(btn, role)
         tex = btn:CreateTexture(nil, role == "HighlightTexture" and "HIGHLIGHT" or "OVERLAY", nil, 7)
         tex:SetBlendMode("ADD")
         fd[key] = tex
+        if not fd.masqueDragClearHooked then
+            fd.masqueDragClearHooked = true
+            btn:HookScript("OnDragStart", function(self)
+                ClearDragHoverState(self)
+            end)
+        end
         if role == "PushedTexture" then
             tex:Hide()
             hooksecurefunc(native, "Show", function() tex:Show() end)
