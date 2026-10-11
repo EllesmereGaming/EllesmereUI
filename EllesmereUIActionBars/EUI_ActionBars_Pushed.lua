@@ -346,21 +346,16 @@ ns._ixRole = function(btn, s, role, on)
     return false
 end
 
-local function ClearDragHoverState(btn)
+local function ClearDragPressState(btn)
     local fd = EFD(btn)
     if not fd then return end
-    if fd.ixOver then
-        fd.ixOver = nil
-        ns._ixPaint(btn, fd)
-    end
-    if fd.masqueHighlightTexture then fd.masqueHighlightTexture:SetAlpha(0) end
-    if fd.masquePushedTexture then fd.masquePushedTexture:SetAlpha(0) end
+    if fd.masquePushedTexture then fd.masquePushedTexture:Hide() end
 end
 
 -- Use separate hover and press textures so Masque won't overwrite them on reskin.
 -- HIGHLIGHT handles hover and locked highlights; the press texture follows
--- mouse clicks and EUI's keyboard flash. Dragging a button can keep a hover
--- highlight alive without an OnLeave, so clear the hover state on pickup.
+-- mouse clicks and EUI's keyboard flash. Pickup clears the press overlay;
+-- the HIGHLIGHT layer continues to control hover visibility.
 function ns.MasqueInteractionTexture(btn, role)
     local fd = EFD(btn)
     local native = btn[role]
@@ -373,7 +368,7 @@ function ns.MasqueInteractionTexture(btn, role)
         if not fd.masqueDragClearHooked then
             fd.masqueDragClearHooked = true
             btn:HookScript("OnDragStart", function(self)
-                ClearDragHoverState(self)
+                ClearDragPressState(self)
             end)
         end
         if role == "PushedTexture" then
