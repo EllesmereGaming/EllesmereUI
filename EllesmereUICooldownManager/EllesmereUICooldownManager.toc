@@ -41,6 +41,7 @@ EllesmereUICdmSpellPicker.lua
 EllesmereUICdmBarGlows.lua
 EllesmereUICdmBarGlowConditions.lua
 EllesmereUICdmBuffBars.lua
+EUI_CDM_Seals.lua
 EllesmereUICdmTbbDecimals.lua
 EllesmereUICdmFakeActive.lua
 EllesmereUICdmRPTSync.lua
