@@ -704,6 +704,34 @@ local function UpdateBordersForScale(frame, unit)
         frame.Health:SetPoint("TOPLEFT", frame._barClip, "TOPLEFT", xOff, PP.Scale(-topOff) + clipInset)
         frame.Health:SetPoint("RIGHT", frame._barClip, "RIGHT", -rInset, 0)
         PP.Height(frame.Health, settings.healthHeight)
+
+        -- Resource Bars "Mana Bar while Shapeshifted" Embed (Anchor: Healthbar,
+        -- Position: Inside): carve a strip off the player health bar and dock the
+        -- mana bar into it. Dynamic footprint -- the provider returns nil out of
+        -- form so the health bar reclaims the strip. The provider clamps so health
+        -- stays >= 8px. Player only (the provider gates on unit) and a no-op unless
+        -- the mana bar is embedded. Uses the anchor context (clipInset/xOff/topOff).
+        local _SMA = (unit == "player") and EllesmereUI._ShiftManaAttach
+        if _SMA and _SMA.GetAttachedBar then
+            local pbar, side, ph = _SMA.GetAttachedBar(settings.healthHeight)
+            if pbar and side and ph and ph > 0 then
+                local _ph = PP.Scale(ph)
+                pbar:SetParent(frame._barClip)
+                pbar:ClearAllPoints()
+                if side == "top" then
+                    frame.Health:SetPoint("TOPLEFT", frame._barClip, "TOPLEFT", xOff, PP.Scale(-topOff) + clipInset - _ph)
+                    PP.Height(frame.Health, settings.healthHeight - ph)
+                    pbar:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
+                    pbar:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
+                else
+                    PP.Height(frame.Health, settings.healthHeight - ph)
+                    pbar:SetPoint("TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
+                    pbar:SetPoint("TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
+                end
+                pbar:SetHeight(_ph)
+                _SMA.OnAttached(pbar, side)
+            end
+        end
     end
 
     -- Blizzard Style: the stock geometry is re-asserted over everything above
@@ -857,3 +885,16 @@ I.SlotWidthMul, I.EstimateUFTextWidth, I.ApplyClassColor = SlotWidthMul, Estimat
 I.CreateBottomTextBar, I.ApplyFramePosition = CreateBottomTextBar, ApplyFramePosition
 I.ReparentBarsToClip, I.UpdateBordersForScale = ReparentBarsToClip, UpdateBordersForScale
 I.GetFrameDimensions, I.CreateHealthBar = GetFrameDimensions, CreateHealthBar
+
+-- Lets Resource Bars' "Mana Bar while Shapeshifted" apply/remove its player-frame
+-- embed (the health-strip carve) without a /reload, by re-running the player layout.
+-- UpdateBordersForScale calls PP.Size on the secure player frame, so defer out of
+-- combat the way UnitFrames' own reloads do, instead of blocking on a shapeshift.
+function ns.UF_ReapplyPlayer()
+    if InCombatLockdown() then
+        ns.CombatQueue.Defer("UF_ReapplyPlayer", ns.UF_ReapplyPlayer)
+        return
+    end
+    local f = I.frames and I.frames.player
+    if f then UpdateBordersForScale(f, "player") end
+end
