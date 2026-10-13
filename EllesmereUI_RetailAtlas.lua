@@ -25,8 +25,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  uninterruptible fill come here as they do under Blizzard Style.
 --
 --  Also here: the WoW Forever look's window border (EllesmereUI.
---  ForeverBorder, below), shared by the chat panel, tabs and sidebar plates,
---  the Damage Meters windows, the threat meter and the XP bar's Forever style.
+--  ForeverBorder, below: our shipped flat line, or Blizzard's live art for
+--  the Slim Textured Border Style), shared by the chat panel, tabs and
+--  sidebar plates, the Damage Meters windows, the threat meter, the XP
+--  bar's Forever style and Blizzard Style's square minimap on the Forever
+--  client; its heavy sibling (EllesmereUI.ForeverHeavy: the
+--  bronze frame of WoW Forever's own windows), the Heavy Bronze Border Style
+--  of the chat, the Damage Meters windows and the threat meter (which wears
+--  the Damage Meters windows' style), and the minimap's Forever Square; and
+--  the Border Style a saved value draws on this client
+--  (EllesmereUI.ForeverBorderKind).
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI then return end
@@ -34,50 +42,90 @@ if not EllesmereUI then return end
 -------------------------------------------------------------------------------
 --  Forever border: the bronze line of the micro menu's box on the Forever
 --  client ("UI-HUD-ActionBar-Frame", Forever's art: a 55-unit square sliced
---  24 a side), round any frame of ours. That art is a FILLED box (a 60%
---  black body inside the line), so it is cut from its sheet into a hollow
---  ring of eight pieces drawn at the art's own size (the micro menu box's
---  weight on every frame): four 8.5-unit corners holding the chamfers, and
---  four edges 6 units deep (1.5 clear, the 1.5-unit outer shadow, the
---  2-unit line and 1 unit of its inner shadow) stretched between them. A
---  frame's own body starts at the line's inner edge (FOREVER_BORDER.line
---  in from its outer edge), its square corners hidden in the chamfers'
---  shadow.
---    EllesmereUI.ForeverBorderOK()          the art exists (Forever only)
---    EllesmereUI.ForeverBorder(frame, layer, sub, add)   the pieces, on a
---        frame of ours (add: an additive copy, where only the line shows)
+--  24 a side), round any frame of ours. The art comes from one of two
+--  sources with the same box and geometry:
+--    - shipped (the default): our own copy of that box with a flat, even
+--      bronze line (media\borders\forever-slim.blp, 128 pixels a side, the
+--      box at pixels 1..111 on both axes), always there on the Forever
+--      client
+--    - "textured": Blizzard's live atlas, whatever art the client ships
+--      for it (a weathered line with scratches, a crack and a notch); the
+--      shipped file stands in where the client has no such atlas
+--  That art is a FILLED box (a 60% black body inside the line), so it is
+--  cut from its sheet into a hollow ring drawn at the art's own size (the
+--  micro menu box's weight on every frame): four 12-unit corners, each
+--  holding its whole chamfer up to where the line runs straight again (the
+--  art's own corners, as the action bars draw them), the body inside the
+--  chamfer hidden by a mask (media\borders\forever-slim-mask.tga, built by
+--  .tools\forever-border\make_slim_mask.py); and between them four edges 6
+--  units deep (1.5 clear, the 1.5-unit outer shadow, the 2-unit line and 1
+--  unit of its inner shadow), the depth the mask keeps along the corners'
+--  sides. Each edge is one piece stretched between its corners, as
+--  Blizzard's own frame stretches this art: the shipped art's from the
+--  middle of its side, the live art's from a stretch of its side clear of
+--  its marks (the crack, the notch and the dark scratches; its sides are
+--  also lit on a slope, so a repeated stretch would step at every repeat).
+--  The ring's box is a frame of ours: whenever it changes size, a box too
+--  small for two corners on an axis cuts them at its middle and drops the
+--  edges between them. A frame's own body starts FOREVER_BORDER.fill in
+--  from the line's outer edge (under the line's inner shadow), its square
+--  corners inside the chamfers.
+--    EllesmereUI.ForeverBorderOK()          the ring can be drawn (Forever
+--        only; ForeverBorderKind("textured") reads "textured" only while
+--        the live art exists)
+--    EllesmereUI.ForeverBorder(frame, layer, sub, add, src)   the pieces,
+--        on a frame of ours (add: an additive copy, where only the line
+--        shows: its black body adds nothing, so its corners take no mask;
+--        src "textured": Blizzard's live art, anything else the shipped
+--        file)
 --    EllesmereUI.ForeverBorderSeat(ring, rel, tp, x1, y1, x2, y2)   the
 --        line's OUTER edge: top-left off rel's point tp (TOPLEFT when nil),
 --        bottom-right off rel's BOTTOMRIGHT
 --    EllesmereUI.ForeverBorderPaint(ring, r, g, b, a, desat)
 --    EllesmereUI.ForeverBorderShown(ring, shown)
---    EllesmereUI.ForeverBorderFit(ring, w, h)   a box too small for the
---        corner pieces (a thin bar) drops the edge pieces between them
+--    EllesmereUI.ForeverBorderDivider(frame, layer, sub)   one straight
+--        piece of the shipped line, for a box split in two under one ring
 --  Callers build a ring once per frame; a repaint is colour or shown only.
 -------------------------------------------------------------------------------
 local RING_ATLAS = "UI-HUD-ActionBar-Frame"
+-- The shipped art: its file and its box's edges as texcoords (the same on
+-- both axes).
+local RING_FILE = "Interface\\AddOns\\EllesmereUI\\media\\borders\\forever-slim.blp"
+local RING_LO, RING_HI = 1 / 128, 111 / 128
+-- The corners' mask: a square two corners a side holding all four, one a
+-- quadrant, so each corner's mask is that square hung from the ring box's
+-- matching corner (a mask ignores texcoords: one corner could not be
+-- turned into the others).
+local RING_MASK = "Interface\\AddOns\\EllesmereUI\\media\\borders\\forever-slim-mask.tga"
 -- In the art's units (55 a side): the line's outer edge RM in from the
--- art's edge, the corner pieces RC square, the edge pieces RD deep. The
--- edges sample the art from RE in to RE from its far side: the span next
--- to each corner still holds the chamfer's tail (bronze under the line)
--- and the fade of its inner shadow, so only the even middle is stretched.
-local RS, RM, RC, RD, RE = 55, 3, 8.5, 6, 12
+-- art's edge, the corner pieces RC square (the chamfer, its tail under the
+-- line and the fade of its inner shadow all end inside it), the edge pieces
+-- RD deep. The shipped art's edges sample its middle, from RC in to RC from
+-- its far side (the live art's sample LIVE_RUN below instead).
+local RS, RM, RC, RD = 55, 3, 12, 6
 EllesmereUI.FOREVER_BORDER = {
     line   = 2,         -- the line's thickness
     outer  = 1.5,       -- its outer shadow's reach past the line
     shade  = RD - RM,   -- the edges' reach inside the line's outer edge
     corner = RC - RM,   -- the corners' reach inside it (the chamfers)
+    -- A body's inset from the line's outer edge: the chamfer's bronze cuts
+    -- 5 units deep, so a square body corner any further out shows past it.
+    fill   = 2.75,
 }
--- Each piece as fractions of the art box (u1, u2, v1, v2) and its anchors
--- on the ring's box (point, x, y, and a second point for an edge): the
--- corners TL, TR, BL, BR, then the top, bottom, left and right edges.
-local RING_CUT, RING_AT
+-- Per edge (top, bottom, left, right), the stretch of the live art's side
+-- it draws, in the art's units along that side: clear of the dark scratches
+-- near the top and bottom corners, the crack high on the left side and the
+-- notch low on the right, ends included, since a mark at an end would smear
+-- along the whole edge (measured on Blizzard's art of build 70291 on).
+local LIVE_RUN = { [5] = { 16, 39 }, [6] = { 16, 40 }, [7] = { 19, 43 }, [8] = { 12, 36 } }
+-- Each piece's anchors on the ring's box (point, x, y, and a second point
+-- for an edge): the corners TL, TR, BL, BR (their size and cut set by
+-- CutCorners), then the top, bottom, left and right edges, each with its
+-- cut as fractions of the art box (u1, u2, v1, v2), the shipped art's
+-- (RING_CUT) or the live art's (LIVE_CUT).
+local RING_AT, RING_CUT, LIVE_CUT
 do
-    local c, d, e = RC / RS, RD / RS, RE / RS
-    RING_CUT = {
-        { 0, c, 0, c }, { 1 - c, 1, 0, c }, { 0, c, 1 - c, 1 }, { 1 - c, 1, 1 - c, 1 },
-        { e, 1 - e, 0, d }, { e, 1 - e, 1 - d, 1 }, { 0, d, e, 1 - e }, { 1 - d, 1, e, 1 - e },
-    }
+    local c, d = RC / RS, RD / RS
     RING_AT = {
         { "TOPLEFT", 0, 0 }, { "TOPRIGHT", 0, 0 }, { "BOTTOMLEFT", 0, 0 }, { "BOTTOMRIGHT", 0, 0 },
         { "TOPLEFT", RC, 0, "TOPRIGHT", -RC, 0 },
@@ -85,47 +133,120 @@ do
         { "TOPLEFT", 0, -RC, "BOTTOMLEFT", 0, RC },
         { "TOPRIGHT", 0, -RC, "BOTTOMRIGHT", 0, RC },
     }
-end
-
--- The art's atlas info, probed once (false: not the Forever client, or the
--- art is missing).
-local ringInfo
-local function RingInfo()
-    if ringInfo == nil then
-        ringInfo = EllesmereUI.IS_FOREVER == true and C_Texture.GetAtlasInfo(RING_ATLAS) or false
+    RING_CUT = {
+        [5] = { c, 1 - c, 0, d }, [6] = { c, 1 - c, 1 - d, 1 },
+        [7] = { 0, d, c, 1 - c }, [8] = { 1 - d, 1, c, 1 - c },
+    }
+    LIVE_CUT = {}
+    for i = 5, 8 do
+        local cut, a, b = RING_CUT[i], LIVE_RUN[i][1] / RS, LIVE_RUN[i][2] / RS
+        LIVE_CUT[i] = i <= 6 and { a, b, cut[3], cut[4] } or { cut[1], cut[2], a, b }
     end
-    return ringInfo
+end
+local EPS, min = 0.01, math.min   -- an edge needs more than EPS of room
+
+-- Blizzard's live atlas info, probed once (false: not the Forever client, or
+-- the atlas is missing).
+local liveInfo
+local function LiveInfo()
+    if liveInfo == nil then
+        liveInfo = EllesmereUI.IS_FOREVER == true and C_Texture.GetAtlasInfo(RING_ATLAS) or false
+    end
+    return liveInfo
 end
 
+-- The shipped art makes the ring drawable on every Forever client.
 function EllesmereUI.ForeverBorderOK()
-    return RingInfo() and true or false
+    return EllesmereUI.IS_FOREVER == true
 end
 
--- The eight pieces on `frame` (a frame of ours), seated by ForeverBorderSeat
--- through an empty texture that holds the art's rect. Nil without the art.
-function EllesmereUI.ForeverBorder(frame, layer, sub, add)
-    local info = RingInfo()
-    if not info then return nil end
-    local file = info.file or info.filename
-    local L, T = info.leftTexCoord, info.topTexCoord
-    local W, H = info.rightTexCoord - L, info.bottomTexCoord - T
-    local box = frame:CreateTexture()
-    local ring = { box = box }
+-- The corners cw x ch units: each the art's own corner, all of it (RC) or,
+-- in a box too small for two, the part up to the box's middle (its mask
+-- stays hung from the box's corner, so the cut keeps its shape).
+local function CutCorners(ring, cw, ch)
+    local L, T, W, H = ring.L, ring.T, ring.W, ring.H
+    local u, v = cw / RS, ch / RS
+    for i = 1, 4 do
+        local u1 = (i == 2 or i == 4) and 1 - u or 0
+        local v1 = i >= 3 and 1 - v or 0
+        local t = ring[i]
+        t:SetSize(cw, ch)
+        t:SetTexCoord(L + W * u1, L + W * (u1 + u), T + H * v1, T + H * (v1 + v))
+    end
+    ring.cw, ring.ch = cw, ch
+end
+
+-- Each piece shown while the ring is on and its box has taken a size: the
+-- corners always, an edge only with room between its corners.
+local function RingShow(ring)
+    local on = ring.on and ring.sized
+    for i = 1, 4 do ring[i]:SetShown(on) end
+    local x, y = on and ring.roomX, on and ring.roomY
+    ring[5]:SetShown(x); ring[6]:SetShown(x)
+    ring[7]:SetShown(y); ring[8]:SetShown(y)
+end
+
+-- The box's OnSizeChanged (w x h: the art's rect, RM past the line's outer
+-- edge): the corners cut again only when their size changes (a box too
+-- small for two), and the pieces shown again only when an edge's room
+-- changes.
+local function RingLayout(box, w, h)
+    local ring = box._fvRing
+    local cw, ch = min(RC, w / 2), min(RC, h / 2)
+    if cw ~= ring.cw or ch ~= ring.ch then CutCorners(ring, cw, ch) end
+    local roomX, roomY = w - 2 * RC > EPS, h - 2 * RC > EPS
+    if ring.sized and roomX == ring.roomX and roomY == ring.roomY then return end
+    ring.roomX, ring.roomY, ring.sized = roomX, roomY, true
+    RingShow(ring)
+end
+
+-- The ring on `frame` (a frame of ours), seated by ForeverBorderSeat through
+-- a box (a frame of ours, laid out by RingLayout) that holds the art's rect:
+-- from the shipped file, or with src "textured" from Blizzard's live atlas
+-- (the shipped file where the client has none), the corners, each masked
+-- unless additive, and the edges. Every piece stays hidden until the box
+-- first takes a size. Nil off the Forever client.
+function EllesmereUI.ForeverBorder(frame, layer, sub, add, src)
+    if EllesmereUI.IS_FOREVER ~= true then return nil end
+    local file, L, T, R, B = RING_FILE, RING_LO, RING_LO, RING_HI, RING_HI
+    local cuts = RING_CUT
+    local info = src == "textured" and LiveInfo()
+    if info then
+        file = info.file or info.filename
+        L, T, R, B = info.leftTexCoord, info.topTexCoord, info.rightTexCoord, info.bottomTexCoord
+        cuts = LIVE_CUT
+    end
+    local W, H = R - L, B - T
+    layer, sub = layer or "ARTWORK", sub or 0
+    local box = CreateFrame("Frame", nil, frame)
+    local ring = { box = box, on = true, L = L, T = T, W = W, H = H }
     for i = 1, 8 do
-        local t = frame:CreateTexture(nil, layer or "ARTWORK", nil, sub or 0)
+        local t = frame:CreateTexture(nil, layer, nil, sub)
         t:SetTexture(file)
-        local cut, at = RING_CUT[i], RING_AT[i]
-        t:SetTexCoord(L + W * cut[1], L + W * cut[2], T + H * cut[3], T + H * cut[4])
         if add then t:SetBlendMode("ADD") end
+        local at = RING_AT[i]
         t:SetPoint(at[1], box, at[1], at[2], at[3])
         if at[4] then
+            local cut = cuts[i]
+            t:SetTexCoord(L + W * cut[1], L + W * cut[2], T + H * cut[3], T + H * cut[4])
             t:SetPoint(at[4], box, at[4], at[5], at[6])
             if i <= 6 then t:SetHeight(RD) else t:SetWidth(RD) end
-        else
-            t:SetSize(RC, RC)
         end
+        t:Hide()
         ring[i] = t
     end
+    CutCorners(ring, RC, RC)
+    if not add then
+        for i = 1, 4 do
+            local m, p = frame:CreateMaskTexture(), RING_AT[i][1]
+            m:SetTexture(RING_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            m:SetSize(2 * RC, 2 * RC)
+            m:SetPoint(p, box, p)
+            ring[i]:AddMaskTexture(m)
+        end
+    end
+    box._fvRing = ring
+    box:SetScript("OnSizeChanged", RingLayout)
     return ring
 end
 
@@ -147,20 +268,271 @@ function EllesmereUI.ForeverBorderPaint(ring, r, g, b, a, desat)
     end
 end
 
+-- Shown or hidden as a whole; an edge without room stays hidden either way
+-- (RingShow).
 function EllesmereUI.ForeverBorderShown(ring, shown)
-    shown = shown and true or false
-    for i = 1, 8 do ring[i]:SetShown(shown) end
+    ring.on = shown and true or false
+    RingShow(ring)
 end
 
--- A ring round a box (w x h at the line's outer edge) shorter or narrower
--- than its two corner pieces: the side or top and bottom edge pieces, which
--- would span a negative length there, hide and the overlapping corners draw
--- the line alone.
-function EllesmereUI.ForeverBorderFit(ring, w, h)
-    local span = 2 * (RC - RM)
-    local wide, tall = w >= span, h >= span
-    ring[5]:SetShown(wide); ring[6]:SetShown(wide)
-    ring[7]:SetShown(tall); ring[8]:SetShown(tall)
+-- A divider in the shipped line on `frame` (a frame of ours): the top edge's
+-- straight middle, RD deep (its clear margin, outer shadow, the line and its
+-- inner shadow, top to bottom), so the line runs 1 to 3 units above the
+-- piece's bottom. The caller anchors both ends and the bottom. Nil off the
+-- Forever client.
+function EllesmereUI.ForeverBorderDivider(frame, layer, sub)
+    if EllesmereUI.IS_FOREVER ~= true then return nil end
+    local t = frame:CreateTexture(nil, layer or "ARTWORK", nil, sub or 0)
+    t:SetTexture(RING_FILE)
+    local cut, W = RING_CUT[5], RING_HI - RING_LO
+    t:SetTexCoord(RING_LO + W * cut[1], RING_LO + W * cut[2], RING_LO + W * cut[3], RING_LO + W * cut[4])
+    t:SetHeight(RD)
+    return t
+end
+
+-------------------------------------------------------------------------------
+--  Forever window frame: the bronze rim of WoW Forever's own windows (the
+--  UI-Frame-Metal nine-slice, which that client draws with its "-c60" art:
+--  four corners and four edge strips made to repeat seamlessly, a soft drop
+--  shadow outside the rim and a dark line inside it), the Heavy Bronze
+--  Border Style beside the line above: a module draws one or the other by
+--  its setting. Our own pieces on a frame of ours, at an art scale per
+--  surface (FOREVER_HEAVY.k for a window; less for a tab or a button). The
+--  art's top pieces also carry a window title bar under the rim: they are
+--  cut to the rim, or below the bar where a surface asks for it
+--  (ForeverHeavyTitle). Each edge strip is one texture repeating along its
+--  length. The box between the pieces is a frame of ours: its
+--  OnSizeChanged crops the corners where the box is too small for two (no
+--  doubled shadow, nothing past the far corner), cuts the bottom corners
+--  under the top ones and shows an edge strip only where there is room.
+--  FOREVER_HEAVY is in art units (a frame at scale k draws k UI units
+--  each): the outer shadow's reach, the rim with its dark line, a body's
+--  inset from the rim's outer edge, and the rim with its inner shadow.
+--    EllesmereUI.ForeverHeavyOK()           the art exists (Forever only)
+--    EllesmereUI.ForeverHeavy(frame, layer, sub, add)   the frame on `frame`
+--        (a frame of ours, its scale set first; add: the copper copy, for a
+--        highlight)
+--    EllesmereUI.ForeverHeavySeat(ring, rel, tp, x1, y1, x2, y2)   the
+--        rim's OUTER edge in the units of the frame's parent: top-left off
+--        rel's point tp (TOPLEFT when nil), bottom-right off rel's BOTTOMRIGHT
+--    EllesmereUI.ForeverHeavyFill(ring, tex, rel, tp, x1, y1, x2, y2)   a
+--        body under the rim (`tex`, a region on the ring's frame) from
+--        FOREVER_HEAVY.fill inside the edge ForeverHeavySeat places
+--    EllesmereUI.ForeverHeavyPaint(ring, r, g, b, a, desat)
+--    EllesmereUI.ForeverHeavyShown(ring, shown)
+--    EllesmereUI.ForeverHeavyFit(ring, w, h)   a box (w x h at the rim's
+--        outer edge) too small for the rim on both sides hides it
+--    EllesmereUI.ForeverHeavyTitle(ring, on)   keeps the title bar under the
+--        top rim (FOREVER_HEAVY.title: its band and divider below the rim's
+--        outer edge; the bar's drop shadow falls on the box below it)
+--  Callers build a frame once per surface; a repaint is colour or shown only.
+-------------------------------------------------------------------------------
+local HEAVY_ART = {
+    tl = "UI-Frame-Metal-CornerTopLeft", tr = "UI-Frame-Metal-CornerTopRight",
+    bl = "UI-Frame-Metal-CornerBottomLeft", br = "UI-Frame-Metal-CornerBottomRight",
+    te = "_UI-Frame-Metal-EdgeTop", be = "_UI-Frame-Metal-EdgeBottom",
+    le = "!UI-Frame-Metal-EdgeLeft", re = "!UI-Frame-Metal-EdgeRight",
+}
+-- Measured on WoW Forever's art (art units): the rim's outer edge in from
+-- the pieces' left, right, top and bottom sides (the outer shadow beyond it,
+-- a deeper drop shadow below), the depth the top pieces keep (the rim and
+-- its dark line; their title bar lies below), and their depth with the
+-- title bar (its dark band, the bronze divider and the divider's drop
+-- shadow; the side rims below it match the edge strips).
+local HML, HMR, HMT, HMB, HTOP, HTITLE = 12.5, 2.5, 13, 7.5, 19, 43
+EllesmereUI.FOREVER_HEAVY = {
+    k      = 1,         -- a window's art scale (the art's own size)
+    margin = 2,         -- the outer shadow's reach past the rim (a drop shadow below it)
+    band   = 6,         -- the rim and its dark line
+    -- A body's inset from the rim's outer edge: under the rim, its square
+    -- corners inside the rim's 5.5-unit corner cuts.
+    fill   = 3,
+    shade  = 8,         -- the rim, its dark line and its inner shadow
+    lift   = { 1, 0.75, 0.45, 0.6 },   -- the copper copy's tint and alpha
+    -- The title bar (ForeverHeavyTitle), down from the rim's outer edge: its
+    -- dark band from `band` to `bandEnd`, the divider's solid bottom at
+    -- `bottom`, its drop shadow fading out by HTITLE - HMT.
+    title  = { band = 6, bandEnd = 23, bottom = 27.5 },
+}
+
+-- Each piece's atlas info, probed once (false: not the Forever client, or a
+-- piece is missing).
+local heavyInfo
+local function HeavyInfo()
+    if heavyInfo == nil then
+        heavyInfo = false
+        if EllesmereUI.IS_FOREVER == true then
+            local info = {}
+            for key, name in pairs(HEAVY_ART) do
+                info[key] = C_Texture.GetAtlasInfo(name)
+                if not info[key] then return false end
+            end
+            heavyInfo = info
+        end
+    end
+    return heavyInfo
+end
+
+function EllesmereUI.ForeverHeavyOK()
+    return HeavyInfo() and true or false
+end
+
+-- A piece's texcoords: fractions u1..u2, v1..v2 of its atlas box.
+local function HeavyCut(t, info, u1, u2, v1, v2)
+    local L, T = info.leftTexCoord, info.topTexCoord
+    local W, H = info.rightTexCoord - L, info.bottomTexCoord - T
+    t:SetTexCoord(L + W * u1, L + W * u2, T + H * v1, T + H * v2)
+end
+
+-- Each piece shown while the frame is on, fits, has taken a size and (an
+-- edge strip) has room between its corners.
+local function HeavyShow(ring)
+    local p = ring.p
+    local on = ring.on and ring.fit and ring.sized
+    p.tl:SetShown(on); p.tr:SetShown(on); p.bl:SetShown(on); p.br:SetShown(on)
+    p.te:SetShown(on and ring.roomX); p.be:SetShown(on and ring.roomX)
+    p.le:SetShown(on and ring.roomY); p.re:SetShown(on and ring.roomY)
+end
+
+-- The box's OnSizeChanged (w x h: the rim's outer edge): each corner cut at
+-- the box's middle where two would overlap, the top pieces cut at the rim or
+-- below the title bar (ring.top), the bottom corners no taller than the room
+-- under the top ones, and each edge strip repeating (texture wrap, one
+-- repeat per atlas length) over the room left between its corners.
+local function HeavyLayout(box, w, h)
+    local ring = box._fvHeavy
+    local I, p = heavyInfo, ring.p
+    local top = ring.top
+    local cw, th, bh0 = I.tl.width, I.tl.height, I.bl.height
+    local cl = min(cw, w / 2 + HML)
+    local cr = min(cw, w / 2 + HMR)
+    local bh = min(bh0, h + HMT + HMB - top)
+    local gx = w + HML + HMR - cl - cr
+    local gy = h + HMT + HMB - top - bh
+    p.tl:SetSize(cl, top); HeavyCut(p.tl, I.tl, 0, cl / cw, 0, top / th)
+    p.tr:SetSize(cr, top); HeavyCut(p.tr, I.tr, 1 - cr / cw, 1, 0, top / th)
+    p.bl:SetSize(cl, bh);   HeavyCut(p.bl, I.bl, 0, cl / cw, 1 - bh / bh0, 1)
+    p.br:SetSize(cr, bh);   HeavyCut(p.br, I.br, 1 - cr / cw, 1, 1 - bh / bh0, 1)
+    local te, be, le, re = I.te, I.be, I.le, I.re
+    p.te:SetHeight(top)
+    p.te:SetTexCoord(0, gx / te.width, te.topTexCoord,
+        te.topTexCoord + (te.bottomTexCoord - te.topTexCoord) * top / te.height)
+    p.be:SetHeight(bh)
+    p.be:SetTexCoord(0, gx / be.width,
+        be.bottomTexCoord - (be.bottomTexCoord - be.topTexCoord) * bh / be.height, be.bottomTexCoord)
+    p.le:SetWidth(cl)
+    p.le:SetTexCoord(le.leftTexCoord,
+        le.leftTexCoord + (le.rightTexCoord - le.leftTexCoord) * cl / le.width, 0, gy / le.height)
+    p.re:SetWidth(cr)
+    p.re:SetTexCoord(re.rightTexCoord - (re.rightTexCoord - re.leftTexCoord) * cr / re.width,
+        re.rightTexCoord, 0, gy / re.height)
+    ring.roomX, ring.roomY, ring.sized = gx > EPS, gy > EPS, true
+    HeavyShow(ring)
+end
+
+-- The frame on `frame` (a frame of ours drawn at the art's scale), seated by
+-- ForeverHeavySeat; its pieces stay hidden until the box first takes a size.
+-- Nil without the art.
+function EllesmereUI.ForeverHeavy(frame, layer, sub, add)
+    local I = HeavyInfo()
+    if not I then return nil end
+    local box = CreateFrame("Frame", nil, frame)
+    local ring = { box = box, k = frame:GetScale(), p = {}, on = true, fit = true, top = HTOP }
+    local p = ring.p
+    for key, info in pairs(I) do
+        local t = frame:CreateTexture(nil, layer or "ARTWORK", nil, sub or 0)
+        local along = (key == "te" or key == "be") and "h" or (key == "le" or key == "re") and "v" or nil
+        t:SetTexture(info.file or info.filename, along == "h" and "REPEAT" or "CLAMP",
+            along == "v" and "REPEAT" or "CLAMP")
+        -- Unsharpened, as Blizzard draws this layout (scaled art, no shimmer).
+        t:SetTexelSnappingBias(0)
+        t:SetSnapToPixelGrid(false)
+        if add then
+            local l = EllesmereUI.FOREVER_HEAVY.lift
+            t:SetBlendMode("ADD")
+            t:SetVertexColor(l[1], l[2], l[3], l[4])
+        end
+        t:Hide()
+        p[key] = t
+    end
+    p.tl:SetPoint("TOPLEFT", box, "TOPLEFT", -HML, HMT)
+    p.tr:SetPoint("TOPRIGHT", box, "TOPRIGHT", HMR, HMT)
+    p.bl:SetPoint("BOTTOMLEFT", box, "BOTTOMLEFT", -HML, -HMB)
+    p.br:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", HMR, -HMB)
+    p.te:SetPoint("TOPLEFT", p.tl, "TOPRIGHT"); p.te:SetPoint("TOPRIGHT", p.tr, "TOPLEFT")
+    p.be:SetPoint("BOTTOMLEFT", p.bl, "BOTTOMRIGHT"); p.be:SetPoint("BOTTOMRIGHT", p.br, "BOTTOMLEFT")
+    p.le:SetPoint("TOPLEFT", p.tl, "BOTTOMLEFT"); p.le:SetPoint("BOTTOMLEFT", p.bl, "TOPLEFT")
+    p.re:SetPoint("TOPRIGHT", p.tr, "BOTTOMRIGHT"); p.re:SetPoint("BOTTOMRIGHT", p.br, "TOPRIGHT")
+    box._fvHeavy = ring
+    box:SetScript("OnSizeChanged", HeavyLayout)
+    return ring
+end
+
+-- The rim's outer edge (the pieces reach past it by the art's margins).
+function EllesmereUI.ForeverHeavySeat(ring, rel, tp, x1, y1, x2, y2)
+    local box, k = ring.box, ring.k
+    box:ClearAllPoints()
+    box:SetPoint("TOPLEFT", rel, tp or "TOPLEFT", (x1 or 0) / k, (y1 or 0) / k)
+    box:SetPoint("BOTTOMRIGHT", rel, "BOTTOMRIGHT", (x2 or 0) / k, (y2 or 0) / k)
+end
+
+-- A body under the rim: `tex` (a region on the ring's frame) from
+-- FOREVER_HEAVY.fill (art units) inside the rim's outer edge, that edge
+-- given as ForeverHeavySeat takes it.
+function EllesmereUI.ForeverHeavyFill(ring, tex, rel, tp, x1, y1, x2, y2)
+    local k, f = ring.k, EllesmereUI.FOREVER_HEAVY.fill
+    tex:ClearAllPoints()
+    tex:SetPoint("TOPLEFT", rel, tp or "TOPLEFT", (x1 or 0) / k + f, (y1 or 0) / k - f)
+    tex:SetPoint("BOTTOMRIGHT", rel, "BOTTOMRIGHT", (x2 or 0) / k - f, (y2 or 0) / k + f)
+end
+
+function EllesmereUI.ForeverHeavyPaint(ring, r, g, b, a, desat)
+    desat = desat and true or false
+    for _, t in pairs(ring.p) do
+        t:SetVertexColor(r, g, b, a or 1)
+        t:SetDesaturated(desat)
+    end
+end
+
+function EllesmereUI.ForeverHeavyShown(ring, shown)
+    ring.on = shown and true or false
+    HeavyShow(ring)
+end
+
+-- A box (w x h at the rim's outer edge, in the frame's parent's units) that
+-- cannot hold the rim on both sides shows no frame.
+function EllesmereUI.ForeverHeavyFit(ring, w, h)
+    local span = 2 * EllesmereUI.FOREVER_HEAVY.band * ring.k
+    ring.fit = w >= span and h >= span
+    HeavyShow(ring)
+end
+
+-- The top pieces cut below the window title bar they carry (on) or at the
+-- rim (off); a box already sized is laid out again at once.
+function EllesmereUI.ForeverHeavyTitle(ring, on)
+    local top = on and HTITLE or HTOP
+    if ring.top == top then return end
+    ring.top = top
+    if ring.sized then
+        local box = ring.box
+        HeavyLayout(box, box:GetWidth(), box:GetHeight())
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Border Style: what a module's saved Border Style value draws on this
+--  client, for the module to latch with its look. "heavy" (Heavy Bronze,
+--  ForeverHeavy) and "textured" (Slim Textured, ForeverBorder's live art)
+--  while their art exists, an unset value reading as Slim Textured (the
+--  default: a stored profile keeps no default values); "slim", or either kind
+--  without its art, reads "slim" (ForeverBorder's shipped line). Nil off the
+--  Forever client.
+-------------------------------------------------------------------------------
+function EllesmereUI.ForeverBorderKind(v)
+    if EllesmereUI.IS_FOREVER ~= true then return nil end
+    if v == "heavy" and HeavyInfo() then return "heavy" end
+    if (v == nil or v == "textured") and LiveInfo() then return "textured" end
+    return "slim"
 end
 
 if not EllesmereUI.IS_FOREVER then

@@ -15,6 +15,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
     local env = ns._NPO_OptEnv
     local DB, DBVal, defaults, FOCUS_LETTER_ANCHOR_ORDER = env.DB, env.DBVal, env.defaults, env.FOCUS_LETTER_ANCHOR_ORDER
     local FOCUS_LETTER_ANCHORS, GetFocusLetterAnchor, GetNPOptOutline, npDispelGlowDesc = env.FOCUS_LETTER_ANCHORS, env.GetFocusLetterAnchor, env.GetNPOptOutline, env.npDispelGlowDesc
+    local npPandemicGlowDesc = env.npPandemicGlowDesc
     local pairs, pcall, plates, PP = env.pairs, env.pcall, env.plates, env.PP
     local RefreshAllAuras, RefreshAllPlates, SECTION_AURA, SECTION_ENEMY_NP = env.RefreshAllAuras, env.RefreshAllPlates, env.SECTION_AURA, env.SECTION_ENEMY_NP
     local SECTION_FRIENDLY, SECTION_MISC, UpdatePreview = env.SECTION_FRIENDLY, env.SECTION_MISC, env.UpdatePreview
@@ -563,8 +564,8 @@ local function BuildGeneralPage(pageName, parent, yOffset)
           end,
           tooltip="Increases the clickable hitbox height of enemy nameplates. 100% = matches bar height. Increase to make nameplates easier to click." });  y = y - h
 
-    -- Eyeball toggle on Hitbox Size X: translucent overlay on real enemy nameplates marking the clickable area, for visual slider tuning; runtime-only, auto-hides when the panel closes.
-    do
+    -- Eyeball toggle on Hitbox Size X: translucent overlay on real enemy nameplates marking the clickable area, for visual slider tuning; runtime-only, auto-hides when the panel closes. None in the search pre-build: it indexes nothing, and the row is a stand-in there.
+    if not EllesmereUI._prebuilding then
         local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
         local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
         local leftRgn = hitboxRow._leftRegion
@@ -600,6 +601,52 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                     ns.SetHitboxOverlayShown(false)
                 end
             end)
+        end
+    end
+
+    -- Stacking Speed | Top Screen Inset: CVars Blizzard restored in 12.1.5,
+    -- so each slider exists only on a client that has its CVar. Pure CVar
+    -- passthrough like Line of Sight Opacity: nothing stored, nothing written
+    -- until a slider moves. Speed reads as a percent of the client's own
+    -- default; the inset as a percent of the screen's height (raw values if
+    -- the client's default is not a fraction).
+    do
+        local function CVarDefault(name) return tonumber(C_CVar.GetCVarDefault(name)) end
+        local cvarRows = {}
+        if C_CVar.GetCVarInfo("nameplateMotionSpeed") then
+            cvarRows[#cvarRows + 1] = { type="slider", text="Stacking Speed",
+                min=25, max=400, step=5,
+                getValue=function()
+                    local def, cur = CVarDefault("nameplateMotionSpeed"), tonumber(GetCVar("nameplateMotionSpeed"))
+                    if not (def and def > 0 and cur) then return 100 end
+                    return math.floor(cur / def * 100 + 0.5)
+                end,
+                setValue=function(v)
+                    if InCombatLockdown() then return end
+                    local def = CVarDefault("nameplateMotionSpeed")
+                    if not (def and def > 0) then return end
+                    EllesmereUI.SetCVar("nameplateMotionSpeed", def * v / 100, "EllesmereUINameplates")
+                end,
+                tooltip="How fast stacked nameplates slide into place. 100% is Blizzard's default." }
+        end
+        if C_CVar.GetCVarInfo("nameplateTopInset") then
+            local def = CVarDefault("nameplateTopInset")
+            local frac = not def or def <= 1
+            cvarRows[#cvarRows + 1] = { type="slider", text="Top Screen Inset",
+                min=0, max=frac and 50 or math.max(100, math.ceil((def or 0) * 4)), step=1,
+                getValue=function()
+                    local cur = tonumber(GetCVar("nameplateTopInset")) or 0
+                    if frac then return math.floor(cur * 100 + 0.5) end
+                    return cur
+                end,
+                setValue=function(v)
+                    if InCombatLockdown() then return end
+                    EllesmereUI.SetCVar("nameplateTopInset", frac and v / 100 or v, "EllesmereUINameplates")
+                end,
+                tooltip="How far from the top of the screen nameplates stop. 0 lets them reach the edge." }
+        end
+        for i = 1, #cvarRows, 2 do
+            _, h = W:DualRow(parent, y, cvarRows[i], cvarRows[i + 1] or EllesmereUI.BlankRowCfg());  y = y - h
         end
     end
 
@@ -650,8 +697,62 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
           end });  y = y - h
 
-    -- --- Dispellable Buff Glow ----------------------------------------
     local GO = EllesmereUI.GlowOptions
+
+    -- --- Pandemic Glow -------------------------------------------------
+    -- Style with its color swatches and cog, the preview in the right half.
+    local panDesc = npPandemicGlowDesc
+    local panRow
+    panRow, h = W:DualRow(parent, y,
+        GO.DropdownSpec(panDesc, "Pandemic Glow Style",
+            "Show a glow on your debuffs while they can be refreshed without losing any duration."),
+        { type="label", text="Pandemic Glow Preview" });  y = y - h
+    GO.AttachInline(panRow._leftRegion, panDesc)
+
+    if not EllesmereUI._prebuilding then
+        -- A pandemic debuff of the player's class (Rip, Moonfire, Festering
+        -- Wound, Vampiric Touch / Shadow Word: Pain, Agony, Rupture), any of
+        -- them otherwise; the first the client knows from a random start.
+        local BY_CLASS = {
+            DRUID = { 1079, 8921 }, DEATHKNIGHT = { 194310 }, PRIEST = { 34914, 589 },
+            WARLOCK = { 980 }, ROGUE = { 1943 },
+        }
+        local pool = BY_CLASS[select(2, UnitClass("player"))] or { 1079, 8921, 194310, 34914, 980, 1943 }
+        local icon = 136197
+        local start = math.random(#pool)
+        for i = 0, #pool - 1 do
+            local info = C_Spell.GetSpellInfo(pool[(start + i - 1) % #pool + 1])
+            if info and info.iconID then icon = info.iconID; break end
+        end
+        local rightRgn = panRow._rightRegion
+        GO.BuildPreview(rightRgn, panDesc, { anchor = rightRgn, point = "RIGHT", relPoint = "RIGHT", x = -20, icon = icon })
+        -- The preview's label dims with it while no glow is picked.
+        local previewLabel = rightRgn._label
+        local function DimPreviewLabel()
+            previewLabel:SetAlpha(GO.Renders(panDesc) and 1 or 0.3)
+        end
+        EllesmereUI.RegisterWidgetRefresh(DimPreviewLabel)
+        DimPreviewLabel()
+
+        -- Apply to all: the CDM pandemic sync (only while that module is loaded).
+        if EllesmereUI.ApplyPandemicGlowToAll then
+            EllesmereUI.BuildSyncIcon({
+                region = panRow._leftRegion,
+                tooltip = "Apply this pandemic glow to all CDM bars and tracking bars. A surface that can't show a style uses its closest match.",
+                isSynced = function()
+                    return EllesmereUI.IsPandemicGlowSyncedToAll(
+                        EllesmereUI.PandemicPayloadFromNameplate(DB()), { skipNameplates = true })
+                end,
+                onClick = function()
+                    EllesmereUI.ApplyPandemicGlowToAll(
+                        EllesmereUI.PandemicPayloadFromNameplate(DB()), { skipNameplates = true })
+                    C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+                end,
+            })
+        end
+    end
+
+    -- --- Dispellable Buff Glow ----------------------------------------
     local dispelDesc = npDispelGlowDesc
     local dispelGlowDropdown = GO.DropdownSpec(dispelDesc, "Dispel Glow Style")
     -- Enemy Buff Filter (replaces the retired Show All Enemy Buffs toggle;

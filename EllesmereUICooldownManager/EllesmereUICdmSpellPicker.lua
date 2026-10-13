@@ -1944,6 +1944,12 @@ function ns.RemoveTrackedSpell(barKey, idx)
                 if primaryID == removedID then sd.customSpellGroups[variantID] = nil end
             end
         end
+        -- An Empty Slot's id is never reused (NewEmptySlotMarker), so its own
+        -- settings entry (its Talent Conditions) goes with it.
+        if removedID and ns.IsEmptySlotMarker(removedID) then
+            local store = ns.GetSpellSettingsStore(barKey)
+            if store then store[removedID] = nil end
+        end
 
         -- Route to the ghost CD bar so frames stay routed but hidden. Buff-family bars
         -- don't ghost (visibility managed by Blizzard's CDM settings); negative IDs and

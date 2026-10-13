@@ -339,39 +339,15 @@ function NameplateFrame:UpdateHealthColor()
     -- path verified non-secret). Threat events fire constantly with an unchanged result, so
     -- compare against the last applied values and skip the setter. Cache nil'd in ClearUnit.
     local hr, hg, hb = GetReactionColor(unit)
-    -- Enemy player whose class token was redacted (instanced PvP): paint the bar from
-    -- Blizzard's plate instead. A secret cannot go through the skip-if-unchanged compare, so
-    -- this re-reads and re-applies every pass rather than latching -- a latch would freeze the
-    -- bar on a stale colour when Blizzard's changes (a disconnect greys it, the CVar is
-    -- toggled mid-match). Two C calls against the dozen GetReactionColor already spent, on
-    -- the few plates that take this path. hr/hg/hb stay the plain fallback for the tints below.
+    -- Enemy player whose class token was redacted (instanced PvP): the token still keys
+    -- C_ClassColor, Blizzard's palette as step 6 paints a readable token. The colour may be
+    -- secret, so it skips the skip-if-unchanged compare, goes straight to the setter and is
+    -- re-applied every pass. hr/hg/hb stay the plain fallback for the tints below.
     local mirrored, mr, mg, mb = false
     if ns._reactionMirrorClass then
-        -- The redacted token still keys C_ClassColor (the slot painter does the same); the
-        -- colour may be secret and goes straight to the setter.
         local _, tok = UnitClass(unit)
-        if tok then
-            local ok, found, r, g, b = pcall(EllesmereUI.GetClassColorForRestrictedUnit, unit, tok)
-            if ok and found then
-                mirrored, mr, mg, mb = true, r, g, b
-            else
-                local okC, c = pcall(C_ClassColor.GetClassColor, tok)
-                if okC and c then
-                    local okRGB, r2, g2, b2 = pcall(c.GetRGB, c)
-                    if okRGB then mirrored, mr, mg, mb = true, r2, g2, b2 end
-                end
-            end
-        end
-        if not mirrored then
-            -- Any failure above lands here: Blizzard's plate, the previous behaviour. Wanted
-            -- to mirror but it was not on this unit yet: the deferred setup pass retries.
-            mirrored, mr, mg, mb = ns.GetBlizzardBarColor(self)
-            self._mirrorPending = not mirrored or nil
-        else
-            self._mirrorPending = nil
-        end
-    else
-        self._mirrorPending = nil
+        local c = C_ClassColor.GetClassColor(tok)
+        if c then mirrored, mr, mg, mb = true, c:GetRGB() end
     end
     -- Off-tank fold: same shape as mirror -- the folded components can be
     -- SECRET, so they bypass the value compare, never enter the caches, and

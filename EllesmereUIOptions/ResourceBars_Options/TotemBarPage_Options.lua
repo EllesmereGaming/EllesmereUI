@@ -147,8 +147,9 @@ local function BuildTotemSection(parent, y, S)
             end
         end
 
-        -- Inline border color swatch on Border Size slider
-        do
+        -- Inline border color swatch on Border Size slider; none in the search
+        -- pre-build (it indexes nothing, and the row is a stand-in there)
+        if not EllesmereUI._prebuilding then
             local rgn = bsRow._rightRegion
             local ctrl = rgn._control
             local PP = EllesmereUI.PP

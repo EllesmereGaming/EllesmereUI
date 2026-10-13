@@ -230,6 +230,10 @@ local function MakeAccentFade(btn, lbl, brd)
     end
 end
 
+-- A profile's keybind popup: built on its first open and kept across page
+-- builds; each open points it at that profile (ShowProfileKeybindPopup).
+local profileKeybindPopup
+
 function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
     local y = yOffset
@@ -339,8 +343,9 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         bg:SetAllPoints()
         bg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
         local brd = EllesmereUI.MakeBorder(btn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
-        local lbl = EllesmereUI.MakeFont(btn, 13, nil, 1, 1, 1)
-        lbl:SetAlpha(EllesmereUI.DD_TXT_A)
+        -- The resting alpha is the text colour's, the channel the hover
+        -- colours below write, so a hover and leave land back on it.
+        local lbl = EllesmereUI.MakeFont(btn, 13, nil, 1, 1, 1, EllesmereUI.DD_TXT_A)
         lbl:SetJustifyH("LEFT")
         lbl:SetWordWrap(false)
         lbl:SetMaxLines(1)
@@ -397,78 +402,89 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
 
     local ShowImportPage  -- forward declaration (defined after import page builder)
 
-    local _kbPopup
     local function ShowProfileKeybindPopup(profileName)
-        if _kbPopup then _kbPopup:Hide() end
+        local popup = profileKeybindPopup
+        if popup then
+            -- Still open: closed first, cancelling a capture in progress.
+            if popup._dimmer:IsShown() then popup._dimmer:Hide() end
+        else
+            local POPUP_W, POPUP_H = 320, 130
 
-        local POPUP_W, POPUP_H = 320, 130
+            local dimmer = CreateFrame("Frame", nil, UIParent)
+            dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
+            dimmer:SetFrameLevel(100)
+            dimmer:SetAllPoints(UIParent)
+            dimmer:EnableMouse(true)
+            dimmer:EnableMouseWheel(true)
+            dimmer:SetScript("OnMouseWheel", function() end)
+            dimmer:Hide()
 
-        local dimmer = CreateFrame("Frame", nil, UIParent)
-        dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
-        dimmer:SetFrameLevel(100)
-        dimmer:SetAllPoints(UIParent)
-        dimmer:EnableMouse(true)
-        dimmer:EnableMouseWheel(true)
-        dimmer:SetScript("OnMouseWheel", function() end)
+            local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
+            dimTex:SetAllPoints()
+            dimTex:SetColorTexture(0, 0, 0, 0.25)
 
-        local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
-        dimTex:SetAllPoints()
-        dimTex:SetColorTexture(0, 0, 0, 0.25)
+            popup = CreateFrame("Frame", nil, dimmer)
+            popup:SetFrameStrata("FULLSCREEN_DIALOG")
+            popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
+            popup:SetSize(POPUP_W, POPUP_H)
+            popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
+            popup:EnableMouse(true)
+            popup:SetClampedToScreen(true)
+            popup._dimmer = dimmer
+            popup._profileName = profileName
 
-        local popup = CreateFrame("Frame", nil, dimmer)
-        popup:SetFrameStrata("FULLSCREEN_DIALOG")
-        popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
-        popup:SetSize(POPUP_W, POPUP_H)
-        popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
-        popup:EnableMouse(true)
-        popup:SetClampedToScreen(true)
-        _kbPopup = popup
-        popup._dimmer = dimmer
+            dimmer:SetScript("OnMouseDown", function()
+                if not popup:IsMouseOver() then
+                    dimmer:Hide()
+                end
+            end)
 
-        dimmer:SetScript("OnMouseDown", function()
-            if not popup:IsMouseOver() then
-                dimmer:Hide()
-            end
-        end)
+            local popBg = popup:CreateTexture(nil, "BACKGROUND")
+            popBg:SetAllPoints()
+            popBg:SetColorTexture(0.077, 0.068, 0.058, 0.97)
+            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.20, PP)
 
-        local popBg = popup:CreateTexture(nil, "BACKGROUND")
-        popBg:SetAllPoints()
-        popBg:SetColorTexture(0.077, 0.068, 0.058, 0.97)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.20, PP)
+            local title = EllesmereUI.MakeFont(popup, 14, nil, 1, 1, 1)
+            title:SetPoint("TOP", popup, "TOP", 0, -14)
+            popup._title = title
 
-        local title = EllesmereUI.MakeFont(popup, 14, nil, 1, 1, 1)
-        title:SetPoint("TOP", popup, "TOP", 0, -14)
-        title:SetText(EllesmereUI.Lf("Keybind: %1$s", profileName))
+            -- Reads and writes the profile the popup was last opened for.
+            local kbBtn, kbRefresh = EllesmereUI.BuildKeybindButton(popup, {
+                w = 160, h = 30, font = 13,
+                get = function() return EllesmereUI.GetProfileKeybind(popup._profileName) end,
+                set = function(v) EllesmereUI.SetProfileKeybind(popup._profileName, v) end,
+            })
+            kbBtn:SetPoint("CENTER", popup, "CENTER", 0, -2)
+            popup._kbRefresh = kbRefresh
 
-        local kbBtn = EllesmereUI.BuildKeybindButton(popup, {
-            w = 160, h = 30, font = 13,
-            get = function() return EllesmereUI.GetProfileKeybind(profileName) end,
-            set = function(v) EllesmereUI.SetProfileKeybind(profileName, v) end,
-        })
-        kbBtn:SetPoint("CENTER", popup, "CENTER", 0, -2)
+            local hint = EllesmereUI.MakeFont(popup, 10, nil, 1, 1, 1, 0.35)
+            hint:SetPoint("BOTTOM", popup, "BOTTOM", 0, 12)
+            hint:SetText(EllesmereUI.L("Left-click to set  |  Right-click to unbind  |  Esc to close"))
 
-        local hint = EllesmereUI.MakeFont(popup, 10, nil, 1, 1, 1, 0.35)
-        hint:SetPoint("BOTTOM", popup, "BOTTOM", 0, 12)
-        hint:SetText(EllesmereUI.L("Left-click to set  |  Right-click to unbind  |  Esc to close"))
+            -- kbBtn's own OnHide cancels a capture in progress.
+            popup:SetScript("OnHide", function()
+                if popup._dimmer then popup._dimmer:Hide() end
+            end)
 
-        -- kbBtn's own OnHide cancels a capture in progress.
-        popup:SetScript("OnHide", function()
-            if popup._dimmer then popup._dimmer:Hide() end
-            _kbPopup = nil
-        end)
+            popup:EnableKeyboard(true)
+            popup:SetScript("OnKeyDown", function(self, kkey)
+                -- kbBtn takes the keyboard only while it is capturing.
+                if kkey == "ESCAPE" and not kbBtn:IsKeyboardEnabled() then
+                    self:SetPropagateKeyboardInput(false)
+                    dimmer:Hide()
+                else
+                    self:SetPropagateKeyboardInput(true)
+                end
+            end)
 
-        popup:EnableKeyboard(true)
-        popup:SetScript("OnKeyDown", function(self, kkey)
-            -- kbBtn takes the keyboard only while it is capturing.
-            if kkey == "ESCAPE" and not kbBtn:IsKeyboardEnabled() then
-                self:SetPropagateKeyboardInput(false)
-                dimmer:Hide()
-            else
-                self:SetPropagateKeyboardInput(true)
-            end
-        end)
+            profileKeybindPopup = popup
+        end
 
-        dimmer:Show()
+        popup._profileName = profileName
+        popup._title:SetText(EllesmereUI.Lf("Keybind: %1$s", profileName))
+        popup._kbRefresh()
+        popup:Show()
+        popup._dimmer:Show()
     end
 
     local function BuildErrorFlash(btn, brd)

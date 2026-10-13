@@ -1,16 +1,18 @@
-## Interface: 120000, 120001, 120005, 120007, 120100, 16001
+## Interface: 120000, 120001, 120005, 120007, 120100, 120105, 16001
 ## Title: |cff0cd29fEllesmereUI|r Options
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: EllesmereUI settings panel. Loads on demand when you open EllesmereUI options.
 ## Author: Ellesmere
-## Version: 9.4
+## Version: 9.5.3
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
-# Widget factory first: everything below builds pages with it. File order
-# mirrors the original suite load order (parent files, then children A-Z).
+# Frame pool first (page reuse: the widget factory and the page builders create
+# through it), then the widget factory: everything below builds pages with it.
+# File order mirrors the original suite load order (parent files, then children A-Z).
+EllesmereUI_FramePool.lua
 EllesmereUI_Widgets.lua
 EllesmereUI_Widgets_Color.lua
 EllesmereUI_Widgets_Rows.lua
@@ -60,8 +62,10 @@ EUI_ForeverEssentials_General_Options.lua
 EUI_ForeverEssentials_Travel_Options.lua
 EUI_ForeverEssentials_Threat_Options.lua
 EUI_ForeverEssentials_Loot_Options.lua
+EUI_ForeverEssentials_MacroModel_Options.lua
 EUI_ForeverEssentials_Macros_Options.lua
 EUI_Friends_Options.lua
+EUI_LoadoutManager_Options.lua
 EUI_Minimap_Options.lua
 EUI_MythicTimer_Options.lua
 Nameplates_Options\ColorsPage_Options.lua
@@ -75,6 +79,7 @@ EUI_QoL_Options.lua
 EUI_QoL_StatPicker.lua
 EUI_QoL_Cursor_Options.lua
 EUI_QoL_BattleRes_Options.lua
+EUI_QoL_Alerts_Options.lua
 EUI_QoL_AutoLogging_Options.lua
 EUI_QoL_Shifter_Options.lua
 EUI_QoL_MovementAlert_Options.lua

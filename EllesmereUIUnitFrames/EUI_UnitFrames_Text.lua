@@ -353,12 +353,16 @@ end
 local TagFns = {}
 
 do
-  -- Abbreviated health for the curhpshort / maxhpshort tags.
-  local function MakeAbbrevHP(getHP)
+  -- Abbreviated health for the curhpshort / maxhpshort tags. status: an
+  -- offline, dead or ghost unit reads OFFLINE / DEAD. Only the current value
+  -- takes it, so Health # / Max # names the status once ("DEAD / 150 K").
+  local function MakeAbbrevHP(getHP, status)
     return function(unit)
       if not unit or not UnitExists(unit) then return "" end
-      if not UnitIsConnected(unit) then return "OFFLINE" end
-      if UnitIsDeadOrGhost(unit) then return "DEAD" end
+      if status then
+        if not UnitIsConnected(unit) then return "OFFLINE" end
+        if UnitIsDeadOrGhost(unit) then return "DEAD" end
+      end
       local hp = getHP(unit) or 0
       local cfg = _G._EUI_AbbrevDecimalCfg
       -- Boss frames use the 2-decimal config when "Show 2 for Boss" is on.
@@ -369,7 +373,7 @@ do
     end
   end
 
-  TagFns.curhpshort = MakeAbbrevHP(UnitHealth)
+  TagFns.curhpshort = MakeAbbrevHP(UnitHealth, true)
   TagFns.maxhpshort = MakeAbbrevHP(UnitHealthMax)
 end
 

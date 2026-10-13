@@ -6,6 +6,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 
+-- The options page pool's table (EllesmereUIOptions/EllesmereUI_FramePool.lua
+-- fills it in place when the options addon loads): made here, by the first
+-- core file that reads it, and read through file locals by every core path,
+-- so nothing written to the public slot later can reach those paths.
+local Pool = EllesmereUI._Pool
+if type(Pool) ~= "table" then
+    Pool = { CreateFrame = function(...) return CreateFrame(...) end }
+    EllesmereUI._Pool = Pool
+end
+
 local PP
 
 -------------------------------------------------------------------------------
@@ -314,6 +324,13 @@ do
             target:SetTexelSnappingBias(0)
         end
         _pixelSnapDisabled[obj] = true
+    end
+
+    -- The options page pool (EllesmereUI_FramePool.lua) resets an object it hands out
+    -- again with SetToDefaults, which turns pixel snapping back on as on a new
+    -- object: drop the cache entry so the next image set disables it again.
+    function PP.ForgetPixelSnap(obj)
+        _pixelSnapDisabled[obj] = nil
     end
 
     ---------------------------------------------------------------------------
@@ -653,9 +670,73 @@ do
         container:SetScale(1)
     end
 
+    -- A border on a frame the options page pool handed out again (its dress
+    -- generation changed since the border was made): the kept container and
+    -- strips take this call's look, exactly as a new border would.
+    local function RedressBorder(frame, bd, gen, r, g, b, a, borderSize, drawLayer, subLevel, scaleGuard)
+        r = r or 0; g = g or 0; b = b or 0; a = a or 1
+        borderSize = borderSize or 1
+        drawLayer = drawLayer or "OVERLAY"
+        subLevel = subLevel or 0
+        local c = bd.container
+        bd.gen = gen
+        bd.borderSize = borderSize
+        bd.colDirty = nil
+        local col = bd.borderColor
+        if col then
+            col[1], col[2], col[3], col[4] = r, g, b, a
+        else
+            col = { r, g, b, a }
+            bd.borderColor = col
+        end
+        c._bdColor = col
+        c._hideTop, c._hideBottom, c._hideLeft, c._hideRight = nil, nil, nil, nil
+        c._snapEdge = nil
+        if c._pendingSnap then
+            c._pendingSnap = nil
+            c:SetScript("OnShow", nil)
+        end
+        if scaleGuard then
+            if not c._scaleGuard then
+                c._scaleGuard = true
+                DecoupleBorderScale(c)
+            end
+        elseif c._scaleGuard or c._scaleDecoupled then
+            c._scaleGuard = nil
+            if c._scaleDecoupled then
+                c._scaleDecoupled = nil
+                c:SetIgnoreParentScale(false)
+                c:SetScale(1)
+            end
+        end
+        c._top:SetDrawLayer(drawLayer, subLevel)
+        c._bottom:SetDrawLayer(drawLayer, subLevel)
+        c._left:SetDrawLayer(drawLayer, subLevel)
+        c._right:SetDrawLayer(drawLayer, subLevel)
+        c:SetFrameLevel(frame:GetFrameLevel() + 1)
+        c:Show()
+        SnapBorderTextures(c, frame, borderSize)
+        local ticks = 0
+        c:SetScript("OnUpdate", function(self)
+            ticks = ticks + 1
+            SnapBorderTextures(self, frame, bd.borderSize or 1)
+            if ticks >= 2 then pcall(self.SetScript, self, "OnUpdate", nil) end
+        end)
+        return c
+    end
+
     function PP.CreateBorder(frame, r, g, b, a, borderSize, drawLayer, subLevel, scaleGuard)
         local bd = _ppBorderData[frame]
         if bd then
+            -- A border made on a frame of the options page pool (bd.gen) is dressed
+            -- again once its frame's dress generation moved on; a frame the pool
+            -- did not make never becomes one, so it pays one field read.
+            if bd.gen ~= nil then
+                local gen = Pool.Gen(frame)
+                if gen ~= bd.gen then
+                    return RedressBorder(frame, bd, gen, r, g, b, a, borderSize, drawLayer, subLevel, scaleGuard)
+                end
+            end
             -- A later call can opt an existing border into the guard. Decoupling changes
             -- the container's coord space, so re-snap now (stored sizes used the old one).
             if scaleGuard and not bd.container._scaleGuard then
@@ -694,6 +775,11 @@ do
         if scaleGuard then DecoupleBorderScale(container) end
         bd = { container = container, borderSize = borderSize, borderColor = { r, g, b, a } }
         _ppBorderData[frame] = bd
+        -- A frame of the options page pool keeps its border through every reuse:
+        -- the container rides on it (hidden at its reset) and the next call on
+        -- its new dress takes the RedressBorder path above.
+        local gen = Pool.Gen and Pool.Gen(frame)
+        if gen and Pool.Attach(frame, container) then bd.gen = gen end
 
         SnapBorderTextures(container, frame, borderSize)
 
@@ -714,13 +800,21 @@ do
         return container
     end
 
+    -- On a frame the options page pool handed out again (bd.gen set, its dress
+    -- generation moved on) a border belongs to the previous dress: the frame
+    -- reads as a new one, without a border, until its next PP.CreateBorder
+    -- dresses the kept strips again (RedressBorder). The check sits inline in
+    -- each call below (SetBorderColor runs per aura per refresh); any other
+    -- frame pays one field read.
     function PP.GetBorders(frame)
         local bd = _ppBorderData[frame]
+        if bd and bd.gen ~= nil and Pool.Gen(frame) ~= bd.gen then bd = nil end
         return bd and bd.container
     end
 
     function PP.SetBorderSize(frame, borderSize)
         local bd = _ppBorderData[frame]
+        if bd and bd.gen ~= nil and Pool.Gen(frame) ~= bd.gen then bd = nil end
         if not bd then return end
         borderSize = borderSize or 1
         SnapBorderTextures(bd.container, frame, borderSize)
@@ -729,6 +823,7 @@ do
 
     function PP.SetBorderColor(frame, r, g, b, a)
         local bd = _ppBorderData[frame]
+        if bd and bd.gen ~= nil and Pool.Gen(frame) ~= bd.gen then bd = nil end
         if not bd then return end
         a = a or 1
 
@@ -770,11 +865,13 @@ do
 
     function PP.HideBorder(frame)
         local bd = _ppBorderData[frame]
+        if bd and bd.gen ~= nil and Pool.Gen(frame) ~= bd.gen then bd = nil end
         if bd then bd.container:Hide() end
     end
 
     function PP.ShowBorder(frame)
         local bd = _ppBorderData[frame]
+        if bd and bd.gen ~= nil and Pool.Gen(frame) ~= bd.gen then bd = nil end
         if bd then bd.container:Show() end
     end
 
@@ -1475,11 +1572,14 @@ do
 
     --- A scaleOffset texture's base offset (half its edge). For the Pixels styles a tie
     --- rounds toward the frame, or an odd size leaves their line short of the frame.
+    --- Unsnapped: every caller snaps it once with its offset added (snapping here too
+    --- would round twice when that offset is not a whole pixel).
     function EllesmereUI.BorderHalfEdge(textureKey, edge, es)
         if not EllesmereUI._pixelArtBorders[textureKey] then return edge / 2 end
         local PP = EllesmereUI.PP
         if not (PP.IsNum(es) and es > 0) then es = 1 end
-        return PP.SnapForES(edge / 2 - 0.002 * PP.perfect / es, es)
+        -- 0.002 px under: beats SnapForES's 0.001 px tie-up epsilon.
+        return edge / 2 - 0.002 * PP.perfect / es
     end
 
     --- Check if a border texture uses scaled offset (edgeSize/2 base).
@@ -1552,6 +1652,26 @@ do
     ---   path (byte-identical to before it existed). Solid: the px themselves. Textured: the
     ---   edge is edgePx whole pixels at UIParent scale in this frame's units (still through
     ---   ratio); the registry offsets/shifts of `size`'s step scale with the edge.
+    -- The backdrop child of a border frame, or nil. A border frame the options page
+    -- pool handed out again (its dress generation moved on) drops the child of its
+    -- previous dress: the pool reset that child with it, and the next textured
+    -- apply makes one through the pool for the new dress. Only a child made on a
+    -- pooled frame has a generation (_bdGen); any other frame pays one read.
+    local _bdGen = setmetatable({}, { __mode = "k" })
+    local function BdFrameFor(borderFrame)
+        local bdFrame = _bdBorderData[borderFrame]
+        if bdFrame then
+            local g0 = _bdGen[borderFrame]
+            if g0 ~= nil and Pool.Gen(borderFrame) ~= g0 then
+                _bdBorderData[borderFrame] = nil
+                _bdGen[borderFrame] = nil
+                _px.borders[borderFrame] = nil
+                return nil
+            end
+        end
+        return bdFrame
+    end
+
     function EllesmereUI.ApplyBorderStyle(borderFrame, size, r, g, b, a, textureKey, offsetOverride, offsetYOverride, shiftX, shiftY, addonKey, sizeKey, normalizeScale, edgePx)
         local PP = EllesmereUI.PP
         if not PP or not borderFrame then return end
@@ -1564,7 +1684,7 @@ do
         local isSolid = not textureKey or textureKey == "" or textureKey == "solid"
 
         if isSolid then
-            local bdFrame = _bdBorderData[borderFrame]
+            local bdFrame = BdFrameFor(borderFrame)
             if bdFrame then bdFrame:Hide() end
             if bdFrame and bdFrame._pxEdge then bdFrame._pxEdge = nil; _px.borders[borderFrame] = nil end
             local sz = edgePx or size
@@ -1588,7 +1708,7 @@ do
             -- Textured border via BackdropTemplate
             local texPath = EllesmereUI.ResolveBorderTexture(textureKey)
             if not texPath or size <= 0 then
-                local bdFrame = _bdBorderData[borderFrame]
+                local bdFrame = BdFrameFor(borderFrame)
                 if bdFrame then bdFrame:Hide() end
                 -- A hidden border must not come back from the UI-scale re-apply.
                 if bdFrame and bdFrame._pxEdge then bdFrame._pxEdge = nil; _px.borders[borderFrame] = nil end
@@ -1607,9 +1727,11 @@ do
                     if ppC._right then ppC._right:SetAlpha(0) end
                 end
             end
-            local bdFrame = _bdBorderData[borderFrame]
+            local bdFrame = BdFrameFor(borderFrame)
             if not bdFrame then
-                bdFrame = CreateFrame("Frame", nil, borderFrame, "BackdropTemplate")
+                -- Pooled with its owner when the owner is an options page pool host.
+                bdFrame = Pool.CreateFrame("Frame", nil, borderFrame, "BackdropTemplate")
+                _bdGen[borderFrame] = Pool.Gen and Pool.Gen(borderFrame) or nil
                 bdFrame:EnableMouse(false)
                 -- Addon-born frame: its scripts always run tainted. When the owner rides a
                 -- Blizzard frame sized from secret content (map-pin tooltips, menus with secret
@@ -1701,8 +1823,11 @@ do
                     end
                     bdFrame._edgeFill = fill
                     -- Opaque only: under translucent art a strip would stack darker.
+                    -- The hook stays for good: while the fill is off it returns at once
+                    -- (the apply that turns it on recolours after setting fill.on).
                     hooksecurefunc(bdFrame, "SetBackdropBorderColor", function(self, cr, cg, cb, ca)
                         local f = self._edgeFill
+                        if not f.on then return end
                         for i = 1, 4 do f[i]:SetVertexColor(cr, cg, cb, 1) end
                         local opaque = (ca or 1) >= 0.999
                         if f.opaque ~= opaque then
@@ -1866,7 +1991,7 @@ do
         local m = EllesmereUI.PP.mult
         if _px.mult == m then return end
         for bf in pairs(_px.borders) do
-            local bd = _bdBorderData[bf]
+            local bd = BdFrameFor(bf)
             if ReadBorderSize(bf) then
                 if not (bf:GetParent() and bd and bd._pxEdge and bd:IsShown()) then
                     if bd then bd._pxEdge = nil end
@@ -2061,7 +2186,7 @@ do
             PP.SetBorderColor(borderFrame, r, g, b, a)
             return
         end
-        local bdFrame = _bdBorderData[borderFrame]
+        local bdFrame = BdFrameFor(borderFrame)
         if bdFrame and bdFrame:IsShown() then
             bdFrame:SetBackdropBorderColor(r, g, b, a)
         end
@@ -2073,7 +2198,7 @@ do
         if not borderFrame then return end
         local PP = EllesmereUI.PP
         if PP and PP.GetBorders and PP.GetBorders(borderFrame) then PP.HideBorder(borderFrame) end
-        local bdFrame = _bdBorderData[borderFrame]
+        local bdFrame = BdFrameFor(borderFrame)
         if bdFrame then bdFrame:Hide() end
         if bdFrame and bdFrame._pxEdge then bdFrame._pxEdge = nil; _px.borders[borderFrame] = nil end
     end
@@ -2085,7 +2210,7 @@ do
 
     --- Shows each edge fill strip only while its edge piece draws; call after hiding a piece.
     function EllesmereUI.SyncBorderEdgeFill(borderFrame)
-        local bdFrame = _bdBorderData[borderFrame]
+        local bdFrame = BdFrameFor(borderFrame)
         local fill = bdFrame and bdFrame._edgeFill
         if not fill then return end
         local on = fill.on == true and fill.opaque ~= false

@@ -225,24 +225,83 @@ end
 --  ns._UpdateRoleIcons combat-transition updater (lockstep). Honors the "Hide In
 --  Combat" cog (hidden in combat, restored on PLAYER_REGEN_ENABLED).
 -------------------------------------------------------------------------------
+-- A SECRET role (a unit whose identity the client hides) cannot be read here,
+-- so Blizzard's secret-safe painter (UnitFrameUtil, 12.1.5+) sets a texture of
+-- ours from a map in the frame's own icon style. Roles the settings hide, and
+-- the vehicle state, map to no texture, so it shows what the plain path would.
+-- Before 12.1.5 (and with Role Text on) a secret role stays hidden, as before.
+local secretRoleMaps = {} -- style -> toggle bits -> texture map
+local function SecretRoleMap(style, s)
+    local styleMap = ns.ROLE_ICON_STYLES[style]
+    if not styleMap then return nil end
+    local bits = (s.showRoleForTank and 1 or 0) + (s.showRoleForHealer and 2 or 0) + (s.showRoleForDPS and 4 or 0)
+    local byStyle = secretRoleMaps[style]
+    if not byStyle then byStyle = {}; secretRoleMaps[style] = byStyle end
+    local map = byStyle[bits]
+    if not map then
+        map = {
+            TANK    = s.showRoleForTank and styleMap.TANK or "",
+            HEALER  = s.showRoleForHealer and styleMap.HEALER or "",
+            DAMAGER = s.showRoleForDPS and styleMap.DAMAGER or "",
+            VEHICLE = "",
+        }
+        byStyle[bits] = map
+    end
+    return map
+end
+
+local function PaintSecretRole(d, unit, style, s)
+    local paint = UnitFrameUtil and UnitFrameUtil.UpdateUnitFrameRoleIcon
+    local map = paint and not s.roleText and SecretRoleMap(style, s)
+    local tex = d.roleIconSecret
+    if not map then
+        if tex then tex:Hide() end
+        return
+    end
+    if not tex then
+        local icon = d.roleIcon
+        local layer, sub = icon:GetDrawLayer()
+        tex = icon:GetParent():CreateTexture(nil, layer, nil, sub)
+        tex:SetAllPoints(icon)
+        d.roleIconSecret = tex
+        d.roleSecretProxy = { roleIcon = tex, optionTable = { displayRoleIcon = true, displayRaidRoleIcon = false } }
+    end
+    local proxy = d.roleSecretProxy
+    proxy.unit = unit
+    proxy.optionTable.textureMap = map
+    pcall(paint, proxy)
+end
+
 ns._UpdateRoleIcon = function(d, s, unit)
     local roleIcon = d.roleIcon
     if not roleIcon then return end
+    if roleIcon._roleText then roleIcon._roleText:Hide() end
+    local secretTex = d.roleIconSecret
     local style = s.roleIconStyle or "modern"
-    if style == "none" then roleIcon:Hide(); return end
-    if s.roleIconHideInCombat and inCombat then roleIcon:Hide(); return end
-    local role = EllesmereUI.UnitEffectiveRole(unit)
-    if role and not issecretvalue(role) then
+    if style == "none" and not s.roleText then
+        roleIcon:Hide(); if secretTex then secretTex:Hide() end; return
+    end
+    if s.roleIconHideInCombat and inCombat then
+        roleIcon:Hide(); if secretTex then secretTex:Hide() end; return
+    end
+    local role, roleSecret = EllesmereUI.UnitEffectiveRole(unit)
+    if roleSecret then
+        roleIcon:Hide()
+        PaintSecretRole(d, unit, style, s)
+    elseif role then
+        if secretTex then secretTex:Hide() end
         local showForRole = (role == "TANK" and s.showRoleForTank)
             or (role == "HEALER" and s.showRoleForHealer)
             or (role == "DAMAGER" and s.showRoleForDPS)
-        if showForRole and ApplyRoleIcon(roleIcon, role, style) then
+        if showForRole and (s.roleText or ApplyRoleIcon(roleIcon, role, style)) then
             roleIcon:Show()
+            if s.roleText then ns.ApplyRoleText(roleIcon, role, s) end
         else
             roleIcon:Hide()
         end
     else
         roleIcon:Hide()
+        if secretTex then secretTex:Hide() end
     end
 end
 

@@ -12,7 +12,6 @@ local EMT = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 local floor, min, max, abs = math.floor, math.min, math.max, math.abs
 local format = string.format
 local GetWorldElapsedTime = GetWorldElapsedTime
-local GetTimePreciseSec = GetTimePreciseSec
 local wipe = wipe
 
 -- Constants
@@ -622,8 +621,9 @@ local function SaveFastestRunSplits()
     local run = currentRun
     local elapsed = run.elapsed
     -- The completion time can come from GetWorldElapsedTime after a
-    -- depletion, which may hand back a secret: no compare on that.
-    if type(elapsed) ~= "number" or (issecretvalue and issecretvalue(elapsed)) then return end
+    -- depletion, which may hand back a secret: no compare on that. A run
+    -- with no known time (0) never replaces the stored one.
+    if type(elapsed) ~= "number" or (issecretvalue and issecretvalue(elapsed)) or elapsed <= 0 then return end
     for _, mode in ipairs(FASTEST_RUN_SCOPES) do
         local scopeKey = GetScopeKey(run, mode)
         if scopeKey then
@@ -632,7 +632,8 @@ local function SaveFastestRunSplits()
             if not previousRunTime or elapsed < previousRunTime then
                 store[scopeKey].overallRunTime = elapsed
                 for objectiveIndex, objective in ipairs(run.objectives) do
-                    store[scopeKey][objectiveIndex] = objective.elapsed
+                    local t = objective.elapsed
+                    store[scopeKey][objectiveIndex] = (t and t > 0) and t or nil
                 end
             end
         end
@@ -718,23 +719,50 @@ local function UpdateObjectives()
             local wasCompleted = obj.completed
             obj.completed = info.completed
 
-            if obj.completed and not wasCompleted then
+            if obj.completed and (not wasCompleted or obj._stampLater) then
                 -- On reload, already-completed objectives would get current elapsed.
-                -- Use persisted split time if available (saved on first completion).
-                local saved = db and db.profile._activeRunSplits and db.profile._activeRunSplits[i]
+                -- Use persisted split time if available (saved on first completion),
+                -- only from the table this run's check passed. Until the timer reads a
+                -- real time nothing is stamped: the objective waits for the first tick
+                -- that does.
+                local splits = db and db.profile._activeRunSplits
+                local saved = splits and splits == currentRun._checkedSplits and splits[i]
                 if saved and saved > 0 then
+                    obj._stampLater = nil
                     obj.elapsed = saved
-                else
-                    obj.elapsed = elapsed
-                    -- Persist for reload survival
-                    if db and db.profile then
-                        if not db.profile._activeRunSplits then
-                            db.profile._activeRunSplits = { mapID = currentRun.mapID, level = currentRun.level }
-                        end
-                        db.profile._activeRunSplits[i] = elapsed
+                    -- The comparison it had when first stamped: its own banked best must
+                    -- not become its reference. Looked up again when compare is off or the
+                    -- fastest run is the reference (written only at completion).
+                    local refs = (db.profile.objectiveCompareMode or COMPARE_NONE) ~= COMPARE_NONE
+                        and not db.profile.showFastestRunSplits and splits.refs
+                    if refs and refs[i] ~= nil then
+                        local ref = refs[i] or nil
+                        obj.referenceElapsed = ref
+                        obj.compareDelta = ref and (saved - ref) or nil
+                        obj.isNewBest = ref == nil or saved < ref
+                    else
+                        UpdateObjectiveCompletion(obj, i)
                     end
+                elseif elapsed > 0 then
+                    obj._stampLater = nil
+                    obj.elapsed = elapsed
+                    UpdateObjectiveCompletion(obj, i)
+                    -- Persist for reload survival, with the run's server start time and
+                    -- the comparison the split got
+                    if db and db.profile then
+                        if not splits or splits ~= currentRun._checkedSplits then
+                            splits = { mapID = currentRun.mapID, level = currentRun.level,
+                                start = GetServerTime() - elapsed }
+                            db.profile._activeRunSplits = splits
+                            currentRun._checkedSplits = splits
+                        end
+                        splits[i] = elapsed
+                        splits.refs = splits.refs or {}
+                        splits.refs[i] = obj.referenceElapsed or false
+                    end
+                else
+                    obj._stampLater = true
                 end
-                UpdateObjectiveCompletion(obj, i)
             end
 
             obj.quantity = info.quantity or 0
@@ -800,22 +828,58 @@ local function UpdateObjectives()
     end
 end
 
--- Coalesced refresh
-local _refreshTimer
+-- Coalesced refresh (C_Timer.After returns nothing, so a flag marks the pending one)
+local _refreshPending = false
+local function FlushRefresh()
+    _refreshPending = false
+    if _G._EMT_StandaloneRefresh then _G._EMT_StandaloneRefresh() end
+end
 local function NotifyRefresh()
-    if _refreshTimer then return end
-    _refreshTimer = C_Timer.After(0.05, function()
-        _refreshTimer = nil
-        if _G._EMT_StandaloneRefresh then _G._EMT_StandaloneRefresh() end
-    end)
+    if _refreshPending then return end
+    _refreshPending = true
+    C_Timer.After(0.05, FlushRefresh)
 end
 
 -- Elapsed time: read from GetWorldElapsedTime(1) each tick. The Blizzard
--- hook on ChallengeModeBlock.UpdateTime is the primary tick driver (once
--- per second, zero cost outside M+). An OnUpdate fallback on our own
--- standalone frame ensures ticks keep firing even when QT reparents
--- ObjectiveTrackerFrame to a hidden container (which silences the hook).
+-- hook on ChallengeModeBlock.UpdateTime is the tick driver (every frame
+-- while a key's timer runs, zero cost outside M+); OnTimerTick keeps one
+-- pass per whole second.
 local _lastTickedSec = -1
+
+-- StartRun keeps saved splits of the same dungeon and level; the first real
+-- time decides whether they are this run's (a reload or re-entry) or an
+-- earlier key's. The saved start is the run's server start time: a later
+-- key starts at least the earlier run's first split later, while a reload
+-- reads the same run (death penalties only move the estimate earlier), so
+-- 30 s absorbs clock jitter. Tables saved before the stamp fall back to
+-- "no split later than now". The table that passes is the only one saved
+-- splits are read from; a different one (a profile switched in mid-key) is
+-- checked again, map and level included.
+local function CheckSavedSplits(elapsed)
+    currentRun._checkSplits = nil
+    currentRun._checkedSplits = nil
+    local splits = db and db.profile._activeRunSplits
+    if not splits then return end
+    local stale = splits.mapID ~= currentRun.mapID or splits.level ~= currentRun.level
+    if not stale and splits.start then
+        stale = GetServerTime() - elapsed > splits.start + 30
+    elseif not stale then
+        for k, t in pairs(splits) do
+            if type(k) == "number" and t > elapsed then stale = true; break end
+        end
+    end
+    if stale then
+        db.profile._activeRunSplits = nil
+    else
+        currentRun._checkedSplits = splits
+    end
+end
+
+-- A saved table this run has not checked arms the check again
+local function NoteSavedSplits()
+    local splits = db and db.profile._activeRunSplits
+    if splits and splits ~= currentRun._checkedSplits then currentRun._checkSplits = true end
+end
 
 local function OnTimerTick()
     if not currentRun.active then return end
@@ -830,6 +894,9 @@ local function OnTimerTick()
 
     currentRun.elapsed = elapsed
 
+    NoteSavedSplits()
+    if currentRun._checkSplits and elapsed > 0 then CheckSavedSplits(elapsed) end
+
     local deathCount, timeLost = C_ChallengeMode.GetDeathCount()
     currentRun.deaths = deathCount or 0
     currentRun.deathTimeLost = timeLost or 0
@@ -842,7 +909,11 @@ local function OnTimerTick()
     NotifyRefresh()
 end
 
--- Primary driver: hook Blizzard's ChallengeModeBlock.UpdateTime (1/sec).
+-- Primary driver: hook Blizzard's ChallengeModeBlock.UpdateTime. Blizzard's
+-- ScenarioTimerFrame calls it every frame while a key's timer runs; that frame
+-- has no parent and handles its own events, so hiding or reparenting
+-- ObjectiveTrackerFrame does not stop it.
+local _tickHooked = false
 do
     local block = (ScenarioObjectiveTracker and ScenarioObjectiveTracker.ChallengeModeBlock)
         or (ScenarioBlocksFrame and ScenarioBlocksFrame.ChallengeModeBlock)
@@ -850,12 +921,13 @@ do
         hooksecurefunc(block, "UpdateTime", function()
             OnTimerTick()
         end)
+        _tickHooked = true
     end
 end
 
--- Fallback driver: OnUpdate on the standalone frame, throttled to 1/sec.
--- Only runs while the frame is shown (active M+ key). Ensures the timer
--- stays accurate even when the hook is silenced by QT's reparent-to-hidden.
+-- Fallback driver, only when the hook could not be installed: OnUpdate on
+-- the standalone frame, throttled to 1/sec, running only while the frame is
+-- shown (an active M+ key).
 local _onUpdateAccum = 0
 local function OnUpdateFallback(_, dt)
     _onUpdateAccum = _onUpdateAccum + dt
@@ -864,8 +936,11 @@ local function OnUpdateFallback(_, dt)
     OnTimerTick()
 end
 
+local standaloneFrame
+local standaloneCreated = false
 local _timerLoopWanted = false
 local function StartTimerLoop()
+    if _tickHooked then return end
     _timerLoopWanted = true
     if standaloneFrame then
         _onUpdateAccum = 0
@@ -970,17 +1045,15 @@ local function StartRun()
     currentRun.mapName       = mapName or "Unknown"
     currentRun.level         = level or 0
     local splits = db and db.profile and db.profile._activeRunSplits
-    if splits then
-        local stale = splits.mapID ~= currentRun.mapID or splits.level ~= currentRun.level
-        -- A reload mid-key resumes past every saved split; a fresh key starts near 0.
-        local _, now = GetWorldElapsedTime(1)
-        if not stale and type(now) == "number" and not (issecretvalue and issecretvalue(now)) then
-            for k, t in pairs(splits) do
-                if type(k) == "number" and t > now then stale = true; break end
-            end
-        end
-        if stale then db.profile._activeRunSplits = nil end
+    if splits and (splits.mapID ~= currentRun.mapID or splits.level ~= currentRun.level) then
+        db.profile._activeRunSplits = nil
+        splits = nil
     end
+    -- A reload mid-key resumes past every saved split; a fresh key starts near 0.
+    -- The timer reads 0 both before a fresh key starts and until it is populated
+    -- after a reload, so the first tick that reads a real time decides.
+    currentRun._checkedSplits = nil
+    currentRun._checkSplits = splits and true or nil
     currentRun.maxTime       = timeLimit or 0
     currentRun.elapsed       = 0
     currentRun.deaths        = 0
@@ -999,8 +1072,6 @@ local function StartRun()
             currentRun.affixNames[i] = name or ""
         end
     end
-    currentRun.preciseStart = GetTimePreciseSec and GetTimePreciseSec() or nil
-    currentRun.preciseCompletedElapsed = nil
     currentRun._lastDungeonComplete = false
     currentRun._weightedObj = nil  -- populated by UpdateObjectives
     wipe(currentRun.objectives)
@@ -1029,8 +1100,12 @@ local function CompleteRun()
         local elapsedTime = select(2, GetWorldElapsedTime(1))
         currentRun.elapsed = elapsedTime or currentRun.elapsed
     end
-    if currentRun.preciseStart and GetTimePreciseSec then
-        currentRun.preciseCompletedElapsed = max(0, GetTimePreciseSec() - currentRun.preciseStart)
+    -- The check can still be waiting for a real time (a reload just before the last kill)
+    local e = currentRun.elapsed
+    NoteSavedSplits()
+    if currentRun._checkSplits and type(e) == "number" and not (issecretvalue and issecretvalue(e))
+            and e > 0 then
+        CheckSavedSplits(e)
     end
     UpdateObjectives()
     if db and db.profile then db.profile._activeRunSplits = nil end
@@ -1051,12 +1126,11 @@ local function ResetRun()
     wipe(playerDeaths)
     _prevDeathCount = 0
     wipe(_partyAlive)
-    currentRun.preciseStart = nil
-    currentRun.preciseCompletedElapsed = nil
     currentRun._lastDungeonComplete = false
     wipe(currentRun.affixes)
     wipe(currentRun.objectives)
-    if db and db.profile then db.profile._activeRunSplits = nil end
+    -- The saved splits stay: re-entering this run uses them again, and the
+    -- next key drops them (StartRun, CheckSavedSplits).
 
     StopTimerLoop()
 
@@ -1076,7 +1150,6 @@ local PREVIEW_RUN = {
     deaths        = 2,
     deathTimeLost = 10,
     affixes       = {},
-    preciseCompletedElapsed = nil,
     _previewAffixNames = { "Tyrannical", "Xal'atath's Bargain: Ascendant" },
     _previewAffixIDs = { 9, 152 },
     -- Current pull sample: two pulled mobs worth 18 and 14 forces (~13%).
@@ -1138,13 +1211,12 @@ _G._EMT_ResetProfile = function()
     return true
 end
 
--- Standalone frame
-local standaloneFrame
-local standaloneCreated = false
+-- Standalone frame (standaloneFrame / standaloneCreated are declared above
+-- StartTimerLoop, which reads them)
 local unlockLayoutActive = false -- force preview layout while Unlock Mode is open
 
--- NOTE: this function must be defined HERE (after the "local standaloneFrame"
--- and "local db" declarations). Placed earlier in the file (before those
+-- NOTE: this function must come after the "local standaloneFrame" and
+-- "local db" declarations. Placed earlier in the file (before those
 -- locals) Lua would bind it to the same-named GLOBALS (which are never set)
 -- instead of the locals, so it would always hit its early return immediately.
 --
@@ -2030,13 +2102,12 @@ local function RenderStandalone()
     local maxTime = run.maxTime or 0
     local timeLeft = max(0, maxTime - elapsed)
     local plusTwoT, plusThreeT = CalculateBonusTimers(maxTime, run.affixes)
-    local completedElapsed = run.preciseCompletedElapsed or elapsed
-    local colorElapsed = run.completed and completedElapsed or elapsed
+    -- A completed run's elapsed is its completion time (CompleteRun)
     local timerBarR, timerBarG, timerBarB
     if p.timerBarStyle == "SEGMENTS" then
-        timerBarR, timerBarG, timerBarB = GetTimerSegmentFillColor(p, colorElapsed, plusThreeT, plusTwoT)
+        timerBarR, timerBarG, timerBarB = GetTimerSegmentFillColor(p, elapsed, plusThreeT, plusTwoT)
     else
-        timerBarR, timerBarG, timerBarB = GetTimerBarFillColor(p, colorElapsed, plusThreeT, plusTwoT, maxTime)
+        timerBarR, timerBarG, timerBarB = GetTimerBarFillColor(p, elapsed, plusThreeT, plusTwoT, maxTime)
     end
 
     -- Build timer text per user-selected display mode.
@@ -2050,7 +2121,7 @@ local function RenderStandalone()
         -- Completed run: freeze the clock at the final elapsed seconds but preserve the
         -- user's chosen display mode so "/33:00" doesn't vanish on completion.
         local mode = p.timerDisplayMode or "REMAINING_TOTAL"
-        local elaStr = FormatTime(run.elapsed or completedElapsed or 0)
+        local elaStr = FormatTime(elapsed)
         local maxStr = FormatTime(maxTime)
         if mode == "REMAINING_TOTAL" then
             timerText = elaStr .. " / " .. maxStr
@@ -2078,7 +2149,7 @@ local function RenderStandalone()
     end
 
     local tR, tG, tB = 1, 1, 1
-    local depleted = (run.completed and completedElapsed > maxTime)
+    local depleted = (run.completed and elapsed > maxTime)
         or ((not run.completed) and timeLeft <= 0 and maxTime > 0)
     if depleted then
         tR, tG, tB = GetColor(p.timerExpiredColor, 0.9, 0.2, 0.2)
@@ -3049,7 +3120,10 @@ end
 -- so the next RenderStandalone() re-creates them from scratch. Use when a
 -- setting (e.g. text alignment) won't take effect via re-render alone.
 _G._EMT_RebuildStandalone = function()
-    if standaloneFrame then standaloneFrame:Hide() end
+    if standaloneFrame then
+        standaloneFrame:SetScript("OnUpdate", nil)   -- the timer fallback moves to the new frame
+        standaloneFrame:Hide()
+    end
     standaloneFrame = nil
     standaloneCreated = false
     wipe(objRows)
@@ -3190,23 +3264,29 @@ local function _unregisterRunEvents()
     SyncPullEvents()
 end
 
+-- Toggle high-frequency event subscriptions based on whether we're actually in a
+-- key. Outside M+ we don't want to wake on every quest update or subzone change.
+local function SyncRunEvents()
+    if currentRun.active then
+        _registerRunEvents()
+    else
+        _unregisterRunEvents()
+    end
+end
+
 for _, ev in ipairs(_ALWAYS_EVENTS) do runtimeFrame:RegisterEvent(ev) end
 runtimeFrame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_ENTERING_WORLD" then
         ApplyStandalonePosition()
         -- API data isn't fully populated at PEW; retry once after 10s
         -- to catch a /reload mid-key.
-        C_Timer.After(10, function() HandleRuntimeEvent("PLAYER_ENTERING_WORLD_DELAYED") end)
+        C_Timer.After(10, function()
+            HandleRuntimeEvent("PLAYER_ENTERING_WORLD_DELAYED")
+            SyncRunEvents()
+        end)
     end
     HandleRuntimeEvent(event)
-
-    -- Toggle high-frequency event subscriptions based on whether we're actually in a
-    -- key. Outside M+ we don't want to wake on every quest update or subzone change.
-    if currentRun.active then
-        _registerRunEvents()
-    else
-        _unregisterRunEvents()
-    end
+    SyncRunEvents()
 end)
 
 function EMT:OnInitialize()

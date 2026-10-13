@@ -182,7 +182,8 @@ function EllesmereUI.MakeActionButton(parent, font, text, r, g, b, opts)
 end
 
 -- Fading popup button (confirm and input popups): 125x27; text and border lerp from the
--- default to the hover colours over 0.1s. Exposes btn._lbl and btn._resetAnim.
+-- default to the hover colours over 0.1s. Exposes btn._lbl, btn._resetAnim and
+-- btn._setColors (new colours, same argument order as the defaults below).
 function EllesmereUI.MakePopupButton(parent, anchorPoint, anchorTo, anchorRef, xOff, yOff, defR, defG, defB, defA, hovR, hovG, hovB, hovA, bDefR, bDefG, bDefB, bDefA, bHovR, bHovG, bHovB, bHovA)
     local FADE_DUR = 0.1
     local btn = CreateFrame("Button", nil, parent)
@@ -219,6 +220,13 @@ function EllesmereUI.MakePopupButton(parent, anchorPoint, anchorTo, anchorRef, x
 
     btn._lbl = lbl
     btn._resetAnim = function() progress = 0; target = 0; Apply(0); btn:SetScript("OnUpdate", nil) end
+    -- Replaces the default and hover colours and repaints at the current hover progress.
+    btn._setColors = function(...)
+        defR, defG, defB, defA, hovR, hovG, hovB, hovA,
+            bDefR, bDefG, bDefB, bDefA, bHovR, bHovG, bHovB, bHovA = ...
+        lbl:SetAlpha(defA)
+        Apply(progress)
+    end
     return btn
 end
 
@@ -444,15 +452,16 @@ local function CreateConfirmPopup()
     return popup
 end
 
--- Invalidate cached popup so it rebuilds with current accent colors
+-- Repaints the cached popup's accent parts (the confirm button and the checkbox
+-- tick) with the current accent; the popup itself is built once and reused.
 local function InvalidateConfirmPopup()
-    if confirmPopup then
-        confirmPopup._dimmer:Hide()
-        confirmPopup:Hide()
-        confirmPopup._dimmer:SetParent(nil)
-        confirmPopup:SetParent(nil)
-        confirmPopup = nil
-    end
+    local popup = confirmPopup
+    if not popup then return end
+    local EG = ELLESMERE_GREEN
+    popup._confirmBtn._setColors(
+        EG.r, EG.g, EG.b, 0.9,   EG.r, EG.g, EG.b, 1,
+        EG.r, EG.g, EG.b, 0.9,   EG.r, EG.g, EG.b, 1)
+    popup._cbCheck:SetColorTexture(EG.r, EG.g, EG.b, 1)
 end
 EllesmereUI._InvalidateConfirmPopup = InvalidateConfirmPopup
 

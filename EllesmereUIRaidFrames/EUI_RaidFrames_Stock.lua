@@ -649,7 +649,9 @@ function ns.RF_PartyDims(s)
     local w = s.partyFrameWidth or s.frameWidth or 125
     local h = s.partyFrameHeight or s.frameHeight or 60
     local res = ns.RF_PtReserve and ns.RF_PtReserve(s, h) or 0
-    return w + res, h, s.partyCellSpacing or s.cellSpacing or 2, res
+    local spacing = s.partyCellSpacing or s.cellSpacing or 2
+    if ns.RF_CompactOn(s, true) then spacing = ns.RF_OnePixel(true) end
+    return w + res, h, spacing, res
 end
 
 -- Friendly Boss "Show in Dungeons" beside the party container under the kit:
@@ -811,7 +813,13 @@ local function PreviewSpots(f, s, g)
         nm:SetText("")
         nm:SetText(txt or "")
     end
-    if f._roleIcon then ns.RF_KitSpot(g.role, f._roleIcon, f, s.roleIconOffsetX, s.roleIconOffsetY) end
+    if f._roleIcon then
+        ns.RF_KitSpot(g.role, f._roleIcon, f, s.roleIconOffsetX, s.roleIconOffsetY)
+        if f._roleIcon._roleText then
+            f._roleIcon._roleText:ClearAllPoints()
+            f._roleIcon._roleText:SetPoint(g.role.p, f._roleIcon, g.role.p, 0, 0)
+        end
+    end
     if f._readyCheck and f.kitPortrait then
         ns.RF_KitSpot(g.rc, f._readyCheck, f.kitPortrait, s.readyCheckOffsetX, s.readyCheckOffsetY)
     end

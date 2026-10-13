@@ -1340,15 +1340,37 @@ initFrame:SetScript("OnEvent", function(self)
     local classIconLocValues = { ["left"]="Left", ["center"]="Center", ["right"]="Right" }
     local classIconLocOrder = { "left", "center", "right" }
 
-    -- Swap helper for buff/debuff anchors: prevent both from occupying the same slot
-    local function SwapAuraSlot(settingsTable, changedKey, newVal)
-        local otherKey = (changedKey == "buffAnchor") and "debuffAnchor" or "buffAnchor"
-        local otherVal = settingsTable[otherKey] or (otherKey == "buffAnchor" and "topleft" or "bottomleft")
-        if otherVal == newVal then
-            local oldVal = settingsTable[changedKey] or (changedKey == "buffAnchor" and "topleft" or "bottomleft")
-            settingsTable[otherKey] = oldVal
+    -- Buff and debuff stacks never share a spot. Moves one stack (changedKey
+    -- "buffAnchor" or "debuffAnchor") to newVal; the other stack, when its
+    -- stored spot is newVal, takes this stack's previous spot, or the first
+    -- free corner when that spot is None or newVal itself. A hidden buff
+    -- stack's stored corner counts both ways, so buffs turned back on by any
+    -- path (a Spec Override, an import) never land on the debuffs. Buffs turn
+    -- off through showBuffs (their corner is kept, never "none"); None never
+    -- collides.
+    local AURA_FREE_CORNERS = { "topleft", "bottomleft", "topright", "bottomright" }
+    local function SwapAuraSlot(t, changedKey, newVal)
+        local isBuff = (changedKey == "buffAnchor")
+        local prev
+        if isBuff then
+            prev = t.buffAnchor or "topleft"
+            if newVal == "none" then t.showBuffs = false; return end
+            t.showBuffs = true
+        else
+            prev = t.debuffAnchor or "bottomleft"
         end
-        settingsTable[changedKey] = newVal
+        t[changedKey] = newVal
+        if newVal == "none" then return end
+        local other
+        if isBuff then other = t.debuffAnchor or "bottomleft" else other = t.buffAnchor or "topleft" end
+        if other ~= newVal then return end
+        local dest = prev
+        if dest == "none" or dest == newVal then
+            for i = 1, #AURA_FREE_CORNERS do
+                if AURA_FREE_CORNERS[i] ~= newVal then dest = AURA_FREE_CORNERS[i]; break end
+            end
+        end
+        if isBuff then t.debuffAnchor = dest else t.buffAnchor = dest end
     end
 
     ---------------------------------------------------------------------------
@@ -2044,6 +2066,12 @@ initFrame:SetScript("OnEvent", function(self)
         -- WoW Forever: the pet's power bar position has no counterpart on the
         -- other small frames (theirs never shows), so it stays with the pet.
         if key == "powerPosition" and ns.UF_PetHasPower and groupUnits == MINI_GROUP_ORDER then return false end
+        -- The pet's buffs and debuffs stay with the pet: the other small frames
+        -- have none, so a copy either way would only clear or plant aura keys.
+        if groupUnits == MINI_GROUP_ORDER and (key:find("^buff") or key:find("^debuff")
+            or key == "showBuffs" or key == "maxBuffs" or key == "maxDebuffs" or key == "auraSource") then
+            return false
+        end
         local sup = UNIT_SUPPORTS[key]
         if sup then
             for _, u in ipairs(groupUnits) do
@@ -2095,13 +2123,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- re-picking the frame shown stores nothing, and Focus, which behaves
     -- exactly as no choice, is stored as none.
     local function BuildLookSourcePair(row, unitKey, ddW)
-        local function Shown()
-            local p = db.profile
-            local s = ns.GetMiniDonorSettings(unitKey)
-            if s == p.focus then return "focus" end
-            if s == p.target then return "target" end
-            return "player"
-        end
+        local function Shown() return ns.UF_MiniDonorKey(unitKey) end
         local ddBtn = EllesmereUI.BuildDropdownControl(
             row, ddW, row:GetFrameLevel() + 2,
             { target = "Target", focus = "Focus", player = "Player" },
@@ -2728,6 +2750,21 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if pv._nameFS and pv._nameFS:IsShown() then CreateHitOverlay(pv._nameFS, "nameText", true, textLevel) end
             if pv._hpFS and pv._hpFS:IsShown() then CreateHitOverlay(pv._hpFS, "healthText", true, textLevel) end
+            -- The pet's buff/debuff icons -> Buffs / Debuffs Location. Every icon,
+            -- so one shown later stays clickable without a header rebuild (the
+            -- other mini frames show none).
+            if selectedMiniUnit == "pet" then
+                if pv._buffIcons then
+                    for i = 1, #pv._buffIcons do
+                        if pv._buffIcons[i] then CreateHitOverlay(pv._buffIcons[i], "buffIcon", false, baseLevel) end
+                    end
+                end
+                if pv._debuffIcons then
+                    for i = 1, #pv._debuffIcons do
+                        if pv._debuffIcons[i] then CreateHitOverlay(pv._debuffIcons[i], "debuffIcon", false, baseLevel) end
+                    end
+                end
+            end
         end
 
         return abs(y)
@@ -3011,7 +3048,7 @@ initFrame:SetScript("OnEvent", function(self)
         end,
         onReset     = function()
             db:ResetProfile()
-            -- No reload here: the footer Reset popup (reload = true) reloads after this returns.
+            -- No reload here: Reset EUI Module Settings reloads after this returns.
         end,
         -- Tears down Boss Preview on module switch (RegisterOnHide above
         -- only covers closing the whole options window).

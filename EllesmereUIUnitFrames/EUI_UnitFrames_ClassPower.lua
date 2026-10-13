@@ -12,6 +12,7 @@ local _, ns = ...
 local math_floor = math.floor
 local issecretvalue = issecretvalue
 local PP = EllesmereUI.PP
+local MakeBorder = EllesmereUI.MakeBorder
 
 local I = ns._internals
 local frames = I.frames
@@ -20,7 +21,7 @@ local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
 -- Fixed child-born shells for the class-power event driver and castbar watcher. The
--- class-power bar is destroyed/rebuilt on spec switches through the profile system,
+-- class-power bar is parked and rebuilt on spec switches through the profile system,
 -- whose dispatch runs under the PARENT addon's execution context -- and the engine
 -- bills a handler's entire call tree to the addon whose context created the frame, so
 -- drivers recreated there would bill the parent's CPU row. Creating them ONCE here
@@ -48,24 +49,36 @@ ns._cpWatchTick = EllesmereUI.Tick.NewAnimTicker(ns._cpCastWatcher, function()
     return true
 end, 0.1)
 
+-- One class power row serves every build: DestroyCustomClassPower parks it
+-- (hidden, its driver silenced) and CreateCustomClassPower configures it again,
+-- so a rebuild (spec change, style or size edit) creates no frames once warm.
+-- Pips are pooled by index; the chrome (background, bottom edge, border) and
+-- the bar-mode StatusBar are built once.
+local cpContainer, cpBorder, cpStaggerBar
+local cpPipPool = {}
+
+-- Silences and hides every child of the parked row (the engine-slot overlay's
+-- proxy included) without building a table of them.
+local function ParkChildren(child, ...)
+    if not child then return end
+    child:UnregisterAllEvents()
+    child:SetScript("OnEvent", nil)
+    child:Hide()
+    return ParkChildren(...)
+end
+
 local function DestroyCustomClassPower()
     -- Park the engine-slot warrior charge overlay: its proxy is parented to
-    -- the container being torn down; the next _WCUF_Sync re-adopts it.
+    -- the container being parked; the next _WCUF_Sync re-adopts it.
     if _G._EWC then _G._EWC.Gate("uf") end
     ns._cpTickFn = nil
     ns._cpDriverTick.Stop()
     ns._cpWatchFn = nil
     ns._cpWatchTick.Stop()
-    if frames._customClassPower then
-        frames._customClassPower:Hide()
-        -- Unregister events on all children to prevent leaks
-        local kids = { frames._customClassPower:GetChildren() }
-        for _, child in ipairs(kids) do
-            child:UnregisterAllEvents()
-            child:SetScript("OnEvent", nil)
-            child:Hide()
-        end
-        frames._customClassPower:SetParent(nil)
+    local container = frames._customClassPower
+    if container then
+        container:Hide()
+        ParkChildren(container:GetChildren())
         frames._customClassPower = nil
     end
 end
@@ -160,39 +173,62 @@ local function CreateCustomClassPower(playerFrame, style)
     local totalW = drawPipCount * pipSize + (drawPipCount - 1) * gap + pad
     local totalH = pipH + pad
 
-    local container = CreateFrame("Frame", nil, UIParent)
+    -- The row is reused across builds (see cpContainer): a parked one goes back
+    -- to the state a new frame starts in, then is configured like one.
+    local container = cpContainer
+    if container then
+        container:SetParent(UIParent)
+        container:ClearAllPoints()
+        container:SetAlpha(1)
+        container:Show()
+        container._repositionForWidth = nil
+    else
+        container = CreateFrame("Frame", nil, UIParent)
+        cpContainer = container
+    end
     PP.Size(container, totalW, totalH)
     container:SetFrameStrata("MEDIUM")
     container:SetFrameLevel(10)
 
     -- Background color behind all pips (spans left edge of first pip to right edge of last pip)
     local bgCol = db.profile.player.classPowerBgColor or { r = 0.082, g = 0.082, b = 0.082, a = 1.0 }
-    local containerBg = container:CreateTexture(nil, "BACKGROUND")
-    containerBg:SetAllPoints()
+    local containerBg = container._bg
+    if not containerBg then
+        containerBg = container:CreateTexture(nil, "BACKGROUND")
+        containerBg:SetAllPoints()
+        container._bg = containerBg
+    end
     containerBg:SetColorTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
-    container._bg = containerBg
 
     -- Empty pip color (shown when pip is not filled)
     local emptyCol = db.profile.player.classPowerEmptyColor or { r = 0.2, g = 0.2, b = 0.2, a = 1.0 }
 
+    -- Border: non-modern styles only, built on first use and shown per style
     if not isModern then
-        -- Border
-        MakeBorder(container, 0, 0, 0, 0.8)
+        if not cpBorder then cpBorder = MakeBorder(container, 0, 0, 0, 0.8) end
+        cpBorder._frame:SetFrameLevel(container:GetFrameLevel() + 1)
+        cpBorder.edges:SetFrameLevel(container:GetFrameLevel() + 2)
+        cpBorder._frame:Show()
+    elseif cpBorder then
+        cpBorder._frame:Hide()
     end
 
     -- 1px inset bottom border for "above" position (matches frame border color)
     -- Must be on a separate overlay frame at a higher frame level than pip child frames,
     -- because child frames always render over parent textures regardless of draw layer.
-    local cpBdrOverlay = CreateFrame("Frame", nil, container)
-    cpBdrOverlay:SetAllPoints()
+    local cpBdrOverlay = container._bottomBdrFrame
+    if not cpBdrOverlay then
+        cpBdrOverlay = CreateFrame("Frame", nil, container)
+        cpBdrOverlay:SetAllPoints()
+        local cpBottomBdr = cpBdrOverlay:CreateTexture(nil, "OVERLAY", nil, 7)
+        cpBottomBdr:SetHeight(1)
+        PP.Point(cpBottomBdr, "BOTTOMLEFT", cpBdrOverlay, "BOTTOMLEFT", 0, 0)
+        PP.Point(cpBottomBdr, "BOTTOMRIGHT", cpBdrOverlay, "BOTTOMRIGHT", 0, 0)
+        container._bottomBdr = cpBottomBdr
+        container._bottomBdrFrame = cpBdrOverlay
+    end
     cpBdrOverlay:SetFrameLevel(container:GetFrameLevel() + 20)
-    local cpBottomBdr = cpBdrOverlay:CreateTexture(nil, "OVERLAY", nil, 7)
-    cpBottomBdr:SetHeight(1)
-    PP.Point(cpBottomBdr, "BOTTOMLEFT", cpBdrOverlay, "BOTTOMLEFT", 0, 0)
-    PP.Point(cpBottomBdr, "BOTTOMRIGHT", cpBdrOverlay, "BOTTOMRIGHT", 0, 0)
     cpBdrOverlay:Hide()  -- shown only when position is "above"
-    container._bottomBdr = cpBottomBdr
-    container._bottomBdrFrame = cpBdrOverlay
 
     local useClassColor = db.profile.player.classPowerClassColor ~= false
     local cr, cg, cb
@@ -210,35 +246,51 @@ local function CreateCustomClassPower(playerFrame, style)
         end
     end
 
+    -- The pip at this index from the pool (built on first use), configured for
+    -- this build as a new one starts: shown, fill shown, no secret overlay up.
     local function MakePip(parent, index)
-        local pip = CreateFrame("Frame", nil, parent)
+        local pip = cpPipPool[index]
+        if not pip then
+            pip = CreateFrame("Frame", nil, parent)
+            pip._empty = pip:CreateTexture(nil, "ARTWORK", nil, 0)
+            pip._empty:SetAllPoints()
+            pip._fill = pip:CreateTexture(nil, "ARTWORK", nil, 1)
+            pip._fill:SetAllPoints()
+            cpPipPool[index] = pip
+        end
+        pip:SetFrameLevel(parent:GetFrameLevel() + 1)
         PP.Size(pip, pipSize, pipH)
         local x = (index - 1) * (pipSize + gap) + pad / 2
+        pip:ClearAllPoints()
         PP.Point(pip, "LEFT", parent, "LEFT", x, 0)
 
         -- Empty bar color (visible when pip is not filled)
-        local pipEmpty = pip:CreateTexture(nil, "ARTWORK", nil, 0)
-        pipEmpty:SetAllPoints()
+        local pipEmpty = pip._empty
         if isCircle then
             pipEmpty:SetTexture("Interface\\COMMON\\Indicator-Gray")
             pipEmpty:SetVertexColor(emptyCol.r, emptyCol.g, emptyCol.b, emptyCol.a)
         else
             pipEmpty:SetColorTexture(emptyCol.r, emptyCol.g, emptyCol.b, emptyCol.a)
+            pipEmpty:SetVertexColor(1, 1, 1, 1)
         end
 
         -- Fill color (on top of empty)
-        local pipFill = pip:CreateTexture(nil, "ARTWORK", nil, 1)
-        pipFill:SetAllPoints()
-
+        local pipFill = pip._fill
         if isCircle then
             pipFill:SetTexture("Interface\\COMMON\\Indicator-Gray")
             pipFill:SetVertexColor(cr, cg, cb, 1)
         else
             pipFill:SetColorTexture(cr, cg, cb, 1)
+            pipFill:SetVertexColor(1, 1, 1, 1)
         end
+        pipFill:Show()
 
-        pip._fill = pipFill
-        pip._empty = pipEmpty
+        local sb = pip._secretBar
+        if sb then
+            sb:SetFrameLevel(pip:GetFrameLevel() + 1)
+            sb:Hide()
+        end
+        pip:Show()
         return pip
     end
 
@@ -252,19 +304,34 @@ local function CreateCustomClassPower(playerFrame, style)
     if isBarMode then
         -- Single StatusBar filling the container; color updates per-tier.
         local inset = pad / 2
-        staggerBar = CreateFrame("StatusBar", nil, container)
-        staggerBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-        staggerBar:GetStatusBarTexture():SetHorizTile(false)
+        staggerBar = cpStaggerBar
+        if not staggerBar then
+            staggerBar = CreateFrame("StatusBar", nil, container)
+            staggerBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+            staggerBar:GetStatusBarTexture():SetHorizTile(false)
+            cpStaggerBar = staggerBar
+        end
+        staggerBar:SetFrameLevel(container:GetFrameLevel() + 1)
+        staggerBar:ClearAllPoints()
         PP.Point(staggerBar, "TOPLEFT",     container, "TOPLEFT",     inset, 0)
         PP.Point(staggerBar, "BOTTOMRIGHT", container, "BOTTOMRIGHT", -inset, 0)
         staggerBar:SetMinMaxValues(0, maxPower)
         staggerBar:SetValue(0)
         staggerBar:GetStatusBarTexture():SetVertexColor(0.2, 0.8, 0.2, 1)
+        -- Paint memos from an earlier build: the first update repaints.
+        staggerBar._lastMax, staggerBar._colorSet = nil, nil
+        staggerBar._lastR, staggerBar._lastG, staggerBar._lastB = nil, nil, nil
+        staggerBar:Show()
         container._staggerBar = staggerBar
+        for i = 1, #cpPipPool do cpPipPool[i]:Hide() end
     else
+        container._staggerBar = nil
+        if cpStaggerBar then cpStaggerBar:Hide() end
         for i = 1, maxPower do
             pips[i] = MakePip(container, i)
         end
+        -- Pooled pips past this build's count stay hidden until a regrown max takes them.
+        for i = maxPower + 1, #cpPipPool do cpPipPool[i]:Hide() end
         shownPipCount = maxPower
     end
 
@@ -356,8 +423,8 @@ local function CreateCustomClassPower(playerFrame, style)
             -- Forever combo points belong to the target, and UnitPower still
             -- reports the previous target's count at the moment
             -- PLAYER_TARGET_CHANGED fires (measured on 1.60.1: up=3 while
-            -- gcp=0 on the swap), with no later event to correct it. Blizzard's
-            -- own classic ComboFrame reads GetComboPoints for the same reason.
+            -- gcp=0 on the swap), with no later power event to correct it.
+            -- Blizzard's own ComboFrame reads GetComboPoints for the same reason.
             if EllesmereUI.IS_FOREVER == true and powerType == Enum.PowerType.ComboPoints
                and GetComboPoints then
                 cur = GetComboPoints("player", "target") or 0
@@ -500,17 +567,20 @@ local function CreateCustomClassPower(playerFrame, style)
             eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
         end
         -- Combo points belong to the target on Forever, so swapping targets
-        -- changes the count with no power event behind it. Blizzard's own
-        -- ComboFrame refreshes on this event for the same reason.
+        -- changes the count with no power event behind it, and so does points
+        -- moving to a new target (COMBO_TARGET_CHANGED, no payload). Blizzard's
+        -- own combo displays refresh on these events for the same reason.
         if EllesmereUI.IS_FOREVER == true and powerType == Enum.PowerType.ComboPoints then
             eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+            eventFrame:RegisterEvent("COMBO_TARGET_CHANGED")
         end
         eventFrame:SetScript("OnEvent", function(_, event, unit)
             if druidFormToggle and (event == "UPDATE_SHAPESHIFT_FORM" or event == "PLAYER_ENTERING_WORLD") then
                 container:SetShown(InCatForm())
             end
             if event == "PLAYER_ENTERING_WORLD" or event == "RUNE_POWER_UPDATE"
-               or event == "PLAYER_TARGET_CHANGED" or (unit == "player") then
+               or event == "PLAYER_TARGET_CHANGED" or event == "COMBO_TARGET_CHANGED"
+               or (unit == "player") then
                 UpdatePips()
             end
         end)

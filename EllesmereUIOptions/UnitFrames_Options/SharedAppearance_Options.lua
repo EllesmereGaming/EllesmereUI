@@ -530,13 +530,20 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 local oy = SGet("borderTextureOffsetY")
                 local sx = SGet("borderTextureShiftX")
                 local sy = SGet("borderTextureShiftY")
-                local cr, cm, cj = SVal("cornerRadius", 0), SGet("cornerMask"), SGet("cornerJoinPower")
+                local cr, cm, cj = SVal("cornerRadius", 0), SGet("cornerMask"), SGet("cornerJoinPower") == true
                 for _, key in ipairs(GROUP_UNIT_ORDER) do
                     if key ~= optState.selectedUnit then
                         UNIT_DB_MAP[key]().borderSize = bs
                         UNIT_DB_MAP[key]().cornerRadius = cr
-                        UNIT_DB_MAP[key]().cornerMask = cm
-                        UNIT_DB_MAP[key]().cornerJoinPower = cj
+                        do
+                            -- All corners clears a set mask with 15, and Join off
+                            -- is false (nil would not travel through mirror sync).
+                            local t = UNIT_DB_MAP[key]()
+                            local m = cm
+                            if m == nil and t.cornerMask ~= nil then m = 15 end
+                            t.cornerMask = m
+                            t.cornerJoinPower = cj
+                        end
                         -- Verbatim (string / false / nil): the value only counts beside the same step and texture.
                         do
                             -- A source with no exact size clears a set one with
@@ -592,12 +599,19 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                     local oy = SGet("borderTextureOffsetY")
                     local sx = SGet("borderTextureShiftX")
                     local sy = SGet("borderTextureShiftY")
-                    local cr, cm, cj = SVal("cornerRadius", 0), SGet("cornerMask"), SGet("cornerJoinPower")
+                    local cr, cm, cj = SVal("cornerRadius", 0), SGet("cornerMask"), SGet("cornerJoinPower") == true
                     for _, key in ipairs(checkedKeys) do
                         UNIT_DB_MAP[key]().borderSize = bs
                         UNIT_DB_MAP[key]().cornerRadius = cr
-                        UNIT_DB_MAP[key]().cornerMask = cm
-                        UNIT_DB_MAP[key]().cornerJoinPower = cj
+                        do
+                            -- All corners clears a set mask with 15, and Join off
+                            -- is false (nil would not travel through mirror sync).
+                            local t = UNIT_DB_MAP[key]()
+                            local m = cm
+                            if m == nil and t.cornerMask ~= nil then m = 15 end
+                            t.cornerMask = m
+                            t.cornerJoinPower = cj
+                        end
                         do
                             -- A source with no exact size clears a set one with
                             -- false (nil would not travel through mirror sync).
@@ -1038,8 +1052,8 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                       get=function() return db.profile.threatPctColorByThreat end,
                       set=function(v) PctSet("threatPctColorByThreat", v) end },
                     PctSlider("threatPctSize", "Size", 6, 20),
-                    PctSlider("threatPctXOffset", "X Offset", -100, 100),
-                    PctSlider("threatPctYOffset", "Y Offset", -100, 100),
+                    PctSlider("threatPctXOffset", "X Offset", -300, 300),
+                    PctSlider("threatPctYOffset", "Y Offset", -300, 300),
                 },
             })
         end

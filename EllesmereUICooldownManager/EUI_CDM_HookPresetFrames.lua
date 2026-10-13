@@ -172,8 +172,9 @@ do
     end
 
     -- Custom-spell icon tint: out of range first (Blizzard's RefreshIconColor
-    -- order), else the resource dim. The range tint is written RGBA as Blizzard
-    -- writes it; the dim keeps its 3-arg writes.
+    -- order), else the resource dim (not the power part under Ignore Resource
+    -- Cost). The range tint is written RGBA as Blizzard writes it; the dim
+    -- keeps its 3-arg writes.
     local function PaintTint(f, sid, onRealCD)
         local tex = f._tex
         if not tex then return end
@@ -196,6 +197,10 @@ do
         if wasTinted then f._rangeTinted = nil end
         if not onRealCD then
             local isUsable, notEnoughMana = C_Spell.IsSpellUsable(sid)
+            if notEnoughMana and ns.PresetIgnoresResourceTint(f) then
+                -- Short on power reads as usable; other reasons keep their grey.
+                isUsable, notEnoughMana = true, false
+            end
             if notEnoughMana then
                 tex:SetVertexColor(0.5, 0.5, 1.0)
             elseif not isUsable then

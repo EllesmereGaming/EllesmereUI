@@ -668,7 +668,8 @@ end
 -- Bar" stamp -- so one bar application covers whatever is equipped without an entry per item.
 -- Chain re-asserted lazily every resolve (metatables never serialize), mirroring
 -- ResolveSpellSettings. An explicit false own value renders like nil but BLOCKS the slot
--- value from showing through (per-item "None"); cdStateEffect consumers normalize false to nil.
+-- value from showing through (per-item "None"); the cooldown state pair readers
+-- (ns.CdStateOf) read false as no effect.
 function ns.GetEffectiveCustomActiveState(frameKey)
     local store = ns.GetCustomActiveStates()
     if not store then return nil end
@@ -686,18 +687,12 @@ function ns.GetEffectiveCustomActiveState(frameKey)
     return store[frameKey]
 end
 
--- Preset menus store cooldown effects in customActiveStates, including None.
--- Never revive an old spell-family/bar-tier effect behind that menu's back.
-function ns.GetSpellCdStateEffect(frame, settings)
-    if frame and ns.CdmIsInjectedFrame and ns.CdmIsInjectedFrame(frame) then return nil end
-    return settings and settings.cdStateEffect
-end
-
 -- The hide effects by saved value: the base mode the evaluators run, plus
 -- shift (the bar closes the gap: Shift Icons), usable (an unusable spell also
 -- hides: Hidden Until Usable) and form (only the spell's form or stance
 -- decides, whatever its cooldown: Hidden Outside Form/Stance). A new hide
--- effect is one entry here.
+-- effect is one entry here: the glows it cannot show beside derive from its
+-- base and flags (ns.CdStateGlowConflicts).
 ns.CD_STATE_HIDE = {
     hiddenOnCD          = { base = "hiddenOnCD" },
     hiddenReady         = { base = "hiddenReady" },
@@ -715,9 +710,146 @@ function ns.CdStateShifts(eff)
     return m and m.shift or false
 end
 
+-------------------------------------------------------------------------------
+--  Cooldown State Effect pair
+--  A spell's effect is two settings read together: the hide (cdStateEffect: a
+--  CD_STATE_HIDE key or "lowerAlphaOnCD") and the glow (cdStateGlow: a
+--  CD_STATE_GLOWS key; the menus write only the menu values, a moved single
+--  value keeps its saved name); false in either is explicitly none. Both
+--  chain per key like every per-spell setting (the spell entry over the bar
+--  tiers, an equipped item over its trinket slot). A glow saved in
+--  cdStateEffect, the single-value form, reads as that glow with no hide, and
+--  like a hide it shadows the single-value glows below it, never a cdStateGlow
+--  below it. Every evaluator reads the pair through ns.CdStateOf; the menus
+--  write it through ns.CdStateWriteHide / ns.CdStateWriteGlow, which move a
+--  single-value glow into cdStateGlow on the table they write.
+-------------------------------------------------------------------------------
+
+-- Every saved glow value -> its menu value (a button* name is the same glow
+-- with the Action Button Glow look, which ns.CdReadyGlowStyle implies).
+ns.CD_STATE_GLOWS = {
+    pixelGlowReady       = "pixelGlowReady",
+    buttonGlowReady      = "pixelGlowReady",
+    pixelGlowReadyUsable = "pixelGlowReadyUsable",
+    buttonGlowReadyUsable = "pixelGlowReadyUsable",
+    glowOnCD             = "glowOnCD",
+}
+
+-- hide, glow for a settings table (nil for none). The glow comes back as saved,
+-- so a single-value button* name keeps implying its style. Frames we inject
+-- read nothing here: the preset menus store their effect in
+-- customActiveStates, None included, so an old spell-family or bar-tier effect
+-- never shows behind that menu's back.
+function ns.CdStateOf(settings, frame)
+    if not settings then return nil, nil end
+    if frame and ns.CdmIsInjectedFrame and ns.CdmIsInjectedFrame(frame) then return nil, nil end
+    local GLOWS = ns.CD_STATE_GLOWS
+    local e = settings.cdStateEffect
+    local hide = e
+    if e == false or GLOWS[e] then hide = nil end
+    -- No level holds a cdStateGlow: the single value decides.
+    if settings.cdStateGlow == nil then
+        if GLOWS[e] then return hide, e end
+        return hide, nil
+    end
+    -- Top down: a level's own cdStateGlow decides (false = none), else its
+    -- single-value glow while no hide or false above shadows those.
+    local t, shadowed = settings, false
+    for _ = 1, 4 do
+        if type(t) ~= "table" then break end
+        local g = rawget(t, "cdStateGlow")
+        if g ~= nil then return hide, g or nil end
+        if not shadowed then
+            local le = rawget(t, "cdStateEffect")
+            if le ~= nil then
+                if GLOWS[le] then return hide, le end
+                shadowed = true
+            end
+        end
+        local mt = getmetatable(t)
+        t = mt and mt.__index
+    end
+    return hide, nil
+end
+
+-- The hide half alone (the same gate, no glow walk).
+function ns.CdStateHideOf(settings, frame)
+    if not settings then return nil end
+    if frame and ns.CdmIsInjectedFrame and ns.CdmIsInjectedFrame(frame) then return nil end
+    local e = settings.cdStateEffect
+    if e == false or ns.CD_STATE_GLOWS[e] then return nil end
+    return e
+end
+
+-- The glow half alone.
+function ns.CdStateGlowOf(settings, frame)
+    local _, g = ns.CdStateOf(settings, frame)
+    return g
+end
+
+-- True when the glow can never show beside the hide: the On CD glow under a
+-- hide that covers the whole cooldown (Hidden (On CD), Hidden Until Usable and
+-- their Shift variants), the ready glows under Hidden (CD Ready). A form hide
+-- never conflicts: only the form decides it, whatever the cooldown.
+function ns.CdStateGlowConflicts(hide, glow)
+    local m = hide and ns.CD_STATE_HIDE[hide]
+    local g = glow and ns.CD_STATE_GLOWS[glow]
+    if not (m and g) or m.form then return false end
+    if g == "glowOnCD" then return m.base == "hiddenOnCD" end
+    return m.base == "hiddenReady"
+end
+
+-- A valid Glow Style read through t's chain.
+local function ReadsGlowStyle(t)
+    local st = t.cdStateGlowStyle
+    return type(st) == "number" and st >= 1 and st <= #ns.GLOW_STYLES
+end
+
+-- Move a single-value glow saved in t's own cdStateEffect into cdStateGlow,
+-- leaving the pair t resolves unchanged. The saved name moves as it is: a
+-- button* name keeps implying its Action Button Glow look through
+-- ns.CdReadyGlowStyle, and no Glow Style is written that the tables chained
+-- over t would inherit. cdStateEffect stays false where a hide below would
+-- otherwise show through. True when t held one.
+function ns.CdStateSplitLegacy(t)
+    if type(t) ~= "table" then return false end
+    local e = rawget(t, "cdStateEffect")
+    if not (e and ns.CD_STATE_GLOWS[e]) then return false end
+    if rawget(t, "cdStateGlow") == nil then t.cdStateGlow = e end
+    t.cdStateEffect = nil
+    if ns.CdStateHideOf(t) ~= nil then t.cdStateEffect = false end
+    return true
+end
+
+-- A menu's hide pick on its own table t (v = a hide value, nil = None). The
+-- glow t resolves is kept: when the new hide shadows or exposes another glow,
+-- t pins the one it had, as saved (false for none).
+function ns.CdStateWriteHide(t, v)
+    local before = ns.CdStateGlowOf(t)
+    ns.CdStateSplitLegacy(t)
+    t.cdStateEffect = v
+    if v == nil and ns.CdStateHideOf(t) ~= nil then t.cdStateEffect = false end
+    if ns.CdStateGlowOf(t) ~= before then t.cdStateGlow = before or false end
+end
+
+-- A menu's glow pick on its own table t (g = a menu glow, nil = no glow). The
+-- hide t resolves is kept. A button* glow being replaced leaves its Action
+-- Button Glow look as the style when none is set.
+function ns.CdStateWriteGlow(t, g)
+    local cur = ns.CdStateGlowOf(t)
+    local cc = cur and ns.CD_STATE_GLOWS[cur]
+    if g and cc and cc ~= cur and not ReadsGlowStyle(t) then
+        t.cdStateGlowStyle = 3
+    end
+    ns.CdStateSplitLegacy(t)
+    t.cdStateGlow = g
+    if g == nil and ns.CdStateGlowOf(t) ~= nil then t.cdStateGlow = false end
+end
+
 -- CD Ready glow style (CDM saved numbering), read from the same settings table as
--- the effect: the explicit pick, else what the effect name implies (pixel* =
--- Pixel Glow, button* = Action Button Glow), so older settings render unchanged.
+-- the glow (cse = the glow as ns.CdStateOf returns it): the explicit pick, else
+-- what the glow name implies (pixel* = Pixel Glow, button* = Action Button Glow,
+-- glowOnCD = Blackout), so older settings render unchanged.
 function ns.CdReadyGlowStyle(cse, settings)
     local st = settings and settings.cdStateGlowStyle
     if type(st) == "number" and st >= 1 and st <= #ns.GLOW_STYLES then return st end
@@ -758,10 +890,9 @@ function ns.PresetHasCdState(frame)
        and not (ns._myRacialsSet and ns._myRacialsSet[fc.spellID]) then
         return false
     end
-    local cas = ns.GetEffectiveCustomActiveState(fc.spellID)
-    local eff = cas and cas.cdStateEffect
-    if eff == false then eff = nil end  -- blocking-false = no effect
-    return eff ~= nil
+    -- A hide or a glow (blocking-false = none in either).
+    local hide, glow = ns.CdStateOf(ns.GetEffectiveCustomActiveState(fc.spellID))
+    return hide ~= nil or glow ~= nil
 end
 
 -- Max Stacks Glow gate: set ns._cdmAnyMaxStacksGlow once if any saved spell (any spec) has

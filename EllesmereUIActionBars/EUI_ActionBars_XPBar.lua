@@ -348,9 +348,10 @@ end
 -- The Forever style: WoW Forever's bronze border (EllesmereUI.ForeverBorder)
 -- in place of our 1px line, its outer edge on the bar's edge as on the
 -- Damage Meters windows, so size matching and snapping are unchanged. The
--- fill, rested bar and trough start at the line's inner edge and keep the
--- bar's own texture and colours. Built once on its own child above the fill
--- (holder+1) and the ticks (holder+2).
+-- fill, rested bar and trough start FOREVER_BORDER.fill in from that edge
+-- (under the line's inner shadow, their square corners inside the chamfers)
+-- and keep the bar's own texture and colours. Built once on its own child
+-- above the fill (holder+1) and the ticks (holder+2).
 local function ApplyXPForeverBorder(frame, bar, bg, rb)
     local host = frame._fvRingHost
     if not host then
@@ -363,9 +364,7 @@ local function ApplyXPForeverBorder(frame, bar, bg, rb)
     end
     host:SetFrameLevel(frame:GetFrameLevel() + 3)
     host:Show()
-    local w, h = frame:GetSize()
-    EllesmereUI.ForeverBorderFit(frame._fvRing, w, h)
-    local e = EllesmereUI.FOREVER_BORDER.line
+    local e = EllesmereUI.FOREVER_BORDER.fill
     PP.SetInside(bar, frame, e, e); PP.SetInside(bg, frame, e, e)
     if rb then PP.SetInside(rb, frame, e, e) end
 end

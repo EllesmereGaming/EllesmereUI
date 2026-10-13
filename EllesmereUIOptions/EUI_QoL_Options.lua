@@ -628,7 +628,17 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.hideErrorMessages = v
-                  if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
+                  -- Turning it off takes effect at the next reload; the apply
+                  -- returns true while one is due.
+                  if EllesmereUI._applyHideErrorMessages and EllesmereUI._applyHideErrorMessages() then
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Hidden error messages come back after a UI reload.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Later",
+                          reload      = true,
+                      })
+                  end
               end },
             { type="toggle", text="Hide Tutorial Pop-ups",
               tooltip="Hides Blizzard's tutorial UI: the yellow HelpTip bubbles and the glowing (i) help-plate buttons on the spellbook, talents, map, collections, and other panels.",
@@ -642,8 +652,8 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Row: Hide Loot Rolls Window (left, with settings cog) | Combat
-        -- Alert (right, with its own settings cog below)
+        -- Row: Hide Loot Rolls Window (left, with settings cog) | Hide Item
+        -- Transforms (right, with picker cog)
         local lootHistRow
         lootHistRow, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Loot Rolls Window",
@@ -657,16 +667,18 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._applyHideLootHistory then EllesmereUI._applyHideLootHistory() end
                   EllesmereUI:RefreshPage()  -- update the cog disabled state
               end },
-            { type="toggle", text="Combat Alert",
-              tooltip="Shows a large on-screen text when you enter and/or leave combat (e.g. \"+Combat\" / \"-Combat\"). Use the cog to set the display text, size, colors and which transitions are shown; use Unlock Mode to reposition the alert.",
+            { type="toggle", text="Hide Item Transforms (ex: Chef's Hat)",
+              tooltip="Automatically removes cosmetic transforms when they are applied to you, such as profession gear, holiday costumes, toys and consumables. Use the cog to pick exactly which transforms are removed. Transforms applied during combat are removed when combat ends.",
               getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.combatAlertEnabled or false
+                  return EllesmereUIDB and EllesmereUIDB.hideTransforms or false
               end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.combatAlertEnabled = v
-                  if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
-                  EllesmereUI:RefreshPage()
+                  EllesmereUIDB.hideTransforms = v
+                  if EllesmereUI._applyHideTransforms then
+                      EllesmereUI._applyHideTransforms()
+                  end
+                  EllesmereUI:RefreshPage()  -- update the picker cog disabled state
               end }
         );  y = y - h
 
@@ -716,214 +728,13 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row 7: Announce Group Deaths (left, with Text Size cog) | Hide Item
-        -- Transforms (right, with picker cog)
-        local deathRow
-        deathRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Announce Group Deaths",
-              tooltip="Shows a large on-screen alert (e.g. \"Player DIED!\") whenever a party or raid member dies, so you immediately notice deaths during dungeons and raids. Use Unlock Mode to reposition the alert.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.announceGroupDeaths or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.announceGroupDeaths = v
-                  if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
-                  EllesmereUI:RefreshPage()
-              end },
-            { type="toggle", text="Hide Item Transforms (ex: Chef's Hat)",
-              tooltip="Automatically removes cosmetic transforms when they are applied to you, such as profession gear, holiday costumes, toys and consumables. Use the cog to pick exactly which transforms are removed. Transforms applied during combat are removed when combat ends.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.hideTransforms or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.hideTransforms = v
-                  if EllesmereUI._applyHideTransforms then
-                      EllesmereUI._applyHideTransforms()
-                  end
-                  EllesmereUI:RefreshPage()  -- update the picker cog disabled state
-              end }
-        );  y = y - h
-
-        -- Inline cog (Text Size) on the Announce Group Deaths toggle
-        if not EllesmereUI._prebuilding then
-            local leftRgn = deathRow._leftRegion
-            local function deathOff()
-                return not (EllesmereUIDB and EllesmereUIDB.announceGroupDeaths)
-            end
-
-            -- Sound dropdown values (mirrors Chat's "Whisper Sound"): shallow-copy
-            -- the runtime name table and attach _menuOpts so each row gets a
-            -- click-to-preview speaker icon.
-            local gdSoundPaths = EllesmereUI._groupDeathSoundPaths or {}
-            local gdSoundNames = EllesmereUI._groupDeathSoundNames or { none = "None" }
-            local gdSoundOrder = EllesmereUI._groupDeathSoundOrder or { "none" }
-            local gdSoundValues = {}
-            for k, v in pairs(gdSoundNames) do gdSoundValues[k] = v end
-            gdSoundValues._menuOpts = {
-                itemHeight = 26,
-                maxTextWidthPct = 0.8,
-                searchable = true,
-                iconAtlas = function(key)
-                    if key == "none" then return nil end
-                    if not gdSoundPaths[key] then return nil end
-                    return EllesmereUI.SOUND_ICON_ATLAS
-                end,
-                iconPressedAtlas = function(key)
-                    if key == "none" then return nil end
-                    return EllesmereUI.SOUND_ICON_PRESSED_ATLAS
-                end,
-                iconOnClick = function(key)
-                    local path = gdSoundPaths[key]
-                    if path then PlaySoundFile(path, "Master") end
-                end,
-                iconTooltip = function() return "Preview Sound" end,
-            }
-
-            EllesmereUI.BuildInlineCog(leftRgn, {
-                title = "Group Death Alert Settings",
-                rows = {
-                    { type="slider", label="Text Size",
-                      min=14, max=64, step=1,
-                      get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.groupDeathTextSize) or 34
-                      end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.groupDeathTextSize = v
-                        if EllesmereUI._applyGroupDeathAlert then EllesmereUI._applyGroupDeathAlert() end
-                        if EllesmereUI._groupDeathShowVisual then EllesmereUI._groupDeathShowVisual() end
-                      end },
-                    { type="dropdown", label="Sound",
-                      values=gdSoundValues, order=gdSoundOrder,
-                      get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.groupDeathSoundKey) or "none"
-                      end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.groupDeathSoundKey = v
-                        if v ~= "none" and EllesmereUI._groupDeathPlaySound then
-                            EllesmereUI._groupDeathPlaySound()
-                        end
-                      end },
-                },
-                gap = 9, disabled = deathOff, disabledTooltip = "Announce Group Deaths",
-            })
-        end
-
-        -- Inline cog (text, size, colors, mode) on the Combat Alert toggle
-        -- (the RIGHT slot of the Hide Loot Rolls row above).
-        if not EllesmereUI._prebuilding then
-            local leftRgn = lootHistRow._rightRegion
-            local function caOff()
-                return not (EllesmereUIDB and EllesmereUIDB.combatAlertEnabled)
-            end
-            local function enterClassOn()
-                return EllesmereUIDB and EllesmereUIDB.combatAlertEnterUseClassColor
-            end
-            local function leaveClassOn()
-                return EllesmereUIDB and EllesmereUIDB.combatAlertLeaveUseClassColor
-            end
-
-            local caModeValues = {
-                both  = "Enter & Leave",
-                enter = "Enter Only",
-                leave = "Leave Only",
-            }
-            local caModeOrder = { "both", "enter", "leave" }
-
-            EllesmereUI.BuildInlineCog(leftRgn, {
-                title = "Combat Alert Settings",
-                minWidth = 300,
-                rows = {
-                    { type="dropdown", label="Show On",
-                      values=caModeValues, order=caModeOrder,
-                      get=function() return (EllesmereUIDB and EllesmereUIDB.combatAlertMode) or "both" end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertMode = v
-                      end },
-                    { type="slider", label="Text Size",
-                      min=14, max=64, step=1,
-                      get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.combatAlertTextSize) or 22
-                      end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertTextSize = v
-                        if EllesmereUI._applyCombatAlertFrame then EllesmereUI._applyCombatAlertFrame() end
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
-                      end },
-                    { type="input", label="Enter Text", inputWidth=90,
-                      get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.combatAlertEnterText) or "+Combat"
-                      end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertEnterText = v
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
-                      end },
-                    { type="colorpicker", label="Enter Color",
-                      disabled=enterClassOn,
-                      disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
-                      get=function()
-                        local c = (EllesmereUIDB and EllesmereUIDB.combatAlertEnterColor) or { r=1.00, g=1.00, b=1.00 }
-                        return c.r, c.g, c.b
-                      end,
-                      set=function(r, g, b)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertEnterColor = { r=r, g=g, b=b }
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
-                      end },
-                    { type="toggle", label="Enter Class Color",
-                      get=function() return enterClassOn() end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertEnterUseClassColor = v
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
-                      end },
-                    { type="input", label="Leave Text", inputWidth=90,
-                      get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.combatAlertLeaveText) or "-Combat"
-                      end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertLeaveText = v
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("leave") end
-                      end },
-                    { type="colorpicker", label="Leave Color",
-                      disabled=leaveClassOn,
-                      disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
-                      get=function()
-                        local c = (EllesmereUIDB and EllesmereUIDB.combatAlertLeaveColor) or { r=1.00, g=1.00, b=1.00 }
-                        return c.r, c.g, c.b
-                      end,
-                      set=function(r, g, b)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertLeaveColor = { r=r, g=g, b=b }
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("leave") end
-                      end },
-                    { type="toggle", label="Leave Class Color",
-                      get=function() return leaveClassOn() end,
-                      set=function(v)
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        EllesmereUIDB.combatAlertLeaveUseClassColor = v
-                        if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("leave") end
-                      end },
-                },
-                footer = { unlockKey = "EUI_CombatAlert" },
-                gap = 9, disabled = caOff, disabledTooltip = "Combat Alert",
-            })
-        end
-
         -- (Target Distance Text moved to the EXTRAS section, Row 4 right slot.)
 
-        -- Inline picker cog on Hide Item Transforms (right slot of the death
-        -- row): opens the item checklist popup. Dimmed and inert while the
+        -- Inline picker cog on Hide Item Transforms (right slot of the loot
+        -- rolls row): opens the item checklist popup. Dimmed and inert while the
         -- toggle is off, mirroring the resource-bar spec-picker button.
         if not EllesmereUI._prebuilding then
-            local rgn = deathRow._rightRegion
+            local rgn = lootHistRow._rightRegion
             local function hitOff()
                 return not (EllesmereUIDB and EllesmereUIDB.hideTransforms)
             end
@@ -2521,6 +2332,7 @@ initFrame:SetScript("OnEvent", function(self)
               tooltip=EllesmereUI.L("Asks before spending a bonus roll and shows your loot specialization. Use the cog to also confirm Pass."),
               disabled=bonusRollConflict,
               disabledTooltip=EllesmereUI.L("BonusRollConfirm is loaded and handles confirmation. Disable that addon and reload to use this feature."),
+              rawTooltip=true,
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.bonusRollConfirmation == true
               end,
@@ -2625,6 +2437,7 @@ initFrame:SetScript("OnEvent", function(self)
                 _G._EUI_RaidTools_Preview(pageName == PAGE_RAIDTOOLS)
             end
         end,
+        resetScope = "account",
         onReset = function()
             if EllesmereUIDB then
                 EllesmereUIDB.hideBlizzardPartyFrame = false
@@ -2674,6 +2487,17 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.combatAlertLeaveColor = nil
                 EllesmereUIDB.combatAlertEnterUseClassColor = nil
                 EllesmereUIDB.combatAlertLeaveUseClassColor = nil
+                EllesmereUIDB.alertsPos = nil
+                EllesmereUIDB.potionAlertEnabled = false
+                EllesmereUIDB.potionAlertText = nil
+                EllesmereUIDB.potionAlertTextSize = nil
+                EllesmereUIDB.potionAlertColor = nil
+                EllesmereUIDB.potionAlertUseClassColor = nil
+                EllesmereUIDB.talentAlertEnabled = false
+                EllesmereUIDB.talentAlertText = nil
+                EllesmereUIDB.talentAlertTextSize = nil
+                EllesmereUIDB.talentAlertColor = nil
+                EllesmereUIDB.talentAlertUseClassColor = nil
                 EllesmereUIDB.targetDistanceEnabled = false
                 EllesmereUIDB.targetDistanceFormat = nil
                 EllesmereUIDB.targetDistanceAlign = nil
@@ -2684,18 +2508,29 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.targetDistancePos = nil
                 if EllesmereUIDB.unlockAnchors then
                     EllesmereUIDB.unlockAnchors.EUI_TargetDistance = nil
+                    EllesmereUIDB.unlockAnchors.EUI_CombatAlert = nil
+                    EllesmereUIDB.unlockAnchors.EUI_BattleRes = nil
+                    EllesmereUIDB.unlockAnchors.EUI_Bloodlust = nil
                 end
                 EllesmereUIDB.hideTransforms = false
                 EllesmereUIDB.hideTransformItems = nil
+                -- The /keys popup, LFG Reminder and /way sections (the reset reloads).
+                EllesmereUIDB.keystonePopup = nil
+                EllesmereUIDB.teleportPrompt = nil
+                EllesmereUIDB.waypointCmd = nil
             end
             EllesmereUIDB.autoLogging = nil
             if _G._EUI_ResetUpgradeCalc then _G._EUI_ResetUpgradeCalc() end
             if _G._EBS_ResetCursor then _G._EBS_ResetCursor() end
+            -- Battle Res and Bloodlust do not exist on WoW Forever.
+            if _G._EUI_BattleRes_Reset then _G._EUI_BattleRes_Reset() end
             EllesmereUI._applyHideBlizzardPartyFrame()
             if EllesmereUI._applyBonusRollConfirmation then EllesmereUI._applyBonusRollConfirmation() end
             if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
             if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
             if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
+            if EllesmereUI._applyPotionAlert then EllesmereUI._applyPotionAlert() end
+            if EllesmereUI._applyTalentAlert then EllesmereUI._applyTalentAlert() end
             if EllesmereUI._applyTargetDistance then EllesmereUI._applyTargetDistance() end
             if EllesmereUI._applyHideTransforms then EllesmereUI._applyHideTransforms() end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end

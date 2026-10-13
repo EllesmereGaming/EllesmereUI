@@ -26,6 +26,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUI.RoundedBorderColor(border, r, g, b, a) recolours the ring of a
 --  border painted without EllesmereUI.SetBorderStyleColor (which recolours it
 --  on its own).
+--  EllesmereUI.RoundedSetCorners(owner, corners) moves only the round corners
+--  of an owner whose other inputs (radius, style, rect, border, clip, roots,
+--  textures) are those of its last RoundCorners pass, the caller's to check:
+--  the pass re-fits and repaints without walking the body. It returns false,
+--  and the caller runs RoundCorners, while the owner is not rounded, while a
+--  body texture is left without the mask (the walk tries it again) or when no
+--  corner rounds.
 --
 --  Masks: rounded-<r>.tga / rounded-inv-<r>.tga, (2r + 1) texels square
 --  (.tools/rounded-glow/make_rounded_masks.py), sliced at r texels; no larger,
@@ -180,11 +187,16 @@ end
 -------------------------------------------------------------------------------
 -- The pass being walked (MaskBody sets these; walks never nest). A seated
 -- texture carries the number of the last pass that found it, so the ones
--- left with an older number have left the body.
-local wMasked, wMask, wGen, wSkip
+-- left with an older number have left the body. wMissed: a body texture took
+-- no mask (it holds three already); every walk tries it again.
+local wMasked, wMask, wGen, wSkip, wMissed
 
 local function Seat(tex)
-    if wMasked[tex] or AddMask(tex, wMask) then wMasked[tex] = wGen end
+    if wMasked[tex] or AddMask(tex, wMask) then
+        wMasked[tex] = wGen
+    else
+        wMissed = true
+    end
 end
 
 local function SeatRegions(...)
@@ -220,7 +232,8 @@ local function ShapeMask(st, m, radius, cont)
 end
 
 -- A shape change detaches the mask from every body texture, reshapes it and
--- seats it again.
+-- seats it again; one that no longer takes it waits for the next walk
+-- (st.missed).
 local function ReseatMask(st, radius, cont)
     local c = cont or false
     if st.kRadius == radius and st.kCont == c and st.kCorners == st.corners then return end
@@ -229,7 +242,10 @@ local function ReseatMask(st, radius, cont)
     for tex in pairs(masked) do RemoveMask(tex, m) end
     ShapeMask(st, m, radius, cont)
     for tex in pairs(masked) do
-        if not AddMask(tex, m) then masked[tex] = nil end
+        if not AddMask(tex, m) then
+            masked[tex] = nil
+            st.missed = true
+        end
     end
 end
 
@@ -244,7 +260,7 @@ local function MaskBody(st, roots, singles, radius, cont, skip)
     local gen = st.gen + 1
     st.gen = gen
     local masked = st.masked
-    wMasked, wMask, wGen, wSkip = masked, m, gen, skip
+    wMasked, wMask, wGen, wSkip, wMissed = masked, m, gen, skip, false
     for i = 1, 6 do -- fixed slots: roots may hold nils
         local root = roots[i]
         if root then Walk(root) end
@@ -253,6 +269,7 @@ local function MaskBody(st, roots, singles, radius, cont, skip)
         local tex = singles[i]
         if tex then Seat(tex) end
     end
+    st.missed = wMissed
     wMasked, wMask, wSkip = nil, nil, nil
     -- Release textures that left the body (a bar moved out, e.g. detached).
     for tex, g in pairs(masked) do
@@ -647,4 +664,18 @@ function EllesmereUI.RoundCorners(owner, radius, opts)
         st.on = true
         EllesmereUI.RegisterPxReapply(owner, Refit)
     end
+end
+
+-- A RoundCorners pass with only opts.corners changed: the body keeps its
+-- textures, so the mask is reshaped in place (Refit) instead of walked again.
+-- A body texture left without the mask needs the walk's retry: full pass.
+function EllesmereUI.RoundedSetCorners(owner, corners)
+    local st = owner and state[owner]
+    if not (st and st.on) or st.missed then return false end
+    corners = corners and floor(tonumber(corners) or ALL_CORNERS) % 16 or ALL_CORNERS
+    if corners == 0 then return false end
+    st.corners = corners
+    if st.border then byBorder[st.border] = st end
+    Refit(owner)
+    return true
 end

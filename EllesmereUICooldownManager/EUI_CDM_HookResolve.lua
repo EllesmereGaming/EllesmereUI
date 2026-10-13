@@ -368,16 +368,14 @@ function ns.CdmBarHasShiftCdState(barKey)
                 -- Hosted buff: buff-family own entry only (hosted frames
                 -- never inherit this bar's tier).
                 local store = ns.GetSpellSettingsStore and ns.GetSpellSettingsStore("buffs")
-                local ssB = store and store[hSid]
-                eff = ssB and ssB.cdStateEffect
+                eff = ns.CdStateHideOf(store and store[hSid])
             else
                 if sid > 0 then
-                    local ss = ResolveSpellSettings(nil, sid, sd, barKey)
-                    eff = ss and ss.cdStateEffect
+                    eff = ns.CdStateHideOf(ResolveSpellSettings(nil, sid, sd, barKey))
                 end
                 if not ns.CdStateShifts(eff) then
-                    local cas = ns.GetEffectiveCustomActiveState(sid)
-                    if cas and cas.cdStateEffect then eff = cas.cdStateEffect end
+                    local casEff = ns.CdStateHideOf(ns.GetEffectiveCustomActiveState(sid))
+                    if casEff then eff = casEff end
                 end
             end
             if ns.CdStateShifts(eff) then return true end

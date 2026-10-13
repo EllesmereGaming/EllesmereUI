@@ -1061,6 +1061,8 @@ local function RevertPositions()
                 fallback = info.fallback and CopyTable(info.fallback) or nil,
             }
         end
+        -- The restored links may hold a pet-target fallback again.
+        EllesmereUI._EnsureFallbackWatchers()
     end
 
     -- 3) Restore element sizes

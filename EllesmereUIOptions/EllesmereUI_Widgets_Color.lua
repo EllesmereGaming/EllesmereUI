@@ -7,6 +7,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 EllesmereUI._deferredInits[#EllesmereUI._deferredInits + 1] = function()
+-- Page reuse: the frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it creates as before. A
+-- swatch's dress count (PoolGen) and idle flag (PoolIsIdle) tell its color
+-- picker callbacks that the page was rebuilt while the picker was open.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolGen = EllesmereUI._Pool.Gen
+local PoolIsIdle = EllesmereUI._Pool.IsIdle
 local PP = EllesmereUI.PanelPP
 local MakeFont = EllesmereUI.MakeFont
 local MakeBorder = EllesmereUI.MakeBorder
@@ -30,6 +38,7 @@ local ShowWidgetTooltip = EllesmereUI.ShowWidgetTooltip
 local HideWidgetTooltip = EllesmereUI.HideWidgetTooltip
 local WI = EllesmereUI._widgetInternals
 local TagOptionRow = WI.TagOptionRow
+local PrebuildStandIn = WI.PrebuildStandIn
 local WidgetFactory = EllesmereUI.Widgets
 
 -------------------------------------------------------------------------------
@@ -752,12 +761,17 @@ end
 
 -- Shared color swatch: border + fill + UpdateSwatch + OnClick. Returns swatch (Button), UpdateSwatch (function), caller positions it. Border textures are deferred until first show to keep page builds light.
 local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasAlpha, overrideSize)
-    -- Spec Overrides auto-capture (see BuildToggleControl): fires for direct swatch writes and every color-picker change routed through it.
+    -- Search prebuild on an absorber row: the swatch indexes nothing, so none is built.
+    local standIn = PrebuildStandIn(parentFrame)
+    if standIn then return standIn, standIn end
+    -- Spec Overrides auto-capture (see BuildToggleControl): fires for direct swatch writes and every color-picker change routed through it. The slot is read before the setter runs: a setter that rebuilds the page may dress the frames again for another slot.
+    local userSet = setValue   -- the caller's own setter, for picker writes made after a rebuild (OnClick)
     do
         local _s = setValue
         setValue = function(...)
+            local snap = EllesmereUI._SOAttribution(parentFrame)
             _s(...)
-            EllesmereUI._NotifySettingWrite(parentFrame)
+            EllesmereUI._NotifySettingWrite(parentFrame, snap)
         end
     end
     do local _r = setValue; setValue = function(...) _r(...); EllesmereUI._settingsChanged = true end end
@@ -812,21 +826,39 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
         local r, g, b, a = getValue()
         r, g, b, a = r or 0, g or 0, b or 0, a or 1
         local snapR, snapG, snapB, snapA = r, g, b, a
+        -- The dress the picker opens on. A page rebuild while the picker is
+        -- open (page reuse) can dress this swatch again for another use, or
+        -- leave it idle; what shows then is that rebuild's own paint.
+        local openGen = PoolGen(swatch)
+        local function SameDress() return PoolGen(swatch) == openGen and not PoolIsIdle(swatch) end
+        -- Writes the setting the picker was opened for and returns true while
+        -- the swatch is still that dress (the caller then paints it). Once it
+        -- is not, the write names no frame to Spec Overrides (it keeps the
+        -- slot the picker's earlier writes named) and nothing is painted.
+        local function Write(cr, cg, cb, ca)
+            if not SameDress() then
+                userSet(cr, cg, cb, ca)
+                EllesmereUI._NotifySettingWrite(nil)
+                EllesmereUI._settingsChanged = true
+                return false
+            end
+            setValue(cr, cg, cb, ca)
+            return SameDress()
+        end
         local function OnColorChanged()
             local popup = EllesmereUI._colorPickerPopup
             if not popup then return end
             local cr, cg, cb = popup:GetColorRGB()
             local ca = hasAlpha and popup:GetColorAlpha() or 1
-            sFill:SetColorTexture(cr, cg, cb, ca)
-            setValue(cr, cg, cb, ca)
-            UpdateSwatch()
+            if SameDress() then sFill:SetColorTexture(cr, cg, cb, ca) end
+            if Write(cr, cg, cb, ca) then UpdateSwatch() end
         end
         local info = {
             swatchFunc = function() OnColorChanged() end,
             hasOpacity = hasAlpha,
             opacityFunc = function() OnColorChanged() end,
             opacity = a,
-            cancelFunc = function() setValue(snapR, snapG, snapB, snapA); UpdateSwatch() end,
+            cancelFunc = function() if Write(snapR, snapG, snapB, snapA) then UpdateSwatch() end end,
             r = r, g = g, b = b,
         }
         EllesmereUI:ShowColorPicker(info, swatch)

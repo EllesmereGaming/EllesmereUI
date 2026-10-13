@@ -507,6 +507,7 @@ local snapshotGrowDirs = {}   -- original growth directions captured when unlock
 -- banking is a wholesale harvest at CommitPositions.
 UM.hasChanges = false         -- true if user dragged anything this session
 local combatSuspended = false  -- true if unlock mode was auto-closed by combat
+local preCombatChanges = false -- the session's change mark when combat hid it
 UM.objTrackerWasVisible = false     -- track objective tracker state for restore
 
 -- Grid mode helpers
@@ -634,8 +635,12 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["EUI_SecondaryStats"] = { module = "EllesmereUIQoL", page = "QoL", sectionName = "EXTRAS", highlightText = "Secondary Stat Display" },
 
     -- Battle Res + Bloodlust (bottom of the Quality of Life page)
+    ["EUI_CombatAlert"]    = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "ALERTS",            highlightText = "Combat Alert" },
     ["EUI_BattleRes"]      = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "BATTLE RES",        highlightText = "Enable BattleRes Icon" },
     ["EUI_Bloodlust"]      = { module = "EllesmereUIQoL",             page = "QoL",   sectionName = "BLOODLUST TRACKER", highlightText = "Enable Bloodlust Icon" },
+
+    -- Forever Essentials (WoW Forever only): Junk Items sits on the General page
+    ["EUI_JunkList"]       = { module = "EllesmereUIForeverEssentials", page = "General", sectionName = "JUNK ITEMS", highlightText = "Enable Junk Items Window" },
 
     -- Mythic+ Tools
     ["EMT_MythicTimer"]    = { module = "EllesmereUIMythicTimer",     page = "Mythic+ Timer",     sectionName = "DISPLAY",           highlightText = "Scale" },
@@ -779,6 +784,7 @@ end
 local function SuspendForCombat()
     if not UM.isUnlocked then return end
     combatSuspended = true
+    preCombatChanges = UM.hasChanges and true or false
     if EllesmereUI._HideFallbackGhosts then EllesmereUI._HideFallbackGhosts() end
     if EllesmereUI._HideOverrideGhosts then EllesmereUI._HideOverrideGhosts() end
 
@@ -844,6 +850,11 @@ local function ResumeAfterCombat()
     if not combatSuspended then return end
     combatSuspended = false
     if InCombatLockdown() then return end  -- safety check
+
+    -- Nothing can be edited while the session is hidden: whatever moved during
+    -- the fight (bars rebuilding, anchored elements following them) is not a
+    -- change of the user's, so the session keeps the mark it had before.
+    UM.hasChanges = preCombatChanges
 
     -- Re-enter unlock mode but skip snapshot/reset since we preserved state
     UM.isUnlocked = true

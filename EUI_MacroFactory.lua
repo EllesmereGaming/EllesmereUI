@@ -887,7 +887,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                             if not InCombatLockdown() then ShowMacroFrame() end
                         end)
                     end
-                    C_Timer.After(0.1, function() RefreshState(); RefAct() end)
                 end)
                 mY = mY - MH
 
@@ -1270,7 +1269,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 CreateMacro(def.name, ResolveMacroIcon(def), body, nil)
                 lastAvailableItems[def.name] = GetMacroInventoryKey(def, db)
                 self._playFlash()
-                C_Timer.After(0.1, RefreshState)
                 C_Timer.After(0.15, function()
                     if not InCombatLockdown() then ShowMacroFrame() end
                 end)
@@ -1315,25 +1313,17 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         end
     end
 
-    -- Poll for macro state changes (2s interval)
-    local pollFrame = CreateFrame("Frame", nil, container)
-    local elapsed = 0
-    pollFrame:SetScript("OnUpdate", function(self, dt)
-        elapsed = elapsed + dt
-        if elapsed < 2 then return end
-        elapsed = 0
+    -- Macro state follows UPDATE_MACROS while the section is shown: the event
+    -- registers on show (with one pass for changes made while hidden), goes on
+    -- hide, and a burst becomes one pass on the next frame.
+    local function SyncMacroStates()
         for _, btn in ipairs(allMacroButtons) do
             local mdef = btn._def
             if mdef and btn._tex then
                 local ex = GetMacroIndexByName(mdef.name) ~= 0
-                local wasCreated = btn._isGray
-                if wasCreated and not ex then
-                    btn._tex:SetDesaturated(false)
-                    btn._isGray = false
-                    if btn._refreshIcon then btn._refreshIcon() end
-                elseif not wasCreated and ex then
-                    btn._tex:SetDesaturated(true)
-                    btn._isGray = true
+                if ex ~= (btn._isGray == true) then
+                    btn._tex:SetDesaturated(ex)
+                    btn._isGray = ex
                     if btn._refreshIcon then btn._refreshIcon() end
                 end
                 if btn._cogPopup and btn._cogPopup:IsShown() and btn._cogPopup._refreshAction then
@@ -1341,7 +1331,25 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 end
             end
         end
+    end
+    local macroWatch = CreateFrame("Frame", nil, container)
+    local syncPending
+    local function SyncNow()
+        syncPending = nil
+        if macroWatch:IsVisible() then SyncMacroStates() end
+    end
+    macroWatch:SetScript("OnEvent", function()
+        if syncPending then return end
+        syncPending = true
+        C_Timer.After(0, SyncNow)
     end)
+    macroWatch:SetScript("OnShow", function(self)
+        self:RegisterEvent("UPDATE_MACROS")
+        SyncMacroStates()
+    end)
+    macroWatch:SetScript("OnHide", function(self) self:UnregisterEvent("UPDATE_MACROS") end)
+    -- Built while shown: the buttons were just painted, so only listen.
+    if macroWatch:IsVisible() then macroWatch:RegisterEvent("UPDATE_MACROS") end
 
     -- Update macros when bag changes (throttled), spec changes, login, or combat ends
     local eventFrame = CreateFrame("Frame", nil, container)

@@ -103,6 +103,11 @@ local function SetupOptionsPanel()
         -- UpdateFrameVisibility guards its restricted Show/Hide behind
         -- InCombatLockdown, and SetAlpha is unrestricted.
         if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
+        -- The pet's containers are built only once its Buffs or Debuffs is on,
+        -- and every path that can turn one on (the options, a profile switch,
+        -- a Spec or Conditional Override) lands here: ask for them before the
+        -- pass below (the build reloads the pet itself when it finishes).
+        ns.UF_EnsurePetAuras(frames.pet)
         -- 12.1 aura containers reload with every real pass (direct call --
         -- ns.ReloadFrames is just the throttle-arming stub, so wrapping it
         -- from the container file is timing-unreliable).
@@ -127,8 +132,9 @@ local function SetupOptionsPanel()
 
     -- Fake debuff icons for the boss preview. Three square icons anchored where the
     -- real Debuffs frame would live, sized to match the Simple Debuff Display layout
-    -- (frame bar height, growing right-to-left off the frame's left edge). Created on
-    -- demand and torn down on preview disable.
+    -- (frame bar height, growing right-to-left off the frame's left edge). Built on
+    -- first use per boss frame, refreshed in place on every call, hidden on preview
+    -- disable.
     local FAKE_DEBUFF_SPELLS = { 122, 172, 1714 }  -- Frost Nova, Corruption, Curse of Tongues
     local FAKE_DEBUFF_STACKS = { [2] = 3 }          -- one fake stack (icon 2 only)
     local FAKE_DEBUFF_FRACS  = { 0.35, 0.62, 0.88 } -- static fake swipe fraction remaining
@@ -141,26 +147,28 @@ local function SetupOptionsPanel()
     ns.BossPreviewAuraBorder = function(border, settings)
         if ns.UF_Blizz and ns.UF_Blizz() then
             if PP and PP.CreateBorder then PP.CreateBorder(border, 0, 0, 0, 1) end
-            return
+        else
+            local size = settings.auraBorderSize or 1
+            local tex = settings.auraBorderTexture or "solid"
+            if ns.UF_BossAuraBorderAboveEffects(settings) then
+                border:SetFrameLevel(border:GetParent():GetFrameLevel() + 20)
+            end
+            EllesmereUI.ApplySecretSafeBorderStyle(border, border, size,
+                settings.auraBorderR or 0, settings.auraBorderG or 0, settings.auraBorderB or 0, settings.auraBorderA or 1,
+                tex, settings.auraBorderTextureOffset, settings.auraBorderTextureOffsetY,
+                settings.auraBorderTextureShiftX, settings.auraBorderTextureShiftY,
+                "unitframes", size, nil, EllesmereUI.BorderPx(settings.auraBorderSizePx, size, tex))
         end
-        local size = settings.auraBorderSize or 1
-        local tex = settings.auraBorderTexture or "solid"
-        if ns.UF_BossAuraBorderAboveEffects(settings) then
-            border:SetFrameLevel(border:GetParent():GetFrameLevel() + 20)
-        end
-        EllesmereUI.ApplySecretSafeBorderStyle(border, border, size,
-            settings.auraBorderR or 0, settings.auraBorderG or 0, settings.auraBorderB or 0, settings.auraBorderA or 1,
-            tex, settings.auraBorderTextureOffset, settings.auraBorderTextureOffsetY,
-            settings.auraBorderTextureShiftX, settings.auraBorderTextureShiftY,
-            "unitframes", size, nil, EllesmereUI.BorderPx(settings.auraBorderSizePx, size, tex))
+        -- The border frame is reused across refreshes and its level is set on
+        -- each one: keep its solid strips one level over it, as when built.
+        local strips = PP.GetBorders(border)
+        if strips then strips:SetFrameLevel(border:GetFrameLevel() + 1) end
     end
     local function AttachFakeDebuffs(frame)
-        -- Tear down any prior holder so size/anchor refresh on every call.
-        if frame._previewDebuffs then
-            frame._previewDebuffs:Hide()
-            frame._previewDebuffs:SetParent(nil)
-            frame._previewDebuffs = nil
-        end
+        -- Hide the holder until it is laid out again below, so size, anchor and
+        -- style follow the current settings on every call.
+        local holder = frame._previewDebuffs
+        if holder then holder:Hide() end
         -- Suppress the real (player-unit) debuffs while the fake overlay is up so
         -- the preview shows exactly the fake set. Restored by ReloadFrames when
         -- the preview is disabled.
@@ -169,8 +177,8 @@ local function SetupOptionsPanel()
         local simpleMode = ns.GetBossSimpleDebuffMode(settings)
         local simple = simpleMode ~= "none"
         -- No debuffs shown at all (Simple Debuff Display None + Debuffs Location
-        -- None): the prior holder was already torn down above, so bail without
-        -- drawing any fake debuffs (mirrors AttachFakeBuffs' none guard).
+        -- None): the holder stays hidden, so bail without drawing any fake
+        -- debuffs (mirrors AttachFakeBuffs' none guard).
         if not simple and (settings.debuffAnchor or "bottomleft") == "none" then return end
         local dOffX = settings.debuffOffsetX or 0
         local dOffY = settings.debuffOffsetY or 0
@@ -193,7 +201,11 @@ local function SetupOptionsPanel()
         -- Inter-icon spacing from the configured slider (physical pixels). `gap`
         -- stays at 1 for the holder-to-frame edge offset (matches the runtime).
         local iconGap = PP.FromPixels(ns.GetBossDebuffSpacing(settings, simple))
-        local holder = CreateFrame("Frame", nil, frame)
+        if not holder then
+            holder = CreateFrame("Frame", nil, frame)
+            holder._icons = {}
+            frame._previewDebuffs = holder
+        end
         holder:SetSize(iconSize * count + iconGap * (count - 1), iconSize)
         -- Above the unified border so it sits BEHIND the preview debuffs, matching
         -- the live boss aura layering. The border FRAME is frame+10 but its solid
@@ -256,83 +268,102 @@ local function SetupOptionsPanel()
         local stackTextColor = settings.debuffStackTextColor or {r=1, g=1, b=1}
         local fontPath = (EllesmereUI.GetFontPath("unitFrames")) or "Fonts\\FRIZQT__.TTF"
         local now = GetTime()
+        local icons = holder._icons
         for idx, spellID in ipairs(FAKE_DEBUFF_SPELLS) do
-            local iconFrame = CreateFrame("Frame", nil, holder)
+            local iconFrame = icons[idx]
+            if not iconFrame then
+                iconFrame = CreateFrame("Frame", nil, holder)
+                local icon = iconFrame:CreateTexture(nil, "ARTWORK")
+                icon:SetAllPoints()
+                iconFrame._icon = icon
+                -- Static fake cooldown swipe: a huge duration parked at a fixed fraction so
+                -- the wedge never visibly moves. Native countdown numbers stay hidden; the
+                -- duration text below is a manual static FontString instead.
+                local cd = CreateFrame("Cooldown", nil, iconFrame, "CooldownFrameTemplate")
+                cd:SetAllPoints(iconFrame)
+                cd:SetDrawEdge(false)
+                cd:SetDrawBling(false)
+                cd:SetReverse(false)
+                cd:SetDrawSwipe(true)
+                cd:SetSwipeColor(0, 0, 0, 0.6)
+                cd:SetHideCountdownNumbers(true)
+                iconFrame._cd = cd
+                -- Text host above the swipe AND the border container so the
+                -- duration/stack text renders over the icon border, not under it.
+                local textHost = CreateFrame("Frame", nil, iconFrame)
+                textHost:SetAllPoints(iconFrame)
+                iconFrame._textHost = textHost
+                local durText = textHost:CreateFontString(nil, "OVERLAY")
+                durText:SetDrawLayer("OVERLAY", 7)
+                iconFrame._durText = durText
+                -- Stack text on a single icon only (looks natural; most debuffs are
+                -- unstacked). Driven by the Stack Size / Stack X / Stack Y controls.
+                if FAKE_DEBUFF_STACKS[idx] then
+                    local stack = textHost:CreateFontString(nil, "OVERLAY")
+                    stack:SetDrawLayer("OVERLAY", 7)
+                    iconFrame._stack = stack
+                end
+                -- Border just above the icon; its PP container renders at border+1
+                -- (iconFrame+2), below the swipe and text host so both stay on top.
+                local border = CreateFrame("Frame", nil, iconFrame)
+                border:SetAllPoints(icon)
+                iconFrame._border = border
+                icons[idx] = iconFrame
+            end
             iconFrame:SetSize(iconSize, iconSize)
+            iconFrame:ClearAllPoints()
             if simpleMode == "right" then
                 iconFrame:SetPoint("LEFT", holder, "LEFT", (idx - 1) * (iconSize + iconGap), 0)
             else
                 iconFrame:SetPoint("RIGHT", holder, "RIGHT", -(idx - 1) * (iconSize + iconGap), 0)
             end
             iconFrame:SetFrameLevel(holder:GetFrameLevel())
-            local icon = iconFrame:CreateTexture(nil, "ARTWORK")
-            icon:SetAllPoints()
+            local icon = iconFrame._icon
             local tex = GetSpellTexture and GetSpellTexture(spellID)
                      or (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID))
-            if tex then icon:SetTexture(tex) end
+            icon:SetTexture(tex)
             local z = settings.debuffIconZoom or 0.07
             icon:SetTexCoord(z, 1 - z, z, 1 - z)
-            -- Static fake cooldown swipe: a huge duration parked at a fixed fraction so
-            -- the wedge never visibly moves. Native countdown numbers stay hidden; the
-            -- duration text below is a manual static FontString instead.
-            local cd = CreateFrame("Cooldown", nil, iconFrame, "CooldownFrameTemplate")
-            cd:SetAllPoints(iconFrame)
             -- Swipe sits above the border (border at +1, PP container at +2) so
             -- the layering matches the live boss aura buttons.
+            local cd = iconFrame._cd
             cd:SetFrameLevel(iconFrame:GetFrameLevel() + 3)
-            cd:SetDrawEdge(false)
-            cd:SetDrawBling(false)
-            cd:SetReverse(false)
-            cd:SetDrawSwipe(true)
-            cd:SetSwipeColor(0, 0, 0, 0.6)
-            cd:SetHideCountdownNumbers(true)
             local frac = FAKE_DEBUFF_FRACS[idx] or 0.6
+            cd:Show()
             cd:SetCooldown(now - 3600 * (1 - frac), 3600)
-            -- Text host above the swipe AND the border container so the
-            -- duration/stack text renders over the icon border, not under it.
-            local textHost = CreateFrame("Frame", nil, iconFrame)
-            textHost:SetAllPoints(iconFrame)
-            textHost:SetFrameLevel(iconFrame:GetFrameLevel() + (ns.UF_BossAuraBorderAboveEffects(settings) and 25 or 4))
-            local durText = textHost:CreateFontString(nil, "OVERLAY")
-            durText:SetDrawLayer("OVERLAY", 7)
+            iconFrame._textHost:SetFrameLevel(iconFrame:GetFrameLevel() + (ns.UF_BossAuraBorderAboveEffects(settings) and 25 or 4))
+            local durText = iconFrame._durText
             EllesmereUI.ApplyIconTextFont(durText, fontPath, cdSize, "unitFrames")
+            durText:ClearAllPoints()
             durText:SetPoint("CENTER", iconFrame, "CENTER", cdOffX, cdOffY)
             durText:SetTextColor(cdTextColor.r, cdTextColor.g, cdTextColor.b)
             durText:SetText(FAKE_DEBUFF_SECS[idx] or 10)
-            if not showCD then durText:Hide() end
-            -- Stack text on a single icon only (looks natural; most debuffs are
-            -- unstacked). Driven by the Stack Size / Stack X / Stack Y controls.
-            if FAKE_DEBUFF_STACKS[idx] then
-                local stack = textHost:CreateFontString(nil, "OVERLAY")
-                stack:SetDrawLayer("OVERLAY", 7)
+            if showCD then durText:Show() else durText:Hide() end
+            local stack = iconFrame._stack
+            if stack then
                 EllesmereUI.ApplyIconTextFont(stack, fontPath, stackSize, "unitFrames")
                 ns.ApplyStackAnchor(stack, iconFrame, stackPos, stackOffX, stackOffY)
                 stack:SetTextColor(stackTextColor.r, stackTextColor.g, stackTextColor.b)
                 stack:SetText(FAKE_DEBUFF_STACKS[idx])
             end
-            -- Border just above the icon; its PP container renders at border+1
-            -- (iconFrame+2), below the swipe and text host so both stay on top.
-            local border = CreateFrame("Frame", nil, iconFrame)
-            border:SetAllPoints(icon)
+            local border = iconFrame._border
             border:SetFrameLevel(iconFrame:GetFrameLevel() + 1)
             ns.BossPreviewAuraBorder(border, settings)
         end
-        frame._previewDebuffs = holder
+        holder:Show()
     end
     local function DetachFakeDebuffs(frame)
         if frame._previewDebuffs then frame._previewDebuffs:Hide() end
     end
 
     -- Fake buff icons for the boss preview. Two square icons anchored where the
-    -- real Buffs frame would live, sized to the buff size. Created on demand and
-    -- torn down on preview disable. Capped at 2 regardless of Max Count.
+    -- real Buffs frame would live, sized to the buff size. Built on first use per
+    -- boss frame, refreshed in place on every call, hidden on preview disable.
+    -- Capped at 2 regardless of Max Count.
     local FAKE_BUFF_SPELLS = { 21562, 1459 }  -- Power Word: Fortitude, Arcane Intellect
     local function AttachFakeBuffs(frame)
-        if frame._previewBuffs then
-            frame._previewBuffs:Hide()
-            frame._previewBuffs:SetParent(nil)
-            frame._previewBuffs = nil
-        end
+        local holder = frame._previewBuffs
+        if holder then holder:Hide() end
         -- Suppress the real (player-unit) buffs while preview is up. Restored by
         -- ReloadFrames when the preview is disabled.
         if ns.UF_HideAuraContainers then ns.UF_HideAuraContainers(frame) end
@@ -364,7 +395,11 @@ local function SetupOptionsPanel()
         -- Inter-icon spacing from the configured slider (physical pixels). `gap`
         -- stays at 1 for the holder-to-frame edge offset (matches the runtime).
         local iconGap = PP.FromPixels(ns.GetBossBuffSpacing(settings, simple))
-        local holder = CreateFrame("Frame", nil, frame)
+        if not holder then
+            holder = CreateFrame("Frame", nil, frame)
+            holder._icons = {}
+            frame._previewBuffs = holder
+        end
         holder:SetSize(iconSize * count + iconGap * (count - 1), iconSize)
         -- Above the unified border so it sits BEHIND the preview buffs, matching
         -- the live boss aura layering. The border FRAME is frame+10 but its solid
@@ -396,9 +431,21 @@ local function SetupOptionsPanel()
         else  -- "left" or fallback
             holder:SetPoint("RIGHT", frame, "LEFT", -gap + bOffX, 0 + bOffY)
         end
+        local icons = holder._icons
         for idx, spellID in ipairs(FAKE_BUFF_SPELLS) do
-            local iconFrame = CreateFrame("Frame", nil, holder)
+            local iconFrame = icons[idx]
+            if not iconFrame then
+                iconFrame = CreateFrame("Frame", nil, holder)
+                local icon = iconFrame:CreateTexture(nil, "ARTWORK")
+                icon:SetAllPoints()
+                iconFrame._icon = icon
+                local border = CreateFrame("Frame", nil, iconFrame)
+                border:SetAllPoints(icon)
+                iconFrame._border = border
+                icons[idx] = iconFrame
+            end
             iconFrame:SetSize(iconSize, iconSize)
+            iconFrame:ClearAllPoints()
             if simple and simpleMode == "left" then
                 -- Left mode grows leftward from the right edge of the holder.
                 iconFrame:SetPoint("RIGHT", holder, "RIGHT", -(idx - 1) * (iconSize + iconGap), 0)
@@ -406,19 +453,17 @@ local function SetupOptionsPanel()
                 iconFrame:SetPoint("LEFT", holder, "LEFT", (idx - 1) * (iconSize + iconGap), 0)
             end
             iconFrame:SetFrameLevel(holder:GetFrameLevel())
-            local icon = iconFrame:CreateTexture(nil, "ARTWORK")
-            icon:SetAllPoints()
+            local icon = iconFrame._icon
             local tex = GetSpellTexture and GetSpellTexture(spellID)
                      or (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID))
-            if tex then icon:SetTexture(tex) end
+            icon:SetTexture(tex)
             local z = settings.buffIconZoom or 0.07
             icon:SetTexCoord(z, 1 - z, z, 1 - z)
-            local border = CreateFrame("Frame", nil, iconFrame)
-            border:SetAllPoints(icon)
+            local border = iconFrame._border
             border:SetFrameLevel(iconFrame:GetFrameLevel() + 1)
             ns.BossPreviewAuraBorder(border, settings)
         end
-        frame._previewBuffs = holder
+        holder:Show()
     end
     local function DetachFakeBuffs(frame)
         if frame._previewBuffs then frame._previewBuffs:Hide() end

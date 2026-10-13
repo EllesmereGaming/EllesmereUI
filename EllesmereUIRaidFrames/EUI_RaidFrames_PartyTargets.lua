@@ -445,16 +445,20 @@ function ns.PT_ShownSide(auto)
     return (side == "above" and "top") or (side == "below" and "bottom") or side
 end
 
--- The room target frames along the stack (Top/Bottom beside stacked frames, Left/Right beside
--- horizontal ones) add to the party frames' pitch, so they sit between two frames: their length
--- on the stacking axis plus the gap past them. From the settings, so every slot placer agrees
--- whichever runs first. on: the enable state to read (the live one unless given; previews pass
--- the setting).
-function ns.PT_AlongPitch(s, on)
+function ns.PT_PositionAlongStack(position, horizontal)
+    return horizontal and (position == "left" or position == "right")
+        or not horizontal and (position == "top" or position == "bottom")
+end
+
+-- Only direction is needed here; calculating the gap would call RF_PartyDims again.
+function ns.PT_AlongStack(s, on)
     if on == nil then on = ns._ptEnabled end
-    if not on then return 0 end
-    local _, _, across = PT_Side(s)
-    if across then return 0 end
+    return on and ns.PT_PositionAlongStack(s.partyTargetPosition, s.partyHorizontal) or false
+end
+
+-- Target length on the stacking axis plus the party gap. Previews pass their enable state.
+function ns.PT_AlongPitch(s, on)
+    if not ns.PT_AlongStack(s, on) then return 0 end
     return PixelSnap(s.partyHorizontal and (s.partyTargetWidth or 70) or (s.partyTargetHeight or 33))
         + PixelSnap(PT_Gap(s))
 end

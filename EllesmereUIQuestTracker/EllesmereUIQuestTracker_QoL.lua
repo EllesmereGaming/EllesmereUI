@@ -68,6 +68,11 @@ local function InstallAutoQuests()
     autoFrame:RegisterEvent("QUEST_DETAIL")
     autoFrame:RegisterEvent("QUEST_COMPLETE")
     autoFrame:RegisterEvent("GOSSIP_SHOW")
+    -- Deliberately NOT enrolled in EQT._eventFrames, so the raid/arena/M+
+    -- suspension leaves it alone. That suspension exists to stop skin and
+    -- layout work while the tracker is hidden; this frame does neither, it
+    -- answers quest NPC dialogs, so Auto Accept / Auto Turn In keep working
+    -- while the tracker is hidden.
     autoFrame:SetScript("OnEvent", function(_, event, ...)
         if Cfg("enabled") == false then return end
 

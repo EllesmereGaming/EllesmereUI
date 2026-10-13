@@ -23,8 +23,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     local indicatorHeader
     indicatorHeader, h = W:SectionHeader(parent, "INDICATORS", y); y = y - h
 
-    -- Eyeball: toggle indicator visibility on preview (raid + party)
-    do
+    -- Eyeball: toggle indicator visibility on preview (raid + party); none in
+    -- the search pre-build (it indexes nothing, and the header is a stand-in there)
+    if not EllesmereUI._prebuilding then
         local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
         local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
 
@@ -143,6 +144,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             -- resolver over the page's raw, party-aware reads, so an unset
             -- role shows what it does.
             local blessOrder = { "none", "might", "wisdom", "kings", "salvation", "light" }
+            local blessItems = {}
             local BLESS_ID = { might = 19740, wisdom = 19742, kings = 20217, salvation = 1038, light = 19977 }
             local BLESS_EN = { might = "Might", wisdom = "Wisdom", kings = "Kings", salvation = "Salvation", light = "Light" }
             local blessValues = { none = "None" }
@@ -162,12 +164,105 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 local k = blessOrder[i]
                 local n = full and full[k]
                 blessValues[k] = (n and cut) and n:sub(#cut + 1) or n or BLESS_EN[k]
+                blessItems[#blessItems + 1] = { key = k, label = blessValues[k] }
             end
             local view = setmetatable({}, { __index = function(_, k) return SGet(k) end })
+            -- A priority list per role: the checked blessings in the order
+            -- shown (drag to reorder); the first one the member lacks shows.
+            -- Each open lists the checked ones first, in priority order.
+            -- A blessing list row: picked() = the list it shows, write(list)
+            -- saves a new one, which keeps the order shown.
+            local function ListRow(label, picked, write)
+                local function Save(order, key, on)
+                    local keep = {}
+                    for _, k in ipairs(picked()) do keep[k] = true end
+                    if key then keep[key] = on or nil end
+                    local list = {}
+                    for _, k in ipairs(order) do
+                        if keep[k] then list[#list + 1] = k end
+                    end
+                    write(list)
+                end
+                return { type="reordercheck", label=label, ddWidth=170, grip=true,
+                  hint="Drag to set priority", items=blessItems,
+                  get=function(key)
+                      for _, k in ipairs(picked()) do
+                          if k == key then return true end
+                      end
+                      return false
+                  end,
+                  set=function(key, on, order) Save(order, key, on) end,
+                  setOrder=function(keys) Save(keys) end,
+                  openOrder=picked }
+            end
+            -- Class exceptions: the classes that can fill each role, one list
+            -- each in a popup beside this one; a class's own list replaces
+            -- the role's list for members of that class.
+            local ROLE_CLASSES = {
+                TANK = { "DRUID", "PALADIN", "WARRIOR" },
+                HEALER = { "DRUID", "PALADIN", "PRIEST", "SHAMAN" },
+                DAMAGER = { "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE",
+                    "SHAMAN", "WARLOCK", "WARRIOR" },
+            }
+            local ROLE_TITLE = { TANK = "Tank Exceptions", HEALER = "Healer Exceptions", DAMAGER = "DPS Exceptions" }
             local function BlessRow(label, tip, role)
-                return { type="dropdown", label=label, tooltip=tip, values=blessValues, order=blessOrder,
-                  get=function() return ns.RF_FvBlessingChoice(view, role) end,
-                  set=function(v) SSet(ns.RF_FvBlessingKey[role], v) end }
+                local function Picked() return ns.RF_FvBlessingChoice(view, role) end
+                local exKey = ns.RF_FvBlessingExKey[role]
+                local function Own(class)
+                    local ex = SGet(exKey)
+                    local list = type(ex) == "table" and ex[class]
+                    return type(list) == "table" and list or nil
+                end
+                -- A fresh table on every save: the saved one is also what the
+                -- runtime reads.
+                local function SetOwn(class, list)
+                    local ex = {}
+                    local old = SGet(exKey)
+                    if type(old) == "table" then
+                        for k, v in pairs(old) do ex[k] = v end
+                    end
+                    ex[class] = list
+                    SSet(exKey, next(ex) ~= nil and ex or nil)
+                end
+                local exShow, exAnchor
+                local function OpenExceptions(_, ddBtn)
+                    if not exShow then
+                        local reset = "Use the " .. label:gsub(" Blessing", "") .. " List"
+                        local rows = {}
+                        for _, token in ipairs(ROLE_CLASSES[role]) do
+                            local name = LOCALIZED_CLASS_NAMES_MALE[token] or token
+                            local c = EllesmereUI.GetClassColor(token)
+                            local r = ListRow(EllesmereUI.HexColor(c.r, c.g, c.b) .. name .. "|r",
+                                function() return Own(token) or Picked() end,
+                                function(list) SetOwn(token, list) end)
+                            r.tail = { { key="reset", label=reset } }
+                            r.onTail = function() SetOwn(token, nil) end
+                            r.tailSelected = function() return Own(token) == nil end
+                            rows[#rows + 1] = r
+                        end
+                        local pf = ddBtn:GetParent()
+                        local _, show = EllesmereUI.BuildCogPopup({ title = ROLE_TITLE[role], rows = rows, noOwnerDim = true })
+                        exShow = show
+                        -- Cog popups hang below their anchor: this one sits on
+                        -- the cog popup's top edge, so the list opens beside it.
+                        exAnchor = CreateFrame("Frame", nil, pf)
+                        exAnchor:SetSize(1, 1)
+                        exAnchor:SetScript("OnHide", function()
+                            local f = exShow._popupFrame
+                            if f and f:IsShown() then f:Hide() end
+                        end)
+                    end
+                    exShow(exAnchor)
+                    local f = exShow._popupFrame
+                    exAnchor:ClearAllPoints()
+                    exAnchor:SetPoint("BOTTOM", exAnchor:GetParent(), "TOPRIGHT", 4 + f:GetWidth() / 2, 5)
+                    ddBtn._sidePopup = f
+                end
+                local r = ListRow(label, Picked, function(list) SSet(ns.RF_FvBlessingKey[role], list) end)
+                r.tooltip = tip
+                r.tail = { { key="exceptions", label="Class Exceptions" } }
+                r.onTail = OpenExceptions
+                return r
             end
             local rows = {
                 -- One switch per buff (all on by default). The list is the
@@ -192,9 +287,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   disabledTooltip="Thorns",
                   get=function() return SVal("missingBuffsThornsTank", false) end,
                   set=function(v) SSet("missingBuffsThornsTank", v and true or false) end },
-                BlessRow("Tank Blessing", "Reminds you while a tank lacks this blessing. Members with no assigned role count any blessing.", "TANK"),
-                BlessRow("Healer Blessing", "Reminds you while a healer lacks this blessing.", "HEALER"),
-                BlessRow("DPS Blessing", "Reminds you while a damage dealer lacks this blessing.", "DAMAGER"),
+                BlessRow("Tank Blessing", "Reminds you of the first checked blessing a tank lacks, top to bottom.", "TANK"),
+                BlessRow("Healer Blessing", "Reminds you of the first checked blessing a healer lacks, top to bottom.", "HEALER"),
+                BlessRow("DPS Blessing", "Reminds you of the first checked blessing a damage dealer lacks, top to bottom. Members with no assigned role use this list too.", "DAMAGER"),
                 { type="slider", label="Offset X", min=-50, max=50, step=1,
                   get=function() return SVal("missingBuffsOffsetX", 0) end,
                   set=function(v) SSet("missingBuffsOffsetX", v) end },
@@ -249,10 +344,12 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     local roleStyleOrder = { "none", "modern", "blizzLight", "pixels", "modernCircle", "styled", "classicCircle", "classic", "blizzDefault" }
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Role Icons", values=roleStyleValues, order=roleStyleOrder,
+          disabled=function() return SVal("roleText", false) end,
+          disabledTooltip="Role Text", requireState="disabled",
           getValue=function() return SVal("roleIconStyle", "modern") end,
           setValue=function(v) SSet("roleIconStyle", v); EllesmereUI:RefreshPage() end },
         { type="dropdown", text="Show Role",
-          disabled=function() return SVal("roleIconStyle", "modern") == "none" end,
+          disabled=function() return not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none" end,
           disabledTooltip="Role Icons",
           values={ __placeholder = "All Roles" }, order={ "__placeholder" },
           getValue=function() return "__placeholder" end,
@@ -261,15 +358,33 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     if not EllesmereUI._prebuilding then
         local rightRgn = row._rightRegion
         if rightRgn._control then rightRgn._control:Hide() end
-        local showRoleItems = {
-            { key = "tank",   label = "Tank" },
-            { key = "healer", label = "Healer" },
-            { key = "dps",    label = "DPS" },
-        }
+        local function ShowRoleItems()
+            local items = {
+                { key = "tank",   label = "Tank" },
+                { key = "healer", label = "Healer" },
+                { key = "dps",    label = "DPS" },
+            }
+            if SVal("roleText", false) then
+                for _, item in ipairs(items) do
+                    local colorKey = "roleText" .. item.label .. "Color"
+                    item.swatch = {
+                        get = function()
+                            local c = SGet(colorKey) or ns._internals.defaults.profile[colorKey]
+                            return c.r, c.g, c.b
+                        end,
+                        set = function(r, g, b)
+                            SSet(colorKey, { r = r, g = g, b = b })
+                            if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end
+                        end,
+                    }
+                end
+            end
+            return items
+        end
         local roleKeyMap = { tank = "showRoleForTank", healer = "showRoleForHealer", dps = "showRoleForDPS" }
         local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
             rightRgn, 170, rightRgn:GetFrameLevel() + 2,
-            showRoleItems,
+            ShowRoleItems,
             function(k) return SVal(roleKeyMap[k], true) end,
             function(k, v)
                 SSet(roleKeyMap[k], v)
@@ -283,6 +398,10 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Role Icons",
             rows = {
+                { type="toggle", label="Role Text",
+                  tooltip="Show Healer, Tank, or DPS text instead of the role icon, using the same size, position, and Show Role settings.",
+                  get=function() return SVal("roleText", false) end,
+                  set=function(v) SSet("roleText", v); if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end; EllesmereUI:RefreshPage() end },
                 { type="toggle", label="Hide In Combat",
                   tooltip="Hide role icons while you are in combat.",
                   get=function() return SVal("roleIconHideInCombat", false) end,
@@ -311,12 +430,12 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     -- (their offset cogs stay live).
     roleRow2, h = W:DualRow(parent, y,
         ns.RF_PartyKitGate({ type="dropdown", text="Role Position", values=rolePositionValues, order=rolePositionOrder,
-          disabled=function() return SVal("roleIconStyle", "modern") == "none" end,
+          disabled=function() return not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none" end,
           disabledTooltip="Role Icons",
           getValue=function() return SVal("roleIconPosition", "bottomleft") end,
           setValue=function(v) SSet("roleIconPosition", v) end }),
         { type="slider", text="Role Icon Size", min=8, max=30, step=1,
-          disabled=function() return SVal("roleIconStyle", "modern") == "none" end,
+          disabled=function() return not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none" end,
           disabledTooltip="Role Icons",
           getValue=function() return SVal("roleIconSize", 14) end,
           setValue=function(v) SSet("roleIconSize", v) end });  y = y - h
@@ -757,8 +876,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     if onSection then onSection("indicators", _secY, y) end; _secY = y
     dispelHeader, h = W:SectionHeader(parent, "DISPELS", y); y = y - h
 
-    -- Eyeball: toggle dispel visibility on preview (raid + party)
-    do
+    -- Eyeball: toggle dispel visibility on preview (raid + party); none in
+    -- the search pre-build (it indexes nothing, and the header is a stand-in there)
+    if not EllesmereUI._prebuilding then
         local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
         local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
 
@@ -908,8 +1028,14 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   disabled=CustomBorderOff,
                   disabledTooltip=CustomBorderOffTip,
                   requireState="disabled",
-                  get=function() return SVal("dispelCustomBorder", false) end,
-                  set=function(v) SSet("dispelCustomBorder", v) end },
+                  get=function()
+                      return not ns.RF_CompactOnTab(optState._partyCtx)
+                          and SVal("dispelCustomBorder", false)
+                  end,
+                  set=function(v)
+                      if v and CustomBorderOff() then return end
+                      SSet("dispelCustomBorder", v)
+                  end },
             },
         })
     end
@@ -969,17 +1095,17 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             disabled=function()
                 local key = SGet("borderTexture")
                 return TNBOff() or EllesmereUI.BlizzStyle.Get("raidframes")
-                    or (key ~= "pixels" and key ~= "pixels-textured")
+                    or not EllesmereUI._pixelArtBorders[key]
             end,
             disabledTooltip=function() return TNBOff() and "Enable Top Name Bar" or "Pixels or Pixels Textured Border Style" end,
             title="Top Name Bar Options",
             rows={
                 { type="toggle", label="Divider",
-                  tooltip="Draw a separator matching the frame's Pixels style, size, color and transparency. Hidden below Height 4.",
+                  tooltip="Separates the name bar from the health bar.",
                   get=function() return SVal("topNameBarDivider", false) end,
                   set=function(v) SSet("topNameBarDivider", v) end },
                 { type="toggle", label="Match Highlight Colors",
-                  tooltip="Divider follows the frame border's highlight colors and transparency, including hover and target. When off, it keeps the normal frame border color.",
+                  tooltip="The divider follows hover and target colors.",
                   disabled=function() return not SVal("topNameBarDivider", false) end,
                   disabledTooltip="Requires Divider.",
                   rawTooltip=true,
@@ -1538,7 +1664,17 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
 
         local placement = PFPlacement()
         if placement == "free" then
-            row, h = W:DualRow(parent, y, { type="label", text="Free Move Position" }, BLANK()); y = y - h
+            row, h = W:DualRow(parent, y, { type="label", text="Free Move Position" },
+                { type="dropdown", text="Growth Direction",
+                  tooltip="Match Frames grows the pets the same way as the frames.",
+                  values = { frames="Match Frames", DOWN="Down", UP="Up", RIGHT="Right", LEFT="Left" },
+                  order  = { "frames", "DOWN", "UP", "RIGHT", "LEFT" },
+                  getValue = function() return PFTab().freeGrowth or "frames" end,
+                  setValue = function(v)
+                      PFTab().freeGrowth = (v ~= "frames") and v or nil
+                      ns.PF_Apply()
+                      ns.PF_PlaceMover(tabKey)
+                  end }); y = y - h
             ns.RF_OptMoveFramesButton(row, row._leftRegion, {
                 isShown = function() return ns.PF_IsMoverShown(tabKey) end,
                 setShown = function(show) ns.PF_SetMoverShown(show, tabKey) end,

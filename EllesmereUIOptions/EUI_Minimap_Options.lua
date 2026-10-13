@@ -50,7 +50,9 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     -- Square and Rectangular share the rect layout/border engine (not the circle wrap).
+    -- The WoW Forever look's Forever Square is the square map whatever Shape is stored.
     local function ShapeUsesRectLayout()
+        if ns.MinimapFvSquare() then return true end
         local m = MinimapDB()
         local s = m and m.shape or "square"
         return s == "square" or s == "rectangular"
@@ -116,6 +118,10 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Minimap Page
     ---------------------------------------------------------------------------
+    -- The Size slider's drag cover: our own texture on the map, built on the
+    -- first drag and kept here (never as a key on Blizzard's frame).
+    local sizeDragOverlay
+
     local function BuildMinimapPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
@@ -127,10 +133,90 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, SECTION_MINIMAP, y);  y = y - h
         y = EllesmereUI.BlizzStyle.Note(parent, y, "minimap")
 
-        -- Row 1: Visibility | Shape
-        local visRow
-        h, visRow = BuildVisibilityRow(W, parent, y, MinimapDB, RefreshMinimap,
-            EllesmereUI.BlizzStyle.Gate("minimap", { type="dropdown", text="Shape",
+        -- A square frame on the Forever client (the WoW Forever look's Forever
+        -- Square, or Blizzard Style's Square in the slim line): the map renders
+        -- the EllesmereUI look's layout in that frame, so the rows that lay that
+        -- look out stay live (Gate, BlockInline); the shape and border rows wait
+        -- for the EllesmereUI look under every stock look (BlizzStyle.Gate).
+        -- Latched for the session, like the look.
+        local fvSquare = ns.MinimapFvSquare()
+        local function Gate(cfg)
+            if fvSquare then return cfg end
+            return EllesmereUI.BlizzStyle.Gate("minimap", cfg)
+        end
+        local function BlockInline(widget)
+            if not fvSquare then EllesmereUI.BlizzStyle.BlockInline("minimap", widget) end
+        end
+
+        -- Row 1: Visibility | Shape. On the WoW Forever look its Border Style
+        -- takes the slot, as the shape is part of it: Forever Circle ("circle"),
+        -- the variant's round map in Blizzard's Forever ring, or Forever Square
+        -- (the default there),
+        -- the EllesmereUI look's square map in the bronze frame of Forever's
+        -- own windows. Blizzard Style on the Forever client has its own (below).
+        -- The two render different layouts and latch with the look, so a change
+        -- asks for a reload. A changed pick also moves the clock to that border's
+        -- spot (BorderClock), the one the Style page's seed gives a first visit.
+        -- Square: inside the map at its bottom, no offset (the title bar holds
+        -- the zone name). Circle: at its top, 10px down.
+        local function BorderClock(m, square)
+            if square then
+                m.clockPosition, m.clockOffsetY = "bottom", 0
+            else
+                m.clockPosition, m.clockOffsetY = "top", -10
+            end
+        end
+        local shapeCfg
+        if EllesmereUI.BlizzStyle.Forever("minimap") then
+            shapeCfg = { type="dropdown", text="Border Style",
+              tooltip="Forever Circle: the round map in WoW Forever's ring. Forever Square: the EllesmereUI square map in the bronze frame of WoW Forever's windows, with the zone name in its title bar. Applies after a UI reload.",
+              values = { circle = "Forever Circle", square = "Forever Square" },
+              order  = { "circle", "square" },
+              disabled = function() return not EllesmereUI.ForeverHeavyOK() end,
+              disabledTooltip = "This client is missing WoW Forever's window frame art.", rawTooltip = true,
+              getValue=function() local m = MinimapDB(); return (m and m.foreverBorder == "circle") and "circle" or "square" end,
+              setValue=function(v)
+                local m = MinimapDB(); if not m then return end
+                -- Forever Square is the default: the round map saves "circle".
+                local square = v == "square"
+                if square ~= (m.foreverBorder ~= "circle") then BorderClock(m, square) end
+                m.foreverBorder = square and "square" or "circle"
+                if square == ns.MinimapFvSquare() then return end
+                EllesmereUI:ShowConfirmPopup({
+                    title       = "Reload Required",
+                    message     = "Border Style changed. A UI reload is needed to apply it.",
+                    confirmText = "Reload Now",
+                    cancelText  = "Later",
+                    reload      = true,
+                })
+              end }
+        elseif EllesmereUI.IS_FOREVER and EllesmereUI.BlizzStyle.Active("minimap") == "blizzard" then
+            -- Blizzard Style on the Forever client: a Border Style of its own,
+            -- Circle (the WoW Forever look's Forever Circle exactly) or Square
+            -- (the default there: the same square layout in the slim bronze
+            -- line). Latched with the look, as above.
+            shapeCfg = { type="dropdown", text="Border Style",
+              tooltip="Circle: the round map in WoW Forever's ring. Square: the EllesmereUI square map in a thin bronze frame, with the zone name in its title bar. Applies after a UI reload.",
+              values = { circle = "Circle", square = "Square" },
+              order  = { "circle", "square" },
+              getValue=function() local m = MinimapDB(); return (m and m.blizzBorder == "circle") and "circle" or "square" end,
+              setValue=function(v)
+                local m = MinimapDB(); if not m then return end
+                -- Square is the default: the round map saves "circle".
+                local square = v == "square"
+                if square ~= (m.blizzBorder ~= "circle") then BorderClock(m, square) end
+                m.blizzBorder = square and "square" or "circle"
+                if square == ns.MinimapFvSquare() then return end
+                EllesmereUI:ShowConfirmPopup({
+                    title       = "Reload Required",
+                    message     = "Border Style changed. A UI reload is needed to apply it.",
+                    confirmText = "Reload Now",
+                    cancelText  = "Later",
+                    reload      = true,
+                })
+              end }
+        else
+            shapeCfg = EllesmereUI.BlizzStyle.Gate("minimap", { type="dropdown", text="Shape",
               values = { square = "Square", rectangular = "Rectangular", circle = "Circle", textured_circle = "Textured Circle" },
               order  = { "square", "rectangular", "circle", "textured_circle" },
               getValue=function() local m = MinimapDB(); return m and m.shape or "square" end,
@@ -140,7 +226,10 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshMinimap()
                 -- Rebuild: the Width | Height Offset row exists only on the rect layout.
                 EllesmereUI:RefreshPage(true)
-              end }));  y = y - h
+              end })
+        end
+        local visRow
+        h, visRow = BuildVisibilityRow(W, parent, y, MinimapDB, RefreshMinimap, shapeCfg);  y = y - h
         -- Inline cog on Visibility: Opacity of the shown map (showing and hiding stay
         -- with Visibility). Greyed while the map never shows; the checklist refreshes
         -- the page on close, which re-runs the cog's disabled state.
@@ -178,22 +267,21 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Borders, buttons, etc. remain visible above the overlay.
                 local minimap = _G.Minimap
                 if minimap then
-                    if not minimap._dragOverlay then
-                        local ov = minimap:CreateTexture(nil, "BACKGROUND", nil, 7)
-                        ov:SetAllPoints(minimap)
-                        minimap._dragOverlay = ov
+                    if not sizeDragOverlay then
+                        sizeDragOverlay = minimap:CreateTexture(nil, "BACKGROUND", nil, 7)
+                        sizeDragOverlay:SetAllPoints(minimap)
                     end
-                    local shape = m.shape or "square"
+                    local shape = ns.MinimapShape()
                     if shape == "circle" or shape == "textured_circle" then
-                        minimap._dragOverlay:SetTexture("Interface\\Common\\CommonMaskCircle")
-                        minimap._dragOverlay:SetVertexColor(0, 0, 0, 1)
+                        sizeDragOverlay:SetTexture("Interface\\Common\\CommonMaskCircle")
+                        sizeDragOverlay:SetVertexColor(0, 0, 0, 1)
                     elseif shape == "rectangular" then
-                        minimap._dragOverlay:SetTexture("Interface\\AddOns\\EllesmereUIMinimap\\Media\\minimap_rectangular-mask.blp")
-                        minimap._dragOverlay:SetVertexColor(0, 0, 0, 1)
+                        sizeDragOverlay:SetTexture("Interface\\AddOns\\EllesmereUIMinimap\\Media\\minimap_rectangular-mask.blp")
+                        sizeDragOverlay:SetVertexColor(0, 0, 0, 1)
                     else
-                        minimap._dragOverlay:SetColorTexture(0, 0, 0, 1)
+                        sizeDragOverlay:SetColorTexture(0, 0, 0, 1)
                     end
-                    minimap._dragOverlay:Show()
+                    sizeDragOverlay:Show()
                 end
                 RefreshMinimap()
                 if not _G._EBS_SizeDragTimer then
@@ -201,9 +289,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 _G._EBS_SizeDragTimer:Cancel()
                 _G._EBS_SizeDragTimer = C_Timer.NewTimer(0.15, function()
-                    if minimap and minimap._dragOverlay then
-                        minimap._dragOverlay:Hide()
-                    end
+                    if sizeDragOverlay then sizeDragOverlay:Hide() end
                 end)
               end },
             { type="slider", text="Interactable Button Size", min=16, max=40, step=1,
@@ -892,7 +978,8 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            -- Blizzard Style draws no button boxes (ring buttons keep their own dress).
+            -- The stock looks and Forever Square draw no button boxes (every
+            -- button wears the ring dress), so the cog waits under all of them.
             EllesmereUI.BlizzStyle.BlockInline("minimap", cogBtn)
 
             local resetFS = rgn:CreateFontString(nil, "OVERLAY")
@@ -1098,7 +1185,7 @@ initFrame:SetScript("OnEvent", function(self)
         local elRowRow
         elRowRow, h = W:DualRow(parent, y,
             -- Blizzard Style lays the elements out round the stock top bar.
-            EllesmereUI.BlizzStyle.Gate("minimap", { type="dropdown", text="Element Row Position",
+            Gate({ type="dropdown", text="Element Row Position",
               tooltip="Which minimap corner the Blizzard element row (tracking, calendar, mail, crafting) builds out from and the direction it grows.",
               values = ROW_POS_VALUES, order = ROW_POS_ORDER,
               disabled=function() return not ShapeUsesRectLayout() end,
@@ -1188,7 +1275,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            EllesmereUI.BlizzStyle.BlockInline("minimap", cogBtn)
+            BlockInline(cogBtn)
         end
 
         y = y - 10
@@ -1280,7 +1367,10 @@ initFrame:SetScript("OnEvent", function(self)
         -- Zone Text Style | Zone Position (with cog: Scale + X/Y offset)
         -- Legacy fallback mirrors the runtime: pre-dropdown data carries the
         -- zoneInside toggle (defaulted OFF) and the removed Show Blizzard
-        -- Elements Zone checkbox (hideZoneText == true meant hidden).
+        -- Elements Zone checkbox (hideZoneText == true meant hidden). The stock
+        -- looks put the zone text in their top bar and Forever Square in its
+        -- frame's title bar, so Zone Position waits for the EllesmereUI look
+        -- under all of them (the cog's scale and offsets still apply).
         local function LocationMode()
             local m = MinimapDB()
             if not m then return "inside" end

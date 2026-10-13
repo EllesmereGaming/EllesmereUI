@@ -41,6 +41,15 @@ local defaults = {
             -- banner and zoom buttons on our map, the same stock-mode geometry
             -- as Blizzard Style. Default OFF; reload-gated.
             useClassicStyle = false,
+            -- The WoW Forever look's Border Style (latched in EBS._MinimapStyle):
+            -- "square" = Forever Square, the default there, "circle" = Forever
+            -- Circle. Nil on every other client, where nothing reads it.
+            foreverBorder = (EllesmereUI.IS_FOREVER == true) and "square" or nil,
+            -- Blizzard Style's own Border Style on the Forever client (latched
+            -- the same way): "square" = the square map in the slim bronze
+            -- line, the default there, "circle" = the round map in Blizzard's
+            -- ring. Nil on every other client, where nothing reads it.
+            blizzBorder   = (EllesmereUI.IS_FOREVER == true) and "square" or nil,
             shape         = "square",
             rotateMinimap = false,
             borderSize    = 1,
@@ -185,6 +194,14 @@ local function GetBorderStyleColor(cfg)
     local c = cfg.borderColor
     if c then return c.r, c.g, c.b, cfg.borderA or 1 end
     return GetBorderColor(cfg)
+end
+
+-- The clock and zone Edge Box fill: the border colour above, or black under
+-- a square frame on the Forever client (its bronze frame takes no colour, and
+-- the border colour rows are hidden there). EBS field: main-chunk local cap.
+function EBS._EdgeBoxColor(cfg)
+    if EBS._fvSquare then return 0, 0, 0 end
+    return GetBorderStyleColor(cfg)
 end
 
 -------------------------------------------------------------------------------
@@ -764,9 +781,10 @@ local function GetElementRowMode(mp)
 end
 
 -- Distance from Map push: left/right rows move horizontally, above/below vertically.
--- Icon Spacing is applied per link at placement.
+-- Icon Spacing is applied per link at placement. Forever Square's rows hang
+-- from the frame's outer edge and start EBS.FV_ROW_AIR clear of it.
 local function GetRowBase(mode, distance)
-    local d = distance or 0
+    local d = (distance or 0) + (EBS._fvSquare and EBS.FV_ROW_AIR or 0)
     return d * mode.awayX, d * mode.awayY
 end
 
@@ -959,15 +977,41 @@ local MAP_POS_ANCHORS = {
     bottomRight = { "BOTTOMRIGHT", "BOTTOMRIGHT", -4,  4 },
 }
 
--- Anchor for the clock/zone text bar. Inside keeps the 4px map inset; edge flips it
--- so the box straddles the border (7px out on squares, 3px in on circles -- the
--- round mask curves away from the frame edge). Above/Below Map float outside in both.
+-- An inside-map offset under the WoW Forever look's Forever Square: the rim
+-- and its dark line cover the map's outer 3px and its inner shadow reaches
+-- 5px (FOREVER_HEAVY.band and .shade at the window scale, less the rim's
+-- EBS.FV_SQUARE_OUT outside the map), over the 4px inset above, so an
+-- element inside the map steps 2px further in on each axis it is inset on
+-- (6px from the edge; the title bar's divider and its shadow reach no
+-- further). pos: a MAP_POS_ANCHORS key (nil: inside the map). Above Map
+-- rises over the title bar while it shows, keeping its gap to the frame;
+-- Below Map, and every other look, keep their offsets. Blizzard Style's slim
+-- square keeps the 4px inset (its line's inner shadow ends at the map's
+-- edge). EBS field: main-chunk local cap.
+function EBS._FvInsideXY(pos, x, y)
+    if not EBS._fvSquare or pos == "belowMap" then return x, y end
+    if pos == "aboveMap" then
+        if EBS._fvTitleOn then y = y + EBS._SqTitle() - EBS._SqOut() end
+        return x, y
+    end
+    if EBS._sqSlim then return x, y end
+    if x ~= 0 then x = x + (x > 0 and 2 or -2) end
+    if y ~= 0 then y = y + (y > 0 and 2 or -2) end
+    return x, y
+end
+
+-- Anchor for the clock/zone text bar. Inside keeps the 4px map inset (7px under
+-- Forever Square, past the heavy band); edge flips it so the box straddles the
+-- border (7px out on squares, 3px in on circles -- the round mask curves away
+-- from the frame edge). Above/Below Map float outside in both.
 local function ResolveElementAnchor(pos, style, isCircle)
     local a = MAP_POS_ANCHORS[pos] or MAP_POS_ANCHORS.top
     local x, y = a[3], a[4]
     if style == "edge" and pos ~= "belowMap" and pos ~= "aboveMap" then
         if x ~= 0 then x = isCircle and (x > 0 and 3 or -3) or (x > 0 and -7 or 7) end
         if y ~= 0 then y = isCircle and (y > 0 and 3 or -3) or (y > 0 and -7 or 7) end
+    else
+        x, y = EBS._FvInsideXY(pos, x, y)
     end
     return a[1], a[2], x, y
 end
@@ -3005,8 +3049,8 @@ end
 
 local MAIL_CORNER_POINTS = { TOPLEFT = true, TOPRIGHT = true, BOTTOMLEFT = true, BOTTOMRIGHT = true }
 
--- Stock styles: dress one of OUR row buttons (and, under Classic WoW UI, the
--- indicators) as the stock round minimap
+-- Stock styles and Forever Square: dress one of OUR row buttons (and, under
+-- Classic WoW UI, the indicators) as the stock round minimap
 -- button: a 31px button with the 53px ring-border texture hung from its
 -- top-left exactly as addon buttons hang it (its shadow falls bottom-right).
 -- Measured on that texture at the 53px draw size, the gold band's inner
@@ -3081,6 +3125,45 @@ function EBS._ClassicRingButton(btn, crop, ...)
     end
 end
 
+-- A ring button's ring inside its box: the left, top, right and bottom
+-- insets (the button's units) from the box's edges to the ring's opaque
+-- edge. The ring is the minimap tracking-border file (64px, its opaque ring
+-- in columns 4..36 and rows 3..36) hung from the button's top-left at any
+-- size, as the common minimap-button library (50 or 53px), our own button
+-- and EBS._ClassicRingButton (53px) hang it. Found once per button (our
+-- dress's ring, else the button's region drawing that file; a weak-keyed
+-- record of ours, never a key on the button); a button without one, or with
+-- its ring hung elsewhere, reads as its box.
+EBS._ringTex = setmetatable({}, { __mode = "k" })
+function EBS._RingInsets(btn)
+    local ring = btn._classicRing
+    if not ring then
+        ring = EBS._ringTex[btn]
+        if ring == nil then
+            ring = false
+            for i = 1, select("#", btn:GetRegions()) do
+                local r = select(i, btn:GetRegions())
+                if r:IsObjectType("Texture") then
+                    local tex = r:GetTexture()
+                    if (r.GetTextureFileID and r:GetTextureFileID()) == 136430
+                       or (type(tex) == "string" and tex:find("MiniMap%-TrackingBorder")) then
+                        ring = r
+                        break
+                    end
+                end
+            end
+            EBS._ringTex[btn] = ring
+        end
+    end
+    if not ring or not ring:IsShown() then return 0, 0, 0, 0 end
+    local pt, rel, rp, x, y = ring:GetPoint(1)
+    if pt ~= "TOPLEFT" or rp ~= "TOPLEFT" or rel ~= btn then return 0, 0, 0, 0 end
+    local w, h = ring:GetWidth(), ring:GetHeight()
+    x, y = x or 0, -(y or 0)
+    return x + w * 4 / 64, y + h * 3 / 64,
+        btn:GetWidth() - x - w * 37 / 64, btn:GetHeight() - y - h * 37 / 64
+end
+
 -- Takes the ring dress off a button the pass renders bare (a mail pinned to a
 -- corner): ring, disc and highlight hide and the round mask comes off the
 -- textures given, so the pass's own geometry shows unclipped. Re-dressing
@@ -3100,9 +3183,29 @@ function EBS._ClassicRingUndress(btn, ...)
     end
 end
 
+-- Forever Square's element row: an indicator (tracking, calendar, mail,
+-- crafting order) in the button row's ring dress, its icon at its atlas
+-- aspect and scale on the ring's 16px icon height, nudged as the indicator
+-- pass nudges it (INDICATOR_ATLAS_*), so the art sits as it does in the box.
+-- Re-applied per pass: the indicator pass sizes the icon for the box first.
+function EBS._RingIndicator(btn)
+    local icon, up = btn._icon, btn._upAtlas
+    EBS._ClassicRingButton(btn, nil, icon)
+    local ratio = icon and up and INDICATOR_ATLAS_RATIO[up]
+    if ratio then
+        local s = INDICATOR_ATLAS_SCALE[up] or 1
+        local off = INDICATOR_ATLAS_OFFSET[btn._indicatorKey]
+        icon:SetSize(16 * ratio * s, 16 * s)
+        icon:ClearAllPoints()
+        icon:SetPoint("CENTER", btn, "TOPLEFT", 16.6 + (off and off[1] or 0), -16.2 + (off and off[2] or 0))
+    end
+end
+
 local function LayoutIndicatorFrames(minimap, p, circleMode)
     local flvl = minimap:GetFrameLevel() + 10
     local mapAnchor = GetFFD(minimap).layoutFrame or minimap
+    -- The rows' anchor: the map, or Forever Square's outer frame edge.
+    local rowAnchor = (EBS._fvSquare and GetFFD(minimap).fvOuter) or mapAnchor
 
     -- Build our custom buttons once, hide Blizzard originals
     BuildCustomIndicators(minimap)
@@ -3163,7 +3266,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         local rowBaseX, rowBaseY = GetRowBase(rowMode, p.btnRowDistance)
         local resES = minimap:GetEffectiveScale()
         flyoutToggle:ClearAllPoints()
-        flyoutToggle:SetPoint(rowMode.point, mapAnchor, rowMode.rel,
+        flyoutToggle:SetPoint(rowMode.point, rowAnchor, rowMode.rel,
             PP.SnapForES(rowBaseX, resES), PP.SnapForES(rowBaseY, resES))
     end
 
@@ -3321,10 +3424,25 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         local elGap = PP.SnapForES(p.elementRowSpacing or 0, elES)
         local elX = PP.SnapForES(baseX, elES)
         local elY = PP.SnapForES(baseY, elES)
+        -- Forever Square: the row wears the button row's ring dress
+        -- (EBS._RingIndicator), each ring rather than its box placed on the
+        -- row (EBS._RingInsets), EBS.FV_RING_GAP apart.
+        local fvRings = EBS._fvSquare
+        local ringGap = fvRings and PP.SnapForES(EBS.FV_RING_GAP, elES) or 0
+        local ptRight = rowMode.point:find("RIGHT") ~= nil
+        local ptTop = rowMode.point:find("TOP") ~= nil
         local function PlaceElement(btn)
-            btn:ClearAllPoints()
-            btn:SetPoint(rowMode.point, mapAnchor, rowMode.rel, elX, elY)
+            if fvRings then EBS._RingIndicator(btn) end
             local adv = (rowMode.dirX ~= 0) and btn:GetWidth() or btn:GetHeight()
+            local ox, oy = 0, 0
+            if fvRings then
+                local l, t, r, b = EBS._RingInsets(btn)
+                adv = adv - ((rowMode.dirX ~= 0) and (l + r) or (t + b)) + ringGap
+                ox = PP.SnapForES(ptRight and r or -l, elES)
+                oy = PP.SnapForES(ptTop and t or -b, elES)
+            end
+            btn:ClearAllPoints()
+            btn:SetPoint(rowMode.point, rowAnchor, rowMode.rel, elX + ox, elY + oy)
             adv = math.floor(adv / elPx + 0.001) * elPx + elGap
             elX = elX + adv * rowMode.dirX
             elY = elY + adv * rowMode.dirY
@@ -3343,6 +3461,8 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
 
         if ci.mail and ci.mail:IsShown() then
             if mailCorner then
+                -- A corner mail renders bare, its ring dress off.
+                if fvRings then EBS._ClassicRingUndress(ci.mail, ci.mail._icon) end
                 ci.mail:ClearAllPoints()
                 ci.mail:SetPoint(mailCorner, mapAnchor, mailCorner, p.mailOffsetX or 0, p.mailOffsetY or 0)
             else
@@ -3393,23 +3513,39 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
             arcT = math.rad(rowMode.arc or 225)
             arcDir = rowMode.arcDir or -1
         end
+        -- Stock styles and Forever Square: every button on the row wears the
+        -- round minimap-button look -- ours dressed by EBS._ClassicRingButton,
+        -- addon buttons in their own native dress (the common minimap-button
+        -- library draws exactly that look). The EllesmereUI look keeps its own
+        -- dress, its circle too.
+        local ringDress = (blizzHdr or EBS._fvSquare) and true or false
+        -- Forever Square's straight row places each ring, not its box: a ring
+        -- sits off-centre in its button and at its own size (EBS._RingInsets),
+        -- so each ring's edge lands on the row's edge and the next ring
+        -- follows EBS.FV_RING_GAP past it.
+        local fvRings = ringDress and EBS._fvSquare
+        local ringGap = fvRings and PP.SnapForES(EBS.FV_RING_GAP, rowES) or 0
+        local ptRight = rowMode.point:find("RIGHT") ~= nil
+        local ptTop = rowMode.point:find("TOP") ~= nil
         local function PlaceRowButton(btn)
             local adv = (rowMode.dirX ~= 0) and btn:GetWidth() or btn:GetHeight()
+            local ox, oy = 0, 0
+            if fvRings then
+                local l, t, r, b = EBS._RingInsets(btn)
+                adv = adv - ((rowMode.dirX ~= 0) and (l + r) or (t + b)) + ringGap
+                ox = PP.SnapForES(ptRight and r or -l, rowES)
+                oy = PP.SnapForES(ptTop and t or -b, rowES)
+            end
             adv = math.floor(adv / rowPx + 0.001) * rowPx + rowGap
             if arcR then
                 EBS._ArcPoint(btn, minimap, arcR, arcT, rowES)
                 arcT = arcT + arcDir * (adv + arcGap) / arcR
             else
-                btn:SetPoint(rowMode.point, mapAnchor, rowMode.rel, rowX, rowY)
+                btn:SetPoint(rowMode.point, rowAnchor, rowMode.rel, rowX + ox, rowY + oy)
                 rowX = rowX + adv * rowMode.dirX
                 rowY = rowY + adv * rowMode.dirY
             end
         end
-        -- Stock styles: every button on the ring wears the round minimap-button
-        -- look -- ours dressed by EBS._ClassicRingButton, addon buttons in
-        -- their own native dress (the common minimap-button library draws
-        -- exactly that look). The EllesmereUI circle keeps the look's own dress.
-        local ringDress = blizzHdr and true or false
         if ringDress then EBS._ClassicRingButton(flyoutToggle, 0.12, flyoutToggle._norm, flyoutToggle._pushed, flyoutToggle._hl) end
         -- WoW Forever: a row starting at the bottom-left corner starts past
         -- the queue eye Action Bars parks there (half the 45px eye, the gap
@@ -3427,7 +3563,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         elseif arcR then
             EBS._ArcPoint(flyoutToggle, minimap, arcR, arcT, rowES)
         else
-            flyoutToggle:SetPoint(rowMode.point, mapAnchor, rowMode.rel, rowX, rowY)
+            flyoutToggle:SetPoint(rowMode.point, rowAnchor, rowMode.rel, rowX, rowY)
         end
         local mp = EBS.db and EBS.db.profile.minimap
         local ungrouped = {}
@@ -4017,15 +4153,47 @@ function EBS._ApplyAddonCompartment()
     end
 end
 
+-- The square frames' crop masks (Media/crop, made by .tools/minimap-crop/
+-- make_crop_masks.py): minimap-crop-<r>.tga cuts r of its 256 rows off the
+-- top and the bottom, for r in CROP_MASK_MIN..CROP_MASK_MAX (both frames'
+-- crops over the Map Size slider).
+EBS.CROP_MASK_MIN, EBS.CROP_MASK_MAX = 5, 31
+local cropMasks = {}
+-- The strip cropped off the top and bottom of the square canvas, and the
+-- canvas mask that cuts it: Rectangular's 4:3 (32/256 of the canvas each), or,
+-- under a square frame on the Forever client with its title bar, half the
+-- bar's extra height each, so the whole frame, bar included, is a square (the
+-- nearest crop mask, and the crop that mask cuts). 0 keeps the canvas whole.
+EBS._MapCrop = function(p, mapSize)
+    if not p then return 0 end
+    if EBS._MapShape(p) == "rectangular" then
+        return mapSize * 32 / 256, "Interface\\AddOns\\EllesmereUIMinimap\\Media\\minimap_rectangular-crop-mask.tga"
+    end
+    if EBS._MinimapFvSquare() then
+        local _, locationMode = GetElementModes(p)
+        if locationMode ~= "none" then
+            local r = math.floor((EBS._SqTitle() - EBS._SqOut()) / 2 * 256 / mapSize + 0.5)
+            r = math.max(EBS.CROP_MASK_MIN, math.min(EBS.CROP_MASK_MAX, r))
+            local mask = cropMasks[r]
+            if not mask then
+                mask = "Interface\\AddOns\\EllesmereUIMinimap\\Media\\crop\\minimap-crop-" .. r .. ".tga"
+                cropMasks[r] = mask
+            end
+            return r * mapSize / 256, mask
+        end
+    end
+    return 0
+end
+
 -- The mask that crops rectangular mode's square canvas covers the terrain only -- the
 -- engine keeps drawing unit blips across the whole canvas, and the one thing that
 -- confines the native render is the minimap's PARENT rect (ordinary child frames and
 -- textures are not clipped by it, so our border and buttons still draw outside).
--- Parenting the canvas to the 4:3 layout frame is what crops the blips.
+-- Parenting the canvas to the layout frame of the visible size is what crops the
+-- blips, for every crop.
 local function DesiredMapParent(minimap)
     local p = EBS.db and EBS.db.profile.minimap
-    -- The stock styles are always the round map, whatever shape is stored.
-    if p and (p.shape or "square") == "rectangular" and not EBS._MinimapBlizz() then
+    if p and EBS._MapCrop(p, p.mapSize or 140) > 0 then
         return GetFFD(minimap).layoutFrame or UIParent
     end
     return UIParent
@@ -4053,12 +4221,32 @@ EBS._MinimapStyle = function()
         local m = EBS.db and EBS.db.profile and EBS.db.profile.minimap
         if not m then return "eui" end
         v = (m.useClassicStyle and "classic") or (m.useBlizzardStyle and "blizzard") or "eui"
-        EBS._styleLatch = v
         -- The WoW Forever variant of Blizzard Style, latched with it: the
         -- Forever client, Blizzard Style, and the sibling useForeverStyle
         -- flag set together with the Blizzard one.
-        EBS._foreverLatch = v == "blizzard" and EllesmereUI.IS_FOREVER == true
+        local fv = v == "blizzard" and EllesmereUI.IS_FOREVER == true
             and m.useForeverStyle == true
+        -- Its Border Style Forever Square (where the heavy bronze art
+        -- exists): the EllesmereUI look's square map in that frame, so the
+        -- module renders "eui" and every stock site stands down, the
+        -- variant's ring pieces with them. Forever Circle ("circle") is the
+        -- variant as it is; anything else is Forever Square, the default.
+        EBS._fvSquare = fv and m.foreverBorder ~= "circle" and EllesmereUI.ForeverHeavyOK() or false
+        -- Plain Blizzard Style on the Forever client has a Border Style of
+        -- its own (blizzBorder): Square, the default there, is the same
+        -- square map in the slim bronze line (EBS._sqSlim) instead of the
+        -- heavy frame; "circle" is the variant's Forever Circle exactly
+        -- (EBS._bzCircle: the variant's pieces render, while the published
+        -- getters still name Blizzard Style). EBS._fvSquare reads true under
+        -- either square.
+        EBS._sqSlim = v == "blizzard" and not fv and EllesmereUI.IS_FOREVER == true
+            and m.blizzBorder ~= "circle" and EllesmereUI.ForeverBorderOK() or false
+        EBS._bzCircle = v == "blizzard" and not fv and EllesmereUI.IS_FOREVER == true and not EBS._sqSlim
+        if EBS._bzCircle then fv = true end
+        if EBS._sqSlim then EBS._fvSquare = true end
+        if EBS._fvSquare then v, fv = "eui", false end
+        EBS._foreverLatch = fv
+        EBS._styleLatch = v
     end
     return v
 end
@@ -4067,10 +4255,26 @@ end
 EBS._MinimapBlizz = function() return EBS._MinimapStyle() ~= "eui" end
 EBS._MinimapClassic = function() return EBS._MinimapStyle() == "classic" end
 -- WoW Forever variant: the style still reads "blizzard" (every stock site
--- stays as it is); this gates the Forever-only pieces. False off Forever.
+-- stays as it is); this gates the Forever-only pieces, Blizzard Style's
+-- Circle on the Forever client included (it draws the variant's round map
+-- exactly). False off Forever, and under either square.
 EBS._MinimapForever = function()
     if EBS._styleLatch == nil then EBS._MinimapStyle() end
     return EBS._foreverLatch == true
+end
+-- A square frame on the Forever client, latched above: the WoW Forever look's
+-- Forever Square or Blizzard Style's Square (EBS._sqSlim tells them apart).
+-- False under every other look and off Forever.
+EBS._MinimapFvSquare = function()
+    if EBS._styleLatch == nil then EBS._MinimapStyle() end
+    return EBS._fvSquare == true
+end
+-- The shape the map renders: the stock styles' round map, Forever Square's
+-- square, else the stored Shape (read live).
+EBS._MapShape = function(p)
+    if EBS._MinimapBlizz() then return "circle" end
+    if EBS._MinimapFvSquare() then return "square" end
+    return (p and p.shape) or "square"
 end
 -- SetAtlas for a stock-look texture: EllesmereUI.StockAtlas (retail art
 -- where the Forever client swaps the name), native under the WoW Forever
@@ -4079,10 +4283,43 @@ EBS._StockAtlas = function(tex, name, ...)
     if EBS._MinimapForever() then return tex:SetAtlas(name, ...) end
     return EllesmereUI.StockAtlas(tex, name, ...)
 end
--- Published on the module ns for the Style page and the profile-switch check.
+-- Published on the module ns for the Style page and the profile-switch check,
+-- which compare the look the profile flags name: under either square that is
+-- still the look its flags name (Blizzard Style, or Blizzard Style plus its
+-- WoW Forever variant), whatever the module renders.
 EllesmereUI._ModuleNS[ADDON_NAME].MinimapBlizz = EBS._MinimapBlizz
-EllesmereUI._ModuleNS[ADDON_NAME].MinimapStyle = EBS._MinimapStyle
-EllesmereUI._ModuleNS[ADDON_NAME].MinimapForever = EBS._MinimapForever
+EllesmereUI._ModuleNS[ADDON_NAME].MinimapStyle = function()
+    local v = EBS._MinimapStyle()
+    if EBS._fvSquare then return "blizzard" end
+    return v
+end
+EllesmereUI._ModuleNS[ADDON_NAME].MinimapForever = function()
+    return (EBS._MinimapForever() and not EBS._bzCircle) or (EBS._MinimapFvSquare() and not EBS._sqSlim)
+end
+-- The options page: a square frame renders this session, and the shape the
+-- map renders.
+EllesmereUI._ModuleNS[ADDON_NAME].MinimapFvSquare = EBS._MinimapFvSquare
+EllesmereUI._ModuleNS[ADDON_NAME].MinimapShape = function()
+    return EBS._MapShape(EBS.db and EBS.db.profile and EBS.db.profile.minimap)
+end
+-- Profiles (ProfileChangesStyle's `extra`, handed the incoming minimap
+-- table): true when that profile would render another square (or none) than
+-- the one latched this session (the latch above, read off `m`), so the
+-- switch asks for a reload. A stored profile keeps no default values, so an
+-- unset Border Style is the square there too.
+EllesmereUI._ModuleNS[ADDON_NAME].MinimapFvBorderChanged = function(m)
+    local sq = nil
+    if type(m) == "table" and not m.useClassicStyle and m.useBlizzardStyle
+       and EllesmereUI.IS_FOREVER == true then
+        if m.useForeverStyle == true then
+            if m.foreverBorder ~= "circle" and EllesmereUI.ForeverHeavyOK() then sq = "heavy" end
+        elseif m.blizzBorder ~= "circle" and EllesmereUI.ForeverBorderOK() then
+            sq = "slim"
+        end
+    end
+    local cur = EBS._MinimapFvSquare() and (EBS._sqSlim and "slim" or "heavy") or nil
+    return sq ~= cur
+end
 
 -- Zoom button anchor, shared by the apply pass and the SetPoint re-assert
 -- hooks: EUI stacks them at the bottom-right corner; the stock styles place
@@ -4108,7 +4345,12 @@ EBS._ZoomAnchor = function(btn, isIn, minimap)
             btn:SetPoint("CENTER", minimap, "CENTER", 72 * s, -84 * s)
         end
     else
-        btn:SetPoint("BOTTOMRIGHT", GetFFD(minimap).layoutFrame or minimap, "BOTTOMRIGHT", -2, isIn and 20 or 2)
+        -- Forever Square steps them in past the heavy band and its shade, 6px
+        -- from the edges as the texts inside the map sit (EBS._FvInsideXY);
+        -- the slim square's line leaves them where they are.
+        local x, y = -2, isIn and 20 or 2
+        if EBS._fvSquare and not EBS._sqSlim then x, y = -6, isIn and 24 or 6 end
+        btn:SetPoint("BOTTOMRIGHT", GetFFD(minimap).layoutFrame or minimap, "BOTTOMRIGHT", x, y)
     end
 end
 
@@ -4212,14 +4454,145 @@ EBS._ForeverRingSize = function()
     return EBS._fvRingW, EBS._fvRingH
 end
 
+-- WoW Forever look, Border Style Forever Square: the EllesmereUI look's square
+-- map wears the bronze frame of Forever's own windows (EllesmereUI.
+-- ForeverHeavy at the window scale, as the chat and Damage Meters windows
+-- wear it) in place of the EllesmereUI border. The rim's outer edge sits
+-- EBS.FV_SQUARE_OUT past the map's edge, so the map's square corners lie
+-- inside the rim's corner cuts; the map keeps its footprint (unlock mode)
+-- and the elements inside it step in past the rim (EBS._FvInsideXY). While
+-- the zone text shows, the frame keeps the windows' title bar over the map
+-- (the rim's outer edge EBS.FV_SQUARE_TITLE above the map's top, the bar's
+-- divider on that edge) and the zone text rides the bar's band (fvTitleSlot,
+-- the band between the side rims); Zone Text Style None closes the frame at
+-- the map's top. While the bar shows, the map loses half the bar's extra
+-- height off its top and bottom each (EBS._MapCrop), so the whole frame, bar
+-- included, is a square; the frame and its pieces anchor to the map as it
+-- shows (the layout frame). The rows hang from the frame's outer edge (fvOuter), clear
+-- of the rim's outer shadow by EBS.FV_ROW_AIR. Two levels over the map (the
+-- housing overlay under it), under the text boxes and the buttons; every
+-- piece mouse-transparent. Built once; re-anchored every pass, as the border
+-- host is (the map's deferred reparent). A queue eye Action Bars parks off
+-- the frame's corner follows a resize.
+-- Blizzard Style's Square on the Forever client (EBS._sqSlim) is the same
+-- map and layout in the slim bronze line (EllesmereUI.ForeverBorder, the
+-- shipped art): the line's outer edge EBS.FV_SLIM_OUT past the map's sides
+-- and bottom, so the map's square corners lie under the line's corner cuts,
+-- and its title bar drawn in the line too: the line round the map and a
+-- band above it (black at EBS.FV_SLIM_BAND, the line's outer edge
+-- EBS.FV_SLIM_TITLE above the map's top) with the line's divider on the
+-- map's top.
+EBS.FV_SQUARE_OUT = 3
+EBS.FV_SQUARE_TITLE = 27
+EBS.FV_SLIM_OUT = EllesmereUI.FOREVER_BORDER.fill
+EBS.FV_SLIM_TITLE = 24
+EBS.FV_SLIM_BAND = 0.75
+-- The square frame's outer edge past the map's sides and bottom (and its
+-- top without the title bar), and past its top with the title bar.
+function EBS._SqOut() return EBS._sqSlim and EBS.FV_SLIM_OUT or EBS.FV_SQUARE_OUT end
+function EBS._SqTitle() return EBS._sqSlim and EBS.FV_SLIM_TITLE or EBS.FV_SQUARE_TITLE end
+-- Rows outside the frame: the rim's outer shadow and 2px more past its outer
+-- edge (Distance from Map adds to it), and between two ring buttons' rings
+-- (Icon Spacing adds to it).
+EBS.FV_ROW_AIR = 4
+EBS.FV_RING_GAP = 3
+EBS._ApplyForeverSquare = function(minimap)
+    local d = GetFFD(minimap)
+    local slim = EBS._sqSlim
+    local frame = d.fvFrame
+    if not frame then
+        frame = CreateFrame("Frame", nil, minimap)
+        frame:EnableMouse(false)
+        if slim then
+            local band = frame:CreateTexture(nil, "BACKGROUND")
+            band:SetColorTexture(0, 0, 0, EBS.FV_SLIM_BAND)
+            d.fvSlimBand = band
+            d.fvSlimRing = EllesmereUI.ForeverBorder(frame, "ARTWORK")
+            d.fvSlimRule = EllesmereUI.ForeverBorderDivider(frame, "ARTWORK", 1)
+        else
+            frame:SetScale(EllesmereUI.FOREVER_HEAVY.k)
+            d.fvHeavyRim = EllesmereUI.ForeverHeavy(frame, "ARTWORK")
+        end
+        d.fvFrame = frame
+        local slot = CreateFrame("Frame", nil, minimap)
+        slot:EnableMouse(false)
+        d.fvTitleSlot = slot
+        local outer = CreateFrame("Frame", nil, minimap)
+        outer:EnableMouse(false)
+        d.fvOuter = outer
+    end
+    local _, locationMode = GetElementModes(EBS.db.profile.minimap)
+    local title = locationMode ~= "none"
+    EBS._fvTitleOn = title
+    -- The map as it shows: the layout frame once the title bar crops the canvas.
+    local vis = d.layoutFrame or minimap
+    frame:SetFrameLevel(minimap:GetFrameLevel() + 2)
+    frame:ClearAllPoints()
+    frame:SetAllPoints(vis)
+    local o = EBS._SqOut()
+    local top = title and EBS._SqTitle() or o
+    if slim then
+        EllesmereUI.ForeverBorderSeat(d.fvSlimRing, vis, nil, -o, top, o, -o)
+        local band, rule = d.fvSlimBand, d.fvSlimRule
+        band:SetShown(title)
+        rule:SetShown(title)
+        if title then
+            -- The band from FOREVER_BORDER.fill inside the line (its corners
+            -- inside the corner cuts) down to the map's top; the divider
+            -- between the side lines' inner edges, its bottom on the map's top.
+            local B = EllesmereUI.FOREVER_BORDER
+            band:ClearAllPoints()
+            band:SetPoint("TOPLEFT", vis, "TOPLEFT", B.fill - o, top - B.fill)
+            band:SetPoint("BOTTOMRIGHT", vis, "TOPRIGHT", o - B.fill, 0)
+            rule:ClearAllPoints()
+            rule:SetPoint("BOTTOMLEFT", vis, "TOPLEFT", B.line - o, 0)
+            rule:SetPoint("BOTTOMRIGHT", vis, "TOPRIGHT", o - B.line, 0)
+        end
+    else
+        EllesmereUI.ForeverHeavyTitle(d.fvHeavyRim, title)
+        EllesmereUI.ForeverHeavySeat(d.fvHeavyRim, vis, nil, -o, top, o, -o)
+    end
+    frame:Show()
+    d.fvOuter:ClearAllPoints()
+    d.fvOuter:SetPoint("TOPLEFT", vis, "TOPLEFT", -o, top)
+    d.fvOuter:SetPoint("BOTTOMRIGHT", vis, "BOTTOMRIGHT", o, -o)
+    d.fvTitleSlot:ClearAllPoints()
+    if slim then
+        -- The band between the side lines (2px of air past the map's sides),
+        -- from 1px under the top line's inner shadow down to 5 above the
+        -- map's top, clear of the divider's line and outer shadow.
+        d.fvTitleSlot:SetPoint("TOPLEFT", vis, "TOPLEFT", 2, top - 4)
+        d.fvTitleSlot:SetPoint("BOTTOMRIGHT", vis, "TOPRIGHT", -2, 5)
+    else
+        -- The band between the side rims (their inner edges 3 inside the map's
+        -- sides), 2px of air at each end.
+        local bar = EllesmereUI.FOREVER_HEAVY.title
+        d.fvTitleSlot:SetPoint("TOPLEFT", vis, "TOPLEFT", o + 2, top - bar.band)
+        d.fvTitleSlot:SetPoint("BOTTOMRIGHT", vis, "TOPRIGHT", -o - 2, top - bar.bandEnd)
+    end
+    local ab = EllesmereUI._ModuleNS.EllesmereUIActionBars
+    if ab then ab.AB_ForeverEyeRelayout() end
+end
+
 -- WoW Forever: the queue eye's stock spot on the ring (Blizzard's Forever
 -- layout: 68 left of and 68 below the 198px map's centre, scaled with the
 -- map), for Action Bars to park the eye on. The map frame and the offsets;
 -- nil unless the map wears Blizzard's ring on that client (Blizzard Style or
--- its WoW Forever variant).
+-- its WoW Forever variant) or a square frame (the variant's Forever Square,
+-- Blizzard Style's slim square), whose eye sits diagonally off the frame's
+-- bottom-left corner (the 45px eye's top-right corner on the frame's outer
+-- corner), clear of the rows the EllesmereUI layout hangs along the edges.
 EBS._QueueEyeSpot = function()
-    if not EllesmereUI.IS_FOREVER or EBS._MinimapStyle() ~= "blizzard" then return nil end
-    local s = (EBS.db.profile.minimap.mapSize or 140) / 198
+    if not EllesmereUI.IS_FOREVER then return nil end
+    local sq = EBS._MinimapFvSquare()
+    if not sq and EBS._MinimapStyle() ~= "blizzard" then return nil end
+    local size = EBS.db.profile.minimap.mapSize or 140
+    if sq then
+        local o = size / 2 + EBS._SqOut() + 22.5
+        -- The frame's bottom rises with the map's crop.
+        return Minimap, -o, -(o - EBS._MapCrop(EBS.db.profile.minimap, size))
+    end
+    local s = size / 198
     return Minimap, -68 * s, -68 * s
 end
 EllesmereUI._ModuleNS[ADDON_NAME].MinimapQueueEyeSpot = EBS._QueueEyeSpot
@@ -4354,6 +4727,10 @@ EBS._ApplyClassicMinimapChrome = function(minimap, mapSize)
     header:Show()
 end
 
+-- Set while Blizzard's Toggle Minimap key has hidden the map (the hook sits below
+-- UpdateMinimapVisibility); every visibility pass then keeps the map hidden.
+local _mmKeyHidden
+
 local function ApplyMinimap()
     if TEMP_DISABLED.minimap then return end
     if InCombatLockdown() then QueueApplyAll(); return end
@@ -4391,10 +4768,10 @@ local function ApplyMinimap()
     -- ApplyMinimap fires during a ShowUIPanel/World Map open -- that taint causes
     -- ADDON_ACTION_BLOCKED when the dungeon pin data provider later calls the protected SetPropagateMouseClicks() on map pins.
     local needsClusterHide = MinimapCluster and MinimapCluster:IsShown()
-    -- The rectangular canvas's parent is built later in this pass, so the first switch
-    -- to that shape has to schedule the reparent on the layout frame's absence.
+    -- A cropped canvas's parent is built later in this pass, so the first crop has
+    -- to schedule the reparent on the layout frame's absence.
     local needsReparent = minimap:GetParent() ~= DesiredMapParent(minimap)
-        or ((p.shape or "square") == "rectangular" and not blizz and not GetFFD(minimap).layoutFrame)
+        or (EBS._MapCrop(p, p.mapSize or 140) > 0 and not GetFFD(minimap).layoutFrame)
     if needsReparent or needsClusterHide then
         C_Timer.After(0, function()
             if InCombatLockdown() then QueueApplyAll(); return end
@@ -4437,7 +4814,9 @@ local function ApplyMinimap()
         local vis = EllesmereUI.EvalVisibility and p and EllesmereUI.EvalVisibility(p)
         -- Opacity in every state: a hidden map carries it into its next Show().
         EBS._WriteMapAlpha(minimap, p)
-        if not EllesmereUI.EvalVisibility or vis == true then
+        if _mmKeyHidden then
+            minimap:Hide()
+        elseif not EllesmereUI.EvalVisibility or vis == true then
             minimap:Show()
         elseif vis == "mouseover" then
             -- Idle state is a real Hide(), not alpha 0 -- see UpdateMinimapVisibility.
@@ -4507,8 +4886,8 @@ local function ApplyMinimap()
     -- The addon compartment is placed (or parked) by EBS._ApplyAddonCompartment
     -- at the end of this pass, once the map has its final size and position.
 
-    local shape = p.shape or "square"
-    if blizz then shape = "circle" end  -- the stock map is round; the stored shape waits for the EUI look
+    -- The stock map is round and Forever Square square; the stored shape waits for the EUI look.
+    local shape = EBS._MapShape(p)
     local isCircle = (shape == "circle" or shape == "textured_circle")
     local isRectangular = (shape == "rectangular")
 
@@ -4528,19 +4907,14 @@ local function ApplyMinimap()
     -- Blizzard's map projection and native player arrow require a square Minimap
     -- canvas. Rectangular mode therefore crops that square canvas with a centered
     -- 4:3 mask; resizing the Blizzard frame itself makes the terrain slide away
-    -- from the arrow as zoom changes.
+    -- from the arrow as zoom changes. A square frame's title bar crops it the same
+    -- way, with the crop mask cut for its size (EBS._MapCrop).
     minimap:SetSize(mapSize, mapSize)
-    local maskID = isCircle and 186178
-        or (isRectangular and "Interface\\AddOns\\EllesmereUIMinimap\\Media\\minimap_rectangular-crop-mask.tga")
-        or 130937
+    local crop, cropMask = EBS._MapCrop(p, mapSize)
+    local maskID = isCircle and 186178 or cropMask or 130937
     minimap:SetMaskTexture(maskID)
-    if isRectangular then
-        local cropInset = mapSize * 32 / 256
-        minimap:SetHitRectInsets(0, 0, cropInset, cropInset)
-    else
-        minimap:SetHitRectInsets(0, 0, 0, 0)
-    end
-    if isRectangular and not GetFFD(minimap).layoutFrame then
+    minimap:SetHitRectInsets(0, 0, crop, crop)
+    if crop > 0 and not GetFFD(minimap).layoutFrame then
         local layout = CreateFrame("Frame", nil, UIParent)
         layout:EnableMouse(false)
         GetFFD(minimap).layoutFrame = layout
@@ -4552,7 +4926,7 @@ local function ApplyMinimap()
             -- anchor spans the deferred SetParent that hangs the canvas off it.
             layout:ClearAllPoints()
             layout:SetPoint("CENTER", minimap, "CENTER")
-            layout:SetSize(mapSize, isRectangular and (mapSize * 192 / 256) or mapSize)
+            layout:SetSize(mapSize, mapSize - 2 * crop)
             layout:SetFrameLevel(minimap:GetFrameLevel())
         end
     end
@@ -4582,6 +4956,12 @@ local function ApplyMinimap()
         if GetFFD(minimap).borderHost then GetFFD(minimap).borderHost:Hide() end
         if GetFFD(minimap).circBorder then GetFFD(minimap).circBorder:Hide() end
         if GetFFD(minimap).texCircBorder then GetFFD(minimap).texCircBorder:Hide() end
+    elseif EBS._fvSquare then
+        -- A square frame on the Forever client (the WoW Forever look's heavy
+        -- bronze frame, or Blizzard Style's slim line) in place of the
+        -- EllesmereUI border (latched for the session, so no EUI border is
+        -- ever built beside it).
+        EBS._ApplyForeverSquare(minimap)
     elseif not isCircle then
         -- Square / Rectangular: shared border-style engine (solid = PP strips, textured =
         -- BackdropTemplate) on a dedicated host frame -- the engine shows/hides the host
@@ -4655,7 +5035,8 @@ local function ApplyMinimap()
     end
 
     -- Live-update border on accent change, only while the border actually resolves to the accent (accent swatch active, no class colour override).
-    if p.useClassColor and not p.borderUseClassColor then
+    -- Neither square frame on the Forever client draws an EUI border to recolour.
+    if p.useClassColor and not p.borderUseClassColor and not EBS._fvSquare then
         if not GetFFD(minimap).accentBorderCB then
             GetFFD(minimap).accentBorderCB = function(ar, ag, ab)
                 -- Registration outlives mode switches: re-check before recoloring.
@@ -4688,21 +5069,21 @@ local function ApplyMinimap()
             local inset = -mapSize * 0.10
             tex:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -inset)
             tex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -inset, inset)
-        elseif isRectangular then
+        elseif crop > 0 then
             tex:SetSize(mapSize, mapSize)
             tex:SetPoint("CENTER", frame, "CENTER")
         else
             tex:SetAllPoints(frame)
         end
-        if isCircle or isRectangular then
+        if isCircle or crop > 0 then
             local mask = frame:CreateMaskTexture()
             mask:SetAllPoints(frame)
-            -- The housing frame already has the visible 4:3 dimensions. It uses
-            -- the full rectangular mask, while the square Blizzard canvas uses
-            -- the centered crop mask above.
+            -- The housing frame already has the visible size, so it takes a
+            -- whole-frame mask: Rectangular's full rectangular one, a square
+            -- frame's crop the plain square (the canvas takes the crop masks).
             mask:SetTexture(isRectangular
                 and "Interface\\AddOns\\EllesmereUIMinimap\\Media\\minimap_rectangular-mask.blp"
-                or maskID)
+                or (isCircle and maskID) or 130937)
             tex:AddMaskTexture(mask)
             frame._mask = mask
             frame._maskAttached = true
@@ -4766,14 +5147,14 @@ local function ApplyMinimap()
                     local inset = -mapSize * 0.10
                     frame._tex:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -inset)
                     frame._tex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -inset, inset)
-                elseif isRectangular then
+                elseif crop > 0 then
                     frame._tex:SetSize(mapSize, mapSize)
                     frame._tex:SetPoint("CENTER", frame, "CENTER")
                 else
                     frame._tex:SetAllPoints(frame)
                 end
             end
-            if isCircle or isRectangular then
+            if isCircle or crop > 0 then
                 if not frame._mask then
                     local mask = frame:CreateMaskTexture()
                     mask:SetAllPoints(frame)
@@ -4785,7 +5166,7 @@ local function ApplyMinimap()
                 end
                 frame._mask:SetTexture(isRectangular
                     and "Interface\\AddOns\\EllesmereUIMinimap\\Media\\minimap_rectangular-mask.blp"
-                    or maskID)
+                    or (isCircle and maskID) or 130937)
                 frame._mask:Show()
             elseif frame._mask then
                 if frame._tex and frame._maskAttached then
@@ -4799,12 +5180,11 @@ local function ApplyMinimap()
     -- Shape changes do not fire a zone event. Reuse the existing housing detector
     -- so atlas/texture selection follows the new shape immediately.
     if GetFFD(minimap).checkHousing then GetFFD(minimap).checkHousing() end
-    -- Clamp to the visible shape. Rectangular mode keeps a square native canvas,
+    -- Clamp to the visible shape. A cropped map keeps a square native canvas,
     -- so allow only its hidden top/bottom strips beyond the screen bounds.
     minimap:SetClampedToScreen(true)
-    if isRectangular then
-        local cropInset = mapSize * 32 / 256
-        minimap:SetClampRectInsets(0, 0, -cropInset, cropInset)
+    if crop > 0 then
+        minimap:SetClampRectInsets(0, 0, -crop, crop)
     else
         local bInset = isCircle and (p.borderSize or 1) or 0
         minimap:SetClampRectInsets(-bInset, bInset, bInset, -bInset)
@@ -4979,7 +5359,7 @@ local function ApplyMinimap()
         if clockMode == "inside" then
             clockBg:SetBackdropColor(0, 0, 0, 0)
         else
-            local ar, ag, ab = GetBorderStyleColor(p)
+            local ar, ag, ab = EBS._EdgeBoxColor(p)
             clockBg:SetBackdropColor(ar, ag, ab, 1)
         end
         local cpt, crel, cbx, cby = ResolveElementAnchor(p.clockPosition or "top", clockMode, isCircle)
@@ -5060,7 +5440,8 @@ local function ApplyMinimap()
             local mp = EBS.db and EBS.db.profile.minimap
             if not mp or not mp.enabled then return end
             SyncIndicatorVisibility()
-            LayoutIndicatorFrames(minimap, mp, mp.shape == "circle" or mp.shape == "textured_circle")
+            local s = EBS._MapShape(mp)
+            LayoutIndicatorFrames(minimap, mp, s == "circle" or s == "textured_circle")
         end
         hooksecurefunc(mailFrame, "Show", onMailChange)
         hooksecurefunc(mailFrame, "Hide", onMailChange)
@@ -5071,7 +5452,8 @@ local function ApplyMinimap()
             local mp = EBS.db and EBS.db.profile.minimap
             if not mp or not mp.enabled then return end
             SyncIndicatorVisibility()
-            LayoutIndicatorFrames(minimap, mp, mp.shape == "circle" or mp.shape == "textured_circle")
+            local s = EBS._MapShape(mp)
+            LayoutIndicatorFrames(minimap, mp, s == "circle" or s == "textured_circle")
         end
         hooksecurefunc(craftingFrame, "Show", onCraftChange)
         hooksecurefunc(craftingFrame, "Hide", onCraftChange)
@@ -5102,7 +5484,7 @@ local function ApplyMinimap()
         if locationMode == "inside" then
             locationBg:SetBackdropColor(0, 0, 0, 0)
         else
-            local ar, ag, ab = GetBorderStyleColor(p)
+            local ar, ag, ab = EBS._EdgeBoxColor(p)
             locationBg:SetBackdropColor(ar, ag, ab, 1)
         end
         local lpt, lrel, lbx, lby = ResolveElementAnchor(p.locationPosition or "bottom", locationMode, isCircle)
@@ -5124,6 +5506,18 @@ local function ApplyMinimap()
             locationBg:SetPoint("CENTER", hdr._zoneSlot or hdr, "CENTER", lxOff, lyOff)
             locationFrame:ClearAllPoints()
             locationFrame:SetPoint("CENTER", locationBg, "CENTER", 0, 0)
+        elseif EBS._fvSquare and EBS._fvTitleOn then
+            -- Either square: the zone text rides the frame's title bar, held
+            -- to the bar's band by both ends (a longer name is cut short with
+            -- an ellipsis); the offsets still apply.
+            local slot = GetFFD(minimap).fvTitleSlot
+            locationBg:SetBackdropColor(0, 0, 0, 0)
+            locationBg:ClearAllPoints()
+            locationBg:SetPoint("CENTER", slot, "CENTER", lxOff, lyOff)
+            locationFrame:ClearAllPoints()
+            locationFrame:SetPoint("LEFT", slot, "LEFT", lxOff, lyOff)
+            locationFrame:SetPoint("RIGHT", slot, "RIGHT", lxOff, lyOff)
+            locationFrame:SetWordWrap(false)
         end
         local ls = p.locationScale or 1.15
         locationBg:SetScale(ls)
@@ -5144,10 +5538,12 @@ local function ApplyMinimap()
     end
     local coordsMode, coordsPos = GetCoordsModePos(p)
     local cpAnchor = MAP_POS_ANCHORS[coordsPos] or MAP_POS_ANCHORS.topLeft
-    local cpx = p and p.coordsBelowOffsetX or 0
-    local cpy = p and p.coordsBelowOffsetY or 0
+    -- Base offsets (past the heavy band under Forever Square), then the nudges.
+    local cpx, cpy = EBS._FvInsideXY(coordsPos, cpAnchor[3], cpAnchor[4])
+    cpx = cpx + (p and p.coordsBelowOffsetX or 0)
+    cpy = cpy + (p and p.coordsBelowOffsetY or 0)
     coordFrame:ClearAllPoints()
-    coordFrame:SetPoint(cpAnchor[1], GetFFD(minimap).layoutFrame or minimap, cpAnchor[2], cpAnchor[3] + cpx, cpAnchor[4] + cpy)
+    coordFrame:SetPoint(cpAnchor[1], GetFFD(minimap).layoutFrame or minimap, cpAnchor[2], cpx, cpy)
     coordFrame:SetScale(p and p.coordsScale or 1.0)
     _G._EBS_CoordFrame = coordFrame
     if not coordTicker then
@@ -5298,10 +5694,12 @@ local function ApplyMinimap()
         end
         fpsBg._interval = p.fpsUpdateInterval or 3
         local fAnchor = MAP_POS_ANCHORS[p.fpsPosition or "bottomLeft"] or MAP_POS_ANCHORS.bottomLeft
+        -- Past the heavy band under Forever Square.
+        local fx, fy = EBS._FvInsideXY(p.fpsPosition, fAnchor[3], fAnchor[4])
         -- One evenly spaced chain at natural widths; the anchored corner is the stable edge the row breathes from.
         fpsBg:ClearAllPoints()
         fpsBg:SetPoint(fAnchor[1], GetFFD(minimap).layoutFrame or minimap, fAnchor[2],
-            fAnchor[3] + (p.fpsOffsetX or 0), fAnchor[4] + (p.fpsOffsetY or 0))
+            fx + (p.fpsOffsetX or 0), fy + (p.fpsOffsetY or 0))
         fpsBg:SetScale(p.fpsScale or 1.0)
         _G._EBS_FpsBg = fpsBg
         -- Mouse only while a hover tooltip is assigned, so it never blocks map clicks
@@ -5401,8 +5799,10 @@ local function ApplyMinimap()
         local fs = diffTextFrame._text
         ApplyMinimapFont(fs, p.diffTextSize or 12)
         local a = MAP_POS_ANCHORS[p.diffTextPosition or "topLeft"] or MAP_POS_ANCHORS.topLeft
+        -- Past the heavy band under Forever Square.
+        local dx, dy = EBS._FvInsideXY(p.diffTextPosition, a[3], a[4])
         fs:ClearAllPoints()
-        fs:SetPoint(a[1], GetFFD(minimap).layoutFrame or minimap, a[2], a[3] + (p.diffTextOffsetX or 0), a[4] + (p.diffTextOffsetY or 0))
+        fs:SetPoint(a[1], GetFFD(minimap).layoutFrame or minimap, a[2], dx + (p.diffTextOffsetX or 0), dy + (p.diffTextOffsetY or 0))
         fs:Show()
         diffTextFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         diffTextFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -5608,7 +6008,8 @@ local function UpdateMinimapVisibility()
     -- and a transparent map still takes the mouse. A secure state driver is the only thing that can legally hide this frame mid-combat, so combat-dependent selections get one; others keep plain Show()/Hide().
     local vm = EllesmereUI.GetActiveVisibilityModes(p, "visibility")
     -- Mouseover cannot be expressed as a macro conditional, and the poll's own Show()/Hide() would fight a driver, so those selections stay on Lua.
-    local want = EllesmereUI.VisDependsOnCombat(p, "visibility")
+    local want = not _mmKeyHidden
+        and EllesmereUI.VisDependsOnCombat(p, "visibility")
         and not (vm and vm.mouseover)
         and MinimapDriverString(p, vm)
         or nil
@@ -5626,7 +6027,9 @@ local function UpdateMinimapVisibility()
 
     if InCombatLockdown() then return end
     local vis = EllesmereUI.EvalVisibility(p)
-    if vis == "mouseover" then
+    if _mmKeyHidden then
+        minimap:Hide()
+    elseif vis == "mouseover" then
         -- Mouseover idle is a real Hide(), not alpha 0: frame alpha does not cover
         -- everything drawn on this frame, so an alpha-0 map still left its icons on
         -- screen until the first hover. Hide() is also exactly what the shared
@@ -5639,6 +6042,18 @@ local function UpdateMinimapVisibility()
         minimap:Hide()
     end
 end
+
+-- Blizzard's Toggle Minimap keybind (ToggleMinimap) hides the map with a plain Hide(),
+-- which our visibility passes would undo on their next run, so the key's state is kept
+-- for the session. Blizzard ignores the key while a game rule disables the minimap, and
+-- so does this; only the minimap's own visibility is re-applied, and only while the
+-- module runs.
+hooksecurefunc("ToggleMinimap", function()
+    if C_GameRules.IsGameRuleActive(Enum.GameRule.MinimapDisabled) then return end
+    _mmKeyHidden = not Minimap:IsShown()
+    local p = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+    if p and p.enabled then UpdateMinimapVisibility() end
+end)
 
 -------------------------------------------------------------------------------
 --  Apply All
@@ -5874,7 +6289,7 @@ function EBS:OnInitialize()
             -- (every other module registers an addon-owned proxy); the shared poll's
             -- Show()/Hide() is blocked in combat lockdown, so report inactive during
             -- combat -- the poll then only resets bookkeeping, and the dispatcher re-applies state on PLAYER_REGEN_ENABLED.
-            if InCombatLockdown() then return false end
+            if InCombatLockdown() or _mmKeyHidden then return false end
             local p = EBS.db and EBS.db.profile and EBS.db.profile.minimap
             if not (p and p.enabled) then return false end
             -- Hover-gated sets only reveal while their conditions pass.
@@ -6016,6 +6431,11 @@ do
             -- Square border host (solid strips or textured backdrop)
             local host = GetFFD(Minimap).borderHost
             if host then host:SetAlpha(alpha) end
+
+            -- WoW Forever look's Forever Square frame (the apply pass never sets
+            -- its alpha, so this one holds while the HUD is up)
+            local heavy = GetFFD(Minimap).fvHeavy
+            if heavy then heavy:SetAlpha(alpha) end
         end
 
         -- The HUD owns the map while shown (full alpha, see EBS._MapAlpha); its hide

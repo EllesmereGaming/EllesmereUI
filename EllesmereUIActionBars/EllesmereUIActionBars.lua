@@ -8,7 +8,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  + _childupdate-eab-page with explicit action attrs.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local EAB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.EAB = EAB
@@ -935,6 +935,16 @@ local function ButtonHasAction(btn, prefix)
 end
 ns.ButtonHasAction = ButtonHasAction
 
+-- An empty slot for the hide-empty rule (Always Show Buttons off). A pet slot
+-- counts as empty only while a pet bar is out: with no pet the [pet] driver
+-- already hides the whole bar, and a pet button hidden out of combat cannot be
+-- shown again until combat ends (the buttons are secure), so a pet called in
+-- combat would bring back an empty bar.
+function ns.AB_EmptySlot(btn, info)
+    if info.isPetBar and not PetHasActionBar() then return false end
+    return not ButtonHasAction(btn, info.blizzBtnPrefix)
+end
+
 -- Force-paint a Blizzard-native button's cooldown swipe/text from current action state.
 -- The stock cooldown broadcasters are killed at load, so buttons we don't rebuild
 -- (OverrideActionBarButton1-6, ExtraActionButton1) would show no swipe/number for an
@@ -1272,7 +1282,7 @@ do
             -- MainActionBar stays in Blizzard's parent chain so pet battle
             -- restoration of MicroMenu works; all others safely reparent.
             if frameName == "MainActionBar" then
-                (frame.HideBase or frame.Hide)(frame)
+                EllesmereUI.HideFrame(frame)
                 -- Keep MainActionBar invisible when Blizzard re-shows it on
                 -- spec/zone/vehicle/bonus-bar transitions WITHOUT touching its
                 -- protected shown state: Hide() from this insecure hook taints the
@@ -1943,8 +1953,15 @@ local function HideBlizzardBars()
             end
         end
     end
-    ActionBar_PageUp = function() ChangeManualPage(1) end
-    ActionBar_PageDown = function() ChangeManualPage(-1) end
+    -- Not under WoW Forever's Gamepad interface style: its controller bars page
+    -- through secure "actionbar" buttons that call these globals, and a
+    -- replacement of ours would run that paging insecure (blocked bar moves
+    -- and errors in the gamepad buttons, in combat). A global once written
+    -- stays tainted, so this is decided here, once, as the bars are taken.
+    if not EllesmereUI.PadGamepadUI() then
+        ActionBar_PageUp = function() ChangeManualPage(1) end
+        ActionBar_PageDown = function() ChangeManualPage(-1) end
+    end
 
     -- Hide status tracking bar manager (unless user wants Blizzard data bars)
     if not (EAB.db and EAB.db.profile.useBlizzardDataBars) then
@@ -2343,7 +2360,6 @@ EAB_VTABLE.PAGING_STATES = {
         DRUID = {
             { id = "prowl",   macro = "[bonusbar:1,stealth]", label = "Prowl" },
             { id = "cat",     macro = "[bonusbar:1]",         label = "Cat Form" },
-            { id = "tree",    macro = "[bonusbar:2]",         label = "Tree of Life" },
             { id = "bear",    macro = "[bonusbar:3]",         label = "Bear Form" },
             { id = "moonkin", macro = "[bonusbar:4]",         label = "Moonkin Form" },
         },
@@ -2359,6 +2375,16 @@ EAB_VTABLE.PAGING_STATES = {
         },
     },
 }
+-- A form pages only where the client gives it a bonus bar: on WoW Forever
+-- Berserker Stance has one (3) and Moonkin Form none, on retail the other way
+-- round. Tree of Life has none on either client, so it is not listed.
+if EllesmereUI.IS_FOREVER == true then
+    local states = EAB_VTABLE.PAGING_STATES.class
+    table.insert(states.WARRIOR, { id = "berserker", macro = "[bonusbar:3]", label = "Berserker Stance" })
+    for i = #states.DRUID, 1, -1 do
+        if states.DRUID[i].id == "moonkin" then table.remove(states.DRUID, i) end
+    end
+end
 
 -- Modifier/Target Paging (the bar's modTargetPaging): false switches the five
 -- modifier and target states off without clearing them; never set, they apply
@@ -2418,7 +2444,7 @@ function EAB_VTABLE.BuildPagingConditions(barKey, pagingConfig, defaultPage)
     -- states so setting a modifier doesn't break forms. false = user
     -- disabled ("None"), nil = unconfigured.
     local CLASS_DEFAULTS = {
-        DRUID  = { prowl = 7, cat = 7, tree = 8, bear = 9, moonkin = 10 },
+        DRUID  = { prowl = 7, cat = 7, bear = 9, moonkin = 10 },
         ROGUE  = { stealth = 7 },
     }
     local classStates = PG.class[class]
@@ -2589,12 +2615,18 @@ local _filteredPagingActive = false
 -- Changes to secure macrotext must happen out of combat. Memoization avoids
 -- rewriting protected attributes during routine ApplyAll calls.
 function ns.RefreshPagingCycleMacros()
-    if InCombatLockdown() then return end
-
     local bars = EAB.db and EAB.db.profile and EAB.db.profile.bars
     local enabled = bars and bars.MainBar and bars.MainBar.skipVisiblePagingBars
 
     if not enabled and not _filteredPagingActive then return end
+
+    -- A change made in combat (an options edit, a visibility switch) runs once
+    -- combat ends instead of leaving the paging macros stale until the next
+    -- full apply; the deferred pass re-reads the settings then.
+    if InCombatLockdown() then
+        ns.CombatQueue.Defer("PagingCycleMacros", ns.RefreshPagingCycleMacros)
+        return
+    end
 
     local nextMacro, prevMacro
     if enabled then
@@ -3808,7 +3840,7 @@ local function ComputeBarLayout(key)
                 yOff = -(row * stepH + extraBeforeH)
             end
             local show = true
-            if not showEmpty and not (_gridState.shown or ShouldQuickKeybindSurfaceBar(s)) and not ButtonHasAction(btn, info.blizzBtnPrefix) then
+            if not showEmpty and not (_gridState.shown or ShouldQuickKeybindSurfaceBar(s)) and ns.AB_EmptySlot(btn, info) then
                 show = false
             end
             result[i] = { x = xOff, y = yOff, w = thisBtnW, h = thisBtnH, show = show }
@@ -3930,7 +3962,7 @@ local function LayoutBar(key)
             local tf = {}
             for i = 1, info.count do
                 local b = buttons[i]
-                tf[i] = (b and ButtonHasAction(b, info.blizzBtnPrefix)) and "1" or "0"
+                tf[i] = (b and not ns.AB_EmptySlot(b, info)) and "1" or "0"
             end
             fillS = table.concat(tf)
         end
@@ -3964,6 +3996,9 @@ local function LayoutBar(key)
             return
         end
         st[key] = nil
+        -- This pass rewrites the pet buttons from live state: drop the pet
+        -- handler's shape memo so its next full pass lays them out again.
+        if info.isPetBar then ns._eabPetLayoutSig = nil end
     end
     local numIcons = s.overrideNumIcons or s.numIcons or info.count
     if numIcons < 1 then numIcons = info.count end
@@ -4180,7 +4215,7 @@ local function LayoutBar(key)
             end
             if EAB._QueueRankScan then EAB._QueueRankScan() end
 
-            if not showEmpty and not (_gridState.shown or ShouldQuickKeybindSurfaceBar(s)) and not ButtonHasAction(btn, info.blizzBtnPrefix) then
+            if not showEmpty and not (_gridState.shown or ShouldQuickKeybindSurfaceBar(s)) and ns.AB_EmptySlot(btn, info) then
                 btn:SetAlpha(0)
                 ns._eabMarkParked(btn, info)
             else
@@ -5929,7 +5964,7 @@ function EAB._RestoreDragNeverBars()
     -- A bar opted into BOTH drag and spellbook surfacing skips the spellbook
     -- plant while the drag override holds it; re-evaluate so it stays up when
     -- the drag ends with the spellbook still open.
-    if EAB._UpdateSpellbookNeverBars then EAB._UpdateSpellbookNeverBars() end
+    EAB._UpdateSpellbookNeverBars()
 end
 
 -- Show When Spellbook Is Open (per-bar opt-in, s.spellbookShow, ANY
@@ -5940,15 +5975,17 @@ end
 --     _visOverride slot (never persisted) -- own forced-set so the drag
 --     trigger and this one restore independently; same combat guard
 --     (secure driver swaps are combat-blocked; a panel opened mid-combat
---     surfaces at the regen re-check).
+--     surfaces once combat ends, through the module's combat queue).
 --   * mouseover bars force alpha 1 (StopFade), re-asserted on every call
 --     because a drag's grid-hide fade can land while the panel stays open;
 --     released to the normal fade-out on close unless hovered.
 -- resync = drop everything planted first and re-evaluate (options toggle
--- flips while the panel is already open).
+-- flips while the panel is already open). While the option stands down
+-- (EAB._sbOff, set by the wiring below; the options grey its row) both
+-- panels count as closed.
 function EAB._UpdateSpellbookNeverBars(resync)
-    local open = (PlayerSpellsFrame and PlayerSpellsFrame:IsShown())
-        or (MacroFrame and MacroFrame:IsShown())
+    local open = not EAB._sbOff and ((PlayerSpellsFrame and PlayerSpellsFrame:IsShown())
+        or (MacroFrame and MacroFrame:IsShown()))
     if resync == true or not open then
         local forced = _gridState._sbNeverForced
         if forced then
@@ -5975,7 +6012,10 @@ function EAB._UpdateSpellbookNeverBars(resync)
         end
         if not open then return end
     end
-    if not InCombatLockdown() and not _gridState._sbNeverForced then
+    if InCombatLockdown() then
+        -- The panel may close before combat ends: the queued pass reads it again.
+        ns.CombatQueue.Defer("SpellbookNever", EAB._UpdateSpellbookNeverBars)
+    elseif not _gridState._sbNeverForced then
         local forced
         for _, info in ipairs(BAR_CONFIG) do
             local s = EAB.db.profile.bars[info.key]
@@ -6018,8 +6058,10 @@ end
 
 -- Trigger wiring: OnShow/OnHide HookScripts on the two panels (both are
 -- LoadOnDemand -- ADDON_LOADED installs late hooks, unregistering once both
--- are in). PLAYER_REGEN_ENABLED re-evaluates panels opened or closed during
--- combat; the handler is one IsShown probe when nothing is planted.
+-- are in). WoW Forever's Gamepad interface style shows and hides both panels
+-- from secure code, where a hook of ours would taint it: under that style the
+-- option stands down for the session (EAB._sbOff), decided once logged in and
+-- again before each late hook.
 do
     local hooked = {}
     local function OnPanelToggle()
@@ -6035,21 +6077,34 @@ do
         return true
     end
     local ev = CreateFrame("Frame")
-    ev:RegisterEvent("ADDON_LOADED")
-    ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+    ev:RegisterEvent("PLAYER_LOGIN")
     ev:SetScript("OnEvent", function(self, event, addon)
-        if event == "ADDON_LOADED" then
-            if addon == "Blizzard_PlayerSpells" then TryHook("PlayerSpellsFrame")
-            elseif addon == "Blizzard_MacroUI" then TryHook("MacroFrame") end
+        if event == "PLAYER_LOGIN" then
+            self:UnregisterEvent("PLAYER_LOGIN")
+            if EllesmereUI.PadGamepadUI() then
+                EAB._sbOff = true
+                return
+            end
+            local a, b = TryHook("PlayerSpellsFrame"), TryHook("MacroFrame")
+            if not (a and b) then self:RegisterEvent("ADDON_LOADED") end
+        else
+            local name = (addon == "Blizzard_PlayerSpells" and "PlayerSpellsFrame")
+                or (addon == "Blizzard_MacroUI" and "MacroFrame")
+            if not name then return end
+            if EllesmereUI.PadGamepadUI() then
+                -- Switched to that style since login: no late hook, and a hook
+                -- already in place sees both panels as closed from here on.
+                EAB._sbOff = true
+                self:UnregisterEvent("ADDON_LOADED")
+                EAB._UpdateSpellbookNeverBars()
+                return
+            end
+            TryHook(name)
             if hooked.PlayerSpellsFrame and hooked.MacroFrame then
                 self:UnregisterEvent("ADDON_LOADED")
             end
-        else
-            EAB._UpdateSpellbookNeverBars()
         end
     end)
-    TryHook("PlayerSpellsFrame")
-    TryHook("MacroFrame")
 end
 
 -------------------------------------------------------------------------------
@@ -6534,6 +6589,17 @@ local function RegisterWithUnlockMode()
                 group = "Action Bars",
                 order = blizzOrder,
                 noResize = true,
+                -- The Extra Action Button hidden for good (Never, or hidden by
+                -- the Toggle Action Bar keybind), as RefreshRuntimeVisibility
+                -- hides its holder: no mover, and the Cooldown Manager's group
+                -- loot rolls stop keeping clear of it.
+                isHidden = (bk == "ExtraActionButton") and function()
+                    local s = EAB.db.profile.bars[bk]
+                    if not s then return false end
+                    local ov = EAB._visOverride and EAB._visOverride[bk]
+                    if ov then return ov == "never" end
+                    return s.alwaysHidden or s.barVisibility == "never"
+                end or nil,
                 getFrame = function() return blizzMovableHolders[bk] end,
                 getSize = function()
                     local ov = BLIZZ_MOVABLE_OVERLAY[bk]
@@ -7170,11 +7236,6 @@ function EAB:FinishSetup()
                 end
             end
             RestoreBarPositions()
-            local vBtn = MainMenuBarVehicleLeaveButton
-            if vBtn and barFrames["MainBar"] then
-                vBtn:ClearAllPoints()
-                vBtn:SetPoint("BOTTOM", barFrames["MainBar"], "TOPRIGHT", -15, 2)
-            end
         else
             -- Combat reload: non-protected setup only; secure handler does the rest.
             -- Stock bar disposal (including ActionBarParent) already happened at
@@ -7569,10 +7630,12 @@ function EAB:FinishSetup()
         end
     end)
 
-    -- When a spell flyout closes, fade out any bars that were kept visible by it
+    -- When a spell flyout closes, fade out any bars that were kept visible by it.
+    -- Not under WoW Forever's Gamepad interface style, which shows and hides
+    -- the flyout from secure code (the flyout skin stands down there too).
     do
         local flyFrame = GetEABFlyout():GetFrame()
-        if flyFrame then
+        if flyFrame and not EllesmereUI.PadGamepadUI() then
             flyFrame:HookScript("OnHide", function()
                 if _quickKeybindState.open then return end
                 for key, state in pairs(hoverStates) do
@@ -7810,6 +7873,9 @@ function EAB:FinishSetup()
             ns._eabApplyDeferred = nil
             ApplyAll()
         end
+        -- The pet bar's combat parking changed a slot: one pet pass finishes it
+        -- (Hide, mouse, statehidden), not the full ApplyAll.
+        if ns._eabPetRegenHeal and ns._eabPetReconcile then ns._eabPetReconcile() end
         -- Restore any strata changes that couldn't be done in combat
         ResetDragState()
         -- Quick Keybind buttons may need reassertion after combat transitions
@@ -8236,6 +8302,10 @@ function EAB:FinishSetup()
     -- populated on login (PetActionBar was unregistered from all events, so Blizzard's
     -- own update never fires). PET_BAR_UPDATE_USABLE fires when action usability
     -- changes so icon dimming stays current; UNIT_AURA "pet" can also affect usability.
+    -- PET_ATTACK_START / PET_ATTACK_STOP start and stop the Attack button's flash
+    -- (no PET_BAR_UPDATE marks a pet that stops attacking on its own, e.g. as
+    -- combat ends; Blizzard's bar catches it through UNIT_FLAGS, which fires on
+    -- every pet flag change).
     -- Coalesced: any event burst schedules ONE deferred pass per frame through a cached
     -- closure. "full" absorbs "cd": every full path repaints cooldowns too. A hidden
     -- pet bar skips all of it -- the secure
@@ -8265,10 +8335,44 @@ function EAB:FinishSetup()
                 -- without touching protected frame operations (Show/Hide/SetParent).
                 -- This allows pet abilities to appear when summoning a pet mid-combat.
                 local hasPetBar = PetHasActionBar()
+                -- Always Show Buttons off: the hide-empty rule by alpha alone, on
+                -- the buttons within the icon cutoff (Show, Hide and mouse are
+                -- protected here). A slot is empty only while a pet bar is out,
+                -- as in ns.AB_EmptySlot; a button hidden out of combat stays
+                -- parked until the regen pass lays the bar out again.
+                local petInfo, petS = BAR_LOOKUP["PetBar"], self.db.profile.bars["PetBar"]
+                local parkCut = 0
+                if petInfo and petS and petS.alwaysShowButtons == false
+                   and not (_gridState.shown or ShouldQuickKeybindSurfaceBar(petS)) then
+                    parkCut = petS.overrideNumIcons or petS.numIcons or petInfo.count
+                    if parkCut < 1 or parkCut > petInfo.count then parkCut = petInfo.count end
+                end
                 for i = 1, NUM_PET_ACTION_SLOTS do
                     local btn = _G["PetActionButton" .. i]
                     if btn then
                         local name, texture, isToken, isActive, autoCastAllowed, autoCastEnabled = GetPetActionInfo(i)
+                        -- Any change here drops the pet layout memo and asks
+                        -- the regen pass for the Hide / mouse work combat
+                        -- withholds; so does a filled slot whose button was
+                        -- hidden out of combat, which only that pass can show.
+                        if i <= parkCut then
+                            local pfd = EFD(btn)
+                            if not btn:IsShown() then
+                                if hasPetBar and texture then
+                                    ns._eabPetLayoutSig, ns._eabPetRegenHeal = nil, true
+                                end
+                            elseif hasPetBar and not texture then
+                                if not pfd.parkA0 then
+                                    btn:SetAlpha(0)
+                                    ns._eabMarkParked(btn, petInfo)
+                                    ns._eabPetLayoutSig, ns._eabPetRegenHeal = nil, true
+                                end
+                            elseif pfd.parkA0 then
+                                btn:SetAlpha(1)
+                                pfd.parkA0 = nil
+                                ns._eabPetLayoutSig, ns._eabPetRegenHeal = nil, true
+                            end
+                        end
                         if hasPetBar and texture then
                             if isToken then btn.icon:SetTexture(_G[texture])
                             else btn.icon:SetTexture(texture) end
@@ -8343,18 +8447,20 @@ function EAB:FinishSetup()
             end
             -- Layout only when the populated-slot SHAPE changed (summon,
             -- dismiss, swap): re-laying the whole bar per aura/usable event
-            -- was the pet handler's dominant cost. Every shape-changing
-            -- input fires one of the registered pet events, so the memo
-            -- cannot strand; settings changes lay out via ApplyAll directly.
+            -- was the pet handler's dominant cost. Every other writer of the
+            -- pet buttons (LayoutBar, ApplyAlwaysShowButtons, the combat branch
+            -- above) clears the memo, so it only ever holds what this pass drew;
+            -- it is stored after the two passes, which clear it themselves.
             local sig = PetHasActionBar() and "p" or "n"
             for i = 1, NUM_PET_ACTION_SLOTS do
                 sig = sig .. (GetPetActionInfo(i) and "1" or "0")
             end
             if sig ~= ns._eabPetLayoutSig then
-                ns._eabPetLayoutSig = sig
                 LayoutBar("PetBar")
                 self:ApplyAlwaysShowButtons("PetBar")
+                ns._eabPetLayoutSig = sig
             end
+            ns._eabPetRegenHeal = nil
             -- Re-register the state driver so the [pet] condition is always
             -- current after a pet summon, swap, or dismissal.
             local petInfo = BAR_LOOKUP["PetBar"]
@@ -8395,6 +8501,8 @@ function EAB:FinishSetup()
     _petEventFrame:RegisterEvent("PET_BAR_UPDATE_COOLDOWN")
     _petEventFrame:RegisterEvent("PET_BAR_UPDATE_USABLE")
     _petEventFrame:RegisterEvent("PET_UI_UPDATE")
+    _petEventFrame:RegisterEvent("PET_ATTACK_START")
+    _petEventFrame:RegisterEvent("PET_ATTACK_STOP")
     _petEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     _petEventFrame:RegisterUnitEvent("UNIT_PET", "player")
     _petEventFrame:RegisterUnitEvent("UNIT_AURA", "pet")

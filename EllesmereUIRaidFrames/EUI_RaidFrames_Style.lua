@@ -377,7 +377,7 @@ function ns.RF_ApplyPowerBorderArt(host, s, force, preview, nameBar)
     local mode = nameBar and "divider" or (s.powerBorderStyle or "eui")
     local key = ((nameBar and s.topNameBarDivider == true) or (not nameBar and s.powerBorderMatchFrame == true))
         and not ns.RF_Stock() and s.borderTexture
-    if (key ~= "pixels" and key ~= "pixels-textured") or (mode ~= "divider" and mode ~= "border") then
+    if not EllesmereUI._pixelArtBorders[key] or (mode ~= "divider" and mode ~= "border") then
         ns.RF_ClearPowerBorderArt(host)
         return false
     end
@@ -427,7 +427,7 @@ function ns.RF_ApplyTopNameDivider(tnb, s, preview)
     local host = tnb._divider
     local key = s.borderTexture
     if not PP or not s.topNameBarEnabled or s.topNameBarDivider ~= true or ns.RF_Stock()
-        or (key ~= "pixels" and key ~= "pixels-textured") or (s.borderSize or 1) <= 0
+        or not EllesmereUI._pixelArtBorders[key] or (s.borderSize or 1) <= 0
         or (s.topNameBarHeight or 20) < 4 then
         if host then
             ns.RF_ClearPowerBorderArt(host)
@@ -733,9 +733,9 @@ local function StyleButton(button)
 
     local function AnchorRoleIcon()
         local s = LiveS()   -- party/extra-aware (see LiveS note above)
-        -- The normal textured border is +8, so the enabled carrier must sit below it.
+        -- Show Behind Border: just under the base border; default: the text band.
         roleCarrier:SetFrameLevel(button:GetFrameLevel()
-            + (s.roleIconBehindBorder and 7 or (ns.LVL_AURA - 1)))
+            + (s.roleIconBehindBorder and ns.LVL_ROLE_BEHIND or (ns.LVL_AURA - 1)))
         local health = ns.RF_AnchorHost(health, s)   -- Uniform Icon Anchoring host swap
         roleIcon:ClearAllPoints()
         -- Party Frames kit: the stock spot plus the user's offsets.
@@ -979,6 +979,10 @@ local function StyleButton(button)
         if not (PP and d.borderFrame) then return end
         -- Re-called long after StyleButton: resolve LIVE (see LiveS note) so party overrides and profile swaps are honored.
         local s = LiveS()
+        if ns.RF_ButtonCompact(d, s) then
+            ns.RF_CompactHighlight(d.borderFrame, d, s, button)
+            return
+        end
         -- Party Frames kit: hover and target glow along the frame art.
         if d.kit then
             ApplyBorderLevel(false, s)
@@ -1043,6 +1047,14 @@ local function StyleButton(button)
         local bc = s.borderColor or { r = 0, g = 0, b = 0 }
         local texKey = s.borderTexture or "solid"
         local pl = button:GetFrameLevel()
+        local compact = ns.RF_ButtonCompact(d, s)
+        if compact or d._compactBorder then d._compactBorder = compact end
+        if compact then
+            EllesmereUI.ApplyBorderStyle(d.borderFrame, 0, 0, 0, 0, 0, "solid")
+            ApplyBorderColor()
+            EllesmereUI.RoundCorners(button, 0)
+            return
+        end
         -- Stock styles: the EllesmereUI border stands down for the stock edge
         -- (for the art under the Party Frames kit).
         if d.kit then

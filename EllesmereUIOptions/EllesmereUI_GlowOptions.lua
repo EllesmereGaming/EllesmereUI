@@ -19,6 +19,11 @@ EllesmereUI.GlowOptions = GO
 -- The glow engine loads in the parent addon, before any options file.
 local G = EllesmereUI.Glows
 
+-- The options page pool (EllesmereUI_FramePool.lua, the options addon's first
+-- file): a frame made below on a pool host is handed out again, reset to new,
+-- when that host is built again. Captured once here.
+local CreateFrame, PoolGen = EllesmereUI._Pool.CreateFrame, EllesmereUI._Pool.Gen
+
 -------------------------------------------------------------------------------
 --  Style value mapping
 -------------------------------------------------------------------------------
@@ -428,7 +433,6 @@ function GO.AttachInline(rgn, desc, colorRgn)
             if tip then EllesmereUI.ShowWidgetTooltip(self, tip) end
         end)
         block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        block:SetShown(colorOff())
         return block
     end
 
@@ -462,13 +466,16 @@ function GO.AttachInline(rgn, desc, colorRgn)
         PP.Point(customSw, "RIGHT", classSw, "LEFT", -6, 0)
         PP.Point(defaultSw, "RIGHT", customSw, "LEFT", -6, 0)
         srgn._lastInline = defaultSw
-        -- An off glow has no color to set.
+        -- An off glow has no color to set: the swatches take no clicks and the
+        -- blocker over them explains why. The build and every refresh apply it.
         local block = Blocker(defaultSw, classSw)
-        EllesmereUI.RegisterWidgetRefresh(function()
+        local function SyncColorLock()
             local o = colorOff()
             customSw:EnableMouse(not o); defaultSw:EnableMouse(not o); classSw:EnableMouse(not o)
             block:SetShown(o)
-        end)
+        end
+        SyncColorLock()
+        EllesmereUI.RegisterWidgetRefresh(SyncColorLock)
     end
 
     local rows = CogRows(desc)
@@ -512,6 +519,9 @@ function GO.BuildPreview(parent, desc, opts)
     local h = opts.height or (isBar and 16 or 36)
 
     local f = CreateFrame("Frame", nil, parent)
+    -- This build's dress of the preview: the descriptor keeps Refresh past later
+    -- builds (desc._preview), which can dress these frames for another use.
+    local dressGen = PoolGen(f)
     PP.Size(f, w, h)
     if opts.anchor then
         PP.Point(f, opts.point or "RIGHT", opts.anchor, opts.relPoint or "LEFT", opts.x or -8, opts.y or 0)
@@ -537,8 +547,9 @@ function GO.BuildPreview(parent, desc, opts)
 
     local function Refresh()
         -- Hidden: stays stopped until OnShow (a page refresh with the panel
-        -- closed must not put it back into the glow driver).
-        if not f:IsVisible() then return end
+        -- closed must not put it back into the glow driver). Dressed again
+        -- by a later build: those frames are no longer this preview.
+        if PoolGen(f) ~= dressGen or not f:IsVisible() then return end
         if iconFn and not isBar then tex:SetTexture(iconFn() or PREVIEW_ICON) end
         if not GO.Renders(desc) then
             G.StopGlow(ov)

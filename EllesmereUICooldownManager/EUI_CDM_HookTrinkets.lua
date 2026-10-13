@@ -289,6 +289,18 @@ local function PresetKeepsColor(f)
 end
 ns.PresetKeepsColor = PresetKeepsColor
 
+-- Ignore Resource Cost for spells added by Spell ID: their icons are tinted
+-- by our own pass (ns.PaintCustomSpellTint), which reads this instead of the
+-- Blizzard-icon hook. Same cas lookup and session gate shape as above.
+function ns.PresetIgnoresResourceTint(f)
+    if not ns._cdmAnyNoResourceTint then return false end
+    local fc = f and _ecmeFC[f]
+    local sid = fc and fc.spellID
+    if not sid or not ns.GetEffectiveCustomActiveState then return false end
+    local cas = ns.GetEffectiveCustomActiveState(sid)
+    return (cas and cas.noResourceTint) and true or false
+end
+
 local function UpdateTrinketCooldown(slotID)
     local f = _trinketFrames[slotID]
     if not f or not f._trinketIsOnUse then return false end
@@ -404,9 +416,9 @@ end)
 -------------------------------------------------------------------------------
 --  CD Ready Glow: event-driven usability re-evaluation
 --
---  Frames whose resolved cdStateEffect is a Resource Aware ready-glow
---  (pixelGlowReadyUsable/buttonGlowReadyUsable) are registered in a watched set
---  (ns.CDGlowWatch, called from the decoration paths). While non-empty,
+--  Frames whose resolved cooldown-state glow (ns.CdStateGlowOf) is a Resource
+--  Aware ready-glow (pixelGlowReadyUsable/buttonGlowReadyUsable) are registered
+--  in a watched set (ns.CDGlowWatch, called from the decoration paths). While non-empty,
 --  SPELL_UPDATE_COOLDOWN + UNIT_POWER_FREQUENT (player) drive a dirty flag; a
 --  hidden frame re-evaluates ONLY the watched frames on the next OnUpdate, then
 --  hides again. While empty, no events are registered -- zero-cost unless a
@@ -448,10 +460,11 @@ do
         _cdGlowUpdateFrame:Show()
     end
 
-    -- Register a frame whose resolved cdStateEffect is a Resource Aware ready-glow.
-    -- Called from the decoration paths (DecorateFrame's SetDesaturated hook and
-    -- RefreshCDMIconAppearance). The flush below prunes entries whose effect or claim
-    -- went away and unregisters the events once nothing is watched.
+    -- Register a frame whose resolved cooldown-state glow (ns.CdStateGlowOf) is a
+    -- Resource Aware ready-glow. Called from the decoration paths (DecorateFrame's
+    -- SetDesaturated hook and RefreshCDMIconAppearance). The flush below prunes
+    -- entries whose glow or claim went away and unregisters the events once
+    -- nothing is watched.
     function ns.CDGlowWatch(frame)
         if not _cdGlowWatched[frame] then
             _cdGlowWatched[frame] = true
@@ -516,10 +529,11 @@ do
             if fd and fd.glowOverlay and sid2 and bk2
                and not (ns.PresetHasCdState and ns.PresetHasCdState(frame)) then
                 local ss2 = RSP(frame, sid2, ns.GetBarSpellData(bk2))
-                local cse2 = ns.GetSpellCdStateEffect(frame, ss2)
-                local plainGlow = cse2 == "pixelGlowReady" or cse2 == "buttonGlowReady"
-                local usableGlow = cse2 == "pixelGlowReadyUsable" or cse2 == "buttonGlowReadyUsable"
-                local onCdGlow = cse2 == "glowOnCD"
+                -- The glow half of the effect (a hide beside it runs elsewhere).
+                local glow2 = ns.CdStateGlowOf(ss2, frame)
+                local plainGlow = glow2 == "pixelGlowReady" or glow2 == "buttonGlowReady"
+                local usableGlow = glow2 == "pixelGlowReadyUsable" or glow2 == "buttonGlowReadyUsable"
+                local onCdGlow = glow2 == "glowOnCD"
                 if plainGlow or usableGlow or onCdGlow then
                     keep = true
                     -- Pool reassignment: glow state inherited from a previous
@@ -561,7 +575,7 @@ do
                         -- it, and the glow it holds back is kicked through
                         -- here again once that glow ends (ns.CdGlowKick).
                         if not fd._cdStateGlowOn then
-                            local style = ns.CdReadyGlowStyle(cse2, ss2)
+                            local style = ns.CdReadyGlowStyle(glow2, ss2)
                             local cr, cg, cb = ns.CdReadyGlowColor(style, ss2)
                             fd._cdStateGlowOn = ns.StartCdGlow(fd, style, cr, cg, cb, ns.CdReadyGlowAlpha(ss2)) ~= nil
                         end
@@ -572,7 +586,7 @@ do
                 end
             end
             if not keep then
-                -- Effect removed, spell unassigned, or frame released back to the pool:
+                -- Glow removed, spell unassigned, or frame released back to the pool:
                 -- stop any leftover glow and drop the watch. Events unregister once the
                 -- set drains (checked below and on the next queued flush).
                 _cdGlowWatched[frame] = nil

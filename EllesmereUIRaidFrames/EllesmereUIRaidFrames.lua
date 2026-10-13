@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Secret-value-safe absorb shields matching UnitFrames visuals.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI.HideFrame) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard raid and party frame suppression hides and scales through the parent's HideFrame and SetFrameScale)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 
 local ERF = EllesmereUI.Lite.NewAddon(ADDON_NAME)
@@ -59,6 +59,7 @@ end
 --  children. On `ns`, shared with EUI_RaidFrames_BuffManager.lua.
 -------------------------------------------------------------------------------
 ns.LVL_DISPEL_OVERLAY = 7  -- Blizzard private-aura dispel gradient: below the border (+8) and name/health text (LVL_TEXT) so it renders BEHIND them (like the regular dispel overlay), but above the health bar so it stays visible. Per-slot private-aura icons stay above at LVL_AURA.
+ns.LVL_ROLE_BEHIND = 7  -- role icon with Show Behind Border: just under the base border (+8; strips +9)
 ns.LVL_RAISE  = 10   -- hover/target/aggro-recolor border (strips +11: above base strips +9;
                      -- ties threat/dispel strips +11 but the raise container is
                      -- created later so it wins). MUST stay below ns.LVL_TEXT:
@@ -233,6 +234,28 @@ local function ApplyRoleIcon(texture, role, style)
     return true
 end
 
+-- Text shares the icon's carrier and anchor, and is created only when enabled.
+function ns.ApplyRoleText(icon, role, s)
+    if not s.roleText then return end
+    local text = icon._roleText
+    if not text then
+        text = icon:GetParent():CreateFontString(nil, "OVERLAY")
+        icon._roleText = text
+    end
+    local colorKey = role == "TANK" and "roleTextTankColor"
+        or role == "HEALER" and "roleTextHealerColor" or "roleTextDPSColor"
+    local color = s[colorKey] or ns._internals.defaults.profile[colorKey]
+    text:SetTextColor(color.r, color.g, color.b)
+    EllesmereUI.ApplyModuleFont(text, nil, s.roleIconSize or 14, "raidFrames")
+    local pos = icon:GetPoint() or "CENTER"
+    text:ClearAllPoints()
+    text:SetPoint(pos, icon, pos, 0, 0)
+    text:SetText(role == "TANK" and EllesmereUI.L("Tank")
+        or role == "HEALER" and EllesmereUI.L("Healer") or EllesmereUI.L("DPS"))
+    icon:Hide()
+    text:Show()
+end
+
 -- Raid marker textures
 local RAID_MARKER_TEXCOORDS = {
     [1] = { 0,    0.25, 0,    0.25 },  -- Star
@@ -307,6 +330,9 @@ local defaults = {
         frameHeight      = 60,
         cellSpacing      = -1,
         groupSpacing     = -1,
+        raidCompactMode  = false,
+        raidGridMode     = false,
+        partyCompactMode = false,
         groupGrowth      = "RIGHT",  -- "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT" (grid: ns._RF_GRID_ROWS per column)
         unitGrowth       = "DOWN",   -- any direction; same-axis as groupGrowth = one continuous line
         sortMode         = "ROLE",   -- "INDEX" (by group) or "ROLE" (by assigned role)
@@ -534,6 +560,10 @@ local defaults = {
 
         -- Indicators
         roleIconStyle    = "modern",  -- none/modern/modernCircle/styled/classicCircle/classic/blizzDefault/blizzLight/pixels
+        roleText         = false,
+        roleTextTankColor   = { r = 59/255, g = 130/255, b = 246/255 },
+        roleTextHealerColor = { r = 32/255, g = 201/255, b = 151/255 },
+        roleTextDPSColor    = { r = 240/255, g = 100/255, b = 54/255 },
         roleIconSize     = 13,
         roleIconPosition = "bottomleft",  -- topleft/top/topright/left/center/right/bottomleft/bottom/bottomright
         roleIconOffsetX  = 0,
@@ -872,7 +902,7 @@ do
     local function handleFrame(frame, doNotReparent)
         if not frame then return end
         frame:UnregisterAllEvents()
-        frame:Hide()
+        EllesmereUI.HideFrame(frame)
         if not doNotReparent then
             frame:SetParent(ns._blizzHiddenParent)
             if not hookedFrames[frame] then
@@ -899,13 +929,17 @@ do
     -- enough (Edit Mode force-shows registered systems): scale the system frame
     -- down so its Selection child renders invisibly small, plus alpha 0. SetScale
     -- is combat-blocked but Edit Mode is always entered OOC, so skip it when
-    -- locked. pcall-wrapped: protected Blizzard frames.
+    -- locked. pcall-wrapped: protected Blizzard frames. The scale goes through
+    -- the saved C method (Edit Mode's override would flag its anchor sweep and
+    -- snap state under our taint), keeping the frame's spot: Edit Mode's save
+    -- recomputes a moved party or raid frame's anchor from its geometry times
+    -- its scale.
     local function suppressEditModeOverlay(frame)
         if not frame then return end
         pcall(function()
             frame:SetAlpha(0)
             if not InCombatLockdown() then
-                frame:SetScale(0.001)
+                EllesmereUI.SetFrameScale(frame, 0.001, true)
             end
             -- Per-frame Blizzard selection textures. No-op if absent.
             if frame.selectionHighlight and frame.selectionHighlight.SetShown then
@@ -925,7 +959,10 @@ do
     if CompactRaidFrameContainer then
         handleFrame(CompactRaidFrameContainer)
         CompactRaidFrameContainer:HookScript("OnShow", function(self)
-            self:Hide()
+            -- A protected frame hides only out of combat; in combat
+            -- resetParent above takes it back under the hidden parent (a
+            -- protected one when combat ends).
+            if not InCombatLockdown() then EllesmereUI.HideFrame(self) end
             suppressEditModeOverlay(self)
         end)
     end
@@ -1147,7 +1184,8 @@ function ns.RF_PaintThreat(d, s, unit)
     local tf = d.threatFrame
     if not tf then return end
     local bs = s.threatBorderSize or 0
-    local rc = s.threatCustomBorder == true and ns.RF_CustomBorderOn(s)
+    local compact = ns.RF_ButtonCompact(d, s)
+    local rc = not compact and s.threatCustomBorder == true and ns.RF_CustomBorderOn(s)
     local status
     if bs > 0 or rc then
         status = UnitThreatSituation(unit)

@@ -439,7 +439,9 @@ end
 -- stock look), its buttons from the right edge with the title running up to
 -- the leftmost one (the engine truncates it: a mob name can be secret), the
 -- window background below the header, and the window border above the
--- header. The live window reports the border's reach to size matching.
+-- header. A look that clips the rows gets their clip fitted below the header
+-- inside the inset. The live window reports the border's reach to size
+-- matching.
 local function ApplyChrome(dm, s)
     if s._style == dm then return end
     s._style = dm
@@ -449,6 +451,12 @@ local function ApplyChrome(dm, s)
     header:SetPoint("TOPRIGHT", s, "TOPRIGHT", -inset, -inset)
     header:SetHeight(dm.showHeader and dm.headerHeight or 0.001)
     header:SetShown(dm.showHeader)
+    local area = s.rowArea
+    if area then
+        area:ClearAllPoints()
+        area:SetPoint("TOPLEFT", s, "TOPLEFT", inset, -inset - dm.headerHeight)
+        area:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", -inset, inset)
+    end
     local bg = dm.hdrBgColor
     Look.HeaderBg(header.bg, bg.r, bg.g, bg.b, dm.hdrBgAlpha, dm.bgR, dm.bgG, dm.bgB)
     if not Look.HeaderLine(header.line) then
@@ -500,6 +508,12 @@ local function CreateSurface(parent, name, live)
     surface.bg = surface:CreateTexture(nil, "BACKGROUND")
     surface.border = CreateFrame("Frame", nil, surface)
     surface.border:EnableMouse(false)
+    -- A look that clips the rows parents them to a frame of their own, fitted
+    -- to the row area by ApplyChrome.
+    if Look.clipRows then
+        surface.rowArea = CreateFrame("Frame", nil, surface)
+        surface.rowArea:SetClipsChildren(true)
+    end
     local header = CreateFrame("Frame", nil, surface)
     surface.header = header
     header:SetFrameLevel(surface:GetFrameLevel() + 5)
@@ -526,7 +540,9 @@ local function CreateSurface(parent, name, live)
 end
 
 local function MakeRow(i, surface, rows)
-    local row = CreateFrame("Frame", nil, surface)
+    -- Inside the look's row clip when it has one (placed on the surface all
+    -- the same).
+    local row = CreateFrame("Frame", nil, surface.rowArea or surface)
     row.fill = CreateFrame("StatusBar", nil, row)
     row.fill:SetAllPoints()
     row.fill:SetMinMaxValues(0, 100)
@@ -867,12 +883,12 @@ local offset = 0     -- rows scrolled past
 local DEMO_STAMP, EMPTY_STAMP, EMPTY = {}, {}, {}
 local visState = {}
 
--- A tank does not want to be warned about holding aggro: tank role, Bear or Dire
--- Bear Form, or Defensive Stance.
+-- A tank does not want to be warned about holding aggro: tank role, or, while nobody
+-- in the group has that role, Bear or Dire Bear Form or Defensive Stance.
 local function PlayerIsTank()
     if UnitGroupRolesAssigned("player") == "TANK" then return true end
-    local form = GetShapeshiftFormID()
-    return form == 5 or form == 8 or form == 18
+    if EUI.GroupHasTankRole() then return false end
+    return EUI.ForeverTankForm()
 end
 
 -- Plays once when your pull percent reaches the threshold on a mob; re-arms

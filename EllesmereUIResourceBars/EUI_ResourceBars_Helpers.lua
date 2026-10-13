@@ -99,7 +99,7 @@ ns.ERB_SimpleOverrideOverlay = function(parent, topY, botY, sectionKey)
 	local olbl = EllesmereUI.MakeFont(ov, 12, nil, 1, 1, 1); olbl:SetPoint("CENTER")
 	olbl:SetTextColor(1, 1, 1, 0.7)
 	olbl:SetText(EllesmereUI.L("Active spec uses Advanced settings")
-		.. "   —   " .. EllesmereUI.L("click to edit"))
+		.. "   \226\128\148   " .. EllesmereUI.L("click to edit"))
 	ns.ERB_OverlayHealOnShow(ov, obg, olbl, 0.9)
 	ov:SetScript("OnEnter", function() olbl:SetTextColor(EGc.r, EGc.g, EGc.b, 1) end)
 	ov:SetScript("OnLeave", function() olbl:SetTextColor(1, 1, 1, 0.7) end)
@@ -221,35 +221,6 @@ ns.SpecsConflict = function(aIDs, bIDs)
 	return false
 end
 
-ns.IsCRSpecClaimed = function(specID)
-	local p = DB()
-	local sec = p and p.secondary
-	if not sec or not sec.thresholdSpecs then return false end
-	for _, entry in ipairs(sec.thresholdSpecs) do
-		if entry.specIDs then
-			for _, sid in ipairs(entry.specIDs) do
-				if sid == 0 then return true end
-				if sid == specID then return true end
-			end
-		end
-	end
-	return false
-end
-
-ns.HasCRAllSpecs = function()
-	local p = DB()
-	local sec = p and p.secondary
-	if not sec or not sec.thresholdSpecs then return false end
-	for _, entry in ipairs(sec.thresholdSpecs) do
-		if entry.specIDs then
-			for _, sid in ipairs(entry.specIDs) do
-				if sid == 0 then return true end
-			end
-		end
-	end
-	return false
-end
-
 -- An entry counts as configured when its single threshold is on (a missing flag
 -- means on, for migrated entries), it has hash lines, or when multi-band coloring
 -- replaces it. The band fallbacks mirror ResolveThresholdSpecEntry's
@@ -265,13 +236,11 @@ local function ThresholdEntryConfigured(bd, entry)
 end
 
 -- Threshold notice: the spec names holding a configured threshold on a bar table,
--- for the info badge on the Threshold Settings button. pageSpecID is set on the
--- Advanced per-spec pages, where thresholdSpecs is collapsed to a single
--- implied-spec entry (specIDs = {0}) and the page's own spec is the real scope --
--- druid form mode lives there too, its per-form entries carry no specIDs at all.
--- Returns nil when nothing is configured, else the comma-joined name list plus
--- whether one of those entries applies to the spec being played.
-ns.ThresholdNoticeInfo = function(bd, pageSpecID)
+-- for the info badge on the Threshold & Hash Lines button. Entries with no specIDs
+-- (legacy druid form-mode lists) name no spec. Returns nil when nothing is
+-- configured, else the comma-joined name list plus whether one of those entries
+-- applies to the spec being played.
+ns.ThresholdNoticeInfo = function(bd)
 	local entries = bd and bd.thresholdSpecs
 	if not entries or #entries == 0 then return nil end
 	local activeSpecID = _G._ERB_ResolveSpecIDCached and _G._ERB_ResolveSpecIDCached()
@@ -283,10 +252,7 @@ ns.ThresholdNoticeInfo = function(bd, pageSpecID)
 	for _, entry in ipairs(entries) do
 		if ThresholdEntryConfigured(bd, entry) then
 			local label, hitsActive
-			if pageSpecID then
-				label = SpecName(pageSpecID)
-				hitsActive = (pageSpecID == activeSpecID)
-			elseif entry.specIDs and #entry.specIDs > 0 then
+			if entry.specIDs and #entry.specIDs > 0 then
 				label = ns.EntryLabel(entry)
 				for _, sid in ipairs(entry.specIDs) do
 					if sid == 0 or sid == activeSpecID then hitsActive = true; break end

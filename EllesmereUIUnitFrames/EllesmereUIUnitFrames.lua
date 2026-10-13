@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local GetSpecialization = (C_SpecializationInfo and C_SpecializationInfo.GetSpecialization) or GetSpecialization
 local addonName, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.HideFrame) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard frame suppression hides through the parent's HideFrame)
 EllesmereUI._ModuleNS[addonName] = ns  -- LOD options files read this module ns via the registry
 
 local math_floor, math_ceil, math_max, math_min, math_abs =
@@ -66,7 +66,7 @@ do
         if type(frame) == "string" then frame = _G[frame] end
         if not frame then return end
         frame:UnregisterAllEvents()
-        frame:Hide()
+        EllesmereUI.HideFrame(frame)
         if not doNotReparent then
             frame:SetParent(hiddenParent)
             if not hookedFrames[frame] then
@@ -883,7 +883,9 @@ local defaults = {
             borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             -- Buffs and Debuffs on the pet frame (opt-in: the containers are only
-            -- built once one of the two is on).
+            -- built once one of the two is on). Placement and size are the pet's
+            -- own; the aura look comes from its Copy Auras From frame (auraSource,
+            -- no default: unset follows Copy Look From).
             showBuffs = false,
             buffAnchor = "topleft",
             buffGrowth = "auto",
@@ -897,7 +899,6 @@ local defaults = {
             debuffSize = 22,
             debuffOffsetX = 0,
             debuffOffsetY = 0,
-            onlyPlayerDebuffs = false,
             -- WoW Forever pets have power (hunter pet focus, warlock pet mana), so
             -- the pet frame carries a power bar there (retail: none).
             powerPosition = (EllesmereUI.IS_FOREVER == true) and "below" or "none",

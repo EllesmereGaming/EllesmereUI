@@ -1216,14 +1216,25 @@ end
         if unit and guid and db and db.tooltipShowMount and not _tipHasLine(tt, "Mount:") then
             local mountName, mountCollected
             local cached = _mountCache[guid]
-            if cached and (GetTime() - cached.time) < _mountCacheTTL then
+            local now = GetTime()
+            if cached and (now - cached.time) < _mountCacheTTL then
                 mountName = cached.name
                 mountCollected = cached.collected
             else
                 local nm, col = _getMountedAuraName(unit)
                 mountName = nm or false
                 mountCollected = col
-                _mountCache[guid] = { name = mountName, collected = mountCollected, time = GetTime() }
+                -- Expired entries are dropped, so only the last few seconds of hovers stay
+                -- cached and this loop stays tiny; this player's stale entry is refreshed
+                -- in place rather than replaced.
+                for g, e in pairs(_mountCache) do
+                    if e ~= cached and (now - e.time) >= _mountCacheTTL then _mountCache[g] = nil end
+                end
+                if cached then
+                    cached.name, cached.collected, cached.time = mountName, mountCollected, now
+                else
+                    _mountCache[guid] = { name = mountName, collected = mountCollected, time = now }
+                end
             end
             if mountName then
                 -- Green check / red X for whether YOU own this mount (nil = unknown, no marker).

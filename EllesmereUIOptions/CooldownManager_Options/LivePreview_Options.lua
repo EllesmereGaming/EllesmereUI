@@ -521,6 +521,28 @@ local function BuildCDMLivePreview(parent, yOff)
         end
     end
 
+    -- Hover tooltip above an icon: the spell (or item) it shows, then the
+    -- click hint wherever a click opens its settings (the OnClick rules
+    -- below: no settings on a custom aura bar, for a custom item on the
+    -- default buffs bar, or while a Spec Override is being edited).
+    local function ShowSlotTip(slot)
+        local name
+        if slot._previewSpellID then
+            name = (slot._previewArtID and C_Spell.GetSpellName(slot._previewArtID))
+                or C_Spell.GetSpellName(slot._previewSpellID)
+        elseif slot._previewTipItemID then
+            name = C_Item.GetItemNameByID(slot._previewTipItemID)
+        end
+        if not name then return end
+        local bd = SelectedCDMBar()
+        if bd and bd.barType ~= "custom_buff"
+           and not (bd.key == "buffs" and slot._previewItemID)
+           and not EllesmereUI.SpecOverrides_EditSessionActive() then
+            name = name .. "\n" .. EllesmereUI.L("Click spell for alert settings")
+        end
+        EllesmereUI.ShowWidgetTooltip(slot, name)
+    end
+
     local function CreatePreviewSlot(idx)
         local slot = CreateFrame("Button", nil, pf)
         slot:SetSize(1, 1)
@@ -596,8 +618,10 @@ local function BuildCDMLivePreview(parent, yOff)
             else
                 if slotBrd then slotBrd:Show() end
             end
+            ShowSlotTip(slot)
         end)
         slot:SetScript("OnLeave", function()
+            EllesmereUI.HideWidgetTooltip()
             if dragSlot then return end
             local bdHov = SelectedCDMBar()
             if slot._shapeBorder and slot._shapeBorder:IsShown() then
@@ -632,6 +656,7 @@ local function BuildCDMLivePreview(parent, yOff)
             if GetTime() - dragEndTime < 0.2 then
                 return
             end
+            EllesmereUI.HideWidgetTooltip()
             -- Override editing sessions: per-spell settings and spell
             -- placement are never part of the override system -- refuse
             -- the interaction with an explanatory tooltip.
@@ -936,6 +961,7 @@ local function BuildCDMLivePreview(parent, yOff)
                 if not t[di] or t[di] == 0 then return end
             end
             dragSlot = self; dragIdx = si
+            EllesmereUI.HideWidgetTooltip()
             -- Clear hover highlight on the dragged slot
             if self._shapeBorder and self._shapeBorder:IsShown() then
                 local bd2 = SelectedCDMBar()
@@ -1553,6 +1579,9 @@ local function BuildCDMLivePreview(parent, yOff)
                 slot._previewItemID = nil
                 slot._previewHostedBuff = nil
                 slot._previewIsEmptySlot = nil
+                -- What the hover tooltip names: the spell whose art shows, or the item.
+                slot._previewArtID = nil
+                slot._previewTipItemID = nil
                 if id then
                     local tex
                     local cdClaim = ns.CdClaimMarkerToCdID and ns.CdClaimMarkerToCdID(id)
@@ -1591,6 +1620,7 @@ local function BuildCDMLivePreview(parent, yOff)
                                 tex = C_Spell.GetSpellTexture(csid)
                             end
                             slot._previewSpellID = csid
+                            slot._previewArtID = displayID
                             slot._previewCdID = cdClaim
                             slot._previewHostedBuff = true
                         else
@@ -1602,6 +1632,7 @@ local function BuildCDMLivePreview(parent, yOff)
                             if type(eqSlot) == "number" and not issecretvalue(eqSlot) then
                                 local itemID = GetInventoryItemID("player", eqSlot)
                                 tex = itemID and C_Item.GetItemIconByID(itemID) or nil
+                                slot._previewTipItemID = itemID
                             end
                         end
                     elseif hostedSid then
@@ -1614,6 +1645,7 @@ local function BuildCDMLivePreview(parent, yOff)
                             tex = C_Spell.GetSpellTexture(hostedSid)
                         end
                         slot._previewSpellID = hostedSid
+                        slot._previewArtID = displayID
                         slot._previewHostedBuff = true
                     elseif ns.IsEmptySlotMarker(id) then
                         -- Empty Slot: blank placeholder, no icon/tooltip identity.
@@ -1622,10 +1654,12 @@ local function BuildCDMLivePreview(parent, yOff)
                         -- On-use bag item: negated itemID
                         tex = C_Item.GetItemIconByID(-id)
                         slot._previewItemID = -id
+                        slot._previewTipItemID = -id
                     elseif id < 0 then
                         -- Trinket slot: get icon from equipped item
                         local itemID = GetInventoryItemID("player", -id)
                         tex = itemID and C_Item.GetItemIconByID(itemID) or nil
+                        slot._previewTipItemID = itemID
                     else
                         -- Resolve to live override for texture lookup.
                         local displayID = ResolveIconArt(id, slot._previewCdID)
@@ -1634,6 +1668,7 @@ local function BuildCDMLivePreview(parent, yOff)
                             tex = C_Spell.GetSpellTexture(id)
                         end
                         slot._previewSpellID = id
+                        slot._previewArtID = displayID
                     end
                     if tex then
                         slot._icon:SetTexture(tex)
@@ -1652,6 +1687,8 @@ local function BuildCDMLivePreview(parent, yOff)
                 slot._previewItemID = nil
                 slot._previewHostedBuff = nil
                 slot._previewIsEmptySlot = nil
+                slot._previewArtID = nil
+                slot._previewTipItemID = nil
             end
 
             local bSz = bd.borderSize or 1

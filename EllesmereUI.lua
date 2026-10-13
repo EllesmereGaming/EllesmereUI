@@ -698,6 +698,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIBags",              display = "Bags",                 search_name = "EllesmereUI Bags"                    },
     { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
     { folder = "EllesmereUIQuickdraw",         display = "Quickdraw",            search_name = "EllesmereUI Quickdraw"               },
+    { folder = "EllesmereUILoadoutManager",    display = "Loadout Manager",      search_name = "EllesmereUI Loadout Manager"         },
     { folder = "EllesmereUIPartyMode",         display = "Party Mode",           search_name = "EllesmereUI Party Mode",             alwaysLoaded = true },
 }
 
@@ -728,6 +729,7 @@ EllesmereUI.ADDON_GROUPS = {
             "EllesmereUIAuraBuffReminders",
             "EllesmereUIDataBars",
             "EllesmereUIQuickdraw",
+            "EllesmereUILoadoutManager",
             "EllesmereUIPartyMode",
         },
     },
@@ -782,6 +784,7 @@ end
 -- than sit in them disabled. Extend the set whenever a TOC gets that line.
 EllesmereUI.FOREVER_HIDDEN_ADDONS = {
     EllesmereUIMythicTimer = true, EllesmereUIFriends = true,
+    EllesmereUILoadoutManager = true,
     -- Not an addon: the Dragon Riding profile pseudo-folder (its file returns at
     -- load on Forever), listed so the profile import/export checklists drop it.
     EllesmereUIDragonRiding = true,
@@ -791,9 +794,24 @@ EllesmereUI.FOREVER_HIDDEN_ADDONS = {
 EllesmereUI.FOREVER_ONLY_ADDONS = {
     EllesmereUIForeverEssentials = true,
 }
+-- Modules held back from the current release on every client: they leave the
+-- same lists, their runtime stops at its top, and neither the packager nor
+-- the tester zip ships their folder (.pkgmeta ignore, package-for-testers.ps1).
+-- To ship one, drop it here and restore its .pkgmeta move-folders line and
+-- the tester zip.
+EllesmereUI.HELD_BACK_ADDONS = {
+    EllesmereUILoadoutManager = true,
+}
 -- The set the running client leaves out.
-EllesmereUI._CLIENT_HIDDEN_ADDONS = (EUI_CLIENT_FOREVER == true)
-    and EllesmereUI.FOREVER_HIDDEN_ADDONS or EllesmereUI.FOREVER_ONLY_ADDONS
+do
+    local hidden = {}
+    for folder in pairs((EUI_CLIENT_FOREVER == true) and EllesmereUI.FOREVER_HIDDEN_ADDONS
+            or EllesmereUI.FOREVER_ONLY_ADDONS) do
+        hidden[folder] = true
+    end
+    for folder in pairs(EllesmereUI.HELD_BACK_ADDONS) do hidden[folder] = true end
+    EllesmereUI._CLIENT_HIDDEN_ADDONS = hidden
+end
 -- The profile import/export checklists read the profile data map, which stays
 -- complete (it drives the data itself); they list through this view instead.
 function EllesmereUI.VisibleProfileAddons(map)
@@ -1100,12 +1118,28 @@ local function MakeDropdownArrow(parent, xPad, ppOverride)
     return arrow
 end
 
+-- Page reuse (EllesmereUIOptions/EllesmereUI_FramePool.lua): ONE switch for the
+-- whole suite, off until every module has passed its parity gates. While it is
+-- off every page takes the build-and-drop path it always took.
+EllesmereUI._reusePages = false
+-- The frame pool's table (EllesmereUI_PixelPerfect.lua makes it): for the
+-- resident helpers that build options frames (MakeBorder, AttachSmoothScrollbar)
+-- a plain CreateFrame until the options addon loads the pool, which fills this
+-- same table in place. Read through this local, never the public slot.
+local POOL = EllesmereUI._Pool
+if type(POOL) ~= "table" then
+    POOL = { CreateFrame = function(...) return CreateFrame(...) end }
+    EllesmereUI._Pool = POOL
+end
+
 local function MakeBorder(parent, r, g, b, a, ppOverride)
     -- PP.CreateBorder wrapper returning the MakeBorder API. ppOverride: PanelPP for panel context, else real PP (game context).
     local pp = ppOverride or PP
     local alpha = a or 1
     r = r or 0; g = g or 0; b = b or 0
-    local bf = CreateFrame("Frame", nil, parent)
+    -- On a page-pool host the border frame is pooled with it (PP.CreateBorder
+    -- dresses its kept strips again); anywhere else a plain new frame.
+    local bf = POOL.CreateFrame("Frame", nil, parent)
     bf:SetAllPoints(parent)
     bf:SetFrameLevel(parent:GetFrameLevel() + 1)
     bf:EnableMouse(false)
@@ -1701,6 +1735,167 @@ do
     end
 end
 
+-- Stat letters for an item: its secondaries by amount, largest first ("MH"),
+-- and its tertiaries the same way ("L"), returned apart so callers can show
+-- the tertiaries smaller. Ties keep the list order. The letters stay English
+-- in every locale (the usual shorthand). Shared by the equipment flyout, the
+-- character sheet slots and the socket panel. Memoized per link (the link
+-- carries the bonus IDs, so catalyst variants of one item differ); an item
+-- whose stats have not loaded yet is not recorded, and its third return
+-- (pending) is true while the client has not cached the item at all.
+do
+    local SECONDARY = {
+        { "ITEM_MOD_CRIT_RATING_SHORT",    "C" },
+        { "ITEM_MOD_HASTE_RATING_SHORT",   "H" },
+        { "ITEM_MOD_MASTERY_RATING_SHORT", "M" },
+        { "ITEM_MOD_VERSATILITY",          "V" },
+    }
+    local TERTIARY = {
+        { "ITEM_MOD_CR_LIFESTEAL_SHORT", "L" },
+        { "ITEM_MOD_CR_AVOIDANCE_SHORT", "A" },
+        { "ITEM_MOD_CR_SPEED_SHORT",     "S" },
+    }
+
+    local function Letters(stats, list)
+        local picked = {}
+        for i = 1, #list do
+            local v = stats[list[i][1]]
+            if type(v) == "number" and v > 0 then picked[#picked + 1] = i end
+        end
+        table.sort(picked, function(a, b)
+            local va, vb = stats[list[a][1]], stats[list[b][1]]
+            if va ~= vb then return va > vb end
+            return a < b
+        end)
+        local out = ""
+        for n = 1, #picked do out = out .. list[picked[n]][2] end
+        return out
+    end
+
+    -- Stat amounts read off the item's tooltip data, for items whose stats
+    -- C_Item.GetItemStats leaves empty (gems: "+16 Versatility & +7 Critical
+    -- Strike"). Each listed stat's localized name (_G[key]) is found in a line,
+    -- in any letter case (some locales lower-case a stat mid-line), and paired
+    -- with the last number before it; a stat takes the first line that gives
+    -- it one. C_TooltipInfo only: never a scanning tooltip frame. The second
+    -- return is false when there was no tooltip data to read.
+    local LISTS = { SECONDARY, TERTIARY }
+    -- Each listed stat's key and lower-cased name, built on the first read
+    -- (the names are constant for the session).
+    local NAMES
+    local function StatNames()
+        if not NAMES then
+            NAMES = {}
+            for _, list in ipairs(LISTS) do
+                for i = 1, #list do
+                    local name = _G[list[i][1]]
+                    if type(name) == "string" and name ~= "" then
+                        NAMES[#NAMES + 1] = { list[i][1], name:lower() }
+                    end
+                end
+            end
+        end
+        return NAMES
+    end
+    local function TooltipStats(itemLink)
+        if not (C_TooltipInfo and C_TooltipInfo.GetHyperlink) then return nil, false end
+        local data = C_TooltipInfo.GetHyperlink(itemLink)
+        local lines = data and data.lines
+        if not lines then return nil, false end
+        local names = StatNames()
+        local stats
+        for _, line in ipairs(lines) do
+            local text = line.leftText
+            if type(text) == "string" and text ~= "" then
+                local low = text:lower()
+                for j = 1, #names do
+                    local key = names[j][1]
+                    if not (stats and stats[key]) then
+                        local pos = low:find(names[j][2], 1, true)
+                        if pos then
+                            local num = text:sub(1, pos - 1):match("(%d[%d%.,]*)%D*$")
+                            local v = num and tonumber((num:gsub("%D", "")))
+                            if v and v > 0 then
+                                stats = stats or {}
+                                stats[key] = v
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return stats, true
+    end
+
+    local secCache, terCache, cacheN = {}, {}, 0
+    function EllesmereUI.GetItemStatLetters(itemLink)
+        if type(itemLink) ~= "string" then return "", "", false end
+        local sec = secCache[itemLink]
+        if sec then return sec, terCache[itemLink], false end
+        local stats = C_Item.GetItemStats and C_Item.GetItemStats(itemLink)
+        local read = true
+        if not stats or next(stats) == nil then
+            stats, read = TooltipStats(itemLink)
+        end
+        local ter = ""
+        sec = ""
+        if stats then sec, ter = Letters(stats, SECONDARY), Letters(stats, TERTIARY) end
+        -- A read made before the item's data loads can come back short: one
+        -- that found no letters is recorded only once the client has the item
+        -- and its tooltip was read (an item with no such stats then stops
+        -- reading its tooltip).
+        if sec == "" and ter == "" then
+            local pending = C_Item.GetItemInfo(itemLink) == nil
+            if pending or not read then return sec, ter, pending end
+        end
+        if cacheN >= 2000 then wipe(secCache); wipe(terCache); cacheN = 0 end
+        secCache[itemLink], terCache[itemLink] = sec, ter
+        cacheN = cacheN + 1
+        return sec, ter, false
+    end
+
+    -- An item's letters for a main label and a smaller one: the secondaries,
+    -- then the tertiaries (when withTertiary). An item with only tertiaries
+    -- gives them for the main label; a nil link gives two empty strings.
+    local function StatLetterPair(link, withTertiary)
+        local sec, ter, pending = "", "", false
+        if link then sec, ter, pending = EllesmereUI.GetItemStatLetters(link) end
+        if not withTertiary then ter = "" end
+        if sec == "" then sec, ter = ter, "" end
+        return sec, ter, pending
+    end
+
+    -- Paints an item's letters into `main`, with its tertiaries in `small`,
+    -- the smaller label the caller hung off main's right; the pair is centred
+    -- along `anchor`'s bottom edge. Returns GetItemStatLetters' pending flag.
+    function EllesmereUI.PaintStatLetters(main, small, link, withTertiary, anchor)
+        local sec, ter, pending = StatLetterPair(link, withTertiary)
+        main:SetText(sec)
+        small:SetText(ter)
+        local w = main:GetStringWidth() + (ter ~= "" and small:GetStringWidth() + 1 or 0)
+        main:ClearAllPoints()
+        main:SetPoint("BOTTOMLEFT", anchor, "BOTTOM", -w / 2, 2)
+        return pending
+    end
+
+    -- At most two letters: three or more read as the first and "+" ("CHM"
+    -- shows "C+").
+    local function TwoLetters(s)
+        if #s > 2 then return s:sub(1, 1) .. "+" end
+        return s
+    end
+
+    -- Paints an item's letters as two rows the caller placed: the secondaries
+    -- in `main`, the tertiaries in `small`, each at most two letters. Returns
+    -- GetItemStatLetters' pending flag.
+    function EllesmereUI.PaintStatLetterRows(main, small, link, withTertiary)
+        local sec, ter, pending = StatLetterPair(link, withTertiary)
+        main:SetText(TwoLetters(sec))
+        small:SetText(TwoLetters(ter))
+        return pending
+    end
+end
+
 -- File-level PanelPP reference for panel layout code below
 local PanelPP = EllesmereUI.PanelPP
 
@@ -1800,16 +1995,53 @@ end
 -- key as tank, swap to dps: UnitGroupRolesAssigned still answers TANK for the
 -- life of the group, surviving /reload and a manual role set), so for the
 -- player the spec-derived role wins whenever spec data is readable. Other
--- units have no readable spec, so they keep the assigned role; call sites
--- keep their own secret guards on that value (the player's spec role is
--- never secret).
+-- units have no readable spec, so they keep the assigned role. The client
+-- makes that role secret for a unit whose identity it restricts, and the
+-- player test secret where unit comparisons are restricted: a secret role
+-- returns nil plus true, so every caller can compare what it gets (the role
+-- icon paints a secret one through Blizzard's own painter).
 function EllesmereUI.UnitEffectiveRole(unit)
-    if UnitIsUnit(unit, "player") then
+    local isPlayer = UnitIsUnit(unit, "player")
+    if not issecretvalue(isPlayer) and isPlayer then
         local spec = GetSpecialization and GetSpecialization()
         local role = spec and GetSpecializationRole and GetSpecializationRole(spec)
         if role then return role end
     end
-    return UnitGroupRolesAssigned(unit)
+    local role = UnitGroupRolesAssigned(unit)
+    if issecretvalue(role) then return nil, true end
+    return role
+end
+
+-- WoW Forever has no specs, so the effective role above is only the group's
+-- assigned one there: a tank's shape or stance tells the rest (Bear Form,
+-- Dire Bear Form or Defensive Stance, by shapeshift form ID). Callers on the
+-- Forever client add this to the role, but only while nobody in the group has
+-- the tank role assigned (EllesmereUI.GroupHasTankRole): then the role decides.
+function EllesmereUI.ForeverTankForm()
+    local form = GetShapeshiftFormID()
+    return form == 5 or form == 8 or form == 18
+end
+
+-- Whether anyone in the group, the player included, has the tank role assigned.
+-- The second return is true when a restricted (secret) role read leaves a "no"
+-- unsure; a tank found is always sure.
+do
+    local raidTok, partyTok = {}, {}
+    for i = 1, 40 do raidTok[i] = "raid" .. i end
+    for i = 1, 4 do partyTok[i] = "party" .. i end
+    function EllesmereUI.GroupHasTankRole()
+        local unsure = false
+        local role = UnitGroupRolesAssigned("player")
+        if issecretvalue(role) then unsure = true elseif role == "TANK" then return true, false end
+        local tok, count = nil, 0
+        if IsInRaid() then tok, count = raidTok, GetNumGroupMembers()
+        elseif IsInGroup() then tok, count = partyTok, GetNumGroupMembers() - 1 end
+        for i = 1, tok and math.min(count, #tok) or 0 do
+            role = UnitGroupRolesAssigned(tok[i])
+            if issecretvalue(role) then unsure = true elseif role == "TANK" then return true, false end
+        end
+        return false, unsure
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -2175,12 +2407,16 @@ end
 -- opts: step (45), thumbMin (30), width (4), rightInset (2), topInset (4), bottomInset (topInset),
 -- trackParent (sf), level (2, above trackParent), trackAlpha (0.02), thumbAlpha (0.27),
 -- child (range = child height - sf height, else SafeScrollRange), onScroll(v), thumb (false = wheel only),
--- panelWheel (true: a surface inside the options panel, where Shift + wheel scales the panel instead).
+-- panelWheel (true: a surface inside the options panel, where Shift + wheel scales the panel instead),
+-- passWheel (true: while there is nothing to scroll, the wheel goes on to the options page; a surface inside a page).
 -- Returns UpdateThumb, ScrollTo(v) (immediate: stops the lerp, clamps, syncs the thumb).
 -- While a controller is in use the bar also carries step arrows and a page strip.
+-- On a page-pool host (EllesmereUI_FramePool.lua) its parts are pooled with the
+-- scroll frame, so a call on a reset scroll frame dresses the same bar again.
 function EllesmereUI.AttachSmoothScrollbar(sf, opts)
     opts = opts or {}
     local step, child, onScroll = opts.step or 45, opts.child, opts.onScroll
+    local Pool = POOL
     local function MaxScroll()
         if child then return math.max(0, child:GetHeight() - sf:GetHeight()) end
         return EllesmereUI.SafeScrollRange(sf)
@@ -2190,14 +2426,14 @@ function EllesmereUI.AttachSmoothScrollbar(sf, opts)
     if opts.thumb ~= false then
         local w, thumbMin, tp = opts.width or 4, opts.thumbMin or 30, opts.trackParent or sf
         local top = opts.topInset or 4
-        track = CreateFrame("Frame", nil, tp)
+        track = Pool.CreateFrame("Frame", nil, tp)
         track:SetWidth(w)
         track:SetPoint("TOPRIGHT", tp, "TOPRIGHT", -(opts.rightInset or 2), -top)
         track:SetPoint("BOTTOMRIGHT", tp, "BOTTOMRIGHT", -(opts.rightInset or 2), opts.bottomInset or top)
         track:SetFrameLevel(tp:GetFrameLevel() + (opts.level or 2))
         track:Hide()
         SolidTex(track, "BACKGROUND", 1, 1, 1, opts.trackAlpha or 0.02):SetAllPoints()
-        thumb = CreateFrame("Button", nil, track)
+        thumb = Pool.CreateFrame("Button", nil, track)
         thumb:SetWidth(w)
         thumb:SetFrameLevel(track:GetFrameLevel() + 1)
         thumb:EnableMouse(true)
@@ -2228,7 +2464,14 @@ function EllesmereUI.AttachSmoothScrollbar(sf, opts)
     end
 
     local target, smoothing = 0, false
-    local smoothFrame = CreateFrame("Frame", nil, sf)
+    -- The smoothing frame is owned by the scroll frame on a pool host (shown only
+    -- while it lerps, as always).
+    local smoothFrame
+    if Pool.Gen and Pool.Gen(sf) then
+        smoothFrame = Pool.Owned(sf, "smooth", "Frame", sf)
+    else
+        smoothFrame = CreateFrame("Frame", nil, sf)
+    end
     smoothFrame:Hide()
     local function Stop() smoothing = false; smoothFrame:Hide() end
     local function Set(v)
@@ -2248,11 +2491,16 @@ function EllesmereUI.AttachSmoothScrollbar(sf, opts)
         Set(math.max(0, math.min(maxScroll, cur + diff * math.min(1, 12 * elapsed))))
     end)
     sf:EnableMouseWheel(true)
-    local panelWheel = opts.panelWheel
+    local panelWheel, passWheel = opts.panelWheel, opts.passWheel
     sf:SetScript("OnMouseWheel", function(self, delta)
         if panelWheel and EllesmereUI._ShiftWheelScale(delta) then return end
         local maxScroll = MaxScroll()
-        if maxScroll <= 0 then return end
+        if maxScroll <= 0 then
+            local page = passWheel and EllesmereUI._scrollFrame
+            local fn = page and page:GetScript("OnMouseWheel")
+            if fn then fn(page, delta) end
+            return
+        end
         local base = smoothing and target or self:GetVerticalScroll()
         target = math.max(0, math.min(maxScroll, base - delta * step))
         if not smoothing then smoothing = true; smoothFrame:Show() end
@@ -2285,7 +2533,7 @@ function EllesmereUI.AttachSmoothScrollbar(sf, opts)
         if not smoothing then smoothing = true; smoothFrame:Show() end
     end
     local function PadArrow(point, icon, delta)
-        local b = CreateFrame("Button", nil, padSteps)
+        local b = Pool.CreateFrame("Button", nil, padSteps)
         b:SetSize(track:GetWidth() + 10, 14)
         b:SetPoint(point, track, point, 0, 0)
         b:SetFrameLevel(track:GetFrameLevel() + 1)
@@ -2305,11 +2553,11 @@ function EllesmereUI.AttachSmoothScrollbar(sf, opts)
             return
         end
         if not padSteps then
-            padSteps = CreateFrame("Frame", nil, track)
+            padSteps = Pool.CreateFrame("Frame", nil, track)
             padSteps:SetAllPoints(track)
             padSteps:SetFrameLevel(track:GetFrameLevel())
             -- Page strip under the thumb: a click pages toward the pointer.
-            local strip = CreateFrame("Button", nil, padSteps)
+            local strip = Pool.CreateFrame("Button", nil, padSteps)
             strip:SetPoint("TOPLEFT", track, "TOPLEFT", -5, 0)
             strip:SetPoint("BOTTOMRIGHT", track, "BOTTOMRIGHT", 5, 0)
             strip:SetFrameLevel(track:GetFrameLevel())
@@ -2911,6 +3159,15 @@ function EllesmereUI:EnsureLoaded()
     -- open retries after the user re-enables the addon.
     if not EllesmereUI.EnsureOptionsLoaded() then return end
     self._deferredLoaded = true
+    -- The page pool came with the options addon (EllesmereUI_FramePool.lua), which
+    -- filled the core's own pool table: the panel's page path calls these captured
+    -- functions, never the public slot.
+    local Pool = POOL
+    if Pool.Kept then
+        EUI_NS.PoolKept, EUI_NS.PoolCreateFrame = Pool.Kept, Pool.CreateFrame
+        EUI_NS.PoolIsIdle, EUI_NS.PoolGen, EUI_NS.PoolDevEndPass = Pool.IsIdle, Pool.Gen, Pool._DevEndPass
+        EUI_NS.PoolManaged = Pool.Managed
+    end
     -- Deferred inits run inside the suite registration window: some options
     -- files register their module page from here (e.g. Party Mode).
     for i, fn in ipairs(self._deferredInits) do
@@ -2922,7 +3179,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.4"
+EllesmereUI.VERSION = "9.5.3"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -3736,6 +3993,25 @@ initFrame:SetScript("OnEvent", function(self, event)
             escFrames[#escFrames + 1] = frame
             frame:HookScript("OnShow", RefreshProxy)
             frame:HookScript("OnHide", RefreshProxy)
+        end
+
+        -- The options page pool (EllesmereUI_FramePool.lua) resets a frame it hands
+        -- out again to the state of a new frame, which drops the hooks above: the
+        -- registration goes with them, so the code that dresses the frame again
+        -- registers it again, exactly as it registered the new frame.
+        function EllesmereUI._ForgetEscapeClose(frame)
+            if not escOpts[frame] then return end
+            escOpts[frame] = nil
+            for i = #escFrames, 1, -1 do
+                if escFrames[i] == frame then table.remove(escFrames, i) end
+            end
+            for i = #escModal, 1, -1 do
+                if escModal[i] == frame then table.remove(escModal, i) end
+            end
+            for i = #padOpen, 1, -1 do
+                if padOpen[i] == frame then table.remove(padOpen, i) end
+            end
+            RefreshProxy()
         end
 
         -- Register the Vault once, regardless of which shortcut opens it.

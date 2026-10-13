@@ -1756,19 +1756,6 @@ local function BuildBarAppearance(parent, y, ctx)
                       tooltip="Keeps this bar on its page while skyriding." });  y = y - h
             end
 
-            if selKey == "MainBar" then
-                _, h = W:DualRow(parent, y,
-                    { type="toggle", text="Skip Visible Bars When Paging",
-                      getValue=function() return SGet("skipVisiblePagingBars") or false end,
-                      setValue=function(v)
-                          SSet("skipVisiblePagingBars", v, function()
-                              if ns.RefreshPagingCycleMacros then ns.RefreshPagingCycleMacros() end
-                          end)
-                      end,
-                      tooltip="Skips pages assigned to other enabled action bars, including mouseover and conditional bars. Applies to Next/Previous Action Bar keybindings and paging arrows." },
-                    EllesmereUI.BlankRowCfg()); y = y - h
-            end
-
             local function PagingDropdown(stateId, text)
                 return { type="dropdown", text=text,
                   values=pagingValues, order=pagingOrder,
@@ -1802,6 +1789,12 @@ local function BuildBarAppearance(parent, y, ctx)
                       SUpdatePreviewAndResize()
                       EllesmereUI:RefreshPage()
                   end }
+                slots[#slots + 1] = { type="toggle", text="Skip Visible Bars When Paging",
+                  getValue=function() return SGet("skipVisiblePagingBars") or false end,
+                  setValue=function(v)
+                      SSet("skipVisiblePagingBars", v, function() ns.RefreshPagingCycleMacros() end)
+                  end,
+                  tooltip="Next and previous page, from the keybinds or the paging arrows, skip the pages your other enabled bars use." }
             end
             slots[#slots + 1] = { type="toggle", text="Modifier/Target Paging",
               getValue=ModTargetOn,

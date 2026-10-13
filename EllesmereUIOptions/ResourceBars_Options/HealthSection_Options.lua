@@ -14,7 +14,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
     local env = ns._ERB_OptEnv
     local DB, PP, Refresh, SmoothRefresh = env.DB, env.PP, env.Refresh, env.SmoothRefresh
     local RefreshHealth, RebuildHealth, AddFormBarBtn, AddFormTextBtn = env.RefreshHealth, env.RebuildHealth, env.AddFormBarBtn, env.AddFormTextBtn
-    local AttachThresholdNotice, BuildHashCog, BuildThresholdSettingsButton = env.AttachThresholdNotice, env.BuildHashCog, env.BuildThresholdSettingsButton
+    local BuildHashCog, BuildThresholdSettingsButton = env.BuildHashCog, env.BuildThresholdSettingsButton
     local W = EllesmereUI.Widgets
     local _, h
     local function cfg() return ctx.cfg() end
@@ -532,7 +532,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                   local c = cfg()
                   if not c or not c.enabled then return "Health Bar" end
                   local tse = _G._ERB_ResolveThresholdSpecEntry and _G._ERB_ResolveThresholdSpecEntry(c)
-                  if tse and (tse.thresholdEnabled ~= false) then return "This option requires Threshold Settings to be disabled" end
+                  if tse and (tse.thresholdEnabled ~= false) then return "This option requires the threshold to be off in Threshold & Hash Lines" end
                   return "Gradient"
               end,
               getValue = function()
@@ -790,24 +790,19 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
     -- Threshold & Hash Lines editor: edits the health bar config (multi-spec, with the spec dropdown).
 
     if not EllesmereUI._prebuilding then
-    local _thrNoticeH   -- assigned below: the notice badge lives on the button itself
     local healthSettingsBtn = BuildThresholdSettingsButton({
         parentRgn = healthColorRow._rightRegion,
         getBarData = function() return cfg() end,
-        noticeFn = function() if _thrNoticeH then _thrNoticeH() end end,
-        singleSpec = ctx.advanced or nil,
-        specID = ctx.specID,
         pageParent = parent, pageTopY = _advTop, pageBotY = function() return y end,
         refreshFn = function() RefreshHealth(); SmoothRefresh() end,
         rebuildFn = function() RebuildHealth() end,
         disabledFn = healthOff,
         disabledTip = "Health Bar",
-        showPartialCog = false,
+        roleShortcuts = true,
         thresholdLabel = "Threshold %",
         threshMin = 1, threshMax = 99,
         defaultR = 1.0, defaultG = 0.2, defaultB = 0.2, defaultA = 1,
     })
-    _thrNoticeH = AttachThresholdNotice(healthSettingsBtn, cfg, ctx.advanced and ctx.specID or nil)
 
     -- Bar-wide hash lines (the fallback when the active threshold entry has none of its own).
     BuildHashCog({

@@ -548,6 +548,10 @@ local function EnsurePalette(index)
     -- Self-healing compaction. The array must have no holes for #slots to be
     -- meaningful, and a hole is exactly what a cleared slot used to leave
     -- behind under the old fixed-slot-count model. Also enforces MAX_SLOTS.
+    -- A fresh array on every call, on purpose: UsableSlots' memo can hold the
+    -- array it last saw, and an edit made through this one never reaches it,
+    -- so the drawn menu keeps matching the pushed actions until the next push
+    -- (which combat defers).
     local dense, n = {}, 0
     for i = 1, MAX_SLOTS do
         local slot = palette.slots[i]

@@ -100,7 +100,7 @@ local _api       = {}
 local _overlays  = setmetatable({}, { __mode = "k" })  -- iconFrame -> overlay data
 
 -- Cooldown-state effects (continuous, cooldown-driven; presets only).
-local _cdStateRules = {}                                -- subset: cas.cdStateEffect set
+local _cdStateRules = {}                                -- subset: a cd-state hide, glow or ready sound set
 -- Same-frame coalescer for edge-driven cd-state evaluation. The engine owns
 -- the edges (widget push = cooldown started, OnCooldownDone = cooldown ended),
 -- so there is NO poll ticker: evaluation runs only when an edge fires.
@@ -110,8 +110,12 @@ local _hasUserRules = false                             -- any profile (user) ru
 -- usability, so SPELL_UPDATE_USABLE joins the edges while one exists. Any on
 -- Hidden Outside Form/Stance: UPDATE_SHAPESHIFT_FORM, likewise, and the
 -- player's UNIT_AURA for a powershift, whose return fires no form event
--- (_formSeen: the form ID at the last form edge).
-local _needUsable, _needForms, _formSeen = false, false, nil
+-- (_formSeen: the form ID at the last form edge). The form rules whose
+-- answers hang on a druid exception aura (_formAuraRules) re-evaluate alone
+-- when the UNIT_AURA payload shows one coming or going (ns.CdmFormAuraEdge).
+local _needUsable, _needForms, _needFormAuras, _formSeen = false, false, false, nil
+local _formAuraRules = {}
+local _formAuraQueued = false
 
 -- CD-ready sound "armed" state, keyed by ability so it survives the rule-object
 -- churn of FakeActive_Rearm (rebuilds are frequent in M+ and would otherwise eat
@@ -123,7 +127,7 @@ local GetOverlay, ResolveSwipeColor, IconTexture, ApplyToFrame, ApplyRule, Raise
 local EnsureTicker, OpenWindow, CloseWindow, CloseAll, CastWindow
 local OpenFromAura, EvalCustom, InitialStamp, OnEvent, UpdateListeners
 local ResolveCastSpells, PresetAltItemIDs
-local PresetOnCD, ApplyCdState, RestoreAllCdState, EvalCdStateNow, QueueCdStateEval
+local PresetOnCD, ApplyCdState, RestoreAllCdState, EvalCdStateNow, QueueCdStateEval, QueueFormAuraEval
 
 -- ---------------------------------------------------------------------------
 --  Icon identity: slot key <-> equipped item key
@@ -971,19 +975,23 @@ InitialStamp = function()
     for i = 1, #_customRules do EvalCustom(_customRules[i]) end
 end
 
-OnEvent = function(self, event, unit, _, spellID)
+-- updateInfo: UNIT_AURA's payload (UNIT_SPELLCAST_SUCCEEDED's cast GUID, unused)
+OnEvent = function(self, event, unit, updateInfo, spellID)
     if event == "UNIT_AURA" then
-        -- Registered for aura rules, or for a form rule alone (powershift edge)
+        -- Registered for aura rules, or for form rules: a powershift's return,
+        -- and the exception auras a form rule can hang on
         if _needAura then
             for i = 1, #_auraRules do OpenFromAura(_auraRules[i]) end
             for i = 1, #_customRules do EvalCustom(_customRules[i]) end
         end
         if _needForms then
-            local form = GetShapeshiftFormID() or 0
+            local form = ns.CdmCurrentFormID()
             if form ~= _formSeen then
                 _formSeen = form
                 ns.CdmRetryUnreadForms()
                 QueueCdStateEval()
+            elseif _needFormAuras and ns.CdmFormAuraEdge(updateInfo, "preset") then
+                QueueFormAuraEval()
             end
         end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
@@ -1021,7 +1029,7 @@ OnEvent = function(self, event, unit, _, spellID)
         -- combat end also retry form answers that could not be read.
         if _needForms and event ~= "SPELL_UPDATE_USABLE" then
             ns.CdmRetryUnreadForms()
-            if event == "UPDATE_SHAPESHIFT_FORM" then _formSeen = GetShapeshiftFormID() or 0 end
+            if event == "UPDATE_SHAPESHIFT_FORM" then _formSeen = ns.CdmCurrentFormID() end
         end
         QueueCdStateEval()
     end
@@ -1246,60 +1254,68 @@ end
 -- cas is the rule's styling entry (passed in so a trinket, whose frame key is a
 -- slot, still gets the per-item glow colour). Marks the frame "touched" so the
 -- restore pass below can find it even after the trinket has been swapped out.
-ApplyCdState = function(frame, fc, cas, eff, onCD, ready)
+-- hide and glow are the two halves of the effect (ns.CdStateOf), each applied
+-- on its own: the hide runs on hideCD (the form alone, or unusable counting as
+-- unavailable; ready for Hidden (CD Ready)), the glow on the plain onCD.
+ApplyCdState = function(frame, fc, cas, hide, glow, hideCD, onCD, ready)
     local fd = ns._hookFrameData and ns._hookFrameData[frame]
     if fd then fd._presetCdTouched = true end
-    if eff == "hiddenOnCD" or eff == "hiddenReady"
-       or eff == "hiddenOnCDShift" or eff == "hiddenReadyShift" then
-        local isShift = (eff == "hiddenOnCDShift" or eff == "hiddenReadyShift")
-        local hide
-        if eff == "hiddenOnCD" or eff == "hiddenOnCDShift" then
-            hide = onCD
+    if hide == "hiddenOnCD" or hide == "hiddenReady"
+       or hide == "hiddenOnCDShift" or hide == "hiddenReadyShift" then
+        local isShift = (hide == "hiddenOnCDShift" or hide == "hiddenReadyShift")
+        local hidden
+        if hide == "hiddenOnCD" or hide == "hiddenOnCDShift" then
+            hidden = hideCD
         else
             -- ready, not "not onCD": a charge spell is only READY at max charges,
             -- so the icon keeps tracking a running recharge (PresetCdReady).
-            hide = ready
+            hidden = ready
         end
-        frame:SetAlpha(hide and 0 or FrameBaseAlpha(fc))
+        frame:SetAlpha(hidden and 0 or FrameBaseAlpha(fc))
         -- Set the SAME flag the layout / visibility / refresh code already honors,
         -- so a relayout (mount, dismount, settings change) keeps it hidden instead
         -- of flashing it visible until the next tick.
-        fc._cdStateHidden = hide or false
+        fc._cdStateHidden = hidden or false
         -- Shift variants also maintain the bar-relayout flag (only relayouts
         -- on an actual transition; steady-state calls return immediately).
         if ns.SetCdStateShiftHidden then
-            ns.SetCdStateShiftHidden(fc, isShift and hide or false)
+            ns.SetCdStateShiftHidden(fc, isShift and hidden or false)
         end
-        return
-    end
-    if eff == "lowerAlphaOnCD" then
+    elseif hide == "lowerAlphaOnCD" then
         -- Identical to hiddenOnCD but with a customizable opacity instead of 0.
         -- Reuse the _cdStateHidden flag as "cd-state owns this alpha" so a relayout
         -- keeps the lowered value instead of flashing back to full opacity.
         -- A visibility-hidden bar (base 0) stays at 0 in both states.
         local faBase = FrameBaseAlpha(fc)
         frame:SetAlpha(faBase == 0 and 0
-            or (onCD and ((cas and cas.cdStateLowerAlpha) or 0.5) or faBase))
-        fc._cdStateHidden = onCD or false
+            or (hideCD and ((cas and cas.cdStateLowerAlpha) or 0.5) or faBase))
+        fc._cdStateHidden = hideCD or false
         if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
+    else
+        -- No hide effect. Restore the alpha as well as the flag, exactly as the
+        -- appearance refresh does on this transition: once a bar has settled
+        -- nothing else re-asserts a preset frame's alpha, so clearing the flag
+        -- alone leaves a hide from an earlier state painted for good.
+        if fc._cdStateHidden then frame:SetAlpha(FrameBaseAlpha(fc)) end
+        fc._cdStateHidden = false
+        if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
+    end
+    if not fd then return end
+    -- The glow: while the ability is READY (off cooldown), or while it is ON
+    -- cooldown for Glow (On CD). A glow left from an earlier setting goes out.
+    if not glow then
+        if fd._presetCdGlowOn then
+            ns.StopCdGlow(fd)
+            fd._presetCdGlowOn = false
+        end
         return
     end
-    -- Glow modes: glow while the ability is READY (off cooldown), or while it is
-    -- ON cooldown for Glow (On CD). Not a hide.
-    -- Restore the alpha as well as the flag, exactly as the appearance refresh
-    -- does on this transition: once a bar has settled nothing else re-asserts a
-    -- preset frame's alpha, so clearing the flag alone leaves a hide from an
-    -- earlier state painted for good.
-    if fc._cdStateHidden then frame:SetAlpha(FrameBaseAlpha(fc)) end
-    fc._cdStateHidden = false
-    if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
-    if not fd then return end
     -- Glow (On CD) wants the OPPOSITE cooldown state from the Ready variants
     -- (as the glowOnCD branch of the SetDesaturated hook in EUI_CDM_HookDecorate.lua).
-    local isOnCdGlow = (eff == "glowOnCD")
+    local isOnCdGlow = (glow == "glowOnCD")
     local wantsGlow = isOnCdGlow and onCD or (not isOnCdGlow and not onCD)
     if wantsGlow then
-        local style = ns.CdReadyGlowStyle(eff, cas)
+        local style = ns.CdReadyGlowStyle(glow, cas)
         local styleEntry = ns.GLOW_STYLES[style]
         -- A branch, not `and/or`: the Blackout frame does not exist before
         -- its first start, and the shared overlay must not stand in for it.
@@ -1411,6 +1427,73 @@ local function WireCdStateFrame(f)
     end
 end
 
+-- One cd-state rule against every icon its key matches.
+local function EvalCdStateRule(rule, icons, FCt)
+    local cas = rule.cas
+    -- The hide and the glow (ns.CdStateOf reads a blocking-false, a per-trinket
+    -- "None" over a slot-level bar apply, as none); the sound may still be set.
+    local hide, glow = ns.CdStateOf(cas)
+    local soundKey = cas and cas.cdReadySoundKey
+    if soundKey == "none" then soundKey = nil end
+    if hide or glow or soundKey then
+        local onCD = PresetOnCD(rule.spellID)
+        -- Separate read for the Hidden (CD Ready) effects: a charge spell is
+        -- ready only at max charges (items fall through to "not onCD").
+        local ready = PresetCdReady(rule.spellID, onCD)
+        -- Hidden Until Usable paints as Hidden (On CD) with "not usable"
+        -- counting as unavailable, Hidden Outside Form/Stance with only the
+        -- form deciding (ns.CD_STATE_HIDE); the glow and the sound below keep
+        -- the plain onCD.
+        local hideCD = onCD
+        local m = hide and ns.CD_STATE_HIDE[hide]
+        if m and (m.usable or m.form) then
+            hide = m.shift and "hiddenOnCDShift" or "hiddenOnCD"
+            if m.form then
+                hideCD = PresetSpellTest(rule.spellID, ns.CdmSpellOutsideForm)
+            elseif not onCD then
+                hideCD = PresetSpellTest(rule.spellID, ns.CdmSpellNotUsable)
+            end
+        end
+        local sid = rule.spellID
+        -- Sound only fires while the ability's icon is present on a bar.
+        local hasIcon = false
+        for _, list in pairs(icons) do
+            for i = 1, #list do
+                local f = list[i]
+                local fc = f and FCt[f]
+                -- rule.user rules come from the profile store; built-in rules
+                -- (FAKE_ACTIVE_RULES) deliberately decorate Blizzard icons and
+                -- keep their reach. Racials are also let through natively-tracked
+                -- (non-injected) frames: the Presets cog is their only cd-state
+                -- config surface, unlike custom spells which legitimately defer
+                -- to normal per-spell settings once Blizzard tracks them for real.
+                if fc and KeyMatches(sid, fc.spellID)
+                   and (not rule.user or IsInjectedFrame(f)
+                        or (ns._myRacialsSet and ns._myRacialsSet[sid])) then
+                    hasIcon = true
+                    WireCdStateFrame(f)
+                    if hide or glow then ApplyCdState(f, fc, cas, hide, glow, hideCD, onCD, ready) end
+                end
+            end
+        end
+        -- Audio Effect on CD Ready: arm while on cooldown, fire once on the ready
+        -- edge. A missing icon leaves the armed state untouched so a rebuild at
+        -- cooldown-end can't swallow the edge (armed state persists by key).
+        if soundKey then
+            local akey = rule.srcKey or sid
+            if onCD then
+                if hasIcon then _cdrArmedByKey[akey] = true end
+            elseif hasIcon and _cdrArmedByKey[akey] then
+                _cdrArmedByKey[akey] = nil
+                if not (ns._cdmSoundSuppressed and ns._cdmSoundSuppressed()) then
+                    local path = ns.FOCUSKICK_SOUND_PATHS and ns.FOCUSKICK_SOUND_PATHS[soundKey]
+                    if path then PlaySoundFile(path, "Master") end
+                end
+            end
+        end
+    end
+end
+
 -- One full evaluation pass. Edge-driven (widget push / OnCooldownDone / Clear /
 -- regen / gear, all through QueueCdStateEval) AND called synchronously at the
 -- end of a re-arm, so a settings change does not leave the icon shown for a
@@ -1420,71 +1503,27 @@ EvalCdStateNow = function()
     local FCt = ns._ecmeFC
     if not icons or not FCt then return end
     for r = 1, #_cdStateRules do
-        local rule = _cdStateRules[r]
-        local cas = rule.cas
-        local eff = cas and cas.cdStateEffect
-        -- Blocking-false (per-trinket "None" over a slot-level bar apply) is
-        -- render-equivalent to nil: no effect, but the sound may still be set.
-        if eff == false then eff = nil end
-        local soundKey = cas and cas.cdReadySoundKey
-        if soundKey == "none" then soundKey = nil end
-        if eff or soundKey then
-            local onCD = PresetOnCD(rule.spellID)
-            -- Separate read for the Hidden (CD Ready) effects: a charge spell is
-            -- ready only at max charges (items fall through to "not onCD").
-            local ready = PresetCdReady(rule.spellID, onCD)
-            -- Hidden Until Usable paints as Hidden (On CD) with "not usable"
-            -- counting as unavailable, Hidden Outside Form/Stance with only the
-            -- form deciding (ns.CD_STATE_HIDE); the sound below keeps the plain onCD.
-            local hideCD = onCD
-            local m = eff and ns.CD_STATE_HIDE[eff]
-            if m and (m.usable or m.form) then
-                eff = m.shift and "hiddenOnCDShift" or "hiddenOnCD"
-                if m.form then
-                    hideCD = PresetSpellTest(rule.spellID, ns.CdmSpellOutsideForm)
-                elseif not onCD then
-                    hideCD = PresetSpellTest(rule.spellID, ns.CdmSpellNotUsable)
-                end
-            end
-            local sid = rule.spellID
-            -- Sound only fires while the ability's icon is present on a bar.
-            local hasIcon = false
-            for _, list in pairs(icons) do
-                for i = 1, #list do
-                    local f = list[i]
-                    local fc = f and FCt[f]
-                    -- rule.user rules come from the profile store; built-in rules
-                    -- (FAKE_ACTIVE_RULES) deliberately decorate Blizzard icons and
-                    -- keep their reach. Racials are also let through natively-tracked
-                    -- (non-injected) frames: the Presets cog is their only cd-state
-                    -- config surface, unlike custom spells which legitimately defer
-                    -- to normal per-spell settings once Blizzard tracks them for real.
-                    if fc and KeyMatches(sid, fc.spellID)
-                       and (not rule.user or IsInjectedFrame(f)
-                            or (ns._myRacialsSet and ns._myRacialsSet[sid])) then
-                        hasIcon = true
-                        WireCdStateFrame(f)
-                        if eff then ApplyCdState(f, fc, cas, eff, hideCD, ready) end
-                    end
-                end
-            end
-            -- Audio Effect on CD Ready: arm while on cooldown, fire once on the ready
-            -- edge. A missing icon leaves the armed state untouched so a rebuild at
-            -- cooldown-end can't swallow the edge (armed state persists by key).
-            if soundKey then
-                local akey = rule.srcKey or sid
-                if onCD then
-                    if hasIcon then _cdrArmedByKey[akey] = true end
-                elseif hasIcon and _cdrArmedByKey[akey] then
-                    _cdrArmedByKey[akey] = nil
-                    if not (ns._cdmSoundSuppressed and ns._cdmSoundSuppressed()) then
-                        local path = ns.FOCUSKICK_SOUND_PATHS and ns.FOCUSKICK_SOUND_PATHS[soundKey]
-                        if path then PlaySoundFile(path, "Master") end
-                    end
-                end
-            end
-        end
+        EvalCdStateRule(_cdStateRules[r], icons, FCt)
     end
+end
+
+-- After an exception aura came or went (ns.CdmFormAuraEdge): only the form
+-- rules that hang on one, unless a full pass is queued for the same frame.
+local function RunFormAuraEval()
+    _formAuraQueued = false
+    if _cdEvalQueued then return end
+    local icons = ns.cdmBarIcons
+    local FCt = ns._ecmeFC
+    if not icons or not FCt then return end
+    for r = 1, #_formAuraRules do
+        EvalCdStateRule(_formAuraRules[r], icons, FCt)
+    end
+end
+
+QueueFormAuraEval = function()
+    if _formAuraQueued or _cdEvalQueued then return end
+    _formAuraQueued = true
+    C_Timer.After(0, RunFormAuraEval)
 end
 
 local function MapCast(rule)
@@ -1588,6 +1627,23 @@ function ns.FakeActive_OnIconRestyled(iconFrame)
     end
 end
 
+-- The form rules whose answers hang on an exception aura (ns.CdmFormNeedsAura):
+-- decided at every re-arm, and again when a talent change wipes the form
+-- answers (ns.CdmWipeFormCache), since a talent can teach or drop one.
+local function SyncFormAuraRules()
+    wipe(_formAuraRules)
+    for r = 1, #_cdStateRules do
+        local rule = _cdStateRules[r]
+        local hide = rule.cas and ns.CdStateHideOf(rule.cas)
+        local m = hide and ns.CD_STATE_HIDE[hide]
+        if m and m.form and ns.CdmFormNeedsAura(rule.spellID) then
+            _formAuraRules[#_formAuraRules + 1] = rule
+        end
+    end
+    _needFormAuras = #_formAuraRules > 0
+end
+ns.FakeActive_SyncFormAuraRules = SyncFormAuraRules
+
 -- ---------------------------------------------------------------------------
 --  Re-arm for the current class + spec + profile. Called after every rebuild.
 -- ---------------------------------------------------------------------------
@@ -1598,7 +1654,7 @@ function ns.FakeActive_Rearm()
     -- Re-read rather than wipe: a re-arm during the login window would leave
     -- the map empty and the lazy refresh in KeyMatches would just rebuild it.
     RefreshSlotItemKeys()
-    _needAura, _needCast, _armed, _hasUserRules, _needUsable, _needForms = false, false, false, false, false, false
+    _needAura, _needCast, _armed, _hasUserRules, _needUsable, _needForms, _needFormAuras = false, false, false, false, false, false, false
     if FA121 then FA121.BeginSweep() end
 
     -- 1. Built-in rules (class/spec gated).
@@ -1624,7 +1680,7 @@ function ns.FakeActive_Rearm()
     --    travel with the spell across every bar and spec, so no barKey scope --
     --    the overlay shows on whichever bar currently hosts the icon.
     -- A spell may have a cast-triggered active overlay (duration), a continuous
-    -- cooldown-state effect (cdStateEffect), or both.
+    -- cooldown-state effect (a hide and / or a glow, ns.CdStateOf), or both.
     local store = ns.GetCustomActiveStates and ns.GetCustomActiveStates()
     if store then
         -- Shared rule constructor. matchKey is the icon-identity key live frames
@@ -1635,15 +1691,16 @@ function ns.FakeActive_Rearm()
         local function AddUserRule(matchKey, srcKey, cas)
             local hasDur = (cas.duration or 0) > 0
             -- Explicit false = a per-trinket "None" blocking the slot's bar-apply
-            -- value from showing through; render-equivalent to nil.
-            local eff = cas.cdStateEffect
-            if eff == false then eff = nil end
-            local hasCd = eff ~= nil
+            -- value from showing through; ns.CdStateOf reads it as none.
+            local hide, glow = ns.CdStateOf(cas)
+            local hasCd = hide ~= nil or glow ~= nil
             local hasSound = cas.cdReadySoundKey ~= nil and cas.cdReadySoundKey ~= "none"
-            -- Keep Colored (On CD) needs no rule of its own -- preset frames read
-            -- it directly (PresetKeepsColor). Gate flipped BEFORE the early return:
-            -- it is valid on a spell with no overlay, cd-state effect or sound.
+            -- Keep Colored (On CD) and Ignore Resource Cost need no rule of their
+            -- own -- preset frames read them directly (PresetKeepsColor,
+            -- PresetIgnoresResourceTint). Gates flipped BEFORE the early return:
+            -- they are valid on a spell with no overlay, cd-state effect or sound.
             if cas.noDesatOnCD then ns._cdmAnyNoDesatOnCD = true end
+            if cas.noResourceTint then ns._cdmAnyNoResourceTint = true end
             if not (hasDur or hasCd or hasSound) then return end
             local rule = { spellID = matchKey, srcKey = srcKey, cas = cas, user = true }
             _rules[#_rules + 1] = rule
@@ -1656,7 +1713,7 @@ function ns.FakeActive_Rearm()
             if hasCd or hasSound then
                 -- Both effects ride the same cooldown poll (EvalCdStateNow).
                 _cdStateRules[#_cdStateRules + 1] = rule
-                local m = eff and ns.CD_STATE_HIDE[eff]
+                local m = hide and ns.CD_STATE_HIDE[hide]
                 if m and m.usable then _needUsable = true end
                 if m and m.form then _needForms = true end
             end
@@ -1694,6 +1751,7 @@ function ns.FakeActive_Rearm()
         end
     end
 
+    SyncFormAuraRules()
     _armed = #_rules > 0
     UpdateListeners()
     if #_cdStateRules > 0 then

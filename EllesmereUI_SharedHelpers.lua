@@ -1,9 +1,10 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_SharedHelpers.lua
---  Frame data store, third-party skin registry, Blizzard cast bar ownership
---  and suppression, and small shared helpers (Swiftmend, level colors,
---  faction art). Loads right after EllesmereUI_VisibilityRules.lua.
+--  Frame data store, third-party skin registry, Edit Mode-safe anchoring and
+--  frame placers, Blizzard cast bar ownership and suppression, and small
+--  shared helpers (Swiftmend, level colors, faction art). Loads right after
+--  EllesmereUI_VisibilityRules.lua.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 
@@ -104,6 +105,313 @@ end
 function EllesmereUI.SetFramePoint(frame, point, relativeTo, relativePoint, x, y)
     local setPoint = frame.SetPointBase or frame.SetPoint
     setPoint(frame, point, relativeTo, relativePoint, x, y)
+end
+
+-- Edit Mode's SetScale override, called from our code, re-anchors the system
+-- through its SetPoint override and re-runs the managed frame layout; the
+-- saved C method only scales, leaving the anchor offsets as they are.
+-- keepPosition: an Edit Mode system's offsets are rescaled as the override
+-- does it, so the system keeps its spot (Edit Mode's save reads a moved
+-- system's anchor back from its geometry times its scale).
+function EllesmereUI.SetFrameScale(frame, scale, keepPosition)
+    local setScale = frame.SetScaleBase
+    if not setScale then
+        frame:SetScale(scale)
+        return
+    end
+    local old = keepPosition and frame:GetScale()
+    setScale(frame, scale)
+    if not old then return end
+    local new = frame:GetScale()
+    if issecretvalue(old) or issecretvalue(new) or new == old or new <= 0 then return end
+    local k = old / new
+    for i = 1, frame:GetNumPoints() do
+        local p, rel, rp, x, y = frame:GetPoint(i)
+        if not (issecretvalue(p) or issecretvalue(rel) or issecretvalue(rp)
+                or issecretvalue(x) or issecretvalue(y)) then
+            EllesmereUI.SetFramePoint(frame, p, rel, rp, x * k, y * k)
+        end
+    end
+end
+
+-- Edit Mode's Hide override on a system sized to its children (a layout
+-- frame: the party, raid and boss frame containers), called from our code,
+-- first breaks the snap of every system snapped to it, re-anchoring each one
+-- and writing it into the active layout under our taint. This hides through
+-- the saved C method instead, so those stay snapped (Edit Mode's own save
+-- still breaks snaps to party, raid and boss frames); any other frame uses
+-- its own Hide. A protected frame still hides only out of combat. Show has
+-- no such override (a plain Show undoes this), except on Blizzard's action
+-- bars, whose overrides keep their own shown state, which this leaves as it
+-- was.
+function EllesmereUI.HideFrame(frame)
+    local hide = frame.HideBase or frame.Hide
+    hide(frame)
+end
+
+-------------------------------------------------------------------------------
+--  Frame placers: keep an unprotected Blizzard frame that Blizzard keeps
+--  re-anchoring (a bottom managed column frame such as GroupLootContainer) at
+--  a spot of ours, with nothing written onto the frame.
+--
+--  EllesmereUI.SetFramePlacer(frame, owner, fn): owners are tried in the fixed
+--  order of PLACER_RANKS, "shifter" (the player's saved spot) before "cdm" (an
+--  automatic spot); a new owner adds its rank there. fn(frame, point,
+--  relativeTo, relativePoint, x, y) gets the anchor Blizzard last set (an
+--  anchor to the parent comes with the parent) and returns the anchor to use,
+--  nil to pass to the next owner, or false to pass and be asked again when
+--  combat ends (an input it reads is secret); nil from every owner keeps
+--  Blizzard's anchor. fn = nil removes the owner, and the last owner leaving
+--  puts Blizzard's anchor back. Returns false, registering nothing, for an
+--  unknown owner, a value that is not a frame, an fn that is not a function,
+--  or a protected, forbidden or anchoring-restricted frame (a secret answer
+--  counts as yes).
+--  EllesmereUI.RequestFramePlacement(frame): place it again after a saved
+--  spot or another input of an owner changed.
+--
+--  Post-hooks installed at the frame's first registration watch writes from
+--  anyone but us. A SetPoint or SetAllPoints marks the frame and a
+--  ClearAllPoints does not (Blizzard re-anchors through SetPoint when it
+--  shows the frame again). A frame in a managed column (its layoutParent)
+--  is placed as the column's Layout returns, whatever ran it, so Blizzard's
+--  anchor is never drawn: one post-hook per column, which costs one check
+--  while nothing is marked. One hidden frame of ours places every frame
+--  still marked from its OnUpdate (the same frame when Blizzard re-anchors
+--  from an event, one frame later when it does so from a timer, an
+--  animation or another OnUpdate). The anchor such a write leaves is
+--  Blizzard's new one, unless the frame then has more than one point: those
+--  anchors stay, except that a point a SetPoint adds beside ours (no clear
+--  first) puts ours back on alone. A placement or hand-back that cannot run
+--  (the frame refused at that moment, or Blizzard's anchor secret) runs
+--  again when combat ends. Placer frames are unprotected, so placements run
+--  in combat too: the refusal check before every write stands in for a
+--  combat gate. An owner fn must not register or remove placers.
+-------------------------------------------------------------------------------
+do
+    local PLACER_RANKS = { shifter = 1, cdm = 2 }
+    local NUM_PLACER_RANKS = 0
+    for _, rank in pairs(PLACER_RANKS) do
+        if rank > NUM_PLACER_RANKS then NUM_PLACER_RANKS = rank end
+    end
+    local placerStates = setmetatable({}, { __mode = "k" })
+    local PlacerRetry
+
+    local function PlacerRefused(frame)
+        local v = frame:IsForbidden()
+        if issecretvalue(v) or v then return true end
+        v = frame:IsProtected()
+        if issecretvalue(v) or v then return true end
+        if frame.IsAnchoringRestricted then
+            v = frame:IsAnchoringRestricted()
+            if issecretvalue(v) or v then return true end
+        end
+        return false
+    end
+
+    local function PlacerSet(frame, point, relativeTo, relativePoint, x, y)
+        EllesmereUI.ClearFramePoints(frame)
+        EllesmereUI.SetFramePoint(frame, point, relativeTo, relativePoint, x, y)
+    end
+
+    -- False when SetPoint refused the anchor (an anchor loop): the frame was
+    -- left with no points, and the error goes to the error handler. Either
+    -- way no point of anyone else is left on the frame.
+    local function PlacerApply(frame, st, point, relativeTo, relativePoint, x, y)
+        st.applying = true
+        local ok, err = pcall(PlacerSet, frame, point, relativeTo, relativePoint, x, y)
+        st.applying, st.over = false, false
+        if not ok then geterrorhandler()(err) end
+        return ok
+    end
+
+    -- Runs the state again when combat ends (one keyed entry in the core's
+    -- combat queue, however many states wait).
+    local function PlacerOwe(st)
+        st.owed = true
+        EllesmereUI.CombatQueue.Defer("FramePlacerRetry", PlacerRetry)
+    end
+
+    local function PlacerResolve(frame, st)
+        st.owed = false
+        if st.count == 0 and not st.placed then return end
+        if PlacerRefused(frame) then
+            PlacerOwe(st)
+            return
+        end
+        if st.count == 0 then
+            -- A hand-back refused earlier: our anchor is still on the frame.
+            st.placed = false
+            PlacerApply(frame, st, st.bp, st.br, st.brp, st.bx, st.by)
+            return
+        end
+        if not st.placed then
+            -- The frame holds Blizzard's anchor: kept for the owners and the hand-back.
+            if frame:GetNumPoints() ~= 1 then return end
+            local p, r, rp, x, y = frame:GetPoint(1)
+            if issecretvalue(p) or issecretvalue(r) or issecretvalue(rp)
+               or issecretvalue(x) or issecretvalue(y) then
+                PlacerOwe(st)
+                return
+            end
+            if r == nil then
+                -- An anchor to the parent can read back with no relative
+                -- frame; an explicit nil would anchor to the screen instead.
+                r = frame:GetParent()
+                if issecretvalue(r) then
+                    PlacerOwe(st)
+                    return
+                end
+            end
+            st.bp, st.br, st.brp, st.bx, st.by = p, r, rp, x, y
+        end
+        local fns = st.fns
+        local later = false
+        local ok, p, r, rp, x, y
+        for rank = 1, NUM_PLACER_RANKS do
+            local fn = fns[rank]
+            if fn then
+                -- An owner that errors passes, so it never stops the others.
+                ok, p, r, rp, x, y = pcall(fn, frame, st.bp, st.br, st.brp, st.bx, st.by)
+                if not ok then
+                    geterrorhandler()(p)
+                    p = nil
+                elseif p == false then
+                    later = true
+                end
+                if p then break end
+            end
+        end
+        if later then PlacerOwe(st) end
+        if p then
+            if st.placed and not st.over and p == st.ap and r == st.ar
+               and rp == st.arp and x == st.ax and y == st.ay then
+                return
+            end
+            if PlacerApply(frame, st, p, r, rp, x, y) then
+                st.placed = true
+                st.ap, st.ar, st.arp, st.ax, st.ay = p, r, rp, x, y
+                return
+            end
+        elseif later or not st.placed then
+            -- Nothing placed yet, or an owner decides after combat: the
+            -- anchor on the frame stays.
+            return
+        end
+        -- No owner wants a spot, or the owner's anchor was refused.
+        st.placed = false
+        PlacerApply(frame, st, st.bp, st.br, st.brp, st.bx, st.by)
+    end
+
+    -- Shown exactly while a state is marked, so its OnUpdate runs only in a
+    -- frame where one was.
+    local placerDriver = CreateFrame("Frame")
+    placerDriver:Hide()
+
+    local function PlacerFlush()
+        placerDriver:Hide()
+        for frame, st in pairs(placerStates) do
+            if st.dirty then
+                st.dirty = false
+                PlacerResolve(frame, st)
+            end
+        end
+    end
+    placerDriver:SetScript("OnUpdate", PlacerFlush)
+
+    -- Post-hook of a managed column's Layout. Whatever runs the layout (an
+    -- event, a timer, an animation that ends, the column's own OnUpdate), the
+    -- frames it re-anchored are placed as it returns, before anything draws.
+    local function PlacerSettle()
+        if placerDriver:IsShown() then PlacerFlush() end
+    end
+    local placerColumns = {}
+
+    local function PlacerMark(st)
+        st.dirty = true
+        placerDriver:Show()
+    end
+
+    PlacerRetry = function()
+        for _, st in pairs(placerStates) do
+            if st.owed then PlacerMark(st) end
+        end
+    end
+
+    local function PlacerNewState(frame)
+        local st = { fns = {}, count = 0 }
+        placerStates[frame] = st
+        -- A write from anyone but us (ours run with st.applying set) that
+        -- replaces or clears our anchor drops it, owners or not, so a waiting
+        -- hand-back has nothing left to do; a SetPoint or SetAllPoints also
+        -- asks for a placement while there are owners. A SetPoint on another
+        -- point than ours leaves our anchor on the frame beside it (st.over):
+        -- it stays ours, and the next placement or hand-back leaves one point.
+        hooksecurefunc(frame, "SetPoint", function(_, point)
+            if st.applying then return end
+            if st.placed and point ~= st.ap then
+                st.over = true
+            else
+                st.placed, st.over = false, false
+            end
+            if st.count > 0 then PlacerMark(st) end
+        end)
+        hooksecurefunc(frame, "SetAllPoints", function()
+            if st.applying then return end
+            st.placed, st.over = false, false
+            if st.count > 0 then PlacerMark(st) end
+        end)
+        hooksecurefunc(frame, "ClearAllPoints", function()
+            if not st.applying then st.placed, st.over = false, false end
+        end)
+        local column = frame.layoutParent
+        if type(column) == "table" and type(column.Layout) == "function"
+           and not placerColumns[column] then
+            placerColumns[column] = true
+            hooksecurefunc(column, "Layout", PlacerSettle)
+        end
+        return st
+    end
+
+    function EllesmereUI.SetFramePlacer(frame, owner, fn)
+        local rank = PLACER_RANKS[owner]
+        if not rank or type(frame) ~= "table" or not frame.IsForbidden
+           or (fn ~= nil and type(fn) ~= "function") then
+            return false
+        end
+        local st = placerStates[frame]
+        if fn then
+            if st and st.fns[rank] == fn then return true end
+            if PlacerRefused(frame) then return false end
+            st = st or PlacerNewState(frame)
+            if not st.fns[rank] then st.count = st.count + 1 end
+            st.fns[rank] = fn
+            PlacerMark(st)
+            return true
+        end
+        if not (st and st.fns[rank]) then return true end
+        st.fns[rank] = nil
+        st.count = st.count - 1
+        if st.count > 0 then
+            PlacerMark(st)
+        elseif st.placed then
+            -- placed still means the frame holds our anchor (a write that
+            -- replaces or clears it drops placed), so Blizzard's recorded
+            -- anchor is current. A frame refused right now keeps our anchor,
+            -- still marked as ours, until the hand-back can run.
+            if PlacerRefused(frame) then
+                PlacerOwe(st)
+            else
+                st.placed = false
+                PlacerApply(frame, st, st.bp, st.br, st.brp, st.bx, st.by)
+            end
+        end
+        return true
+    end
+
+    function EllesmereUI.RequestFramePlacement(frame)
+        local st = placerStates[frame]
+        if st and st.count > 0 then PlacerMark(st) end
+    end
 end
 
 -------------------------------------------------------------------------------

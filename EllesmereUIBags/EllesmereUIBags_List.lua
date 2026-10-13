@@ -936,14 +936,15 @@ function ns.RenderListView(items, opts)
             if pinnedSet and ns.IsItemPinned(pinnedSet, d.itemLink, d.info.itemID) then
                 Add("pinned", "", d)
             end
-            if recentSet and recentSet[d.info.itemID] then
+            if recentSet and recentSet[d.info.itemID] and not d._pinnedOnly then
                 Add("recent", "", d)
             end
             if opts.recentOnly then
                 Add("recent", "", d)
             elseif slotView then
                 Add(BagKey(d.bag), "", d)
-            elseif cat and not hidden[cat._defaultName] and not (cat.groupName and hidden[cat.groupName]) then
+            elseif cat and not (opts.allItems and d._pinnedOnly)
+                and not hidden[cat._defaultName] and not (cat.groupName and hidden[cat.groupName]) then
                 local key = (junkOn and cat.isJunk or (not junkOn and d._lvQuality == 0)) and "junk" or ci
                 if key == "junk" then
                     Add(key, "", d)

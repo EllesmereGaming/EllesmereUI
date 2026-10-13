@@ -1845,7 +1845,7 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
         end
         -- Hidden links (subtracted classes) stay declared so their chain negations
         -- keep excluding them from the catch-all, but render nothing themselves.
-        container:SetAuraGroupMaxFrameCount(effKey, link.hidden and 0 or effectiveMax)
+        EllesmereUI.AuraKit.SetGroupCap(container, effKey, link.hidden and 0 or effectiveMax)
         container:SetAuraGroupLayout(effKey, layout)
         container:SetAuraGroupCandidateFilters(effKey, candidateFilters)
         if sortMethod ~= nil and sortDirection ~= nil then
@@ -1859,7 +1859,7 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
     -- metadata, not group keys.
     for key in pairs(declaredSet) do
         if not active[key] and key:sub(1, 7) ~= "__cand|" then
-            container:SetAuraGroupMaxFrameCount(key, 0)
+            EllesmereUI.AuraKit.SetGroupCap(container, key, 0)
         end
     end
 end
@@ -1876,11 +1876,11 @@ local function RetireContainer(container, declaredSet)
     if declaredSet then
         for key in pairs(declaredSet) do
             if key:sub(1, 7) ~= "__cand|" then
-                pcall(container.SetAuraGroupMaxFrameCount, container, key, 0)
+                pcall(EllesmereUI.AuraKit.SetGroupCap, container, key, 0)
             end
         end
     end
-    pcall(container.SetAuraGroupMaxFrameCount, container, "spells", 0)
+    pcall(EllesmereUI.AuraKit.SetGroupCap, container, "spells", 0)
     AK.ReleaseContainer(container)
 end
 
@@ -3495,7 +3495,7 @@ local function ApplyLiveConfig(isBuff)
             ApplyEnchants(container, cfg, pad, grid)
             ApplyGroupConfig(container, allChain, declared.buffs, STYLE_BUFFS, BuffAuraMax(grid), pad, grid.rowGap, cfg, BuffCandidateExtras(cfg))
             if declared.buffs.spells then
-                container:SetAuraGroupMaxFrameCount("spells", BuffAuraMax(grid))
+                EllesmereUI.AuraKit.SetGroupCap(container, "spells", BuffAuraMax(grid))
                 container:SetAuraGroupLayout("spells", BuildGroupLayout(cfg, pad, grid.rowGap))
                 local liveIncludeMap = {}
                 for i = 1, #spells do liveIncludeMap[spells[i]] = true end
@@ -4897,7 +4897,7 @@ local function ReloadCustomBuffBarImpl(barId)
             -- when Show All Buffs is off).
             if #spells > 0 then
                 local livePad = bar.padding or 5
-                container:SetAuraGroupMaxFrameCount("spells", grid.effectiveMax)
+                EllesmereUI.AuraKit.SetGroupCap(container, "spells", grid.effectiveMax)
                 container:SetAuraGroupLayout("spells", BuildGroupLayout(bar, livePad, grid.rowGap))
                 local liveIncludeMap = {}
                 for i = 1, #spells do liveIncludeMap[spells[i]] = true end
@@ -6040,8 +6040,8 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                     end
                     btn.icon:SetTexture(PreviewSpellIcon(spellID))
                 end
-                local z = style.iconZoom or 0.055
-                btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+                -- The live icons' texcoords, the shaped fill included (AuraKit).
+                btn.icon:SetTexCoord(EllesmereUI.AuraKit.IconTexCoord(style))
             end
 
             -- Mirrors EllesmereUI_AuraKit.lua's ApplyStyleToRegions, unguarded (plain regions).
@@ -6050,27 +6050,14 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 btn.shapeMask:SetTexture(style.shapeMaskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
                 btn.shapeMask:SetAllPoints(btn)
                 btn.shapeMask:Show()
-                local sz = slotSize[i]
-                local zoom = style.iconZoom or 0.055
-                local shapeKey = style.iconShape .. "|" .. sz .. "|" .. zoom
-                if btn._shapeApplied ~= shapeKey then
+                if btn._shapeApplied ~= style.iconShape then
                     pcall(btn.icon.RemoveMaskTexture, btn.icon, btn.shapeMask)
                     btn.icon:AddMaskTexture(btn.shapeMask)
-                    local insetPx = style.shapeInsetPx or 17
-                    local visRatio = (128 - 2 * insetPx) / 128
-                    local fullExpand = ((1 / visRatio) - 1) * 0.5
-                    -- Coupled to Icon Zoom, same as the live bar (EllesmereUI_AuraKit.lua).
-                    local expand = math.max(fullExpand * (zoom / 0.055), 0)
-                    btn.icon:ClearAllPoints()
-                    btn.icon:SetPoint("TOPLEFT", btn, "TOPLEFT", -expand * sz, expand * sz)
-                    btn.icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", expand * sz, -expand * sz)
-                    btn._shapeApplied = shapeKey
+                    btn._shapeApplied = style.iconShape
                 end
             else
                 if btn._shapeApplied then
                     pcall(btn.icon.RemoveMaskTexture, btn.icon, btn.shapeMask)
-                    btn.icon:ClearAllPoints()
-                    btn.icon:SetAllPoints()
                     btn._shapeApplied = nil
                 end
                 btn.shapeMask:Hide()

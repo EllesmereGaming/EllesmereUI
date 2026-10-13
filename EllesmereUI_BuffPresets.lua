@@ -242,6 +242,7 @@ spells = {
         [185311] = { class = "ROGUE" },
         [108271] = { class = "SHAMAN" },
         [260881] = { class = "SHAMAN" },
+        [381755] = { class = "SHAMAN" },
         [108416] = { class = "WARLOCK" },
         [104773] = { class = "WARLOCK" },
         [132413] = { class = "WARLOCK" },

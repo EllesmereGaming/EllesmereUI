@@ -711,3 +711,20 @@ function EllesmereUI.ApplyColorsToOUF()
         EllesmereUI._DM_RefreshColors()
     end
 end
+
+-------------------------------------------------------------------------------
+--  WoW Forever stat hues (hex, no |cff), one per stat, shared by the Quality
+--  of Life Secondary Stats block (EllesmereUIQoL_ForeverStats.lua) and Forever
+--  Essentials' Simplified Stats tooltip lines. Forever only.
+-------------------------------------------------------------------------------
+if EllesmereUI.IS_FOREVER then
+    EllesmereUI.FOREVER_STAT_HUES = {
+        str = "c79c6e", agi = "abd473", sta = "ef5350", int = "69ccf0", spi = "ffe082",
+        health = "ef5350", mana = "4fc3f7",
+        ap = "ff8c42", crit = "ffd100", haste = "7fe3d4", hit = "ffa94d",
+        sp = "c77dff", healing = "4ec9b0", spen = "b39ddb",
+        holy = "fff2b0", fire = "ff6b35", frost = "3fc7eb", nature = "4caf50",
+        shadow = "a335ee", arcane = "ff7eb6",
+        armor = "b0bec5", avoid = "64b5f6", mp5 = "4fc3f7", hp5 = "e57373", speed = "81c784",
+    }
+end

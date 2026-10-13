@@ -190,7 +190,7 @@ layerUpdateFrame:SetScript("OnEvent", function() EUI_Bags:ApplyWindowLayering() 
 -- Tracked currencies are PER CHARACTER: their input feed (Blizzard's currency
 -- tab via the TokenFrame.OnTokenWatchChanged sync below) is per-character, so
 -- a shared store can only bleed across characters. Stored at the EllesmereUIDB
--- ROOT beside the module's other per-character data (characterGold,
+-- ROOT beside the module's other per-character data (goldLedger,
 -- bagPinnedItems, bagItemAssignments), NEVER in the bag profile:
 -- ApplyProfileData wipes db.profile wholesale on import (would erase every
 -- character's currencies), and profile exports must not ship a character
@@ -1661,10 +1661,7 @@ end
 -------------------------------------------------------------------------------
 --  Gold tracking + Footer
 -------------------------------------------------------------------------------
-local lastCapturedGold = 0
-local goldCapturePending = false
-local lastCapturedWarbandGold = -1
-local warbandGoldCapturePending = false
+local GoldLedger = EllesmereUI.GetGoldLedger()
 
 local function FormatNumberWithCommas(num)
     local str = tostring(math.floor(num))
@@ -1692,78 +1689,22 @@ local function UpdateBagMoneyDisplay()
     if goldBtn then
         local txt = goldBtn:GetFontString()
         if txt then
-            txt:SetText(FormatNumberWithCommas(math.floor(GetMoney() / 10000)))
+            txt:SetText(FormatNumberWithCommas(math.floor((GoldLedger.Money() or 0) / 10000)))
         end
     end
 end
 
-local function GetCharacterIdentifier()
-    return UnitName("player") .. "-" .. GetRealmName()
-end
-
-local function InitializeCharacterGold()
-    if not EllesmereUIDB then EllesmereUIDB = {} end
-    if not EllesmereUIDB.characterGold then EllesmereUIDB.characterGold = {} end
-end
-
-local function CaptureCurrentCharacterGold()
-    InitializeCharacterGold()
-    local charID = GetCharacterIdentifier()
-    local gold = GetMoney()
-    if gold == lastCapturedGold then return end
-    if goldCapturePending then return end
-    lastCapturedGold = gold
-    goldCapturePending = true
-    C_Timer.After(0.5, function()
-        local currentGold = GetMoney()
-        local classColor = RAID_CLASS_COLORS[select(2, UnitClass("player"))] or { r=1, g=1, b=1 }
-        EllesmereUIDB.characterGold[charID] = {
-            gold = currentGold,
-            lastUpdated = time(),
-            class = select(2, UnitClass("player")),
-            classColor = classColor,
-        }
-        lastCapturedGold = currentGold
-        goldCapturePending = false
-    end)
-end
-
-local function CaptureWarbandGold()
-    if not C_Bank or not C_Bank.FetchDepositedMoney then return end
-    InitializeCharacterGold()
-    local gold = C_Bank.FetchDepositedMoney(Enum.BankType.Account) or 0
-    if gold == lastCapturedWarbandGold then return end
-    if warbandGoldCapturePending then return end
-    lastCapturedWarbandGold = gold
-    warbandGoldCapturePending = true
-    C_Timer.After(0.5, function()
-        local currentGold = C_Bank.FetchDepositedMoney(Enum.BankType.Account) or 0
-        EllesmereUIDB.warbandGold = {
-            gold = currentGold,
-            lastUpdated = time(),
-        }
-        lastCapturedWarbandGold = currentGold
-        warbandGoldCapturePending = false
-    end)
-end
-
-EUI_Bags.CaptureWarbandGold = CaptureWarbandGold
-
-local function CaptureTrackedGold()
-    if BP().enableGoldTracking == false then return end
-    CaptureCurrentCharacterGold()
-    CaptureWarbandGold()
-end
-
 local function ResetAllGoldData()
-    if not EllesmereUIDB then return end
-    EllesmereUIDB.characterGold = {}
-    EllesmereUIDB.warbandGold = nil
-    lastCapturedGold = -1
-    lastCapturedWarbandGold = -1
-    goldCapturePending = false
-    warbandGoldCapturePending = false
-    CaptureTrackedGold()
+    GoldLedger.Reset()
+    GoldLedger.RecordCharacter()
+    GoldLedger.RecordWarband()
+end
+
+-- Ledger callback: repaint the money readouts after every recorded change.
+local function OnGoldChanged()
+    UpdateBagMoneyDisplay()
+    local bank = _G.EUI_BankFrame
+    if bank and bank.UpdateFooterGold and bank:IsVisible() then bank:UpdateFooterGold() end
 end
 
 -------------------------------------------------------------------------------
@@ -1845,20 +1786,20 @@ local function StripRealm(name)
 end
 
 local function ShowGoldTooltip(anchor)
-    if not EllesmereUIDB then return end
-    if BP().enableGoldTracking == false then return end
+    if not GoldLedger.IsTracking() then return end
 
+    local ledger = GoldLedger.Data()
     local totalGold = 0
     local charList = {}
-    if EllesmereUIDB.characterGold then
-        for charID, data in pairs(EllesmereUIDB.characterGold) do
-            charList[#charList + 1] = { id = charID, data = data }
-            totalGold = totalGold + data.gold
-        end
+    for charID, data in pairs(ledger.chars) do
+        charList[#charList + 1] = { id = charID, data = data }
+        totalGold = totalGold + data.money
     end
     table.sort(charList, function(a, b) return a.id < b.id end)
 
-    local warbandGold = EllesmereUIDB.warbandGold and EllesmereUIDB.warbandGold.gold
+    local warbandGold = ledger.warband and ledger.warband.money
+    -- An empty warband bank gets no row, as on the Data Bars Gold block.
+    if warbandGold and warbandGold <= 0 then warbandGold = nil end
     if warbandGold then
         totalGold = totalGold + warbandGold
     end
@@ -1873,10 +1814,10 @@ local function ShowGoldTooltip(anchor)
     for r, entry in ipairs(charList) do
         local nameFS = _goldTTRows[r][0]
         local goldFS = _goldTTRows[r][1]
-        local cc = entry.data.classColor or { r = 1, g = 1, b = 1 }
+        local cc = RAID_CLASS_COLORS[entry.data.class] or { r = 1, g = 1, b = 1 }
         local hex = string.format("%02x%02x%02x", cc.r * 255, cc.g * 255, cc.b * 255)
         nameFS:SetText("|cff" .. hex .. StripRealm(entry.id) .. "|r")
-        goldFS:SetText(FormatGoldOnly(entry.data.gold))
+        goldFS:SetText(FormatGoldOnly(entry.data.money))
         goldFS:SetTextColor(1, 1, 1, 1)
         nameFS:Show(); goldFS:Show()
         local nw = nameFS:GetStringWidth() or 0
@@ -2000,8 +1941,7 @@ local function CreateFooter()
     moneyHitbox:SetScript("OnEnter", function(self) ShowGoldTooltip(self) end)
     moneyHitbox:SetScript("OnLeave", function() HideGoldTooltip() end)
     moneyHitbox:SetScript("OnMouseDown", function(self, button)
-        if not EllesmereUIDB then return end
-        if BP().enableGoldTracking == false then return end
+        if not GoldLedger.IsTracking() then return end
         if button == "RightButton" and IsControlKeyDown() then
             ResetAllGoldData(); HideGoldTooltip(); return
         end
@@ -3391,34 +3331,42 @@ end
 --  Bind keyword search (shared by bags and bank): typing exactly BoP / BoE /
 --  WuE (any case) filters by bind type instead of the native tooltip search.
 -------------------------------------------------------------------------------
-local BIND_KEYWORDS = { bop = true, boe = true, wue = true }
+-- In a block so the main chunk's local count (close to the 200 cap) stays put.
+do
+    local BIND_KEYWORDS = { bop = true, boe = true, wue = true }
+    -- One location reused for every slot: a keyword pass visits every item on
+    -- each refresh, and CreateFromBagAndSlot builds a new mixin table per call.
+    local loc = ItemLocation:CreateEmpty()
 
-function EUI_Bags.SetSearchText(text)
-    local k = strtrim(text or ""):lower()
-    EUI_Bags._bindKeyword = BIND_KEYWORDS[k] and k or nil
-    C_Container.SetItemSearch(text)
-end
+    function EUI_Bags.SetSearchText(text)
+        local k = strtrim(text or ""):lower()
+        EUI_Bags._bindKeyword = BIND_KEYWORDS[k] and k or nil
+        C_Container.SetItemSearch(text)
+    end
 
--- Overrides info.isFiltered for the active keyword; no-op when none is active.
-function EUI_Bags.ApplyBindKeyword(info, bag, slot)
-    local k = EUI_Bags._bindKeyword
-    if not k or not info then return end
-    local match = false
-    local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
-    if loc and C_Item.DoesItemExist(loc) then
-        local isWuE = not info.isBound and C_Item.IsBoundToAccountUntilEquip(loc)
-        if k == "wue" then
-            match = isWuE
-        else
-            local bindType = info.hyperlink and select(14, GetItemInfo(info.hyperlink))
-            if k == "boe" then
-                match = bindType == Enum.ItemBind.OnEquip and not isWuE and not info.isBound
-            else
-                match = bindType == Enum.ItemBind.OnAcquire
+    -- Overrides info.isFiltered for the active keyword; no-op when none is active.
+    function EUI_Bags.ApplyBindKeyword(info, bag, slot)
+        local k = EUI_Bags._bindKeyword
+        if not k or not info then return end
+        local match = false
+        loc:SetBagAndSlot(bag, slot)
+        if C_Item.DoesItemExist(loc) then
+            if k == "bop" then
+                match = info.hyperlink and select(14, GetItemInfo(info.hyperlink)) == Enum.ItemBind.OnAcquire
+            elseif not info.isBound then
+                -- BoE and WuE both mean "not bound yet". WuE reads as OnEquip
+                -- from GetItemInfo, so the account check tells the two apart.
+                local isWuE = C_Item.IsBoundToAccountUntilEquip(loc)
+                if k == "wue" then
+                    match = isWuE
+                else
+                    match = not isWuE and info.hyperlink
+                        and select(14, GetItemInfo(info.hyperlink)) == Enum.ItemBind.OnEquip
+                end
             end
         end
+        info.isFiltered = not match
     end
-    info.isFiltered = not match
 end
 
 -------------------------------------------------------------------------------
@@ -3985,7 +3933,7 @@ local function BuildButtons()
 end
 
 -- The header's icons (Bag Top Bar Icons), right to left from the search box:
--- Sort, Show Bags and the Junk Marker's coin, each shown one left of the next
+-- Sort, Show Bags, Quick Actions and the Junk Marker's coin, each shown one left of the next
 -- shown one; Sell Junk sits left of the coin while a merchant is open, and
 -- mark mode ends when the Junk Marker goes off. Hidden icons keep a point (the
 -- bags overview window hangs from Show Bags). Run at header build, by the
@@ -4007,6 +3955,9 @@ function EUI_Bags:SyncHeaderIcons()
     else
         EUI_BagsWindow:Hide()  -- opened only from Show Bags
     end
+    -- Quick Actions (EllesmereUIBags_QuickActions.lua), off by default
+    local quick = ns.SyncQuickActionsIcon(prev, gap)
+    if quick then prev, gap = quick, 6 end
     local junkOn = EUI_CategoryManager:IsJunkMarkerEnabled()
     if junkOn and not self._junkBtn then BuildButtons() end
     if self._junkBtn then
@@ -4152,6 +4103,7 @@ function EUI_Bags:OnProfileApplied()
     self:SyncHeaderIcons()
     if self:IsShown() then self:RefreshInventory() end
     ns.RefreshOpenBank()
+    EUI_CategoryManager:OnJunkChanged()  -- the new profile may switch the Junk Marker
 end
 end -- Junk Marker
 
@@ -6658,7 +6610,7 @@ function EUI_Bags:RefreshInventory()
         end
     end
 
-    -- 2b. Compute display-only counts (pinned + recent stay in normal categories)
+    -- 2b. Compute display-only counts for pinned and recent items
     local recentCatIdx, pinnedCatIdx
     do
         local cats = EUI_CategoryManager:GetCategories()
@@ -6667,26 +6619,33 @@ function EUI_Bags:RefreshInventory()
             if cat.isPinned then pinnedCatIdx = i end
         end
     end
-    local recentCount = 0
-    local showRecent = BP().bagShowRecentItems ~= false
-    if recentCatIdx and EUI_Bags._recentItems and showRecent then
-        for _, data in ipairs(tempItems) do
-            if data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
-                recentCount = recentCount + 1
-            end
-        end
-        categoryCounts[recentCatIdx] = recentCount
-    end
     local showPinned = BP().bagShowPinnedItems ~= false
     local pinnedSet = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+    local hidePinned = BP().bagHidePinnedInCategories == true
     if pinnedCatIdx and pinnedSet and showPinned then
         local pinnedCount = 0
         for _, data in ipairs(tempItems) do
             if data.info and data.info.itemID and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID) then
                 pinnedCount = pinnedCount + 1
+                if hidePinned then
+                    -- Keep the category for sorting and gear/stack handling.
+                    data._pinnedOnly = true
+                    local ci = data.categoryIndex
+                    if ci then categoryCounts[ci] = categoryCounts[ci] - 1 end
+                end
             end
         end
         categoryCounts[pinnedCatIdx] = pinnedCount
+    end
+    local recentCount = 0
+    local showRecent = BP().bagShowRecentItems ~= false
+    if recentCatIdx and EUI_Bags._recentItems and showRecent then
+        for _, data in ipairs(tempItems) do
+            if not data._pinnedOnly and data.info and data.info.itemID and EUI_Bags._recentItems[data.info.itemID] then
+                recentCount = recentCount + 1
+            end
+        end
+        categoryCounts[recentCatIdx] = recentCount
     end
 
     -- 3. Update sidebar
@@ -6734,6 +6693,7 @@ function EUI_Bags:RefreshInventory()
         elseif filterSet then
             show = data.categoryIndex and filterSet[data.categoryIndex]
         end
+        if data._pinnedOnly and (isRecentView or filterSet) then show = false end
         if show and data.info and data.info.isFiltered then show = false end
         if show then displayItems[#displayItems + 1] = data end
     end
@@ -7079,10 +7039,7 @@ local function StartAddon()
         selectedCategoryIndex = -2
     end
 
-    InitializeCharacterGold()
-    if BP().enableGoldTracking ~= false then
-        CaptureTrackedGold()
-    end
+    GoldLedger.Register("bags", OnGoldChanged)
 
     -- Position: default 50px from bottom-left, saved position overrides
     if BP().bagsPosition then
@@ -7178,7 +7135,6 @@ local function StartAddon()
     EUI_Bags:HookScript("OnShow", function(self)
         self:Raise()
         PlaySound(SOUNDKIT.IG_BACKPACK_OPEN)
-        CaptureTrackedGold()
         -- Repaint if the unmerge state changed while hidden: the flag-flip refresh is gated on
         -- IsVisible, and closing a mailbox hides bags in the same breath so that repaint is thrown away (costs one boolean compare when already matching).
         -- Same for session unmerge marks: the close that hid the bags wiped
@@ -7480,6 +7436,29 @@ local function StartAddon()
         end
     end
 
+    local characterBagHooksInstalled = false
+    function ns.ToggleBagsWithCharacterFrame()
+        if not BP().bagOpenWithCharacter then return end
+        -- WoW Forever's Gamepad interface style: no hooks on Blizzard windows (see the stand-down below).
+        if ns.PadUIStandDown() then return end
+        local frame = _G.CharacterFrame
+        if not frame then return end
+        if not characterBagHooksInstalled then
+            characterBagHooksInstalled = true
+            frame:HookScript("OnShow", function()
+                if BP().bagOpenWithCharacter and not EUI_Bags:IsVisible() then
+                    ToggleEUI()
+                end
+            end)
+            frame:HookScript("OnHide", function()
+                if BP().bagOpenWithCharacter and EUI_Bags:IsVisible() then
+                    ToggleEUI()
+                end
+            end)
+        end
+    end
+    ns.ToggleBagsWithCharacterFrame()
+
     local _lastToggleTime = 0
     local function SmartToggleBags()
         -- Debounce: Blizzard keybinds can fire both ToggleAllBags and C_Container.ToggleAllBags in the same frame, causing a double-toggle.
@@ -7712,7 +7691,6 @@ local function StartAddon()
     -- Equipping / unequipping a bag: its BAG_UPDATE can land before the slot
     -- counts change; BAG_UPDATE_DELAYED fires once the whole batch settles
     EUI_Bags:RegisterEvent("BAG_UPDATE_DELAYED")
-    EUI_Bags:RegisterEvent("PLAYER_MONEY")
     EUI_Bags:RegisterEvent("ITEM_LOCK_CHANGED")
     EUI_Bags:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
     -- A keystone's encoded level changing (downgrade on completion, or on reset)
@@ -7954,9 +7932,6 @@ local function StartAddon()
             if not EUI_Bags.refreshEnabled then return end
             if EUI_Bags._unlockSort then EUI_Bags._unlockSort() end
             ScheduleRefresh()
-        elseif event == "PLAYER_MONEY" then
-            CaptureTrackedGold()
-            UpdateBagMoneyDisplay()
         elseif event == "CURRENCY_DISPLAY_UPDATE" then
             SyncBagFrameToFooter()
         end
