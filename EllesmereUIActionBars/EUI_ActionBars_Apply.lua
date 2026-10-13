@@ -672,6 +672,28 @@ end
 -------------------------------------------------------------------------------
 local barBackgrounds = {}  -- [barKey] = { fill = Texture, border = Frame }
 
+-- Corner Radius of a bar background (s.bgCornerRadius;
+-- EllesmereUI_RoundedCorners.lua): the fill is the body, the border frame its
+-- shape and border. Nothing until a bar first sets a radius.
+local RoundBackground
+do
+    local NO_ROOTS, textures = {}, {}
+    local opts = { roots = NO_ROOTS, textures = textures }
+    RoundBackground = function(frame, background, radius, style)
+        if radius <= 0 and not background.rounded then return end
+        if radius > 0 then
+            background.rounded = true
+            textures[1] = background.fill
+            opts.border, opts.rect, opts.style = background.border, background.border, style
+            EllesmereUI.RoundCorners(frame, radius, opts)
+            textures[1], opts.border, opts.rect = nil, nil, nil
+        else
+            background.rounded = nil
+            EllesmereUI.RoundCorners(frame, 0)
+        end
+    end
+end
+
 function EAB:ApplyBackgroundForBar(barKey)
     local s = self.db.profile.bars[barKey]
     if not s then return end
@@ -687,6 +709,7 @@ function EAB:ApplyBackgroundForBar(barKey)
             else
                 background.border:Hide()
             end
+            RoundBackground(frame, background, 0)
         end
         return
     end
@@ -743,6 +766,7 @@ function EAB:ApplyBackgroundForBar(barKey)
     else
         border:Hide()
     end
+    RoundBackground(frame, background, s.bgCornerRadius or 0, s.bgBorderTexture or "solid")
 end
 
 -------------------------------------------------------------------------------

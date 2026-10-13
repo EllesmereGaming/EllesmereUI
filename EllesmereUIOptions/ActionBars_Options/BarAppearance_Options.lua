@@ -334,6 +334,27 @@ local function BuildBarAppearance(parent, y, ctx)
                 borderSwatch:SetAlpha(disabled and 0.15 or 1)
                 refreshBorder()
             end)
+            -- Corner Radius of the bar background (EllesmereUI_RoundedCorners.lua):
+            -- an inline cog left of the swatch.
+            EllesmereUI.BuildInlineCog(region, {
+                title = "Corner Radius", tip = "Corner Radius",
+                disabled = function()
+                    return BgDisabled() or not EllesmereUI.RoundedStyleOK(SVal("bgBorderTexture", "solid"))
+                end,
+                disabledTooltip = function()
+                    if BgDisabled() then return "Bar Background Border" end
+                    return "This option requires the Solid, Glow or Shadow border style."
+                end,
+                rows = {
+                    { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                      get = function() return SVal("bgCornerRadius", 0) end,
+                      set = function(v)
+                          SB().bgCornerRadius = v > 0 and v or nil
+                          EAB:ApplyBackgroundForBar(SelectedKey())
+                          SUpdatePreview()
+                      end },
+                },
+            })
         end
 
         do
