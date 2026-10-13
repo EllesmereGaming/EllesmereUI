@@ -225,7 +225,7 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
-        version = "9.5.3",
+        version = "9.5.4",
         heroes = {
             {
                 module = "Nameplates",

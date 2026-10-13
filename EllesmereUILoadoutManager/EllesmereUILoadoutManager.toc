@@ -5,7 +5,7 @@
 ## Group: EllesmereUI
 ## Notes: Applies gear sets and talent loadouts automatically per instance type and specialization.
 ## Author: Ellesmere
-## Version: 9.5.3
+## Version: 9.5.4
 ## Dependencies: EllesmereUI
 ## SavedVariablesPerCharacter: EllesmereUILoadoutManagerDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
