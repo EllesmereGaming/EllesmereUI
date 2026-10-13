@@ -3,7 +3,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- EllesmereUIQuestTracker_QoL.lua
 --
 -- QoL layer: auto-accept, auto-turn-in, quest-item hotkey, SplashFrame
--- taint-free OnHide clone. Everything here is combat-gated.
+-- taint-free OnHide clone, current-zone filter. Everything here is combat-gated.
 --
 -- Ported verbatim from the previous custom tracker:
 --   * Auto-accept / auto-turn-in event machine (source L3421-3495)
@@ -394,10 +394,335 @@ local function InstallQuestItemHotkey()
 end
 
 -------------------------------------------------------------------------------
+-- Current-zone filter (opt-in: zoneFilterButton). Works through the watch
+-- lists (the same API as the quest log's track checkbox), so the tracker
+-- frames are never touched. Every quest it unwatches is kept in the DB
+-- (survives /reload) and re-watched when the filter is turned off.
+-------------------------------------------------------------------------------
+-- Inert until the filter is on: no events registered while it is off.
+local zoneEventFrame = CreateFrame("Frame")
+
+local function ZoneFilterOn()
+    return Cfg("zoneFilterButton") and Cfg("zoneFilter")
+end
+
+-- Dungeon / micro maps roll up to the zone that contains them.
+local function ZoneOf(mapID)
+    local info = mapID and C_Map.GetMapInfo(mapID)
+    while info and info.mapType > Enum.UIMapType.Zone and info.parentMapID ~= 0 do
+        mapID = info.parentMapID
+        info = C_Map.GetMapInfo(mapID)
+    end
+    return info and mapID
+end
+
+local function IsInZone(questID, zone, onMap, isWorldQuest)
+    if onMap[questID] then return true end
+    local mapID = isWorldQuest and C_TaskQuest.GetQuestZoneID(questID) or GetQuestUiMapID(questID)
+    return mapID ~= nil and mapID ~= 0 and ZoneOf(mapID) == zone
+end
+
+local WATCH_LISTS = {
+    { key = "zoneFilterRemoved", isWorldQuest = false,
+      num = C_QuestLog.GetNumQuestWatches, get = C_QuestLog.GetQuestIDForQuestWatchIndex,
+      add = C_QuestLog.AddQuestWatch, remove = C_QuestLog.RemoveQuestWatch,
+      valid = C_QuestLog.GetLogIndexForQuestID },
+}
+-- WoW Forever has no world quests.
+if not EllesmereUI.IS_FOREVER then
+    WATCH_LISTS[2] = { key = "zoneFilterRemovedWQ", isWorldQuest = true,
+      num = C_QuestLog.GetNumWorldQuestWatches, get = C_QuestLog.GetQuestIDForWorldQuestWatchIndex,
+      add = C_QuestLog.AddWorldQuestWatch, remove = C_QuestLog.RemoveWorldQuestWatch,
+      valid = C_TaskQuest.IsActive }
+end
+
+local function HasRemovedQuests()
+    local db = EQT.DB()
+    return db.zoneFilterRemoved ~= nil or db.zoneFilterRemovedWQ ~= nil
+end
+
+local function ApplyZoneFilter()
+    local zone = ZoneOf(C_Map.GetBestMapForUnit("player"))
+    if not zone then return end
+    local onMap = {}
+    for _, q in ipairs(C_QuestLog.GetQuestsOnMap(zone) or {}) do onMap[q.questID] = true end
+
+    local db = EQT.DB()
+    for _, list in ipairs(WATCH_LISTS) do
+        local removed = db[list.key] or {}
+        db[list.key] = removed
+        -- Snapshot first: removing a watch shifts the indices.
+        local watched = {}
+        for i = 1, list.num() do watched[i] = list.get(i) end
+        for _, id in ipairs(watched) do
+            if not IsInZone(id, zone, onMap, list.isWorldQuest) then
+                list.remove(id)
+                removed[id] = true
+            end
+        end
+        -- Only bring back quests the filter itself hid.
+        for id in pairs(removed) do
+            if not list.valid(id) then
+                removed[id] = nil
+            elseif IsInZone(id, zone, onMap, list.isWorldQuest) then
+                removed[id] = nil
+                list.add(id)
+            end
+        end
+    end
+end
+
+local function RestoreZoneFilter()
+    local db = EQT.DB()
+    for _, list in ipairs(WATCH_LISTS) do
+        local removed = db[list.key]
+        db[list.key] = nil
+        for id in pairs(removed or {}) do
+            if list.valid(id) then list.add(id) end
+        end
+    end
+end
+
+-- Watch changes relayout the tracker; keep them out of combat.
+local function SyncZoneFilter()
+    if InCombatLockdown() then
+        ns.CombatQueue.Defer("ZoneFilterSync", SyncZoneFilter)
+        return
+    end
+    if ZoneFilterOn() then ApplyZoneFilter() else RestoreZoneFilter() end
+end
+
+-- One pass per burst of zone events.
+local syncQueued = false
+local function QueueSync()
+    if syncQueued then return end
+    syncQueued = true
+    C_Timer.After(0.5, function()
+        syncQueued = false
+        SyncZoneFilter()
+    end)
+end
+
+zoneEventFrame:SetScript("OnEvent", function(self, event)
+    -- The quest log is only readable after the first update following login.
+    if event == "QUEST_LOG_UPDATE" then self:UnregisterEvent(event) end
+    QueueSync()
+end)
+
+local function UpdateZoneLook()
+    local btn, line = EQT.zoneToggle, EQT.zoneStandIn._line
+    local eg = EllesmereUI.ELLESMERE_GREEN
+    local on = Cfg("zoneFilter")
+    btn._fill:SetColorTexture(eg.r, eg.g, eg.b, 1)
+    btn._fill:SetShown(on)
+    if on then btn._text:SetTextColor(eg.r, eg.g, eg.b) else btn._text:SetTextColor(0.6, 0.6, 0.6) end
+    if line then line:SetColorTexture(eg.r, eg.g, eg.b, 1) end
+end
+
+local function SetStandInCollapsed(standIn, collapsed)
+    standIn._collapsed = collapsed
+    local atlas = "ui-questtrackerbutton-secondary-" .. (collapsed and "expand" or "collapse")
+    local btn = standIn._header.MinimizeButton
+    btn:SetNormalAtlas(atlas)
+    btn:SetPushedAtlas(atlas .. "-pressed")
+    standIn._msg:SetShown(not collapsed)
+    standIn:SetHeight(collapsed and 26 or 46)
+end
+
+-- Font and colors come from the live Quests header (skinned or stock).
+local function MatchQuestsHeader(standIn, qt)
+    local src, title = qt.Header.Text, standIn._title
+    local font, size, flags = src:GetFont()
+    if font then
+        title:SetFont(font, size, flags)
+        standIn._msg:SetFont(font, Cfg("objectiveFontSize") or 10, flags)
+    end
+    title:SetTextColor(src:GetTextColor())
+    title:SetText(src:GetText() or TRACKER_HEADER_QUESTS)
+    local from = qt.Header.MinimizeButton:GetNormalTexture()
+    local btn = standIn._header.MinimizeButton
+    local normal, pushed = btn:GetNormalTexture(), btn:GetPushedTexture()
+    normal:SetDesaturated(from:IsDesaturated())
+    normal:SetVertexColor(from:GetVertexColor())
+    pushed:SetDesaturated(from:IsDesaturated())
+    pushed:SetVertexColor(from:GetVertexColor())
+end
+
+-- Toggle and stand-in are our own UIParent frames (never tracker children):
+-- re-host the toggle and mirror the tracker's visibility onto both.
+function EQT.RefreshZoneUI()
+    local btn, standIn = EQT.zoneToggle, EQT.zoneStandIn
+    if not Cfg("zoneFilterButton") then
+        btn:Hide()
+        standIn:Hide()
+        btn._host = nil
+        EQT.QueueResize()
+        return
+    end
+    local otf, qt = _G.ObjectiveTrackerFrame, _G.QuestObjectiveTracker
+    local a = EQT._trackerHardHidden and 0 or otf:GetAlpha()
+
+    -- Blizzard hides an empty section (and an empty tracker), so the stand-in
+    -- keeps a Quests header up while the filter has emptied it.
+    local wantStandIn = Cfg("zoneFilter") and not EQT._trackerHardHidden and not qt:IsShown()
+        and not otf:IsCollapsed() and not C_ChallengeMode.IsChallengeModeActive()
+    if wantStandIn then
+        local lowest = EQT.GetLowestContentFrame()
+        standIn:ClearAllPoints()
+        -- Same placement ObjectiveTrackerContainerMixin:Update gives a module.
+        if lowest then
+            standIn:SetPoint("TOP", lowest, "BOTTOM", 0, -otf.moduleSpacing)
+        else
+            standIn:SetPoint("TOP", otf, "TOP", 0, -otf.topModulePadding)
+        end
+        standIn:SetPoint("LEFT", otf, "LEFT", qt.leftMargin or 0, 0)
+        standIn:SetPoint("RIGHT", otf, "RIGHT")
+        MatchQuestsHeader(standIn, qt)
+    end
+    standIn:SetShown(wantStandIn)
+    standIn:SetAlpha(a)
+
+    local host = (wantStandIn and standIn._header) or (qt:IsShown() and qt.Header) or nil
+    if host and host ~= btn._host then
+        btn:ClearAllPoints()
+        btn:SetPoint("RIGHT", host.MinimizeButton, "LEFT", -4, 0)
+        btn:SetFrameLevel(host:GetFrameLevel() + 10)
+    end
+    btn._host = host
+    btn:SetShown(host ~= nil)
+    btn:SetAlpha(a)
+    btn:EnableMouse(a > 0)
+    EQT.QueueResize()
+end
+
+-- Built on first enable; never at all for players who leave the option off.
+local function BuildZoneUI()
+    if EQT.zoneToggle then return end
+    local otf, qt = _G.ObjectiveTrackerFrame, _G.QuestObjectiveTracker
+    local strata = otf:GetFrameStrata()
+
+    -- Stand-in header, laid out like ObjectiveTrackerModuleHeaderTemplate.
+    local standIn = CreateFrame("Frame", nil, UIParent)
+    standIn:SetFrameStrata(strata)
+    standIn:SetFrameLevel(otf:GetFrameLevel() + 5)
+    standIn:Hide()
+    local header = CreateFrame("Frame", nil, standIn)
+    header:SetPoint("TOPLEFT")
+    header:SetSize(260, 26)
+    standIn._header = header
+    local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormalMed2")
+    title:SetPoint("LEFT", 7, 0)
+    standIn._title = title
+    local minBtn = CreateFrame("Button", nil, header)
+    minBtn:SetSize(16, 16)
+    minBtn:SetPoint("RIGHT", 1, 0)
+    minBtn:SetHighlightAtlas("ui-questtrackerbutton-yellow-highlight", "ADD")
+    minBtn:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        SetStandInCollapsed(standIn, not standIn._collapsed)
+        EQT.RefreshZoneUI()
+    end)
+    header.MinimizeButton = minBtn
+    if not EQT.Blizz() then
+        local line = header:CreateTexture(nil, "ARTWORK")
+        line:SetPoint("BOTTOMLEFT")
+        line:SetPoint("BOTTOMRIGHT")
+        line:SetHeight(1)
+        standIn._line = line
+    end
+    local msg = standIn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    msg:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 14, -6)
+    msg:SetTextColor(0.6, 0.6, 0.6)
+    msg:SetText(EllesmereUI.L("No quests in this zone"))
+    standIn._msg = msg
+    SetStandInCollapsed(standIn, false)
+    EQT.zoneStandIn = standIn
+
+    -- "Current Zone" toggle: accent checkbox + label.
+    local btn = CreateFrame("Button", nil, UIParent)
+    btn:SetFrameStrata(strata)
+    btn:SetHeight(16)
+    btn:Hide()
+    local box = btn:CreateTexture(nil, "ARTWORK")
+    box:SetSize(9, 9)
+    box:SetPoint("LEFT")
+    box:SetColorTexture(0.15, 0.15, 0.15, 0.9)
+    local fill = btn:CreateTexture(nil, "OVERLAY")
+    fill:SetPoint("TOPLEFT", box, 2, -2)
+    fill:SetPoint("BOTTOMRIGHT", box, -2, 2)
+    btn._fill = fill
+    local text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    if not EQT.Blizz() then
+        pcall(text.SetFont, text, EllesmereUI.GetFontPath("questTracker"), 10,
+            EllesmereUI.GetFontOutlineFlag("questTracker"))
+    end
+    text:SetPoint("LEFT", box, "RIGHT", 4, 0)
+    text:SetText(EllesmereUI.L("Current Zone"))
+    btn._text = text
+    btn:SetWidth(13 + text:GetStringWidth())
+    btn:SetScript("OnClick", function()
+        EQT.Set("zoneFilter", not Cfg("zoneFilter"))
+        EQT.ApplyZoneFilterSetting()
+    end)
+    btn:SetScript("OnEnter", function(self)
+        EllesmereUI.ShowWidgetTooltip(self, "Untracks quests outside your current zone. Turning it off re-tracks them.")
+    end)
+    btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+    EQT.zoneToggle = btn
+
+    if not EQT.Blizz() then
+        EllesmereUI.RegAccent({ type = "callback", fn = UpdateZoneLook })
+    end
+
+    -- Section show/hide happens inside Blizzard's layout pass: react a frame later.
+    local refreshQueued = false
+    local function QueueRefresh()
+        if refreshQueued or not Cfg("zoneFilterButton") then return end
+        refreshQueued = true
+        C_Timer.After(0, function()
+            refreshQueued = false
+            EQT.RefreshZoneUI()
+        end)
+    end
+    hooksecurefunc(qt, "Update", QueueRefresh)
+    hooksecurefunc(otf, "SetCollapsed", QueueRefresh)
+    EQT.QueueZoneUIRefresh = QueueRefresh
+end
+
+-- Options toggle, the in-tracker toggle and profile swaps all land here.
+function EQT.ApplyZoneFilterSetting(waitForQuestLog)
+    if Cfg("zoneFilterButton") then BuildZoneUI() end
+    if EQT.zoneToggle then
+        UpdateZoneLook()
+        EQT.RefreshZoneUI()
+    end
+    zoneEventFrame:UnregisterAllEvents()
+    if ZoneFilterOn() then
+        zoneEventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+        zoneEventFrame:RegisterEvent("ZONE_CHANGED")
+        zoneEventFrame:RegisterEvent("ZONE_CHANGED_INDOORS")
+    elseif not HasRemovedQuests() then
+        return
+    end
+    if waitForQuestLog then
+        zoneEventFrame:RegisterEvent("QUEST_LOG_UPDATE")
+    else
+        SyncZoneFilter()
+    end
+end
+
+local function InstallZoneFilter()
+    if Cfg("zoneFilterButton") or HasRemovedQuests() then
+        EQT.ApplyZoneFilterSetting(true)
+    end
+end
+
+-------------------------------------------------------------------------------
 -- Entry point
 -------------------------------------------------------------------------------
 function EQT.InitQoL()
     InstallSplashFrameFix()
     InstallAutoQuests()
     InstallQuestItemHotkey()
+    InstallZoneFilter()
 end
