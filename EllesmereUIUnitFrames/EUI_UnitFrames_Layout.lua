@@ -497,6 +497,37 @@ local function ReparentBarsToClip(frame, powerPosition, settings)
 end
 
 
+-- Resource Bars "Mana Bar while Shapeshifted" Embed (Anchor: Healthbar, Position:
+-- Inside): carve a strip off the player health bar and dock the mana bar into it.
+-- Touches only frame.Health and the mana bar (plain frames -- NO secure frame resize),
+-- so it is safe to run IN COMBAT and can be called from the form edge directly.
+-- EllesmereUI look only: the stock pass (UF_ApplyBlizzardLayout) reasserts the stock
+-- health geometry right after, so the Health Bar anchor is offered only off the stock
+-- look (the bar falls back to the Power Bar there). The caller sets frame.Health to its
+-- full height first; a no-op unless the mana bar is embedded + shown for the form.
+local function CarvePlayerHealthStrip(frame, settings, clipInset, xOff, topOff)
+    if ns.UF_Blizz() then return end
+    local _SMA = EllesmereUI._ShiftManaAttach
+    if not (_SMA and _SMA.GetAttachedBar) then return end
+    local pbar, side, ph = _SMA.GetAttachedBar(settings.healthHeight)
+    if not (pbar and side and ph and ph > 0) then return end
+    local _ph = PP.Scale(ph)
+    pbar:SetParent(frame._barClip)
+    pbar:ClearAllPoints()
+    if side == "top" then
+        frame.Health:SetPoint("TOPLEFT", frame._barClip, "TOPLEFT", xOff, PP.Scale(-topOff) + clipInset - _ph)
+        PP.Height(frame.Health, settings.healthHeight - ph)
+        pbar:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
+        pbar:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
+    else
+        PP.Height(frame.Health, settings.healthHeight - ph)
+        pbar:SetPoint("TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
+        pbar:SetPoint("TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
+    end
+    pbar:SetHeight(_ph)
+    _SMA.OnAttached(pbar, side)
+end
+
 -- Recalculate every element size after a frame scale change so the stack stays
 -- pixel-perfect inside the border. PixelUtil rounds each element independently, so
 -- their sum can exceed the frame's snapped total by 1px at some scales; overflow is
@@ -704,34 +735,7 @@ local function UpdateBordersForScale(frame, unit)
         frame.Health:SetPoint("TOPLEFT", frame._barClip, "TOPLEFT", xOff, PP.Scale(-topOff) + clipInset)
         frame.Health:SetPoint("RIGHT", frame._barClip, "RIGHT", -rInset, 0)
         PP.Height(frame.Health, settings.healthHeight)
-
-        -- Resource Bars "Mana Bar while Shapeshifted" Embed (Anchor: Healthbar,
-        -- Position: Inside): carve a strip off the player health bar and dock the
-        -- mana bar into it. Dynamic footprint -- the provider returns nil out of
-        -- form so the health bar reclaims the strip. The provider clamps so health
-        -- stays >= 8px. Player only (the provider gates on unit) and a no-op unless
-        -- the mana bar is embedded. Uses the anchor context (clipInset/xOff/topOff).
-        local _SMA = (unit == "player") and EllesmereUI._ShiftManaAttach
-        if _SMA and _SMA.GetAttachedBar then
-            local pbar, side, ph = _SMA.GetAttachedBar(settings.healthHeight)
-            if pbar and side and ph and ph > 0 then
-                local _ph = PP.Scale(ph)
-                pbar:SetParent(frame._barClip)
-                pbar:ClearAllPoints()
-                if side == "top" then
-                    frame.Health:SetPoint("TOPLEFT", frame._barClip, "TOPLEFT", xOff, PP.Scale(-topOff) + clipInset - _ph)
-                    PP.Height(frame.Health, settings.healthHeight - ph)
-                    pbar:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
-                    pbar:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
-                else
-                    PP.Height(frame.Health, settings.healthHeight - ph)
-                    pbar:SetPoint("TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
-                    pbar:SetPoint("TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
-                end
-                pbar:SetHeight(_ph)
-                _SMA.OnAttached(pbar, side)
-            end
-        end
+        if unit == "player" then CarvePlayerHealthStrip(frame, settings, clipInset, xOff, topOff) end
     end
 
     -- Blizzard Style: the stock geometry is re-asserted over everything above
@@ -887,14 +891,25 @@ I.ReparentBarsToClip, I.UpdateBordersForScale = ReparentBarsToClip, UpdateBorder
 I.GetFrameDimensions, I.CreateHealthBar = GetFrameDimensions, CreateHealthBar
 
 -- Lets Resource Bars' "Mana Bar while Shapeshifted" apply/remove its player-frame
--- embed (the health-strip carve) without a /reload, by re-running the player layout.
--- UpdateBordersForScale calls PP.Size on the secure player frame, so defer out of
--- combat the way UnitFrames' own reloads do, instead of blocking on a shapeshift.
-function ns.UF_ReapplyPlayer()
-    if InCombatLockdown() then
-        ns.CombatQueue.Defer("UF_ReapplyPlayer", ns.UF_ReapplyPlayer)
-        return
-    end
-    local f = I.frames and I.frames.player
-    if f then UpdateBordersForScale(f, "player") end
+-- embed (the health-strip carve) on the form edge WITHOUT a full relayout. Re-anchors
+-- only frame.Health and the mana bar (plain frames, no secure SetSize), so a shapeshift
+-- is tracked live even in combat. Stock look owns the health bar, so it is a no-op there
+-- (the bar falls back to the Power Bar). frame._barClip is positioned by the last full
+-- UpdateBordersForScale and is unchanged by a form shift, so re-pointing within it is enough.
+function ns.UF_RecarvePlayerHealth()
+    if ns.UF_Blizz() then return end
+    local frame = I.frames and I.frames.player
+    if not (frame and frame._barClip and frame.Health) then return end
+    local es = frame:GetEffectiveScale()
+    local clipInset = es > 0 and (PP.perfect / es) * 0.25 or PP.mult * 0.25
+    local settings = GetSettingsForUnit("player")
+    local xOff = frame.Health._xOffset or 0
+    local rInset = frame.Health._rightInset or 0
+    local topOff = frame.Health._topOffset or 0
+    -- Reclaim full height first, then carve if still embedded + in form.
+    frame.Health:ClearAllPoints()
+    frame.Health:SetPoint("TOPLEFT", frame._barClip, "TOPLEFT", xOff, PP.Scale(-topOff) + clipInset)
+    frame.Health:SetPoint("RIGHT", frame._barClip, "RIGHT", -rInset, 0)
+    PP.Height(frame.Health, settings.healthHeight)
+    CarvePlayerHealthStrip(frame, settings, clipInset, xOff, topOff)
 end

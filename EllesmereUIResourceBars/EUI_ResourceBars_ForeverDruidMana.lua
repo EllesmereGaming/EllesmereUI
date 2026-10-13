@@ -447,11 +447,23 @@ local function ClampManaH(healthHeight)
     return h
 end
 
--- Ask UnitFrames to re-lay out the player frame (applies / removes the carve now).
+-- Reach the UnitFrames module (for the player-frame carve + the stock-look check).
 local UFmod
-RelayoutPlayer = function()
+local function UFModule()
     UFmod = UFmod or (EllesmereUI._ModuleNS and EllesmereUI._ModuleNS["EllesmereUIUnitFrames"])
-    if UFmod and UFmod.UF_ReapplyPlayer then UFmod.UF_ReapplyPlayer() end
+    return UFmod
+end
+-- The player unit frame is on the stock (Blizzard / Classic) look: that look owns the
+-- health bar geometry, so the Healthbar anchor falls back to the Power Bar there.
+local function StockPlayerLook()
+    local m = UFModule()
+    return (m and m.UF_Blizz and m.UF_Blizz()) or false
+end
+-- Form edge: re-anchor the health strip + mana bar now. The light carve touches only
+-- plain frames (no secure resize), so it tracks forms live even in combat.
+RelayoutPlayer = function()
+    local m = UFModule()
+    if m and m.UF_RecarvePlayerHealth then m.UF_RecarvePlayerHealth() end
 end
 
 -- Provider the UnitFrames carve reads (EllesmereUI._ShiftManaAttach). GetAttachedBar
@@ -461,9 +473,9 @@ end
 EllesmereUI._ShiftManaAttach = {
     GetAttachedBar = function(healthHeight)
         if healthHeight then lastHealthHeight = healthHeight end
-        local c = S.c
-        if not (S.enabled and c and c.anchor == "healthbar" and (c.position or "below") == "inside") then return nil end
-        if not (S.host and S.shown) then return nil end
+        -- S.embedActive is the FDM's single source of truth for "Healthbar + Inside and
+        -- NOT on the stock look"; nil otherwise so the health bar reclaims the strip.
+        if not (S.embedActive and S.host and S.shown) then return nil end
         return S.host, "bottom", ClampManaH(healthHeight)
     end,
     -- Called by the carve after it parents + anchors the bar into the strip. Draws a
@@ -556,6 +568,11 @@ function ns.FDM_Apply(pb, pp, g)
     end
     g = g or p.general or EMPTY
     local anchor = c.anchor or "powerbar"
+    -- Stock unit-frame look (Blizzard / Classic) owns the player health bar, so the
+    -- Healthbar anchor falls back to the Power Bar there -- otherwise the stock layout
+    -- pass overwrites the carve (embed over the art) / the float lands on the stock
+    -- frame's own mana area.
+    if anchor == "healthbar" and StockPlayerLook() then anchor = "powerbar" end
     local pos = c.position or "below"
     local embed = (anchor == "healthbar" and pos == "inside")
     local wasEmbedded = S.embedActive
