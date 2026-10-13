@@ -175,8 +175,12 @@ local function InstallShowHook()
     -- timer, Blizzard). OnHide fires after the Hide lands, OnShow fires after Show
     -- lands but the M+ timer's Show-hook re-hides it synchronously, so by the time
     -- OnShow fires the frame may already be hidden again -- we re-check IsShown().
-    otf:HookScript("OnHide", function() if _bgFrame then _bgFrame:Hide() end end)
+    otf:HookScript("OnHide", function()
+        if _bgFrame then _bgFrame:Hide() end
+        if EQT.QueueZoneUIRefresh then EQT.QueueZoneUIRefresh() end
+    end)
     otf:HookScript("OnShow", function()
+        if EQT.QueueZoneUIRefresh then EQT.QueueZoneUIRefresh() end
         if _eqtSuppressed then return end
         if EQT.ResizeBGToContent then EQT.ResizeBGToContent() end
         if EQT.QueueResize then EQT.QueueResize() end
@@ -186,6 +190,9 @@ end
 local function UpdateVisibility()
     InstallShowHook()
     local autoHide = ShouldAutoHide()
+    EQT._trackerHardHidden = (_eqtSuppressed or autoHide) and true or nil
+    -- Deferred, so it reads the alpha this pass is about to set.
+    if EQT.QueueZoneUIRefresh then EQT.QueueZoneUIRefresh() end
     if _eqtSuppressed or autoHide then SuspendQTEvents() else ResumeQTEvents() end
     local otf = GetTracker()
     if not otf then return end
@@ -350,6 +357,7 @@ local function GetLowestContentFrame()
     end
     return lowestModule
 end
+EQT.GetLowestContentFrame = GetLowestContentFrame
 
 -- Event-driven resize with a debounce. Every QueueResize call coalesces into a single
 -- deferred ResizeBGToContent pass; bursts of layout events that used to trigger up to
@@ -373,9 +381,12 @@ local function ResizeBGToContent()
     local bg = _bgFrame
     local otf = GetTracker()
     if not bg or not otf then return end
+    -- The zone filter's stand-in keeps the tracker up when Blizzard hid it empty.
+    local standIn = EQT.zoneStandIn
+    local standInUp = standIn and standIn:IsShown()
     -- Tracker hidden (e.g. raid/arena auto-hide, Blizzard hide, or the
     -- combat alpha-fallback in HardHide): BG follows.
-    if not TrackerIsVisible(otf) then
+    if not standInUp and not TrackerIsVisible(otf) then
         if bg:IsShown() then bg:Hide() end
         return
     end
@@ -387,7 +398,7 @@ local function ResizeBGToContent()
         if bg:IsShown() then bg:Hide() end
         return
     end
-    local lowest = GetLowestContentFrame()
+    local lowest = standInUp and standIn or GetLowestContentFrame()
     -- Transient "no visible content" states happen for a frame during
     -- track/untrack/collapse/expand while blocks are recycled. Keep the
     -- BG at its last position to avoid a hide/show blink.
@@ -523,6 +534,8 @@ function EQT.InitVisibility()
         moProxy.IsMouseOver = function()
             if otf and otf:IsMouseOver() then return true end
             if _bgFrame and _bgFrame:IsShown() and _bgFrame:IsMouseOver() then return true end
+            local standIn = EQT.zoneStandIn
+            if standIn and standIn:IsShown() and standIn:IsMouseOver() then return true end
             return false
         end
         moProxy.GetRect = function()
@@ -538,6 +551,7 @@ function EQT.InitVisibility()
             if otf then otf:SetAlpha(a) end
             if _bgFrame then _bgFrame:SetAlpha(a) end
             if EQT.ApplyTrackerMouse then EQT.ApplyTrackerMouse((a or 0) > 0) end
+            if EQT.QueueZoneUIRefresh then EQT.QueueZoneUIRefresh() end
         end
         -- The monitor reveals via SetAlpha(1) + Show(). The BG may have been Hidden by
         -- a resize pass while idling at alpha 0 (TrackerIsVisible reads mouseover-idle
@@ -552,6 +566,7 @@ function EQT.InitVisibility()
             if otf then otf:SetAlpha(0) end
             if _bgFrame then _bgFrame:SetAlpha(0) end
             if EQT.ApplyTrackerMouse then EQT.ApplyTrackerMouse(false) end
+            if EQT.QueueZoneUIRefresh then EQT.QueueZoneUIRefresh() end
         end
         moProxy.EnableMouse = function() end
         EllesmereUI.RegisterMouseoverTarget(moProxy, function()

@@ -402,11 +402,17 @@ initFrame:SetScript("OnEvent", function(self)
         })
         y = y - h
 
-        -- Quest Item Hotkey row
+        -- Quest Item Hotkey row | Current Zone Toggle
         local kbRow
         kbRow, h = W:DualRow(parent, y,
             { type="label", text="" },
-            { type="label", text="" })
+            { type="toggle", text="Current Zone Toggle",
+              tooltip="Adds a Current Zone toggle to the Quests header. When on, quests outside your current zone are untracked; turning it off re-tracks them.",
+              getValue=function() return Cfg("zoneFilterButton") or false end,
+              setValue=function(v)
+                  Set("zoneFilterButton", v)
+                  if EQT.ApplyZoneFilterSetting then EQT.ApplyZoneFilterSetting() end
+              end })
         if not EllesmereUI._prebuilding then
             local rgn = kbRow._leftRegion
             local SIDE_PAD = 20

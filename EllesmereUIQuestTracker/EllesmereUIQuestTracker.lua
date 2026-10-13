@@ -76,6 +76,9 @@ local QT_DEFAULTS = {
             autoTurnIn           = false,
             autoTurnInShiftSkip  = true,
             questItemHotkey      = nil,
+            -- Current Zone toggle in the Quests header (opt-in), and its state.
+            zoneFilterButton     = false,
+            zoneFilter           = false,
         },
     },
 }
@@ -194,6 +197,7 @@ _G._EQT_RefreshAll = function()
     -- profile's key stays overridden -- taken from whatever the player really
     -- has bound there -- and the incoming profile's key is never laid down.
     if EQT.ApplyQuestItemHotkey then EQT.ApplyQuestItemHotkey() end
+    if EQT.ApplyZoneFilterSetting then EQT.ApplyZoneFilterSetting() end
 end
 
 -------------------------------------------------------------------------------
