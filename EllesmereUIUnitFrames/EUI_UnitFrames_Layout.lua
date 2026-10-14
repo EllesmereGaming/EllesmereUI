@@ -20,30 +20,52 @@ local ApplyClassIconTexture, ResolveRestrictedClassColor = I.ApplyClassIconTextu
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
--- Donor settings table for a mini frame, the source of its inherited border,
--- bar texture and hover highlight: the main frame its Copy Look From picks
--- (lookSource "target" / "focus" / "player"), else Automatic (focus > target >
--- player; boss frames always). A frame that is disabled, or that Visibility
--- keeps off screen entirely, is not a donor (a pick of one falls back to
--- Automatic) -- before Visibility and enabledFrames were split, "never"
--- cleared that flag and fell out here for free.
-function ns.GetMiniDonorSettings(unitKey)
-    local p = db.profile
-    local ef = p.enabledFrames
-    local own = unitKey and p[unitKey]
-    local pick = own and own.lookSource
-    if pick == "player" then return p.player end
+-- A main frame a mini frame can take its look from: the key of a pick
+-- ("player" always; "target" / "focus" while that frame is enabled and
+-- Visibility does not keep it off screen entirely), else nil.
+local function DonorPick(p, pick)
+    if pick == "player" then return "player" end
     if pick == "target" or pick == "focus" then
         local s = p[pick]
-        if ef[pick] ~= false and s and ns.VisEffective(s) ~= "never" then return s end
+        if p.enabledFrames[pick] ~= false and s and ns.VisEffective(s) ~= "never" then return pick end
     end
-    local focus = p.focus
-    if ef.focus ~= false and focus and ns.VisEffective(focus) ~= "never" then return focus end
-    local target = p.target
-    if ef.target ~= false and target and ns.VisEffective(target) ~= "never" then return target end
-    return p.player
+    return nil
+end
+
+-- The donor of a mini frame, the source of its inherited border, bar texture
+-- and hover highlight: the main frame its Copy Look From picks (lookSource
+-- "target" / "focus" / "player") while that frame can lend its look, else
+-- Automatic (focus > target > player; boss frames always). Returns the key;
+-- ns.GetMiniDonorSettings returns its settings table.
+function ns.UF_MiniDonorKey(unitKey)
+    local p = db.profile
+    local own = unitKey and p[unitKey]
+    return DonorPick(p, own and own.lookSource)
+        or DonorPick(p, "focus") or DonorPick(p, "target") or "player"
+end
+function ns.GetMiniDonorSettings(unitKey)
+    return db.profile[ns.UF_MiniDonorKey(unitKey)]
 end
 local GetMiniDonorSettings = ns.GetMiniDonorSettings
+
+-- The frame a mini frame's auras take their look from (the pet's Copy Auras
+-- From, auraSource, no default): its pick while that frame can lend its look,
+-- else the frame its Copy Look From uses. Returns the key.
+function ns.UF_MiniAuraSourceKey(unitKey)
+    local p = db.profile
+    local own = p[unitKey]
+    return DonorPick(p, own and own.auraSource) or ns.UF_MiniDonorKey(unitKey)
+end
+
+-- The two live tables behind a mini frame's aura settings view
+-- (EUI_UnitFrames_AuraContainers.lua): its own and its aura source's, plus
+-- that source's key. Read on every call: a profile switch, import or layer
+-- paint can replace either table.
+function ns.UF_MiniAuraTables(unitKey)
+    local p = db.profile
+    local key = ns.UF_MiniAuraSourceKey(unitKey)
+    return p[unitKey], p[key], key
+end
 
 -- The settings whose border keys paint the boss frames' unified border (and
 -- its normal colour between hover / target recolours): the boss table's own
@@ -141,6 +163,7 @@ local ufTextWidths = {
     perhpnum    = 75,  -- "86% | 132 K"
     perhpnumdash = 75, -- "86% - 132 K"
     curhpshort  = 38,  -- "132 K"
+    healthshort = 38,
     curmaxhp    = 75,  -- "132 K / 150 K"
     curmaxpp    = 75,  -- "132 K / 150 K"
     perhp       = 38,  -- "86%"

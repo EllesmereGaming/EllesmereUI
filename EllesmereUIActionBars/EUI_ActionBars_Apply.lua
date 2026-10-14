@@ -19,7 +19,7 @@ local GetBindingKey = GetBindingKey
 local EFD = ns.EFD
 
 local EAB, EAB_VTABLE, BAR_LOOKUP = ns.EAB, ns.EAB_VTABLE, ns.BAR_LOOKUP
-local ResolveBorderThickness, ButtonHasAction, barButtons = ns.ResolveBorderThickness, ns.ButtonHasAction, ns.barButtons
+local ResolveBorderThickness, barButtons = ns.ResolveBorderThickness, ns.barButtons
 local I = ns._internals
 local BAR_CONFIG, BINDING_MAP, FONT_PATH = I.BAR_CONFIG, I.BINDING_MAP, I.FONT_PATH
 local NUM_ACTIONBAR_BUTTONS = I.NUM_ACTIONBAR_BUTTONS
@@ -921,6 +921,9 @@ function EAB:ApplyAlwaysShowButtons(barKey)
     -- alone. QuickKeybind still needs the normal visibility refresh so its
     -- dedicated KEYBOUND flag can show empty slots on EAB-owned bars.
     if _gridState.shown and not _quickKeybindState.open then return end
+    -- The loop below rewrites the pet buttons from live state: drop the pet
+    -- handler's shape memo so its next full pass lays them out again.
+    if info.isPetBar then ns._eabPetLayoutSig = nil end
     local lastVisible = 0
     for i = 1, numIcons do
         local btn = buttons[i]
@@ -928,8 +931,7 @@ function EAB:ApplyAlwaysShowButtons(barKey)
             if info.nativeMainBar then
                 EAB_VTABLE.MainBarPageSync.SetButtonConfig(btn, true, showEmpty)
             end
-            local hasAction = ButtonHasAction(btn, info.blizzBtnPrefix)
-            local visible = showEmpty or hasAction or quickKeybindVisible
+            local visible = showEmpty or quickKeybindVisible or not ns.AB_EmptySlot(btn, info)
 
             local bfd = EFD(btn)
             if bfd.slotBG then

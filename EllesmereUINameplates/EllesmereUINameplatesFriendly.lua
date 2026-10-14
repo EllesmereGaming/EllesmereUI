@@ -942,12 +942,22 @@ local function SuppressBlizzardUF(unit, nameplate)
     local uf = nameplate and nameplate.UnitFrame
     if not uf then return end
 
+    -- Hand back what an enemy plate parked on this pooled UnitFrame first: the
+    -- enemy reclaim hook runs after this one and would otherwise pull the
+    -- WidgetContainer back under the hidden UnitFrame.
+    ns.NP_ReclaimBlizzardFrame(uf)
+
     uf:SetAlpha(0)
 
     -- Reparent the entire UnitFrame to the hidden frame. This makes everything
     -- invisible. We do NOT unregister events because we need Blizzard's UF to stay
     -- functional for when we restore it (e.g. toggling back to name-only mode).
     uf:SetParent(hiddenFrame)
+    -- Keep UI widgets (progress gauges on untargetable objectives) visible, as the
+    -- enemy plate does.
+    if uf.WidgetContainer then
+        uf.WidgetContainer:SetParent(nameplate)
+    end
 
     modifiedUFs[unit] = { uf = uf, nameplate = nameplate }
 
@@ -975,6 +985,9 @@ local function RestoreBlizzardUF(unit)
     -- Restore UnitFrame back to its nameplate parent
     local uf = entry.uf
     uf:SetParent(entry.nameplate)
+    if uf.WidgetContainer then
+        uf.WidgetContainer:SetParent(uf)
+    end
     uf:SetAlpha(1)
     uf:Show()
 end

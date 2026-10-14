@@ -6,6 +6,18 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 EllesmereUI._deferredInits[#EllesmereUI._deferredInits + 1] = function()
+-- The options page pool (EllesmereUI_FramePool.lua): a frame made here under a
+-- pool host (a kept menu, a reused page) is handed out again by the pool, reset
+-- to fresh; anywhere else this is the plain CreateFrame. Every pool function is
+-- captured once here, never read through the public slot later.
+local Pool = EllesmereUI._Pool
+local CreateFrame = Pool.CreateFrame
+local PoolKept, PoolOwned, PoolAttach = Pool.Kept, Pool.Owned, Pool.Attach
+-- Dress generation of a pooled object (nil when it is not pooled): code that runs
+-- after a setter which may rebuild the page, or later from a timer, compares it
+-- with the generation it started on and stands down once the object was dressed
+-- again for another use.
+local PoolGen = Pool.Gen
 local PP = EllesmereUI.PanelPP
 local isRussian = GetLocale() == "ruRU"
 
@@ -87,11 +99,13 @@ local CB = {
 -------------------------------------------------------------------------------
 local function BuildToggleControl(parent, frameLevel, getValue, setValue, opts)
     -- Spec Overrides auto-capture: report every write + host frame for slot attribution during an active Editing-as session.
+    -- The slot is read BEFORE the setter runs: a setter that rebuilds the page may dress this frame again for another slot.
     do
         local _s = setValue
         setValue = function(...)
+            local snap = EllesmereUI._SOAttribution(parent)
             _s(...)
-            EllesmereUI._NotifySettingWrite(parent)
+            EllesmereUI._NotifySettingWrite(parent, snap)
         end
     end
     do local _r = setValue; setValue = function(...) _r(...); EllesmereUI._settingsChanged = true end end
@@ -191,10 +205,14 @@ local function BuildToggleControl(parent, frameLevel, getValue, setValue, opts)
     end
     ApplyVisual(animProgress)
 
+    -- The click handlers stand down after the setter when it rebuilt the page and
+    -- this toggle was dressed again for another use (the rebuild painted it).
     if opts.noAnim then
         toggle:SetScript("OnClick", function()
             local v = not getValue()
+            local g = PoolGen(toggle)
             setValue(v)
+            if PoolGen(toggle) ~= g then return end
             animProgress = v and 1 or 0
             animTarget = animProgress
             ApplyVisual(animProgress)
@@ -211,7 +229,9 @@ local function BuildToggleControl(parent, frameLevel, getValue, setValue, opts)
         end
         toggle:SetScript("OnClick", function()
             local v = not getValue()
+            local g = PoolGen(toggle)
             setValue(v)
+            if PoolGen(toggle) ~= g then return end
             animTarget = v and 1 or 0
             toggle:SetScript("OnUpdate", AnimOnUpdate)
         end)
@@ -436,10 +456,11 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     do
         local _r = setValue
         setValue = function(...)
+            -- Spec Overrides auto-capture (see BuildToggleControl): dropdown button sits inside the host slot's region.
+            local snap = EllesmereUI._SOAttribution(ddBtn)
             _r(...)
             EllesmereUI._settingsChanged = true
-            -- Spec Overrides auto-capture (see BuildToggleControl): dropdown button sits inside the host slot's region.
-            EllesmereUI._NotifySettingWrite(ddBtn)
+            EllesmereUI._NotifySettingWrite(ddBtn, snap)
         end
     end
     local isWide = (style == "wide")
@@ -476,7 +497,10 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     local mBgR, mBgG, mBgB, mBgA = DD_BG_R, DD_BG_G, DD_BG_B, DD_BG_HA
     local mBrR, mBrG, mBrB, mBrA = 1, 1, 1, DD_BRD_A
     -- Parent to a caller-supplied frame (a scaled popup) when given so the menu INHERITS its scale and layers within it -- no manual scale matching, nested dropdowns don't render giant/behind. Else UIParent (the controller-cursor overlay layer while one is loaded), so page dropdowns escape the scroll-frame clip.
-    local menu = CreateFrame("Frame", nil, (_menuOpts and _menuOpts.parent) or EllesmereUI.OverlayParent())
+    -- One menu frame per dropdown button for the session (the pool's kept frame): a populate after _invalidateMenu,
+    -- or under a button the pool dressed again, gets that frame back reset to fresh and builds on it exactly as on a
+    -- new one; its items, search box and scroll parts are pooled under it (the file's CreateFrame).
+    local menu = PoolKept(ddBtn, "ddMenu", "Frame", (_menuOpts and _menuOpts.parent) or EllesmereUI.OverlayParent())
     -- Spec Overrides auto-capture: edits through this menu attribute to the slot whose dropdown opened it.
     menu._euiOptionsPopup = true
     -- Controller cursor: the list blocks what is under it but is not a stop itself.
@@ -570,7 +594,8 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 if sn.order then for _, ck in ipairs(sn.order) do item._subnavChildKeys[ck] = true end end
                 menuItems[#menuItems + 1] = item
 
-                local flyout = CreateFrame('Frame', nil, EllesmereUI.OverlayParent())
+                -- Owned by the menu (screen-level, not its child): handed out again by order at each populate.
+                local flyout = PoolOwned(menu, "flyout", "Frame", EllesmereUI.OverlayParent())
                 flyout:SetFrameStrata('FULLSCREEN_DIALOG')
                 flyout:SetFrameLevel(menu:GetFrameLevel() + 10)
                 flyout:SetClampedToScreen(true)
@@ -589,11 +614,27 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
 
                 -- Declared before the children: under the controller cursor they keep the flyout open too.
                 local flyoutTimer
+                -- The delayed close checks below run only while the flyout still has this dress (a later
+                -- populate of the menu hands the same flyout out again).
+                local function CloseFlyoutLater(delay)
+                    local g = PoolGen(flyout)
+                    flyoutTimer = C_Timer.NewTimer(delay, function()
+                        if PoolGen(flyout) ~= g then return end
+                        if not flyout:IsMouseOver() and not item:IsMouseOver() then
+                            flyout:Hide()
+                        end
+                        flyoutTimer = nil
+                    end)
+                end
                 local fH = 4
+                -- This populate's rows (the flyout also keeps idle rows an earlier populate parked).
+                local flyRows = {}
+                item._flyoutRows = flyRows
                 for _, childKey in ipairs(sn.order) do
                     local childText = sn.values[childKey]
                     if childText then
                         local ci = CreateFrame('Button', nil, flyout)
+                        flyRows[#flyRows + 1] = ci
                         ci:SetHeight(sn.itemHeight or 26)
                         ci:SetPoint('TOPLEFT', flyout, 'TOPLEFT', 1, -fH)
                         ci:SetPoint('TOPRIGHT', flyout, 'TOPRIGHT', -1, -fH)
@@ -636,17 +677,15 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                             -- uses; the next child or the parent row cancels it.
                             if EllesmereUI.PadCursorShown() then
                                 if flyoutTimer then flyoutTimer:Cancel() end
-                                flyoutTimer = C_Timer.NewTimer(0.25, function()
-                                    if not flyout:IsMouseOver() and not item:IsMouseOver() then
-                                        flyout:Hide()
-                                    end
-                                    flyoutTimer = nil
-                                end)
+                                CloseFlyoutLater(0.25)
                             end
                         end)
                         ci:SetScript('OnClick', function()
+                            -- The label write stands down when onSelect rebuilt the page and the
+                            -- label was dressed again for another use; the list always closes.
+                            local g = PoolGen(ddLbl)
                             if sn.onSelect then sn.onSelect(childKey) end
-                            ddLbl:SetText(TR(parentText) .. ': ' .. TR(childText))
+                            if PoolGen(ddLbl) == g then ddLbl:SetText(TR(parentText) .. ': ' .. TR(childText)) end
                             flyout:Hide()
                             menu:Hide()
                             C_Timer.After(0, function()
@@ -676,24 +715,14 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                     local isChild = item._subnavChildKeys[cur]
                     iHl:SetAlpha(isChild and DD_ITEM_SEL_A or 0)
                     -- Delay hide so the mouse can travel to the flyout
-                    flyoutTimer = C_Timer.NewTimer(0.25, function()
-                        if not flyout:IsMouseOver() and not item:IsMouseOver() then
-                            flyout:Hide()
-                        end
-                        flyoutTimer = nil
-                    end)
+                    CloseFlyoutLater(0.25)
                 end)
                 -- Keep the flyout alive while the mouse is over it
                 flyout:SetScript('OnEnter', function()
                     if flyoutTimer then flyoutTimer:Cancel(); flyoutTimer = nil end
                 end)
                 flyout:SetScript('OnLeave', function()
-                    flyoutTimer = C_Timer.NewTimer(0.15, function()
-                        if not flyout:IsMouseOver() and not item:IsMouseOver() then
-                            flyout:Hide()
-                        end
-                        flyoutTimer = nil
-                    end)
+                    CloseFlyoutLater(0.15)
                 end)
                 EllesmereUI.TrackOverlay(flyout)
                 menu:HookScript('OnHide', function() flyout:Hide() end)
@@ -886,7 +915,11 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                     dnAction()
                     return
                 end
-                setValue(key); ddLbl:SetText(TR(mainText))
+                -- The label write stands down when the setter rebuilt the page and the label was
+                -- dressed again for another use (the rebuild painted it); the list always closes.
+                local g = PoolGen(ddLbl)
+                setValue(key)
+                if PoolGen(ddLbl) == g then ddLbl:SetText(TR(mainText)) end
                 menu:Hide()
                 -- Deferred refresh: setValue may have mutually-excluded another dropdown (e.g. left/right text); the zero-delay timer updates its label after the menu fully closes.
                 C_Timer.After(0, function()
@@ -942,7 +975,8 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         local SCROLL_STEP = 40
         local SMOOTH_SPEED = 12
 
-        local ddSmoothFrame = CreateFrame("Frame")
+        -- Parentless; owned by the menu, so each populate hands the same one out again.
+        local ddSmoothFrame = PoolOwned(menu, "smooth", "Frame")
         ddSmoothFrame:Hide()
 
         local function UpdateDDThumb()
@@ -1179,12 +1213,11 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 item._highlight:SetAlpha(isChild and DD_ITEM_SEL_A or 0)
                 item._label:SetAlpha(1)
                 item._label:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, TEXT_DIM_A)
-                if item._flyout then
-                    local children = { item._flyout:GetChildren() }
-                    for _, child in ipairs(children) do
-                        if child._key and child._highlight then
-                            child._highlight:SetAlpha(child._key == cur and DD_ITEM_SEL_A or 0)
-                        end
+                local rows = item._flyoutRows
+                if rows then
+                    for i = 1, #rows do
+                        local child = rows[i]
+                        child._highlight:SetAlpha(child._key == cur and DD_ITEM_SEL_A or 0)
                     end
                 end
             else
@@ -1236,14 +1269,15 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
 end
 
 -- Wire OnEnter/OnLeave/OnClick/OnShow/OnHide for a dropdown button + menu. s = { bg_r..a, bg_hr..ha, brd_r..a, brd_hr..ha, txt_r..a, txt_hr..ha } (24 values)
+-- ddBtn._valueDimA, when set, holds the value text at that alpha in both states (a greyed-out current value stays greyed under the cursor).
 local function WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s, keepClickHandler)
     local function ApplyNormal()
-        ddLbl:SetTextColor(s[17], s[18], s[19], s[20])
+        ddLbl:SetTextColor(s[17], s[18], s[19], ddBtn._valueDimA or s[20])
         brd:SetColor(s[9], s[10], s[11], s[12])
         bg:SetColorTexture(s[1], s[2], s[3], s[4])
     end
     local function ApplyHover()
-        ddLbl:SetTextColor(s[21], s[22], s[23], s[24])
+        ddLbl:SetTextColor(s[21], s[22], s[23], ddBtn._valueDimA or s[24])
         brd:SetColor(s[13], s[14], s[15], s[16])
         bg:SetColorTexture(s[5], s[6], s[7], s[8])
     end
@@ -1355,14 +1389,58 @@ local RD_DD_COLOURS = {
     1, 1, 1, DD_TXT_A,  1, 1, 1, DD_TXT_HA,
 }
 
+-- The drift checks a slider drag held back (EllesmereUI._deferredDriftChecks),
+-- after a drag that ended without its release (BuildSliderCore's EndDragOnRecycle):
+-- run on the next frame, after the page pass or the pool reset that ended the
+-- drag, unless another drag began meanwhile (its own end runs them).
+local driftDrainQueued = false
+local function DrainDriftChecks()
+    driftDrainQueued = false
+    if EllesmereUI._sliderDragging then return end
+    local checks = EllesmereUI._deferredDriftChecks
+    if not checks then return end
+    EllesmereUI._deferredDriftChecks = nil
+    for fn in pairs(checks) do fn() end
+end
+local function QueueDriftDrain()
+    if driftDrainQueued then return end
+    driftDrainQueued = true
+    C_Timer.After(0, DrainDriftChecks)
+end
+
+-- The final writes owed by drags a hide cut short (BuildSliderCore's EndDragOnHide):
+-- one hidden one-shot frame runs them once the pass that hid the track is over,
+-- later in the same frame. A write that cuts another drag short queues it in the
+-- other set, for the next run.
+local dragFinishes, dragFinishesSpare, dragFinisher = {}, {}, nil
+local function RunDragFinishes(self)
+    self:Hide()
+    local q = dragFinishes
+    dragFinishes, dragFinishesSpare = dragFinishesSpare, q
+    for fn in pairs(q) do
+        q[fn] = nil
+        fn()
+    end
+end
+local function QueueDragFinish(fn)
+    dragFinishes[fn] = true
+    if not dragFinisher then
+        dragFinisher = CreateFrame("Frame")
+        dragFinisher:Hide()
+        dragFinisher:SetScript("OnUpdate", RunDragFinishes)
+    end
+    dragFinisher:Show()
+end
+
 -- Slider core (track + fill + thumb + input + drag logic). Returns: trackFrame, valBox, RefreshSlider, thumb
 local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, inputFontSz, inputAlpha, minVal, maxVal, step, getValue, setValue, isMultiWidget, snapPoints)
-    -- Spec Overrides auto-capture: see BuildToggleControl.
+    -- Spec Overrides auto-capture: see BuildToggleControl (slot read before the setter runs).
     do
         local _s = setValue
         setValue = function(...)
+            local snap = EllesmereUI._SOAttribution(parent)
             _s(...)
-            EllesmereUI._NotifySettingWrite(parent)
+            EllesmereUI._NotifySettingWrite(parent, snap)
         end
     end
     do local _r = setValue; setValue = function(...) _r(...); EllesmereUI._settingsChanged = true end end
@@ -1452,15 +1530,60 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
         return math.max(2, (trackW / (range / step)) * 0.7)
     end
 
+    -- Every write below may run a setter that rebuilds the page and dresses this slider
+    -- again for another use (the options page pool): what follows the write stands down
+    -- then, as the rebuild already painted the slider.
     local function CommitSnap()
         local snapped = SnapStep(rawDragVal)
-        setValue(snapped); currentVal = snapped; rawDragVal = snapped; lastSnapped = snapped; UpdateSliderVisual(snapped)
+        local g = PoolGen(trackFrame)
+        setValue(snapped)
+        if PoolGen(trackFrame) ~= g then return end
+        currentVal = snapped; rawDragVal = snapped; lastSnapped = snapped; UpdateSliderVisual(snapped)
+    end
+
+    -- The track stops showing mid-drag (a forced refresh dropped or rebuilt the page,
+    -- the page reuse parked the track or reset it for another use, the settings
+    -- window closed), so the release never arrives: the drag ends here as EndDrag
+    -- ends it, minus the final write (every step was written while dragging; a plain
+    -- hide owes that write, see EndDragOnHide). _euiOnRecycle (run by the pool's
+    -- reset) and, through EndDragOnHide, the track's OnHide point here only while a
+    -- drag runs; the drift checks the drag held back run on the next frame.
+    local function EndDragOnRecycle()
+        if not isDragging then return end
+        isDragging = false
+        trackFrame:SetScript("OnUpdate", nil)
+        trackFrame:SetScript("OnHide", nil)
+        trackFrame._euiOnRecycle = nil
+        dragScale = nil; dragTrackLeft = nil; lastCommitX = nil
+        EllesmereUI._sliderDragging = math.max(0, (EllesmereUI._sliderDragging or 1) - 1)
+        if EllesmereUI._sliderDragging == 0 then EllesmereUI._sliderDragging = nil end
+        if not EllesmereUI._sliderDragging and EllesmereUI._deferredDriftChecks then QueueDriftDrain() end
+    end
+
+    -- A plain hide (the settings window closed, the page left or dropped) ends the
+    -- drag the same way and still owes it EndDrag's final write: setters that hold
+    -- work back while a drag runs (reload prompts, a full reload) do it then. The
+    -- write runs once the pass that hid the track is over (QueueDragFinish), unless
+    -- the pool dressed the track again meanwhile (a pool reset ends the drag through
+    -- _euiOnRecycle, with no write) or a new drag began.
+    local hideGen
+    local function FinishHiddenDrag()
+        if isDragging or PoolGen(trackFrame) ~= hideGen then return end
+        CommitSnap()
+    end
+    local function EndDragOnHide()
+        if not isDragging then return end
+        EndDragOnRecycle()
+        hideGen = PoolGen(trackFrame)
+        QueueDragFinish(FinishHiddenDrag)
     end
 
     local function SliderOnUpdate(self)
         -- Safety: stop the drag if the button released while a modifier key stole the event
         if not IsMouseButtonDown("LeftButton") then
             isDragging = false
+            self._euiOnRecycle = nil
+            self:SetScript("OnHide", nil)
             self:SetScript("OnUpdate", nil)
             dragScale = nil; dragTrackLeft = nil; lastCommitX = nil
             EllesmereUI._sliderDragging = math.max(0, (EllesmereUI._sliderDragging or 1) - 1)
@@ -1490,7 +1613,11 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
         local shouldCommit = snapped ~= lastSnapped
             and (lastCommitX == nil or math.abs(cursorX - lastCommitX) >= halfPx)
         if shouldCommit then
-            setValue(snapped); currentVal = snapped; lastSnapped = snapped; lastCommitX = cursorX
+            local g = PoolGen(self)
+            setValue(snapped)
+            -- (not dragging: the write rebuilt the page and its hide ended the drag)
+            if PoolGen(self) ~= g or not isDragging then return end
+            currentVal = snapped; lastSnapped = snapped; lastCommitX = cursorX
             UpdateSliderVisual(stepped and snapped or rawDragVal)
         else
             -- lastSnapped for the visual prevents flicker at step boundaries
@@ -1501,6 +1628,8 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
     local function BeginDrag()
         isDragging = true
         EllesmereUI._sliderDragging = (EllesmereUI._sliderDragging or 0) + 1
+        trackFrame._euiOnRecycle = EndDragOnRecycle
+        trackFrame:SetScript("OnHide", EndDragOnHide)
         dragScale = trackFrame:GetEffectiveScale()
         dragTrackLeft = trackDark:GetLeft()
         local x = select(1, GetCursorPosition()) / dragScale
@@ -1517,13 +1646,18 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
             end
             local snapped = SnapStep(rawDragVal)
             UpdateSliderVisual(stepped and snapped or rawDragVal)
-            setValue(snapped); currentVal = snapped; lastSnapped = snapped; lastCommitX = cursorX
+            local g = PoolGen(trackFrame)
+            setValue(snapped)
+            if PoolGen(trackFrame) ~= g or not isDragging then return end
+            currentVal = snapped; lastSnapped = snapped; lastCommitX = cursorX
         end
         trackFrame:SetScript("OnUpdate", SliderOnUpdate)
     end
 
     local function EndDrag()
         isDragging = false; trackFrame:SetScript("OnUpdate", nil)
+        trackFrame:SetScript("OnHide", nil)
+        trackFrame._euiOnRecycle = nil
         dragScale = nil; dragTrackLeft = nil; lastCommitX = nil
         EllesmereUI._sliderDragging = math.max(0, (EllesmereUI._sliderDragging or 1) - 1)
         if EllesmereUI._sliderDragging == 0 then
@@ -1554,7 +1688,14 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
             raw = math.max(minVal, math.min(maxVal, raw))
             local snapped = SnapStep(raw)
             changed = snapped ~= currentVal
-            setValue(snapped); currentVal = snapped; rawDragVal = snapped; UpdateSliderVisual(snapped)
+            local g = PoolGen(trackFrame)
+            setValue(snapped)
+            if PoolGen(trackFrame) ~= g then
+                -- Dressed again by a rebuild the setter ran: its box lost focus there.
+                committingInput = false
+                return
+            end
+            currentVal = snapped; rawDragVal = snapped; UpdateSliderVisual(snapped)
         else
             valBox:SetText(FormatVal(currentVal))
         end
@@ -1593,7 +1734,10 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
             padNudged = true
             local v = SnapStep(currentVal + (button == "RightButton" and -step or step))
             if v ~= currentVal then
-                setValue(v); currentVal = v; rawDragVal = v; lastSnapped = v; UpdateSliderVisual(v)
+                local g = PoolGen(trackFrame)
+                setValue(v)
+                if PoolGen(trackFrame) ~= g then return end
+                currentVal = v; rawDragVal = v; lastSnapped = v; UpdateSliderVisual(v)
                 -- Same widget-state refresh a typed value gets (CommitInput).
                 if not EllesmereUI._sliderDragging then EllesmereUI:RefreshPage() end
             end
@@ -1601,10 +1745,12 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
         end
         if button == "LeftButton" then BeginDrag() end
     end)
+    -- A release ends only a drag this dress began: on a track the pool dressed
+    -- again under a held button, the release of the earlier press does nothing.
     trackFrame:SetScript("OnMouseUp", function(_, button)
         if padNudged then padNudged = false; return end
         if thumb._sliderDisabled then return end
-        if button == "LeftButton" then EndDrag() end
+        if button == "LeftButton" and isDragging then EndDrag() end
     end)
     -- Controller cursor: the track is the one stop; the pointer-drag thumb is skipped.
     EllesmereUI.PadHint(thumb, "nodeignore")
@@ -1617,13 +1763,15 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
         if button == "LeftButton" then
             isDragging = true
             EllesmereUI._sliderDragging = (EllesmereUI._sliderDragging or 0) + 1
+            trackFrame._euiOnRecycle = EndDragOnRecycle
+            trackFrame:SetScript("OnHide", EndDragOnHide)
             rawDragVal = currentVal
             trackFrame:SetScript("OnUpdate", SliderOnUpdate)
         end
     end)
     thumb:SetScript("OnMouseUp", function(self, button)
         if self._sliderDisabled then return end
-        if button == "LeftButton" then EndDrag() end
+        if button == "LeftButton" and isDragging then EndDrag() end
     end)
 
     -- Re-read the getter, update the visual, and re-apply the accent colour (theme may have changed on another tab).
@@ -1865,64 +2013,23 @@ function WidgetFactory:SectionHeader(parent, text, yOffset)
     return frame, 40
 end
 
--- Fully wired dropdown control (button + bg + border + label + arrow + menu). Returns ddBtn, ddLbl so the caller can position it and register a refresh. Menu is built lazily on first click to cut initial allocation.
-local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue, setValue, disabledValuesFn)
-    local ddBtn = CreateFrame("Button", nil, parent)
-    PP.Size(ddBtn, ddW, 30)
-    ddBtn:SetFrameLevel(fLevel)
-    local ddBg = SolidTex(ddBtn, "BACKGROUND", DD_BG_R, DD_BG_G, DD_BG_B, DD_BG_A)
-    ddBg:SetAllPoints()
-    local ddBrd = MakeBorder(ddBtn, 1, 1, 1, DD_BRD_A, PP)
-    local ddLbl = MakeFont(ddBtn, 13, nil, 1, 1, 1)
-    ddLbl:SetAlpha(DD_TXT_A)
-    ddLbl:SetJustifyH("LEFT")
-    ddLbl:SetWordWrap(false)
-    ddLbl:SetMaxLines(1)
-    ddLbl:SetPoint("LEFT", ddBtn, "LEFT", 12, 0)
-    local arrow = MakeDropdownArrow(ddBtn, 12, PP)
-    ddLbl:SetPoint("RIGHT", arrow, "LEFT", -5, 0)
-    if not order then order = {}; for key in pairs(values) do order[#order + 1] = key end end
-    ddLbl:SetText(DDResolveLabel(values, order, getValue()))
-
-    local menu, refresh
-    local function EnsureMenu()
-        if menu then return end
-        menu, _, refresh = BuildDropdownMenu(ddBtn, ddW, order, values, getValue, setValue, ddLbl, "regular", disabledValuesFn)
-        ddBtn._ddMenu = menu
-        ddBtn._ddRefresh = refresh
-        -- keepClickHandler=true: the lazy OnClick below must survive, so after _invalidateMenu() the next click re-runs EnsureMenu instead of showing the orphaned old menu.
-        WireDropdownScripts(ddBtn, ddLbl, ddBg, ddBrd, menu, refresh, RD_DD_COLOURS, true)
-    end
-    -- Public: invalidate the cached menu so the next click rebuilds from the current `order`/`values`. For dropdowns whose options change at runtime (e.g. one listing the spells currently on a CDM bar).
-    ddBtn._invalidateMenu = function()
-        if menu then
-            menu:Hide()
-            if menu.SetParent then pcall(menu.SetParent, menu, nil) end
-            menu = nil
-            refresh = nil
-            ddBtn._ddMenu = nil
-            ddBtn._ddRefresh = nil
-        end
-        -- Refresh the label too, in case the selection's label changed
-        ddLbl:SetText(DDResolveLabel(values, order, getValue()))
-    end
-
-    -- Public: refresh only the displayed label from getValue, without rebuilding/invalidating the menu. Safe while the menu is wired/open, unlike _invalidateMenu (nils the cached menu, breaks the wired click). Use when an external change can alter what getValue returns (e.g. crosshair size showing "Custom" after a cog edit).
-    ddBtn._refreshLabel = function()
-        ddLbl:SetText(DDResolveLabel(values, order, getValue()))
-    end
-
-    -- Lightweight hover scripts until EnsureMenu() runs; WireDropdownScripts then replaces them with tooltip-aware versions.
-    local s = RD_DD_COLOURS
+-- A dropdown button whose menu is built on its first click (BuildDropdownControl,
+-- W:WideDropdown): light hover scripts until then, and a click that builds the
+-- menu (build() -> menu, refresh) and wires it; WireDropdownScripts then replaces
+-- the hover scripts and keeps this OnClick and OnHide. s = the button's colour
+-- array (RD_DD_COLOURS / WD_DD_COLOURS). Returns drop(): forgets the built menu
+-- (hidden), so the next click builds it again; true when there was one.
+local function WireLazyDropdown(ddBtn, ddLbl, bg, brd, s, build)
+    local menu
     local function ApplyNormal()
-        ddLbl:SetTextColor(s[17], s[18], s[19], s[20])
-        ddBrd:SetColor(s[9], s[10], s[11], s[12])
-        ddBg:SetColorTexture(s[1], s[2], s[3], s[4])
+        ddLbl:SetTextColor(s[17], s[18], s[19], ddBtn._valueDimA or s[20])
+        brd:SetColor(s[9], s[10], s[11], s[12])
+        bg:SetColorTexture(s[1], s[2], s[3], s[4])
     end
     local function ApplyHover()
-        ddLbl:SetTextColor(s[21], s[22], s[23], s[24])
-        ddBrd:SetColor(s[13], s[14], s[15], s[16])
-        ddBg:SetColorTexture(s[5], s[6], s[7], s[8])
+        ddLbl:SetTextColor(s[21], s[22], s[23], ddBtn._valueDimA or s[24])
+        brd:SetColor(s[13], s[14], s[15], s[16])
+        bg:SetColorTexture(s[5], s[6], s[7], s[8])
     end
     ddBtn:SetScript("OnEnter", function()
         ApplyHover()
@@ -1934,10 +2041,66 @@ local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue
     end)
     ddBtn:SetScript("OnClick", function()
         if ddBtn._ttText then HideWidgetTooltip() end
-        EnsureMenu()
+        if not menu then
+            local refresh
+            menu, refresh = build()
+            -- keepClickHandler=true: this OnClick survives, so after drop() the next click builds the menu again.
+            WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s, true)
+        end
         if menu:IsShown() then menu:Hide() else menu:Show() end
     end)
     ddBtn:HookScript("OnHide", function() if menu then menu:Hide() end end)
+    return function()
+        if not menu then return false end
+        menu:Hide()
+        menu = nil
+        return true
+    end
+end
+
+-- Fully wired dropdown control (button + bg + border + label + arrow + menu). Returns ddBtn, ddLbl so the caller can position it and register a refresh. Menu is built lazily on first click to cut initial allocation.
+local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue, setValue, disabledValuesFn)
+    local ddBtn = CreateFrame("Button", nil, parent)
+    PP.Size(ddBtn, ddW, 30)
+    ddBtn:SetFrameLevel(fLevel)
+    local ddBg = SolidTex(ddBtn, "BACKGROUND", DD_BG_R, DD_BG_G, DD_BG_B, DD_BG_A)
+    ddBg:SetAllPoints()
+    local ddBrd = MakeBorder(ddBtn, 1, 1, 1, DD_BRD_A, PP)
+    -- The value's resting alpha is the text colour's, the channel the hover
+    -- colours (RD_DD_COLOURS) write, so a hover and leave land back on it.
+    local ddLbl = MakeFont(ddBtn, 13, nil, 1, 1, 1, DD_TXT_A)
+    ddLbl:SetJustifyH("LEFT")
+    ddLbl:SetWordWrap(false)
+    ddLbl:SetMaxLines(1)
+    ddLbl:SetPoint("LEFT", ddBtn, "LEFT", 12, 0)
+    local arrow = MakeDropdownArrow(ddBtn, 12, PP)
+    ddLbl:SetPoint("RIGHT", arrow, "LEFT", -5, 0)
+    if not order then order = {}; for key in pairs(values) do order[#order + 1] = key end end
+    ddLbl:SetText(DDResolveLabel(values, order, getValue()))
+
+    -- The menu is built on the first click (WireLazyDropdown); after _invalidateMenu() the next click builds it again.
+    local dropMenu = WireLazyDropdown(ddBtn, ddLbl, ddBg, ddBrd, RD_DD_COLOURS, function()
+        -- A local _: a global _ would hold the menu's item list, and through it the page the menu was opened from.
+        local m, _, r = BuildDropdownMenu(ddBtn, ddW, order, values, getValue, setValue, ddLbl, "regular", disabledValuesFn)
+        ddBtn._ddMenu = m
+        ddBtn._ddRefresh = r
+        return m, r
+    end)
+    -- Public: invalidate the cached menu so the next click rebuilds from the current `order`/`values`. For dropdowns whose options change at runtime (e.g. one listing the spells currently on a CDM bar).
+    -- The menu frame itself stays this button's (the pool's kept frame): the next click populates the same frame again.
+    ddBtn._invalidateMenu = function()
+        if dropMenu() then
+            ddBtn._ddMenu = nil
+            ddBtn._ddRefresh = nil
+        end
+        -- Refresh the label too, in case the selection's label changed
+        ddLbl:SetText(DDResolveLabel(values, order, getValue()))
+    end
+
+    -- Public: refresh only the displayed label from getValue, without rebuilding/invalidating the menu. Safe while the menu is wired/open, unlike _invalidateMenu (nils the cached menu, breaks the wired click). Use when an external change can alter what getValue returns (e.g. crosshair size showing "Custom" after a cog edit).
+    ddBtn._refreshLabel = function()
+        ddLbl:SetText(DDResolveLabel(values, order, getValue()))
+    end
 
     return ddBtn, ddLbl
 end
@@ -1982,14 +2145,19 @@ end
 -- of running under the controls; full text surfaces on hover: folded into the label tooltip when the row has one
 -- (hitFrames read region._labelTruncated via LabelTooltipText), else a plain reveal hover here.
 local _labelClampQueue, _labelClampQueued = {}, false
+-- Each queued region's dress generation (options page pool): a region dressed again
+-- before the flush is left to its new dress, which queues it again if it clamps.
+local _labelClampGen = {}
 local function _FlushLabelClamps()
     _labelClampQueued = false
     for i = 1, #_labelClampQueue do
         local region = _labelClampQueue[i]
+        local gen = _labelClampGen[i]
         _labelClampQueue[i] = nil
+        _labelClampGen[i] = nil
         -- Hole-tolerant: an aborted earlier flush (a hard error mid-queue)
         -- can leave gaps; a nil entry must never take the whole pass down.
-        local label = region and region._label
+        local label = region and PoolGen(region) == gen and region._label
         local bound = region and (region._lastInline or region._control)
         if label and bound and label:IsShown() then
             local truncated = false
@@ -2010,7 +2178,9 @@ local function _FlushLabelClamps()
 end
 local function QueueLabelClamp(region)
     if not region._label then return end
-    _labelClampQueue[#_labelClampQueue + 1] = region
+    local n = #_labelClampQueue + 1
+    _labelClampQueue[n] = region
+    _labelClampGen[n] = PoolGen(region)
     if not _labelClampQueued then
         _labelClampQueued = true
         C_Timer.After(0, _FlushLabelClamps)
@@ -2145,7 +2315,10 @@ function WidgetFactory:Checkbox(parent, text, yOffset, getValue, setValue, toolt
 
     btn:SetScript("OnClick", function()
         local v = not getValue()
+        -- Stands down when the setter rebuilt the page and dressed this row again (the rebuild painted it).
+        local g = PoolGen(btn)
         setValue(v)
+        if PoolGen(btn) ~= g then return end
         ApplyVisual()
     end)
 
@@ -2163,8 +2336,21 @@ function WidgetFactory:Checkbox(parent, text, yOffset, getValue, setValue, toolt
     return frame, ROW_H
 end
 
+-- Global search prebuild: the frameless index pass (EllesmereUI_GlobalSearch.lua)
+-- builds every page against absorber rows, which take any call and hand back
+-- another absorber for any key. A control built on one indexes nothing, so its
+-- builder returns this stand-in instead of building it: an absorber that takes
+-- the control's calls and serves as its refresh function. Nil for a real parent
+-- and outside the pass.
+local function PrebuildStandIn(parent)
+    if not EllesmereUI._prebuilding or type(parent) ~= "table" then return nil end
+    if type(parent.GetObjectType) == "function" then return nil end
+    return parent.prebuildStandIn
+end
+
 -- Helpers the other EllesmereUI_Widgets_*.lua files share; not public API.
 EllesmereUI._widgetInternals = {
+    PrebuildStandIn = PrebuildStandIn,
     SL = SL,
     TagOptionRow = TagOptionRow,
     DDResolveLabel = DDResolveLabel,
@@ -2173,6 +2359,7 @@ EllesmereUI._widgetInternals = {
     PixelizeSliderCfg = PixelizeSliderCfg,
     QueueLabelClamp = QueueLabelClamp,
     LabelTooltipText = LabelTooltipText,
+    WireLazyDropdown = WireLazyDropdown,
 }
 
 -------------------------------------------------------------------------------
@@ -2186,55 +2373,119 @@ EllesmereUI.RD_DD_COLOURS       = RD_DD_COLOURS
 --------------------------------------------------------------------------------
 --  Preview click-to-navigate kit (options pages with a clickable preview)
 --------------------------------------------------------------------------------
--- MakeSettingGlow: returns play(target, holdWhile). One frame per returned
--- function, reparented on each play, so a new glow cancels the last one.
--- opts: color {r,g,b} (read on first play), thickness (number or function,
+-- MakeSettingGlow: returns play(target, holdWhile). Each returned function shows
+-- one glow at a time, reparented on each play, so its new glow cancels its last
+-- one. opts: color {r,g,b} (read on first play), thickness (number or function,
 -- default 2), noSnap. holdWhile pulses while it returns true and the target
 -- is visible, then plays the normal 0.75s fade.
-EllesmereUI.MakeSettingGlow = function(opts)
-    local glow
-    return function(targetFrame, holdWhile)
-        if not targetFrame then return end
-        if not glow then
-            glow = CreateFrame("Frame")
-            local c = opts.color
-            local px = opts.thickness or 2
-            if type(px) == "function" then px = px() end
-            local function MkEdge()
-                local t = glow:CreateTexture(nil, "OVERLAY", nil, 7)
-                t:SetColorTexture(c.r, c.g, c.b, 1)
-                if opts.noSnap and t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
-                return t
-            end
-            local top, bot, lft, rgt = MkEdge(), MkEdge(), MkEdge(), MkEdge()
-            top:SetHeight(px); top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT")
-            bot:SetHeight(px); bot:SetPoint("BOTTOMLEFT"); bot:SetPoint("BOTTOMRIGHT")
-            lft:SetWidth(px)
-            lft:SetPoint("TOPLEFT", top, "BOTTOMLEFT"); lft:SetPoint("BOTTOMLEFT", bot, "TOPLEFT")
-            rgt:SetWidth(px)
-            rgt:SetPoint("TOPRIGHT", top, "BOTTOMRIGHT"); rgt:SetPoint("BOTTOMRIGHT", bot, "TOPRIGHT")
+-- The glow frames are shared by every play function with the same look: a glow
+-- whose fade ended goes back to its look's free list, off its target, and the
+-- next play of that look takes it, so a page built again makes no new ones (a
+-- glow still showing is never taken). On a target of the options page pool the
+-- glow rides along as the target's attachment and the target's reset frees it;
+-- such a glow only ever serves pool targets, so its pool record follows it.
+do
+    local freeGlows = {}   -- look key -> free glow frames (hidden, parentless)
+
+    local function FreeGlow(glow)
+        if glow._settingGlowFree then return end
+        glow:Hide()
+        glow:SetScript("OnUpdate", nil)
+        glow:SetParent(nil)
+        glow._settingGlowFree = true
+        local list = freeGlows[glow._settingGlowKey]
+        list[#list + 1] = glow
+    end
+
+    local function TakeGlow(key, r, g, b, px, noSnap)
+        local list = freeGlows[key]
+        if not list then list = {}; freeGlows[key] = list end
+        local n = #list
+        if n > 0 then
+            local glow = list[n]
+            list[n] = nil
+            glow._settingGlowFree = nil
+            return glow
         end
-        glow:SetParent(targetFrame)
-        glow:SetAllPoints(targetFrame)
-        glow:SetFrameLevel(targetFrame:GetFrameLevel() + 5)
-        glow:SetAlpha(1)
-        glow:Show()
-        local elapsed = 0
-        glow:SetScript("OnUpdate", function(self, dt)
-            elapsed = elapsed + dt
-            if holdWhile then
-                if targetFrame:IsVisible() and holdWhile() then
-                    self:SetAlpha(0.35 + 0.65 * math.abs(math.sin(elapsed * 3)))
-                    return
+        local glow = CreateFrame("Frame")
+        local function MkEdge()
+            local t = glow:CreateTexture(nil, "OVERLAY", nil, 7)
+            t:SetColorTexture(r, g, b, 1)
+            if noSnap and t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
+            return t
+        end
+        local top, bot, lft, rgt = MkEdge(), MkEdge(), MkEdge(), MkEdge()
+        top:SetHeight(px); top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT")
+        bot:SetHeight(px); bot:SetPoint("BOTTOMLEFT"); bot:SetPoint("BOTTOMRIGHT")
+        lft:SetWidth(px)
+        lft:SetPoint("TOPLEFT", top, "BOTTOMLEFT"); lft:SetPoint("BOTTOMLEFT", bot, "TOPLEFT")
+        rgt:SetWidth(px)
+        rgt:SetPoint("TOPRIGHT", top, "BOTTOMRIGHT"); rgt:SetPoint("BOTTOMRIGHT", bot, "TOPRIGHT")
+        glow._settingGlowKey = key
+        return glow
+    end
+
+    EllesmereUI.MakeSettingGlow = function(opts)
+        local token = {}   -- this function's mark on the glow it holds
+        local mine, look, lookPool, cr, cg, cb, px
+        return function(targetFrame, holdWhile)
+            if not targetFrame then return end
+            if not look then
+                local c = opts.color
+                cr, cg, cb = c.r, c.g, c.b
+                px = opts.thickness or 2
+                if type(px) == "function" then px = px() end
+                look = cr .. "|" .. cg .. "|" .. cb .. "|" .. px .. (opts.noSnap and "|n" or "|s")
+                lookPool = look .. "|pool"
+            end
+            local tgen = PoolGen(targetFrame)
+            local key = tgen and lookPool or look
+            local glow = mine
+            if glow and glow._settingGlowOwner == token then
+                if glow._settingGlowKey ~= key then
+                    -- serves the other kind of target: the last glow ends here
+                    FreeGlow(glow)
+                    glow = nil
+                elseif glow._settingGlowFree then
+                    local list = freeGlows[key]
+                    for i = #list, 1, -1 do
+                        if list[i] == glow then table.remove(list, i); break end
+                    end
+                    glow._settingGlowFree = nil
                 end
-                -- Released: restart the clock so the fade plays from full alpha.
-                holdWhile, elapsed = nil, 0
+            else
+                glow = nil
             end
-            if elapsed >= 0.75 then
-                self:Hide(); self:SetScript("OnUpdate", nil); return
+            if not glow then
+                glow = TakeGlow(key, cr, cg, cb, px, opts.noSnap)
+                glow._settingGlowOwner = token
+                mine = glow
             end
-            self:SetAlpha(1 - elapsed / 0.75)
-        end)
+            glow:SetParent(targetFrame)
+            if tgen then PoolAttach(targetFrame, glow, nil, FreeGlow) end
+            glow:SetAllPoints(targetFrame)
+            glow:SetFrameLevel(targetFrame:GetFrameLevel() + 5)
+            glow:SetAlpha(1)
+            glow:Show()
+            local elapsed = 0
+            glow:SetScript("OnUpdate", function(self, dt)
+                -- The target was dressed again for another use: this glow is over.
+                if tgen and PoolGen(targetFrame) ~= tgen then FreeGlow(self); return end
+                elapsed = elapsed + dt
+                if holdWhile then
+                    if targetFrame:IsVisible() and holdWhile() then
+                        self:SetAlpha(0.35 + 0.65 * math.abs(math.sin(elapsed * 3)))
+                        return
+                    end
+                    -- Released: restart the clock so the fade plays from full alpha.
+                    holdWhile, elapsed = nil, 0
+                end
+                if elapsed >= 0.75 then
+                    FreeGlow(self); return
+                end
+                self:SetAlpha(1 - elapsed / 0.75)
+            end)
+        end
     end
 end
 
@@ -2321,7 +2572,11 @@ EllesmereUI.DismissPreviewHint = function(hint, headerBaseH, hintH, startY)
     local startHeaderH = headerBaseH + hintH
     local steps = 0
     local ticker
+    -- A hint of the options page pool that is dressed again mid-fade (its header was
+    -- rebuilt) belongs to the new build: the fade stops and leaves it, and the header, alone.
+    local g = PoolGen(hint)
     ticker = C_Timer.NewTicker(0.016, function()
+        if PoolGen(hint) ~= g then ticker:Cancel(); return end
         steps = steps + 1
         local progress = steps * 0.016 / 0.3
         if progress >= 1 then

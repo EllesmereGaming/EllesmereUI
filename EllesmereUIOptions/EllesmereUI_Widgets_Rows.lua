@@ -8,6 +8,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 EllesmereUI._deferredInits[#EllesmereUI._deferredInits + 1] = function()
+-- Page reuse: the frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it creates as before. PoolGen
+-- (a frame's dress count) lets a handler that runs after a setter tell that
+-- the setter rebuilt the page and dressed its frames again for a new use.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolGen = EllesmereUI._Pool.Gen
 local PP = EllesmereUI.PanelPP
 local SolidTex = EllesmereUI.SolidTex
 local MakeFont = EllesmereUI.MakeFont
@@ -53,7 +60,7 @@ local LabelTooltipText = WI.LabelTooltipText
 local WidgetFactory = EllesmereUI.Widgets
 local ResolveDisabledTip = EllesmereUI.ResolveDisabledTip
 local BuildDropdownMenu = EllesmereUI.BuildDropdownMenu
-local WireDropdownScripts = EllesmereUI.WireDropdownScripts
+local WireLazyDropdown = WI.WireLazyDropdown
 local WD_DD_COLOURS = EllesmereUI.WD_DD_COLOURS
 local BuildSliderCore = EllesmereUI.BuildSliderCore
 local BuildDropdownControl = EllesmereUI.BuildDropdownControl
@@ -210,7 +217,11 @@ function EllesmereUI.BuildKeybindButton(parent, opts)
     end
     local function Commit(chord)
         Stop()
+        local gen = PoolGen(btn)
         opts.set(chord)
+        -- A setter that rebuilt the page dressed this button again (page
+        -- reuse): that dress painted itself, so this one paints nothing more.
+        if PoolGen(btn) ~= gen then return end
         Refresh()
     end
 
@@ -591,6 +602,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             MakeStyledButton(btn, cfg.buttonText or cfg.text or "", 13, RB_COLOURS, cfg.onClick)
             controlFrame = btn
             controlAnchor = btn
+            AddControlDisabledTooltip(btn, cfg)
             RegisterWidgetRefresh(function() ApplyDisabledState() end)
             ApplyDisabledState()
 
@@ -713,17 +725,26 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                 box:SetText((cfg.getValue and cfg.getValue()) or "")
             end
             local committing = false
+            -- A setter that rebuilds the page can dress this box again for
+            -- another row (page reuse): that dress painted itself, so the
+            -- commit's own repaint is skipped (here and after Escape, whose
+            -- focus loss commits too).
             local function CommitInput()
                 if committing then return end
                 committing = true
+                local gen = PoolGen(box)
                 box:ClearFocus()
                 if cfg.setValue then cfg.setValue(box:GetText()) end
-                RefreshInput()
+                if PoolGen(box) == gen then RefreshInput() end
                 committing = false
             end
             box:SetScript("OnEnterPressed", CommitInput)
             box:SetScript("OnEditFocusLost", CommitInput)
-            box:SetScript("OnEscapePressed", function(self) self:ClearFocus(); RefreshInput() end)
+            box:SetScript("OnEscapePressed", function(self)
+                local gen = PoolGen(self)
+                self:ClearFocus()
+                if PoolGen(self) == gen then RefreshInput() end
+            end)
             RefreshInput()
             controlFrame = box
             controlAnchor = box
@@ -966,10 +987,14 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
                 local function ApplyLabelOnly()
                     local off = cfg.disabled()
                     label:SetAlpha(1)
-                    -- Gray the button label when the current value is disabled
+                    -- Gray the button label when the current value is disabled,
+                    -- through the text colour's alpha (the label's resting alpha);
+                    -- _valueDimA keeps the hover colours on that alpha too.
                     if cfg.disabledValues then
                         local curVal = cfg.getValue()
-                        ddLbl:SetAlpha(cfg.disabledValues(curVal) and 0.15 or DD_TXT_A)
+                        local dimA = cfg.disabledValues(curVal) and 0.15 or nil
+                        ddBtn._valueDimA = dimA
+                        ddLbl:SetTextColor(1, 1, 1, dimA or DD_TXT_A)
                     end
                 end
                 RegisterWidgetRefresh(function()
@@ -1034,9 +1059,13 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
             ApplyCBVisual()
 
             btn:SetScript("OnClick", function()
+                local gen = PoolGen(btn)
                 local v = not cfg.getValue()
                 cfg.setValue(v)
                 EllesmereUI._settingsChanged = true
+                -- A setter that rebuilt the page dressed this checkbox again
+                -- (page reuse): that dress painted itself.
+                if PoolGen(btn) ~= gen then return end
                 ApplyCBVisual()
             end)
             btn:SetScript("OnEnter", function() isHovering = true; ApplyCBVisual() end)
@@ -1374,7 +1403,9 @@ function WidgetFactory:WideTripleButton(parent, text1, text2, text3, yOffset, on
     return frame, ROW_H
 end
 
--- WideDropdown: centered, no row background, title above; prominent selectors
+-- WideDropdown: centered, no row background, title above; prominent selectors.
+-- Its menu is built on the first click, as BuildDropdownControl's: a page
+-- build makes none.
 function WidgetFactory:WideDropdown(parent, title, yOffset, values, getValue, setValue, order, btnWidth, disabledValuesFn)
     btnWidth = btnWidth or 450
     local BTN_H, TITLE_H, GAP = 38, 20, 12
@@ -1393,18 +1424,26 @@ function WidgetFactory:WideDropdown(parent, title, yOffset, values, getValue, se
     local bg = SolidTex(ddBtn, "BACKGROUND", DD_BG_R, DD_BG_G, DD_BG_B, DD_BG_A)
     bg:SetAllPoints()
     local brd = MakeBorder(ddBtn, 1, 1, 1, DD_BRD_A, PP)
-    local ddLbl = MakeFont(ddBtn, 13, nil, 1, 1, 1)
-    ddLbl:SetAlpha(DD_TXT_A)
+    -- Resting alpha on the text colour, the channel the hover colours write.
+    local ddLbl = MakeFont(ddBtn, 13, nil, 1, 1, 1, DD_TXT_A)
     ddLbl:SetPoint("LEFT", ddBtn, "LEFT", 14, 0)
     local arrow = MakeDropdownArrow(ddBtn, 14, PP)
     if not order then order = {}; for key in pairs(values) do order[#order + 1] = key end end
-    local menu, menuItems, refresh = BuildDropdownMenu(ddBtn, btnWidth, order, values, getValue, setValue, ddLbl, "wide", disabledValuesFn)
     ddLbl:SetText(DDResolveLabel(values, order, getValue()))
-    WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, WD_DD_COLOURS)
+    -- Light hover scripts until the first click builds the menu (the shared
+    -- lazy dropdown wiring of BuildDropdownControl).
+    WireLazyDropdown(ddBtn, ddLbl, bg, brd, WD_DD_COLOURS, function()
+        local m, _, refresh = BuildDropdownMenu(ddBtn, btnWidth, order, values, getValue, setValue, ddLbl, "wide", disabledValuesFn)
+        return m, refresh
+    end)
     RegisterWidgetRefresh(function()
         ddLbl:SetText(DDResolveLabel(values, order, getValue()))
         if disabledValuesFn then
-            ddLbl:SetAlpha(disabledValuesFn(getValue()) and 0.15 or DD_TXT_A)
+            -- A disabled current value rests greyed; _valueDimA keeps the
+            -- hover colours on that alpha too.
+            local dimA = disabledValuesFn(getValue()) and 0.15 or nil
+            ddBtn._valueDimA = dimA
+            ddLbl:SetTextColor(1, 1, 1, dimA or DD_TXT_A)
         end
     end)
     return frame, ROW_H

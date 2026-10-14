@@ -655,6 +655,22 @@ end
 --  highlight the castable) and a charge spell down one stack IS castable --
 --  Hidden (CD Ready) is the only mode tracking the countdown.
 -------------------------------------------------------------------------------
+-- Real cooldown (not the global cooldown) from a GetSpellCooldown read taken
+-- outside the SPELL_UPDATE_COOLDOWN response, where Blizzard's API notes say
+-- the GCD flag cannot be trusted: as a GCD swipe ends, Blizzard's
+-- OnCooldownDone repaints the icon while the lockout can still read active
+-- with that flag already clear. Blizzard's viewer keeps the GCD flag it read
+-- at its last refresh on the item (frame.isOnGCD, copied from the same
+-- never-secret field), and OnCooldownDone only repaints, so a GCD it saw stays
+-- a GCD here. The flag counts only while frame.wasSetFromCooldown says the
+-- spell's cooldown drew the item: Blizzard skips the write otherwise (charges,
+-- suppressed cooldown categories) and leaves an old value behind. Our own
+-- frames carry neither field, so the live read alone decides there.
+function ns.CdmOnRealCD(frame, info)
+    if not (info and info.isActive) or info.isOnGCD then return false end
+    return not (frame and frame.wasSetFromCooldown == true and frame.isOnGCD == true)
+end
+
 function ns.CdmCdStateReady(liveSid, onCD, hideUntilSpent)
     if hideUntilSpent then return not onCD end
     local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(liveSid)
@@ -676,17 +692,21 @@ end
 -- draws red while the current form or stance does not meet it. That answer
 -- changes only with the form, so it is kept per spell and form ID: once a pair
 -- is read, a form change costs a table lookup. A spell whose tooltip names no
--- form (a caster spell such as Moonfire) is outside its form while shapeshifted
--- when the game says it cannot be cast now for a reason other than power,
--- asked live, provided it could be cast when last seen in caster form: a
--- warrior (never in caster form) and a spell waiting on a proc never hide this
--- way. A pair whose tooltip cannot be read (not loaded yet, or secret in
--- combat) shows its icon and is read again only at the next form change or
--- combat end (ns.CdmRetryUnreadForms), never per evaluation; a talent change
--- clears the table (ScheduleTalentRebuild).
+-- form is outside its form while shapeshifted when the game says it cannot be
+-- cast now for a reason other than power, asked live, provided it could be
+-- cast when last seen in caster form: a warrior (never in caster form) and a
+-- spell waiting on a proc never hide this way. A druid caster spell reads
+-- usable in a form, since casting it drops the form, so a rule per spell
+-- (CasterRule) decides it instead: the forms it cannot be cast in, and the
+-- talents and auras that permit it there. A pair whose tooltip cannot be
+-- read (not loaded yet, or secret in combat) is decided by the spell's rule,
+-- or shows its icon when there is none, and is read again only at the next
+-- form change or combat end (ns.CdmRetryUnreadForms), never per evaluation;
+-- a talent change clears the table (ScheduleTalentRebuild).
 do
     local outside = {}   -- [spellID][formID] -> true (red form line), false (met), NO_LINE or UNREAD
     local casterOK = {}  -- [spellID] -> castable (power aside) when last seen in caster form
+    local procSeen = {}  -- [spellID] -> its rule's answer when last evaluated in a form the rule covers
     local UNREAD, NO_LINE = "unread", "noline"
     local unreadN = 0
     -- Read nil-safe: a client without these enums falls back to the text path
@@ -695,10 +715,285 @@ do
     local LINE_REQ, LINE_NONE, REQ_FORM = LINE_TYPES.UsageRequirement, LINE_TYPES.None, REQ_TYPES.ShapeshiftForm
     local TEMPLATES = { SPELL_REQUIRED_FORM, SPELL_REQUIRED_FORM_NOSPACE }
     local formNames, formCount  -- the player's form names, read when the count changes
+    local casterRules, procAuras  -- built on a druid's first ask (CasterRule)
+    local known, exists = {}, {}  -- [spellID] -> IsSpellKnown / DoesSpellExist answer, or UNREAD
+    local auraState = {}  -- [aura] -> on the player; read once per change (ProcActive)
+    -- [auraInstanceID] -> exception aura, recorded when one is seen on the
+    -- player. Kept past its removal (instance IDs are not reused) until the
+    -- next form change or combat end, so every caller probing that UNIT_AURA
+    -- sees the removal.
+    local procIIDs = {}
+    local blindBy = {}  -- [caller] -> its icons already show the answer for unreadable auras
 
     -- Tooltip data can come back as secret tables, and indexing one throws
     local function Readable(t)
-        return type(t) == "table" and (not canaccesstable or canaccesstable(t))
+        return not issecretvalue(t) and type(t) == "table" and (not canaccesstable or canaccesstable(t))
+    end
+
+    -- A druid caster spell's rule (nil for other spells and classes). forms:
+    -- the forms it cannot be cast in. talents / formTalents[form]: known
+    -- spells that permit it in all of them / in that form. procs: [aura] =
+    -- the talent that grants the aura, or false for an item or set bonus
+    -- (counted while the client has the aura); while one is up the spell is
+    -- permitted. Each client lists its own spell IDs.
+    local function CasterRule(sid)
+        if not _isDruid then return nil end
+        if not casterRules then
+            local function Forms(...)
+                local set = {}
+                for i = 1, select("#", ...) do set[select(i, ...)] = true end
+                return set
+            end
+            local function Add(rule, ids)
+                for i = 1, #ids do casterRules[ids[i]] = rule end
+            end
+            -- Form IDs (GetShapeshiftFormID): Dire Bear is WoW Forever's, and
+            -- Moonkin Form is 31 for Balance, 35 from the class talents.
+            local CAT, TRAVEL, AQUATIC, BEAR, DIRE_BEAR = 1, 3, 4, 5, 8
+            local SWIFT_FLIGHT, FLIGHT, MOONKIN, MOONKIN_CLASS = 27, 29, 31, 35
+            local beasts = Forms(CAT, TRAVEL, AQUATIC, BEAR, DIRE_BEAR, SWIFT_FLIGHT, FLIGHT)
+            local heal = { forms = Forms(CAT, TRAVEL, AQUATIC, BEAR, DIRE_BEAR, SWIFT_FLIGHT, FLIGHT,
+                MOONKIN, MOONKIN_CLASS) }
+            local caster = { forms = beasts }  -- castable in Moonkin Form
+            casterRules = {}
+            if EllesmereUI.IS_FOREVER == true then
+                -- No talent permits these in a form; set bonuses and an item do
+                Add(heal, { 740, 8918, 9862, 9863 })  -- Tranquility
+                Add(heal, { 774, 1058, 1430, 2090, 2091, 3627, 8910, 9839, 9840, 9841, 25299 })  -- Rejuvenation
+                Add(heal, { 8936, 8938, 8939, 8940, 8941, 9750, 9856, 9857, 9858 })  -- Regrowth
+                Add(heal, { 5185, 5186, 5187, 5188, 5189, 6778, 8903, 9758, 9888, 9889, 25297 })  -- Healing Touch
+                Add(heal, { 18562, 17116, 408124, 408247 })  -- Swiftmend, Nature's Swiftness, Lifebloom, Nourish
+                Add(caster, { 339, 1062, 5195, 5196, 9852, 9853 })  -- Entangling Roots
+                Add(caster, { 8921, 8924, 8925, 8926, 8927, 8928, 8929, 9833, 9834, 9835 })  -- Moonfire
+                Add(caster, { 5570, 24974, 24975, 24976, 24977 })  -- Insect Swarm
+                Add(caster, { 437138, 1237948, 1237949, 1237950, 1237951 })  -- Revive
+                Add(caster, { 2782, 2893, 8946 })  -- Remove Curse, Abolish Poison, Cure Poison
+                Add(caster, { 18960, 417148 })  -- Teleport: Moonglade, Efflorescence
+                local mark = EllesmereUI.FOREVER_BUFF_FAMILIES.mark
+                Add(caster, mark.single)  -- Mark of the Wild
+                Add(caster, mark.group)   -- Gift of the Wild
+                -- 456325 T1 Guardian 2P, 1232896 Staff of the Glade, 1301005 T1
+                -- Guardian 3P, 467206 T2 Restoration 6P (in Moonkin Form)
+                casterRules[29166] = { forms = beasts, procs = { [456325] = false, [1232896] = false } }  -- Innervate
+                Add({ forms = beasts, procs = { [456325] = false, [1232896] = false, [1301005] = false } },
+                    { 20484, 20739, 20742, 20747, 20748 })  -- Rebirth
+                Add({ forms = heal.forms, procs = { [467206] = false } }, { 408120, 1238214, 1238215 })  -- Wild Growth
+            else
+                -- Spec passives: Feline Adept (Feral) in Cat, Ursine Adept (Guardian) in Bear
+                local FELINE_ADEPT, URSINE_ADEPT = 300349, 300346
+                local SWIFTNESS = 132158  -- Nature's Swiftness: the talent and its aura
+                Add(heal, { 740, 774, 18562, 33763, 48438 })  -- Tranquility, Rejuvenation, Swiftmend, Lifebloom, Wild Growth
+                Add(heal, { 145205, 102342 })  -- Efflorescence, Ironbark
+                Add(caster, { 18960, 193753, 473909, 474750 })  -- Teleport: Moonglade, Dreamwalk, Ancient of Lore, Symbiotic Relationship
+                Add({ forms = Forms(CAT, TRAVEL, AQUATIC, BEAR, SWIFT_FLIGHT, FLIGHT, MOONKIN) },
+                    { 50769, 212040 })  -- Revive, Revitalize
+                Add({ forms = beasts, formTalents = { [CAT] = { FELINE_ADEPT }, [BEAR] = { URSINE_ADEPT } } },
+                    { 2782, 440015, 88423, 29166 })  -- Remove Corruption (both), Nature's Cure, Innervate
+                -- 69369 Predatory Swiftness (talent 16974), 372152 Dream of Cenarius (talent 372119).
+                -- overlay: Predatory Swiftness lights the spell, so while the auras
+                -- cannot be read (combat) its proc highlight decides (CasterOutside).
+                casterRules[8936] = { forms = beasts, overlay = true,
+                    procs = { [SWIFTNESS] = SWIFTNESS, [69369] = 16974, [372152] = 372119 } }  -- Regrowth
+                casterRules[339] = { forms = beasts, talents = { 202226 }, overlay = true,
+                    procs = { [SWIFTNESS] = SWIFTNESS, [69369] = 16974 } }  -- Entangling Roots; 202226 Entangling Claws
+                -- Lunar Inspiration (Feral) in Cat; Celestial Guardian (Balance PvP talent) in Bear
+                Add({ forms = beasts, formTalents = { [CAT] = { 155580 }, [BEAR] = { URSINE_ADEPT, 233754 } } },
+                    { 8921, 155625 })  -- Moonfire
+                casterRules[20484] = { forms = beasts, formTalents = { [BEAR] = { URSINE_ADEPT } },
+                    procs = { [SWIFTNESS] = SWIFTNESS } }  -- Rebirth
+            end
+            procAuras = {}
+            for _, rule in pairs(casterRules) do
+                if rule.procs then
+                    for aura in pairs(rule.procs) do procAuras[aura] = true end
+                end
+            end
+        end
+        return casterRules[sid]
+    end
+
+    -- IsSpellKnown, kept until a talent change (ns.CdmWipeFormCache)
+    local function Knows(id)
+        local v = known[id]
+        if v == nil then
+            v = C_SpellBook.IsSpellKnown(id)
+            if issecretvalue(v) or type(v) ~= "boolean" then v = UNREAD end
+            known[id] = v
+        end
+        return v
+    end
+
+    -- Whether this player can gain an exception aura: its talent is known, or
+    -- for an item or set bonus (no talent) the client has the aura at all.
+    local function CanProc(aura, talent)
+        if talent then return Knows(talent) end
+        local v = exists[aura]
+        if v == nil then
+            v = C_Spell.DoesSpellExist(aura)
+            if issecretvalue(v) or type(v) ~= "boolean" then v = UNREAD end
+            exists[aura] = v
+        end
+        return v
+    end
+
+    -- Whether an exception aura is on the player: nil while auras are secret
+    -- (not kept, so it is asked again once they read); otherwise read once,
+    -- then again after the UNIT_AURA probe (ns.CdmFormAuraEdge) drops it.
+    local function ProcActive(aura)
+        local v = auraState[aura]
+        if v == nil then
+            local allSecret, spellSecret = C_Secrets.ShouldAurasBeSecret(), C_Secrets.ShouldSpellAuraBeSecret(aura)
+            if issecretvalue(allSecret) or issecretvalue(spellSecret) or allSecret ~= false or spellSecret ~= false then
+                return nil
+            end
+            v = UNREAD
+            local ok, data = pcall(C_UnitAuras.GetPlayerAuraBySpellID, aura)
+            if ok and not issecretvalue(data) then
+                if data == nil then
+                    v = false
+                elseif Readable(data) then
+                    v = true
+                    -- Recorded so the probe sees it go
+                    local iid = data.auraInstanceID
+                    if iid ~= nil and not issecretvalue(iid) then procIIDs[iid] = aura end
+                end
+            end
+            auraState[aura] = v
+        end
+        if v ~= UNREAD then return v end
+    end
+
+    -- Whether a spell's answer can change within a form: its rule has an
+    -- exception aura this player can gain.
+    function ns.CdmFormNeedsAura(sid)
+        if not _isDruid or issecretvalue(sid) or type(sid) ~= "number" or sid <= 0 then return false end
+        local override = C_SpellBook.FindSpellOverrideByID(sid)
+        if issecretvalue(override) then return false end
+        if type(override) == "number" and override > 0 then sid = override end
+        local rule = CasterRule(sid)
+        if rule and rule.procs then
+            for aura, talent in pairs(rule.procs) do
+                if CanProc(aura, talent) ~= false then return true end
+            end
+        end
+        return false
+    end
+
+    local function InvalidateFormAuras()
+        wipe(auraState)
+        wipe(procIIDs)
+        wipe(blindBy)
+    end
+
+    -- A player UNIT_AURA in an unchanged form, for a caller (who) with icons
+    -- whose rules hang on exception auras: true when one came or went (its
+    -- answer is read again at the next evaluation) or the payload cannot
+    -- tell. While auras are secret a caller gets one true, so its icons take
+    -- the answer for unreadable auras (shown), and one more once they read.
+    function ns.CdmFormAuraEdge(updateInfo, who)
+        if not procAuras then return false end
+        local s = C_Secrets.ShouldAurasBeSecret()
+        if issecretvalue(s) or s ~= false then
+            if next(auraState) ~= nil then wipe(auraState) end
+            if blindBy[who] then return false end
+            blindBy[who] = true
+            return true
+        end
+        if blindBy[who] then
+            blindBy[who] = nil
+            return true
+        end
+        if not Readable(updateInfo) then
+            wipe(auraState)
+            return true
+        end
+        local full = updateInfo.isFullUpdate
+        if issecretvalue(full) or full then
+            wipe(auraState)
+            wipe(procIIDs)
+            return true
+        end
+        local hit = false
+        local added = updateInfo.addedAuras
+        if Readable(added) then
+            for i = 1, #added do
+                local aura = added[i]
+                if Readable(aura) then
+                    local id = aura.spellId
+                    if not issecretvalue(id) and procAuras[id] then
+                        auraState[id] = nil
+                        local iid = aura.auraInstanceID
+                        if iid ~= nil and not issecretvalue(iid) then procIIDs[iid] = id end
+                        hit = true
+                    end
+                end
+            end
+        end
+        local removed = updateInfo.removedAuraInstanceIDs
+        if Readable(removed) then
+            for i = 1, #removed do
+                local iid = removed[i]
+                local id = not issecretvalue(iid) and procIIDs[iid]
+                if id then
+                    auraState[id] = nil
+                    hit = true
+                end
+            end
+        end
+        return hit
+    end
+
+    function ns.CdmCurrentFormID()
+        local form = GetShapeshiftFormID()
+        if issecretvalue(form) then return nil end
+        if form == nil then return 0 end
+        if type(form) == "number" then return form end
+    end
+
+    -- Any of these spells known (one that cannot be read counts)
+    local function Permits(spells)
+        if spells then
+            for i = 1, #spells do
+                if Knows(spells[i]) ~= false then return true end
+            end
+        end
+        return false
+    end
+
+    -- The rule's answer for this form: true when the spell cannot be cast
+    -- here now. An exception that cannot be read permits it, except on a rule
+    -- whose proc lights the spell (rule.overlay): there the spell's proc
+    -- highlight, readable in combat too, decides.
+    local function CasterOutside(rule, form, sid)
+        if not rule.forms[form] then return false end
+        if Permits(rule.talents) or (rule.formTalents and Permits(rule.formTalents[form])) then return false end
+        local uncertain = false
+        if rule.procs then
+            for aura, talent in pairs(rule.procs) do
+                local can = CanProc(aura, talent)
+                if can == UNREAD then uncertain = true
+                elseif can then
+                    local active = ProcActive(aura)
+                    if active then return false end
+                    if active == nil then uncertain = true end
+                end
+            end
+        end
+        if uncertain and rule.overlay then
+            local lit = C_SpellActivationOverlay.IsSpellOverlayed(sid)
+            if not issecretvalue(lit) and type(lit) == "boolean" then return not lit end
+        end
+        return not uncertain
+    end
+
+    -- The player's forms changed: a line that named none of the old ones may
+    -- name a new one
+    local function DropNoLine()
+        for _, row in pairs(outside) do
+            for form, v in pairs(row) do
+                if v == NO_LINE then row[form] = nil end
+            end
+        end
     end
 
     -- Text test for a line not typed as a shapeshift requirement: it names one
@@ -718,13 +1013,18 @@ do
             if not fits then return false end
         end
         local n = GetNumShapeshiftForms()
+        if issecretvalue(n) or type(n) ~= "number" then return nil end
         if n ~= formCount then
-            formNames, formCount = {}, n
+            local names = {}
             for i = 1, n do
                 local _, _, _, formSid = GetShapeshiftFormInfo(i)
-                local name = formSid and C_Spell.GetSpellName(formSid)
-                if name then formNames[#formNames + 1] = name end
+                if issecretvalue(formSid) or type(formSid) ~= "number" or formSid <= 0 then return nil end
+                local name = C_Spell.GetSpellName(formSid)
+                if issecretvalue(name) or type(name) ~= "string" or name == "" then return nil end
+                names[#names + 1] = name
             end
+            if formCount then DropNoLine() end
+            formNames, formCount = names, n
         end
         for i = 1, #formNames do
             if text:find(formNames[i], 1, true) then return true end
@@ -758,14 +1058,15 @@ do
                         unread = true
                     elseif type(text) == "string" then
                         isForm = NamesForm(text, LINE_REQ ~= nil and t == LINE_REQ)
+                        if isForm == nil then unread = true end
                     end
                 end
                 if isForm then
                     local c = line.leftColor
                     if not Readable(c) then return nil end
                     local r, g, b = c.r, c.g, c.b
-                    if r == nil or g == nil or b == nil
-                        or issecretvalue(r) or issecretvalue(g) or issecretvalue(b) then return nil end
+                    if issecretvalue(r) or issecretvalue(g) or issecretvalue(b)
+                        or type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then return nil end
                     return r >= 0.9 and g <= 0.2 and b <= 0.2
                 end
             end
@@ -775,7 +1076,21 @@ do
     end
 
     function ns.CdmSpellOutsideForm(sid)
-        local form = GetShapeshiftFormID() or 0
+        if issecretvalue(sid) or type(sid) ~= "number" or sid <= 0 then return false end
+        local form = ns.CdmCurrentFormID()
+        if form == nil then return false end
+        local rule = CasterRule(sid)
+        local casterOutside = rule and CasterOutside(rule, form, sid)
+        if rule and rule.procs and rule.forms[form] and procSeen[sid] ~= casterOutside then
+            -- An exception aura coming or going can recolor the form line
+            procSeen[sid] = casterOutside
+            local row = outside[sid]
+            if row then
+                for key, v in pairs(row) do
+                    if v == true or v == false then row[key] = nil end
+                end
+            end
+        end
         local row = outside[sid]
         local v = row and row[form]
         if v == nil then
@@ -787,7 +1102,9 @@ do
             end
             row[form] = v
         end
-        if v ~= NO_LINE then return v == true end
+        if v ~= NO_LINE and v ~= UNREAD then return v == true end
+        if rule then return casterOutside end
+        if v == UNREAD then return false end
         if form == 0 then
             casterOK[sid] = not ns.CdmSpellNotUsable(sid)
             return false
@@ -797,6 +1114,14 @@ do
 
     -- A form change or combat end: answers that could not be read are read again
     function ns.CdmRetryUnreadForms()
+        InvalidateFormAuras()
+        for id, v in pairs(known) do if v == UNREAD then known[id] = nil end end
+        for id, v in pairs(exists) do if v == UNREAD then exists[id] = nil end end
+        local n = GetNumShapeshiftForms()
+        if formCount and not issecretvalue(n) and n ~= formCount then
+            formCount = nil  -- the names are read again
+            DropNoLine()
+        end
         if unreadN == 0 then return end
         unreadN = 0
         for _, row in pairs(outside) do
@@ -809,7 +1134,14 @@ do
     function ns.CdmWipeFormCache()
         wipe(outside)
         wipe(casterOK)
+        wipe(procSeen)
+        wipe(known)
+        wipe(exists)
+        InvalidateFormAuras()
         unreadN, formCount = 0, nil
+        -- A talent can teach or drop an exception: who needs auras is decided again
+        ns.CdmFormWatchStale()
+        if ns.FakeActive_SyncFormAuraRules then ns.FakeActive_SyncFormAuraRules() end
     end
 end
 
@@ -846,8 +1178,7 @@ local function ArmCdStateEval(frame, fd, cse, cseShift, lowAlpha, hideUntilSpent
             elseif self.usable and ns.CdmSpellNotUsable(liveSid) then
                 onCD = true
             else
-                local cseInfo = C_Spell.GetSpellCooldown(liveSid)
-                onCD = cseInfo and cseInfo.isActive and not cseInfo.isOnGCD
+                onCD = ns.CdmOnRealCD(frame, C_Spell.GetSpellCooldown(liveSid))
             end
             local myCse = self.cse
             local bd3 = barDataByKey and barDataByKey[bk3]
@@ -914,7 +1245,7 @@ local function EvalCdStateChargeFrame(frame, fd)
         return
     end
     local ssw = ResolveSpellSettings(frame, sidw, ns.GetBarSpellData(bkw))
-    local csew = ns.GetSpellCdStateEffect(frame, ssw)
+    local csew = ns.CdStateHideOf(ssw, frame)
     if csew ~= "hiddenReady" and csew ~= "hiddenReadyShift" then
         -- Effect changed or cleared: the desat hook owns every other mode.
         ns._cdStateChargeWatch[frame] = nil
@@ -964,19 +1295,36 @@ end
 --  (Overpower after a dodge, Victory Rush after a kill) changes only
 --  usability, which Blizzard's own icons follow through SPELL_UPDATE_USABLE;
 --  a form or stance change fires UPDATE_SHAPESHIFT_FORM (with combat end,
---  which retries form answers that were secret). Each event is registered
+--  which retries form answers that were secret). A druid exception aura
+--  (Predatory Swiftness, Nature's Swiftness) changes an answer within a form:
+--  the player's UNIT_AURA payload shows one coming or going, and only then
+--  do the icons whose rules hang on it re-evaluate (a proc highlight coming
+--  or going too, which decides while auras are secret). Each event is registered
 --  only while an icon runs its mode; a burst folds into one pass on the next
 --  frame, which re-resolves each watched icon (an icon whose mode, spell or
 --  owner changed leaves the set) and re-arms the shared evaluator. The set
 --  drains itself, and an event unregisters once no icon needs it.
 -------------------------------------------------------------------------------
 do
-    local watch = setmetatable({}, { __mode = "k" })  -- icon frame -> true
+    local watch = setmetatable({}, { __mode = "k" })  -- icon frame -> the spell ID it was watched with
     local eventFrame, flushFrame
-    local usableOn, formOn = false, false
+    local usableOn, formOn, auraOn = false, false, false
     local flushedForm  -- the form ID the last pass evaluated
 
-    local function SyncEvents(usable, form)
+    local function SyncEvents(usable, form, aura)
+        aura = aura == true
+        if aura ~= auraOn then
+            -- A proc highlight coming or going decides an overlay rule while
+            -- its auras cannot be read (CasterOutside).
+            if aura then
+                eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
+                eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+            else
+                eventFrame:UnregisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
+                eventFrame:UnregisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+            end
+        end
+        auraOn = aura
         if usable ~= usableOn then
             usableOn = usable
             if usable then eventFrame:RegisterEvent("SPELL_UPDATE_USABLE")
@@ -988,7 +1336,8 @@ do
             -- And the player's auras: a powershift (re-entering the form you are
             -- in) fires the form event as the form drops but none as it comes
             -- back, the same gap that leaves Blizzard's action bar on its caster
-            -- page; the form's own aura returning still fires UNIT_AURA.
+            -- page; the form's own aura returning still fires UNIT_AURA. In an
+            -- unchanged form only an exception aura counts, while auraOn.
             if form then
                 eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
                 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -1003,8 +1352,10 @@ do
 
     local function Flush(self)
         self:Hide()
-        flushedForm = GetShapeshiftFormID() or 0
-        local usable, form = false, false
+        local auraOnly = self.auraOnly
+        self.auraOnly = nil
+        flushedForm = ns.CdmCurrentFormID()
+        local usable, form, aura = false, false, false
         for frame in pairs(watch) do
             local fd = hookFrameData[frame]
             local fc = _ecmeFC[frame]
@@ -1014,39 +1365,65 @@ do
             -- Same ownership guards as the SetDesaturated hook.
             if fd and sid and bk and bk:sub(1, 7) ~= "__ghost" and bk ~= ns.FOCUSKICK_BAR_KEY
                and not (ns.PresetHasCdState and ns.PresetHasCdState(frame)) then
-                local cse = ns.GetSpellCdStateEffect(frame, ResolveSpellSettings(frame, sid, false))
+                local cse = ns.CdStateHideOf(ResolveSpellSettings(frame, sid, false), frame)
                 m = cse and ns.CD_STATE_HIDE[cse]
             end
             if m and (m.usable or m.form) then
+                watch[frame] = sid
                 usable = usable or m.usable == true
                 form = form or m.form == true
-                ArmCdStateEval(frame, fd, m.base, m.shift, nil, nil, m.usable, m.form)
+                local needsAura = m.form and ns.CdmFormNeedsAura(sid)
+                aura = aura or needsAura == true
+                if not auraOnly or needsAura then
+                    ArmCdStateEval(frame, fd, m.base, m.shift, nil, nil, m.usable, m.form)
+                end
             else
                 watch[frame] = nil
             end
         end
-        SyncEvents(usable, form)
+        SyncEvents(usable, form, aura)
     end
 
     -- Called wherever the mode is resolved for an icon (SetDesaturated hook,
     -- RefreshCDMIconAppearance); form = the icon runs Hidden Outside
-    -- Form/Stance. One table read once the icon is watched.
+    -- Form/Stance. Table reads only, once the icon is watched with its spell.
     function ns.WatchCdUsable(frame, form)
-        if watch[frame] and ((form and formOn) or (not form and usableOn)) then return end
-        watch[frame] = true
+        local fc = _ecmeFC[frame]
+        local sid = fc and fc.spellID
+        local was = watch[frame]
+        if was ~= nil and was == sid and ((form and formOn) or (not form and usableOn)) then return end
+        watch[frame] = sid or true
         if not eventFrame then
             flushFrame = ns.TakeShell()
             flushFrame:Hide()
             flushFrame:SetScript("OnUpdate", Flush)
             eventFrame = ns.TakeShell()
-            eventFrame:SetScript("OnEvent", function(_, event)
-                -- UNIT_AURA counts only when the form changed since the last pass
-                if event == "UNIT_AURA" and (GetShapeshiftFormID() or 0) == flushedForm then return end
-                if event ~= "SPELL_UPDATE_USABLE" then ns.CdmRetryUnreadForms() end
+            eventFrame:SetScript("OnEvent", function(_, event, _, updateInfo)
+                local overlay = event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW"
+                    or event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE"
+                local auraOnly = overlay or (event == "UNIT_AURA" and ns.CdmCurrentFormID() == flushedForm)
+                if overlay then
+                    -- Only the icons whose rules hang on exception auras re-read
+                elseif auraOnly then
+                    -- Same form: only an exception aura coming or going counts
+                    if not (auraOn and ns.CdmFormAuraEdge(updateInfo, "watch")) then return end
+                elseif event ~= "SPELL_UPDATE_USABLE" then
+                    ns.CdmRetryUnreadForms()
+                end
+                -- A queued form/usability edge keeps its full pass.
+                if not flushFrame:IsShown() then flushFrame.auraOnly = auraOnly
+                elseif not auraOnly then flushFrame.auraOnly = false end
                 flushFrame:Show()
             end)
         end
-        SyncEvents(usableOn or not form, formOn or form == true)
+        local needsAura = form and ns.CdmFormNeedsAura(sid)
+        SyncEvents(usableOn or not form, formOn or form == true, auraOn or needsAura == true)
+    end
+
+    -- A talent change can teach or drop an exception: each watched icon
+    -- decides its aura need again on its next pass (ns.CdmWipeFormCache).
+    function ns.CdmFormWatchStale()
+        for frame in pairs(watch) do watch[frame] = true end
     end
 end
 
@@ -1084,6 +1461,94 @@ local function TryHookSwiftmend(frame, fd)
     end)
     if SwiftmendEnabled() then iconWidget:SetVertexColor(1, 1, 1) end
 end
+
+-------------------------------------------------------------------------------
+--  Ignore Resource Cost (per spell, cd/utility icons): Blizzard tints a viewer
+--  icon through SetVertexColor on every usability change -- blue while the
+--  spell is short on its resource, grey while unusable for another reason, red
+--  out of range. With the setting on only the resource tint goes: a post-hook
+--  on the icon texture repaints full color whenever IsSpellUsable reports
+--  insufficient power (a plain boolean on every client), through
+--  SetVertexColorFromBoolean on Blizzard's own out-of-range flag, so red still
+--  wins and a secret range answer in instanced content needs no Lua test.
+--  Nothing is hooked or read until some spell uses the setting
+--  (ns._cdmAnyNoResourceTint), and an icon is hooked only on a pass that finds
+--  its own spell using it: DecorateFrame on every (re)claim, the appearance
+--  refresh after a settings change and the swipe hook's gate run this again
+--  for an icon that gets such a spell later. Turning it off repaints
+--  Blizzard's tint once from the reads its RefreshIconColor makes, never by
+--  calling that insecurely.
+-------------------------------------------------------------------------------
+local RES_WHITE = CreateColor(1, 1, 1, 1)
+local resRed, resPower, resGrey
+local function ResColors()
+    if not resRed then
+        local C = CooldownViewerConstants
+        resRed = (C and C.ITEM_NOT_IN_RANGE_COLOR) or CreateColor(0.64, 0.15, 0.15, 1)
+        resPower = (C and C.ITEM_NOT_ENOUGH_MANA_COLOR) or CreateColor(0.5, 0.5, 1, 1)
+        resGrey = (C and C.ITEM_NOT_USABLE_COLOR) or CreateColor(0.4, 0.4, 0.4, 1)
+    end
+    return resRed, resPower, resGrey
+end
+
+-- Paints `base`, or Blizzard's red while its out-of-range flag is set.
+local function PaintIconTint(frame, fd, tex, base)
+    local red = ResColors()
+    local oor = frame.spellOutOfRange
+    fd._resTintBusy = true
+    if type(oor) == "boolean" and tex.SetVertexColorFromBoolean then
+        tex:SetVertexColorFromBoolean(oor, red, base)
+    else
+        tex:SetVertexColor(base:GetRGBA())
+    end
+    fd._resTintBusy = false
+end
+
+local function ApplyResourceTint(frame, fd, fromBlizzard)
+    if not ns._cdmAnyNoResourceTint then return end
+    fd = fd or hookFrameData[frame]
+    local tex = fd and fd.tex
+    if not tex or fd._isBuffViewerFrame then return end
+    -- Our own frames paint their tint themselves (ns.PaintCustomSpellTint).
+    if ns.CdmIsInjectedFrame and ns.CdmIsInjectedFrame(frame) then return end
+    local fc = _ecmeFC[frame]
+    local sid = fc and fc.spellID
+    if not sid or not (fc and fc.barKey) then return end
+    local ss = ResolveSpellSettings(frame, sid, false)
+    local want = ss and ss.noResourceTint
+    if not want and not fd._resTintOn then return end
+    -- Hooked only once the icon's own spell uses the setting (a lit tint
+    -- means the hook is already in).
+    if not fd._resTintHooked then
+        fd._resTintHooked = true
+        hooksecurefunc(tex, "SetVertexColor", function()
+            if fd._resTintBusy then return end
+            ApplyResourceTint(frame, fd, true)
+        end)
+    end
+    local liveSid = sid
+    if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+        liveSid = C_SpellBook.FindSpellOverrideByID(sid) or sid
+    end
+    local usable, noPower = C_Spell.IsSpellUsable(liveSid)
+    if issecretvalue and (issecretvalue(usable) or issecretvalue(noPower)) then return end
+    if want then
+        if noPower then
+            PaintIconTint(frame, fd, tex, RES_WHITE)
+            fd._resTintOn = true
+        else
+            -- Not short on power: Blizzard's own tint stands.
+            fd._resTintOn = nil
+        end
+    elseif fd._resTintOn then
+        fd._resTintOn = nil
+        -- A Blizzard write that just landed already holds its own tint.
+        if fromBlizzard then return end
+        local _, power, grey = ResColors()
+        PaintIconTint(frame, fd, tex, usable and RES_WHITE or (noPower and power or grey))
+    end
+end
+ns.CdmApplyResourceTint = ApplyResourceTint
 
 
 -------------------------------------------------------------------------------
@@ -1239,4 +1704,5 @@ ns.ApplyOnlyNumbers = ApplyOnlyNumbers
 I._smHookedIcons, I.ApplyCustomIcon = _smHookedIcons, ApplyCustomIcon
 I.ApplyOnlyNumbers, I.ArmCdStateEval = ApplyOnlyNumbers, ArmCdStateEval
 I.SwiftmendEnabled, I.TryHookSwiftmend = SwiftmendEnabled, TryHookSwiftmend
+I.ApplyResourceTint = ApplyResourceTint
 I.broken = false

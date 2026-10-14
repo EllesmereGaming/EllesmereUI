@@ -556,13 +556,16 @@ end
 
 -- Newest first: an older unmatched line with the same text is the stale one. Exact match
 -- before containment, which is the fallback for formats Blizzard fills in itself. A bubble
--- already standing when a line arrived cannot be the bubble that line produced.
-local function MatchRecent(text, at)
+-- already standing when a line arrived cannot be the bubble that line produced, and a line of
+-- a channel switched off since claims nothing, so an older line of one still on can.
+local function MatchRecent(text, at, cfg)
     for i = #recent, 1, -1 do
-        if recent[i].at <= at and SafeEq(text, recent[i].text) then return i end
+        local e = recent[i]
+        if e.at <= at and cfg[e.channel] == true and SafeEq(text, e.text) then return i end
     end
     for i = #recent, 1, -1 do
-        if recent[i].at <= at and SafeContains(text, recent[i].text) then return i end
+        local e = recent[i]
+        if e.at <= at and cfg[e.channel] == true and SafeContains(text, e.text) then return i end
     end
     return nil
 end
@@ -598,7 +601,8 @@ local function Draw(outer, child, fs, text, line)
 end
 
 -- Draws this bubble if it shows a line of ours: a recent one, which binds it, or the one it
--- is already bound to, back on screen after going off it. Answers whether it is ours.
+-- is already bound to, back on screen after going off it. Answers whether it is ours, and
+-- second whether a next-frame read could change that (its text was not set yet).
 local function TryClaim(outer)
     if ours[outer] then return true end
     local child, fs = BlizzParts(outer)
@@ -606,15 +610,14 @@ local function TryClaim(outer)
     local text = BlizzText(fs)
     -- type() first, then the secret guard, then the compares. See SafeEq for why the nil
     -- test cannot lead here. A secret string can be shown but never matched.
-    if type(text) ~= "string" or IsSecret(text) then return false end
+    if type(text) ~= "string" then return false, true end
+    if IsSecret(text) then return false end
+    if text == "" then return false, true end
     local cfg = Cfg()
-    local idx = MatchRecent(text, shownAt[outer] or 0)
+    local idx = MatchRecent(text, shownAt[outer] or 0, cfg)
     local line
     if idx then
-        line = recent[idx]
-        -- A channel switched off since the line arrived.
-        if cfg[line.channel] ~= true then return false end
-        table.remove(recent, idx)
+        line = table.remove(recent, idx)
         -- Blizzard's own text, not the chat event's: the client has already formatted it, and
         -- it is what a re-show of this bubble is compared against.
         line.text = text
@@ -703,14 +706,17 @@ local function ScheduleRetry()
 end
 
 -- The text is usually already set when the engine shows the bubble, so it is claimed in the
--- frame it appears. When it is not readable yet, a next-frame pass reads it again.
+-- frame it appears. When it is not set yet, a next-frame pass reads it again. A readable text
+-- that matches nothing is not retried: recent lines never expire, so that would re-walk every
+-- bubble each time an unrelated one appears.
 function OnBlizzShow(outer)
     if not active or suspended then return end
     -- Stamped before the early return: a bubble shown while nothing waits must not be claimed
     -- by a later identical line.
     shownAt[outer] = GetTime()
     if #recent == 0 and not bound[outer] then return end
-    if not TryClaim(outer) and #recent > 0 then ScheduleRetry() end
+    local claimed, unread = TryClaim(outer)
+    if not claimed and unread and #recent > 0 then ScheduleRetry() end
 end
 
 -------------------------------------------------------------------------------
@@ -899,10 +905,11 @@ local function OnEvent(_, event, ...)
 
     if event == "PLAYER_ENTERING_WORLD" then
         AssertCVars()
-        if suspended then
-            wipe(recent)
-            ReleaseAll()
-        end
+        -- A loading screen ends every bubble, so no line or binding from before it can still
+        -- find one (a stale binding could restyle a recycled frame showing the same text).
+        wipe(recent)
+        wipe(bound)
+        if suspended then ReleaseAll() end
         return
     end
 
@@ -1100,6 +1107,12 @@ function CB.Refresh()
         wipe(recent)
         ReleaseAll()
         return
+    end
+    -- A channel just switched off hands its drawn bubbles straight back to Blizzard. Clearing
+    -- the entry being visited is allowed during pairs (ReleaseAll relies on it too).
+    local cfg = Cfg()
+    for outer, f in pairs(ours) do
+        if cfg[f.channel] ~= true then ReleaseBlizz(outer) end
     end
     CB.RefreshStyle()
 end

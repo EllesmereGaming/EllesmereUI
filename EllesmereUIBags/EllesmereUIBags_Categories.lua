@@ -985,8 +985,8 @@ end
 
 -- Assign an itemID to a category. Pass nil to unassign. Every route that marks
 -- an item as junk (the coin, a drop on the Junk row, its "+") comes through
--- here, so each remembers the item's category; filing a marked item anywhere
--- else ends the mark.
+-- here, so each remembers the item's category and reports the mark
+-- (OnJunkChanged); filing a marked item anywhere else ends the mark.
 function CategoryManager:AssignItem(itemID, categoryKey)
     if not itemID then return end
     if categoryKey == nil then return self:UnassignItem(itemID) end
@@ -1000,6 +1000,7 @@ function CategoryManager:AssignItem(itemID, categoryKey)
         SetJunkPrev(itemID, nil)
     end
     assignments[itemID] = categoryKey
+    if (current == self.JUNK_KEY) ~= (categoryKey == self.JUNK_KEY) then self:OnJunkChanged() end
 end
 
 -- Unassign an itemID (returns to auto-classification). Unmarking a junk item
@@ -1009,8 +1010,9 @@ function CategoryManager:UnassignItem(itemID)
     if not itemID then return end
     local assignments = EllesmereUIDB and EllesmereUIDB.bagItemAssignments
     if not assignments then return end
+    local wasJunk = assignments[itemID] == self.JUNK_KEY
     local back
-    if assignments[itemID] == self.JUNK_KEY then
+    if wasJunk then
         local prev = EllesmereUIDB.bagJunkPrev
         back = prev and prev[itemID]
         if back then
@@ -1023,6 +1025,7 @@ function CategoryManager:UnassignItem(itemID)
     end
     SetJunkPrev(itemID, nil)
     assignments[itemID] = back
+    if wasJunk then self:OnJunkChanged() end
 end
 
 -- Check if a category can accept item assignments (drag targets).
@@ -1070,6 +1073,15 @@ function CategoryManager:ToggleJunk(itemID)
     else
         self:AssignItem(itemID, self.JUNK_KEY)
     end
+end
+
+-- A mark came or went, or the Junk Marker was switched. WoW Forever's Junk
+-- Items window (Forever Essentials) lists marked items, so it picks its list
+-- again; that costs nothing while the window is inactive, and the window
+-- exists on no other client.
+function CategoryManager:OnJunkChanged()
+    local junkItems = EUI._JunkItems
+    if junkItems then junkItems.Refresh() end
 end
 
 -- Equipment sets changed (created/renamed/deleted): drop the cached list so the

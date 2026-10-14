@@ -213,6 +213,10 @@ EllesmereUI.DisabledTooltip = DisabledTooltip
 --  Shared Tooltip  (single frame, lazily created, reused by all widgets)
 -------------------------------------------------------------------------------
 local tooltipFrame
+-- The region the tooltip shows for (weak: never keeps it alive). The options page
+-- pool reads it to drop the tooltip of a region it reset under the cursor.
+local tooltipOwner = setmetatable({}, { __mode = "v" })
+function EllesmereUI._WidgetTooltipOwner() return tooltipOwner[1] end
 
 local function GetTooltipFrame()
     if not tooltipFrame then
@@ -266,6 +270,7 @@ local function ShowWidgetTooltip(label, text, opts)
     -- text may be a function for dynamic text; resolved after suppression checks so it isn't called when nothing will show.
     if type(text) == "function" then text = text() end
     local tt = GetTooltipFrame()
+    tooltipOwner[1] = label
     local MAX_W = 250
     local PAD = 8  -- horizontal padding each side (matches text anchor insets)
     if opts and opts.width then
@@ -384,6 +389,7 @@ end
 
 local function HideWidgetTooltip(instant)
     local tt = GetTooltipFrame()
+    tooltipOwner[1] = nil
     if not tt:IsShown() then return end
     if tt._fadeOutAG then tt._fadeOutAG:Stop() end
     if tt._fadeAG then tt._fadeAG:Stop() end
@@ -468,7 +474,7 @@ local function ApplyAccentLive(r, g, b)
     ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b = r, g, b
     UpdateAccentElements(r, g, b)
 
-    -- Cached popups rebuild with the new accent
+    -- The cached confirm popup repaints its accent parts
     EllesmereUI._InvalidateConfirmPopup()
 
     -- Fast path only; a full rebuild would churn memory
@@ -601,7 +607,8 @@ end
 
 -------------------------------------------------------------------------------
 --  ShowContextMenu(anchor, items, opts)
---  Shared pooled context menu used by Blizz UI Enhanced (character sheet gear-set cog, etc.). Pops up at the cursor.
+--  Shared pooled menu: the M+ Run Summary picker, the WoW Forever threat meter,
+--  the Macros page. Pops up at the cursor.
 --  items = { { text = "Foo", onClick = fn, isDisabled = fn? }, ... }
 --  Opt-in item forms:
 --    "---"               a separator line
@@ -610,6 +617,8 @@ end
 --    children = { ... }  a submenu of items, opened on hover (arrow on the row)
 --    isInput = true      a number box: getValue() fills it, Enter hands
 --                        setValue(v) the whole number, floored at min (or 1)
+--    icon = texture      a cropped 16px icon before the label
+--    noLoc = true        the label as given (no L())
 --  opts (optional): below = true hangs the menu off `anchor`'s bottom-left edge
 --  instead of the cursor (the dropdown placement of the options widgets);
 --  minWidth widens the menu to the anchor's width so it reads as a dropdown.
@@ -621,12 +630,18 @@ end
 --  Forever's dropdown art and gold lit labels (the meter look's panel on a
 --  client without the art). fontKey sets the labels in that module's font,
 --  through ApplyModuleFont unless the look keeps plain labels (else the
---  global font).
---  Behavior: click-outside-to-dismiss (polled ~10hz); a second call from the same
---  anchor while its menu is open closes it (toggle); auto-closes on combat entry so
---  insecure clicks can't taint protected paths while lockdown is active. One menu
---  is open at a time: ContextMenuOwner() returns its anchor, CloseContextMenu()
---  closes it.
+--  global font). scaleToAnchor = true gives the menu the anchor's effective
+--  scale, for a list under a field of the options panel at its Window Scale
+--  (a menu without children: submenus keep scale 1). pickOnDown = true makes
+--  rows act on the press, so a pick lands before a focused edit box drops its
+--  focus on the mouse down. noPoll = true leaves out the click-outside poll,
+--  for a list its owner closes itself (one under an edit box, closed by the
+--  box's focus loss).
+--  Behavior: click-outside-to-dismiss (polled ~10hz unless noPoll); a second
+--  call from the same anchor while its menu is open closes it (toggle);
+--  auto-closes on combat entry so insecure clicks can't taint protected paths
+--  while lockdown is active. One menu is open at a time: ContextMenuOwner()
+--  returns its anchor, CloseContextMenu() closes it.
 -------------------------------------------------------------------------------
 local CTX_ARROW = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow.png"
 -- Row metrics and dressing per look. Each look keeps its own panels: the
@@ -701,6 +716,12 @@ local function CtxRowClick(row)
     if row._disabled or item.children then return end
     CtxRoot(row._panel):Hide()
     if item.onClick then item.onClick() end
+end
+
+-- pickOnDown menus act on the press: a focused edit box drops its focus on
+-- a mouse down outside it, before the row's click could land.
+local function CtxRowDown(row, button)
+    if button == "LeftButton" and CtxRoot(row._panel)._pickOnDown then CtxRowClick(row) end
 end
 
 local function CtxBoxCommit(box)
@@ -808,8 +829,7 @@ local function CtxRow(panel, i)
     hl:SetAllPoints()
     row._hl = hl
     local lbl = row:CreateFontString(nil, "OVERLAY")
-    lbl:SetPoint("LEFT", row, "LEFT", look.left, 0)
-    lbl:SetPoint("RIGHT", row, "RIGHT", look.right, 0)
+    lbl:SetPoint("RIGHT", row, "RIGHT", look.right, 0)   -- LEFT: per item in CtxLayout
     lbl:SetJustifyH("LEFT")
     if look.noWrap then lbl:SetWordWrap(false) end
     row._lbl = lbl
@@ -817,11 +837,13 @@ local function CtxRow(panel, i)
     row:SetScript("OnEnter", CtxRowEnter)
     row:SetScript("OnLeave", CtxRowLeave)
     row:SetScript("OnClick", CtxRowClick)
+    row:SetScript("OnMouseDown", CtxRowDown)
     panel._items[i] = row
     return row
 end
 
--- Separator line, submenu arrow and number box: made on a row's first need.
+-- Separator line, submenu arrow, number box and item icon: made on a row's
+-- first need.
 local function CtxSep(row)
     local sep = row._sep
     if not sep then
@@ -872,6 +894,17 @@ local function CtxBox(row, fontPath, outline)
     return box
 end
 
+local function CtxIcon(row)
+    local icon = row._icon
+    if not icon then
+        icon = row:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(16, 16)
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        row._icon = icon
+    end
+    return icon
+end
+
 local function CtxLayout(panel, items, minW, fontKey)
     local look = panel._look
     if look.popupBorder and not panel._art and EllesmereUI._applyBlizzardConfiguredBorder
@@ -898,18 +931,20 @@ local function CtxLayout(panel, items, minW, fontKey)
     end
     mfs:SetFont(fontPath, size, outline)
     local widest = 0
+    local iconW = 0
     for _, item in ipairs(items) do
         if type(item) == "table" then
-            mfs:SetText(L(item.text or ""))
+            mfs:SetText(item.noLoc and item.text or L(item.text or ""))
             local w = mfs:GetStringWidth() or 0
             if w > widest then widest = w end
+            if item.icon then iconW = 22 end
         end
     end
     mfs:SetText("")
     mfs:Hide()
 
     local pad = look.pad
-    local width = math.max(minW or look.minW, widest + look.textPad)
+    local width = math.max(minW or look.minW, widest + look.textPad + iconW)
     local y = pad
     for i, item in ipairs(items) do
         local row = CtxRow(panel, i)
@@ -930,6 +965,9 @@ local function CtxLayout(panel, items, minW, fontKey)
         if row._sep then row._sep:Hide() end
         if row._arrow then row._arrow:Hide() end
         if row._box then row._box:Hide() end
+        if row._icon then row._icon:Hide() end
+        -- The label starts past the item's icon.
+        lbl:SetPoint("LEFT", row, "LEFT", look.left + ((type(item) == "table" and item.icon) and 22 or 0), 0)
         local h = look.rowH
         if item == "---" then
             h = look.sepH
@@ -939,7 +977,13 @@ local function CtxLayout(panel, items, minW, fontKey)
             row:EnableMouse(false)
         else
             row._item = item
-            lbl:SetText(L(item.text or ""))
+            lbl:SetText(item.noLoc and item.text or L(item.text or ""))
+            if item.icon then
+                local ic = CtxIcon(row)
+                ic:SetPoint("LEFT", row, "LEFT", look.left, 0)
+                ic:SetTexture(item.icon)
+                ic:Show()
+            end
             if item.isInput then
                 row._disabled = true
                 lbl:SetTextColor(1, 1, 1, 1)
@@ -1011,6 +1055,18 @@ local function ShowContextMenu(anchor, items, opts)
     if panel._sub then panel._sub:Hide() end
     panel._owner = anchor
     panel._fontKey = opts and opts.fontKey
+    panel._pickOnDown = opts and opts.pickOnDown
+    -- The menu takes the anchor's effective scale (scaleToAnchor) or scale 1,
+    -- before the layout and the cursor placement; a new scale snaps its border
+    -- again. The applied scale is remembered: GetScale reads back a float32,
+    -- which most ratios never equal.
+    local menuScale = (opts and opts.scaleToAnchor and anchor)
+        and anchor:GetEffectiveScale() / UIParent:GetEffectiveScale() or 1
+    if (panel._menuScale or 1) ~= menuScale then
+        panel._menuScale = menuScale
+        panel:SetScale(menuScale)
+        EllesmereUI.PP.SetBorderSize(panel, 1)
+    end
 
     CtxLayout(panel, items, opts and opts.minWidth, panel._fontKey)
 
@@ -1031,8 +1087,12 @@ local function ShowContextMenu(anchor, items, opts)
     _ctxOpen = panel
     panel:Show()
 
-    panel._elapsed = 0
-    panel:SetScript("OnUpdate", CtxPoll)
+    if opts and opts.noPoll then
+        panel:SetScript("OnUpdate", nil)   -- the owner closes it
+    else
+        panel._elapsed = 0
+        panel:SetScript("OnUpdate", CtxPoll)
+    end
 end
 
 EllesmereUI.ShowContextMenu = ShowContextMenu
@@ -1331,9 +1391,17 @@ do
     -- stable global names; register once, while hidden, after the frame's last
     -- SetScript of OnShow/OnHide (the addon hooks those). Never remove one.
     local padRoots
+    local POOL = EllesmereUI._Pool   -- the core's pool table (EllesmereUI_PixelPerfect.lua)
     function EllesmereUI.RegisterPadFrame(f)
+        if not f or not f:GetName() then return end
+        -- The addon hooks OnShow/OnHide once, and so does the escape-close
+        -- registration (RegisterEscapeClose): on a frame of the options page pool
+        -- those scripts survive the pool's resets, with or without the addon, so
+        -- the code that dresses the frame sets them on its first dress only (dev
+        -- mode reports a later one).
+        if POOL and POOL.ExemptScripts then POOL.ExemptScripts(f, "OnShow", "OnHide") end
         local cp = PadCP()
-        if not cp or not f or not f:GetName() then return end
+        if not cp then return end
         if not padRoots then padRoots = {} end
         if padRoots[f] then return end
         padRoots[f] = true

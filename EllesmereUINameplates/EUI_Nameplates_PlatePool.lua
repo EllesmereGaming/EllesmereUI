@@ -599,8 +599,9 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         end
         -- Bottom text slots drop below the cast bar while it shows (one flag read when unused).
         if owner and ns._npBottomUsed then owner:AnchorBottomTexts() end
-        -- Rounded corners, Join Cast Bar: the health bar's bottom corners follow the cast bar.
-        if owner and owner._npJoinCast then ns.NP_ApplyRounding(owner, "health") end
+        -- Rounded corners, Join Cast Bar: the health bar's bottom corners follow the cast bar
+        -- (a corners-only pass while nothing else about the health bar's rounding moved).
+        if owner and owner._npJoinCast then ns.NP_ApplyRounding(owner, "health", true) end
     end
     plate.cast:HookScript("OnShow", OnCastVisibilityChanged)
     plate.cast:HookScript("OnHide", OnCastVisibilityChanged)

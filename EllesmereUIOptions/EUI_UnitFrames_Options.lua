@@ -1280,6 +1280,7 @@ initFrame:SetScript("OnEvent", function(self)
         ["perhp"]        = "Health %",
         ["perhpnosign"]  = "Health % (No Sign)",
         ["curhpshort"]   = "Health #",
+        ["healthshort"]  = "Health # Short (230k)",
         ["curmaxhp"]     = "Health # / Max #",
         ["perhpnum"]     = "Health % | #",
         ["both"]         = "Health # | %",
@@ -1292,12 +1293,12 @@ initFrame:SetScript("OnEvent", function(self)
         ["group"]        = "Group Number",
         ["none"]         = "None",
     }
-    local healthTextOrder = { "none", "---", "name", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "curmaxhp", "perhpnum", "both" }
+    local healthTextOrder = { "none", "---", "name", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both" }
     -- Boss frames also get "Name > Target" (the boss's target); ToT/FoT/Pet do not.
-    local healthTextOrderBoss = { "none", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
-    local healthTextOrderPlayer = { "none", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort", "group" }
+    local healthTextOrderBoss = { "none", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
+    local healthTextOrderPlayer = { "none", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort", "group" }
     -- Target/Focus: player's absorb options minus "group" (raid group number is meaningless off the player).
-    local healthTextOrderTargetFocus = { "none", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
+    local healthTextOrderTargetFocus = { "none", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
 
     -- Text bar (BTB) text dropdown values (includes power options)
     local btbTextValues = {
@@ -1305,6 +1306,7 @@ initFrame:SetScript("OnEvent", function(self)
         ["perhp"]        = "Health %",
         ["perhpnosign"]  = "Health % (No Sign)",
         ["curhpshort"]   = "Health #",
+        ["healthshort"]  = "Health # Short (230k)",
         ["curmaxhp"]     = "Health # / Max #",
         ["perhpnum"]     = "Health % | #",
         ["both"]         = "Health # | %",
@@ -1315,7 +1317,7 @@ initFrame:SetScript("OnEvent", function(self)
         ["perhp_perpp"]  = "Health | Power %",
         ["none"]         = "None",
     }
-    local btbTextOrder = { "none", "---", "name", "perhp", "perhpnosign", "curhpshort", "curmaxhp", "perhpnum", "both", "perpp", "curpp", "curmaxpp", "curhp_curpp", "perhp_perpp" }
+    local btbTextOrder = { "none", "---", "name", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "perpp", "curpp", "curmaxpp", "curhp_curpp", "perhp_perpp" }
 
     -- Class theme portrait icons: full-size versions of the sidebar class art.
     local ICONS_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
@@ -1340,15 +1342,37 @@ initFrame:SetScript("OnEvent", function(self)
     local classIconLocValues = { ["left"]="Left", ["center"]="Center", ["right"]="Right" }
     local classIconLocOrder = { "left", "center", "right" }
 
-    -- Swap helper for buff/debuff anchors: prevent both from occupying the same slot
-    local function SwapAuraSlot(settingsTable, changedKey, newVal)
-        local otherKey = (changedKey == "buffAnchor") and "debuffAnchor" or "buffAnchor"
-        local otherVal = settingsTable[otherKey] or (otherKey == "buffAnchor" and "topleft" or "bottomleft")
-        if otherVal == newVal then
-            local oldVal = settingsTable[changedKey] or (changedKey == "buffAnchor" and "topleft" or "bottomleft")
-            settingsTable[otherKey] = oldVal
+    -- Buff and debuff stacks never share a spot. Moves one stack (changedKey
+    -- "buffAnchor" or "debuffAnchor") to newVal; the other stack, when its
+    -- stored spot is newVal, takes this stack's previous spot, or the first
+    -- free corner when that spot is None or newVal itself. A hidden buff
+    -- stack's stored corner counts both ways, so buffs turned back on by any
+    -- path (a Spec Override, an import) never land on the debuffs. Buffs turn
+    -- off through showBuffs (their corner is kept, never "none"); None never
+    -- collides.
+    local AURA_FREE_CORNERS = { "topleft", "bottomleft", "topright", "bottomright" }
+    local function SwapAuraSlot(t, changedKey, newVal)
+        local isBuff = (changedKey == "buffAnchor")
+        local prev
+        if isBuff then
+            prev = t.buffAnchor or "topleft"
+            if newVal == "none" then t.showBuffs = false; return end
+            t.showBuffs = true
+        else
+            prev = t.debuffAnchor or "bottomleft"
         end
-        settingsTable[changedKey] = newVal
+        t[changedKey] = newVal
+        if newVal == "none" then return end
+        local other
+        if isBuff then other = t.debuffAnchor or "bottomleft" else other = t.buffAnchor or "topleft" end
+        if other ~= newVal then return end
+        local dest = prev
+        if dest == "none" or dest == newVal then
+            for i = 1, #AURA_FREE_CORNERS do
+                if AURA_FREE_CORNERS[i] ~= newVal then dest = AURA_FREE_CORNERS[i]; break end
+            end
+        end
+        if isBuff then t.debuffAnchor = dest else t.buffAnchor = dest end
     end
 
     ---------------------------------------------------------------------------
@@ -2044,6 +2068,12 @@ initFrame:SetScript("OnEvent", function(self)
         -- WoW Forever: the pet's power bar position has no counterpart on the
         -- other small frames (theirs never shows), so it stays with the pet.
         if key == "powerPosition" and ns.UF_PetHasPower and groupUnits == MINI_GROUP_ORDER then return false end
+        -- The pet's buffs and debuffs stay with the pet: the other small frames
+        -- have none, so a copy either way would only clear or plant aura keys.
+        if groupUnits == MINI_GROUP_ORDER and (key:find("^buff") or key:find("^debuff")
+            or key == "showBuffs" or key == "maxBuffs" or key == "maxDebuffs" or key == "auraSource") then
+            return false
+        end
         local sup = UNIT_SUPPORTS[key]
         if sup then
             for _, u in ipairs(groupUnits) do
@@ -2095,13 +2125,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- re-picking the frame shown stores nothing, and Focus, which behaves
     -- exactly as no choice, is stored as none.
     local function BuildLookSourcePair(row, unitKey, ddW)
-        local function Shown()
-            local p = db.profile
-            local s = ns.GetMiniDonorSettings(unitKey)
-            if s == p.focus then return "focus" end
-            if s == p.target then return "target" end
-            return "player"
-        end
+        local function Shown() return ns.UF_MiniDonorKey(unitKey) end
         local ddBtn = EllesmereUI.BuildDropdownControl(
             row, ddW, row:GetFrameLevel() + 2,
             { target = "Target", focus = "Focus", player = "Player" },
@@ -2226,21 +2250,6 @@ initFrame:SetScript("OnEvent", function(self)
             if v ~= nil then return v end
             return default
         end
-        -- True while one of the unit's text slots shows its level (Level,
-        -- Level | Name, Name | Level). The Level Text: Difficulty Color row is
-        -- built only then, so the text setters rebuild the page when it flips.
-        local SShowsLevel
-        do
-            local slots = { "leftTextContent", "rightTextContent", "centerTextContent", "extraTextContent" }
-            local levelText = { level = true, levelname = true, namelevel = true }
-            SShowsLevel = function()
-                local d = UNIT_DB_MAP[optState.selectedUnit]()
-                for i = 1, #slots do
-                    if levelText[d[slots[i]]] then return true end
-                end
-                return false
-            end
-        end
         -- Set that also writes to the current unit (for UNIT_SUPPORTS keys)
         local function SSetSupported(key, val)
             UNIT_DB_MAP[optState.selectedUnit]()[key] = val
@@ -2297,7 +2306,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- the click mapping below points at; Display returns true second when
         -- the unit has no EUI frame (only the inactive notice is built).
         local ctx = {
-            W = W, SGet = SGet, SSet = SSet, SDB = SDB, SVal = SVal, SShowsLevel = SShowsLevel,
+            W = W, SGet = SGet, SSet = SSet, SDB = SDB, SVal = SVal,
             SSetSupported = SSetSupported, SGetSupported = SGetSupported, SValSupported = SValSupported,
             SVisible = SVisible, SApplySupport = SApplySupport,
         }
@@ -2333,9 +2342,10 @@ initFrame:SetScript("OnEvent", function(self)
             powerBar     = { section = sharedPowerHeader,    target = sharedPowerRow1, slotSide = "left" },
             powerBarText = { section = sharedPowerHeader,    target = sharedPowerRow2, slotSide = "left" },
             portrait     = { section = sharedPortraitHeader, target = sharedPortraitModeRow, slotSide = "left" },
-            nameText     = { section = sharedBarsHeader,     target = sharedTextRow, slotSide = "left" },
-            healthText   = { section = sharedBarsHeader,     target = sharedTextRow, slotSide = "right" },
-            centerText   = { section = sharedBarsHeader,     target = sharedCenterTextRow, slotSide = "left" },
+            nameText = ns.UFO_TextClickTarget(parent, "leftText", sharedBarsHeader, sharedTextRow),
+            healthText = ns.UFO_TextClickTarget(parent, "rightText", sharedBarsHeader, sharedTextRow),
+            centerText = ns.UFO_TextClickTarget(parent, "centerText", sharedBarsHeader, sharedTextRow),
+            extraText = ns.UFO_TextClickTarget(parent, "extraText", sharedBarsHeader, sharedTextRow),
             classResource= { section = sharedClassResHeader, target = sharedClassResRow, slotSide = "left" },
             btbBar       = { section = sharedBtbHeader,      target = sharedBtbToggleRow, slotSide = "left" },
             btbLeftText  = { section = sharedBtbHeader,      target = sharedBtbTextRow, slotSide = "left" },
@@ -2532,6 +2542,7 @@ initFrame:SetScript("OnEvent", function(self)
             if pv._nameFS and pv._nameFS:IsShown() then textOverlays[#textOverlays+1] = CreateHitOverlay(pv._nameFS, "nameText", true, textLevel) end
             if pv._hpFS and pv._hpFS:IsShown() then textOverlays[#textOverlays+1] = CreateHitOverlay(pv._hpFS, "healthText", true, textLevel) end
             if pv._centerFS and pv._centerFS:IsShown() then textOverlays[#textOverlays+1] = CreateHitOverlay(pv._centerFS, "centerText", true, textLevel) end
+            if pv._extraFS and pv._extraFS:IsShown() then textOverlays[#textOverlays+1] = CreateHitOverlay(pv._extraFS, "extraText", true, textLevel) end
             -- Blizzard Style level number: built whenever the art has a level
             -- circle and shown with the text (the preview toggles it).
             if pv._levelFS then
@@ -2728,6 +2739,23 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if pv._nameFS and pv._nameFS:IsShown() then CreateHitOverlay(pv._nameFS, "nameText", true, textLevel) end
             if pv._hpFS and pv._hpFS:IsShown() then CreateHitOverlay(pv._hpFS, "healthText", true, textLevel) end
+            if pv._extraFS and pv._extraFS:IsShown() then CreateHitOverlay(pv._extraFS, "extraText", true, textLevel) end
+            if pv._centerFS and pv._centerFS:IsShown() then CreateHitOverlay(pv._centerFS, "centerText", true, textLevel) end
+            -- The pet's buff/debuff icons -> Buffs / Debuffs Location. Every icon,
+            -- so one shown later stays clickable without a header rebuild (the
+            -- other mini frames show none).
+            if selectedMiniUnit == "pet" then
+                if pv._buffIcons then
+                    for i = 1, #pv._buffIcons do
+                        if pv._buffIcons[i] then CreateHitOverlay(pv._buffIcons[i], "buffIcon", false, baseLevel) end
+                    end
+                end
+                if pv._debuffIcons then
+                    for i = 1, #pv._debuffIcons do
+                        if pv._debuffIcons[i] then CreateHitOverlay(pv._debuffIcons[i], "debuffIcon", false, baseLevel) end
+                    end
+                end
+            end
         end
 
         return abs(y)
@@ -2808,6 +2836,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if pv._nameFS and pv._nameFS:IsShown() then CreateHitOverlay(pv._nameFS, "nameText", true, textLevel) end
             if pv._hpFS and pv._hpFS:IsShown() then CreateHitOverlay(pv._hpFS, "healthText", true, textLevel) end
+            if pv._extraFS and pv._extraFS:IsShown() then CreateHitOverlay(pv._extraFS, "extraText", true, textLevel) end
+            if pv._centerFS and pv._centerFS:IsShown() then CreateHitOverlay(pv._centerFS, "centerText", true, textLevel) end
             -- Blizzard Style level number: built whenever the art has a level
             -- circle and shown with the text (the preview toggles it).
             if pv._levelFS then
@@ -2961,6 +2991,15 @@ initFrame:SetScript("OnEvent", function(self)
             return nil
         end,
         onPageCacheRestore = function(pageName)
+            local textCheck = ns._ufTextChecks and ns._ufTextChecks[pageName]
+            if textCheck and textCheck() then
+                C_Timer.After(0, function()
+                    if EllesmereUI:GetActiveModule() == "EllesmereUIUnitFrames"
+                       and EllesmereUI:GetActivePage() == pageName then
+                        EllesmereUI:RefreshPage(true)
+                    end
+                end)
+            end
             -- Clean up Player Aura Bars root when switching away
             if pageName ~= PAGE_AURA_BARS and ns._pabRoot then
                 ns._pabRoot:Hide()
@@ -3011,7 +3050,7 @@ initFrame:SetScript("OnEvent", function(self)
         end,
         onReset     = function()
             db:ResetProfile()
-            -- No reload here: the footer Reset popup (reload = true) reloads after this returns.
+            -- No reload here: Reset EUI Module Settings reloads after this returns.
         end,
         -- Tears down Boss Preview on module switch (RegisterOnHide above
         -- only covers closing the whole options window).

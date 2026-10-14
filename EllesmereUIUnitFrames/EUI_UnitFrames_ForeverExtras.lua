@@ -397,6 +397,8 @@ function ns.UF_ApplyForeverComboArc()
     arc:SetFrameStrata((clip and clip:GetFrameStrata()) or host:GetFrameStrata())
     arc:SetFrameLevel(((clip and clip:GetFrameLevel()) or host:GetFrameLevel()) + 13)
     ev:RegisterEvent("PLAYER_TARGET_CHANGED")
+    -- Points moving to a new target keep their count, so no power event fires.
+    ev:RegisterEvent("COMBO_TARGET_CHANGED")
     ev:RegisterEvent("PLAYER_ENTERING_WORLD")
     ev:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
     ev:RegisterUnitEvent("UNIT_MAXPOWER", "player")

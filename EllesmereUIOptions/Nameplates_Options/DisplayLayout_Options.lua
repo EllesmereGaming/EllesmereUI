@@ -67,6 +67,10 @@ function ns.NPO_TextStructureFP()
     return table.concat(parts, "\31")
 end
 
+-- The Display page cog popup and the cog icon that owns it: built on the first
+-- cog click and kept across page builds (ShowCogPopup below).
+local cogPopup, cogPopupOwner
+
 local function BuildDisplayLayout(parent, y, ctx)
     local env = ns._NPO_OptEnv
     local DB, DBVal, defaults, GetNPOptOutline = env.DB, env.DBVal, env.defaults, env.GetNPOptOutline
@@ -667,7 +671,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     end
 
     -- Eye icon: toggle absorb preview on the preview nameplate
-    do
+    if not EllesmereUI._prebuilding then
         local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
         local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
         local rgn = bgHoverRow._rightRegion
@@ -794,11 +798,11 @@ local function BuildDisplayLayout(parent, y, ctx)
     local CORE_ORDER = { "debuffs", "buffs", "ccs", "raidmarker", "rare", "quest", "faction" }
     local CORE_LABEL = {
         debuffs = "Debuffs", buffs = "Buffs", ccs = "Crowd Control", raidmarker = "Raid Marker",
-        rare = "Rare Indicator", quest = "Quest Indicator", faction = "Faction",
+        rare = "Elite/Rare Indicator", quest = "Quest Indicator", faction = "Faction",
     }
     local CORE_TIP = {
         rare  = "Elite and rare marks. Always in the same slot as the Quest Indicator.",
-        quest = "Marks mobs for your active quests. Always in the same slot as the Rare Indicator.",
+        quest = "Marks mobs for your active quests. Always in the same slot as the Elite/Rare Indicator.",
     }
     local CORE_GROUP = {
         debuffs = "aura", ccs = "aura",
@@ -833,7 +837,6 @@ local function BuildDisplayLayout(parent, y, ctx)
     -- A checked box can always be unchecked.
     local function CoreLocked(pos, k)
         if CoreHas(pos, k) then return false end
-        if k == "rare" and EllesmereUI.BlizzStyle.Forever("nameplates") then return true end
         local g = CORE_GROUP[k]
         for i = 1, #CORE_ORDER do
             local o = CORE_ORDER[i]
@@ -842,12 +845,7 @@ local function BuildDisplayLayout(parent, y, ctx)
         return false
     end
 
-    local function CoreLockTip(k)
-        if k == "rare" and EllesmereUI.BlizzStyle.Forever("nameplates") then
-            return "WoW Forever nameplates show no elite or rare marks."
-        end
-        return "Only Debuffs with Crowd Control, or the Rare and Quest Indicators with Faction, can share a slot."
-    end
+    local CORE_LOCK_TIP = "Only Debuffs with Crowd Control, or the Elite/Rare and Quest Indicators with Faction, can share a slot."
 
     local function CoreSet(pos, k, v)
         local db = DB()
@@ -953,7 +951,7 @@ local function BuildDisplayLayout(parent, y, ctx)
             items[i] = {
                 key = k, label = CORE_LABEL[k], tooltip = CORE_TIP[k],
                 lockedFn = function() return CoreLocked(pos, k) end,
-                lockedTooltip = function() return CoreLockTip(k) end,
+                lockedTooltip = CORE_LOCK_TIP,
             }
         end
         local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -999,14 +997,15 @@ local function BuildDisplayLayout(parent, y, ctx)
     -------------------------------------------------------------------
     --  Combined Settings Popup  (singleton, slide-up, pos + optional size)
     -------------------------------------------------------------------
-    local cogPopup          -- the popup frame (created once)
-    local cogPopupOwner     -- which cog icon currently owns the popup
-
     local function CogPopupOpen(btn) return cogPopupOwner == btn and cogPopup:IsShown() end
 
     -- opts = {title, xGet, xSet, yGet, ySet, sizeGet, sizeSet, sizeMin, sizeMax, sizeStep, sizeLabel}; sizeGet nil = no size row.
+    -- questTextGet/Set: the quest objective's Text Size, mirrored as the cog's top row.
     local function ShowCogPopup(anchorBtn, opts)
         if not cogPopup then
+            -- The refreshes the popup's sliders register while it is built.
+            local refreshList = EllesmereUI._widgetRefreshList
+            local firstRefresh = #refreshList + 1
             local SolidTex = EllesmereUI.SolidTex
             local MakeBorder = EllesmereUI.MakeBorder
             local MakeFont = EllesmereUI.MakeFont
@@ -1049,7 +1048,7 @@ local function BuildDisplayLayout(parent, y, ctx)
 
             local tmpFS = pf:CreateFontString(nil, "OVERLAY")
             tmpFS:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 12, GetNPOptOutline())
-            local labelTexts = {"X Offset", "Y Offset", "Size", "Width %", "Spacing", "Opacity"}
+            local labelTexts = {"X Offset", "Y Offset", "Size", "Width %", "Spacing", "Opacity", "Text Size"}
             local maxLblW = 0
             for _, txt in ipairs(labelTexts) do
                 tmpFS:SetText(EllesmereUI.L(txt))
@@ -1143,6 +1142,31 @@ local function BuildDisplayLayout(parent, y, ctx)
             wTrack:Hide(); wValBox:Hide()
             pf._wTrack = wTrack; pf._wValBox = wValBox
 
+            -- Quest objective Text Size row (hidden unless a Core Positions slot
+            -- holds the Quest Indicator while Replace Quest Icon with Objective is
+            -- on): the General page's setting, mirrored; wired via pf._qtGet/Set,
+            -- its range that setting's own.
+            local qtLabel = MakeFont(pf, 12, nil, 1, 1, 1)
+            qtLabel:SetAlpha(0.6); qtLabel:SetText(EllesmereUI.L("Text Size"))
+            qtLabel:Hide()
+            pf._qtLabel = qtLabel
+            local qtHover = CreateFrame("Frame", nil, pf)
+            qtHover:SetFrameLevel(pf:GetFrameLevel() + 10)
+            qtHover:SetAllPoints(qtLabel)
+            qtHover:EnableMouse(true)
+            qtHover:Hide()
+            qtHover:SetScript("OnEnter", function(self)
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Size of the quest objective text. The same setting as the cog next to Replace Quest Icon with Objective."), { width = 230 })
+            end)
+            qtHover:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            pf._qtHover = qtHover
+            local qtTrack, qtValBox = BuildSliderCore(pf, SLIDER_W, 4, 12, INPUT_W, SLIDER_H, 11, SL_INPUT_A,
+                6, 24, 1,
+                function() return pf._qtGet and pf._qtGet() or 14 end,
+                function(v) if pf._qtSet then pf._qtSet(v) end end, true)
+            qtTrack:Hide(); qtValBox:Hide()
+            pf._qtTrack = qtTrack; pf._qtValBox = qtValBox
+
             -- Store layout values for dynamic size slider rebuild + reorder
             pf._SLIDER_LEFT = SLIDER_LEFT
             pf._SLIDER_W = SLIDER_W
@@ -1164,27 +1188,47 @@ local function BuildDisplayLayout(parent, y, ctx)
             gLabel:SetPoint("LEFT", pf, "TOPLEFT", SIDE_PAD, G_ROW_Y - GROWTH_ROW_H / 2)
             pf._gLabel = gLabel
 
-            -- Grow direction is a standard dropdown; option list + order vary per cog (topleft vs topright), filled into these mutable tables at show time (menu invalidated to rebuild); getValue/setValue delegate to the per-show growth getter/setter.
-            pf._growthValues = {}   -- key -> label
-            pf._growthOrder  = {}   -- ordered keys
+            -- Grow and the second dropdown row are standard dropdowns whose option
+            -- lists ({ { value, label }, ... }) vary per cog (topleft vs topright,
+            -- PvP Flag, Icon Style, Name Format): pf._ListDD gives each distinct
+            -- list its own control, built the first time a cog shows that list and
+            -- kept; getValue/setValue delegate to the per-show getter/setter.
             -- Standard cog-popup dropdown sizing (matches BuildCogPopup's dropdown rows): 130px wide, rendered 10% smaller, right-aligned at layout time.
             local GROW_DD_W = 130
             local GROW_DD_SCALE = 0.9
             pf._GROW_DD_SCALE = GROW_DD_SCALE
-            local gDD = EllesmereUI.BuildDropdownControl(pf, GROW_DD_W, pf:GetFrameLevel() + 6,
-                pf._growthValues, pf._growthOrder,
-                function() return pf._growthGet and pf._growthGet() or "" end,
-                function(v) if pf._growthSet then pf._growthSet(v) end end)
-            gDD:SetScale(GROW_DD_SCALE)
-            -- Lazily-created menu parents to UIParent (scale 1); sync to the shrunk control the first time it opens.
-            gDD:HookScript("OnClick", function(self)
-                if self._ddMenu and not self._ddMenu._npCogScaled then
-                    self._ddMenu:SetScale(GROW_DD_SCALE)
-                    self._ddMenu._npCogScaled = true
+            -- Each menu parents to UIParent; its OnShow scales it to the control's
+            -- whole scale chain (this 0.9, the popup, the Window Scale).
+            local listGet = {
+                growth = function() return pf._growthGet and pf._growthGet() or "" end,
+                dd2    = function() return pf._dd2Get and pf._dd2Get() or "" end,
+            }
+            local listSet = {
+                growth = function(v) if pf._growthSet then pf._growthSet(v) end end,
+                dd2    = function(v) if pf._dd2Set then pf._dd2Set(v) end end,
+            }
+            local listDDs = { growth = {}, dd2 = {} }
+            pf._ListDD = function(kind, entries)
+                local parts = {}
+                for _, entry in ipairs(entries) do
+                    parts[#parts + 1] = tostring(entry.value) .. "=" .. tostring(entry.label)
                 end
-            end)
-            gDD:Hide()
-            pf._gDD = gDD
+                local sig = table.concat(parts, "\31")
+                local dd = listDDs[kind][sig]
+                if not dd then
+                    local values, order = {}, {}
+                    for _, entry in ipairs(entries) do
+                        values[entry.value] = entry.label
+                        order[#order + 1] = entry.value
+                    end
+                    dd = EllesmereUI.BuildDropdownControl(pf, GROW_DD_W, pf:GetFrameLevel() + 6,
+                        values, order, listGet[kind], listSet[kind])
+                    dd:SetScale(GROW_DD_SCALE)
+                    dd:Hide()
+                    listDDs[kind][sig] = dd
+                end
+                return dd
+            end
 
             -- Optional toggle row, anchored at layout time: takes the 4th-row slot (G_ROW_Y) with no Grow row, stacks BELOW Grow when both present (e.g. Rare/Quest Indicator on topleft/topright: Grow + Show In Instances). Wired via pf._toggleGet/Set.
             local tLabel = MakeFont(pf, 12, nil, 1, 1, 1)
@@ -1242,12 +1286,6 @@ local function BuildDisplayLayout(parent, y, ctx)
                 function() return pf._strataGetFn and pf._strataGetFn() or "MEDIUM" end,
                 function(v) if pf._strataSetFn then pf._strataSetFn(v) end end)
             stDD:SetScale(GROW_DD_SCALE)
-            stDD:HookScript("OnClick", function(self)
-                if self._ddMenu and not self._ddMenu._npCogScaled then
-                    self._ddMenu:SetScale(GROW_DD_SCALE)
-                    self._ddMenu._npCogScaled = true
-                end
-            end)
             stDD:Hide()
             pf._stDD = stDD
 
@@ -1364,27 +1402,13 @@ local function BuildDisplayLayout(parent, y, ctx)
             pf._t2ToggleSnap = t2ToggleSnap
 
             -- Optional second dropdown row (own row, below the second toggle),
-            -- built like Grow; values/label per show, via pf._dd2Get/Set.
+            -- its controls from pf._ListDD like Grow's; values/label per show,
+            -- via pf._dd2Get/Set.
             local d2Label = MakeFont(pf, 12, nil, 1, 1, 1)
             d2Label:SetAlpha(0.6)
             d2Label:SetPoint("LEFT", pf, "TOPLEFT", SIDE_PAD, G_ROW_Y - GROWTH_ROW_H / 2)
             d2Label:Hide()
             pf._d2Label = d2Label
-            pf._dd2Values = {}
-            pf._dd2Order  = {}
-            local d2DD = EllesmereUI.BuildDropdownControl(pf, GROW_DD_W, pf:GetFrameLevel() + 6,
-                pf._dd2Values, pf._dd2Order,
-                function() return pf._dd2Get and pf._dd2Get() or "" end,
-                function(v) if pf._dd2Set then pf._dd2Set(v) end end)
-            d2DD:SetScale(GROW_DD_SCALE)
-            d2DD:HookScript("OnClick", function(self)
-                if self._ddMenu and not self._ddMenu._npCogScaled then
-                    self._ddMenu:SetScale(GROW_DD_SCALE)
-                    self._ddMenu._npCogScaled = true
-                end
-            end)
-            d2DD:Hide()
-            pf._d2DD = d2DD
 
             -- Layout constants stored for height calc
             pf._TOP_PAD = TOP_PAD; pf._TITLE_H = TITLE_H; pf._TITLE_GAP = TITLE_GAP
@@ -1425,7 +1449,16 @@ local function BuildDisplayLayout(parent, y, ctx)
                 end)
             end
 
+            pf._refreshFns = {}
+            for i = firstRefresh, #refreshList do pf._refreshFns[#pf._refreshFns + 1] = refreshList[i] end
+            pf._refreshParent = parent
             cogPopup = pf
+        end
+        -- Each page build starts a fresh refresh list: the first cog shown from
+        -- a page the popup was not built on registers the popup's sliders there.
+        if cogPopup._refreshParent ~= parent then
+            for i = 1, #cogPopup._refreshFns do EllesmereUI.RegisterWidgetRefresh(cogPopup._refreshFns[i]) end
+            cogPopup._refreshParent = parent
         end
 
         -- Toggle off if same icon clicked again
@@ -1455,19 +1488,48 @@ local function BuildDisplayLayout(parent, y, ctx)
         local hasRaiseStrata = opts.raiseStrataGet ~= nil
         local hasStrata = opts.strataGet ~= nil
         local hasCropPct = opts.cropPctGet ~= nil
+        local hasQuestText = opts.questTextGet ~= nil
+        -- Show/hide the quest objective Text Size row
+        if hasQuestText then
+            cogPopup._qtGet = opts.questTextGet
+            cogPopup._qtSet = opts.questTextSet
+            cogPopup._qtLabel:Show()
+            cogPopup._qtTrack:Show()
+            cogPopup._qtValBox:Show()
+            cogPopup._qtHover:Show()
+        else
+            cogPopup._qtGet = nil
+            cogPopup._qtSet = nil
+            cogPopup._qtLabel:Hide()
+            cogPopup._qtTrack:Hide()
+            cogPopup._qtValBox:Hide()
+            cogPopup._qtHover:Hide()
+        end
         if hasSize then
-            -- Rebuild size slider if range changed
+            -- One size slider per range, built the first time a cog needs it and
+            -- kept: a range change shows that range's slider and hides the last.
             local sStep = opts.sizeStep or 1
             if cogPopup._curMin ~= opts.sizeMin or cogPopup._curMax ~= opts.sizeMax or cogPopup._curStep ~= sStep then
-                if cogPopup._sTrack then cogPopup._sTrack:Hide(); cogPopup._sTrack:SetParent(nil) end
-                if cogPopup._sValBox then cogPopup._sValBox:Hide(); cogPopup._sValBox:SetParent(nil) end
-                local sTrack, sValBox = EllesmereUI.BuildSliderCore(cogPopup, cogPopup._SLIDER_W, 4, 12, 34, 24, 11, EllesmereUI.SL_INPUT_A,
-                    opts.sizeMin, opts.sizeMax, sStep,
-                    function() return cogPopup._sGet and cogPopup._sGet() or 0 end,
-                    function(v) if cogPopup._sSet then cogPopup._sSet(v) end end, true)
-                sTrack:ClearAllPoints(); sTrack:SetPoint("TOPLEFT", cogPopup, "TOPLEFT", cogPopup._SLIDER_LEFT, cogPopup._S_ROW_Y - (cogPopup._SLIDER_H - 20) / 2)
-                sValBox:ClearAllPoints(); sValBox:SetPoint("TOPRIGHT", cogPopup, "TOPRIGHT", -cogPopup._SIDE_PAD, cogPopup._S_ROW_Y)
-                cogPopup._sTrack = sTrack; cogPopup._sValBox = sValBox
+                if cogPopup._sTrack then cogPopup._sTrack:Hide() end
+                if cogPopup._sValBox then cogPopup._sValBox:Hide() end
+                local sliders = cogPopup._sSliders
+                if not sliders then sliders = {}; cogPopup._sSliders = sliders end
+                local key = tostring(opts.sizeMin) .. "/" .. tostring(opts.sizeMax) .. "/" .. tostring(sStep)
+                local entry = sliders[key]
+                if not entry then
+                    -- Registers itself with this page; later pages get it through
+                    -- the popup's refresh list.
+                    local sTrack, sValBox, sRefresh = EllesmereUI.BuildSliderCore(cogPopup, cogPopup._SLIDER_W, 4, 12, 34, 24, 11, EllesmereUI.SL_INPUT_A,
+                        opts.sizeMin, opts.sizeMax, sStep,
+                        function() return cogPopup._sGet and cogPopup._sGet() or 0 end,
+                        function(v) if cogPopup._sSet then cogPopup._sSet(v) end end, true)
+                    sTrack:ClearAllPoints(); sTrack:SetPoint("TOPLEFT", cogPopup, "TOPLEFT", cogPopup._SLIDER_LEFT, cogPopup._S_ROW_Y - (cogPopup._SLIDER_H - 20) / 2)
+                    sValBox:ClearAllPoints(); sValBox:SetPoint("TOPRIGHT", cogPopup, "TOPRIGHT", -cogPopup._SIDE_PAD, cogPopup._S_ROW_Y)
+                    entry = { track = sTrack, valBox = sValBox }
+                    sliders[key] = entry
+                    cogPopup._refreshFns[#cogPopup._refreshFns + 1] = sRefresh
+                end
+                cogPopup._sTrack = entry.track; cogPopup._sValBox = entry.valBox
                 cogPopup._curMin = opts.sizeMin; cogPopup._curMax = opts.sizeMax; cogPopup._curStep = sStep
             end
             cogPopup._sGet = opts.sizeGet; cogPopup._sSet = opts.sizeSet
@@ -1518,21 +1580,13 @@ local function BuildDisplayLayout(parent, y, ctx)
         if hasGrowth then
             cogPopup._growthGet = opts.growthGet
             cogPopup._growthSet = opts.growthSet
-            -- Refill the dropdown's option map + order from this cog's values (mutated in place so captured tables stay current).
-            local vals = opts.growthValues  -- { { value, label }, ... }
-            wipe(cogPopup._growthValues)
-            wipe(cogPopup._growthOrder)
-            if vals then
-                for _, entry in ipairs(vals) do
-                    cogPopup._growthValues[entry.value] = entry.label
-                    cogPopup._growthOrder[#cogPopup._growthOrder + 1] = entry.value
-                end
-            end
-            if cogPopup._gDD then
-                -- Rebuild the menu from the refilled tables and refresh the label.
-                if cogPopup._gDD._invalidateMenu then cogPopup._gDD._invalidateMenu() end
-                cogPopup._gDD:Show()
-            end
+            -- The control of this cog's option list ({ { value, label }, ... }),
+            -- its label read from this cog's getter.
+            local gDD = cogPopup._ListDD("growth", opts.growthValues or {})
+            if cogPopup._gDD and cogPopup._gDD ~= gDD then cogPopup._gDD:Hide() end
+            cogPopup._gDD = gDD
+            gDD._refreshLabel()
+            gDD:Show()
             -- growthLabel: an element can reuse this dropdown row for its own setting.
             cogPopup._gLabel:SetText(EllesmereUI.L(opts.growthLabel or "Grow"))
             cogPopup._gLabel:Show()
@@ -1628,21 +1682,18 @@ local function BuildDisplayLayout(parent, y, ctx)
         if hasDropdown2 then
             cogPopup._dd2Get = opts.dropdown2Get
             cogPopup._dd2Set = opts.dropdown2Set
-            wipe(cogPopup._dd2Values)
-            wipe(cogPopup._dd2Order)
-            for _, entry in ipairs(opts.dropdown2Values or {}) do
-                cogPopup._dd2Values[entry.value] = entry.label
-                cogPopup._dd2Order[#cogPopup._dd2Order + 1] = entry.value
-            end
-            if cogPopup._d2DD._invalidateMenu then cogPopup._d2DD._invalidateMenu() end
-            cogPopup._d2DD:Show()
+            local d2DD = cogPopup._ListDD("dd2", opts.dropdown2Values or {})
+            if cogPopup._d2DD and cogPopup._d2DD ~= d2DD then cogPopup._d2DD:Hide() end
+            cogPopup._d2DD = d2DD
+            d2DD._refreshLabel()
+            d2DD:Show()
             cogPopup._d2Label:SetText(EllesmereUI.L(opts.dropdown2Label or ""))
             cogPopup._d2Label:Show()
         else
             cogPopup._dd2Get = nil
             cogPopup._dd2Set = nil
             cogPopup._d2Label:Hide()
-            cogPopup._d2DD:Hide()
+            if cogPopup._d2DD then cogPopup._d2DD:Hide() end
         end
 
         -- Show/hide Raise Strata row (its own row, below all other toggles)
@@ -1666,8 +1717,9 @@ local function BuildDisplayLayout(parent, y, ctx)
             cogPopup._strataGetFn = opts.strataGet
             cogPopup._strataSetFn = opts.strataSet
             if cogPopup._stDD then
-                -- Refresh the selected-value label for this cog's getter.
-                if cogPopup._stDD._invalidateMenu then cogPopup._stDD._invalidateMenu() end
+                -- Static option set: the kept menu stays; the selected-value label
+                -- follows this cog's getter.
+                cogPopup._stDD._refreshLabel()
                 cogPopup._stDD:Show()
             end
             cogPopup._stLabel:Show()
@@ -1691,6 +1743,8 @@ local function BuildDisplayLayout(parent, y, ctx)
             end
             -- Width % is intentionally NOT in this data-row sequence -- it's repositioned to the very bottom (below Wrap) further down, so it never sits between Size and X/Y.
             local seq = {}
+            -- The mirrored quest objective Text Size heads the cog.
+            if hasQuestText then seq[#seq + 1] = { p._qtLabel, p._qtTrack, p._qtValBox } end
             if hasSize and opts.sizeFirst then
                 seq[#seq + 1] = { p._sLabel, p._sTrack, p._sValBox }
                 if hasSpacing then seq[#seq + 1] = { p._spLabel, p._spTrack, p._spValBox } end
@@ -1768,9 +1822,11 @@ local function BuildDisplayLayout(parent, y, ctx)
             local d2Y = rowY(d2RowIndex)
             p._d2Label:ClearAllPoints()
             p._d2Label:SetPoint("LEFT", p, "TOPLEFT", SPAD, d2Y - GRH / 2)
-            local d2s = p._GROW_DD_SCALE or 1
-            p._d2DD:ClearAllPoints()
-            p._d2DD:SetPoint("RIGHT", p, "TOPRIGHT", -SPAD / d2s, (d2Y - GRH / 2) / d2s)
+            if p._d2DD then
+                local d2s = p._GROW_DD_SCALE or 1
+                p._d2DD:ClearAllPoints()
+                p._d2DD:SetPoint("RIGHT", p, "TOPRIGHT", -SPAD / d2s, (d2Y - GRH / 2) / d2s)
+            end
             -- Raise Strata sits in its own row, below the Grow/toggle band and Cropped Icons when present; Core Position cogs never use Wrap or Width %, so no collision there.
             if hasRaiseStrata then
                 local rsRowIndex = #seq + 1 + extraRows
@@ -1809,6 +1865,7 @@ local function BuildDisplayLayout(parent, y, ctx)
             h = p._TOP_PAD + p._TITLE_H + p._TITLE_GAP
                 + gap + rowH   -- X
                 + gap + rowH   -- Y
+            if hasQuestText then h = h + gap + rowH end
             if hasSize    then h = h + gap + rowH end
             if hasWidth   then h = h + gap + rowH end
             if hasSpacing then h = h + gap + rowH end
@@ -2086,6 +2143,25 @@ local function BuildDisplayLayout(parent, y, ctx)
                 opts.growthGet = function() return DBVal("factionPvP") or defaults.factionPvP end
                 opts.growthSet = function(v) DB().factionPvP = v; refresh() end
             end
+            -- Quest Indicator here while Replace Quest Icon with Objective is on:
+            -- the objective's Text Size (the General page's setting, mirrored)
+            -- heads the cog, and the slot's Size goes when the Quest Indicator is
+            -- all the slot holds.
+            if CoreHas(posKey, "quest") and DBVal("replaceQuestIconWithObjective") == true then
+                opts.questTextGet = function()
+                    return DBVal("questObjectiveTextSize") or defaults.questObjectiveTextSize
+                end
+                opts.questTextSet = function(v)
+                    DB().questObjectiveTextSize = v
+                    if ns.RefreshQuestObjective then ns.RefreshQuestObjective() end
+                end
+                local onlyQuest = true
+                for i = 1, #CORE_ORDER do
+                    local k = CORE_ORDER[i]
+                    if k ~= "quest" and CoreHas(posKey, k) then onlyQuest = false; break end
+                end
+                if onlyQuest then opts.sizeGet, opts.sizeSet = nil, nil end
+            end
             -- Raise Strata: bumps whatever element occupies this slot one strata level up so it renders above the rest of the plate.
             local rsKey = posKey .. "SlotRaiseStrata"
             opts.raiseStrataGet = function() return DBVal(rsKey) and true or false end
@@ -2222,7 +2298,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     ctx.corePosToRegion = posToRegion
 
     -- Eye icon that follows whichever Core Positions dropdown has "Raid Marker"
-    do
+    if not EllesmereUI._prebuilding then
         local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
         local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
         local eyeBtn = CreateFrame("Button", nil, parent)
@@ -2269,7 +2345,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     end
 
     -- Eye icon that follows whichever Core Positions dropdown has "Rare/Quest Indicator"
-    do
+    if not EllesmereUI._prebuilding then
         local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
         local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
         local eyeBtn = CreateFrame("Button", nil, parent)

@@ -1408,8 +1408,8 @@ end
 -- Blizzard has no docking relationship between CharacterFrame and PVEFrame (Dungeons &
 -- Raids); both anchor near the same default screen position, so opening one while the
 -- other is open overlaps them. Any addon that docks its own panel to PVEFrame's edge
--- (e.g. RaiderIO's Mythic+ panel) is unaware of CharacterFrame, so it gets partially
--- covered by CharacterFrame in turn. PVEFrame is PROTECTED (it parents the LFGList
+-- is unaware of CharacterFrame, so that panel gets partially covered by CharacterFrame
+-- in turn. PVEFrame is PROTECTED (it parents the LFGList
 -- applicant viewer, which throws on tainted secret-value comparisons -- see
 -- EllesmereUIQoL_Shifter.lua's SecureSetPoint), so it is never repositioned here;
 -- CharacterFrame is not protected, so it docks beside PVEFrame instead. Reading
@@ -1423,7 +1423,7 @@ local function CharacterFrameIsUserPinned()
 end
 
 -- Third-party panels known to dock themselves beside PVEFrame with no awareness of
--- CharacterFrame (RaiderIO's Mythic+/profile panel, confirmed via /fstack). Checked by
+-- CharacterFrame (a Mythic+ profile panel, confirmed via /fstack). Checked by
 -- name -- cheap and reliable -- instead of scanning every frame in the UI: that
 -- approach kept missing the actual frame, once matched CharacterFrame's own child and
 -- produced a circular anchor, and was slow enough on its own to cause a visible hitch.
@@ -1497,7 +1497,7 @@ local function DockCharacterFrame()
         expectedEdgeAbs = rightEdgeAbs + PVE_DOCK_MARGIN * cs
     end
 
-    -- PVEFrame's own internal layout re-anchors it (and RaiderIO's tooltip) repeatedly
+    -- PVEFrame's own internal layout re-anchors it (and a docked companion) repeatedly
     -- while it settles, and Shifter re-applies CharacterFrame's own saved/temp position
     -- on every scale step -- both re-trigger this constantly. Skip the write only when
     -- CharacterFrame's ACTUAL current edge already matches where we'd put it -- not by

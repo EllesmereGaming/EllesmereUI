@@ -740,7 +740,9 @@ end
 -- category's blocks (assigns it there), as the Grid display's "+" cells do.
 -- A category whose blocks already hold the item keeps no zone (Pinned: an
 -- item already pinned), so a drop on its own category still reaches the item
--- buttons (stack merges, swaps); a nested section's blocks count as one.
+-- buttons (stack merges, swaps); a nested section's blocks count as one. A
+-- pinned item counts toward its own category too: with Hide from Other
+-- Categories it shows only in the Pinned block.
 -- The zones register no events: the bag window's cursor watch (StartAddon,
 -- registered only while the window shows) calls ns.CompactZonesSync on every
 -- cursor change and on every lock change under a held item.
@@ -849,11 +851,18 @@ local function PlaceZones(child, startX, out, n)
             local pin = kind == ZONE_PIN
             z._pin, z._key = pin, gKey[g]
             z._plusTip = pin and ns.PIN_PLUS_TIP or ns.ASSIGN_PLUS_TIP
-            if not pin then
-                -- Plain item IDs: the item tables are recycled by the next refresh
-                local key = gKey[g]
-                for c = ci + 1, ci + s do
-                    local info = cData[c].info
+            -- Plain item IDs: the item tables are recycled by the next refresh.
+            -- The Pinned block's items count under their own category.
+            local key = gKey[g]
+            local cats = pin and EUI_CategoryManager:GetCategories()
+            for c = ci + 1, ci + s do
+                local data = cData[c]
+                local info = data.info
+                if pin then
+                    local cat = data.categoryIndex and cats[data.categoryIndex]
+                    key = cat and cat._defaultName
+                end
+                if key then
                     zin = zin + 1
                     zoneItem[zin], zoneItemKey[zin] = info and info.itemID or false, key
                 end

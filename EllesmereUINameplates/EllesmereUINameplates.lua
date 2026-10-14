@@ -135,7 +135,6 @@ local defaults = {
     -- EUI_DEBUFF_COLORS: optional player-debuff tinting (Colors page). The
     -- per-class lists ("debuffColors" .. class token) have no defaults: unset
     -- is an empty list (EllesmereUINameplates_DebuffColors.lua).
-    showAuraTooltips = false,  -- Buff / Debuff icons show their tooltip on hover
     debuffColorsEnabled = false,
     debuffColorsPlayerOnly = true,
     -- Debuff Coloring "Color Border": the color goes on the plate's border
@@ -374,7 +373,7 @@ local defaults = {
     factionStyle = "pvp",  -- Icon Style: a key of EllesmereUI.FACTION_ART
     classificationIncludeFaction = false,  -- "Rare/Quest + Faction": the badge shares the classification slot
     -- The classification element's two halves, each switchable in Core Positions:
-    -- the Rare Indicator (elite and rare marks) and the Quest Indicator.
+    -- the Elite/Rare Indicator (elite and rare marks) and the Quest Indicator.
     classificationHideRare = false,
     classificationHideQuest = false,
     factionOppositeOnly = false,
@@ -425,6 +424,7 @@ local defaults = {
     rangeTextOffsetY = 0,
     rangeTextColor = { r = 0.816, g = 0.357, b = 0.220 },  -- #D05B38
     maxDebuffs = 5,
+    showAuraTooltips = false,  -- Buff / Debuff icons show their tooltip on hover
     showBorder = true,
     borderSize = 1,
     borderColor = { r = 0.067, g = 0.067, b = 0.067 },

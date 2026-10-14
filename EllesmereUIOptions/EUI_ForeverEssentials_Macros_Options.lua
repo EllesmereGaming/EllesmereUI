@@ -3,15 +3,17 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end -- Forever Essen
 -------------------------------------------------------------------------------
 --  EUI_ForeverEssentials_Macros_Options.lua
 --  Builds the "Macros" page inside the Forever Essentials module: the Macro
---  Manager, laid out like the Action Bars page. The content header holds a
---  centered dropdown (Account Macros / Character Macros / Bulk Macros) over
---  the macros (or, for Bulk Macros, the spells) shown centered as icons; the
---  page below holds the selection's settings, its lines and the macro text.
---  Storage and macro access live in EllesmereUIForeverEssentials_MacroManager.lua.
+--  Manager. Its Enable Macro Manager row heads the page; while it is on, the
+--  content header holds a centered dropdown (Account Macros / Character
+--  Macros) over that list's macros as centered icons, and the page below
+--  holds the selected macro's settings, its lines and the macro text. The
+--  model (builder, parser, spellbook, macro access) is
+--  EUI_ForeverEssentials_MacroModel_Options.lua.
 --
---  The page rebuilds (RefreshPage(true)) on structural edits; value edits
---  only refresh widgets in place. The icon grids are built once and
---  re-parented into each header: a macro list can hold 150 entries.
+--  Structural edits rebuild the page (RefreshPage(true)); value edits refresh
+--  widgets in place; a macro change repaints the header alone unless the
+--  macro being edited changed. The icon grid is built once and re-parented
+--  into each header: a list holds up to 120 macros.
 -------------------------------------------------------------------------------
 if not EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"] then return end  -- module disabled: no options page
 
@@ -20,6 +22,8 @@ local PP         = EllesmereUI.PanelPP
 local SolidTex   = EllesmereUI.SolidTex
 local MakeFont   = EllesmereUI.MakeFont
 local MakeBorder = EllesmereUI.MakeBorder
+local MODEL      = EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"]._MacroModel
+local B, S, MM   = MODEL.B, MODEL.S, MODEL.MM
 
 local function L(s) return EllesmereUI.L(s) end
 
@@ -27,29 +31,26 @@ local ICONS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
 local CELL = 46          -- icon grid step (42 icon + 4 gap)
 local GRID_ROWS = 3      -- grid rows shown before it scrolls
 local TEXT_H = 130       -- macro text block
+local LIST_ORDER = { "account", "char" }
+local TIP_LEFT = { justify = "LEFT" }   -- tooltips that show macro text
 
-local MM, B, S           -- Macro Manager, its builder and spellbook
-local fontPath
 local cur                -- the macro being edited (survives rebuilds)
-local mode = "account"   -- account | char | bulk
-local spellTab = "__all"
+local mode = "account"   -- the list in the header: account | char
 local edCtx = { headers = {} }
-local bkCtx = { headers = {}, template = true }
-local macroGrid, spellGrid = {}, {}
+local macroGrid, gridList = {}, {}   -- the pooled icon grid and the list it shows
 local D = {}             -- widgets of the page on screen
-local UpdateBulk
-local evf, pendingEvent, pendingRebuild, pendingSelect
-local shown
-local HeaderBuilder
+local boxes = {}         -- the text fields of the page on screen (set)
+local statusText, statusBad          -- the status line, kept across rebuilds
+local builtFor, builtHadRef          -- the editor state the page body was built for
+local hdrFrame, hdrDD, hdrValues, hdrY, hdrW   -- the header on screen, painted in place
+local snap = { n = {}, i = {}, b = {} }        -- both macro lists as the page last showed them
+local evf, pendingEvent, pendingRebuild, textDirty, shown, hiddenAt
+local HeaderBuilder, CellClick, CellDrag
 
 local function Rebuild() EllesmereUI:RefreshPage(true) end
-local function Resync() EllesmereUI:RefreshPage() end
+local function Refresh() EllesmereUI:RefreshPage() end
 
 local function Accent() return EllesmereUI.ELLESMERE_GREEN end
-
-local function Note(msg)
-    EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. msg)
-end
 
 local function IconPath(icon)
     if type(icon) == "string" and not icon:find("\\", 1, true) then return "Interface\\Icons\\" .. icon end
@@ -83,26 +84,19 @@ local function Glyph(parent, size, file, onClick, tip)
     return b
 end
 
--- A scroll that hands the wheel to the page while it has nothing to scroll.
+-- A scroll inside the page: Shift + wheel scales the panel, and the wheel goes
+-- on to the page while there is nothing to scroll.
 local function AttachScroll(scroll, child)
-    local update = EllesmereUI.AttachSmoothScrollbar(scroll, {
+    return EllesmereUI.AttachSmoothScrollbar(scroll, {
         step = 60, thumbMin = 20, rightInset = 0, topInset = 2, level = 5,
-        trackAlpha = 0.05, thumbAlpha = 0.22, child = child, panelWheel = true })
-    local own = scroll:GetScript("OnMouseWheel")
-    scroll:SetScript("OnMouseWheel", function(self, d)
-        if child:GetHeight() - self:GetHeight() > 0 then return own(self, d) end
-        local page = EllesmereUI._scrollFrame
-        local fn = page and page:GetScript("OnMouseWheel")
-        if fn then fn(page, d) end
-    end)
-    return update
+        trackAlpha = 0.05, thumbAlpha = 0.22, child = child, panelWheel = true, passWheel = true })
 end
 
 local function PaintCounter(fs, n)
-    fs:SetText(n .. " / " .. MM.MAX_BYTES)
-    if n > MM.MAX_BYTES then
+    fs:SetText(n .. " / " .. MM.MAX_LETTERS)
+    if n > MM.MAX_LETTERS then
         fs:SetTextColor(1, 0.35, 0.35, 1)
-    elseif n > MM.MAX_BYTES - 25 then
+    elseif n > MM.MAX_LETTERS - 25 then
         local ac = Accent()
         fs:SetTextColor(ac.r, ac.g, ac.b, 1)
     else
@@ -111,8 +105,8 @@ local function PaintCounter(fs, n)
 end
 
 -- Multi-line macro text box (input popup look). box.onChange(text, user),
--- box.onBlur(). A readOnly box keeps its text.
-local function TextBox(parent, w, h, readOnly)
+-- box.onBlur().
+local function TextBox(parent, w, h)
     local box = CreateFrame("Frame", nil, parent)
     box:SetSize(w, h)
     SolidTex(box, "BACKGROUND", 0, 0, 0, 0.5):SetAllPoints()
@@ -122,6 +116,7 @@ local function TextBox(parent, w, h, readOnly)
     sf:SetSize(w - 22, h - 16)
     sf:SetClipsChildren(true)
     local e = CreateFrame("EditBox", nil, sf)
+    boxes[e] = true
     e:SetMultiLine(true)
     e:SetAutoFocus(false)
     e:SetFont(EllesmereUI.EXPRESSWAY, 12, "")
@@ -139,7 +134,6 @@ local function TextBox(parent, w, h, readOnly)
         update()
     end)
     e:SetScript("OnTextChanged", function(self, user)
-        if readOnly and user then self:SetText(box.text or "") return end
         if box.onChange then box.onChange(self:GetText(), user) end
     end)
     e:SetScript("OnEditFocusGained", function()
@@ -155,12 +149,12 @@ local function TextBox(parent, w, h, readOnly)
         e:SetFocus()
         e:SetCursorPosition(#(e:GetText() or ""))
     end)
-    function box.SetText(_, t) box.text = t or ""; e:SetText(box.text) end
+    function box.SetText(_, t) e:SetText(t or "") end
     return box
 end
 
 -- Info line, counter and text box as one block of the page.
-local function TextBlock(parent, y, readOnly)
+local function TextBlock(parent, y)
     local pad = EllesmereUI.CONTENT_PAD
     local w = parent:GetWidth() - pad * 2
     local f = CreateFrame("Frame", nil, parent)
@@ -173,26 +167,85 @@ local function TextBlock(parent, y, readOnly)
     info:SetPoint("RIGHT", count, "LEFT", -12, 0)
     info:SetJustifyH("LEFT")
     info:SetWordWrap(false)
-    local box = TextBox(f, w, TEXT_H - 30, readOnly)
+    local box = TextBox(f, w, TEXT_H - 30)
     box:SetPoint("TOPLEFT", 0, -26)
     return box, count, info
 end
 
--------------------------------------------------------------------------------
---  Spell suggestions under a text field (spellbook, plus "{spell}" in the
---  bulk template). list = true completes the last entry of a comma list.
--------------------------------------------------------------------------------
-local suggest
-local function HideSuggest()
-    if suggest then suggest:Hide(); suggest.owner = nil end
+-- Icon cell of the macro grid. Its scripts read the cell when they run: c.m
+-- (the macro it shows) or c.newCell (the "+" cell).
+local function NewCell(parent)
+    local c = CreateFrame("Button", nil, parent)
+    c:SetSize(CELL - 4, CELL - 4)
+    c:SetFrameLevel(parent:GetFrameLevel() + 1)
+    c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    c:RegisterForDrag("LeftButton")
+    SolidTex(c, "BACKGROUND", 0, 0, 0, 0.5):SetAllPoints()
+    c.icon = c:CreateTexture(nil, "ARTWORK")
+    c.icon:SetPoint("TOPLEFT", 1, -1)
+    c.icon:SetPoint("BOTTOMRIGHT", -1, 1)
+    c.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    c.plus = MakeFont(c, 22, nil, 1, 1, 1, 0.45)
+    c.plus:SetPoint("CENTER", 0, 1)
+    c.plus:SetText("+")
+    c.name = c:CreateFontString(nil, "OVERLAY")
+    c.name:SetFont(EllesmereUI.EXPRESSWAY, 9, "OUTLINE")
+    c.name:SetPoint("BOTTOMLEFT", 2, 3)
+    c.name:SetPoint("BOTTOMRIGHT", -2, 3)
+    c.name:SetJustifyH("CENTER")
+    c.name:SetWordWrap(false)
+    c.brd = MakeBorder(c, 0, 0, 0, 1, PP)
+    function c.Paint(hover)
+        if c.selected then
+            local ac = Accent()
+            c.brd:SetColor(ac.r, ac.g, ac.b, 1)
+        elseif hover then
+            c.brd:SetColor(1, 1, 1, 0.5)
+        else
+            c.brd:SetColor(0, 0, 0, 1)
+        end
+    end
+    c:SetScript("OnEnter", function(self)
+        self.Paint(true)
+        local m = self.m
+        local tip = m and (m.name .. "\n\n" .. m.body) or (self.newCell and EllesmereUI.L("New Macro"))
+        if tip then EllesmereUI.ShowWidgetTooltip(self, tip, TIP_LEFT) end
+    end)
+    c:SetScript("OnLeave", function(self)
+        self.Paint(false)
+        EllesmereUI.HideWidgetTooltip()
+    end)
+    c:SetScript("OnClick", CellClick)
+    c:SetScript("OnDragStart", CellDrag)
+    return c
 end
 
-local function AttachSuggest(box, onPick, template, list)
-    local function Token()
-        local t = box:GetText() or ""
-        if list then t = t:match("([^,]*)$") or "" end
-        return strtrim(t)
+-------------------------------------------------------------------------------
+--  Spell suggestions under a text field: the spellbook through the shared
+--  context menu, picked on the press (the field loses its focus on a mouse
+--  down outside it). The list closes with the field's focus, so the menu runs
+--  no click-outside poll. list = true completes the last entry of a comma list.
+-------------------------------------------------------------------------------
+local SUGGEST_OPTS = { below = true, scaleToAnchor = true, pickOnDown = true, noPoll = true }
+local suggestPool, suggestShown = {}, {}   -- pooled items; the ones on screen
+local suggestPick, suggestOwner
+
+local function SuggestItem(i)
+    local it = suggestPool[i]
+    if not it then
+        it = { noLoc = true }
+        it.onClick = function() if suggestPick then suggestPick(it.text) end end
+        suggestPool[i] = it
     end
+    return it
+end
+
+local function HideSuggest()
+    if suggestOwner and EllesmereUI.ContextMenuOwner() == suggestOwner then EllesmereUI.CloseContextMenu() end
+    suggestOwner = nil
+end
+
+local function AttachSuggest(box, onPick, list)
     local function Pick(name)
         HideSuggest()
         local t = name
@@ -205,108 +258,75 @@ local function AttachSuggest(box, onPick, template, list)
         box:ClearFocus()
     end
     local function Show()
-        if not suggest then
-            suggest = CreateFrame("Frame", nil, UIParent)
-            suggest:SetFrameStrata("FULLSCREEN_DIALOG")
-            suggest:SetClampedToScreen(true)
-            SolidTex(suggest, "BACKGROUND", 0.067, 0.067, 0.067, 0.97):SetAllPoints()
-            MakeBorder(suggest, 1, 1, 1, 0.18)
-            suggest.rows = {}
-            suggest:Hide()
-        end
-        local q = Token():lower()
-        local items = {}
-        if template and ("{spell}"):find(q, 1, true) then
-            items[1] = { name = "{spell}", label = "{spell}  " .. EllesmereUI.L("(the spell of each macro)") }
-        end
+        local q = box:GetText() or ""
+        if list then q = q:match("([^,]*)$") or "" end
+        q = strtrim(q):lower()
+        wipe(suggestShown)
         for _, s in ipairs(S.Sorted()) do
-            if q == "" or s.name:lower():find(q, 1, true) then
-                items[#items + 1] = { name = s.name, label = s.name, icon = s.icon }
-                if #items >= 10 then break end
+            if q == "" or s.lname:find(q, 1, true) then
+                local it = SuggestItem(#suggestShown + 1)
+                it.text, it.icon = s.name, s.icon or MM.QUESTION
+                suggestShown[#suggestShown + 1] = it
+                if #suggestShown >= 10 then break end
             end
         end
-        if #items == 0 or (#items == 1 and items[1].name:lower() == q) then HideSuggest() return end
-        for i, it in ipairs(items) do
-            local r = suggest.rows[i]
-            if not r then
-                r = CreateFrame("Button", nil, suggest)
-                r:SetHeight(24)
-                r.hl = SolidTex(r, "BACKGROUND", 1, 1, 1, 0)
-                r.hl:SetAllPoints()
-                r.icon = r:CreateTexture(nil, "ARTWORK")
-                r.icon:SetSize(16, 16)
-                r.icon:SetPoint("LEFT", 8, 0)
-                r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                r.label = MakeFont(r, 12, nil, 1, 1, 1, 0.8)
-                r.label:SetPoint("LEFT", 30, 0)
-                r.label:SetPoint("RIGHT", -8, 0)
-                r.label:SetJustifyH("LEFT")
-                r.label:SetWordWrap(false)
-                r:SetScript("OnEnter", function(self)
-                    local ac = Accent()
-                    self.hl:SetColorTexture(1, 1, 1, EllesmereUI.DD_ITEM_HL_A)
-                    self.label:SetTextColor(ac.r, ac.g, ac.b, 1)
-                end)
-                r:SetScript("OnLeave", function(self)
-                    self.hl:SetColorTexture(1, 1, 1, 0)
-                    self.label:SetTextColor(1, 1, 1, 0.8)
-                end)
-                suggest.rows[i] = r
-            end
-            r:ClearAllPoints()
-            r:SetPoint("TOPLEFT", 1, -1 - (i - 1) * 24)
-            r:SetPoint("RIGHT", suggest, "RIGHT", -1, 0)
-            r.icon:SetTexture(it.icon or MM.QUESTION)
-            r.label:SetText(it.label)
-            -- Mouse down: picks before the field can lose focus.
-            r:SetScript("OnMouseDown", function() Pick(it.name) end)
-            r:Show()
+        if #suggestShown == 0 or (#suggestShown == 1 and suggestShown[1].text:lower() == q) then
+            HideSuggest()
+            return
         end
-        for i = #items + 1, #suggest.rows do suggest.rows[i]:Hide() end
-        suggest.first = items[1].name
-        suggest.owner = box
-        suggest:SetScale(box:GetEffectiveScale() / UIParent:GetEffectiveScale())
-        suggest:SetSize(max(box:GetWidth(), 220), #items * 24 + 2)
-        suggest:ClearAllPoints()
-        suggest:SetPoint("TOPLEFT", box, "BOTTOMLEFT", 0, -2)
-        suggest:Show()
+        suggestPick, suggestOwner = Pick, box
+        SUGGEST_OPTS.minWidth = max(box:GetWidth(), 220)
+        EllesmereUI.CloseContextMenu()   -- a second call from the same anchor would close it
+        EllesmereUI.ShowContextMenu(box, suggestShown, SUGGEST_OPTS)
     end
     box:HookScript("OnTextChanged", function(_, user) if user then Show() end end)
     box:HookScript("OnEditFocusGained", Show)
-    box:HookScript("OnEditFocusLost", function() if suggest and suggest.owner == box then HideSuggest() end end)
+    -- A plain mouse down drops the box's focus before a row of the list gets
+    -- that press (a modified click keeps the focus), so the list closes a frame
+    -- later: a pick on it still lands, a press anywhere else still closes it.
+    local function CloseIfUnfocused()
+        if suggestOwner == box and not box:HasFocus() then HideSuggest() end
+    end
+    box:HookScript("OnEditFocusLost", function()
+        if EllesmereUI.ContextMenuOwner() == box then C_Timer.After(0, CloseIfUnfocused) end
+    end)
     box:HookScript("OnTabPressed", function()
-        if suggest and suggest.owner == box and suggest:IsShown() then Pick(suggest.first) end
+        if EllesmereUI.ContextMenuOwner() == box and suggestShown[1] then Pick(suggestShown[1].text) end
     end)
 end
 
 -------------------------------------------------------------------------------
---  Icon picker (popup shell)
+--  Icon picker (popup shell): "?" first, then this open's spellbook icons,
+--  then every macro icon the game offers, read once per session (repeats
+--  allowed, as in Blizzard's own list). Never Blizzard's
+--  IconDataProviderMixin: driven from here it would write the file state
+--  Blizzard's macro window shares and force a full collect.
 -------------------------------------------------------------------------------
-local picker
+local picker, baseIcons
 
-local function IconList()
-    local list, seen = { MM.QUESTION }, { [MM.QUESTION] = true }
-    for _, s in ipairs(S.List()) do
-        if s.icon and not seen[s.icon] then seen[s.icon] = true; list[#list + 1] = s.icon end
-    end
-    local pool = {}
-    GetLooseMacroIcons(pool)
-    GetLooseMacroItemIcons(pool)
-    GetMacroIcons(pool)
-    GetMacroItemIcons(pool)
-    for _, icon in ipairs(pool) do
-        if not seen[icon] then seen[icon] = true; list[#list + 1] = icon end
-    end
-    return list
+local function PickerIcon(i)
+    if i == 1 then return MM.QUESTION end
+    local spells = picker.spells
+    if i - 1 <= #spells then return spells[i - 1] end
+    return baseIcons[i - 1 - #spells]
+end
+
+local function PickerClick(self)
+    local onPick = picker.onPick
+    picker.Close()
+    if onPick then onPick(self.value) end
 end
 
 local function OpenPicker(onPick)
     local COLS, ROWS, SIZE = 10, 6, 40
     if not picker then
         local p = {}
-        local function Close() p.dimmer:Hide() end
+        function p.Close()
+            p.dimmer:Hide()
+            p.spells, p.onPick = nil, nil   -- the spell list lives only while it is open
+        end
         p.dimmer, p.popup = EllesmereUI.BuildPopupShell("EUIMacroIconPicker", {
-            w = COLS * SIZE + 40, h = ROWS * SIZE + 132, bump = 1, onEscape = Close, onDimmerDown = Close,
+            w = COLS * SIZE + 40, h = ROWS * SIZE + 132, bump = 1, onEscape = p.Close, onDimmerDown = p.Close,
         })
         local popup = p.popup
         local title = MakeFont(popup, 16, "", 1, 1, 1)
@@ -317,63 +337,104 @@ local function OpenPicker(onPick)
         sub:SetText(EllesmereUI.L("The question mark shows the spell's icon (with #showtooltip)."))
         p.buttons = {}
         for i = 1, COLS * ROWS do
-            local b = CreateFrame("Button", nil, popup)
+            local b = NewCell(popup)
             b:SetSize(SIZE - 4, SIZE - 4)
+            b:SetFrameLevel(popup:GetFrameLevel() + 2)   -- above the scroll frame below
             b:SetPoint("TOPLEFT", 20 + ((i - 1) % COLS) * SIZE, -70 - floor((i - 1) / COLS) * SIZE)
-            b:SetFrameLevel(popup:GetFrameLevel() + 2)
-            b.icon = b:CreateTexture(nil, "ARTWORK")
-            b.icon:SetAllPoints()
-            b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            b.brd = MakeBorder(b, 0, 0, 0, 0.6)
-            b:SetScript("OnEnter", function(self) local ac = Accent() self.brd:SetColor(ac.r, ac.g, ac.b, 1) end)
-            b:SetScript("OnLeave", function(self) self.brd:SetColor(0, 0, 0, 0.6) end)
-            b:SetScript("OnClick", function(self)
-                Close()
-                if p.onPick then p.onPick(self.value) end
-            end)
+            -- Left clicks only, and no drag: a drag would swallow the click.
+            b:RegisterForClicks("LeftButtonUp")
+            b:RegisterForDrag()
+            b.plus:Hide()
+            b:SetScript("OnClick", PickerClick)
             p.buttons[i] = b
         end
+        -- The shared scroll bar on an empty scroll frame under the grid: its
+        -- child is as tall as every icon row, and the scroll value picks the
+        -- first row the grid shows (the grid itself stays put).
+        local sf = CreateFrame("ScrollFrame", nil, popup)
+        sf:SetFrameLevel(popup:GetFrameLevel() + 1)
+        sf:SetPoint("TOPLEFT", popup, "TOPLEFT", 20, -70)
+        sf:SetSize(COLS * SIZE + 12, ROWS * SIZE)
+        p.child = CreateFrame("Frame", nil, sf)
+        p.child:SetSize(COLS * SIZE, ROWS * SIZE)
+        sf:SetScrollChild(p.child)
+        p.updateThumb, p.scrollTo = EllesmereUI.AttachSmoothScrollbar(sf, {
+            step = SIZE, child = p.child,
+            onScroll = function(v)
+                local off = floor(v / SIZE + 0.5) * COLS
+                if off ~= p.offset then
+                    p.offset = off
+                    p.Update()
+                end
+            end,
+        })
         function p.Update()
             for i, b in ipairs(p.buttons) do
-                local icon = p.list[p.offset + i]
+                local icon = PickerIcon(p.offset + i)
                 b.value = icon
-                if icon then b.icon:SetTexture(IconPath(icon)); b:Show() else b:Hide() end
+                if icon then
+                    b.icon:SetTexture(IconPath(icon))
+                    b.selected = icon == p.current
+                    b.Paint(false)
+                    b:Show()
+                else
+                    b:Hide()
+                end
             end
         end
-        popup:EnableMouseWheel(true)
-        popup:SetScript("OnMouseWheel", function(_, d)
-            local maxOff = max(0, math.ceil(#p.list / COLS) * COLS - COLS * ROWS)
-            p.offset = min(maxOff, max(0, p.offset - d * COLS))
-            p.Update()
-        end)
-        local cancel = EllesmereUI.MakePopupButton(popup, "BOTTOM", popup, "BOTTOM", 0, 18,
+        p.cancel = EllesmereUI.MakePopupButton(popup, "BOTTOM", popup, "BOTTOM", 0, 18,
             1, 1, 1, 0.75, 1, 1, 1, 1, 1, 1, 1, 0.25, 1, 1, 1, 0.5)
-        cancel._lbl:SetText(EllesmereUI.L("Cancel"))
-        cancel:SetScript("OnClick", Close)
+        p.cancel._lbl:SetText(EllesmereUI.L("Cancel"))
+        p.cancel:SetScript("OnClick", p.Close)
         picker = p
     end
-    picker.list = IconList()
-    picker.offset = 0
-    picker.onPick = onPick
+    if not baseIcons then
+        baseIcons = {}
+        GetLooseMacroIcons(baseIcons)
+        GetLooseMacroItemIcons(baseIcons)
+        GetMacroIcons(baseIcons)
+        GetMacroItemIcons(baseIcons)
+    end
+    local spells, seen = {}, {}
+    for _, s in ipairs(S.List()) do
+        if s.icon and not seen[s.icon] then seen[s.icon] = true; spells[#spells + 1] = s.icon end
+    end
+    picker.spells, picker.offset, picker.onPick, picker.current = spells, 0, onPick, cur.icon
+    picker.cancel._resetAnim()
     picker.Update()
     picker.dimmer:Show()
+    -- The bar's range: one row per COLS icons, back at the top on every open.
+    picker.child:SetHeight(math.ceil((1 + #spells + #baseIcons) / COLS) * SIZE)
+    picker.scrollTo(0)
+    picker.updateThumb()
 end
 
 -------------------------------------------------------------------------------
 --  Dropdown value tables
 -------------------------------------------------------------------------------
--- Line types in one flyout per group; onSelect(kind).
+-- Line types in one flyout per group (the { group } rows of B.KINDS). The
+-- groups' lists are built once; onSelect(kind) belongs to each menu. A hidden
+-- kind is in its group's values but not its order: a line read as one shows
+-- its label, and the menu never offers it.
+local kindGroups
 local function KindValues(onSelect)
-    local values, order = { __pick = "Choose a type" }, {}
-    for gi, g in ipairs(B.GROUPS) do
-        local sv, so = {}, {}
-        for _, key in ipairs(g.keys) do
-            sv[key] = B.KIND[key].label
-            so[#so + 1] = key
+    if not kindGroups then
+        kindGroups = {}
+        local g
+        for _, k in ipairs(B.KINDS) do
+            if k.group then
+                g = { key = "group" .. (#kindGroups + 1), text = k.group, values = {}, order = {} }
+                kindGroups[#kindGroups + 1] = g
+            else
+                g.values[k.key] = k.label
+                if not k.hidden then g.order[#g.order + 1] = k.key end
+            end
         end
-        local gk = "group" .. gi
-        values[gk] = { text = g.label, subnav = { values = sv, order = so, onSelect = onSelect } }
-        order[#order + 1] = gk
+    end
+    local values, order = { __pick = "Choose a type" }, {}
+    for i, g in ipairs(kindGroups) do
+        values[g.key] = { text = g.text, subnav = { values = g.values, order = g.order, onSelect = onSelect } }
+        order[i] = g.key
     end
     return values, order
 end
@@ -389,9 +450,12 @@ local function ListValues(list, sentinel)
     return values, order
 end
 
+-- Channel and target lists once; stances once per page build.
+local chanV, chanO, targV, targO, stanceV, stanceO
+
 -------------------------------------------------------------------------------
---  Line editor, shared by both views.
---  ctx: model, template, open (the expanded line), headers, onChange(structural, clean)
+--  Line editor.
+--  ctx: model, open (the expanded line), headers, onChange(structural, clean)
 -------------------------------------------------------------------------------
 -- Two lanes per condition, as the Show / Hide menus: [cond] left, [nocond]
 -- right. Conditions with a value follow under their own header ("p:" keys).
@@ -445,7 +509,7 @@ local function SetKind(l, kind)
     end
 end
 
--- A line as one row: its code, then move, on/off and remove; a click opens it.
+-- A line as one row: its code, then move and remove; a click opens it.
 local function LineHeader(body, y, ctx, i, l)
     local W = EllesmereUI.Widgets
     local lines = ctx.model.lines
@@ -453,8 +517,7 @@ local function LineHeader(body, y, ctx, i, l)
     local row, h = W:DualRow(body, y, { type = "label", text = LineCode(i, l) })
     local rgn = row._leftRegion
     local label = rgn._label
-    label:SetFont(fontPath, 13, "")
-    label:SetAlpha(l.on == false and 0.4 or 1)
+    label:SetFont(EllesmereUI.EXPRESSWAY, 13, "")
     ctx.headers[#ctx.headers + 1] = { fs = label, i = i, l = l }
     if open then
         local ac = Accent()
@@ -472,26 +535,13 @@ local function LineHeader(body, y, ctx, i, l)
     end, EllesmereUI.L("Remove line"))
     EllesmereUI.SetDeleteIcon(del.tex)
     del:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
-    local tg, _, snap = EllesmereUI.BuildToggleControl(rgn, rgn:GetFrameLevel() + 6,
-        function() return l.on ~= false end,
-        function(v)
-            l.on = v
-            label:SetAlpha(v and 1 or 0.4)
-            ctx.onChange(false)
-        end)
-    tg:SetPoint("RIGHT", del, "LEFT", -14, 0)
-    snap()
-    tg:HookScript("OnEnter", function(self)
-        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Switched-off lines stay in the editor but are left out of the macro."))
-    end)
-    tg:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
     local function Move(d)
         local j = i + d
         lines[i], lines[j] = lines[j], lines[i]
         ctx.onChange(true)
     end
     local down = Glyph(rgn, 18, "eui-arrow-down3.png", function() Move(1) end, EllesmereUI.L("Move down"))
-    down:SetPoint("RIGHT", tg, "LEFT", -14, 0)
+    down:SetPoint("RIGHT", del, "LEFT", -14, 0)
     down:SetEnabled(i < #lines)
     local up = Glyph(rgn, 18, "eui-arrow-up3.png", function() Move(-1) end, EllesmereUI.L("Move up"))
     up:SetPoint("RIGHT", down, "LEFT", -2, 0)
@@ -500,7 +550,7 @@ local function LineHeader(body, y, ctx, i, l)
 
     local hit = CreateFrame("Button", nil, row)
     hit:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
-    hit:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -150, 0)
+    hit:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -100, 0)
     hit:SetFrameLevel(rgn:GetFrameLevel() + 3)
     local hl = SolidTex(hit, "BACKGROUND", 1, 1, 1, 0)
     hl:SetAllPoints(row)
@@ -522,8 +572,9 @@ local function LineHeader(body, y, ctx, i, l)
 end
 
 -- What a DualRow cannot build itself: checkbox dropdowns, suggestions, inline buttons.
-local function PostCell(rgn, cfg, ctx)
-    if not cfg or EllesmereUI._prebuilding then return end
+local function PostCell(rgn, cfg)
+    if not cfg then return end
+    if cfg.type == "input" and rgn._control then boxes[rgn._control] = true end
     if cfg._cb then
         if rgn._control then rgn._control:Hide() end
         local cb = cfg._cb
@@ -534,7 +585,7 @@ local function PostCell(rgn, cfg, ctx)
         EllesmereUI.RegisterWidgetRefresh(refresh)
     end
     if cfg._suggest and rgn._control then
-        AttachSuggest(rgn._control, cfg.setValue, ctx.template, cfg._suggest == "list")
+        AttachSuggest(rgn._control, cfg.setValue, cfg._suggest == "list")
     end
     if cfg._maxLetters and rgn._control then rgn._control:SetMaxLetters(cfg._maxLetters) end
     if cfg._remove then
@@ -551,13 +602,13 @@ local function PostCell(rgn, cfg, ctx)
 end
 
 -- Cells two per row, filled left to right.
-local function EmitCells(body, y, cells, ctx)
+local function EmitCells(body, y, cells)
     local W = EllesmereUI.Widgets
     for i = 1, #cells, 2 do
         local a, b = cells[i], cells[i + 1]
         local row, h = W:DualRow(body, y, a, b or EllesmereUI.BlankRowCfg())
-        PostCell(row._leftRegion, a, ctx)
-        PostCell(row._rightRegion, b, ctx)
+        PostCell(row._leftRegion, a)
+        PostCell(row._rightRegion, b)
         y = y - h
     end
     return y
@@ -569,7 +620,10 @@ local function Input(text, get, set, opts)
         type = "input", text = text, inputStyle = "popup", inputWidth = opts.width or 200,
         placeholder = opts.ph, tooltip = opts.tip,
         disabled = opts.disabled, disabledTooltip = opts.disabledTooltip,
-        getValue = get, setValue = set, _suggest = opts.suggest, _maxLetters = opts.maxLetters,
+        getValue = get,
+        -- Every focus loss commits: an unchanged text is no edit.
+        setValue = function(t) if t ~= (get() or "") then set(t) end end,
+        _suggest = opts.suggest, _maxLetters = opts.maxLetters,
     }
 end
 
@@ -611,8 +665,8 @@ local function LineRows(body, y, ctx, l)
 
     if K.key == "chat" then
         Add(Input("Message", function() return v1.arg end, function(t) v1.arg = t; Changed() end, { ph = K.ph }))
-        local cv, co = ListValues(B.CHANNELS)
-        Add(Dropdown("Channel", cv, co, function() return l.chan end, function(c) l.chan = c; Changed() end))
+        if not chanV then chanV, chanO = ListValues(B.CHANNELS) end
+        Add(Dropdown("Channel", chanV, chanO, function() return l.chan end, function(c) l.chan = c; Changed() end))
     elseif K.arg == "spells" then
         Add(Input("Spells", function() return v1.arg end, function(t) v1.arg = t; Changed() end,
             { ph = K.ph or "Spell1, Spell2, Spell3", suggest = "list" }))
@@ -627,7 +681,6 @@ local function LineRows(body, y, ctx, l)
         or ((K.arg and K.arg ~= "spells" and K.key ~= "chat") and 1 or 0)
     for k = 1, count do
         local v = l.variants[k]
-        v.conds, v.params = v.conds or {}, v.params or {}
         if k > 1 then
             Add({ type = "label", text = EllesmereUI.Lf("Else: Variant %d", k),
                 tooltip = "Variants are checked top to bottom: the first one whose conditions match is used. A variant without conditions is the fallback.",
@@ -642,17 +695,17 @@ local function LineRows(body, y, ctx, l)
                 { ph = K.ph, suggest = K.arg == "spell" or nil }))
         end
         if K.conds then
-            local tv, to = ListValues(B.TARGETS, "none")
-            Add(Dropdown("Target", tv, to,
+            if not targV then targV, targO = ListValues(B.TARGETS, "none") end
+            Add(Dropdown("Target", targV, targO,
                 function() return v.target ~= "" and v.target or "none" end,
                 function(t) v.target = t == "none" and "" or t; Changed() end))
-            local sv, so = ListValues(B.Stances(), "any")
-            Add(Dropdown("Stance", sv, so,
+            if not stanceV then stanceV, stanceO = ListValues(B.Stances(), "any") end
+            Add(Dropdown("Stance", stanceV, stanceO,
                 function() return v.stance ~= "" and v.stance or "any" end,
                 function(s) v.stance = s == "any" and "" or s; Changed() end,
                 "Numbers follow your stance bar; 0 = no stance or normal form."))
-            -- Checking a condition with a value adds its value row: the page
-            -- rebuilds once the menu closes.
+            -- Checking a condition with a value adds its value row, and Not
+            -- renames it ("not ..."): the page rebuilds once the menu closes.
             local addedRows
             local cond = Dropdown("Conditions", { _p = "" }, { "_p" }, function() return "_p" end, function() end,
                 "The line only runs while the left ones are true and the right (Not) ones are false.")
@@ -676,6 +729,7 @@ local function LineRows(body, y, ctx, l)
                                 v.params[#v.params + 1] = prm
                                 addedRows = true
                             end
+                            if (prm.no == true) ~= (neg == true) then addedRows = true end
                             prm.no = neg == true
                         elseif prm and (prm.no == true) == (neg == true) then
                             table.remove(v.params, j)
@@ -732,7 +786,7 @@ local function LineRows(body, y, ctx, l)
             ctx.onChange(true)
         end })
     end
-    return EmitCells(body, y, cells, ctx)
+    return EmitCells(body, y, cells)
 end
 
 local function BuildLines(body, y, ctx)
@@ -740,7 +794,6 @@ local function BuildLines(body, y, ctx)
     local _, h = W:SectionHeader(body, "LINES", y);  y = y - h
     local kv, ko = KindValues(function(k)
         local l = B.NewLine(k)
-        if ctx.template and (k == "cast" or k == "use") then l.variants[1].arg = "{spell}" end
         table.insert(ctx.model.lines, l)
         ctx.open = l
         ctx.onChange(true)
@@ -771,28 +824,32 @@ end
 --  Editor state
 -------------------------------------------------------------------------------
 local function NewState(perChar)
-    return {
-        index = nil, perChar = perChar and true or false,
-        name = "", icon = MM.QUESTION,
-        model = B.New(), text = "#showtooltip",
-        dirty = false, nameTouched = false,
-    }
+    return { perChar = perChar and true or false, name = "", icon = MM.QUESTION,
+        model = B.New(), text = "#showtooltip", dirty = false, nameTouched = false }
 end
 
+-- m: a macro entry; it becomes the editor's ref, the identity every write checks.
 local function StateOf(m)
-    local s = NewState(m.perChar)
-    s.index, s.name, s.text = m.index, m.name, m.body
-    s.savedName, s.savedChar = m.name, m.perChar
-    s.icon = MM.PickedIcon(m.index, m.icon)
-    s.nameTouched = true
-    local meta = MM.Meta(m.name, m.perChar)
-    -- The stored model also keeps switched-off lines.
-    if meta and meta.model and meta.body == m.body and B.Build(meta.model) == m.body then
-        s.model = B.Substitute(meta.model)
-    else
-        s.model = B.Parse(m.body)
-    end
-    return s
+    return { ref = m, perChar = m.perChar, name = m.name, icon = MM.StoredIcon(m.index),
+        model = B.Parse(m.body), text = m.body, dirty = false, nameTouched = true }
+end
+
+-- The page's text field with the keyboard focus commits now, to the macro it
+-- was typed for: a click with a modifier held keeps the focus, so its commit
+-- would otherwise land on whatever the editor holds next. Only while the page
+-- is on screen (a rebuild under way commits nothing), and only the page's own
+-- fields: a focused frame of the game or another addon is never touched.
+local function FlushField()
+    if not shown then return end
+    local f = GetCurrentKeyBoardFocus()
+    if f and boxes[f] then f:ClearFocus() end
+end
+
+-- Another macro in the editor: a value typed for the last one commits to it
+-- first; then no open line, no status and no unread typed text remain.
+local function SetCur(state)
+    FlushField()
+    cur, statusText, statusBad, edCtx.open, textDirty = state, nil, nil, nil, nil
 end
 
 local function Guard(fn)
@@ -809,13 +866,8 @@ local function Guard(fn)
     end
 end
 
-local function Open(state)
-    cur = state
-    edCtx.open = nil
-    Rebuild()
-end
-
 local function SetStatus(text, bad)
+    statusText, statusBad = text, bad
     if not D.info then return end
     if bad then
         D.info:SetTextColor(1, 0.35, 0.35, 1)
@@ -829,121 +881,74 @@ end
 local function UpdateMacroText()
     cur.text = B.Build(cur.model)
     if D.text then D.text:SetText(cur.text) end
-    if D.count then PaintCounter(D.count, #cur.text) end
+    if D.count then PaintCounter(D.count, strlenutf8(cur.text)) end
 end
 
-local function Save()
-    local name = strtrim(cur.name or "")
-    if name == "" then name = MM.Truncate(B.FirstSpell(cur.model) or "", MM.MAX_NAME) end
-    if name == "" then SetStatus(EllesmereUI.L("Please enter a name."), true) return end
-    if #cur.text > MM.MAX_BYTES then
-        SetStatus(EllesmereUI.Lf("Too long: %1$d / %2$d characters.", #cur.text, MM.MAX_BYTES), true)
-        return
+local function Dirty()
+    cur.dirty = true
+    SetStatus(EllesmereUI.L("Unsaved changes"))
+end
+
+local function RebuildIfPending()
+    if shown and pendingRebuild then
+        pendingRebuild = nil
+        Rebuild()
     end
-    if strtrim(cur.text) == "" then SetStatus(EllesmereUI.L("The macro is empty."), true) return end
-    local oldName, oldChar = cur.index and cur.savedName, cur.index and cur.savedChar
-    local ok, err = MM.Save(cur.index, name, cur.icon, cur.text, cur.perChar)
-    if not ok then
-        SetStatus(EllesmereUI.L("Error:") .. " " .. tostring(err), true)
-        return
+end
+
+-- The lines are built again once the click under way is done, never from
+-- inside a blur (the page may be mid-teardown).
+local function RebuildAfterClick()
+    pendingRebuild = true
+    if IsMouseButtonDown() then
+        evf:RegisterEvent("GLOBAL_MOUSE_UP")
+    else
+        C_Timer.After(0, RebuildIfPending)
     end
-    if oldName and (oldName ~= name or oldChar ~= cur.perChar) then MM.SetMeta(oldName, oldChar, nil) end
-    MM.SetMeta(name, cur.perChar, { model = B.Substitute(cur.model), body = cur.text })
-    cur.name, cur.dirty = name, false
-    cur.justSaved = true
-    pendingSelect = { name = name, perChar = cur.perChar }
 end
 
-local function DeleteMacro(name, perChar)
-    EllesmereUI:ShowConfirmPopup({
-        title = EllesmereUI.L("Delete Macro"),
-        message = EllesmereUI.Lf("Delete the macro \"%s\"?", name),
-        confirmText = EllesmereUI.L("Delete"),
-        cancelText = EllesmereUI.L("Cancel"),
-        onConfirm = function()
-            local m = not InCombatLockdown() and MM.Find(name, perChar)
-            if not m then return end
-            MM.Delete(m.index)
-            MM.SetMeta(name, perChar, nil)
-            if cur.index and cur.savedName == name and cur.savedChar == perChar then
-                cur = NewState(perChar)
-            end
-        end,
-    })
+-- Typed macro text read into lines: on blur, at Save, on hide and before any
+-- other edit (a modifier-held click keeps the text box focused, so it can
+-- reach a control with the text unread). Returns true when it read.
+local function ReadText()
+    if not textDirty then return false end
+    textDirty = nil
+    cur.model = B.Parse(cur.text)
+    edCtx.open = nil
+    RebuildAfterClick()
+    return true
 end
 
--- Account <-> character: the macro is created again in the other list.
-local function MoveScope(name, fromChar)
-    local toChar = not fromChar
-    EllesmereUI:ShowConfirmPopup({
-        title = EllesmereUI.L("Move Macro"),
-        message = (toChar and EllesmereUI.Lf("Move \"%s\" to this character?", name)
-            or EllesmereUI.Lf("Move \"%s\" to the account?", name))
-            .. "\n" .. EllesmereUI.L("Action bar buttons with this macro have to be placed again."),
-        confirmText = EllesmereUI.L("Move"),
-        cancelText = EllesmereUI.L("Cancel"),
-        onConfirm = function()
-            local m = MM.Find(name, fromChar)
-            if not m then return end
-            local meta = MM.Meta(name, fromChar)
-            local ok, err = MM.Save(m.index, name, MM.PickedIcon(m.index, m.icon), m.body, toChar)
-            if not ok then Note(EllesmereUI.L("Error:") .. " " .. tostring(err)) return end
-            MM.SetMeta(name, fromChar, nil)
-            MM.SetMeta(name, toChar, meta and B.Substitute(meta))
-            if cur.index and cur.savedName == name and cur.savedChar == fromChar then
-                cur.perChar = toChar
-                pendingSelect = { name = name, perChar = toChar }
-            end
-        end,
-    })
+-- A click on lines built before the text was read: refused, and said.
+local function RefuseClick()
+    SetStatus(EllesmereUI.L("The lines were rebuilt from the macro text. Click again."), true)
+end
+
+-- A setting of the macro changed. structural: the lines are built again;
+-- clean: nothing to save (a line opened or closed).
+local function ApplyEdit(structural, clean)
+    if ReadText() then RefuseClick() return end
+    if not clean then
+        Dirty()
+        if not cur.nameTouched and not cur.ref then cur.name = MM.CleanName(B.FirstSpell(cur.model)) end
+    end
+    UpdateMacroText()
+    if structural then Rebuild() return end
+    UpdateHeaders(edCtx)
+    Refresh()
+end
+
+-- The lines' widgets hold the line tables they were built with: until the
+-- lines are built again after a text edit, their clicks are refused.
+edCtx.onChange = function(structural, clean)
+    if pendingRebuild then RefuseClick() return end
+    ApplyEdit(structural, clean)
 end
 
 -------------------------------------------------------------------------------
---  Icon grids in the content header, centered row by row like the action
+--  The macro grid in the content header, centered row by row like the action
 --  bar preview. Cells are pooled; the grid re-parents into each header.
 -------------------------------------------------------------------------------
-local function NewCell(parent)
-    local c = CreateFrame("Button", nil, parent)
-    c:SetSize(CELL - 4, CELL - 4)
-    c:SetFrameLevel(parent:GetFrameLevel() + 1)
-    c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    c:RegisterForDrag("LeftButton")
-    SolidTex(c, "BACKGROUND", 0, 0, 0, 0.5):SetAllPoints()
-    c.icon = c:CreateTexture(nil, "ARTWORK")
-    c.icon:SetPoint("TOPLEFT", 1, -1)
-    c.icon:SetPoint("BOTTOMRIGHT", -1, 1)
-    c.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    c.plus = MakeFont(c, 22, nil, 1, 1, 1, 0.45)
-    c.plus:SetPoint("CENTER", 0, 1)
-    c.plus:SetText("+")
-    c.name = c:CreateFontString(nil, "OVERLAY")
-    c.name:SetFont(EllesmereUI.EXPRESSWAY, 9, "OUTLINE")
-    c.name:SetPoint("BOTTOMLEFT", 2, 3)
-    c.name:SetPoint("BOTTOMRIGHT", -2, 3)
-    c.name:SetJustifyH("CENTER")
-    c.name:SetWordWrap(false)
-    c.brd = MakeBorder(c, 0, 0, 0, 1, PP)
-    function c.Paint(hover)
-        if c.selected then
-            local ac = Accent()
-            c.brd:SetColor(ac.r, ac.g, ac.b, 1)
-        elseif hover then
-            c.brd:SetColor(1, 1, 1, 0.5)
-        else
-            c.brd:SetColor(0, 0, 0, 1)
-        end
-    end
-    c:SetScript("OnEnter", function(self)
-        self.Paint(true)
-        if self.tip then EllesmereUI.ShowWidgetTooltip(self, self.tip, { justify = "LEFT" }) end
-    end)
-    c:SetScript("OnLeave", function(self)
-        self.Paint(false)
-        EllesmereUI.HideWidgetTooltip()
-    end)
-    return c
-end
-
 -- Places count cells centered in rows of w; bind(cell, i) fills each one.
 -- Returns the grid's height.
 local function LayoutGrid(g, hdr, y, w, count, bind)
@@ -981,493 +986,413 @@ local function LayoutGrid(g, hdr, y, w, count, bind)
         cell:Show()
     end
     for i = count + 1, #g.cells do g.cells[i]:Hide() end
-    g.count, g.bind = count, bind
     g.frame:Show()
     g.update()
     return h
 end
 
-local function RebindGrid(g)
-    for i = 1, g.count or 0 do g.bind(g.cells[i], i) end
-end
-
-local function BulkSettings() return MM.DB().bulk end
-local function BulkSelected() return MM.CharDB().bulkSelected end
-local function BulkName(spell) return MM.Truncate((BulkSettings().prefix or "") .. spell, MM.MAX_NAME) end
-
-local function SelectedSpells()
-    local out, sel = {}, BulkSelected()
-    for _, s in ipairs(S.List()) do
-        if sel[s.name] then out[#out + 1] = s end
+-- Fills cell i of the macro grid from gridList; past the list is the "+" cell.
+local function BindMacroCell(c, i)
+    local m = gridList[i]
+    c.m, c.newCell = m, m == nil
+    c.icon:SetShown(m ~= nil)
+    c.plus:SetShown(m == nil)
+    c.name:SetText(m and m.name or "")
+    if m then
+        c.icon:SetTexture(IconPath(m.icon))
+        c.selected = cur.ref ~= nil and cur.ref.index == m.index
+    else
+        c.selected = not cur.ref and cur.perChar == (mode == "char")
     end
-    return out
+    c.Paint(false)
 end
 
-local function ShownSpells()
-    local out = {}
-    for _, s in ipairs(S.List()) do
-        if spellTab == "__all" or s.tab == spellTab then out[#out + 1] = s end
+-- The header's list in place: the counts, the grid, and the snapshot a
+-- re-show compares with. Returns the header's height.
+local function PaintHeader()
+    local a, c = GetNumMacros()
+    hdrValues.account = EllesmereUI.L("Account Macros") .. "  (" .. a .. "/" .. MM.MAX_ACCOUNT .. ")"
+    hdrValues.char = EllesmereUI.L("Character Macros") .. "  (" .. c .. "/" .. MM.MAX_CHAR .. ")"
+    hdrDD._invalidateMenu()   -- the menu is built again from the new labels on its next open
+    local perChar = mode == "char"
+    gridList = MM.List(perChar)
+    local count = #gridList + (MM.Free(perChar) > 0 and 1 or 0)
+    local gh = LayoutGrid(macroGrid, hdrFrame, hdrY, hdrW, count, BindMacroCell)
+    MM.Diff(snap, true)
+    return math.abs(hdrY - gh - 14)
+end
+
+-------------------------------------------------------------------------------
+--  Following the game
+-------------------------------------------------------------------------------
+-- The editor's macro after a macro change, ours or from elsewhere. A clean
+-- editor follows the game: the macro's icon, its text edited elsewhere (found
+-- by its name), or a new macro once it is gone. A dirty one keeps its edits;
+-- its Save finds the macro again or refuses.
+local function Follow()
+    local ref = cur.ref
+    if not ref then return end
+    local i = MM.Resolve(ref)
+    if cur.dirty then return end
+    if i then
+        cur.icon = MM.StoredIcon(i)
+        return
     end
-    return out
+    -- A value typed but not committed yet belongs to this macro: it lands
+    -- first, and the editor then keeps it.
+    FlushField()
+    if cur.dirty then return end
+    i = MM.Resolve(ref, true)
+    SetCur(i and StateOf(MM.Entry(i)) or NewState(cur.perChar))
 end
 
-local function MacroMenu(anchor, m)
-    EllesmereUI.ShowContextMenu(anchor, {
-        { text = m.perChar and "Move to Account" or "Move to Character", onClick = function() MoveScope(m.name, m.perChar) end },
-        { text = "Pick Up", onClick = function() if not InCombatLockdown() then PickupMacro(m.index) end end },
-        "---",
-        { text = "Delete", onClick = function() DeleteMacro(m.name, m.perChar) end },
+-- A macro change while shown: the header repaints in place; the body is built
+-- again only when the editor changed or a new macro got its slot.
+local function OnMacrosChanged()
+    Follow()
+    if cur ~= builtFor or (cur.ref ~= nil) ~= builtHadRef then Rebuild() return end
+    if hdrDD and hdrDD:IsVisible() then EllesmereUI:SetContentHeaderHeightSilent(PaintHeader()) end
+    Refresh()
+end
+
+local function ResyncNow()
+    pendingEvent = nil
+    if shown then OnMacrosChanged() end
+end
+
+-- Bursts (several macros changed at once) settle in one pass on the next frame.
+local function RequestResync()
+    if pendingEvent then return end
+    pendingEvent = true
+    C_Timer.After(0, ResyncNow)
+end
+
+-------------------------------------------------------------------------------
+--  Macro actions: each write finds its macro again first, or refuses
+-------------------------------------------------------------------------------
+-- Whether m is the macro the editor holds.
+local function IsCur(m)
+    local i = MM.Resolve(m)
+    return i ~= nil and cur.ref ~= nil and MM.Resolve(cur.ref) == i
+end
+
+local function PickupRef(m)
+    local ok, err = MM.Pickup(m)
+    if not ok then SetStatus(err, true) end
+end
+
+local function Save()
+    FlushField() -- a field typed in but not committed (a click with a modifier held keeps its focus)
+    ReadText()   -- text typed but not read yet: read now, and the lines follow
+    local name = MM.CleanName(cur.name)
+    if name == "" then name = MM.CleanName(B.FirstSpell(cur.model)) end
+    local bad = MM.Check(name, cur.text)
+    if bad then SetStatus(bad, true) return end
+    local function Commit()
+        -- A saved macro keeps the icon it has unless one was picked here: it
+        -- may have been changed elsewhere since the editor read it.
+        local icon = (cur.iconSet or not cur.ref) and cur.icon or nil
+        local m, err = MM.Save(cur.ref, name, icon, cur.text, cur.perChar)
+        if not m then SetStatus(err, true) return end
+        mode = m.perChar and "char" or "account"   -- a saved macro shows in its list
+        if m.body == cur.text then
+            cur.ref, cur.perChar, cur.name, cur.dirty, cur.iconSet = m, m.perChar, m.name, false, nil
+            SetStatus(EllesmereUI.L("Saved."))
+        else
+            SetCur(StateOf(m))                     -- the game kept another text: show it
+            SetStatus(EllesmereUI.L("Saved, but the game changed the text: this is what it kept."), true)
+        end
+        RequestResync()
+    end
+    -- Two macros of one name are allowed, but a key bound by name finds the first.
+    if (not cur.ref or name ~= cur.ref.name) and MM.NameTaken(name, cur.perChar) then
+        EllesmereUI:ShowConfirmPopup({
+            title = EllesmereUI.L("Name Taken"),
+            message = EllesmereUI.Lf("Another macro in this list is already named %s. Save anyway?", name),
+            confirmText = EllesmereUI.L("Save"),
+            cancelText = EllesmereUI.L("Cancel"),
+            onConfirm = Commit,
+        })
+        return
+    end
+    Commit()
+end
+
+local function DeleteMacro(m)
+    EllesmereUI:ShowConfirmPopup({
+        title = EllesmereUI.L("Delete Macro"),
+        message = EllesmereUI.Lf("Delete the macro %s?", m.name),
+        confirmText = EllesmereUI.L("Delete"),
+        cancelText = EllesmereUI.L("Cancel"),
+        onConfirm = function()
+            local isCur = IsCur(m)
+            local ok, err = MM.Delete(m)
+            if not ok then SetStatus(err, true) return end
+            if isCur then SetCur(NewState(m.perChar)) end
+            RequestResync()
+        end,
     })
 end
 
-local function LayoutMacros(hdr, y, w)
-    local perChar = mode == "char"
-    local list = MM.List(perChar)
-    local full = MM.Free(perChar) <= 0
-    local count = #list + (full and 0 or 1)
-    return LayoutGrid(macroGrid, hdr, y, w, count, function(c, i)
-        local m = list[i]
-        c.m = m
-        c.icon:SetShown(m ~= nil)
-        c.plus:SetShown(m == nil)
-        c.name:SetText(m and m.name or "")
-        c.icon:SetDesaturated(false)
-        c.icon:SetAlpha(1)
-        if m then
-            c.icon:SetTexture(IconPath(m.icon))
-            c.selected = cur.index == m.index
-            c.tip = m.name .. "\n\n" .. m.body
-        else
-            c.selected = cur.index == nil and cur.perChar == perChar
-            c.tip = EllesmereUI.L("New Macro")
-        end
-        c.Paint(false)
-        c:SetScript("OnDragStart", function(self)
-            if not self.m or InCombatLockdown() then return end
-            EllesmereUI.HideWidgetTooltip()
-            PickupMacro(self.m.index)
-        end)
-        c:SetScript("OnClick", function(self, btn)
-            local mm = self.m
-            if btn == "RightButton" then
-                if mm then MacroMenu(self, mm) end
-                return
+-- Account <-> character: the macro is made again in the other list.
+local function MoveScope(m)
+    local toChar = not m.perChar
+    local message = (toChar and EllesmereUI.Lf("Move %s to this character?", m.name)
+        or EllesmereUI.Lf("Move %s to the account?", m.name))
+        .. "\n" .. EllesmereUI.L("Action bar buttons with this macro have to be placed again.")
+    -- As at Save: a key bound by name finds the first of two macros of one name.
+    if MM.NameTaken(m.name, toChar) then
+        message = message .. "\n" .. EllesmereUI.Lf("Another macro in that list is already named %s.", m.name)
+    end
+    EllesmereUI:ShowConfirmPopup({
+        title = EllesmereUI.L("Move Macro"),
+        message = message,
+        confirmText = EllesmereUI.L("Move"),
+        cancelText = EllesmereUI.L("Cancel"),
+        onConfirm = function()
+            local isCur = IsCur(m)
+            local moved, err = MM.Save(m, m.name, nil, m.body, toChar)
+            if not moved then SetStatus(err, true) return end
+            if isCur then
+                cur.ref, cur.perChar = moved, moved.perChar
+                mode = toChar and "char" or "account"   -- the editor's macro shows in its list
             end
-            if mm and cur.index == mm.index then return end
-            if not mm and not cur.index and cur.perChar == perChar then return end
-            Guard(function() Open(mm and StateOf(mm) or NewState(perChar)) end)
-        end)
+            RequestResync()
+        end,
+    })
+end
+
+local menuOwner   -- the cell whose right-click menu opened last
+
+local function MacroMenu(anchor, m)
+    menuOwner = anchor
+    EllesmereUI.ShowContextMenu(anchor, {
+        { text = m.perChar and "Move to Account" or "Move to Character", onClick = function() MoveScope(m) end },
+        { text = "Pick Up", onClick = function() PickupRef(m) end },
+        "---",
+        { text = "Delete", onClick = function() DeleteMacro(m) end },
+    })
+end
+
+CellClick = function(self, btn)
+    local m = self.m
+    if btn == "RightButton" then
+        if m then MacroMenu(self, m) end
+        return
+    end
+    local perChar = mode == "char"
+    if m and cur.ref and cur.ref.index == m.index then return end   -- open already
+    if not m and not cur.ref and cur.perChar == perChar then return end
+    FlushField()   -- a value typed but not committed lands first, so Guard sees it
+    Guard(function()
+        SetCur(m and StateOf(m) or NewState(perChar))
+        Rebuild()
     end)
 end
 
-local function LayoutSpells(hdr, y, w)
-    local list = ShownSpells()
-    return LayoutGrid(spellGrid, hdr, y, w, #list, function(c, i)
-        local s = list[i]
-        local on = BulkSelected()[s.name] == true
-        c.icon:Show()
-        c.plus:Hide()
-        c.name:SetText("")
-        c.icon:SetTexture(s.icon)
-        c.icon:SetDesaturated(not on)
-        c.icon:SetAlpha(on and 1 or 0.45)
-        c.selected = on
-        c.tip = s.name .. "\n" .. (on and EllesmereUI.L("Picked. Click to remove.") or EllesmereUI.L("Click to pick."))
-        c.Paint(false)
-        c:SetScript("OnDragStart", nil)
-        c:SetScript("OnClick", function(self)
-            local sel = BulkSelected()
-            sel[s.name] = not sel[s.name] or nil
-            RebindGrid(spellGrid)
-            self.Paint(true)
-            if UpdateBulk then UpdateBulk() end
-        end)
-    end)
+CellDrag = function(self)
+    if not self.m then return end
+    EllesmereUI.HideWidgetTooltip()
+    PickupRef(self.m)
 end
 
 -- Centered list dropdown over the centered icons (the Action Bars header).
-HeaderBuilder = function(hdr, hdrW)
-    local pad = EllesmereUI.CONTENT_PAD
-    local fy = -20
-    local DD_H = 34
-    local a, c = MM.Counts()
-    local values = {
-        _noLoc = true,
-        account = EllesmereUI.L("Account Macros") .. "  (" .. a .. "/" .. MM.MAX_ACCOUNT .. ")",
-        char = EllesmereUI.L("Character Macros") .. "  (" .. c .. "/" .. MM.MAX_CHAR .. ")",
-        bulk = EllesmereUI.L("Bulk Macros"),
-    }
-    local dd = EllesmereUI.BuildDropdownControl(hdr, 350, hdr:GetFrameLevel() + 5, values,
-        { "account", "char", "bulk" },
+HeaderBuilder = function(hdr, width)
+    hdrFrame, hdrY, hdrW = hdr, -20 - 34 - 12, width - EllesmereUI.CONTENT_PAD * 2
+    hdrValues = { _noLoc = true }
+    hdrDD = EllesmereUI.BuildDropdownControl(hdr, 350, hdr:GetFrameLevel() + 5, hdrValues, LIST_ORDER,
         function() return mode end,
         function(v)
             if v == mode then return end
+            FlushField()   -- a value typed but not committed lands first: the editor may be dirty then
             mode = v
-            -- Changing lists starts a new macro unless one is being edited.
-            if v ~= "bulk" and not cur.dirty and cur.perChar ~= (v == "char") then cur = NewState(v == "char") end
-            edCtx.open, bkCtx.open = nil, nil
-            EllesmereUI:InvalidateContentHeaderCache()
+            -- Another list starts a new macro unless one is being edited.
+            if not cur.dirty and cur.perChar ~= (v == "char") then SetCur(NewState(v == "char")) end
             Rebuild()
         end)
-    PP.Point(dd, "TOP", hdr, "TOP", 0, fy)
-    dd:SetHeight(DD_H)
-    fy = fy - DD_H - 12
-    if macroGrid.frame then macroGrid.frame:Hide() end
-    if spellGrid.frame then spellGrid.frame:Hide() end
-    local gh
-    if mode == "bulk" then gh = LayoutSpells(hdr, fy, hdrW - pad * 2)
-    else gh = LayoutMacros(hdr, fy, hdrW - pad * 2) end
-    fy = fy - gh - 14
-    return math.abs(fy)
+    PP.Point(hdrDD, "TOP", hdr, "TOP", 0, -20)
+    hdrDD:SetHeight(34)
+    return PaintHeader()
 end
 _G._EUI_MacrosHeaderBuilder = HeaderBuilder
 
 -------------------------------------------------------------------------------
 --  Events: while the page is shown
 -------------------------------------------------------------------------------
-local function OnMacrosChanged()
-    if cur then
-        local key = pendingSelect or (cur.index and { name = cur.savedName or cur.name, perChar = cur.savedChar })
-        if key then
-            local m = MM.Find(key.name, key.perChar)
-            cur.index = m and m.index or nil
-            if cur.index then cur.perChar = key.perChar end
-        end
-        -- A saved or moved macro shows in its list.
-        if pendingSelect and cur.index and mode ~= "bulk" then mode = cur.perChar and "char" or "account" end
-        pendingSelect = nil
-        if cur.index then cur.savedName, cur.savedChar = cur.name, cur.perChar end
-    end
-    Rebuild()
-end
-
-local function OnEvent(_, event)
+local function OnEvent(self, event)
     if event == "GLOBAL_MOUSE_UP" then
-        evf:UnregisterEvent("GLOBAL_MOUSE_UP")
-        -- Next frame: after the click that ended the text edit has landed.
-        C_Timer.After(0, function()
-            if pendingRebuild then pendingRebuild = nil; Rebuild() end
-        end)
-        return
-    end
-    if event == "SPELLS_CHANGED" then
-        local before = #S.List()
-        S.Invalidate()
-        if mode ~= "bulk" or #S.List() == before then return end
-    end
-    -- Bursts (one UPDATE_MACROS per macro of a bulk run) settle in one rebuild.
-    if pendingEvent then return end
-    pendingEvent = true
-    C_Timer.After(0, function()
-        pendingEvent = nil
-        if shown then OnMacrosChanged() end
-    end)
-end
-
--- After typing in the macro text: rebuild the lines once the click is done.
-local function RebuildAfterClick()
-    if IsMouseButtonDown() then
-        pendingRebuild = true
-        evf:RegisterEvent("GLOBAL_MOUSE_UP")
+        self:UnregisterEvent("GLOBAL_MOUSE_UP")
+        C_Timer.After(0, RebuildIfPending)   -- next frame: after the click that ended the text edit
+    elseif event == "SPELLS_CHANGED" then
+        S.Invalidate()                        -- read again where it is next used
     else
-        Rebuild()
+        RequestResync()                       -- UPDATE_MACROS
     end
 end
 
+-- The icon picker and a cell's right-click menu close with the page once it
+-- stays hidden: a rebuild hides and shows it again at once, so a popup the
+-- click under way opened stays.
+local function ClosePopupsIfHidden()
+    if shown then return end
+    if picker then picker.Close() end
+    if menuOwner and EllesmereUI.ContextMenuOwner() == menuOwner then EllesmereUI.CloseContextMenu() end
+end
+
+-- One event frame, re-parented into each build of the page: its show and hide
+-- are the page's, so the events are registered only while the page is shown.
 local function WatchEvents(parent)
     if not evf then
         evf = CreateFrame("Frame")
+        evf._searchIgnore = true  -- the inline search never hides it
         evf:SetScript("OnEvent", OnEvent)
+        evf:SetScript("OnShow", function(self)
+            shown = true
+            self:RegisterEvent("UPDATE_MACROS")
+            self:RegisterEvent("SPELLS_CHANGED")
+            -- Hidden in this same frame: a rebuild, which has just read both.
+            if GetTime() == hiddenAt then return end
+            -- Shown again: spells and macros may have changed while hidden.
+            S.Invalidate()
+            if pendingRebuild then
+                C_Timer.After(0, RebuildIfPending)
+            elseif MM.Diff(snap) then
+                RequestResync()
+            end
+        end)
+        evf:SetScript("OnHide", function(self)
+            shown, hiddenAt = nil, GetTime()
+            -- Text typed but not read into lines yet: read it now; the lines are
+            -- built on the next show.
+            ReadText()
+            self:UnregisterAllEvents()
+            HideSuggest()
+            if (picker and picker.dimmer:IsShown())
+                or (menuOwner and EllesmereUI.ContextMenuOwner() == menuOwner) then
+                C_Timer.After(0, ClosePopupsIfHidden)
+            end
+        end)
     end
-    local host = CreateFrame("Frame", nil, parent)
-    host:SetSize(1, 1)
-    host:SetPoint("TOPLEFT")
-    host:SetScript("OnShow", function()
-        shown = true
-        evf:RegisterEvent("UPDATE_MACROS")
-        evf:RegisterEvent("SPELLS_CHANGED")
-    end)
-    host:SetScript("OnHide", function()
-        shown = nil
-        evf:UnregisterAllEvents()
-        pendingRebuild = nil
-        HideSuggest()
-        if picker then picker.dimmer:Hide() end
-    end)
-    host:GetScript("OnShow")()
+    evf:Hide()
+    evf:SetParent(parent)
+    evf:Show()
 end
 
 -------------------------------------------------------------------------------
---  Page bodies
+--  Page body
 -------------------------------------------------------------------------------
-local function BuildMacroBody(parent, y)
+local function BuildMacroBody(parent, y, enable)
     local W = EllesmereUI.Widgets
     local _, h
-    if not cur then cur = NewState(mode == "char") end
-
-    local function Dirty()
-        cur.dirty = true
-        SetStatus(EllesmereUI.L("Unsaved changes"))
-    end
     edCtx.model = cur.model
-    edCtx.template = false
-    edCtx.onChange = function(structural, clean)
-        if not clean then
-            Dirty()
-            if not cur.nameTouched and not cur.index then
-                cur.name = MM.Truncate(B.FirstSpell(cur.model) or "", MM.MAX_NAME)
-            end
-        end
-        UpdateMacroText()
-        if structural then Rebuild() return end
-        UpdateHeaders(edCtx)
-        Resync()
-    end
-
-    _, h = W:SectionHeader(parent, "MACRO", y);  y = y - h
     y = EmitCells(parent, y, {
+        enable,
         Input("Name", function() return cur.name end, function(t)
-            t = MM.Truncate(strtrim(t or ""), MM.MAX_NAME)
+            t = MM.CleanName(t)
             if t == cur.name then return end
             cur.name, cur.nameTouched = t, true
             Dirty()
         end, { width = 170, ph = "Max. 16 characters", maxLetters = MM.MAX_NAME }),
-        Dropdown("Saved For", { account = "Account", char = "Character" }, { "account", "char" },
-            function() return cur.perChar and "char" or "account" end,
-            function(v) cur.perChar = v == "char"; Dirty() end,
-            "Account macros exist on all your characters, character macros only on this one."),
+        { type = "dropdown", text = "Saved For", values = { account = "Account", char = "Character" },
+          order = LIST_ORDER,
+          tooltip = "Account macros exist on all your characters, character macros only on this one.",
+          getValue = function() return cur.perChar and "char" or "account" end,
+          setValue = function(v) cur.perChar = v == "char"; Dirty() end,
+          -- A saved macro moves through Move, which warns that its bar buttons go.
+          disabled = function() return cur.ref ~= nil end, rawTooltip = true,
+          disabledTooltip = "A saved macro changes lists through Move in its right-click menu." },
         { type = "labeledButton", text = "Icon", buttonText = "Choose Icon", width = 130,
           onClick = function()
               OpenPicker(function(icon)
-                  cur.icon = icon or MM.QUESTION
+                  cur.icon, cur.iconSet = icon or MM.QUESTION, true
                   Dirty()
-                  Resync()
+                  Refresh()
               end)
           end,
           _icon = function() return cur.icon end },
         { type = "toggle", text = "Show Spell Tooltip", tooltip = "#showtooltip: the button shows the spell's icon and tooltip.",
           getValue = function() return cur.model.tooltip end,
-          setValue = function(v) cur.model.tooltip = v; edCtx.onChange(false) end },
+          setValue = function(v) cur.model.tooltip = v; ApplyEdit(false) end },
         Input("Tooltip Spell", function() return cur.model.tooltipSpell end,
-            function(t) cur.model.tooltipSpell = t; edCtx.onChange(false) end,
+            function(t) cur.model.tooltipSpell = t; ApplyEdit(false) end,
             { ph = "Empty = automatic", suggest = true,
               disabled = function() return not cur.model.tooltip end, disabledTooltip = "Show Spell Tooltip" }),
-    }, edCtx)
+    })
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
-    y = BuildLines(parent, y, edCtx)
+    -- The LINES rows show live macro text: kept out of the search index (the
+    -- flag is restored even when a row errors).
+    local prev = EllesmereUI._searchIndexSuppress
+    EllesmereUI._searchIndexSuppress = true
+    local ok, ny = pcall(BuildLines, parent, y, edCtx)
+    EllesmereUI._searchIndexSuppress = prev
+    if not ok then error(ny, 0) end
+    y = ny
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
     _, h = W:SectionHeader(parent, "MACRO TEXT", y);  y = y - h
-    local box, count, info = TextBlock(parent, y, false)
+    local box, count, info = TextBlock(parent, y)
     y = y - TEXT_H
     D.text, D.count, D.info = box, count, info
     box:SetText(cur.text)
-    PaintCounter(count, #cur.text)
-    if cur.justSaved then
-        cur.justSaved = nil
-        SetStatus(EllesmereUI.L("Saved."))
-    elseif cur.dirty then
-        SetStatus(EllesmereUI.L("Unsaved changes"))
-    end
-    local textEdited
+    PaintCounter(count, strlenutf8(cur.text))
+    SetStatus(statusText, statusBad)
+    -- Typing is read into lines on blur (and at Save), not per keystroke.
     box.onChange = function(text, user)
         if not user then return end
-        cur.text = text
-        cur.model = B.Parse(text)
-        textEdited = true
+        cur.text, textDirty = text, true
         Dirty()
-        PaintCounter(count, #text)
+        PaintCounter(count, strlenutf8(text))
     end
-    box.onBlur = function()
-        if not textEdited then return end
-        textEdited = false
-        edCtx.open = nil
-        RebuildAfterClick()
-    end
+    box.onBlur = ReadText
 
     local notSaved = { disabled = true, tooltip = EllesmereUI.L("Save the macro first.") }
+    -- Deleting the open macro leaves no ref until the body is built again.
     _, h = W:WideTripleButton(parent, "Save", "Pick Up", "Delete", y,
         Save,
-        function() if cur.index and not InCombatLockdown() then PickupMacro(cur.index) end end,
-        function() if cur.index then DeleteMacro(cur.savedName or cur.name, cur.savedChar) end end,
-        nil, cur.index == nil and { [2] = notSaved, [3] = notSaved } or nil);  y = y - h
-    return y
-end
-
-local function BulkModel()
-    local cdb = MM.CharDB()
-    local model = cdb.bulkModel
-    if not (model and model.lines) then
-        model = B.New()
-        model.lines[1] = B.NewLine("cast", "{spell}")
-        cdb.bulkModel = model
-    end
-    return model
-end
-
-local function RunBulk()
-    if MM.Blocked() then return end
-    local st, model = BulkSettings(), BulkModel()
-    local perChar = st.perChar and true or false
-    local created, updated, skipped, failed = 0, 0, 0, 0
-    for _, s in ipairs(SelectedSpells()) do
-        local name = BulkName(s.name)
-        local body = B.Build(model, s.name)
-        local icon = st.spellIcon and s.icon or MM.QUESTION
-        local ex = MM.Find(name, perChar)
-        if #body > MM.MAX_BYTES then
-            failed = failed + 1
-        elseif ex and not st.overwrite then
-            skipped = skipped + 1
-        elseif MM.Save(ex and ex.index, name, icon, body, perChar) then
-            if ex then updated = updated + 1 else created = created + 1 end
-            MM.SetMeta(name, perChar, { model = B.Substitute(model, s.name), body = body })
-        else
-            failed = failed + 1
-        end
-    end
-    local msg = EllesmereUI.Lf("Macros: %1$d created, %2$d updated, %3$d skipped.", created, updated, skipped)
-    if failed > 0 then
-        msg = msg .. " |cffff5959" .. EllesmereUI.Lf("%d failed (too long or no free slot).", failed) .. "|r"
-    end
-    Note(msg)
-end
-
-local function BuildBulkBody(parent, y)
-    local W = EllesmereUI.Widgets
-    local _, h
-    local model = BulkModel()
-
-    bkCtx.model = model
-    bkCtx.onChange = function(structural)
-        if structural then Rebuild() return end
-        UpdateBulk()
-        UpdateHeaders(bkCtx)
-        Resync()
-    end
-
-    local function Relayout()
-        EllesmereUI:InvalidateContentHeaderCache()
-        EllesmereUI:SetContentHeader(HeaderBuilder)
-    end
-
-    _, h = W:SectionHeader(parent, "SETTINGS", y);  y = y - h
-    local tabValues, tabOrder = { _noLoc = true, __all = L("All Spells") }, { "__all" }
-    for _, s in ipairs(S.List()) do
-        local tab = s.tab or "?"
-        if not tabValues[tab] then tabValues[tab] = tab; tabOrder[#tabOrder + 1] = tab end
-    end
-    if not tabValues[spellTab] then spellTab = "__all" end
-    y = EmitCells(parent, y, {
-        Dropdown("Spellbook Tab", tabValues, tabOrder, function() return spellTab end,
-            function(v) spellTab = v; Relayout() end, "Which spells the icons above show."),
-        Input("Name Prefix", function() return BulkSettings().prefix end,
-            function(t) BulkSettings().prefix = t; UpdateBulk() end,
-            { width = 120, ph = "e.g. SA ", maxLetters = 8,
-              tip = "Put in front of every macro name (macro names hold 16 characters)." }),
-        Dropdown("Save As", { account = "Account", char = "Character" }, { "account", "char" },
-            function() return BulkSettings().perChar and "char" or "account" end,
-            function(v) BulkSettings().perChar = v == "char"; UpdateBulk() end),
-        { type = "toggle", text = "Update Existing Macros", tooltip = "Macros with the same name are updated instead of skipped.",
-          getValue = function() return BulkSettings().overwrite end,
-          setValue = function(v) BulkSettings().overwrite = v; UpdateBulk() end },
-        { type = "toggle", text = "Use the Spell's Icon",
-          tooltip = "Off: the question mark icon follows the spell via #showtooltip. On: the spell's icon is saved for good.",
-          getValue = function() return BulkSettings().spellIcon end,
-          setValue = function(v) BulkSettings().spellIcon = v end },
-    }, bkCtx)
-    _, h = W:WideDualButton(parent, "Pick All Shown", "Clear Picks", y,
-        function()
-            for _, s in ipairs(ShownSpells()) do BulkSelected()[s.name] = true end
-            RebindGrid(spellGrid)
-            UpdateBulk()
-        end,
-        function()
-            wipe(BulkSelected())
-            RebindGrid(spellGrid)
-            UpdateBulk()
-        end);  y = y - h
-
-    _, h = W:Spacer(parent, y, 20);  y = y - h
-    y = BuildLines(parent, y, bkCtx)
-
-    _, h = W:Spacer(parent, y, 20);  y = y - h
-    _, h = W:SectionHeader(parent, "PREVIEW", y);  y = y - h
-    local box, count, info = TextBlock(parent, y, true)
-    y = y - TEXT_H
-    _, h = W:WideButton(parent, "Create Macros", y, RunBulk);  y = y - h
-
-    UpdateBulk = function()
-        local spells = SelectedSpells()
-        local s = spells[1]
-        local text = B.Build(model, s and s.name or EllesmereUI.L("Spell name"))
-        box:SetText(text)
-        PaintCounter(count, #text)
-        local st = BulkSettings()
-        local existing = {}
-        for _, m in ipairs(MM.List(st.perChar)) do existing[m.name] = true end
-        local new, upd, skip = 0, 0, 0
-        for _, sp in ipairs(spells) do
-            if existing[BulkName(sp.name)] then
-                if st.overwrite then upd = upd + 1 else skip = skip + 1 end
-            else
-                new = new + 1
-            end
-        end
-        local free = MM.Free(st.perChar)
-        local txt = EllesmereUI.Lf("%1$d picked: %2$d new, %3$d updated, %4$d skipped. Free macro slots: %5$d",
-            #spells, new, upd, skip, free)
-        if new > free then txt = txt .. "  |cffff5959" .. EllesmereUI.Lf("(%d won't fit)", new - free) .. "|r" end
-        if s then txt = txt .. "  " .. EllesmereUI.Lf("Preview for %s.", s.name) end
-        info:SetText(txt)
-    end
-    UpdateBulk()
+        function() if cur.ref then PickupRef(cur.ref) end end,
+        function() if cur.ref then DeleteMacro(cur.ref) end end,
+        nil, not cur.ref and { [2] = notSaved, [3] = notSaved } or nil);  y = y - h
+    builtFor, builtHadRef = cur, cur.ref ~= nil
     return y
 end
 
 -------------------------------------------------------------------------------
 --  Page entry point
 -------------------------------------------------------------------------------
-local function Prepare()
-    MM = EllesmereUI._MacroManager
-    if not MM then return false end
-    B, S = MM.Builder, MM.Builder.Spells
-    fontPath = EllesmereUI.GetFontPath("essentials") or EllesmereUI.EXPRESSWAY
-    return true
-end
-
 _G._EUI_BuildForeverMacrosPage = function(pageName, parent, yOffset)
-    if EllesmereUI._prebuilding or not Prepare() then return 0 end
-    if not MM.Enabled() then
-        local sf = EllesmereUI._scrollFrame
-        local height = floor((sf and sf:GetHeight() or 680) - 36)
-        local cover = CreateFrame("Frame", nil, parent)
-        cover:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, yOffset + 6)
-        cover:SetSize(parent:GetWidth(), height)
-        local _, btn = EllesmereUI.BuildActivationOverlay(cover, {
-            fontPath = fontPath, width = parent:GetWidth(),
-            title = EllesmereUI.L("Macro Manager"),
-            text = EllesmereUI.L("Build macros by click: a line editor with every option, live macro text and bulk creation for many spells at once."),
-            buttonLabel = EllesmereUI.L("Enable Macro Manager"),
-        })
-        btn:SetScript("OnClick", function()
-            MM.Cfg().enabled = true
-            MM.Apply()
-            EllesmereUI:InvalidateModulePageCache("EllesmereUIForeverEssentials")
-            Rebuild()
-        end)
-        return height
-    end
-
-    if not cur then cur = NewState(mode == "char") end
-    wipe(D)
-    UpdateBulk = nil
-    WatchEvents(parent)
+    local W = EllesmereUI.Widgets
+    local KIT = EllesmereUI._MacroManager
+    local y = yOffset
+    local _, h
     parent._showRowDivider = true
+    _, h = W:SectionHeader(parent, "MACRO", y);  y = y - h
+    local enable = { type = "toggle", text = "Enable Macro Manager",
+        tooltip = "Edit your macros by click: a line editor with every option and the live macro text. /euimacros opens this page.",
+        getValue = KIT.Enabled,
+        setValue = function(v)
+            KIT.Cfg().enabled = v
+            if v then
+                KIT.Apply()
+            else
+                -- The header cached while it was on must not come back over the bare page.
+                EllesmereUI:InvalidateContentHeaderCache()
+            end
+            Rebuild()
+        end }
+    -- Off, and in the search pre-build: the switch alone.
+    if EllesmereUI._prebuilding or not KIT.Enabled() then
+        _, h = W:DualRow(parent, y, enable, EllesmereUI.BlankRowCfg());  y = y - h
+        return math.abs(y)
+    end
+    if not cur then cur = NewState(mode == "char") end
+    Follow()
+    pendingRebuild = nil      -- this build is the one a text edit asked for
+    wipe(boxes)
+    wipe(D)
+    stanceV, stanceO = nil, nil   -- forms can be learned between builds
     EllesmereUI:SetContentHeader(HeaderBuilder)
-
-    local y
-    if mode == "bulk" then y = BuildBulkBody(parent, yOffset) else y = BuildMacroBody(parent, yOffset) end
+    y = BuildMacroBody(parent, y, enable)
+    WatchEvents(parent)       -- after the header: a re-show compares with what it painted
     return math.abs(y)
 end

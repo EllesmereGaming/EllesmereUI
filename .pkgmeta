@@ -55,3 +55,4 @@ ignore:
   - README.md
   - CHANGELOG.md
   - AGENTS.md
+  - EllesmereUILoadoutManager

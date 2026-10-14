@@ -107,6 +107,12 @@ local DM_DEFAULTS = {
             -- reload-gated; both set resolves as classic.
             useBlizzardStyle = false,
             useClassicStyle  = false,
+            -- The WoW Forever look's Border Style (latched in ns.DMStyle, worn
+            -- by the threat meter too): "textured" = Slim Textured, the default
+            -- there (an unset value reads the same, EllesmereUI.
+            -- ForeverBorderKind), "slim" = Slim, "heavy" = Heavy Bronze. Nil
+            -- on every other client.
+            foreverBorder = (EllesmereUI.IS_FOREVER == true) and "textured" or nil,
             barColorUseAccent = true,
             barColor        = { r = 0.35, g = 0.55, b = 0.8 },
             barFillAlpha    = 1,
@@ -254,6 +260,12 @@ function ns.DMStyle()
         -- flag set together with the Blizzard one.
         ns._dmForever = v == "blizzard" and EllesmereUI.IS_FOREVER == true
             and dm.useForeverStyle == true
+        -- Its Border Style (DM page), latched with it: "slim" (the shipped
+        -- line), "textured" (Blizzard's live line; unset, the default, reads
+        -- the same) or "heavy" (the heavy frame), each kind that lacks its art
+        -- drawing Slim (EllesmereUI.ForeverBorderKind).
+        ns._dmFvKind = ns._dmForever and EllesmereUI.ForeverBorderKind(dm.foreverBorder) or nil
+        ns._dmFvHeavy = ns._dmFvKind == "heavy"
     end
     return v
 end
@@ -266,6 +278,38 @@ function ns.DMClassic() return ns.DMStyle() == "classic" end
 function ns.DMForever()
     if ns._dmStyle == nil then ns.DMStyle() end
     return ns._dmForever == true
+end
+-- The WoW Forever windows' Border Style this session: "slim", "textured" or
+-- "heavy" (latched with the look). Nil everywhere else.
+function ns.DMFvKind()
+    if ns._dmStyle == nil then ns.DMStyle() end
+    return ns._dmFvKind
+end
+-- The same kind for another addon's window that wears these windows' frame
+-- (the Forever Essentials threat meter reads it through _ModuleNS once, as
+-- it sets up its look at login): the profile is opened first, so a read
+-- made before this module's own login pass still latches the saved value.
+function ns.DMFvKindShared()
+    EnsureDB()
+    return ns.DMFvKind()
+end
+-- The WoW Forever windows wear the heavy bronze frame this session (Border
+-- Style Heavy Bronze). False everywhere else.
+function ns.DMFvHeavy()
+    if ns._dmStyle == nil then ns.DMStyle() end
+    return ns._dmFvHeavy == true
+end
+-- Profiles (ProfileChangesStyle's `extra`, handed the incoming dm table):
+-- true when that profile would latch another Border Style kind than the one
+-- latched this session (the latch above, read off `p`), so the switch asks
+-- for a reload.
+function ns.DMFvBorderChanged(p)
+    local kind
+    if type(p) == "table" and not p.useClassicStyle and p.useBlizzardStyle
+        and EllesmereUI.IS_FOREVER == true and p.useForeverStyle == true then
+        kind = EllesmereUI.ForeverBorderKind(p.foreverBorder)
+    end
+    return kind ~= ns.DMFvKind()
 end
 -- The one-time Classic WoW UI seed on a profile `p`: a near-black window
 -- (#101010), the game's own bar fill as the bar texture and a quarter-black
@@ -541,10 +585,12 @@ function ns.DMPaintClassicBg(tex, r, g, b, a, edged)
     ns.DMClassicTint(tile, r, g, b, a)
 end
 -- How far the header and the row area sit inside the window under Classic
--- WoW UI (past the rim and bevel) and WoW Forever (past the bronze line),
--- zero on every other look so the anchors below are exactly what they were.
+-- WoW UI (past the rim and bevel) and WoW Forever (past the bronze line, or
+-- the heavy frame's band), zero on every other look so the anchors below are
+-- exactly what they were.
 function ns.DMClassicInset()
     if ns.DMClassic() then return ns.DM_CLASSIC_INSET end
+    if ns._dmFvHeavy then return ns.DM_FV.heavyInset end
     if ns._dmForever and EUI.ForeverBorderOK() then return ns.DM_FV.inset end
     return 0
 end
@@ -692,6 +738,12 @@ end
 --  objective tracker header (Forever's art for the retail header bar's own
 --  design: a dark body warming toward a lower rail), cut to its warm body
 --  and lower bronze rod, the rod running under the frame's side lines.
+--  The Border Style (ns.DMFvKind, latched with the look) picks the frame:
+--  Slim draws the line from our shipped flat art, Slim Textured from
+--  Blizzard's live art, and Heavy Bronze wears the bronze frame of
+--  Forever's own windows instead (EllesmereUI.ForeverHeavy, on the same
+--  child frame at the art's window scale), the header and rows further in
+--  past its rim.
 --  Every atlas is probed once and a missing piece leaves plain Blizzard
 --  Style in its place. Built on the build paths only; nothing here runs off
 --  the variant.
@@ -699,7 +751,11 @@ end
 ns.DM_FV = {
     frameLevel = 14,  -- the line over the header and rows, under the resize grip and lock (15, 16)
     inset      = EUI.FOREVER_BORDER.shade, -- header and rows start past the line and its inner shadow
-    bodyInset  = EUI.FOREVER_BORDER.line,  -- the body from the line's inner edge, its corners behind the chamfers
+    bodyInset  = EUI.FOREVER_BORDER.fill,  -- the body under the line's inner shadow, its corners inside the chamfers
+    -- Heavy Bronze: header and rows start past the rim and its dark line;
+    -- the body tucks under the rim, its corners inside the corner cuts.
+    heavyInset     = EUI.FOREVER_HEAVY.band,
+    heavyBodyInset = EUI.FOREVER_HEAVY.fill,
     -- Header band: a cut of this 300x40 art, as fractions of its box (art
     -- pixels 64..176 across clear its fading ends and the filigree; 9..39
     -- down hold the body, the lower rod and its shadow, leaving out the
@@ -735,30 +791,48 @@ function ns.DMFvAtlas(name)
     end
     return v
 end
--- The bronze line on one of our frames, built once: the pieces on a child
--- frame over the owner's content, the line's outer edge on the owner's
--- edge, or with `outside` its inner edge (the breakdown popup, whose rows
--- run flush). Nil off the variant or without the art.
+-- The bronze line on one of our frames, built once: the pieces (the latched
+-- Border Style's art, shipped or Blizzard's live) on a child frame over the
+-- owner's content, the line's outer edge on the owner's edge, or with
+-- `outside` FOREVER_BORDER.fill past it (the breakdown popup, whose rows
+-- and body run flush: its square corners stay inside the chamfers).
+-- Heavy Bronze: the bronze window frame there, the child frame drawn at the
+-- art's window scale, its rim's outer edge on the owner's edge or, with
+-- `outside`, its rim and dark line past it. Nil off the variant or where the
+-- frame cannot be drawn.
 function ns.DMFvFrameArt(owner, outside)
     if owner._fvRim then return owner._fvRim end
+    if ns.DMFvHeavy() then
+        local H = EUI.FOREVER_HEAVY
+        local host = CreateFrame("Frame", nil, owner)
+        host:SetScale(H.k)
+        host:SetFrameLevel(owner:GetFrameLevel() + ns.DM_FV.frameLevel)
+        host:SetAllPoints(owner)
+        local o = outside and H.band * H.k or 0
+        EUI.ForeverHeavySeat(EUI.ForeverHeavy(host, "ARTWORK"), owner, "TOPLEFT", -o, o, o, -o)
+        owner._fvRim = host
+        return host
+    end
     if not (ns.DMForever() and EUI.ForeverBorderOK()) then return nil end
     local host = CreateFrame("Frame", nil, owner)
     host:SetFrameLevel(owner:GetFrameLevel() + ns.DM_FV.frameLevel)
     host:SetAllPoints(owner)
-    local o = outside and EUI.FOREVER_BORDER.line or 0
-    EUI.ForeverBorderSeat(EUI.ForeverBorder(host), owner, "TOPLEFT", -o, o, o, -o)
+    local o = outside and EUI.FOREVER_BORDER.fill or 0
+    EUI.ForeverBorderSeat(EUI.ForeverBorder(host, nil, nil, nil, ns._dmFvKind), owner, "TOPLEFT", -o, o, o, -o)
     owner._fvRim = host
     return host
 end
 -- Window background under WoW Forever. With `edged` the window wears the
 -- bronze line over a flat dark body spanning it (from the line's inner
--- edge; black at the Background Opacity, as Blizzard Style), both regions
--- and frames of the window built once, the body re-tinted per call; the bg
+-- edge; Heavy Bronze: the heavy frame, the body tucked under its band;
+-- black at the Background Opacity, as Blizzard Style), both regions and
+-- frames of the window built once, the body re-tinted per call; the bg
 -- texture itself paints nothing. Without it (the breakdown panel inside a
--- window) nothing: the window's body stays up behind it. False without the
--- art (the caller paints plain Blizzard Style).
+-- window) nothing: the window's body stays up behind it. False where the
+-- frame cannot be drawn (the caller paints plain Blizzard Style).
 function ns.DMPaintForeverBg(tex, a, edged)
     if not EUI.ForeverBorderOK() then return false end
+    local heavy = ns._dmFvHeavy
     if not edged then
         tex:SetTexture(nil)
         tex:SetColorTexture(0, 0, 0, 0)
@@ -767,7 +841,7 @@ function ns.DMPaintForeverBg(tex, a, edged)
     local body = tex._fvBody
     if not body then
         local win = tex:GetParent()
-        local e = ns.DM_FV.bodyInset
+        local e = heavy and ns.DM_FV.heavyBodyInset or ns.DM_FV.bodyInset
         body = win:CreateTexture(nil, "BACKGROUND", nil, -8)
         body:SetPoint("TOPLEFT", win, "TOPLEFT", e, -e)
         body:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -e, e)
@@ -783,9 +857,9 @@ end
 -- FV.hdrCut): an atlas cannot be cropped, so the cut is drawn from the
 -- atlas's own sheet file at its coords, reaching FV.hdrReach past the
 -- header's sides under the frame. Set up once per texture; every call only
--- re-applies the opacity `a`. False without the art (the frame too: the
--- rod needs the side lines over its ends); the caller paints plain
--- Blizzard Style.
+-- re-applies the opacity `a`. False without the art, or where the frame
+-- cannot be drawn (the rod needs the side lines, or the heavy frame's
+-- bands, over its ends); the caller paints plain Blizzard Style.
 function ns.DMFvHeader(tex, a)
     if not tex._fvHdr then
         local FV = ns.DM_FV
@@ -1081,6 +1155,9 @@ local _inEncounter = false       -- true between ENCOUNTER_START and ENCOUNTER_E
 local _playerGUID
 local _windows = {}  -- array of active window tables
 ns._windows = _windows
+-- Windows taken out of use (a closed window, or one past a profile's window
+-- count), kept whole with their frames: ns.DMAcquireWindow brings them back.
+ns._dmParked = {}
 
 -- Hotkey toggle state. Deliberately not persisted: a window hidden by accident would
 -- otherwise stay gone after a reload with nothing on screen explaining why. Every place
@@ -1090,9 +1167,9 @@ ns._windows = _windows
 ns._toggleHidden = false
 
 -- Bumped whenever a build of the windows starts or _EDM_Apply() supersedes one. The
--- login build is staggered across frames, so a rebuild arriving while it is still in
--- flight would otherwise let the pending steps assign _windows[i] over entries the
--- rebuild had just created -- abandoning those frames while they stay parented and
+-- login build is staggered across frames, so a profile swap arriving while it is still
+-- in flight would otherwise let the pending steps assign _windows[i] over the windows
+-- the swap had just set up -- abandoning those frames while they stay parented and
 -- visible. A staggered step checks this before doing any work and drops out if a newer
 -- build has taken over.
 local _buildGen = 0
@@ -1378,6 +1455,7 @@ local StartSharedTicker  -- forward declaration (defined in refresh section)
 local ScheduleStopTicker -- forward declaration (defined in refresh section)
 local _sharedTicker      -- the live refresh ticker (assigned in refresh section)
 local _combatGen = 0     -- monotonic segment token; stale deferred teardowns compare against it
+local _targetsCache = {} -- Damage Done targets map (BuildAllPlayerTargets): { key = sessionKey, map = { [playerName] = sorted targets } }
 
 -- Keystone start: wipe data so Overall = this dungeon run
 -- Keystone end: auto-swap windows from Current to Overall (if enabled)
@@ -1498,12 +1576,9 @@ instanceFrame:SetScript("OnEvent", function(_, event)
             StopSharedTicker()
             -- Freeze (pin) the timer if combat was still live
             if wasLive and _combatEndTime == 0 then FreezeCombat() end
-            -- Hide standalone timer immediately on zone change
-            if _saTimer and _saTimer:IsShown() and not _saTimerPreview then
-                _saTimer:Hide()
-            end
         end
-        -- Refresh after zone-in to pick up visibility/data changes
+        -- Refresh after zone-in to pick up visibility/data changes (window 1's
+        -- refresh also applies the standalone timer's visibility)
         for _, w in ipairs(_windows) do
             w._barCacheKey = nil
         end
@@ -2062,9 +2137,8 @@ local function AggregateEnemyPlayers(srcData, duration)
 end
 
 -- Damage Done targets: cross-reference EnemyDamageTaken to build a complete map of ALL players'
--- damage per enemy in one pass. First hover builds it; later hovers are instant cache lookups. Invalidated on DAMAGE_METER_RESET/COMBAT_SESSION_UPDATED.
-local _targetsCache = {}  -- { key = sessionKey, map = { [playerName] = sorted targets } }
-
+-- damage per enemy in one pass. First hover builds it; later hovers are instant cache lookups. _targetsCache
+-- (declared with the event state above) is wiped on DAMAGE_METER_RESET and when combat starts or ends.
 local function BuildAllPlayerTargets(session, sessionID)
 
     local cacheKey = tostring(session) .. "|" .. tostring(sessionID)
@@ -3349,6 +3423,8 @@ local function CreateDMWindow(winIdx)
         -- Propagates a live accent color change to header text, header icons, bars (via
         -- Refresh), and home screen cards (via RefreshHome), each gated on its own accent-use toggle
         EUI.RegAccent({ type = "callback", fn = function(r, g, b)
+            -- A parked window re-reads the accent when it is brought back (W.Reapply).
+            if W._parked then return end
             local c = DB()
             -- (WoW Forever's title keeps its gold.)
             if c.hdrTextUseAccent ~= false and not ns.DMForever() then W.titleText:SetTextColor(r, g, b, 1) end
@@ -3623,7 +3699,8 @@ local function CreateDMWindow(winIdx)
             local nwdb = WinDB(newIdx2)
             nwdb.width = math.floor(srcW2 + 0.5); nwdb.height = math.floor(srcH2 + 0.5)
             nwdb.position = { x = srcLeft2, y = newTop2 }
-            local nw = CreateDMWindow(newIdx2)
+            -- A closed window comes back before a new one is built
+            local nw = ns.DMAcquireWindow(newIdx2)
             _windows[newIdx2] = nw
             if ns.ApplyWindowBorder then ns.ApplyWindowBorder() end
             -- Persist count
@@ -4173,7 +4250,13 @@ local function CreateDMWindow(winIdx)
         W.resizeGrip:HookScript("OnEnter", StartHoverPoll)
         W.lockBtn:HookScript("OnEnter", StartHoverPoll)
         W._startHoverPoll = StartHoverPoll
-        W._hoverTicker = { Cancel = function() if hoverTicker then hoverTicker:Cancel(); hoverTicker = nil end end }
+        -- Ends any hover at once (W.Park): the poll and the fade stop, and the grip and lock go to alpha 0.
+        W._endHover = function()
+            if hoverTicker then hoverTicker:Cancel(); hoverTicker = nil end
+            wasOver = false; W.isHovered = false
+            fadeAlpha, fadeTarget = 0, 0; fadeFrame2:Hide()
+            W.resizeGrip:SetAlpha(0); W.lockBtn:SetAlpha(0)
+        end
         -- Hook bar rows so entering from the content area starts the poll
         for _, bar in ipairs(W.rowPool) do bar.row:HookScript("OnEnter", StartHoverPoll) end
         if W.stickyPlayer then W.stickyPlayer.row:HookScript("OnEnter", StartHoverPoll) end
@@ -5375,16 +5458,18 @@ local function CreateDMWindow(winIdx)
         else frame:SetAlpha(1); frame:EnableMouse(true); frame:Show() end
     end
 
+    -- The mouseover scan's predicate (registered here and again by W.Reapply). Hover-gated
+    -- sets only reveal while their conditions pass; a legacy single "mouseover" behaves exactly as before
+    local function MouseoverActive()
+        -- The mouseover scanner shows the frame without going through UpdateVisibility,
+        -- so the toggle and the window's instance rules have to be refused here as well
+        if ns._toggleHidden or InstanceHidden() then return false end
+        local c = DB()
+        return c ~= nil and EUI.VisWantsMouseover(c, "visibility")
+    end
     EUI.RegisterVisibilityUpdater(W.UpdateVisibility)
     if EUI.RegisterMouseoverTarget then
-        -- Hover-gated sets only reveal while their conditions pass; a legacy single "mouseover" behaves exactly as before
-        EUI.RegisterMouseoverTarget(frame, function()
-            -- The mouseover scanner shows the frame without going through UpdateVisibility,
-            -- so the toggle and the window's instance rules have to be refused here as well
-            if ns._toggleHidden or InstanceHidden() then return false end
-            local c = DB()
-            return c ~= nil and EUI.VisWantsMouseover(c, "visibility")
-        end)
+        EUI.RegisterMouseoverTarget(frame, MouseoverActive)
     end
 
     -- Catch-up: refreshes skipped while hidden leave W._refreshPending, so the first show
@@ -5407,14 +5492,28 @@ local function CreateDMWindow(winIdx)
     end
 
 
-    -- Destroy
-    function W.Destroy()
-        if W._hoverTicker then W._hoverTicker:Cancel() end
-        resizeFrame:SetScript("OnUpdate", nil)
-        -- Unregister from the global visibility system and the mouseover scan (prevents ghost resurrection)
+    -- Park: takes this window out of use and keeps it whole for W.Reapply (a closed
+    -- window, or one past a profile's window count): hidden, out of the visibility
+    -- updates and the mouseover scan (no ghost resurrection), any hover, drag or
+    -- resize ended, and listed in ns._dmParked.
+    function W.Park()
+        if W._parked then return end
+        W._parked = true
+        dragging = false; dragFrame:Hide()
+        W.resizing = false; resizeFrame:Hide()
+        W._endHover()
+        frame:Hide()
         EUI.UnregisterVisibilityUpdater(W.UpdateVisibility)
         EUI.UnregisterMouseoverTarget(frame)
-        frame:Hide(); frame:SetParent(nil)
+        local parked = ns._dmParked
+        parked[#parked + 1] = W
+    end
+
+    -- Destroy (the close button): the window is parked and its slot removed (a window
+    -- already parked holds no slot)
+    function W.Destroy()
+        if W._parked then return end
+        W.Park()
         -- Remove from runtime array
         local oldCount = #_windows
         local runtimeIdx
@@ -5435,17 +5534,159 @@ local function CreateDMWindow(winIdx)
         ns.RegisterDMUnlock()
     end
 
+    -- The first paint of a built or re-applied window, a frame later (off the build or
+    -- profile swap frame): one per frame however often it is asked for, none while parked.
+    local function FirstPaint()
+        W._firstPaintPending = nil
+        if W._parked then return end
+        W.Refresh()
+        -- First install: show home page so user can pick a mode
+        if not wdb.curDMType then W.ShowHome() end
+    end
+
+    -- Reapply: points this window at slot idx of the profile now active and re-reads
+    -- every setting read while it was built above, leaving it as a newly built window
+    -- for that slot (a profile swap keeps its windows; a parked window comes back).
+    function W.Reapply(idx)
+        if W._parked then
+            W._parked = nil
+            EUI.RegisterVisibilityUpdater(W.UpdateVisibility)
+        else
+            -- A fresh scan entry, as a new window gets: the cached answer is the old profile's
+            EUI.UnregisterMouseoverTarget(frame)
+        end
+        EUI.RegisterMouseoverTarget(frame, MouseoverActive)
+        W.idx = idx
+        wdb = WinDB(idx)
+        local c = DB()
+        -- Window state, as set at the top of this function
+        local dmType = wdb.curDMType or Enum.DamageMeterType.DamageDone
+        if not DM_TYPE_NAMES[dmType] then dmType = Enum.DamageMeterType.DamageDone end
+        W.curDMType = dmType
+        W.curSession = wdb.curSession or Enum.DamageMeterSessionType.Current
+        W.curSessionID = nil
+        W.visibleCount = 0
+        W.windowLocked = wdb.locked or false
+        W.snapDisabled = wdb.snapDisabled or false
+        W.sourceClass = nil
+        W.cachedSources = nil
+        W.stickyAtTop = false
+        W.stickyGuard = false
+        -- Every paint memo and the cached session: any of their inputs may differ now
+        W._barCacheKey, W._stickyCacheKey, W._lastSession, W._refreshPending = nil, nil, nil, nil
+        W._stickyClassCache, W._stickySpecCache, W._stickyRankCache, W._stickyNameCache = nil, nil, nil, nil
+        W._timerSec, W._fitFull, W._fitAvail, W._cachedTargets = nil, nil, nil, nil
+        -- A drag or resize in flight ends here
+        dragging = false; dragFrame:Hide()
+        W.resizing = false; resizeFrame:Hide()
+        frame:SetSize(wdb.width or 300, wdb.height or 200)
+        -- An unlock-anchored window waits unplaced for its anchor, as a new one does
+        frame:ClearAllPoints()
+        W.ApplyPosition()
+        -- Home page and breakdown closed, every row empty, scrolled to the top
+        W.HideHome()
+        W.CloseSource()
+        for i = 1, BAR_POOL_SIZE do
+            local bar = W.rowPool[i]
+            bar.row:Hide(); bar.classIcon:Hide()
+            bar._src = nil; bar._srcGUID = nil; bar._class = nil
+            bar._cachedSlot = nil; bar._cachedClass = false; bar._cachedSpecIcon = nil; bar._cachedColorClass = false
+            bar._cachedSrcName = nil; bar._cachedDisplayName = nil; bar._cachedAmtText = nil
+            bar._cachedRank = nil; bar._cachedThreatColor = nil
+        end
+        local sp = W.stickyPlayer
+        sp.row:Hide(); sp.classIcon:Hide(); W.stickySep:Hide()
+        sp._src = nil; sp._srcGUID = nil; sp._class = nil
+        viewport:SetVerticalScroll(0)
+        RecalcViewport(0)
+        W.srcViewport:SetVerticalScroll(0); _srcScrollMax = 0
+        if homeScroll then homeScroll:SetVerticalScroll(0) end
+        -- Window and breakdown background, header bar
+        local bgR, bgG, bgB, bgA = c.bgR or 0, c.bgG or 0, c.bgB or 0, c.bgAlpha or 0.75
+        local hdrH = GetHeaderH()
+        frame._bg:ClearAllPoints()
+        frame._bg:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -hdrH)
+        frame._bg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+        ns.DMPaintWindowBg(frame._bg, bgR, bgG, bgB, bgA, true)
+        ns.DMPaintWindowBg(W.sourceFrame._bg, bgR, bgG, bgB, bgA)
+        header:SetHeight(hdrH)
+        local hc = c.hdrBgColor
+        ns.DMPaintHeaderBg(header._hdrBg, hc and hc.r or 0x1B/255, hc and hc.g or 0x1B/255, hc and hc.b or 0x1B/255, c.hdrBgAlpha or 1)
+        if not ns.DMClassicSeparator(header._bottomBorder, PhysicalPixels(1)) then
+            local size = c.hdrBottomBorderSize or 0
+            local color = c.hdrBottomBorderColor or {}
+            header._bottomBorder:SetHeight(PhysicalPixels(size))
+            header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
+            header._bottomBorder:SetShown(size > 0 and not ns.DMBlizz())
+        end
+        -- Title and timer
+        local titleFS = c.hdrFontSize or 11
+        SetDMFont(W.titleText, titleFS)
+        W.titleText:ClearAllPoints()
+        W.titleText:SetPoint("LEFT", header, "LEFT", 6 + (c.hdrTextOffX or 0), (c.hdrTextOffY or 0) + ns.DMHdrLift(c.hdrHeight))
+        local tR, tG, tB
+        if c.hdrTextUseAccent ~= false then tR, tG, tB = ns.DMTitleRGB()
+        else local tc = c.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
+        W.titleText:SetTextColor(tR, tG, tB, 1)
+        W._fullTitle = L("Damage Done")
+        W.titleText:SetText(W._fullTitle)
+        SetDMFont(W.timerText, titleFS)
+        W.timerText:SetText("(0:00)")
+        W.timerText:SetShown(not wdb.hideTimer)
+        -- Header buttons: size, glyph colour, meter type icon, close icon, lock state
+        local sz = ns.DMHdrIconSize(c)
+        local ir, ig, ib = GetIconColor()
+        for _, btn in ipairs(W.hdrBtns) do btn:SetSize(sz, sz) end
+        for _, ic in ipairs(W.hdrIcons) do
+            if not ic._hdrArt then ic:SetVertexColor(ir, ig, ib, ICON_ALPHA) end
+        end
+        ns.DMSetTypeIcon(W._modeIcon, W.curDMType)
+        local closeTex = W._closeIconTex
+        if closeTex and not closeTex._hdrArt then
+            closeTex:ClearAllPoints()
+            closeTex:SetSize(sz + 2, sz + 2)
+            closeTex:SetPoint("CENTER", W.winActionBtn, "CENTER", 0, 0)
+        end
+        LayoutHeaderButtons(W, c, sz)
+        UpdateLockIcon()
+        local a = W.isHovered and 0.3 or 0
+        W.resizeGrip:SetAlpha(W.windowLocked and 0 or a)
+        W.lockBtn:SetAlpha(a)
+        ApplyHeaderButtonsHoverVisibility(W, c)
+        -- Rows and the pinned row: borders, track, text offsets
+        for i = 1, BAR_POOL_SIZE do
+            local bar = W.rowPool[i]
+            bar.ApplyBorder(); bar.ApplyIconBorder(); bar.ApplyBg(); bar.ApplyTextOffsets()
+        end
+        sp.ApplyBorder(); sp.ApplyIconBorder(); sp.ApplyBg(); sp.ApplyTextOffsets()
+        W.UpdateVisibility()
+        if not W._firstPaintPending then
+            W._firstPaintPending = true
+            C_Timer.After(0, FirstPaint)
+        end
+    end
 
     W.UpdateVisibility()
 
     -- Defer initial refresh off the init frame
-    C_Timer.After(0, function()
-        W.Refresh()
-        -- First install: show home page so user can pick a mode
-        if not wdb.curDMType then W.ShowHome() end
-    end)
+    W._firstPaintPending = true
+    C_Timer.After(0, FirstPaint)
 
     return W
+end
+
+-- A window for slot idx: a parked window brought back (W.Reapply), else a new one.
+-- Slot 1 always gets a window built for it (its header carries New Window), and
+-- every parked window was built for a later slot.
+function ns.DMAcquireWindow(idx)
+    local parked = ns._dmParked
+    local w = idx ~= 1 and parked[#parked]
+    if w then
+        parked[#parked] = nil
+        w.Reapply(idx)
+        return w
+    end
+    return CreateDMWindow(idx)
 end
 
 -- ns exports (loop over all windows)
@@ -5458,8 +5699,8 @@ end
 -- anchors; busting _barCacheKey makes the next refresh re-anchor them. Rows are
 -- otherwise only re-anchored on a settings change or from the in-combat ticker,
 -- so out of combat the old grid would survive until the next fight. Deliberately
--- not _EDM_Apply (a full teardown and rebuild): the core scale slider calls this
--- on every drag step.
+-- not _EDM_Apply (a full re-apply of every window): the core scale slider calls
+-- this on every drag step.
 ns.Rescale = function()
     for _, w in ipairs(_windows) do
         w._barCacheKey = nil
@@ -5910,6 +6151,20 @@ local function RepositionSATimer()
     end
 end
 
+-- Styles, places and hides the standalone timer as it is built (combat state then
+-- decides whether it shows); a profile swap runs it again on the kept timer.
+local function SetupSATimer()
+    _saTimer:SetMovable(true)
+    _saTimer:EnableMouse(true)
+    ApplySATimerStyle()
+    _saTimerFS:SetText("0:00")
+
+    RepositionSATimer()
+
+    _saTimer:Hide()  -- starts hidden; combat state controls visibility
+    UpdateSATimerText()  -- Show Out of Combat can bring it straight back up
+end
+
 local function CreateSATimer()
     if _saTimer then return end
     local cfg = DB()
@@ -5917,8 +6172,6 @@ local function CreateSATimer()
     _saTimer = CreateFrame("Frame", "EllesmereUIDMStandaloneTimer", UIParent)
     _saTimer:SetSize(1, 1)
     _saTimer:SetClampedToScreen(true)
-    _saTimer:SetMovable(true)
-    _saTimer:EnableMouse(true)
     _saTimer:SetFrameStrata("HIGH")
     _saTimer:SetScript("OnMouseDown", function(self, button)
         if button == "LeftButton" and IsShiftKeyDown() then
@@ -5948,13 +6201,7 @@ local function CreateSATimer()
     if PP and PP.CreateBorder then PP.CreateBorder(_saTimerBorder, 0, 0, 0, 1, 1) end
 
     _saTimerFS = _saTimer:CreateFontString(nil, "OVERLAY")
-    ApplySATimerStyle()
-    _saTimerFS:SetText("0:00")
-
-    RepositionSATimer()
-
-    _saTimer:Hide()  -- starts hidden; combat state controls visibility
-    UpdateSATimerText()  -- Show Out of Combat can bring it straight back up
+    SetupSATimer()
 end
 
 ns.ApplySATimer = function()
@@ -6416,7 +6663,6 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         _curViewFrozenDur = 0
         _regenTimestamp = 0
         _needsFinalRefresh = false
-        _ttLastGUID = nil
         if _targetsCache then wipe(_targetsCache) end
         StartSharedTicker()
         ns.AutoCurrentOnCombat()
@@ -6424,7 +6670,6 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         _regenTimestamp = GetTime()
         -- Feign Death + group still fighting: keep timer running
         if UnitIsFeignDeath and UnitIsFeignDeath("player") and IsGroupInCombat() then return end
-        _ttLastGUID = nil
         if _targetsCache then wipe(_targetsCache) end
         -- Check if group is still fighting (player died but boss alive)
         if IsGroupInCombat() then
@@ -6571,53 +6816,56 @@ initFrame:SetScript("OnEvent", function(self)
     end
     C_Timer.After(0, CreateNextWindow)
 
-    -- Profile swap rebuild: tear down all windows and recreate from new profile
+    -- Profile swap: the windows are kept and re-read the new profile (W.Reapply); windows
+    -- past its window count are parked (W.Park) and come back when a later profile, or
+    -- New Window, needs them again.
     _G._EDM_Apply = function()
         -- Supersede any staggered build still in flight, so its remaining steps do not
-        -- assign over the windows created below and orphan them
+        -- assign over the windows set up below
         _buildGen = _buildGen + 1
-        -- Destroy existing windows (frame cleanup only, don't touch DB)
-        for i = #_windows, 1, -1 do
-            local w = _windows[i]
-            if w._hoverTicker then w._hoverTicker:Cancel() end
-            if EUI.UnregisterVisibilityUpdater and w.UpdateVisibility then
-                EUI.UnregisterVisibilityUpdater(w.UpdateVisibility)
-            end
-            if w.frame then
-                EUI.UnregisterMouseoverTarget(w.frame)
-                w.frame:Hide(); w.frame:SetParent(nil)
-            end
-        end
-        wipe(_windows)
-        -- Destroy standalone timer if present
-        if _saTimer then _saTimer:Hide(); _saTimer:SetParent(nil); _saTimer = nil; _saTimerFS = nil end
         -- Hide tooltip
         if _ttFrame then _ttFrame:Hide() end
-        _activeRow = nil
+        _activeRow = nil; _hoverPollFrame:Hide()
         local c = DB()
         -- Clear the hotkey toggle so a profile swap never lands in a hidden state whose
         -- cause is no longer visible, then re-apply both keybinds from the new profile
         ns._toggleHidden = false
         ns.ApplyDMKeybinds()
-        -- Recreate windows from new profile
+        -- Force English Units from the new profile
+        ns.RebuildNumberFormat()
         if not c.windows then c.windows = {} end
         local wc = math.max(1, c.windowCount or 1)
         c.windowCount = wc
         for i = wc + 1, MAX_WINDOWS do c.windows[i] = nil end
-        for i = 1, wc do
-            _windows[i] = CreateDMWindow(i)
-            ns.ApplyWindowBorder()
+        -- Windows past the new count are parked, the last first (they come back in order)
+        for i = #_windows, wc + 1, -1 do
+            local w = _windows[i]
+            _windows[i] = nil
+            w.Park()
         end
+        -- Kept windows re-read the new profile; a slot with none brings back a parked
+        -- window or builds one
+        for i = 1, wc do
+            local w = _windows[i]
+            if w then w.Reapply(i) else _windows[i] = ns.DMAcquireWindow(i) end
+        end
+        ns.ApplyWindowBorder()
+        -- A window that left the Threat type may leave its list with no window (WoW Forever)
+        if ns.DMThreatSync then ns.DMThreatSync() end
         -- Spell History caches its profile table; refresh it before rebuilding
         -- optional unlock registrations so enable state and positions agree.
         if ns.RefreshSpellHistoryProfile then ns.RefreshSpellHistoryProfile() end
         -- Refresh unlock registrations for the new profile's window count
         ns.RegisterDMUnlock()
-        -- Recreate standalone timer if enabled
-        if c.standaloneTimer then CreateSATimer() end
+        -- The standalone timer is kept: set up again as built, or hidden while disabled
+        if _saTimer then
+            if c.standaloneTimer then SetupSATimer() else _saTimer:Hide() end
+        elseif c.standaloneTimer then
+            CreateSATimer()
+        end
         -- Pre-create tooltip frame so first hover doesn't pay creation cost. This and the
         -- ticker below are the staggered build's closing steps, repeated here because
-        -- this rebuild may have superseded that build before it reached them.
+        -- this pass may have superseded that build before it reached them.
         EnsureTooltipFrame()
         -- Update tooltip scale
         if _ttFrame then

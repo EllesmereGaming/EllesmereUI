@@ -2,16 +2,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_ActionBars_ExtraBars.lua
 --
---  Blizzard movable frames (Extra Action Button, Encounter Bar), the holders
---  for the Micro Menu and Bag Bar, and the extra bars setup. Loads after
+--  Blizzard movable frames (the Extra Action Button), the holders for the
+--  Micro Menu and Bag Bar, and the extra bars setup. Loads after
 --  EUI_ActionBars_DataBars.lua and reads the main file through ns only.
 -------------------------------------------------------------------------------
 local _, ns = ...
 
 local _G = _G
-local ipairs, pairs, type, pcall = ipairs, pairs, type, pcall
-local max = math.max
-local wipe = wipe
+local ipairs, type = ipairs, type
 local InCombatLockdown = InCombatLockdown
 local hooksecurefunc = hooksecurefunc
 local C_Timer_After = C_Timer.After
@@ -26,27 +24,12 @@ local blizzMovableHolders, extraBarHolders, hoverStates = I.blizzMovableHolders,
 local AttachExtraBarHoverHooks -- assigned below, published as ns.AttachExtraBarHoverHooks
 
 -------------------------------------------------------------------------------
---  Blizzard Movable Frames (Extra Action Button, Encounter Bar): creates
---  non-secure holder frames, reparents Blizzard frames into them, and
---  disables Blizzard's layout management so we can reposition freely.
+--  Blizzard Movable Frames (Extra Action Button): a non-secure holder frame
+--  that ExtraAbilityContainer is reparented into, kept out of Blizzard's
+--  bottom managed column so unlock mode can place it freely. The Encounter
+--  Bar stays Blizzard's (Edit Mode owns its position).
 --  Overlay sizes are hardcoded (don't affect actual Blizzard frame rendering).
 -------------------------------------------------------------------------------
-local _blizzMovablePendingOOC = {} -- deferred reparents for when combat ends
-
--- Silence a frame's layout participation and mouse interaction permanently.
--- Does NOT nil OnShow/OnHide -- those drive child frame visibility.
--- Only kills the OnUpdate repositioning loop and layout system membership.
-local function DisableLayoutFrame(f)
-    if not f then return end
-    f.ignoreInLayout = true
-    f.ignoreFramePositionManager = true
-    f.IsLayoutFrame = nil
-    if f.SetIsLayoutFrame then pcall(f.SetIsLayoutFrame, f, false) end
-    f:SetScript("OnUpdate", nil)
-    f.OnUpdate = nil
-    f:EnableMouse(false)
-end
-
 local function SetupBlizzardMovableFrame(barKey)
     local holder = CreateFrame("Frame", "EllesmereEAB_" .. barKey, UIParent)
     holder:SetClampedToScreen(true)
@@ -70,17 +53,6 @@ local function SetupBlizzardMovableFrame(barKey)
             extraFrames[#extraFrames + 1] = ExtraAbilityContainer
         end
         -- ExtraActionBarFrame mouse is disabled in the container setup below.
-    elseif barKey == "EncounterBar" then
-        -- PlayerPowerBarAlt is the classic encounter power bar.
-        -- UIWidgetPowerBarContainerFrame is used by newer mechanics.
-        if PlayerPowerBarAlt then
-            primaryFrame = PlayerPowerBarAlt
-            extraFrames[#extraFrames + 1] = PlayerPowerBarAlt
-        end
-        if UIWidgetPowerBarContainerFrame then
-            if not primaryFrame then primaryFrame = UIWidgetPowerBarContainerFrame end
-            extraFrames[#extraFrames + 1] = UIWidgetPowerBarContainerFrame
-        end
     end
 
     if #extraFrames == 0 then
@@ -129,25 +101,26 @@ local function SetupBlizzardMovableFrame(barKey)
         end
     end
 
-    -- Reparent all managed frames into the holder, centered.
-    -- Safe to call multiple times; guards against combat lockdown.
+    -- Reparent all managed frames into the holder, centered. Safe to call
+    -- multiple times. In combat the move waits for combat to end, queued
+    -- once per bar however many asks; until then a container Blizzard
+    -- parented into its bottom managed column is laid out in its own slot.
+    local reparentKey = "BlizzMovableReparent" .. barKey
     local function ReparentIntoHolder()
         if InCombatLockdown() then
-            _blizzMovablePendingOOC[barKey] = true
+            ns.CombatQueue.Defer(reparentKey, ReparentIntoHolder)
             return
         end
         for _, f in ipairs(extraFrames) do
-            f.ignoreInLayout = true
-            f.ignoreFramePositionManager = true
-            if f.SetIsLayoutFrame then pcall(f.SetIsLayoutFrame, f, false) end
             f:SetParent(holder)
-            f:ClearAllPoints()
-            f:SetPoint("CENTER", holder, "CENTER", 0, 0)
+            -- ExtraAbilityContainer is an Edit Mode system: base methods only.
+            EllesmereUI.ClearFramePoints(f)
+            EllesmereUI.SetFramePoint(f, "CENTER", holder, "CENTER", 0, 0)
         end
     end
 
     -- Extra Action Button: disable the container's layout-driven repositioning and
-    -- reparent it into our holder. Keep OnShow/OnHide nil'd on the container so
+    -- reparent it into our holder. Keep OnShow/OnHide cleared on the container so
     -- Blizzard's layout code cannot fire, but leave the child frames
     -- (ExtraActionBarFrame, ZoneAbilityFrame) untouched so they show and hide normally.
     if barKey == "ExtraActionButton" and ExtraAbilityContainer then
@@ -172,8 +145,13 @@ local function SetupBlizzardMovableFrame(barKey)
             ExtraActionBarFrame:EnableMouse(false)
         end
 
-        -- Nil container OnShow/OnHide so Blizzard's layout code
-        -- (UpdateManagedFramePositions) cannot fire when the container shows.
+        -- CLAUDE.md exception to the never-SetScript rule: these handlers are
+        -- cleared, never hooked. The OnShow parents the container into the
+        -- bottom managed column, also in combat when an extra or zone ability
+        -- appears, and the re-park waits for combat to end (the extra button
+        -- makes the container protected); our holder's Show/Hide would also
+        -- run both handlers inside our call, tainting the column's
+        -- managed-frame state. A cleared handler runs no code.
         ExtraAbilityContainer:SetScript("OnShow", nil)
         ExtraAbilityContainer:SetScript("OnHide", nil)
 
@@ -227,13 +205,8 @@ local function SetupBlizzardMovableFrame(barKey)
             if InCombatLockdown() then return end
             local container = ExtraAbilityContainer
             container:SetParent(holder)
-            if container.ClearAllPointsBase then
-                container:ClearAllPointsBase()
-                container:SetPointBase("CENTER", holder)
-            else
-                container:ClearAllPoints()
-                container:SetPoint("CENTER", holder)
-            end
+            EllesmereUI.ClearFramePoints(container)
+            EllesmereUI.SetFramePoint(container, "CENTER", holder, "CENTER", 0, 0)
         end
         RepositionExtraContainer()
 
@@ -244,19 +217,20 @@ local function SetupBlizzardMovableFrame(barKey)
                 if relFrame ~= holder then
                     RepositionExtraContainer()
                 end
-                -- Do NOT write to UIParentBottomManagedFrameContainer.showingFrames
-                -- here. Writing into that Blizzard-owned table from this insecure hook
+                -- Do NOT write to BottomManagedFrameContainer.showingFrames here.
+                -- Writing into that Blizzard-owned table from this insecure hook
                 -- taints the managed-frame-position system; a later in-combat layout
                 -- pass (e.g. leaving a queued/follower instance while in combat) then
                 -- blocks the protected ClearAllPoints on the managed containers
-                -- (ADDON_ACTION_BLOCKED naming this addon). ExtraAbilityContainer
-                -- already carries ignoreFramePositionManager and ignoreInLayout, so
-                -- Blizzard excludes it from layout without us touching showingFrames.
+                -- (ADDON_ACTION_BLOCKED naming this addon). The container stays out
+                -- of Blizzard's layout without it: its OnShow is cleared above, and
+                -- the SetParent hook below moves it back into the holder whenever
+                -- Blizzard parents it into the column (in combat, once combat ends).
             end)
         end
 
-        -- Re-reparent after Blizzard's OnShow repositions the container.
-        -- (We nil'd the script, but hooksecurefunc still fires on Show.)
+        -- Re-reparent if the container shows outside the holder. (Its OnShow
+        -- script is cleared above; this method hook still fires on Show.)
         hooksecurefunc(ExtraAbilityContainer, "Show", function()
             if ExtraAbilityContainer:GetParent() ~= holder then
                 RepositionExtraContainer()
@@ -271,90 +245,6 @@ local function SetupBlizzardMovableFrame(barKey)
         -- via the dispatcher, the keybind has no such fallback.
         if ExtraActionButton1 and ExtraActionButton1:IsShown() then
             RefreshExtraActionButton()
-        end
-    end
-
-    -- Encounter Bar: reparent into holder, mark as user-placed so Blizzard's position
-    -- manager leaves it alone, and hook setup functions to re-reparent. SetPoint hooks
-    -- intercept any Blizzard repositioning (EditMode, layout passes, encounter setup)
-    -- and force the frame back to the holder.
-    if barKey == "EncounterBar" then
-        -- Hook SetPoint on encounter frames: if anything positions them away
-        -- from our holder, force them back. The hook fires after the
-        -- original SetPoint so the second call (ours) sees relativeTo ==
-        -- holder and exits cleanly with no recursion.
-        local function HookEncounterSetPoint(frame)
-            hooksecurefunc(frame, "SetPoint", function(self, _, relativeTo)
-                if relativeTo ~= holder then
-                    self:ClearAllPoints()
-                    self:SetPoint("CENTER", holder, "CENTER", 0, 0)
-                end
-            end)
-        end
-
-        local ppb = PlayerPowerBarAlt
-        if ppb then
-            ppb:SetMovable(true)
-            ppb:SetUserPlaced(true)
-            ppb:SetDontSavePosition(true)
-
-            ppb:ClearAllPoints()
-            ppb:SetParent(holder)
-            ppb:SetPoint("CENTER", holder)
-
-            HookEncounterSetPoint(ppb)
-
-            if type(ppb.SetupPlayerPowerBarPosition) == "function" then
-                hooksecurefunc(ppb, "SetupPlayerPowerBarPosition", function(bar)
-                    if bar:GetParent() ~= holder then
-                        ReparentIntoHolder()
-                    end
-                end)
-            end
-
-            if type(UnitPowerBarAlt_SetUp) == "function" then
-                hooksecurefunc("UnitPowerBarAlt_SetUp", function(bar)
-                    if bar.isPlayerBar and bar:GetParent() ~= holder then
-                        ReparentIntoHolder()
-                    end
-                end)
-            end
-
-            ppb:HookScript("OnSizeChanged", function(self)
-                local w, h = self:GetSize()
-                if w > 1 and h > 1 then holder:SetSize(w, h) end
-            end)
-        end
-
-        local uwb = UIWidgetPowerBarContainerFrame
-        if uwb then
-            DisableLayoutFrame(uwb)
-            -- Kill the container's Layout method so Blizzard's widget
-            -- system can't reposition it when children are added/removed.
-            if uwb.Layout then uwb.Layout = function() end end
-            if uwb.MarkDirty then uwb.MarkDirty = function() end end
-            HookEncounterSetPoint(uwb)
-            uwb:HookScript("OnSizeChanged", function(self)
-                local w, h = self:GetSize()
-                if w > 1 and h > 1 then
-                    local hw, hh = holder:GetSize()
-                    holder:SetSize(max(hw, w), max(hh, h))
-                end
-            end)
-        end
-
-        -- Re-anchor on Show: Blizzard may reposition encounter frames while hidden
-        -- (zone change, encounter setup), and our SetPoint hook only catches explicit
-        -- SetPoint calls, not inherited position from a pre-show layout pass.
-        for _, f in ipairs(extraFrames) do
-            f:HookScript("OnShow", function(self)
-                if self:GetParent() ~= holder then
-                    ReparentIntoHolder()
-                else
-                    self:ClearAllPoints()
-                    self:SetPoint("CENTER", holder, "CENTER", 0, 0)
-                end
-            end)
         end
     end
 
@@ -378,73 +268,14 @@ local function SetupBlizzardMovableFrame(barKey)
     return holder
 end
 
--- Deferred reparent handler: fires when combat ends.
+-- Re-disable mouse on ExtraActionBarFrame after every combat: Blizzard's
+-- secure code re-enables mouse on protected frames during combat.
 local _blizzMovableCombatFrame = CreateFrame("Frame")
 _blizzMovableCombatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 _blizzMovableCombatFrame:SetScript("OnEvent", function()
     if InCombatLockdown() then return end
-    for barKey in pairs(_blizzMovablePendingOOC) do
-        local holder = blizzMovableHolders[barKey] or extraBarHolders[barKey]
-        if not holder then
-            for _, info in ipairs(EXTRA_BARS) do
-                if info.key == barKey then
-                    holder = extraBarHolders[barKey]
-                    break
-                end
-            end
-        end
-        if barKey == "ExtraActionButton" and holder and ExtraAbilityContainer then
-            ExtraAbilityContainer.ignoreInLayout = true
-            ExtraAbilityContainer.ignoreFramePositionManager = true
-            if ExtraAbilityContainer.SetIsLayoutFrame then
-                pcall(ExtraAbilityContainer.SetIsLayoutFrame, ExtraAbilityContainer, false)
-            end
-            ExtraAbilityContainer:SetParent(holder)
-            ExtraAbilityContainer:ClearAllPoints()
-            ExtraAbilityContainer:SetPoint("CENTER", holder, "CENTER", 0, 0)
-        elseif barKey == "EncounterBar" and holder then
-            for _, f in ipairs({ PlayerPowerBarAlt, UIWidgetPowerBarContainerFrame }) do
-                if f then
-                    f.ignoreInLayout = true
-                    f.ignoreFramePositionManager = true
-                    if f.SetIsLayoutFrame then pcall(f.SetIsLayoutFrame, f, false) end
-                    f:SetParent(holder)
-                    f:ClearAllPoints()
-                    f:SetPoint("CENTER", holder, "CENTER", 0, 0)
-                end
-            end
-        elseif holder then
-            for _, info in ipairs(EXTRA_BARS) do
-                if info.key == barKey and info.frameName then
-                    local f = _G[info.frameName]
-                    if f then
-                        f.ignoreInLayout = true
-                        if f.SetIsLayoutFrame then pcall(f.SetIsLayoutFrame, f, false) end
-                        f:SetParent(holder)
-                        f:ClearAllPoints()
-                        f:SetPoint("CENTER", holder, "CENTER", 0, 0)
-                    end
-                    break
-                end
-            end
-        end
-    end
-    wipe(_blizzMovablePendingOOC)
-
-    -- Re-disable mouse on ExtraActionBarFrame after combat ends.
-    -- Blizzard's secure code re-enables mouse on protected frames during combat.
     if ExtraActionBarFrame and ExtraActionBarFrame:IsMouseEnabled() then
         ExtraActionBarFrame:EnableMouse(false)
-    end
-end)
-
-
--- Revert UserPlaced on logout so Blizzard doesn't persist our stale position.
-local _blizzMovableLogoutFrame = CreateFrame("Frame")
-_blizzMovableLogoutFrame:RegisterEvent("PLAYER_LOGOUT")
-_blizzMovableLogoutFrame:SetScript("OnEvent", function()
-    if PlayerPowerBarAlt and PlayerPowerBarAlt:IsMovable() then
-        PlayerPowerBarAlt:SetUserPlaced(false)
     end
 end)
 
@@ -541,16 +372,18 @@ AttachExtraBarHoverHooks = function(info)
 end
 
 -- WoW Forever: while the variant renders and no eye position is saved, the
--- queue eye sits at its stock minimap spot and is never captured: on the
--- ring where Blizzard's Forever layout puts it while the minimap draws that
--- ring (its spot helper answers), else at that layout's anchor on the map.
--- Anchored to the map, so a move carries it; the minimap's apply pass calls
--- the relayout below on a resize, and its button row reads the predicate to
--- start past the eye. An unlock-mode drag saves a position, which wins until
--- the look changes (every switch to the variant clears it). Once per
--- profile, while the ring is drawn, a spot saved before the variant placed
--- the eye (a login capture) gives way; the stamp is set as soon as nothing
--- is saved, so every later spot is the player's own.
+-- queue eye sits at a minimap spot and is never captured: the one the
+-- minimap's spot helper gives while it answers (on the ring where Blizzard's
+-- Forever layout puts it while the minimap draws that ring, or diagonally
+-- off the map's bottom-left corner under Forever Square), else Blizzard's
+-- Forever layout anchor on the map. Anchored to the map, so a move carries
+-- it; the minimap's apply pass calls the relayout below on a resize, and a
+-- button row starting at the ring's bottom-left reads the predicate to start
+-- past the eye. An unlock-mode drag saves a position, which wins until the
+-- look changes (every switch to the variant clears it). Once per profile,
+-- while the spot helper answers, a spot saved before the variant placed the
+-- eye (a login capture) gives way; the stamp is set as soon as nothing is
+-- saved, so every later spot is the player's own.
 function ns.AB_ForeverEyeParked()
     if not ns.AB_Forever() then return false end
     local p = EAB.db.profile
@@ -589,6 +422,43 @@ function ns.AB_ForeverEyeRelayout()
     ns.AB_ForeverEyePark(extraBarHolders.QueueStatus)
 end
 
+-- Blizzard Style on the WoW Forever client: that client frames the micro menu
+-- (MicroMenu.BackgroundArt and BorderArt) and the bag bar (the BagsBar frame
+-- and strip atlases), which the retail look has none of, so they fade, as the
+-- Blizzard Skins+ cards fade them when they skin these bars. Alpha only on
+-- Blizzard's own textures: nothing is hidden, reparented, hooked or written
+-- as a key in that tree. Run with each bar's follow pass (setup, Edit Mode
+-- re-anchors and resizes); the bag bar's art is found once. The WoW Forever
+-- look keeps the art.
+local FV_BAG_ART = { "actionbar-frame", "iconframe-background" }
+local fvBagArt
+local function FadeForeverBarArt(barKey)
+    if not (EllesmereUI.IS_FOREVER and ns.AB_Style() == "blizzard" and not ns.AB_Forever()) then return end
+    if barKey == "MicroBar" then
+        local mm = _G.MicroMenu
+        if mm and mm.BackgroundArt then mm.BackgroundArt:SetAlpha(0) end
+        if mm and mm.BorderArt then mm.BorderArt:SetAlpha(0) end
+        return
+    end
+    local bar = _G.BagsBar
+    if not bar then return end
+    if not fvBagArt then
+        fvBagArt = {}
+        local regions = { bar:GetRegions() }
+        for i = 1, #regions do
+            local r = regions[i]
+            local atlas = r.GetAtlas and r:GetAtlas()
+            if atlas then
+                local la = atlas:lower()
+                for j = 1, #FV_BAG_ART do
+                    if la:find(FV_BAG_ART[j], 1, true) then fvBagArt[#fvBagArt + 1] = r; break end
+                end
+            end
+        end
+    end
+    for i = 1, #fvBagArt do fvBagArt[i]:SetAlpha(0) end
+end
+
 local function SetupExtraBarHolder(barKey, frameName, barInfo)
     local blizzFrame = _G[frameName]
     if not blizzFrame then return end
@@ -621,6 +491,7 @@ local function SetupExtraBarHolder(barKey, frameName, barInfo)
             holder:SetPoint("CENTER", blizzFrame, "CENTER", 0, 0)
             -- The bar's end caps follow the frame's size and orientation.
             ns.AB_ExtraCaps(barKey)
+            FadeForeverBarArt(barKey)
         end
         SyncFollow()
         blizzFrame:HookScript("OnSizeChanged", function() SyncFollow() end)
@@ -689,17 +560,10 @@ local function SetupExtraBarHolder(barKey, frameName, barInfo)
     end
 
     -- QueueStatusButton: reparent to UIParent so micro menu visibility
-    -- (mouseover/combat hide) doesn't affect the eye. Remove from layout
-    -- so micro menu doesn't shift. Hook UpdatePosition to prevent snap-back.
+    -- (mouseover/combat hide) doesn't affect the eye. Hook UpdatePosition to
+    -- prevent snap-back.
     if barKey == "QueueStatus" then
         SafeEnableMouse(holder, false)
-
-        -- Remove from MicroMenuContainer layout flow (no micro menu shift)
-        blizzFrame.ignoreInLayout = true
-        if blizzFrame.SetIsLayoutFrame then
-            blizzFrame:SetIsLayoutFrame(false)
-        end
-        blizzFrame.IsLayoutFrame = nil
 
         -- Reparent to UIParent (independent of micro menu visibility)
         local function EnsureQueueParent()
@@ -727,10 +591,8 @@ local function SetupExtraBarHolder(barKey, frameName, barInfo)
         -- ClearAllPoints are Blizzard overrides that flag Edit Mode's anchor
         -- pass (tainted from here); the saved base methods move it cleanly.
         local function RepositionQueue()
-            local clear = blizzFrame.ClearAllPointsBase or blizzFrame.ClearAllPoints
-            local setPt = blizzFrame.SetPointBase or blizzFrame.SetPoint
-            clear(blizzFrame)
-            setPt(blizzFrame, "CENTER", holder, "CENTER", 0, 0)
+            EllesmereUI.ClearFramePoints(blizzFrame)
+            EllesmereUI.SetFramePoint(blizzFrame, "CENTER", holder, "CENTER", 0, 0)
         end
 
         RepositionQueue()
@@ -884,7 +746,7 @@ end
 local function SetupExtraBars()
     if not EAB.db then return end
 
-    -- Setup Blizzard movable frames (Extra Action Button, Encounter Bar)
+    -- Setup Blizzard movable frames (Extra Action Button)
     SetupBlizzardMovableFrames()
 
     -- Setup extra bar holders (MicroBar, BagBar) for visibility/mouseover

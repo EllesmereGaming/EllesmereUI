@@ -946,7 +946,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EAB.db and EAB.db.sv then
                 EAB.db.sv._capturedOnce_EAB = nil
             end
-            -- No reload here: the footer Reset popup (reload = true) reloads after this returns.
+            -- No reload here: Reset EUI Module Settings reloads after this returns.
         end,
     })
 

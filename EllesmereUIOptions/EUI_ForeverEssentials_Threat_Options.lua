@@ -255,7 +255,7 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
               getValue = function() return Get("warnAt") end,
               setValue = function(v) Store("warnAt", v) end },
             Toggle("warnSkipTank", "Not While Tanking",
-                "No warning while you have the tank role, or are in Bear Form or Defensive Stance.",
+                "No warning while you are the tank.",
                 function(v) Store("warnSkipTank", v) end)
         );  y = y - h
     else
@@ -316,8 +316,8 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
             if not EllesmereUI._prebuilding then
                 local rows = {
                     Offset("threatPctSize", "Size", 6, 20),
-                    Offset("threatPctXOffset", "X Offset", -100, 100),
-                    Offset("threatPctYOffset", "Y Offset", -100, 100),
+                    Offset("threatPctXOffset", "X Offset", -300, 300),
+                    Offset("threatPctYOffset", "Y Offset", -300, 300),
                 }
                 if not withGap then
                     table.insert(rows, 1, { type = "toggle", label = "Color by Threat",

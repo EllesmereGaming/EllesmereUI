@@ -9,6 +9,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIRaidFrames"]
 if not ns then return end  -- module disabled: no options page
 
+-- The eyeball hint's tip callout: built by the first raid build that shows it,
+-- then kept for the session (every later raid build points it at its own eye).
+local eyeHintTip
+
 local function BuildVisualBars(parent, y, W, onSection, EYE)
     local env = ns._RFO_OptEnv
     local AbbreviateNumbers, absorbStyleOrder, absorbStyleValues, db = env.AbbreviateNumbers, env.absorbStyleOrder, env.absorbStyleValues, env.db
@@ -29,7 +33,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
     healthHeader, h = W:SectionHeader(parent, "HEALTH BAR", y); y = y - h
 
     -- Eyeball: animate health bars (damage/healing simulation); built on raid + party pages, reads the active frame set via ns.PvActiveFrames().
-    do
+    if not EllesmereUI._prebuilding then
         local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
         local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
         -- State lives on ns (single shared ticker) so raid and party eyeball builds drive one animation and start/stop works across both. ns._healthAnimActive is the truth the renderer reads.
@@ -212,24 +216,30 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
 
         -- One-time eyeball hint, raid/main page only. On the panel body like
         -- the other panel tips: it hides with the window when it collapses and
-        -- rides the panel scale.
+        -- rides the panel scale. One tip for the session, anchored to the eye
+        -- of the build that shows it and faded in only when it was hidden.
+        -- ns._rfEyeHintTip holds it while undismissed (the page, module and
+        -- panel hooks show and hide it through that field); Okay clears it.
         if not optState._partyCtx and not (EllesmereUIDB and EllesmereUIDB.rfEyeHintSeen) then
-            local tip = EllesmereUI.BuildTipCallout(EllesmereUI._panelBody, {
-                width = 310, height = 82, pp = PP,
-                text = EllesmereUI.L("Click this eye icon to preview live\nhealth bar effects like absorbs and healing."),
-                fontSize = 10, textTop = 12, textInset = 24, spacing = 4, bgAlpha = 0.95,
-                btnW = 70, btnH = 22, btnBottom = 10, btnFontSize = 10,
-                onOkay = function()
-                    ns._rfEyeHintTip = nil
-                    EllesmereUIDB = EllesmereUIDB or {}
-                    EllesmereUIDB.rfEyeHintSeen = true
-                end,
-            })
-            tip:SetPoint("TOP", eyeBtn, "BOTTOM", 0, -14)
-            ns._rfEyeHintTip = tip
-            EllesmereUI.ShowTipCallout(tip)
+            if not eyeHintTip then
+                eyeHintTip = EllesmereUI.BuildTipCallout(EllesmereUI._panelBody, {
+                    width = 310, height = 82, pp = PP,
+                    text = EllesmereUI.L("Click this eye icon to preview live\nhealth bar effects like absorbs and healing."),
+                    fontSize = 10, textTop = 12, textInset = 24, spacing = 4, bgAlpha = 0.95,
+                    btnW = 70, btnH = 22, btnBottom = 10, btnFontSize = 10,
+                    onOkay = function()
+                        ns._rfEyeHintTip = nil
+                        EllesmereUIDB = EllesmereUIDB or {}
+                        EllesmereUIDB.rfEyeHintSeen = true
+                    end,
+                })
+            end
+            eyeHintTip:ClearAllPoints()
+            eyeHintTip:SetPoint("TOP", eyeBtn, "BOTTOM", 0, -14)
+            ns._rfEyeHintTip = eyeHintTip
+            if not eyeHintTip:IsShown() then EllesmereUI.ShowTipCallout(eyeHintTip) end
         end
-    end  -- close do (health eyeball)
+    end  -- health eyeball
 
     local texRow
     texRow, h = W:DualRow(parent, y,
@@ -357,7 +367,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
         UpdateSwatchVis()
     end
     -- Background Custom + Class swatch pair: clicking either toggles bgClassColored, the inactive one dims (mirrors the fill picker).
-    do
+    if not EllesmereUI._prebuilding then
         local rgn = row._rightRegion
         -- Class swatch shows the player's class color and is not editable.
         local bgClassSwatch = EllesmereUI.BuildColorSwatch(
@@ -424,7 +434,10 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
         UpdateBgSwatchVis()
     end
 
+    -- Rows the test panel's Edit buttons scroll to. The search prebuild's rows
+    -- are stand-ins, so it records them in a scratch table instead.
     ns._editTargets = ns._editTargets or {}
+    local editTargets = EllesmereUI._prebuilding and {} or ns._editTargets
 
     local healPredRow
     healPredRow, h = W:DualRow(parent, y,
@@ -436,7 +449,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
           disabledTooltip="Heal Prediction",
           getValue=function() return SVal("healPredOpacity", 75) end,
           setValue=function(v) SSet("healPredOpacity", v) end });  y = y - h
-    ns._editTargets.healPrediction = healPredRow
+    editTargets.healPrediction = healPredRow
     if not EllesmereUI._prebuilding then
         local rgn = healPredRow._leftRegion
         local swatch = EllesmereUI.BuildColorSwatch(
@@ -462,13 +475,16 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
     -- Color Custom Borders (the Threat Borders and Dispel Border cogs) recolors the
     -- frame's own border, so it needs one to recolor: the EllesmereUI style, a Border
     -- Style other than Solid and a Border Size above 0 (runtime twin:
-    -- ns.RF_CustomBorderOn). Cog rows re-check this on every open.
+    -- ns.RF_CustomBorderOn), and no Compact Mode, whose shared outline stands in for
+    -- the frame's border. Cog rows re-check this on every open.
     local function CustomBorderOff()
+        if ns.RF_CompactOnTab(optState._partyCtx) then return true end
         if ns.RF_Stock and ns.RF_Stock() then return true end
         local tex = SGet("borderTexture")
         return tex == nil or tex == "" or tex == "solid" or SVal("borderSize", 1) <= 0
     end
     local function CustomBorderOffTip()
+        if ns.RF_CompactOnTab(optState._partyCtx) then return "Compact Mode" end
         if ns.RF_Stock and ns.RF_Stock() then
             return EllesmereUI.BlizzStyle and EllesmereUI.BlizzStyle.Label("raidframes")
         end
@@ -487,8 +503,8 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
         { type="slider", text="Threat Borders", min=0, max=4, step=1,
           getValue=function() return SVal("threatBorderSize", 2) end,
           setValue=function(v) SSet("threatBorderSize", v) end });  y = y - h
-    ns._editTargets.threat = smoothThreatRow
-    ns._editTargets.animateBars = smoothThreatRow
+    editTargets.threat = smoothThreatRow
+    editTargets.animateBars = smoothThreatRow
     -- Cog on Threat Borders: Color Custom Borders recolors the frame's own border in
     -- the threat color on aggro, drawn instead of the inner border (the slider's
     -- size still applies whenever the recolor cannot).
@@ -504,8 +520,14 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
                   disabled=CustomBorderOff,
                   disabledTooltip=CustomBorderOffTip,
                   requireState="disabled",
-                  get=function() return SVal("threatCustomBorder", false) end,
-                  set=function(v) SSet("threatCustomBorder", v) end },
+                  get=function()
+                      return not ns.RF_CompactOnTab(optState._partyCtx)
+                          and SVal("threatCustomBorder", false)
+                  end,
+                  set=function(v)
+                      if v and CustomBorderOff() then return end
+                      SSet("threatCustomBorder", v)
+                  end },
             },
         })
     end
@@ -520,7 +542,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
     absorbsHeader, h = W:SectionHeader(parent, "ABSORBS", y); y = y - h
 
     -- Eyeball: toggle shield/heal-absorb effects on the preview frames.
-    do
+    if not EllesmereUI._prebuilding then
         local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
         local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
 
@@ -579,7 +601,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
             if not IsPreviewOff() then self:SetAlpha(0.4) end
             EllesmereUI.HideWidgetTooltip()
         end)
-    end  -- close do (absorbs eyeball)
+    end  -- absorbs eyeball
 
     local absorbRow
     absorbRow, h = W:DualRow(parent, y,
@@ -615,7 +637,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
           disabledTooltip="Absorb Style",
           getValue=function() return SVal("absorbOpacity", 90) end,
           setValue=function(v) SSet("absorbOpacity", v) end });  y = y - h
-    ns._editTargets.absorbs = absorbRow
+    editTargets.absorbs = absorbRow
     if not EllesmereUI._prebuilding then
         local rgn = absorbRow._leftRegion
         local swatch = EllesmereUI.BuildColorSwatch(
@@ -829,7 +851,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
           disabledTooltip="Heal Absorb Style",
           getValue=function() return SVal("healAbsorbOpacity", 75) end,
           setValue=function(v) SSet("healAbsorbOpacity", v) end });  y = y - h
-    ns._editTargets.healAbsorbs = healAbsorbRow
+    editTargets.healAbsorbs = healAbsorbRow
     if not EllesmereUI._prebuilding then
         local rgn = healAbsorbRow._leftRegion
         local swatch = EllesmereUI.BuildColorSwatch(
@@ -1045,7 +1067,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
     powerHeader, h = W:SectionHeader(parent, "POWER BAR", y); y = y - h
 
     -- Power bar animation: same pattern as health, serves raid + party.
-    do
+    if not EllesmereUI._prebuilding then
         local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
         local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
         -- On ns: single ticker, resolves the active preview at call time.
@@ -1177,7 +1199,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
         EllesmereUI:RegisterOnHide(function()
             if ns._powerAnimActive then StopPowerAnim(); RefreshPowerEye() end
         end)
-    end  -- close do (power eyeball)
+    end  -- power eyeball
 
     -- Power bar is off when no role is selected.
     -- The Party Frames kit's mana bar always shows. Decided at build time:
@@ -1258,7 +1280,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
     local pwBdrRow
     local function CanMatchPowerBorder()
         local key = SGet("borderTexture")
-        return not EllesmereUI.BlizzStyle.Get("raidframes") and (key == "pixels" or key == "pixels-textured")
+        return not EllesmereUI.BlizzStyle.Get("raidframes") and EllesmereUI._pixelArtBorders[key] == true
     end
     local function MatchingPowerBorder()
         return SVal("powerBorderMatchFrame", false) and CanMatchPowerBorder() and SVal("powerBorderStyle", "eui") ~= "eui"
@@ -1299,11 +1321,11 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
             title="Power Border Options",
             rows={
                 ns.RF_PartyKitGate({ type="toggle", label="Match Frame Border",
-                  tooltip="Divider and Border follow the frame's Pixels style, size, color and transparency. Divider is hidden below Power Height 4. EllesmereUI keeps its fixed white line.",
+                  tooltip="Uses the frame border's art, size and color.",
                   get=function() return SVal("powerBorderMatchFrame", false) end,
                   set=function(v) SSet("powerBorderMatchFrame", v); EllesmereUI:RefreshPage(true) end }),
                 ns.RF_PartyKitGate({ type="toggle", label="Match Highlight Colors",
-                  tooltip="Divider follows the frame border's highlight colors and transparency, including hover and target. When off, it keeps the normal frame border color.",
+                  tooltip="The divider follows hover and target colors.",
                   disabled=function() return not MatchingPowerBorder() or SVal("powerBorderStyle", "eui") ~= "divider" end,
                   disabledTooltip="Requires Match Frame Border and Divider.",
                   rawTooltip=true,
@@ -1359,7 +1381,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
           getValue=function() return SVal("powerBgDarkness", 70) end,
           setValue=function(v) SSet("powerBgDarkness", v) end });  y = y - h
     -- Power bg Custom + Power Colored swatch pair: clicking either toggles powerBgPowerColored, the inactive one dims (mirrors the health bg).
-    do
+    if not EllesmereUI._prebuilding then
         local rgn = pwBgRow._rightRegion
         -- Power swatch shows the player's power color and is not editable.
         local bgPwrSwatch = EllesmereUI.BuildColorSwatch(

@@ -1,52 +1,64 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
-if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
+if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end -- Forever Essentials loads on WoW Forever only
 -------------------------------------------------------------------------------
---  EllesmereUIForeverEssentials_MacroBuilder.lua  (WoW Forever only)
---  The Macro Manager's macro model: a macro is a header plus a list of lines,
---  built to text and parsed back. Plain data and functions, no frames.
+--  EUI_ForeverEssentials_MacroModel_Options.lua
+--  The Macro Manager's model, loaded with the options panel for the Macros
+--  page (EUI_ForeverEssentials_Macros_Options.lua) and published on the
+--  module namespace as ns._MacroModel = { B, S, MM }. Plain data and
+--  functions, no frames and nothing saved: the game's macro text is the only
+--  saved form of a macro.
 --
+--  B: a macro as a header plus lines, built to text and parsed back.
 --  model   = { tooltip = bool, tooltipSpell = "", lines = { line, ... } }
---  line    = { kind = "cast", on = true, variants = { variant, ... }, reset = "", chan = "say" }
+--  line    = { kind = "cast", variants = { variant, ... }, reset = "", chan = "say" }
 --  variant = { arg = "Spell", target = "mouseover", conds = { harm = 1, dead = 2 },
 --              stance = "", params = { { key, value, no } }, extra = "" }
---
 --  A variant becomes "[@target,conds] arg"; several are joined with "; ".
 --  Parse() turns any macro text into a model: a line it cannot rebuild
 --  character for character becomes a "raw" line, so nothing typed by hand is
---  lost. "{spell}" anywhere in a model is replaced by Build(model, spell);
---  the bulk creator turns one template into many macros that way.
+--  lost.
+--
+--  S: the spellbook's active spells, scanned on demand.
+--
+--  MM: the game's macros. A macro is held as the entry it was read as
+--  ({ index, name, icon, body, perChar }), and every write finds it again
+--  first (MM.Resolve): indexes move whenever a macro is made, renamed or
+--  deleted, and two macros may share a name.
 -------------------------------------------------------------------------------
-local _, module = ...
-local B = {}
-module.MacroBuilder = B
+local ns = EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"]
+if not ns then return end  -- module disabled: no options page
+
+local B, S, MM = {}, {}, {}
+ns._MacroModel = { B = B, S = S, MM = MM }
 
 -------------------------------------------------------------------------------
---  Line kinds
+--  Line kinds, in menu order; a { group = label } row starts each menu group.
 --  arg: "spell" (spell box) | "spells" (comma list) | "text" | "unit" | nil
 --  multi: allows several variants   conds: takes [conditions]
+--  hidden: read from macro text, never offered (/script is /run)
 -------------------------------------------------------------------------------
 B.KINDS = {
-    -- spells
+    { group = "Spells/Items" },
     { key = "cast", cmd = "/cast", label = "Cast spell", arg = "spell", multi = true, conds = true,
       desc = "Casts a spell. With several variants the first one whose conditions match is cast." },
-    { key = "use", cmd = "/use", label = "Use item / slot", arg = "spell", multi = true, conds = true, ph = "Item, spell or slot (13/14)",
-      desc = "Uses an item by name, an equipment slot (13/14 = trinkets) or bag and slot (e.g. 0 1). Works with spells too." },
-    { key = "castsequence", cmd = "/castsequence", label = "Cast sequence", arg = "spells", conds = true, reset = true,
-      desc = "Each press casts the next spell of the list. reset= sets when it starts over." },
-    { key = "castrandom", cmd = "/castrandom", label = "Random spell", arg = "spells", conds = true,
-      desc = "Casts a random spell from the list." },
-    { key = "userandom", cmd = "/userandom", label = "Random item", arg = "spells", conds = true, ph = "Item1, Item2, Item3",
-      desc = "Uses a random item from the list (e.g. mounts or toys)." },
     { key = "stopcasting", cmd = "/stopcasting", label = "Stop casting", conds = true,
       desc = "Cancels the spell you are casting right now. Put it before an interrupt." },
-    { key = "stopspelltarget", cmd = "/stopspelltarget", label = "Cancel targeting", conds = true,
-      desc = "Cancels a spell that is waiting for a target (glowing hand or ground circle)." },
+    { key = "castsequence", cmd = "/castsequence", label = "Cast sequence", arg = "spells", conds = true, reset = true,
+      desc = "Each press casts the next spell of the list. reset= sets when it starts over." },
+    { key = "use", cmd = "/use", label = "Use item / slot", arg = "spell", multi = true, conds = true, ph = "Item, spell or slot (13/14)",
+      desc = "Uses an item by name, an equipment slot (13/14 = trinkets) or bag and slot (e.g. 0 1). Works with spells too." },
     { key = "cancelaura", cmd = "/cancelaura", label = "Cancel buff", arg = "spell", conds = true, ph = "Buff name",
       desc = "Removes a buff from you, e.g. Ice Block or a speed buff." },
     { key = "cancelform", cmd = "/cancelform", label = "Cancel form", conds = true,
       desc = "Leaves your current shapeshift form (druid forms, Ghost Wolf, Shadowform...)." },
+    { key = "castrandom", cmd = "/castrandom", label = "Random spell", arg = "spells", conds = true,
+      desc = "Casts a random spell from the list." },
+    { key = "userandom", cmd = "/userandom", label = "Random item", arg = "spells", conds = true, ph = "Item1, Item2, Item3",
+      desc = "Uses a random item from the list (e.g. mounts or toys)." },
+    { key = "stopspelltarget", cmd = "/stopspelltarget", label = "Cancel targeting", conds = true,
+      desc = "Cancels a spell that is waiting for a target (glowing hand or ground circle)." },
 
-    -- combat and pet
+    { group = "Combat & Pet" },
     { key = "startattack", cmd = "/startattack", label = "Start attack", conds = true,
       desc = "Turns on auto-attack (melee or wand) against your target." },
     { key = "stopattack", cmd = "/stopattack", label = "Stop attack", conds = true,
@@ -72,7 +84,7 @@ B.KINDS = {
     { key = "petautocasttoggle", cmd = "/petautocasttoggle", label = "Pet: toggle autocast", arg = "spell", conds = true, ph = "Pet spell",
       desc = "Switches autocast for a pet ability on or off." },
 
-    -- targeting
+    { group = "Targeting" },
     { key = "target", cmd = "/target", label = "Target", arg = "unit", multi = true, conds = true, ph = "Name (empty = the unit from Target)",
       desc = "Targets a unit or the closest match for a name. Leave the name empty and pick e.g. @mouseover." },
     { key = "targetexact", cmd = "/targetexact", label = "Target exact name", arg = "unit", conds = true, ph = "Exact name",
@@ -108,7 +120,7 @@ B.KINDS = {
     { key = "follow", cmd = "/follow", label = "Follow", arg = "unit", conds = true, ph = "Name (empty = the unit from Target)",
       desc = "Follows a player automatically." },
 
-    -- action bars and other
+    { group = "Action Bars & Other" },
     { key = "changeactionbar", cmd = "/changeactionbar", label = "Change action bar page", arg = "text", conds = true, ph = "Page 1-6",
       desc = "Switches your main action bar to another page (like Shift+1 ... 6). Great with modifiers or stances." },
     { key = "swapactionbar", cmd = "/swapactionbar", label = "Swap action bar pages", arg = "text", conds = true, ph = "Two pages, e.g. 1 2",
@@ -137,23 +149,11 @@ B.KINDS = {
 B.KIND = {}
 local BY_CMD = {}
 for _, k in ipairs(B.KINDS) do
-    B.KIND[k.key] = k
-    if k.cmd ~= "" and k.key ~= "chat" then BY_CMD[k.cmd] = k end
+    if k.key then
+        B.KIND[k.key] = k
+        if k.cmd ~= "" and k.key ~= "chat" then BY_CMD[k.cmd] = k end
+    end
 end
-
--- Line kind groups for the "Add line" menu, in display order.
-B.GROUPS = {
-    { label = "Spells/Items", keys = { "cast", "stopcasting", "castsequence", "use", "cancelaura", "cancelform",
-        "castrandom", "userandom", "stopspelltarget" } },
-    { label = "Combat & Pet", keys = { "startattack", "stopattack", "petattack", "petfollow", "petstay",
-        "petmoveto", "petpassive", "petdefensive", "petaggressive", "petautocaston", "petautocastoff",
-        "petautocasttoggle" } },
-    { label = "Targeting", keys = { "target", "targetexact", "targetenemy", "targetenemyplayer", "targetfriend",
-        "targetfriendplayer", "targetparty", "targetraid", "targetlasttarget", "targetlastenemy",
-        "targetlastfriend", "cleartarget", "assist", "focus", "clearfocus", "targetmarker", "follow" } },
-    { label = "Action Bars & Other", keys = { "changeactionbar", "swapactionbar", "click", "equip", "equipslot",
-        "dismount", "stopmacro", "chat", "console", "script", "raw" } },
-}
 
 B.CHANNELS = {
     { value = "say",   label = "Say" },
@@ -264,24 +264,17 @@ function B.NewParam(key)
     return { key = key, value = d or "", no = false }
 end
 
--- Stance names in stance bar order: { "Battle Stance", ... }
-function B.StanceNames()
-    local names = {}
-    for i = 1, GetNumShapeshiftForms() do
-        local _, _, _, spellID = GetShapeshiftFormInfo(i)
-        names[i] = (spellID and C_Spell.GetSpellName(spellID)) or ("Stance " .. i)
-    end
-    return names
-end
-
+-- Stance values in stance bar order, then each neighbouring pair.
 function B.Stances()
     local items = {
         { value = "",  label = "any" },
         { value = "0", label = "0 - no stance / normal form" },
     }
-    local names = B.StanceNames()
-    for i, name in ipairs(names) do
-        items[#items + 1] = { value = tostring(i), label = i .. " - " .. name }
+    local names = {}
+    for i = 1, GetNumShapeshiftForms() do
+        local _, _, _, spellID = GetShapeshiftFormInfo(i)
+        names[i] = (spellID and C_Spell.GetSpellName(spellID)) or ("Stance " .. i)
+        items[#items + 1] = { value = tostring(i), label = i .. " - " .. names[i] }
     end
     for i = 1, #names - 1 do
         items[#items + 1] = { value = i .. "/" .. (i + 1), label = i .. "/" .. (i + 1) .. " - " .. names[i] .. " or " .. names[i + 1] }
@@ -298,31 +291,16 @@ end
 
 function B.NewLine(kind, arg)
     if kind == "targetmarker" and not arg then arg = "8" end -- skull
-    return { kind = kind or "cast", on = true, variants = { B.NewVariant(arg) }, reset = "", chan = "say" }
+    return { kind = kind or "cast", variants = { B.NewVariant(arg) }, reset = "", chan = "say" }
 end
 
 function B.New()
     return { tooltip = true, tooltipSpell = "", lines = {} }
 end
 
--- Deep copy with every "{spell}" replaced (spell = nil: a plain copy).
-function B.Substitute(m, spell)
-    local function walk(v)
-        if type(v) == "string" then
-            if not spell then return v end
-            return (v:gsub("{spell}", function() return spell end))
-        end
-        if type(v) ~= "table" then return v end
-        local out = {}
-        for k, x in pairs(v) do out[k] = walk(x) end
-        return out
-    end
-    return walk(m)
-end
-
 function B.FirstSpell(m)
     for _, l in ipairs(m.lines or {}) do
-        if (l.kind == "cast" or l.kind == "use") and l.on ~= false then
+        if l.kind == "cast" or l.kind == "use" then
             for _, v in ipairs(l.variants) do
                 local s = strtrim(v.arg or "")
                 if s ~= "" and not tonumber(s) then return s end
@@ -388,16 +366,13 @@ function B.LineText(l)
     return cmd .. " " .. table.concat(segs, "; ")
 end
 
-function B.Build(m, spell)
-    if spell then m = B.Substitute(m, spell) end
+function B.Build(m)
     local out = {}
     if m.tooltip then
         local t = strtrim(m.tooltipSpell or "")
         out[1] = t ~= "" and ("#showtooltip " .. t) or "#showtooltip"
     end
-    for _, l in ipairs(m.lines or {}) do
-        if l.on ~= false then out[#out + 1] = B.LineText(l) end
-    end
+    for _, l in ipairs(m.lines or {}) do out[#out + 1] = B.LineText(l) end
     return table.concat(out, "\n")
 end
 
@@ -484,7 +459,8 @@ function B.ParseLine(text)
             end
         end
     end
-    if not l or (B.LineText(l) ~= text and Canon(B.LineText(l)) ~= Canon(t)) then
+    local lt = l and B.LineText(l)
+    if not l or (lt ~= text and Canon(lt) ~= Canon(t)) then
         l = B.NewLine("raw", text)
     end
     return l
@@ -510,16 +486,18 @@ end
 
 -------------------------------------------------------------------------------
 --  Spellbook: active spells, one entry per name ("/cast Name" uses the
---  highest rank, so ranks fold together). Scanned on demand, invalidated by
---  the Macro Manager page while it is shown.
+--  highest rank, so ranks fold together). Scanned on demand; the page marks
+--  it stale on SPELLS_CHANGED and whenever it is shown again.
 -------------------------------------------------------------------------------
-local S = {}
-B.Spells = S
-local list, sorted, byName = {}, {}, {}
+local list, sorted = {}, {}
 local dirty = true
 
+local function ByName(a, b) return a.lname < b.lname end
+
 local function Scan()
-    list, sorted, byName = {}, {}, {}
+    wipe(list)
+    wipe(sorted)
+    local seen = {}
     local bank = Enum.SpellBookSpellBank.Player
     local spellType = Enum.SpellBookItemType.Spell
     for i = 1, C_SpellBook.GetNumSpellBookSkillLines() do
@@ -529,10 +507,10 @@ local function Scan()
                 local info = C_SpellBook.GetSpellBookItemInfo(slot, bank)
                 local name = info and info.name
                 if name and name ~= "" and not info.isPassive and info.itemType == spellType then
-                    local s = byName[name]
+                    local s = seen[name]
                     if not s then
-                        s = { name = name, icon = info.iconID, tab = line.name }
-                        byName[name] = s
+                        s = { name = name, lname = name:lower(), icon = info.iconID }
+                        seen[name] = s
                         list[#list + 1] = s
                     else
                         s.icon = info.iconID or s.icon
@@ -542,18 +520,193 @@ local function Scan()
         end
     end
     for i, s in ipairs(list) do sorted[i] = s end
-    table.sort(sorted, function(a, b) return a.name:lower() < b.name:lower() end)
+    table.sort(sorted, ByName)
     dirty = false
 end
 
--- Spellbook order: { { name, icon, tab } }
+-- Spellbook order: { { name, lname, icon } }; Sorted: by name.
 function S.List() if dirty then Scan() end return list end
 function S.Sorted() if dirty then Scan() end return sorted end
 function S.Invalidate() dirty = true end
 
-function S.Icon(name)
-    if dirty then Scan() end
-    local s = byName[name]
-    if s then return s.icon end
-    return C_Spell.GetSpellTexture(name) or C_Item.GetItemIconByID(name)
+-------------------------------------------------------------------------------
+--  The game's macros: account macros at 1..count, character macros at
+--  MAX_ACCOUNT + 1.., each list kept in the game's own order.
+-------------------------------------------------------------------------------
+MM.MAX_ACCOUNT = Constants.MacroConsts.MAX_ACCOUNT_MACROS
+MM.MAX_CHAR    = Constants.MacroConsts.MAX_CHARACTER_MACROS
+MM.MAX_LETTERS = 255    -- Blizzard's macro text box: 255 letters, invisible ones counted
+MM.MAX_NAME    = 16     -- Blizzard's macro name box: 16 letters
+MM.QUESTION    = 134400 -- INV_Misc_QuestionMark: the icon follows #showtooltip
+
+-- First and last index of one list.
+local function Range(perChar)
+    local a, c = GetNumMacros()
+    if perChar then return MM.MAX_ACCOUNT + 1, MM.MAX_ACCOUNT + c end
+    return 1, a
+end
+
+-- A name as the game keeps it: no double quotes (Blizzard strips them before
+-- saving too), trimmed, cut to 16 letters.
+function MM.CleanName(s)
+    local out, n = {}, 0
+    for ch in strtrim(((s or ""):gsub('"', ""))):gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        n = n + 1
+        if n > MM.MAX_NAME then break end
+        out[n] = ch
+    end
+    return table.concat(out)
+end
+
+-- The macro at index i as an entry, or nil.
+function MM.Entry(i)
+    local name, icon, body = GetMacroInfo(i)
+    if name then
+        return { index = i, name = name, icon = icon, body = body or "", perChar = i > MM.MAX_ACCOUNT }
+    end
+end
+
+-- One list's entries, in the game's order.
+function MM.List(perChar)
+    local out = {}
+    local first, last = Range(perChar)
+    for i = first, last do out[#out + 1] = MM.Entry(i) end
+    return out
+end
+
+function MM.Free(perChar)
+    local a, c = GetNumMacros()
+    if perChar then return MM.MAX_CHAR - c end
+    return MM.MAX_ACCOUNT - a
+end
+
+function MM.NameTaken(name, perChar)
+    local first, last = Range(perChar)
+    for i = first, last do
+        if GetMacroInfo(i) == name then return true end
+    end
+    return false
+end
+
+-- The icon a macro keeps: a "?" macro keeps "?", where GetMacroInfo shows the
+-- spell's icon (saving that back would freeze it).
+function MM.StoredIcon(i)
+    return C_Macro.GetSelectedMacroIcon(i) or select(2, GetMacroInfo(i))
+end
+
+-- Finds ref ({ index, name, body, perChar }) again: at its index while that
+-- still holds its name and body, else the one macro of that name and body in
+-- its list (ref.index follows it). A lost ref, or one of two alike, keeps no
+-- index, so it marks no grid cell. byName: else the one macro of that name,
+-- whose text changed elsewhere. nil when it is gone or not unique.
+function MM.Resolve(ref, byName)
+    local first, last = Range(ref.perChar)
+    local i = ref.index
+    if i and i >= first and i <= last then
+        local name, _, body = GetMacroInfo(i)
+        if name == ref.name and (body or "") == ref.body then return i end
+    end
+    local hit, named, nameHits = nil, nil, 0
+    for j = first, last do
+        local name, _, body = GetMacroInfo(j)
+        if name == ref.name then
+            nameHits, named = nameHits + 1, j
+            if (body or "") == ref.body then
+                if hit then ref.index = nil return nil end -- two alike: neither is surely ours
+                hit = j
+            end
+        end
+    end
+    if hit then ref.index = hit return hit end
+    ref.index = nil
+    if byName and nameHits == 1 then return named end
+end
+
+-- Combat, or a macro that cannot be found again, stops a write.
+local function Target(ref)
+    if InCombatLockdown() then return nil, EllesmereUI.L("Macros can't be changed in combat.") end
+    local i = MM.Resolve(ref)
+    if not i then return nil, EllesmereUI.L("This macro changed outside the editor. Select it again.") end
+    return i
+end
+
+-- Why the editor's name and text cannot be saved, or nil. The length counts
+-- letters, as Blizzard's own macro text box does.
+function MM.Check(name, body)
+    if name == "" then return EllesmereUI.L("Please enter a name.") end
+    if strtrim(body) == "" then return EllesmereUI.L("The macro is empty.") end
+    local n = strlenutf8(body)
+    if n > MM.MAX_LETTERS then return EllesmereUI.Lf("Too long: %1$d / %2$d characters.", n, MM.MAX_LETTERS) end
+end
+
+-- Creates (ref nil) or updates the macro ref; perChar ~= ref.perChar moves it
+-- to the other list (made there, then deleted here). icon nil keeps the
+-- macro's own. Returns the saved macro's entry as the game keeps it, or nil
+-- and the reason. The editor checks its name and text first (MM.Check); a
+-- move keeps the macro's own, whatever they are.
+function MM.Save(ref, name, icon, body, perChar)
+    perChar = perChar and true or false
+    local i, err
+    if ref then
+        i, err = Target(ref)
+        if not i then return nil, err end
+        icon = icon or MM.StoredIcon(i)
+    elseif InCombatLockdown() then
+        return nil, EllesmereUI.L("Macros can't be changed in combat.")
+    end
+    icon = icon or MM.QUESTION
+    local ok, new
+    if i and ref.perChar == perChar then
+        ok, new = pcall(EditMacro, i, name, icon, body)
+    elseif MM.Free(perChar) <= 0 then
+        return nil, EllesmereUI.L("No free macro slot")
+    else
+        ok, new = pcall(CreateMacro, name, icon, body, perChar)
+        -- A move: the copy exists, so the original goes, found again first:
+        -- the game runs the macro event's handlers inside CreateMacro, and
+        -- another addon's handler may change this list (the copy is in the
+        -- other one).
+        if ok and i then i = MM.Resolve(ref) end
+        if ok and i then DeleteMacro(i) end
+    end
+    if not ok then return nil, EllesmereUI.L("Error:") .. " " .. tostring(new) end
+    return MM.Entry(new)
+end
+
+function MM.Delete(ref)
+    local i, err = Target(ref)
+    if not i then return nil, err end
+    DeleteMacro(i)
+    return true
+end
+
+function MM.Pickup(ref)
+    local i, err = Target(ref)
+    if not i then return nil, err end
+    PickupMacro(i)
+    return true
+end
+
+-- Both lists against snap ({ n = {}, i = {}, b = {} }, owned by the caller):
+-- true once a macro was made, deleted, renamed, edited or given another icon
+-- since snap was written; write = true also writes it. Allocates nothing
+-- while nothing changed.
+function MM.Diff(snap, write)
+    local a, c = GetNumMacros()
+    local diff = a ~= snap.a or c ~= snap.c
+    if diff and not write then return true end
+    snap.a, snap.c = a, c
+    local N, I, T = snap.n, snap.i, snap.b
+    local first, last = 1, a
+    for _ = 1, 2 do
+        for k = first, last do
+            local name, icon, body = GetMacroInfo(k)
+            if N[k] ~= name or I[k] ~= icon or T[k] ~= body then
+                if not write then return true end
+                diff, N[k], I[k], T[k] = true, name, icon, body
+            end
+        end
+        first, last = MM.MAX_ACCOUNT + 1, MM.MAX_ACCOUNT + c
+    end
+    return diff
 end

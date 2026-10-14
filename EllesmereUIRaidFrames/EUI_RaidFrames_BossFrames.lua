@@ -211,6 +211,10 @@ FB.ApplyBorderColor = function(b)
     if not PP or not b._borderFrame or not db then return end
     local s = FB.Source(b)
     local targeted = FB.tgt[b] and s.targetBorderEnabled ~= false
+    if ns.RF_PetCompactOn(b, s) then
+        ns.RF_PetCompactHighlight(b, s)
+        return
+    end
     if b.stockEdge then
         local hover = FB.hov[b] and s.hoverBorderEnabled ~= false
         local lvl = b:GetFrameLevel() + (hover and ns.LVL_RAISE or 8)
@@ -268,6 +272,17 @@ FB.StyleBorder = function(b)
     local bs = s.borderSize or 1
     local bc = s.borderColor or { r = 0, g = 0, b = 0 }
     local pl = b:GetFrameLevel()
+    local d = I.FFD[b]
+    local compact = ns.RF_PetCompactOn(b, s)
+    if compact or (d and d._petCompactBorder) then
+        d._petCompactBorder = compact
+    end
+    if compact then
+        EllesmereUI.ApplyBorderStyle(b._borderFrame, 0, 0, 0, 0, 0, "solid")
+        FB.ApplyBorderColor(b)
+        EllesmereUI.RoundCorners(b, 0)
+        return
+    end
     if b.stockEdge then
         b._borderFrame:SetFrameLevel(pl + 8)
         EllesmereUI.ApplyBorderStyle(b._borderFrame, 0, 0, 0, 0, 0, "solid")
@@ -562,6 +577,17 @@ FB.EnsureBuilt = function()
     FB.controller = controller
 end
 
+-- The pitch between the group's buttons. Attached beside Compact frames it takes their one
+-- pixel, so its rows stay level with theirs: the party frames' where FB.Anchor slots it in
+-- beside them (outside a raid, with Show in Dungeons on), else the raid groups'.
+FB.Pitch = function(fbset, s)
+    if fbset and fbset.position ~= "free" then
+        local party = (not IsInRaid() or ns._PartyInRaid()) and fbset.showInDungeons == true
+        if ns.RF_CompactOn(db.profile, party) then return ns.RF_OnePixel(party) end
+    end
+    return s.cellSpacing or -1
+end
+
 -- Re-apply all setting-derived properties (size, slots, texture, fonts, text anchors). OOC only;
 -- callers gate. The owner parameter lets the Extra Frames duplicates (ns._XF) share this verbatim:
 -- an owner carries buttons/container/Settings and defaults to FB itself.
@@ -573,7 +599,8 @@ FB.ApplyStyle = function(owner)
     -- Per-group size offset on the shared raid frame size (Extra Width/Height sliders; clamped so a negative offset can't invert a small frame).
     local w = PixelSnap(math.max(10, (s.frameWidth or 125) + ((fbset and fbset.extraWidth) or 0)))
     local h = PixelSnap(math.max(10, (s.frameHeight or 60) + ((fbset and fbset.extraHeight) or 0)))
-    local sp = s.cellSpacing or -1
+    local sp = FB.Pitch(fbset, s)
+    owner.pitch = sp
     -- Free Move ignores the raid growth settings: vertical stack by default, horizontal via the
     -- Horizontal Frames cog. Attached modes keep stacking like a real group (unitGrowth).
     local grow
@@ -685,6 +712,11 @@ FB.Anchor = function(owner)
     local s = db.profile
     local fb = owner.Settings()
     local c = owner.container
+    -- A group's pitch follows the frames it sits beside (owner.Pitch: the boss group, the
+    -- Extra Frames): re-lay it once that moved.
+    if owner.Pitch and owner.pitch ~= owner.Pitch(fb, ns._scaledProfile or s) then
+        if owner.Layout then owner.Layout() else FB.ApplyStyle(owner) end
+    end
 
     if fb.position ~= "free" then
         local anchorHdr
@@ -927,6 +959,14 @@ function ns.FB_Apply()
     FB.UpdateRangeTicker()
 end
 
+-- A new pixel grid: the anchor pass re-lays each shown attached group whose one-pixel
+-- pitch moved (the Extra Frames first: a boss group may be chained behind them).
+function ns.FB_Repitch()
+    local xf = ns._XF
+    if xf and xf.built and xf.container:IsShown() then FB.Anchor(xf) end
+    if FB.built and FB.container:IsShown() then FB.Anchor() end
+end
+
 function ns.FB_IsMoverShown()
     return FB.mover and FB.mover:IsShown() or false
 end
@@ -995,7 +1035,7 @@ FB.SetMoverShown = function(owner, show, frameName, labelText)
         lbl:SetTextColor(1, 1, 1, 0.75)
         lbl:SetPoint("CENTER", m, "CENTER")
         lbl:SetWordWrap(false)
-        lbl:SetText(labelText)
+        lbl:SetText(EllesmereUI.L(labelText))
         m:SetScript("OnDragStart", function(self) self:StartMoving() end)
         m:SetScript("OnDragStop", function(self)
             self:StopMovingOrSizing()

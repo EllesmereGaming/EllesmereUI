@@ -241,7 +241,9 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
                 _, h = W:DualRow(parent, y, ocfgL, ocfgR);  y = y - h
             end
         end
-        do
+        -- Border color swatch on the size slider (right region); none in the
+        -- search pre-build (it indexes nothing, and the row is a stand-in there)
+        if not EllesmereUI._prebuilding then
             local rgn = bsRow._rightRegion
             local ctrl = rgn._control
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(

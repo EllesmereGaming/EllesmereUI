@@ -346,11 +346,9 @@ local function InitializeFrames()
         local offsetY = db.profile.player.classPowerBarY or 0
 
         -- Stop castbar watcher by default; only re-enabled in the "bottom" branch
-        if bar._castbarWatcher then
-            ns._cpWatchFn = nil
-            ns._cpWatchTick.Stop()
-            bar._castbarWatcher:Hide()
-        end
+        ns._cpWatchFn = nil
+        ns._cpWatchTick.Stop()
+        ns._cpCastWatcher:Hide()
 
         if style == "modern" and position == "above" then
             -- Above health bar, inside the frame -- pips stretch to fill health bar width
@@ -464,25 +462,27 @@ local function InitializeFrames()
             if ns.UF_Blizz() then ns.UF_ApplyBlizzardLayout(frames.player, "player") end
             -- Only run the castbar watcher if the player castbar is enabled
             if db.profile.player.showPlayerCastbar then
-                if not bar._castbarWatcher then
-                    -- Shared child-born shell (see ns._cpCastWatcher): a frame created
-                    -- here would be born in whatever context triggered this rebuild and
-                    -- could bill the parent for the 10 Hz poll below.
-                    bar._castbarWatcher = ns._cpCastWatcher
-                    bar._castbarWatcher:SetParent(bar)
-                end
+                -- Shared child-born shell (see ns._cpCastWatcher): a frame created
+                -- here would be born in whatever context triggered this rebuild and
+                -- could bill the parent for the 10 Hz poll below. It rides the bar,
+                -- so its ticker pauses while the bar is hidden; its state lives in
+                -- this closure, never on the bar (Blizzard's own frame under the
+                -- Blizzard style).
+                local watcher = ns._cpCastWatcher
+                if watcher:GetParent() ~= bar then watcher:SetParent(bar) end
                 local playerFrame = frames.player
+                local lastCastVis
                 -- 10 Hz body on the shared anim ticker (see ns._cpWatchTick).
                 ns._cpWatchFn = function()
                     local cb = playerFrame and playerFrame.Castbar
                     local castbarBg = cb and cb:GetParent()
                     local nowVis = castbarBg and castbarBg:IsShown() and db.profile.player.showPlayerCastbar
-                    if nowVis ~= bar._lastCastVis then
-                        bar._lastCastVis = nowVis
+                    if nowVis ~= lastCastVis then
+                        lastCastVis = nowVis
                         AnchorBottom()
                     end
                 end
-                bar._castbarWatcher:Show()
+                watcher:Show()
                 ns._cpWatchTick.Start()
             end
             ResizeFrameForClassPower(0)
@@ -625,6 +625,11 @@ local function InitializeFrames()
             DestroyCustomClassPower()
             frames._classPowerBar = nil
         elseif frames._classPowerBar then
+            -- The cast bar watcher may ride this bar: stop it before the bar goes
+            -- back, so it never re-anchors a frame we no longer own.
+            ns._cpWatchFn = nil
+            ns._cpWatchTick.Stop()
+            ns._cpCastWatcher:Hide()
             -- Handed on to Resource Bars' Blizzard Class Resource Art: left shown, so
             -- it appears there at once (Blizzard only re-shows it from its own Setup).
             if not (style ~= "blizzard" and _G._ERB_BlizzArtWanted and _G._ERB_BlizzArtWanted()) then

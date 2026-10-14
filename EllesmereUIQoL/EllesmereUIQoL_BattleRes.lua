@@ -419,21 +419,6 @@ function ns.ApplyInstanceEvent(st, event)
     end
 end
 
--- Unlock-mode loadPos/clearPos for an icon whose slice (P()) stores pos as a center offset.
-function ns.CenterPosFns(P)
-    local function loadPos()
-        local p = P()
-        if p and p.pos then
-            return { point = "CENTER", relPoint = "CENTER", x = p.pos.centerX, y = p.pos.centerY }
-        end
-        return nil
-    end
-    local function clearPos()
-        local p = P(); if p then p.pos = nil end
-    end
-    return loadPos, clearPos
-end
-
 local function ShouldShow()
     local p = P()
     if not p or not p.enabled then return false end
@@ -680,6 +665,17 @@ local function Apply()
     UpdateVisibility()
 end
 _G._EUI_BattleRes_Apply = Apply
+
+-- QoL Reset: the Battle Res and Bloodlust slices back to their defaults (both
+-- live in this file's defaults table).
+function _G._EUI_BattleRes_Reset()
+    local prof = addon.db and addon.db.profile
+    if not prof then return end
+    prof.battleRes, prof.bloodlust = {}, {}
+    EllesmereUI.Lite.DeepMergeDefaults(prof, defaults.profile)
+    Apply()
+    if _G._EUI_Bloodlust_Apply then _G._EUI_Bloodlust_Apply() end
+end
 
 -------------------------------------------------------------------------------
 --  Event handler (state writes live in ns.ApplyInstanceEvent above)

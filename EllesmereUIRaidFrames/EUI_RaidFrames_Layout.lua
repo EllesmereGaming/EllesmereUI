@@ -66,7 +66,7 @@ ns._BuildHeaderSet = function(merge)
     -- own per-tier resolution and self-heal.
     local initUnitGrowth, initGroupGrowth = ns._RFEffectiveGrowth(
         s.unitGrowth or "DOWN", s.groupGrowth or "RIGHT", merge)
-    local csInit = PixelSnap(s.cellSpacing or 2)
+    local csInit = ns.RF_CellSpacing(s)
     local initPoint, initXOff, initYOff = ns._RFHeaderPoint(initUnitGrowth, csInit)
 
     -- A header makes children only while visible (IsVisible walks the parent
@@ -137,7 +137,7 @@ ns._BuildHeaderSet = function(merge)
         ns._flatHeader:SetAttribute("showSolo", s.showWhenSolo or false)
         ns._flatHeader:SetAttribute("unitsPerColumn", 5)
         ns._flatHeader:SetAttribute("maxColumns", 8)
-        ns._flatHeader:SetAttribute("columnSpacing", PixelSnap(s.groupSpacing or 8))
+        ns._flatHeader:SetAttribute("columnSpacing", ns.RF_GroupSpacing(s))
         ns._flatHeader:SetAttribute("columnAnchorPoint", ns._RFColAnchor(initUnitGrowth, initGroupGrowth))
         ns._flatHeader:SetAttribute("sortMethod", "INDEX")
 
@@ -297,8 +297,8 @@ ns._LayoutGroupsImpl = function()
     unitGrowth, groupGrowth = ns._RFEffectiveGrowth(unitGrowth, groupGrowth, merged)
     local bw = PixelSnap(ns._activeSizeW or s.frameWidth or 72)
     local bh = PixelSnap(ns._activeSizeH or s.frameHeight or 46)
-    local cs = PixelSnap(s.cellSpacing or 2)
-    local gs = PixelSnap(s.groupSpacing or 8)
+    local cs = ns.RF_CellSpacing(s)
+    local gs = ns.RF_GroupSpacing(s)
 
     -- Header attributes for unit growth direction
     local hdrPoint, hdrXOff, hdrYOff = ns._RFHeaderPoint(unitGrowth, cs)
@@ -520,6 +520,7 @@ ns._LayoutGroupsImpl = function()
 
     -- Update real-frame group numbers now that all headers are positioned.
     ns._UpdateGroupNumbers()
+    ns.RF_SyncCompact(false)
 end
 
 -- Coalescing re-entrancy guard: a re-entrant LayoutGroups() call is NOT dropped

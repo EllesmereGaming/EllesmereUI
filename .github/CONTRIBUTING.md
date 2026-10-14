@@ -25,8 +25,12 @@ will make changes to it myself.
 
 1. **Zero cost unless enabled.** If your change adds a setting, users who
    never turn it on must pay nothing: no event registrations, no hooks doing
-   work, no frames created, no OnUpdate. Build lazily on first enable and
-   register events only while the feature is active.
+   work, no OnUpdate, no tickers. An event frame or a combat queue
+   (`EllesmereUI.NewCombatQueue`) may be created inert at load, in your
+   file's main chunk so the profiler bills it to your addon: no events
+   registered on it and no work done while the feature is off. Build
+   everything else lazily on first enable, and register events only while
+   the feature is active.
 
 2. **Zero behavior change without opt-in.** New settings default **OFF**. A
    feature that appears for everyone after an update is a violation, even if

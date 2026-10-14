@@ -373,7 +373,8 @@ end
 
 -- Suppress the secondary buff-bar viewer (BuffBarCooldownViewer).
 --
--- Parked offscreen, NEVER Hidden: TBB mirrors min/max/value straight off Blizzard's Bar frames
+-- Parked off the top-left (or clamped into that corner), NEVER Hidden: TBB mirrors
+-- min/max/value straight off Blizzard's Bar frames
 -- and a hidden viewer stops updating them. The park, not the alpha, is what holds -- Blizzard's
 -- hide-when-inactive fade animates the viewer's alpha back to 1 whenever a tracked buff goes
 -- active, through a path no hook can see (same lesson as the unclaimed-frame park in
@@ -388,10 +389,20 @@ function ns.ParkSecondaryBuffViewer(frame)
         ns._secondaryParkPending = true
     else
         ns._secondaryParkPending = nil
-        fc.parkGuard = true
-        frame:ClearAllPoints()
-        frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10000, 10000)
-        fc.parkGuard = nil
+        -- An Edit Mode system: the saved C methods keep its snap state and
+        -- Edit Mode's anchor sweep Blizzard's, and never reach the hooks below.
+        -- Known limit: a snap the player gave a viewer survives, so when Edit
+        -- Mode breaks it (Blizzard hides a target sized to its children, such
+        -- as the party, raid or boss container or another viewer; the target
+        -- is reset or reverted; or it is a party, raid, boss or arena frame or
+        -- the quest tracker at a save) it notes the viewer where it stands:
+        -- this park, most likely clamped into the screen's top-left corner,
+        -- or our bar's spot for the Essential and Utility viewers. Only the
+        -- player's next Edit Mode save keeps it (renaming or deleting a layout
+        -- saves too), and with our Cooldown Manager off Blizzard's tracked
+        -- bars then show in that corner.
+        EllesmereUI.ClearFramePoints(frame)
+        EllesmereUI.SetFramePoint(frame, "TOPLEFT", UIParent, "TOPLEFT", -10000, 10000)
     end
     if not fc.parkHooked then
         fc.parkHooked = true
@@ -400,7 +411,7 @@ function ns.ParkSecondaryBuffViewer(frame)
         -- our taint into the rest of that pass. The delay also coalesces ClearAllPoints + SetPoint bursts into one park, and a single frame of a stray bar is invisible.
         local function QueueRepark(self, method)
             local c = _ecmeFC[self]
-            if not c or not c.hidden or c.parkGuard or c.restoring or c.parkQueued then return end
+            if not c or not c.hidden or c.restoring or c.parkQueued then return end
             c.parkQueued = true
             C_Timer.After(0, function()
                 c.parkQueued = nil
@@ -467,6 +478,184 @@ ns._parkEdges:SetScript("OnEvent", function()
     if ns._CheckCursorParks then ns._CheckCursorParks() end
 end)
 
+-------------------------------------------------------------------------------
+--  Group loot rolls. Blizzard stacks GroupLootContainer in the bottom managed
+--  column above the three Cooldown Manager viewers. Ours keeps them shown, so
+--  while they sit in their default Edit Mode spot the column lifts the rolls
+--  by whatever they measure (off screen behind a tall buff viewer). While our
+--  CDM owns the viewers, the rolls take the lowest spot up from the column's
+--  bottom, kept under the top of the screen, that covers none of these: a
+--  shown column frame other than the viewers, a CDM bar, a Tracking Bar (or
+--  Blizzard's tracked bars in their place), an EUI action bar, or the extra
+--  ability container while it shows. Our bars count unless hidden for good,
+--  so one that shows later never comes up under rolls already up. With
+--  nothing else in the way that is Blizzard's spot with the viewers out of
+--  the column. The viewers' sizes are never read. EllesmereUI.SetFramePlacer
+--  applies the result; Blizzard frames are only read here.
+-------------------------------------------------------------------------------
+local lootL, lootB, lootR, lootT = {}, {}, {}, {}
+
+local function AnySecret(...)
+    for i = 1, select("#", ...) do
+        if issecretvalue((select(i, ...))) then return true end
+    end
+    return false
+end
+
+-- Stores f's screen rect as obstacle n + 1 when it is readable and not empty;
+-- returns the obstacle count.
+local function AddLootRect(f, n)
+    local l, b, w, h = f:GetRect()
+    local s = f:GetEffectiveScale()
+    if AnySecret(l, b, w, h, s) or not l or w <= 0 or h <= 0 then return n end
+    n = n + 1
+    lootL[n], lootB[n], lootR[n], lootT[n] = l * s, b * s, (l + w) * s, (b + h) * s
+    return n
+end
+
+-- The same, for a shown frame only.
+local function AddLootObstacle(f, n)
+    local shown = f:IsShown()
+    if issecretvalue(shown) or not shown then return n end
+    return AddLootRect(f, n)
+end
+
+-- The column's layout children, except the rolls and the three viewers.
+local function AddLootColumnObstacles(n, skipA, skipB, skipC, skipD, ...)
+    for i = 1, select("#", ...) do
+        local c = select(i, ...)
+        if not issecretvalue(c) and c ~= skipA and c ~= skipB and c ~= skipC and c ~= skipD then
+            local forbidden = c:IsForbidden()
+            if not issecretvalue(forbidden) and not forbidden
+               and c.layoutIndex and not c.ignoreInLayout then
+                n = AddLootObstacle(c, n)
+            end
+        end
+    end
+    return n
+end
+
+-- Nil when the rolls are not in the column's own anchor; false (asked again
+-- after combat) when a geometry read is secret.
+local function PlaceLootRolls(frame, point, relativeTo, relativePoint, x, y)
+    local col = BottomManagedFrameContainer
+    if not col then return nil end
+    -- Only the column's own anchor: TOP of the rolls to the TOP of the column.
+    local parent = frame:GetParent()
+    if issecretvalue(parent) or parent ~= col or point ~= "TOP" or relativePoint ~= "TOP"
+       or relativeTo ~= col then
+        return nil
+    end
+    local cs, s, us = col:GetEffectiveScale(), frame:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    local colTop, colBottom, colL, colR = col:GetTop(), col:GetBottom(), col:GetLeft(), col:GetRight()
+    local w, h, uiTop = frame:GetWidth(), frame:GetHeight(), UIParent:GetTop()
+    if AnySecret(cs, s, us, colTop, colBottom, colL, colR, w, h, uiTop) then return false end
+    if not (colTop and colBottom and colL and colR and uiTop) then return nil end
+    -- Screen pixels. Anchor offsets are in the rolls' own scale. The roll and
+    -- Bonus Roll windows hang centred from the container and are wider than
+    -- it: a roll window is 277 wide with 286-wide art, Bonus Roll 286.
+    local height = h * s
+    local cx = (colL + colR) * 0.5 * cs + x * s
+    local half = math.max(w, 286) * s * 0.5
+    local left, right = cx - half, cx + half
+    local top = colBottom * cs + height
+
+    local n = AddLootColumnObstacles(0, frame, _G[BLIZZ_CDM_FRAMES.cooldowns],
+        _G[BLIZZ_CDM_FRAMES.utility], _G[BLIZZ_CDM_FRAMES.buffs], col:GetChildren())
+    local p = ECME.db and ECME.db.profile
+    local cdmBars = p and p.cdmBars
+    local bars = cdmBars and cdmBars.bars
+    if bars then
+        local focusKick = ns.FOCUSKICK_BAR_KEY
+        for i = 1, #bars do
+            local bd = bars[i]
+            if bd.enabled and not bd.isGhostBar and bd.key ~= focusKick
+               and bd.barVisibility ~= "never" then
+                -- A bar hidden by its visibility rules keeps its spot (it can
+                -- show while the rolls are up); a cursor bar holds none.
+                local f = cdmBarFrames[bd.key]
+                if f and not f._mouseTrack then n = AddLootObstacle(f, n) end
+            end
+        end
+    end
+    if cdmBars and cdmBars.useBlizzardBuffBars then
+        local bbv = _G[BLIZZ_CDM_FRAMES_SECONDARY.buffs]
+        if bbv then n = AddLootObstacle(bbv, n) end
+    else
+        -- Each enabled Tracking Bar keeps its spot while hidden too: an
+        -- inactive one shows the moment its aura procs.
+        local getTBB, getBars = ns.GetTBBFrame, ns.GetTrackedBuffBars
+        local tbb = getTBB and getBars and getBars()
+        local cfgs = tbb and tbb.bars
+        if cfgs then
+            for i = 1, #cfgs do
+                local cfg = cfgs[i]
+                if cfg.enabled ~= false and cfg.barVisibility ~= "never" then
+                    local f = getTBB(i)
+                    if f then n = AddLootRect(f, n) end
+                end
+            end
+        end
+    end
+    -- Action bars (bars 1-10, stance, pet): the rolls sit above their buttons.
+    -- A bar keeps its spot unless it is hidden for good: one that shows only
+    -- in combat can appear under rolls placed out of combat. The stance bar
+    -- of a class with no forms never shows (the test its driver uses).
+    local abKeys, elems = EllesmereUI._abBarKeys, EllesmereUI._unlockRegisteredElements
+    if abKeys then
+        for key in pairs(abKeys) do
+            local e = elems[key]
+            local f = e and e.getFrame and e.getFrame(key)
+            if f and not (e.isHidden and e.isHidden())
+               and not (key == "StanceBar" and (GetNumShapeshiftForms() or 0) == 0) then
+                n = AddLootRect(f, n)
+            end
+        end
+    end
+    -- The extra and zone ability buttons while they show, wherever Action
+    -- Bars holds their container (in the column it is counted above too),
+    -- unless the Extra Action Button is hidden for good: its holder is then
+    -- hidden while Blizzard keeps the container shown.
+    local xac = ExtraAbilityContainer
+    if xac then
+        local xe = elems.ExtraActionButton
+        if not (xe and xe.isHidden and xe.isHidden()) then n = AddLootObstacle(xac, n) end
+    end
+
+    -- Rise above every obstacle the rolls cover, one column spacing clear:
+    -- each pass jumps once past the highest top among the obstacles covered
+    -- now. Once risen, an obstacle less than one spacing under the rolls
+    -- counts as covered too, so they never stop closer than that to one
+    -- they jumped past. Each pass clears a higher top than the last, so n
+    -- passes cover every rise, whatever the obstacles' order.
+    local gap = (col.spacing or 0) * cs
+    local reach = 0
+    for _ = 1, n do
+        local hi
+        for i = 1, n do
+            if left < lootR[i] and right > lootL[i] and top - height < lootT[i] + reach and top > lootB[i]
+               and not (hi and hi >= lootT[i]) then
+                hi = lootT[i]
+            end
+        end
+        if not hi then break end
+        top = hi + gap + height
+        reach = gap
+    end
+    if top > uiTop * us then top = uiTop * us end
+    return point, col, relativePoint, x, (top - colTop * cs) / s
+end
+
+-- Rolls already up follow a CDM bar or Tracking Bar that was rebuilt, moved
+-- or resized. One read while no roll is up; requests made in one frame
+-- collapse into one placement.
+function ns.RequestLootPlacement()
+    local loot = GroupLootContainer
+    if not loot then return end
+    local shown = loot:IsShown()
+    if not issecretvalue(shown) and shown then EllesmereUI.RequestFramePlacement(loot) end
+end
+
 HideBlizzardCDM = function()
     -- Anchor each viewer to our corresponding bar container. Frames stay parented to viewers
     -- (no reparenting = no taint); the viewer becomes an invisible shell overlapping our
@@ -502,9 +691,16 @@ HideBlizzardCDM = function()
             end
         end
     end
+    local loot = GroupLootContainer
+    if loot then
+        EllesmereUI.SetFramePlacer(loot, "cdm", PlaceLootRolls)
+        -- Rebuilds run through here: rolls already up follow the rebuilt bars.
+        ns.RequestLootPlacement()
+    end
 end
 
 RestoreBlizzardCDM = function()
+    if GroupLootContainer then EllesmereUI.SetFramePlacer(GroupLootContainer, "cdm", nil) end
     local allFrameNames = {}
     for _, fn in pairs(BLIZZ_CDM_FRAMES) do allFrameNames[#allFrameNames + 1] = fn end
     for _, fn in pairs(BLIZZ_CDM_FRAMES_SECONDARY) do allFrameNames[#allFrameNames + 1] = fn end
@@ -515,9 +711,9 @@ RestoreBlizzardCDM = function()
             fc.restoring = true
             ns._secondaryParkPending = nil
             if fc.origPoints then
-                frame:ClearAllPoints()
+                EllesmereUI.ClearFramePoints(frame)
                 for _, pt in ipairs(fc.origPoints) do
-                    frame:SetPoint(pt[1], pt[2], pt[3], pt[4], pt[5])
+                    EllesmereUI.SetFramePoint(frame, pt[1], pt[2], pt[3], pt[4], pt[5])
                 end
             end
             -- The secondary viewer is the only alpha-suppressed one, and its Blizzard default is EnableMouse(false) -- restoring it true leaves an invisible click-catcher.
@@ -544,9 +740,9 @@ local function RestoreBlizzardBuffFrame()
         fc.restoring = true
         ns._secondaryParkPending = nil
         if fc.origPoints then
-            frame:ClearAllPoints()
+            EllesmereUI.ClearFramePoints(frame)
             for _, pt in ipairs(fc.origPoints) do
-                frame:SetPoint(pt[1], pt[2], pt[3], pt[4], pt[5])
+                EllesmereUI.SetFramePoint(frame, pt[1], pt[2], pt[3], pt[4], pt[5])
             end
         end
         frame:SetAlpha(1)

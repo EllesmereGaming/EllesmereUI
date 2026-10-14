@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_PartyMode_Options.lua
 --  Party Mode options page for EllesmereUI
---  Shared across all EllesmereUI addons — only the first to load runs.
+--  Shared across all EllesmereUI addons -- only the first to load runs.
 --  DEFERRED: body runs on first EllesmereUI:EnsureLoaded() call, not at load.
 -------------------------------------------------------------------------------
 if _G._EllesmereUIPartyModeOptionsLoaded then return end
@@ -528,7 +528,7 @@ do
             EllesmereUI.RegisterWidgetRefresh(RefreshCdDisabled)
 
             -- Disabled tooltip for cooldown slider (split: label zone + control zone)
-            do
+            if not EllesmereUI._prebuilding then
                 local cdLabel
                 local regions = { cdFrame:GetRegions() }
                 for i = 1, #regions do
@@ -596,6 +596,7 @@ do
                 return BuildPartyModePage(pageName, parent, yOffset)
             end
         end,
+        resetScope  = "account",
         onReset     = function()
             -- Stop party mode (restores CVars if dimmed)
             if EllesmereUIDB and EllesmereUIDB.partyMode then

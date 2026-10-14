@@ -7,7 +7,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Does NOT parse secret values works around restricted APIs.
 -------------------------------------------------------------------------------
 local _, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the loot roll placement uses the parent's frame placer)
 EllesmereUI._ModuleNS["EllesmereUICooldownManager"] = ns  -- LOD options files read this module ns via the registry
 
 -- ns[field] = t, the table a chain of split files re-imports main-chunk locals
@@ -28,7 +28,7 @@ end
 -- events/scripts. No release -- throwaways use CreateFrame directly.
 do
     local pool = {}
-    local n = 36
+    local n = 47 -- keep above every shell this module takes, with spare
     for i = 1, n do pool[i] = CreateFrame("Frame") end
     ns.TakeShell = function()
         if n > 0 then
@@ -300,6 +300,20 @@ local RACE_RACIALS = {
     EarthenDwarf       = { 436344 },
     Haranir            = { 1237885 },  -- Thorn Bloom
 }
+-- WoW Forever's races learn other racials: Every Man for Himself (59752),
+-- Shadowmeld 58984 and Berserking 26297 do not exist there. Each Forever ID
+-- goes FIRST (the in-spellbook pick and the fallback); the retail IDs stay
+-- listed, so a profile brought over from retail still remaps its Racial slot.
+-- Forever's second racials (Perception, Elune's Light, Shatter Curse, Rapid
+-- Regeneration, Cannibalize, Eureka!, Walk on Air) stay ordinary spells: the
+-- CDM keeps one Racial slot and strips every other listed racial from bars.
+if EllesmereUI.IS_FOREVER then
+    table.insert(RACE_RACIALS.Human, 1, 1259718)       -- Will to Survive
+    table.insert(RACE_RACIALS.NightElf, 1, 20580)      -- Shadowmeld
+    table.insert(RACE_RACIALS.Troll, 1, 20554)         -- Berserking (every class)
+    -- Each Skyborne variant learns one of the two.
+    RACE_RACIALS.Skyborne = { 1259705, 1259686 }       -- Read Ley Line, Skysight
+end
 ns.RACE_RACIALS = RACE_RACIALS
 
 local ALL_RACIAL_SPELLS = {}

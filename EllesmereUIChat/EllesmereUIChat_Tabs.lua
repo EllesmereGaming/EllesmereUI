@@ -66,6 +66,7 @@ local function FvTabs() return ns.ChatForever and ns.ChatForever() end
 local FV_TAB_H   = 28
 local FV_CLIP_UP = FV_TAB_H - 26
 local FV_LABEL_Y = -2
+local FV_LABEL_Y_HEAVY = -1   -- Border Style Heavy Bronze: the heavy tab's label seat
 
 local function TabHeight()
     if ClassicTabs() then return CLASSIC_TAB_H end
@@ -168,9 +169,9 @@ local floatGhosts = {} -- per-window-id ghosts for undocked windows
 local lcaLib
 local function TabAlerting(tab)
     if tab.alerting then return true end
-    -- WoW Forever keeps the alert state off the tab, so a tainted message
-    -- filter cannot taint it, and never writes tab.alerting:
-    -- ChatFrameUtil.IsTabAlerting is its reader there.
+    -- Retail since 12.1.5 and WoW Forever keep the alert state off the tab,
+    -- so a tainted message filter cannot taint it, and never write
+    -- tab.alerting: ChatFrameUtil.IsTabAlerting is its reader there.
     local util = ChatFrameUtil
     if util and util.IsTabAlerting and util.IsTabAlerting(tab) then return true end
     lcaLib = lcaLib or (LibStub and LibStub("LibChatAnims", true))
@@ -621,7 +622,8 @@ local function RefreshNow()
     local fontSize = cfg.tabFontSize or 11
     local fontFlag = TabFontFlag()
     local padX = cfg.tabInnerPaddingX or 12
-    local labelY = ClassicTabs() and CLASSIC_LABEL_Y or (FvTabs() and FV_LABEL_Y) or 0
+    local labelY = ClassicTabs() and CLASSIC_LABEL_Y
+        or (FvTabs() and (ns.ChatFvHeavy() and FV_LABEL_Y_HEAVY or FV_LABEL_Y)) or 0
 
     -- The chat panel extends left of ChatFrame1 by its inset while Blizzard's
     -- dock starts at the frame edge; the FIRST ghost (and the strip's clip

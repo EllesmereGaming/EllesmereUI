@@ -45,6 +45,7 @@ initFrame:SetScript("OnEvent", function(self)
     local _edbSegHoverId         -- block id whose SEGMENT hover owns the live
                                  -- bar highlight (the watcher must not clear it)
     local _edbStripRelayout      -- set per header build: re-solves + repositions the preview
+    local _edbStripBarId         -- set per header build: the bar that preview shows
     local _edbPreviewHost        -- the preview strip frame (live theme feedback)
     local _edbHeldGlowKey        -- click-target key whose glow pulses until the
                                  -- setting is filled in; outlives page builds
@@ -59,6 +60,9 @@ initFrame:SetScript("OnEvent", function(self)
     -- once per block ever, and never again on a later mode change.
     -- Weak keys: a deleted block must not be held alive by this marker.
     local _edbWidthPulse = setmetatable({}, { __mode = "k" })
+    -- The header's menus (bar selector, segment, add block): each built on its
+    -- first open and kept across header builds.
+    local _edbMenus = {}
     local _cardsExpanded = false -- template card strip open/closed
     local _dividerDragging = false
 
@@ -368,6 +372,7 @@ initFrame:SetScript("OnEvent", function(self)
         local cfg = SelectedBar()
         _edbPreviewHost = nil
         _edbStripRelayout = nil
+        _edbStripBarId = nil
 
         -----------------------------------------------------------------------
         --  Row 1: bar selector dropdown | + New Bar (centered as a pair)
@@ -398,210 +403,254 @@ initFrame:SetScript("OnEvent", function(self)
             ddLbl:SetText(L("No DataBars"))
         end
 
-        local ddMenu
+        -- The bar menu is built on its first open and kept across header builds
+        -- (_edbMenus.bar), its bar rows pooled by index: each open points it at
+        -- this header's selector and re-applies every row to the current bars.
         local function BuildBarMenu()
-            if ddMenu then ddMenu:Hide(); ddMenu = nil end
-            local menu = CreateFrame("Frame", nil, UIParent)
-            menu:SetFrameStrata("FULLSCREEN_DIALOG")
-            menu:SetFrameLevel(300)
-            menu:SetClampedToScreen(true)
-            menu:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -2)
-            menu:SetPoint("TOPRIGHT", ddBtn, "BOTTOMRIGHT", 0, -2)
-            local bg = menu:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            bg:SetColorTexture(DDS.BG_R, DDS.BG_G, DDS.BG_B, DDS.BG_HA)
-            EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
-
             local ITEM_H = 26
             local ICON_SZ = 14
             local hlA = DDS.ITEM_HL_A
             local selA = DDS.ITEM_SEL_A
-            local mH = 4
-            local bars = ns.BarsInOrder()
+            local menu = _edbMenus.bar
+            if menu then
+                if menu:IsShown() then menu:Hide() end
+            else
+                menu = CreateFrame("Frame", nil, UIParent)
+                menu:SetFrameStrata("FULLSCREEN_DIALOG")
+                menu:SetFrameLevel(300)
+                menu:SetClampedToScreen(true)
+                menu:Hide()
+                local bg = menu:CreateTexture(nil, "BACKGROUND")
+                bg:SetAllPoints()
+                bg:SetColorTexture(DDS.BG_R, DDS.BG_G, DDS.BG_B, DDS.BG_HA)
+                EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
+                menu._rows = {}
 
-            for idx = 1, #bars do
-                local b = bars[idx]
-                local isSel = cfg ~= nil and b.id == cfg.id
-                local item = CreateFrame("Button", nil, menu)
-                item:SetHeight(ITEM_H)
-                item:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -mH)
-                item:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -mH)
-                item:SetFrameLevel(menu:GetFrameLevel() + 2)
+                -- One bar row; its bar and selected state are set per open
+                -- (item._bar, item._isSel), and item._rest puts it in its
+                -- resting look.
+                menu._makeRow = function()
+                    local item = CreateFrame("Button", nil, menu)
+                    item:SetHeight(ITEM_H)
+                    item:SetFrameLevel(menu:GetFrameLevel() + 2)
 
-                local iLbl = EllesmereUI.MakeFont(item, 11, nil, tDimR, tDimG, tDimB, tDimA)
-                iLbl:SetJustifyH("LEFT")
-                iLbl:SetWordWrap(false)
-                iLbl:SetMaxLines(1)
-                iLbl:SetPoint("LEFT", item, "LEFT", 10, 0)
-                local nm = b.name
-                if nm == nil then nm = "" end
-                iLbl:SetText(nm)
+                    local iLbl = EllesmereUI.MakeFont(item, 11, nil, tDimR, tDimG, tDimB, tDimA)
+                    iLbl:SetJustifyH("LEFT")
+                    iLbl:SetWordWrap(false)
+                    iLbl:SetMaxLines(1)
+                    iLbl:SetPoint("LEFT", item, "LEFT", 10, 0)
 
-                local iHl = item:CreateTexture(nil, "ARTWORK")
-                iHl:SetAllPoints()
-                iHl:SetColorTexture(1, 1, 1, 1)
-                if isSel then iHl:SetAlpha(selA) else iHl:SetAlpha(0) end
+                    local iHl = item:CreateTexture(nil, "ARTWORK")
+                    iHl:SetAllPoints()
+                    iHl:SetColorTexture(1, 1, 1, 1)
 
-                -- Inline delete + rename (every DataBar is user-created)
-                local delBtn = CreateFrame("Button", nil, item)
-                delBtn:SetSize(ICON_SZ, ICON_SZ)
-                delBtn:SetPoint("RIGHT", item, "RIGHT", -8, 0)
-                delBtn:SetFrameLevel(item:GetFrameLevel() + 2)
-                local delIcon = delBtn:CreateTexture(nil, "OVERLAY")
-                delIcon:SetSize(ICON_SZ, ICON_SZ)
-                delIcon:SetPoint("CENTER", delBtn, "CENTER", 0, 0)
-                if delIcon.SetSnapToPixelGrid then delIcon:SetSnapToPixelGrid(false); delIcon:SetTexelSnappingBias(0) end
-                delIcon:SetTexture(MEDIA_ICONS .. "eui-close.png")
-                delBtn:SetAlpha(0.75)
+                    -- Inline delete + rename (every DataBar is user-created)
+                    local delBtn = CreateFrame("Button", nil, item)
+                    delBtn:SetSize(ICON_SZ, ICON_SZ)
+                    delBtn:SetPoint("RIGHT", item, "RIGHT", -8, 0)
+                    delBtn:SetFrameLevel(item:GetFrameLevel() + 2)
+                    local delIcon = delBtn:CreateTexture(nil, "OVERLAY")
+                    delIcon:SetSize(ICON_SZ, ICON_SZ)
+                    delIcon:SetPoint("CENTER", delBtn, "CENTER", 0, 0)
+                    if delIcon.SetSnapToPixelGrid then delIcon:SetSnapToPixelGrid(false); delIcon:SetTexelSnappingBias(0) end
+                    delIcon:SetTexture(MEDIA_ICONS .. "eui-close.png")
 
-                local editBtn = CreateFrame("Button", nil, item)
-                editBtn:SetSize(ICON_SZ, ICON_SZ)
-                editBtn:SetPoint("RIGHT", delBtn, "LEFT", -4, 0)
-                editBtn:SetFrameLevel(item:GetFrameLevel() + 2)
-                local edIcon = editBtn:CreateTexture(nil, "OVERLAY")
-                edIcon:SetSize(ICON_SZ, ICON_SZ)
-                edIcon:SetPoint("CENTER", editBtn, "CENTER", 0, 0)
-                if edIcon.SetSnapToPixelGrid then edIcon:SetSnapToPixelGrid(false); edIcon:SetTexelSnappingBias(0) end
-                edIcon:SetTexture(MEDIA_ICONS .. "eui-edit.png")
-                editBtn:SetAlpha(0.75)
+                    local editBtn = CreateFrame("Button", nil, item)
+                    editBtn:SetSize(ICON_SZ, ICON_SZ)
+                    editBtn:SetPoint("RIGHT", delBtn, "LEFT", -4, 0)
+                    editBtn:SetFrameLevel(item:GetFrameLevel() + 2)
+                    local edIcon = editBtn:CreateTexture(nil, "OVERLAY")
+                    edIcon:SetSize(ICON_SZ, ICON_SZ)
+                    edIcon:SetPoint("CENTER", editBtn, "CENTER", 0, 0)
+                    if edIcon.SetSnapToPixelGrid then edIcon:SetSnapToPixelGrid(false); edIcon:SetTexelSnappingBias(0) end
+                    edIcon:SetTexture(MEDIA_ICONS .. "eui-edit.png")
 
-                iLbl:SetPoint("RIGHT", editBtn, "LEFT", -4, 0)
+                    iLbl:SetPoint("RIGHT", editBtn, "LEFT", -4, 0)
 
-                local function InlineBtnEnter(btnSelf)
-                    btnSelf:SetAlpha(1)
-                    iLbl:SetTextColor(1, 1, 1, 1)
-                    iHl:SetAlpha(hlA)
-                    delBtn:SetAlpha(0.85)
-                    editBtn:SetAlpha(0.85)
-                end
-                local function InlineBtnLeave(btnSelf)
-                    if item:IsMouseOver() or delBtn:IsMouseOver() or editBtn:IsMouseOver() then
-                        btnSelf:SetAlpha(0.85)
-                        return
+                    local function Rest()
+                        delBtn:SetAlpha(0.75)
+                        editBtn:SetAlpha(0.75)
+                        iLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                        if item._isSel then iHl:SetAlpha(selA) else iHl:SetAlpha(0) end
                     end
-                    delBtn:SetAlpha(0.75)
-                    editBtn:SetAlpha(0.75)
-                    iLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
-                    if isSel then iHl:SetAlpha(selA) else iHl:SetAlpha(0) end
+                    item._rest = Rest
+                    item._lbl = iLbl
+
+                    local function InlineBtnEnter(btnSelf)
+                        btnSelf:SetAlpha(1)
+                        iLbl:SetTextColor(1, 1, 1, 1)
+                        iHl:SetAlpha(hlA)
+                        delBtn:SetAlpha(0.85)
+                        editBtn:SetAlpha(0.85)
+                    end
+                    local function InlineBtnLeave(btnSelf)
+                        if item:IsMouseOver() or delBtn:IsMouseOver() or editBtn:IsMouseOver() then
+                            btnSelf:SetAlpha(0.85)
+                            return
+                        end
+                        Rest()
+                    end
+
+                    delBtn:SetScript("OnEnter", function(btnSelf)
+                        InlineBtnEnter(btnSelf)
+                        EllesmereUI.ShowWidgetTooltip(btnSelf, EllesmereUI.L("Delete"))
+                    end)
+                    delBtn:SetScript("OnLeave", function(btnSelf)
+                        InlineBtnLeave(btnSelf)
+                        EllesmereUI.HideWidgetTooltip()
+                    end)
+                    editBtn:SetScript("OnEnter", function(btnSelf)
+                        InlineBtnEnter(btnSelf)
+                        EllesmereUI.ShowWidgetTooltip(btnSelf, EllesmereUI.L("Rename"))
+                    end)
+                    editBtn:SetScript("OnLeave", function(btnSelf)
+                        InlineBtnLeave(btnSelf)
+                        EllesmereUI.HideWidgetTooltip()
+                    end)
+                    delBtn:SetScript("OnClick", function()
+                        menu:Hide()
+                        PromptDeleteBar(item._bar)
+                    end)
+                    editBtn:SetScript("OnClick", function()
+                        menu:Hide()
+                        PromptRenameBar(item._bar)
+                    end)
+
+                    item:SetScript("OnEnter", function()
+                        iLbl:SetTextColor(1, 1, 1, 1)
+                        iHl:SetAlpha(hlA)
+                        delBtn:SetAlpha(1)
+                        editBtn:SetAlpha(1)
+                    end)
+                    item:SetScript("OnLeave", function()
+                        if delBtn:IsMouseOver() then return end
+                        if editBtn:IsMouseOver() then return end
+                        Rest()
+                    end)
+                    item:SetScript("OnClick", function()
+                        menu:Hide()
+                        local p = Profile()
+                        if p then p.selectedBarId = item._bar.id end
+                        HardRefresh()
+                    end)
+                    return item
                 end
 
-                delBtn:SetScript("OnEnter", function(btnSelf)
-                    InlineBtnEnter(btnSelf)
-                    EllesmereUI.ShowWidgetTooltip(btnSelf, EllesmereUI.L("Delete"))
-                end)
-                delBtn:SetScript("OnLeave", function(btnSelf)
-                    InlineBtnLeave(btnSelf)
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-                editBtn:SetScript("OnEnter", function(btnSelf)
-                    InlineBtnEnter(btnSelf)
-                    EllesmereUI.ShowWidgetTooltip(btnSelf, EllesmereUI.L("Rename"))
-                end)
-                editBtn:SetScript("OnLeave", function(btnSelf)
-                    InlineBtnLeave(btnSelf)
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-                delBtn:SetScript("OnClick", function()
-                    menu:Hide()
-                    PromptDeleteBar(b)
-                end)
-                editBtn:SetScript("OnClick", function()
-                    menu:Hide()
-                    PromptRenameBar(b)
-                end)
-
-                item:SetScript("OnEnter", function()
-                    iLbl:SetTextColor(1, 1, 1, 1)
-                    iHl:SetAlpha(hlA)
-                    delBtn:SetAlpha(1)
-                    editBtn:SetAlpha(1)
-                end)
-                item:SetScript("OnLeave", function()
-                    if delBtn:IsMouseOver() then return end
-                    if editBtn:IsMouseOver() then return end
-                    iLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
-                    if isSel then iHl:SetAlpha(selA) else iHl:SetAlpha(0) end
-                    delBtn:SetAlpha(0.75)
-                    editBtn:SetAlpha(0.75)
-                end)
-                item:SetScript("OnClick", function()
-                    menu:Hide()
-                    local p = Profile()
-                    if p then p.selectedBarId = b.id end
-                    HardRefresh()
-                end)
-
-                mH = mH + ITEM_H
-            end
-
-            if #bars > 0 then
                 local div = menu:CreateTexture(nil, "ARTWORK")
                 div:SetHeight(1)
                 div:SetColorTexture(1, 1, 1, 0.10)
-                div:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -mH - 4)
-                div:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -mH - 4)
-                mH = mH + 9
+                menu._div = div
+
+                -- "+ Create New DataBar..." action row (expands the card strip)
+                local addItem = CreateFrame("Button", nil, menu)
+                addItem:SetHeight(ITEM_H)
+                addItem:SetFrameLevel(menu:GetFrameLevel() + 2)
+                local addLbl = EllesmereUI.MakeFont(addItem, 11, nil, tDimR, tDimG, tDimB, tDimA)
+                addLbl:SetPoint("LEFT", addItem, "LEFT", 10, 0)
+                addLbl:SetJustifyH("LEFT")
+                addLbl:SetText(L("+ Create New DataBar..."))
+                local addHl = addItem:CreateTexture(nil, "ARTWORK")
+                addHl:SetAllPoints()
+                addHl:SetColorTexture(1, 1, 1, 1)
+                addItem:SetScript("OnEnter", function()
+                    addLbl:SetTextColor(1, 1, 1, 1)
+                    addHl:SetAlpha(hlA)
+                end)
+                addItem:SetScript("OnLeave", function()
+                    addLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                    addHl:SetAlpha(0)
+                end)
+                addItem:SetScript("OnClick", function()
+                    menu:Hide()
+                    _cardsExpanded = true
+                    HeaderOnly()
+                end)
+                addItem._lbl, addItem._hl = addLbl, addHl
+                menu._addItem = addItem
+
+                -- Close on left-click outside (non-blocking)
+                menu._closeOutside = function(m)
+                    if not m:IsMouseOver() and not m._anchor:IsMouseOver() and IsMouseButtonDown("LeftButton") then
+                        m:Hide()
+                    end
+                end
+                menu:HookScript("OnHide", function(m) m:SetScript("OnUpdate", nil) end)
+                _edbMenus.bar = menu
             end
 
-            -- "+ Create New DataBar..." action row (expands the card strip)
-            local addItem = CreateFrame("Button", nil, menu)
-            addItem:SetHeight(ITEM_H)
+            menu._anchor = ddBtn
+            menu:ClearAllPoints()
+            menu:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -2)
+            menu:SetPoint("TOPRIGHT", ddBtn, "BOTTOMRIGHT", 0, -2)
+
+            local mH = 4
+            local bars = ns.BarsInOrder()
+            local rows = menu._rows
+            for idx = 1, #bars do
+                local b = bars[idx]
+                local item = rows[idx]
+                if not item then
+                    item = menu._makeRow()
+                    rows[idx] = item
+                end
+                item._bar = b
+                item._isSel = cfg ~= nil and b.id == cfg.id
+                item:ClearAllPoints()
+                item:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -mH)
+                item:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -mH)
+                local nm = b.name
+                if nm == nil then nm = "" end
+                item._lbl:SetText(nm)
+                item._rest()
+                item:Show()
+                mH = mH + ITEM_H
+            end
+            for idx = #bars + 1, #rows do rows[idx]:Hide() end
+
+            local div = menu._div
+            if #bars > 0 then
+                div:ClearAllPoints()
+                div:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -mH - 4)
+                div:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -mH - 4)
+                div:Show()
+                mH = mH + 9
+            else
+                div:Hide()
+            end
+
+            local addItem = menu._addItem
+            addItem:ClearAllPoints()
             addItem:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -mH)
             addItem:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -mH)
-            addItem:SetFrameLevel(menu:GetFrameLevel() + 2)
-            local addLbl = EllesmereUI.MakeFont(addItem, 11, nil, tDimR, tDimG, tDimB, tDimA)
-            addLbl:SetPoint("LEFT", addItem, "LEFT", 10, 0)
-            addLbl:SetJustifyH("LEFT")
-            addLbl:SetText(L("+ Create New DataBar..."))
-            local addHl = addItem:CreateTexture(nil, "ARTWORK")
-            addHl:SetAllPoints()
-            addHl:SetColorTexture(1, 1, 1, 1)
-            addHl:SetAlpha(0)
-            addItem:SetScript("OnEnter", function()
-                addLbl:SetTextColor(1, 1, 1, 1)
-                addHl:SetAlpha(hlA)
-            end)
-            addItem:SetScript("OnLeave", function()
-                addLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
-                addHl:SetAlpha(0)
-            end)
-            addItem:SetScript("OnClick", function()
-                menu:Hide()
-                _cardsExpanded = true
-                HeaderOnly()
-            end)
+            addItem._lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+            addItem._hl:SetAlpha(0)
             mH = mH + ITEM_H
 
             menu:SetHeight(mH + 4)
-
-            -- Close on left-click outside (non-blocking)
-            menu:SetScript("OnUpdate", function(m)
-                if not m:IsMouseOver() and not ddBtn:IsMouseOver() and IsMouseButtonDown("LeftButton") then
-                    m:Hide()
-                end
-            end)
-            menu:HookScript("OnHide", function(m) m:SetScript("OnUpdate", nil) end)
-
+            menu:SetScript("OnUpdate", menu._closeOutside)
             menu:Show()
-            ddMenu = menu
         end
 
+        -- The value's alpha lives in its text colour alone (built at TXT_A),
+        -- so a hover and a leave land back on the resting look.
         ddBtn:SetScript("OnEnter", function()
-            ddLbl:SetAlpha(1)
+            ddLbl:SetTextColor(1, 1, 1, 1)
             local brdHA = DDS.BRD_HA; if brdHA == nil then brdHA = 0.30 end
             ddBrd:SetColor(1, 1, 1, brdHA)
             ddBg:SetColorTexture(DDS.BG_R, DDS.BG_G, DDS.BG_B, DDS.BG_HA)
         end)
         ddBtn:SetScript("OnLeave", function()
+            local ddMenu = _edbMenus.bar
             if ddMenu and ddMenu:IsShown() then return end
-            ddLbl:SetAlpha(DDS.TXT_A)
+            ddLbl:SetTextColor(1, 1, 1, DDS.TXT_A)
             ddBrd:SetColor(1, 1, 1, DDS.BRD_A)
             ddBg:SetColorTexture(DDS.BG_R, DDS.BG_G, DDS.BG_B, DDS.BG_A)
         end)
         ddBtn:SetScript("OnClick", function()
+            local ddMenu = _edbMenus.bar
             if ddMenu and ddMenu:IsShown() then ddMenu:Hide() else BuildBarMenu() end
         end)
-        ddBtn:HookScript("OnHide", function() if ddMenu then ddMenu:Hide() end end)
+        ddBtn:HookScript("OnHide", function() if _edbMenus.bar then _edbMenus.bar:Hide() end end)
 
         -- "+ New Bar" (toggles the template card strip)
         local newBtn = CreateFrame("Button", nil, hdr)
@@ -947,6 +996,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         _edbStripRelayout = LayoutStrip
+        _edbStripBarId = cfg.id
         LayoutStrip()
 
         -- Divider drag: zero-sum weight transfer between the two neighbors.
@@ -1243,67 +1293,75 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Right-click context menu on a segment: block actions only
-        -- (bar deletion = the selector dropdown's inline delete).
-        local segMenu
+        -- (bar deletion = the selector dropdown's inline delete). Built on its
+        -- first open and kept across header builds (_edbMenus.seg); each open
+        -- points it at that segment's bar and block.
         local function ShowSegmentMenu(anchorBtn, blockId)
-            if segMenu and segMenu:IsShown() then segMenu:Hide() end
-            segMenu = nil
-            local ROW_H2 = 24
-            local menu = CreateFrame("Frame", nil, UIParent)
-            menu:SetFrameStrata("FULLSCREEN_DIALOG")
-            menu:SetFrameLevel(300)
-            menu:SetClampedToScreen(true)
-            menu:SetWidth(150)
-            menu:SetPoint("TOPLEFT", anchorBtn, "BOTTOMLEFT", 0, -2)
-            local bg = menu:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            bg:SetColorTexture(DDS.BG_R, DDS.BG_G, DDS.BG_B, DDS.BG_HA)
-            EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
-            local rowY = -3
-            local function AddRow(text, onClick)
-                local row = CreateFrame("Button", nil, menu)
-                row:SetHeight(ROW_H2)
-                row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, rowY)
-                row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, rowY)
-                local hl = row:CreateTexture(nil, "HIGHLIGHT")
-                hl:SetAllPoints()
-                hl:SetColorTexture(1, 1, 1, 0.08)
-                local lbl = EllesmereUI.MakeFont(row, 11, nil, 1, 1, 1, 0.9)
-                lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
-                lbl:SetText(text)
-                row:SetScript("OnClick", function()
-                    menu:Hide()
-                    segMenu = nil
-                    onClick()
+            local menu = _edbMenus.seg
+            if menu then
+                if menu:IsShown() then menu:Hide() end
+            else
+                local ROW_H2 = 24
+                menu = CreateFrame("Frame", nil, UIParent)
+                menu:SetFrameStrata("FULLSCREEN_DIALOG")
+                menu:SetFrameLevel(300)
+                menu:SetClampedToScreen(true)
+                menu:SetWidth(150)
+                menu:Hide()
+                local bg = menu:CreateTexture(nil, "BACKGROUND")
+                bg:SetAllPoints()
+                bg:SetColorTexture(DDS.BG_R, DDS.BG_G, DDS.BG_B, DDS.BG_HA)
+                EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
+                local rowY = -3
+                local function AddRow(text, onClick)
+                    local row = CreateFrame("Button", nil, menu)
+                    row:SetHeight(ROW_H2)
+                    row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, rowY)
+                    row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, rowY)
+                    local hl = row:CreateTexture(nil, "HIGHLIGHT")
+                    hl:SetAllPoints()
+                    hl:SetColorTexture(1, 1, 1, 0.08)
+                    local lbl = EllesmereUI.MakeFont(row, 11, nil, 1, 1, 1, 0.9)
+                    lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
+                    lbl:SetText(text)
+                    row:SetScript("OnClick", function()
+                        menu:Hide()
+                        onClick()
+                    end)
+                    rowY = rowY - ROW_H2
+                end
+                AddRow(L("Remove Block"), function()
+                    ns.RemoveBlock(menu._barId, menu._blockId)
+                    -- Full refresh: the preview strip lives in the content
+                    -- header, which a plain RefreshPage never rebuilds.
+                    HardRefresh()
+                    -- The page just lost a whole section; a bottom-scrolled view
+                    -- would be left staring at blank space.
+                    if EllesmereUI.SmoothScrollTo then EllesmereUI.SmoothScrollTo(0) end
                 end)
-                rowY = rowY - ROW_H2
+                menu:SetHeight(-rowY + 3)
+                -- Click-away dismiss. The opening right-button is STILL DOWN on
+                -- the first frames (the menu opens on RightButtonDown) -- without
+                -- the guard (menu._openGuard, set per open) the menu dismissed
+                -- itself instantly.
+                menu:SetScript("OnUpdate", function(m)
+                    if m._openGuard then
+                        if not IsMouseButtonDown("RightButton") then m._openGuard = nil end
+                        return
+                    end
+                    if not m:IsMouseOver()
+                       and (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton")) then
+                        m:Hide()
+                    end
+                end)
+                _edbMenus.seg = menu
             end
-            AddRow(L("Remove Block"), function()
-                ns.RemoveBlock(cfg.id, blockId)
-                -- Full refresh: the preview strip lives in the content
-                -- header, which a plain RefreshPage never rebuilds.
-                HardRefresh()
-                -- The page just lost a whole section; a bottom-scrolled view
-                -- would be left staring at blank space.
-                if EllesmereUI.SmoothScrollTo then EllesmereUI.SmoothScrollTo(0) end
-            end)
-            menu:SetHeight(-rowY + 3)
-            -- Click-away dismiss. The opening right-button is STILL DOWN on
-            -- the first frames (the menu opens on RightButtonDown) -- without
-            -- the guard the menu dismissed itself instantly.
+            menu._barId = cfg.id
+            menu._blockId = blockId
+            menu:ClearAllPoints()
+            menu:SetPoint("TOPLEFT", anchorBtn, "BOTTOMLEFT", 0, -2)
             menu._openGuard = true
-            menu:SetScript("OnUpdate", function(m)
-                if m._openGuard then
-                    if not IsMouseButtonDown("RightButton") then m._openGuard = nil end
-                    return
-                end
-                if not m:IsMouseOver()
-                   and (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton")) then
-                    m:Hide()
-                    segMenu = nil
-                end
-            end)
-            segMenu = menu
+            menu:Show()
         end
 
         -- Manual 3px drag threshold (CDM preview pattern -- WoW's native
@@ -1376,92 +1434,112 @@ initFrame:SetScript("OnEvent", function(self)
         local addBrd = PP.CreateBorder(addHlCont, EGc.r, EGc.g, EGc.b, 1, 2, "OVERLAY", 7)
         addBrd:Hide()
 
-        local addMenu
+        -- The add-block menu: built on its first open and kept across header
+        -- builds (_edbMenus.add); each open points it at this header's tile
+        -- and re-applies the on-bar dimming for this bar.
         local function ToggleAddMenu()
-            if addMenu and addMenu:IsShown() then
-                addMenu:Hide()
-                addMenu = nil
+            local menu = _edbMenus.add
+            if menu and menu:IsShown() then
+                menu:Hide()
                 return
             end
-            local menu = CreateFrame("Frame", nil, UIParent)
-            menu:SetFrameStrata("FULLSCREEN_DIALOG")
-            menu:SetFrameLevel(300)
-            menu:SetClampedToScreen(true)
-            menu:SetWidth(190)
-            menu:SetPoint("TOPRIGHT", addBtn, "BOTTOMRIGHT", 0, -2)
-            local bg = menu:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            bg:SetColorTexture(DDS.BG_R, DDS.BG_G, DDS.BG_B, DDS.BG_HA)
-            EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
             local ITEM_H = 24
             local hlA = DDS.ITEM_HL_A
-            local mH = 4
-            for _, t in ipairs(ns.BLOCK_TYPES) do
-                local item = CreateFrame("Button", nil, menu)
-                item:SetHeight(ITEM_H)
-                item:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -mH)
-                item:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -mH)
-                item:SetFrameLevel(menu:GetFrameLevel() + 2)
+            if not menu then
+                menu = CreateFrame("Frame", nil, UIParent)
+                menu:SetFrameStrata("FULLSCREEN_DIALOG")
+                menu:SetFrameLevel(300)
+                menu:SetClampedToScreen(true)
+                menu:SetWidth(190)
+                menu:Hide()
+                local bg = menu:CreateTexture(nil, "BACKGROUND")
+                bg:SetAllPoints()
+                bg:SetColorTexture(DDS.BG_R, DDS.BG_G, DDS.BG_B, DDS.BG_HA)
+                EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
+                menu._rows = {}
+                local mH = 4
+                for _, t in ipairs(ns.BLOCK_TYPES) do
+                    local item = CreateFrame("Button", nil, menu)
+                    item:SetHeight(ITEM_H)
+                    item:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -mH)
+                    item:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -mH)
+                    item:SetFrameLevel(menu:GetFrameLevel() + 2)
+                    local iLbl = EllesmereUI.MakeFont(item, 11, nil, tDimR, tDimG, tDimB, tDimA)
+                    iLbl:SetPoint("LEFT", item, "LEFT", 10, 0)
+                    iLbl:SetJustifyH("LEFT")
+                    iLbl:SetText(L(t.label))
+                    local iHl = item:CreateTexture(nil, "ARTWORK")
+                    iHl:SetAllPoints()
+                    iHl:SetColorTexture(1, 1, 1, 1)
+                    -- item._baseA / item._hoverA: this open's label alphas.
+                    item:SetScript("OnEnter", function()
+                        iLbl:SetTextColor(1, 1, 1, item._hoverA)
+                        iHl:SetAlpha(hlA)
+                    end)
+                    item:SetScript("OnLeave", function()
+                        iLbl:SetTextColor(tDimR, tDimG, tDimB, item._baseA)
+                        iHl:SetAlpha(0)
+                    end)
+                    local typeKey = t.key
+                    item:SetScript("OnClick", function()
+                        menu:Hide()
+                        local nb = ns.AddBlock(menu._barId, typeKey)
+                        HardRefresh()
+                        if nb then
+                            local navKey = "block:" .. nb.id
+                            -- A currency block lands unusable until one is picked,
+                            -- so aim at the picker itself: that target pulses until
+                            -- it is filled in, instead of the one-shot section glow.
+                            if typeKey == "currency" then navKey = navKey .. ":currency" end
+                            -- Same for a broker block: unusable until a plugin is picked.
+                            if typeKey == "ldb" then navKey = navKey .. ":ldb" end
+                            C_Timer.After(0.05, function()
+                                if _edbNavigateFn then _edbNavigateFn(navKey) end
+                            end)
+                        end
+                    end)
+                    item._typeKey, item._lbl, item._hl = typeKey, iLbl, iHl
+                    menu._rows[#menu._rows + 1] = item
+                    mH = mH + ITEM_H
+                end
+                menu:SetHeight(mH + 4)
+                menu._closeOutside = function(m)
+                    if not m:IsMouseOver() and not m._anchor:IsMouseOver() and IsMouseButtonDown("LeftButton") then
+                        m:Hide()
+                    end
+                end
+                menu:HookScript("OnHide", function(m) m:SetScript("OnUpdate", nil) end)
+                _edbMenus.add = menu
+            end
+            local rows = menu._rows
+            for i = 1, #rows do
+                local item = rows[i]
+                local typeKey = item._typeKey
                 -- Types already on this bar render dimmed -- still fully clickable
                 -- (duplicates are legal), just an at-a-glance cue for what the bar is
-                -- missing. The menu rebuilds per open, so this never goes stale.
+                -- missing. Re-applied on every open, so this never goes stale.
                 local onBar = false
                 for bi = 1, #cfg.blocks do
-                    if cfg.blocks[bi].type == t.key then onBar = true break end
+                    if cfg.blocks[bi].type == typeKey then onBar = true break end
                 end
                 -- Spacers are the one type meant to repeat on a bar, so the
                 -- already-on-bar dim cue never applies to them. Broker blocks
                 -- repeat for the same reason: one per plugin is the normal setup,
                 -- so a second one is not the accident the dim cue warns about.
-                if t.key == "spacer" or t.key == "ldb" then onBar = false end
+                if typeKey == "spacer" or typeKey == "ldb" then onBar = false end
                 local baseA = tDimA
                 local hoverA = 1
                 if onBar then baseA = 0.28; hoverA = 0.55 end
-                local iLbl = EllesmereUI.MakeFont(item, 11, nil, tDimR, tDimG, tDimB, baseA)
-                iLbl:SetPoint("LEFT", item, "LEFT", 10, 0)
-                iLbl:SetJustifyH("LEFT")
-                iLbl:SetText(L(t.label))
-                local iHl = item:CreateTexture(nil, "ARTWORK")
-                iHl:SetAllPoints()
-                iHl:SetColorTexture(1, 1, 1, 1)
-                iHl:SetAlpha(0)
-                item:SetScript("OnEnter", function()
-                    iLbl:SetTextColor(1, 1, 1, hoverA)
-                    iHl:SetAlpha(hlA)
-                end)
-                item:SetScript("OnLeave", function()
-                    iLbl:SetTextColor(tDimR, tDimG, tDimB, baseA)
-                    iHl:SetAlpha(0)
-                end)
-                local typeKey = t.key
-                item:SetScript("OnClick", function()
-                    menu:Hide()
-                    local nb = ns.AddBlock(cfg.id, typeKey)
-                    HardRefresh()
-                    if nb then
-                        local navKey = "block:" .. nb.id
-                        -- A currency block lands unusable until one is picked,
-                        -- so aim at the picker itself: that target pulses until
-                        -- it is filled in, instead of the one-shot section glow.
-                        if typeKey == "currency" then navKey = navKey .. ":currency" end
-                        -- Same for a broker block: unusable until a plugin is picked.
-                        if typeKey == "ldb" then navKey = navKey .. ":ldb" end
-                        C_Timer.After(0.05, function()
-                            if _edbNavigateFn then _edbNavigateFn(navKey) end
-                        end)
-                    end
-                end)
-                mH = mH + ITEM_H
+                item._baseA, item._hoverA = baseA, hoverA
+                item._lbl:SetTextColor(tDimR, tDimG, tDimB, baseA)
+                item._hl:SetAlpha(0)
             end
-            menu:SetHeight(mH + 4)
-            menu:SetScript("OnUpdate", function(m)
-                if not m:IsMouseOver() and not addBtn:IsMouseOver() and IsMouseButtonDown("LeftButton") then
-                    m:Hide()
-                end
-            end)
-            menu:HookScript("OnHide", function(m) m:SetScript("OnUpdate", nil) end)
+            menu._barId = cfg.id
+            menu._anchor = addBtn
+            menu:ClearAllPoints()
+            menu:SetPoint("TOPRIGHT", addBtn, "BOTTOMRIGHT", 0, -2)
+            menu:SetScript("OnUpdate", menu._closeOutside)
             menu:Show()
-            addMenu = menu
         end
         addBtn:SetScript("OnClick", ToggleAddMenu)
         addBtn:SetScript("OnEnter", function()
@@ -1474,7 +1552,7 @@ initFrame:SetScript("OnEvent", function(self)
             addBrd:Hide()
             EllesmereUI.HideWidgetTooltip()
         end)
-        addBtn:HookScript("OnHide", function() if addMenu then addMenu:Hide() end end)
+        addBtn:HookScript("OnHide", function() if _edbMenus.add then _edbMenus.add:Hide() end end)
 
         if vertical then
             -- The strip lives in the docked popout; the header only carries
@@ -2902,6 +2980,12 @@ initFrame:SetScript("OnEvent", function(self)
                       setValue = function() end },
                     MkToggle("Abbreviate Amount", "abbreviate",
                         "Shows large amounts using K/M suffixes (284,208g becomes 284.2Kg) instead of the full grouped number. The tooltip always shows the exact amount."),
+                    -- Account-wide switch shared with the Bags options (noCapture: Spec
+                    -- Overrides never capture an account setting).
+                    { type = "toggle", text = "Gold Tracking and History", noCapture = true,
+                      tooltip = "Track and display gold amounts from all your characters on hover.",
+                      getValue = function() return EllesmereUI.GetGoldLedger().IsTracking() end,
+                      setValue = function(v) EllesmereUI.GetGoldLedger().SetTracking(v) end },
                 }
                 -- Force English Units: only where the effective locale actually
                 -- has its own abbreviation algorithm (currently the CJK wan/yi
@@ -3680,6 +3764,22 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
+    --  The live bar measures its auto-sized blocks in its own layout pass,
+    --  which the runtime runs a frame after a change applies, so a strip
+    --  solved in the same frame as the change (a new bar, an added block)
+    --  holds the extents from before that pass. The runtime reports each
+    --  finished pass here, and the strip re-solves while it shows that bar.
+    ---------------------------------------------------------------------------
+    function ns.OnBarLaidOut(barId)
+        local host = _edbPreviewHost
+        if barId ~= _edbStripBarId or not (_edbStripRelayout and host and host:IsVisible()) then return end
+        -- A reorder drag (the strip's only OnUpdate) owns the segment
+        -- positions until it ends.
+        if host:GetScript("OnUpdate") then return end
+        _edbStripRelayout()
+    end
+
+    ---------------------------------------------------------------------------
     --  Module registration
     ---------------------------------------------------------------------------
     EllesmereUI:RegisterModule("EllesmereUIDataBars", {
@@ -3700,10 +3800,17 @@ initFrame:SetScript("OnEvent", function(self)
                 _edbStripRelayout()
             end
         end,
+        -- Reset EUI Module Settings' question names the one bar this reset touches.
+        resetMessage = function()
+            local p = ns.GetProfile()
+            local cfg = p and ((p.selectedBarId and ns.GetBar(p.selectedBarId)) or (p.bars and p.bars[1]))
+            if not (cfg and cfg.name) then return nil end
+            return EllesmereUI.Lf("Are you sure you want to reset the data bar selected on the Data Bars page (%1$s) to its default look? Its blocks are kept. This will reload your UI.", cfg.name)
+        end,
         onReset = function()
             -- Resets the SELECTED bar's appearance/behavior to defaults;
             -- keeps its id, name and blocks. Never wipes the bar list.
-            -- (The framework's footer button confirms and reloads for us.)
+            -- (Reset EUI Module Settings confirms and reloads for us.)
             local p = ns.GetProfile()
             if not p then return end
             local cfg = nil

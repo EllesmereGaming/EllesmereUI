@@ -330,6 +330,50 @@ local function ApplyNPBuffExtra(button, d, style)
     end
 end
 
+-- Pandemic Glow on debuff icons. The glow host is a PANDEMIC REGION of the
+-- engine button: the client shows it only while the aura is in its pandemic
+-- window (12.1.0 checks the window every frame while one exists, 12.1.5 on a
+-- timer), also under restriction, and its shown state is secret -- nothing
+-- here reads it. The glow inside runs C-side only (StartSpecGlow "engine").
+-- Off, the region is cleared, so the button no longer checks the window.
+-- Blizzard's aura code runs in its own environment (no global mixin to
+-- test), so the button's own method is the one capability check.
+local function ApplyNPDebuffExtra(button, d, style)
+    ApplyNPText(button, d, style)
+    local Glows = EllesmereUI.Glows
+    local host = d.npPanHost
+    if style.pandemicGlow and style.pandemicSpec and button.AddPandemicRegion then
+        local sz = style.width or 24
+        if not host then
+            host = CreateFrame("Frame", nil, button)
+            host:SetAllPoints(button)
+            -- Same slot as the buff row's purge glow: above the border, below
+            -- the duration/stack text.
+            if d.stackCarrier then
+                host:SetFrameLevel(d.stackCarrier:GetFrameLevel() - 1)
+            else
+                host:SetFrameLevel(button:GetFrameLevel() + 1)
+            end
+            host:EnableMouse(false)
+            d.npPanHost = host
+            Glows.PrewarmEngineHost(host, sz, style.height or sz, nil)
+        end
+        if not d.npPanRegion then
+            button:AddPandemicRegion(host)
+            d.npPanRegion = true
+        end
+        host:SetAlpha(1)
+        Glows.StartSpecGlow(host, style.pandemicSpec, sz, style.height or sz, "engine")
+    elseif host then
+        if d.npPanRegion then
+            button:ClearPandemicRegions()
+            d.npPanRegion = nil
+        end
+        if host._euiGlowActive then Glows.StopGlow(host) end
+        host:SetAlpha(0)
+    end
+end
+
 -- Custom Border on Aura Icons (auraIconCustomBorder, Border = Custom): true while the
 -- aura icons wear the plate's custom border. The toggle is read first, so off it costs
 -- one field read.
@@ -418,6 +462,11 @@ local function BuildNPStyle(kind, variant)
         style.purgeGlow = glow
         style.purgeSpec = ns.GetDispelGlowSpec and ns.GetDispelGlowSpec(dispelType) or nil
         style.applyExtra = ApplyNPBuffExtra
+    elseif kind == "debuffs" then
+        -- Your debuffs only: the pandemic window is the time a recast keeps.
+        style.pandemicGlow = ns.GetPandemicGlow()
+        style.pandemicSpec = style.pandemicGlow and ns.GetPandemicGlowSpec() or nil
+        style.applyExtra = ApplyNPDebuffExtra
     end
     return style
 end
@@ -774,7 +823,7 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
                     declared[gkey] = true
                     declaredNew = true
                 else
-                    container:SetAuraGroupMaxFrameCount(gkey, cap)
+                    EllesmereUI.AuraKit.SetGroupCap(container, gkey, cap)
                     container:SetAuraGroupCandidateFilters(gkey, NPF_Cand(rec.cand, side))
                 end
             end
@@ -806,7 +855,7 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
                     declared[gkey] = true
                     declaredNew = true
                 else
-                    container:SetAuraGroupMaxFrameCount(gkey, 1)
+                    EllesmereUI.AuraKit.SetGroupCap(container, gkey, 1)
                 end
             end
         end
@@ -837,13 +886,13 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
                 declaredNew = true
             else
                 container:SetAuraGroupCandidateFilters("npsunder", { includeSpellIDs = ids })
-                container:SetAuraGroupMaxFrameCount("npsunder", 1)
+                EllesmereUI.AuraKit.SetGroupCap(container, "npsunder", 1)
             end
         end
     end
     for gkey in pairs(declared) do
         if gkey ~= "npinc" and gkey ~= "npincmine" and not wanted[gkey] then
-            container:SetAuraGroupMaxFrameCount(gkey, 0)
+            EllesmereUI.AuraKit.SetGroupCap(container, gkey, 0)
         end
     end
     local npOn
@@ -855,7 +904,7 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
     -- Blacklist on the np group too (both containers; the debuff cfg pass
     -- also re-drives this -- same values, dirty-mark cheap).
     container:SetAuraGroupCandidateFilters("np", NPF_Cand(nil, side))
-    container:SetAuraGroupMaxFrameCount("np", npOn and cap or 0)
+    EllesmereUI.AuraKit.SetGroupCap(container, "np", npOn and cap or 0)
     -- Include list (Tracked Auras popup): the side's own groups on this
     -- container. They stay ACTIVE in every mode, Show All included -- the
     -- np group's fixed filter string is PLAYER-cast (and !CROWD_CONTROL on
@@ -881,7 +930,7 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
         if incm then
             container:SetAuraGroupCandidateFilters("npinc", { includeSpellIDs = incm })
         end
-        container:SetAuraGroupMaxFrameCount("npinc", incm and cap or 0)
+        EllesmereUI.AuraKit.SetGroupCap(container, "npinc", incm and cap or 0)
     end
     if incmm and not declared.npincmine then
         AK.AddGroupToContainer(container, {
@@ -899,7 +948,7 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
         if incmm then
             container:SetAuraGroupCandidateFilters("npincmine", { includeSpellIDs = incmm })
         end
-        container:SetAuraGroupMaxFrameCount("npincmine", incmm and cap or 0)
+        EllesmereUI.AuraKit.SetGroupCap(container, "npincmine", incmm and cap or 0)
     end
     -- One parse covers every group declared this pass. Only for containers
     -- bound to a live unit (BindContainer's stamp): at pool build the unit
@@ -1071,7 +1120,7 @@ function NPB.Apply(container)
         -- the next SetUnit unless this container is asked to re-parse now.
         if container._npcBoundUnit then container:UpdateAllAuras() end
     elseif container._npbSplit then
-        container:SetAuraGroupMaxFrameCount("np2", split and 4 or 0)
+        EllesmereUI.AuraKit.SetGroupCap(container, "np2", split and 4 or 0)
     end
 end
 
@@ -1630,6 +1679,7 @@ end
 local npFP = {}
 
 local PURGE_FP_SPEC = {}
+local PAN_FP_SPEC = {}
 local function StyleFPFor(kind, idx)
     local size = NPSize(kind)
     local height = NPHeight(kind, size)
@@ -1657,6 +1707,13 @@ local function StyleFPFor(kind, idx)
                 NPB.ccR, NPB.ccG, NPB.ccB = EllesmereUI.Glows.ResolveColor("class")
             end
         end
+    end
+    -- Pandemic Glow (debuffs): every input of BuildNPStyle's pandemic fields,
+    -- a constant "-" while off so a glow edit never restyles default users.
+    if kind == "debuffs" and ns.GetPandemicGlow() then
+        local sp = ns.GetPandemicGlowSpec(PAN_FP_SPEC)
+        purge = FP("pan", sp.style, sp.r, sp.g, sp.b, sp.lines, sp.thickness,
+            sp.speed, sp.bg, sp.bgR, sp.bgG, sp.bgB)
     end
     local durFP = FP(dur.size, dur.x, dur.y, dur.pos, dur.color.r, dur.color.g, dur.color.b)
     local stkFP = FP(stk.size, stk.x, stk.y, stk.pos, stk.color.r, stk.color.g, stk.color.b)
@@ -1860,7 +1917,7 @@ function ns.NPC_ReloadAll()
                     end
                 end
                 if b.containers.buffs.SetAuraGroupMaxFrameCount then
-                    b.containers.buffs:SetAuraGroupMaxFrameCount("npnb", buffFilterPlain and 4 or 0)
+                    EllesmereUI.AuraKit.SetGroupCap(b.containers.buffs, "npnb", buffFilterPlain and 4 or 0)
                 end
             end
             -- NPF record groups + np counts: declares run on the queued,

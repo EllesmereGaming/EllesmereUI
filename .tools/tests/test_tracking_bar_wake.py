@@ -18,6 +18,7 @@ class TrackingBarWakeTests(unittest.TestCase):
             ns = { bars = { { enabled = true, spellID = 12345 } } }
             ECME = { db = {} }
             EllesmereUI = {}
+            function EllesmereUI.RegisterVisibilityUpdater(updater) ns.visibilityUpdater = updater end
             C_UnitAuras = { GetPlayerAuraBySpellID = function() return nil end }
             C_Spell = { GetSpellName = function() return "Tracked Buff" end }
             function UnitExists() return false end
@@ -75,7 +76,7 @@ class TrackingBarWakeTests(unittest.TestCase):
         """)
 
         source = (ROOT / "EllesmereUICdmBuffBars.lua").read_text()
-        start = source.index("local tbbFrames  = {}")
+        start = source.index("local tbbFrames")
         end = source.index("function ns.GetTBBFrame", start)
         self.lua.execute(source[start:end] + """
             tbbTickFrame = ns.tick
@@ -85,8 +86,8 @@ class TrackingBarWakeTests(unittest.TestCase):
         """)
 
         source = (ROOT / "EUI_CDM_HookViewers.lua").read_text()
-        start = source.index('    local _activeStateHooked = setmetatable(')
-        end = source.index('            -- Intercept newly acquired frames', start)
+        start = source.index("local _activeStateHooked")
+        end = source.index("if v.OnAcquireItemFrame then", start)
         self.lua.execute("""
             local function ReapplyPositions() end
             local function QueueReanchor() end
@@ -108,6 +109,13 @@ class TrackingBarWakeTests(unittest.TestCase):
         self.assertTrue(self.ns.tick.shown, "a late viewer activation must wake Tracking Bars")
         self.assertTrue(self.ns.sleeper.events.UNIT_AURA)
         self.assertIsNone(self.ns.sleeper.events.UNIT_SPELLCAST_SUCCEEDED)
+
+    def test_deactivating_viewer_item_does_not_wake_parked_tick(self):
+        self.activate_bar()
+        self.lua.execute("ns.sleeper.Sleep(); ns.barItem.active = false; ns.barItem:OnActiveStateChanged()")
+        self.assertFalse(self.ns.tick.shown, "a deactivation has nothing to show")
+        self.assertEqual(self.ns.tick.shows, 1)
+        self.assertTrue(self.ns.sleeper.events.UNIT_SPELLCAST_SUCCEEDED, "the sleeper must stay parked")
 
     def test_reused_viewer_item_wakes_tick_without_another_aura_event(self):
         self.activate_bar()
@@ -140,6 +148,31 @@ class TrackingBarWakeTests(unittest.TestCase):
         self.assertFalse(self.ns.tick.shown)
         self.assertEqual(self.ns.sleeper.unregistrations, before)
         self.assertIsNone(self.ns.sleeper.events.UNIT_AURA)
+
+    def test_disabled_tracking_bars_read_neither_item_nor_tick(self):
+        self.lua.execute("""
+            ns.sleeper._enabled = false; ns.sleeper:UnregisterAllEvents()
+            ns.reads = 0
+            function ns.barItem:IsActive() ns.reads = ns.reads + 1; return self.active end
+            function ns.tick:IsShown() ns.reads = ns.reads + 1; return self.shown end
+        """)
+        self.activate_bar()
+        self.assertEqual(self.ns.reads, 0, "Tracking Bars off must read neither the item nor the tick")
+
+    def test_direct_wake_registers_nothing_while_tracking_bars_are_disabled(self):
+        self.lua.execute("ns.sleeper._enabled = false; ns.sleeper:UnregisterAllEvents()")
+        before = self.ns.sleeper.unregistrations
+        self.lua.execute("ns.WakeTBBTick()")
+        self.assertFalse(self.ns.tick.shown)
+        self.assertEqual(self.ns.sleeper.unregistrations, before)
+        self.assertIsNone(self.ns.sleeper.events.UNIT_AURA)
+        self.assertIsNone(self.ns.sleeper.events.PLAYER_TARGET_CHANGED)
+
+    def test_visibility_edge_wakes_parked_tick_without_an_item(self):
+        self.lua.execute("ns.visibilityUpdater()")
+        self.assertFalse(self.ns.tick.shown, "no bar uses a Visibility condition")
+        self.lua.execute("_anyVisCond = true; ns.visibilityUpdater()")
+        self.assertTrue(self.ns.tick.shown, "a Visibility edge passes no item and still wakes")
 
     def test_awake_tick_is_not_reset_by_viewer_changes(self):
         self.lua.execute("ns.sleeper.Wake(); ns.sleeper._idleTicks = 17")

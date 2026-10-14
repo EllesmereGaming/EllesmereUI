@@ -12,7 +12,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
     local env = ns._ERB_OptEnv
     local DB, PP, Refresh, SmoothRefresh = env.DB, env.PP, env.Refresh, env.SmoothRefresh
     local RefreshPower, RebuildPower, AddFormBarBtn, AddFormTextBtn = env.RefreshPower, env.RebuildPower, env.AddFormBarBtn, env.AddFormTextBtn
-    local AttachThresholdNotice, BuildHashCog, BuildThresholdSettingsButton = env.AttachThresholdNotice, env.BuildHashCog, env.BuildThresholdSettingsButton
+    local BuildHashCog, BuildThresholdSettingsButton = env.BuildHashCog, env.BuildThresholdSettingsButton
     local W = EllesmereUI.Widgets
     local _, h
     local function cfg() return ctx.cfg() end
@@ -469,7 +469,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                   local c = cfg()
                   if not c or not c.enabled then return powerDisTip end
                   local tse = _G._ERB_ResolveThresholdSpecEntry and _G._ERB_ResolveThresholdSpecEntry(c)
-                  if tse and (tse.thresholdEnabled ~= false) then return "This option requires Threshold Settings to be disabled" end
+                  if tse and (tse.thresholdEnabled ~= false) then return "This option requires the threshold to be off in Threshold & Hash Lines" end
                   if SpendersFlatten(c, tse) then return "This option requires Spender Colors to be disabled" end
                   return "Gradient"
               end,
@@ -738,26 +738,34 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
         AddFormTextBtn(rgn, cogBtn, cfg, RefreshPower)
     end
     if not EllesmereUI._prebuilding then
-    local _thrNoticeP   -- assigned below: the notice badge lives on the button itself
     local powerSettingsBtn = BuildThresholdSettingsButton({
         parentRgn = powerColorRow._rightRegion,
         getBarData = function() return cfg() end,
-        noticeFn = function() if _thrNoticeP then _thrNoticeP() end end,
-        singleSpec = ctx.advanced or nil,
-        specID = ctx.specID,
         pageParent = parent, pageTopY = _advTop, pageBotY = function() return y end,
         refreshFn = function() RefreshPower(); SmoothRefresh() end,
         rebuildFn = function() RebuildPower() end,
         disabledFn = powerOff,
         disabledTip = "Power Bar",
-        showPartialCog = true,
+        roleShortcuts = true,
+        partialDefault = true,
+        thresholdCog = { title = "Threshold Coloring", minWidth = 280, rows = function(cur)
+            return {
+                { type = "toggle", label = "Threshold color below value",
+                  rawTooltip = true,
+                  disabled = function() local ent = cur(); return (ent and ent.multiBandEnabled) and true or false end,
+                  disabledTooltip = "Single-threshold options don't apply while Multi-band coloring is on.",
+                  get = function() local ent = cur(); return ent and ent.thresholdPartialOnly end,
+                  set = function(v) local ent = cur(); if ent then ent.thresholdPartialOnly = v; RefreshPower(); SmoothRefresh() end end },
+            }
+        end },
         showSpenders = true,
+        spenderTip = "Choose the spells and their colors.",
+        spenderToggleTip = "Colors the bar while a chosen spell is ready.",
+        textInsteadTip = "Also applies to Spender Colors.",
         thresholdLabel = "Threshold %",
         threshMin = 1, threshMax = 99,
         defaultR = 1.0, defaultG = 0.2, defaultB = 0.2, defaultA = 1,
-        formCapable = true,
     })
-    _thrNoticeP = AttachThresholdNotice(powerSettingsBtn, cfg, ctx.advanced and ctx.specID or nil)
 
     -- Bar-wide hash lines (the fallback when the active threshold entry has none of its own).
     BuildHashCog({

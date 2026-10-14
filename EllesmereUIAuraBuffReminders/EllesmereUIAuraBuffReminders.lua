@@ -21,6 +21,10 @@ local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 EABR.FOREVER = EllesmereUI.IS_FOREVER == true
 EABR.CAMP_BENEFITS = 1229741
 EABR.WELL_FED = 19705
+-- Food buffs not named Well Fed (Grilled Squid, Nightfin Soup, Runn Tum Tuber Surprise,
+-- Dirge's Chops, Blessed Sunfruit and its juice): counted by ID, since their names are
+-- shared with other buffs (Mana Regeneration is also Mageblood Potion's).
+EABR.FOOD_BUFFS = { 18192, 18194, 22730, 25661, 18125, 18141 }
 
 local _B = {}  -- beacon state table, populated later
 local Known = function(id) return id and (IsPlayerSpell(id) or IsSpellKnown(id)) end
@@ -1136,7 +1140,7 @@ local function GetWeaponCategory(slotID)
     if C_Item and C_Item.GetItemInfoInstant then
         _, _, _, equipLoc, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
     else
-        _, _, _, equipLoc, _, classID, subClassID = GetItemInfoInstant(itemID)
+        _, _, _, equipLoc, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
     end
     if not classID or classID ~= ((Enum and Enum.ItemClass and Enum.ItemClass.Weapon) or 2) then return nil end
     if equipLoc == "INVTYPE_SHIELD" or equipLoc == "INVTYPE_HOLDABLE" then return nil end
@@ -1156,7 +1160,7 @@ function EABR.HasShieldEquipped()
     if C_Item and C_Item.GetItemInfoInstant then
         _, _, _, equipLoc = C_Item.GetItemInfoInstant(itemID)
     else
-        _, _, _, equipLoc = GetItemInfoInstant(itemID)
+        _, _, _, equipLoc = C_Item.GetItemInfoInstant(itemID)
     end
     return equipLoc == "INVTYPE_SHIELD"
 end
@@ -1509,7 +1513,7 @@ local SHAMAN_SHIELDS = {
     { key="ls_ws_orbit", name="Lightning/Water Shield",
       castSpellFn=ShamanShieldCastSpell, buffIDs={192106, 52127}, requireTalent=383010,
       check="player" },
-    { key="shield_basic", name="Shield",
+    { key="shield_basic", name="Shield (No Orbit)",
       castSpellFn=ShamanShieldCastSpell, buffIDs={974, 192106, 52127}, excludeTalent=383010,
       check="player" },
 }
@@ -3337,7 +3341,7 @@ local function SetIconItem(btn, itemID, texture, label)
         btn:SetAttribute("macrotext1", nil)
         btn:SetAttribute("unit1", nil)
     end
-    btn._icon:SetTexture(texture or GetItemIcon(itemID) or 134400)
+    btn._icon:SetTexture(texture or C_Item.GetItemIconByID(itemID) or 134400)
     btn._tooltipSpell = nil
     btn._tooltipItem = itemID
 end
@@ -3804,7 +3808,7 @@ function EABR.EmitWeaponEnchantReminders(missing, co)
             local e = AcquireEntry()
             e.mode = "macro"
             e.macro = "/use item:" .. bestItemID .. "\n/use " .. slot
-            e.texture = GetItemIcon(bestItemID) or 134400
+            e.texture = C_Item.GetItemIconByID(bestItemID) or 134400
             -- Localizes the full slot name THEN shortens: ShortLabel truncates on whitespace (English -> Main/Off, space-less locales like zhTW stay intact). L() on the pre-truncated word would collide with the generic Off (disabled) translation.
             e.label = ShortLabel(EllesmereUI.L(slot == 16 and "Main Hand" or "Off Hand"))
             e.tooltipItem = bestItemID
@@ -3979,7 +3983,7 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
                 if runeItem and (co.showWithoutItem ~= false or rr.hasBags) then
                     local e = AcquireEntry()
                     e.mode = "item"; e.itemID = runeItem
-                    e.texture = GetItemIcon(runeItem); e.label = EllesmereUI.L(ShortLabel("Augment Rune"))
+                    e.texture = C_Item.GetItemIconByID(runeItem); e.label = EllesmereUI.L(ShortLabel("Augment Rune"))
                     e.qualityAtlas = EABR.GetItemQualityAtlas(runeItem)
                     e.bagCount = CachedGetItemCount(runeItem)
                     e.desaturated = not rr.hasBags
@@ -4013,7 +4017,7 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
                 if flaskItemID and (co.showWithoutItem ~= false or rf.hasBags) then
                     local e = AcquireEntry()
                     e.mode = "item"; e.itemID = flaskItemID
-                    e.texture = GetItemIcon(flaskItemID) or 134830
+                    e.texture = C_Item.GetItemIconByID(flaskItemID) or 134830
                     e.label = EllesmereUI.L("Flask")
                     e.qualityAtlas = EABR.GetItemQualityAtlas(flaskItemID)
                     e.bagCount = CachedGetItemCount(flaskItemID)
@@ -4031,7 +4035,7 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
                 if foodItemID and (co.showWithoutItem ~= false or EABR._resolved.food.hasBags) then
                     local e = AcquireEntry()
                     e.mode = "item"; e.itemID = foodItemID
-                    e.texture = GetItemIcon(foodItemID) or 134062
+                    e.texture = C_Item.GetItemIconByID(foodItemID) or 134062
                     e.label = EllesmereUI.L("Food")
                     e.qualityAtlas = EABR.GetItemQualityAtlas(foodItemID)
                     e.bagCount = CachedGetItemCount(foodItemID)
@@ -4065,7 +4069,7 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
                     if not PlayerHasInkyBlackness() and hasPotion then
                         local e = AcquireEntry()
                         e.mode = "item"; e.itemID = INKY_BLACK_ITEM
-                        e.texture = GetItemIcon(INKY_BLACK_ITEM)
+                        e.texture = C_Item.GetItemIconByID(INKY_BLACK_ITEM)
                         e.label = EllesmereUI.L(ShortLabel("Inky Black Potion"))
                         e.qualityAtlas = EABR.GetItemQualityAtlas(INKY_BLACK_ITEM)
                         e.bagCount = CachedGetItemCount(INKY_BLACK_ITEM)
@@ -4288,14 +4292,15 @@ function EABR.BuildForeverFamilies()
     end
 end
 
--- WoW Forever collector: the Camp Benefits campfire buff and the user's custom
--- spell IDs, absence only (no expiry thresholds). A custom ID counts as up
--- while any spell of its rank family is (EABR.ForeverFamily). Entries are
+-- WoW Forever collector: the Camp Benefits campfire buff, Well Fed (any food
+-- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS) and the user's
+-- custom spell IDs, absence only (no expiry thresholds). A custom ID counts as
+-- up while any spell of its rank family is (EABR.ForeverFamily). Entries are
 -- display-only textures carrying the spell for the tooltip; presence goes
 -- through PlayerHasAuraByID, so combat falls back to the pre-pull snapshot
--- exactly like the Auras section. Camp Benefits is skipped under the aura lock
--- and in PvP. The one-slot id table, the cached families and the dismiss-key
--- memo keep the pass allocation-free.
+-- exactly like the Auras section. Camp Benefits and Well Fed are skipped under
+-- the aura lock and in PvP. The one-slot id table, the cached families and the
+-- dismiss-key memo keep the pass allocation-free.
 function EABR.CollectForever(missing, inInstance, inPvP, restricted)
     local fo = db.profile.forever
     if not fo or not EABR.SectionShows(fo.whereToShow, inInstance) then return end
@@ -4315,7 +4320,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
     if fo.wellFed and not inPvP and not restricted then
         local name = SpellName(EABR.WELL_FED) or "Well Fed"
         local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
-        if ok and not isSecret(aura) and not aura then
+        if ok and not isSecret(aura) and not aura and not PlayerHasAuraByID(EABR.FOOD_BUFFS) then
             local e = AcquireEntry()
             e.mode = "texture"; e.spellID = EABR.WELL_FED
             e.texture = Tex(EABR.WELL_FED)

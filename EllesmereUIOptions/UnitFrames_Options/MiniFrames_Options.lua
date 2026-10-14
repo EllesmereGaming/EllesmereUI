@@ -481,9 +481,8 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
         end
     end
 
-    -- Smooth Health Bars + Reverse Fill. For the mini frames (ToT / Focus
-    -- Target / Pet) Smooth Health Bars is relocated to the Center Text row
-    -- (slot 2) below, leaving only Reverse Fill on this row. Boss keeps both.
+    -- Mini frames pair Smooth Health Bars with Vertical Fill below;
+    -- boss frames keep it beside Reverse Fill.
     local smoothBarsWidget = { type="toggle", text="Smooth Health Bars",
           getValue=function() return MVal("smoothBars", false) end,
           setValue=function(v) MSet("smoothBars", v) end }
@@ -555,511 +554,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
           tooltip="Fill the health bar bottom-to-top instead of left-to-right. Reverse Fill flips it to top-to-bottom.",
           getValue=function() return settingsTable.healthVerticalFill end,
           setValue=function(v) settingsTable.healthVerticalFill = v; ReloadAndUpdate() end }),
-        { type="spacer" });  y = y - h
-
-    -- Row 3: Left Text + Right Text (with inline swatches + cogs)
-    local textRow
-    textRow, h = W:DualRow(parent, y,
-        { type="dropdown", text="Left Text", values=healthTextValues, order=(unitKey == "boss") and healthTextOrderBoss or healthTextOrder,
-          getValue=function() return MVal("leftTextContent", "name") end,
-          setValue=function(v)
-            settingsTable.leftTextContent = v
-            if v ~= "none" then
-                if settingsTable.rightTextContent == v then settingsTable.rightTextContent = "none" end
-                if settingsTable.centerTextContent == v then settingsTable.centerTextContent = "none" end
-            end
-            ReloadAndUpdate(); EllesmereUI:RefreshPage()
-          end,
-        },
-        { type="dropdown", text="Right Text", values=healthTextValues, order=(unitKey == "boss") and healthTextOrderBoss or healthTextOrder,
-          getValue=function() return MVal("rightTextContent", "none") end,
-          setValue=function(v)
-            settingsTable.rightTextContent = v
-            if v ~= "none" then
-                if settingsTable.leftTextContent == v then settingsTable.leftTextContent = "none" end
-                if settingsTable.centerTextContent == v then settingsTable.centerTextContent = "none" end
-            end
-            ReloadAndUpdate(); EllesmereUI:RefreshPage()
-          end,
-        });  y = y - h
-    -- Inline color swatches + cog on Left Text: Custom + Class (CDM Border Size pattern)
-    if not EllesmereUI._prebuilding then
-        local rgn = textRow._leftRegion
-        local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
-            rgn, rgn:GetFrameLevel() + 5,
-            function()
-                local _, classFile = UnitClass("player")
-                local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
-                if cc then return cc.r, cc.g, cc.b end
-                return 1, 1, 1
-            end,
-            function() end, nil, 20)
-        PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        classSw:SetScript("OnClick", function()
-            if MVal("leftTextContent", "name") == "none" then return end
-            MSet("leftTextClassColor", true); EllesmereUI:RefreshPage()
-        end)
-        classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
-        classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local swGet = function()
-            return MVal("leftTextColorR", 1), MVal("leftTextColorG", 1), MVal("leftTextColorB", 1)
-        end
-        local swSet = function(r, g, b)
-            settingsTable.leftTextColorR = r; settingsTable.leftTextColorG = g; settingsTable.leftTextColorB = b
-            ReloadAndUpdate()
-        end
-        local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
-        PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
-        rgn._lastInline = sw
-        local origClick = sw:GetScript("OnClick")
-        sw:SetScript("OnClick", function(self, ...)
-            if MVal("leftTextContent", "name") == "none" then return end
-            if MVal("leftTextClassColor", false) then
-                MSet("leftTextClassColor", false); EllesmereUI:RefreshPage(); return
-            end
-            if origClick then origClick(self, ...) end
-        end)
-        sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
-        sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local function UpdSwatches()
-            local isNone = MVal("leftTextContent", "name") == "none"
-            local isClass = MVal("leftTextClassColor", false)
-            sw:SetAlpha((isClass or isNone) and 0.3 or 1)
-            classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
-        end
-        RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
-        UpdSwatches()
-
-        EllesmereUI.BuildInlineCog(rgn, {
-            disabled = function() return MVal("leftTextContent", "name") == "none" end,
-            disabledTooltip = "This option requires a text selection other than none.",
-            title = "Left Text Settings",
-            rows = ns.UF_NameFormatRows("leftText", "name", MVal, MSet, {
-                { type="slider", label="Size", min=8, max=100, step=1,
-                  get=function() return MVal("leftTextSize", settingsTable.textSize or 12) end,
-                  set=function(v) MSet("leftTextSize", v) end },
-                { type="slider", label="X Offset", min=-50, max=50, step=1,
-                  get=function() return MVal("leftTextX", 0) end,
-                  set=function(v) MSet("leftTextX", v) end },
-                { type="slider", label="Y Offset", min=-30, max=30, step=1,
-                  get=function() return MVal("leftTextY", 0) end,
-                  set=function(v) MSet("leftTextY", v) end },
-                { type="slider", label="Width %", min=20, max=200, step=5,
-                  get=function() return MVal("leftTextWidthPct", 100) end,
-                  set=function(v) MSet("leftTextWidthPct", v) end },
-                { type="multiswatch", label="Indicator Color",
-                  disabled=function() local c = MVal("leftTextContent","name") return c ~= "nametotarget" and c ~= "targetname" end,
-                  disabledTooltip="This option only applies when Name > Target or Target is selected.",
-                  swatches = {
-                    { tooltip = "Custom Colored", hasAlpha = false,
-                      getValue = function() local c = MVal("leftTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
-                      setValue = function(r, g, b) MSet("leftTextTargetSepColor", { r=r, g=g, b=b }) end,
-                      onClick = function(self)
-                          if MVal("leftTextTargetSepClassColor", false) then
-                              MSet("leftTextTargetSepClassColor", false)
-                              return
-                          end
-                          if self._eabOrigClick then self._eabOrigClick(self) end
-                      end,
-                      refreshAlpha = function() return MVal("leftTextTargetSepClassColor", false) and 0.3 or 1 end },
-                    { tooltip = "Class Colored", hasAlpha = false,
-                      getValue = function()
-                          local _, ct = UnitClass("player")
-                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
-                          if cc then return cc.r, cc.g, cc.b end
-                          return 1, 1, 1
-                      end,
-                      setValue = function() end,
-                      onClick = function() MSet("leftTextTargetSepClassColor", true) end,
-                      refreshAlpha = function() return MVal("leftTextTargetSepClassColor", false) and 1 or 0.3 end },
-                  } },
-                { type="input", label="Separator", inputWidth=60,
-                  get=function() return MVal("leftTextTargetSep", ">") end,
-                  set=function(v)
-                      v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                      if v == "" then v = ">" end
-                      MSet("leftTextTargetSep", v)
-                  end,
-                  disabled=function() return MVal("leftTextContent","name") ~= "nametotarget" end,
-                  disabledTooltip="This option only applies when Name > Target is selected." },
-                { type="input", label="Prefix", inputWidth=60,
-                  tooltip="Text shown before the target's name.",
-                  get=function() return MVal("leftTextTargetPrefix", "T:") end,
-                  set=function(v)
-                      -- Unlike Separator, empty is kept: no prefix.
-                      v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                      MSet("leftTextTargetPrefix", v)
-                  end,
-                  disabled=function() return MVal("leftTextContent","name") ~= "targetname" end,
-                  disabledTooltip="This option only applies when Target is selected." },
-                                }),
-        })
-    end
-    -- Inline color swatches + cog on Right Text: Custom + Class (CDM Border Size pattern)
-    if not EllesmereUI._prebuilding then
-        local rgn = textRow._rightRegion
-        local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
-            rgn, rgn:GetFrameLevel() + 5,
-            function()
-                local _, classFile = UnitClass("player")
-                local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
-                if cc then return cc.r, cc.g, cc.b end
-                return 1, 1, 1
-            end,
-            function() end, nil, 20)
-        PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        classSw:SetScript("OnClick", function()
-            if MVal("rightTextContent", "none") == "none" then return end
-            MSet("rightTextClassColor", true); EllesmereUI:RefreshPage()
-        end)
-        classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
-        classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local swGet = function()
-            return MVal("rightTextColorR", 1), MVal("rightTextColorG", 1), MVal("rightTextColorB", 1)
-        end
-        local swSet = function(r, g, b)
-            settingsTable.rightTextColorR = r; settingsTable.rightTextColorG = g; settingsTable.rightTextColorB = b
-            ReloadAndUpdate()
-        end
-        local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
-        PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
-        rgn._lastInline = sw
-        local origClick = sw:GetScript("OnClick")
-        sw:SetScript("OnClick", function(self, ...)
-            if MVal("rightTextContent", "none") == "none" then return end
-            if MVal("rightTextClassColor", false) then
-                MSet("rightTextClassColor", false); EllesmereUI:RefreshPage(); return
-            end
-            if origClick then origClick(self, ...) end
-        end)
-        sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
-        sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local function UpdSwatches()
-            local isNone = MVal("rightTextContent", "none") == "none"
-            local isClass = MVal("rightTextClassColor", false)
-            sw:SetAlpha((isClass or isNone) and 0.3 or 1)
-            classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
-        end
-        RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
-        UpdSwatches()
-
-        EllesmereUI.BuildInlineCog(rgn, {
-            disabled = function() return MVal("rightTextContent", "none") == "none" end,
-            disabledTooltip = "This option requires a text selection other than none.",
-            title = "Right Text Settings",
-            rows = ns.UF_NameFormatRows("rightText", "none", MVal, MSet, {
-                { type="slider", label="Size", min=8, max=100, step=1,
-                  get=function() return MVal("rightTextSize", settingsTable.textSize or 12) end,
-                  set=function(v) MSet("rightTextSize", v) end },
-                { type="slider", label="X Offset", min=-50, max=50, step=1,
-                  get=function() return MVal("rightTextX", 0) end,
-                  set=function(v) MSet("rightTextX", v) end },
-                { type="slider", label="Y Offset", min=-30, max=30, step=1,
-                  get=function() return MVal("rightTextY", 0) end,
-                  set=function(v) MSet("rightTextY", v) end },
-                { type="slider", label="Width %", min=20, max=200, step=5,
-                  get=function() return MVal("rightTextWidthPct", 100) end,
-                  set=function(v) MSet("rightTextWidthPct", v) end },
-                { type="multiswatch", label="Indicator Color",
-                  disabled=function() local c = MVal("rightTextContent","none") return c ~= "nametotarget" and c ~= "targetname" end,
-                  disabledTooltip="This option only applies when Name > Target or Target is selected.",
-                  swatches = {
-                    { tooltip = "Custom Colored", hasAlpha = false,
-                      getValue = function() local c = MVal("rightTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
-                      setValue = function(r, g, b) MSet("rightTextTargetSepColor", { r=r, g=g, b=b }) end,
-                      onClick = function(self)
-                          if MVal("rightTextTargetSepClassColor", false) then
-                              MSet("rightTextTargetSepClassColor", false)
-                              return
-                          end
-                          if self._eabOrigClick then self._eabOrigClick(self) end
-                      end,
-                      refreshAlpha = function() return MVal("rightTextTargetSepClassColor", false) and 0.3 or 1 end },
-                    { tooltip = "Class Colored", hasAlpha = false,
-                      getValue = function()
-                          local _, ct = UnitClass("player")
-                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
-                          if cc then return cc.r, cc.g, cc.b end
-                          return 1, 1, 1
-                      end,
-                      setValue = function() end,
-                      onClick = function() MSet("rightTextTargetSepClassColor", true) end,
-                      refreshAlpha = function() return MVal("rightTextTargetSepClassColor", false) and 1 or 0.3 end },
-                  } },
-                { type="input", label="Separator", inputWidth=60,
-                  get=function() return MVal("rightTextTargetSep", ">") end,
-                  set=function(v)
-                      v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                      if v == "" then v = ">" end
-                      MSet("rightTextTargetSep", v)
-                  end,
-                  disabled=function() return MVal("rightTextContent","none") ~= "nametotarget" end,
-                  disabledTooltip="This option only applies when Name > Target is selected." },
-                { type="input", label="Prefix", inputWidth=60,
-                  tooltip="Text shown before the target's name.",
-                  get=function() return MVal("rightTextTargetPrefix", "T:") end,
-                  set=function(v)
-                      -- Unlike Separator, empty is kept: no prefix.
-                      v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                      MSet("rightTextTargetPrefix", v)
-                  end,
-                  disabled=function() return MVal("rightTextContent","none") ~= "targetname" end,
-                  disabledTooltip="This option only applies when Target is selected." },
-                                }),
-        })
-    end
-
-    -- Row 4: Center Text (with inline swatch + cog). Slot 2 holds Smooth Health
-    -- Bars for the mini frames (ToT / Focus Target / Pet); boss gets the
-    -- Extra Text zone there instead (4th text zone, same as Main Frames).
-    local centerRow
-    centerRow, h = W:DualRow(parent, y,
-        { type="dropdown", text="Center Text", values=healthTextValues, order=(unitKey == "boss") and healthTextOrderBoss or healthTextOrder,
-          getValue=function() return MVal("centerTextContent", "none") end,
-          setValue=function(v)
-            settingsTable.centerTextContent = v
-            ReloadAndUpdate(); EllesmereUI:RefreshPage()
-          end },
-        (unitKey ~= "boss") and smoothBarsWidget
-        or { type="dropdown", text="Extra Text (full length)", values=healthTextValues, order=healthTextOrderBoss,
-          getValue=function() return MVal("extraTextContent", "none") end,
-          setValue=function(v)
-            settingsTable.extraTextContent = v
-            ReloadAndUpdate(); EllesmereUI:RefreshPage()
-          end });  y = y - h
-    -- Inline color swatches + cog on Center Text: Custom + Class (CDM Border Size pattern)
-    if not EllesmereUI._prebuilding then
-        local rgn = centerRow._leftRegion
-        local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
-            rgn, rgn:GetFrameLevel() + 5,
-            function()
-                local _, classFile = UnitClass("player")
-                local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
-                if cc then return cc.r, cc.g, cc.b end
-                return 1, 1, 1
-            end,
-            function() end, nil, 20)
-        PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        classSw:SetScript("OnClick", function()
-            if MVal("centerTextContent", "none") == "none" then return end
-            MSet("centerTextClassColor", true); EllesmereUI:RefreshPage()
-        end)
-        classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
-        classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local swGet = function()
-            return MVal("centerTextColorR", 1), MVal("centerTextColorG", 1), MVal("centerTextColorB", 1)
-        end
-        local swSet = function(r, g, b)
-            settingsTable.centerTextColorR = r; settingsTable.centerTextColorG = g; settingsTable.centerTextColorB = b
-            ReloadAndUpdate()
-        end
-        local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
-        PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
-        rgn._lastInline = sw
-        local origClick = sw:GetScript("OnClick")
-        sw:SetScript("OnClick", function(self, ...)
-            if MVal("centerTextContent", "none") == "none" then return end
-            if MVal("centerTextClassColor", false) then
-                MSet("centerTextClassColor", false); EllesmereUI:RefreshPage(); return
-            end
-            if origClick then origClick(self, ...) end
-        end)
-        sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
-        sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local function UpdSwatches()
-            local isNone = MVal("centerTextContent", "none") == "none"
-            local isClass = MVal("centerTextClassColor", false)
-            sw:SetAlpha((isClass or isNone) and 0.3 or 1)
-            classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
-        end
-        RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
-        UpdSwatches()
-
-        EllesmereUI.BuildInlineCog(rgn, {
-            disabled = function() return MVal("centerTextContent", "none") == "none" end,
-            disabledTooltip = "This option requires a text selection other than none.",
-            title = "Center Text Settings",
-            rows = ns.UF_NameFormatRows("centerText", "none", MVal, MSet, {
-                { type="slider", label="Size", min=8, max=100, step=1,
-                  get=function() return MVal("centerTextSize", settingsTable.textSize or 12) end,
-                  set=function(v) MSet("centerTextSize", v) end },
-                { type="slider", label="X Offset", min=-50, max=50, step=1,
-                  get=function() return MVal("centerTextX", 0) end,
-                  set=function(v) MSet("centerTextX", v) end },
-                { type="slider", label="Y Offset", min=-30, max=30, step=1,
-                  get=function() return MVal("centerTextY", 0) end,
-                  set=function(v) MSet("centerTextY", v) end },
-                { type="slider", label="Width %", min=20, max=200, step=5,
-                  get=function() return MVal("centerTextWidthPct", 100) end,
-                  set=function(v) MSet("centerTextWidthPct", v) end },
-                { type="multiswatch", label="Indicator Color",
-                  disabled=function() local c = MVal("centerTextContent","none") return c ~= "nametotarget" and c ~= "targetname" end,
-                  disabledTooltip="This option only applies when Name > Target or Target is selected.",
-                  swatches = {
-                    { tooltip = "Custom Colored", hasAlpha = false,
-                      getValue = function() local c = MVal("centerTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
-                      setValue = function(r, g, b) MSet("centerTextTargetSepColor", { r=r, g=g, b=b }) end,
-                      onClick = function(self)
-                          if MVal("centerTextTargetSepClassColor", false) then
-                              MSet("centerTextTargetSepClassColor", false)
-                              return
-                          end
-                          if self._eabOrigClick then self._eabOrigClick(self) end
-                      end,
-                      refreshAlpha = function() return MVal("centerTextTargetSepClassColor", false) and 0.3 or 1 end },
-                    { tooltip = "Class Colored", hasAlpha = false,
-                      getValue = function()
-                          local _, ct = UnitClass("player")
-                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
-                          if cc then return cc.r, cc.g, cc.b end
-                          return 1, 1, 1
-                      end,
-                      setValue = function() end,
-                      onClick = function() MSet("centerTextTargetSepClassColor", true) end,
-                      refreshAlpha = function() return MVal("centerTextTargetSepClassColor", false) and 1 or 0.3 end },
-                  } },
-                { type="input", label="Separator", inputWidth=60,
-                  get=function() return MVal("centerTextTargetSep", ">") end,
-                  set=function(v)
-                      v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                      if v == "" then v = ">" end
-                      MSet("centerTextTargetSep", v)
-                  end,
-                  disabled=function() return MVal("centerTextContent","none") ~= "nametotarget" end,
-                  disabledTooltip="This option only applies when Name > Target is selected." },
-                { type="input", label="Prefix", inputWidth=60,
-                  tooltip="Text shown before the target's name.",
-                  get=function() return MVal("centerTextTargetPrefix", "T:") end,
-                  set=function(v)
-                      -- Unlike Separator, empty is kept: no prefix.
-                      v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                      MSet("centerTextTargetPrefix", v)
-                  end,
-                  disabled=function() return MVal("centerTextContent","none") ~= "targetname" end,
-                  disabledTooltip="This option only applies when Target is selected." },
-                                }),
-        })
-    end
-
-    -- Inline color swatches + cog on Extra Text (boss only, Center row right
-    -- region). Same pattern as Center Text above; the cog adds Alignment
-    -- (the Extra Text zone's distinguishing setting, as on Main Frames).
-    if unitKey == "boss" and not EllesmereUI._prebuilding then
-        local rgn = centerRow._rightRegion
-        local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
-            rgn, rgn:GetFrameLevel() + 5,
-            function()
-                local _, classFile = UnitClass("player")
-                local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
-                if cc then return cc.r, cc.g, cc.b end
-                return 1, 1, 1
-            end,
-            function() end, nil, 20)
-        PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        classSw:SetScript("OnClick", function()
-            if MVal("extraTextContent", "none") == "none" then return end
-            MSet("extraTextClassColor", true); EllesmereUI:RefreshPage()
-        end)
-        classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
-        classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local swGet = function()
-            return MVal("extraTextColorR", 1), MVal("extraTextColorG", 1), MVal("extraTextColorB", 1)
-        end
-        local swSet = function(r, g, b)
-            settingsTable.extraTextColorR = r; settingsTable.extraTextColorG = g; settingsTable.extraTextColorB = b
-            ReloadAndUpdate()
-        end
-        local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
-        PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
-        rgn._lastInline = sw
-        local swOrigClick = sw:GetScript("OnClick")
-        sw:SetScript("OnClick", function(self, ...)
-            if MVal("extraTextContent", "none") == "none" then return end
-            if MVal("extraTextClassColor", false) then
-                MSet("extraTextClassColor", false); EllesmereUI:RefreshPage(); return
-            end
-            if swOrigClick then swOrigClick(self, ...) end
-        end)
-        sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
-        sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local function UpdSwatches()
-            local isNone = MVal("extraTextContent", "none") == "none"
-            local isClass = MVal("extraTextClassColor", false)
-            sw:SetAlpha((isClass or isNone) and 0.3 or 1)
-            classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
-        end
-        RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
-        UpdSwatches()
-
-        EllesmereUI.BuildInlineCog(rgn, {
-            disabled = function() return MVal("extraTextContent", "none") == "none" end,
-            disabledTooltip = "This option requires a text selection other than none.",
-            title = "Extra Text Settings",
-            rows = ns.UF_NameFormatRows("extraText", "none", MVal, MSet, {
-                { type="dropdown", label="Alignment",
-                  values={ ["left"]="Left", ["right"]="Right", ["center"]="Center" }, order={ "left", "right", "center" },
-                  get=function() return MVal("extraTextAlign", "left") end,
-                  set=function(v) MSet("extraTextAlign", v) end },
-                { type="slider", label="Size", min=8, max=100, step=1,
-                  get=function() return MVal("extraTextSize", settingsTable.textSize or 12) end,
-                  set=function(v) MSet("extraTextSize", v) end },
-                { type="slider", label="X Offset", min=-150, max=150, step=1,
-                  get=function() return MVal("extraTextX", 0) end,
-                  set=function(v) MSet("extraTextX", v) end },
-                { type="slider", label="Y Offset", min=-150, max=150, step=1,
-                  get=function() return MVal("extraTextY", 0) end,
-                  set=function(v) MSet("extraTextY", v) end },
-                { type="slider", label="Width %", min=20, max=200, step=5,
-                  get=function() return MVal("extraTextWidthPct", 100) end,
-                  set=function(v) MSet("extraTextWidthPct", v) end },
-                { type="multiswatch", label="Indicator Color",
-                  disabled=function() local c = MVal("extraTextContent","none") return c ~= "nametotarget" and c ~= "targetname" end,
-                  disabledTooltip="This option only applies when Name > Target or Target is selected.",
-                  swatches = {
-                    { tooltip = "Custom Colored", hasAlpha = false,
-                      getValue = function() local c = MVal("extraTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
-                      setValue = function(r, g, b) MSet("extraTextTargetSepColor", { r=r, g=g, b=b }) end,
-                      onClick = function(self)
-                          if MVal("extraTextTargetSepClassColor", false) then
-                              MSet("extraTextTargetSepClassColor", false)
-                              return
-                          end
-                          if self._eabOrigClick then self._eabOrigClick(self) end
-                      end,
-                      refreshAlpha = function() return MVal("extraTextTargetSepClassColor", false) and 0.3 or 1 end },
-                    { tooltip = "Class Colored", hasAlpha = false,
-                      getValue = function()
-                          local _, ct = UnitClass("player")
-                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
-                          if cc then return cc.r, cc.g, cc.b end
-                          return 1, 1, 1
-                      end,
-                      setValue = function() end,
-                      onClick = function() MSet("extraTextTargetSepClassColor", true) end,
-                      refreshAlpha = function() return MVal("extraTextTargetSepClassColor", false) and 1 or 0.3 end },
-                  } },
-                { type="input", label="Separator", inputWidth=60,
-                  get=function() return MVal("extraTextTargetSep", ">") end,
-                  set=function(v)
-                      v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                      if v == "" then v = ">" end
-                      MSet("extraTextTargetSep", v)
-                  end,
-                  disabled=function() return MVal("extraTextContent","none") ~= "nametotarget" end,
-                  disabledTooltip="This option only applies when Name > Target is selected." },
-                { type="input", label="Prefix", inputWidth=60,
-                  tooltip="Text shown before the target's name.",
-                  get=function() return MVal("extraTextTargetPrefix", "T:") end,
-                  set=function(v)
-                      -- Unlike Separator, empty is kept: no prefix.
-                      v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                      MSet("extraTextTargetPrefix", v)
-                  end,
-                  disabled=function() return MVal("extraTextContent","none") ~= "targetname" end,
-                  disabledTooltip="This option only applies when Target is selected." },
-                                }),
-        })
-    end
+        unitKey ~= "boss" and smoothBarsWidget or EllesmereUI.BlankRowCfg());  y = y - h
 
     -- Blizzard Style: the stock level number in the boss art's level circle
     -- (the small frames' stock art carries none), with its size and
@@ -1096,6 +591,521 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
             })
         end
     end
+
+    -- Active text slots share the Main Frames list workflow.
+    local textSlots = {}
+    textSlots[1] = { key="leftText", position="Left Text", default="name",
+        cfg={ type="dropdown", text="Left Text", values=healthTextValues, order=(unitKey == "boss") and healthTextOrderBoss or healthTextOrder,
+          getValue=function() return MVal("leftTextContent", "name") end,
+          setValue=function(v)
+            settingsTable.leftTextContent = v
+            if v ~= "none" then
+                if settingsTable.rightTextContent == v then settingsTable.rightTextContent = "none" end
+                if settingsTable.centerTextContent == v then settingsTable.centerTextContent = "none" end
+            end
+            ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
+          end,
+        },
+        decorate=function(rgn)
+            -- Inline color swatches + cog on Left Text: Custom + Class (CDM Border Size pattern)
+            if not EllesmereUI._prebuilding then
+                local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
+                    rgn, rgn:GetFrameLevel() + 5,
+                    function()
+                        local _, classFile = UnitClass("player")
+                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        if cc then return cc.r, cc.g, cc.b end
+                        return 1, 1, 1
+                    end,
+                    function() end, nil, 20)
+                PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                classSw:SetScript("OnClick", function()
+                    if MVal("leftTextContent", "name") == "none" then return end
+                    MSet("leftTextClassColor", true); EllesmereUI:RefreshPage()
+                end)
+                classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
+                classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local swGet = function()
+                    return MVal("leftTextColorR", 1), MVal("leftTextColorG", 1), MVal("leftTextColorB", 1)
+                end
+                local swSet = function(r, g, b)
+                    settingsTable.leftTextColorR = r; settingsTable.leftTextColorG = g; settingsTable.leftTextColorB = b
+                    ReloadAndUpdate()
+                end
+                local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
+                PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
+                rgn._lastInline = sw
+                local origClick = sw:GetScript("OnClick")
+                sw:SetScript("OnClick", function(self, ...)
+                    if MVal("leftTextContent", "name") == "none" then return end
+                    if MVal("leftTextClassColor", false) then
+                        MSet("leftTextClassColor", false); EllesmereUI:RefreshPage(); return
+                    end
+                    if origClick then origClick(self, ...) end
+                end)
+                sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
+                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdSwatches()
+                    local isNone = MVal("leftTextContent", "name") == "none"
+                    local isClass = MVal("leftTextClassColor", false)
+                    sw:SetAlpha((isClass or isNone) and 0.3 or 1)
+                    classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
+                end
+                RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
+                UpdSwatches()
+
+                EllesmereUI.BuildInlineCog(rgn, {
+                    disabled = function() return MVal("leftTextContent", "name") == "none" end,
+                    disabledTooltip = "This option requires a text selection other than none.",
+                    title = "Left Text Settings",
+                    rows = ns.UF_CoreTextRows("leftText", "name", MVal, MSet, {
+                        { type="slider", label="Size", min=8, max=100, step=1,
+                          get=function() return MVal("leftTextSize", settingsTable.textSize or 12) end,
+                          set=function(v) MSet("leftTextSize", v) end },
+                        { type="slider", label="X Offset", min=-100, max=100, step=1,
+                          get=function() return MVal("leftTextX", 0) end,
+                          set=function(v) MSet("leftTextX", v) end },
+                        { type="slider", label="Y Offset", min=-60, max=60, step=1,
+                          get=function() return MVal("leftTextY", 0) end,
+                          set=function(v) MSet("leftTextY", v) end },
+                        { type="slider", label="Width %", min=20, max=200, step=5,
+                          get=function() return MVal("leftTextWidthPct", 100) end,
+                          set=function(v) MSet("leftTextWidthPct", v) end },
+                        { type="multiswatch", label="Indicator Color",
+                          disabled=function() local c = MVal("leftTextContent","name") return c ~= "nametotarget" and c ~= "targetname" end,
+                          disabledTooltip="This option only applies when Name > Target or Target is selected.",
+                          swatches = {
+                            { tooltip = "Custom Colored", hasAlpha = false,
+                              getValue = function() local c = MVal("leftTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                              setValue = function(r, g, b) MSet("leftTextTargetSepColor", { r=r, g=g, b=b }) end,
+                              onClick = function(self)
+                                  if MVal("leftTextTargetSepClassColor", false) then
+                                      MSet("leftTextTargetSepClassColor", false)
+                                      return
+                                  end
+                                  if self._eabOrigClick then self._eabOrigClick(self) end
+                              end,
+                              refreshAlpha = function() return MVal("leftTextTargetSepClassColor", false) and 0.3 or 1 end },
+                            { tooltip = "Class Colored", hasAlpha = false,
+                              getValue = function()
+                                  local _, ct = UnitClass("player")
+                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  if cc then return cc.r, cc.g, cc.b end
+                                  return 1, 1, 1
+                              end,
+                              setValue = function() end,
+                              onClick = function() MSet("leftTextTargetSepClassColor", true) end,
+                              refreshAlpha = function() return MVal("leftTextTargetSepClassColor", false) and 1 or 0.3 end },
+                          } },
+                        { type="input", label="Separator", inputWidth=60,
+                          get=function() return MVal("leftTextTargetSep", ">") end,
+                          set=function(v)
+                              v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                              if v == "" then v = ">" end
+                              MSet("leftTextTargetSep", v)
+                          end,
+                          disabled=function() return MVal("leftTextContent","name") ~= "nametotarget" end,
+                          disabledTooltip="This option only applies when Name > Target is selected." },
+                        { type="input", label="Prefix", inputWidth=60,
+                          tooltip="Text shown before the target's name.",
+                          get=function() return MVal("leftTextTargetPrefix", "T:") end,
+                          set=function(v)
+                              -- Unlike Separator, empty is kept: no prefix.
+                              v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                              MSet("leftTextTargetPrefix", v)
+                          end,
+                          disabled=function() return MVal("leftTextContent","name") ~= "targetname" end,
+                          disabledTooltip="This option only applies when Target is selected." },
+                                        }),
+                })
+            end
+        end,
+    }
+    textSlots[2] = { key="rightText", position="Right Text", default="none",
+        cfg={ type="dropdown", text="Right Text", values=healthTextValues, order=(unitKey == "boss") and healthTextOrderBoss or healthTextOrder,
+          getValue=function() return MVal("rightTextContent", "none") end,
+          setValue=function(v)
+            settingsTable.rightTextContent = v
+            if v ~= "none" then
+                if settingsTable.leftTextContent == v then settingsTable.leftTextContent = "none" end
+                if settingsTable.centerTextContent == v then settingsTable.centerTextContent = "none" end
+            end
+            ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
+          end,
+        },
+        decorate=function(rgn)
+            -- Inline color swatches + cog on Right Text: Custom + Class (CDM Border Size pattern)
+            if not EllesmereUI._prebuilding then
+                local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
+                    rgn, rgn:GetFrameLevel() + 5,
+                    function()
+                        local _, classFile = UnitClass("player")
+                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        if cc then return cc.r, cc.g, cc.b end
+                        return 1, 1, 1
+                    end,
+                    function() end, nil, 20)
+                PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                classSw:SetScript("OnClick", function()
+                    if MVal("rightTextContent", "none") == "none" then return end
+                    MSet("rightTextClassColor", true); EllesmereUI:RefreshPage()
+                end)
+                classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
+                classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local swGet = function()
+                    return MVal("rightTextColorR", 1), MVal("rightTextColorG", 1), MVal("rightTextColorB", 1)
+                end
+                local swSet = function(r, g, b)
+                    settingsTable.rightTextColorR = r; settingsTable.rightTextColorG = g; settingsTable.rightTextColorB = b
+                    ReloadAndUpdate()
+                end
+                local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
+                PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
+                rgn._lastInline = sw
+                local origClick = sw:GetScript("OnClick")
+                sw:SetScript("OnClick", function(self, ...)
+                    if MVal("rightTextContent", "none") == "none" then return end
+                    if MVal("rightTextClassColor", false) then
+                        MSet("rightTextClassColor", false); EllesmereUI:RefreshPage(); return
+                    end
+                    if origClick then origClick(self, ...) end
+                end)
+                sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
+                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdSwatches()
+                    local isNone = MVal("rightTextContent", "none") == "none"
+                    local isClass = MVal("rightTextClassColor", false)
+                    sw:SetAlpha((isClass or isNone) and 0.3 or 1)
+                    classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
+                end
+                RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
+                UpdSwatches()
+
+                EllesmereUI.BuildInlineCog(rgn, {
+                    disabled = function() return MVal("rightTextContent", "none") == "none" end,
+                    disabledTooltip = "This option requires a text selection other than none.",
+                    title = "Right Text Settings",
+                    rows = ns.UF_CoreTextRows("rightText", "none", MVal, MSet, {
+                        { type="slider", label="Size", min=8, max=100, step=1,
+                          get=function() return MVal("rightTextSize", settingsTable.textSize or 12) end,
+                          set=function(v) MSet("rightTextSize", v) end },
+                        { type="slider", label="X Offset", min=-100, max=100, step=1,
+                          get=function() return MVal("rightTextX", 0) end,
+                          set=function(v) MSet("rightTextX", v) end },
+                        { type="slider", label="Y Offset", min=-60, max=60, step=1,
+                          get=function() return MVal("rightTextY", 0) end,
+                          set=function(v) MSet("rightTextY", v) end },
+                        { type="slider", label="Width %", min=20, max=200, step=5,
+                          get=function() return MVal("rightTextWidthPct", 100) end,
+                          set=function(v) MSet("rightTextWidthPct", v) end },
+                        { type="multiswatch", label="Indicator Color",
+                          disabled=function() local c = MVal("rightTextContent","none") return c ~= "nametotarget" and c ~= "targetname" end,
+                          disabledTooltip="This option only applies when Name > Target or Target is selected.",
+                          swatches = {
+                            { tooltip = "Custom Colored", hasAlpha = false,
+                              getValue = function() local c = MVal("rightTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                              setValue = function(r, g, b) MSet("rightTextTargetSepColor", { r=r, g=g, b=b }) end,
+                              onClick = function(self)
+                                  if MVal("rightTextTargetSepClassColor", false) then
+                                      MSet("rightTextTargetSepClassColor", false)
+                                      return
+                                  end
+                                  if self._eabOrigClick then self._eabOrigClick(self) end
+                              end,
+                              refreshAlpha = function() return MVal("rightTextTargetSepClassColor", false) and 0.3 or 1 end },
+                            { tooltip = "Class Colored", hasAlpha = false,
+                              getValue = function()
+                                  local _, ct = UnitClass("player")
+                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  if cc then return cc.r, cc.g, cc.b end
+                                  return 1, 1, 1
+                              end,
+                              setValue = function() end,
+                              onClick = function() MSet("rightTextTargetSepClassColor", true) end,
+                              refreshAlpha = function() return MVal("rightTextTargetSepClassColor", false) and 1 or 0.3 end },
+                          } },
+                        { type="input", label="Separator", inputWidth=60,
+                          get=function() return MVal("rightTextTargetSep", ">") end,
+                          set=function(v)
+                              v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                              if v == "" then v = ">" end
+                              MSet("rightTextTargetSep", v)
+                          end,
+                          disabled=function() return MVal("rightTextContent","none") ~= "nametotarget" end,
+                          disabledTooltip="This option only applies when Name > Target is selected." },
+                        { type="input", label="Prefix", inputWidth=60,
+                          tooltip="Text shown before the target's name.",
+                          get=function() return MVal("rightTextTargetPrefix", "T:") end,
+                          set=function(v)
+                              -- Unlike Separator, empty is kept: no prefix.
+                              v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                              MSet("rightTextTargetPrefix", v)
+                          end,
+                          disabled=function() return MVal("rightTextContent","none") ~= "targetname" end,
+                          disabledTooltip="This option only applies when Target is selected." },
+                                        }),
+                })
+            end
+        end,
+    }
+    textSlots[3] = { key="centerText", position="Center Text", default="none",
+        cfg={ type="dropdown", text="Center Text", values=healthTextValues, order=(unitKey == "boss") and healthTextOrderBoss or healthTextOrder,
+          getValue=function() return MVal("centerTextContent", "none") end,
+          setValue=function(v)
+            settingsTable.centerTextContent = v
+            ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
+          end },
+        decorate=function(rgn)
+            -- Inline color swatches + cog on Center Text: Custom + Class (CDM Border Size pattern)
+            if not EllesmereUI._prebuilding then
+                local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
+                    rgn, rgn:GetFrameLevel() + 5,
+                    function()
+                        local _, classFile = UnitClass("player")
+                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        if cc then return cc.r, cc.g, cc.b end
+                        return 1, 1, 1
+                    end,
+                    function() end, nil, 20)
+                PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                classSw:SetScript("OnClick", function()
+                    if MVal("centerTextContent", "none") == "none" then return end
+                    MSet("centerTextClassColor", true); EllesmereUI:RefreshPage()
+                end)
+                classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
+                classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local swGet = function()
+                    return MVal("centerTextColorR", 1), MVal("centerTextColorG", 1), MVal("centerTextColorB", 1)
+                end
+                local swSet = function(r, g, b)
+                    settingsTable.centerTextColorR = r; settingsTable.centerTextColorG = g; settingsTable.centerTextColorB = b
+                    ReloadAndUpdate()
+                end
+                local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
+                PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
+                rgn._lastInline = sw
+                local origClick = sw:GetScript("OnClick")
+                sw:SetScript("OnClick", function(self, ...)
+                    if MVal("centerTextContent", "none") == "none" then return end
+                    if MVal("centerTextClassColor", false) then
+                        MSet("centerTextClassColor", false); EllesmereUI:RefreshPage(); return
+                    end
+                    if origClick then origClick(self, ...) end
+                end)
+                sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
+                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdSwatches()
+                    local isNone = MVal("centerTextContent", "none") == "none"
+                    local isClass = MVal("centerTextClassColor", false)
+                    sw:SetAlpha((isClass or isNone) and 0.3 or 1)
+                    classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
+                end
+                RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
+                UpdSwatches()
+
+                EllesmereUI.BuildInlineCog(rgn, {
+                    disabled = function() return MVal("centerTextContent", "none") == "none" end,
+                    disabledTooltip = "This option requires a text selection other than none.",
+                    title = "Center Text Settings",
+                    rows = ns.UF_CoreTextRows("centerText", "none", MVal, MSet, {
+                        { type="slider", label="Size", min=8, max=100, step=1,
+                          get=function() return MVal("centerTextSize", settingsTable.textSize or 12) end,
+                          set=function(v) MSet("centerTextSize", v) end },
+                        { type="slider", label="X Offset", min=-100, max=100, step=1,
+                          get=function() return MVal("centerTextX", 0) end,
+                          set=function(v) MSet("centerTextX", v) end },
+                        { type="slider", label="Y Offset", min=-60, max=60, step=1,
+                          get=function() return MVal("centerTextY", 0) end,
+                          set=function(v) MSet("centerTextY", v) end },
+                        { type="slider", label="Width %", min=20, max=200, step=5,
+                          get=function() return MVal("centerTextWidthPct", 100) end,
+                          set=function(v) MSet("centerTextWidthPct", v) end },
+                        { type="multiswatch", label="Indicator Color",
+                          disabled=function() local c = MVal("centerTextContent","none") return c ~= "nametotarget" and c ~= "targetname" end,
+                          disabledTooltip="This option only applies when Name > Target or Target is selected.",
+                          swatches = {
+                            { tooltip = "Custom Colored", hasAlpha = false,
+                              getValue = function() local c = MVal("centerTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                              setValue = function(r, g, b) MSet("centerTextTargetSepColor", { r=r, g=g, b=b }) end,
+                              onClick = function(self)
+                                  if MVal("centerTextTargetSepClassColor", false) then
+                                      MSet("centerTextTargetSepClassColor", false)
+                                      return
+                                  end
+                                  if self._eabOrigClick then self._eabOrigClick(self) end
+                              end,
+                              refreshAlpha = function() return MVal("centerTextTargetSepClassColor", false) and 0.3 or 1 end },
+                            { tooltip = "Class Colored", hasAlpha = false,
+                              getValue = function()
+                                  local _, ct = UnitClass("player")
+                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  if cc then return cc.r, cc.g, cc.b end
+                                  return 1, 1, 1
+                              end,
+                              setValue = function() end,
+                              onClick = function() MSet("centerTextTargetSepClassColor", true) end,
+                              refreshAlpha = function() return MVal("centerTextTargetSepClassColor", false) and 1 or 0.3 end },
+                          } },
+                        { type="input", label="Separator", inputWidth=60,
+                          get=function() return MVal("centerTextTargetSep", ">") end,
+                          set=function(v)
+                              v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                              if v == "" then v = ">" end
+                              MSet("centerTextTargetSep", v)
+                          end,
+                          disabled=function() return MVal("centerTextContent","none") ~= "nametotarget" end,
+                          disabledTooltip="This option only applies when Name > Target is selected." },
+                        { type="input", label="Prefix", inputWidth=60,
+                          tooltip="Text shown before the target's name.",
+                          get=function() return MVal("centerTextTargetPrefix", "T:") end,
+                          set=function(v)
+                              -- Unlike Separator, empty is kept: no prefix.
+                              v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                              MSet("centerTextTargetPrefix", v)
+                          end,
+                          disabled=function() return MVal("centerTextContent","none") ~= "targetname" end,
+                          disabledTooltip="This option only applies when Target is selected." },
+                                        }),
+                })
+            end
+        end,
+    }
+    if unitKey == "boss" then
+        textSlots[4] = { key="extraText", position="Extra Text (full length)", default="none",
+            cfg={ type="dropdown", text="Extra Text (full length)", values=healthTextValues, order=healthTextOrderBoss,
+              getValue=function() return MVal("extraTextContent", "none") end,
+              setValue=function(v)
+                settingsTable.extraTextContent = v
+                ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
+              end },
+            decorate=function(rgn)
+                -- Extra Text retains the boss-only Alignment setting.
+                if unitKey == "boss" and not EllesmereUI._prebuilding then
+                    local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
+                        rgn, rgn:GetFrameLevel() + 5,
+                        function()
+                            local _, classFile = UnitClass("player")
+                            local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                            if cc then return cc.r, cc.g, cc.b end
+                            return 1, 1, 1
+                        end,
+                        function() end, nil, 20)
+                    PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                    classSw:SetScript("OnClick", function()
+                        if MVal("extraTextContent", "none") == "none" then return end
+                        MSet("extraTextClassColor", true); EllesmereUI:RefreshPage()
+                    end)
+                    classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
+                    classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    local swGet = function()
+                        return MVal("extraTextColorR", 1), MVal("extraTextColorG", 1), MVal("extraTextColorB", 1)
+                    end
+                    local swSet = function(r, g, b)
+                        settingsTable.extraTextColorR = r; settingsTable.extraTextColorG = g; settingsTable.extraTextColorB = b
+                        ReloadAndUpdate()
+                    end
+                    local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
+                    PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
+                    rgn._lastInline = sw
+                    local swOrigClick = sw:GetScript("OnClick")
+                    sw:SetScript("OnClick", function(self, ...)
+                        if MVal("extraTextContent", "none") == "none" then return end
+                        if MVal("extraTextClassColor", false) then
+                            MSet("extraTextClassColor", false); EllesmereUI:RefreshPage(); return
+                        end
+                        if swOrigClick then swOrigClick(self, ...) end
+                    end)
+                    sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
+                    sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    local function UpdSwatches()
+                        local isNone = MVal("extraTextContent", "none") == "none"
+                        local isClass = MVal("extraTextClassColor", false)
+                        sw:SetAlpha((isClass or isNone) and 0.3 or 1)
+                        classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
+                    end
+                    RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
+                    UpdSwatches()
+
+                    EllesmereUI.BuildInlineCog(rgn, {
+                        disabled = function() return MVal("extraTextContent", "none") == "none" end,
+                        disabledTooltip = "This option requires a text selection other than none.",
+                        title = "Extra Text Settings",
+                        rows = ns.UF_CoreTextRows("extraText", "none", MVal, MSet, {
+                            { type="dropdown", label="Alignment",
+                              values={ ["left"]="Left", ["right"]="Right", ["center"]="Center" }, order={ "left", "right", "center" },
+                              get=function() return MVal("extraTextAlign", "left") end,
+                              set=function(v) MSet("extraTextAlign", v) end },
+                            { type="slider", label="Size", min=8, max=100, step=1,
+                              get=function() return MVal("extraTextSize", settingsTable.textSize or 12) end,
+                              set=function(v) MSet("extraTextSize", v) end },
+                            { type="slider", label="X Offset", min=-300, max=300, step=1,
+                              get=function() return MVal("extraTextX", 0) end,
+                              set=function(v) MSet("extraTextX", v) end },
+                            { type="slider", label="Y Offset", min=-300, max=300, step=1,
+                              get=function() return MVal("extraTextY", 0) end,
+                              set=function(v) MSet("extraTextY", v) end },
+                            { type="slider", label="Width %", min=20, max=200, step=5,
+                              get=function() return MVal("extraTextWidthPct", 100) end,
+                              set=function(v) MSet("extraTextWidthPct", v) end },
+                            { type="multiswatch", label="Indicator Color",
+                              disabled=function() local c = MVal("extraTextContent","none") return c ~= "nametotarget" and c ~= "targetname" end,
+                              disabledTooltip="This option only applies when Name > Target or Target is selected.",
+                              swatches = {
+                                { tooltip = "Custom Colored", hasAlpha = false,
+                                  getValue = function() local c = MVal("extraTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                                  setValue = function(r, g, b) MSet("extraTextTargetSepColor", { r=r, g=g, b=b }) end,
+                                  onClick = function(self)
+                                      if MVal("extraTextTargetSepClassColor", false) then
+                                          MSet("extraTextTargetSepClassColor", false)
+                                          return
+                                      end
+                                      if self._eabOrigClick then self._eabOrigClick(self) end
+                                  end,
+                                  refreshAlpha = function() return MVal("extraTextTargetSepClassColor", false) and 0.3 or 1 end },
+                                { tooltip = "Class Colored", hasAlpha = false,
+                                  getValue = function()
+                                      local _, ct = UnitClass("player")
+                                      local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                      if cc then return cc.r, cc.g, cc.b end
+                                      return 1, 1, 1
+                                  end,
+                                  setValue = function() end,
+                                  onClick = function() MSet("extraTextTargetSepClassColor", true) end,
+                                  refreshAlpha = function() return MVal("extraTextTargetSepClassColor", false) and 1 or 0.3 end },
+                              } },
+                            { type="input", label="Separator", inputWidth=60,
+                              get=function() return MVal("extraTextTargetSep", ">") end,
+                              set=function(v)
+                                  v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                                  if v == "" then v = ">" end
+                                  MSet("extraTextTargetSep", v)
+                              end,
+                              disabled=function() return MVal("extraTextContent","none") ~= "nametotarget" end,
+                              disabledTooltip="This option only applies when Name > Target is selected." },
+                            { type="input", label="Prefix", inputWidth=60,
+                              tooltip="Text shown before the target's name.",
+                              get=function() return MVal("extraTextTargetPrefix", "T:") end,
+                              set=function(v)
+                                  -- Unlike Separator, empty is kept: no prefix.
+                                  v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                                  MSet("extraTextTargetPrefix", v)
+                              end,
+                              disabled=function() return MVal("extraTextContent","none") ~= "targetname" end,
+                              disabledTooltip="This option only applies when Target is selected." },
+                                            }),
+                    })
+                end
+            end,
+        }
+    end
+    local textRow
+    y, textRow = ns.UFO_BuildTextSlots(W, parent, y, {
+        slots=textSlots, values=healthTextValues, contentOrder=textSlots[1].cfg.order,
+        unit=unitKey, page=unitKey == "boss" and "Boss Frames" or "Mini Frames",
+        db=function() return settingsTable end,
+        liveDB=function() return db.profile[unitKey] end,
+        apply=ReloadAndUpdate,
+    })
 
     -- POWER BAR section (mini units with a power bar: boss, and the pet on WoW Forever).
     -- Fill always uses the unit's power color (powerPercentPowerColor default on);
@@ -1597,8 +1607,10 @@ function ns.UFO_BuildFoTToTOptions(W, parent, y, settingsTable, unitKey)
     parent._ufClickTargets = {
         healthBar  = { section = displayHeader,  target = sizeRow },
         portrait   = { section = displayHeader,  target = portraitRow,   slotSide = "right" },
-        nameText   = { section = textHeader or displayHeader,  target = textRow or sizeRow },
-        healthText = { section = textHeader or displayHeader,  target = textRow or sizeRow },
+        nameText = ns.UFO_TextClickTarget(parent, "leftText", textHeader or displayHeader, textRow or sizeRow),
+        healthText = ns.UFO_TextClickTarget(parent, "rightText", textHeader or displayHeader, textRow or sizeRow),
+        centerText = ns.UFO_TextClickTarget(parent, "centerText", textHeader or displayHeader, textRow or sizeRow),
+        extraText = ns.UFO_TextClickTarget(parent, "extraText", textHeader or displayHeader, textRow or sizeRow),
     }
 
     return abs(y)
@@ -1709,119 +1721,96 @@ function ns.UFO_BuildPetOptions(W, parent, y)
     local displayHeader, sizeRow, textHeader, textRow
     y, displayHeader, sizeRow, textHeader, textRow = BuildMiniTextAndSize(W, parent, y, db.profile.pet, "pet", enableRow, nil, petOpts)
 
-    -- BUFFS AND DEBUFFS: opt-in rows; the containers only exist once one is on.
-    do
-        local P = db.profile.pet
-        local anchorValues, anchorOrder = env.buffAnchorValues, env.buffAnchorOrder
-        local CORNERS = { "topleft", "bottomleft", "topright", "bottomright" }
-        local function auraApply()
-            if ns.UF_EnsurePetAuras then ns.UF_EnsurePetAuras() end
-            ReloadAndUpdate()
+    -- BUFFS AND DEBUFFS, on the EllesmereUI pet frame only (an inactive frame
+    -- shows the notice above instead). Location, size (Cropped Icons
+    -- included), position and layout are the pet's own; the aura look (border,
+    -- duration and stack text, zoom, dispel borders) comes from Copy Auras
+    -- From, a view over that frame's keys (EUI_UnitFrames_AuraContainers.lua).
+    -- Every getter reads db.profile.pet live (Spec Override slot marks trace
+    -- those reads) and writes nothing.
+    local auraHeader, buffRow, debuffRow
+    if ns.GetUnitFrameSource("pet") == "eui" then
+        local SwapAuraSlot = env.SwapAuraSlot
+        local function PGet(key, default)
+            local v = db.profile.pet[key]
+            if v == nil then return default end
+            return v
         end
-        -- Buffs and debuffs never share a spot: the one set last keeps it, the other moves to a free corner.
-        local function freeCorner(taken)
-            for _, c in ipairs(CORNERS) do if c ~= taken then return c end end
+        local function PSet(key, v) db.profile.pet[key] = v; ReloadAndUpdate() end
+        local function buffsOff() return db.profile.pet.showBuffs == false end
+        local function debuffsOff() return (db.profile.pet.debuffAnchor or "none") == "none" end
+        local function anyOn() return not (buffsOff() and debuffsOff()) end
+        -- The two stacks never share a spot (SwapAuraSlot); the reload pass
+        -- builds the containers once one of them is on. Copy Auras From is
+        -- built only while one is on, so turning the first on or the last off
+        -- rebuilds the page.
+        local function PlaceAuras(key)
+            return EllesmereUI.DependentSetValue(anyOn, function(v)
+                SwapAuraSlot(db.profile.pet, key, v)
+                ReloadAndUpdate()
+                EllesmereUI:RefreshPage()
+            end)
         end
-        local function buffsOn() return P.showBuffs == true end
-        local function debuffsOn() return (P.debuffAnchor or "none") ~= "none" end
-        _, h = W:SectionHeader(parent, "BUFFS AND DEBUFFS", y);  y = y - h
+        auraHeader, h = W:SectionHeader(parent, "BUFFS AND DEBUFFS", y);  y = y - h
 
-        local growthValues, growthOrder = env.buffGrowthValues, env.buffGrowthOrder
-        local function set(key, v) P[key] = v; ReloadAndUpdate() end
-        local function buffsOff() return not buffsOn() end
-        local function debuffsOff() return not debuffsOn() end
-
-        -- Buffs Location | Buff Size, then Debuffs Location | Debuff Size. The cog on the
-        -- location and the offsets cog on the size match the other unit frames.
-        local buffRow, debuffRow
+        -- Buffs Location | Buff Size, then Debuffs Location | Debuff Size: the
+        -- settings cog on each Location, the position cog on each Size.
         buffRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Buffs Location",
-              values=anchorValues, order=anchorOrder,
-              getValue=function() return buffsOn() and (P.buffAnchor or "topleft") or "none" end,
-              setValue=function(v)
-                  if v == "none" then
-                      P.showBuffs = false
-                  else
-                      P.showBuffs = true
-                      P.buffAnchor = v
-                      if (P.debuffAnchor or "none") == v then P.debuffAnchor = freeCorner(v) end
-                  end
-                  auraApply()
-                  EllesmereUI:RefreshPage()
-              end },
+              values=env.buffAnchorValues, order=env.buffAnchorOrder,
+              getValue=function()
+                  local pet = db.profile.pet
+                  if pet.showBuffs == false then return "none" end
+                  return pet.buffAnchor or "topleft"
+              end,
+              setValue=PlaceAuras("buffAnchor") },
             { type="slider", text="Buff Size", min=10, max=70, step=1,
               disabled=buffsOff, disabledTooltip="Buffs Location",
-              getValue=function() return P.buffSize or 22 end,
-              setValue=function(v) set("buffSize", v) end });  y = y - h
+              getValue=function() return PGet("buffSize", 22) end,
+              setValue=function(v) PSet("buffSize", v) end });  y = y - h
         debuffRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Debuffs Location",
-              values=anchorValues, order=anchorOrder,
-              getValue=function() return P.debuffAnchor or "none" end,
-              setValue=function(v)
-                  P.debuffAnchor = v
-                  if v ~= "none" and buffsOn() and (P.buffAnchor or "topleft") == v then P.buffAnchor = freeCorner(v) end
-                  auraApply()
-                  EllesmereUI:RefreshPage()
-              end },
+              values=env.buffAnchorValues, order=env.buffAnchorOrder,
+              getValue=function() return PGet("debuffAnchor", "none") end,
+              setValue=PlaceAuras("debuffAnchor") },
             { type="slider", text="Debuff Size", min=10, max=70, step=1,
               disabled=debuffsOff, disabledTooltip="Debuffs Location",
-              getValue=function() return P.debuffSize or 22 end,
-              setValue=function(v) set("debuffSize", v) end });  y = y - h
+              getValue=function() return PGet("debuffSize", 22) end,
+              setValue=function(v) PSet("debuffSize", v) end });  y = y - h
+
+        -- Copy Auras From | (blank: odd last slot), built while buffs or
+        -- debuffs show. Shows the frame in use: the pick while that frame can
+        -- lend its look, else the pet's Copy Look From frame, which a pet with
+        -- no pick follows. Every pick is stored, so it sticks when Copy Look
+        -- From changes later.
+        if anyOn() then
+            _, h = W:DualRow(parent, y,
+                { type="dropdown", text="Copy Auras From",
+                  tooltip="The frame whose aura look the pet copies.",
+                  values={ target="Target", focus="Focus", player="Player" },
+                  order={ "target", "focus", "player" },
+                  getValue=function() return ns.UF_MiniAuraSourceKey("pet") end,
+                  setValue=function(v)
+                      if v == db.profile.pet.auraSource then return end
+                      db.profile.pet.auraSource = v
+                      ReloadAndUpdate()
+                      EllesmereUI:RefreshPage()
+                  end,
+                  -- Slot marks follow the stored pick alone: the frame shown
+                  -- also reads the other frames' enable and Visibility keys.
+                  accessors={ { getValue=function() return db.profile.pet.auraSource end } } },
+                EllesmereUI.BlankRowCfg());  y = y - h
+        end
 
         if not EllesmereUI._prebuilding then
-            -- One cog layout per kind: k is "buff" or "debuff".
-            local function settingsRows(k, maxKey, maxDefault, maxMax)
-                return {
-                    { type="dropdown", label="Growth Direction", values=growthValues, order=growthOrder,
-                      get=function() return P[k .. "Growth"] or "auto" end,
-                      set=function(v) set(k .. "Growth", v) end },
-                    { type="slider", label="Max Count", min=1, max=maxMax, step=1,
-                      get=function() return P[maxKey] or maxDefault end,
-                      set=function(v) set(maxKey, v) end },
-                    { type="slider", label="Max Per Row", min=1, max=maxMax, step=1,
-                      get=function() return P[k .. "MaxPerRow"] or P[maxKey] or maxDefault end,
-                      set=function(v) set(k .. "MaxPerRow", v) end },
-                    { type="toggle", label="Cropped Icons",
-                      get=function() return P[k .. "CropIcons"] == true end,
-                      set=function(v) set(k .. "CropIcons", v) end },
-                    { type="slider", label="Icon Zoom", min=0, max=0.20, step=0.01,
-                      disabled=function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
-                      disabledTooltip=function() return EllesmereUI.BlizzStyle.Label("unitframes") end,
-                      requireState="disabled",
-                      get=function() return P[k .. "IconZoom"] or 0.07 end,
-                      set=function(v) set(k .. "IconZoom", v) end },
-                    { type="toggle", label="Dispel Type Borders",
-                      disabled=function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
-                      disabledTooltip=function() return EllesmereUI.BlizzStyle.Label("unitframes") end,
-                      requireState="disabled",
-                      get=function() return P[k .. "DispelBorder"] == true end,
-                      set=function(v) set(k .. "DispelBorder", v) end },
-                }
-            end
-            local function positionRows(k)
-                return {
-                    { type="slider", label="Offset X", min=-1500, max=1500, step=1,
-                      get=function() return P[k .. "OffsetX"] or 0 end,
-                      set=function(v) set(k .. "OffsetX", v) end },
-                    { type="slider", label="Offset Y", min=-1500, max=1500, step=1,
-                      get=function() return P[k .. "OffsetY"] or 0 end,
-                      set=function(v) set(k .. "OffsetY", v) end },
-                    { type="slider", pixel=true, label="Spacing X", min=-1, max=10, step=1,
-                      get=function() return P[k .. "SpacingX"] or 1 end,
-                      set=function(v) set(k .. "SpacingX", v) end },
-                    { type="slider", pixel=true, label="Spacing Y", min=-1, max=10, step=1,
-                      get=function() return P[k .. "SpacingY"] or 1 end,
-                      set=function(v) set(k .. "SpacingY", v) end },
-                }
-            end
             EllesmereUI.BuildInlineCog(buffRow._leftRegion, { disabled=buffsOff, disabledTooltip="Buffs Location",
-                title="Buff Settings", rows=settingsRows("buff", "maxBuffs", 4, 40) })
+                title="Buff Settings", rows=ns.UFO_AuraSettingsRows("buff", PGet, PSet, 40, 4) })
             EllesmereUI.BuildInlineCog(buffRow._rightRegion, { icon=EllesmereUI.DIRECTIONS_ICON, disabled=buffsOff,
-                disabledTooltip="Buffs Location", title="Buff Position", rows=positionRows("buff") })
+                disabledTooltip="Buffs Location", title="Buff Position", rows=ns.UFO_AuraPositionRows("buff", PGet, PSet) })
             EllesmereUI.BuildInlineCog(debuffRow._leftRegion, { disabled=debuffsOff, disabledTooltip="Debuffs Location",
-                title="Debuff Settings", rows=settingsRows("debuff", "maxDebuffs", 10, 20) })
+                title="Debuff Settings", rows=ns.UFO_AuraSettingsRows("debuff", PGet, PSet, 20, 10) })
             EllesmereUI.BuildInlineCog(debuffRow._rightRegion, { icon=EllesmereUI.DIRECTIONS_ICON, disabled=debuffsOff,
-                disabledTooltip="Debuffs Location", title="Debuff Position", rows=positionRows("debuff") })
+                disabledTooltip="Debuffs Location", title="Debuff Position", rows=ns.UFO_AuraPositionRows("debuff", PGet, PSet) })
         end
     end
 
@@ -1829,8 +1818,12 @@ function ns.UFO_BuildPetOptions(W, parent, y)
     parent._ufClickTargets = {
         healthBar  = { section = displayHeader,  target = sizeRow },
         portrait   = { section = displayHeader,  target = portraitRow,   slotSide = "right" },
-        nameText   = { section = textHeader or displayHeader,  target = textRow or sizeRow },
-        healthText = { section = textHeader or displayHeader,  target = textRow or sizeRow },
+        nameText = ns.UFO_TextClickTarget(parent, "leftText", textHeader or displayHeader, textRow or sizeRow),
+        healthText = ns.UFO_TextClickTarget(parent, "rightText", textHeader or displayHeader, textRow or sizeRow),
+        centerText = ns.UFO_TextClickTarget(parent, "centerText", textHeader or displayHeader, textRow or sizeRow),
+        extraText = ns.UFO_TextClickTarget(parent, "extraText", textHeader or displayHeader, textRow or sizeRow),
+        buffIcon   = auraHeader and { section = auraHeader, target = buffRow,   slotSide = "left" } or nil,
+        debuffIcon = auraHeader and { section = auraHeader, target = debuffRow, slotSide = "left" } or nil,
     }
     -- WoW Forever: the preview's power bar, power text and happiness icon
     -- (only once the sections exist: an inactive frame builds none).
@@ -2135,7 +2128,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
         -- Row 1 slot 2 is "Simple Text Size": the cooldown-text size slider,
         -- gated by an inline Show-Cooldown-Text toggle, with an inline cog
         -- holding the stack size and stack X/Y position controls.
-        
+
         local simpleTextOff = function()
             return BossDebuffLocationActive()
             or ns.GetBossSimpleDebuffMode(db.profile.boss) == "none"
@@ -2195,6 +2188,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                     { type="slider", label="Max Count", min=1, max=20, step=1,
                       get=function() return db.profile.boss.maxDebuffs or 10 end,
                       set=function(v) db.profile.boss.maxDebuffs = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
+                    ns.UFO_MaxImportantRow(function() return db.profile.boss end, ReloadAndUpdate, 20, 10),
                     -- Shares the boss debuffMaxPerRow key with Debuffs Location
                     -- (mutually exclusive modes), like Max Count above.
                     { type="slider", label="Max Per Row", min=1, max=20, step=1,
@@ -2315,9 +2309,6 @@ function ns.UFO_BuildBossOptions(W, parent, y)
               setValue=function(v)
                   local prevState = BossAuraRowsState()
                   SwapAuraSlot(db.profile.boss, "debuffAnchor", v)
-                  if db.profile.boss.buffAnchor == "none" then
-                      db.profile.boss.showBuffs = false
-                  end
                   ReloadAndUpdate()
                   if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end
                   -- Full rebuild when either aura row's visibility flipped;
@@ -2818,6 +2809,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                     { type="slider", label="Max Count", min=1, max=20, step=1,
                       get=function() return db.profile.boss.maxDebuffs or 10 end,
                       set=function(v) db.profile.boss.maxDebuffs = v; ReloadAndUpdate() end },
+                    ns.UFO_MaxImportantRow(function() return db.profile.boss end, ReloadAndUpdate, 20, 10),
                     { type="slider", label="Max Per Row", min=1, max=20, step=1,
                       get=function() return db.profile.boss.debuffMaxPerRow or db.profile.boss.maxDebuffs or 10 end,
                       set=function(v) db.profile.boss.debuffMaxPerRow = v; ReloadAndUpdate() end },
@@ -3254,8 +3246,10 @@ function ns.UFO_BuildBossOptions(W, parent, y)
         powerBar   = { section = parent._powerHeaderFrame or displayHeader,  target = parent._powerHeightRow,  slotSide = "left" },
         powerBarText = { section = parent._powerHeaderFrame or displayHeader,  target = parent._powerTextRow,  slotSide = "left" },
         portrait   = { section = displayHeader,  target = portraitRow,   slotSide = "right" },
-        nameText   = { section = textHeader or displayHeader,  target = textRow or sizeRow },
-        healthText = { section = textHeader or displayHeader,  target = textRow or sizeRow },
+        nameText = ns.UFO_TextClickTarget(parent, "leftText", textHeader or displayHeader, textRow or sizeRow),
+        healthText = ns.UFO_TextClickTarget(parent, "rightText", textHeader or displayHeader, textRow or sizeRow),
+        centerText = ns.UFO_TextClickTarget(parent, "centerText", textHeader or displayHeader, textRow or sizeRow),
+        extraText = ns.UFO_TextClickTarget(parent, "extraText", textHeader or displayHeader, textRow or sizeRow),
         -- Blizzard Style level number -> Show Level (+ its cog).
         levelText  = { section = textHeader or displayHeader,  target = parent._ufLevelRow, slotSide = "left" },
         -- Cast bar -> Cast Bar Height; spell icon -> Show Cast Icon. Both live

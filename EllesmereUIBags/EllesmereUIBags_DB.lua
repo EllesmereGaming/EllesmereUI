@@ -34,9 +34,10 @@ local BAGS_DEFAULTS = {
         bagHidePinnedInCategories = false,
         bagRecentInOneBag     = false,
         bagShowRecentClear    = false,
-        -- Bag Top Bar Icons: the header's Show Bags, Junk Marker and Sort icons
+        -- Bag Top Bar Icons: the header's Show Bags, Junk Marker, Quick Actions and Sort icons
         bagShowBagsIcon       = true,
         bagShowJunkIcon       = true,    -- the Junk Marker: header coin, Junk category, Sell Junk at merchants
+        bagShowQuickIcon      = false,   -- Quick Actions: dim all but items a spell works on; click or Alt-click casts it
         bagShowSortIcon       = true,
         bagSortToBottom       = false,
         bagDefaultBagType     = "all",   -- "all" | "onebag" | "multibag"
@@ -54,10 +55,10 @@ local BAGS_DEFAULTS = {
         bagHideAddCategory    = false,
         bagWindowLocked       = false,   -- footer lock icon: no resizing or moving
         bankWindowLocked      = false,
+        bagOpenWithCharacter  = false,
         -- bagFrameStrata has no default: unset reads the retired
         -- bagAllowWindowsOverBags (ns.BagFrameStrata)
         bagStackSplitter      = false,
-        enableGoldTracking    = true,
         detachReagentBag      = false,
         enhancedBags          = true,
         bagDesaturateJunkItems = false,  -- Junk Item Visuals: grey items and Junk Marker junk, every display

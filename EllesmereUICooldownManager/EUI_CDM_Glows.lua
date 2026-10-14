@@ -110,12 +110,13 @@ end
 -- True when dst already displays what PG_Write(dst, payload) would store (when both are off
 -- nothing is shown, so leftover style/color is irrelevant). actualStyleFn lets a surface report
 -- its EFFECTIVE (displayed) style when that differs from the raw stored value (e.g. rectangle TBBs); defaults to stored.
-local function PG_Matches(dst, payload, indexFromName, actualStyleFn)
+-- unsetMode: the color mode an unset key means there (Nameplates: Custom); defaults to Default.
+local function PG_Matches(dst, payload, indexFromName, actualStyleFn, unsetMode)
     if (dst.pandemicGlow or false) ~= (payload.on or false) then return false end
     if not payload.on then return true end
     local actual = actualStyleFn and actualStyleFn(dst) or (dst.pandemicGlowStyle or 1)
     if actual ~= indexFromName(payload.styleName or "Pixel Glow") then return false end
-    if (dst.pandemicGlowMode or "default") ~= (payload.mode or "default") then return false end
+    if (dst.pandemicGlowMode or unsetMode or "default") ~= (payload.mode or "default") then return false end
     local dc = dst.pandemicGlowColor or {}
     local pc = payload.color or {}
     if (dc.r or 1) ~= (pc.r or 1) or (dc.g or 1) ~= (pc.g or 1) or (dc.b or 0) ~= (pc.b or 0) then return false end
@@ -162,12 +163,14 @@ function EllesmereUI.PandemicPayloadFromRectBar(bd)
     }
 end
 
--- Build a payload from the nameplate profile.
+-- Build a payload from the nameplate profile. An unset color mode is Custom
+-- there (the swatch color the nameplate glow always drew).
 function EllesmereUI.PandemicPayloadFromNameplate(np)
     return {
         on        = np.pandemicGlow == true,
         styleName = PG_NameplateNameFromIndex(np.pandemicGlowStyle or 1),
         color     = np.pandemicGlowColor,
+        mode      = np.pandemicGlowMode or "custom",
         lines     = np.pandemicGlowLines,
         thickness = np.pandemicGlowThickness,
         speed     = np.pandemicGlowSpeed,
@@ -180,12 +183,12 @@ end
 -- Nameplates), best-effort. opts.skipCdmKey/opts.skipNameplates exclude the source surface; opts.skipTbbBar excludes one TBB (its source bar table).
 function EllesmereUI.ApplyPandemicGlowToAll(payload, opts)
     opts = opts or {}
-    -- Nameplate auras have no pandemic renderer right now (their options are
-    -- hidden too), so the sync leaves that surface out while the flag is off.
-    if not opts.skipNameplates and EllesmereUI.NameplatePandemicGlowRendered then
+    if not opts.skipNameplates then
         local np = PG_GetNPProfile()
         if np and EllesmereUI.NameplatePandemicGlowStyles then
             PG_Write(np, payload, PG_NameplateIndexFromName)
+            -- Nameplates read an unset mode as Custom: Default is stored as itself.
+            np.pandemicGlowMode = payload.mode or "default"
         end
     end
     local p = ECME.db and ECME.db.profile
@@ -213,10 +216,10 @@ end
 -- True when every (non-skipped) surface already matches the payload.
 function EllesmereUI.IsPandemicGlowSyncedToAll(payload, opts)
     opts = opts or {}
-    if not opts.skipNameplates and EllesmereUI.NameplatePandemicGlowRendered then
+    if not opts.skipNameplates then
         local np = PG_GetNPProfile()
         if np and EllesmereUI.NameplatePandemicGlowStyles
-           and not PG_Matches(np, payload, PG_NameplateIndexFromName) then
+           and not PG_Matches(np, payload, PG_NameplateIndexFromName, nil, "custom") then
             return false
         end
     end

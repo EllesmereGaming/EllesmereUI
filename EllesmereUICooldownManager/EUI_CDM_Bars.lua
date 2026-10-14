@@ -1447,6 +1447,11 @@ LayoutCDMBar = function(barKey)
         EllesmereUI._layoutBarResizing = unlockKey
         pcall(frame.SetSize, frame, totalW, totalH)
         EllesmereUI._layoutBarResizing = nil
+        -- Group loot rolls already up keep clear of a bar that grew or shrank.
+        if not (issecretvalue(oldW) or issecretvalue(oldH))
+           and (totalW ~= oldW or totalH ~= oldH) then
+            ns.RequestLootPlacement()
+        end
         -- Anchor offset maintenance: a growth-direction resize shifts the center by delta/2 while
         -- the fixed edge stays put, so adjust the center-based anchor offset to keep the
         -- relationship on /reload. NOT a position write (positions save only via Save & Exit).

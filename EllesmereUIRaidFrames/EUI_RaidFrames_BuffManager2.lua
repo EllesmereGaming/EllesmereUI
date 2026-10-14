@@ -967,14 +967,16 @@ end
 -- resolved spell arrays, recomputed per call (the legacy editor mutates
 -- indicator tables directly, so an edit-generation cache is unsound).
 -- Indicators resolving to EMPTY are skipped (empty include map = unverified
--- semantics). The views are STABLE, one per bucket + indicator id (list
--- position when id-less, matching BmSignature), and refreshed IN PLACE: the
+-- semantics). The views are STABLE, one per bucket + indicator id (its
+-- position in the bucket's list when id-less), and refreshed IN PLACE: the
 -- container machinery captures them in its per-button meta at build time and
 -- re-reads them on every geometry fingerprint/anchor pass, so a fresh table
 -- per call freezes position/growth edits until reload. Not keyed by the store
 -- table: an override layer swap replaces every store indicator with a copy
 -- (_ERF_BM2ApplyLayer) without changing the container signature. Bounded by
--- the indicators ever rendered this session.
+-- the indicators ever rendered this session. [bucket][id] -> view: the
+-- per-button container builds call this too, so the key is the id itself (a
+-- string only for id-less legacy rows).
 local bm2ViewCache = {}
 
 -- Show In as rendered: an Anchor To member continues its root's run, so the
@@ -1039,6 +1041,7 @@ function ns.BM2_SpecIndicators(frameKind)
     -- indicator itself is untouched for every other spec.
     local function Append(list, idOffset, groupKey, bucket)
         if not list then return end
+        local views  -- this bucket's stable views, fetched on first use
         for i = 1, #list do
             local ind = list[i]
             local drop = groupKey and inhDis and inhDis[groupKey .. ":" .. ind.id]
@@ -1049,9 +1052,13 @@ function ns.BM2_SpecIndicators(frameKind)
             end
             local resolved = not drop and ns.BM2_ResolveSpells(ind) or nil
             if resolved and #resolved > 0 then
-                local viewKey = tostring(bucket) .. ":" .. tostring(ind.id or ("x" .. i))
-                local v = bm2ViewCache[viewKey]
-                if not v then v = {}; bm2ViewCache[viewKey] = v end
+                if not views then
+                    views = bm2ViewCache[bucket or "?"]
+                    if not views then views = {}; bm2ViewCache[bucket or "?"] = views end
+                end
+                local viewKey = ind.id or ("x" .. i)
+                local v = views[viewKey]
+                if not v then v = {}; views[viewKey] = v end
                 for k in pairs(v) do v[k] = nil end
                 for k, val in pairs(ind) do v[k] = val end
                 v.spells = resolved

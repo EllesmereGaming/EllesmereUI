@@ -132,14 +132,8 @@ function NameplateFrame:UpdateClassification()
         end
     else
         if self.classText then self.classText:Hide() end
-        -- WoW Forever shows no elite or rare mark on its plates (the quest
-        -- marks above stay).
-        if ns._npForever then
-            self.classFrame:Hide()
-            self:UpdateNameWidth()
-            return
-        end
-        -- Rare Indicator off: no elite or rare marks.
+        -- Elite/Rare Indicator off: no elite or rare marks (the WoW Forever
+        -- look starts with it off, NP_SeedForever).
         if p and p.classificationHideRare then
             self.classFrame:Hide()
             self:UpdateNameWidth()

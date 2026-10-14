@@ -8,6 +8,21 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 
+-- The options page pool (EllesmereUI_FramePool.lua, the options addon's first
+-- file): a frame made below on a pool host is handed out again, reset to new,
+-- when that host is built again, and each lazy menu is kept per dropdown
+-- button. Captured once here, never read through the public slot later.
+local Pool = EllesmereUI._Pool
+local CreateFrame, PoolKept, PoolGen = Pool.CreateFrame, Pool.Kept, Pool.Gen
+
+-- Global search prebuild: the stand-in a builder below returns in place of a
+-- control on an absorber row (PrebuildStandIn, EllesmereUI_Widgets.lua). Nil
+-- outside the pass and for a real parent.
+local function StandIn(parent)
+    if not EllesmereUI._prebuilding then return nil end
+    return EllesmereUI._widgetInternals.PrebuildStandIn(parent)
+end
+
 -- Empty-selection warning for a filter dropdown whose selection is allowed
 -- to reach "shows nothing" (PAB buff/debuff Filters, RF Debuff Manager base
 -- Filters): while hasContentFn() is false, the dropdown carries a red border
@@ -20,6 +35,9 @@ local EllesmereUI = _G.EllesmereUI
 -- widget refresh, so every lane click that triggers a non-force RefreshPage
 -- re-evaluates live.
 function EllesmereUI.AttachEmptyFilterWarn(rgn, cbDD, warnText, hasContentFn)
+    -- Search prebuild on an absorber row: the warning indexes nothing, so none is built.
+    local standIn = StandIn(rgn) or StandIn(cbDD)
+    if standIn then return standIn end
     local PP = EllesmereUI.PanelPP
 
     local bubble = CreateFrame("Frame", nil, rgn)
@@ -88,6 +106,9 @@ end
 --  Returns: ddBtn, refreshFn
 -------------------------------------------------------------------------------
 function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, getFn, setFn, onChanged, maxVisibleItems, searchable, closeButton, onMenuClosed, opts)
+    -- Search prebuild on an absorber row: the dropdown indexes nothing, so none is built.
+    local standIn = StandIn(parentFrame)
+    if standIn then return standIn, standIn end
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
     opts = opts or {}
     -- Opt-in dynamic items: pass a FUNCTION returning the items array and it re-evaluates on every menu OPEN (the menu rebuilds), so lists that depend on other settings never go stale. A table stays static.
@@ -97,6 +118,10 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         items = itemsFn() or {}
     end
     local ddBtn = CreateFrame("Button", nil, parentFrame)
+    -- This build's dress of the button: once a page pass hands the button out
+    -- again (the options page pool), the new build owns it and this build's
+    -- painters leave it alone (a setter's own rebuild, a kept refresher).
+    local dressGen = PoolGen(ddBtn)
     PP.Size(ddBtn, ddW, 30)
     ddBtn:SetFrameLevel(fLevel)
     local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
@@ -156,18 +181,160 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         return base
     end
     local function UpdateLabel()
+        if PoolGen(ddBtn) ~= dressGen then return end
         ddLbl:SetText(SummaryLabel())
     end
     UpdateLabel()
 
+    -- The menu and its fixed parts are built on the first open. A dynamic list
+    -- (itemsFn) marks it stale on every open, and EnsureMenu then lays the same
+    -- menu out again for the new items: rows come from per-kind pools (AcquireRow),
+    -- and the ones a layout leaves unused are hidden.
+    local menuStale
+    local ITEM_H = 28
+    local HDR_H = 22
+    -- _allRows: { frame, isHeader, label(string), height } per laid-out row.
+    -- Top-action locked tints refresh in the same sweeps as _allRows. They can't JOIN _allRows: the search relayout repositions every frame in that list, and top actions live above the search box.
+    local _allRows, _taTints = {}, {}
+    local sf, child, searchEdit, searchPlaceholder, taDivider, closeBtn, seal
+    local UpdateCBThumb
+    local rowPools = {}
+    local function AcquireRow(kind, make, arg)
+        local pool = rowPools[kind]
+        if not pool then pool = { used = 0 }; rowPools[kind] = pool end
+        pool.used = pool.used + 1
+        local row = pool[pool.used]
+        if not row then
+            row = make(arg)
+            pool[pool.used] = row
+        end
+        row:Show()
+        return row
+    end
+    -- Label row: a top action (parent: the menu) or an action item (the scroll child).
+    local function MakeTextRow(parent)
+        local row = CreateFrame("Button", nil, parent)
+        row:SetHeight(ITEM_H)
+        local lbl = row:CreateFontString(nil, "OVERLAY")
+        lbl:SetFont(fontPath, 13, "")
+        lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
+        lbl:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+        lbl:SetJustifyH("LEFT")
+        lbl:SetWordWrap(false)
+        lbl:SetMaxLines(1)
+        local hl = row:CreateTexture(nil, "ARTWORK")
+        hl:SetAllPoints()
+        row._lbl, row._hl = lbl, hl
+        return row
+    end
+    local function MakeHeaderRow()
+        local hdr = CreateFrame("Frame", nil, child)
+        hdr:SetHeight(HDR_H)
+        local hdrLbl = hdr:CreateFontString(nil, "OVERLAY")
+        hdrLbl:SetFont(fontPath, 10, "")
+        hdrLbl:SetTextColor(0.5, 0.5, 0.5, 1)
+        hdrLbl:SetPoint("LEFT", hdr, "LEFT", 10, 0)
+        hdrLbl:SetJustifyH("LEFT")
+        local hdrLine = hdr:CreateTexture(nil, "ARTWORK")
+        hdrLine:SetHeight(1)
+        hdrLine:SetPoint("LEFT", hdrLbl, "RIGHT", 6, 0)
+        hdrLine:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+        hdr._lbl, hdr._line = hdrLbl, hdrLine
+        return hdr
+    end
+    -- Checkbox row with the parts its item's shape needs (check box, icon, hide
+    -- lane, swatch); the pool key carries that shape, so a reused row has them.
+    local function MakeCheckRow(item)
+        local row = CreateFrame("Button", nil, child)
+        row:SetHeight(ITEM_H)
+        row:SetFrameLevel(menu:GetFrameLevel() + 2)
+        if not item.noCheck then
+            local box = CreateFrame("Frame", nil, row)
+            box:SetSize(16, 16)
+            box:SetPoint("LEFT", row, "LEFT", 10, 0)
+            local boxBg = box:CreateTexture(nil, "BACKGROUND")
+            boxBg:SetAllPoints()
+            boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
+            row._boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
+            local chk = box:CreateTexture(nil, "ARTWORK")
+            PP.SetInside(chk, box, 2, 2)
+            chk:SetSnapToPixelGrid(false)
+            row._box, row._chk = box, chk
+        end
+        -- Optional icon (spell icon etc.) between checkbox and label
+        local lblAnchor = row._box
+        if item.icon then
+            local ico = row:CreateTexture(nil, "ARTWORK")
+            if row._box then
+                ico:SetPoint("LEFT", row._box, "RIGHT", 6, 0)
+            else
+                ico:SetPoint("LEFT", row, "LEFT", 10, 0)
+            end
+            ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            row._ico = ico
+            lblAnchor = ico
+        end
+        local lbl = row:CreateFontString(nil, "OVERLAY")
+        lbl:SetFont(fontPath, 13, "")
+        if lblAnchor then
+            lbl:SetPoint("LEFT", lblAnchor, "RIGHT", item.icon and 6 or 8, 0)
+        else
+            lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
+        end
+        lbl:SetPoint("RIGHT", row, "RIGHT", (item.dual and not item.noCheck) and -32 or -10, 0)
+        lbl:SetJustifyH("LEFT")
+        lbl:SetWordWrap(false)
+        lbl:SetMaxLines(1)
+        local hl = row:CreateTexture(nil, "ARTWORK")
+        hl:SetAllPoints()
+        row._lbl, row._hl = lbl, hl
+        if item.dual and not item.noCheck then
+            local negBox = CreateFrame("Button", nil, row)
+            negBox:SetSize(16, 16)
+            negBox:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+            negBox:SetFrameLevel(row:GetFrameLevel() + 1)
+            local negBg = negBox:CreateTexture(nil, "BACKGROUND")
+            negBg:SetAllPoints()
+            negBg:SetColorTexture(0.114, 0.106, 0.099, 1)
+            row._negBrd = EllesmereUI.MakeBorder(negBox, 0.4, 0.4, 0.4, 0.6, PP)
+            local negChk = negBox:CreateTexture(nil, "ARTWORK")
+            PP.SetInside(negChk, negBox, 2, 2)
+            negChk:SetColorTexture(0.85, 0.3, 0.3, 1)
+            negChk:SetSnapToPixelGrid(false)
+            row._negBox, row._negChk = negBox, negChk
+        end
+        if item.swatch then
+            -- The swatch reads and writes the swatch spec of the item the row shows (row._swSpec).
+            row._swSpec = item.swatch
+            local sw, swUpdate = EllesmereUI.BuildColorSwatch(row, row:GetFrameLevel() + 1,
+                function() return row._swSpec.get() end,
+                function(...) row._swSpec.set(...) end,
+                item.swatch.hasAlpha, 16)
+            sw:ClearAllPoints()
+            sw:SetPoint("RIGHT", row, "RIGHT", row._negBox and -32 or -10, 0)
+            lbl:SetPoint("RIGHT", sw, "LEFT", -6, 0)
+            local swBlock = CreateFrame("Frame", nil, sw)
+            swBlock:SetAllPoints()
+            swBlock:SetFrameLevel(sw:GetFrameLevel() + 10)
+            swBlock:EnableMouse(true)
+            swBlock:SetScript("OnEnter", function()
+                local tip = EllesmereUI.ResolveDisabledTip(row._swSpec)
+                if tip then EllesmereUI.ShowWidgetTooltip(sw, tip) end
+            end)
+            swBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            swBlock:Hide()
+            row._sw, row._swUpdate, row._swBlock = sw, swUpdate, swBlock
+        end
+        return row
+    end
+
     local function EnsureMenu()
-        if menu then return end
-        local ITEM_H = 28
-        local HDR_H = 22
+        if menu and not menuStale then return end
+        menuStale = nil
+        local firstBuild = not menu
         -- Opt-in top-action rows (item.isTopAction with label + onClick): accent clickable entries pinned ABOVE the search box with a divider under the group -- the "Custom Spell ID at the top" pattern from the CDM spell pickers. Excluded from the scroll list, the checkable count, and the summary label.
         local topActions = {}
-        -- Top-action locked tints refresh in the same sweeps as _allRows. They can't JOIN _allRows: the search relayout repositions every frame in that list, and top actions live above the search box.
-        local _taTints = {}
+        wipe(_taTints)
         for _, item in ipairs(items) do
             if item.isTopAction then topActions[#topActions + 1] = item end
         end
@@ -185,48 +352,48 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         local needsScroll = maxVisibleItems and checkableCount > maxVisibleItems
         -- +2 accounts for scroll frame 1px top + 1px bottom insets so non-scrolling menus don't scroll
         local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4 + CLOSE_BTN_H) or (contentH + 4)) + SEARCH_H + TOP_H
-        menu = CreateFrame("Frame", nil, EllesmereUI.OverlayParent())
+        if firstBuild then
+            -- One menu per dropdown button for the session: a build that dresses
+            -- the button again gets this frame back here, reset to new.
+            menu = PoolKept(ddBtn, "cbMenu", "Frame", EllesmereUI.OverlayParent())
+        end
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
         menu:SetFrameLevel(200)
         menu:SetClampedToScreen(true)
         menu:EnableMouse(true)
         menu:SetSize(ddW, menuH)
+        menu:ClearAllPoints()
         menu:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -2)
         menu:Hide()
-        -- Controller cursor: the list blocks what is under it but is not a stop itself;
-        -- Cancel clicks the dropdown button (it toggles the list closed).
-        if EllesmereUI.PadCP() then
-            EllesmereUI.PadHint(menu, "nodepass")
-            menu.CloseButton = ddBtn
+        if firstBuild then
+            -- Controller cursor: the list blocks what is under it but is not a stop itself;
+            -- Cancel clicks the dropdown button (it toggles the list closed).
+            if EllesmereUI.PadCP() then
+                EllesmereUI.PadHint(menu, "nodepass")
+                menu.CloseButton = ddBtn
+            end
+            local mBg = menu:CreateTexture(nil, "BACKGROUND")
+            mBg:SetAllPoints()
+            mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+            EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
         end
-        local mBg = menu:CreateTexture(nil, "BACKGROUND")
-        mBg:SetAllPoints()
-        mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-        EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
         local ppScale = EllesmereUI.GetPopupScale() or 1
         menu:SetScale(ppScale)
+        for _, pool in pairs(rowPools) do pool.used = 0 end
 
         -- Top-action rows above the search box, divider under the group.
         if #topActions > 0 then
             local ay = -4
             for i = 1, #topActions do
                 local item = topActions[i]
-                local row = CreateFrame("Button", nil, menu)
-                row:SetHeight(ITEM_H)
+                local row = AcquireRow("ta", MakeTextRow, menu)
+                row:ClearAllPoints()
                 row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, ay)
                 row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, ay)
                 row:SetFrameLevel(menu:GetFrameLevel() + 2)
-                local lbl = row:CreateFontString(nil, "OVERLAY")
-                lbl:SetFont(fontPath, 13, "")
+                local lbl, hl = row._lbl, row._hl
                 lbl:SetTextColor(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 0.8)
-                lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
-                lbl:SetPoint("RIGHT", row, "RIGHT", -10, 0)
-                lbl:SetJustifyH("LEFT")
-                lbl:SetWordWrap(false)
-                lbl:SetMaxLines(1)
                 lbl:SetText(EllesmereUI.L(item.label))
-                local hl = row:CreateTexture(nil, "ARTWORK")
-                hl:SetAllPoints()
                 hl:SetColorTexture(1, 1, 1, 0)
                 -- Opt-in locked state (item.lockedFn + item.lockedTooltip): evaluated LIVE on hover/click (checkbox toggles can flip it while the menu is open), plus once at build for the initial tint.
                 local function TALocked()
@@ -264,127 +431,138 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 end)
                 ay = ay - ITEM_H
             end
-            local divider = menu:CreateTexture(nil, "ARTWORK")
-            divider:SetHeight(1)
-            divider:SetPoint("TOPLEFT", menu, "TOPLEFT", 10, ay - 3)
-            divider:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -10, ay - 3)
-            divider:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+            if not taDivider then
+                taDivider = menu:CreateTexture(nil, "ARTWORK")
+                taDivider:SetHeight(1)
+                taDivider:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+            end
+            taDivider:ClearAllPoints()
+            taDivider:SetPoint("TOPLEFT", menu, "TOPLEFT", 10, ay - 3)
+            taDivider:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -10, ay - 3)
+            taDivider:Show()
+        elseif taDivider then
+            taDivider:Hide()
         end
 
         -- Search box (optional)
-        local searchEdit, searchPlaceholder
         if searchable then
-            searchEdit = CreateFrame("EditBox", nil, menu)
-            searchEdit:SetSize(ddW - 16, SEARCH_H)
+            if not searchEdit then
+                searchEdit = CreateFrame("EditBox", nil, menu)
+                searchEdit:SetSize(ddW - 16, SEARCH_H)
+                searchEdit:SetFont(fontPath, 11, "")
+                searchEdit:SetTextColor(1, 1, 1, 0.9)
+                searchEdit:SetJustifyH("LEFT")
+                searchEdit:SetAutoFocus(false)
+                searchEdit:SetMaxLetters(30)
+                searchEdit:SetTextInsets(4, 4, 0, 0)
+                local sBg = searchEdit:CreateTexture(nil, "BACKGROUND")
+                sBg:SetAllPoints()
+                sBg:SetColorTexture(0, 0, 0, 0.4)
+                searchPlaceholder = searchEdit:CreateFontString(nil, "OVERLAY")
+                searchPlaceholder:SetFont(fontPath, 11, "")
+                searchPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.6)
+                searchPlaceholder:SetPoint("LEFT", searchEdit, "LEFT", 4, 0)
+                searchPlaceholder:SetText(EllesmereUI.L("Search..."))
+                searchEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+            end
+            searchEdit:ClearAllPoints()
             searchEdit:SetPoint("TOP", menu, "TOP", 0, -4 - TOP_H)
             searchEdit:SetFrameLevel(menu:GetFrameLevel() + 3)
-            searchEdit:SetFont(fontPath, 11, "")
-            searchEdit:SetTextColor(1, 1, 1, 0.9)
-            searchEdit:SetJustifyH("LEFT")
-            searchEdit:SetAutoFocus(false)
-            searchEdit:SetMaxLetters(30)
-            searchEdit:SetTextInsets(4, 4, 0, 0)
-            local sBg = searchEdit:CreateTexture(nil, "BACKGROUND")
-            sBg:SetAllPoints()
-            sBg:SetColorTexture(0, 0, 0, 0.4)
-            searchPlaceholder = searchEdit:CreateFontString(nil, "OVERLAY")
-            searchPlaceholder:SetFont(fontPath, 11, "")
-            searchPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.6)
-            searchPlaceholder:SetPoint("LEFT", searchEdit, "LEFT", 4, 0)
-            searchPlaceholder:SetText(EllesmereUI.L("Search..."))
-            searchEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
         end
 
         -- Scroll frame for items
-        local sf = CreateFrame("ScrollFrame", nil, menu)
-        local sfTop = -((SEARCH_H > 0 and (SEARCH_H + 8) or 1) + TOP_H)
-        sf:SetPoint("TOPLEFT", 1, sfTop)
-        sf:SetPoint("BOTTOMRIGHT", -1, 1)
-        sf:EnableMouseWheel(true)
-        local child = CreateFrame("Frame", nil, sf)
-        child:SetWidth(ddW - 2)
-        child:SetHeight(contentH)
-        sf:SetScrollChild(child)
-        -- Thin scrollbar track (4px, right side, matching standard dropdown)
-        local cbTrack = CreateFrame("Frame", nil, sf)
-        cbTrack:SetWidth(4)
-        cbTrack:SetPoint("TOPRIGHT", sf, "TOPRIGHT", -4, -4)
-        cbTrack:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -4, 4)
-        cbTrack:SetFrameLevel(sf:GetFrameLevel() + 2)
-        local cbTrackBg = cbTrack:CreateTexture(nil, "BACKGROUND")
-        cbTrackBg:SetAllPoints()
-        cbTrackBg:SetColorTexture(1, 1, 1, 0.02)
+        if not sf then
+            sf = CreateFrame("ScrollFrame", nil, menu)
+            sf:EnableMouseWheel(true)
+            child = CreateFrame("Frame", nil, sf)
+            child:SetWidth(ddW - 2)
+            sf:SetScrollChild(child)
+            -- Thin scrollbar track (4px, right side, matching standard dropdown)
+            local cbTrack = CreateFrame("Frame", nil, sf)
+            cbTrack:SetWidth(4)
+            cbTrack:SetPoint("TOPRIGHT", sf, "TOPRIGHT", -4, -4)
+            cbTrack:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -4, 4)
+            cbTrack:SetFrameLevel(sf:GetFrameLevel() + 2)
+            local cbTrackBg = cbTrack:CreateTexture(nil, "BACKGROUND")
+            cbTrackBg:SetAllPoints()
+            cbTrackBg:SetColorTexture(1, 1, 1, 0.02)
 
-        local cbThumb = CreateFrame("Button", nil, cbTrack)
-        cbThumb:SetWidth(4)
-        cbThumb:SetFrameLevel(cbTrack:GetFrameLevel() + 1)
-        cbThumb:EnableMouse(true)
-        cbThumb:RegisterForDrag("LeftButton")
-        local cbThumbBg = cbThumb:CreateTexture(nil, "ARTWORK")
-        cbThumbBg:SetAllPoints()
-        cbThumbBg:SetColorTexture(1, 1, 1, 0.27)
-        -- Controller cursor: it scrolls the list to the row itself; the pointer-drag thumb is no stop.
-        EllesmereUI.PadHint(cbThumb, "nodeignore")
+            local cbThumb = CreateFrame("Button", nil, cbTrack)
+            cbThumb:SetWidth(4)
+            cbThumb:SetFrameLevel(cbTrack:GetFrameLevel() + 1)
+            cbThumb:EnableMouse(true)
+            cbThumb:RegisterForDrag("LeftButton")
+            local cbThumbBg = cbThumb:CreateTexture(nil, "ARTWORK")
+            cbThumbBg:SetAllPoints()
+            cbThumbBg:SetColorTexture(1, 1, 1, 0.27)
+            -- Controller cursor: it scrolls the list to the row itself; the pointer-drag thumb is no stop.
+            EllesmereUI.PadHint(cbThumb, "nodeignore")
 
-        local function SafeMaxScroll()
-            return math.max(0, child:GetHeight() - sf:GetHeight())
-        end
+            local function SafeMaxScroll()
+                return math.max(0, child:GetHeight() - sf:GetHeight())
+            end
 
-        local function UpdateCBThumb()
-            local maxScroll = SafeMaxScroll()
-            if maxScroll <= 0 then cbTrack:Hide(); return end
-            cbTrack:Show()
-            local trackH = cbTrack:GetHeight()
-            local visH = sf:GetHeight()
-            local ratio = visH / (visH + maxScroll)
-            local thumbH = math.max(20, trackH * ratio)
-            cbThumb:SetHeight(thumbH)
-            local scrollRatio = (tonumber(sf:GetVerticalScroll()) or 0) / maxScroll
-            local maxTravel = trackH - thumbH
-            cbThumb:ClearAllPoints()
-            cbThumb:SetPoint("TOP", cbTrack, "TOP", 0, -(scrollRatio * maxTravel))
-        end
-
-        -- Thumb drag
-        cbThumb:SetScript("OnMouseDown", function(self, button)
-            if button ~= "LeftButton" then return end
-            local _, cursorY = GetCursorPosition()
-            local dragStartY = cursorY / self:GetEffectiveScale()
-            local dragStartScroll = sf:GetVerticalScroll()
-            self:SetScript("OnUpdate", function(self2)
-                if not IsMouseButtonDown("LeftButton") then
-                    self2:SetScript("OnUpdate", nil)
-                    return
-                end
-                local _, cy = GetCursorPosition()
-                cy = cy / self2:GetEffectiveScale()
-                local deltaY = dragStartY - cy
-                local trackH = cbTrack:GetHeight()
-                local maxTravel = trackH - self2:GetHeight()
-                if maxTravel <= 0 then return end
+            UpdateCBThumb = function()
                 local maxScroll = SafeMaxScroll()
-                local newScroll = math.max(0, math.min(maxScroll,
-                    dragStartScroll + (deltaY / maxTravel) * maxScroll))
-                sf:SetVerticalScroll(newScroll)
+                if maxScroll <= 0 then cbTrack:Hide(); return end
+                cbTrack:Show()
+                local trackH = cbTrack:GetHeight()
+                local visH = sf:GetHeight()
+                local ratio = visH / (visH + maxScroll)
+                local thumbH = math.max(20, trackH * ratio)
+                cbThumb:SetHeight(thumbH)
+                local scrollRatio = (tonumber(sf:GetVerticalScroll()) or 0) / maxScroll
+                local maxTravel = trackH - thumbH
+                cbThumb:ClearAllPoints()
+                cbThumb:SetPoint("TOP", cbTrack, "TOP", 0, -(scrollRatio * maxTravel))
+            end
+
+            -- Thumb drag
+            cbThumb:SetScript("OnMouseDown", function(self, button)
+                if button ~= "LeftButton" then return end
+                local _, cursorY = GetCursorPosition()
+                local dragStartY = cursorY / self:GetEffectiveScale()
+                local dragStartScroll = sf:GetVerticalScroll()
+                self:SetScript("OnUpdate", function(self2)
+                    if not IsMouseButtonDown("LeftButton") then
+                        self2:SetScript("OnUpdate", nil)
+                        return
+                    end
+                    local _, cy = GetCursorPosition()
+                    cy = cy / self2:GetEffectiveScale()
+                    local deltaY = dragStartY - cy
+                    local trackH = cbTrack:GetHeight()
+                    local maxTravel = trackH - self2:GetHeight()
+                    if maxTravel <= 0 then return end
+                    local maxScroll = SafeMaxScroll()
+                    local newScroll = math.max(0, math.min(maxScroll,
+                        dragStartScroll + (deltaY / maxTravel) * maxScroll))
+                    sf:SetVerticalScroll(newScroll)
+                    UpdateCBThumb()
+                end)
+            end)
+            cbThumb:SetScript("OnMouseUp", function(self, button)
+                if button ~= "LeftButton" then return end
+                self:SetScript("OnUpdate", nil)
+            end)
+
+            sf:SetScript("OnMouseWheel", function(self, delta)
+                local maxScroll = SafeMaxScroll()
+                if maxScroll <= 0 then return end
+                local cur = self:GetVerticalScroll()
+                self:SetVerticalScroll(math.max(0, math.min(maxScroll, cur - delta * ITEM_H)))
                 UpdateCBThumb()
             end)
-        end)
-        cbThumb:SetScript("OnMouseUp", function(self, button)
-            if button ~= "LeftButton" then return end
-            self:SetScript("OnUpdate", nil)
-        end)
-
-        sf:SetScript("OnMouseWheel", function(self, delta)
-            local maxScroll = SafeMaxScroll()
-            if maxScroll <= 0 then return end
-            local cur = self:GetVerticalScroll()
-            self:SetVerticalScroll(math.max(0, math.min(maxScroll, cur - delta * ITEM_H)))
-            UpdateCBThumb()
-        end)
-        local itemParent = child
+        end
+        local sfTop = -((SEARCH_H > 0 and (SEARCH_H + 8) or 1) + TOP_H)
+        sf:ClearAllPoints()
+        sf:SetPoint("TOPLEFT", 1, sfTop)
+        sf:SetPoint("BOTTOMRIGHT", -1, 1)
+        child:SetHeight(contentH)
+        sf:SetVerticalScroll(0)
 
         local yOff = -4
-        local _allRows = {}  -- { frame, isHeader, label(string), height }
+        wipe(_allRows)
         -- Published for the refreshers below: the rows are parented to the SCROLL CHILD,
         -- so a menu:GetChildren() walk never reaches them.
         menu._rows = _allRows
@@ -393,32 +571,30 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             if item.isTopAction then -- luacheck: ignore (intentional empty)
             -- Header/divider items: non-interactive label
             elseif item.isHeader then
-                local hdrH = 22
-                local hdr = CreateFrame("Frame", nil, itemParent)
-                hdr:SetHeight(hdrH)
+                local hdrH = HDR_H
+                local hdr = AcquireRow("hdr", MakeHeaderRow)
+                hdr:ClearAllPoints()
                 hdr:SetPoint("TOPLEFT", child, "TOPLEFT", 1, yOff)
                 hdr:SetPoint("TOPRIGHT", child, "TOPRIGHT", -1, yOff)
                 hdr:SetFrameLevel(menu:GetFrameLevel() + 2)
-                local hdrLbl = hdr:CreateFontString(nil, "OVERLAY")
-                hdrLbl:SetFont(fontPath, 10, "")
-                hdrLbl:SetTextColor(0.5, 0.5, 0.5, 1)
-                hdrLbl:SetPoint("LEFT", hdr, "LEFT", 10, 0)
-                hdrLbl:SetJustifyH("LEFT")
-                hdrLbl:SetText(EllesmereUI.L(item.label))
-                local hdrLine = hdr:CreateTexture(nil, "ARTWORK")
-                hdrLine:SetHeight(1)
-                hdrLine:SetPoint("LEFT", hdrLbl, "RIGHT", 6, 0)
-                hdrLine:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+                local hdrLine = hdr._line
+                hdr._lbl:SetText(EllesmereUI.L(item.label))
                 -- Opt-in right caption (item.rightLabel): labels the hide-lane column on dual menus.
                 if item.rightLabel then
-                    local hdrR = hdr:CreateFontString(nil, "OVERLAY")
-                    hdrR:SetFont(fontPath, 10, "")
-                    hdrR:SetTextColor(0.5, 0.5, 0.5, 1)
-                    hdrR:SetPoint("RIGHT", hdr, "RIGHT", -10, 0)
-                    hdrR:SetJustifyH("RIGHT")
+                    local hdrR = hdr._right
+                    if not hdrR then
+                        hdrR = hdr:CreateFontString(nil, "OVERLAY")
+                        hdrR:SetFont(fontPath, 10, "")
+                        hdrR:SetTextColor(0.5, 0.5, 0.5, 1)
+                        hdrR:SetPoint("RIGHT", hdr, "RIGHT", -10, 0)
+                        hdrR:SetJustifyH("RIGHT")
+                        hdr._right = hdrR
+                    end
                     hdrR:SetText(EllesmereUI.L(item.rightLabel))
+                    hdrR:Show()
                     hdrLine:SetPoint("RIGHT", hdrR, "LEFT", -6, 0)
                 else
+                    if hdr._right then hdr._right:Hide() end
                     hdrLine:SetPoint("RIGHT", hdr, "RIGHT", -10, 0)
                 end
                 if item.tooltip then
@@ -429,31 +605,27 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                     hdr:SetScript("OnLeave", function()
                         EllesmereUI.HideWidgetTooltip()
                     end)
+                else
+                    hdr:SetScript("OnEnter", nil)
+                    hdr:SetScript("OnLeave", nil)
+                    hdr:EnableMouse(false)
                 end
                 _allRows[#_allRows + 1] = { frame = hdr, isHeader = true, label = item.label, height = hdrH }
                 yOff = yOff - hdrH
             elseif item.isAction then
                 -- Action item: clickable text, no checkbox (for "All Specs", "All Healers", etc.)
-                local row = CreateFrame("Button", nil, itemParent)
-                row:SetHeight(ITEM_H)
+                local row = AcquireRow("act", MakeTextRow, child)
+                row:ClearAllPoints()
                 row:SetPoint("TOPLEFT", child, "TOPLEFT", 1, yOff)
                 row:SetPoint("TOPRIGHT", child, "TOPRIGHT", -1, yOff)
                 row:SetFrameLevel(menu:GetFrameLevel() + 2)
-                local lbl = row:CreateFontString(nil, "OVERLAY")
-                lbl:SetFont(fontPath, 13, "")
+                local lbl, hl = row._lbl, row._hl
                 lbl:SetTextColor(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 0.8)
-                lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
-                lbl:SetPoint("RIGHT", row, "RIGHT", -10, 0)
-                lbl:SetJustifyH("LEFT")
-                lbl:SetWordWrap(false)
-                lbl:SetMaxLines(1)
                 lbl:SetText(EllesmereUI.L(item.labelFn and item.labelFn() or item.label))
                 local function UpdateActionLabel()
                     if item.labelFn then lbl:SetText(EllesmereUI.L(item.labelFn())) end
                 end
                 row._updateActionLabel = UpdateActionLabel
-                local hl = row:CreateTexture(nil, "ARTWORK")
-                hl:SetAllPoints()
                 hl:SetColorTexture(1, 1, 1, 0)
                 local EG_r, EG_g, EG_b = EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b
                 local function UpdateActionLocked()
@@ -486,40 +658,29 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 yOff = yOff - ITEM_H
             else
 
-            local row = CreateFrame("Button", nil, itemParent)
-            row:SetHeight(ITEM_H)
+            -- Opt-in plain rows (item.noCheck): the identical row minus the checkbox -- the regular-dropdown look for select-style pickers. Click still routes setFn(key, not getFn(key)), so a picker whose getFn is constant-false always selects with true.
+            local shape = (item.noCheck and "n" or "c") .. (item.icon and "i" or "")
+                .. ((item.dual and not item.noCheck) and "d" or "")
+                .. (item.swatch and (item.swatch.hasAlpha and "A" or "s") or "")
+            local row = AcquireRow("chk" .. shape, MakeCheckRow, item)
+            row:ClearAllPoints()
             row:SetPoint("TOPLEFT", child, "TOPLEFT", 1, yOff)
             row:SetPoint("TOPRIGHT", child, "TOPRIGHT", -1, yOff)
             row:SetFrameLevel(menu:GetFrameLevel() + 2)
-            -- Opt-in plain rows (item.noCheck): the identical row minus the checkbox -- the regular-dropdown look for select-style pickers. Click still routes setFn(key, not getFn(key)), so a picker whose getFn is constant-false always selects with true.
-            local box, boxBrd, chk
-            if not item.noCheck then
-                box = CreateFrame("Frame", nil, row)
-                box:SetSize(16, 16)
-                box:SetPoint("LEFT", row, "LEFT", 10, 0)
-                local boxBg = box:CreateTexture(nil, "BACKGROUND")
-                boxBg:SetAllPoints()
-                boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-                boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
-                chk = box:CreateTexture(nil, "ARTWORK")
-                PP.SetInside(chk, box, 2, 2)
+            row._isLocked = nil
+            local box, boxBrd, chk = row._box, row._boxBrd, row._chk
+            if chk then
                 chk:SetColorTexture(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 1)
-                chk:SetSnapToPixelGrid(false)
+                box:SetScript("OnEnter", nil)
+                box:SetScript("OnLeave", nil)
+                box:EnableMouse(false)
+                box:SetAlpha(1)
             end
             -- Optional icon (spell icon etc.) between checkbox and label
-            local lblAnchor = box
-            if item.icon then
+            if row._ico then
                 local icoSz = item.iconSize or (ITEM_H - 6)
-                local ico = row:CreateTexture(nil, "ARTWORK")
-                ico:SetSize(icoSz, icoSz)
-                if box then
-                    ico:SetPoint("LEFT", box, "RIGHT", 6, 0)
-                else
-                    ico:SetPoint("LEFT", row, "LEFT", 10, 0)
-                end
-                ico:SetTexture(item.icon)
-                ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                lblAnchor = ico
+                row._ico:SetSize(icoSz, icoSz)
+                row._ico:SetTexture(item.icon)
             end
             -- Opt-in dimmed rows (item.dimFn): a pick that has no effect here right now
             -- (it shows somewhere else) rests dimmed but stays clickable, and hovering it
@@ -536,66 +697,23 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 if Dimmed() then return 0.5, 0.5, 0.5 end
                 return 0.75, 0.75, 0.75
             end
-            local lbl = row:CreateFontString(nil, "OVERLAY")
-            lbl:SetFont(fontPath, 13, "")
+            local lbl, hl = row._lbl, row._hl
             lbl:SetTextColor(RestColor())
-            if lblAnchor then
-                lbl:SetPoint("LEFT", lblAnchor, "RIGHT", item.icon and 6 or 8, 0)
-            else
-                lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
-            end
-            lbl:SetPoint("RIGHT", row, "RIGHT", (item.dual and not item.noCheck) and -32 or -10, 0)
-            lbl:SetJustifyH("LEFT")
-            lbl:SetWordWrap(false)
-            lbl:SetMaxLines(1)
             lbl:SetText(EllesmereUI.L(item.label))
-            local hl = row:CreateTexture(nil, "ARTWORK")
-            hl:SetAllPoints()
             hl:SetColorTexture(1, 1, 1, 0)
             -- Opt-in dual-lane rows (item.dual): a second right-aligned box is the HIDE lane.
             -- Lane state reads getFn(key, true) and writes setFn(key, v, true); the show lane
             -- keeps the plain getFn(key)/setFn(key, v) contract, so single-lane callers are
             -- untouched. item.showLockedFn dims the show lane; while it is locked, row clicks
             -- fall through to the hide lane (broad "All" modes already show everything).
-            local negBox, negBrd, negChk
-            if item.dual and not item.noCheck then
-                negBox = CreateFrame("Button", nil, row)
-                negBox:SetSize(16, 16)
-                negBox:SetPoint("RIGHT", row, "RIGHT", -10, 0)
-                negBox:SetFrameLevel(row:GetFrameLevel() + 1)
-                local negBg = negBox:CreateTexture(nil, "BACKGROUND")
-                negBg:SetAllPoints()
-                negBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-                negBrd = EllesmereUI.MakeBorder(negBox, 0.4, 0.4, 0.4, 0.6, PP)
-                negChk = negBox:CreateTexture(nil, "ARTWORK")
-                PP.SetInside(negChk, negBox, 2, 2)
-                negChk:SetColorTexture(0.85, 0.3, 0.3, 1)
-                negChk:SetSnapToPixelGrid(false)
-            end
+            local negBox, negBrd, negChk = row._negBox, row._negBrd, row._negChk
             -- Opt-in colour swatch (item.swatch = { get = fn -> r, g, b, a, set = fn(r, g, b, a),
             -- hasAlpha, disabled = fn, disabledTooltip (+ rawTooltip / requireState, as
             -- ResolveDisabledTip) }): its own button at the row's right edge, so a click
             -- opens the colour picker and never toggles the row. While disabled it dims
             -- and a blocker takes its clicks and explains the requirement.
-            local sw, swUpdate, swBlock
-            if item.swatch then
-                local spec = item.swatch
-                sw, swUpdate = EllesmereUI.BuildColorSwatch(row, row:GetFrameLevel() + 1,
-                    spec.get, spec.set, spec.hasAlpha, 16)
-                sw:ClearAllPoints()
-                sw:SetPoint("RIGHT", row, "RIGHT", negBox and -32 or -10, 0)
-                lbl:SetPoint("RIGHT", sw, "LEFT", -6, 0)
-                swBlock = CreateFrame("Frame", nil, sw)
-                swBlock:SetAllPoints()
-                swBlock:SetFrameLevel(sw:GetFrameLevel() + 10)
-                swBlock:EnableMouse(true)
-                swBlock:SetScript("OnEnter", function()
-                    local tip = EllesmereUI.ResolveDisabledTip(spec)
-                    if tip then EllesmereUI.ShowWidgetTooltip(sw, tip) end
-                end)
-                swBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                swBlock:Hide()
-            end
+            local sw, swUpdate, swBlock = row._sw, row._swUpdate, row._swBlock
+            if sw then row._swSpec = item.swatch end
             local function ShowLaneLocked()
                 return item.showLockedFn and item.showLockedFn() or false
             end
@@ -706,7 +824,9 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             end
             row._updateLocked = UpdateLocked
             UpdateLocked()
-            local function AfterToggle()
+            -- snap: the slot snapshot the click took before its setter ran
+            -- (EllesmereUI._SOAttribution), or nil.
+            local function AfterToggle(snap)
                 -- opts.notifyWrites: join the primary capture path every other widget's
                 -- setter uses. Without it a checklist has only the polling fallback,
                 -- whose mouse attribution is CLEARED while the menu (a UIParent child
@@ -714,8 +834,8 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 -- the write when it happens. ddBtn's parent carries the row's
                 -- _captureCfg, so the slot is attributed exactly. Opt-in: every other
                 -- checklist keeps the behaviour it has always had.
-                if opts.notifyWrites and EllesmereUI._NotifySettingWrite then
-                    EllesmereUI._NotifySettingWrite(ddBtn)
+                if opts.notifyWrites then
+                    EllesmereUI._NotifySettingWrite(ddBtn, snap)
                 end
                 UpdateLabel()
                 -- Refresh checkbox visuals + dynamic action labels, so items whose checked state depends on others (e.g. "Always" in crosshair) update live. Locked visuals refresh too, so rows whose lockedFn depends on the current selection never show a stale gray/active state.
@@ -738,18 +858,22 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             end
             row:SetScript("OnClick", function()
                 if RowLocked() then return end
+                -- The slot the write belongs to, taken before the setter runs: a
+                -- setter that rebuilds the page can dress ddBtn for another slot.
+                local snap = opts.notifyWrites and EllesmereUI._SOAttribution(ddBtn) or nil
                 if negBox and ShowLaneLocked() then
                     setFn(item.key, not getFn(item.key, true), true)
                 else
                     setFn(item.key, not getFn(item.key))
                 end
-                AfterToggle()
+                AfterToggle(snap)
             end)
             if negBox then
                 negBox:SetScript("OnClick", function()
                     if RowLocked() then return end
+                    local snap = opts.notifyWrites and EllesmereUI._SOAttribution(ddBtn) or nil
                     setFn(item.key, not getFn(item.key, true), true)
-                    AfterToggle()
+                    AfterToggle(snap)
                 end)
                 negBox:SetScript("OnEnter", function()
                     if row._isLocked then
@@ -814,46 +938,53 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 end
             end
             if first and last then
-                local seal = CreateFrame("Button", nil, itemParent)
+                if not seal then
+                    seal = CreateFrame("Button", nil, child)
+                    seal:SetFrameLevel(menu:GetFrameLevel() + 8)
+                    local wash = seal:CreateTexture(nil, "BACKGROUND")
+                    wash:SetAllPoints()
+                    wash:SetColorTexture(0.9, 0.2, 0.2, 0.05)
+                    if PP and PP.CreateBorder then
+                        PP.CreateBorder(seal, 0.9, 0.2, 0.2, 0.9, 1, "OVERLAY", 7)
+                    end
+                    -- Caption on the block's top edge rather than across its middle: the wash
+                    -- is deliberately faint, so a centred label would land on readable rows.
+                    local sealLbl = seal:CreateFontString(nil, "OVERLAY", nil, 7)
+                    sealLbl:SetFont(fontPath, 11, "")
+                    sealLbl:SetTextColor(1, 0.35, 0.35, 1)
+                    sealLbl:SetPoint("TOPRIGHT", seal, "TOPRIGHT", -6, -5)
+                    sealLbl:SetText(EllesmereUI.L("Not overridable"))
+                    -- The section header's divider line runs straight THROUGH the caption at
+                    -- this height. A plate in the menu's own background colour cuts the line
+                    -- for the width of the text: the seal sits at a higher frame level than
+                    -- the header, so anything it draws covers that line.
+                    local plate = seal:CreateTexture(nil, "ARTWORK", nil, 6)
+                    plate:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
+                        EllesmereUI.DD_BG_B, 1)
+                    plate:SetPoint("TOPLEFT", sealLbl, "TOPLEFT", -5, 2)
+                    plate:SetPoint("BOTTOMRIGHT", sealLbl, "BOTTOMRIGHT", 5, -2)
+                    seal:EnableMouse(true)
+                    seal:SetScript("OnEnter", function(self)
+                        if opts.ovLockedTooltip then
+                            EllesmereUI.ShowWidgetTooltip(self, opts.ovLockedTooltip)
+                        end
+                    end)
+                    seal:SetScript("OnLeave", function()
+                        EllesmereUI.HideWidgetTooltip()
+                    end)
+                end
+                seal:ClearAllPoints()
                 seal:SetPoint("TOPLEFT", _allRows[first].frame, "TOPLEFT", 1, 0)
                 -- The 4px scrollbar track sits 4px off the right edge, ON the scroll
                 -- frame rather than in here, so the seal stops short of it instead of
                 -- running underneath and having the bar cut through its border.
                 seal:SetPoint("BOTTOMRIGHT", _allRows[last].frame, "BOTTOMRIGHT", -9, 0)
                 seal:SetFrameLevel(menu:GetFrameLevel() + 8)
-                local wash = seal:CreateTexture(nil, "BACKGROUND")
-                wash:SetAllPoints()
-                wash:SetColorTexture(0.9, 0.2, 0.2, 0.05)
-                if PP and PP.CreateBorder then
-                    PP.CreateBorder(seal, 0.9, 0.2, 0.2, 0.9, 1, "OVERLAY", 7)
-                end
-                -- Caption on the block's top edge rather than across its middle: the wash
-                -- is deliberately faint, so a centred label would land on readable rows.
-                local sealLbl = seal:CreateFontString(nil, "OVERLAY", nil, 7)
-                sealLbl:SetFont(fontPath, 11, "")
-                sealLbl:SetTextColor(1, 0.35, 0.35, 1)
-                sealLbl:SetPoint("TOPRIGHT", seal, "TOPRIGHT", -6, -5)
-                sealLbl:SetText(EllesmereUI.L("Not overridable"))
-                -- The section header's divider line runs straight THROUGH the caption at
-                -- this height. A plate in the menu's own background colour cuts the line
-                -- for the width of the text: the seal sits at a higher frame level than
-                -- the header, so anything it draws covers that line.
-                local plate = seal:CreateTexture(nil, "ARTWORK", nil, 6)
-                plate:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
-                    EllesmereUI.DD_BG_B, 1)
-                plate:SetPoint("TOPLEFT", sealLbl, "TOPLEFT", -5, 2)
-                plate:SetPoint("BOTTOMRIGHT", sealLbl, "BOTTOMRIGHT", 5, -2)
-                seal:EnableMouse(true)
-                seal:SetScript("OnEnter", function(self)
-                    if opts.ovLockedTooltip then
-                        EllesmereUI.ShowWidgetTooltip(self, opts.ovLockedTooltip)
-                    end
-                end)
-                seal:SetScript("OnLeave", function()
-                    EllesmereUI.HideWidgetTooltip()
-                end)
                 menu._ovSeal = seal
                 seal:SetShown(opts.ovLockedFn())
+            else
+                menu._ovSeal = nil
+                if seal then seal:Hide() end
             end
         end
 
@@ -862,28 +993,43 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             local CLOSE_H = 26
             local closePad = 6
             yOff = yOff - closePad
-            local closeBtn = CreateFrame("Button", nil, itemParent)
-            closeBtn:SetHeight(CLOSE_H)
-            local closeBtnW = math.floor((ddW - 2) * 0.75)
-            closeBtn:SetWidth(closeBtnW)
+            local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+            if not closeBtn then
+                closeBtn = CreateFrame("Button", nil, child)
+                closeBtn:SetHeight(CLOSE_H)
+                local closeBtnW = math.floor((ddW - 2) * 0.75)
+                closeBtn:SetWidth(closeBtnW)
+                closeBtn:SetFrameLevel(menu:GetFrameLevel() + 3)
+                local closeBg = closeBtn:CreateTexture(nil, "BACKGROUND")
+                closeBg:SetAllPoints()
+                closeBtn._bg = closeBg
+                local closeLbl = closeBtn:CreateFontString(nil, "OVERLAY")
+                closeLbl:SetFont(fontPath, 12, "")
+                closeLbl:SetPoint("CENTER")
+                closeLbl:SetText(EllesmereUI.L(type(closeButton) == "string" and closeButton or "Okay"))
+                closeLbl:SetTextColor(1, 1, 1, 1)
+                closeBtn:SetScript("OnClick", function() menu:Hide() end)
+                closeBtn:SetScript("OnEnter", function() closeBg:SetColorTexture(EG.r, EG.g, EG.b, 1) end)
+                closeBtn:SetScript("OnLeave", function() closeBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85) end)
+            end
+            closeBtn._bg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+            closeBtn:ClearAllPoints()
             closeBtn:SetPoint("TOP", child, "TOPLEFT", (ddW - 2) / 2, yOff)
             closeBtn:SetFrameLevel(menu:GetFrameLevel() + 3)
-            local closeBg = closeBtn:CreateTexture(nil, "BACKGROUND")
-            closeBg:SetAllPoints()
-            local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
-            closeBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
-            local closeLbl = closeBtn:CreateFontString(nil, "OVERLAY")
-            closeLbl:SetFont(fontPath, 12, "")
-            closeLbl:SetPoint("CENTER")
-            closeLbl:SetText(EllesmereUI.L(type(closeButton) == "string" and closeButton or "Okay"))
-            closeLbl:SetTextColor(1, 1, 1, 1)
-            closeBtn:SetScript("OnClick", function() menu:Hide() end)
-            closeBtn:SetScript("OnEnter", function() closeBg:SetColorTexture(EG.r, EG.g, EG.b, 1) end)
-            closeBtn:SetScript("OnLeave", function() closeBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85) end)
             yOff = yOff - CLOSE_H - closePad
         end
 
         child:SetHeight(math.max(1, math.abs(yOff)))
+
+        -- Rows a dynamic list no longer uses stay pooled, hidden and inert.
+        for _, pool in pairs(rowPools) do
+            for i = pool.used + 1, #pool do
+                local r = pool[i]
+                r:Hide()
+                r._updateCheck, r._updateLocked, r._updateActionLabel = nil, nil, nil
+            end
+        end
+        if not firstBuild then return end
 
         -- Wire search filtering
         if searchEdit then
@@ -983,11 +1129,13 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
     end
 
     local function ApplyNormal()
+        if PoolGen(ddBtn) ~= dressGen then return end
         ddLbl:SetTextColor(1, 1, 1, EllesmereUI.DD_TXT_A)
         ddBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
         ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
     end
     local function ApplyHover()
+        if PoolGen(ddBtn) ~= dressGen then return end
         ddLbl:SetTextColor(1, 1, 1, EllesmereUI.DD_TXT_HA)
         ddBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_HA)
         ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
@@ -1002,14 +1150,12 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
     end)
 
     local function ShowMenu()
-        -- Dynamic items: re-evaluate and rebuild the menu on every open (only when about to show -- a toggle-close never rebuilds).
+        -- Dynamic items: re-evaluate and lay the menu out again on every open (only when about to show -- a toggle-close never rebuilds).
         if itemsFn and not (menu and menu:IsShown()) then
             items = itemsFn() or {}
             if menu then
                 menu:Hide()
-                menu:SetParent(nil)
-                menu = nil
-                ddBtn._ddMenu = nil
+                menuStale = true
             end
             UpdateLabel()
         end
@@ -1087,6 +1233,9 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
     ddBtn:HookScript("OnHide", function() if menu then menu:Hide() end end)
 
     local function RefreshAll()
+        -- A caller may keep this past a page pass that dressed ddBtn (and with it
+        -- the kept menu) for another build.
+        if PoolGen(ddBtn) ~= dressGen then return end
         UpdateLabel()
         if menu then
             for _, r in ipairs(menu._rows or {}) do
@@ -1200,6 +1349,7 @@ end
 --      setOrder = function(orderedMovableKeys),  -- fired on every drop
 --      onClose  = function(orderChanged),        -- fired once per menu close
 --      hint     = "Drag to Reorder",             -- text above the rows
+--      grip     = true,                          -- a three-dash drag handle on each movable row
 --      hint2    = "...",                         -- optional second hint line
 --      canReorder = function() -> boolean,       -- optional drag guard
 --      summaryLabel = function(movable, fixed, getFn) -> string,
@@ -1214,6 +1364,9 @@ end
 --  Returns ddBtn, RefreshAll (same contract as BuildVisOptsCBDropdown).
 -------------------------------------------------------------------------------
 function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, getFn, setFn, opts)
+    -- Search prebuild on an absorber row: the dropdown indexes nothing, so none is built.
+    local standIn = StandIn(parentFrame)
+    if standIn then return standIn, standIn end
     opts = opts or {}
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
     local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
@@ -1241,6 +1394,8 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
     end
 
     local ddBtn = CreateFrame("Button", nil, parentFrame)
+    -- This build's dress of the button (see BuildVisOptsCBDropdown).
+    local dressGen = PoolGen(ddBtn)
     PP.Size(ddBtn, ddW, 30)
     ddBtn:SetFrameLevel(fLevel)
     local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
@@ -1273,6 +1428,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
         return table.concat(names, ", ")
     end
     local function UpdateLabel()
+        if PoolGen(ddBtn) ~= dressGen then return end
         ddLbl:SetText(SummaryLabel())
     end
     UpdateLabel()
@@ -1292,7 +1448,9 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
         local ROWS_BASE_Y = -4 - HEAD_H - HINT_H
         local menuH = 4 + HEAD_H + HINT_H + #movable * ITEM_H
             + ((#fixedItems > 0) and (DIV_H + #fixedItems * ITEM_H) or 0) + TAIL_H + 4
-        menu = CreateFrame("Frame", nil, EllesmereUI.OverlayParent())
+        -- One menu per dropdown button for the session: a build that dresses the
+        -- button again gets this frame back here, reset to new.
+        menu = PoolKept(ddBtn, "reorderMenu", "Frame", EllesmereUI.OverlayParent())
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
         menu:SetFrameLevel(200)
         menu:SetClampedToScreen(true)
@@ -1405,7 +1563,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             lbl:SetFont(fontPath, 13, "")
             lbl:SetTextColor(0.75, 0.75, 0.75, 1)
             lbl:SetPoint("LEFT", box, "RIGHT", 8, 0)
-            lbl:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+            lbl:SetPoint("RIGHT", row, "RIGHT", (draggable and opts.grip) and -30 or -10, 0)
             lbl:SetJustifyH("LEFT")
             lbl:SetWordWrap(false)
             lbl:SetMaxLines(1)
@@ -1413,6 +1571,15 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             local hl = row:CreateTexture(nil, "ARTWORK")
             hl:SetAllPoints()
             hl:SetColorTexture(1, 1, 1, 0)
+            -- opts.grip: a three-dash handle on the right of each movable row.
+            if draggable and opts.grip then
+                for g = 1, 3 do
+                    local bar = row:CreateTexture(nil, "ARTWORK")
+                    bar:SetSize(10, 1)
+                    bar:SetPoint("RIGHT", row, "RIGHT", -10, (2 - g) * 3)
+                    bar:SetColorTexture(1, 1, 1, 0.35)
+                end
+            end
             local function UpdateCheck()
                 if getFn(row._item.key) then
                     chk:Show()
@@ -1649,11 +1816,13 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
     end
 
     local function ApplyNormal()
+        if PoolGen(ddBtn) ~= dressGen then return end
         ddLbl:SetTextColor(1, 1, 1, EllesmereUI.DD_TXT_A)
         ddBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
         ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
     end
     local function ApplyHover()
+        if PoolGen(ddBtn) ~= dressGen then return end
         ddLbl:SetTextColor(1, 1, 1, EllesmereUI.DD_TXT_HA)
         ddBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_HA)
         ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
@@ -1686,6 +1855,9 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
     ddBtn:HookScript("OnHide", function() if menu then menu:Hide() end end)
 
     local function RefreshAll()
+        -- A caller may keep this past a page pass that dressed ddBtn (and with it
+        -- the kept menu's rows) for another build.
+        if PoolGen(ddBtn) ~= dressGen then return end
         UpdateLabel()
         for _, r in ipairs(allRows) do
             if r._updateCheck then r._updateCheck() end
@@ -1707,10 +1879,15 @@ end
 --  Returns: ddBtn, refreshFn
 -------------------------------------------------------------------------------
 function EllesmereUI.BuildSliderDropdown(parentFrame, ddW, fLevel, items, opts)
+    -- Search prebuild on an absorber row: the dropdown indexes nothing, so none is built.
+    local standIn = StandIn(parentFrame)
+    if standIn then return standIn, standIn end
     local PP = EllesmereUI.PP
     opts = opts or {}
     local fontPath = EllesmereUI.EXPRESSWAY
     local ddBtn = CreateFrame("Button", nil, parentFrame)
+    -- This build's dress of the button (see BuildVisOptsCBDropdown).
+    local dressGen = PoolGen(ddBtn)
     PP.Size(ddBtn, ddW, 30)
     ddBtn:SetFrameLevel(fLevel)
     local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
@@ -1726,6 +1903,7 @@ function EllesmereUI.BuildSliderDropdown(parentFrame, ddW, fLevel, items, opts)
     ddLbl:SetPoint("RIGHT", arrow, "LEFT", -5, 0)
 
     local function Paint(hover)
+        if PoolGen(ddBtn) ~= dressGen then return end
         ddLbl:SetTextColor(1, 1, 1, hover and EllesmereUI.DD_TXT_HA or EllesmereUI.DD_TXT_A)
         ddBrd:SetColor(1, 1, 1, hover and EllesmereUI.DD_BRD_HA or EllesmereUI.DD_BRD_A)
         ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B,
@@ -1734,6 +1912,7 @@ function EllesmereUI.BuildSliderDropdown(parentFrame, ddW, fLevel, items, opts)
     Paint(false)
 
     local function UpdateLabel()
+        if PoolGen(ddBtn) ~= dressGen then return end
         local names = {}
         for _, item in ipairs(items) do
             local v = item.get()
@@ -1753,7 +1932,9 @@ function EllesmereUI.BuildSliderDropdown(parentFrame, ddW, fLevel, items, opts)
     local ROW_H, PAD, TRACK_W = 34, 6, 140
     local function EnsureMenu()
         if menu then return end
-        menu = CreateFrame("Frame", nil, EllesmereUI.OverlayParent())
+        -- One menu per dropdown button for the session: a build that dresses the
+        -- button again gets this frame back here, reset to new.
+        menu = PoolKept(ddBtn, "sliderMenu", "Frame", EllesmereUI.OverlayParent())
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
         menu:SetFrameLevel(200)
         menu:SetClampedToScreen(true)
@@ -1787,11 +1968,14 @@ function EllesmereUI.BuildSliderDropdown(parentFrame, ddW, fLevel, items, opts)
                 EllesmereUI.SL_INPUT_A, item.min or 0, item.max or 100, item.step or 1,
                 item.get,
                 function(v)
+                    -- Attributed to the button: its row carries the override
+                    -- capture config, the menu sits on the overlay parent. The
+                    -- slot is taken before the setter runs: one that rebuilds
+                    -- the page can dress ddBtn for another slot.
+                    local snap = EllesmereUI._SOAttribution(ddBtn)
                     item.set(v)
                     UpdateLabel()
-                    -- Attributed to the button: its row carries the override
-                    -- capture config, the menu sits on the overlay parent.
-                    EllesmereUI._NotifySettingWrite(ddBtn)
+                    EllesmereUI._NotifySettingWrite(ddBtn, snap)
                 end, true)
             PP.Point(valBox, "RIGHT", row, "RIGHT", -12, 0)
             PP.Point(track, "RIGHT", valBox, "LEFT", -12, 0)
@@ -1876,6 +2060,9 @@ function EllesmereUI.BuildSliderDropdown(parentFrame, ddW, fLevel, items, opts)
     ddBtn:HookScript("OnHide", function() if menu then menu:Hide() end end)
 
     local function RefreshAll()
+        -- A caller may keep this past a page pass that dressed ddBtn (and with it
+        -- the kept menu's sliders) for another build.
+        if PoolGen(ddBtn) ~= dressGen then return end
         UpdateLabel()
         if menu and menu:IsShown() then
             for i = 1, #refreshers do refreshers[i]() end

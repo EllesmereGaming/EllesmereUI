@@ -50,9 +50,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
 
     side = side or "left"
 
-    -- Mini frames (ToT/FoT/Pet) render no power bar, debuffs or castbar at
-    -- runtime (the pet's buffs and debuffs are opt-in), so the preview must match. WoW Forever's pet has power: its
-    -- bar draws here in the EUI look (the stock styles paint their own).
+    -- Mini frames (ToT/FoT/Pet) have no power bar, cast bar or auras at
+    -- runtime, so the preview draws none, except the pet's opt-in buffs and
+    -- debuffs (drawn while their Location is set) and, on WoW Forever, the
+    -- pet's power bar in the EUI look (the stock styles paint their own).
     local isMiniPreview = (unitKey == "targettarget" or unitKey == "focustarget" or unitKey == "pet")
     local noPowerPreview = isMiniPreview
         and not (unitKey == "pet" and ns.UF_PetHasPower and not ResolveBlizzPreview(unitKey, settings))
@@ -517,11 +518,12 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             if content == "level" then return lvl
             elseif content == "levelname" then return lvl .. " | " .. _pvName()
             else return _pvName() .. " | " .. lvl end
-        elseif content == "both" or content == "bothdash" or content == "curhpshort" or content == "curmaxhp" or content == "perhp" or content == "perhpnosign" or content == "perhpnum" or content == "perhpnumdash" then
+        elseif content == "both" or content == "bothdash" or content == "curhpshort" or content == "healthshort" or content == "curmaxhp" or content == "perhp" or content == "perhpnosign" or content == "perhpnum" or content == "perhpnumdash" then
             local maxHP = UnitHealthMax("player") or 1
             local pct = optState._previewHealthPct or 0.70
             local curHP = math.floor(maxHP * pct)
-            if content == "curhpshort" then return _pvAbbrev(curHP)
+            if content == "healthshort" then return ns.AbbreviateShortHealth(curHP)
+            elseif content == "curhpshort" then return _pvAbbrev(curHP)
             elseif content == "curmaxhp" then return _pvAbbrev(curHP) .. " / " .. _pvAbbrev(maxHP)
             elseif content == "perhp" then return _pvPct(pct) .. "%"
             elseif content == "perhpnosign" then return _pvPct(pct)
@@ -665,7 +667,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             local barW = s.frameWidth or 181
             if rc ~= "none" then
                 local UF_TEXT_PADDING = 10
-                local ufTW = { both = 75, curhpshort = 38, curmaxhp = 75, curmaxpp = 75, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
+                local ufTW = { both = 75, curhpshort = 38, healthshort = 38, curmaxhp = 75, curmaxpp = 75, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
                 local rightUsed = (ufTW[rc] or 0) + UF_TEXT_PADDING
                 PP.Width(leftFS, math.max(barW - rightUsed - 10, 20))
             else
@@ -2076,15 +2078,21 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         pf._previewScale = (pf._previewBaseScale or pf._previewScale or 1)
             * (blizzG and pf._blizzScale(s) or 1)
 
+        -- The aura settings the live containers read: the pet's through its
+        -- Copy Auras From view (its own size, crop and placement, the source
+        -- frame's look), every other unit's own table.
+        local as = s
+        if unitKey == "pet" then as = ns.UF_AuraSettings("pet") or s end
+
         -- Aura preview: mirror the live shared aura border style.
-        if unitKey == "player" or unitKey == "target" or unitKey == "focus" or unitKey == "boss" then
+        if unitKey == "player" or unitKey == "target" or unitKey == "focus" or unitKey == "boss" or unitKey == "pet" then
             -- Blizzard Style: the live frames draw no custom aura border, so
             -- the preview keeps the plain 1px edge and hides it too.
             local blizzAura = blizzG ~= nil
             local function ApplyPreviewAuraBorder(icon)
                 if icon._iconTex then
                     icon._iconTex:ClearAllPoints()
-                    local inset = (blizzAura or (s.auraBorderSize or 1) > 0) and 1 or 0
+                    local inset = (blizzAura or (as.auraBorderSize or 1) > 0) and 1 or 0
                     PP.Point(icon._iconTex, "TOPLEFT", icon, "TOPLEFT", inset, -inset)
                     PP.Point(icon._iconTex, "BOTTOMRIGHT", icon, "BOTTOMRIGHT", -inset, inset)
                 end
@@ -2100,25 +2108,25 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                     icon._euiAuraBorder = border
                 end
                 local aboveEffects = unitKey == "boss" and ns.UF_BossAuraBorderAboveEffects(s)
-                if s.auraBorderBehindUnitFrame then
+                if as.auraBorderBehindUnitFrame then
                     border:SetFrameLevel(0)
                 elseif aboveEffects then
                     border:SetFrameLevel(icon:GetFrameLevel() + 20)
                 else
-                    border:SetFrameLevel(s.auraBorderBehind
+                    border:SetFrameLevel(as.auraBorderBehind
                         and math.max(0, icon:GetFrameLevel() - 1) or (icon:GetFrameLevel() + 1))
                 end
                 if icon._durText and (aboveEffects or icon._borderAboveEffects) then
                     icon._durText:GetParent():SetFrameLevel(icon:GetFrameLevel() + (aboveEffects and 25 or 2))
                     icon._borderAboveEffects = aboveEffects or nil
                 end
-                EllesmereUI.ApplyBorderStyle(border, s.auraBorderSize or 1,
-                    s.auraBorderR or 0, s.auraBorderG or 0, s.auraBorderB or 0, s.auraBorderA or 1,
-                    s.auraBorderTexture or "solid",
-                    s.auraBorderTextureOffset, s.auraBorderTextureOffsetY,
-                    s.auraBorderTextureShiftX, s.auraBorderTextureShiftY,
-                    "unitframes", s.auraBorderSize or 1, nil,
-                    EllesmereUI.BorderPx(s.auraBorderSizePx, s.auraBorderSize or 1, s.auraBorderTexture or "solid"))
+                EllesmereUI.ApplyBorderStyle(border, as.auraBorderSize or 1,
+                    as.auraBorderR or 0, as.auraBorderG or 0, as.auraBorderB or 0, as.auraBorderA or 1,
+                    as.auraBorderTexture or "solid",
+                    as.auraBorderTextureOffset, as.auraBorderTextureOffsetY,
+                    as.auraBorderTextureShiftX, as.auraBorderTextureShiftY,
+                    "unitframes", as.auraBorderSize or 1, nil,
+                    EllesmereUI.BorderPx(as.auraBorderSizePx, as.auraBorderSize or 1, as.auraBorderTexture or "solid"))
             end
             for i = 1, #buffIcons do ApplyPreviewAuraBorder(buffIcons[i]) end
             for i = 1, #debuffIcons do ApplyPreviewAuraBorder(debuffIcons[i]) end
@@ -3276,7 +3284,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                     buffSize = (s.healthHeight or 34) + pvPowerH
                 end
                 -- Crop never applies in simple mode (runtime parity).
-                local buffCrop = (not simpleBuffOn) and (s.buffCropIcons or false) or false
+                local buffCrop = (not simpleBuffOn) and (as.buffCropIcons or false) or false
                 local buffH = ns.GetAuraCropHeight(buffCrop, buffSize)
                 -- Boss spacing from its slider (simple display has its own key);
                 -- other units keep the 1px schematic gap.
@@ -3371,7 +3379,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                         if bf._iconTex then
                             bf._iconTex:SetTexture(_previewBuffIcons[i] or 135932)
                             -- SetTexture resets texcoord, so re-apply the crop each update.
-                            ns.SetAuraIconCrop(bf._iconTex, buffCrop, buffSize, buffH, s.buffIconZoom or 0.07)
+                            ns.SetAuraIconCrop(bf._iconTex, buffCrop, buffSize, buffH, as.buffIconZoom or 0.07)
                         end
                         if i == 1 then ns.UFOpt_PreviewPurgeGlow(bf, unitKey, s, buffSize, buffH) end
                     else
@@ -3430,7 +3438,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local debuffSize = effectiveDebuffSize
                 -- Crop never applies in simple boss mode (runtime passes nil crop
                 -- and frame-height-matches those icons).
-                local debuffCrop = (not simpleOn) and (s.debuffCropIcons or false) or false
+                local debuffCrop = (not simpleOn) and (as.debuffCropIcons or false) or false
                 local debuffH = ns.GetAuraCropHeight(debuffCrop, debuffSize)
                 -- Boss spacing from its slider (simple display has its own key);
                 -- other units keep the 1px schematic gap.
@@ -3491,12 +3499,12 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local simpleIconPt   = (simpleMode == "right") and "TOPLEFT"  or "TOPRIGHT"
                 local simpleParentPt = (simpleMode == "right") and "TOPRIGHT" or "TOPLEFT"
                 local simpleEdgeSign = (simpleMode == "right") and 1 or -1
-                local anchorKey = justH .. am.pt .. am.ox .. am.oy .. dx .. dy .. debuffSize .. debuffH .. (useSimpleBossAnchor and "S" or "N") .. simpleMode .. dOffX .. "gx" .. debuffGapX .. "gy" .. debuffGapY .. "z" .. (s.debuffIconZoom or 0.07)
+                local anchorKey = justH .. am.pt .. am.ox .. am.oy .. dx .. dy .. debuffSize .. debuffH .. (useSimpleBossAnchor and "S" or "N") .. simpleMode .. dOffX .. "gx" .. debuffGapX .. "gy" .. debuffGapY .. "z" .. (as.debuffIconZoom or 0.07)
                 for i, df in ipairs(debuffIcons) do
                     if i <= visibleDebuffCount then
                         if df._anchorKey ~= anchorKey then
                             PP.Size(df, debuffSize, debuffH)
-                            if df._iconTex then ns.SetAuraIconCrop(df._iconTex, debuffCrop, debuffSize, debuffH, s.debuffIconZoom or 0.07) end
+                            if df._iconTex then ns.SetAuraIconCrop(df._iconTex, debuffCrop, debuffSize, debuffH, as.debuffIconZoom or 0.07) end
                             df:ClearAllPoints()
                             if i == 1 then
                                 if useSimpleBossAnchor then
@@ -3898,8 +3906,11 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         pf._detTopExtra = detTopExtra
         local parentTH = th * combinedScale
         local cpBottomScaled = cpBottomH * combinedScale
+        -- The preview hint belongs to the Main Frames header, which parents it to
+        -- its own preview: only that preview's header makes room for it.
         local hintH = 0
-        if optState._ufPreviewHintFS_display and optState._ufPreviewHintFS_display:IsShown() then hintH = 29 end
+        if optState._ufPreviewHintFS_display and optState._ufPreviewHintFS_display:IsShown()
+            and optState._ufPreviewHintFS_display:GetParent() == pf then hintH = 29 end
         local fixedH = pf._headerFixedH or 0
         if fixedH > 0 then
             -- The preview slid down by auraTopOv, so the section must grow by it
@@ -4132,6 +4143,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
     pf._nameFS = leftFS
     pf._hpFS = rightFS
     pf._centerFS = centerFS
+    pf._extraFS = extraFS
     pf._portraitFrame = portraitFrame
     pf._buffIcons = buffIcons
     pf._debuffIcons = debuffIcons

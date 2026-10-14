@@ -202,6 +202,9 @@ local FOLDER_BLACKLIST = {
     EllesmereUIForeverEssentials = true,
     -- Each action menu picks its own specs (Assign to Spec) instead.
     EllesmereUIQuickdraw         = true,
+    -- A per-character store outside the profiles; each assignment picks its
+    -- own spec (Assign For) instead.
+    EllesmereUILoadoutManager    = true,
     -- Minimap + Chat + CooldownManager ARE override-eligible; their
     -- spell/engine-coupled settings are excluded per-path via
     -- SETTING_BLACKLIST below (CDM spell data itself lives OUTSIDE the profile
@@ -505,6 +508,11 @@ local SETTING_BLACKLIST = {
         showFriends = true, showDurability = true, showCopy = true,
         showPortals = true, showVoice = true, showSettings = true,
         showScroll = true, sidebarIconOrder = true,
+        foreverBorder = true, -- reload-gated WoW Forever Border Style (latched with the look)
+    },
+    EllesmereUIMinimap = {
+        foreverBorder = true, -- reload-gated WoW Forever Border Style (latched with the look)
+        blizzBorder   = true, -- reload-gated Blizzard Style Border Style on WoW Forever (likewise)
     },
     EllesmereUICooldownManager = {
         barSpellSettings   = true,   -- "Apply to Bar (All Specs)" per-spell tier
@@ -3636,6 +3644,7 @@ end
 local EXCLUDED_CONTEXTS = {
     [PROFILES_MODULE] = true,                  -- Profiles & Presets (incl. list tab)
     ["_EUIPatchNotes"] = true,                 -- Patch Notes
+    ["_EUILegends"] = true,                    -- EUI Legends
     ["_EUIGlobal"] = true,                     -- Global Settings (whole module)
     -- (Global Settings -> Colors stays eligible)
     -- Blacklisted modules (see FOLDER_BLACKLIST): their pages are fully
@@ -3650,6 +3659,7 @@ local EXCLUDED_CONTEXTS = {
     ["EllesmereUIAuraBuffReminders"] = true,
     ["EllesmereUIForeverEssentials"] = true,
     ["EllesmereUIQuickdraw"]         = true,
+    ["EllesmereUILoadoutManager"]    = true,
     -- CDM: module eligible (bar settings override); these two tabs are
     -- spell/spec-coupled systems with their own per-spec storage.
     ["EllesmereUICooldownManager"] = {
@@ -5009,23 +5019,47 @@ end
 local _traceSink = nil
 local _traceReal = nil
 
-local function MakeReadProxy(real, folder, prefix)
-    local proxy = {}
-    setmetatable(proxy, {
-        __index = function(_, k)
-            local v = real[k]
-            local path = prefix and (prefix .. PS .. tostring(k)) or tostring(k)
-            if type(v) == "table" then
-                return MakeReadProxy(v, folder, path)
+local MakeReadProxy
+do
+    -- proxy -> the table it reads (weak). A getter that writes back a table it
+    -- read under the trace (an accessor that ensures or compacts a structure)
+    -- must store the tables behind the proxies: a proxy holds nothing of its
+    -- own, so SavedVariables would save it empty, and the next trace would wrap
+    -- it again, one layer per walk until reading it overflows the C stack.
+    -- Writes unwrap the value, and the proxies one level inside a plain table
+    -- built from them. (A do-block: the main chunk is at the local cap.)
+    local proxyOf = setmetatable({}, { __mode = "k" })
+    local function Unwrap(v)
+        local r = proxyOf[v]
+        while r do v = r; r = proxyOf[v] end
+        if type(v) == "table" then
+            for k, x in next, v do
+                local rx = type(x) == "table" and proxyOf[x]
+                if rx then rawset(v, k, Unwrap(rx)) end
             end
-            if _traceSink then
-                _traceSink[folder .. FS .. path] = true
-            end
-            return v
-        end,
-        __newindex = function(_, k, v) real[k] = v end,
-    })
-    return proxy
+        end
+        return v
+    end
+
+    MakeReadProxy = function(real, folder, prefix)
+        local proxy = {}
+        setmetatable(proxy, {
+            __index = function(_, k)
+                local v = real[k]
+                local path = prefix and (prefix .. PS .. tostring(k)) or tostring(k)
+                if type(v) == "table" then
+                    return MakeReadProxy(v, folder, path)
+                end
+                if _traceSink then
+                    _traceSink[folder .. FS .. path] = true
+                end
+                return v
+            end,
+            __newindex = function(_, k, v) real[k] = Unwrap(v) end,
+        })
+        proxyOf[proxy] = real
+        return proxy
+    end
 end
 
 local function BeginTrace()
@@ -5080,9 +5114,32 @@ end
 -- tip: gold only -- the "Overridden by: ..." tooltip text (SlotTipFor), shown from
 -- a small info badge in the slot's top-left corner (the only hover surface: the
 -- widget's own label/control tooltips stay untouched).
+-- A mark frame on a region of the options page pool rides on it (hidden at the
+-- region's reset, its key kept) instead of being lost with the region's dress;
+-- the region's next dress puts it at its new frame level (as a new mark would be).
 local function SetSlotMark(region, mode, conflictSpecID, condName, tip)
+    local m = region._specOvGold
+    if m and m._soStale then m._soStale = nil; m:SetFrameLevel(region:GetFrameLevel() + 30) end
+    m = region._specOvHover
+    if m and m._soStale then m._soStale = nil; m:SetFrameLevel(region:GetFrameLevel() + 31) end
+    m = region._specOvRed
+    if m and m._soStale then
+        m._soStale = nil
+        m:SetFrameLevel(region:GetFrameLevel() + 30)
+        m._blocker:SetFrameLevel(region:GetFrameLevel() + 45)
+    end
+    m = region._specOvCondActive
+    if m and m._soStale then
+        m._soStale = nil
+        m:SetFrameLevel(region:GetFrameLevel() + 30)
+        m._blocker:SetFrameLevel(region:GetFrameLevel() + 45)
+    end
+    local Pool = EllesmereUI._Pool
     if mode == "gold" and not region._specOvGold then
         region._specOvGold = MakeBorderHost(region, GOLD_R, GOLD_G, GOLD_B)
+        if Pool and Pool.Gen and Pool.Gen(region) then
+            Pool.Attach(region, region._specOvGold, "_specOvGold", function(h) h._soStale = true end)
+        end
     end
     if mode == "gold" and tip and not region._specOvHover then
         -- Info badge: gold "i" bubble tucked inside the gold border's top-left
@@ -5113,6 +5170,9 @@ local function SetSlotMark(region, mode, conflictSpecID, condName, tip)
         end)
         badge:SetMouseClickEnabled(false)
         region._specOvHover = badge
+        if Pool and Pool.Gen and Pool.Gen(region) then
+            Pool.Attach(region, badge, "_specOvHover", function(h) h._soStale = true end)
+        end
     end
     if mode == "red" and not region._specOvRed then
         local host = MakeBorderHost(region, 0.9, 0.2, 0.2)
@@ -5133,6 +5193,9 @@ local function SetSlotMark(region, mode, conflictSpecID, condName, tip)
         end)
         host._blocker = blocker
         region._specOvRed = host
+        if Pool and Pool.Gen and Pool.Gen(region) then
+            Pool.Attach(region, host, "_specOvRed", function(h) h._soStale = true end)
+        end
     end
     if mode == "condActive" and not region._specOvCondActive then
         -- Same look as the RF party-tab sync overlays (solid dark blue cover, centered
@@ -5175,6 +5238,9 @@ local function SetSlotMark(region, mode, conflictSpecID, condName, tip)
         host._blocker = blocker
         host._label = label
         region._specOvCondActive = host
+        if Pool and Pool.Gen and Pool.Gen(region) then
+            Pool.Attach(region, host, "_specOvCondActive", function(h) h._soStale = true end)
+        end
     end
     if region._specOvGold then region._specOvGold:SetShown(mode == "gold") end
     -- Tip lives only while the slot is gold; the label tooltips read it live.
@@ -5216,9 +5282,13 @@ local _editLocks = setmetatable({}, { __mode = "k" })
 local function UpdateEditLocks()
     local specOn = _editGroup ~= nil
     for _, host in pairs(_editLocks) do
+        -- A lock whose region the options page pool reset belongs to no row until
+        -- the region is locked again (AttachEditLock): it stays hidden.
+        if host._inactive then
+            -- nothing
         -- Predicate locks decide their own visibility per session (e.g. the
         -- Dark Mode condition locks); plain locks show for any spec session.
-        if host._predicate then
+        elseif host._predicate then
             host:SetShown(host._predicate() and true or false)
         else
             host:SetShown(specOn)
@@ -5272,6 +5342,21 @@ function EllesmereUI.SpecOverrides_AttachEditLock(region, tip, predicate)
         end)
         host._blocker = blocker
         _editLocks[region] = host
+        -- On a region of the options page pool the lock rides on it: the region's
+        -- reset hides it and leaves it inactive until the region is locked again.
+        local Pool = EllesmereUI._Pool
+        if Pool and Pool.Gen and Pool.Gen(region) then
+            Pool.Attach(region, host, nil, function(h)
+                h._inactive = true
+                h:Hide()
+            end)
+        end
+    end
+    if host._inactive then
+        -- back on its region's new dress: at the region's new level
+        host._inactive = nil
+        host:SetFrameLevel(region:GetFrameLevel() + 30)
+        host._blocker:SetFrameLevel(region:GetFrameLevel() + 45)
     end
     host._blocker._tipText = tip
     host._predicate = predicate
@@ -5401,8 +5486,14 @@ local function GoldWalk(frame, forceOff, condGid, condName)
             frame._specOvHover:Hide()
         end
     end
+    -- Only what is on screen: a hidden cached page is walked again when it
+    -- shows (every page select requests a walk), and its getters never run
+    -- under the trace meanwhile (another module's page may be excluded).
     local kids = { frame:GetChildren() }
-    for i = 1, #kids do GoldWalk(kids[i], forceOff, condGid, condName) end
+    for i = 1, #kids do
+        local kid = kids[i]
+        if kid:IsShown() then GoldWalk(kid, forceOff, condGid, condName) end
+    end
 end
 
 local _goldWalkQueued = false
@@ -5447,7 +5538,25 @@ end
 -------------------------------------------------------------------------------
 local _watchSnap = nil
 local _watchTicker = nil
-local _lastRegion, _lastRegionTime = nil, 0
+-- The slot the last edit is attributed to, as a SNAPSHOT of its region (the
+-- slot's capture config, its section and its overridden tip) taken when the
+-- slot was sampled or notified: a page rebuild that dresses that region for
+-- another slot (the options page pool) can never re-point it. snap: the last
+-- snapshot or nil; time: when it was taken; sample: the reused table the
+-- mouse-focus sampler fills; Snap(region, into): fills a snapshot.
+-- pend: the one snapshot the factory hands a write before its setter runs
+-- (_SOAttribution) while it waits for the next frame's attribution, busy while
+-- it does; held: where the attribution keeps the snapshot that won it.
+local _lastAttr = { snap = nil, time = 0, sample = { _soSnap = true }, pend = { _soSnap = true },
+    held = { _soSnap = true }, busy = false }
+function _lastAttr.Snap(region, into)
+    into.cfg = region._captureCfg
+    local row = region._isOptionRow and region or region:GetParent()
+    local hdr = row and row._sectionHeader
+    into.section = hdr and hdr._sectionName or nil
+    into.tip = region._specOvTip
+    return into
+end
 local _watchResync = false   -- absorb the next tick's diff (page rebuild seeds)
 local _sessionIgnored = {}   -- fkeys written on excluded pages this session
                              -- (never captured, and skipped by the exit sweep)
@@ -5475,12 +5584,12 @@ local function SampleAttribution()
         n = n:GetParent()
     end
     if region then
-        _lastRegion, _lastRegionTime = region, GetTime()
+        _lastAttr.snap, _lastAttr.time = _lastAttr.Snap(region, _lastAttr.sample), GetTime()
     elseif popup then
         -- keep the previous attribution (edits flow through the popup)
-        _lastRegionTime = GetTime()
+        _lastAttr.time = GetTime()
     elseif not inPanel then
-        _lastRegion = nil   -- interacting with the world / other UI
+        _lastAttr.snap = nil   -- interacting with the world / other UI
     end
 end
 
@@ -5493,16 +5602,14 @@ local function AutoCapture(changes)
     -- window bounds this mouse-focus FALLBACK (the notified-write path attributes
     -- exactly); longer lets unrelated background writes (match propagation,
     -- combat-end refreshers) land under the last slot touched.
-    local region = _lastRegion
-    if not (region and region._captureCfg and (GetTime() - _lastRegionTime) < 3) then
+    local snap = _lastAttr.snap
+    if not (snap and snap.cfg and (GetTime() - _lastAttr.time) < 3) then
         return
     end
     -- Excluded contexts (whole modules, pages, or single sections) never factor into
     -- spec overrides: absorb, and shield these paths from the exit sweep. Section is
     -- derived up front so section-scoped (nested-table) entries apply.
-    local row = region._isOptionRow and region or region:GetParent()
-    local hdr = row and row._sectionHeader
-    local section = hdr and hdr._sectionName or nil
+    local section = snap.section
     if IsExcludedContext(section) then
         for _, c in ipairs(changes) do
             _sessionIgnored[c.fkey] = true
@@ -5563,7 +5670,7 @@ local function AutoCapture(changes)
     end
     if #paths > 12 then return end   -- burst; not a slot edit
 
-    local cfg = region._captureCfg
+    local cfg = snap.cfg
     local slotLabel = tostring(cfg.text or "?")
     local module = EllesmereUI:GetActiveModule()
     local page = EllesmereUI:GetActivePage()
@@ -5902,23 +6009,36 @@ local function ProcessNotifiedWrites()
     _pendingWriteQueued = false
     local frames = _pendingWrites
     _pendingWrites = nil
+    -- the queued snapshot is read below, before anything can take it again
+    _lastAttr.busy = false
     if not (_editGroup or Cond._edit) or not _watchSnap then return end
     -- Prebuild writes are never user edits: absorb via resync (see WatchTick).
     if EllesmereUI._prebuilding then
         _watchSnap = SnapshotProfiles()
         return
     end
-    -- Exact attribution from the notified frames (first that resolves wins).
+    -- Exact attribution from the notified frames (first that resolves wins). An
+    -- entry is either a snapshot the notifier took (EllesmereUI._SOAttribution)
+    -- or the frame itself, resolved here as it stands now.
     for _, f in ipairs(frames or {}) do
         if type(f) == "table" then
-            local n, region = f, nil
-            while n do
-                if n._captureCfg then region = n; break end
-                n = n:GetParent()
-            end
-            if region then
-                _lastRegion, _lastRegionTime = region, GetTime()
-                break
+            if f._soSnap then
+                if f.cfg then
+                    local h = _lastAttr.held
+                    h.cfg, h.section, h.tip = f.cfg, f.section, f.tip
+                    _lastAttr.snap, _lastAttr.time = h, GetTime()
+                    break
+                end
+            else
+                local n, region = f, nil
+                while n do
+                    if n._captureCfg then region = n; break end
+                    n = n:GetParent()
+                end
+                if region then
+                    _lastAttr.snap, _lastAttr.time = _lastAttr.Snap(region, _lastAttr.held), GetTime()
+                    break
+                end
             end
         end
     end
@@ -5952,20 +6072,25 @@ end
 -- live (store non-empty, panel open, no session), so users without overrides pay a
 -- single boolean per write.
 local _warnWatch   -- one-shot GLOBAL_MOUSE_UP frame: the guide never pops mid-drag
-local function MaybeWarnDefaultEdit(frame)
+local function MaybeWarnDefaultEdit(frame, snap)
     local DEFAULT_EDIT_GUIDE = "override_default_edit"
     local VG = EllesmereUI.VideoGuides
     if not VG or VG.HasSeen(DEFAULT_EDIT_GUIDE) then return end
     -- Hidden search prebuild: selector setters run on pages the user never sees.
     if EllesmereUI._prebuilding then return end
     if _warnWatch and _warnWatch._pending then return end
-    local n = frame
-    while n do
-        if n._captureCfg then break end
-        n = n.GetParent and n:GetParent() or nil
+    -- Only a slot the last gold walk marked as overridden qualifies (from the
+    -- notifier's snapshot when it took one, else the frame as it stands now).
+    if snap then
+        if not snap.tip then return end
+    else
+        local n = frame
+        while n do
+            if n._captureCfg then break end
+            n = n.GetParent and n:GetParent() or nil
+        end
+        if not (n and n._specOvTip) then return end
     end
-    -- Only a slot the last gold walk marked as overridden qualifies.
-    if not (n and n._specOvTip) then return end
     if not _warnWatch then
         _warnWatch = CreateFrame("Frame")
         _warnWatch:SetScript("OnEvent", function(self)
@@ -5991,17 +6116,52 @@ local function MaybeWarnDefaultEdit(frame)
     end
 end
 
+--- The slot a widget write belongs to, as a snapshot taken NOW: { cfg = the
+--- slot's capture config, section = its section name, tip = its overridden tip }.
+--- A setter that rebuilds the page (options page pool: the same frames dressed
+--- again for other slots) must not move the attribution, so the widget factory
+--- takes it BEFORE calling the user setter and hands it to _NotifySettingWrite.
+--- nil when nothing would read it (no editing session; the Default view once
+--- its warning was seen) or when the frame belongs to no slot. Same parent walk
+--- as the notified pass. In a session it fills ONE reused table: the first write
+--- of a frame wins the next frame's attribution (ProcessNotifiedWrites), so the
+--- writes after it, until that pass ran, take none (their frames are queued).
+function EllesmereUI._SOAttribution(frame)
+    if type(frame) ~= "table" then return nil end
+    local into
+    if _editGroup or Cond._edit then
+        if _lastAttr.busy then return nil end
+        into = _lastAttr.pend
+    elseif _defaultView then
+        -- read at once by MaybeWarnDefaultEdit, only until its guide was seen
+        local VG = EllesmereUI.VideoGuides
+        if not VG or VG.HasSeen("override_default_edit") then return nil end
+    else
+        return nil
+    end
+    local n = frame
+    while n do
+        if n._captureCfg then
+            if into then _lastAttr.busy = true end
+            return _lastAttr.Snap(n, into or { _soSnap = true })
+        end
+        n = n.GetParent and n:GetParent() or nil
+    end
+    return nil
+end
+
 --- Called by the widget factory whenever any options widget writes a value.
-function EllesmereUI._NotifySettingWrite(frame)
+--- snap: the slot snapshot the factory took before the setter ran (optional).
+function EllesmereUI._NotifySettingWrite(frame, snap)
     -- Conditional sessions capture through this path too. Without them in the gate they
     -- fall back to watcher/exit-sweep capture only, losing edits whenever a setter's
     -- forced refresh raises the resync absorb before a tick can attribute them.
     if not (_editGroup or Cond._edit) then
-        if _defaultView and type(frame) == "table" then MaybeWarnDefaultEdit(frame) end
+        if _defaultView and type(frame) == "table" then MaybeWarnDefaultEdit(frame, snap) end
         return
     end
     _pendingWrites = _pendingWrites or {}
-    _pendingWrites[#_pendingWrites + 1] = frame or false
+    _pendingWrites[#_pendingWrites + 1] = snap or frame or false
     if not _pendingWriteQueued then
         _pendingWriteQueued = true
         C_Timer.After(0, ProcessNotifiedWrites)
@@ -6446,7 +6606,7 @@ EnterGroupEdit = function(group)
     _watchSnap = SnapshotProfiles()
     _enterSnap = _watchSnap   -- session baseline for the exit sweep
     _sessionIgnored = {}
-    _lastRegion = nil
+    _lastAttr.snap, _lastAttr.busy = nil, false
     _watchTicker = C_Timer.NewTicker(0.4, WatchTick)
     ShowEditBanner(group)
     SetEditOverlayShown(true)
@@ -6640,7 +6800,7 @@ Cond.EnterEdit = function(g)
     _watchSnap = SnapshotProfiles()
     _enterSnap = _watchSnap
     _sessionIgnored = {}
-    _lastRegion = nil
+    _lastAttr.snap, _lastAttr.busy = nil, false
     _watchTicker = C_Timer.NewTicker(0.4, WatchTick)
     ShowEditBanner(g)
     SetEditStatus(L("Any setting you change now applies only while this conditional is active."), 1, 1, 0.6)
@@ -7060,23 +7220,48 @@ end
 -------------------------------------------------------------------------------
 local cardsPopup
 
+-- Card rows are pooled by position on the popup (parent._cards; parent._cardN is the
+-- next one RefreshCardsPopup lays out), and every per-card piece is re-applied here.
 local function BuildCardRow(parent, y, opts)
-    local row = CreateFrame("Button", nil, parent)
-    row:SetSize(parent:GetWidth() - 20, 40)
-    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
-    local hl = row:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.05)
-    local brd = EllesmereUI.MakeBorder(row, 1, 1, 1, opts.active and 0 or 0.08)
-    if opts.active and brd and brd.SetColor then
-        brd:SetColor(ACCENT_R, ACCENT_G, ACCENT_B, 0.8)
+    local cards = parent._cards
+    if not cards then cards = {}; parent._cards = cards end
+    local n = (parent._cardN or 0) + 1
+    parent._cardN = n
+    local row = cards[n]
+    if not row then
+        row = CreateFrame("Button", nil, parent)
+        local hl = row:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints()
+        hl:SetColorTexture(1, 1, 1, 0.05)
+        row._brd = EllesmereUI.MakeBorder(row, 1, 1, 1, 0.08)
+        local icon = row:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(26, 26)
+        icon:SetPoint("LEFT", row, "LEFT", 8, 0)
+        row._icon = icon
+        local name = EllesmereUI.MakeFont(row, 13, nil, 1, 1, 1, 0.9)
+        name:SetPoint("LEFT", icon, "RIGHT", 10, 0)
+        row._nameFS = name
+        cards[n] = row
     end
-    local icon = row:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(26, 26)
-    icon:SetPoint("LEFT", row, "LEFT", 8, 0)
+    row:SetSize(parent:GetWidth() - 20, 40)
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
+    row:SetAlpha(1)
+    row:Show()
+    local brd = row._brd
+    if opts.active then
+        brd:SetColor(ACCENT_R, ACCENT_G, ACCENT_B, 0.8)
+    else
+        brd:SetColor(1, 1, 1, 0.08)
+    end
+    local icon = row._icon
+    icon:SetTexture(nil)
+    icon:SetTexCoord(0, 1, 0, 1)
+    icon:SetDesaturated(false)
+    icon:SetVertexColor(1, 1, 1, 1)
     if opts.iconApply then opts.iconApply(icon) end
-    local name = EllesmereUI.MakeFont(row, 13, nil, 1, 1, 1, opts.dim and 0.55 or 0.9)
-    name:SetPoint("LEFT", icon, "RIGHT", 10, 0)
+    local name = row._nameFS
+    name:SetTextColor(1, 1, 1, opts.dim and 0.55 or 0.9)
     name:SetText(opts.name)
     if opts.tooltip then
         row:SetScript("OnEnter", function(self)
@@ -7085,6 +7270,9 @@ local function BuildCardRow(parent, y, opts)
         row:SetScript("OnLeave", function()
             EllesmereUI.HideWidgetTooltip()
         end)
+    else
+        row:SetScript("OnEnter", nil)
+        row:SetScript("OnLeave", nil)
     end
     if opts.locked then
         -- BM page lock: not selectable while another override's Buff Manager is
@@ -7098,56 +7286,82 @@ local function BuildCardRow(parent, y, opts)
     end
     local del
     if opts.deletable then
-        del = CreateFrame("Button", nil, row)
-        del:SetSize(20, 20)
-        del:SetPoint("RIGHT", row, "RIGHT", -6, 1)
-        del:SetFrameLevel(row:GetFrameLevel() + 2)
-        -- Same close glyph the Blizzard window skins use.
-        local xt = del:CreateTexture(nil, "OVERLAY")
-        xt:SetAtlas("uitools-icon-close")
-        xt:SetSize(15, 15)
-        xt:SetPoint("CENTER", del, "CENTER", 0, -2)
-        xt:SetVertexColor(1, 1, 1, 0.75)
-        del:SetScript("OnEnter", function(self)
-            xt:SetVertexColor(1, 1, 1, 1)
-            EllesmereUI.ShowWidgetTooltip(self, L("Delete Override Group"))
-        end)
-        del:SetScript("OnLeave", function()
-            xt:SetVertexColor(1, 1, 1, 0.75)
-            EllesmereUI.HideWidgetTooltip()
-        end)
+        del = row._del
+        if not del then
+            del = CreateFrame("Button", nil, row)
+            del:SetSize(20, 20)
+            del:SetPoint("RIGHT", row, "RIGHT", -6, 1)
+            del:SetFrameLevel(row:GetFrameLevel() + 2)
+            -- Same close glyph the Blizzard window skins use.
+            local xt = del:CreateTexture(nil, "OVERLAY")
+            xt:SetAtlas("uitools-icon-close")
+            xt:SetSize(15, 15)
+            xt:SetPoint("CENTER", del, "CENTER", 0, -2)
+            del._xt = xt
+            del:SetScript("OnEnter", function(self)
+                xt:SetVertexColor(1, 1, 1, 1)
+                EllesmereUI.ShowWidgetTooltip(self, L("Delete Override Group"))
+            end)
+            del:SetScript("OnLeave", function()
+                xt:SetVertexColor(1, 1, 1, 0.75)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+            row._del = del
+        end
+        del._xt:SetVertexColor(1, 1, 1, 0.75)
         del:SetScript("OnClick", opts.onDelete)
+        del:Show()
+    elseif row._del then
+        row._del:Hide()
     end
     local ed
     if opts.onEdit then
-        ed = CreateFrame("Button", nil, row)
-        ed:SetSize(16, 16)
+        ed = row._ed
+        if not ed then
+            ed = CreateFrame("Button", nil, row)
+            ed:SetSize(16, 16)
+            ed:SetFrameLevel(row:GetFrameLevel() + 2)
+            local ico = ed:CreateTexture(nil, "OVERLAY")
+            ico:SetAllPoints()
+            if ico.SetSnapToPixelGrid then ico:SetSnapToPixelGrid(false); ico:SetTexelSnappingBias(0) end
+            ico:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-edit.png")
+            ed:SetScript("OnEnter", function(self)
+                self:SetAlpha(1)
+                EllesmereUI.ShowWidgetTooltip(self, L("Edit Override Group"))
+            end)
+            ed:SetScript("OnLeave", function(self)
+                self:SetAlpha(0.75)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+            row._ed = ed
+        end
+        ed:ClearAllPoints()
         if del then
             -- del sits 1px high; -2 relative lands the pencil 1px low on the row.
             ed:SetPoint("RIGHT", del, "LEFT", -1, -2)
         else
             ed:SetPoint("RIGHT", row, "RIGHT", -5, -1)
         end
-        ed:SetFrameLevel(row:GetFrameLevel() + 2)
-        local ico = ed:CreateTexture(nil, "OVERLAY")
-        ico:SetAllPoints()
-        if ico.SetSnapToPixelGrid then ico:SetSnapToPixelGrid(false); ico:SetTexelSnappingBias(0) end
-        ico:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-edit.png")
         ed:SetAlpha(0.75)
-        ed:SetScript("OnEnter", function(self)
-            self:SetAlpha(1)
-            EllesmereUI.ShowWidgetTooltip(self, L("Edit Override Group"))
-        end)
-        ed:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.75)
-            EllesmereUI.HideWidgetTooltip()
-        end)
         ed:SetScript("OnClick", opts.onEdit)
+        ed:Show()
+    elseif row._ed then
+        row._ed:Hide()
     end
     if opts.onUnlock then
-        local ub = CreateFrame("Button", nil, row)
-        -- Native art is 37x42; keep the aspect ratio at 16px height.
-        ub:SetSize(16 * 37 / 42, 16)
+        local ub = row._ub
+        if not ub then
+            ub = CreateFrame("Button", nil, row)
+            -- Native art is 37x42; keep the aspect ratio at 16px height.
+            ub:SetSize(16 * 37 / 42, 16)
+            ub:SetFrameLevel(row:GetFrameLevel() + 2)
+            local ico = ub:CreateTexture(nil, "OVERLAY")
+            ico:SetAllPoints()
+            if ico.SetSnapToPixelGrid then ico:SetSnapToPixelGrid(false); ico:SetTexelSnappingBias(0) end
+            ico:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-unlocked-small.png")
+            row._ub = ub
+        end
+        ub:ClearAllPoints()
         if ed then
             -- The pencil sits 1px low; +1 recenters the unlock icon on the row.
             ub:SetPoint("RIGHT", ed, "LEFT", -4, 1)
@@ -7156,11 +7370,7 @@ local function BuildCardRow(parent, y, opts)
         else
             ub:SetPoint("RIGHT", row, "RIGHT", -8, 0)
         end
-        ub:SetFrameLevel(row:GetFrameLevel() + 2)
-        local ico = ub:CreateTexture(nil, "OVERLAY")
-        ico:SetAllPoints()
-        if ico.SetSnapToPixelGrid then ico:SetSnapToPixelGrid(false); ico:SetTexelSnappingBias(0) end
-        ico:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-unlocked-small.png")
+        ub:Show()
         local enabled = opts.unlockEnabled
         ub:SetAlpha(enabled and 0.75 or 0.3)
         ub:SetScript("OnEnter", function(self)
@@ -7185,6 +7395,8 @@ local function BuildCardRow(parent, y, opts)
         ub:SetScript("OnClick", function()
             if enabled then opts.onUnlock() end
         end)
+    elseif row._ub then
+        row._ub:Hide()
     end
     return row, 44
 end
@@ -7353,13 +7565,16 @@ end
 RefreshCardsPopup = function()
     local p = cardsPopup
     if not p or not p:IsShown() then return end
-    -- clear old rows
-    for _, r in ipairs(p._rows or {}) do r:Hide(); r:SetParent(nil) end
-    p._rows = {}
+    -- The card rows are pooled (BuildCardRow): hide them all, then lay out the
+    -- ones this refresh uses again from the first.
+    local cards = p._cards
+    if cards then
+        for i = 1, #cards do cards[i]:Hide() end
+    end
+    p._cardN = 0
 
     local y = -40
-    local function add(row, h)
-        p._rows[#p._rows + 1] = row
+    local function add(_, h)
         y = y - h
     end
 
@@ -7526,16 +7741,20 @@ RefreshCardsPopup = function()
     -- ---- Conditional Overrides section (one popup, two systems) ----
     -- Centered, matching the "Spec Overrides" title at the top of the popup.
     do
-        local hdr = CreateFrame("Frame", nil, p)
+        local hdr = p._condHdr
+        if not hdr then
+            hdr = CreateFrame("Frame", nil, p)
+            local hl = EllesmereUI.MakeFont(hdr, 13, nil, ACCENT_R, ACCENT_G, ACCENT_B, 1)
+            hl:SetPoint("BOTTOM", hdr, "BOTTOM", 0, 4)
+            hl:SetText(L("Conditional Overrides"))
+            local sub = EllesmereUI.MakeFont(hdr, 12, nil, 0.55, 0.55, 0.55, 1)
+            sub:SetPoint("TOP", hl, "BOTTOM", 0, -2)
+            sub:SetText(L("(Spec prio'd for settings conflicts)"))
+            p._condHdr = hdr
+        end
         hdr:SetSize(p:GetWidth() - 20, 26)
+        hdr:ClearAllPoints()
         hdr:SetPoint("TOPLEFT", p, "TOPLEFT", 10, y - 6)
-        local hl = EllesmereUI.MakeFont(hdr, 13, nil, ACCENT_R, ACCENT_G, ACCENT_B, 1)
-        hl:SetPoint("BOTTOM", hdr, "BOTTOM", 0, 4)
-        hl:SetText(L("Conditional Overrides"))
-        local sub = EllesmereUI.MakeFont(hdr, 12, nil, 0.55, 0.55, 0.55, 1)
-        sub:SetPoint("TOP", hl, "BOTTOM", 0, -2)
-        sub:SetText(L("(Spec prio'd for settings conflicts)"))
-        p._rows[#p._rows + 1] = hdr
         y = y - 52
     end
 
@@ -7640,23 +7859,29 @@ RefreshCardsPopup = function()
     }))
 
     -- Link to the management list (one link for both systems).
-    local link = CreateFrame("Button", nil, p)
+    local link = p._link
+    if not link then
+        link = CreateFrame("Button", nil, p)
+        local ll = EllesmereUI.MakeFont(link, 12, nil, ACCENT_R, ACCENT_G, ACCENT_B, 0.9)
+        ll:SetPoint("CENTER")
+        ll:SetText(L("View All / Remove Overrides"))
+        link._ll = ll
+        link:SetScript("OnEnter", function() ll:SetTextColor(ACCENT_R, ACCENT_G, ACCENT_B, 1) end)
+        link:SetScript("OnLeave", function() ll:SetTextColor(ACCENT_R, ACCENT_G, ACCENT_B, 0.9) end)
+        link:SetScript("OnClick", function()
+            p:Hide()
+            -- Profiles & Presets is session-locked (excluded module): leave any
+            -- editing session first or the navigation is refused.
+            EllesmereUI.SpecOverrides_CloseEditSessions()
+            EllesmereUI:SelectModule(PROFILES_MODULE)
+            EllesmereUI:SelectPage(LIST_PAGE)
+        end)
+        p._link = link
+    end
     link:SetSize(p:GetWidth() - 20, 22)
+    link:ClearAllPoints()
     link:SetPoint("TOPLEFT", p, "TOPLEFT", 10, y - 2)
-    local ll = EllesmereUI.MakeFont(link, 12, nil, ACCENT_R, ACCENT_G, ACCENT_B, 0.9)
-    ll:SetPoint("CENTER")
-    ll:SetText(L("View All / Remove Overrides"))
-    link:SetScript("OnEnter", function() ll:SetTextColor(ACCENT_R, ACCENT_G, ACCENT_B, 1) end)
-    link:SetScript("OnLeave", function() ll:SetTextColor(ACCENT_R, ACCENT_G, ACCENT_B, 0.9) end)
-    link:SetScript("OnClick", function()
-        p:Hide()
-        -- Profiles & Presets is session-locked (excluded module): leave any
-        -- editing session first or the navigation is refused.
-        EllesmereUI.SpecOverrides_CloseEditSessions()
-        EllesmereUI:SelectModule(PROFILES_MODULE)
-        EllesmereUI:SelectPage(LIST_PAGE)
-    end)
-    p._rows[#p._rows + 1] = link
+    link._ll:SetTextColor(ACCENT_R, ACCENT_G, ACCENT_B, 0.9)
     y = y - 26
 
     p:SetHeight(-y + 12)

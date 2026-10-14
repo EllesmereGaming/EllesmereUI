@@ -14,10 +14,26 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  shared with Cursor/BattleRes/Bloodlust: each NewDB merges its own defaults
 --  into the SAME profile table, repointed by the profile system on swap.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Shifter's loot windows use the parent's frame placer)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS["EllesmereUIQoL"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
+
+-- Unlock-mode loadPos/clearPos for a QoL element whose slice (P()) stores pos as a
+-- center offset (Battle Res, Bloodlust).
+function ns.CenterPosFns(P)
+    local function loadPos()
+        local p = P()
+        if p and p.pos then
+            return { point = "CENTER", relPoint = "CENTER", x = p.pos.centerX, y = p.pos.centerY }
+        end
+        return nil
+    end
+    local function clearPos()
+        local p = P(); if p then p.pos = nil end
+    end
+    return loadPos, clearPos
+end
 
 local _qolExtrasDB
 local function QoLExtrasProfile()
@@ -1074,7 +1090,7 @@ qolFrame:SetScript("OnEvent", function(self)
             local left = CountJunk()
             if left > 0 and not warned then
                 warned = true
-                EllesmereUI.Print("|cff0cd29dEllesmereUI:|r " ..
+                EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " ..
                     EllesmereUI.Lf("%d junk item(s) could not be sold.", left))
             end
         end
@@ -1100,7 +1116,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 if stalls >= MAX_STALLS then
                     if junk > 0 and not warned then
                         warned = true
-                        EllesmereUI.Print("|cff0cd29dEllesmereUI:|r " ..
+                        EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " ..
                             EllesmereUI.Lf("%d junk item(s) could not be sold.", junk))
                     end
                     return
@@ -1163,11 +1179,12 @@ qolFrame:SetScript("OnEvent", function(self)
             line = line .. EllesmereUI.L(" (guild bank)")
             if ownPart > 0 then line = line .. " " .. RepairCostString(guildPart) end
         end
-        EllesmereUI.Print("|cff0CD29DEllesmereUI:|r " .. line)
+        EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. line)
     end
 
     local function ReportRepairBroke()
-        EllesmereUI.Print("|cff0CD29DEllesmereUI:|r |cffff6060" .. EllesmereUI.L("Not enough gold to repair.") .. "|r")
+        local cc = EllesmereUI.COLOR_CODES
+        EllesmereUI.Print(cc.BRAND .. "EllesmereUI:|r " .. cc.ERROR .. EllesmereUI.L("Not enough gold to repair.") .. "|r")
     end
 
     -- Releases the held-back junk sweep. Idempotent: debit or settle timer, whichever arrives first, starts it.
@@ -3930,77 +3947,206 @@ do
 end
 
 -------------------------------------------------------------------------------
---  Hide Error Messages -- swallows red UIErrorsFrame spam ("Not enough rage",
---  etc.) while keeping a whitelist of useful errors visible. OnEvent override
---  installed only while the option is on; zero cost off.
+--  Hide Error Messages -- hides red error lines ("Not enough rage", etc.)
+--  while a keep list of useful errors stays up. Hidden message types go into
+--  UIErrorsFrame's own per-type switch (SetMessageTypeEnabled), which Blizzard
+--  checks before it adds a line or plays its sound, so a hidden error stays
+--  silent. Never switched: the kept types, the voice chat window's types (that
+--  window hands its errors to the frame itself, outside the frame's event
+--  handler) and every type already hidden (Blizzard's defaults, other addons'
+--  picks). The types the game sends as yellow info lines are left on too,
+--  until one arrives as a red error while the option is on. While the switch
+--  is in place, a listener on our own frame shows what a type switch cannot:
+--  a kept error text under a switched-off type, and a yellow line of a
+--  switched-off type. The switch entries are never written back during a
+--  session (Blizzard's repeat-flash code would then run tainted), so turning
+--  the option off takes effect at the next reload, which the options row
+--  offers; nothing new is switched while the option is off. With the option
+--  off at login nothing is written and nothing stays registered.
 -------------------------------------------------------------------------------
 do
-    local origOnEvent
-    local installed = false
+    -- A text no line on screen can hold: asking Blizzard whether a type shows
+    -- with it never flashes or refreshes a line already up.
+    local PROBE = "\0"
 
-    -- Kept while the rest are hidden. Built lazily so ERR_* globals are only
-    -- touched once the feature is enabled.
-    local keep
-    local function BuildKeepList()
-        if keep then return end
-        keep = {}
-        for _, msg in ipairs({
-            ERR_INV_FULL, ERR_QUEST_LOG_FULL, ERR_RAID_GROUP_ONLY,
-            ERR_PARTY_LFG_BOOT_LIMIT, ERR_PARTY_LFG_BOOT_DUNGEON_COMPLETE,
-            ERR_PARTY_LFG_BOOT_IN_COMBAT, ERR_PARTY_LFG_BOOT_IN_PROGRESS,
-            ERR_PARTY_LFG_BOOT_LOOT_ROLLS, ERR_PARTY_LFG_TELEPORT_IN_COMBAT,
-            ERR_PET_SPELL_DEAD, ERR_PLAYER_DEAD,
-            SPELL_FAILED_TARGET_NO_POCKETS, ERR_ALREADY_PICKPOCKETED,
-        }) do
-            if msg then keep[msg] = true end
+    local active = false
+    local switched = {}     -- [messageType] = true: switched off here
+    local roleOf            -- [messageType] = "keep" | "info" | "voice"
+    local throttled         -- [messageType] = true: a repeat refreshes the line
+    local keepText          -- [message] = true: kept error texts
+    local typeCount
+    local f = CreateFrame("Frame")
+
+    -- Reads every message type's name once. The client numbers its types
+    -- from 1 with no gaps; the scan stops at the first index with no name.
+    local function ScanTypes()
+        local KEEP = {
+            "ERR_INV_FULL", "ERR_QUEST_LOG_FULL", "ERR_RAID_GROUP_ONLY",
+            "ERR_PARTY_LFG_BOOT_LIMIT", "ERR_PARTY_LFG_BOOT_NOT_ELIGIBLE_S",
+            "ERR_PARTY_LFG_BOOT_DUNGEON_COMPLETE", "ERR_PARTY_LFG_BOOT_IN_PROGRESS",
+            "ERR_PARTY_LFG_BOOT_LOOT_ROLLS", "ERR_PARTY_LFG_TELEPORT_IN_COMBAT",
+            "ERR_PET_SPELL_DEAD", "ERR_PLAYER_DEAD", "ERR_ALREADY_PICKPOCKETED",
+        }
+        -- Sent as yellow UI_INFO_MESSAGE lines (quest progress, discoveries,
+        -- trades, flight paths and the like). The switch is per type, not per
+        -- event, so one of these is switched only once it arrives as a red
+        -- error while the option is on.
+        local INFO = {
+            "ERR_TAXINOSUCHPATH", "ERR_TAXINOTENOUGHMONEY", "ERR_TAXITOOFARAWAY",
+            "ERR_TAXINOVENDORNEARBY", "ERR_TAXINOTVISITED", "ERR_TAXIPLAYERMOVING",
+            "ERR_TAXINOTSTANDING", "ERR_NEWTAXIPATH", "ERR_TRADE_CANCELLED",
+            "ERR_TRADE_COMPLETE", "ERR_USE_SPELL_FOCUS",
+            "ERR_QUEST_OBJECTIVE_COMPLETE_S", "ERR_QUEST_UNKNOWN_COMPLETE",
+            "ERR_QUEST_ADD_KILL_SII", "ERR_QUEST_ADD_FOUND_SII",
+            "ERR_QUEST_ADD_ITEM_SII", "ERR_QUEST_ADD_PLAYER_KILL_SII",
+            "ERR_QUEST_PET_BATTLE_VICTORIES_PVP_II", "ERR_ZONE_EXPLORED",
+            "ERR_DUEL_CANCELLED", "ERR_FISH_NOT_HOOKED", "ERR_FISH_ESCAPED",
+            "ERR_SPELL_FAILED_NOTUNSHEATHED", "ERR_SPELL_FAILED_LEVEL_REQUIREMENT",
+            "ERR_MAIL_SENT", "ERR_PVP_KILL_HONORABLE", "ERR_PVP_KILL_DISHONORABLE",
+            "ERR_PVP_TOGGLE_ON", "ERR_PVP_TOGGLE_OFF", "ERR_PVP_WARMODE_TOGGLE_ON",
+            "ERR_PVP_WARMODE_TOGGLE_OFF", "ERR_GROUP_JOIN_BATTLEGROUND_DESERTERS",
+            "ERR_GROUP_JOIN_BATTLEGROUND_DEAD", "ERR_SOLO_JOIN_TRAINING_GROUND",
+            "ERR_LFG_JOINED_TRAINING_GROUNDS_QUEUE", "ERR_BN_FRIEND_REQUEST_SENT",
+            "ERR_BN_BROADCAST_THROTTLE", "ERR_BATTLETAG_FRIEND_SUCCESS",
+            "ERR_REPORT_SUBMITTED_SUCCESSFULLY",
+            "ERR_SUGGESTION_SUBMITTED_SUCCESSFULLY", "ERR_BUG_SUBMITTED_SUCCESSFULLY",
+        }
+        -- The types whose repeat of the same text refreshes the line already
+        -- up instead of adding one (UIErrorsFrame's own list).
+        local THROTTLED = {
+            "ERR_SPELL_FAILED_TOTEMS", "ERR_SPELL_FAILED_EQUIPPED_ITEM",
+            "ERR_SPELL_ALREADY_KNOWN_S", "ERR_SPELL_FAILED_SHAPESHIFT_FORM_S",
+            "ERR_SPELL_FAILED_ALREADY_AT_FULL_MANA", "ERR_OUT_OF_MANA",
+            "ERR_SPELL_OUT_OF_RANGE", "ERR_SPELL_FAILED_S", "ERR_SPELL_FAILED_REAGENTS",
+            "ERR_SPELL_FAILED_REAGENTS_GENERIC", "ERR_SPELL_FAILED_NOTUNSHEATHED",
+            "ERR_SPELL_UNLEARNED_S", "ERR_SPELL_FAILED_EQUIPPED_SPECIFIC_ITEM",
+            "ERR_SPELL_FAILED_ALREADY_AT_FULL_POWER_S",
+            "ERR_SPELL_FAILED_EQUIPPED_ITEM_CLASS_S",
+            "ERR_SPELL_FAILED_ALREADY_AT_FULL_HEALTH", "ERR_SPELL_FAILED_CANT_FLY_HERE",
+            "ERR_GENERIC_NO_VALID_TARGETS", "ERR_ITEM_COOLDOWN", "ERR_CANT_USE_ITEM",
+            "ERR_SPELL_FAILED_ANOTHER_IN_PROGRESS",
+        }
+        local role, repeats = {}, {}
+        keepText = {}
+        for i = 1, #KEEP do
+            local name = KEEP[i]
+            role[name] = "keep"
+            local text = _G[name]
+            if type(text) == "string" then keepText[text] = true end
+        end
+        -- The pickpocket line arrives as a plain spell failure, so it is kept
+        -- by its text alone.
+        if type(SPELL_FAILED_TARGET_NO_POCKETS) == "string" then
+            keepText[SPELL_FAILED_TARGET_NO_POCKETS] = true
+        end
+        for i = 1, #INFO do role[INFO[i]] = "info" end
+        for i = 1, #THROTTLED do repeats[THROTTLED[i]] = true end
+        roleOf, throttled = {}, {}
+        local count = 0
+        for i = 1, 8191 do
+            local ok, name = pcall(GetGameMessageInfo, i)
+            if not (ok and name) then break end
+            roleOf[i] = role[name]
+            throttled[i] = repeats[name]
+            count = i
+        end
+        typeCount = count
+        -- The voice chat window's types, from its own status-code map.
+        if Voice_GetGameErrorFromStatusCode and Enum.VoiceChatStatusCode then
+            for _, code in pairs(Enum.VoiceChatStatusCode) do
+                local messageType = Voice_GetGameErrorFromStatusCode(code)
+                if type(messageType) == "number" then roleOf[messageType] = "voice" end
+            end
         end
     end
 
-    -- The group-kick "not eligible" line is a format string, so it needs a
-    -- pattern match rather than a plain equality check.
-    local function IsBootNotEligible(err)
-        if type(err) ~= "string" or not ERR_PARTY_LFG_BOOT_NOT_ELIGIBLE_S then return false end
-        local ok, found = pcall(function()
-            return err:find(string.format(ERR_PARTY_LFG_BOOT_NOT_ELIGIBLE_S, ".+"))
-        end)
-        return (ok and found) and true or false
+    -- Switches one type off when it shows now; a type already hidden keeps
+    -- the entry it has.
+    local function SwitchOff(frame, messageType)
+        local ok, shown = pcall(frame.ShouldDisplayMessageType, frame, messageType, PROBE)
+        if ok and shown then
+            frame:SetMessageTypeEnabled(messageType, false)
+            switched[messageType] = true
+        end
     end
 
-    local function FilteredOnEvent(self, event, id, err, ...)
-        if event == "UI_ERROR_MESSAGE" then
-            if keep[err] or IsBootNotEligible(err) then
-                return origOnEvent(self, event, id, err, ...)
-            end
+    -- Shows a line of a switched-off type as UIErrorsFrame does: a repeat of
+    -- a throttled type only restarts the fade of the same line already up;
+    -- anything else is added under its type with the type's voice or sound.
+    -- Nothing is drawn while Blizzard holds its messages back, or once
+    -- another addon has switched the type back on (Blizzard then drew the
+    -- line itself).
+    local function ShowLine(messageType, message, r, g, b)
+        local frame = UIErrorsFrame
+        local ok, shown = pcall(frame.ShouldDisplayMessageType, frame, messageType, PROBE)
+        if not ok then return end
+        if shown then
+            switched[messageType] = nil
             return
         end
-        return origOnEvent(self, event, id, err, ...)
+        if frame:GetMessagesSuppressed() then return end
+        if throttled[messageType] then
+            local fs = frame:GetFontStringByID(messageType)
+            if fs then
+                local text = fs:GetText()
+                if not issecretvalue(text) and text == message then
+                    frame:ResetMessageFadeByID(messageType)
+                    return
+                end
+            end
+        end
+        frame:AddMessage(message, r, g, b, 1.0, messageType)
+        local _, soundKitID, voiceID = GetGameMessageInfo(messageType)
+        if voiceID then
+            C_Sound.PlayVocalErrorSound(voiceID)
+        elseif soundKitID then
+            PlaySound(soundKitID)
+        end
     end
 
+    local function Enable()
+        local frame = UIErrorsFrame
+        if not (frame and frame.SetMessageTypeEnabled) then return end
+        if not typeCount then ScanTypes() end
+        for messageType = 1, typeCount do
+            if not roleOf[messageType] then SwitchOff(frame, messageType) end
+        end
+        f:RegisterEvent("UI_ERROR_MESSAGE")
+        f:RegisterEvent("UI_INFO_MESSAGE")
+        active = true
+    end
+
+    -- Applies the option. Turning it off is left to the next reload: returns
+    -- true while the option is off and the switch is still in place.
     local function ApplyHideErrorMessages()
         local on = EllesmereUIDB and EllesmereUIDB.hideErrorMessages
-        if on and not installed then
-            BuildKeepList()
-            origOnEvent = UIErrorsFrame:GetScript("OnEvent")
-            UIErrorsFrame:SetScript("OnEvent", FilteredOnEvent)
-            UIParent:UnregisterEvent("PING_SYSTEM_ERROR")
-            installed = true
-        elseif not on and installed then
-            UIErrorsFrame:SetScript("OnEvent", origOnEvent)
-            origOnEvent = nil
-            UIParent:RegisterEvent("PING_SYSTEM_ERROR")
-            installed = false
-        end
+        if on and not active then Enable() end
+        return (active and not on) and true or false
     end
     EllesmereUI._applyHideErrorMessages = ApplyHideErrorMessages
 
-    local f = CreateFrame("Frame")
-    f:RegisterEvent("PLAYER_LOGIN")
-    f:SetScript("OnEvent", function(self)
-        self:UnregisterAllEvents()
-        if EllesmereUIDB and EllesmereUIDB.hideErrorMessages then
+    f:SetScript("OnEvent", function(self, event, messageType, message)
+        if event == "PLAYER_LOGIN" then
+            self:UnregisterEvent("PLAYER_LOGIN")
             ApplyHideErrorMessages()
+            return
+        end
+        if issecretvalue(messageType) or issecretvalue(message) then return end
+        if switched[messageType] then
+            if event == "UI_INFO_MESSAGE" then
+                ShowLine(messageType, message, YELLOW_FONT_COLOR:GetRGB())
+            elseif keepText[message] then
+                ShowLine(messageType, message, RED_FONT_COLOR:GetRGB())
+            end
+        elseif event == "UI_ERROR_MESSAGE" and roleOf[messageType] == "info"
+            and EllesmereUIDB and EllesmereUIDB.hideErrorMessages then
+            -- An info type that came as a red error while the option is on:
+            -- switched off too, so its later errors hide and its yellow lines
+            -- come through ShowLine.
+            SwitchOff(UIErrorsFrame, messageType)
         end
     end)
+    f:RegisterEvent("PLAYER_LOGIN")
 end
 
 -------------------------------------------------------------------------------
@@ -4439,15 +4585,14 @@ end
 
 -------------------------------------------------------------------------------
 --  Combat Alert -- center-screen text on PLAYER_REGEN_DISABLED/ENABLED. Each
---  transition has its own text/color (custom or class color); one Text Size and
---  shared unlock-mode position apply to both. "Show On" selects enter/leave/both. No events registered unless enabled.
+--  transition has its own text/color (custom or class color); one Text Size
+--  applies to both. "Show On" selects enter/leave/both. The text is drawn by
+--  the shared alert anchor (EllesmereUIQoL_Alerts.lua), which also owns the
+--  Unlock Mode position. No events registered unless enabled.
 -------------------------------------------------------------------------------
 do
-    local alertFrame
     local watcher
     local installed = false
-    local DEFAULT_TEXT_SIZE = 22
-    local DEFAULT_POS = { point = "CENTER", relPoint = "CENTER", x = 0, y = 169 }
 
     local DEFAULTS = {
         enterText  = "+Combat",
@@ -4478,74 +4623,9 @@ do
         return (db and db.combatAlertEnterText) or DEFAULTS.enterText
     end
 
-    -- Applies configured font size and saved position (or default dead-center placement) to the overlay.
-    local function ApplyOverlaySettings()
-        if not alertFrame then return end
-        local fontPath = (EllesmereUI.GetFontPath("extras"))
-            or EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
-        -- Always keep an outline so the alert stays readable over any background.
-        local outline = (EllesmereUI.GetFontOutlineFlag("extras")) or ""
-        if not outline:find("OUTLINE") then
-            outline = (outline == "" ) and "OUTLINE" or (outline .. ", OUTLINE")
-        end
-        local size = (EllesmereUIDB and EllesmereUIDB.combatAlertTextSize) or DEFAULT_TEXT_SIZE
-        alertFrame._text:SetFont(fontPath, size, outline)
-        -- Keep the frame (and unlock-mode mover) sized to roughly the text.
-        alertFrame:SetSize(size * 7, size + 14)
-
-        alertFrame:ClearAllPoints()
-        local pos = EllesmereUIDB and EllesmereUIDB.combatAlertPos
-        if pos and pos.point then
-            alertFrame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
-        else
-            alertFrame:SetPoint(DEFAULT_POS.point, UIParent, DEFAULT_POS.relPoint, DEFAULT_POS.x, DEFAULT_POS.y)
-        end
-    end
-
-    local function CreateAlertFrame()
-        if alertFrame then return end
-
-        alertFrame = CreateFrame("Frame", nil, UIParent)
-        alertFrame:SetSize(240, 50)
-        alertFrame:SetFrameStrata("HIGH")
-        alertFrame:SetFrameLevel(60)
-        alertFrame:EnableMouse(false)
-        alertFrame:SetMouseClickEnabled(false)
-
-        local fs = alertFrame:CreateFontString(nil, "OVERLAY")
-        fs:SetPoint("CENTER")
-        alertFrame._text = fs
-        ApplyOverlaySettings()
-
-        -- Quick fade-in, brief hold, fade-out; hide when finished.
-        local ag = alertFrame:CreateAnimationGroup()
-        local fadeIn = ag:CreateAnimation("Alpha")
-        fadeIn:SetFromAlpha(0); fadeIn:SetToAlpha(1); fadeIn:SetDuration(0.15); fadeIn:SetOrder(1)
-        local hold = ag:CreateAnimation("Alpha")
-        hold:SetFromAlpha(1); hold:SetToAlpha(1); hold:SetDuration(1.2); hold:SetOrder(2)
-        local fadeOut = ag:CreateAnimation("Alpha")
-        fadeOut:SetFromAlpha(1); fadeOut:SetToAlpha(0); fadeOut:SetDuration(0.5); fadeOut:SetOrder(3)
-        ag:SetScript("OnFinished", function() alertFrame:Hide() end)
-        alertFrame._ag = ag
-
-        alertFrame:SetScript("OnHide", function() ag:Stop() end)
-        alertFrame:Hide()
-    end
-
-    local function ShowAlert(which)
-        -- Never fire live alerts while unlock mode is positioning the frame.
-        if EllesmereUI._unlockActive then return end
-        CreateAlertFrame()
-        ApplyOverlaySettings()
-
-        alertFrame._text:SetText(AlertText(which))
-        alertFrame._text:SetTextColor(ResolveColor(which))
-        alertFrame._text:SetAlpha(1)
-
-        alertFrame._ag:Stop()
-        alertFrame:SetAlpha(1)
-        alertFrame:Show()
-        alertFrame._ag:Play()
+    local function ShowAlert(which, preview)
+        local r, g, b = ResolveColor(which)
+        EllesmereUI.Alerts.Line("combat").Show(AlertText(which), r, g, b, preview)
     end
 
     local function OnCombatEvent(_, event)
@@ -4568,80 +4648,20 @@ do
         elseif not on and installed then
             watcher:UnregisterAllEvents()
             installed = false
+            EllesmereUI.Alerts.Hide("combat")
         end
-        if alertFrame then ApplyOverlaySettings() end
+        EllesmereUI.Alerts.Refresh()
     end
     EllesmereUI._applyCombatAlert = ApplyCombatAlert
 
     -- Fires a sample alert for the given transition so the look can be checked from the options cog without a real combat change.
-    EllesmereUI._combatAlertPreview = function(which)
-        if EllesmereUI._unlockActive then return end
-        CreateAlertFrame()
-        ApplyOverlaySettings()
-        alertFrame._text:SetText(AlertText(which))
-        alertFrame._text:SetTextColor(ResolveColor(which))
-        alertFrame._ag:Stop()
-        alertFrame:SetAlpha(1)
-        alertFrame:Show()
-        alertFrame._ag:Play()
-    end
+    EllesmereUI._combatAlertPreview = function(which) ShowAlert(which, true) end
 
-    -- Re-apply font size/position (called from the Text Size slider and from unlock mode on saved-position change).
-    EllesmereUI._applyCombatAlertFrame = function()
-        CreateAlertFrame()
-        ApplyOverlaySettings()
-    end
+    -- Re-apply size/position (called from the Text Size slider).
+    EllesmereUI._applyCombatAlertFrame = function() EllesmereUI.Alerts.Refresh() end
 
     watcher = CreateFrame("Frame")
     watcher:SetScript("OnEvent", OnCombatEvent)
-
-    -- Register the alert with Unlock Mode so its position can be dragged.
-    C_Timer.After(2, function()
-        if not (EllesmereUI and EllesmereUI.RegisterUnlockElements) then return end
-        local MK = EllesmereUI.MakeUnlockElement
-        if not MK then return end
-        EllesmereUI:RegisterUnlockElements({
-            MK({
-                key      = "EUI_CombatAlert",
-                label    = "Combat Alert",
-                group    = "Quality of Life",
-                order    = 721,
-                noResize = true,
-                isHidden = function()
-                    return not (EllesmereUIDB and EllesmereUIDB.combatAlertEnabled)
-                end,
-                getFrame = function()
-                    CreateAlertFrame()
-                    return alertFrame
-                end,
-                getSize = function()
-                    local size = (EllesmereUIDB and EllesmereUIDB.combatAlertTextSize) or DEFAULT_TEXT_SIZE
-                    return size * 7, size + 14
-                end,
-                savePos = function(_, point, relPoint, x, y)
-                    if not point then return end
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    EllesmereUIDB.combatAlertPos = { point = point, relPoint = relPoint, x = x, y = y }
-                    if alertFrame and not EllesmereUI._unlockActive then
-                        ApplyOverlaySettings()
-                    end
-                end,
-                loadPos = function()
-                    local pos = EllesmereUIDB and EllesmereUIDB.combatAlertPos
-                    if pos and pos.point then return pos end
-                    return { point = DEFAULT_POS.point, relPoint = DEFAULT_POS.relPoint, x = DEFAULT_POS.x, y = DEFAULT_POS.y }
-                end,
-                clearPos = function()
-                    if EllesmereUIDB then EllesmereUIDB.combatAlertPos = nil end
-                    if alertFrame then ApplyOverlaySettings() end
-                end,
-                applyPos = function()
-                    CreateAlertFrame()
-                    ApplyOverlaySettings()
-                end,
-            }),
-        })
-    end)
 
     local boot = CreateFrame("Frame")
     boot:RegisterEvent("PLAYER_LOGIN")
@@ -5159,6 +5179,8 @@ end
 --  enabled, overlays each button with the item's level, coloured by quality. Hooks
 --  EquipmentFlyout_UpdateItems (after every flyout shape is populated) and reads EllesmereUIDB
 --  live, so the toggle applies to the next flyout with no reload. Toggle: EllesmereUIDB.flyoutItemLevels (Quality of Life -> UI).
+--  EllesmereUIDB.flyoutItemStats adds the stat letters (EllesmereUI.GetItemStatLetters)
+--  centred along the bottom edge; flyoutItemStatsTertiary == true adds Leech/Avoidance/Speed.
 -------------------------------------------------------------------------------
 do
     local function FlyoutEnabled()
@@ -5234,8 +5256,7 @@ do
         if not fs then
             local font = EllesmereUI._font
                 or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
-            local flag = (EllesmereUI.SlugFlag("OUTLINE, SLUG"))
-                or "OUTLINE, SLUG"
+            local flag = EllesmereUI.SlugFlag("OUTLINE, SLUG")
             fs = button:CreateFontString(nil, "OVERLAY", nil, 7)
             fs:SetFont(font, 12, flag)
             fs:SetPoint("TOP", button, "TOP", 0, -2)
@@ -5245,14 +5266,115 @@ do
         return fs
     end
 
+    -- Stat letters ("MH", tertiaries smaller behind them: "L") centred along
+    -- the button's bottom edge, kept off the button like the item level above.
+    local _flyoutStatFS = setmetatable({}, { __mode = "k" })  -- [button] = fontstring
+    local _flyoutTerFS  = setmetatable({}, { __mode = "k" })  -- [button] = fontstring
+
+    local function EnsureStatText(button)
+        local fs = _flyoutStatFS[button]
+        if not fs then
+            local font = EllesmereUI._font
+                or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+            local flag = EllesmereUI.SlugFlag("OUTLINE, SLUG")
+            fs = button:CreateFontString(nil, "OVERLAY", nil, 7)
+            fs:SetFont(font, 11, flag)
+            fs:SetTextColor(1, 1, 1, 1)
+            local ter = button:CreateFontString(nil, "OVERLAY", nil, 7)
+            ter:SetFont(font, 8, flag)
+            ter:SetPoint("BOTTOMLEFT", fs, "BOTTOMRIGHT", 1, 0)
+            ter:SetTextColor(0.94, 0.66, 0.94, 1)
+            _flyoutStatFS[button] = fs
+            _flyoutTerFS[button] = ter
+        end
+        return fs, _flyoutTerFS[button]
+    end
+
+    -- Built for a button the first time its item has letters to show. True
+    -- while the item's data is still on the way (paint again).
+    local function PaintStats(button, link, withTertiary)
+        local fs, ter = _flyoutStatFS[button], _flyoutTerFS[button]
+        if link and not fs then
+            local sec, tert, pending = EllesmereUI.GetItemStatLetters(link)
+            if sec == "" and (tert == "" or not withTertiary) then return pending end
+            fs, ter = EnsureStatText(button)
+        end
+        if fs then return EllesmereUI.PaintStatLetters(fs, ter, link, withTertiary, button) end
+    end
+
+    -- The item link at a flyout button, read with no tables built: the
+    -- button's ItemLocation, else its numeric location decoded with the bit
+    -- layout EquipmentManager_GetLocationData uses. Nil for an empty or special
+    -- location.
+    local band, rshift, lshift = bit.band, bit.rshift, bit.lshift
+    local function ButtonLink(button, useItemLocation)
+        if useItemLocation and button.GetItemLocation then
+            local ok, loc = pcall(button.GetItemLocation, button)
+            if ok and loc and loc.IsValid and loc:IsValid() and C_Item.DoesItemExist(loc) then
+                return C_Item.GetItemLink(loc)
+            end
+        end
+        local location = button.location
+        if type(location) ~= "number" or location < 0 then return end
+        if EQUIPMENTFLYOUT_FIRST_SPECIAL_LOCATION
+            and location >= EQUIPMENTFLYOUT_FIRST_SPECIAL_LOCATION then
+            return
+        end
+        local slot = location
+        local isBank = band(location, ITEM_INVENTORY_LOCATION_BANK) ~= 0
+        if band(location, ITEM_INVENTORY_LOCATION_PLAYER) ~= 0 then
+            slot = slot - ITEM_INVENTORY_LOCATION_PLAYER
+        elseif isBank then
+            slot = slot - ITEM_INVENTORY_LOCATION_BANK
+        end
+        if band(location, ITEM_INVENTORY_LOCATION_BAGS) ~= 0 then
+            slot = slot - ITEM_INVENTORY_LOCATION_BAGS
+            local bag = rshift(slot, ITEM_INVENTORY_BAG_BIT_OFFSET)
+            slot = slot - lshift(bag, ITEM_INVENTORY_BAG_BIT_OFFSET)
+            if isBank then bag = bag + ITEM_INVENTORY_BANK_BAG_OFFSET end
+            return C_Container.GetContainerItemLink(bag, slot)
+        end
+        return GetInventoryItemLink("player", slot)
+    end
+
+    -- What each button shows (weak-keyed, off the button like its texts): the
+    -- link and the settings it was painted for. Blizzard runs the whole flyout
+    -- again every frame while a slot's flyout is pinned open, so a button whose
+    -- item and settings are unchanged keeps its paint; a paint still waiting on
+    -- item data is redone.
+    local _flyoutPaint = setmetatable({}, { __mode = "k" })  -- [button] = state
+
     local function PaintButton(button, useItemLocation)
+        local showIlvl = FlyoutEnabled() and true or false
+        -- Stat letters are retail-only (their rows are not built on WoW Forever).
+        local showStats = not EllesmereUI.IS_FOREVER and EllesmereUIDB
+            and EllesmereUIDB.flyoutItemStats and true or false
+        local withTertiary = EllesmereUIDB and EllesmereUIDB.flyoutItemStatsTertiary == true or false
+        local link
+        if (showIlvl or showStats) and button:IsShown() then
+            link = ButtonLink(button, useItemLocation)
+        end
+        local m = _flyoutPaint[button]
+        if m and not m.pending and m.link == link and m.ilvl == showIlvl
+            and m.stats == showStats and m.ter == withTertiary then
+            return
+        end
+        if not m then m = {}; _flyoutPaint[button] = m end
+        m.link, m.ilvl, m.stats, m.ter, m.pending = link, showIlvl, showStats, withTertiary, false
+
         local fs = _flyoutFS[button]
-        if not FlyoutEnabled() or not button:IsShown() then
+        if not link then
             if fs then fs:SetText("") end
+            PaintStats(button, nil, withTertiary)
             return
         end
 
-        local ilvl, quality, link = ButtonItemInfo(button, useItemLocation)
+        local ilvl, quality = ButtonItemInfo(button, useItemLocation)
+        m.pending = PaintStats(button, showStats and link or nil, withTertiary) and true or false
+        if not showIlvl then
+            if fs then fs:SetText("") end
+            return
+        end
         fs = EnsureText(button)
         if ilvl and ilvl > 0 then
             fs:SetText(ilvl)
@@ -5270,6 +5392,8 @@ do
             end
         else
             fs:SetText("")
+            -- No level yet while the item's data is still on the way.
+            if not C_Item.GetItemInfo(link) then m.pending = true end
         end
     end
 

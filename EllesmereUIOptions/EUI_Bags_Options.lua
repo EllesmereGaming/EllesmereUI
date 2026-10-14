@@ -311,7 +311,7 @@ initFrame:SetScript("OnEvent", function(self)
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
                         { type="toggle", label="Hide from Other Categories",
-                          tooltip="Show pinned items only in Pinned Items, hiding them from other categories and Recent Items. OneBag/MultiBag keep their normal slots. Unpinning an item returns it to its category.",
+                          tooltip="Pinned items show only in Pinned Items, not in their categories or Recent Items.",
                           get=function() return db.profile.bagHidePinnedInCategories == true end,
                           set=function(v)
                               db.profile.bagHidePinnedInCategories = v
@@ -810,8 +810,8 @@ initFrame:SetScript("OnEvent", function(self)
                   tooltip="Choose which icons show in the bag window's top bar; the Junk Icon is the Junk Marker." },
                 { type="toggle", text="Gold Tracking and History",
                   tooltip="Track and display gold amounts from all your characters on hover.",
-                  getValue=function() return db.profile.enableGoldTracking ~= false end,
-                  setValue=function(v) db.profile.enableGoldTracking = v end }
+                  getValue=function() return EllesmereUI.GetGoldLedger().IsTracking() end,
+                  setValue=function(v) EllesmereUI.GetGoldLedger().SetTracking(v) end }
             ); y = y - h
 
             -- Bag Top Bar Icons dropdown (left side), its Sort Options cog to the left
@@ -819,6 +819,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local TOP_BAR_ICONS = {
                     { key = "bagShowBagsIcon", label = "Bags Icon" },
                     { key = "bagShowJunkIcon", label = "Junk Icon" },
+                    { key = "bagShowQuickIcon", label = "Quick Actions Icon" },
                     { key = "bagShowSortIcon", label = "Sort Icon" },
                 }
                 local leftRgn = iconsRow._leftRegion
@@ -839,6 +840,8 @@ initFrame:SetScript("OnEvent", function(self)
                                 -- An open bank greys (or stops greying) its junk too
                                 local bank = _G.EUI_BankFrame
                                 if bank then bank:RefreshBank() end
+                                -- WoW Forever's Junk Items window lists marked items only while the marker is on
+                                _G.EUI_CategoryManager:OnJunkChanged()
                             else
                                 bags:SyncHeaderIcons()
                             end
@@ -1035,7 +1038,13 @@ initFrame:SetScript("OnEvent", function(self)
                   tooltip="Also use the split dialog with Auto Split in OneBag, MultiBag, the reagent bag, the bank and the guild bank, replacing Blizzard's split popup there. All Items and category views always use it.",
                   getValue=function() return db.profile.bagStackSplitter == true end,
                   setValue=function(v) db.profile.bagStackSplitter = v and true or false end },
-                EllesmereUI.BlankRowCfg()
+                { type="toggle", text="Open Bags with Character Window",
+                  tooltip="The bags automatically open when the character window is opened and close again when the character window is closed.",
+                  getValue=function() return db.profile.bagOpenWithCharacter == true end,
+                  setValue=function(v)
+                      db.profile.bagOpenWithCharacter = v and true or false
+                      BagsNS.ToggleBagsWithCharacterFrame()
+                  end }
             ); y = y - h
 
             _, h = W:Spacer(parent, y, 20); y = y - h
@@ -1062,7 +1071,9 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.bagPinnedItems = nil
                 EllesmereUIDB.bagItemAssignments = nil
                 EllesmereUIDB.bagJunkPrev = nil
+                -- Legacy gold stores: they stay on disk until a gold module loads and absorbs them.
                 EllesmereUIDB.characterGold = nil
+                EllesmereUIDB.dataBarsGold = nil
                 EllesmereUIDB.warbandGold = nil
                 EllesmereUIDB.bagCurrencyByChar = nil
             end

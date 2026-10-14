@@ -217,14 +217,18 @@ function npAddon:OnEnable()
         end
         ns.NP_SeedClassic(p)
     end
-    -- WoW Forever: the same for its Left Text seed (the level box shows the
-    -- level), the other looks' value going to its Forever-only slot first,
-    -- and the level edges the box follows (armed only while it shows).
+    -- WoW Forever: the same for its own seeds (Left Text, the Elite/Rare
+    -- Indicator box), the other looks' value of each unseeded key going to
+    -- its Forever-only slot first, and the level edges the box follows (armed
+    -- only while it shows).
     if ns.NP_Forever() then
-        if not p.foreverLevelSlotSeeded then
+        if not (p.foreverLevelSlotSeeded and p.foreverRareSeeded) then
             local s = p._foreverStyleSlots
             if type(s) ~= "table" then s = {}; p._foreverStyleSlots = s end
-            s.eui = { textSlotLeft = p.textSlotLeft }
+            local eui = s.eui
+            if type(eui) ~= "table" then eui = {}; s.eui = eui end
+            if not p.foreverLevelSlotSeeded then eui.textSlotLeft = p.textSlotLeft end
+            if not p.foreverRareSeeded then eui.classificationHideRare = p.classificationHideRare end
             ns.NP_SeedForever(p)
         end
         ns.NP_ForeverWatchLevels()

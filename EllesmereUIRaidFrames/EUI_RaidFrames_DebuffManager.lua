@@ -2813,7 +2813,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
     -- Park everything the base does not want (legacy preset groups, stale record variants); setters are dirty marks, runs only on an FP change.
     for k in pairs(declared) do
         if k ~= "cc" and not wantedBase[k] then
-            container:SetAuraGroupMaxFrameCount(k, 0)
+            EllesmereUI.AuraKit.SetGroupCap(container, k, 0)
         end
     end
 
@@ -2832,7 +2832,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
         local ccBase = (ccPicked or (fxCats and fxCats.cc)) and not claims.cc
             and not baseSizedCC
         ccParkCount = ccBase and cap or 0
-        container:SetAuraGroupMaxFrameCount("cc", ccParkCount)
+        EllesmereUI.AuraKit.SetGroupCap(container, "cc", ccParkCount)
         container:SetAuraGroupCandidateFilters("cc", ccCand)
         container:SetAuraGroupLayout("cc", layout)
     end
@@ -2863,7 +2863,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
             end
             local n = cap
             if r.deadOnly then n = 0 end -- parked until the death edge unparks it
-            container:SetAuraGroupMaxFrameCount(gkey, n)
+            EllesmereUI.AuraKit.SetGroupCap(container, gkey, n)
             container:SetAuraGroupCandidateFilters(gkey, r.cand)
             if r.fxSize then
                 -- Sized record: keep the stable per-category style fresh (size edits restyle existing buttons) + same size in the flow math.
@@ -3101,7 +3101,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                         end
                         for k in pairs(tDecl) do
                             if tWanted[k] == nil then
-                                tc:SetAuraGroupMaxFrameCount(k, 0)
+                                EllesmereUI.AuraKit.SetGroupCap(tc, k, 0)
                             end
                         end
                         local tCap = t.cap or cap
@@ -3121,7 +3121,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                                 end
                                 local n = tCap
                                 if r.deadOnly then n = 0 end -- parked until the death edge unparks it
-                                tc:SetAuraGroupMaxFrameCount(gkey, n)
+                                EllesmereUI.AuraKit.SetGroupCap(tc, gkey, n)
                                 tc:SetAuraGroupCandidateFilters(gkey, r.cand)
                                 if r.fxSize then
                                     -- Sized record: per-category tile style variant fresh + matching flow math.
@@ -3284,7 +3284,8 @@ end
 -- Death-edge hook (from the UNIT_HEALTH repaint path, unit assignment, and the
 -- apply tail). Change-gated on d.dmDead; d.dmDeadSwap is nil for every button
 -- unless a config qualifies, so the hot-path cost is one field read. Count flips
--- re-render engine-side without an UpdateAllAuras.
+-- re-render engine-side; where a cap of 0 also switches the group off (12.1.5+,
+-- AuraKit.SetGroupCap) a group switched back on re-parses once.
 function ns.DM_DeadEdge(d, unit)
     local swap = d.dmDeadSwap
     if not swap or not unit then return end
@@ -3296,11 +3297,11 @@ function ns.DM_DeadEdge(d, unit)
     if swap.tileId then c = d.dmTiles and d.dmTiles[swap.tileId] else c = d.rfcDebuffs end
     if not c then return end
     if dead then
-        for k in pairs(swap.park) do c:SetAuraGroupMaxFrameCount(k, 0) end
-        c:SetAuraGroupMaxFrameCount(swap.show, swap.cap)
+        for k in pairs(swap.park) do EllesmereUI.AuraKit.SetGroupCap(c, k, 0) end
+        EllesmereUI.AuraKit.SetGroupCap(c, swap.show, swap.cap)
     else
-        for k, n in pairs(swap.park) do c:SetAuraGroupMaxFrameCount(k, n) end
-        c:SetAuraGroupMaxFrameCount(swap.show, 0)
+        for k, n in pairs(swap.park) do EllesmereUI.AuraKit.SetGroupCap(c, k, n) end
+        EllesmereUI.AuraKit.SetGroupCap(c, swap.show, 0)
     end
 end
 
@@ -3309,7 +3310,7 @@ end
 function ns.DM_ParkGroups(container, declared, d)
     for k in pairs(declared) do
         if k:sub(1, 3) == "dm_" then
-            container:SetAuraGroupMaxFrameCount(k, 0)
+            EllesmereUI.AuraKit.SetGroupCap(container, k, 0)
         end
     end
     if d and d.dmTiles then

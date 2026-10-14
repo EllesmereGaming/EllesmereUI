@@ -1933,7 +1933,9 @@ UM.PropagateAnchorChain = function(parentKey, visited, changedAxis)
                 end
             end
             if not dominated then
-                UM.ApplyAnchorPosition(childKey, info.target, info.side, nil, nil, true)
+                -- A follower re-placed from its saved link is no edit: the
+                -- drag, nudge or pick that moved its target marks the session.
+                UM.ApplyAnchorPosition(childKey, info.target, info.side, true, nil, true)
                 -- Do NOT call Sync() here: ApplyAnchorPosition already positions the mover; Sync() reads stale screen coords before WoW's layout pass, corrupting moverCX/moverCY.
                 UM.PropagateAnchorChain(childKey, visited, changedAxis)
             end
@@ -1988,7 +1990,8 @@ EllesmereUI.ReapplyOwnAnchor = function(key)
     if not anchorDB then return end
     local info = anchorDB[key]
     if info and info.target then
-        UM.ApplyAnchorPosition(key, info.target, info.side)
+        -- A rebuild or resize re-placing the element is no edit of the session.
+        UM.ApplyAnchorPosition(key, info.target, info.side, true)
     end
 end
 
@@ -2027,11 +2030,12 @@ EllesmereUI.ReapplyAllUnlockAnchors = function()
         if info and info.target
            and UM.GetBarFrame(childKey)
            and (UM.GetBarFrame(info.target) or info.fallback ~= nil) then
-            UM.ApplyAnchorPosition(childKey, info.target, info.side)
+            UM.ApplyAnchorPosition(childKey, info.target, info.side, true)
         end
     end
 
-    -- No position persistence here: only Save & Exit (CommitPositions) writes.
+    -- No position persistence here: only Save & Exit (CommitPositions) writes,
+    -- and no session mark: placing elements from their saved links edits nothing.
     wipe(pendingPositions)
 end
 
@@ -2093,7 +2097,7 @@ EllesmereUI.ReapplyAllUnlockAnchorsForced = function()
                     isABGrow = gd and gd ~= "CENTER"
                 end
                 if not isABGrow then
-                    pcall(childBar.ClearAllPoints, childBar)
+                    pcall(EllesmereUI.ClearFramePoints, childBar)
                     UM.ApplyAnchorPosition(childKey, info.target, info.side, true)
                 end
             end
@@ -2634,7 +2638,7 @@ local function ApplySavedPositions()
             -- group on this spec) applies immediately; a present-but-unlaid-out target still retries, so transient load states never trip the fallback.
             if childFrame and ((targetFrame and targetFrame:GetLeft())
                 or (not targetFrame and info.fallback ~= nil)) then
-                UM.ApplyAnchorPosition(childKey, info.target, info.side)
+                UM.ApplyAnchorPosition(childKey, info.target, info.side, true)
             else
                 unresolved[childKey] = info
             end
@@ -2649,7 +2653,7 @@ local function ApplySavedPositions()
                     local target = UM.GetBarFrame(info.target)
                     if childFrame and ((target and target:GetLeft())
                         or (not target and info.fallback ~= nil)) then
-                        UM.ApplyAnchorPosition(childKey, info.target, info.side)
+                        UM.ApplyAnchorPosition(childKey, info.target, info.side, true)
                     else
                         still[childKey] = info
                     end
@@ -2710,7 +2714,7 @@ function EllesmereUI.ReapplyUnlockAnchor(unlockKey)
     local adb = GetAnchorDB()
     local ai = adb and adb[unlockKey]
     if not (ai and ai.target) then return end
-    UM.ApplyAnchorPosition(unlockKey, ai.target, ai.side)
+    UM.ApplyAnchorPosition(unlockKey, ai.target, ai.side, true)
 end
 
 

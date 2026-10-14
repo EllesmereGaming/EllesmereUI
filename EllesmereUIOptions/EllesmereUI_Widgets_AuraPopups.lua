@@ -6,6 +6,15 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 
+-- The options page pool (EllesmereUI_FramePool.lua, the options addon's first
+-- file): each popup below keeps its dimmer (and a named panel) for the session,
+-- reset to new on every open, and every frame made under them is handed out
+-- again. Captured once here, never read through the public slot later.
+local Pool = EllesmereUI._Pool
+local CreateFrame, PoolKept, PoolGen = Pool.CreateFrame, Pool.Kept, Pool.Gen
+-- Owner of the popups' kept frames.
+local POPUPS = {}
+
 -- Tracked Auras popup: the shared INCLUDED/EXCLUDED spell-list editor (announcement-popup chrome; two tri-state
 -- columns with per-column Add buttons; adding an ID to one list removes it from the other). Storage-agnostic --
 -- callers pass list accessors and an onChanged applier. Used by the nameplate slot filters and the target/focus/boss unit frame debuff filters.
@@ -29,6 +38,16 @@ local EllesmereUI = _G.EllesmereUI
 -- }
 -- showAll and copyFrom are mutually exclusive header bands; with neither the list section shifts up and gains the height.
 local _trackedAurasDimmer
+-- The kept panel (kept apart from the dimmer, which a close hides alone): hidden
+-- before the dimmer's reset shows the dimmer again, so the previous open's panel
+-- never shows (and runs its old OnShow scripts) on the way to its own reset.
+local _trackedAurasPanel
+-- Controller Escape/Back (RegisterEscapeClose): the registration outlives the
+-- open that made it, so the close reads the frame it is handed.
+local function EscapeTrackedAuras(f)
+    f:Hide(); _trackedAurasDimmer = nil
+end
+local TRACKED_AURAS_ESC = { padOnly = true, onEscape = EscapeTrackedAuras }
 function EllesmereUI.ShowTrackedAurasPopup(opts)
     -- The panel's pixel helper, like every popup scaled by GetPopupScale:
     -- the real-UI-scale PP lands 1px borders on fractional pixels here.
@@ -38,8 +57,12 @@ function EllesmereUI.ShowTrackedAurasPopup(opts)
     local EG = EllesmereUI.ELLESMERE_GREEN
 
     if _trackedAurasDimmer then _trackedAurasDimmer:Hide(); _trackedAurasDimmer = nil end
+    if _trackedAurasPanel then _trackedAurasPanel:Hide() end
 
-    local dimmer = CreateFrame("Button", "EUITrackedAurasDimmer", UIParent)
+    local dimmer = PoolKept(POPUPS, "trackedAuras", "Button", UIParent, nil, "EUITrackedAurasDimmer")
+    -- This open's dress: a list refresh that arrives from an earlier open (an
+    -- Add Spell ID confirm) leaves the rows this open dressed alone.
+    local dressGen = PoolGen(dimmer)
     dimmer:SetAllPoints(UIParent)
     dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
     dimmer:SetScale(ppScale)
@@ -52,7 +75,8 @@ function EllesmereUI.ShowTrackedAurasPopup(opts)
     end)
     _trackedAurasDimmer = dimmer
 
-    local panel = CreateFrame("Frame", "EUITrackedAurasPopup", dimmer)
+    local panel = PoolKept(POPUPS, "trackedAurasPanel", "Frame", dimmer, nil, "EUITrackedAurasPopup")
+    _trackedAurasPanel = panel
     panel:SetSize(520, 470)
     panel:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
     panel:SetFrameLevel(dimmer:GetFrameLevel() + 10)
@@ -147,6 +171,7 @@ function EllesmereUI.ShowTrackedAurasPopup(opts)
         tl:SetTextColor(0.85, 0.85, 0.85)
         tl:SetText(EllesmereUI.L(sa.label or "Show All"))
         local function UpdAll()
+            if PoolGen(dimmer) ~= dressGen then return end
             local on = sa.get() == true
             chk:SetShown(on)
             if bbrd and bbrd.SetColor then
@@ -339,6 +364,7 @@ function EllesmereUI.ShowTrackedAurasPopup(opts)
         -- Rows: checkbox (enable/disable the entry without deleting it) + spell icon + name with the spell ID in gray parentheses + delete X. Disabled entries stay stored (false) and dim the whole row; only true entries reach the engine.
         local rows = {}
         local function RefreshList()
+            if PoolGen(dimmer) ~= dressGen then return end
             for i = 1, #rows do rows[i]:Hide() end
             local list = listFn() or {}
             local sorted = {}
@@ -538,7 +564,9 @@ function EllesmereUI.ShowTrackedAurasPopup(opts)
     -- cursor starts on Done.
     if EllesmereUI.PadInUse() then
         dimmer:Hide()
-        EllesmereUI.RegisterEscapeClose(dimmer, { padOnly = true, onEscape = ClosePopup })
+        -- Every open asks: the call returns at once while the kept dimmer is
+        -- still registered (a named dimmer stays so through the pool's resets).
+        EllesmereUI.RegisterEscapeClose(dimmer, TRACKED_AURAS_ESC)
         EllesmereUI.PadHint(dimmer, "nodepass")
         EllesmereUI.PadHint(panel, "nodepass")
         if EllesmereUI.PadCP() then panel.CloseButton = closeBtn end
@@ -553,6 +581,12 @@ end
 -- Spell-ID blacklist editor: small standalone modal (dimmer, click-outside close) listing the current blacklist
 -- with per-row remove plus an Add box. Storage-agnostic -- callers pass get/add/remove accessors and an onChanged
 -- applier. Reused by the player-frame, Player Aura Bars and Buff Manager buff filter dropdowns ("Edit Blacklist" pinned actions).
+-- Controller Escape/Back (RegisterEscapeClose): the registration outlives the
+-- open that made it, so the close reads the frame it is handed.
+local function EscapeBlacklist(f)
+    f:Hide(); EllesmereUI._blacklistPopup = nil
+end
+local BLACKLIST_ESC = { padOnly = true, onEscape = EscapeBlacklist }
 function EllesmereUI.ShowSpellBlacklistPopup(opts)
     if EllesmereUI._blacklistPopup then
         EllesmereUI._blacklistPopup:Hide()
@@ -565,8 +599,12 @@ function EllesmereUI.ShowSpellBlacklistPopup(opts)
 
     -- Controller cursor loaded: the dimmer is a named Button, so the cursor can
     -- take the popup as a window and its Cancel press can click the dimmer shut.
+    -- One kept dimmer per kind (a kept frame never changes its type).
     local padCP = EllesmereUI.PadCP()
-    local dimmer = CreateFrame(padCP and "Button" or "Frame", padCP and "EUISpellBlacklistDimmer" or nil, UIParent)
+    local dimmer = PoolKept(POPUPS, padCP and "spellBlacklistPad" or "spellBlacklist",
+        padCP and "Button" or "Frame", UIParent, nil, padCP and "EUISpellBlacklistDimmer" or nil)
+    -- This open's dress (see ShowTrackedAurasPopup).
+    local dressGen = PoolGen(dimmer)
     dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
     dimmer:SetAllPoints(UIParent)
     dimmer:EnableMouse(true)
@@ -613,6 +651,9 @@ function EllesmereUI.ShowSpellBlacklistPopup(opts)
     addBox:SetMaxLetters(9)
     addBox:SetTextInsets(6, 6, 0, 0)
     addBox:SetJustifyH("LEFT")
+    -- Every open starts empty: the dress sets the text itself rather than rely on
+    -- the kept box's reset (set before OnTextChanged, so nothing fires).
+    addBox:SetText("")
     EllesmereUI.SolidTex(addBox, "BACKGROUND", 0, 0, 0, 0.4):SetAllPoints(addBox)
     EllesmereUI.MakeBorder(addBox, 1, 1, 1, 0.15)
     local ph = addBox:CreateFontString(nil, "OVERLAY")
@@ -661,6 +702,7 @@ function EllesmereUI.ShowSpellBlacklistPopup(opts)
     local rows = {}
     local RebuildList
     RebuildList = function()
+        if PoolGen(dimmer) ~= dressGen then return end
         for i = 1, #rows do rows[i]:Hide() end
         local map = (opts.get and opts.get()) or {}
         local ids = {}
@@ -744,7 +786,9 @@ function EllesmereUI.ShowSpellBlacklistPopup(opts)
             EllesmereUI.PadHint(popup, "nodepass")
             popup.CloseButton = dimmer
         end
-        EllesmereUI.RegisterEscapeClose(dimmer, { padOnly = true, onEscape = CloseBlacklist })
+        -- Every open asks: a named dimmer stays registered through the pool's
+        -- resets (the call returns at once), an unnamed one is registered anew.
+        EllesmereUI.RegisterEscapeClose(dimmer, BLACKLIST_ESC)
         dimmer:Show()
     end
 

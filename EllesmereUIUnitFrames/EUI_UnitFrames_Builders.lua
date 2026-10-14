@@ -191,13 +191,16 @@ local function CreateTargetAuras(frame, unit)
     return ns.UF_CreateAuraContainers(frame, unit or "target")
 end
 
--- Pet frame buffs and debuffs are opt-in: the containers are only built once one
--- of the two is on (here at spawn, or from the options when it gets turned on).
+-- Pet frame buffs and debuffs are opt-in: the containers are built once one of
+-- the two is on -- at spawn, and on every reload pass (EUI_UnitFrames_OptionsSetup.lua),
+-- where the options setters, profile switches and Spec and Conditional
+-- Overrides land. Same settings view and on/off test as the container runtime.
 function ns.UF_EnsurePetAuras(frame)
     frame = frame or (ns.frames and ns.frames.pet)
-    local s = frame and GetSettingsForUnit("pet")
+    if not frame or ns.GetUnitFrameSource("pet") ~= "eui" then return end
+    local s = ns.UF_AuraSettings("pet")
     if not s then return end
-    if s.showBuffs == true or (s.debuffAnchor or "none") ~= "none" then
+    if ns.UF_AuraSideOn("pet", "HELPFUL", s) or ns.UF_AuraSideOn("pet", "HARMFUL", s) then
         CreateTargetAuras(frame, "pet")
     end
 end

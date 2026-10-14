@@ -1062,11 +1062,6 @@ function NameplateFrame:SetUnit(unit, nameplate)
             self:ApplyTarget()
             self:ApplyMouseover()
             self:UpdateCast()
-            -- Mirrored class colour only: on a fresh plate Blizzard's own SetUnit may not have
-            -- run yet, in which case the same-unit guard refused to mirror and the plate is
-            -- wearing the plain fallback. Retry once a frame later so it does not sit there
-            -- until the unit's next health event.
-            if self._mirrorPending then self:UpdateHealthColor() end
         end
     end
     C_Timer.After(0, self._deferredSetupCB)
@@ -1151,7 +1146,6 @@ function NameplateFrame:ClearUnit()
     self._absorbHidden = nil
     self._maxHPValid = nil
     self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
-    self._mirrorPending = nil
     -- Threat Colors border/text channels: drop the skip-if-unchanged caches so a recycled
     -- plate always repaints for its new unit. _threatBdOn / _threatNameOn are deliberately
     -- LEFT set -- they record that the border and name still carry a threat tint, and the

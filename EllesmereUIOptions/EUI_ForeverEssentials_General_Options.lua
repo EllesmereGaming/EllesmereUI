@@ -151,7 +151,6 @@ end
 _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
     local SU = EllesmereUI._SpellUprank
-    local MM = EllesmereUI._MacroManager
     local BLANK = EllesmereUI.BlankRowCfg
     local y = yOffset
     local _, h
@@ -170,21 +169,88 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         BLANK()
     );  y = y - h
 
-    _, h = W:Spacer(parent, y, 20);  y = y - h
-    _, h = W:SectionHeader(parent, "MACROS", y);  y = y - h
+    ---------------------------------------------------------------------------
+    --  WORLD MAP (Reveal Unexplored Areas, its color in the cog)
+    ---------------------------------------------------------------------------
+    local MR = EllesmereUI._MapReveal
+    local function revealOff() return not MR.Get("enabled") end
 
-    _, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Macro Manager",
-          tooltip = "Adds the Macros tab: build macros by click and create many at once. /euimacros opens it.",
-          getValue = function() return MM.Get("enabled") end,
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "WORLD MAP", y);  y = y - h
+
+    local revealRow
+    revealRow, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Reveal Unexplored Areas",
+          tooltip = "Shows the parts of the world map you have not explored yet. Use the cog to pick their color.",
+          getValue = function() return MR.Get("enabled") end,
           setValue = function(v)
-              MM.Cfg().enabled = v
-              MM.Apply()
-              -- The Macros tab rebuilds with or without its editor.
-              EllesmereUI:InvalidateModulePageCache("EllesmereUIForeverEssentials")
+              MR.Cfg().enabled = v
+              MR.Apply()
+              EllesmereUI:RefreshPage()  -- the cog's disabled state
           end },
         BLANK()
     );  y = y - h
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(revealRow._leftRegion, {
+            title = "Reveal Unexplored Areas Settings",
+            rows = {
+                { type = "colorpicker", label = "Unexplored Color", hasAlpha = true,
+                  tooltip = "Tints the areas you have not explored yet. White shows them as they are.",
+                  get = function()
+                      local c = MR.Get("color")
+                      return c.r, c.g, c.b, c.a
+                  end,
+                  set = function(r, g, b, a)
+                      MR.Cfg().color = { r = r, g = g, b = b, a = a or 1 }
+                      MR.Apply()
+                  end },
+            },
+            disabled = revealOff, disabledTooltip = "Reveal Unexplored Areas",
+        })
+    end
+
+    ---------------------------------------------------------------------------
+    --  SIMPLIFIED STATS (item tooltips)
+    ---------------------------------------------------------------------------
+    local SS = EllesmereUI._SimplifiedStats
+    if SS then
+        local function Set(k, v)
+            SS.Cfg()[k] = v
+            EllesmereUI:RefreshPage()  -- update the dependent rows' disabled state
+        end
+        local function shortenOff() return not SS.Get("shorten") end
+        local function colorsOff() return not SS.Get("colors") end
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+        _, h = W:SectionHeader(parent, "SIMPLIFIED STATS", y);  y = y - h
+
+        -- Shorten Equip Lines | Color Stats
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Shorten Equip Lines",
+              tooltip = "Shortens Equip: and Set: stat lines on item tooltips to +X Stat.",
+              getValue = function() return SS.Get("shorten") end,
+              setValue = function(v) Set("shorten", v) end },
+            { type = "toggle", text = "Color Stats",
+              tooltip = "Colors each stat name on item tooltips, enchants included, and its number per Number Color.",
+              getValue = function() return SS.Get("colors") end,
+              setValue = function(v) Set("colors", v) end }
+        );  y = y - h
+
+        -- Merge Equal Spell Power | Number Color
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Merge Equal Spell Power",
+              tooltip = "Shows equal spell damage and healing as one Spell Power line.",
+              disabled = shortenOff, disabledTooltip = "Shorten Equip Lines",
+              getValue = function() return SS.Get("merge") end,
+              setValue = function(v) Set("merge", v) end },
+            { type = "dropdown", text = "Number Color",
+              disabled = colorsOff, disabledTooltip = "Color Stats",
+              values = { signed = "Green / Red", stat = "Stat Color", line = "Line Color" },
+              order = { "signed", "stat", "line" },
+              getValue = function() return SS.Get("numColor") end,
+              setValue = function(v) SS.Cfg().numColor = (v ~= "signed") and v or nil end }
+        );  y = y - h
+    end
 
     ---------------------------------------------------------------------------
     --  NAME FORMAT (while a module with a Name Format is on)
@@ -241,6 +307,93 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
             List(row._leftRegion, "first")
             List(row._rightRegion, "last")
         end
+    end
+
+    ---------------------------------------------------------------------------
+    --  JUNK ITEMS (the rows after the toggle are built while the window is
+    --  on; the toggle rebuilds the page)
+    ---------------------------------------------------------------------------
+    local JI = EllesmereUI._JunkItems
+    local function junkOff() return not JI.Get("enabled") end
+    -- Every write re-applies the window.
+    local function JunkSet(key, v)
+        JI.Cfg()[key] = v
+        JI.Apply()
+    end
+    local function ClearJunkExclusions()
+        EllesmereUI:ShowConfirmPopup({
+            title       = EllesmereUI.L("Clear Excluded Items"),
+            message     = EllesmereUI.L("Every item you middle-clicked away can show in the Junk Items window again."),
+            confirmText = EllesmereUI.L("Clear"),
+            cancelText  = CANCEL,
+            onConfirm   = JI.ClearExclusions,
+        })
+    end
+
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "JUNK ITEMS", y);  y = y - h
+
+    _, h = EllesmereUI.BuildVisibilityRow(W, parent, y, {
+        leftCfg = { type = "toggle", text = "Enable Junk Items Window",
+            tooltip = "Shows your cheapest junk in a small window.",
+            getValue = function() return not junkOff() end,
+            setValue = EllesmereUI.SectionToggleSetValue(function(v) JunkSet("enabled", v) end) },
+        -- The window's table exists once it was turned on, and the row is
+        -- greyed out while it is off, so viewing the page saves nothing.
+        getStore = function() return junkOff() and JI.Read() or JI.Cfg() end,
+        legacyKey = "visibility",
+        caps = { partyIncludesRaid = false, luaDragonriding = true, noMouseover = true },
+        disabledFn = junkOff, disabledTooltip = "Junk Items Window",
+        onChanged = EllesmereUI.RequestVisibilityUpdate,
+        onOptionChanged = EllesmereUI.RequestVisibilityUpdate,
+    });  y = y - h
+
+    if not junkOff() then
+        _, h = W:DualRow(parent, y,
+            { type = "slider", text = "Items Shown",
+              min = 1, max = 6, step = 1, isPercent = false,
+              tooltip = "How many junk stacks the window lists.",
+              getValue = function() return JI.Get("itemCount") end,
+              setValue = function(v) JunkSet("itemCount", v) end },
+            { type = "toggle", text = "Include White Items",
+              tooltip = "Lists white stacks as well as gray ones.",
+              getValue = function() return JI.Get("includeWhite") == true end,
+              setValue = function(v) JunkSet("includeWhite", v) end }
+        );  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Skip Confirmation for White Items",
+              tooltip = "White stacks delete on the first Ctrl + Left Click instead of the second.",
+              getValue = function() return JI.Get("skipWhiteConfirm") == true end,
+              setValue = function(v) JunkSet("skipWhiteConfirm", v) end },
+            { type = "labeledButton", text = "Excluded Items", buttonText = "Clear", width = 90,
+              tooltip = "Brings back items you middle-clicked away.",
+              onClick = ClearJunkExclusions }
+        );  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type = "slider", text = "Icon Size",
+              min = 16, max = 64, step = 1, isPercent = false,
+              getValue = function() return JI.Get("iconSize") end,
+              setValue = function(v) JunkSet("iconSize", v) end },
+            { type = "slider", text = "Icon Spacing",
+              tooltip = "Prices that don't fit show only their largest coin.",
+              min = 0, max = 30, step = 1, isPercent = false,
+              getValue = function() return JI.Get("iconSpacing") end,
+              setValue = function(v) JunkSet("iconSpacing", v) end }
+        );  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Price Position",
+              values = { bottom = "Below Icon", top = "Above Icon" },
+              order = { "bottom", "top" },
+              getValue = function() return JI.Get("priceSide") end,
+              setValue = function(v) JunkSet("priceSide", v) end },
+            { type = "toggle", text = "Show Empty Bag Slots",
+              tooltip = "Shows free and total bag slots as the title.",
+              getValue = function() return JI.Get("showFreeSlots") == true end,
+              setValue = function(v) JunkSet("showFreeSlots", v) end }
+        );  y = y - h
     end
 
     return math.abs(y)

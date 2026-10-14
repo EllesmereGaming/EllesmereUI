@@ -800,7 +800,7 @@ local function StartPull(secs)
     local handler = BossModPullHandler()
     if handler then handler(tostring(secs)) end
     if ChatLocked() then
-        EllesmereUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("In-game countdown unavailable in combat; the boss mod pull timer still started."))
+        EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. EllesmereUI.L("In-game countdown unavailable in combat; the boss mod pull timer still started."))
         return
     end
     C_PartyInfo.DoCountdown(secs)
@@ -2271,17 +2271,17 @@ end
 SLASH_EUIRAIDTOOLS1 = "/euiraid"
 SlashCmdList["EUIRAIDTOOLS"] = function()
     if Mode() == "never" then
-        EllesmereUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Raid Tools is disabled in the EllesmereUI options."))
+        EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. EllesmereUI.L("Raid Tools is disabled in the EllesmereUI options."))
         return
     end
     if InCombatLockdown() then
-        EllesmereUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Raid Tools cannot be toggled by slash command in combat -- use the keybind."))
+        EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. EllesmereUI.L("Raid Tools cannot be toggled by slash command in combat -- use the keybind."))
         return
     end
     -- The snippet would refuse anyway (enabled is false while the gate is
     -- shut); saying so beats a slash command that looks broken.
     if AssistSuppressed() then
-        EllesmereUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Raid Tools is hidden in a raid without leader or assist -- none of its buttons work there."))
+        EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. EllesmereUI.L("Raid Tools is hidden in a raid without leader or assist -- none of its buttons work there."))
         return
     end
     BuildAll()

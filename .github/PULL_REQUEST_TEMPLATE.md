@@ -18,7 +18,7 @@
 <!-- Check what applies; mark N/A where it genuinely does not. -->
 
 - [ ] New settings default **OFF** (no behavior change without opt-in)
-- [ ] Zero cost while disabled: no events registered, no polling, no hooks doing work, no frames built
+- [ ] Zero cost while disabled: no events registered, no polling, no hooks doing work, no tickers; nothing built beyond an inert event frame or combat queue
 - [ ] Cheap while enabled: event-driven (no polling, no timer-based logic, no per-frame allocations)
 - [ ] No writes onto Blizzard-owned frames (weak-table pattern used); `HookScript`/`hooksecurefunc` only, never `SetScript` on Blizzard frames
 - [ ] Tested in-game on live; no version gates or pre-Midnight APIs added

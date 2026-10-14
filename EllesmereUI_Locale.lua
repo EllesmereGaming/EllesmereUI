@@ -12,10 +12,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  keep byte-matching English for free. This file owns only the primitives.
 --
 --  TIMING: SavedVariables (EllesmereUIDB, which holds the manual language override)
---  are NOT available at file-scope -- they load at ADDON_LOADED. So locale files
---  populate their data unconditionally at load, and the engine resolves the
---  EFFECTIVE locale (client locale + override) and activates the matching catalog
---  at ADDON_LOADED. The options panel renders much later, so this is always in time.
+--  are NOT available at file-scope -- they load at ADDON_LOADED. So the engine
+--  resolves the EFFECTIVE locale (client locale + override) at ADDON_LOADED, loads
+--  the locale files then (only that locale's file builds its catalog) and
+--  activates it. The options panel renders much later, so this is always in time.
 --
 --  Zero cost on English: when the effective locale is enUS/enGB, the active
 --  catalog is nil and L/Lf/EnKey return the input unchanged, so every :SetText
@@ -86,11 +86,17 @@ EllesmereUI.EnKey = function(s)
     return reverse[s] or s
 end
 
+-- Effective locale (client locale + override), recorded at ADDON_LOADED below
+-- right before the EllesmereUILocales child loads. nil until then.
+local effectiveLocale = nil
+
 -- Entry point every EllesmereUILocales/<code>.lua file calls. Returns the
--- per-locale table to populate. The child is loaded for any non-English
--- effective locale, so every shipped locale file populates its own table;
--- the engine selects the active one right after in Activate().
+-- per-locale table to populate, or nil for every code but the effective
+-- locale once that is recorded, so only the active catalog builds (each
+-- locale file returns on nil). A load before then gets a table for every
+-- code; the engine selects the active one in Activate().
 EllesmereUI.RegisterLocale = function(code)
+    if effectiveLocale and code ~= effectiveLocale then return nil end
     local t = localeData[code]
     if not t then t = {}; localeData[code] = t end
     return t
@@ -170,9 +176,9 @@ Activate()
 -- before this point. Translation data lives in the LoadOnDemand
 -- EllesmereUILocales child (2.8MB of source English clients never parse):
 -- loaded here SYNCHRONOUSLY, before Activate(), whenever the effective locale
--- needs it -- so entries exist at activation exactly as when the files loaded
--- in the parent TOC. localeData already populated (standalone builds list the
--- files directly in their own TOC) skips the call.
+-- needs it, with that locale recorded first so only its own file builds.
+-- localeData already populated (the child loaded before this point) skips
+-- the call.
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:SetScript("OnEvent", function(self, _, loaded)
@@ -183,6 +189,7 @@ f:SetScript("OnEvent", function(self, _, loaded)
         local override = EllesmereUIDB and EllesmereUIDB.displayLocale
         if override == "auto" or not SUPPORTED[override or ""] then override = nil end
         local locale = override or client
+        effectiveLocale = locale
         if locale ~= "enUS" and SUPPORTED[locale] and not localeData[locale]
             and C_AddOns and C_AddOns.LoadAddOn then
             C_AddOns.LoadAddOn("EllesmereUILocales")

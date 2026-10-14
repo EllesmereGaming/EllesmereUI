@@ -656,8 +656,8 @@ local function RefreshActivityVisualState(frame, selectedActivity, theme)
             local ilvl
             if info and info.id and C_WeeklyRewards and C_WeeklyRewards.GetExampleRewardItemHyperlinks then
                 local itemLink = C_WeeklyRewards.GetExampleRewardItemHyperlinks(info.id)
-                if itemLink and GetDetailedItemLevelInfo then
-                    ilvl = GetDetailedItemLevelInfo(itemLink)
+                if itemLink then
+                    ilvl = C_Item.GetDetailedItemLevelInfo(itemLink)
                 end
             end
             if ilvl then

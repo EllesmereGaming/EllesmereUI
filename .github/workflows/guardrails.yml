@@ -2,13 +2,14 @@ name: Guardrails
 
 # Mechanical checks for mistakes that kept landing on main. Same command as
 # local: python3 .tools/guardrails.py --base <ref>. AGENTS.md lists the rule
-# each check enforces.
+# each check enforces; .tools/tests/test_guardrails.py tests the checks.
 
 on:
   pull_request:
     paths:
       - '**/*.lua'
       - '.tools/guardrails.py'
+      - '.tools/tests/test_guardrails.py'
       - '.github/workflows/guardrails.yml'
   push:
     branches: [main]
@@ -28,9 +29,13 @@ jobs:
       - name: Install Lua 5.1
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lua5.1
 
+      - name: Test the guardrails
+        run: python3 .tools/tests/test_guardrails.py
+
       - name: Run guardrails
         env:
           BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
         run: |
-          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then BASE=HEAD~1; fi
+          # A new branch has no "before"; after a force-push it may not exist here.
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE=HEAD~1; fi
           python3 .tools/guardrails.py --base "$BASE" --head HEAD

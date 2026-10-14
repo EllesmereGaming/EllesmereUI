@@ -7,6 +7,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 EllesmereUI._deferredInits[#EllesmereUI._deferredInits + 1] = function()
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolAttach, PoolGen, PoolIsIdle = EllesmereUI._Pool.Attach, EllesmereUI._Pool.Gen, EllesmereUI._Pool.IsIdle
 local PP = EllesmereUI.PanelPP
 local EXPRESSWAY = EllesmereUI.EXPRESSWAY
 local ShowWidgetTooltip = EllesmereUI.ShowWidgetTooltip
@@ -18,11 +23,18 @@ local HideWidgetTooltip = EllesmereUI.HideWidgetTooltip
 --------------------------------------------------------------------------------
 local _syncGlowPool = {}
 
+-- A glow rides on its target: made outside the pool, it is attached to a
+-- target of the options page pool, so it stays on it through the target's
+-- resets (hidden, its fade stopped) and the next flash of that frame, whatever
+-- the frame shows then, plays it again.
+local function StopGlow(glow) glow:SetScript("OnUpdate", nil) end
+
 local function PlaySyncFlash(targetFrame)
     if not targetFrame then return end
     local glow = _syncGlowPool[targetFrame]
     if not glow then
-        glow = CreateFrame("Frame", nil, targetFrame)
+        glow = _G.CreateFrame("Frame", nil, targetFrame)
+        PoolAttach(targetFrame, glow, nil, StopGlow)
         local ar, ag, ab = EllesmereUI.GetAccentColor()
         local function MkEdge()
             local t = glow:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -116,6 +128,37 @@ EllesmereUI.PlayWhiteFlash = PlayWhiteFlash
 local _activeMultiApplyDropdown = nil  -- only one open at a time
 -- Persistent checkbox state per element-key-set (survives dropdown close/reopen)
 local _multiApplyCheckedState = {}
+-- The popup, its click-away catcher and its rows (pooled by position) are built on
+-- the first open and reused; ma also holds what the open popup was opened with.
+local ma = { rows = {} }
+
+local function MakeMultiApplyRow(menu, fontPath)
+    local row = CreateFrame("Button", nil, menu)
+    row:SetHeight(28)
+    row:SetFrameLevel(menu:GetFrameLevel() + 2)
+
+    local box = CreateFrame("Frame", nil, row)
+    box:SetSize(16, 16)
+    box:SetPoint("LEFT", row, "LEFT", 10, 0)
+    local boxBg = box:CreateTexture(nil, "BACKGROUND")
+    boxBg:SetAllPoints()
+    boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
+    row._boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
+
+    local chk = box:CreateTexture(nil, "ARTWORK")
+    PP.SetInside(chk, box, 2, 2)
+    row._chk = chk
+
+    local lbl = row:CreateFontString(nil, "OVERLAY")
+    lbl:SetFont(fontPath, 13, "")
+    lbl:SetPoint("LEFT", box, "RIGHT", 8, 0)
+    row._lbl = lbl
+
+    local hl = row:CreateTexture(nil, "ARTWORK")
+    hl:SetAllPoints()
+    row._hl = hl
+    return row
+end
 
 local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
     -- Close any existing dropdown first
@@ -139,21 +182,120 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
 
     -- Controller cursor loaded: the one gate for everything controller-only below.
     local padCP = EllesmereUI.PadCP()
-    local menu = CreateFrame("Frame", nil, EllesmereUI.OverlayParent())
-    menu:SetFrameStrata("FULLSCREEN_DIALOG")
-    menu:SetFrameLevel(200)
-    menu:SetClampedToScreen(true)
-    menu:EnableMouse(true)
+    -- Options panel is Expressway-locked by design (locale-aware: CJK/Cyrillic get the system glyph font). The user's global font intentionally does not restyle the settings UI.
+    local fontPath = EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
+
+    local menu = ma.menu
+    if not menu then
+        menu = CreateFrame("Frame", nil, EllesmereUI.OverlayParent())
+        menu:SetFrameStrata("FULLSCREEN_DIALOG")
+        menu:SetFrameLevel(200)
+        menu:SetClampedToScreen(true)
+        menu:EnableMouse(true)
+        menu:Hide()
+
+        local mBg = menu:CreateTexture(nil, "BACKGROUND")
+        mBg:SetAllPoints()
+        mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.96)
+        EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+
+        -- "Apply" button at top -- styled like the footer Reset/Reload buttons (white, muted, fade hover)
+        local applyRow = CreateFrame("Button", nil, menu)
+        applyRow:SetHeight(APPLY_H)
+        applyRow:SetPoint("TOPLEFT", menu, "TOPLEFT", PAD, -PAD)
+        applyRow:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -PAD, -PAD)
+        applyRow:SetFrameLevel(menu:GetFrameLevel() + 2)
+
+        local DB_BG = EllesmereUI.DARK_BG
+        local applyBg = applyRow:CreateTexture(nil, "BACKGROUND")
+        applyBg:SetAllPoints()
+        applyBg:SetColorTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
+        local applyBrd = EllesmereUI.MakeBorder(applyRow, 1, 1, 1, 0.4, PP)
+
+        local applyLbl = applyRow:CreateFontString(nil, "OVERLAY")
+        applyLbl:SetFont(fontPath, 12, "")
+        applyLbl:SetTextColor(1, 1, 1, 0.5)
+        applyLbl:SetText(EllesmereUI.L("Apply"))
+        applyLbl:SetPoint("CENTER", applyRow, "CENTER", 0, 0)
+
+        -- Fade hover (matches footer button 0.1s fade)
+        do
+            local FADE_DUR = 0.1
+            local progress, target = 0, 0
+            local function ApplyHover(t)
+                applyLbl:SetTextColor(1, 1, 1, 0.5 + 0.2 * t)
+                applyBrd:SetColor(1, 1, 1, 0.4 + 0.2 * t)
+            end
+            local function OnUpdate(self, elapsed)
+                local dir = (target == 1) and 1 or -1
+                progress = progress + dir * (elapsed / FADE_DUR)
+                if (dir == 1 and progress >= 1) or (dir == -1 and progress <= 0) then
+                    progress = target; self:SetScript("OnUpdate", nil)
+                end
+                ApplyHover(progress)
+            end
+            applyRow:SetScript("OnEnter", function(self)
+                if not applyRow:IsEnabled() then return end
+                target = 1; self:SetScript("OnUpdate", OnUpdate)
+            end)
+            applyRow:SetScript("OnLeave", function(self)
+                target = 0; self:SetScript("OnUpdate", OnUpdate)
+            end)
+            -- Each open starts with the button at rest.
+            ma.resetApplyHover = function()
+                progress, target = 0, 0
+                applyRow:SetScript("OnUpdate", nil)
+            end
+        end
+
+        -- Separator line below Apply button
+        local sep = menu:CreateTexture(nil, "ARTWORK")
+        sep:SetHeight(1)
+        sep:SetPoint("TOPLEFT", applyRow, "BOTTOMLEFT", 0, -1)
+        sep:SetPoint("TOPRIGHT", applyRow, "BOTTOMRIGHT", 0, -1)
+        sep:SetColorTexture(1, 1, 1, 0.08)
+
+        -- Click-outside-to-close
+        local blocker = CreateFrame("Button", nil, EllesmereUI.OverlayParent())
+        blocker:SetFrameStrata("FULLSCREEN")
+        blocker:SetFrameLevel(199)
+        blocker:SetAllPoints(UIParent)
+        blocker:Hide()
+        blocker:SetScript("OnClick", function()
+            menu:Hide()
+        end)
+
+        menu:HookScript("OnHide", function()
+            blocker:Hide()
+            _activeMultiApplyDropdown = nil
+            -- Controller cursor: back onto the sync link that opened it (a no-op once that is hidden).
+            if ma.padCP and EllesmereUI.PadCursorShown() then EllesmereUI.PadFocus(ma.anchor) end
+        end)
+
+        -- Controller cursor: the popup and its catcher block what they cover without
+        -- being stops, and Cancel clicks the catcher (closing the popup).
+        if padCP then
+            EllesmereUI.PadHint(menu, "nodepass")
+            EllesmereUI.PadHint(blocker, "nodepass")
+            menu.CloseButton = blocker
+            EllesmereUI.TrackOverlay(blocker)
+            EllesmereUI.TrackOverlay(menu)
+        end
+
+        ma.menu, ma.applyRow, ma.applyBg, ma.applyBrd, ma.applyLbl, ma.blocker =
+            menu, applyRow, applyBg, applyBrd, applyLbl, blocker
+    end
+    ma.anchor, ma.padCP = anchorFrame, padCP
+    local applyRow, applyBg, applyBrd, applyLbl = ma.applyRow, ma.applyBg, ma.applyBrd, ma.applyLbl
+    local DB_BG = EllesmereUI.DARK_BG
+    local blocker = ma.blocker
+
     PP.Size(menu, menuW, menuH)
+    menu:ClearAllPoints()
     menu:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, -2)
-
-    local mBg = menu:CreateTexture(nil, "BACKGROUND")
-    mBg:SetAllPoints()
-    mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.96)
-    EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
-
     local ppScale = EllesmereUI.GetPopupScale() or 1
     menu:SetScale(ppScale)
+    ma.resetApplyHover()
 
     -- Reset the checked state to all-true on every open. Intentionally NOT carried over between opens: a prior per-operation deselection must never silently persist to another source unit or another sync icon (e.g. a stale exclusion could make a Bar Background sync from Target/Focus silently skip the Player frame).
     _multiApplyCheckedState[cacheKey] = {}
@@ -161,60 +303,6 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
         _multiApplyCheckedState[cacheKey][key] = true
     end
     local checked = _multiApplyCheckedState[cacheKey]
-
-    -- Options panel is Expressway-locked by design (locale-aware: CJK/Cyrillic get the system glyph font). The user's global font intentionally does not restyle the settings UI.
-    local fontPath = EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
-
-    -- "Apply" button at top -- styled like the footer Reset/Reload buttons (white, muted, fade hover)
-    local applyRow = CreateFrame("Button", nil, menu)
-    applyRow:SetHeight(APPLY_H)
-    applyRow:SetPoint("TOPLEFT", menu, "TOPLEFT", PAD, -PAD)
-    applyRow:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -PAD, -PAD)
-    applyRow:SetFrameLevel(menu:GetFrameLevel() + 2)
-
-    local DB_BG = EllesmereUI.DARK_BG
-    local applyBg = applyRow:CreateTexture(nil, "BACKGROUND")
-    applyBg:SetAllPoints()
-    applyBg:SetColorTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
-    local applyBrd = EllesmereUI.MakeBorder(applyRow, 1, 1, 1, 0.4, PP)
-
-    local applyLbl = applyRow:CreateFontString(nil, "OVERLAY")
-    applyLbl:SetFont(fontPath, 12, "")
-    applyLbl:SetTextColor(1, 1, 1, 0.5)
-    applyLbl:SetText(EllesmereUI.L("Apply"))
-    applyLbl:SetPoint("CENTER", applyRow, "CENTER", 0, 0)
-
-    -- Fade hover (matches footer button 0.1s fade)
-    do
-        local FADE_DUR = 0.1
-        local progress, target = 0, 0
-        local function ApplyHover(t)
-            applyLbl:SetTextColor(1, 1, 1, 0.5 + 0.2 * t)
-            applyBrd:SetColor(1, 1, 1, 0.4 + 0.2 * t)
-        end
-        local function OnUpdate(self, elapsed)
-            local dir = (target == 1) and 1 or -1
-            progress = progress + dir * (elapsed / FADE_DUR)
-            if (dir == 1 and progress >= 1) or (dir == -1 and progress <= 0) then
-                progress = target; self:SetScript("OnUpdate", nil)
-            end
-            ApplyHover(progress)
-        end
-        applyRow:SetScript("OnEnter", function(self)
-            if not applyRow:IsEnabled() then return end
-            target = 1; self:SetScript("OnUpdate", OnUpdate)
-        end)
-        applyRow:SetScript("OnLeave", function(self)
-            target = 0; self:SetScript("OnUpdate", OnUpdate)
-        end)
-    end
-
-    -- Separator line below Apply button
-    local sep = menu:CreateTexture(nil, "ARTWORK")
-    sep:SetHeight(1)
-    sep:SetPoint("TOPLEFT", applyRow, "BOTTOMLEFT", 0, -1)
-    sep:SetPoint("TOPRIGHT", applyRow, "BOTTOMRIGHT", 0, -1)
-    sep:SetColorTexture(1, 1, 1, 0.08)
 
     -- Count checked (excluding current) for disabled state
     local function CountChecked()
@@ -242,35 +330,27 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
 
     -- Checkbox rows
     local yOff = -(PAD + APPLY_H + 3)
-    local checkRows = {}
-    for _, key in ipairs(keys) do
+    local rows = ma.rows
+    for i, key in ipairs(keys) do
         local isCurrent = (key == currentKey)
-        local row = CreateFrame("Button", nil, menu)
-        row:SetHeight(ITEM_H)
+        local row = rows[i]
+        if not row then
+            row = MakeMultiApplyRow(menu, fontPath)
+            rows[i] = row
+        end
+        row:ClearAllPoints()
         row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, yOff)
         row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, yOff)
         row:SetFrameLevel(menu:GetFrameLevel() + 2)
+        row:Show()
 
-        local box = CreateFrame("Frame", nil, row)
-        box:SetSize(16, 16)
-        box:SetPoint("LEFT", row, "LEFT", 10, 0)
-        local boxBg = box:CreateTexture(nil, "BACKGROUND")
-        boxBg:SetAllPoints()
-        boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-        local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
-
-        local chk = box:CreateTexture(nil, "ARTWORK")
-        PP.SetInside(chk, box, 2, 2)
+        local boxBrd, chk, lbl, hl = row._boxBrd, row._chk, row._lbl, row._hl
         local gr = EllesmereUI.ELLESMERE_GREEN
         chk:SetColorTexture(gr.r, gr.g, gr.b, 1)
+        chk:SetAlpha(1)
 
-        local lbl = row:CreateFontString(nil, "OVERLAY")
-        lbl:SetFont(fontPath, 13, "")
-        lbl:SetPoint("LEFT", box, "RIGHT", 8, 0)
         lbl:SetText(EllesmereUI.L(labels[key] or key))
 
-        local hl = row:CreateTexture(nil, "ARTWORK")
-        hl:SetAllPoints()
         hl:SetColorTexture(1, 1, 1, 0)
 
         local function UpdateCheck()
@@ -289,8 +369,12 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
             chk:Show()
             boxBrd:SetColor(gr.r, gr.g, gr.b, 0.4)
             chk:SetAlpha(0.4)
+            row:SetScript("OnEnter", nil)
+            row:SetScript("OnLeave", nil)
+            row:SetScript("OnClick", nil)
             row:Disable()
         else
+            row:Enable()
             lbl:SetTextColor(0.75, 0.75, 0.75, 1)
             UpdateCheck()
             row:SetScript("OnEnter", function()
@@ -308,9 +392,9 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
             end)
         end
 
-        checkRows[key] = row
         yOff = yOff - ITEM_H
     end
+    for i = #keys + 1, #rows do rows[i]:Hide() end
 
     UpdateApplyState()
 
@@ -335,32 +419,7 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
     end)
 
     -- Click-outside-to-close
-    local blocker = CreateFrame("Button", nil, EllesmereUI.OverlayParent())
-    blocker:SetFrameStrata("FULLSCREEN")
-    blocker:SetFrameLevel(199)
-    blocker:SetAllPoints(UIParent)
-    blocker:SetScript("OnClick", function()
-        menu:Hide()
-    end)
     blocker:Show()
-
-    menu:HookScript("OnHide", function()
-        blocker:Hide()
-        blocker:SetParent(nil)
-        _activeMultiApplyDropdown = nil
-        -- Controller cursor: back onto the sync link that opened it (a no-op once that is hidden).
-        if padCP and EllesmereUI.PadCursorShown() then EllesmereUI.PadFocus(anchorFrame) end
-    end)
-
-    -- Controller cursor: the popup and its catcher block what they cover without
-    -- being stops, and Cancel clicks the catcher (closing the popup).
-    if padCP then
-        EllesmereUI.PadHint(menu, "nodepass")
-        EllesmereUI.PadHint(blocker, "nodepass")
-        menu.CloseButton = blocker
-        EllesmereUI.TrackOverlay(blocker)
-        EllesmereUI.TrackOverlay(menu)
-    end
 
     _activeMultiApplyDropdown = menu
     menu:Show()
@@ -405,6 +464,8 @@ local function BuildSyncIcon(opts)
 
     -- "Apply to:" prefix label + "All" clickable link
     local applyBtn = CreateFrame("Button", nil, region)
+    -- The dress these frames are in (options page pool; nil outside the pool).
+    local dressGen = PoolGen(applyBtn)
     applyBtn:SetFrameLevel(region:GetFrameLevel() + 4)
 
     local prefixText = applyBtn:CreateFontString(nil, "OVERLAY")
@@ -561,8 +622,14 @@ local function BuildSyncIcon(opts)
     -- ----------------------------------------------------------------
     --  RefreshPage hook: animate when sync state changes. Deferred if a slider is being dragged or color picker
     --  is open, so the label doesn't jitter mid-interaction.
+    --  The hook and its deferred checks act only while this link's frames are still in the dress they made
+    --  (options page pool: a rebuild in between resets them and may dress them for another row).
     -- ----------------------------------------------------------------
+    local function Redressed()
+        return PoolGen(applyBtn) ~= dressGen or PoolIsIdle(applyBtn)
+    end
     EllesmereUI.RegisterWidgetRefresh(function()
+        if Redressed() then return end
         -- Re-color accent in case it changed
         local r, g, b = EllesmereUI.GetAccentColor()
         prefixText:SetTextColor(1, 1, 1, 0.65)
@@ -585,6 +652,7 @@ local function BuildSyncIcon(opts)
                     EllesmereUI._deferredDriftChecks = {}
                 end
                 EllesmereUI._deferredDriftChecks[function()
+                    if Redressed() then return end
                     local r2, g2, b2 = EllesmereUI.GetAccentColor()
                     prefixText:SetTextColor(1, 1, 1, 0.65)
                     allText:SetTextColor(r2, g2, b2, 0.65)
@@ -602,6 +670,7 @@ local function BuildSyncIcon(opts)
                 EllesmereUI._deferredDriftChecks = {}
             end
             EllesmereUI._deferredDriftChecks[function()
+                if Redressed() then return end
                 local r2, g2, b2 = EllesmereUI.GetAccentColor()
                 prefixText:SetTextColor(1, 1, 1, 0.65)
                 allText:SetTextColor(r2, g2, b2, 0.65)

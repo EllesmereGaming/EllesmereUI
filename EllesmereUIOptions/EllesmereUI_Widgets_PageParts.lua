@@ -7,6 +7,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  loads before them.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
+-- Page reuse: the frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua, loaded first in this addon), which hands a kept
+-- page its previous build's frames back reset to new; on any other parent it
+-- creates as before.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 -------------------------------------------------------------------------------
 --  BuildUnlockPlaceholder
@@ -630,8 +635,9 @@ end
 -------------------------------------------------------------------------------
 --  Manager-page parts (Buff Manager, Debuff Manager, Player Aura Bars)
 -------------------------------------------------------------------------------
--- Sidebar tile. opts: width, fontPath, title, subtitle | subtitleFn, icon,
--- posText, selected, enabled, showToggle, dimmed, inheritedTooltip,
+-- Sidebar tile. opts: width, fontPath, title, subtitle | subtitleFn, icon | iconFn
+-- (the Fn forms re-read on every page widget refresh), posText, selected,
+-- enabled, showToggle, dimmed, inheritedTooltip,
 -- onSelect(), onToggle(newState), onDelete(), onEdit(), onContext(tile),
 -- height (66), textRight (-52), titleUnclamped, editSize (16), editTooltip,
 -- editSnap (keep pixel snapping on the pencil). Returns height, tile.
@@ -670,7 +676,7 @@ function EllesmereUI.BuildManagerTile(parentFrame, y, opts)
     local titleY = -10
     local textRight = opts.textRight or -52
 
-    if opts.icon then
+    if opts.icon or opts.iconFn then
         local ICON_SZ = 36
         local iconFrame = CreateFrame("Frame", nil, tile)
         iconFrame:SetSize(ICON_SZ, ICON_SZ)
@@ -679,7 +685,10 @@ function EllesmereUI.BuildManagerTile(parentFrame, y, opts)
         local iconTex = iconFrame:CreateTexture(nil, "ARTWORK")
         iconTex:SetAllPoints()
         iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        iconTex:SetTexture(opts.icon)
+        iconTex:SetTexture(opts.iconFn and opts.iconFn() or opts.icon)
+        if opts.iconFn then
+            EllesmereUI.RegisterWidgetRefresh(function() iconTex:SetTexture(opts.iconFn()) end)
+        end
         local iconBdr = CreateFrame("Frame", nil, iconFrame)
         iconBdr:SetAllPoints()
         iconBdr:SetFrameLevel(iconFrame:GetFrameLevel() + 1)

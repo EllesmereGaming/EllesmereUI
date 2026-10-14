@@ -6,6 +6,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 EllesmereUI._deferredInits[#EllesmereUI._deferredInits + 1] = function()
+-- Page reuse: the frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page or popup its previous
+-- build's frames back reset to new; on any other parent it creates as before.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
 local PP = EllesmereUI.PanelPP
 local ELLESMERE_GREEN = EllesmereUI.ELLESMERE_GREEN
 local MEDIA_PATH = EllesmereUI.MEDIA_PATH
@@ -28,6 +32,10 @@ local HideWidgetTooltip = EllesmereUI.HideWidgetTooltip
 --  }
 --  Returns: frame, height, refreshFn
 -------------------------------------------------------------------------------
+-- The one hidden font string every control measures its labels with (made on
+-- the first build, shown only while it measures, as a new one was).
+local measureFS
+
 local function BuildSegmentedControl(cfg)
     local ACCENT   = ELLESMERE_GREEN
     local SEG_H    = cfg.height or 28
@@ -42,7 +50,13 @@ local function BuildSegmentedControl(cfg)
 
     local numKeys = #cfg.keys
 
-    local tmpFS = UIParent:CreateFontString(nil, "OVERLAY")
+    local tmpFS = measureFS
+    if tmpFS then
+        tmpFS:Show()
+    else
+        tmpFS = UIParent:CreateFontString(nil, "OVERLAY")
+        measureFS = tmpFS
+    end
     tmpFS:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", FONT_SZ, "")
     local segWidths = {}
     local pillW = 0
