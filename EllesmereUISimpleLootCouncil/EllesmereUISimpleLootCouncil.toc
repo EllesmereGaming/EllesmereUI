@@ -1,0 +1,78 @@
+## Interface: 120000, 120001, 120005, 120007, 120100, 120105, 16001
+## Title: |cff0cd29fEllesmereUI|r Simple Loot Council
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Lets a raid's loot council vote on item distribution over addon comms.
+## Author: Laxx
+## X-License: All Rights Reserved
+## Version: 9.5.5
+## X-SLC-Version: 0.43.17
+## X-SLC-Commit: 1da691235297
+## X-SLC-Port-Commit: 966d05366729
+## Dependencies: EllesmereUI
+## SavedVariables: SimpleLootCouncilDB
+## OptionalDeps: wowutils, GuildsOfWoW, Simulationcraft
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+Edition.lua
+Core\Locale.lua
+Locale\shared.lua
+Locale\enUS.lua
+Core\Defaults.lua
+Core\Log.lua
+Core\Config.lua
+Core\Callbacks.lua
+CombatQueue.lua
+Core\Player.lua
+Core\Roster.lua
+Core\Restrictions.lua
+Core\Comms.lua
+Core\Version.lua
+Core\Council.lua
+Core\ConfigShare.lua
+Core\Gear.lua
+Core\TestLoot.lua
+Core\Session.lua
+Core\BonusRoll.lua
+Core\SimC.lua
+Core\StartRequest.lua
+Core\Roll.lua
+Core\Storage.lua
+Core\Encounter.lua
+Core\Attendance.lua
+Core\Wishlist.lua
+Core\Loot.lua
+Core\MasterLoot.lua
+Core\Trade.lua
+Core\BagShare.lua
+Core\Announce.lua
+Core\Whisper.lua
+Core\History.lua
+Core\HistorySnapshot.lua
+Core\HistoryImport.lua
+Core\Autopass.lua
+Core\BoERoute.lua
+Core\Specs.lua
+Core\RaidTeam.lua
+Core\Perf.lua
+UI\StyleCommon.lua
+UI\EUI\Pixel.lua
+UI\EUI\Style.lua
+UI\Layout.lua
+UI\Table.lua
+UI\VoterFrame.lua
+UI\MLFrame.lua
+UI\QueueFrame.lua
+UI\StartRequestFrame.lua
+UI\TradeQueueFrame.lua
+UI\HistoryFrame.lua
+UI\RaidTeamFrame.lua
+UI\AttendanceFrame.lua
+UI\RaidPrompt.lua
+UI\VersionFrame.lua
+UI\ConfigShareFrame.lua
+UI\EUI\ColorPicker.lua
+UI\SessionPanel.lua
+UI\OptionsSchema.lua
+OptionsBridge.lua
+SimpleLootCouncil.lua

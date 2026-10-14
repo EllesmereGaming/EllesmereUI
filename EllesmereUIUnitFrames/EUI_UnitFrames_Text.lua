@@ -264,7 +264,7 @@ EllesmereUI.IsSmartPowerPercent = EUI_IsSmartPowerPercent
 -- one decimal, 100 for two). Ten-thousand-grouping locales (koKR/zhCN/zhTW) take
 -- the shared number engine's thousand/wan/yi units instead of k/m/b, so these
 -- frames read the same as Damage Meters and the gold bar on those clients.
-local function DecimalAbbrevConfig(d)
+local function DecimalAbbrevConfig(d, shortHealth)
     local g = EllesmereUI.NumberAbbrevGlyphs()
     if g then
         return { breakpointData = {
@@ -274,20 +274,30 @@ local function DecimalAbbrevConfig(d)
         } }
     end
     return { breakpointData = {
-        { breakpoint = 1e9, abbreviation = "b", significandDivisor = 1e9 / d, fractionDivisor = d, abbreviationIsGlobal = false },
-        { breakpoint = 1e6, abbreviation = "m", significandDivisor = 1e6 / d, fractionDivisor = d, abbreviationIsGlobal = false },
-        { breakpoint = 1e3, abbreviation = "k", significandDivisor = 1e3 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+        { breakpoint = 1e9, abbreviation = shortHealth and "B" or "b", significandDivisor = 1e9 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+        { breakpoint = 1e6, abbreviation = shortHealth and "M" or "m", significandDivisor = 1e6 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+        { breakpoint = 1e3, abbreviation = shortHealth and "K" or "k", significandDivisor = 1e3 / d, fractionDivisor = d, abbreviationIsGlobal = false },
     } }
 end
 -- WoW Forever: nothing under 10,000 abbreviates, so the k band starts there and
 -- the thousand band goes (the shared engine's trim, EllesmereUI_NumberFormat.lua).
 if EllesmereUI.IS_FOREVER then
     local bands = DecimalAbbrevConfig
-    DecimalAbbrevConfig = function(d)
-        local cfg = bands(d)
-        cfg.breakpointData = EllesmereUI.ForeverAbbrevTiers(cfg.breakpointData)
+    DecimalAbbrevConfig = function(d, shortHealth)
+        local cfg = bands(d, shortHealth)
+        if not shortHealth then
+            cfg.breakpointData = EllesmereUI.ForeverAbbrevTiers(cfg.breakpointData)
+        end
         return cfg
     end
+end
+
+-- Health Short always abbreviates from 1,000 with one decimal.
+function ns.AbbreviateShortHealth(hp)
+    if not ns._shortHealthAbbrevConfig then
+        ns._shortHealthAbbrevConfig = DecimalAbbrevConfig(10, true)
+    end
+    return AbbreviateNumbers(hp, ns._shortHealthAbbrevConfig)
 end
 -- "Hide Trailing Zeros": AbbreviateNumbers drops a zero fraction ("100") but keeps a
 -- real one ("99.5"), which "%.1f" cannot do and a SECRET percent forbids doing with
@@ -353,10 +363,12 @@ end
 local TagFns = {}
 
 do
-  -- Abbreviated health for the curhpshort / maxhpshort tags. status: an
-  -- offline, dead or ghost unit reads OFFLINE / DEAD. Only the current value
-  -- takes it, so Health # / Max # names the status once ("DEAD / 150 K").
-  local function MakeAbbrevHP(getHP, status)
+  -- Abbreviated health for the curhpshort / healthshort / maxhpshort tags.
+  -- status: an offline, dead or ghost unit reads OFFLINE / DEAD. Only the
+  -- current value takes it, so Health # / Max # names the status once
+  -- ("DEAD / 150 K"). shortHealth (healthshort): always one decimal with an
+  -- uppercase K/M/B (ns.AbbreviateShortHealth), whatever the decimal options say.
+  local function MakeAbbrevHP(getHP, status, shortHealth)
     return function(unit)
       if not unit or not UnitExists(unit) then return "" end
       if status then
@@ -364,6 +376,7 @@ do
         if UnitIsDeadOrGhost(unit) then return "DEAD" end
       end
       local hp = getHP(unit) or 0
+      if shortHealth then return ns.AbbreviateShortHealth(hp) end
       local cfg = _G._EUI_AbbrevDecimalCfg
       -- Boss frames use the 2-decimal config when "Show 2 for Boss" is on.
       if _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss" then
@@ -374,6 +387,7 @@ do
   end
 
   TagFns.curhpshort = MakeAbbrevHP(UnitHealth, true)
+  TagFns.healthshort = MakeAbbrevHP(UnitHealth, true, true)
   TagFns.maxhpshort = MakeAbbrevHP(UnitHealthMax)
 end
 
@@ -820,6 +834,7 @@ do
 
     -- Function-registered tag methods are shared directly: one body, no drift.
     P.curhpshort  = TagFns.curhpshort
+    P.healthshort = TagFns.healthshort
     P.maxhpshort  = TagFns.maxhpshort
     P.perhp       = TagFns.perhp
     P.perhpnosign = TagFns.perhpnosign
@@ -939,6 +954,7 @@ do
         perhpnum     = { "%s%% | %s", "perhp", "curhpshort" },
         perhpnumdash = { "%s%% - %s", "perhp", "curhpshort" },
         curhpshort   = { "%s", "curhpshort" },
+        healthshort  = { "%s", "healthshort" },
         curmaxhp     = { "%s / %s", "curhpshort", "maxhpshort" },
         perhp        = { "%s%%", "perhp" },
         perhpnosign  = { "%s", "perhpnosign" },

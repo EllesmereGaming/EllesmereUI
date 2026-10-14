@@ -56,3 +56,4 @@ ignore:
   - CHANGELOG.md
   - AGENTS.md
   - EllesmereUILoadoutManager
+  - EllesmereUISimpleLootCouncil

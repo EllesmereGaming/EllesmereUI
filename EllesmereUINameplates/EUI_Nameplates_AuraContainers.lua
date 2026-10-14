@@ -260,8 +260,8 @@ local NPB = {
 }
 
 -- The split costs an extra engine group per plate, so take it only when the
--- halves must differ: one dispel type known and not the other, or both known
--- with per-type colors on. AND ONLY UNRESTRICTED: candidate filters read
+-- halves must differ: one dispel type known and not the other. AND ONLY
+-- UNRESTRICTED: candidate filters read
 -- auraData.dispelName, and enemy aura data is REDACTED in restricted content
 -- (the documented isStealable incident above BuffCand) -- there the
 -- include-Magic candidate matches nothing and every buff would fall into the
@@ -272,104 +272,109 @@ function NPB.Split()
     if not PurgeGlowActive() then return false end
     if AK and AK.AurasRestricted and AK.AurasRestricted() then return false end
     local magic, enrage = ns.GetOffensiveDispelTypes()
-    if magic ~= enrage then return true end
-    return (ns.GetDispelGlowUseTypeColor and ns.GetDispelGlowUseTypeColor()) or false
+    return magic ~= enrage
 end
 
--- Glow state and dispel type for glow group idx (1 = Magic, or the whole row
--- while unsplit; 2 = non-Magic). The type passes on unconditionally --
--- GetDispelGlowColor ignores it unless per-type colors are on.
+-- Whether glow group idx shows the dispel border (1 = Magic, or the whole row
+-- while unsplit; 2 = non-Magic).
 function NPB.GroupGlow(idx)
-    if not PurgeGlowActive() then return false, nil end
-    if not NPB.Split() then return idx ~= 2, nil end
+    if not PurgeGlowActive() then return false end
+    if not NPB.Split() then return idx ~= 2 end
     local magic, enrage = ns.GetOffensiveDispelTypes()
-    if idx == 2 then return enrage == true, "enrage" end
-    return magic == true, "magic"
+    if idx == 2 then return enrage == true end
+    return magic == true
 end
 
+-- Blizzard's own pandemic border (the Cooldown Manager's art), drawn static
+-- around an engine aura button for both the buff row's Dispel Glow and the
+-- debuff row's Pandemic Glow, outset 20% of the icon so it covers the icon's
+-- square corners (the Cooldown Manager's own frame uses 6 px on a 40 px icon).
+-- Nothing animates: a playing AnimationGroup costs engine time every frame even
+-- on a hidden host, every pooled button carries one of these hosts, and the
+-- client never lets addon code see when a pooled button or a pandemic region
+-- shows (secret visibility), so an animation could never wait for it.
+local BORDER_ATLAS = "UI-CooldownManager-PandemicBorder"
+
+-- The button's border host in d[key] (its outset stamp in d[outKey]), made on
+-- first use: a child of the engine button (cross-tree anchoring TO engine
+-- buttons is disallowed -- the dependent would inherit their forbidden aspects),
+-- so its visibility rides the button.
+local function NPBorderHost(button, d, key, outKey, style)
+    local host = d[key]
+    if not host then
+        host = CreateFrame("Frame", nil, button)
+        -- Just above the border, below the duration/stack text: the text
+        -- carrier sits one level over the border host, so slot in at carrier-1.
+        if d.stackCarrier then
+            host:SetFrameLevel(d.stackCarrier:GetFrameLevel() - 1)
+        else
+            host:SetFrameLevel(button:GetFrameLevel() + 1)
+        end
+        host:EnableMouse(false)
+        local tex = host:CreateTexture(nil, "ARTWORK")
+        tex:SetAllPoints(host)
+        tex:SetAtlas(BORDER_ATLAS)
+        d[key] = host
+    end
+    local w = style.width or 24
+    local out = math.floor(math.min(w, style.height or w) * 0.2 + 0.5)
+    if d[outKey] ~= out then
+        host:ClearAllPoints()
+        host:SetPoint("TOPLEFT", button, "TOPLEFT", -out, out)
+        host:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", out, -out)
+        d[outKey] = out
+    end
+    host:SetAlpha(1)
+    return host
+end
+
+-- The same border on a plain frame of the options preview (no engine button
+-- behind it); on = false hides it.
+local previewBorders = setmetatable({}, { __mode = "k" })
+local PV_SIZE = {}
+function ns.NPC_PreviewBorder(frame, w, h, on)
+    local d = previewBorders[frame]
+    if not on then
+        if d and d.host then d.host:SetAlpha(0) end
+        return
+    end
+    if not d then d = {}; previewBorders[frame] = d end
+    PV_SIZE.width, PV_SIZE.height = w, h
+    NPBorderHost(frame, d, "host", "out", PV_SIZE)
+end
+
+-- Dispel Glow on the buff row: every buff in the glow group is dispellable (the
+-- group filter says so), so the border rides the button's own visibility -- no
+-- readback of per-aura state.
 local function ApplyNPBuffExtra(button, d, style)
     ApplyNPText(button, d, style)
-    local Glows = EllesmereUI.Glows
-    if style.purgeGlow and style.purgeSpec then
-        local sz = style.width or 24
-        local host = d.npGlowHost
-        if not host then
-            -- Child of the engine button (cross-tree anchoring TO engine
-            -- buttons is disallowed -- the dependent would inherit their
-            -- forbidden aspects). Visibility therefore rides the button:
-            -- the shared Glows driver skips hidden pool buttons for free, and under
-            -- restriction (secret visibility) it skips the ticks too -- the glow
-            -- renders statically there, same accepted degrade as the RF CC glow.
-            host = CreateFrame("Frame", nil, button)
-            host:SetAllPoints(button)
-            -- Just above the border, below the duration/stack text: the
-            -- text carrier sits one level over the border host, so slot in
-            -- at carrier-1. Equal level with the border host still draws
-            -- the glow on top of the border (created later).
-            if d.stackCarrier then
-                host:SetFrameLevel(d.stackCarrier:GetFrameLevel() - 1)
-            else
-                host:SetFrameLevel(button:GetFrameLevel() + 1)
-            end
-            host:EnableMouse(false)
-            d.npGlowHost = host
-            -- nil need: every family (Pixel, the flipbooks and Blizzard Border).
-            Glows.PrewarmEngineHost(host, sz, style.height or sz, nil)
-        end
-        -- Every buff in this row is dispellable (the group filter says so), so the glow
-        -- rides the button's own visibility -- no readback of per-aura state.
-        host:SetAlpha(1)
-        -- C-side animations only: identical in and out of restricted content.
-        -- purgeSpec is the dispel glow's full spec (ns.GetDispelGlowSpec), built
-        -- once per style pass; the height follows cropped icons. Blizzard
-        -- Border (static stealable art) renders through the same call.
-        Glows.StartSpecGlow(host, style.purgeSpec, sz, style.height or sz, "engine")
+    if style.purgeGlow then
+        NPBorderHost(button, d, "npGlowHost", "npGlowOut", style)
     elseif d.npGlowHost then
-        if d.npGlowHost._euiGlowActive then Glows.StopGlow(d.npGlowHost) end
         d.npGlowHost:SetAlpha(0)
     end
 end
 
--- Pandemic Glow on debuff icons. The glow host is a PANDEMIC REGION of the
--- engine button: the client shows it only while the aura is in its pandemic
--- window (12.1.0 checks the window every frame while one exists, 12.1.5 on a
--- timer), also under restriction, and its shown state is secret -- nothing
--- here reads it. The glow inside runs C-side only (StartSpecGlow "engine").
--- Off, the region is cleared, so the button no longer checks the window.
--- Blizzard's aura code runs in its own environment (no global mixin to
+-- Pandemic Glow on debuff icons: the border host is a PANDEMIC REGION of the
+-- engine button. The client shows it only while the aura is in its pandemic
+-- window, also under restriction, and its shown state is secret -- nothing here
+-- reads it. Off, the region is cleared, so the button no longer checks the
+-- window. Blizzard's aura code runs in its own environment (no global mixin to
 -- test), so the button's own method is the one capability check.
 local function ApplyNPDebuffExtra(button, d, style)
     ApplyNPText(button, d, style)
-    local Glows = EllesmereUI.Glows
     local host = d.npPanHost
-    if style.pandemicGlow and style.pandemicSpec and button.AddPandemicRegion then
-        local sz = style.width or 24
-        if not host then
-            host = CreateFrame("Frame", nil, button)
-            host:SetAllPoints(button)
-            -- Same slot as the buff row's purge glow: above the border, below
-            -- the duration/stack text.
-            if d.stackCarrier then
-                host:SetFrameLevel(d.stackCarrier:GetFrameLevel() - 1)
-            else
-                host:SetFrameLevel(button:GetFrameLevel() + 1)
-            end
-            host:EnableMouse(false)
-            d.npPanHost = host
-            Glows.PrewarmEngineHost(host, sz, style.height or sz, nil)
-        end
+    if style.pandemicGlow and button.AddPandemicRegion then
+        host = NPBorderHost(button, d, "npPanHost", "npPanOut", style)
         if not d.npPanRegion then
             button:AddPandemicRegion(host)
             d.npPanRegion = true
         end
-        host:SetAlpha(1)
-        Glows.StartSpecGlow(host, style.pandemicSpec, sz, style.height or sz, "engine")
     elseif host then
         if d.npPanRegion then
             button:ClearPandemicRegions()
             d.npPanRegion = nil
         end
-        if host._euiGlowActive then Glows.StopGlow(host) end
         host:SetAlpha(0)
     end
 end
@@ -458,14 +463,11 @@ local function BuildNPStyle(kind, variant)
     -- dispel type is unreadable under 12.1 secrecy, so the type is a
     -- property of the GROUP and resolves once, here, at style-build time.
     if kind == "buffs" and variant ~= "plain" then
-        local glow, dispelType = NPB.GroupGlow(variant == 2 and 2 or 1)
-        style.purgeGlow = glow
-        style.purgeSpec = ns.GetDispelGlowSpec and ns.GetDispelGlowSpec(dispelType) or nil
+        style.purgeGlow = NPB.GroupGlow(variant == 2 and 2 or 1)
         style.applyExtra = ApplyNPBuffExtra
     elseif kind == "debuffs" then
         -- Your debuffs only: the pandemic window is the time a recast keeps.
         style.pandemicGlow = ns.GetPandemicGlow()
-        style.pandemicSpec = style.pandemicGlow and ns.GetPandemicGlowSpec() or nil
         style.applyExtra = ApplyNPDebuffExtra
     end
     return style
@@ -1104,8 +1106,7 @@ function NPB.GlowSpec(idx)
 end
 
 -- Declares or parks the non-Magic glow group to match the current split, on
--- containers that already existed when capability / restriction / the type
--- color option changed.
+-- containers that already existed when capability or restriction changed.
 function NPB.Apply(container)
     if not container then return end
     local split = NPB.Split()
@@ -1678,8 +1679,6 @@ end
 
 local npFP = {}
 
-local PURGE_FP_SPEC = {}
-local PAN_FP_SPEC = {}
 local function StyleFPFor(kind, idx)
     local size = NPSize(kind)
     local height = NPHeight(kind, size)
@@ -1690,30 +1689,14 @@ local function StyleFPFor(kind, idx)
     local stk = StackCfg()
     local purge = "-"
     if kind == "buffs" and ns.GetDispelGlow then
-        -- Capability and the per-type color toggle both feed BuildNPStyle,
-        -- so they have to reach this fingerprint or a talent swap / toggle
-        -- never restyles the engine buttons.
-        local glow, dispelType = NPB.GroupGlow(idx or 1)
-        local sp = ns.GetDispelGlowSpec and ns.GetDispelGlowSpec(dispelType, PURGE_FP_SPEC)
-        if sp then
-            purge = FP(idx or 1, glow, sp.style, sp.r, sp.g, sp.b, sp.lines, sp.thickness,
-                sp.speed, sp.bg, sp.bgR, sp.bgG, sp.bgB)
-            -- Class mode: the print holds the palette colour; keep it for the
-            -- colours-changed hook below NPC_ReloadAll. The mode is one profile
-            -- value, so any other mode clears it (no reload on later edits).
-            if PVal("dispelGlowColorMode") ~= "class" then
-                NPB.ccR = nil
-            elseif glow then
-                NPB.ccR, NPB.ccG, NPB.ccB = EllesmereUI.Glows.ResolveColor("class")
-            end
-        end
+        -- Capability feeds BuildNPStyle, so it has to reach this fingerprint
+        -- or a talent swap never restyles the engine buttons.
+        purge = FP(idx or 1, NPB.GroupGlow(idx or 1))
     end
-    -- Pandemic Glow (debuffs): every input of BuildNPStyle's pandemic fields,
-    -- a constant "-" while off so a glow edit never restyles default users.
+    -- Pandemic Glow (debuffs): on or off is its one input to BuildNPStyle
+    -- (the border art is fixed); a constant "-" while off.
     if kind == "debuffs" and ns.GetPandemicGlow() then
-        local sp = ns.GetPandemicGlowSpec(PAN_FP_SPEC)
-        purge = FP("pan", sp.style, sp.r, sp.g, sp.b, sp.lines, sp.thickness,
-            sp.speed, sp.bg, sp.bgR, sp.bgG, sp.bgB)
+        purge = "pan"
     end
     local durFP = FP(dur.size, dur.x, dur.y, dur.pos, dur.color.r, dur.color.g, dur.color.b)
     local stkFP = FP(stk.size, stk.x, stk.y, stk.pos, stk.color.r, stk.color.g, stk.color.b)
@@ -1942,27 +1925,6 @@ function ns.NPC_ReloadAll()
     for plate in pairs(active) do
         if plate.npcLockout then NPLockoutBorder(plate.npcLockout) end
     end
-end
-
--- Colors page edits (swatches, darken, resets, profile switches) all end in
--- ApplyColorsToOUF. Once a Class-mode dispel glow was printed, a changed class
--- colour re-runs the reload; the purge print carries the colour, so only the
--- glow styles restyle. Calls in one frame (a profile switch can make two)
--- collapse into one check on the next frame: the flush frame stays hidden
--- until a call and hides itself before working.
-do
-    local flush = CreateFrame("Frame")
-    flush:Hide()
-    flush:SetScript("OnUpdate", function(self)
-        self:Hide()
-        local r0 = NPB.ccR
-        if r0 == nil then return end
-        local r, g, b = EllesmereUI.Glows.ResolveColor("class")
-        if r ~= r0 or g ~= NPB.ccG or b ~= NPB.ccB then ns.NPC_ReloadAll() end
-    end)
-    hooksecurefunc(EllesmereUI, "ApplyColorsToOUF", function()
-        if NPB.ccR ~= nil then flush:Show() end
-    end)
 end
 
 ------------------------------------------------------------------------------

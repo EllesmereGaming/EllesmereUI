@@ -2650,7 +2650,9 @@ function ns.CC_Init()
     -- bills to click-cast, not the parent addon's lifecycle dispatch.
     ccEventFrame = (ns.TakeShell and ns.TakeShell()) or CreateFrame("Frame")
     ccEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    ccEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    -- The player's own spec only: unfiltered, every group member's spec change
+    -- re-applied every binding.
+    ccEventFrame:RegisterUnitEvent("PLAYER_SPECIALIZATION_CHANGED", "player")
     ccEventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
     ccEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     ccEventFrame:SetScript("OnEvent", OnCCEvent)

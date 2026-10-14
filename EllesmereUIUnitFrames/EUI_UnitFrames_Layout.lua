@@ -163,6 +163,7 @@ local ufTextWidths = {
     perhpnum    = 75,  -- "86% | 132 K"
     perhpnumdash = 75, -- "86% - 132 K"
     curhpshort  = 38,  -- "132 K"
+    healthshort = 38,
     curmaxhp    = 75,  -- "132 K / 150 K"
     curmaxpp    = 75,  -- "132 K / 150 K"
     perhp       = 38,  -- "86%"

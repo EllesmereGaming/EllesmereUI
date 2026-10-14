@@ -213,67 +213,6 @@ initFrame:SetScript("OnEvent", function(self)
     local npDispelGlowDesc, npImpCastGlowDesc, npPandemicGlowDesc
     do
         local GO = EllesmereUI.GlowOptions
-        -- The aura glows (Dispel, Pandemic) share one refresh, so the Glows
-        -- page runs it once per Apply.
-        local function RefreshAuraGlows() RefreshAllAuras(); UpdatePreview() end
-        -- Engine aura buttons (no Auto-Cast/Shape); an unset color is the
-        -- suite default (gold).
-        -- Blizzard Border: Blizzard's static stealable art, outside the view.
-        local BLIZZ_BORDER = EllesmereUI.Glows.STEALABLE_BORDER
-        npDispelGlowDesc = {
-            view = ns.NP_GLOW_VIEW, host = "engine",
-            extras = { { value = BLIZZ_BORDER, label = "Blizzard Border", style = BLIZZ_BORDER } },
-            caps = { mode = true, params = true, bg = true },
-            defaultColor = EllesmereUI.Glows.DEFAULT_COLOR,
-            isOff = function() return DBVal("dispelGlow") ~= true end,
-            -- Color by Type replaces the swatch color on every group.
-            colorDisabled = function() return DBVal("dispelGlowUseTypeColor") == true end,
-            colorDisabledTooltip = "Color by Type (Magic/Enrage)",
-            onChange = RefreshAuraGlows,
-            get = function(f)
-                local d = DB()
-                if f == "style" then return ns.GetDispelGlowStyle and ns.GetDispelGlowStyle() or 2
-                elseif f == "mode" then return d.dispelGlowColorMode or (d.dispelGlowColor and "custom" or "default")
-                end
-                return EllesmereUI.GlowOptions.FlatGet(d, "dispelGlow", f)
-            end,
-            set = function(f, a, b2, c2)
-                local d = DB()
-                if f == "style" then
-                    if a == 0 then d.dispelGlow = false else d.dispelGlow = true; d.dispelGlowStyle = a end
-                elseif f == "mode" then d.dispelGlowColorMode = a
-                else EllesmereUI.GlowOptions.FlatSet(d, "dispelGlow", f, a, b2, c2)
-                end
-            end,
-            -- off->on pays the per-plate aura-watcher cost -- prompt like other performance-priced enables; already-on style switches never prompt.
-            confirm = function(v, commit)
-                if v ~= 0 and DBVal("dispelGlow") ~= true then
-                    EllesmereUI:ShowConfirmPopup({
-                        title       = "Dispel Glow",
-                        message     = "Dispel Glow may cause a slight loss in performance efficiency. Do you want to enable it?",
-                        confirmText = "Enable",
-                        cancelText  = "Cancel",
-                        onConfirm   = commit,
-                        onCancel    = function()
-                            C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
-                        end,
-                    })
-                    return
-                end
-                commit()
-            end,
-            -- Magic buffs and enrages are separate groups in the buff row, so the
-            -- color can follow the type; it overrides the color above per group.
-            cogRows = {
-                { type="toggle", label="Color by Type (Magic/Enrage)",
-                  get=function() return DBVal("dispelGlowUseTypeColor") or false end,
-                  set=function(v)
-                      DB().dispelGlowUseTypeColor = v
-                      RefreshAuraGlows()
-                      EllesmereUI:RefreshPage()
-                  end },
-            },
-        }
         -- The cast bar is a bar host (no Shape).
         npImpCastGlowDesc = {
             view = ns.NP_GLOW_VIEW, host = "bar",
@@ -303,38 +242,6 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end,
         }
-        -- Debuffs in their pandemic window (pandemicGlow* keys; the same mode
-        -- key the CDM pandemic sync writes). An unset color mode is Custom:
-        -- the swatch color this glow always drew (the profile merge fills it
-        -- with the default gold).
-        npPandemicGlowDesc = {
-            view = ns.NP_GLOW_VIEW, host = "engine",
-            caps = { mode = true, params = true, bg = true },
-            defaultColor = defaults.pandemicGlowColor,
-            isOff = function() return DBVal("pandemicGlow") ~= true end,
-            onChange = RefreshAuraGlows,
-            get = function(f)
-                local d = DB()
-                if f == "style" then return ns.GetPandemicGlowStyle()
-                elseif f == "mode" then return d.pandemicGlowMode or "custom"
-                end
-                return EllesmereUI.GlowOptions.FlatGet(d, "pandemicGlow", f, defaults)
-            end,
-            set = function(f, a, b2, c2)
-                local d = DB()
-                if f == "style" then
-                    if a == 0 then d.pandemicGlow = false else d.pandemicGlow = true; d.pandemicGlowStyle = a end
-                elseif f == "mode" then d.pandemicGlowMode = a
-                else EllesmereUI.GlowOptions.FlatSet(d, "pandemicGlow", f, a, b2, c2)
-                end
-            end,
-        }
-        GO.RegisterSite({ id = "np_dispel", label = "Dispel Glow", group = "module",
-            module = "EllesmereUINameplates", page = PAGE_GENERAL, section = SECTION_AURA,
-            highlight = "Dispel Glow Style", desc = npDispelGlowDesc })
-        GO.RegisterSite({ id = "np_pandemic", label = "Pandemic Glow", group = "module",
-            module = "EllesmereUINameplates", page = PAGE_GENERAL, section = SECTION_AURA,
-            highlight = "Pandemic Glow Style", desc = npPandemicGlowDesc })
         GO.RegisterSite({ id = "np_importantcast", label = "Important Cast Glow", group = "module",
             module = "EllesmereUINameplates", page = PAGE_DISPLAY, section = SECTION_CASTBAR,
             highlight = "Important Cast Glow", desc = npImpCastGlowDesc })

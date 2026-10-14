@@ -4219,6 +4219,7 @@ do
         EllesmereUIQuickdraw = true,
         EllesmereUILoadoutManager = true,
         EllesmereUIForeverEssentials = true,
+        EllesmereUISimpleLootCouncil = true,
     }
 
     -- Shared tail of every accepted registration. Only reachable from the

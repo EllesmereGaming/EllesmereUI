@@ -4,7 +4,7 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  EllesmereUIForeverEssentials_SimplifiedStats.lua  (WoW Forever only)
 --  Simpler stat lines on item tooltips.
 --
---  shorten (on by default): rewrites the client's "Equip: Increases ..."
+--  shorten (off by default): rewrites the client's "Equip: Increases ..."
 --  item tooltip lines (TOOLTIP_ITEM_STAT_* globals) as "+X Label"; with merge,
 --  equal spell power and healing become one Spell Power line. Set bonus lines ("Set: ...",
 --  "(2) Set: ...") are shortened the same way; the inactive (gray) ones stay
@@ -25,7 +25,7 @@ if not (TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall) then r
 
 -- Settings live in EllesmereUIDB.simplifiedStats; unset keys read these.
 local F = module.Feature("simplifiedStats",
-    { shorten = true, colors = false, merge = false, numColor = "signed" })
+    { shorten = false, colors = false, merge = false, numColor = "signed" })
 
 local statRules, statLabels
 -- Prefixed lines: { pat = "^(prefix)(.*)$", kind = "set" | "enchant", gray }
@@ -123,8 +123,8 @@ local function BuildStatRules()
     for _, h in ipairs({ { "+", "INCREASE" }, { "-", "DECREASE" } }) do
         for _, d in ipairs({ { "+", "INCREASE" }, { "-", "DECREASE" } }) do
             Rule("SPELL_HEALING_" .. h[2] .. "_DAMAGE_" .. d[2], {
-                { 2, d[1], "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT", SP },
                 { 1, h[1], "ITEM_MOD_SPELL_HEALING_DONE_SHORT", HEAL },
+                { 2, d[1], "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT", SP },
             }, true)
         end
     end
@@ -228,7 +228,7 @@ local function SimplifyStatLine(text, bare)
                 out[i] = o[2] .. ((r.slot[o[1]] == 2) and c2 or c1) .. r.pct
             end
             if mergeOn and r.merge and out[1] == out[2] then
-                return Stat(out[1], ITEM_MOD_SPELL_POWER_SHORT, r.outs[1][4])
+                return Stat(out[1], ITEM_MOD_SPELL_POWER_SHORT, HUE.sp)
             end
             for i, o in ipairs(r.outs) do
                 out[i] = Stat(out[i], r.labels[i], o[4])

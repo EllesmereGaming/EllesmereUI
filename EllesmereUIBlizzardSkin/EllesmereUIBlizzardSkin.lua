@@ -4515,15 +4515,24 @@ end
             if f then HUD.containers[#HUD.containers + 1] = f end
         end
         -- Any other UIParent child that is a widget container. Children taken
-        -- ONCE; UIParent has a few hundred of them.
+        -- ONCE; UIParent has a few hundred of them. GetChildren returns every
+        -- child as its own value, so a UIParent holding thousands of frames
+        -- (something in the session creating them without end) overflows the
+        -- Lua stack: past the cap, or if the call fails anyway, only the named
+        -- containers above and the adopted ones below are swept.
         local up = _G.UIParent
-        if up and up.GetChildren then
-            local kids = { up:GetChildren() }
+        local okC, numKids = false, nil
+        if up and up.GetNumChildren then okC, numKids = pcall(up.GetNumChildren, up) end
+        local okK, kids = false, nil
+        if okC and type(numKids) == "number" and numKids <= 4000 then
+            okK, kids = pcall(KidsOf, up)
+        end
+        if okK and kids then
             for i = 1, #kids do
                 local ch = kids[i]
                 if ch and ch.GetName and not (ch.IsForbidden and ch:IsForbidden()) then
                     local okN, n = pcall(ch.GetName, ch)
-                    local okP, pools = pcall(function() return ch.widgetPools end)
+                    local okP, pools = pcall(HUDGet, ch, "widgetPools")
                     local isWidget = (okN and type(n) == "string" and n:find("^UIWidget"))
                                      or (okP and pools ~= nil)
                     -- The tracker's own widget container is excluded on
