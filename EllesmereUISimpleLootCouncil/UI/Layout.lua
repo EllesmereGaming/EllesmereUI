@@ -211,18 +211,56 @@ local function HelpLines(help)
 end
 
 
+local function SettingHeight(hasHelp)
+    if not hasHelp then return size.ROW_H end
+    return math.max(size.SET_ROW_H, math.ceil(HELP_INSET * 2
+        + FontHeight(S.fontSetting, 13.5) + HELP_GAP
+        + HELP_LINES * FontHeight(S.fontSmall, 12)))
+end
 
-function L.Toggle(parent, x, width, y, opts)
-    local hasHelp = opts.tooltip ~= nil
+
+
+local function InlineHelp(row, label, control, height, text)
     local nameH = FontHeight(S.fontSetting, 13.5)
     local helpH = FontHeight(S.fontSmall, 12)
 
 
-    local height = size.ROW_H
-    if hasHelp then
-        height = math.max(size.SET_ROW_H, math.ceil(
-            HELP_INSET * 2 + nameH + HELP_GAP + HELP_LINES * helpH))
+    local help = S.Label(row, S.fontSmall, "LEFT", HELP_LINES)
+    help:SetText(text)
+    P.Point(help, "TOPLEFT", label, "BOTTOMLEFT", 0, -HELP_GAP)
+    P.Point(help, "TOPRIGHT", label, "BOTTOMRIGHT", 0, -HELP_GAP)
+    row.HelpText = help
+
+    local function place(lines)
+        local top = (height - (nameH + HELP_GAP + lines * helpH)) / 2
+        label:ClearAllPoints()
+        P.Point(label, "TOPLEFT", row, "TOPLEFT", size.ROW_PAD, -top)
+
+
+        P.Point(label, "TOPRIGHT", control, "LEFT", -size.GAP, height / 2 - top)
     end
+
+    place(HELP_LINES)
+    local function recentre()
+        P.AfterLayout(function()
+            local lines = HelpLines(help)
+            if lines then place(lines) end
+        end)
+    end
+    recentre()
+
+
+    function row:SetHelpText(newText)
+        help:SetText(newText)
+        recentre()
+    end
+end
+
+
+
+function L.Toggle(parent, x, width, y, opts)
+    local hasHelp = opts.tooltip ~= nil
+    local height = SettingHeight(hasHelp)
 
     local row = L.Row(parent, x, width, y, height)
     row:SetStripe(opts.stripe)
@@ -238,38 +276,7 @@ function L.Toggle(parent, x, width, y, opts)
     row.LabelText = label
 
     if hasHelp then
-
-
-        local help = S.Label(row, S.fontSmall, "LEFT", HELP_LINES)
-        help:SetText(opts.tooltip)
-        P.Point(help, "TOPLEFT", label, "BOTTOMLEFT", 0, -HELP_GAP)
-        P.Point(help, "TOPRIGHT", label, "BOTTOMRIGHT", 0, -HELP_GAP)
-        row.HelpText = help
-
-        local function place(lines)
-            local top = (height - (nameH + HELP_GAP + lines * helpH)) / 2
-            label:ClearAllPoints()
-            P.Point(label, "TOPLEFT", row, "TOPLEFT", size.ROW_PAD, -top)
-
-
-            P.Point(label, "TOPRIGHT", box, "LEFT", -size.GAP, height / 2 - top)
-        end
-
-        place(HELP_LINES)
-        local function recentre()
-            P.AfterLayout(function()
-                local lines = HelpLines(help)
-                if lines then place(lines) end
-            end)
-        end
-        recentre()
-
-
-
-        function row:SetHelpText(text)
-            help:SetText(text)
-            recentre()
-        end
+        InlineHelp(row, label, box, height, opts.tooltip)
     else
         L.RevealIfTruncated(row, label, opts.label)
     end
@@ -319,6 +326,7 @@ function L.Input(parent, x, width, y, opts)
 
 
     local label = BoundedLabel(row, holder, opts.label, S.fontSetting)
+    row.Label = label
     L.RevealIfTruncated(row, label, opts.tooltip and (opts.label .. "\n" .. opts.tooltip))
 
     if opts.tooltip then
@@ -337,7 +345,9 @@ end
 
 
 function L.Select(parent, x, width, y, opts)
-    local row = L.Row(parent, x, width, y)
+    local hasHelp = opts.tooltip ~= nil
+    local height = SettingHeight(hasHelp)
+    local row = L.Row(parent, x, width, y, height)
     row:SetStripe(opts.stripe)
 
     local select = S.SelectButton(row)
@@ -384,7 +394,12 @@ function L.Select(parent, x, width, y, opts)
     if window then window:HookScript("OnHide", function() S.HideSelectMenu() end) end
 
     local label = BoundedLabel(row, select, opts.label, S.fontSetting)
-    L.RevealIfTruncated(row, label, opts.tooltip and (opts.label .. "\n" .. opts.tooltip))
+    row.LabelText = label
+    if hasHelp then
+        InlineHelp(row, label, select, height, opts.tooltip)
+    else
+        L.RevealIfTruncated(row, label, opts.label)
+    end
     if opts.tooltip then
         row:HookScript("OnEnter", function(self)
             S.SideTooltip(self)
@@ -402,7 +417,7 @@ function L.Select(parent, x, width, y, opts)
         select:HookScript("OnLeave", function() GameTooltip:Hide() end)
     end
 
-    return row, size.ROW_H
+    return row, height
 end
 
 

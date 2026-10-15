@@ -48,9 +48,15 @@ boot:SetScript("OnEvent", function(self, event, name)
     end
 end)
 
+
+
+local svName = "SimpleLootCouncilDB"
+
 function OnAddOnLoaded()
-    SimpleLootCouncilDB = SimpleLootCouncilDB or {}
-    local db = SimpleLootCouncilDB
+    svName = addon.SAVED_VARIABLES or "SimpleLootCouncilDB"
+    if addon.AdoptSavedVariables then addon.AdoptSavedVariables() end
+    _G[svName] = _G[svName] or {}
+    local db = _G[svName]
 
 
 
@@ -70,67 +76,91 @@ function OnAddOnLoaded()
     end
 end
 
+
+
+local function ModuleName(module)
+    for _, space in ipairs({ addon, addon.UI or {} }) do
+        for key, value in pairs(space) do
+            if value == module then return (space == addon and "" or "UI.") .. tostring(key) end
+        end
+    end
+    return "?"
+end
+
+local function Init(module, ...)
+    local args, count = { ... }, select("#", ...)
+    local ok, err = xpcall(function() module:Init(unpack(args, 1, count)) end, function(e)
+        local stack = debugstack and debugstack(2, 6, 0)
+        return tostring(e) .. (stack and ("\n" .. tostring(stack)) or "")
+    end)
+    if not ok then
+        addon.Log:Bug("Core", "Init failed for " .. ModuleName(module) .. ": " .. tostring(err))
+    end
+    return ok
+end
+addon.GuardedInit = Init
+
 function OnPlayerLogin()
 
 
-    addon.Player:Init(addon.db)
+    Init(addon.Player, addon.db)
 
 
-    addon.Restrictions:Init()
-    addon.Comms:Init()
+    Init(addon.Restrictions)
+    Init(addon.Comms)
 
 
-    addon.Version:Init()
+    Init(addon.Version)
 
 
-    addon.Gear:Init()
+    Init(addon.Gear)
 
 
-    addon.Council:Init()
-    addon.ConfigShare:Init()
-    addon.Session:Init()
-    addon.SimC:Init()
+    Init(addon.Council)
+    Init(addon.ConfigShare)
+    Init(addon.Session)
+    Init(addon.SimC)
 
-    addon.Roll:Init()
-
-
-
-    addon.Storage:Init()
-
-    addon.Encounter:Init()
-
-    addon.Attendance:Init()
-
-    addon.BonusRoll:Init()
+    Init(addon.Roll)
 
 
-    addon.Wishlist:Init()
-    addon.Loot:Init()
-    addon.Trade:Init()
 
-    addon.BagShare:Init()
+    Init(addon.Storage)
 
+    Init(addon.Encounter)
 
-    addon.History:Init()
+    Init(addon.Attendance)
 
-
-    addon.Snapshot:Init()
-
-    addon.Announce:Init()
+    Init(addon.BonusRoll)
 
 
-    addon.Whisper:Init()
-    addon.Autopass:Init()
+    Init(addon.Wishlist)
+    Init(addon.Loot)
+    Init(addon.Trade)
 
-    addon.Specs:Init(addon.db)
-
-    addon.RaidTeam:Init()
-
-
-    addon.Perf:Init()
+    Init(addon.BagShare)
 
 
-    addon.Pixel:Init()
+    Init(addon.History)
+
+
+    Init(addon.Snapshot)
+
+    Init(addon.Announce)
+
+
+    Init(addon.Whisper)
+    Init(addon.Autopass)
+
+    Init(addon.Specs, addon.db)
+
+    Init(addon.RaidTeam)
+
+
+    Init(addon.Perf)
+
+
+    Init(addon.Pixel)
 
 
     if not addon.Style.rounded then
@@ -146,20 +176,20 @@ function OnPlayerLogin()
     end
 
 
-    addon.UI.VoterFrame:Init()
-    addon.UI.MLFrame:Init()
-    addon.UI.QueueFrame:Init()
-    addon.StartRequest:Init()
-    addon.UI.StartRequestFrame:Init()
-    addon.UI.TradeQueueFrame:Init()
-    addon.UI.HistoryFrame:Init()
-    addon.UI.RaidTeamFrame:Init()
-    addon.UI.AttendanceFrame:Init()
-    addon.UI.RaidPrompt:Init()
-    addon.UI.VersionFrame:Init()
-    addon.UI.ConfigShareFrame:Init()
-    addon.UI.SessionPanel:Init()
-    addon.UI.Options:Init()
+    Init(addon.UI.VoterFrame)
+    Init(addon.UI.MLFrame)
+    Init(addon.UI.QueueFrame)
+    Init(addon.StartRequest)
+    Init(addon.UI.StartRequestFrame)
+    Init(addon.UI.TradeQueueFrame)
+    Init(addon.UI.HistoryFrame)
+    Init(addon.UI.RaidTeamFrame)
+    Init(addon.UI.AttendanceFrame)
+    Init(addon.UI.RaidPrompt)
+    Init(addon.UI.VersionFrame)
+    Init(addon.UI.ConfigShareFrame)
+    Init(addon.UI.SessionPanel)
+    Init(addon.UI.Options)
 
 
 
@@ -233,6 +263,12 @@ end
 
 
 addon.Comms:Register("ping", "any", function(args, sender)
+
+
+    if not (addon.Player:IsSelf(sender)
+        or (type(args) == "table" and type(args.to) == "string" and addon.Player:IsSelf(args.to))) then
+        return
+    end
     local size = args and args.size or 0
     print((addon.Log.CHAT_PREFIX.accent .. "ping from %s, %d bytes intact=%s")
         :format(tostring(sender), size,
@@ -290,16 +326,20 @@ end
 
 local dumpFrame
 
-local function ShowDump(title, text)
+
+local function ShowDump(title, text, count)
     if not dumpFrame then
         local S, P = addon.Style, addon.Pixel
         local f = S.Window("SimpleLootCouncilDumpFrame", "dump", 700, 480, title)
         local content = f.Content
         local barW = S.size.SCROLLBAR_W + S.size.SCROLLBAR_GAP
 
+        f.count = S.Label(content, S.fontHint, "LEFT")
+        P.Point(f.count, "TOPLEFT", content, "TOPLEFT", 0, 0)
+        P.Size(f.count, content.slcWidth, S.size.COUNT_H)
+
 
         f.hint = S.Label(content, S.fontHint, "LEFT", 2)
-        P.Point(f.hint, "TOPLEFT", content, "TOPLEFT", 0, 0)
         P.Size(f.hint, content.slcWidth, 2 * S.size.COUNT_H)
         f.hint:SetText(T["Ctrl+A, Ctrl+C to copy  -  Hold shift to scroll instantly"])
 
@@ -339,6 +379,14 @@ local function ShowDump(title, text)
         dumpFrame = f
     end
 
+    dumpFrame.count:SetText(count or "")
+    dumpFrame.count:SetShown(count ~= nil)
+    dumpFrame.hint:ClearAllPoints()
+    if count then
+        addon.Pixel.Point(dumpFrame.hint, "TOPLEFT", dumpFrame.count, "BOTTOMLEFT", 0, 0)
+    else
+        addon.Pixel.Point(dumpFrame.hint, "TOPLEFT", dumpFrame.Content, "TOPLEFT", 0, 0)
+    end
     dumpFrame.Title:SetText(title)
     addon.Pixel.AfterLayout(dumpFrame.ClampTitle)
     dumpFrame.edit:SetText(text)
@@ -502,6 +550,7 @@ local function HelpSections(dev)
             { T["whisper [text]"], T["the whisper fallback (alt. w)"] },
             { "end", T["end the run"] },
             { "clear", T["discard the staged items"] },
+            { "clearframe", T["remove loot roll frames left on screen"] },
             { T["test [<count>]"], T["simulated run; /slc help dev for more"] },
         },
         { T["Trades and history"],
@@ -561,15 +610,16 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             return
         end
 
+        local count = ("%d lines"):format(#entries)
         if wantAll then
-            ShowDump("Log - full history", table.concat(entries, "\n"))
+            ShowDump("Log - full history", table.concat(entries, "\n"), count)
         else
-            ShowDump(("Log - this session (%d lines, /slc log history for all)")
-                :format(#entries), table.concat(entries, "\n"))
+            ShowDump("Log - this session (/slc log history for all)",
+                table.concat(entries, "\n"), count)
         end
 
     elseif cmd == "dump" then
-        ShowDump("SavedVariables", "SimpleLootCouncilDB = " .. DumpValue(addon.db))
+        ShowDump("SavedVariables", svName .. " = " .. DumpValue(addon.db))
 
     elseif cmd == "debug" then
         addon.db.debug = not addon.db.debug
@@ -594,7 +644,14 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             return
         end
         addon.Locale.Pseudo(on)
-        C_UI.Reload()
+
+        if addon.RequestReload then
+            addon.RequestReload()
+        elseif C_UI and C_UI.Reload and pcall(C_UI.Reload) then
+            addon.Log:I("Core", "pseudo-locale: reloading")
+        else
+            Print(T["the setting is saved - type /reload to apply it."])
+        end
 
     elseif cmd == "ping" then
 
@@ -885,6 +942,8 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             or addon.Locale.Format(
                 T["added as session %d: %s (no encounter in progress - asking the Adventure Guide)"],
                 index, link)) or T["could not add"])
+
+        if index then addon.Callbacks:Fire("SessionChanged", index, "item") end
 
     elseif cmd == "start" then
         local started, why = addon.Session:Start()
@@ -1205,6 +1264,29 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         Print(T["cleared"])
 
 
+    elseif cmd == "clearframe" then
+        local cleared, open = addon.Loot:ClearRollFrames()
+        if not cleared then
+            Print(T["loot roll frames cannot be cleared during combat - run /slc clearframe after it."])
+            return
+        end
+        if cleared > 0 then
+            Print(addon.Locale.Format(addon.Locale.Plural{
+                one = "cleared %d loot roll frame.", other = "cleared %d loot roll frames.",
+            }, cleared, cleared))
+        elseif open == 0 then
+            Print(T["nothing to clear - no loot roll frame is left on screen."])
+        else
+            Print(T["nothing to clear - every loot roll frame on screen is still open."])
+        end
+        if open > 0 then
+            Print(addon.Locale.Format(addon.Locale.Plural{
+                one = "%d loot roll is still open and was left alone.",
+                other = "%d loot rolls are still open and were left alone.",
+            }, open, open))
+        end
+
+
 
     elseif cmd == "on" or cmd == "off" then
         if not IsInGroup() then
@@ -1311,13 +1393,17 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             other = "%d tradeable items, newest first:",
         }, #eligible, #eligible))
         for i, entry in ipairs(eligible) do
-            Print(addon.Locale.Format(T["  %d. %s  |cff808080%dm left|r"],
-                i, entry.link, math.floor(entry.secondsLeft / 60)))
+
+            Print(entry.boe and addon.Locale.Format(T["  %d. %s  |cff808080BoE|r"], i, entry.link)
+                or addon.Locale.Format(T["  %d. %s  |cff808080%dm left|r"],
+                    i, entry.link, math.floor(entry.secondsLeft / 60)))
         end
         for _, entry in ipairs(owed) do
-            Print(addon.Locale.Format(T["  -  %s  |cff73716C%dm left, owed to %s|r"],
-                entry.link, math.floor(entry.secondsLeft / 60),
-                entry.owedTo and Ambiguate(entry.owedTo, "short") or T["unknown"]))
+            local owedTo = entry.owedTo and Ambiguate(entry.owedTo, "short") or T["unknown"]
+            Print(entry.boe and addon.Locale.Format(T["  -  %s  |cff73716CBoE, owed to %s|r"],
+                    entry.link, owedTo)
+                or addon.Locale.Format(T["  -  %s  |cff73716C%dm left, owed to %s|r"],
+                    entry.link, math.floor(entry.secondsLeft / 60), owedTo))
         end
         for _, entry in ipairs(filtered) do
             Print(addon.Locale.Format(T["  -  %s  |cff73716C%dm left, filtered out|r"],

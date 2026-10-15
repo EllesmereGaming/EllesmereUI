@@ -82,6 +82,7 @@ local function ResponseText(session, winner)
     local item = addon.Session:GetItem(session)
     local candidate = item and item.candidates and item.candidates[winner]
     if not candidate then return nil end
+    if type(candidate.boe) == "table" then return candidate.boe.t end
 
     local index = candidate.realResponse or candidate.response
     local response = index and addon.Config:Responses()[index]

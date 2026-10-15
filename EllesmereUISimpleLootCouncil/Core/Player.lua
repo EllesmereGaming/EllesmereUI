@@ -495,15 +495,19 @@ function Player:IsSelf(input)
 end
 
 
+local flagged = {}
+
+
 function Player:SetCouncil(guid, isCouncil)
     local record = self:Get(guid)
-    if record.guid then record.isCouncil = isCouncil and true or nil end
+    if not record.guid then return end
+    record.isCouncil = isCouncil and true or nil
+    flagged[record.guid] = record.isCouncil and record or nil
 end
 
 function Player:ClearAllCouncilFlags()
-    for _, record in pairs(cache) do
-        record.isCouncil = nil
-    end
+    for _, record in pairs(flagged) do record.isCouncil = nil end
+    flagged = {}
 end
 
 
@@ -662,7 +666,9 @@ function Player:Init(db)
 
     local now = time()
     local pruned, kept = 0, 0
+    flagged = {}
     for guid, record in pairs(cache) do
+        if type(record) == "table" and record.isCouncil then flagged[guid] = record end
         local isLinked = record.fullName and linked[NameKey(record.fullName) or ""]
         if not record.isCouncil and not isLinked
             and (now - (record.cachedAt or 0)) > CACHE_TTL then

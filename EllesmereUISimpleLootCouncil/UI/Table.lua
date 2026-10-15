@@ -20,20 +20,29 @@ local GAP = 2
 
 
 
+
 local issecret = issecretvalue
 
 local function SetTextOnChange(fs)
     local raw = fs.SetText
     local last, known = nil, false
     fs.SetText = function(self, text)
-        if known and text == last then return end
         if issecret and issecret(text) then
             known = false
-        else
-            last, known = text, true
+            return raw(self, text)
         end
+        if known and text == last then return end
+        last, known = text, true
         return raw(self, text)
     end
+end
+
+
+local function HasText(fs)
+    local text = fs:GetText()
+    if text == nil then return false end
+    if issecret and issecret(text) then return true end
+    return text ~= ""
 end
 
 
@@ -301,8 +310,21 @@ local function Less(t, a, b)
     return result > 0
 end
 
+
+
+local function PrepareSort(t, rows)
+    local index, depth = t.sortColumn, 1
+    while index and depth <= 4 do
+        local column = t.columns[index]
+        if not column then return end
+        if column.prepare then column.prepare(rows) end
+        index, depth = column.sortNext, depth + 1
+    end
+end
+
 local function SortFiltered(t)
     if not t.sortColumn then return end
+    PrepareSort(t, t.filtered)
     table.sort(t.filtered, function(a, b) return Less(t, a, b) end)
 
     t.sorts = (t.sorts or 0) + 1
@@ -335,11 +357,8 @@ end
 
 local function RepositionSub(cell, column, gen)
     local P, S = addon.Pixel, addon.Style
-    local textStr, subStr = cell.Text:GetText(), cell.Sub:GetText()
-    local overStr = cell.Over and cell.Over:GetText()
-    local hasText = textStr ~= nil and textStr ~= ""
-    local hasSub = subStr ~= nil and subStr ~= ""
-    local hasOver = overStr ~= nil and overStr ~= ""
+    local hasText, hasSub = HasText(cell.Text), HasText(cell.Sub)
+    local hasOver = cell.Over and HasText(cell.Over) or false
     local shape = (hasText and 1 or 0) + (hasSub and 2 or 0) + (hasOver and 4 or 0)
     if cell.slcShape == shape and cell.slcShapeGen == gen then return end
     cell.slcShape, cell.slcShapeGen = shape, gen
@@ -463,6 +482,7 @@ function Table.UpdateRows(t, rows)
     end
 
     if t.sortColumn then
+        PrepareSort(t, filtered)
         for _, row in ipairs(rows) do
             local i = position[row]
             if i then

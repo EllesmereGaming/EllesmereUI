@@ -344,6 +344,7 @@ local seenEntries = {}
 
 local LOGIN_SETTLE_SECONDS = 10
 
+
 local function ReconcileSoon()
     if reconcileQueued then return end
 
@@ -425,6 +426,20 @@ local function CheckExpiring()
         end
     end
     if warned then lastWarned = GetTime() end
+end
+
+
+
+local expiryTicker
+
+local function SyncExpiryTicker()
+    local owed = #addon.Storage:GetAll(addon.Storage.TO_TRADE) > 0
+    if owed and not expiryTicker then
+        expiryTicker = C_Timer.NewTicker(300, CheckExpiring)
+    elseif not owed and expiryTicker then
+        expiryTicker:Cancel()
+        expiryTicker = nil
+    end
 end
 
 
@@ -679,9 +694,15 @@ function Trade:Init()
 
         elseif event == "TRADE_POTENTIAL_REMOVE_TRANSMOG" then
 
+
             if GetTime() < suppressUntil then
                 C_Timer.After(0, function()
-                    StaticPopup_Hide("TRADE_POTENTIAL_REMOVE_TRANSMOG")
+                    if InCombatLockdown() or type(StaticPopup_ForEachShownDialog) ~= "function" then return end
+                    local shown = 0
+                    StaticPopup_ForEachShownDialog(function() shown = shown + 1 end)
+                    if shown == 1 and StaticPopup_Visible("TRADE_POTENTIAL_REMOVE_TRANSMOG") then
+                        StaticPopup_Hide("TRADE_POTENTIAL_REMOVE_TRANSMOG")
+                    end
                 end)
             end
 
@@ -862,7 +883,8 @@ function Trade:Init()
             "obligation cancelled for " .. tostring(previous))
     end)
 
-    C_Timer.NewTicker(300, CheckExpiring)
+    addon.Callbacks:Register("StorageChanged", SyncExpiryTicker)
+    SyncExpiryTicker()
 
     TrackOthers()
 

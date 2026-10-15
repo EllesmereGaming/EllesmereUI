@@ -796,6 +796,13 @@ function NameplateFrame:MarkHealthDirty()
 end
 function NameplateFrame:UNIT_NAME_UPDATE()
     self:UpdateName()
+    -- UnitClassification can read "normal" on the one-frame-deferred spawn pass
+    -- (SetUnit's deferred setup) before the unit's data populates, which hides the
+    -- elite/rare badge until some unrelated refresh re-reads it. The name resolving
+    -- from its placeholder is that same readiness signal, so re-read classification
+    -- here. Rides this already-registered event -- no new registration, and
+    -- UpdateClassification early-returns when the indicator slot is off.
+    self:UpdateClassification()
 end
 function NameplateFrame:UNIT_THREAT_LIST_UPDATE()
     self:UpdateHealthColor()

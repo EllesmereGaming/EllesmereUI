@@ -306,24 +306,11 @@ end
 
 
 
-local summary = { ilvl = nil, specId = nil }
-
-
-local function Recompute()
-
-    local _, equipped = GetAverageItemLevel()
-    if equipped and not IsSecret(equipped) then
-        summary.ilvl = math.floor(equipped + 0.5)
-    else
-        summary.ilvl = nil
-    end
-
-    addon.Log:D("Gear", "summary ilvl", tostring(summary.ilvl))
-end
 
 function Gear:GetSummary()
-    if summary.ilvl == nil then Recompute() end
-    return summary.ilvl
+    local _, equipped = GetAverageItemLevel()
+    if equipped and not IsSecret(equipped) then return math.floor(equipped + 0.5) end
+    return nil
 end
 
 
@@ -496,18 +483,40 @@ end
 
 
 
+local LINK_MAX, ITEM_MAX = 512, 255
+
+local RANGES = {
+    diff = { -9999, 9999 }, ilvl = { 0, 9999 }, setCount = { 0, 99 },
+    setID = { 0, 2 ^ 31 }, sockets1 = { 0, 9 }, sockets2 = { 0, 9 },
+}
+
+local WIRE = { gear1 = "g1", gear2 = "g2", diff = "d", ilvl = "il", setCount = "t",
+    setID = "ts", sockets1 = "k1", sockets2 = "k2" }
+
+
+
+function Gear.CleanField(field, value)
+    if field == "gear1" or field == "gear2" then
+        if type(value) ~= "string" or #value > LINK_MAX then return nil end
+        local item = value:match("|H(item:[^|]*)") or value:match("^item:[^|]*$")
+        return item and #item <= ITEM_MAX and item or nil
+    end
+    local range = RANGES[field]
+    local number = range and tonumber(value)
+    if number and number % 1 == 0 and number >= range[1] and number <= range[2] then
+        return number
+    end
+    return nil
+end
+
+
+
 function Gear:ApplyToCandidate(candidate, payload)
     if not candidate then return end
     if type(payload) ~= "table" then payload = {} end
-
-    candidate.gear1 = payload.g1
-    candidate.gear2 = payload.g2
-    candidate.diff = tonumber(payload.d)
-    candidate.ilvl = tonumber(payload.il)
-    candidate.setCount = tonumber(payload.t)
-    candidate.setID = tonumber(payload.ts)
-    candidate.sockets1 = tonumber(payload.k1)
-    candidate.sockets2 = tonumber(payload.k2)
+    for field, key in pairs(WIRE) do
+        candidate[field] = Gear.CleanField(field, payload[key])
+    end
 end
 
 
@@ -515,21 +524,5 @@ end
 
 
 function Gear:Init()
-    local f = CreateFrame("Frame")
-    f:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-    f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-    f:RegisterEvent("PLAYER_ENTERING_WORLD")
-
-    local pending = false
-    f:SetScript("OnEvent", function()
-        if pending then return end
-        pending = true
-        C_Timer.After(0, function()
-            pending = false
-            Recompute()
-        end)
-    end)
-
-    Recompute()
-    addon.Log:I("Gear", "ready", "ilvl", tostring(summary.ilvl))
+    addon.Log:I("Gear", "ready", "ilvl", tostring(Gear:GetSummary()))
 end

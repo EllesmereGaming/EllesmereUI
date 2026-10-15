@@ -8,7 +8,7 @@ local T = addon.Locale.Text
 
 
 
-addon.SCHEMA_VERSION = 7
+addon.SCHEMA_VERSION = 9
 
 
 local interface = GetBuildInfo and select(4, GetBuildInfo())
@@ -120,7 +120,7 @@ addon.defaults = {
     funnel = {
 
 
-        guildGroupOnly = false,
+        guildGroupOnly = true,
 
 
 
@@ -132,7 +132,10 @@ addon.defaults = {
 
     raidPrompt = {
         silence = false,
-        inGroups = true,
+        inGroups = false,
+
+
+        neverLead = false,
 
         autoHandover = false,
 
@@ -218,6 +221,11 @@ addon.defaults = {
     masterAutoLoot = true,
 
 
+    autoOpenQueue = true,
+
+    autoAddBags = false,
+
+
     specs = {},
 
 
@@ -236,6 +244,9 @@ addon.defaults = {
 
 
     voterCompact = false,
+
+
+    windowAlpha = 1,
 
 
     pride = false,
@@ -365,6 +376,32 @@ addon.migrations = addon.Locale.Texts{
             if type(db.funnel) ~= "table" then return false end
             db.funnel.enabled = nil
             db.funnel.guildGroupOnly = false
+        end,
+    },
+    {
+        version = 8,
+        name = "BoE route reason as text",
+        func = function(db)
+
+            local rule = db.boeRoute
+            if type(rule) ~= "table" then return end
+            local index = rule.reason
+            rule.reason = nil
+            if type(index) ~= "number" or rule.reasonText ~= nil then return end
+            local entry = type(db.awardReasons) == "table" and db.awardReasons[index]
+            if type(entry) ~= "table" or type(entry.text) ~= "string" then return end
+            if entry.id == "BANK" or entry.text:lower() == "guild bank" then return end
+            rule.reasonText = entry.text
+        end,
+    },
+    {
+        version = 9,
+        name = "guild loot funnel guard on",
+        notify = T["The loot funnel now runs in guild groups only by default: you are asked before your loot is passed outside your guild. Set \"Loot funnel in which groups?\" to All Groups in Settings if you would rather not be asked."],
+        func = function(db)
+
+            if type(db.funnel) ~= "table" or db.funnel.guildGroupOnly == true then return false end
+            db.funnel.guildGroupOnly = true
         end,
     },
 }

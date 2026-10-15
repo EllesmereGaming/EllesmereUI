@@ -71,26 +71,36 @@ end
 local TTL = 3
 local cache = {}
 
-local function CacheKey(name, link)
-
-
-    return (name or "?") .. "\0" .. (link or "?")
-end
-
 
 function Wishlist:Invalidate()
     cache = {}
 end
 
-local function Cached(name, link, build)
-    local key = CacheKey(name, link)
-    local hit = cache[key]
+
+
+
+local function Cached(kind, name, item, build)
+    local byItem = cache[kind]
+    if not byItem then
+        byItem = {}
+        cache[kind] = byItem
+    end
+    local byName = byItem[item.link]
+    if not byName then
+        byName = {}
+        byItem[item.link] = byName
+    end
+    local hit = byName[name]
     local now = GetTime()
     if hit and (now - hit.at) < TTL then return hit.value end
 
-    local value = build()
+    local value = build(name, item)
 
-    cache[key] = { at = now, value = value or false }
+    if hit then
+        hit.at, hit.value = now, value or false
+    else
+        byName[name] = { at = now, value = value or false }
+    end
     return value
 end
 
@@ -297,51 +307,50 @@ end
 
 
 
-function Wishlist:For(name, item)
-    if not (self:IsAvailable() and name and item and item.link) then return nil end
-    if self:Source() == "gow" then
-        return Cached(name, item.link .. "|gw", function() return GoWFor(name, item) end)
-    end
-
+local function WowUtilsFor(name, item)
     local itemID = addon.Storage.ItemID(item.link)
     if not itemID then return nil end
 
     local difficultyID = DifficultyOf(item)
     local isToken = addon.Loot and addon.Loot:IsTierToken(itemID)
 
-    return Cached(name, item.link .. "|w", function()
-        local ok, picks = pcall(WowUtilsAPI.GetWishlist, name)
-        if not (ok and type(picks) == "table") then return nil end
+    local ok, picks = pcall(WowUtilsAPI.GetWishlist, name)
+    if not (ok and type(picks) == "table") then return nil end
 
-        local best, viaPiece
-        if isToken then
-            local pieces = PiecesForToken(name, itemID)
-            if pieces then
-                for pieceId in pairs(pieces) do
-                    local pick = BestPick(picks, pieceId, difficultyID)
-                    if pick and (not best
-                        or (pick.priorityId or math.huge) < (best.priorityId or math.huge)) then
-                        best, viaPiece = pick, pieceId
-                    end
+    local best, viaPiece
+    if isToken then
+        local pieces = PiecesForToken(name, itemID)
+        if pieces then
+            for pieceId in pairs(pieces) do
+                local pick = BestPick(picks, pieceId, difficultyID)
+                if pick and (not best
+                    or (pick.priorityId or math.huge) < (best.priorityId or math.huge)) then
+                    best, viaPiece = pick, pieceId
                 end
             end
-        else
-            best = BestPick(picks, itemID, difficultyID)
         end
+    else
+        best = BestPick(picks, itemID, difficultyID)
+    end
 
-        if not best then return nil end
-        return {
-            label = best.priority,
-            priorityId = best.priorityId,
-            colour = TierColour(best.priorityId),
+    if not best then return nil end
+    return {
+        label = best.priority,
+        priorityId = best.priorityId,
+        colour = TierColour(best.priorityId),
 
-            difficultyID = Canonical(best.difficultyId),
-            exact = difficultyID ~= nil,
+        difficultyID = Canonical(best.difficultyId),
+        exact = difficultyID ~= nil,
 
 
-            viaPiece = viaPiece,
-        }
-    end)
+        viaPiece = viaPiece,
+    }
+end
+
+function Wishlist:For(name, item)
+    if not (self:IsAvailable() and name and item and item.link) then return nil end
+    if self:Source() == "gow" then return Cached("gw", name, item, GoWFor) end
+    return Cached("w", name, item, WowUtilsFor)
 end
 
 
@@ -415,50 +424,49 @@ end
 
 
 
-function Wishlist:SimFor(name, item)
-    if not (self:IsAvailable() and name and item and item.link) then return nil end
-    if self:Source() == "gow" then
-        return Cached(name, item.link .. "|gs", function() return GoWSimFor(name, item) end)
-    end
-
+local function WowUtilsSimFor(name, item)
     local itemID = addon.Storage.ItemID(item.link)
     if not itemID then return nil end
 
     local difficultyID = DifficultyOf(item)
     local isToken = addon.Loot and addon.Loot:IsTierToken(itemID)
 
-    return Cached(name, item.link .. "|s", function()
-        local ok, data = pcall(WowUtilsAPI.GetDroptimizers, name)
-        if not (ok and type(data) == "table" and type(data.specs) == "table") then
-            return nil
-        end
+    local ok, data = pcall(WowUtilsAPI.GetDroptimizers, name)
+    if not (ok and type(data) == "table" and type(data.specs) == "table") then
+        return nil
+    end
 
-        local best, exact
-        for _, sims in pairs(data.specs) do
-            for simKey, sim in pairs(sims) do
-                local result
-                if type(sim) == "table" then
-                    if isToken then
-                        result = BestTokenSim(sim, itemID, difficultyID)
-                    else
-                        result = BestOfSim(sim, itemID, difficultyID)
-                    end
+    local best, exact
+    for _, sims in pairs(data.specs) do
+        for simKey, sim in pairs(sims) do
+            local result
+            if type(sim) == "table" then
+                if isToken then
+                    result = BestTokenSim(sim, itemID, difficultyID)
+                else
+                    result = BestOfSim(sim, itemID, difficultyID)
                 end
-                if result then
+            end
+            if result then
 
 
-                    local key = tostring(simKey):lower()
-                    if key:match("patchwerk%-1$") or key:match("0%-1$") then
-                        if not exact or exact.pct < result.pct then exact = result end
-                    elseif not best or best.pct < result.pct then
-                        best = result
-                    end
+                local key = tostring(simKey):lower()
+                if key:match("patchwerk%-1$") or key:match("0%-1$") then
+                    if not exact or exact.pct < result.pct then exact = result end
+                elseif not best or best.pct < result.pct then
+                    best = result
                 end
             end
         end
+    end
 
-        return exact or best
-    end)
+    return exact or best
+end
+
+function Wishlist:SimFor(name, item)
+    if not (self:IsAvailable() and name and item and item.link) then return nil end
+    if self:Source() == "gow" then return Cached("gs", name, item, GoWSimFor) end
+    return Cached("s", name, item, WowUtilsSimFor)
 end
 
 

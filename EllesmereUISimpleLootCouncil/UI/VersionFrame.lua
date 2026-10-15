@@ -88,9 +88,8 @@ function VersionFrame:Refresh()
         detected, #rows, addon.Version.OWN))
 end
 
-function VersionFrame:Init()
-    S, L, P, Tbl = addon.Style, addon.Layout, addon.Pixel, UI.Table
 
+local function Build()
     frame = S.Window("SimpleLootCouncilVersionFrame", "versions", 560, 548,
         T["Raid addon versions"])
     frame:RestorePosition()
@@ -130,21 +129,43 @@ function VersionFrame:Init()
     frame:SetHeight(P.Snap(frame.HeaderHeight + S.size.PAD * 2
         + cursor:Consumed()))
 
+    VersionFrame:Refresh()
+    addon.Log:D("UI", "version frame built")
+end
+
+
+local building
+local function WhenBuilt(fn)
+    if frame then
+        fn()
+    elseif not building then
+        building = true
+        S.BuildOnDriver(function()
+            building = false
+            Build()
+            fn()
+        end)
+    end
+end
+
+function VersionFrame:Init()
+    S, L, P, Tbl = addon.Style, addon.Layout, addon.Pixel, UI.Table
+
     addon.Callbacks:Register("VersionChanged", function()
-        if frame:IsShown() then VersionFrame:Refresh() end
+        if frame and frame:IsShown() then VersionFrame:Refresh() end
     end)
 
-    VersionFrame:Refresh()
     addon.Log:I("UI", "version frame ready")
 end
 
 function VersionFrame:Toggle()
-    if frame:IsShown() then
+    if frame and frame:IsShown() then
         frame:Hide()
         return
     end
-
-    frame:RestorePosition()
-    VersionFrame:Refresh()
-    frame:Show()
+    WhenBuilt(function()
+        frame:RestorePosition()
+        VersionFrame:Refresh()
+        frame:Show()
+    end)
 end

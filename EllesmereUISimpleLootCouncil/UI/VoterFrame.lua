@@ -13,7 +13,9 @@ local VoterFrame = {}
 UI.VoterFrame = VoterFrame
 
 local S, L, P
-local frame
+
+
+local frame, ticker
 local entries = {}
 
 
@@ -165,6 +167,25 @@ local function CreateEntry(parent, index)
 
 
 
+
+    e.status = S.Label(e, S.fontSmall, "RIGHT")
+    P.Point(e.status, "TOPRIGHT", e.name, "BOTTOMRIGHT", S.size.ROW_PAD - S.size.GAP, -2)
+    e.status:SetTextColor(S.Unpack(S.color.bad))
+    e.status:Hide()
+
+    e.appearance = S.Label(e, S.fontSmall, "RIGHT")
+    P.Point(e.appearance, "TOPRIGHT", e.status, "TOPLEFT", -S.size.GAP, 0)
+    e.appearance:SetTextColor(S.Unpack(S.color.accent))
+    e.appearance:SetText(T["Appearance available"])
+    e.appearance:Hide()
+    e.statusShown, e.warned = 0, false
+
+    local bad = S.color.bad
+    e.warnFill = S.RoundFill(e, { bad[1], bad[2], bad[3], 0.14 }, S.radius.CTRL, "BACKGROUND", 1)
+    e.warnFill:Hide()
+
+
+
     e.buttonRow = CreateFrame("Frame", nil, e)
     P.Point(e.buttonRow, "BOTTOMRIGHT", -S.size.ROW_PAD, S.size.ROW_PAD)
     P.Size(e.buttonRow, nil, RESPONSE_BUTTON_H)
@@ -199,7 +220,8 @@ local function CreateEntry(parent, index)
     e.hint = hint
 
     local function SaveNote(send)
-        if not e.noteSessions then return end
+
+        if not e.noteSessions or e.auto then return end
         local note = e.noteEdit:GetText() or ""
         for _, session in ipairs(e.noteSessions) do
             addon.Session:SetNote(session, note, send)
@@ -374,6 +396,16 @@ local function LayoutButtons(e, group)
 
     EnsureNoteButton(e)
 
+    local autoReason = group.auto
+        and addon.Autopass.NoteText(addon.Autopass.AUTO_PREFIX .. group.auto) or nil
+    e.noteButton:SetDisabledReason(autoReason)
+    e.noteButton:SetEnabled(not group.auto)
+    e.auto = group.auto
+    if group.auto and e.noteComposer:IsShown() then
+        e.noteComposer:Hide()
+        e.buttonRow:Show()
+    end
+
 
     if group.rollOwed > 0 then
         LayoutRoll(e, group)
@@ -446,8 +478,8 @@ local function LayoutButtons(e, group)
             or S.RequiresSentence(T["Requires comms to be available."]))
         or nil
     for i = 1, needed do
-        e.buttons[i]:SetDisabledReason(blockReason)
-        e.buttons[i]:SetEnabled(not blocked)
+        e.buttons[i]:SetDisabledReason(autoReason or blockReason)
+        e.buttons[i]:SetEnabled(not blocked and not group.auto)
     end
     if blocked then
         e.hint:SetText(addon.Restrictions:GetBlockReason() or T["unavailable"])
@@ -527,8 +559,11 @@ local function GroupItems()
 
         local owesRoll = addon.Roll and addon.Roll.OwedBy(item, me) or false
 
-        if not item.awarded and not item.removed and (not answered or owesRoll) then
-            local key = item.link or tostring(item.session)
+        local auto = not owesRoll and candidate and candidate.status == "PASS"
+            and addon.Autopass and addon.Autopass.AutoCode(candidate.note) or nil
+
+        if not item.awarded and not item.removed and (not answered or owesRoll or auto) then
+            local key = (item.link or tostring(item.session)) .. (auto and "\nauto" or "")
             if not groups[key] then
 
 
@@ -537,11 +572,14 @@ local function GroupItems()
                     item = item,
                     sessions = {},
                     response = candidate and candidate.response or nil,
-                    note = candidate and candidate.note or nil,
+
+                    note = not auto and candidate and candidate.note or nil,
                     passed = candidate and candidate.status == "PASS" or false,
 
 
                     rollOwed = 0,
+
+                    auto = auto,
                 }
                 order[#order + 1] = key
             end
@@ -555,9 +593,24 @@ local function GroupItems()
         end
     end
 
+
     local list = {}
-    for _, key in ipairs(order) do list[#list + 1] = groups[key] end
+    for _, key in ipairs(order) do
+        if not groups[key].auto then list[#list + 1] = groups[key] end
+    end
+    for _, key in ipairs(order) do
+        if groups[key].auto then list[#list + 1] = groups[key] end
+    end
     return list
+end
+
+
+local function AskingCount(groups)
+    local asking = 0
+    for _, group in ipairs(groups) do
+        if not group.auto then asking = asking + 1 end
+    end
+    return asking
 end
 
 
@@ -602,8 +655,11 @@ end
 local function OutstandingMax(groups)
     local highest = 0
     for _, group in ipairs(groups) do
-        for _, session in ipairs(group.sessions) do
-            if session > highest then highest = session end
+
+        if not group.auto then
+            for _, session in ipairs(group.sessions) do
+                if session > highest then highest = session end
+            end
         end
     end
     return highest
@@ -611,9 +667,54 @@ end
 
 
 local function HideInternally()
+    if not frame then return end
     suppressDismiss = true
     frame:Hide()
     suppressDismiss = false
+end
+
+
+local verdictRetry = false
+
+
+
+
+
+local function PaintStatus(e, group)
+    local text, warn, look, pending = nil, false, false, false
+    if group.auto then
+        text = T["Autopassed"]
+    elseif addon.Autopass then
+        local _, code, judged, appearance = addon.Autopass:WouldPass(group.link)
+        pending = not judged
+
+        if code and (appearance or not addon.db.autopass) then
+            text, look, warn = addon.Autopass.CardReason(code), appearance, not appearance
+        end
+    end
+    e.status:SetText(text or "")
+
+    local shown = text and (look and 2 or 1) or 0
+
+    if e.statusShown ~= shown then
+        e.statusShown = shown
+        e.status:SetShown(shown > 0)
+        e.appearance:SetShown(shown == 2)
+        e.detail:ClearAllPoints()
+        P.Point(e.detail, "TOPLEFT", e.name, "BOTTOMLEFT", 0, -2)
+        if shown > 0 then
+            P.Point(e.detail, "TOPRIGHT", shown == 2 and e.appearance or e.status,
+                "TOPLEFT", -S.size.GAP, 0)
+        else
+            P.Point(e.detail, "TOPRIGHT", e.name, "BOTTOMRIGHT", 0, -2)
+        end
+    end
+    if e.warned ~= warn then
+        e.warned = warn
+        e.warnFill:SetShown(warn)
+        e.border:SetColor(warn and S.color.bad or S.color.edge)
+    end
+    return pending
 end
 
 
@@ -626,6 +727,63 @@ function VoterFrame.Concerns(kind, candidate)
     return candidate == addon.Player:GetFullName("player")
 end
 
+
+
+local function Build()
+    frame = S.Window("SimpleLootCouncilVoterFrame", "voter", 620, 400,
+        T["Loot response"], { squareTag = true })
+    frame:RestorePosition()
+
+
+
+    scroll = S.ScrollRegion(frame.Content, (ENTRY_HEIGHT + S.size.ITEM_GAP) / 2)
+    P.Point(scroll, "TOPLEFT", frame.Content, "TOPLEFT", 0, 0)
+    P.Point(scroll, "BOTTOMRIGHT", frame.Content, "BOTTOMRIGHT", SCROLL_CHANNEL, 0)
+
+
+
+    compactButton = S.Button(frame, "", { height = S.size.CLOSE })
+    compactButton:SetFrameLevel(frame.Close:GetFrameLevel())
+    P.Point(compactButton, "RIGHT", frame.Close, "LEFT", -S.size.GAP, 0)
+    compactButton:SetScript("OnClick", function()
+        VoterFrame:SetCompact(not addon.db.voterCompact)
+    end)
+    frame.Badge:ClearAllPoints()
+    P.Point(frame.Badge, "RIGHT", compactButton, "LEFT", -S.size.GAP, 0)
+    P.Size(frame.Badge, 1, nil)
+    compactButton:SetLabel(addon.db.voterCompact and T["Expand"] or T["Compact"])
+    local refreshTitle = frame.RefreshTitle
+    frame.RefreshTitle = function() refreshTitle(); P.AfterLayout(PlaceTag) end
+
+
+
+    frame:HookScript("OnHide", function()
+        if suppressDismiss then return end
+        local prevRun, prevMax = dismissedRun, dismissedMax
+        local run, highest = addon.Session:GetRunId(), OutstandingMax(GroupItems())
+        dismissedRun, dismissedMax = run, highest
+        addon.AutoClose:AfterHide(function(swept)
+            if not swept then
+                addon.Log:D("UI", "voter frame dismissed for run",
+                    tostring(run), "above session", highest)
+                return
+            end
+
+            if dismissedRun == run and dismissedMax == highest then
+                dismissedRun, dismissedMax = prevRun, prevMax
+            end
+            addon.Log:D("UI", "voter frame closed by the game, not the raider - reopening")
+            VoterFrame:Refresh()
+        end)
+    end)
+
+    frame:HookScript("OnShow", function() addon.Callbacks:PaintNow("voter") end)
+
+
+    ticker:SetParent(frame)
+    ticker:Show()
+end
+
 local function PaintWindow()
 
 
@@ -636,7 +794,8 @@ local function PaintWindow()
 
     local me = addon.Player:GetFullName("player")
     local groups = GroupItems()
-    if #groups == 0 then
+
+    if AskingCount(groups) == 0 then
         HideInternally()
         return
     end
@@ -657,12 +816,14 @@ local function PaintWindow()
         end
     end
 
+    if not frame then Build() end
 
 
     local reopening = not frame:IsShown()
 
     local shown = #groups
     local widestStrip = 0
+    local pending = false
 
     for i = 1, shown do
         local group = groups[i]
@@ -686,6 +847,7 @@ local function PaintWindow()
         end
 
         e.detail:SetText(DetailText(group, me))
+        if PaintStatus(e, group) then pending = true end
 
 
 
@@ -708,6 +870,15 @@ local function PaintWindow()
         LayoutButtons(e, group)
         widestStrip = math.max(widestStrip, e.buttonRow:GetWidth())
         e:Show()
+    end
+
+
+    if pending and not verdictRetry then
+        verdictRetry = true
+        C_Timer.After(0.5, function()
+            verdictRetry = false
+            addon.Callbacks:Invalidate("voter")
+        end)
     end
 
     for i = shown + 1, #entries do
@@ -775,14 +946,14 @@ local function Paint()
     if rollLogPending then
         addon.Log:D("UI", "roll requested,", rollLogPending, "owed by",
             tostring(addon.Player:GetFullName("player")),
-            "- window", frame:IsShown() and "shown" or "still hidden")
+            "- window", frame and frame:IsShown() and "shown" or "still hidden")
         rollLogPending = nil
     end
 end
 
 
 function VoterFrame:Refresh()
-    if not frame then return end
+    if not view then return end
     addon.Callbacks:Invalidate("voter")
     addon.Callbacks:PaintNow("voter")
 end
@@ -803,65 +974,31 @@ function VoterFrame:Init()
         + S.size.ICON + S.size.ITEM_GAP
         + RESPONSE_BUTTON_H + S.size.ROW_PAD
 
-    frame = S.Window("SimpleLootCouncilVoterFrame", "voter", 620, 400,
-        T["Loot response"], { squareTag = true })
-    frame:RestorePosition()
 
 
-
-    scroll = S.ScrollRegion(frame.Content, (ENTRY_HEIGHT + S.size.ITEM_GAP) / 2)
-    P.Point(scroll, "TOPLEFT", frame.Content, "TOPLEFT", 0, 0)
-    P.Point(scroll, "BOTTOMRIGHT", frame.Content, "BOTTOMRIGHT", SCROLL_CHANNEL, 0)
-
-
-
-    compactButton = S.Button(frame, "", { height = S.size.CLOSE })
-    compactButton:SetFrameLevel(frame.Close:GetFrameLevel())
-    P.Point(compactButton, "RIGHT", frame.Close, "LEFT", -S.size.GAP, 0)
-    compactButton:SetScript("OnClick", function()
-        VoterFrame:SetCompact(not addon.db.voterCompact)
-    end)
-    frame.Badge:ClearAllPoints()
-    P.Point(frame.Badge, "RIGHT", compactButton, "LEFT", -S.size.GAP, 0)
-    P.Size(frame.Badge, 1, nil)
-    compactButton:SetLabel(addon.db.voterCompact and T["Expand"] or T["Compact"])
-    local refreshTitle = frame.RefreshTitle
-    frame.RefreshTitle = function() refreshTitle(); P.AfterLayout(PlaceTag) end
-    P.OnRescale(function() P.AfterLayout(PlaceTag) end)
-
-
-
-    frame:HookScript("OnHide", function()
-        if suppressDismiss then return end
-        local prevRun, prevMax = dismissedRun, dismissedMax
-        local run, highest = addon.Session:GetRunId(), OutstandingMax(GroupItems())
-        dismissedRun, dismissedMax = run, highest
-        addon.AutoClose:AfterHide(function(swept)
-            if not swept then
-                addon.Log:D("UI", "voter frame dismissed for run",
-                    tostring(run), "above session", highest)
-                return
-            end
-
-            if dismissedRun == run and dismissedMax == highest then
-                dismissedRun, dismissedMax = prevRun, prevMax
-            end
-            addon.Log:D("UI", "voter frame closed by the game, not the raider - reopening")
-            VoterFrame:Refresh()
-        end)
+    ticker = CreateFrame("Frame", nil, UIParent)
+    ticker:Hide()
+    local sinceTick = 0
+    ticker:SetScript("OnUpdate", function(_, elapsed)
+        sinceTick = sinceTick + elapsed
+        if sinceTick < 1 then return end
+        sinceTick = sinceTick % 1
+        VoterFrame:UpdateTimers()
     end)
 
 
 
 
     view = addon.Callbacks:RegisterView("voter", {
-        frame = frame,
         interval = 0.1,
-        shown = function() return frame:IsShown() or addon.Session:IsRunning() end,
+        shown = function()
+            return (frame ~= nil and frame:IsShown()) or addon.Session:IsRunning()
+        end,
         paint = Paint,
     })
     VoterFrame.view = view
 
+    P.OnRescale(function() if frame then P.AfterLayout(PlaceTag) end end)
 
 
     P.OnRescale(function()
@@ -878,7 +1015,7 @@ function VoterFrame:Init()
     addon.Callbacks:Register("RunStarted", function()
 
         dismissedRun, dismissedMax = nil, 0
-        scroll.ScrollBar:SetValue(0)
+        if scroll then scroll.ScrollBar:SetValue(0) end
         addon.Callbacks:Invalidate("voter")
     end)
 
@@ -911,8 +1048,6 @@ function VoterFrame:Init()
 
     addon.Restrictions:OnChange(function() addon.Callbacks:Invalidate("voter") end)
 
-    C_Timer.NewTicker(1, function() VoterFrame:UpdateTimers() end)
-
     addon.Log:I("UI", "voter frame ready")
 end
 
@@ -939,11 +1074,12 @@ end
 
 
 function VoterFrame:Open()
-    if not frame then return false end
+    if not view then return false end
 
 
     dismissedRun, dismissedMax = nil, 0
     VoterFrame:Refresh()
-    if frame:IsShown() then frame:Raise() end
-    return frame:IsShown()
+    if not (frame and frame:IsShown()) then return false end
+    frame:Raise()
+    return true
 end

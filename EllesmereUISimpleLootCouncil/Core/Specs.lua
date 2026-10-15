@@ -17,7 +17,12 @@ local issecretvalue = issecretvalue
 local cache = {}
 
 
-local CACHE_TTL = 60 * 24 * 60 * 60
+
+local CACHE_TTL = 30 * 24 * 60 * 60
+local MAX_RECORDS = 300
+
+local TRIM_SLACK = 50
+local count = 0
 
 
 
@@ -88,7 +93,9 @@ function Specs:Set(guid, specID, via)
         return false
     end
 
+    if not record then count = count + 1 end
     cache[key] = { spec = specID, at = time(), via = via }
+    if count > MAX_RECORDS + TRIM_SLACK then Specs:Prune() end
     addon.Log:D("Specs", "learned", specID, "for", key, "via", tostring(via))
     addon.Callbacks:Fire("SpecsChanged")
     return true
@@ -131,14 +138,27 @@ end
 
 
 
+
 function Specs:Prune()
-    local now, removed = time(), 0
+    local now, removed, kept = time(), 0, {}
+    local own = UnitGUID and UnitGUID("player")
     for guid, record in pairs(cache) do
         if type(record) ~= "table" or (now - (record.at or 0)) > CACHE_TTL then
             cache[guid] = nil
             removed = removed + 1
+        elseif guid ~= own then
+            kept[#kept + 1] = guid
         end
     end
+    if #kept > MAX_RECORDS then
+        table.sort(kept, function(a, b) return (cache[a].at or 0) > (cache[b].at or 0) end)
+        for i = MAX_RECORDS + 1, #kept do
+            cache[kept[i]] = nil
+            removed = removed + 1
+        end
+    end
+    count = 0
+    for _ in pairs(cache) do count = count + 1 end
     return removed
 end
 
@@ -182,16 +202,12 @@ function Specs:Init(db)
 
 
 
-            local prefix = IsInRaid() and "raid" or "party"
-            for i = 1, GetNumGroupMembers() do
-                local unit = prefix .. i
-                if UnitExists(unit) and UnitGUID(unit) == guid then
-                    local id = C_SpecializationInfo.GetInspectSpecialization(unit)
+            local unit = addon.Roster and addon.Roster:UnitForGUID(guid)
+            if unit then
+                local id = C_SpecializationInfo.GetInspectSpecialization(unit)
 
-                    if not IsSecret(id) and id and id > 0 then
-                        Specs:Set(guid, id, "inspect")
-                    end
-                    break
+                if not IsSecret(id) and id and id > 0 then
+                    Specs:Set(guid, id, "inspect")
                 end
             end
 

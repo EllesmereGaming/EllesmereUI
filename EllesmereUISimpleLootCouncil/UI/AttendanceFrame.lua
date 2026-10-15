@@ -805,10 +805,8 @@ end
 
 
 
-function AttendanceFrame:Init()
-    S, Tbl = addon.Style, UI.Table
-    L, P = addon.Layout, addon.Pixel
 
+local function Build()
     frame = S.Window("SimpleLootCouncilAttendanceFrame", "attendance", 620, 560,
         T["Attendance"])
     frame:RestorePosition()
@@ -852,8 +850,30 @@ function AttendanceFrame:Init()
 
     clearFrame = BuildClearFrame()
 
+    addon.Log:D("UI", "attendance frame built")
+end
+
+
+local building
+local function WhenBuilt(fn)
+    if frame then
+        fn()
+    elseif not building then
+        building = true
+        S.BuildOnDriver(function()
+            building = false
+            Build()
+            fn()
+        end)
+    end
+end
+
+function AttendanceFrame:Init()
+    S, Tbl = addon.Style, UI.Table
+    L, P = addon.Layout, addon.Pixel
+
     addon.Callbacks:Register("AttendanceChanged", function()
-        if frame:IsShown() then AttendanceFrame:Refresh(true) end
+        if frame and frame:IsShown() then AttendanceFrame:Refresh(true) end
         RefreshClear()
     end)
 
@@ -861,11 +881,13 @@ function AttendanceFrame:Init()
 end
 
 function AttendanceFrame:Toggle()
-    if frame:IsShown() then
+    if frame and frame:IsShown() then
         frame:Hide()
         return
     end
-    frame:RestorePosition()
-    AttendanceFrame:Refresh()
-    frame:Show()
+    WhenBuilt(function()
+        frame:RestorePosition()
+        AttendanceFrame:Refresh()
+        frame:Show()
+    end)
 end

@@ -6,12 +6,11 @@
 ## Author: Laxx
 ## X-License: All Rights Reserved
 ## Version: 9.5.5
-## X-SLC-Version: 0.43.17
-## X-SLC-Commit: 1da691235297
-## X-SLC-Port-Commit: 966d05366729
+## X-SLC-Version: 0.43.34
+## X-SLC-Commit: ba4e88284814
+## X-SLC-Port-Commit: 4c3112901583
 ## Dependencies: EllesmereUI
-## SavedVariables: SimpleLootCouncilDB
-## OptionalDeps: wowutils, GuildsOfWoW, Simulationcraft
+## SavedVariables: EllesmereUISimpleLootCouncilDB, SimpleLootCouncilDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 Edition.lua

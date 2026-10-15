@@ -302,42 +302,40 @@ end
 
 
 
-
-local sweeper
-
-local function SweepStuckRollFrames()
+local function ScanRollFrames()
+    local ended, open = {}, 0
     local container = GroupLootContainer
-    if not container or not container.rollFrames then return end
+    if not container or type(container.rollFrames) ~= "table" then return ended, open end
 
-    local anyShown = false
     for _, rollFrame in pairs(container.rollFrames) do
         if type(rollFrame) == "table" and rollFrame.rollID and rollFrame.IsShown
             and rollFrame:IsShown() then
-
-            local name = GetLootRollItemInfo(rollFrame.rollID)
-            local left = GetLootRollTimeLeft(rollFrame.rollID)
-
-
-            if not name and (left or 0) <= 0 then
-                addon.Log:I("Loot", "removing stuck roll frame", rollFrame.rollID)
-                GroupLootFrame_Remove(rollFrame)
+            if GetLootRollItemInfo(rollFrame.rollID) or rollFrame.NeedRollAnimFinishedCallback then
+                open = open + 1
             else
-                anyShown = true
+                ended[#ended + 1] = rollFrame
             end
         end
     end
-
-
-
-    if not anyShown and sweeper then
-        sweeper:Cancel()
-        sweeper = nil
-    end
+    return ended, open
 end
 
-local function StartRollFrameSweeper()
-    if sweeper then return end
-    sweeper = C_Timer.NewTicker(2, SweepStuckRollFrames)
+
+
+
+function Loot:ClearRollFrames()
+    if InCombatLockdown() then return nil, "combat" end
+
+    local ended = ScanRollFrames()
+    for _, rollFrame in ipairs(ended) do
+        addon.Log:I("Loot", "clearing roll frame", rollFrame.rollID)
+        GroupLootFrame_Remove(rollFrame)
+    end
+
+
+    local _, open = ScanRollFrames()
+    addon.Log:I("Loot", "clearframe:", #ended, "cleared,", open, "still open")
+    return #ended, open
 end
 
 
@@ -485,10 +483,6 @@ local deferredRolls = {}
 
 local function OnStartLootRoll(rollID, resumed)
 
-
-    if not resumed then StartRollFrameSweeper() end
-
-
     local role = FunnelRole()
     if not role then
 
@@ -525,6 +519,11 @@ local function OnStartLootRoll(rollID, resumed)
 
 
 
+
+    if not C_Item.IsItemDataCachedByID(link) and resumed then
+        addon.Log:W("Loot", "funnel: item data still not cached after one wait, giving up", link)
+        return
+    end
     if not C_Item.IsItemDataCachedByID(link) and not deferredRolls[rollID] then
         deferredRolls[rollID] = link
         addon.Log:D("Loot", "funnel: item data not cached, waiting", link)

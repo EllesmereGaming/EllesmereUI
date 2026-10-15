@@ -26,6 +26,15 @@ BonusRoll.RECENT_WINDOW = RECENT_WINDOW
 local recentCoins = {}
 
 
+local MAX_AGE, MAX_AHEAD = RECENT_WINDOW, 2 * 60
+local MAX_LINK, MAX_BOSS, MAX_QUANTITY = 255, 80, 20
+BonusRoll.MAX_AGE, BonusRoll.MAX_AHEAD = MAX_AGE, MAX_AHEAD
+
+
+local SEEN_TTL = 2 * RECENT_WINDOW
+local seen = {}
+
+
 
 
 
@@ -58,6 +67,58 @@ function BonusRoll.Apply(store, name, link, epoch, boss, encounterID, quantity)
         encounterID = tonumber(encounterID), quantity = quantity,
     }
     return store, true
+end
+
+
+function BonusRoll.ItemStringOf(link)
+    if type(link) ~= "string" or #link > MAX_LINK then return nil end
+    local itemString = link:match("|H(item:[^|]*)") or link:match("^item:[%-%d:]*$")
+    local id = itemString and tonumber(itemString:match("^item:(%d+)"))
+    if not id or id <= 0 then return nil end
+    return itemString
+end
+
+local function WholeNumber(value, low, high)
+    return type(value) == "number" and value == math.floor(value)
+        and value >= low and value <= high
+end
+
+
+
+function BonusRoll.ValidateCoin(args, now)
+    if type(args) ~= "table" then return nil, "not_a_table" end
+    local link = BonusRoll.ItemStringOf(args.l)
+    if not link then return nil, "not_an_item" end
+    local epoch = args.t
+    if type(epoch) ~= "number" or epoch ~= epoch then return nil, "no_time" end
+    if epoch < now - MAX_AGE or epoch > now + MAX_AHEAD then return nil, "stale_time" end
+    local boss = args.b
+    if boss ~= nil and (type(boss) ~= "string" or boss == "" or #boss > MAX_BOSS) then
+        return nil, "bad_boss"
+    end
+    local encounterID = args.e
+    if encounterID ~= nil and not WholeNumber(encounterID, 1, 2 ^ 31) then
+        return nil, "bad_encounter"
+    end
+    local quantity = args.q
+    if quantity ~= nil and not WholeNumber(quantity, 1, MAX_QUANTITY) then
+        return nil, "bad_quantity"
+    end
+    return { link = link, epoch = math.floor(epoch), boss = boss,
+        encounterID = encounterID, quantity = quantity }
+end
+
+
+
+function BonusRoll.FirstSighting(store, name, itemString, encounterKey, now)
+    for key, at in pairs(store) do
+        if now - at > SEEN_TTL then store[key] = nil end
+    end
+    local id = addon.Storage.ItemID(itemString)
+    local key = tostring(name) .. "|" .. tostring(id) .. "|" .. tostring(encounterKey)
+    if store[key] then return false end
+    store[key] = now
+    return true
 end
 
 
@@ -106,6 +167,25 @@ function BonusRoll.CountAtBoss(entries, winner, boss, encounterID, difficultyID,
         end
     end
     return count
+end
+
+
+
+local REPLAY_WINDOW = 24 * 60 * 60
+function BonusRoll.AlreadyRecorded(entries, winner, link, boss, encounterID,
+        difficultyID, epoch)
+    local id = addon.Storage.ItemID(link)
+    if not id or type(epoch) ~= "number" then return false end
+    for _, entry in ipairs(entries or {}) do
+        if entry.coin and type(entry.epoch) == "number"
+            and math.abs(entry.epoch - epoch) <= REPLAY_WINDOW
+            and entry.difficultyID == difficultyID
+            and addon.Storage.ItemID(entry.link) == id
+            and addon.Encounter.SameBoss(entry.boss, entry.encounterID, boss, encounterID) then
+            return true
+        end
+    end
+    return false
 end
 
 
@@ -175,6 +255,39 @@ function BonusRoll:ApplyCoin(name, link, epoch, boss, encounterID, quantity, sen
     if addedToRun and addon.Callbacks then
         addon.Callbacks:Fire("SessionChanged", nil, "coin", name)
     end
+end
+
+
+local refusalLogged = {}
+local function Refuse(reason, sender)
+    local key = reason .. "|" .. tostring(sender)
+    if refusalLogged[key] then return end
+    refusalLogged[key] = true
+    addon.Log:D("BonusRoll", "refused coin", reason, "from", tostring(sender))
+end
+
+
+
+function BonusRoll:ReceiveCoin(args, sender)
+    local now = GetServerTime()
+    local coin, reason = BonusRoll.ValidateCoin(args, now)
+    if not coin then Refuse(reason, sender) return false end
+    local record = addon.Player:Get(sender)
+    if not record or not record.fullName then return false end
+
+    local logBoss, logID = addon.Encounter:AtTime(coin.epoch)
+    if not (logBoss or logID) then Refuse("no_recent_encounter", sender) return false end
+
+    if not coin.boss and not coin.encounterID then
+        coin.boss, coin.encounterID = logBoss, logID
+    end
+    if not BonusRoll.FirstSighting(seen, record.fullName, coin.link,
+            tostring(logID or logBoss), now) then
+        return false
+    end
+    BonusRoll:ApplyCoin(record.fullName, coin.link, coin.epoch, coin.boss,
+        coin.encounterID, coin.quantity, sender)
+    return true
 end
 
 
@@ -310,11 +423,7 @@ function BonusRoll:Init()
 
 
     addon.Comms:Register("coin", "any", function(args, sender)
-        if type(args) ~= "table" or type(args.l) ~= "string" then return end
-        local record = addon.Player:Get(sender)
-        if not record.fullName then return end
-        BonusRoll:ApplyCoin(record.fullName, args.l, args.t, args.b, args.e, args.q,
-            sender)
+        BonusRoll:ReceiveCoin(args, sender)
     end)
 
 

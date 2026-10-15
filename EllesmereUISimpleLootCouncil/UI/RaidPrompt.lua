@@ -52,7 +52,7 @@ local function Build()
 
 
     questionText = cursor:Add(L.Paragraph, "", S.fontButton)
-    sectionText = cursor:Add(L.Paragraph, "", S.fontSmall)
+    sectionText = cursor:Add(L.Paragraph, "", S.fontNotice)
     cursor:Gap(12)
     bodyText = cursor:Add(L.Paragraph, "", S.fontSmall)
     bodyText:SetTextColor(S.Unpack(S.color.textFaint))
@@ -179,12 +179,12 @@ end
 
 
 
-local function Ask(kind, question, section, sectionColor, body, allowSilence, accept, decline, atCursor)
+local function Ask(kind, question, section, body, allowSilence, accept, decline, atCursor)
     if not frame then Build() end
 
     questionText:SetText(question)
     sectionText:SetText(section or "")
-    sectionText:SetTextColor(S.Unpack(sectionColor or S.color.accent))
+    sectionText:SetTextColor(S.Unpack(S.color.bad))
     bodyText:SetText(body)
     onAccept, onDecline = accept, decline
 
@@ -216,7 +216,7 @@ local function AskLootMaster(atCursor)
     local masterLoot = addon.Loot:UsesMasterLoot()
     Ask("lootMaster", ByScope(isRaid, T["Use Simple Loot Council for this raid?"],
             T["Use Simple Loot Council for this group?"]),
-        not masterLoot and T["Accepting also activates the group-loot funnel."] or nil, nil,
+        not masterLoot and T["Accepting also activates the group-loot funnel."] or nil,
         masterLoot
             and T["This enables Simple Loot Council for the group on Master Looter: nobody's rolls are passed. Loot items to yourself, and the council distributes what lands in your bags."]
             or T["You roll Need on group loot, everyone taking part passes, and the council distributes what lands in your bags."],
@@ -263,7 +263,7 @@ local function AskRaider()
             T["The Loot Master is running Simple Loot Council for this group."])
     end
     Ask("raider", question,
-        T["Accepting also activates your group-loot funnel."], nil,
+        T["Accepting also activates your group-loot funnel."],
         T["Taking part means this addon passes your group-loot rolls on your behalf, so the council can distribute the item instead. You still respond and can still be awarded it."],
         true,
         function()
@@ -288,7 +288,6 @@ local function AskGuard()
     Ask("guard", T["Disable your guild loot funnel guard?"],
         reason == "group" and T["This is not a guild group."]
             or addon.Locale.Format(T["%s is not in your guild."], name),
-        S.color.bad,
         addon.Locale.Format(T["While the guard is on, this addon does not pass your group-loot rolls to %s. Disable it to take part in the funnel, or keep it and roll on group loot yourself. You still respond to the council either way."], name),
         false,
         function()
@@ -322,7 +321,7 @@ end
 
 function RaidPrompt:AskToDeactivate()
     if not addon.PlayerIsMasterLooter() or not addon.Loot.handling then return end
-    Ask("deactivate", T["Disable SLC?"], nil, nil,
+    Ask("deactivate", T["Disable SLC?"], nil,
         T["Are you sure you want to disable SLC for this run?"],
         false,
         function() RaidPrompt:Deactivate() end,
@@ -336,7 +335,7 @@ function RaidPrompt:AskToEnableFunnel()
         or addon.Loot:GetDecision() ~= false then
         return
     end
-    Ask("enable", T["Enable Funnel"], nil, nil, T["Take part in the active SLC group?"], false,
+    Ask("enable", T["Enable Funnel"], nil, T["Take part in the active SLC group?"], false,
         function()
             addon.Loot:RecordDecision(true)
             AnnounceJoined()
@@ -434,6 +433,12 @@ function RaidPrompt:Evaluate()
 
         if not IsInRaid() and not addon.db.raidPrompt.inGroups
             and not addon.Loot:HandedOverActive() then
+            return
+        end
+
+
+        if addon.db.raidPrompt.neverLead then
+            if showing == "lootMaster" then Retire() end
             return
         end
         if askedFor == asked then return end

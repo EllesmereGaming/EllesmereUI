@@ -119,8 +119,9 @@ function MLFrame:ConfirmAward(session, winner, reason, viaRoute)
     local identity = item.id or item.link
     local itemText = ItemText(item.link)
     local short = Ambiguate(winner, "short")
-    local reasonEntry = reason and addon.db.awardReasons
-        and addon.db.awardReasons[reason]
+
+    local reasonEntry = type(reason) == "string" and { text = reason }
+        or reason and addon.db.awardReasons and addon.db.awardReasons[reason]
 
 
     local question = reasonEntry
@@ -480,7 +481,8 @@ end
 
 
 function MLFrame:FitTextWidths()
-    local probe = UIParent:CreateFontString(nil, "ARTWORK")
+
+    local probe = CM.itemInfo:CreateFontString(nil, "ARTWORK")
 
     local function Widest(text, floor, pad)
         probe:SetText(text)
@@ -613,6 +615,13 @@ local ShowRowMenu
 local function ResolveResponse(candidate, sortOnly)
     if not candidate then
         return "-", S.color.textFaint, 999
+    end
+
+
+    local boe = candidate.status == "RESPONDED" and candidate.boe
+    if boe then
+        if sortOnly then return nil, nil, 0.5 end
+        return boe.t, { boe.r, boe.g, boe.b }, 0.5
     end
 
     if candidate.status == "RESPONDED" and candidate.response then
@@ -754,8 +763,8 @@ local function BuildColumns(forCompact)
                 local text, colour = ResolveResponse(row.candidate)
                 local candidate = row.candidate
                 local isResponse = candidate and candidate.status == "RESPONDED"
-                    and candidate.response
-                    and addon.Config:Responses()[candidate.response]
+                    and (candidate.boe or candidate.response
+                        and addon.Config:Responses()[candidate.response])
 
                 if isResponse then
                     if not cell.Chip then
@@ -939,9 +948,43 @@ local function BuildColumns(forCompact)
             value = function(row) return row.votes end,
             render = function(cell, row)
 
-                if addon.Config:Vote().hideVotes
+                if not cell.hooked then
+                    cell.hooked = true
+                    cell:EnableMouse(true)
+                    cell:SetScript("OnEnter", function(self)
+                        local voters = not self.votesHidden and self.voters
+                        if not voters or not next(voters) then return end
+                        local names = {}
+                        for name in pairs(voters) do names[#names + 1] = name end
+                        table.sort(names, function(a, b)
+                            return Ambiguate(a, "short") < Ambiguate(b, "short")
+                        end)
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        S.TooltipSection(GameTooltip, T["Votes"])
+                        for _, name in ipairs(names) do
+                            local r, g, b = S.ClassColor(addon.Player:Get(name).classFile)
+                            if r then
+                                GameTooltip:AddLine(Ambiguate(name, "short"), r, g, b)
+                            else
+                                GameTooltip:AddLine(Ambiguate(name, "short"), 1, 1, 1)
+                            end
+                        end
+                        GameTooltip:Show()
+                    end)
+                    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+                    cell:SetScript("OnMouseUp", function(self, button)
+                        if button ~= "RightButton" then return end
+                        local parent = self:GetParent()
+                        if parent and parent.rowData then ShowRowMenu(parent, parent.rowData) end
+                    end)
+                end
+                cell.voters = row.candidate and row.candidate.voters
+
+                cell.votesHidden = addon.Config:Vote().hideVotes
                     and not addon.Session:HasVoted(selectedSession,
-                        addon.Player:GetFullName("player")) then
+                        addon.Player:GetFullName("player")) or false
+                if cell.votesHidden then
                     cell.Text:SetText("?")
                     cell.Text:SetTextColor(S.Unpack(S.color.textFaint))
                     return
@@ -1147,12 +1190,16 @@ local function BuildColumns(forCompact)
 
         font = S.fontHint,
 
-        compare = function(a, b)
+
+        prepare = function(rows)
             local item = addon.Session:GetItem(selectedSession)
-            local pa = addon.Wishlist:For(a.name, item)
-            local pb = addon.Wishlist:For(b.name, item)
-            local ka = pa and pa.priorityId or math.huge
-            local kb = pb and pb.priorityId or math.huge
+            for _, row in ipairs(rows) do
+                local pick = addon.Wishlist:For(row.name, item)
+                row.wishlistKey = pick and pick.priorityId or math.huge
+            end
+        end,
+        compare = function(a, b)
+            local ka, kb = a.wishlistKey or math.huge, b.wishlistKey or math.huge
             if ka == kb then return 0 end
             return ka < kb and -1 or 1
         end,
@@ -1171,12 +1218,15 @@ local function BuildColumns(forCompact)
 
         sub = true, font = S.fontNumLarge, subFont = S.fontNumHint,
 
-        compare = function(a, b)
+        prepare = function(rows)
             local item = addon.Session:GetItem(selectedSession)
-            local sa = addon.Wishlist:SimFor(a.name, item)
-            local sb = addon.Wishlist:SimFor(b.name, item)
-            local ka = sa and sa.pct or -math.huge
-            local kb = sb and sb.pct or -math.huge
+            for _, row in ipairs(rows) do
+                local sim = addon.Wishlist:SimFor(row.name, item)
+                row.simKey = sim and sim.pct or -math.huge
+            end
+        end,
+        compare = function(a, b)
+            local ka, kb = a.simKey or -math.huge, b.simKey or -math.huge
             if ka == kb then return 0 end
             return ka < kb and -1 or 1
         end,
@@ -1569,6 +1619,20 @@ end
 
 
 
+
+function CM.HasWork()
+    local master = addon.PlayerIsMasterLooter()
+    for _, item in ipairs(addon.Session:GetItems()) do
+        if not item.awarded and not item.removed
+            and (master or not HaveVotedOn(item)) then
+            return true
+        end
+    end
+    return false
+end
+
+
+
 local function PaintStripButton(button, index, item)
     if button.slcItem ~= item or button.slcLink ~= item.link then
         button.slcItem, button.slcLink, button.slcName = item, item.link, nil
@@ -1770,7 +1834,7 @@ local function LowerEquipped(candidate)
     return best, bestName, bestQuality, bestLevel
 end
 
-local function RefreshAgainst(name)
+local function PaintAgainst(name)
     if not againstName or not againstDetail then return end
     againstFor = name
     CM.againstLoading = false
@@ -1846,17 +1910,21 @@ local function RefreshAgainst(name)
 end
 
 
+local function RefreshAgainst(name)
+    PaintAgainst(name)
+    CM.WatchItemInfo()
+end
+
+
 
 local function BoERouteTagText(route)
     if not route then return nil end
 
-    local reasonEntry = route.reason and addon.db.awardReasons
-        and addon.db.awardReasons[route.reason]
     local shortName = Ambiguate(route.winner, "short")
 
     if route.state == "routed" then
         return S.Colorize(S.color.accent, addon.Locale.Format(T["route -> %s (%s)"],
-            shortName, reasonEntry and reasonEntry.text or "?"))
+            shortName, route.reason or "?"))
     elseif route.state == "absent" then
         return addon.Locale.Format(T["route -> %s (not here)"], shortName)
     end
@@ -2120,6 +2188,7 @@ function MLFrame:Paint(scope)
         RefreshAgainst(hovered)
     end
     CM.namesMissing = stripMissing or CM.featuredMissing
+    CM.WatchItemInfo()
 
     if not scope then MLFrame:UpdateTimer() end
 end
@@ -2133,6 +2202,7 @@ end
 
 
 function MLFrame:Present()
+    if not CM.Ensure() then return end
     addon.Callbacks:Invalidate("council")
     frame:Show()
     addon.Callbacks:PaintNow("council")
@@ -2179,11 +2249,12 @@ end
 
 
 
-function MLFrame:Init()
+
+
+
+function CM.Build()
     local T = addon.Locale.Text
-    S, Tbl = addon.Style, UI.Table
-    L, P = addon.Layout, addon.Pixel
-    self:FitTextWidths()
+    MLFrame:FitTextWidths()
 
 
     hasWishlist = (addon.Wishlist and addon.Wishlist:IsAvailable()) or false
@@ -2488,42 +2559,16 @@ function MLFrame:Init()
     end
 
 
-    addon.Callbacks:RegisterView("council", {
-        frame = frame,
-        interval = CM.PAINT_INTERVAL,
-        paint = function(scope) MLFrame:Paint(scope) end,
-    })
 
-    addon.Callbacks:Register("RunStarted", function()
-        selectedSession = 1
-        paintedSession = nil
-        CM.dismissedRun = nil
-
-
-        local me = addon.Player:GetFullName("player")
-        if addon.PlayerIsMasterLooter() or addon.Council:Contains(me) then
-            MLFrame:Present()
-        end
-    end)
-
-    addon.Callbacks:Register("SessionChanged", function(session, kind, candidate)
-        addon.Callbacks:Invalidate("council", session, kind, candidate)
-    end)
-    addon.Callbacks:Register("RunEnded", function() if frame then frame:Hide() end end)
-
-
-    addon.Callbacks:Register("CouncilChanged", function()
-        if not addon.Session:IsRunning() or frame:IsShown()
-            or CM.dismissedRun == addon.Session:GetRunId() then return end
-        local me = addon.Player:GetFullName("player")
-        if addon.PlayerIsMasterLooter() or addon.Council:Contains(me) then
-            MLFrame:Open()
-        end
+    frame:HookScript("OnShow", function()
+        addon.Callbacks:PaintNow("council")
+        addon.Callbacks:PaintNow("councilAgainst")
     end)
 
 
 
     frame:HookScript("OnHide", function()
+        CM.WatchItemInfo()
         local hiddenRun = addon.Session:IsRunning()
             and addon.Session:GetRunId() or nil
         if hiddenRun then CM.dismissedRun = hiddenRun end
@@ -2539,21 +2584,52 @@ function MLFrame:Init()
             end
         end)
     end)
-    addon.Restrictions:OnChange(function() addon.Callbacks:Invalidate("council") end)
-
-    C_Timer.NewTicker(1, function() MLFrame:UpdateTimer() end)
 
 
-    addon.Callbacks:RegisterView("councilAgainst", {
-        frame = frame,
-        interval = CM.PAINT_INTERVAL,
-        paint = function() RefreshAgainst(againstFor) end,
-    })
+    CM.ticker:SetParent(frame)
+    CM.ticker:Show()
+
+    CM.apply()
+    return frame
+end
 
 
-    local itemInfo = CreateFrame("Frame")
-    itemInfo:RegisterEvent("GET_ITEM_INFO_RECEIVED")
-    itemInfo:SetScript("OnEvent", function()
+
+function CM.WatchItemInfo()
+    local want = (CM.againstLoading or CM.namesMissing)
+        and frame ~= nil and frame:IsShown() and true or false
+    if want == CM.itemInfoOn then return end
+    CM.itemInfoOn = want
+    if want then
+        CM.itemInfo:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    else
+        CM.itemInfo:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
+    end
+end
+
+
+function CM.Ensure()
+    if not frame and CM.ready then CM.Build() end
+    return frame
+end
+
+function MLFrame:Init()
+    S, Tbl = addon.Style, UI.Table
+    L, P = addon.Layout, addon.Pixel
+
+
+
+
+    CM.ticker = CreateFrame("Frame", nil, UIParent)
+    CM.ticker:Hide()
+    CM.ticker:SetScript("OnUpdate", function(_, elapsed)
+        CM.sinceTick = (CM.sinceTick or 0) + elapsed
+        if CM.sinceTick < 1 then return end
+        CM.sinceTick = CM.sinceTick % 1
+        MLFrame:UpdateTimer()
+    end)
+    CM.itemInfo = CreateFrame("Frame", nil, UIParent)
+    CM.itemInfo:SetScript("OnEvent", function()
         if CM.againstLoading then
             addon.Callbacks:Invalidate("councilAgainst")
         end
@@ -2562,8 +2638,49 @@ function MLFrame:Init()
         end
     end)
 
-    CM.apply()
 
+    local function Shown() return frame ~= nil and frame:IsShown() end
+    addon.Callbacks:RegisterView("council", {
+        shown = Shown,
+        interval = CM.PAINT_INTERVAL,
+        paint = function(scope) MLFrame:Paint(scope) end,
+    })
+
+    addon.Callbacks:RegisterView("councilAgainst", {
+        shown = Shown,
+        interval = CM.PAINT_INTERVAL,
+        paint = function() RefreshAgainst(againstFor) end,
+    })
+
+    addon.Callbacks:Register("RunStarted", function()
+        selectedSession = 1
+        paintedSession = nil
+        CM.dismissedRun = nil
+
+
+        local me = addon.Player:GetFullName("player")
+        if (addon.PlayerIsMasterLooter() or addon.Council:Contains(me)) and CM.HasWork() then
+            MLFrame:Present()
+        end
+    end)
+
+    addon.Callbacks:Register("SessionChanged", function(session, kind, candidate)
+        addon.Callbacks:Invalidate("council", session, kind, candidate)
+    end)
+    addon.Callbacks:Register("RunEnded", function() if frame then frame:Hide() end end)
+
+
+    addon.Callbacks:Register("CouncilChanged", function()
+        if not addon.Session:IsRunning() or (frame and frame:IsShown())
+            or CM.dismissedRun == addon.Session:GetRunId() then return end
+        local me = addon.Player:GetFullName("player")
+        if (addon.PlayerIsMasterLooter() or addon.Council:Contains(me)) and CM.HasWork() then
+            MLFrame:Open()
+        end
+    end)
+    addon.Restrictions:OnChange(function() addon.Callbacks:Invalidate("council") end)
+
+    CM.ready = true
     addon.Log:I("UI", "council frame ready")
 end
 
@@ -2580,7 +2697,7 @@ end
 
 
 function MLFrame:SelectSession(session)
-    if not frame or not session then return end
+    if not CM.ready or not session then return end
 
     if not addon.Session:IsRunning() then return end
     if not addon.Session:GetItems()[session] then return end
@@ -2592,14 +2709,14 @@ end
 
 
 function MLFrame:Open()
-    if not frame then return end
+    if not CM.ready then return end
     CM.dismissedRun = nil
     MLFrame:Present()
 end
 
 function MLFrame:Toggle()
-    if not frame then return end
-    if frame:IsShown() then
+    if not CM.ready then return end
+    if frame and frame:IsShown() then
         CM.dismissedRun = addon.Session:GetRunId()
         frame:Hide()
     else

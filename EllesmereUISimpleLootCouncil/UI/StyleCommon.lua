@@ -127,6 +127,26 @@ end
 
 
 
+local buildQueue, buildFrame = {}, CreateFrame("Frame")
+buildFrame:Hide()
+buildFrame:SetScript("OnUpdate", function(self)
+    self:Hide()
+    local pending = buildQueue
+    buildQueue = {}
+    for i = 1, #pending do
+        local ok, err = pcall(pending[i])
+        if not ok then addon.Log:Bug("UI", "window build failed: " .. tostring(err)) end
+    end
+end)
+
+function S.BuildOnDriver(fn)
+    buildQueue[#buildQueue + 1] = fn
+    buildFrame:Show()
+end
+
+
+
+
 
 local function Unpack(c, alpha)
     return c[1], c[2], c[3], alpha or c[4] or 1
@@ -250,6 +270,34 @@ function S.IsItemLink(link)
         and (link:find("|H", 1, true) ~= nil or link:find("^%a+:%-?%d") ~= nil)
 end
 
+
+
+
+local compareOwner
+local compareWatch
+
+local function RebuildOnModifier()
+    local owner = compareOwner
+    if not owner or GameTooltip:GetOwner() ~= owner or not GameTooltip:IsShown() then
+        compareOwner = nil
+        compareWatch:UnregisterEvent("MODIFIER_STATE_CHANGED")
+        return
+    end
+    if not owner:IsVisible() or not owner:IsMouseOver() then return end
+    local onEnter = owner:GetScript("OnEnter")
+    if onEnter then onEnter(owner) end
+end
+
+
+function S.WatchTooltipModifiers(owner)
+    compareOwner = owner
+    if not compareWatch then
+        compareWatch = CreateFrame("Frame")
+        compareWatch:SetScript("OnEvent", RebuildOnModifier)
+    end
+    compareWatch:RegisterEvent("MODIFIER_STATE_CHANGED")
+end
+
 function S.SetTooltipItem(link, name)
     if not S.IsItemLink(link) then
         GameTooltip:ClearLines()
@@ -259,7 +307,23 @@ function S.SetTooltipItem(link, name)
     end
     GameTooltip_SuppressAutomaticCompareItem(GameTooltip)
     GameTooltip:SetHyperlink(link)
+    S.WatchTooltipModifiers(GameTooltip:GetOwner())
     return true
+end
+
+
+
+local gamepadSeen
+function S.GamepadUI()
+    if not addon.IsForever then return false end
+    local style, types = C_InputInterfaceStyle, Enum and Enum.InputDeviceInterfaceType
+    local current = style and types and style.GetCurrentStyle()
+    local on = current ~= nil and current == types.Gamepad
+    if on ~= gamepadSeen then
+        gamepadSeen = on
+        addon.Log:D("UI", "gamepad interface style", tostring(current), on and "on" or "off")
+    end
+    return on
 end
 
 
@@ -269,7 +333,7 @@ function S.ItemModifiedClick(link)
         ChatFrameUtil.InsertLink(link)
         return true
     end
-    if IsControlKeyDown() and DressUpLink then
+    if IsControlKeyDown() and DressUpLink and not S.GamepadUI() then
         DressUpLink(link)
         return true
     end
@@ -327,6 +391,8 @@ end
 
 function S.TooltipRule(tooltip)
     tooltip:AddLine(" ", 0, 0, 0, true)
+
+    if S.GamepadUI() then return end
     local line = tooltip:GetLeftLine(tooltip:NumLines())
     if not line then return end
 
@@ -408,7 +474,7 @@ end
 
 local PRIDE_TITLED = {
     voter = true, ml = true, queue = true, tradeQueue = true, history = true,
-    historyImport = true, raidteam = true, raidteamranks = true, attendance = true,
+    raidteam = true, raidteamranks = true, attendance = true,
     versions = true, sendConfig = true, configOffer = true, raidPrompt = true,
     colorPicker = true,
 }
@@ -562,4 +628,30 @@ function S.InstallWindowGeometry(f, key, header, close)
 
     f:HookScript("OnSizeChanged", function() P.AfterLayout(function() P.Reanchor(f) end) end)
     P.OnRescale(function() P.AlignFrame(f) end)
+
+    S.FollowWindowAlpha(f)
+end
+
+
+
+
+
+
+S.windows = S.windows or {}
+S.WINDOW_ALPHA_MIN = 0.3
+
+function S.WindowAlpha()
+    local alpha = tonumber(addon.db and addon.db.windowAlpha) or 1
+    return math.max(S.WINDOW_ALPHA_MIN, math.min(1, alpha))
+end
+
+
+function S.FollowWindowAlpha(f)
+    S.windows[#S.windows + 1] = f
+    f:SetAlpha(S.WindowAlpha())
+end
+
+function S.SetWindowAlpha(alpha)
+    addon.db.windowAlpha = math.max(S.WINDOW_ALPHA_MIN, math.min(1, tonumber(alpha) or 1))
+    for _, f in ipairs(S.windows) do f:SetAlpha(addon.db.windowAlpha) end
 end

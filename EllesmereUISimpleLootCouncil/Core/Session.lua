@@ -48,6 +48,9 @@ local AnnounceRunState
 local AnswerHeldForRebuild
 
 
+local WatchBags
+
+
 local Refused = { copy = nil, filled = {} }
 
 local function NextId()
@@ -74,6 +77,70 @@ local function GroupKey()
     for name in pairs(addon.GetCandidates() or {}) do names[#names + 1] = name end
     table.sort(names)
     return table.concat(names, "\0")
+end
+
+
+
+local function StampBoE(item)
+    local stamp = type(item) == "table" and item.boe
+    if type(stamp) ~= "table" or type(item.candidates) ~= "table" then return end
+    local name = stamp.w
+    for candidateName in pairs(item.candidates) do
+        if addon.Player:IsSame(candidateName, stamp.w) then name = candidateName break end
+    end
+    local candidate = item.candidates[name]
+    if not candidate then
+        candidate = { status = "ANNOUNCED", voters = {} }
+        item.candidates[name] = candidate
+    end
+    if candidate.status == "AWARDED" then
+        candidate.realStatus, candidate.realResponse = "RESPONDED", nil
+    else
+        candidate.status = "RESPONDED"
+    end
+    candidate.response = nil
+    candidate.boe = { t = stamp.t, r = stamp.r, g = stamp.g, b = stamp.b }
+    candidate.note = addon.BoERoute and addon.BoERoute.Note() or nil
+    candidate.overridden = true
+    candidate.viaWhisper = nil
+end
+
+
+local function BoEHolds(candidate, what, session, name)
+    if not (candidate and candidate.boe) then return false end
+    addon.Log:D("Session", what, "on a BoE-routed row ignored", tostring(session), tostring(name))
+    return true
+end
+
+
+
+local refusedSeen = {}
+local function Refuse(what, why, sender)
+    local key = ("%s\0%s\0%s"):format(tostring(sender), what, why)
+    if refusedSeen[key] then return end
+    refusedSeen[key] = true
+    addon.Log:WLogOnly("Session", what, "refused -", why, "from", tostring(sender))
+end
+
+
+
+local RESPONSES_MAX = 7
+
+
+local function ResponseIndex(value)
+    if value == nil then return nil end
+    local index = tonumber(value)
+    if index and index % 1 == 0 and index >= 1 and index <= RESPONSES_MAX then
+        return index
+    end
+    return false
+end
+
+
+local function CleanNote(note)
+    if type(note) ~= "string" then return nil end
+    note = addon.Locale.Truncate(note, addon.Config:NoteMax())
+    return note ~= "" and note or nil
 end
 
 local function Snapshot(candidateName)
@@ -199,8 +266,8 @@ local function SnapshotValid(payload)
             return false
         end
         item.session = index
-        for _, candidate in pairs(item.candidates) do
-            if type(candidate) ~= "table" then return false end
+        for name, candidate in pairs(item.candidates) do
+            if type(name) ~= "string" or type(candidate) ~= "table" then return false end
             if type(candidate.voters) ~= "table" then candidate.voters = {} end
         end
     end
@@ -271,6 +338,8 @@ local Split = {
     FILL_WAIT = 30,
 
     STASH_MAX = 64,
+
+    skeletonOf = {},
 }
 Session.Split = Split
 
@@ -305,9 +374,24 @@ local function OpenHold()
     holdUntil = GetTime() + HOLD_SECONDS
 end
 
+
+
+local asked = {}
+local function Asked()
+    return asked.at ~= nil and GetTime() - asked.at <= HOLD_SECONDS
+end
+
+
+local function CloseAsk(why)
+    if asked.at == nil then return end
+    asked.at, asked.copyRun, asked.copyMaster = nil, nil, nil
+    addon.Log:D("Session", "recovery replies no longer taken -", why)
+end
+
 local function CloseHold(why)
     holdUntil = 0
     DropHeld(why)
+    CloseAsk(why)
 end
 
 local function Holding()
@@ -376,6 +460,57 @@ local ANSWERS = { RESPONDED = true, PASS = true }
 local function IsSecret(value)
     return issecretvalue ~= nil and issecretvalue(value) or false
 end
+
+
+local ROW_STATUS = { ANNOUNCED = true, RESPONDED = true, PASS = true, NOTHING = true,
+    NO_ADDON = true, AWARDED = true }
+local ROLL_BY = { player = true, leader = true }
+
+local RAID_MAX = 40
+
+local function Bounded(value, low, high)
+    return type(value) == "number" and value >= low and value <= high and value or nil
+end
+
+
+
+local function CleanAnswer(status, response)
+    local index = ResponseIndex(response)
+    if index == false then return status == "RESPONDED" and "ANNOUNCED" or status, nil end
+    return status, index
+end
+
+
+
+local function CleanRow(row)
+    if type(row) ~= "table" then return nil end
+    local clean = { voters = {} }
+    clean.status, clean.response = CleanAnswer(
+        ROW_STATUS[row.status] and row.status or "ANNOUNCED", row.response)
+    if row.realStatus ~= "AWARDED" and ROW_STATUS[row.realStatus] then
+        clean.realStatus, clean.realResponse = CleanAnswer(row.realStatus, row.realResponse)
+    end
+    clean.note = CleanNote(row.note)
+    clean.overridden = row.overridden == true or nil
+    clean.viaWhisper = row.viaWhisper == true or nil
+    local count = 0
+    for voter, on in pairs(type(row.voters) == "table" and row.voters or {}) do
+        if type(voter) == "string" and on == true and count < RAID_MAX then
+            clean.voters[voter], count = true, count + 1
+        end
+    end
+    if addon.Gear then
+        for _, key in ipairs(OWNED) do
+            if key ~= "note" then clean[key] = addon.Gear.CleanField(key, row[key]) end
+        end
+    end
+    clean.roll = Bounded(row.roll, -2 ^ 31, 2 ^ 31)
+    clean.rollBy = ROLL_BY[row.rollBy] and row.rollBy or nil
+    clean.rollSeq = Bounded(row.rollSeq, 0, 2 ^ 31)
+    clean.rollGen = Bounded(row.rollGen, 0, 2 ^ 31)
+    return clean
+end
+Session.CleanRow = CleanRow
 
 
 
@@ -586,6 +721,7 @@ function Split.Send(requester, current)
         "holder(s) asked (full:", tostring(frames), "frames)")
     addon.Comms:Send("run_start", skeleton, requester, true)
     addon.Comms:Send("run_help", { w = requester }, nil, true)
+    Split.skeletonOf[requester] = run.id
     return true
 end
 
@@ -857,8 +993,8 @@ local function MergeRow(item, index, name, row, fill)
     local live = rows and rows[name]
     local whispered = candidate.viaWhisper
     if not (live and live.answer) and (fill or not (whispered or candidate.overridden)) then
-        local status, response = row.status, tonumber(row.response)
-        local realStatus, realResponse = row.realStatus, tonumber(row.realResponse)
+        local status, response = CleanAnswer(row.status, row.response)
+        local realStatus, realResponse = CleanAnswer(row.realStatus, row.realResponse)
 
         if candidate.status == "AWARDED" then
             if ANSWERS[realStatus] then
@@ -874,19 +1010,15 @@ local function MergeRow(item, index, name, row, fill)
         end
     end
     if not (live and live.note) and (fill or not whispered) then
-        local note = type(row.note) == "string"
-            and addon.Locale.Truncate(row.note, addon.Config:NoteMax()) or nil
-        candidate.note = note ~= "" and note or nil
+        candidate.note = CleanNote(row.note)
     end
-    if not (live and live.gear) and (fill or not whispered) then
+    if not (live and live.gear) and (fill or not whispered) and addon.Gear then
         for _, key in ipairs(OWNED) do
-            if key ~= "note" then
-                local value = row[key]
-                local want = (key == "gear1" or key == "gear2") and "string" or "number"
-                candidate[key] = type(value) == want and value or nil
-            end
+            if key ~= "note" then candidate[key] = addon.Gear.CleanField(key, row[key]) end
         end
     end
+
+    if item.boe then StampBoE(item) end
 end
 
 
@@ -894,7 +1026,8 @@ end
 local function MergeVotes(item, index, voter, list)
     local wanted = {}
     if type(list) == "table" then
-        for _, name in ipairs(list) do
+        for n, name in ipairs(list) do
+            if n > RAID_MAX then break end
             if type(name) == "string" then wanted[name] = true end
         end
     end
@@ -1482,6 +1615,17 @@ end
 
 
 
+local function AskForRun(args, target)
+    OpenHold()
+    asked.at = GetTime()
+    asked.copyRun = heldCopy and heldCopy.runId or nil
+    asked.copyMaster = heldCopy and heldCopy.lootMaster or nil
+    addon.Comms:Send("run_request", args, target, true)
+end
+Session.AskForRun = AskForRun
+
+
+
 
 
 function Session:IsRunning()
@@ -1637,6 +1781,7 @@ local function AppendItem(itemLink, owner, boss, encounterID, simulated, difficu
 
     addon.Log:I("Session", "item added", index, itemLink)
     ResolveMissingBoss(run.items[index])
+    if WatchBags then WatchBags() end
     return index
 end
 
@@ -1848,20 +1993,30 @@ end
 function Session:PruneUnheld()
     if run.active then return 0 end
 
+
+    local queued, held = {}, {}
+    for _, item in ipairs(run.items) do
+        local id = item.link and addon.Player:IsSelf(item.owner) and addon.Storage.ItemID(item.link)
+        if id then
+            queued[id] = (queued[id] or 0) + 1
+            if not item.simulated and not held[id] then
+                held[id] = (addon.Storage:CountTradeable(item.link))
+            end
+        end
+    end
+
     local dropped = 0
 
     for index = #run.items, 1, -1 do
         local item = run.items[index]
-        if item and not item.simulated and item.link
-            and addon.Player:IsSelf(item.owner) then
-            local queued = Session:CountQueued(item.link, item.owner)
-            local held = (addon.Storage:CountTradeable(item.link))
-            if queued > held then
-                addon.Log:I("Session", "dropping unheld item from the queue",
-                    item.link, ("queued %d, held %d"):format(queued, held))
-                table.remove(run.items, index)
-                dropped = dropped + 1
-            end
+        local id = item and not item.simulated and item.link
+            and addon.Player:IsSelf(item.owner) and addon.Storage.ItemID(item.link)
+        if id and queued[id] > held[id] then
+            addon.Log:I("Session", "dropping unheld item from the queue",
+                item.link, ("queued %d, held %d"):format(queued[id], held[id]))
+            table.remove(run.items, index)
+            queued[id] = queued[id] - 1
+            dropped = dropped + 1
         end
     end
 
@@ -1935,6 +2090,8 @@ function Session:Clear()
     run.items = {}
     run.stash = nil
     assembling = nil
+    run.recoveryFromReplies, run.recoverySources = nil, nil
+    CloseAsk("cleared")
     Refused.copy, Refused.filled = nil, {}
 
     run.completed = {}
@@ -2009,6 +2166,15 @@ end
 
 
 
+local function BoEStampFor(item)
+    if not addon.BoERoute then return nil end
+    local route = addon.BoERoute:For(item)
+    if not route or route.state ~= "routed" then return nil end
+    return addon.BoERoute.CleanStamp({ w = route.winner, t = route.reason,
+        r = route.r, g = route.g, b = route.b })
+end
+
+
 
 function Session:Start()
     if run.active then return false end
@@ -2068,6 +2234,7 @@ function Session:Start()
             simulated = item.simulated,
 
             difficultyID = item.difficultyID,
+            boe = BoEStampFor(item),
         }
     end
 
@@ -2136,9 +2303,14 @@ function Session:ApplyRunStart(payload, sender, recovered)
 
     assembling = nil
 
+    run.recoveryFromReplies, run.recoverySources = nil, nil
+
 
     Refused.filled = {}
-    if not (recovered and payload.candidateOnly) then Refused.copy = nil end
+    if not (recovered and payload.candidateOnly) then
+        Refused.copy = nil
+        CloseAsk(recovered and "recovered" or "run_started")
+    end
     local senderRecord = addon.Player:Get(sender) or {}
     run.lootMaster = payload.lootMaster or senderRecord.fullName or sender
     run.groupKey = payload.groupKey or GroupKey()
@@ -2173,13 +2345,13 @@ function Session:ApplyRunStart(payload, sender, recovered)
         if payload.snapshotVersion == SNAPSHOT_VERSION then
             run.items[index] = CopyMap(entry)
             run.items[index].session = index
-            run.items[index].candidates = run.items[index].candidates or {}
-            for _, candidate in pairs(run.items[index].candidates) do
-                candidate.voters = candidate.voters or {}
 
 
-                candidate.status = candidate.status or "ANNOUNCED"
+            local rows = {}
+            for name, row in pairs(type(entry.candidates) == "table" and entry.candidates or {}) do
+                if type(name) == "string" then rows[name] = CleanRow(row) end
             end
+            run.items[index].candidates = rows
             if payload.candidateOnly or payload.parts then
 
                 for name, candidate in pairs(NewCandidateSet()) do
@@ -2203,6 +2375,10 @@ function Session:ApplyRunStart(payload, sender, recovered)
                 candidates = NewCandidateSet(),
             }
         end
+
+        local item = run.items[index]
+        item.boe = addon.BoERoute and addon.BoERoute.CleanStamp(entry.boe) or nil
+        StampBoE(item)
     end
 
     if payload.snapshotVersion == SNAPSHOT_VERSION then DecodeRolls(payload.rn) end
@@ -2294,8 +2470,7 @@ function Session:ApplyRunDelta(payload, sender)
         addon.Log:W("Session", "could not rebuild the run from my saved copy -", why,
             "- asking for the whole run")
         heldRefused = true
-        OpenHold()
-        addon.Comms:Send("run_request", { d = 1 }, sender, true)
+        AskForRun({ d = 1 }, sender)
         return
     end
     addon.Log:I("Session", "run rebuilt from my saved copy:", #payload.items, "of", #merged.items,
@@ -2311,13 +2486,16 @@ local function NotLive(what, session)
     return true
 end
 
-function Session:ApplyResponse(session, candidateName, response, note, sender, gear)
-    if NotLive("response", session) then return end
-    local item = run.items[session]
-    if not item then
-        addon.Log:WLogOnly("Session", "response for unknown session", tostring(session))
-        return
+
+
+local function ApplyAnswer(what, session, candidateName, response, note, sender, gear)
+    if NotLive(what, session) then return end
+    local index = ResponseIndex(response)
+    if index == false or type(candidateName) ~= "string" then
+        return Refuse(what, "malformed", sender)
     end
+    local item = run.items[session]
+    if not item then return Refuse(what, "unknown_session", sender) end
 
     local candidate = item.candidates[candidateName]
     if not candidate then
@@ -2325,35 +2503,49 @@ function Session:ApplyResponse(session, candidateName, response, note, sender, g
         candidate = { status = "ANNOUNCED", voters = {} }
         item.candidates[candidateName] = candidate
     end
+    if BoEHolds(candidate, what, session, candidateName) then return end
 
 
 
-    local status = response and "RESPONDED" or "PASS"
+    local status = index and "RESPONDED" or "PASS"
     if candidate.status == "AWARDED" then
-        candidate.realResponse = response
-        candidate.realStatus = status
+        candidate.realResponse, candidate.realStatus = index, status
     else
-        candidate.response = response
-        candidate.status = status
+        candidate.response, candidate.status = index, status
     end
-    candidate.note = note
+    candidate.note = CleanNote(note)
 
     candidate.overridden = nil
+    local whispered = what == "whisper"
+
+    if whispered then candidate.viaWhisper = true end
 
 
 
-    if addon.Gear then addon.Gear:ApplyToCandidate(candidate, gear) end
-    Touch(session, candidateName, true, true, true)
+    local gearSaid = not whispered or type(gear) == "table"
+    if gearSaid and addon.Gear then addon.Gear:ApplyToCandidate(candidate, gear) end
+    Touch(session, candidateName, true, true, gearSaid)
 
-    addon.Log:D("Session", "response", session, candidateName, tostring(response))
+    if whispered then
+        addon.Log:I("Session", "whispered response", session, candidateName,
+            tostring(index), "relayed by", tostring(sender))
+    else
+        addon.Log:D("Session", "response", session, candidateName, tostring(index))
+    end
     if addon.Callbacks then
         addon.Callbacks:Fire("SessionChanged", session, "response", candidateName)
     end
 end
 
+function Session:ApplyResponse(session, candidateName, response, note, sender, gear)
+    return ApplyAnswer("response", session, candidateName, response, note, sender, gear)
+end
+
 
 function Session:ApplyNote(session, candidateName, note, sender)
-    if not run.active or type(note) ~= "string" then return false end
+    if not run.active or type(note) ~= "string" or type(candidateName) ~= "string" then
+        return false
+    end
     local item = run.items[session]
     if not item then return false end
     local candidate = item.candidates[candidateName]
@@ -2361,8 +2553,8 @@ function Session:ApplyNote(session, candidateName, note, sender)
         candidate = { status = "ANNOUNCED", voters = {} }
         item.candidates[candidateName] = candidate
     end
-    note = addon.Locale.Truncate(note, addon.Config:NoteMax())
-    candidate.note = note ~= "" and note or nil
+    if BoEHolds(candidate, "note", session, candidateName) then return false end
+    candidate.note = CleanNote(note)
     Touch(session, candidateName, false, true, false)
     addon.Log:D("Session", "note", session, candidateName, "from", sender)
     if addon.Callbacks then
@@ -2373,58 +2565,16 @@ end
 
 
 
-
 function Session:ApplyWhisperResponse(session, candidateName, response, note, sender, gear)
-    if NotLive("whispered response", session) then return end
-    local item = run.items[session]
-    if not item then
-        addon.Log:WLogOnly("Session", "whispered response for unknown session",
-            tostring(session))
-        return
-    end
-
-    local candidate = item.candidates[candidateName]
-    if not candidate then
-
-
-        candidate = { status = "ANNOUNCED", voters = {} }
-        item.candidates[candidateName] = candidate
-    end
-
-    local status = response and "RESPONDED" or "PASS"
-
-
-    if candidate.status == "AWARDED" then
-        candidate.realResponse = response
-        candidate.realStatus = status
-    else
-        candidate.response = response
-        candidate.status = status
-    end
-
-    candidate.note = note
-
-
-    candidate.viaWhisper = true
-
-    candidate.overridden = nil
-
-
-
-    if gear and addon.Gear then addon.Gear:ApplyToCandidate(candidate, gear) end
-    Touch(session, candidateName, true, true, gear ~= nil)
-
-    addon.Log:I("Session", "whispered response", session, candidateName,
-        tostring(response), "relayed by", tostring(sender))
-    if addon.Callbacks then
-        addon.Callbacks:Fire("SessionChanged", session, "response", candidateName)
-    end
+    return ApplyAnswer("whisper", session, candidateName, response, note, sender, gear)
 end
 
 
 
 function Session:ApplyResponseSet(session, candidateName, response, sender)
     if NotLive("response_set", session) then return end
+    response = ResponseIndex(response)
+    if response == false then return Refuse("response_set", "malformed", sender) end
     local item = run.items[session]
     if not item then
         addon.Log:WLogOnly("Session", "response_set for unknown session", tostring(session))
@@ -2435,6 +2585,12 @@ function Session:ApplyResponseSet(session, candidateName, response, sender)
     if not candidate then return end
 
     local status = response and "RESPONDED" or "PASS"
+
+
+    if candidate.boe then
+        candidate.boe = nil
+        item.boe = nil
+    end
 
 
     local awarded = candidate.status == "AWARDED"
@@ -2583,7 +2739,7 @@ local function NextSeq(item)
     return (item.awardSeq or 0) + 1
 end
 
-function Session:ApplyAward(session, winner, sender, reason, seq)
+function Session:ApplyAward(session, winner, sender, reason, seq, reasonText)
     if NotLive("award", session) then return end
     local item = run.items[session]
     if not item then return end
@@ -2621,6 +2777,9 @@ function Session:ApplyAward(session, winner, sender, reason, seq)
 
     local reasonEntry = reason and addon.db.awardReasons
         and addon.db.awardReasons[reason] or nil
+
+    reasonText = addon.BoERoute and addon.BoERoute.CleanReason(reasonText)
+    if reasonText then reasonEntry = { text = reasonText, log = true } end
     item.reason = reason
     item.reasonText = reasonEntry and reasonEntry.text or nil
     item.reasonLogged = reasonEntry and reasonEntry.log and true or false
@@ -2881,19 +3040,24 @@ function Session:CheckHeld()
         end
     end
 
+    if #order == 0 then return 0 end
+
+    local owedById = {}
+    for _, entry in ipairs(addon.Storage:GetAll(addon.Storage.TO_TRADE)) do
+        local id = not entry.untradeable and addon.Storage.ItemID(entry.link)
+        if id and byId[id] then
+            local args = entry.args or {}
+            owedById[id] = owedById[id] or {}
+            table.insert(owedById[id], { w = args.recipient, i = args.runId, s = args.session })
+        end
+    end
+
     local changed = 0
     for _, id in ipairs(order) do
         local group = byId[id]
         local tradeable, bound = addon.Storage:CountTradeable(group[1].link)
 
-        local owedTo = {}
-        for _, entry in ipairs(addon.Storage:GetAll(addon.Storage.TO_TRADE)) do
-            if not entry.untradeable and addon.Storage.ItemID(entry.link) == id then
-                local args = entry.args or {}
-                owedTo[#owedTo + 1] = { w = args.recipient, i = args.runId,
-                    s = args.session }
-            end
-        end
+        local owedTo = owedById[id] or {}
         local free = math.max(0, tradeable - #owedTo)
         for index, item in ipairs(group) do
             local reason, owed
@@ -2966,6 +3130,19 @@ function Session:ApplyDelivered(session, winner, sender, link, runId)
 end
 
 
+local function HistoryHandover(session, winner, sender, runId)
+    if not (winner and runId and addon.History and addon.History.GetForWinner) then return nil end
+    local found
+    for _, entry in ipairs(addon.History:GetForWinner(winner)) do
+        if entry.runId == runId and entry.session == session and entry.owner then
+            if addon.Player:IsSame(sender, entry.owner) then return entry, true end
+            found = entry
+        end
+    end
+    return found, false
+end
+
+
 
 
 function Session:MayReportHandover(session, winner, sender, runId)
@@ -2979,16 +3156,9 @@ function Session:MayReportHandover(session, winner, sender, runId)
         return false, "not the holder"
     end
 
-    local found = false
-    if winner and runId and addon.History and addon.History.GetForWinner then
-        for _, entry in ipairs(addon.History:GetForWinner(winner)) do
-            if entry.runId == runId and entry.session == session and entry.owner then
-                if addon.Player:IsSame(sender, entry.owner) then return true end
-                found = true
-            end
-        end
-    end
-    return false, found and "not the holder" or "unverifiable"
+    local entry, held = HistoryHandover(session, winner, sender, runId)
+    if held then return true end
+    return false, entry and "not the holder" or "unverifiable"
 end
 
 
@@ -3002,33 +3172,47 @@ end
 
 local undeliveredSeen = {}
 
+local UNDELIVERED = { missing = true, equipped = true, bound = true, wrong = true, left = true }
+
+
 
 
 
 function Session:ApplyUndelivered(session, winner, sender, link, runId, why, to)
     if addon.Player:IsSelf(sender) then return end
+    if not UNDELIVERED[why] then return Refuse("undelivered", "unknown_reason", sender) end
 
     local key = ("%s|%s|%s|%s"):format(tostring(runId), tostring(session),
         tostring(winner), tostring(sender))
     if undeliveredSeen[key] then return end
     undeliveredSeen[key] = true
 
+
     local item = (not runId or run.id == runId) and Session:GetItem(session) or nil
-    link = (item and item.link) or link or "?"
-    addon.Log:W("Session", "undeliverable -", tostring(why), link, "owed to",
-        tostring(winner), "held by", tostring(sender),
-        to and ("handed to " .. tostring(to)) or "")
+    local shown, owed
+    if item then
+        if addon.Player:IsSame(item.awarded, winner) then shown, owed = item.link, item.awarded end
+    else
+        local entry, held = HistoryHandover(session, winner, sender, runId)
+        if held then shown, owed = entry.link, entry.winner end
+    end
+
+    local given = type(to) == "string" and addon.Player:Get(to).fullName or nil
+    if not (given and (addon.GetCandidates() or {})[given]) then given = nil end
+    addon.Log:WLogOnly("Session", "undeliverable -", why, tostring(shown), "owed to",
+        tostring(owed), "held by", tostring(sender), given and ("handed to " .. given) or "")
 
 
     if addon.Callbacks then
-        addon.Callbacks:Fire("ItemUndelivered", session, winner, sender, link,
-            runId, why, to)
+        addon.Callbacks:Fire("ItemUndelivered", session, winner, sender, shown,
+            runId, why, given)
     end
-    if not addon.PlayerIsMasterLooter() then return end
+    if not addon.PlayerIsMasterLooter() or not shown then return end
 
     local Format = addon.Locale.Format
+    link = shown
     local holder = Ambiguate(sender or "?", "short")
-    local short = Ambiguate(winner or "?", "short")
+    local short = Ambiguate(owed, "short")
     if why == "missing" then
         print(Format(addon.Log.CHAT_PREFIX.error .. T["%s was awarded to %s, but it is not in %s's bags. Re-award or strike it."],
             link, short, holder))
@@ -3038,10 +3222,13 @@ function Session:ApplyUndelivered(session, winner, sender, link, runId, why, to)
     elseif why == "bound" then
         print(Format(addon.Log.CHAT_PREFIX.error .. T["%s is still in %s's bags, but its trade window has ended, so it can no longer be traded to %s - it was NOT delivered. Re-award or strike it."],
             link, holder, short))
-    elseif why == "wrong" and to then
-        local given = Ambiguate(to, "short")
+    elseif why == "wrong" and given then
+        given = Ambiguate(given, "short")
         print(Format(addon.Log.CHAT_PREFIX.error .. T["%s was awarded to %s, but %s traded it to %s - it was NOT delivered. Re-award it to %s if they may keep it, or strike it."],
             link, short, holder, given, given))
+    elseif why == "wrong" then
+        print(Format(addon.Log.CHAT_PREFIX.error .. T["%s was awarded to %s, but %s traded it to someone outside the group - it was NOT delivered. Re-award or strike it."],
+            link, short, holder))
     else
         print(Format(addon.Log.CHAT_PREFIX.error .. T["%s left %s's bags without a trade to %s - it was NOT delivered. Re-award or strike it."],
             link, holder, short))
@@ -3207,7 +3394,11 @@ function Session:Award(session, winner, reason, expectedRunId)
 
 
 
-    if reason ~= nil then
+    local reasonText
+    if type(reason) == "string" then
+        reasonText = addon.BoERoute.CleanReason(reason)
+        reason = nil
+    elseif reason ~= nil then
         local list = addon.db.awardReasons or {}
         if not list[reason] then
             addon.Log:W("Session", "unknown award reason", tostring(reason))
@@ -3228,9 +3419,9 @@ function Session:Award(session, winner, reason, expectedRunId)
 
     local seq = NextSeq(run.items[session])
     addon.Comms:Send("award",
-        { s = session, w = winner, r = reason, q = seq }, nil, true)
+        { s = session, w = winner, r = reason, t = reasonText, q = seq }, nil, true)
     Session:ApplyAward(session, winner, addon.Player:GetFullName("player"),
-        reason, seq)
+        reason, seq, reasonText)
     return true
 end
 
@@ -3255,6 +3446,8 @@ function Session:ApplyRunEnd()
     run.active = false
     run.ended = true
     assembling = nil
+    run.recoveryFromReplies, run.recoverySources = nil, nil
+    CloseAsk("run_ended")
     Refused.copy, Refused.filled = nil, {}
     run.deadline, run.duration = nil, nil
     run.expiresAt = nil
@@ -3357,10 +3550,10 @@ local function FillFromRefused()
             and type(saved.candidates) == "table" then
             for name, row in pairs(saved.candidates) do
                 local current = item.candidates[name]
-                if type(row) == "table" and RowHash(row, cache) ~= nil
-                    and BlankRow(current) then
-                    local fill = CopyMap(row)
-                    fill.voters = fill.voters or {}
+                if type(name) == "string" and type(row) == "table"
+                    and RowHash(row, cache) ~= nil and BlankRow(current) then
+
+                    local fill = CleanRow(row)
 
                     if current and type(current.note) == "string" then
                         fill.note = current.note
@@ -3380,6 +3573,7 @@ local function FillFromRefused()
                     count = count + 1
                 end
             end
+            if item.boe then StampBoE(item) end
         end
     end
     return count
@@ -3404,12 +3598,24 @@ end
 
 
 
+local function MaySendWhole(holder, runId)
+    if addon.IsMasterLooter and addon.IsMasterLooter(holder) then return true end
+    return asked.copyMaster ~= nil and asked.copyRun == runId
+        and addon.Player:IsSame(asked.copyMaster, holder)
+end
+
+
+
 function Session:ApplyRunReply(payload, sender)
     if not addon.PlayerIsMasterLooter() then return false end
     local holder = addon.Player:Get(sender).fullName
     if not holder or not (addon.GetCandidates() or {})[holder] then
         addon.Log:WLogOnly("Session", "run recovery reply from someone outside the group",
             tostring(sender))
+        return false
+    end
+    if not Asked() then
+        Refuse("run_reply", "unasked", sender)
         return false
     end
     if not SnapshotValid(payload) then
@@ -3442,6 +3648,9 @@ function Session:ApplyRunReply(payload, sender)
                 end
             end
         end
+    elseif not MaySendWhole(holder, payload.runId) then
+        Refuse("run_reply", "whole_run_from_a_holder", sender)
+        return false
     end
 
     if not run.active then
@@ -3487,11 +3696,12 @@ function Session:ApplyRunReply(payload, sender)
                 if not current or (marks and marks[name]) or current.status == "ANNOUNCED"
                     or current.status == "NOTHING" or current.status == "NO_ADDON" then
                     if marks then marks[name] = nil end
-                    item.candidates[name] = CopyMap(candidate)
-                    item.candidates[name].voters = item.candidates[name].voters or {}
+
+                    item.candidates[name] = CleanRow(candidate)
                     changed = true
                 end
             end
+            if item.boe then StampBoE(item) end
         else
             addon.Log:WLogOnly("Session", "run recovery reply item mismatch", index,
                 "from", tostring(sender))
@@ -3502,6 +3712,7 @@ function Session:ApplyRunReply(payload, sender)
         run.complete = true
 
         Refused.copy = nil
+        CloseAsk("recovered")
         if AnnounceRunState then AnnounceRunState() end
         if AnswerHeldForRebuild then AnswerHeldForRebuild() end
     end
@@ -3606,7 +3817,7 @@ function Session:Init()
 
     RegisterRun("award", "ml", function(args, sender)
         if args and args.s and args.w then
-            Session:ApplyAward(args.s, args.w, sender, args.r, args.q)
+            Session:ApplyAward(args.s, args.w, sender, args.r, args.q, args.t)
         end
     end)
 
@@ -3648,7 +3859,7 @@ function Session:Init()
 
 
     RegisterRun("vote", "council", function(args, sender)
-        if not args or not args.s or not args.c then return end
+        if not args or not args.s or type(args.c) ~= "string" then return end
 
 
         if addon.Player:IsSelf(sender) then return end
@@ -3916,6 +4127,11 @@ function Session:Init()
                 tostring(sender))
             return
         end
+
+        if Split.skeletonOf[requester] ~= run.id then
+            return Refuse("run_fill", "unasked", sender)
+        end
+        Split.skeletonOf[requester] = nil
         local names = type(args) == "table" and type(args.w) == "table" and args.w or {}
         local part = Split.Fill(names)
         addon.Log:D("Session", "filling", #part.vv, "missing part(s) for", requester)
@@ -3942,8 +4158,7 @@ function Session:Init()
 
         askedFor[runId] = true
         addon.Log:I("Session", "the loot master holds run", tostring(runId), "- asking for it")
-        OpenHold()
-        addon.Comms:Send("run_request", RunCopy.Request(), sender, true)
+        AskForRun(RunCopy.Request(), sender)
     end)
 
 
@@ -3997,7 +4212,28 @@ function Session:Init()
 
     local bagCheckQueued = false
     local bagFrame = CreateFrame("Frame")
-    bagFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+
+    local watching = false
+    WatchBags = function()
+        local own = false
+        for _, item in ipairs(run.items) do
+            if item.link and not item.simulated and addon.Player:IsSelf(item.owner) then
+                own = true
+                break
+            end
+        end
+        if own == watching then return end
+        watching = own
+        if own then
+            bagFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+        else
+            bagFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
+        end
+    end
+    addon.Callbacks:Register("RunStarted", WatchBags)
+    addon.Callbacks:Register("SessionChanged", function(_, kind)
+        if kind == nil or kind == "item" or kind == "run" then WatchBags() end
+    end)
 
 
     local function CheckSoon(delay)
@@ -4071,6 +4307,8 @@ function Session:Init()
                 return
             end
             noRunFrom = me or "?"
+
+            CloseAsk("no_run")
             addon.Log:I("Session", "no run to recover - answering those who asked")
             local now = GetTime()
             for sender, ask in pairs(earlyRequests) do
@@ -4130,10 +4368,9 @@ function Session:Init()
                 addon.Log:I("Session", "requesting active run after local recovery failed",
                     recoveryAttempts, "/3")
             end
-            OpenHold()
 
 
-            addon.Comms:Send("run_request", RunCopy.Request(), AskTarget(recoveryAttempts), true)
+            AskForRun(RunCopy.Request(), AskTarget(recoveryAttempts))
 
 
             if recoveryAttempts < 3 then
