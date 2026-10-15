@@ -32,7 +32,7 @@ EllesmereUI.GetPopupScale = GetPopupScale
 -- Reference density for dialog popups: 1440p at 0.64 UI scale (the suite's design reference),
 -- where popups render at 768/(1440*0.64) = 0.8333 physical px/unit. Applied as a CONSTANT it
 -- pins that size on every display, fixing both defects of the old squared scale: size no longer
--- moves INVERSELY with UI scale, nor grows QUADRATICALLY with the panel-scale dropdown; px/unit
+-- moves INVERSELY with UI scale, nor grows QUADRATICALLY with the Window Scale slider; px/unit
 -- is 0.8333 * panelScale. THE INVARIANT: every popup occupies the same screen fraction it does
 -- at 1440p/0.64 -- screen-height fraction = (units * POPUP_REF_DENSITY * panelScale) / physH,
 -- which holds exactly when panelScale == physH/1440 (what the Startup seed and the
@@ -106,7 +106,7 @@ function EllesmereUI.BuildPopupShell(name, opts)
     popup:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     popup:EnableMouse(true)
 
-    local c = opts.bg or { 0.06, 0.08, 0.10 }
+    local c = opts.bg or { 0.077, 0.068, 0.058 }
     local bg = popup:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(c[1], c[2], c[3], 1)
@@ -158,7 +158,7 @@ function EllesmereUI.MakeActionButton(parent, font, text, r, g, b, opts)
     PanelPP.Size(btn, opts.w, 38)
     local bbg = btn:CreateTexture(nil, "BACKGROUND")
     bbg:SetAllPoints()
-    bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+    bbg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
     local brd = MakeBorder(btn, r, g, b, secondary and 0.35 or 0.9, PanelPP)
     local lbl = btn:CreateFontString(nil, "OVERLAY")
     lbl:SetFont(font, 15, "")
@@ -182,7 +182,8 @@ function EllesmereUI.MakeActionButton(parent, font, text, r, g, b, opts)
 end
 
 -- Fading popup button (confirm and input popups): 125x27; text and border lerp from the
--- default to the hover colours over 0.1s. Exposes btn._lbl and btn._resetAnim.
+-- default to the hover colours over 0.1s. Exposes btn._lbl, btn._resetAnim and
+-- btn._setColors (new colours, same argument order as the defaults below).
 function EllesmereUI.MakePopupButton(parent, anchorPoint, anchorTo, anchorRef, xOff, yOff, defR, defG, defB, defA, hovR, hovG, hovB, hovA, bDefR, bDefG, bDefB, bDefA, bHovR, bHovG, bHovB, bHovA)
     local FADE_DUR = 0.1
     local btn = CreateFrame("Button", nil, parent)
@@ -219,6 +220,13 @@ function EllesmereUI.MakePopupButton(parent, anchorPoint, anchorTo, anchorRef, x
 
     btn._lbl = lbl
     btn._resetAnim = function() progress = 0; target = 0; Apply(0); btn:SetScript("OnUpdate", nil) end
+    -- Replaces the default and hover colours and repaints at the current hover progress.
+    btn._setColors = function(...)
+        defR, defG, defB, defA, hovR, hovG, hovB, hovA,
+            bDefR, bDefG, bDefB, bDefA, bHovR, bHovG, bHovB, bHovA = ...
+        lbl:SetAlpha(defA)
+        Apply(progress)
+    end
     return btn
 end
 
@@ -315,7 +323,7 @@ local function CreateConfirmPopup()
     -- Popups render at default UI scale (dimmer stays at 1 to cover the full screen).
 
     -- Background: flat dark default, optional stone atlas for modern style
-    local popBgFlat = SolidTex(popup, "BACKGROUND", 0.06, 0.08, 0.10, 1)
+    local popBgFlat = SolidTex(popup, "BACKGROUND", 0.077, 0.068, 0.058, 1)
     popBgFlat:SetAllPoints()
     local popBgAtlas = popup:CreateTexture(nil, "BACKGROUND")
     popBgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
@@ -405,7 +413,7 @@ local function CreateConfirmPopup()
     cbBox:SetSize(14, 14)
     cbBox:SetPoint("LEFT", cbRow, "LEFT", 0, 0)
     cbBox:SetFrameLevel(cbRow:GetFrameLevel() + 1)
-    local cbBoxBg = SolidTex(cbBox, "BACKGROUND", 0.075, 0.113, 0.141, 1)
+    local cbBoxBg = SolidTex(cbBox, "BACKGROUND", 0.103, 0.095, 0.088, 1)
     cbBoxBg:SetAllPoints()
     MakeBorder(cbBox, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.25)
     local cbCheck = SolidTex(cbBox, "ARTWORK", EG.r, EG.g, EG.b, 1)
@@ -444,15 +452,16 @@ local function CreateConfirmPopup()
     return popup
 end
 
--- Invalidate cached popup so it rebuilds with current accent colors
+-- Repaints the cached popup's accent parts (the confirm button and the checkbox
+-- tick) with the current accent; the popup itself is built once and reused.
 local function InvalidateConfirmPopup()
-    if confirmPopup then
-        confirmPopup._dimmer:Hide()
-        confirmPopup:Hide()
-        confirmPopup._dimmer:SetParent(nil)
-        confirmPopup:SetParent(nil)
-        confirmPopup = nil
-    end
+    local popup = confirmPopup
+    if not popup then return end
+    local EG = ELLESMERE_GREEN
+    popup._confirmBtn._setColors(
+        EG.r, EG.g, EG.b, 0.9,   EG.r, EG.g, EG.b, 1,
+        EG.r, EG.g, EG.b, 0.9,   EG.r, EG.g, EG.b, 1)
+    popup._cbCheck:SetColorTexture(EG.r, EG.g, EG.b, 1)
 end
 EllesmereUI._InvalidateConfirmPopup = InvalidateConfirmPopup
 
@@ -531,6 +540,7 @@ function EllesmereUI:ShowConfirmPopup(opts)
         else
             o.confirmMacro = "/reload"
             o.onConfirm = work
+            o.disclaimer = o.disclaimer or EllesmereUI.L("Press Enter to reload.")
         end
         opts = o
     end
@@ -586,6 +596,19 @@ function EllesmereUI:ShowConfirmPopup(opts)
         popup._cbRow:Hide()
     end
 
+    -- The base height affords roughly three message lines; a longer message or a
+    -- disclaimer grows the popup by the measured overflow, so no text runs under
+    -- the buttons. A secret metric (tainted M+ execution) counts as no overflow.
+    local isv = issecretvalue
+    local textH = popup._msg:GetStringHeight() or 0
+    if isv and isv(textH) then textH = 0 end
+    if opts.disclaimer then
+        local discH = popup._disclaimer:GetStringHeight() or 0
+        if isv and isv(discH) then discH = 0 end
+        textH = textH + discH + 8
+    end
+    local overflowH = math.max(0, textH - 44)
+
     -- Optional type-to-confirm gate (lazy, like the macro overlay): the user must type the given
     -- word (case-insensitive) before confirm accepts clicks. NOT supported with confirmMacro (secure overlay clicks cannot be gated).
     local typeH = 0
@@ -638,12 +661,7 @@ function EllesmereUI:ShowConfirmPopup(opts)
         row:ClearAllPoints()
         row:SetPoint("BOTTOM", popup, "BOTTOM", 0, 13 + 27 + 10 + cbH)
         row:Show()
-        -- The base height affords roughly three message lines; gated popups carry long warnings, so grow by the measured overflow too.
-        local extra = popup._msg:GetStringHeight() or 0
-        if opts.disclaimer then
-            extra = extra + (popup._disclaimer:GetStringHeight() or 0) + 8
-        end
-        typeH = 36 + math.max(0, extra - 44)
+        typeH = 36
     elseif popup._typeRow then
         popup._typeRow._box:ClearFocus()
         popup._typeRow:Hide()
@@ -663,21 +681,20 @@ function EllesmereUI:ShowConfirmPopup(opts)
         lbl:SetPoint("BOTTOM", popup, "BOTTOM", 0, 13 + 27 + 10 + cbH + 6)
         lbl:SetText(EllesmereUI.Lf('Press "%1$s" twice to continue.', EllesmereUI.L(opts.confirmText or "Confirm")))
         lbl:Show()
-        local extra = popup._msg:GetStringHeight() or 0
-        if opts.disclaimer then
-            extra = extra + (popup._disclaimer:GetStringHeight() or 0) + 8
-        end
-        typeH = 36 + math.max(0, extra - 44)
+        typeH = 36
     elseif popup._padGateLbl then
         popup._padGateLbl:Hide()
     end
 
-    popup:SetHeight((popup._baseH or 176) + scaleWarnH + cbH + typeH)
+    popup:SetHeight((popup._baseH or 176) + overflowH + scaleWarnH + cbH + typeH)
     popup._cancelBtn._lbl:SetText(EllesmereUI.L(opts.cancelText or "Cancel"))
     popup._confirmBtn._lbl:SetText(EllesmereUI.L(opts.confirmText or "Confirm"))
     -- onDismiss: called on escape/click-outside. Falls back to onCancel if not provided.
     popup._onCancel = opts.onDismiss or opts.onCancel or nil
     popup._modal = opts.modal and true or false
+    -- This show's handle (returned below, for CloseConfirmPopup).
+    local handle = {}
+    popup._handle = handle
 
     -- Single-button mode: hide cancel, center confirm
     if opts.hideCancel then
@@ -733,6 +750,55 @@ function EllesmereUI:ShowConfirmPopup(opts)
                 if ov._postAction then ov._postAction() end
             end)
             popup._macroOverlay = ov
+
+            -- Enter confirms too: while the popup shows out of combat, Enter and
+            -- numpad Enter are bound to a hidden twin of the overlay (a keypress is
+            -- a hardware event, like the click). The twin acts on the press only, so
+            -- releasing the Enter that opened the popup (/rl in chat) never confirms
+            -- it, and its macro stops in combat. Combat start drops the binding
+            -- (PLAYER_REGEN_DISABLED runs before the lockdown), combat end restores
+            -- it while the popup still shows, and hiding clears it.
+            local key = CreateFrame("Button", "EUIConfirmMacroKey", UIParent, "InsecureActionButtonTemplate")
+            key:SetSize(1, 1)
+            key:SetAlpha(0)
+            key:EnableMouse(false)
+            key:RegisterForClicks("AnyDown")
+            key:SetAttribute("useOnKeyDown", true)
+            key:HookScript("OnClick", function()
+                popup._dimmer:Hide()
+                if ov._postAction then ov._postAction() end
+            end)
+            local armed = false
+            local function Arm(on)
+                if on == armed or InCombatLockdown() then return end
+                armed = on
+                if on then
+                    key:SetAttribute("type", "macro")
+                    key:SetAttribute("macrotext", "/stopmacro [combat]\n" .. ov:GetAttribute("macrotext"))
+                    SetOverrideBindingClick(popup, true, "ENTER", "EUIConfirmMacroKey", "LeftButton")
+                    SetOverrideBindingClick(popup, true, "NUMPADENTER", "EUIConfirmMacroKey", "LeftButton")
+                else
+                    ClearOverrideBindings(popup)
+                end
+            end
+            local watch = CreateFrame("Frame")
+            watch:SetScript("OnEvent", function(_, event)
+                if event == "PLAYER_REGEN_DISABLED" then
+                    Arm(false)
+                elseif ov:IsShown() and popup._dimmer:IsShown() then
+                    Arm(true)
+                end
+            end)
+            function popup._armEnter(on)
+                Arm(on)
+                if on then
+                    watch:RegisterEvent("PLAYER_REGEN_DISABLED")
+                    watch:RegisterEvent("PLAYER_REGEN_ENABLED")
+                else
+                    watch:UnregisterAllEvents()
+                end
+            end
+            popup._dimmer:HookScript("OnHide", function() popup._armEnter(false) end)
         end
         local ov = popup._macroOverlay
         ov:SetAttribute("type", "macro")
@@ -741,8 +807,12 @@ function EllesmereUI:ShowConfirmPopup(opts)
         ov:Show()
         -- Hide the normal confirm click so it doesn't double-fire
         popup._confirmBtn:SetScript("OnClick", nil)
+        popup._armEnter(true)
     else
-        if popup._macroOverlay then popup._macroOverlay:Hide() end
+        if popup._macroOverlay then
+            popup._macroOverlay:Hide()
+            popup._armEnter(false)
+        end
         popup._confirmBtn:SetScript("OnClick", function()
             if opts.confirmDisabled then return end
             if popup._typeGateOn and not popup._typeGateOk then
@@ -762,18 +832,22 @@ function EllesmereUI:ShowConfirmPopup(opts)
         end)
     end
 
-    -- Counter-scale the popup to the options panel when the pixel-perfect system has rescaled UIParent; the dimmer stays at 1 so it still covers the full screen.
-    local mf = EllesmereUI._mainFrame
-    if mf and mf:GetScale() ~= 1 then
-        popup:SetScale(mf:GetScale())
-    else
-        popup:SetScale(1)
-    end
+    -- Counter-scale the popup to the options panel (same formula as its root frame, which may not exist yet); the dimmer stays at 1 so it still covers the full screen.
+    popup:SetScale(GetPopupScale())
 
 
     popup._dimmer:Show()
     -- Controller cursor: move it into the popup (the safe button is its first stop).
     EllesmereUI.PadFocus(popup)
+    return handle
+end
+
+-- Closes the confirm popup only while it still shows the request whose handle
+-- ShowConfirmPopup returned (the popup is shared, so never another caller's
+-- dialog), without running any of its callbacks.
+function EllesmereUI:CloseConfirmPopup(handle)
+    local popup = confirmPopup
+    if handle and popup and popup._handle == handle then popup._dimmer:Hide() end
 end
 
 -- There is no beta-reset welcome popup or wipe gate (EllesmereUI:ShowWelcomePopup does not exist); manual reset lives in Global Settings > Reset.
@@ -810,7 +884,7 @@ local function CreateInfoPopup()
     popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
     popup:EnableMouse(true)
 
-    local popBg = SolidTex(popup, "BACKGROUND", 0.06, 0.08, 0.10, 1)
+    local popBg = SolidTex(popup, "BACKGROUND", 0.077, 0.068, 0.058, 1)
     popBg:SetAllPoints()
     MakeBorder(popup, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15)
 
@@ -916,7 +990,7 @@ function EllesmereUI:ShowInputPopup(opts)
         popup:SetFrameStrata("FULLSCREEN_DIALOG")
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
 
-        local popBgFlat = SolidTex(popup, "BACKGROUND", 0.06, 0.08, 0.10, 1)
+        local popBgFlat = SolidTex(popup, "BACKGROUND", 0.077, 0.068, 0.058, 1)
         popBgFlat:SetAllPoints()
         local popBgAtlas = popup:CreateTexture(nil, "BACKGROUND")
         popBgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")

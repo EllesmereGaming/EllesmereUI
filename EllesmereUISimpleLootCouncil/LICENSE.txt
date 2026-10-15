@@ -1,0 +1,10 @@
+Simple Loot Council (EllesmereUI edition)
+Copyright (c) Laxx. All rights reserved.
+
+This folder is the EllesmereUI edition of Simple Loot Council. It is licensed to
+EllesmereGaming to be distributed as part of EllesmereUI, under the terms of the
+agreement between the copyright holder and EllesmereGaming. No other licence or
+right is granted.
+
+The copyright holder maintains Simple Loot Council in its own repository. This
+folder is generated from it; changes are made there and exported here.

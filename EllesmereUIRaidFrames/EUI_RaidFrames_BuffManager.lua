@@ -71,7 +71,7 @@ local function BuildPTROverlay(parentFrame, label, fontSize)
     ov:EnableMouse(true)
     local bg = ov:CreateTexture(nil, "OVERLAY")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.10, 0.10, 0.12, 0.95)
+    bg:SetColorTexture(0.098, 0.090, 0.082, 0.95)
     local fs = ov:CreateFontString(nil, "OVERLAY")
     local fp = (EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
     fs:SetFont(fp, fontSize or 12, "")
@@ -1575,7 +1575,12 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
     bg:SetAllPoints()
 
     local rawPowerH = (s.powerShowForHealer or s.powerShowForTank or s.powerShowForDPS) and (s.powerHeight or 4) or 0
+    local matchPowerBorder = s.powerBorderMatchFrame == true and rawPowerH > 0
+        and (s.powerBorderStyle == "divider" or s.powerBorderStyle == "border") and not ns.RF_Stock()
+        and EllesmereUI._pixelArtBorders[s.borderTexture]
     local rawTopBarH = s.topNameBarEnabled and (s.topNameBarHeight or 20) or 0
+    local matchTopNameDivider = s.topNameBarDivider == true and rawTopBarH >= 4 and (s.borderSize or 1) > 0
+        and not ns.RF_Stock() and EllesmereUI._pixelArtBorders[s.borderTexture]
     -- Show on Bottom: the bar takes the bottom edge, health starts at the top and
     -- the power bar sits on the bar (as the live LayoutTopNameBar lays it out).
     local rawBottomY = (s.topNameBarEnabled and s.topNameBarBottom == true) and rawTopBarH or 0
@@ -1672,19 +1677,21 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
             ns.RF_StockBuild(pvFrame, pvFrame, power)
             ns.RF_StockDivider(pvFrame)
         elseif PP and s.powerBorderStyle and s.powerBorderStyle ~= "none" then
-            local pbSize = s.powerBorderSize or 1
+            local pbSize = matchPowerBorder and (s.borderSize or 1) or (s.powerBorderSize or 1)
             if pbSize > 0 then
                 local pwBdr = CreateFrame("Frame", nil, pvFrame)
                 pwBdr:SetAllPoints(power)
                 pwBdr:SetFrameLevel(power:GetFrameLevel() + 1)
                 PP.CreateBorder(pwBdr, 0, 0, 0, 1, 1)
-                local pBc = s.powerBorderColor or { r=0, g=0, b=0 }
-                PP.UpdateBorder(pwBdr, pbSize, pBc.r, pBc.g, pBc.b, s.powerBorderAlpha or 1)
-                local ppC = PP.GetBorders(pwBdr)
-                if ppC and s.powerBorderStyle == "divider" then
-                    if ppC._bottom then ppC._bottom:SetAlpha(0) end
-                    if ppC._left then ppC._left:SetAlpha(0) end
-                    if ppC._right then ppC._right:SetAlpha(0) end
+                if not (matchPowerBorder and ns.RF_ApplyPowerBorderArt(pwBdr, s, true, true)) then
+                    local pBc = s.powerBorderColor or { r=0, g=0, b=0 }
+                    PP.UpdateBorder(pwBdr, pbSize, pBc.r, pBc.g, pBc.b, s.powerBorderAlpha or 1)
+                    local ppC = PP.GetBorders(pwBdr)
+                    if ppC and s.powerBorderStyle == "divider" then
+                        if ppC._bottom then ppC._bottom:SetAlpha(0) end
+                        if ppC._left then ppC._left:SetAlpha(0) end
+                        if ppC._right then ppC._right:SetAlpha(0) end
+                    end
                 end
             end
         end
@@ -1700,7 +1707,14 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
             bdr:SetFrameLevel(pvFrame:GetFrameLevel() + 8)
             PP.CreateBorder(bdr, 0, 0, 0, 1, 1)
             local bc = s.borderColor or { r=0, g=0, b=0 }
-            PP.UpdateBorder(bdr, bsz, bc.r, bc.g, bc.b, s.borderAlpha or 1)
+            if matchPowerBorder or matchTopNameDivider then
+                EllesmereUI.ApplyBorderStyle(bdr, bsz, bc.r, bc.g, bc.b, s.borderAlpha or 1,
+                    s.borderTexture, s.borderTextureOffset, s.borderTextureOffsetY,
+                    s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bsz, nil,
+                    EllesmereUI.BorderPx(s.borderSizePx, bsz, s.borderTexture))
+            else
+                PP.UpdateBorder(bdr, bsz, bc.r, bc.g, bc.b, s.borderAlpha or 1)
+            end
         end
     end
 
@@ -1801,6 +1815,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         else
             tnbText:SetTextColor(1, 1, 1)
         end
+        if s.topNameBarDivider == true then ns.RF_ApplyTopNameDivider(tnb, s, true) end
     end
 
     local htMode = s.healthTextMode or "none"
@@ -1888,6 +1903,9 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             ns.BM_ApplyPreviewIndicators(pv, 1, db.profile)
         end
     end
+    -- The Assigned Buffs filter picks (the manager-pages file) update the
+    -- frames and preview in place through this.
+    ns._bmReloadAndUpdate = ReloadAndUpdate
 
     -- Full update: also rebuilds the page (preview, sidebar, settings) -- used by create/delete/toggle/dropdown changes that alter structure.
     local function ReloadAndRebuild()
@@ -2060,6 +2078,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     local POPUP_W, POPUP_PAD, ROW_H, LABEL_H = 260, 10, 30, 14
                     local LBL_GAP, DD_GAP = 4, 11
                     local popup = CreateFrame("Frame", nil, ov)
+                    popup:Hide()  -- start hidden so Show() triggers OnShow
                     popup:SetFrameStrata("DIALOG")
                     popup:SetFrameLevel(ov:GetFrameLevel() + 20)
                     popup:SetSize(POPUP_W, POPUP_PAD + LABEL_H + LBL_GAP + ROW_H + DD_GAP + ROW_H + POPUP_PAD)
@@ -2231,26 +2250,29 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             end
         end
     end
-    for _, ind in ipairs(specIndicators) do
-        -- v2: tiles render the RESOLVED spell union (assigned filters + direct spells) -- the raw list is empty for filter-driven groups.
+    -- v2: tiles render the RESOLVED spell union (assigned filters + direct
+    -- spells) -- the raw list is empty for filter-driven groups. The face
+    -- prefers a spell the EDITED bucket's spec/class actually uses (known
+    -- spell > class-tagged > all-class). Returns face, subtitle.
+    local function TileFaceSub(ind)
         local tileSpells = ind.spells
-        if ns.BM2_ResolveSpells then
-            tileSpells = ns.BM2_ResolveSpells(ind)
+        if ns.BM2_ResolveSpells then tileSpells = ns.BM2_ResolveSpells(ind) end
+        if not (tileSpells and #tileSpells > 0) then return 136243, EllesmereUI.L("(no spells)") end
+        local names = {}
+        for _, sid in ipairs(tileSpells) do
+            names[#names + 1] = SPELL_NAME_BY_ID[sid]
+                or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid))
+                or tostring(sid)
         end
-        local face = 136243
-        local subtitle = EllesmereUI.L("(no spells)")
-        if tileSpells and #tileSpells > 0 then
-            -- v2: prefer a spell the EDITED bucket's spec/class actually uses as the tile's face (known spell > class-tagged > all-class).
-            face = GetSpellIcon((ns.BM2_PreferredSpell
-                and ns.BM2_PreferredSpell(ind, SelectedBucketClass())) or tileSpells[1])
-            local names = {}
-            for _, sid in ipairs(tileSpells) do
-                names[#names + 1] = SPELL_NAME_BY_ID[sid]
-                    or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid))
-                    or tostring(sid)
-            end
-            subtitle = table.concat(names, ", ")
-        end
+        return GetSpellIcon((ns.BM2_PreferredSpell
+            and ns.BM2_PreferredSpell(ind, SelectedBucketClass())) or tileSpells[1]),
+            table.concat(names, ", ")
+    end
+    for _, ind in ipairs(specIndicators) do
+        -- The selected indicator's filters are edited live in the settings
+        -- column, so its tile re-reads face and subtitle on every widget refresh.
+        local isSel = selectedIndicator and selectedIndicator.id == ind.id
+        local face, subtitle = TileFaceSub(ind)
 
         local typeInfo2 = INDICATOR_TYPE_MAP[ind.type]
         local typeName = typeInfo2 and typeInfo2.name or ind.type
@@ -2261,10 +2283,12 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
         local tileH, tile = EllesmereUI.BuildManagerTile(sidebarFrame, tileY, {
             width = sidebarW, fontPath = fontPath, icon = face,
+            iconFn = isSel and function() return (TileFaceSub(ind)) end or nil,
             -- v2: named indicators (the seeded filter groups) show their name.
             title = ind.name and EllesmereUI.L(ind.name) or EllesmereUI.L(typeName),
             titleUnclamped = true, posText = posText, subtitle = subtitle,
-            selected = selectedIndicator and selectedIndicator.id == ind.id,
+            subtitleFn = isSel and function() return select(2, TileFaceSub(ind)) end or nil,
+            selected = isSel,
             enabled = ind.enabled,
             showToggle = true,
             onSelect = function()
@@ -2424,9 +2448,9 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
             if not selectedSpecKey then return end
 
-            -- Rebuild spell items for the (possibly changed) spec
-            if popup and popup._rebuildSpells then
-                popup._rebuildSpells()
+            -- Relabel the Filters and Extra Spells dropdowns (OnHide wiped the picks)
+            if popup and popup._refreshDDs then
+                popup._refreshDDs()
             end
 
             if not popup then
@@ -2437,6 +2461,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local GAP = 6
 
                 popup = CreateFrame("Frame", nil, UIParent)
+                popup:Hide()  -- start hidden so Show() triggers OnShow
                 popup:SetFrameStrata("DIALOG")
                 popup:SetFrameLevel(200)
                 local LBL_GAP = 4   -- label to dropdown
@@ -2525,11 +2550,14 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local exDDY = py
                 py = py - ROW_H - DD_GAP
 
-                -- Rebuilt per open (filter list / Selected grouping go stale); pending picks survive rebuilds, wiped on hide.
+                -- Built once: both menus re-read their items on every open, so a
+                -- reopen only relabels the two dropdowns (OnHide wiped the picks).
                 local function BuildV2DDs()
-                    if popup._fltDD then popup._fltDD:Hide(); popup._fltDD:SetParent(nil) end
-                    if popup._exDD then popup._exDD:Hide(); popup._exDD:SetParent(nil) end
-                    popup._fltDD, popup._exDD = nil, nil
+                    if popup._fltDD then
+                        popup._fltRefresh()
+                        popup._exRefresh()
+                        return
+                    end
 
                     -- Dynamic items: fresh per menu open (adds/renames live).
                     -- Two-lane rows: Show picks (popup._v2Filters) and Hide picks
@@ -2538,7 +2566,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         local filters = (ns.BM2_Filters and ns.BM2_Filters()) or {}
                         local fItems = {
                             { isTopAction = true, label = "Edit Filters", onClick = function()
-                                if ns.BMP_ShowFilterEditor then ns.BMP_ShowFilterEditor() end
+                                if ns.BMP_ShowFilterEditor then ns.BMP_ShowFilterEditor(popup._v2Filters, popup._v2NegFilters) end
                             end },
                             { isHeader = true, label = "Show", rightLabel = "Hide" },
                         }
@@ -2547,7 +2575,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         end
                         return fItems
                     end
-                    local fltDD = EllesmereUI.BuildVisOptsCBDropdown(
+                    local fltDD, fltRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                         popup, ddW, popup:GetFrameLevel() + 2,
                         FItems,
                         function(k, neg)
@@ -2566,7 +2594,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         nil, 12)
                     fltDD:SetSize(ddW, ROW_H)
                     fltDD:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, fltDDY)
-                    popup._fltDD = fltDD
+                    popup._fltDD, popup._fltRefresh = fltDD, fltRefresh
 
                     local function SpellEntry(id)
                         -- Curated name first (distinguishes variants the client
@@ -2639,7 +2667,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         for i = 1, #rest do eItems[#eItems + 1] = rest[i] end
                         return eItems
                     end
-                    local exDD = EllesmereUI.BuildVisOptsCBDropdown(
+                    local exDD, exRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                         popup, ddW, popup:GetFrameLevel() + 2,
                         EItems,
                         function(k) return popup._v2Extras[k] and true or false end,
@@ -2647,10 +2675,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         nil, 10, true)
                     exDD:SetSize(ddW, ROW_H)
                     exDD:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, exDDY)
-                    popup._exDD = exDD
+                    popup._exDD, popup._exRefresh = exDD, exRefresh
                 end
                 BuildV2DDs()
-                popup._rebuildSpells = BuildV2DDs
+                popup._refreshDDs = BuildV2DDs
 
                 -- Create button
                 local cBtn = CreateFrame("Button", nil, popup)
@@ -2977,7 +3005,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     -- Scrollbar: thin track + thumb at the viewport's right edge (shown only on overflow).
     local UpdateThumb = EllesmereUI.AttachSmoothScrollbar(settingsScroll, {
         step = 60, width = 5, rightInset = 31, topInset = 12, level = 20,
-        trackAlpha = 0.05, thumbAlpha = 0.22, child = settingsChild })
+        trackAlpha = 0.05, thumbAlpha = 0.22, child = settingsChild, panelWheel = true })
 
     -- From here, DualRows build inside the scroll child
     leftFrame = settingsChild

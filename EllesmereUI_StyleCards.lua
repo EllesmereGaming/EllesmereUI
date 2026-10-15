@@ -14,6 +14,10 @@ if not EllesmereUI then return end
 local GOLD_R, GOLD_G, GOLD_B = 1.0, 0.80, 0.18
 local BRONZE_R, BRONZE_G, BRONZE_B = 0.86, 0.65, 0.42
 local FOREVER_R, FOREVER_G, FOREVER_B = 0.47, 0.75, 0.95
+-- The EllesmereUI card and its mock keep the stock #0CD29D teal (the
+-- EllesmereUI theme preset) on every client, whatever accent colour the user
+-- has picked.
+local EUI_TEAL = EllesmereUI.THEME_PRESETS["EllesmereUI"]
 local IS_FOREVER = EllesmereUI.IS_FOREVER == true
 -- The vanilla frame sheet: the player frame samples it flipped (portrait on
 -- the left); 193x77 of visible art at 1x.
@@ -41,21 +45,21 @@ end
 --  EllesmereUI mock: a flat unit frame (teal health, blue power, a name
 --  line) over a row of square icons -- the look in miniature.
 -------------------------------------------------------------------------------
-local function DrawEUIMock(stage, PP, MakeBorder, EG)
+local function DrawEUIMock(stage, PP, MakeBorder, teal)
     local frame = CreateFrame("Frame", nil, stage)
     frame:SetFrameLevel(stage:GetFrameLevel() + 1)
     PP.Size(frame, 150, 40)
     PP.Point(frame, "TOP", stage, "TOP", 0, -14)
     local fbg = frame:CreateTexture(nil, "BACKGROUND")
     fbg:SetAllPoints()
-    fbg:SetColorTexture(0.075, 0.113, 0.141, 1)
+    fbg:SetColorTexture(0.103, 0.095, 0.088, 1)
     MakeBorder(frame, 0, 0, 0, 1, PP)
     local health = frame:CreateTexture(nil, "ARTWORK")
-    health:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+    health:SetColorTexture(teal.r, teal.g, teal.b, 0.9)
     PP.Point(health, "TOPLEFT", frame, "TOPLEFT", 1, -1)
     PP.Size(health, 130, 27)
     local hrest = frame:CreateTexture(nil, "ARTWORK")
-    hrest:SetColorTexture(EG.r, EG.g, EG.b, 0.2)
+    hrest:SetColorTexture(teal.r, teal.g, teal.b, 0.2)
     PP.Point(hrest, "TOPLEFT", health, "TOPRIGHT", 0, 0)
     PP.Point(hrest, "BOTTOMRIGHT", frame, "TOPRIGHT", -1, -28)
     local power = frame:CreateTexture(nil, "ARTWORK")
@@ -88,7 +92,7 @@ local function DrawEUIMock(stage, PP, MakeBorder, EG)
         MakeBorder(ic, 0, 0, 0, 1, PP)
         if i == 2 then
             local keyLine = ic:CreateTexture(nil, "OVERLAY")
-            keyLine:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+            keyLine:SetColorTexture(teal.r, teal.g, teal.b, 0.9)
             PP.Size(keyLine, ICON - 2, 2)
             PP.Point(keyLine, "BOTTOMLEFT", ic, "BOTTOMLEFT", 1, 1)
         end
@@ -331,8 +335,11 @@ end
 --    buttonText        a string for every card, or a table keyed by style
 --    display           true: announcement cards -- no button, no click or
 --                      hover, DISPLAY_CARD_H tall (onPick/buttonText unused)
---    defaultKey        the pick card tagged DEFAULT, placed first (nil or
---                      "eui" = the EllesmereUI card, in the usual order)
+--    defaultKey        the pick card tagged DEFAULT (nil or "eui" = the
+--                      EllesmereUI card); the order stays, EllesmereUI first
+--    inUseAlpha        the card's opacity while it is IN USE (1); its
+--                      badge stays whole
+--    badgeSize         the IN USE badge's font size (11)
 --  Returns a table keyed by style; handle:SetState(inUse, pickable, label)
 --  keeps a card lit with an IN USE badge, and dims its button (picks then do
 --  nothing) with an optional label while it has nothing to apply.
@@ -340,8 +347,7 @@ end
 function EllesmereUI.BuildStyleCards(parent, topY, opts)
     local PP = EllesmereUI.PanelPP
     local MakeBorder = EllesmereUI.MakeBorder
-    local EG = EllesmereUI.ELLESMERE_GREEN
-    if not (PP and MakeBorder and EG) then return nil end
+    if not (PP and MakeBorder) then return nil end
     local L = EllesmereUI.L or function(s) return s end
     -- The options font once it has loaded, else the locale-aware core font
     -- (the picker runs before the options addon loads).
@@ -350,7 +356,7 @@ function EllesmereUI.BuildStyleCards(parent, topY, opts)
     opts = opts or {}
 
     local DEFS = {
-        { key = "eui", r = EG.r, g = EG.g, b = EG.b, title = "EllesmereUI Style", tag = "DEFAULT",
+        { key = "eui", r = EUI_TEAL.r, g = EUI_TEAL.g, b = EUI_TEAL.b, title = "EllesmereUI Style", tag = "DEFAULT",
           caption = "Flat, clean and modern. The look EllesmereUI was designed around.",
           draw = DrawEUIMock },
         { key = "blizzard", r = GOLD_R, g = GOLD_G, b = GOLD_B, title = "Blizzard Style", tag = "BLIZZARD ART",
@@ -362,6 +368,7 @@ function EllesmereUI.BuildStyleCards(parent, topY, opts)
     }
 
     local display = opts.display == true
+    local inUseAlpha = opts.inUseAlpha or 1
     -- WoW Forever: its own pick card on that client, second in the row (the
     -- announcement cards never show there).
     if IS_FOREVER and not display then
@@ -370,15 +377,14 @@ function EllesmereUI.BuildStyleCards(parent, topY, opts)
           caption = "Forever's bronze frames, gryphons and round badges, with EllesmereUI's features.",
           draw = DrawForeverMock })
     end
-    -- Another default look: its card leads the row with the DEFAULT tag.
+    -- Another default look: its card takes the DEFAULT tag where it stands,
+    -- so the EllesmereUI card still leads the row.
     local dk = opts.defaultKey
     if dk and dk ~= "eui" and not display then
         for i = 2, #DEFS do
             if DEFS[i].key == dk then
-                local def = table.remove(DEFS, i)
                 DEFS[1].tag = "FLAT & MODERN"
-                def.tag = "DEFAULT"
-                table.insert(DEFS, 1, def)
+                DEFS[i].tag = "DEFAULT"
                 break
             end
         end
@@ -393,7 +399,7 @@ function EllesmereUI.BuildStyleCards(parent, topY, opts)
         PP.Point(card, "TOP", parent, "TOP", (index - mid) * (CARD_W + CARD_GAP), topY)
         local cbg = card:CreateTexture(nil, "BACKGROUND")
         cbg:SetAllPoints()
-        cbg:SetColorTexture(0.09, 0.11, 0.13, 1)
+        cbg:SetColorTexture(0.103, 0.095, 0.088, 1)
         local brd = MakeBorder(card, 1, 1, 1, 0.14, PP)
 
         -- Accent band along the top edge: the colour is the first indicator.
@@ -417,9 +423,10 @@ function EllesmereUI.BuildStyleCards(parent, topY, opts)
         tagFS:SetText(L(def.tag))
 
         -- IN USE badge just above the card (clear of the centred title),
-        -- shown by SetState.
-        local badge = card:CreateFontString(nil, "OVERLAY")
-        badge:SetFont(FONT, 11, "")
+        -- shown by SetState. Drawn on the parent, so the card's IN USE
+        -- alpha leaves it whole.
+        local badge = parent:CreateFontString(nil, "OVERLAY")
+        badge:SetFont(FONT, opts.badgeSize or 11, "")
         badge:SetTextColor(accentR, accentG, accentB, 1)
         PP.Point(badge, "BOTTOM", card, "TOP", 0, 6)
         badge:SetText(L("IN USE"))
@@ -432,9 +439,9 @@ function EllesmereUI.BuildStyleCards(parent, topY, opts)
         PP.Point(stage, "TOP", tagFS, "BOTTOM", 0, -12)
         local sbg = stage:CreateTexture(nil, "BACKGROUND")
         sbg:SetAllPoints()
-        sbg:SetColorTexture(0.04, 0.05, 0.06, 1)
+        sbg:SetColorTexture(0.051, 0.040, 0.030, 1)
         MakeBorder(stage, 1, 1, 1, 0.08, PP)
-        def.draw(stage, PP, MakeBorder, EG, FONT)
+        def.draw(stage, PP, MakeBorder, EUI_TEAL, FONT)
 
         local cap = card:CreateFontString(nil, "OVERLAY")
         cap:SetFont(FONT, 12, "")
@@ -455,6 +462,7 @@ function EllesmereUI.BuildStyleCards(parent, topY, opts)
                 SetState = function(_, isInUse)
                     local on = isInUse and true or false
                     badge:SetShown(on)
+                    card:SetAlpha(on and inUseAlpha or 1)
                     if on then
                         brd:SetColor(accentR, accentG, accentB, 0.9)
                     else
@@ -517,6 +525,7 @@ function EllesmereUI.BuildStyleCards(parent, topY, opts)
                 SetState = function(_, isInUse, canPick, label)
                     inUse, pickable = isInUse and true or false, canPick ~= false
                     badge:SetShown(inUse)
+                    card:SetAlpha(inUse and inUseAlpha or 1)
                     lbl:SetText(L(label or btnText))
                     Paint()
                 end,

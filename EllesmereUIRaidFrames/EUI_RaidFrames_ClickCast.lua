@@ -34,8 +34,7 @@ local GetMacroInfo = GetMacroInfo
 local GetMacroBody = GetMacroBody
 local GetMacroIndexByName = GetMacroIndexByName
 local GetNumMacros = GetNumMacros
-local MAX_ACCOUNT_MACROS   = MAX_ACCOUNT_MACROS or 120
-local MAX_CHARACTER_MACROS = MAX_CHARACTER_MACROS or 18
+local MAX_ACCOUNT_MACROS = Constants.MacroConsts.MAX_ACCOUNT_MACROS
 
 -------------------------------------------------------------------------------
 --  Constants
@@ -126,11 +125,16 @@ local REZ_BY_CLASS = {
     WARLOCK     = { battle = 20707 },
 }
 
+-- Combat rez items, best first: a class with no battle rez falls back to the
+-- first one carried (Dynamic Rez and Smart Rez). Emergency Soul Link, both
+-- crafted ranks (the higher one casts faster).
+local REZ_ITEMS = { 269586, 248486 }
+
 -- WoW Forever: the vanilla spells. An entry's alts are its higher ranks and a
 -- rez slot lists every rank ID, rank 1 first; /cast by name casts the highest
 -- rank the character knows. Each class's dispels run in priority order (the
 -- first known line fires), Paladin is the only class with an external, and
--- there is no group rez and no Warlock entry.
+-- there is no group rez, no Warlock entry and no combat rez item.
 if EllesmereUI.IS_FOREVER then
     DISPEL_SPELLS = {
         { id = 527,   name = "Dispel Magic",        class = "PRIEST", alts = { 988 } },
@@ -156,6 +160,7 @@ if EllesmereUI.IS_FOREVER then
         SHAMAN  = { single = { 2008, 20609, 20610, 20776, 20777 } },
         DRUID   = { battle = { 20484, 20739, 20742, 20747, 20748 } },
     }
+    REZ_ITEMS = {}
 end
 
 -- Every rez spell ID across all classes; exempt from the exists/nodead corpse
@@ -607,10 +612,12 @@ local function GetModifierPrefix()
     if IsAltKeyDown() then p = p .. "ALT-" end
     if IsControlKeyDown() then p = p .. "CTRL-" end
     if IsShiftKeyDown() then p = p .. "SHIFT-" end
+    -- Command uses META; the Mac-only API is optional on other platforms.
+    if IsMetaKeyDown and IsMetaKeyDown() then p = p .. "META-" end
     return p
 end
 -- Exposed so the keybind-capture button uses this SAME canonical order (WoW matches
--- bindings/clicks in ALT-CTRL-SHIFT order). A non-canonical order silently fails to
+-- bindings/clicks in ALT-CTRL-SHIFT-META order). A non-canonical order silently fails to
 -- match on double-modifier binds (single-modifier binds are order-independent).
 ns.CC_GetModifierPrefix = GetModifierPrefix
 
@@ -654,12 +661,18 @@ function ns.CC_FormatKey(keyStr)
     local parsed = ParseKeyString(keyStr)
     local display = {}
     for m in parsed.modifiers:gmatch("([^-]+)") do
-        display[#display + 1] = m == "SHIFT" and "Shift" or m == "CTRL" and "Ctrl" or m == "ALT" and "Alt" or m
+        display[#display + 1] = m == "SHIFT" and "Shift" or m == "CTRL" and "Ctrl" or m == "ALT" and "Alt" or m == "META" and "Cmd" or m
     end
     display[#display + 1] = KEY_DISPLAY[parsed.key] or parsed.key
     return table.concat(display, " + ")
 end
 ns.CC_ParseKeyString = ParseKeyString
+
+-- Native click prefixes omit META, so Command-clicks need virtual buttons.
+local function UsesDirectClickAttributes(parsed)
+    return parsed.isMouseButton and parsed.buttonNum and parsed.buttonNum <= 5
+        and not parsed.modifiers:find("META-", 1, true)
+end
 
 -- Heals saved keys with non-canonical modifier order (WoW matches ALT-CTRL-SHIFT; other
 -- orders silently fail double-modifier binds). Rewrites DB tables in place. Called once
@@ -849,15 +862,34 @@ local function BuildReactionMacroText(binding, guard)
     return table.concat(lines, "\n")
 end
 
--- Builds dynamic-rez /cast lines (used by the dynamicrez binding type + Smart
--- Rez). Returns a list of macro lines (possibly empty) or nil if the class has
--- no rez kit. Never includes /stopmacro -- caller adds that for oocOnly.
--- standalone marks the dedicated rez binding, where these lines are the whole
--- macro rather than a [dead] prefix in front of somebody else's action.
-local function BuildRezLines(binding, guard, standalone)
+-- The combat rez item a class with no battle rez falls back to: the first one
+-- carried, or nil.
+local function CarriedRezItem()
     local _, pClass = UnitClass("player")
     local kit = REZ_BY_CLASS[pClass]
-    if not kit then return nil end
+    if kit and kit.battle then return nil end
+    for i = 1, #REZ_ITEMS do
+        if C_Item.GetItemCount(REZ_ITEMS[i]) > 0 then return REZ_ITEMS[i] end
+    end
+    return nil
+end
+
+-- The item the rez lines use, read once per CC_ApplyBindings (only while a
+-- rez binding could use it); the bag listener re-applies when it changes.
+local rezItemID = nil
+
+-- Builds dynamic-rez /cast lines (used by the dynamicrez binding type + Smart
+-- Rez). Returns a list of macro lines (possibly empty) or nil when the class
+-- has no rez kit and carries no combat rez item. Never includes /stopmacro --
+-- caller adds that for oocOnly.
+-- standalone marks the dedicated rez binding, where these lines are the whole
+-- macro rather than a [dead] prefix in front of somebody else's action. noItem
+-- leaves the combat rez item out (a Smart Rez macro short of room).
+local function BuildRezLines(binding, guard, standalone, noItem)
+    local _, pClass = UnitClass("player")
+    local kit = REZ_BY_CLASS[pClass]
+    local item = not noItem and rezItemID
+    if not kit and not item then return nil end
     local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
     -- A slot is one spell ID or a list of rank IDs. The first rank found in the
     -- book answers: every rank shares the name, and /cast by name casts the
@@ -876,9 +908,9 @@ local function BuildRezLines(binding, guard, standalone)
         end
         return C_Spell.GetSpellName and C_Spell.GetSpellName(sid)
     end
-    local battleName = Known(kit.battle)
-    local groupName  = Known(kit.group)
-    local singleName = Known(kit.single)
+    local battleName = kit and Known(kit.battle)
+    local groupName  = kit and Known(kit.group)
+    local singleName = kit and Known(kit.single)
     local lines = {}
     -- [combat] only when there is an out-of-combat rez after it to be the answer
     -- instead. A death knight or a warlock, whose only rez IS the battle one,
@@ -895,6 +927,9 @@ local function BuildRezLines(binding, guard, standalone)
             combatCond = ",nocombat"
         end
         lines[#lines + 1] = "/cast [@mouseover,help,dead" .. combatCond .. guard .. "] " .. battleName
+    elseif item and not binding.oocOnly then
+        -- No battle rez in the class: the carried combat rez item instead.
+        lines[#lines + 1] = "/use [@mouseover,help,dead,combat" .. guard .. "] item:" .. item
     end
     if groupName then
         lines[#lines + 1] = "/cast [@mouseover,help,dead,nocombat" .. guard .. "] " .. groupName
@@ -1039,11 +1074,78 @@ local function BuildBaseMacroText(binding)
     return nil
 end
 
+-- Clear Stuck Spell Targeting (HoverCast page, cc.clearTargeting, on unless
+-- switched off). A cast on a unit the spell cannot take (a priest in Spirit of
+-- Redemption) leaves the spell waiting for a target, which swallows the next
+-- press. Each cast line this file writes is led by /stopspelltarget under the
+-- same conditions, so a press that is about to cast first drops a spell still
+-- waiting -- what Blizzard's own mouseover casting does before a mouseover
+-- cast. The clear goes BEFORE the cast, never after it: a ground-targeted
+-- spell ignores @mouseover and opens its placement circle, which a clear after
+-- the cast would close at once. SpellStopTargeting is protected, so a secure
+-- macro line is the only way to reach it.
+local function ClearTargetingOn()
+    local cc = GetClickCastDB()
+    return not (cc and cc.clearTargeting == false)
+end
+
+-- Macro text -> the same text with its clears; the whole input is the key.
+-- ResolveBinding runs for every binding on every frame (registration bursts,
+-- CC_ApplyBindings), so each repeat of a binding's identical macro is one
+-- lookup. Wiped at every apply, so texts an edit retired do not pile up.
+local clearMemo = {}
+
+local function AddTargetingClears(text)
+    if not text or not ClearTargetingOn() then return text end
+    local hit = clearMemo[text]
+    if hit then return hit end
+    local out, seen = {}, {}
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+        local cond = line:match("^/cast%s+(%b[])") or line:match("^/use%s+(%b[])")
+            or line:match("^/click%s+(%b[])")
+        -- One clear per condition set: a dispel list repeats the same
+        -- conditions on every line, and the first clear already covers them.
+        if cond and not seen[cond] then
+            seen[cond] = true
+            out[#out + 1] = "/stopspelltarget " .. cond
+        end
+        out[#out + 1] = line
+    end
+    local result = table.concat(out, "\n")
+    clearMemo[text] = result
+    return result
+end
+
+-- Secure macro text is capped at 255 characters, the macro limit, and an
+-- action button's macrotext is held to it too: a binding macro past the cap
+-- does not run as written, and its own action is the line that goes. Counted
+-- in bytes. A HoverCast macro over the cap trades the mount guard on every
+-- conditional for one leading /stopmacro, which runs the same.
+local MACRO_MAX = 255
+local GUARD_STOP = "/stopmacro [mounted][flying]\n"
+local function FitMacro(text, hover)
+    if not text or #text <= MACRO_MAX then return text end
+    if hover then
+        local body = text:gsub("/stopmacro %[mounted%]%[flying%]\n", "")
+        body = body:gsub(",nomounted,noflying%]", "]")
+        local compact = GUARD_STOP .. body
+        if #compact <= MACRO_MAX then return compact end
+    end
+    return nil
+end
+
 -- Wraps base macrotext with Smart Rez: when binding.smartRez is set, dynamic-rez
 -- /cast lines are prepended (they fail their [dead] condition on a living unit,
--- so the macro falls through to the normal action).
+-- so the macro falls through to the normal action). Every result fits the
+-- macro cap: the clears go first, then Smart Rez's combat rez item, then Smart
+-- Rez itself, never the binding's own action.
 local function BuildMacroText(binding)
-    local base = BuildBaseMacroText(binding)
+    local hover = binding.hovercast and true or false
+    local plain = BuildBaseMacroText(binding)
+    -- A user macro body is theirs: only the lines this file writes get clears.
+    local cleared = plain
+    if binding.type ~= "macro" then cleared = AddTargetingClears(plain) end
+    local base = FitMacro(cleared, hover) or FitMacro(plain, hover) or plain
     if not binding.smartRez then return base end
     -- A pinned WoW Forever rez rank is the rez itself: the by-name rez lines
     -- would cast the top rank ahead of it on every dead target.
@@ -1052,22 +1154,32 @@ local function BuildMacroText(binding)
     if binding.type == "target" or binding.type == "menu" or binding.type == "dynamicrez" then
         return base
     end
-    local guard = binding.hovercast and MOUNT_GUARD or ""
+    local guard = hover and MOUNT_GUARD or ""
     local rez = BuildRezLines(binding, guard)
     if not rez or #rez == 0 then return base end
-    local rezText = table.concat(rez, "\n")
-
-    if base then
-        return rezText .. "\n" .. base
-    end
     -- A plain spell binding produces no base macro (applied as a direct spell);
     -- convert it to a macro so the rez lines can lead, then cast on the same unit.
-    if binding.type == "spell" then
-        local line = SpellCastLine(binding, "[@mouseover,exists,nodead" .. guard .. "]")
-        if not line then return rezText end
-        return rezText .. "\n" .. line
+    if not plain and binding.type == "spell" then
+        plain = SpellCastLine(binding, "[@mouseover,exists,nodead" .. guard .. "]")
+        cleared = AddTargetingClears(plain)
     end
-    return rezText
+    local function Join(rezText, action)
+        if action then return rezText .. "\n" .. action end
+        return rezText
+    end
+    -- The richest form that fits: clears on every line, then on the action
+    -- only, then none, then without the combat rez item.
+    local rezText = table.concat(rez, "\n")
+    local text = FitMacro(Join(AddTargetingClears(rezText), cleared), hover)
+        or FitMacro(Join(rezText, cleared), hover)
+        or FitMacro(Join(rezText, plain), hover)
+    if not text and rezItemID then
+        local spells = BuildRezLines(binding, guard, false, true)
+        if spells and #spells > 0 then
+            text = FitMacro(Join(table.concat(spells, "\n"), plain), hover)
+        end
+    end
+    return text or base
 end
 
 function ns.CC_GetBindingIcon(b)
@@ -1472,6 +1584,92 @@ local function ResolveBinding(b)
     return nil, nil, nil
 end
 
+-- Route physical Command-clicks through the original secure action handler.
+local function IsCommandClick(parsed)
+    return parsed.buttonNum and parsed.modifiers:find("META-", 1, true)
+end
+
+local COMMAND_CLICK_BODY = [[
+    -- Restricted snippets expose the macro parser, but not IsMetaKeyDown.
+    if not SecureCmdOptionParse("[mod:meta] yes") then return end
+    local p = ""
+    if IsAltKeyDown() then p = p .. "ALT-" end
+    if IsControlKeyDown() then p = p .. "CTRL-" end
+    if IsShiftKeyDown() then p = p .. "SHIFT-" end
+    local n = button == "LeftButton" and "1"
+        or button == "RightButton" and "2"
+        or button == "MiddleButton" and "3"
+        or button:match("^Button(%d+)$")
+    if n then
+        local route = self:GetAttribute("eui_cmdclick_" .. p .. "META-BUTTON" .. n)
+        if route then return route end
+    end
+]]
+
+-- Takes this header's wrapper off frame's script wherever it sits. UnwrapScript
+-- only ever pops the TOP wrapper, whoever made it, so another addon's wrappers
+-- above ours come off first and go back on, in their order, once ours is gone.
+-- Out of combat only, like every caller.
+local function UnwrapOwn(frame, script)
+    local above
+    while true do
+        local h, pre, post = header:UnwrapScript(frame, script)
+        if not h or h == header then break end
+        above = above or {}
+        above[#above + 1] = { h, pre, post }
+    end
+    if above then
+        for i = #above, 1, -1 do
+            local w = above[i]
+            SecureHandlerWrapScript(frame, script, w[1], w[2], w[3])
+        end
+    end
+end
+
+local commandClickAttrs
+
+local function ConfigureCommandClicks(frame, bindings)
+    local previous = commandClickAttrs and commandClickAttrs[frame]
+    if previous then
+        for _, attr in ipairs(previous) do
+            frame:SetAttribute(attr, nil)
+        end
+    end
+    local attrs
+    -- Match override precedence: hover bindings win over frame bindings.
+    for pass = 1, 2 do
+        for i, b in ipairs(bindings) do
+            if b.key and b.key:find("META-", 1, true) then
+                local parsed = ParseKeyString(b.key)
+                if IsCommandClick(parsed) and (pass == 1 and IsFrameBinding(b)
+                    or pass == 2 and IsHoverBinding(b)) then
+                    local aType, spellName, macrotext = ResolveBinding(b)
+                    if aType then
+                        SetKeyAttr(frame, i, aType, spellName, macrotext, b.oocOnly)
+                        local attr = "eui_cmdclick_" .. b.key
+                        frame:SetAttribute(attr, "eui_" .. i)
+                        if not attrs then attrs = {} end
+                        attrs[#attrs + 1] = attr
+                    end
+                end
+            end
+        end
+    end
+    if attrs then
+        if not previous then
+            header:WrapScript(frame, "OnClick", COMMAND_CLICK_BODY)
+        end
+        if not commandClickAttrs then
+            commandClickAttrs = setmetatable({}, { __mode = "k" })
+        end
+        commandClickAttrs[frame] = attrs
+    elseif previous then
+        UnwrapOwn(frame, "OnClick")
+        commandClickAttrs[frame] = nil
+        if not next(commandClickAttrs) then commandClickAttrs = nil end
+    end
+end
+
 -- OnEnter/OnLeave secure script generation (frame-based keyboard bindings).
 -- Returns enterScript, leaveScript, kbClearLines. kbClearLines uses
 -- self:ClearBinding (state-driver context, self=header); leaveScript uses
@@ -1482,7 +1680,7 @@ local function GenerateKeyBindSnippets(bindings)
     for i, b in ipairs(bindings) do
         if IsFrameBinding(b) then
             local parsed = ParseKeyString(b.key)
-            if not parsed.isMouseButton or not parsed.buttonNum or parsed.buttonNum > 5 then
+            if not UsesDirectClickAttributes(parsed) then
                 kbBindings[#kbBindings + 1] = { binding = b, index = i, parsed = parsed }
             end
         end
@@ -1634,7 +1832,7 @@ local function DoRegisterFrame(frame)
             local parsed = ParseKeyString(b.key)
             local aType, spellName, macrotext = ResolveBinding(b)
             if aType then
-                if parsed.isMouseButton and parsed.buttonNum and parsed.buttonNum <= 5 then
+                if UsesDirectClickAttributes(parsed) then
                     SetClickAttr(frame, parsed, aType, spellName, macrotext, b.oocOnly)
                 else
                     SetKeyAttr(frame, i, aType, spellName, macrotext, b.oocOnly)
@@ -1642,6 +1840,8 @@ local function DoRegisterFrame(frame)
             end
         end
     end
+
+    ConfigureCommandClicks(frame, bindings)
 
     -- Neutralize unbound left-click target / right-click menu defaults (see
     -- NeutralizeDefaultClicks); restored in DoUnregisterFrame on disable.
@@ -1657,11 +1857,12 @@ local function DoUnregisterFrame(frame)
     for i, b in ipairs(bindings) do
         if IsFrameBinding(b) and b.key then
             local parsed = ParseKeyString(b.key)
-            if parsed.isMouseButton and parsed.buttonNum and parsed.buttonNum <= 5 then
+            if UsesDirectClickAttributes(parsed) then
                 ClearClickAttr(frame, parsed)
             end
         end
     end
+    ConfigureCommandClicks(frame, {})
     ClearKeyAttrs(frame, lastBindingCount)
 
     -- Restores the frame's NATIVE left-click target attrs captured at register
@@ -1689,8 +1890,8 @@ local function DoUnregisterFrame(frame)
     if wrappedFrames[frame] then
         wrappedFrames[frame] = nil
         if header and header.UnwrapScript then
-            pcall(header.UnwrapScript, header, frame, "OnEnter")
-            pcall(header.UnwrapScript, header, frame, "OnLeave")
+            pcall(UnwrapOwn, frame, "OnEnter")
+            pcall(UnwrapOwn, frame, "OnLeave")
         end
     end
 end
@@ -1912,6 +2113,7 @@ function ns.CC_ApplyBindings()
     -- Self-heals non-canonical modifier-order keys before reading active set
     -- (so GetActiveBindings' de-dup also sees canonical keys).
     NormalizeSavedBindingKeys()
+    wipe(clearMemo)
 
     local bindings = GetActiveBindings()
     -- Fresh list becomes the burst list: any registration later this frame
@@ -1923,6 +2125,25 @@ function ns.CC_ApplyBindings()
         ccEventFrame:RegisterEvent("SPELLS_CHANGED")
     else
         ccEventFrame:UnregisterEvent("SPELLS_CHANGED")
+    end
+
+    -- Combat rez item: bags are watched only for a class with no battle rez
+    -- that has a Dynamic Rez or Smart Rez binding.
+    local wantRezItem = false
+    if REZ_ITEMS[1] then
+        local _, pClass = UnitClass("player")
+        local kit = REZ_BY_CLASS[pClass]
+        if not (kit and kit.battle) then
+            for _, b in ipairs(bindings) do
+                if b.type == "dynamicrez" or b.smartRez then wantRezItem = true; break end
+            end
+        end
+    end
+    rezItemID = wantRezItem and CarriedRezItem() or nil
+    if wantRezItem then
+        ccEventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+    else
+        ccEventFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
     end
 
     local frameBindings = {}
@@ -1945,7 +2166,7 @@ function ns.CC_ApplyBindings()
         for _, pb in ipairs(prevBindings) do
             if IsFrameBinding(pb.b) then
                 local parsed = ParseKeyString(pb.b.key)
-                if parsed.isMouseButton and parsed.buttonNum and parsed.buttonNum <= 5 then
+                if UsesDirectClickAttributes(parsed) then
                     ClearClickAttr(frame, parsed)
                 end
             end
@@ -1959,7 +2180,7 @@ function ns.CC_ApplyBindings()
             local parsed = ParseKeyString(fb.b.key)
             local aType, spellName, macrotext = ResolveBinding(fb.b)
             if aType then
-                if parsed.isMouseButton and parsed.buttonNum and parsed.buttonNum <= 5 then
+                if UsesDirectClickAttributes(parsed) then
                     SetClickAttr(frame, parsed, aType, spellName, macrotext, fb.b.oocOnly)
                 else
                     SetKeyAttr(frame, fb.idx, aType, spellName, macrotext, fb.b.oocOnly)
@@ -1967,6 +2188,7 @@ function ns.CC_ApplyBindings()
             else
             end
         end
+        ConfigureCommandClicks(frame, bindings)
         -- Re-neutralize unbound left/right defaults (the clear pass above may
         -- have stripped a previous binding's type<N>).
         NeutralizeDefaultClicks(frame, bindings)
@@ -1975,7 +2197,7 @@ function ns.CC_ApplyBindings()
     for _, fb in ipairs(frameBindings) do
         local parsed = ParseKeyString(fb.b.key)
         local aType, spellName, macrotext = ResolveBinding(fb.b)
-        if aType and (not parsed.isMouseButton or not parsed.buttonNum or parsed.buttonNum > 5) then
+        if aType and (not UsesDirectClickAttributes(parsed)) then
             SetKeyAttr(bindProxy, fb.idx, aType, spellName, macrotext, fb.b.oocOnly)
         end
     end
@@ -2018,7 +2240,7 @@ function ns.CC_ApplyBindings()
             if aType == "spell" then
                 mt = BuildMacroText(hb.b)
                 if not mt then
-                    mt = SpellCastLine(hb.b, "[@mouseover" .. MOUNT_GUARD .. "]")
+                    mt = AddTargetingClears(SpellCastLine(hb.b, "[@mouseover" .. MOUNT_GUARD .. "]"))
                         or ("/cast [@mouseover" .. MOUNT_GUARD .. "] ")
                 end
             elseif aType == "macro" then
@@ -2363,6 +2585,11 @@ local function OnCCEvent(self, event)
         if ComputeKnownSignature() ~= knownSig then
             if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
         end
+    elseif event == "BAG_UPDATE_DELAYED" then
+        -- Re-applies only when the carried combat rez item changed.
+        if CarriedRezItem() ~= rezItemID then
+            if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
+        end
     elseif event == "GROUP_ROSTER_UPDATE" then
         -- Solo <-> party <-> raid transitions change which bindings are active.
         -- GROUP_ROSTER_UPDATE fires every join, leave, promote and zone-in, so
@@ -2423,7 +2650,9 @@ function ns.CC_Init()
     -- bills to click-cast, not the parent addon's lifecycle dispatch.
     ccEventFrame = (ns.TakeShell and ns.TakeShell()) or CreateFrame("Frame")
     ccEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    ccEventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    -- The player's own spec only: unfiltered, every group member's spec change
+    -- re-applied every binding.
+    ccEventFrame:RegisterUnitEvent("PLAYER_SPECIALIZATION_CHANGED", "player")
     ccEventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
     ccEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     ccEventFrame:SetScript("OnEvent", OnCCEvent)
@@ -2455,6 +2684,84 @@ function ns.CC_Init()
 end
 
 -------------------------------------------------------------------------------
+--  Reused option surfaces: the three picker popups (Add Global Binding, Add
+--  New, Quickbind) and the spell strip are built once per session and
+--  re-dressed on every open or page build. Their icon cells are pooled by
+--  index: a refill re-dresses the cells it needs and hides the rest.
+-------------------------------------------------------------------------------
+local ccPickers = {}
+
+-- Picker grid cell i on child, made on first use: a button holding a 32px
+-- icon and a hidden accent hover border (its label comes with its first use).
+local function CC_PickerCell(child, i, PP, accent)
+    local cells = child._cells
+    if not cells then cells = {}; child._cells = cells end
+    local cell = cells[i]
+    if cell then return cell end
+    cell = CreateFrame("Button", nil, child)
+    local iconFr = CreateFrame("Frame", nil, cell)
+    iconFr:SetSize(32, 32)
+    local iconTx = iconFr:CreateTexture(nil, "ARTWORK")
+    iconTx:SetAllPoints()
+    iconTx:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    local iconBd = CreateFrame("Frame", nil, iconFr)
+    iconBd:SetAllPoints()
+    iconBd:SetFrameLevel(iconFr:GetFrameLevel() + 1)
+    iconBd:Hide()
+    if PP then PP.CreateBorder(iconBd, accent.r, accent.g, accent.b, 1, 2) end
+    cell._icon, cell._tex, cell._bd = iconFr, iconTx, iconBd
+    cells[i] = cell
+    return cell
+end
+
+-- Picker grid divider line above row r (r >= 1), made on first use.
+local function CC_PickerDivider(child, r, PP)
+    local divs = child._divs
+    if not divs then divs = {}; child._divs = divs end
+    local div = divs[r]
+    if not div then
+        div = child:CreateTexture(nil, "ARTWORK")
+        div:SetColorTexture(1, 1, 1, 0.06)
+        if PP then PP.DisablePixelSnap(div) end
+        divs[r] = div
+    end
+    return div
+end
+
+-- Replays OnEnter on the first of cells 1..n that holds the mouse focus: a
+-- cell reused in place keeps the focus, so it never gets the OnEnter a new
+-- cell under the cursor would. Returns true when one did.
+local function CC_ReplayFocusEnter(cells, n)
+    local foci = GetMouseFoci and GetMouseFoci()
+    if not (cells and foci) then return false end
+    for k = 1, #foci do
+        local f = foci[k]
+        for i = 1, n do
+            if cells[i] == f then
+                local onEnter = f:GetScript("OnEnter")
+                if onEnter then onEnter(f) end
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Ends a picker refill of n cells over rows rows: hides the unused cells and
+-- divider lines, then replays the focused cell's OnEnter.
+local function CC_PickerFinish(child, n, rows)
+    local cells = child._cells
+    if cells then
+        for i = n + 1, #cells do cells[i]:Hide() end
+    end
+    local divs = child._divs
+    if divs then
+        for r = max(rows, 1), #divs do divs[r]:Hide() end
+    end
+    CC_ReplayFocusEnter(cells, n)
+end
+
+-------------------------------------------------------------------------------
 --  Options Page Builder
 --  Layout: Left sidebar (Global) | Center (Options + Per-Binding) | Right sidebar (Spec)
 --  Sidebars are 1:1 replica of Buff Manager tile style.
@@ -2479,12 +2786,13 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     local visibleH = scrollFrame:GetHeight()
     local parentW = scrollFrame:GetWidth()
 
-    -- Guard: clean up old root before creating new (prevents frame accumulation)
+    -- Drop the old root; every render builds a new one.
     if ns._ccRoot then ns._ccRoot:Hide(); ns._ccRoot:SetParent(nil) end
     if ns._ccGridPopup then ns._ccGridPopup:Hide(); ns._ccGridPopup = nil end
     if ns._ccSpecPopup then ns._ccSpecPopup:Hide(); ns._ccSpecPopup = nil end
     -- QB popup is NOT cleaned up here -- it stays open during rebuilds
-    if ns._ccSpellStrip then ns._ccSpellStrip:Hide(); ns._ccSpellStrip:SetParent(nil); ns._ccSpellStrip = nil end
+    -- The spell strip (parented to the panel) is re-dressed further down.
+    if ns._ccSpellStrip then ns._ccSpellStrip:Hide() end
 
     local root = CreateFrame("Frame", nil, scrollFrame)
     root:SetSize(parentW, visibleH)
@@ -2501,12 +2809,56 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     local sidebarW     = floor(parentW * SIDEBAR_PCT)
     local centerW      = parentW - sidebarW * 2
 
-    local function MakeFont(p, size, r, g, b, a)
-        local fs = p:CreateFontString(nil, "OVERLAY")
+    -- StyleFont dresses a font string the way MakeFont makes one; the reused
+    -- picker strings are re-dressed with it on every open.
+    local function StyleFont(fs, size, r, g, b, a)
         EllesmereUI.PrimeFontShadow(fs, outlineFlag == "" and useShadow)
         fs:SetFont(fontPath, size, outlineFlag)
         fs:SetTextColor(r or 1, g or 1, b or 1, a or 1)
+    end
+    local function MakeFont(p, size, r, g, b, a)
+        local fs = p:CreateFontString(nil, "OVERLAY")
+        StyleFont(fs, size, r, g, b, a)
         return fs
+    end
+
+    -- Dresses pooled picker cell i of child for one grid slot the way a new
+    -- cell starts: icon (dimmed when already bound), hidden hover border, and
+    -- the label (text; nil when its row has none) lblGap above the icon.
+    -- Returns the cell, its hover border and its label.
+    local function DressPickerCell(child, i, x, y, w, h, icon, dimmed, text, lblSize, lblGap)
+        local cell = CC_PickerCell(child, i, PP, accentColor)
+        cell:SetSize(w, h)
+        cell:ClearAllPoints()
+        cell:SetPoint("TOPLEFT", child, "TOPLEFT", x, y)
+        cell:Show()
+        local iconFr, iconTx, iconBd = cell._icon, cell._tex, cell._bd
+        iconTx:SetTexture(icon or 134400)
+        iconTx:SetAlpha(dimmed and 0.3 or 1)
+        iconBd:Hide()
+        if PP then PP.SetBorderColor(iconBd, accentColor.r, accentColor.g, accentColor.b, 1) end
+        iconFr:ClearAllPoints()
+        local lbl = cell._lbl
+        if text then
+            if lbl then
+                StyleFont(lbl, lblSize, 1, 1, 1, dimmed and 0.3 or 0.7)
+            else
+                lbl = MakeFont(cell, lblSize, 1, 1, 1, dimmed and 0.3 or 0.7)
+                cell._lbl = lbl
+            end
+            lbl:SetAlpha(1)
+            lbl:ClearAllPoints()
+            lbl:SetPoint("TOP", cell, "TOP", 0, 0)
+            lbl:SetWidth(w + 4)
+            lbl:SetJustifyH("CENTER"); lbl:SetWordWrap(false)
+            lbl:SetText(text)
+            lbl:Show()
+            iconFr:SetPoint("TOP", lbl, "BOTTOM", 0, -lblGap)
+            return cell, iconBd, lbl
+        end
+        if lbl then lbl:Hide() end
+        iconFr:SetPoint("TOP", cell, "TOP", 0, 0)
+        return cell, iconBd, nil
     end
 
     -- Selected binding state (persists across rebuilds via namespace)
@@ -2620,16 +2972,16 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
         kbBtn:SetScript("OnKeyDown", function(self, key)
             if not listening then self:SetPropagateKeyboardInput(true); return end
-            if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-               or key == "LALT" or key == "RALT" then
+            if MODIFIER_KEYS[key] then
                 self:SetPropagateKeyboardInput(true); return
             end
             self:SetPropagateKeyboardInput(false)
             if key == "ESCAPE" then
                 StopListening(); return
             end
-            local mods = ns.CC_GetModifierPrefix()
-            if onKeySet then onKeySet(mods .. key) end
+            local captured = ns.CC_CaptureKey(key)
+            if not captured then return end
+            if onKeySet then onKeySet(captured) end
             StopListening()
         end)
 
@@ -3032,11 +3384,61 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local popupWG = innerGridWG + INSETG * 2
         local popupHG = 400
 
-        local popup = CreateFrame("Frame", nil, UIParent)
-        popup:Hide()
-        popup:SetSize(popupWG, popupHG)
-        popup:SetFrameStrata("FULLSCREEN_DIALOG")
-        popup:SetFrameLevel(200)
+        -- Built on the first open; every open re-dresses it.
+        local ui = ccPickers.global
+        if not ui then
+            local popup = CreateFrame("Frame", nil, UIParent)
+            popup:Hide()
+            popup:SetSize(popupWG, popupHG)
+            popup:SetFrameStrata("FULLSCREEN_DIALOG")
+            popup:SetFrameLevel(200)
+            local pBg = popup:CreateTexture(nil, "BACKGROUND")
+            pBg:SetAllPoints(); pBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
+            popup:EnableMouse(true)
+            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+
+            local macroToggleG = CreateFrame("Button", nil, popup)
+            macroToggleG:SetSize((popupWG - INSETG * 2) / 2 - 2, 26)
+            macroToggleG:SetPoint("TOPLEFT", popup, "TOPLEFT", INSETG, -INSETG)
+            local mtBgG = macroToggleG:CreateTexture(nil, "BACKGROUND"); mtBgG:SetAllPoints()
+            local mtHlG = macroToggleG:CreateTexture(nil, "HIGHLIGHT"); mtHlG:SetAllPoints(); mtHlG:SetColorTexture(1, 1, 1, 0.1)
+            local mtLblG = MakeFont(macroToggleG, 12, 1, 1, 1, 0.9); mtLblG:SetPoint("CENTER"); mtLblG:SetText(EllesmereUI.L("Macros"))
+
+            local itemToggleG = CreateFrame("Button", nil, popup)
+            itemToggleG:SetSize((popupWG - INSETG * 2) / 2 - 2, 26)
+            itemToggleG:SetPoint("TOPRIGHT", popup, "TOPRIGHT", -INSETG, -INSETG)
+            local itBgG = itemToggleG:CreateTexture(nil, "BACKGROUND"); itBgG:SetAllPoints()
+            local itHlG = itemToggleG:CreateTexture(nil, "HIGHLIGHT"); itHlG:SetAllPoints(); itHlG:SetColorTexture(1, 1, 1, 0.1)
+            local itLblG = MakeFont(itemToggleG, 12, 1, 1, 1, 0.9); itLblG:SetPoint("CENTER"); itLblG:SetText(EllesmereUI.L("Items"))
+
+            local gridScrollG = CreateFrame("ScrollFrame", nil, popup)
+            gridScrollG:SetPoint("TOPLEFT", popup, "TOPLEFT", INSETG, -(INSETG + 40))
+            gridScrollG:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -INSETG, INSETG)
+            gridScrollG:SetFrameLevel(popup:GetFrameLevel() + 2)
+            local gridChildG = CreateFrame("Frame", nil, gridScrollG)
+            gridChildG:SetWidth(innerGridWG)
+            gridScrollG:SetScrollChild(gridChildG)
+            gridScrollG:EnableMouseWheel(true)
+            gridScrollG:SetScript("OnMouseWheel", function(self, delta)
+                local s = self:GetVerticalScroll()
+                local mx = max(0, gridChildG:GetHeight() - self:GetHeight())
+                self:SetVerticalScroll(max(0, min(mx, s - delta * 30)))
+            end)
+
+            popup:SetScript("OnHide", function(p)
+                p:SetScript("OnUpdate", nil)
+                if ns._ccGridPopup == p then ns._ccGridPopup = nil end
+            end)
+
+            ui = {
+                popup = popup, scroll = gridScrollG, child = gridChildG,
+                macroToggle = macroToggleG, mtBg = mtBgG, mtLbl = mtLblG,
+                itemToggle = itemToggleG, itBg = itBgG, itLbl = itLblG,
+            }
+            ccPickers.global = ui
+        end
+        local popup, gridScrollG, gridChildG = ui.popup, ui.scroll, ui.child
+        local mtBgG, itBgG = ui.mtBg, ui.itBg
         -- Left edge flush with right edge of left sidebar, centered vertically on the add button
         local btnMidYG = select(2, addGlobalBtn:GetCenter()) or 0
         local sidebarMidYG = select(2, leftOuter:GetCenter()) or 0
@@ -3045,49 +3447,20 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local rootBot = root:GetBottom() or 0
         local popupBotG = btnMidYG - popupHG / 2
         if popupBotG < rootBot then offsetYG = offsetYG + (rootBot - popupBotG) end
+        popup:ClearAllPoints()
         popup:SetPoint("LEFT", leftOuter, "RIGHT", 0, offsetYG)
-
-        local pBg = popup:CreateTexture(nil, "BACKGROUND")
-        pBg:SetAllPoints(); pBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-        popup:EnableMouse(true)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
         ns._ccGridPopup = popup
+        StyleFont(ui.mtLbl, 12, 1, 1, 1, 0.9)
+        StyleFont(ui.itLbl, 12, 1, 1, 1, 0.9)
+        gridScrollG:SetVerticalScroll(0)
 
         local toggleModeG = "macro"
-        local macroToggleG = CreateFrame("Button", nil, popup)
-        macroToggleG:SetSize((popupWG - INSETG * 2) / 2 - 2, 26)
-        macroToggleG:SetPoint("TOPLEFT", popup, "TOPLEFT", INSETG, -INSETG)
-        local mtBgG = macroToggleG:CreateTexture(nil, "BACKGROUND"); mtBgG:SetAllPoints()
-        local mtHlG = macroToggleG:CreateTexture(nil, "HIGHLIGHT"); mtHlG:SetAllPoints(); mtHlG:SetColorTexture(1, 1, 1, 0.1)
-        local mtLblG = MakeFont(macroToggleG, 12, 1, 1, 1, 0.9); mtLblG:SetPoint("CENTER"); mtLblG:SetText(EllesmereUI.L("Macros"))
-
-        local itemToggleG = CreateFrame("Button", nil, popup)
-        itemToggleG:SetSize((popupWG - INSETG * 2) / 2 - 2, 26)
-        itemToggleG:SetPoint("TOPRIGHT", popup, "TOPRIGHT", -INSETG, -INSETG)
-        local itBgG = itemToggleG:CreateTexture(nil, "BACKGROUND"); itBgG:SetAllPoints()
-        local itHlG = itemToggleG:CreateTexture(nil, "HIGHLIGHT"); itHlG:SetAllPoints(); itHlG:SetColorTexture(1, 1, 1, 0.1)
-        local itLblG = MakeFont(itemToggleG, 12, 1, 1, 1, 0.9); itLblG:SetPoint("CENTER"); itLblG:SetText(EllesmereUI.L("Items"))
-
-        local gridScrollG = CreateFrame("ScrollFrame", nil, popup)
-        gridScrollG:SetPoint("TOPLEFT", popup, "TOPLEFT", INSETG, -(INSETG + 40))
-        gridScrollG:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -INSETG, INSETG)
-        gridScrollG:SetFrameLevel(popup:GetFrameLevel() + 2)
-        local gridChildG = CreateFrame("Frame", nil, gridScrollG)
-        gridChildG:SetWidth(innerGridWG)
-        gridScrollG:SetScrollChild(gridChildG)
-        gridScrollG:EnableMouseWheel(true)
-        gridScrollG:SetScript("OnMouseWheel", function(self, delta)
-            local s = self:GetVerticalScroll()
-            local mx = max(0, gridChildG:GetHeight() - self:GetHeight())
-            self:SetVerticalScroll(max(0, min(mx, s - delta * 30)))
-        end)
 
         -- Reuse the same grid constants as BuildIconGridPopup
         local GCG = 5; local ISZG = 32; local CWG = 48; local CGAPG = 19
         local LFONTG = 10; local LGAPG = 4; local RGAPG = 8; local LHG = 14
 
         local function PopulateGridG(itemsG, onItemClick)
-            for _, c2 in ipairs({gridChildG:GetChildren()}) do c2:Hide(); c2:SetParent(nil) end
             local totalRowsG = math.ceil(#itemsG / GCG)
             local rhtG = {}
             for r = 0, totalRowsG - 1 do
@@ -3112,35 +3485,23 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 local cx = col * (CWG + CGAPG)
                 local cy = rYG[r]
                 if col == 0 and r > 0 then
-                    local div = gridChildG:CreateTexture(nil, "ARTWORK")
-                    div:SetHeight(pxSnapG(1)); div:SetPoint("TOPLEFT", gridChildG, "TOPLEFT", 0, cy + RGAPG / 2)
+                    local div = CC_PickerDivider(gridChildG, r, PP)
+                    div:SetHeight(pxSnapG(1)); div:ClearAllPoints()
+                    div:SetPoint("TOPLEFT", gridChildG, "TOPLEFT", 0, cy + RGAPG / 2)
                     div:SetPoint("TOPRIGHT", gridChildG, "TOPRIGHT", 0, cy + RGAPG / 2)
-                    div:SetColorTexture(1, 1, 1, 0.06)
-                    if PP then PP.DisablePixelSnap(div) end
+                    div:Show()
                 end
-                local cell = CreateFrame("Button", nil, gridChildG)
-                cell:SetSize(CWG, rHG[r]); cell:SetPoint("TOPLEFT", gridChildG, "TOPLEFT", cx, cy)
-                local iconFr = CreateFrame("Frame", nil, cell); iconFr:SetSize(ISZG, ISZG)
-                local iconTx = iconFr:CreateTexture(nil, "ARTWORK"); iconTx:SetAllPoints()
-                iconTx:SetTexCoord(0.08, 0.92, 0.08, 0.92); iconTx:SetTexture(itm.icon or 134400)
                 local dimmedG = (itm.macroName and boundMacros[itm.macroName])
                     or (itm.itemSlot and boundItems[itm.itemSlot])
-                if dimmedG then iconTx:SetAlpha(0.3) end
-                local iconBd = CreateFrame("Frame", nil, iconFr); iconBd:SetAllPoints()
-                iconBd:SetFrameLevel(iconFr:GetFrameLevel() + 1); iconBd:Hide()
-                if PP then PP.CreateBorder(iconBd, accentColor.r, accentColor.g, accentColor.b, 1, 2) end
-                local cellLbl = nil
-                if rhtG[r] and itm.name and itm.name ~= "" then
-                    cellLbl = MakeFont(cell, LFONTG, 1, 1, 1, dimmedG and 0.3 or 0.7)
-                    cellLbl:SetPoint("TOP", cell, "TOP", 0, 0); cellLbl:SetWidth(CWG + 4)
-                    cellLbl:SetJustifyH("CENTER"); cellLbl:SetWordWrap(false); cellLbl:SetText(itm.name)
-                    iconFr:SetPoint("TOP", cellLbl, "BOTTOM", 0, -LGAPG)
-                else iconFr:SetPoint("TOP", cell, "TOP", 0, 0) end
+                local cell, iconBd, cellLbl = DressPickerCell(gridChildG, i, cx, cy, CWG, rHG[r],
+                    itm.icon, dimmedG, rhtG[r] and itm.name and itm.name ~= "" and itm.name or nil,
+                    LFONTG, LGAPG)
                 cell:SetScript("OnEnter", function() iconBd:Show(); if cellLbl then cellLbl:SetAlpha(1) end end)
                 cell:SetScript("OnLeave", function() iconBd:Hide(); if cellLbl then cellLbl:SetAlpha(0.7) end end)
                 cell:SetScript("OnClick", function() onItemClick(itm); popup:Hide() end)
             end
             gridChildG:SetHeight(max(10, cYG))
+            CC_PickerFinish(gridChildG, #itemsG, totalRowsG)
         end
 
         local function UpdateToggleG()
@@ -3172,17 +3533,13 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
         UpdateToggleG()
 
-        macroToggleG:SetScript("OnClick", function() toggleModeG = "macro"; UpdateToggleG() end)
-        itemToggleG:SetScript("OnClick", function() toggleModeG = "item"; UpdateToggleG() end)
+        ui.macroToggle:SetScript("OnClick", function() toggleModeG = "macro"; UpdateToggleG() end)
+        ui.itemToggle:SetScript("OnClick", function() toggleModeG = "item"; UpdateToggleG() end)
 
         popup:SetScript("OnShow", function(p)
             p:SetScript("OnUpdate", function(m)
                 if not m:IsMouseOver() and not addGlobalBtn:IsMouseOver() and IsMouseButtonDown("LeftButton") then m:Hide() end
             end)
-        end)
-        popup:SetScript("OnHide", function(p)
-            p:SetScript("OnUpdate", nil)
-            if ns._ccGridPopup == p then ns._ccGridPopup = nil end
         end)
         popup:Show()
     end)
@@ -3195,7 +3552,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     stickyLeftBg:SetPoint("BOTTOMRIGHT", leftOuter, "BOTTOMRIGHT", 0, 0)
     stickyLeftBg:SetFrameLevel(leftOuter:GetFrameLevel() + 4)
     local slbTex = stickyLeftBg:CreateTexture(nil, "BACKGROUND")
-    slbTex:SetAllPoints(); slbTex:SetColorTexture(15/255, 17/255, 22/255, 1)
+    slbTex:SetAllPoints(); slbTex:SetColorTexture(17/255, 15/255, 12/255, 1)
     stickyLeftBg:Hide()
 
     local stickyGlobalBtn = CreateFrame("Button", nil, leftOuter)
@@ -3302,13 +3659,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     qbBtn:SetScript("OnClick", function()
         if ns._ccQBPopup and ns._ccQBPopup:IsShown() then ns._ccQBPopup:Hide(); return end
 
-        local dimmer = CreateFrame("Frame", nil, UIParent)
-        dimmer:SetFrameStrata("FULLSCREEN")
-        dimmer:SetAllPoints()
-        dimmer:EnableMouse(true)
-        local dimBg = dimmer:CreateTexture(nil, "BACKGROUND")
-        dimBg:SetAllPoints(); dimBg:SetColorTexture(0, 0, 0, 0.6)
-
         local QB_INSET = 15
         local QB_COLS = 5
         local QB_ICON = 32
@@ -3322,68 +3672,115 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local popupWQB = innerGridWQB + QB_INSET * 2
         local popupHQB = 400
 
-        local popup = CreateFrame("Frame", nil, dimmer)
-        popup:SetSize(popupWQB, popupHQB)
-        popup:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        popup:SetFrameStrata("FULLSCREEN_DIALOG")
-        popup:SetFrameLevel(200)
-        popup:EnableMouse(true)
+        -- Built on the first open; every open re-dresses it.
+        local ui = ccPickers.qb
+        if not ui then
+            local dimmer = CreateFrame("Frame", nil, UIParent)
+            dimmer:Hide()
+            dimmer:SetFrameStrata("FULLSCREEN")
+            dimmer:SetAllPoints()
+            dimmer:EnableMouse(true)
+            local dimBg = dimmer:CreateTexture(nil, "BACKGROUND")
+            dimBg:SetAllPoints(); dimBg:SetColorTexture(0, 0, 0, 0.6)
 
-        local pBg = popup:CreateTexture(nil, "BACKGROUND")
-        pBg:SetAllPoints(); pBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+            local popup = CreateFrame("Frame", nil, dimmer)
+            popup:SetSize(popupWQB, popupHQB)
+            popup:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+            popup:SetFrameStrata("FULLSCREEN_DIALOG")
+            popup:SetFrameLevel(200)
+            popup:EnableMouse(true)
+
+            local pBg = popup:CreateTexture(nil, "BACKGROUND")
+            pBg:SetAllPoints(); pBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
+            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+
+            local titleLbl = MakeFont(popup, 13, 1, 1, 1, 0.9)
+            titleLbl:SetPoint("TOP", popup, "TOP", 0, -QB_INSET)
+            titleLbl:SetText(EllesmereUI.L("Quickbind: hover a spell, press a key"))
+
+            local toggleInnerQB = popupWQB - QB_INSET * 2
+            local toggleBtnWQB = floor(toggleInnerQB / 3) - 2
+            local toggleTopQB = -(QB_INSET + 22)
+
+            local spellTglQB = CreateFrame("Button", nil, popup)
+            spellTglQB:SetSize(toggleBtnWQB, 26)
+            spellTglQB:SetPoint("TOPLEFT", popup, "TOPLEFT", QB_INSET, toggleTopQB)
+            local stBgQB = spellTglQB:CreateTexture(nil, "BACKGROUND"); stBgQB:SetAllPoints()
+            local stHlQB = spellTglQB:CreateTexture(nil, "HIGHLIGHT"); stHlQB:SetAllPoints(); stHlQB:SetColorTexture(1, 1, 1, 0.1)
+            local stLblQB = MakeFont(spellTglQB, 12, 1, 1, 1, 0.9); stLblQB:SetPoint("CENTER"); stLblQB:SetText(EllesmereUI.L("Spells"))
+
+            local macroTglQB = CreateFrame("Button", nil, popup)
+            macroTglQB:SetSize(toggleBtnWQB, 26)
+            macroTglQB:SetPoint("LEFT", spellTglQB, "RIGHT", 3, 0)
+            local mtBgQB = macroTglQB:CreateTexture(nil, "BACKGROUND"); mtBgQB:SetAllPoints()
+            local mtHlQB = macroTglQB:CreateTexture(nil, "HIGHLIGHT"); mtHlQB:SetAllPoints(); mtHlQB:SetColorTexture(1, 1, 1, 0.1)
+            local mtLblQB = MakeFont(macroTglQB, 12, 1, 1, 1, 0.9); mtLblQB:SetPoint("CENTER"); mtLblQB:SetText(EllesmereUI.L("Macros"))
+
+            local itemTglQB = CreateFrame("Button", nil, popup)
+            itemTglQB:SetSize(toggleBtnWQB, 26)
+            itemTglQB:SetPoint("LEFT", macroTglQB, "RIGHT", 3, 0)
+            local itBgQB = itemTglQB:CreateTexture(nil, "BACKGROUND"); itBgQB:SetAllPoints()
+            local itHlQB = itemTglQB:CreateTexture(nil, "HIGHLIGHT"); itHlQB:SetAllPoints(); itHlQB:SetColorTexture(1, 1, 1, 0.1)
+            local itLblQB = MakeFont(itemTglQB, 12, 1, 1, 1, 0.9); itLblQB:SetPoint("CENTER"); itLblQB:SetText(EllesmereUI.L("Items"))
+
+            local gridScrollQB = CreateFrame("ScrollFrame", nil, popup)
+            gridScrollQB:SetPoint("TOPLEFT", popup, "TOPLEFT", QB_INSET, toggleTopQB - 36)
+            gridScrollQB:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -QB_INSET, QB_INSET + 38)
+            gridScrollQB:SetFrameLevel(popup:GetFrameLevel() + 2)
+            local gridChildQB = CreateFrame("Frame", nil, gridScrollQB)
+            gridChildQB:SetWidth(innerGridWQB)
+            gridScrollQB:SetScrollChild(gridChildQB)
+            gridScrollQB:EnableMouseWheel(true)
+            gridScrollQB:SetScript("OnMouseWheel", function(self, delta)
+                local s = self:GetVerticalScroll()
+                local mx = max(0, gridChildQB:GetHeight() - self:GetHeight())
+                self:SetVerticalScroll(max(0, min(mx, s - delta * 30)))
+            end)
+
+            local doneBtn = CreateFrame("Button", nil, popup)
+            doneBtn:SetSize(100, 30)
+            doneBtn:SetPoint("BOTTOM", popup, "BOTTOM", 0, QB_INSET)
+            doneBtn:SetFrameLevel(popup:GetFrameLevel() + 3)
+            local doneBg = doneBtn:CreateTexture(nil, "BACKGROUND")
+            doneBg:SetAllPoints(); doneBg:SetColorTexture(0.25, 0.25, 0.25, 0.6)
+            local doneLbl = MakeFont(doneBtn, 11, 1, 1, 1, 0.5)
+            doneLbl:SetPoint("CENTER"); doneLbl:SetText(EllesmereUI.L("Done"))
+            doneBtn:SetScript("OnEnter", function() doneBg:SetColorTexture(0.35, 0.35, 0.35, 0.8); doneLbl:SetAlpha(0.9) end)
+            doneBtn:SetScript("OnLeave", function() doneBg:SetColorTexture(0.25, 0.25, 0.25, 0.6); doneLbl:SetAlpha(0.5) end)
+            doneBtn:SetScript("OnClick", function() dimmer:Hide() end)
+
+            dimmer:SetScript("OnMouseDown", function(self, button)
+                if not popup:IsMouseOver() then dimmer:Hide() end
+            end)
+
+            ui = {
+                dimmer = dimmer, title = titleLbl, scroll = gridScrollQB, child = gridChildQB,
+                spellTgl = spellTglQB, stBg = stBgQB, stLbl = stLblQB,
+                macroTgl = macroTglQB, mtBg = mtBgQB, mtLbl = mtLblQB,
+                itemTgl = itemTglQB, itBg = itBgQB, itLbl = itLblQB,
+                doneBg = doneBg, doneLbl = doneLbl,
+            }
+            ccPickers.qb = ui
+        end
+        local dimmer, gridScrollQB, gridChildQB = ui.dimmer, ui.scroll, ui.child
+        local stBgQB, mtBgQB, itBgQB = ui.stBg, ui.mtBg, ui.itBg
         ns._ccQBPopup = dimmer
-
-        local titleLbl = MakeFont(popup, 13, 1, 1, 1, 0.9)
-        titleLbl:SetPoint("TOP", popup, "TOP", 0, -QB_INSET)
-        titleLbl:SetText(EllesmereUI.L("Quickbind: hover a spell, press a key"))
+        StyleFont(ui.title, 13, 1, 1, 1, 0.9)
+        StyleFont(ui.stLbl, 12, 1, 1, 1, 0.9)
+        StyleFont(ui.mtLbl, 12, 1, 1, 1, 0.9)
+        StyleFont(ui.itLbl, 12, 1, 1, 1, 0.9)
+        StyleFont(ui.doneLbl, 11, 1, 1, 1, 0.5)
+        ui.doneLbl:SetAlpha(1)
+        ui.doneBg:SetColorTexture(0.25, 0.25, 0.25, 0.6)
+        gridScrollQB:SetVerticalScroll(0)
 
         local toggleModeQB = "spell"
-        local toggleInnerQB = popupWQB - QB_INSET * 2
-        local toggleBtnWQB = floor(toggleInnerQB / 3) - 2
-        local toggleTopQB = -(QB_INSET + 22)
-
-        local spellTglQB = CreateFrame("Button", nil, popup)
-        spellTglQB:SetSize(toggleBtnWQB, 26)
-        spellTglQB:SetPoint("TOPLEFT", popup, "TOPLEFT", QB_INSET, toggleTopQB)
-        local stBgQB = spellTglQB:CreateTexture(nil, "BACKGROUND"); stBgQB:SetAllPoints()
-        local stHlQB = spellTglQB:CreateTexture(nil, "HIGHLIGHT"); stHlQB:SetAllPoints(); stHlQB:SetColorTexture(1, 1, 1, 0.1)
-        local stLblQB = MakeFont(spellTglQB, 12, 1, 1, 1, 0.9); stLblQB:SetPoint("CENTER"); stLblQB:SetText(EllesmereUI.L("Spells"))
-
-        local macroTglQB = CreateFrame("Button", nil, popup)
-        macroTglQB:SetSize(toggleBtnWQB, 26)
-        macroTglQB:SetPoint("LEFT", spellTglQB, "RIGHT", 3, 0)
-        local mtBgQB = macroTglQB:CreateTexture(nil, "BACKGROUND"); mtBgQB:SetAllPoints()
-        local mtHlQB = macroTglQB:CreateTexture(nil, "HIGHLIGHT"); mtHlQB:SetAllPoints(); mtHlQB:SetColorTexture(1, 1, 1, 0.1)
-        local mtLblQB = MakeFont(macroTglQB, 12, 1, 1, 1, 0.9); mtLblQB:SetPoint("CENTER"); mtLblQB:SetText(EllesmereUI.L("Macros"))
-
-        local itemTglQB = CreateFrame("Button", nil, popup)
-        itemTglQB:SetSize(toggleBtnWQB, 26)
-        itemTglQB:SetPoint("LEFT", macroTglQB, "RIGHT", 3, 0)
-        local itBgQB = itemTglQB:CreateTexture(nil, "BACKGROUND"); itBgQB:SetAllPoints()
-        local itHlQB = itemTglQB:CreateTexture(nil, "HIGHLIGHT"); itHlQB:SetAllPoints(); itHlQB:SetColorTexture(1, 1, 1, 0.1)
-        local itLblQB = MakeFont(itemTglQB, 12, 1, 1, 1, 0.9); itLblQB:SetPoint("CENTER"); itLblQB:SetText(EllesmereUI.L("Items"))
-
-        local gridScrollQB = CreateFrame("ScrollFrame", nil, popup)
-        gridScrollQB:SetPoint("TOPLEFT", popup, "TOPLEFT", QB_INSET, toggleTopQB - 36)
-        gridScrollQB:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -QB_INSET, QB_INSET + 38)
-        gridScrollQB:SetFrameLevel(popup:GetFrameLevel() + 2)
-        local gridChildQB = CreateFrame("Frame", nil, gridScrollQB)
-        gridChildQB:SetWidth(innerGridWQB)
-        gridScrollQB:SetScrollChild(gridChildQB)
-        gridScrollQB:EnableMouseWheel(true)
-        gridScrollQB:SetScript("OnMouseWheel", function(self, delta)
-            local s = self:GetVerticalScroll()
-            local mx = max(0, gridChildQB:GetHeight() - self:GetHeight())
-            self:SetVerticalScroll(max(0, min(mx, s - delta * 30)))
-        end)
 
         -- Hovered item reference (set by cell OnEnter/OnLeave)
         local hoveredItem = nil
 
         local UpdateToggleQB
         local function PopulateGridQB(items3)
-            for _, c2 in ipairs({gridChildQB:GetChildren()}) do c2:Hide(); c2:SetParent(nil) end
             hoveredItem = nil
             local totalRows = math.ceil(#items3 / QB_COLS)
             local rht3 = {}
@@ -3409,39 +3806,22 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 local cx = col * (QB_CELL + QB_CGAP)
                 local cy = rY3[r]
                 if col == 0 and r > 0 then
-                    local div = gridChildQB:CreateTexture(nil, "ARTWORK")
-                    div:SetHeight(pxSnap3(1))
+                    local div = CC_PickerDivider(gridChildQB, r, PP)
+                    div:SetHeight(pxSnap3(1)); div:ClearAllPoints()
                     div:SetPoint("TOPLEFT", gridChildQB, "TOPLEFT", 0, cy + QB_RGAP / 2)
                     div:SetPoint("TOPRIGHT", gridChildQB, "TOPRIGHT", 0, cy + QB_RGAP / 2)
-                    div:SetColorTexture(1, 1, 1, 0.06)
-                    if PP then PP.DisablePixelSnap(div) end
+                    div:Show()
                 end
-                local cell = CreateFrame("Button", nil, gridChildQB)
-                cell:SetSize(QB_CELL, rH3[r])
-                cell:SetPoint("TOPLEFT", gridChildQB, "TOPLEFT", cx, cy)
-                cell:RegisterForClicks("AnyUp")
-                cell:EnableKeyboard(false)
-                local iconFr = CreateFrame("Frame", nil, cell); iconFr:SetSize(QB_ICON, QB_ICON)
-                local iconTx = iconFr:CreateTexture(nil, "ARTWORK"); iconTx:SetAllPoints()
-                iconTx:SetTexCoord(0.08, 0.92, 0.08, 0.92); iconTx:SetTexture(item.icon or 134400)
                 local dimmed3 = (item.id and ns.CC_IsSpellBound(boundSpells, item.id, item.name, item.lowRank))
                     or (item.macroName and boundMacros[item.macroName])
                     or (item.itemSlot and boundItems[item.itemSlot])
-                if dimmed3 then iconTx:SetAlpha(0.3) end
-                local iconBd = CreateFrame("Frame", nil, iconFr); iconBd:SetAllPoints()
-                iconBd:SetFrameLevel(iconFr:GetFrameLevel() + 1); iconBd:Hide()
-                if PP then PP.CreateBorder(iconBd, accentColor.r, accentColor.g, accentColor.b, 1, 2) end
-                local cellLbl3 = nil
-                if rht3[r] and item.name and item.name ~= "" then
-                    cellLbl3 = MakeFont(cell, QB_LFONT, 1, 1, 1, dimmed3 and 0.3 or 0.7)
-                    cellLbl3:SetPoint("TOP", cell, "TOP", 0, 0); cellLbl3:SetWidth(QB_CELL + 4)
-                    -- A WoW Forever lower rank labels itself by its rank.
-                    cellLbl3:SetJustifyH("CENTER"); cellLbl3:SetWordWrap(false)
-                    cellLbl3:SetText(item.lowRank and item.rankText or item.name)
-                    iconFr:SetPoint("TOP", cellLbl3, "BOTTOM", 0, -QB_LGAP)
-                else
-                    iconFr:SetPoint("TOP", cell, "TOP", 0, 0)
-                end
+                -- A WoW Forever lower rank labels itself by its rank.
+                local cell, iconBd, cellLbl3 = DressPickerCell(gridChildQB, i, cx, cy, QB_CELL, rH3[r],
+                    item.icon, dimmed3,
+                    rht3[r] and item.name and item.name ~= "" and (item.lowRank and item.rankText or item.name) or nil,
+                    QB_LFONT, QB_LGAP)
+                cell:RegisterForClicks("AnyUp")
+                cell:EnableKeyboard(false)
                 cell:SetScript("OnEnter", function()
                     iconBd:Show()
                     if cellLbl3 then cellLbl3:SetAlpha(1) end
@@ -3519,6 +3899,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 end)
             end
             gridChildQB:SetHeight(max(10, cY3))
+            CC_PickerFinish(gridChildQB, #items3, totalRows)
         end
 
         function UpdateToggleQB()
@@ -3543,25 +3924,10 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
         UpdateToggleQB()
 
-        spellTglQB:SetScript("OnClick", function() toggleModeQB = "spell"; UpdateToggleQB() end)
-        macroTglQB:SetScript("OnClick", function() toggleModeQB = "macro"; UpdateToggleQB() end)
-        itemTglQB:SetScript("OnClick", function() toggleModeQB = "item"; UpdateToggleQB() end)
+        ui.spellTgl:SetScript("OnClick", function() toggleModeQB = "spell"; UpdateToggleQB() end)
+        ui.macroTgl:SetScript("OnClick", function() toggleModeQB = "macro"; UpdateToggleQB() end)
+        ui.itemTgl:SetScript("OnClick", function() toggleModeQB = "item"; UpdateToggleQB() end)
 
-        local doneBtn = CreateFrame("Button", nil, popup)
-        doneBtn:SetSize(100, 30)
-        doneBtn:SetPoint("BOTTOM", popup, "BOTTOM", 0, QB_INSET)
-        doneBtn:SetFrameLevel(popup:GetFrameLevel() + 3)
-        local doneBg = doneBtn:CreateTexture(nil, "BACKGROUND")
-        doneBg:SetAllPoints(); doneBg:SetColorTexture(0.25, 0.25, 0.25, 0.6)
-        local doneLbl = MakeFont(doneBtn, 11, 1, 1, 1, 0.5)
-        doneLbl:SetPoint("CENTER"); doneLbl:SetText(EllesmereUI.L("Done"))
-        doneBtn:SetScript("OnEnter", function() doneBg:SetColorTexture(0.35, 0.35, 0.35, 0.8); doneLbl:SetAlpha(0.9) end)
-        doneBtn:SetScript("OnLeave", function() doneBg:SetColorTexture(0.25, 0.25, 0.25, 0.6); doneLbl:SetAlpha(0.5) end)
-        doneBtn:SetScript("OnClick", function() dimmer:Hide() end)
-
-        dimmer:SetScript("OnMouseDown", function(self, button)
-            if not popup:IsMouseOver() then dimmer:Hide() end
-        end)
         dimmer:SetScript("OnHide", function()
             if ns._ccQBPopup == dimmer then ns._ccQBPopup = nil end
             RebuildPage()
@@ -3578,11 +3944,76 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local innerGridW3 = 5 * 48 + 4 * 19
         local popupW = innerGridW3 + INSET3 * 2
         local popupH2 = 400
-        local popup = CreateFrame("Frame", nil, UIParent)
-        popup:Hide()  -- start hidden so Show() triggers OnShow
-        popup:SetSize(popupW, popupH2)
-        popup:SetFrameStrata("FULLSCREEN_DIALOG")
-        popup:SetFrameLevel(200)
+        local INSET2 = 15
+
+        -- Built on the first open; every open re-dresses it.
+        local ui = ccPickers.spec
+        if not ui then
+            local popup = CreateFrame("Frame", nil, UIParent)
+            popup:Hide()  -- start hidden so Show() triggers OnShow
+            popup:SetSize(popupW, popupH2)
+            popup:SetFrameStrata("FULLSCREEN_DIALOG")
+            popup:SetFrameLevel(200)
+            local pBg = popup:CreateTexture(nil, "BACKGROUND")
+            pBg:SetAllPoints(); pBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
+            popup:EnableMouse(true)
+            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+
+            local toggleInner = popupW - INSET2 * 2
+            local toggleBtnW = floor(toggleInner / 3) - 2
+
+            local spellToggle = CreateFrame("Button", nil, popup)
+            spellToggle:SetSize(toggleBtnW, 26)
+            spellToggle:SetPoint("TOPLEFT", popup, "TOPLEFT", INSET2, -INSET2)
+            local stBg = spellToggle:CreateTexture(nil, "BACKGROUND"); stBg:SetAllPoints()
+            local stHl = spellToggle:CreateTexture(nil, "HIGHLIGHT"); stHl:SetAllPoints(); stHl:SetColorTexture(1, 1, 1, 0.1)
+            local stLbl = MakeFont(spellToggle, 12, 1, 1, 1, 0.9); stLbl:SetPoint("CENTER"); stLbl:SetText(EllesmereUI.L("Spells"))
+
+            local macroToggle = CreateFrame("Button", nil, popup)
+            macroToggle:SetSize(toggleBtnW, 26)
+            macroToggle:SetPoint("LEFT", spellToggle, "RIGHT", 3, 0)
+            local mtBg = macroToggle:CreateTexture(nil, "BACKGROUND"); mtBg:SetAllPoints()
+            local mtHl = macroToggle:CreateTexture(nil, "HIGHLIGHT"); mtHl:SetAllPoints(); mtHl:SetColorTexture(1, 1, 1, 0.1)
+            local mtLbl = MakeFont(macroToggle, 12, 1, 1, 1, 0.9); mtLbl:SetPoint("CENTER"); mtLbl:SetText(EllesmereUI.L("Macros"))
+
+            local itemToggle = CreateFrame("Button", nil, popup)
+            itemToggle:SetSize(toggleBtnW, 26)
+            itemToggle:SetPoint("LEFT", macroToggle, "RIGHT", 3, 0)
+            local itBg = itemToggle:CreateTexture(nil, "BACKGROUND"); itBg:SetAllPoints()
+            local itHl = itemToggle:CreateTexture(nil, "HIGHLIGHT"); itHl:SetAllPoints(); itHl:SetColorTexture(1, 1, 1, 0.1)
+            local itLbl = MakeFont(itemToggle, 12, 1, 1, 1, 0.9); itLbl:SetPoint("CENTER"); itLbl:SetText(EllesmereUI.L("Items"))
+
+            -- Grid scroll area (inset on all sides, below toggle row)
+            local gridScroll = CreateFrame("ScrollFrame", nil, popup)
+            gridScroll:SetPoint("TOPLEFT", popup, "TOPLEFT", INSET2, -(INSET2 + 40))
+            gridScroll:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -INSET2, INSET2)
+            gridScroll:SetFrameLevel(popup:GetFrameLevel() + 2)
+            local innerGridW = popupW - INSET2 * 2
+            local gridChild = CreateFrame("Frame", nil, gridScroll)
+            gridChild:SetWidth(innerGridW)
+            gridScroll:SetScrollChild(gridChild)
+            gridScroll:EnableMouseWheel(true)
+            gridScroll:SetScript("OnMouseWheel", function(self, delta)
+                local s = self:GetVerticalScroll()
+                local mx = max(0, gridChild:GetHeight() - self:GetHeight())
+                self:SetVerticalScroll(max(0, min(mx, s - delta * 30)))
+            end)
+
+            popup:SetScript("OnHide", function(p)
+                p:SetScript("OnUpdate", nil)
+                if ns._ccSpecPopup == p then ns._ccSpecPopup = nil end
+            end)
+
+            ui = {
+                popup = popup, scroll = gridScroll, child = gridChild,
+                spellToggle = spellToggle, stBg = stBg, stLbl = stLbl,
+                macroToggle = macroToggle, mtBg = mtBg, mtLbl = mtLbl,
+                itemToggle = itemToggle, itBg = itBg, itLbl = itLbl,
+            }
+            ccPickers.spec = ui
+        end
+        local popup, gridScroll, gridChild = ui.popup, ui.scroll, ui.child
+        local stBg, mtBg, itBg = ui.stBg, ui.mtBg, ui.itBg
         -- Right edge flush with left edge of right sidebar, centered vertically on the add button
         local btnMidY = select(2, addSpecBtn:GetCenter()) or 0
         local sidebarMidY = select(2, rightOuter:GetCenter()) or 0
@@ -3591,56 +4022,16 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local rootBotR = root:GetBottom() or 0
         local popupBotR = btnMidY - popupH2 / 2
         if popupBotR < rootBotR then offsetY = offsetY + (rootBotR - popupBotR) end
+        popup:ClearAllPoints()
         popup:SetPoint("RIGHT", rightOuter, "LEFT", 0, offsetY)
 
-        local pBg = popup:CreateTexture(nil, "BACKGROUND")
-        pBg:SetAllPoints(); pBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-        popup:EnableMouse(true)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
-
         ns._ccSpecPopup = popup
+        StyleFont(ui.stLbl, 12, 1, 1, 1, 0.9)
+        StyleFont(ui.mtLbl, 12, 1, 1, 1, 0.9)
+        StyleFont(ui.itLbl, 12, 1, 1, 1, 0.9)
+        gridScroll:SetVerticalScroll(0)
 
-        local INSET2 = 15
         local toggleMode = "spell"
-        local toggleInner = popupW - INSET2 * 2
-        local toggleBtnW = floor(toggleInner / 3) - 2
-
-        local spellToggle = CreateFrame("Button", nil, popup)
-        spellToggle:SetSize(toggleBtnW, 26)
-        spellToggle:SetPoint("TOPLEFT", popup, "TOPLEFT", INSET2, -INSET2)
-        local stBg = spellToggle:CreateTexture(nil, "BACKGROUND"); stBg:SetAllPoints()
-        local stHl = spellToggle:CreateTexture(nil, "HIGHLIGHT"); stHl:SetAllPoints(); stHl:SetColorTexture(1, 1, 1, 0.1)
-        local stLbl = MakeFont(spellToggle, 12, 1, 1, 1, 0.9); stLbl:SetPoint("CENTER"); stLbl:SetText(EllesmereUI.L("Spells"))
-
-        local macroToggle = CreateFrame("Button", nil, popup)
-        macroToggle:SetSize(toggleBtnW, 26)
-        macroToggle:SetPoint("LEFT", spellToggle, "RIGHT", 3, 0)
-        local mtBg = macroToggle:CreateTexture(nil, "BACKGROUND"); mtBg:SetAllPoints()
-        local mtHl = macroToggle:CreateTexture(nil, "HIGHLIGHT"); mtHl:SetAllPoints(); mtHl:SetColorTexture(1, 1, 1, 0.1)
-        local mtLbl = MakeFont(macroToggle, 12, 1, 1, 1, 0.9); mtLbl:SetPoint("CENTER"); mtLbl:SetText(EllesmereUI.L("Macros"))
-
-        local itemToggle = CreateFrame("Button", nil, popup)
-        itemToggle:SetSize(toggleBtnW, 26)
-        itemToggle:SetPoint("LEFT", macroToggle, "RIGHT", 3, 0)
-        local itBg = itemToggle:CreateTexture(nil, "BACKGROUND"); itBg:SetAllPoints()
-        local itHl = itemToggle:CreateTexture(nil, "HIGHLIGHT"); itHl:SetAllPoints(); itHl:SetColorTexture(1, 1, 1, 0.1)
-        local itLbl = MakeFont(itemToggle, 12, 1, 1, 1, 0.9); itLbl:SetPoint("CENTER"); itLbl:SetText(EllesmereUI.L("Items"))
-
-        -- Grid scroll area (inset on all sides, below toggle row)
-        local gridScroll = CreateFrame("ScrollFrame", nil, popup)
-        gridScroll:SetPoint("TOPLEFT", popup, "TOPLEFT", INSET2, -(INSET2 + 40))
-        gridScroll:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -INSET2, INSET2)
-        gridScroll:SetFrameLevel(popup:GetFrameLevel() + 2)
-        local innerGridW = popupW - INSET2 * 2
-        local gridChild = CreateFrame("Frame", nil, gridScroll)
-        gridChild:SetWidth(innerGridW)
-        gridScroll:SetScrollChild(gridChild)
-        gridScroll:EnableMouseWheel(true)
-        gridScroll:SetScript("OnMouseWheel", function(self, delta)
-            local s = self:GetVerticalScroll()
-            local mx = max(0, gridChild:GetHeight() - self:GetHeight())
-            self:SetVerticalScroll(max(0, min(mx, s - delta * 30)))
-        end)
 
         local GC2 = 5
         local ISZ2 = 32
@@ -3649,12 +4040,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local LFONT2 = 10
         local LGAP2 = 4
         local RGAP2 = 8
-        local DIVH2 = 1
         local LH2 = 14
 
         local function PopulateGrid(items2, onItemClick)
-            for _, c2 in ipairs({gridChild:GetChildren()}) do c2:Hide(); c2:SetParent(nil) end
-
             local totalRows2 = math.ceil(#items2 / GC2)
             local rht = {}
             for r = 0, totalRows2 - 1 do
@@ -3685,46 +4073,21 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
                 if col == 0 and r > 0 then
                     local divY = cy + RGAP2 / 2
-                    local div = gridChild:CreateTexture(nil, "ARTWORK")
-                    div:SetHeight(pxSnap2(1))
+                    local div = CC_PickerDivider(gridChild, r, PP)
+                    div:SetHeight(pxSnap2(1)); div:ClearAllPoints()
                     div:SetPoint("TOPLEFT", gridChild, "TOPLEFT", 0, divY)
                     div:SetPoint("TOPRIGHT", gridChild, "TOPRIGHT", 0, divY)
-                    div:SetColorTexture(1, 1, 1, 0.06)
-                    if PP then PP.DisablePixelSnap(div) end
+                    div:Show()
                 end
 
-                local cell = CreateFrame("Button", nil, gridChild)
-                cell:SetSize(CW2, rH2[r])
-                cell:SetPoint("TOPLEFT", gridChild, "TOPLEFT", cx, cy)
-
-                local iconFrame2 = CreateFrame("Frame", nil, cell)
-                iconFrame2:SetSize(ISZ2, ISZ2)
-                local iconTex = iconFrame2:CreateTexture(nil, "ARTWORK")
-                iconTex:SetAllPoints()
-                iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                iconTex:SetTexture(item.icon or 134400)
                 local dimmed = (item.id and ns.CC_IsSpellBound(boundSpells, item.id, item.name, item.lowRank))
                     or (item.macroName and boundMacros[item.macroName])
                     or (item.itemSlot and boundItems[item.itemSlot])
-                if dimmed then iconTex:SetAlpha(0.3) end
-
-                local iconBdr2 = CreateFrame("Frame", nil, iconFrame2)
-                iconBdr2:SetAllPoints()
-                iconBdr2:SetFrameLevel(iconFrame2:GetFrameLevel() + 1)
-                iconBdr2:Hide()
-                if PP then PP.CreateBorder(iconBdr2, accentColor.r, accentColor.g, accentColor.b, 1, 2) end
-
-                local cellLbl2 = nil
-                if rht[r] and item.name and item.name ~= "" then
-                    cellLbl2 = MakeFont(cell, LFONT2, 1, 1, 1, dimmed and 0.3 or 0.7)
-                    cellLbl2:SetPoint("TOP", cell, "TOP", 0, 0)
-                    cellLbl2:SetWidth(CW2 + 4); cellLbl2:SetJustifyH("CENTER"); cellLbl2:SetWordWrap(false)
-                    -- A WoW Forever lower rank labels itself by its rank.
-                    cellLbl2:SetText(item.lowRank and item.rankText or item.name)
-                    iconFrame2:SetPoint("TOP", cellLbl2, "BOTTOM", 0, -LGAP2)
-                else
-                    iconFrame2:SetPoint("TOP", cell, "TOP", 0, 0)
-                end
+                -- A WoW Forever lower rank labels itself by its rank.
+                local cell, iconBdr2, cellLbl2 = DressPickerCell(gridChild, i, cx, cy, CW2, rH2[r],
+                    item.icon, dimmed,
+                    rht[r] and item.name and item.name ~= "" and (item.lowRank and item.rankText or item.name) or nil,
+                    LFONT2, LGAP2)
 
                 cell:SetScript("OnEnter", function()
                     iconBdr2:Show()
@@ -3739,6 +4102,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 cell:SetScript("OnClick", function() onItemClick(item); popup:Hide() end)
             end
             gridChild:SetHeight(max(10, cY2))
+            CC_PickerFinish(gridChild, #items2, totalRows2)
         end
 
         local function UpdateToggle()
@@ -3790,9 +4154,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
         UpdateToggle()
 
-        spellToggle:SetScript("OnClick", function() toggleMode = "spell"; UpdateToggle() end)
-        macroToggle:SetScript("OnClick", function() toggleMode = "macro"; UpdateToggle() end)
-        itemToggle:SetScript("OnClick", function() toggleMode = "item"; UpdateToggle() end)
+        ui.spellToggle:SetScript("OnClick", function() toggleMode = "spell"; UpdateToggle() end)
+        ui.macroToggle:SetScript("OnClick", function() toggleMode = "macro"; UpdateToggle() end)
+        ui.itemToggle:SetScript("OnClick", function() toggleMode = "item"; UpdateToggle() end)
 
         -- Auto-close on click outside (dropdown pattern: poll IsMouseButtonDown)
         popup:SetScript("OnShow", function(p)
@@ -3802,10 +4166,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     m:Hide()
                 end
             end)
-        end)
-        popup:SetScript("OnHide", function(p)
-            p:SetScript("OnUpdate", nil)
-            if ns._ccSpecPopup == p then ns._ccSpecPopup = nil end
         end)
 
         popup:Show()
@@ -3820,7 +4180,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     stickyRightBg:SetPoint("BOTTOMRIGHT", rightOuter, "BOTTOMRIGHT", 0, 0)
     stickyRightBg:SetFrameLevel(rightOuter:GetFrameLevel() + 4)
     local srbTex = stickyRightBg:CreateTexture(nil, "BACKGROUND")
-    srbTex:SetAllPoints(); srbTex:SetColorTexture(15/255, 17/255, 22/255, 1)
+    srbTex:SetAllPoints(); srbTex:SetColorTexture(17/255, 15/255, 12/255, 1)
     stickyRightBg:Hide()
 
     local stickySpecBtn = CreateFrame("Button", nil, rightOuter)
@@ -3990,6 +4350,25 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         RowToggle(row,
             function() return cc.downClick end,
             function(v) ns.CC_SetDownClick(v) end)
+        centerY = centerY - ROW_H
+    end
+
+    -- Clear Stuck Spell Targeting (AddTargetingClears): every binding's macro
+    -- changes, so a switch re-applies them all.
+    do
+        local row = MakeRow(centerY)
+        RowLabel(row, "Clear Stuck Spell Targeting")
+        RowToggle(row,
+            function() return cc.clearTargeting ~= false end,
+            function(v)
+                if v then cc.clearTargeting = nil else cc.clearTargeting = false end
+                ns.CC_ApplyBindings()
+            end)
+        row:EnableMouse(true)
+        row:SetScript("OnEnter", function(self)
+            EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Before a binding casts, cancel any spell still waiting for a target (the glowing hand cursor left by a cast on a unit it can't take), so the press casts instead of being swallowed."))
+        end)
+        row:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         centerY = centerY - ROW_H
     end
 
@@ -4271,7 +4650,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     end
 
     -- SPELL STRIP (right edge, always visible): narrow scrollable column of
-    -- class/spec spell icons. Click to add.
+    -- class/spec spell icons. Click to add. Built on the first page build and
+    -- re-dressed on every later one; its icon cells are pooled by index.
     do
         local SS_ICON = 32
         local SS_PAD = 10
@@ -4279,77 +4659,111 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
         -- Parent to the EUI panel (outside the scroll system) so it's flush with the window edge
         local euiPanel = scrollFrame:GetParent()
-        local stripOuter = CreateFrame("Frame", nil, euiPanel or root)
-        stripOuter:SetSize(SPELL_STRIP_W, visibleH)
-        stripOuter:SetPoint("TOPLEFT", scrollFrame, "TOPRIGHT", 0, 0)
-        stripOuter:SetFrameLevel((euiPanel or root):GetFrameLevel() + 10)
-        local stripBg = stripOuter:CreateTexture(nil, "BACKGROUND")
-        stripBg:SetAllPoints(); stripBg:SetColorTexture(0, 0, 0, 0.6)
-        stripOuter:SetAlpha(0.35)
-        local stripOverlay = CreateFrame("Frame", nil, stripOuter)
-        stripOverlay:SetAllPoints()
-        stripOverlay:SetFrameLevel(stripOuter:GetFrameLevel() + 20)
-        stripOverlay:EnableMouse(false)
-        local overlayTex = stripOverlay:CreateTexture(nil, "OVERLAY")
-        overlayTex:SetAllPoints(); overlayTex:SetColorTexture(0, 0, 0, 0.5)
-        local stripWantHover = false
-        local stripPending = false
-        local function StripUpdate()
-            stripPending = false
-            if stripWantHover then
-                stripOuter:SetAlpha(1); overlayTex:SetAlpha(0)
-            else
-                stripOuter:SetAlpha(0.35); overlayTex:SetAlpha(0.5)
+        local host = euiPanel or root
+        local stripOuter = ns._ccSpellStrip
+        if not stripOuter then
+            stripOuter = CreateFrame("Frame", nil, host)
+            stripOuter:SetFrameLevel(host:GetFrameLevel() + 10)
+            local stripBg = stripOuter:CreateTexture(nil, "BACKGROUND")
+            stripBg:SetAllPoints(); stripBg:SetColorTexture(0, 0, 0, 0.6)
+            local stripOverlay = CreateFrame("Frame", nil, stripOuter)
+            stripOverlay:SetAllPoints()
+            stripOverlay:SetFrameLevel(stripOuter:GetFrameLevel() + 20)
+            stripOverlay:EnableMouse(false)
+            local overlayTex = stripOverlay:CreateTexture(nil, "OVERLAY")
+            overlayTex:SetAllPoints(); overlayTex:SetColorTexture(0, 0, 0, 0.5)
+            -- Hover look, applied once per frame; a page build drops a queued
+            -- update by clearing _pending.
+            local function StripUpdate()
+                if not stripOuter._pending then return end
+                stripOuter._pending = false
+                if stripOuter._wantHover then
+                    stripOuter:SetAlpha(1); overlayTex:SetAlpha(0)
+                else
+                    stripOuter:SetAlpha(0.35); overlayTex:SetAlpha(0.5)
+                end
             end
-        end
-        local function StripEnter()
-            stripWantHover = true
-            if not stripPending then stripPending = true; C_Timer.After(0, StripUpdate) end
-        end
-        local function StripLeave()
-            stripWantHover = false
-            if not stripPending then stripPending = true; C_Timer.After(0, StripUpdate) end
-        end
+            local function StripEnter()
+                stripOuter._wantHover = true
+                if not stripOuter._pending then stripOuter._pending = true; C_Timer.After(0, StripUpdate) end
+            end
+            local function StripLeave()
+                stripOuter._wantHover = false
+                if not stripOuter._pending then stripOuter._pending = true; C_Timer.After(0, StripUpdate) end
+            end
 
-        stripOuter:SetScript("OnEnter", StripEnter)
-        stripOuter:SetScript("OnLeave", StripLeave)
-        ns._ccSpellStrip = stripOuter
+            stripOuter:SetScript("OnEnter", StripEnter)
+            stripOuter:SetScript("OnLeave", StripLeave)
 
-        local stripScroll = CreateFrame("ScrollFrame", nil, stripOuter)
-        stripScroll:SetPoint("TOPLEFT", stripOuter, "TOPLEFT", 0, -SS_PAD)
-        stripScroll:SetPoint("BOTTOMRIGHT", stripOuter, "BOTTOMRIGHT", 0, SS_PAD)
-        stripScroll:SetFrameLevel(stripOuter:GetFrameLevel() + 1)
-        local stripChild = CreateFrame("Frame", nil, stripScroll)
-        stripChild:SetWidth(SPELL_STRIP_W)
-        stripScroll:SetScrollChild(stripChild)
-        stripScroll:EnableMouseWheel(true)
-        stripScroll:SetScript("OnMouseWheel", function(self, delta)
-            local s = self:GetVerticalScroll()
-            local mx = max(0, stripChild:GetHeight() - self:GetHeight())
-            self:SetVerticalScroll(max(0, min(mx, s - delta * 30)))
-        end)
+            local stripScroll = CreateFrame("ScrollFrame", nil, stripOuter)
+            stripScroll:SetPoint("TOPLEFT", stripOuter, "TOPLEFT", 0, -SS_PAD)
+            stripScroll:SetPoint("BOTTOMRIGHT", stripOuter, "BOTTOMRIGHT", 0, SS_PAD)
+            stripScroll:SetFrameLevel(stripOuter:GetFrameLevel() + 1)
+            local stripChild = CreateFrame("Frame", nil, stripScroll)
+            stripChild:SetWidth(SPELL_STRIP_W)
+            stripScroll:SetScrollChild(stripChild)
+            stripScroll:EnableMouseWheel(true)
+            stripScroll:SetScript("OnMouseWheel", function(self, delta)
+                local s = self:GetVerticalScroll()
+                local mx = max(0, stripChild:GetHeight() - self:GetHeight())
+                self:SetVerticalScroll(max(0, min(mx, s - delta * 30)))
+            end)
+
+            stripOuter._overlay, stripOuter._overlayTex = stripOverlay, overlayTex
+            stripOuter._scroll, stripOuter._child = stripScroll, stripChild
+            stripOuter._enter, stripOuter._leave = StripEnter, StripLeave
+            stripOuter._cells = {}
+            ns._ccSpellStrip = stripOuter
+        end
+        -- Every build starts the strip from the look a new one has: resting
+        -- alpha, scrolled to the top, no queued hover update.
+        if stripOuter:GetParent() ~= host then stripOuter:SetParent(host) end
+        stripOuter:SetSize(SPELL_STRIP_W, visibleH)
+        stripOuter:ClearAllPoints()
+        stripOuter:SetPoint("TOPLEFT", scrollFrame, "TOPRIGHT", 0, 0)
+        stripOuter:SetFrameLevel(host:GetFrameLevel() + 10)
+        stripOuter._overlay:SetFrameLevel(stripOuter:GetFrameLevel() + 20)
+        stripOuter._scroll:SetFrameLevel(stripOuter:GetFrameLevel() + 1)
+        stripOuter._pending = false
+        stripOuter._wantHover = false
+        stripOuter:SetAlpha(0.35)
+        stripOuter._overlayTex:SetAlpha(1)
+        local stripScroll, stripChild = stripOuter._scroll, stripOuter._child
+        local StripEnter, StripLeave = stripOuter._enter, stripOuter._leave
+        local cells = stripOuter._cells
+        stripScroll:SetVerticalScroll(0)
+        stripOuter:Show()
 
         -- Icons only here: a WoW Forever spell shows its top rank alone (the
         -- lower ranks are picked from the Add and Quickbind grids, which label them).
         local spells = ns.CC_GetClassSpells(true)
         local stripY = 0
-        for _, sp in ipairs(spells) do
-            local cell = CreateFrame("Button", nil, stripChild)
-            cell:SetSize(SS_ICON, SS_ICON)
+        for i, sp in ipairs(spells) do
+            local cell = cells[i]
+            if not cell then
+                cell = CreateFrame("Button", nil, stripChild)
+                cell:SetSize(SS_ICON, SS_ICON)
+                local iconTex = cell:CreateTexture(nil, "ARTWORK")
+                iconTex:SetAllPoints()
+                iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                local iconBdr = CreateFrame("Frame", nil, cell)
+                iconBdr:SetAllPoints()
+                iconBdr:SetFrameLevel(cell:GetFrameLevel() + 1)
+                iconBdr:Hide()
+                if PP then PP.CreateBorder(iconBdr, accentColor.r, accentColor.g, accentColor.b, 1, 2) end
+                cell._tex, cell._bd = iconTex, iconBdr
+                cells[i] = cell
+            end
+            cell:ClearAllPoints()
             cell:SetPoint("TOPLEFT", stripChild, "TOPLEFT", 10, stripY)
+            cell:Show()
 
-            local iconTex = cell:CreateTexture(nil, "ARTWORK")
-            iconTex:SetAllPoints()
-            iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            local iconTex, iconBdr = cell._tex, cell._bd
             iconTex:SetTexture(sp.icon or 134400)
             local alreadyBound = ns.CC_IsSpellBound(boundSpells, sp.id, sp.name)
-            if alreadyBound then iconTex:SetAlpha(0.3) end
-
-            local iconBdr = CreateFrame("Frame", nil, cell)
-            iconBdr:SetAllPoints()
-            iconBdr:SetFrameLevel(cell:GetFrameLevel() + 1)
+            iconTex:SetAlpha(alreadyBound and 0.3 or 1)
             iconBdr:Hide()
-            if PP then PP.CreateBorder(iconBdr, accentColor.r, accentColor.g, accentColor.b, 1, 2) end
+            if PP then PP.SetBorderColor(iconBdr, accentColor.r, accentColor.g, accentColor.b, 1) end
 
             cell:SetScript("OnEnter", function()
                 iconBdr:Show()
@@ -4374,7 +4788,18 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
             stripY = stripY - (SS_ICON + SS_GAP)
         end
+        for i = #spells + 1, #cells do cells[i]:Hide() end
         stripChild:SetHeight(max(10, math.abs(stripY)))
+        -- A strip frame holding the mouse focus is reused in place, so it never
+        -- gets the OnEnter a new strip would: replay it.
+        if not CC_ReplayFocusEnter(cells, #spells) then
+            local foci = GetMouseFoci and GetMouseFoci()
+            if foci then
+                for k = 1, #foci do
+                    if foci[k] == stripOuter then StripEnter(); break end
+                end
+            end
+        end
     end
 
     -- Click-casting off: whole UI gates on Enable. Sidebars dim to 60% alpha +

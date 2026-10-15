@@ -66,6 +66,7 @@ local function FvTabs() return ns.ChatForever and ns.ChatForever() end
 local FV_TAB_H   = 28
 local FV_CLIP_UP = FV_TAB_H - 26
 local FV_LABEL_Y = -2
+local FV_LABEL_Y_HEAVY = -1   -- Border Style Heavy Bronze: the heavy tab's label seat
 
 local function TabHeight()
     if ClassicTabs() then return CLASSIC_TAB_H end
@@ -168,6 +169,11 @@ local floatGhosts = {} -- per-window-id ghosts for undocked windows
 local lcaLib
 local function TabAlerting(tab)
     if tab.alerting then return true end
+    -- Retail since 12.1.5 and WoW Forever keep the alert state off the tab,
+    -- so a tainted message filter cannot taint it, and never write
+    -- tab.alerting: ChatFrameUtil.IsTabAlerting is its reader there.
+    local util = ChatFrameUtil
+    if util and util.IsTabAlerting and util.IsTabAlerting(tab) then return true end
     lcaLib = lcaLib or (LibStub and LibStub("LibChatAnims", true))
     return lcaLib and lcaLib:IsAlerting(tab) and true or false
 end
@@ -616,7 +622,8 @@ local function RefreshNow()
     local fontSize = cfg.tabFontSize or 11
     local fontFlag = TabFontFlag()
     local padX = cfg.tabInnerPaddingX or 12
-    local labelY = ClassicTabs() and CLASSIC_LABEL_Y or (FvTabs() and FV_LABEL_Y) or 0
+    local labelY = ClassicTabs() and CLASSIC_LABEL_Y
+        or (FvTabs() and (ns.ChatFvHeavy() and FV_LABEL_Y_HEAVY or FV_LABEL_Y)) or 0
 
     -- The chat panel extends left of ChatFrame1 by its inset while Blizzard's
     -- dock starts at the frame edge; the FIRST ghost (and the strip's clip
@@ -754,15 +761,15 @@ local function RefreshNow()
                 local isActive = cf == selected
                 StyleGhost(g, isActive)
                 -- Blizzard's own alert state is authoritative here: their
-                -- handler sets tab.alerting the moment a flash-worthy
-                -- message hits a hidden window (including the message that
-                -- CREATES a conversation window -- our ghost is born one
-                -- pass later and would miss the observer's flash), and
-                -- clears it on select. Read through TabAlerting, never
-                -- tab.alerting directly: under a LibChatAnims embedder the
-                -- field stays nil forever, and this mirror then STOPPED the
-                -- flash the observer lane had just started -- whisper alerts
-                -- died within one tab pass whenever such an addon was loaded.
+                -- handler sets it the moment a flash-worthy message hits a
+                -- hidden window (including the message that CREATES a
+                -- conversation window -- our ghost is born one pass later
+                -- and would miss the observer's flash), and clears it on
+                -- select. Read through TabAlerting, never tab.alerting
+                -- directly: under a LibChatAnims embedder, and on WoW
+                -- Forever, the field stays nil forever, and this mirror then
+                -- STOPPED the flash the observer lane had just started --
+                -- whisper alerts died within one tab pass.
                 if isActive then
                     g:StopFlash()
                 elseif TabAlerting(tab) then
@@ -1000,8 +1007,8 @@ local function OnTabMessage(cf, event)
         return
     end
     -- A conversation window CREATED by this message has no ghost yet; the
-    -- queued refresh above builds it and the tab.alerting mirror in the
-    -- refresh starts its flash.
+    -- queued refresh above builds it and the alert mirror (TabAlerting) in
+    -- the refresh starts its flash.
     local g = GhostFor(cf)
     if g and g:IsShown() then g:StartFlash() end
 end

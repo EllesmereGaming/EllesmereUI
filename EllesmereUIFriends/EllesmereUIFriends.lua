@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  native ScrollBox and buttons: no custom DataProvider, no friend groups.
 -------------------------------------------------------------------------------
 local ADDON_NAME = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.FriendsKit) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 local ns = select(2, ...)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -78,7 +78,7 @@ end
 -- Legacy FriendsFrame stays loaded-but-hidden under the Social UI; skinning it
 -- re-anchors Blizzard scroll boxes and hooks mouse wheel, tainting Battle.net
 -- whisper handling (SetTellTarget on a secret target) -- so the skin stays off
--- there (EUI_Friends_Groups_121.lua owns that window); checked live since the switch can flip mid-session.
+-- there; checked live since the switch can flip mid-session.
 local function LegacyFriendsRetired()
     -- The Style page's stock styles keep Blizzard's own friends window on
     -- either path, so the legacy skin stands down for them too.
@@ -507,28 +507,10 @@ end
 -------------------------------------------------------------------------------
 local friendsSkinned = false
 
-local CLASS_ICON_SPRITE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\"
-
-local CLASS_ICON_SPRITE_TEX = {}
-for _, style in ipairs({"modern", "dark", "light", "clean"}) do
-    CLASS_ICON_SPRITE_TEX[style] = CLASS_ICON_SPRITE_BASE .. style .. ".tga"
-end
+-- The class icon sprites, the status orb art and the region icon button come
+-- from the friends kit (EllesmereUI_FriendsKit.lua), shared with the tiles.
+local FriendsKit = EllesmereUI.FriendsKit
 local CLASS_SPRITE_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
-
-local classFileByLocalName = {}
-local function BuildClassNameLookup()
-    if next(classFileByLocalName) then return end
-    if LOCALIZED_CLASS_NAMES_MALE then
-        for token, name in pairs(LOCALIZED_CLASS_NAMES_MALE) do
-            classFileByLocalName[name] = token
-        end
-    end
-    if LOCALIZED_CLASS_NAMES_FEMALE then
-        for token, name in pairs(LOCALIZED_CLASS_NAMES_FEMALE) do
-            classFileByLocalName[name] = token
-        end
-    end
-end
 
 -- Filled on demand for displayed rows; only search needs the complete list.
 -- BNet keyed [id], WoW [id+10000].
@@ -596,7 +578,6 @@ local function RefreshFriendCache()
 end
 
 local function GetFriendClassFile(bnetInfo, wowInfo)
-    BuildClassNameLookup()
     if bnetInfo and bnetInfo.gameAccountInfo then
         local gi = bnetInfo.gameAccountInfo
         if gi.classID and gi.classID > 0 then
@@ -604,37 +585,15 @@ local function GetFriendClassFile(bnetInfo, wowInfo)
             return classFile
         end
         if gi.className then
-            return classFileByLocalName[gi.className]
+            return EllesmereUI.ClassTokenFromLocalized(gi.className)
         end
     elseif wowInfo and wowInfo.className then
-        return classFileByLocalName[wowInfo.className]
+        return EllesmereUI.ClassTokenFromLocalized(wowInfo.className)
     end
     return nil
 end
 
-local OFFLINE_ICON = "Interface\\AddOns\\EllesmereUIFriends\\Media\\offline.png"
-
-local MINI_DISPLAY = {
-    namerica = "North America", samerica = "South America",
-    australia = "Australia", europe = "Europe",
-    russia = "Russia", korea = "Korea",
-    taiwan = "Taiwan", china = "China",
-}
-
--- Status orb (online/away/dnd): first of the atlas' 6 columns, top of 2 rows.
-local _orbFile, _orbL, _orbR, _orbT, _orbB
-do
-    local orbInfo = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("lootroll-animreveal-a")
-    if orbInfo and orbInfo.file then
-        _orbFile = orbInfo.file
-        local aL = orbInfo.leftTexCoord or 0
-        local aR = orbInfo.rightTexCoord or 1
-        local aT = orbInfo.topTexCoord or 0
-        local aB = orbInfo.bottomTexCoord or 1
-        local aW, aH = aR - aL, aB - aT
-        _orbL, _orbR, _orbT, _orbB = aL, aL + aW/6, aT, aT + aH/2
-    end
-end
+local OFFLINE_ICON = "Interface\\AddOns\\EllesmereUI\\media\\friends\\offline.png"
 
 local function UpdateClassIcon(button, bnetInfo, wowInfo)
     if button.buttonType == FRIENDS_BUTTON_TYPE_DIVIDER then return end
@@ -692,7 +651,7 @@ local function UpdateClassIcon(button, bnetInfo, wowInfo)
         else
             local coords = CLASS_SPRITE_COORDS[classFile]
             if coords then
-                icon:SetTexture(CLASS_ICON_SPRITE_TEX[style] or (CLASS_ICON_SPRITE_BASE .. style .. ".tga"))
+                icon:SetTexture(FriendsKit.ClassIconSprite(style))
                 icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
             end
         end
@@ -726,18 +685,8 @@ local function UpdateClassIcon(button, bnetInfo, wowInfo)
     icon:Show()
 end
 
--- Class color hex cache (lazy-built); shared via _G._EFR_* with 12.1 Tiles/Groups (this file loads first).
-local _classColorCodes = {}
-local function _getClassColorCode(classFile)
-    local code = _classColorCodes[classFile]
-    if code then return code end
-    local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-    if not cc then return nil end
-    code = EllesmereUI.HexColor(cc.r, cc.g, cc.b)
-    _classColorCodes[classFile] = code
-    return code
-end
-_G._EFR_ClassColorCode = _getClassColorCode
+-- Class color escape per class file (lazy-built cache, EllesmereUI_FriendsKit.lua)
+local _getClassColorCode = EllesmereUI.FriendsKit.ClassColorCode
 
 local function UpdateNameColor(button, bnetInfo, wowInfo)
     local p = EBS.db.profile.friends
@@ -764,9 +713,9 @@ local function UpdateNameColor(button, bnetInfo, wowInfo)
     end
 end
 
-local FACTION_TEX_ALLIANCE = "Interface\\AddOns\\EllesmereUIFriends\\Media\\alliance.png"
-local FACTION_TEX_HORDE    = "Interface\\AddOns\\EllesmereUIFriends\\Media\\horde.png"
-local FACTION_TEX_NEUTRAL  = "Interface\\AddOns\\EllesmereUIFriends\\Media\\neutral.png"
+local FACTION_TEX_ALLIANCE = "Interface\\AddOns\\EllesmereUI\\media\\friends\\alliance.png"
+local FACTION_TEX_HORDE    = "Interface\\AddOns\\EllesmereUI\\media\\friends\\horde.png"
+local FACTION_TEX_NEUTRAL  = "Interface\\AddOns\\EllesmereUI\\media\\friends\\neutral.png"
 
 local function UpdateFactionOverlay(button, bnetInfo, wowInfo)
     local factionName
@@ -957,13 +906,7 @@ local function PostUpdateFriendButton(button)
     if not GetFFD(button).statusOrb then
         GetFFD(button).statusOrb = button:CreateTexture(nil, "OVERLAY", nil, 3)
         GetFFD(button).statusOrb:SetSize(18, 18)
-        if _orbFile then
-            GetFFD(button).statusOrb:SetTexture(_orbFile)
-            GetFFD(button).statusOrb:SetTexCoord(_orbL, _orbR, _orbT, _orbB)
-        else
-            GetFFD(button).statusOrb:SetAtlas("lootroll-animreveal-a")
-            GetFFD(button).statusOrb:SetTexCoord(0, 1/6, 0, 0.5)
-        end
+        FriendsKit.StatusOrbArt(GetFFD(button).statusOrb)
     end
     local orb = GetFFD(button).statusOrb
     orb:ClearAllPoints()
@@ -992,53 +935,8 @@ local function PostUpdateFriendButton(button)
 
     -- Region icon: shown only when the friend's region differs from ours.
     local fp2 = EBS.db and EBS.db.profile and EBS.db.profile.friends
-    if fp2 and fp2.showRegionIcons == false then
-        if GetFFD(button).regionBtn then GetFFD(button).regionBtn:Hide() end
-    else
-        local myFull = EllesmereUI.GetMyFullRegion and EllesmereUI.GetMyFullRegion()
-        local friendMini
-        if bnetInfo and bnetInfo.gameAccountInfo then
-            friendMini = EllesmereUI.GetFriendMiniRegion and EllesmereUI.GetFriendMiniRegion(bnetInfo.gameAccountInfo)
-        end
-        local friendFull = friendMini and EllesmereUI.GetFullRegion and EllesmereUI.GetFullRegion(friendMini)
-
-        if friendMini and friendFull and friendFull ~= myFull then
-            if not GetFFD(button).regionBtn then
-                local rb = CreateFrame("Button", nil, button)
-                rb:SetFrameLevel(button:GetFrameLevel() + 5)
-                rb._tex = rb:CreateTexture(nil, "OVERLAY", nil, 7)
-                rb._tex:SetAllPoints()
-                rb._tex:SetAlpha(0.25)
-                rb:SetScript("OnEnter", function(self)
-                    EllesmereUI.ShowWidgetTooltip(self, self._regionLabel or "")
-                end)
-                rb:SetScript("OnLeave", function()
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-                local hh = button:GetHeight()
-                local iconH = math.floor(hh * 0.8)
-                rb:SetSize(iconH, iconH)
-                local tpBtn = button.travelPassButton
-                if tpBtn then
-                    rb:SetPoint("RIGHT", tpBtn, "LEFT", -2, 0)
-                else
-                    rb:SetPoint("RIGHT", button, "RIGHT", -30, 0)
-                end
-                GetFFD(button).regionBtn = rb
-            end
-            local rb = GetFFD(button).regionBtn
-            if rb._lastMini ~= friendMini then
-                rb._lastMini = friendMini
-                local iconPath = EllesmereUI.GetRegionIcon and EllesmereUI.GetRegionIcon(friendMini)
-                rb._tex:SetTexture(iconPath)
-                rb._tex:SetTexCoord(0, 1, 0, 1)
-                rb._regionLabel = MINI_DISPLAY[friendMini] or friendMini
-            end
-            rb:Show()
-        else
-            if GetFFD(button).regionBtn then GetFFD(button).regionBtn:Hide() end
-        end
-    end
+    FriendsKit.UpdateRegionButton(button, GetFFD(button), bnetInfo and bnetInfo.gameAccountInfo,
+        button.travelPassButton, not (fp2 and fp2.showRegionIcons == false))
 end
 
 local function ProcessFriendButtons(force)
@@ -1899,7 +1797,7 @@ local function SkinFriendsFrame()
 
             local bg = copyPopup:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
-            bg:SetColorTexture(0.06, 0.08, 0.10, 0.97)
+            bg:SetColorTexture(0.077, 0.068, 0.058, 0.97)
             PP.CreateBorder(copyPopup, 1, 1, 1, 0.15, 1, "OVERLAY", 7)
 
             local hint = copyPopup:CreateFontString(nil, "OVERLAY")
@@ -1915,7 +1813,7 @@ local function SkinFriendsFrame()
             eb:SetAutoFocus(false)
             eb:SetJustifyH("CENTER")
             local ebBg = eb:CreateTexture(nil, "BACKGROUND")
-            ebBg:SetColorTexture(0.10, 0.12, 0.16, 1)
+            ebBg:SetColorTexture(0.112, 0.105, 0.098, 1)
             ebBg:SetPoint("TOPLEFT", -6, 4); ebBg:SetPoint("BOTTOMRIGHT", 6, -4)
             PP.CreateBorder(eb, 1, 1, 1, 0.02, 1, "OVERLAY", 7)
             eb:SetScript("OnEscapePressed", function(self) self:ClearFocus(); HideCopyPopup() end)
@@ -3192,6 +3090,13 @@ end
 -------------------------------------------------------------------------------
 --  Lifecycle
 -------------------------------------------------------------------------------
+-- This profile's friends table: the settings the shared friends kit reads
+-- (EllesmereUI_FriendsKit.lua: the 12.1 tiles and the invite auto-accept).
+local function FriendsSettings()
+    local db = EBS.db
+    return db and db.profile and db.profile.friends
+end
+
 function EBS:OnInitialize()
     EBS.db = EllesmereUI.Lite.NewDB("EllesmereUIFriendsDB", defaults)
 
@@ -3200,49 +3105,10 @@ function EBS:OnInitialize()
     _G._EFR_ApplyFriends         = ApplyFriends
     _G._EFR_ProcessFriendButtons = function() ProcessFriendButtons(true) end
 
-    -- Auto-accept group invites from friends (and guildmates, from its cog).
-    -- Independent of the friends window and of the Style page look: an invite
-    -- is answered whichever window Blizzard shows. PARTY_INVITE_REQUEST is
-    -- registered only while the toggle is on; GROUP_ROSTER_UPDATE only
-    -- between an accept and its popup cleanup.
-    local autoAcceptHidePopup = false
-    local autoAcceptFrame = CreateFrame("Frame")
-    autoAcceptFrame:SetScript("OnEvent", function(self, event, _, _, _, _, _, _, inviterGUID)
-        if event == "PARTY_INVITE_REQUEST" then
-            local fp = EBS.db and EBS.db.profile and EBS.db.profile.friends
-            if not fp or fp.enabled == false or not fp.autoAcceptFriendInvites then return end
-            if not inviterGUID or inviterGUID == "" or IsInGroup() then return end
-            local isFriend = false
-            if C_BattleNet and C_BattleNet.GetGameAccountInfoByGUID then
-                isFriend = C_BattleNet.GetGameAccountInfoByGUID(inviterGUID) ~= nil
-            end
-            if not isFriend and C_FriendList and C_FriendList.IsFriend then
-                isFriend = C_FriendList.IsFriend(inviterGUID)
-            end
-            if not isFriend and fp.autoAcceptGuildInvites then
-                isFriend = IsGuildMember(inviterGUID)
-            end
-            if isFriend then
-                AcceptGroup()
-                autoAcceptHidePopup = true
-                self:RegisterEvent("GROUP_ROSTER_UPDATE")
-            end
-        elseif event == "GROUP_ROSTER_UPDATE" and autoAcceptHidePopup then
-            autoAcceptHidePopup = false
-            self:UnregisterEvent("GROUP_ROSTER_UPDATE")
-            StaticPopup_Hide("PARTY_INVITE")
-            if LFGInvitePopup then
-                StaticPopupSpecial_Hide(LFGInvitePopup)
-            end
-        end
-    end)
+    -- Auto-accept group invites from friends (and guildmates, from its cog):
+    -- EllesmereUI_FriendsKit.lua, reading this profile's friends table.
     _G._EFR_SyncAutoAccept = function()
-        local fp = EBS.db and EBS.db.profile and EBS.db.profile.friends
-        if fp and fp.enabled ~= false and fp.autoAcceptFriendInvites then
-            autoAcceptFrame:RegisterEvent("PARTY_INVITE_REQUEST")
-        else
-            autoAcceptFrame:UnregisterEvent("PARTY_INVITE_REQUEST")
-        end
+        EllesmereUI.FriendsKit.SyncAutoAccept(FriendsSettings)
     end
     _G._EFR_SyncAutoAccept()
 
@@ -3339,4 +3205,42 @@ function EBS:OnEnable()
             end
         end
     end
+end
+
+-------------------------------------------------------------------------------
+--  12.1 Social UI tiles (EllesmereUI_FriendsKit.lua)
+-------------------------------------------------------------------------------
+-- Style page choice for this module: "eui" | "blizzard" | "classic", read from
+-- the real profile once and latched for the session (a profile switch prompts
+-- for a reload instead). Both stock styles mean the same to the tiles -- there
+-- is no vanilla version of this list -- so they keep Blizzard's own list and
+-- cards and add only the EllesmereUI decoration (class icon, class-coloured
+-- name, region mark). The legacy-skin switch above reads it too.
+function ns.FR_Style()
+    local v = ns._frStyle
+    if v == nil then
+        local db = EBS.db
+        local p = db and db.profile and db.profile.friends
+        if not p then return "eui" end
+        v = (p.useClassicStyle and "classic") or (p.useBlizzardStyle and "blizzard") or "eui"
+        ns._frStyle = v
+    end
+    return v
+end
+
+-- Options-driven repaints of the decorated cards and rows
+_G._EFR_RedecorateTiles = EllesmereUI.FriendsKit.RedecorateTiles
+
+-- The kit hooks the card mixin at PLAYER_LOGIN, before any card exists.
+do
+    local boot = CreateFrame("Frame")
+    boot:RegisterEvent("PLAYER_LOGIN")
+    boot:SetScript("OnEvent", function(self)
+        self:UnregisterEvent("PLAYER_LOGIN")
+        EllesmereUI.FriendsKit.StartTiles({
+            Settings = FriendsSettings,
+            style    = ns.FR_Style(),
+            fontKey  = "friends",
+        })
+    end)
 end

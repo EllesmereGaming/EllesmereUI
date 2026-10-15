@@ -82,8 +82,8 @@ end
 -- bake indicator scale into both keys, and 0 scales to 0, so the sentinel survives).
 local function DispLocSize(s)
     local v = s.dispellableDebuffSize
-    if v and v > 0 then return v end
-    return s.debuffSize or 18
+    if v and v > 0 then return ns.RFC_SnapSize(v) end
+    return ns.RFC_DebuffSize(s)
 end
 
 -- Groups the location container needs for the active preset (all on-demand, split
@@ -317,11 +317,32 @@ function ns.RF_GlowClassFP(mode, classFlag)
     return string.format("cc%.3f,%.3f,%.3f", r, g, b)
 end
 
+-- Aura icon sizes on whole physical pixels: a fractional button leaves the
+-- unsnapped border off the snapped icon's far edge. Styles, flow layouts, row
+-- widths and fingerprints all read the size here so they agree. Memoized until
+-- the next RFC_ReloadAll. On ns (local cap).
+do
+    local cache = {}
+    function ns.RFC_SnapSize(v)
+        local r = cache[v]
+        if not r then
+            r = ns.PixelSnap(v)
+            if r <= 0 then r = v end -- under half a pixel: keep the raw size
+            cache[v] = r
+        end
+        return r
+    end
+    function ns.RFC_ResetSnap() wipe(cache) end
+end
+function ns.RFC_DebuffSize(s)
+    return ns.RFC_SnapSize(s.debuffSize or 18)
+end
+
 -- sizeOverride: the dispellable-location styles reuse the whole debuff
 -- style with only the physical size swapped (see DispLocSize).
 local function BuildDebuffStyle(s, sizeOverride)
     local br, bg, bb = ColorParts(s.debuffBorderColor, 0, 0, 0)
-    local size = sizeOverride or s.debuffSize or 18
+    local size = sizeOverride and ns.RFC_SnapSize(sizeOverride) or ns.RFC_DebuffSize(s)
     -- Engine dispel-border extras: ring thickness in PHYSICAL pixels + the user
     -- palette as the engine tint map (AuraKit registers both; helper resolved at
     -- call time, declared below). -1 = follow icon's own Border thickness, 0 = recolor off.
@@ -436,7 +457,7 @@ function ns.RFC_DebuffPin(s)
     local grow = s.debuffGrowDirection or "LEFT"
     local point = ResolveFlowAnchor(pos, corner, grow, s.debuffWrapDirection or "UP")
     return point, corner, s.debuffOffsetX or 0, s.debuffOffsetY or 0,
-        s.debuffSize or 18, s.debuffSpacing or 1, s.debuffPerRow or 5,
+        ns.RFC_DebuffSize(s), s.debuffSpacing or 1, s.debuffPerRow or 5,
         (grow == "UP" or grow == "DOWN")
 end
 
@@ -457,7 +478,7 @@ local function AnchorDebuffContainer(container, health, s)
     AK.SetContainerAnchor(container, anchorPoint)
     AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
 
-    local size = s.debuffSize or 18
+    local size = ns.RFC_DebuffSize(s)
     local spacing = s.debuffSpacing or 1
     local perRow = s.debuffPerRow or 5
     local vertical = (grow == "UP" or grow == "DOWN")
@@ -739,7 +760,7 @@ local function ApplyRFDispelSlot(button, dd, style)
     end
 end
 
-local function BuildDispelStyle(s)
+local function BuildDispelStyle(s, compact)
     local typeColors = {}
     for i = 1, #DISPEL_SLOTS do
         local def = DISPEL_SLOTS[i]
@@ -756,7 +777,7 @@ local function BuildDispelStyle(s)
     -- under a stock style (the EllesmereUI border stands down there), a Solid
     -- Border Style or Border Size 0.
     local customBorder
-    if s.dispelCustomBorder == true and ns.RF_CustomBorderOn(s) then
+    if not compact and s.dispelCustomBorder == true and ns.RF_CustomBorderOn(s) then
         local bs = ns.RF_EffBorderSize(s)
         local tex = s.borderTexture
         customBorder = {
@@ -788,11 +809,11 @@ local function BuildDispelStyle(s)
     }
 end
 
-local function DispelVisible(s)
+local function DispelVisible(s, d)
     return (s.dispelOverlay or "fill") ~= "none"
         or (s.dispelBorderSize or 0) > 0
         or s.showDispelIcons == true
-        or (s.dispelCustomBorder == true and ns.RF_CustomBorderOn(s))
+        or (s.dispelCustomBorder == true and not ns.RF_ButtonCompact(d, s) and ns.RF_CustomBorderOn(s))
 end
 
 -- Fingerprints of exact settings each subsystem reads, per class ("rf:debuff:raid"/
@@ -801,7 +822,7 @@ end
 local classFP = {}
 
 local function DebuffStyleFP(s, font)
-    return FP(font, s.debuffSize, s.debuffIconZoom, s.debuffBorderSize, CK(s.debuffBorderColor),
+    return FP(font, s.debuffSize, ns.RFC_DebuffSize(s), s.debuffIconZoom, s.debuffBorderSize, CK(s.debuffBorderColor),
         s.debuffShowSwipe, s.debuffShowDurText, s.debuffDurTextSize, CK(s.debuffDurTextColor),
         s.debuffDurTextOffsetX, s.debuffDurTextOffsetY, s.debuffShowStacks, s.debuffStacksTextSize,
         CK(s.debuffStacksTextColor), s.debuffStacksOffsetX, s.debuffStacksOffsetY, s.debuffHideTooltips,
@@ -820,7 +841,7 @@ local function DebuffCfgFP(s)
     -- DispLocActive: the split toggles excludeDispelTypes on the MAIN groups'
     -- candidate filters, so flipping it must re-drive the main config too.
     return FP(s.debuffPosition, s.debuffGrowDirection, s.debuffWrapDirection, s.debuffOffsetX,
-        s.debuffOffsetY, s.debuffSize, s.debuffSpacing, s.debuffPerRow, s.debuffFilter,
+        s.debuffOffsetY, s.debuffSize, ns.RFC_DebuffSize(s), s.debuffSpacing, s.debuffPerRow, s.debuffFilter,
         s.debuffCap, s.hideLustDebuff, DispLocActive(s), s.powerUniformAnchors,
         (ns.DM_CfgFP and ns.DM_CfgFP()) or "")
 end
@@ -842,11 +863,14 @@ local function CKA(c)
     return CK(c) .. "," .. tostring((c and c.a) or 1)
 end
 
-local function DispelStyleFP(s)
+local function DispelStyleFP(s, key)
+    local party = key == "rf:debuff:party" or key == "rf:dispel:party"
+    local compact = key ~= "rf:debuff:extra" and key ~= "rf:dispel:extra" and ns.RF_CompactOn(s, party)
     return FP(s.dispelOverlay, s.dispelOverlayOpacity, s.dispelBorderSize, s.showDispelIcons,
         s.dispelIconSize, s.dispelIconPosition, s.dispelIconOffsetX, s.dispelIconOffsetY,
         CKA(s.dispelColorMagic), CKA(s.dispelColorCurse), CKA(s.dispelColorDisease),
         CKA(s.dispelColorPoison), CKA(s.dispelColorBleed), s.powerUniformAnchors,
+        compact,
         -- The fill wash follows the fill direction (BuildDispelStyle); the axis
         -- only moves it under Inverted Fill.
         ns.RF_IsInvertedFill(s), ns.RF_IsInvertedFill(s) and ns.RF_IsVerticalFill(s),
@@ -862,8 +886,8 @@ end
 -- settings change; PrimeClassFP compares against these and rebuilds what differs.
 local builtFP = {}
 local function StoreDispelStyle(key, s, fp)
-    AK.styles[key] = BuildDispelStyle(s)
-    builtFP[key] = fp or DispelStyleFP(s)
+    AK.styles[key] = BuildDispelStyle(s, key ~= "rf:dispel:extra" and ns.RF_CompactOn(s, key == "rf:dispel:party"))
+    builtFP[key] = fp or DispelStyleFP(s, key)
 end
 -- The base debuff style and its cc twin share one fingerprint (DebuffStyleFP).
 local function StoreDebuffStyles(styleKey, s, fp)
@@ -887,7 +911,7 @@ local function PrimeClassFP(styleKey, s)
     st.debuffCfg = DebuffCfgFP(s)
     st.dispLocStyle = DispLocStyleFP(s, font)
     st.dispLocCfg = DispLocCfgFP(s)
-    local dfp = DispelStyleFP(s)
+    local dfp = DispelStyleFP(s, styleKey)
     st.dispelStyle = dfp
     st.dispelFilter = DispelFilterFP(s)
     -- The shared styles are the stamps that must not be trusted blindly: rebuild any
@@ -919,7 +943,7 @@ local function ApplyDebuffConfig(container, d, s)
     -- Park every group (record variants and tile containers park via DM_ParkGroups).
     local declared = d.rfcDebuffGroups or {}
     for k in pairs(declared) do
-        container:SetAuraGroupMaxFrameCount(k, 0)
+        EllesmereUI.AuraKit.SetGroupCap(container, k, 0)
     end
     if ns.DM_ParkGroups then ns.DM_ParkGroups(container, declared, d) end
 end
@@ -983,7 +1007,7 @@ local function ApplyDispLocConfig(container, d, s)
     for i = 1, #DEBUFF_GROUPS do
         local g = DEBUFF_GROUPS[i]
         if declared[g.key] then
-            container:SetAuraGroupMaxFrameCount(g.key, DispLocGroupWanted(s, g.key) and cap or 0)
+            EllesmereUI.AuraKit.SetGroupCap(container, g.key, DispLocGroupWanted(s, g.key) and cap or 0)
             container:SetAuraGroupCandidateFilters(g.key, cand)
             container:SetAuraGroupLayout(g.key, layout)
         end
@@ -1012,6 +1036,12 @@ local function BmScaleFor(d)
     if d._isParty then return ns._partyBmScale or 1 end
     if d._isExtra then return ns._xfBmScale or 1 end
     return ns._bmScale or 1
+end
+
+-- Scaled indicator size on whole physical pixels (see ns.RFC_DebuffSize): one
+-- value for the style, the slot SetSize and the chain flow math.
+function ns.RFC_BmSize(ind, iscale)
+    return ns.RFC_SnapSize((ind.size or 18) * iscale)
 end
 
 local function BmIndicators(d)
@@ -1765,7 +1795,7 @@ local function BuildBmSlots(inds, d, health, iscale, styleBase)
             elseif kind == "icon" or kind == "square" or kind == "bar" then
                 for k = 1, #spells do
                     local spellID = spells[k]
-                    local size = (ind.size or 18) * iscale
+                    local size = ns.RFC_BmSize(ind, iscale)
                     local slotKey = "bm" .. tostring(ind.id or ("x" .. i)) .. "_" .. k
                     local styleKey = styleBase .. ":" .. tostring(ind.id or ("x" .. i)) .. ":" .. k
                     -- Meta entry built FIRST so extraInit closures below can self-
@@ -1898,7 +1928,7 @@ local function AnchorBmChainContainer(container, health, members, iscale)
     local ind = members[1].ind
     local pos = ind.position or "TOPLEFT"
     local grow = ind.growDirection or "RIGHT"
-    local size = (ind.size or 18) * iscale
+    local size = ns.RFC_BmSize(ind, iscale)
     local ox = (ind.offsetX or 0) * iscale
     local oy = (ind.offsetY or 0) * iscale
 
@@ -1976,7 +2006,7 @@ local function AnchorBmChainContainer(container, health, members, iscale)
     for j = 1, #members do
         local mm = members[j]
         local gk = (j == 1) and "chain" or ("chain" .. j)
-        local msize = (mm.ind.size or 18) * iscale
+        local msize = ns.RFC_BmSize(mm.ind, iscale)
         local mi = mm.memberIndex or j
         -- Anchored members: Offset X/Y projects onto the run as the gap between
         -- their group and the previous one (only per-group positional lever a shared
@@ -2020,7 +2050,7 @@ local function AnchorBmChainContainer(container, health, members, iscale)
                 if cap > rem then cap = rem end
                 budgets[mi] = rem - cap
             end
-            container:SetAuraGroupMaxFrameCount(gk, cap)
+            EllesmereUI.AuraKit.SetGroupCap(container, gk, cap)
         end
     end
 end
@@ -2200,7 +2230,7 @@ local function BmAcquireChain(button, d, health, ch, iscale, counters)
         local mInd = members[j].ind
         local sk = (j == 1) and styleBase or (styleBase .. ":" .. j)
         styleKeys[j] = sk
-        local msize = (mInd.size or 18) * iscale
+        local msize = ns.RFC_BmSize(mInd, iscale)
         local vk = BmVisualKey(kind, mInd, msize, font)
         if bmStyleFP[sk] ~= vk then
             bmStyleFP[sk] = vk
@@ -2308,7 +2338,7 @@ local function BmParkUnbound(d, counters)
             if not bound and not entry.parked then
                 entry.parked = true
                 for j = 1, (entry.groups or 1) do
-                    entry.container:SetAuraGroupMaxFrameCount(
+                    EllesmereUI.AuraKit.SetGroupCap(entry.container, 
                         (j == 1) and "chain" or ("chain" .. j), 0)
                 end
                 entry.container:SetShown(false)
@@ -2372,7 +2402,7 @@ local function CreateBmContainer(button, health, d, unit)
         local ch = chains[ci]
         local ind = ch.ind
         local chainKey = tostring(ind.id or ("x" .. ch.idx))
-        local size = (ind.size or 18) * iscale
+        local size = ns.RFC_BmSize(ind, iscale)
         local cc, styleKeys, anchorMembers = BmAcquireChain(button, d, health, ch, iscale, counters)
         if cc then
             chainContainers = chainContainers or {}
@@ -2391,7 +2421,7 @@ local function CreateBmContainer(button, health, d, unit)
                         styleKey = styleKeys[j + 1], ind = mch.ind, kind = mch.ind.type,
                         isChain = true, anchored = true, chainKey = chainKey,
                         groupKey = "chain" .. (j + 1),
-                        size = (mch.ind.size or 18) * iscale,
+                        size = ns.RFC_BmSize(mch.ind, iscale),
                         count = #mch.spells, spells = mch.spells }
                 end
             end
@@ -2449,7 +2479,7 @@ local function BmRebindPendingChains(button, d, cls)
         local ind = ch.ind
         if #ch.spells > 0 then
             local chainKey = tostring(ind.id or ("x" .. ch.idx))
-            local size = (ind.size or 18) * iscale
+            local size = ns.RFC_BmSize(ind, iscale)
             local cc, styleKeys, anchorMembers = BmAcquireChain(button, d, health, ch, iscale, counters)
             if cc then
                 chainContainers = chainContainers or {}
@@ -2465,7 +2495,7 @@ local function BmRebindPendingChains(button, d, cls)
                             styleKey = styleKeys[j + 1], ind = mch.ind, kind = mch.ind.type,
                             isChain = true, anchored = true, chainKey = chainKey,
                             groupKey = "chain" .. (j + 1),
-                            size = (mch.ind.size or 18) * iscale,
+                            size = ns.RFC_BmSize(mch.ind, iscale),
                             count = #mch.spells, spells = mch.spells }
                     end
                 end
@@ -2493,7 +2523,7 @@ local function BmRefreshSizes(meta, iscale)
     for i = 1, #meta do
         local m = meta[i]
         if m.kind == "icon" or m.kind == "square" then
-            m.size = (m.ind.size or 18) * iscale
+            m.size = ns.RFC_BmSize(m.ind, iscale)
         end
     end
 end
@@ -2823,7 +2853,7 @@ local function QueueButtonGroups(button, health, d)
         AK.FinishContainer(c, unit)
         d.rfcDispel = c
         local sNow = ProxyFor(d)
-        c:SetShown(DispelVisible(sNow or s))
+        c:SetShown(DispelVisible(sNow or s, d))
         d.rfcUnit = unit
     end, "rf:dispel-finish")
 
@@ -2985,7 +3015,7 @@ local function ApplyAssistGate(button, d, unit)
     d.rfcAssist = assist
     local s = ProxyFor(d)
     if d.rfcDispel and s then
-        d.rfcDispel:SetShown(assist and DispelVisible(s))
+        d.rfcDispel:SetShown(assist and DispelVisible(s, d))
     end
     if d.rfcBm then d.rfcBm:SetShown(assist) end
     if d.rfcBmChain then
@@ -3147,7 +3177,7 @@ local function ComputeClassFlags(styleKey, s)
     v = DispLocCfgFP(s)
     if st.dispLocCfg ~= v then st.dispLocCfg = v; flags.dispLocCfg = true end
 
-    v = DispelStyleFP(s)
+    v = DispelStyleFP(s, styleKey)
     if st.dispelStyle ~= v then
         st.dispelStyle = v
         local dispelStyleKey = styleKey:gsub("debuff", "dispel")
@@ -3186,6 +3216,7 @@ end
 function ns.RFC_ReloadAll()
     AK = AK or EllesmereUI.AuraKit
     if not AK then return end
+    ns.RFC_ResetSnap()
 
     local dirty, clsCache = {}, {}
 
@@ -3242,7 +3273,7 @@ function ns.RFC_ReloadAll()
                                 flags.dispelFilter[j])
                         end
                     end
-                    d.rfcDispel:SetShown(d.rfcAssist ~= false and DispelVisible(s))
+                    d.rfcDispel:SetShown(d.rfcAssist ~= false and DispelVisible(s, d))
                 end
                 local cls = clsCache[styleKey]
                 if not cls then
@@ -3299,6 +3330,17 @@ local bmRegen = CreateFrame("Frame")
 bmRegen:RegisterEvent("PLAYER_REGEN_ENABLED")
 bmRegen:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 bmRegen:RegisterEvent("PLAYER_ENTERING_WORLD")
+-- A new pixel grid invalidates every snapped aura size (see ns.RFC_SnapSize).
+-- EUI's own UI Scale (PP.SetUIScale) sets UIParent's scale directly, which fires
+-- no UI_SCALE_CHANGED, so it calls this through the global as well.
+bmRegen:RegisterEvent("UI_SCALE_CHANGED")
+bmRegen:RegisterEvent("DISPLAY_SIZE_CHANGED")
+function ns.RFC_PixelGridChanged()
+    -- Compact / Grid Mode re-lay their frames once their one pixel has moved.
+    ns.RF_CompactScaleChanged()
+    if InCombatLockdown() then ns._rfcScaleDirty = true else ns.RFC_ReloadAll() end
+end
+_G._ERF_PixelGridChanged = ns.RFC_PixelGridChanged
 -- The poison dispel-slot filter depends on Poison Cleansing Totem being talented
 -- (see DispelSlotFilter). Talent edits fire no spec event, and IsPlayerSpell can
 -- lag the trait event itself (the spellbook grant lands with SPELLS_CHANGED), so
@@ -3330,6 +3372,10 @@ bmRegen:SetScript("OnEvent", function(_, event, arg1)
         RecheckTotem()
         return
     end
+    if event == "UI_SCALE_CHANGED" or event == "DISPLAY_SIZE_CHANGED" then
+        ns.RFC_PixelGridChanged()
+        return
+    end
     if event == "PLAYER_ENTERING_WORLD" then
         -- Assistability can flip on zone transitions without a unit
         -- re-assignment (cross-faction members become assistable inside
@@ -3338,7 +3384,8 @@ bmRegen:SetScript("OnEvent", function(_, event, arg1)
         return
     end
     if ns._rfcTotemDirty then RecheckTotem() end
-    local any = false
+    local any = ns._rfcScaleDirty or false
+    ns._rfcScaleDirty = nil
     for i = 1, #registry do
         local d = ns.GetFFD and ns.GetFFD(registry[i])
         if d and d.rfcBmPending then

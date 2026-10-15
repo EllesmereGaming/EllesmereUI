@@ -402,25 +402,8 @@ local function SkinScrollBar(sb)
     end
 end
 
--- Close (X) button -> strip art, draw the house close glyph.
-local function SkinCloseButton(btn)
-    if not btn or btn:IsForbidden() then return end
-    local d = GetFFD(btn)
-    if d.x then return end
-    if btn.SetNormalTexture then btn:SetNormalTexture("") end
-    if btn.SetPushedTexture then btn:SetPushedTexture("") end
-    if btn.SetHighlightTexture then btn:SetHighlightTexture("") end
-    if btn.SetDisabledTexture then btn:SetDisabledTexture("") end
-    FadeRegions(btn)
-    local x = btn:CreateTexture(nil, "OVERLAY")
-    x:SetAtlas("uitools-icon-close")
-    x:SetSize(14, 14)
-    x:SetPoint("CENTER", -2, 0)
-    x:SetVertexColor(1, 1, 1, 0.75)
-    d.x = x
-    btn:HookScript("OnEnter", function() if d.x then d.x:SetVertexColor(1, 1, 1, 1) end end)
-    btn:HookScript("OnLeave", function() if d.x then d.x:SetVertexColor(1, 1, 1, 0.75) end end)
-end
+-- Close (X) button -> strip art, draw the house close glyph (the engine's).
+local SkinCloseButton = WSkin.CloseButton
 
 -- PVEFrame bottom tab -> CharacterSheet tab pattern (bg + accent underline when
 -- active). Visuals driven by UpdateTabVisuals (reads PVEFrame.selectedTab).
@@ -843,33 +826,6 @@ local function UpdateLFGCategorySelection()
     end
 end
 
--- Refresh button -> strip art, draw the house white UI-RefreshButton glyph (desaturated
--- + white vertex, 0.9 -> 1 on hover). Matches the Auction House refresh button.
-local function SkinRefreshGlyph(rb)
-    if not rb or rb:IsForbidden() then return end
-    local d = GetFFD(rb)
-    if d.glyph then return end
-    if not (C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("UI-RefreshButton")) then return end
-    local regions = { rb:GetRegions() }
-    for i = 1, #regions do
-        local r = regions[i]
-        if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
-    end
-    for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetDisabledTexture" }) do
-        local t = rb[g] and rb[g](rb)
-        if t and t.SetAlpha then t:SetAlpha(0) end
-    end
-    local glyph = rb:CreateTexture(nil, "OVERLAY")
-    glyph:SetAtlas("UI-RefreshButton", false)
-    glyph:SetSize(16, 16)
-    glyph:SetPoint("CENTER")
-    glyph:SetDesaturated(true)
-    glyph:SetVertexColor(1, 1, 1, 0.9)
-    d.glyph = glyph
-    rb:HookScript("OnEnter", function() glyph:SetVertexColor(1, 1, 1, 1) end)
-    rb:HookScript("OnLeave", function() glyph:SetVertexColor(1, 1, 1, 0.9) end)
-end
-
 local function Skin_LFGList()
     if not LFGListFrame then return end
 
@@ -908,12 +864,15 @@ local function Skin_LFGList()
         if SP.ResultsInset then FadeInset(SP.ResultsInset) end
         if SP.SearchBox then SkinEditBox(SP.SearchBox) end
         if SP.FilterButton then SkinButton(SP.FilterButton) end
-        if SP.RefreshButton then SkinRefreshGlyph(SP.RefreshButton) end
+        if SP.RefreshButton then WSkin.RefreshGlyph(SP.RefreshButton) end
         if SP.BackButton then SkinButton(SP.BackButton) end
         if SP.BackToGroupButton then SkinButton(SP.BackToGroupButton) end
         if SP.SignUpButton then SkinButton(SP.SignUpButton) end
         if SP.ScrollBar then SkinScrollBar(SP.ScrollBar) end
-        if SP.FilterButton and SP.FilterButton.ResetButton then SkinCloseButton(SP.FilterButton.ResetButton) end
+        -- The active-filter X, as on every other filter dropdown: it straddles
+        -- the filter button's top edge, above the button's border.
+        local reset = SP.FilterButton and SP.FilterButton.ResetButton
+        if reset then WSkin.FilterResetX(reset, SP.FilterButton) end
     end
 
     local EC = LFGListFrame.EntryCreation
@@ -949,7 +908,7 @@ local function Skin_LFGList()
     if AV and not AV:IsProtected() then
         SkinPanel(AV, { noBg = true, noBorder = true })
         if AV.Inset then FadeInset(AV.Inset) end
-        if AV.RefreshButton then SkinRefreshGlyph(AV.RefreshButton) end
+        if AV.RefreshButton then WSkin.RefreshGlyph(AV.RefreshButton) end
         if AV.RemoveEntryButton then SkinButton(AV.RemoveEntryButton) end
         if AV.EditButton then SkinButton(AV.EditButton) end
         if AV.BrowseGroupsButton then SkinButton(AV.BrowseGroupsButton) end
@@ -1449,8 +1408,8 @@ end
 -- Blizzard has no docking relationship between CharacterFrame and PVEFrame (Dungeons &
 -- Raids); both anchor near the same default screen position, so opening one while the
 -- other is open overlaps them. Any addon that docks its own panel to PVEFrame's edge
--- (e.g. RaiderIO's Mythic+ panel) is unaware of CharacterFrame, so it gets partially
--- covered by CharacterFrame in turn. PVEFrame is PROTECTED (it parents the LFGList
+-- is unaware of CharacterFrame, so that panel gets partially covered by CharacterFrame
+-- in turn. PVEFrame is PROTECTED (it parents the LFGList
 -- applicant viewer, which throws on tainted secret-value comparisons -- see
 -- EllesmereUIQoL_Shifter.lua's SecureSetPoint), so it is never repositioned here;
 -- CharacterFrame is not protected, so it docks beside PVEFrame instead. Reading
@@ -1464,7 +1423,7 @@ local function CharacterFrameIsUserPinned()
 end
 
 -- Third-party panels known to dock themselves beside PVEFrame with no awareness of
--- CharacterFrame (RaiderIO's Mythic+/profile panel, confirmed via /fstack). Checked by
+-- CharacterFrame (a Mythic+ profile panel, confirmed via /fstack). Checked by
 -- name -- cheap and reliable -- instead of scanning every frame in the UI: that
 -- approach kept missing the actual frame, once matched CharacterFrame's own child and
 -- produced a circular anchor, and was slow enough on its own to cause a visible hitch.
@@ -1538,7 +1497,7 @@ local function DockCharacterFrame()
         expectedEdgeAbs = rightEdgeAbs + PVE_DOCK_MARGIN * cs
     end
 
-    -- PVEFrame's own internal layout re-anchors it (and RaiderIO's tooltip) repeatedly
+    -- PVEFrame's own internal layout re-anchors it (and a docked companion) repeatedly
     -- while it settles, and Shifter re-applies CharacterFrame's own saved/temp position
     -- on every scale step -- both re-trigger this constantly. Skip the write only when
     -- CharacterFrame's ACTUAL current edge already matches where we'd put it -- not by

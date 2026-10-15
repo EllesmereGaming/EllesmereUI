@@ -1059,6 +1059,7 @@ initFrame:SetScript("OnEvent", function(self)
         { key="timewalking",       label="Timewalking" },
         { key="delve",             label="Delve" },
         { key="lair",              label="Lair" },
+        { key="scenario",          label="Scenario" },
         { key="in_combat",         label="In Combat" },
         { key="out_of_combat",     label="Out of Combat" },
     }
@@ -1606,6 +1607,8 @@ initFrame:SetScript("OnEvent", function(self)
             if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildInlineCog(row._leftRegion, { tip = "Spell Name Settings",
                     title = "Spell Name",
+                    icon = EllesmereUI.RESIZE_ICON,
+                    disabled = Off, disabledTooltip = REQ,
                     rows = {
                         { type="slider", label="Text Size", min=6, max=22, step=1,
                           get=function() local c = C(); return (c and c.nameSize) or 11 end,
@@ -1614,6 +1617,8 @@ initFrame:SetScript("OnEvent", function(self)
                 })
                 EllesmereUI.BuildInlineCog(row._rightRegion, { tip = "Cast Timer Settings",
                     title = "Cast Timer",
+                    icon = EllesmereUI.RESIZE_ICON,
+                    disabled = Off, disabledTooltip = REQ,
                     rows = {
                         { type="slider", label="Text Size", min=6, max=22, step=1,
                           get=function() local c = C(); return (c and c.timerSize) or 11 end,
@@ -1622,12 +1627,53 @@ initFrame:SetScript("OnEvent", function(self)
                 })
             end
 
-            _, h = W:DualRow(parent, y,
+            row, h = W:DualRow(parent, y,
                 { type="toggle", text="Show Icon",
                   disabled=Off, disabledTooltip=REQ,
                   getValue=function() local c = C(); return not c or c.showIcon ~= false end,
                   setValue=function(v) local c = C(); if c then c.showIcon = v and true or false; TFBRefresh() end end },
-                { type="label", text="" });  y = y - h
+                { type="toggle", text="Show Spell Target",
+                  disabled=Off, disabledTooltip=REQ,
+                  tooltip="Show who the spell is being cast on, exactly like the nameplate cast bars.",
+                  -- Per bar; an unset bar inherits the former shared toggle.
+                  getValue=function()
+                      local c = C()
+                      local v = c and c.showTarget
+                      if v == nil then
+                          local t = TFB()
+                          v = not t or t.showTarget ~= false
+                      end
+                      return v
+                  end,
+                  setValue=function(v) local c = C(); if c then c.showTarget = v and true or false; TFBRefresh() end end });  y = y - h
+            if not EllesmereUI._prebuilding then
+                -- Colors are shared by both bars; only the text size is per bar.
+                EllesmereUI.BuildInlineCog(row._rightRegion, { tip = "Spell Target Settings",
+                    title = "Spell Target",
+                    disabled = Off, disabledTooltip = REQ,
+                    rows = {
+                        { type="toggle", label="Class Colored Names",
+                          get=function() local t = TFB(); return not t or t.targetClassColor ~= false end,
+                          set=function(v) local t = TFB(); if t then t.targetClassColor = v and true or false; TFBRefresh() end end },
+                        { type="colorpicker", label="Custom Color",
+                          disabled=function() local t = TFB(); return not t or t.targetClassColor ~= false end,
+                          disabledTooltip="Class Colored Names to be off",
+                          get=function()
+                              local t = TFB()
+                              local c = t and t.targetColor
+                              return (c and c.r) or 1, (c and c.g) or 1, (c and c.b) or 1
+                          end,
+                          set=function(r, g, b)
+                              local t = TFB(); if not t then return end
+                              t.targetColor = { r = r, g = g, b = b }
+                              TFBRefresh()
+                          end },
+                        { type="slider", label=(which == "target") and "Text Size (Target)" or "Text Size (Focus)", min=6, max=20, step=1,
+                          get=function() local c = C(); return (c and c.targetSize) or 10 end,
+                          set=function(v) local c = C(); if c then c.targetSize = v; TFBRefresh() end end },
+                    },
+                })
+            end
         end
 
         BuildBarSection("target", "TARGET CAST BAR", "Enable Target Cast Bar")
@@ -1780,11 +1826,7 @@ initFrame:SetScript("OnEvent", function(self)
               tooltip="Flash the cast bar and show \"Interrupted\" for a moment when the cast is interrupted.",
               getValue=function() local t = TFB(); return not t or t.interruptedFlash ~= false end,
               setValue=function(v) local t = TFB(); if t then t.interruptedFlash = v and true or false; TFBRefresh() end end },
-            { type="toggle", text="Show Spell Target",
-              disabled=SharedOff, disabledTooltip=SHARED_REQ,
-              tooltip="Show who the spell is being cast on, exactly like the nameplate cast bars.",
-              getValue=function() local t = TFB(); return not t or t.showTarget ~= false end,
-              setValue=function(v) local t = TFB(); if t then t.showTarget = v and true or false; TFBRefresh() end end });  y = y - h
+            { type="label", text="" });  y = y - h
         if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineCog(row._leftRegion, { tip = "Interrupted Flash Settings",
                 title = "Interrupted Flash",
@@ -1799,45 +1841,6 @@ initFrame:SetScript("OnEvent", function(self)
                           local t = TFB(); if not t then return end
                           t.interruptedColor = { r = r, g = g, b = b }
                           TFBRefresh()
-                      end },
-                },
-            })
-            EllesmereUI.BuildInlineCog(row._rightRegion, { tip = "Spell Target Settings",
-                title = "Spell Target",
-                rows = {
-                    { type="toggle", label="Class Colored Names",
-                      get=function() local t = TFB(); return not t or t.targetClassColor ~= false end,
-                      set=function(v) local t = TFB(); if t then t.targetClassColor = v and true or false; TFBRefresh() end end },
-                    { type="colorpicker", label="Custom Color",
-                      disabled=function() local t = TFB(); return not t or t.targetClassColor ~= false end,
-                      disabledTooltip="Class Colored Names to be off",
-                      get=function()
-                          local t = TFB()
-                          local c = t and t.targetColor
-                          return (c and c.r) or 1, (c and c.g) or 1, (c and c.b) or 1
-                      end,
-                      set=function(r, g, b)
-                          local t = TFB(); if not t then return end
-                          t.targetColor = { r = r, g = g, b = b }
-                          TFBRefresh()
-                      end },
-                    { type="slider", label="Text Size (Target)", min=6, max=20, step=1,
-                      get=function()
-                          local c = TFBBar("target")
-                          return (c and c.targetSize) or 10
-                      end,
-                      set=function(v)
-                          local c = TFBBar("target")
-                          if c then c.targetSize = v; TFBRefresh() end
-                      end },
-                    { type="slider", label="Text Size (Focus)", min=6, max=20, step=1,
-                      get=function()
-                          local c = TFBBar("focus")
-                          return (c and c.targetSize) or 10
-                      end,
-                      set=function(v)
-                          local c = TFBBar("focus")
-                          if c then c.targetSize = v; TFBRefresh() end
                       end },
                 },
             })
@@ -1885,9 +1888,8 @@ initFrame:SetScript("OnEvent", function(self)
         local REQ = "Enable Run Summary"
 
         -----------------------------------------------------------------
-        --  Top action buttons: Show Preview + Clear Run History, the same
-        --  pair layout as the Action Bars page's Quick Keybind / Blizzard
-        --  Style buttons.
+        --  Top action buttons: Show Preview + Clear Run History, two 312x38
+        --  buttons centred with a 40px gap.
         -----------------------------------------------------------------
         do
             local PPn = EllesmereUI.PanelPP

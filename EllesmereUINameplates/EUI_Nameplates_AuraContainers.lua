@@ -260,8 +260,8 @@ local NPB = {
 }
 
 -- The split costs an extra engine group per plate, so take it only when the
--- halves must differ: one dispel type known and not the other, or both known
--- with per-type colors on. AND ONLY UNRESTRICTED: candidate filters read
+-- halves must differ: one dispel type known and not the other. AND ONLY
+-- UNRESTRICTED: candidate filters read
 -- auraData.dispelName, and enemy aura data is REDACTED in restricted content
 -- (the documented isStealable incident above BuffCand) -- there the
 -- include-Magic candidate matches nothing and every buff would fall into the
@@ -272,61 +272,110 @@ function NPB.Split()
     if not PurgeGlowActive() then return false end
     if AK and AK.AurasRestricted and AK.AurasRestricted() then return false end
     local magic, enrage = ns.GetOffensiveDispelTypes()
-    if magic ~= enrage then return true end
-    return (ns.GetDispelGlowUseTypeColor and ns.GetDispelGlowUseTypeColor()) or false
+    return magic ~= enrage
 end
 
--- Glow state and dispel type for glow group idx (1 = Magic, or the whole row
--- while unsplit; 2 = non-Magic). The type passes on unconditionally --
--- GetDispelGlowColor ignores it unless per-type colors are on.
+-- Whether glow group idx shows the dispel border (1 = Magic, or the whole row
+-- while unsplit; 2 = non-Magic).
 function NPB.GroupGlow(idx)
-    if not PurgeGlowActive() then return false, nil end
-    if not NPB.Split() then return idx ~= 2, nil end
+    if not PurgeGlowActive() then return false end
+    if not NPB.Split() then return idx ~= 2 end
     local magic, enrage = ns.GetOffensiveDispelTypes()
-    if idx == 2 then return enrage == true, "enrage" end
-    return magic == true, "magic"
+    if idx == 2 then return enrage == true end
+    return magic == true
 end
 
+-- Blizzard's own pandemic border (the Cooldown Manager's art), drawn static
+-- around an engine aura button for both the buff row's Dispel Glow and the
+-- debuff row's Pandemic Glow, outset 20% of the icon so it covers the icon's
+-- square corners (the Cooldown Manager's own frame uses 6 px on a 40 px icon).
+-- Nothing animates: a playing AnimationGroup costs engine time every frame even
+-- on a hidden host, every pooled button carries one of these hosts, and the
+-- client never lets addon code see when a pooled button or a pandemic region
+-- shows (secret visibility), so an animation could never wait for it.
+local BORDER_ATLAS = "UI-CooldownManager-PandemicBorder"
+
+-- The button's border host in d[key] (its outset stamp in d[outKey]), made on
+-- first use: a child of the engine button (cross-tree anchoring TO engine
+-- buttons is disallowed -- the dependent would inherit their forbidden aspects),
+-- so its visibility rides the button.
+local function NPBorderHost(button, d, key, outKey, style)
+    local host = d[key]
+    if not host then
+        host = CreateFrame("Frame", nil, button)
+        -- Just above the border, below the duration/stack text: the text
+        -- carrier sits one level over the border host, so slot in at carrier-1.
+        if d.stackCarrier then
+            host:SetFrameLevel(d.stackCarrier:GetFrameLevel() - 1)
+        else
+            host:SetFrameLevel(button:GetFrameLevel() + 1)
+        end
+        host:EnableMouse(false)
+        local tex = host:CreateTexture(nil, "ARTWORK")
+        tex:SetAllPoints(host)
+        tex:SetAtlas(BORDER_ATLAS)
+        d[key] = host
+    end
+    local w = style.width or 24
+    local out = math.floor(math.min(w, style.height or w) * 0.2 + 0.5)
+    if d[outKey] ~= out then
+        host:ClearAllPoints()
+        host:SetPoint("TOPLEFT", button, "TOPLEFT", -out, out)
+        host:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", out, -out)
+        d[outKey] = out
+    end
+    host:SetAlpha(1)
+    return host
+end
+
+-- The same border on a plain frame of the options preview (no engine button
+-- behind it); on = false hides it.
+local previewBorders = setmetatable({}, { __mode = "k" })
+local PV_SIZE = {}
+function ns.NPC_PreviewBorder(frame, w, h, on)
+    local d = previewBorders[frame]
+    if not on then
+        if d and d.host then d.host:SetAlpha(0) end
+        return
+    end
+    if not d then d = {}; previewBorders[frame] = d end
+    PV_SIZE.width, PV_SIZE.height = w, h
+    NPBorderHost(frame, d, "host", "out", PV_SIZE)
+end
+
+-- Dispel Glow on the buff row: every buff in the glow group is dispellable (the
+-- group filter says so), so the border rides the button's own visibility -- no
+-- readback of per-aura state.
 local function ApplyNPBuffExtra(button, d, style)
     ApplyNPText(button, d, style)
-    local Glows = EllesmereUI.Glows
-    if style.purgeGlow and style.purgeSpec then
-        local sz = style.width or 24
-        local host = d.npGlowHost
-        if not host then
-            -- Child of the engine button (cross-tree anchoring TO engine
-            -- buttons is disallowed -- the dependent would inherit their
-            -- forbidden aspects). Visibility therefore rides the button:
-            -- the shared Glows driver skips hidden pool buttons for free, and under
-            -- restriction (secret visibility) it skips the ticks too -- the glow
-            -- renders statically there, same accepted degrade as the RF CC glow.
-            host = CreateFrame("Frame", nil, button)
-            host:SetAllPoints(button)
-            -- Just above the border, below the duration/stack text: the
-            -- text carrier sits one level over the border host, so slot in
-            -- at carrier-1. Equal level with the border host still draws
-            -- the glow on top of the border (created later).
-            if d.stackCarrier then
-                host:SetFrameLevel(d.stackCarrier:GetFrameLevel() - 1)
-            else
-                host:SetFrameLevel(button:GetFrameLevel() + 1)
-            end
-            host:EnableMouse(false)
-            d.npGlowHost = host
-            -- nil need: every family (Pixel, the flipbooks and Blizzard Border).
-            Glows.PrewarmEngineHost(host, sz, style.height or sz, nil)
-        end
-        -- Every buff in this row is dispellable (the group filter says so), so the glow
-        -- rides the button's own visibility -- no readback of per-aura state.
-        host:SetAlpha(1)
-        -- C-side animations only: identical in and out of restricted content.
-        -- purgeSpec is the dispel glow's full spec (ns.GetDispelGlowSpec), built
-        -- once per style pass; the height follows cropped icons. Blizzard
-        -- Border (static stealable art) renders through the same call.
-        Glows.StartSpecGlow(host, style.purgeSpec, sz, style.height or sz, "engine")
+    if style.purgeGlow then
+        NPBorderHost(button, d, "npGlowHost", "npGlowOut", style)
     elseif d.npGlowHost then
-        if d.npGlowHost._euiGlowActive then Glows.StopGlow(d.npGlowHost) end
         d.npGlowHost:SetAlpha(0)
+    end
+end
+
+-- Pandemic Glow on debuff icons: the border host is a PANDEMIC REGION of the
+-- engine button. The client shows it only while the aura is in its pandemic
+-- window, also under restriction, and its shown state is secret -- nothing here
+-- reads it. Off, the region is cleared, so the button no longer checks the
+-- window. Blizzard's aura code runs in its own environment (no global mixin to
+-- test), so the button's own method is the one capability check.
+local function ApplyNPDebuffExtra(button, d, style)
+    ApplyNPText(button, d, style)
+    local host = d.npPanHost
+    if style.pandemicGlow and button.AddPandemicRegion then
+        host = NPBorderHost(button, d, "npPanHost", "npPanOut", style)
+        if not d.npPanRegion then
+            button:AddPandemicRegion(host)
+            d.npPanRegion = true
+        end
+    elseif host then
+        if d.npPanRegion then
+            button:ClearPandemicRegions()
+            d.npPanRegion = nil
+        end
+        host:SetAlpha(0)
     end
 end
 
@@ -389,7 +438,7 @@ local function BuildNPStyle(kind, variant)
         blizzBorder = harmfulClassic,
         cooldownReverse = true,
         noDefaultFonts = true,
-        noTooltips = true,
+        noTooltips = PVal("showAuraTooltips") ~= true,
         applyExtra = ApplyNPText,
         durSize = dur.size,
         durColor = dur.color,
@@ -414,10 +463,12 @@ local function BuildNPStyle(kind, variant)
     -- dispel type is unreadable under 12.1 secrecy, so the type is a
     -- property of the GROUP and resolves once, here, at style-build time.
     if kind == "buffs" and variant ~= "plain" then
-        local glow, dispelType = NPB.GroupGlow(variant == 2 and 2 or 1)
-        style.purgeGlow = glow
-        style.purgeSpec = ns.GetDispelGlowSpec and ns.GetDispelGlowSpec(dispelType) or nil
+        style.purgeGlow = NPB.GroupGlow(variant == 2 and 2 or 1)
         style.applyExtra = ApplyNPBuffExtra
+    elseif kind == "debuffs" then
+        -- Your debuffs only: the pandemic window is the time a recast keeps.
+        style.pandemicGlow = ns.GetPandemicGlow()
+        style.applyExtra = ApplyNPDebuffExtra
     end
     return style
 end
@@ -774,7 +825,7 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
                     declared[gkey] = true
                     declaredNew = true
                 else
-                    container:SetAuraGroupMaxFrameCount(gkey, cap)
+                    EllesmereUI.AuraKit.SetGroupCap(container, gkey, cap)
                     container:SetAuraGroupCandidateFilters(gkey, NPF_Cand(rec.cand, side))
                 end
             end
@@ -806,7 +857,7 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
                     declared[gkey] = true
                     declaredNew = true
                 else
-                    container:SetAuraGroupMaxFrameCount(gkey, 1)
+                    EllesmereUI.AuraKit.SetGroupCap(container, gkey, 1)
                 end
             end
         end
@@ -837,13 +888,13 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
                 declaredNew = true
             else
                 container:SetAuraGroupCandidateFilters("npsunder", { includeSpellIDs = ids })
-                container:SetAuraGroupMaxFrameCount("npsunder", 1)
+                EllesmereUI.AuraKit.SetGroupCap(container, "npsunder", 1)
             end
         end
     end
     for gkey in pairs(declared) do
         if gkey ~= "npinc" and gkey ~= "npincmine" and not wanted[gkey] then
-            container:SetAuraGroupMaxFrameCount(gkey, 0)
+            EllesmereUI.AuraKit.SetGroupCap(container, gkey, 0)
         end
     end
     local npOn
@@ -855,7 +906,7 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
     -- Blacklist on the np group too (both containers; the debuff cfg pass
     -- also re-drives this -- same values, dirty-mark cheap).
     container:SetAuraGroupCandidateFilters("np", NPF_Cand(nil, side))
-    container:SetAuraGroupMaxFrameCount("np", npOn and cap or 0)
+    EllesmereUI.AuraKit.SetGroupCap(container, "np", npOn and cap or 0)
     -- Include list (Tracked Auras popup): the side's own groups on this
     -- container. They stay ACTIVE in every mode, Show All included -- the
     -- np group's fixed filter string is PLAYER-cast (and !CROWD_CONTROL on
@@ -881,7 +932,7 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
         if incm then
             container:SetAuraGroupCandidateFilters("npinc", { includeSpellIDs = incm })
         end
-        container:SetAuraGroupMaxFrameCount("npinc", incm and cap or 0)
+        EllesmereUI.AuraKit.SetGroupCap(container, "npinc", incm and cap or 0)
     end
     if incmm and not declared.npincmine then
         AK.AddGroupToContainer(container, {
@@ -899,7 +950,7 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
         if incmm then
             container:SetAuraGroupCandidateFilters("npincmine", { includeSpellIDs = incmm })
         end
-        container:SetAuraGroupMaxFrameCount("npincmine", incmm and cap or 0)
+        EllesmereUI.AuraKit.SetGroupCap(container, "npincmine", incmm and cap or 0)
     end
     -- One parse covers every group declared this pass. Only for containers
     -- bound to a live unit (BindContainer's stamp): at pool build the unit
@@ -958,18 +1009,19 @@ end
 -- which reads DISPELLABLE and is defined far above this point (a file-scope
 -- local would be invisible to it down here).
 
--- Enemy Buff Filter mode (npEnemyBuffFilter): "important" is the DEFAULT for
--- EVERYONE (user-directed 2026-08-16 -- a deliberate new default; the retired
--- showAllEnemyBuffs key is an inert orphan, never migrated and never read;
--- the removed "all" value normalizes to important the same way, 2026-08-17).
--- UNION SEMANTICS (user-directed 2026-08-17): a single filter string ANDs
--- its tokens, so the OR lives in the group split. TWO groups render the row:
+-- Enemy Buff Filter mode (npEnemyBuffFilter): "important" is the retail
+-- DEFAULT (the retired showAllEnemyBuffs key is an inert orphan, never
+-- migrated and never read; the removed "all" value normalizes to important
+-- the same way), "showall" the WoW Forever one (defaults table).
+-- UNION SEMANTICS: a single filter string ANDs its tokens, so the OR lives in
+-- the group split. TWO groups render the row:
 -- "np" = ALL dispellable buffs (purgeables AND enrages -- the engine's
 -- DISPELLABLE token is class-independent; this group carries the dispel glow
--- style), "npnb" = the IMPORTANT non-dispellable remainder (plain style;
--- !DISPELLABLE keeps the union overlap-free; parked at 0 in Dispellable
--- mode). Important mode therefore shows important OR dispellable; Dispellable
--- mode shows the glow group alone. Both are composed filter STRINGS with
+-- style), "npnb" = the non-dispellable remainder (plain style; !DISPELLABLE
+-- keeps the union overlap-free), narrowed to IMPORTANT in Important mode and
+-- whole in Show All mode, parked at 0 in Dispellable mode. Important mode
+-- therefore shows important OR dispellable, Show All every buff, and
+-- Dispellable the glow group alone. All are composed filter STRINGS with
 -- INCLUDE_NAME_PLATE_ONLY (matches Blizzard's own buffFilterString) --
 -- C-evaluated, so the split holds on secret enemy data in instanced PvP and
 -- the glow needs no per-aura signal (the machinery #1509 deleted). The
@@ -977,7 +1029,7 @@ end
 -- the "np" group wears, so every shown dispellable buff glows.
 local function BuffMode()
     local m = PVal("npEnemyBuffFilter")
-    if m == "dispellable" then return m end
+    if m == "dispellable" or m == "showall" then return m end
     return "important"
 end
 
@@ -992,10 +1044,12 @@ end
 
 -- nil = the plain group has nothing to show (Dispellable mode, or a client
 -- without the DISPELLABLE token, where no complement can be expressed).
+-- Important narrows the remainder to IMPORTANT; Show All keeps all of it.
 local function BuffFilterPlain()
-    if BuffMode() ~= "important" or not DISPELLABLE then return nil end
+    local mode = BuffMode()
+    if mode == "dispellable" or not DISPELLABLE then return nil end
     local t = { "HELPFUL", "INCLUDE_NAME_PLATE_ONLY" }
-    if IMPORTANT then t[#t + 1] = IMPORTANT end
+    if mode == "important" and IMPORTANT then t[#t + 1] = IMPORTANT end
     t[#t + 1] = "!" .. DISPELLABLE
     return t
 end
@@ -1052,8 +1106,7 @@ function NPB.GlowSpec(idx)
 end
 
 -- Declares or parks the non-Magic glow group to match the current split, on
--- containers that already existed when capability / restriction / the type
--- color option changed.
+-- containers that already existed when capability or restriction changed.
 function NPB.Apply(container)
     if not container then return end
     local split = NPB.Split()
@@ -1068,7 +1121,7 @@ function NPB.Apply(container)
         -- the next SetUnit unless this container is asked to re-parse now.
         if container._npcBoundUnit then container:UpdateAllAuras() end
     elseif container._npbSplit then
-        container:SetAuraGroupMaxFrameCount("np2", split and 4 or 0)
+        EllesmereUI.AuraKit.SetGroupCap(container, "np2", split and 4 or 0)
     end
 end
 
@@ -1365,6 +1418,8 @@ local function NPLockoutBorder(f)
             cb:SetFrameLevel(lvl)
             EllesmereUI.ApplyBorderStyle(cb, sz, col.r, col.g, col.b, a, tex, ox, oy, sx, sy,
                 "nameplates", sz, nil, px)
+            local PP = EllesmereUI.PP
+            if PP.GetBorders(cb) then PP.CreateBorder(cb, nil, nil, nil, nil, nil, nil, nil, true) end
             cb._sTex, cb._sSz, cb._sPx = tex, sz, px
             cb._sR, cb._sG, cb._sB, cb._sA = col.r, col.g, col.b, a
             cb._sOX, cb._sOY, cb._sSX, cb._sSY = ox, oy, sx, sy
@@ -1418,8 +1473,8 @@ function ns.NPC_UpdateLockout(plate)
             local kit = AK or EllesmereUI.AuraKit
             local swipe = px == 0 and not ns.NP_Classic() and kit and kit.BLIZZ_ROUND_SWIPE
             if swipe and f.cd.SetSwipeTexture then f.cd:SetSwipeTexture(swipe) end
-            local PP = EllesmereUI.PP
-            if PP and PP.CreateBorder then PP.CreateBorder(f, 0, 0, 0, 1, 1) end
+            -- scaleGuard: a plate child, as every Basic nameplate border
+            EllesmereUI.PP.CreateBorder(f, 0, 0, 0, 1, 1, nil, nil, true)
             NPLockoutBorder(f)
             plate.npcLockout = f
         end
@@ -1624,7 +1679,6 @@ end
 
 local npFP = {}
 
-local PURGE_FP_SPEC = {}
 local function StyleFPFor(kind, idx)
     local size = NPSize(kind)
     local height = NPHeight(kind, size)
@@ -1635,23 +1689,14 @@ local function StyleFPFor(kind, idx)
     local stk = StackCfg()
     local purge = "-"
     if kind == "buffs" and ns.GetDispelGlow then
-        -- Capability and the per-type color toggle both feed BuildNPStyle,
-        -- so they have to reach this fingerprint or a talent swap / toggle
-        -- never restyles the engine buttons.
-        local glow, dispelType = NPB.GroupGlow(idx or 1)
-        local sp = ns.GetDispelGlowSpec and ns.GetDispelGlowSpec(dispelType, PURGE_FP_SPEC)
-        if sp then
-            purge = FP(idx or 1, glow, sp.style, sp.r, sp.g, sp.b, sp.lines, sp.thickness,
-                sp.speed, sp.bg, sp.bgR, sp.bgG, sp.bgB)
-            -- Class mode: the print holds the palette colour; keep it for the
-            -- colours-changed hook below NPC_ReloadAll. The mode is one profile
-            -- value, so any other mode clears it (no reload on later edits).
-            if PVal("dispelGlowColorMode") ~= "class" then
-                NPB.ccR = nil
-            elseif glow then
-                NPB.ccR, NPB.ccG, NPB.ccB = EllesmereUI.Glows.ResolveColor("class")
-            end
-        end
+        -- Capability feeds BuildNPStyle, so it has to reach this fingerprint
+        -- or a talent swap never restyles the engine buttons.
+        purge = FP(idx or 1, NPB.GroupGlow(idx or 1))
+    end
+    -- Pandemic Glow (debuffs): on or off is its one input to BuildNPStyle
+    -- (the border art is fixed); a constant "-" while off.
+    if kind == "debuffs" and ns.GetPandemicGlow() then
+        purge = "pan"
     end
     local durFP = FP(dur.size, dur.x, dur.y, dur.pos, dur.color.r, dur.color.g, dur.color.b)
     local stkFP = FP(stk.size, stk.x, stk.y, stk.pos, stk.color.r, stk.color.g, stk.color.b)
@@ -1674,7 +1719,8 @@ local function StyleFPFor(kind, idx)
         -- NOT `fn(kind) or true`: the getter legitimately returns false, and
         -- `false or true` would pin this fingerprint input to a constant so
         -- the toggle never restyles (the ternary-falsy trap).
-        (not ns.GetIconBorderEnabled) or ns.GetIconBorderEnabled(kind), cbFP)
+        (not ns.GetIconBorderEnabled) or ns.GetIconBorderEnabled(kind), cbFP,
+        PVal("showAuraTooltips") == true)
 end
 
 local function GeoFP()
@@ -1854,7 +1900,7 @@ function ns.NPC_ReloadAll()
                     end
                 end
                 if b.containers.buffs.SetAuraGroupMaxFrameCount then
-                    b.containers.buffs:SetAuraGroupMaxFrameCount("npnb", buffFilterPlain and 4 or 0)
+                    EllesmereUI.AuraKit.SetGroupCap(b.containers.buffs, "npnb", buffFilterPlain and 4 or 0)
                 end
             end
             -- NPF record groups + np counts: declares run on the queued,
@@ -1879,27 +1925,6 @@ function ns.NPC_ReloadAll()
     for plate in pairs(active) do
         if plate.npcLockout then NPLockoutBorder(plate.npcLockout) end
     end
-end
-
--- Colors page edits (swatches, darken, resets, profile switches) all end in
--- ApplyColorsToOUF. Once a Class-mode dispel glow was printed, a changed class
--- colour re-runs the reload; the purge print carries the colour, so only the
--- glow styles restyle. Calls in one frame (a profile switch can make two)
--- collapse into one check on the next frame: the flush frame stays hidden
--- until a call and hides itself before working.
-do
-    local flush = CreateFrame("Frame")
-    flush:Hide()
-    flush:SetScript("OnUpdate", function(self)
-        self:Hide()
-        local r0 = NPB.ccR
-        if r0 == nil then return end
-        local r, g, b = EllesmereUI.Glows.ResolveColor("class")
-        if r ~= r0 or g ~= NPB.ccG or b ~= NPB.ccB then ns.NPC_ReloadAll() end
-    end)
-    hooksecurefunc(EllesmereUI, "ApplyColorsToOUF", function()
-        if NPB.ccR ~= nil then flush:Show() end
-    end)
 end
 
 ------------------------------------------------------------------------------

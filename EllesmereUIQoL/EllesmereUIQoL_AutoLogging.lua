@@ -68,7 +68,7 @@ end
 -- Silently sets advancedCombatLogging if it isn't already on.
 local function EnsureAdvancedLogging()
     if GetCVar and GetCVar("advancedCombatLogging") ~= "1" then
-        SetCVar("advancedCombatLogging", 1)
+        EllesmereUI.SetCVar("advancedCombatLogging", 1, "EllesmereUIQoL")
     end
 end
 

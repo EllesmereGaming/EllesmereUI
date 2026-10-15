@@ -11,8 +11,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- Known behavior deltas vs the old element (documented for patch notes):
 --   * icon caps apply per enabled class, not as one total across the union
 --   * sorting applies within each class group, not across all shown icons
---   * sated/always-hidden spellID excludes are inert on assistable units
---     (engine identity gate); enemy units filter exactly as before
+--   * on assistable units the spellID excludes (always-hidden, Hide
+--     Exhaustion) work only for never-secret spells (the engine's identity
+--     gate exempts them; Exhaustion/Sated are); enemy units filter exactly as
+--     before
 
 local _, ns = ...
 
@@ -22,10 +24,14 @@ local AURA_CROP_HEIGHT = 0.80
 local AURA_ZOOM = 0.07
 local FALLBACK_FONT = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
 
+-- The Bloodlust lockouts: hidden while the unit's Hide Exhaustion (its Debuff
+-- Filter, s.debuffHideExhaustion, nil = on) is on. Player Aura Bars' own Hide
+-- Exhaustion reads the same set.
 local SATED_DEBUFFS = {
     [57723] = true, [57724] = true, [80354] = true, [95809] = true,
     [160455] = true, [264689] = true, [390435] = true,
 }
+ns.UF_SatedDebuffs = SATED_DEBUFFS
 local ALWAYS_HIDE_DEBUFFS = {
     [1254550] = true, -- Arcane Empowerment
     [308312]  = true, -- Time Trial Practice
@@ -293,6 +299,11 @@ end
 -- matches ANY player's casts, not only yours), and
 -- "Important or Own" partitions with !PLAYER so an aura renders once.
 -- Important covers both importance concepts (see PRIORITY_NONPLAYER_CAND).
+-- Every group is capped on its own (the engine has no shared cap, and a
+-- group's contents are secret in combat), so Important or Own caps each of
+-- its two important-from-others links (important = true) with Max Important
+-- (s.maxImportantDebuffs, unset = Max Count; the two together can show twice
+-- that) and your own with Max Count.
 -- Show All emits no include links: the catch-all already shows the tracked
 -- spells, and ApplyGroupConfig leaves them un-excluded when no link renders
 -- them. Only Tracked Auras with an empty list = an empty chain = nothing.
@@ -313,8 +324,8 @@ local function NonPlayerDebuffChain(s, unit)
         chain[2] = { key = "prioritynpown", tokens = { "HARMFUL", "PLAYER" }, cand = PRIORITY_NONPLAYER_CAND }
     elseif mode == "importantOrOwn" then
         chain[1] = { key = "own",           tokens = { "HARMFUL", "PLAYER" } }
-        chain[2] = { key = "priorityoth",   tokens = { "HARMFUL", "!PLAYER" }, cand = PRIORITY_CAND }
-        chain[3] = { key = "prioritynpoth", tokens = { "HARMFUL", "!PLAYER" }, cand = PRIORITY_NONPLAYER_CAND }
+        chain[2] = { key = "priorityoth",   tokens = { "HARMFUL", "!PLAYER" }, cand = PRIORITY_CAND, important = true }
+        chain[3] = { key = "prioritynpoth", tokens = { "HARMFUL", "!PLAYER" }, cand = PRIORITY_NONPLAYER_CAND, important = true }
     end
     AppendIncludeLinks(chain, s, unit)
     return chain
@@ -1125,7 +1136,9 @@ local function PlayerDebuffChain(s)
     end
     local ex = {}
     for id in pairs(ALWAYS_HIDE_DEBUFFS) do ex[id] = true end
-    for id in pairs(SATED_DEBUFFS) do ex[id] = true end
+    if s.debuffHideExhaustion ~= false then
+        for id in pairs(SATED_DEBUFFS) do ex[id] = true end
+    end
     local cand = { excludeSpellIDs = ex }
     if subCand then
         for k, v in pairs(subCand) do cand[k] = v end
@@ -1187,7 +1200,8 @@ local function ChainFor(unit, base, s)
                 for k, v in pairs(c.cand) do cand[k] = v end
                 if cand.maxDuration == nil then cand.maxDuration = math.huge end
             end
-            chain[i] = { key = c.key .. "|dur", tokens = c.tokens, cand = cand, glow = c.glow, mine = c.mine }
+            chain[i] = { key = c.key .. "|dur", tokens = c.tokens, cand = cand, glow = c.glow, mine = c.mine,
+                important = c.important }
         end
     end
     return chain
@@ -1205,17 +1219,92 @@ end
 -- stepper's final stage clears the flag and runs the first real reload).
 local registry = {}
 
+-- Units whose build job is queued but has not run its first atom (the entry is
+-- born there): a repeat request in between queues nothing more (the pet's lazy
+-- build is asked on every reload pass).
+local buildQueued = {}
+
+-- The pet swap watcher (UNIT_PET), held by the pet's reload; its Sync is
+-- defined below RefreshUnit.
+local PetSwap = {}
+
 -- The PLAYER_LOGIN shell stash lived here until 68914 made container
 -- creation combat-legal (/euit3 field PASS): builds now birth their own
 -- shells inline wherever the job runs, combat included.
 
+-- The pet's aura settings: a read-only VIEW over two live tables, nothing is
+-- copied into the profile. Placement, size (Cropped Icons included: it sets
+-- the icon height) and the Location switches are the pet's own; the aura look
+-- comes from the frame its Copy Auras From names (ns.UF_MiniAuraTables); every
+-- other key reads nil, so the pet keeps the runtime defaults for content
+-- (every buff and debuff, Sated hidden, no Tracked Auras, no Purgeable Buff
+-- Glow, no merge with the debuffs, no cast bar reserve) whatever either table
+-- holds. Values per key:
+--   1 = the pet's own key, 2 = the source frame's key, 3 = the source frame's
+--   key unless that frame is the player (the player frame never shows it),
+--   4 = the source frame's key only when that frame is the player (only the
+--   player frame shows it).
+-- A key the aura code newly reads for every unit lands here too, or the pet
+-- reads nil for it.
+local PET_AURA_KEYS = {
+    showBuffs = 1, buffAnchor = 1, debuffAnchor = 1,
+    buffSize = 1, debuffSize = 1, buffGrowth = 1, debuffGrowth = 1,
+    maxBuffs = 1, maxDebuffs = 1, buffMaxPerRow = 1, debuffMaxPerRow = 1,
+    buffOffsetX = 1, buffOffsetY = 1, debuffOffsetX = 1, debuffOffsetY = 1,
+    buffSpacingX = 1, buffSpacingY = 1, debuffSpacingX = 1, debuffSpacingY = 1,
+    buffCropIcons = 1, debuffCropIcons = 1,
+    -- Show Tooltip For > Main Frames Auras writes it on the pet too.
+    showAuraTooltips = 1,
+    buffIconZoom = 2, debuffIconZoom = 2,
+    auraBorderR = 2, auraBorderG = 2, auraBorderB = 2, auraBorderA = 2,
+    auraBorderSize = 2, auraBorderSizePx = 2, auraBorderTexture = 2,
+    auraBorderTextureOffset = 2, auraBorderTextureOffsetY = 2,
+    auraBorderTextureShiftX = 2, auraBorderTextureShiftY = 2,
+    auraBorderBehind = 2, auraBorderBehindUnitFrame = 2, auraBorderDispelTextured = 2,
+    debuffDispelBorder = 2, buffDispelBorder = 3,
+    buffShowCooldownText = 2, buffCooldownTextSize = 2, buffCooldownTextPrecision = 2,
+    buffCooldownTextColor = 2, buffCooldownTextOffsetX = 2, buffCooldownTextOffsetY = 2,
+    buffStackTextSize = 2, buffStackTextColor = 2, buffStackTextPosition = 2,
+    buffStackTextOffsetX = 2, buffStackTextOffsetY = 2,
+    debuffShowCooldownText = 2, debuffCooldownTextSize = 2, debuffCooldownTextPrecision = 2,
+    debuffCooldownTextColor = 2, debuffCooldownTextOffsetX = 2, debuffCooldownTextOffsetY = 2,
+    debuffStackTextSize = 2, debuffStackTextColor = 2, debuffStackTextPosition = 2,
+    debuffStackTextOffsetX = 2, debuffStackTextOffsetY = 2,
+    debuffDispelUsePalette = 4,
+}
+local petView = { own = nil, src = nil, player = false }
+local PET_VIEW = setmetatable({}, {
+    __index = function(_, k)
+        local c = PET_AURA_KEYS[k]
+        if c == 1 then return petView.own[k] end
+        if c == 2 or (c == 3 and not petView.player) or (c == 4 and petView.player) then
+            return petView.src[k]
+        end
+        return nil
+    end,
+    -- Read-only: the runtime writes only the player's table (EnsurePlayerAuraLanes).
+    __newindex = function() end,
+})
+-- Points the view at the current tables (a profile switch, import or layer
+-- paint can replace either one) and returns it.
+local function PetAuraSettings()
+    local own, src, srcKey = ns.UF_MiniAuraTables("pet")
+    if not (own and src) then return nil end
+    petView.own, petView.src, petView.player = own, src, srcKey == "player"
+    return PET_VIEW
+end
+
 local function SettingsFor(unit)
+    if unit == "pet" then return PetAuraSettings() end
     if ns.UF_GetSettings then return ns.UF_GetSettings(unit) end
     local db = ns.db
     if not db then return nil end
     local key = unit:match("^boss%d+$") and "boss" or unit
     return db.profile[key]
 end
+-- What the containers read for a unit (the pet's view, another unit's own
+-- table): the pet's lazy build and the options preview read the same.
+ns.UF_AuraSettings = SettingsFor
 
 -- Anchor/growth tables: initial anchor, frame point + offset direction, and
 -- the growth pair per anchor position.
@@ -1305,6 +1394,26 @@ end
 -- change-guarded via CK() fingerprints (d.ufDurColor/d.ufStackColor) --
 -- SetTextColor costs real time too, same reasoning as the font guard above.
 local function ApplyUFText(button, d, style)
+    if style.auraBorderAboveEffects or d.ufBorderAboveEffects then
+        -- Only owned art/text hosts move; the restricted button is untouched.
+        -- Stock styles hide the border instead of restoring its level.
+        local level = d.borderHost:GetFrameLevel()
+        if style.auraBorderAboveEffects then
+            d.ufBorderBaseLevel = level
+            level = math.max(level, (d.buttonFrameLevel or 1) + 20)
+            d.borderHost:SetFrameLevel(level)
+        else
+            if not style.border and d.ufBorderBaseLevel then
+                level = d.ufBorderBaseLevel
+                d.borderHost:SetFrameLevel(level)
+            end
+            d.ufBorderBaseLevel = nil
+        end
+        d.dispelHolder:SetFrameLevel(level + 4)
+        d.stackCarrier:SetFrameLevel(level + 5)
+        d.akDispelLvl = level
+        d.ufBorderAboveEffects = style.auraBorderAboveEffects or nil
+    end
     local path = style.fontPath or FALLBACK_FONT
     if d.duration then
         local fontKey = path .. "|" .. (style.cdTextSize or 10)
@@ -1405,6 +1514,7 @@ local function StyleTableFP(st, font)
         b and b.texture, b and b.size, b and b.edgePx, b and b[1], b and b[2], b and b[3], b and b[4],
         b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
         b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel,
+        st.auraBorderAboveEffects,
         st.noTooltips, st.blizzBorder, st.dispelBorder,
         -- Textured Dispel Ring (the ring's art key) and Use Dispel Colors (the
         -- palette fingerprint the colour map was built from).
@@ -1418,6 +1528,14 @@ end
 -- the additive reload path (AddAuraGroup on an existing container is
 -- combat-legal -- probe T1/T1b).
 local function DeclareElementGroup(container, declared, styleKey, key, tokens, cand)
+    -- A declaration cut short after the engine registered the group (the
+    -- client watchdog) left it unrecorded here: record it rather than add it
+    -- again (a duplicate key asserts). The cut can also skip storing its
+    -- layout, which the config pass sets on every active group.
+    if container:HasAuraGroup(key) then
+        declared[key] = { cand = cand or false }
+        return
+    end
     AK.AddGroupToContainer(container, {
         key = key, filter = tokens, maxFrameCount = 0, style = styleKey,
         -- Candidates ride the declaration too: chain keys that embed a candidate
@@ -1447,21 +1565,44 @@ local function BossSimple(unit, base, s)
     return mode ~= "none", mode
 end
 
+-- Whether one element of a unit shows: buffs unless Buff Display is None,
+-- or while a boss Simple Buff Display or Anchor Buffs with Debuffs renders
+-- them; debuffs while Debuff Display is not None or a boss Simple Debuff
+-- Display renders them. The one test the build stepper, the reload's group
+-- declaration and the config pass share: an element that is off declares no
+-- groups (each is an eager engine batch) until a reload sees it on.
+local function SideOn(unit, base, s)
+    if base == "HELPFUL" then
+        if s.showBuffs ~= false or BossSimple(unit, base, s) then return true end
+        return s.debuffAnchorBuffs == true and not unit:match("^boss")
+            and (s.debuffAnchor or "none") ~= "none"
+    end
+    return (s.debuffAnchor or "none") ~= "none" or (BossSimple(unit, base, s))
+end
+ns.UF_AuraSideOn = SideOn
+
 -- Element pixel size; boss simple mode matches the frame's bar-stack height.
 local function ElementSize(unit, base, s)
     local isBuff = (base == "HELPFUL")
     local size = Pick(isBuff, s.buffSize, s.debuffSize) or 22
     local simpleOn = BossSimple(unit, base, s)
+    local PP = EllesmereUI.PP
+    local m = PP.mult or 1
     if simpleOn then
-        local PP = EllesmereUI.PP
         local powerPos = s.powerPosition or "below"
         local powerH = 0
         if powerPos == "below" or powerPos == "above" then powerH = s.powerHeight or 0 end
         size = PP.Scale((s.healthHeight or 0) + powerH)
+    elseif m ~= 1 then
+        -- Whole physical pixels (nearest, as Player Aura Bars): AuraKit's border
+        -- strips skip pixel snapping while the icon texture snaps, so a
+        -- fractional far edge leaves the border off the icon at a
+        -- non-pixel-perfect scale.
+        size = PP.FromPixels(PP.ToPixels(size))
     end
     local cropped = Pick(isBuff, s.buffCropIcons, s.debuffCropIcons)
     local h = size
-    if cropped then h = math.floor(size * AURA_CROP_HEIGHT + 0.5) end
+    if cropped then h = math.floor(size / m * AURA_CROP_HEIGHT + 0.5) * m end
     return size, h, cropped
 end
 
@@ -1518,14 +1659,16 @@ local function BuildStyle(unit, base, s, unitFrame)
         if isBuff and unit ~= "player" and s.buffDispelBorder == true then
             dispel = true
         end
-        -- Textured Dispel Ring (per-unit, player/target): AuraKit draws the ring
+        -- Textured Dispel Ring (per-unit, player/target/focus): AuraKit draws the ring
         -- in the aura border's own art on the aura border's geometry (style.border)
         -- instead of flat strips, and keeps the strips by itself for a size-0 border.
         if dispel and s.auraBorderDispelTextured == true
             and border.texture ~= "solid" and border.texture ~= "" then
             dispelTex = border.texture
         end
-        if dispel and not isBuff and unit == "player" and s.debuffDispelUsePalette == true then
+        -- Use Dispel Colors: the player's rings, and the pet's while it copies
+        -- the player frame's aura look (its view hands the key on only then).
+        if dispel and not isBuff and (unit == "player" or unit == "pet") and s.debuffDispelUsePalette == true then
             dcMap, dcFP = PlayerDispelPalette()
         end
     end
@@ -1567,6 +1710,8 @@ local function BuildStyle(unit, base, s, unitFrame)
         -- every ApplyUFText call -- GetFontPath's result only changes when
         -- font settings change, which already forces a fresh style table.
         fontPath = (EllesmereUI.GetFontPath("unitFrames")) or FALLBACK_FONT,
+        auraBorderAboveEffects = s.auraBorderAboveEffects == true and unit:match("^boss")
+            and ns.UF_BossAuraBorderAboveEffects(s) or nil,
         applyExtra = ApplyUFText,
     }
 end
@@ -1589,7 +1734,9 @@ function PurgeGlow.Extra(button, d, style)
         -- window for parenting a new frame to it. Just below the text carrier.
         host = CreateFrame("Frame", nil, button)
         host:SetAllPoints(button)
-        if d.stackCarrier then
+        if style.auraBorderAboveEffects then
+            host:SetFrameLevel(d.cooldown:GetFrameLevel() + 5)
+        elseif d.stackCarrier then
             host:SetFrameLevel(d.stackCarrier:GetFrameLevel() - 1)
         else
             host:SetFrameLevel(button:GetFrameLevel() + 1)
@@ -1686,7 +1833,7 @@ local function CastbarBelowFrame(unit, frame)
         vb = b or 0
     end
     -- frame.Castbar is the status bar; its PARENT is the holder the unlock
-    -- system moves (see CreateCastBar in EllesmereUIUnitFrames.lua).
+    -- system moves (see CreateCastBar in EUI_UnitFrames_Castbar.lua).
     local cb = frame and frame.Castbar and frame.Castbar:GetParent()
     if not cb then return true end
     local fl, fr, fb = frame:GetLeft(), frame:GetRight(), frame:GetBottom()
@@ -1714,6 +1861,64 @@ ns.UF_CastbarBelowFrame = CastbarBelowFrame
 -- Cross-addon: the options preview mirrors this decision so its layout matches
 -- the live frames (EllesmereUIOptions/EUI_UnitFrames_Options.lua).
 EllesmereUI.UF_CastbarBelowFrame = CastbarBelowFrame
+
+-- A frame edge read as a plain number, or nil when it is unset or secret, so the
+-- reserve below degrades to 0 instead of erroring on arithmetic.
+local function secretNum(v)
+    if v == nil or issecretvalue(v) then return nil end
+    return v
+end
+
+-- How far the Resource Bars stack hangs below the PLAYER frame, in the frame's LOCAL
+-- units (so it composes with the cast bar's -cbH). Resource Bars hands over the
+-- stack's per-bar rects (EllesmereUI.ERB_PlayerStackBars: physical pixels, steady
+-- through the combat/target/group visibility modes); this reserves the span down to
+-- the lowest bar actually DOCKED under the frame, walking the chain so a bar sitting
+-- elsewhere is never reserved.
+local function ResourceStackBelowFrame(unit, frame)
+    if unit ~= "player" then return 0 end
+    frame = frame or _G[CB_FRAME_NAMES.player]
+    local getBars = EllesmereUI.ERB_PlayerStackBars
+    if not (frame and getBars) then return 0 end
+    local bars = getBars()
+    if not bars then return 0 end
+    local fl = secretNum(frame:GetLeft())
+    local fr = secretNum(frame:GetRight())
+    local fb = secretNum(frame:GetBottom())
+    if not (fl and fr and fb) then return 0 end
+    local fs = frame:GetEffectiveScale() or 1
+    if fs == 0 then fs = 1 end
+    fl, fr, fb = fl * fs, fr * fs, fb * fs -- physical, matching the bar rects
+    -- Walk the chain of bars actually DOCKED under the frame. Each must overlap the
+    -- frame horizontally and dock to the boundary above it (the frame bottom first,
+    -- then each docked bar's bottom). "Docked" mirrors CastbarBelowFrame: the gap from
+    -- the boundary down to the bar's top is less than the bar's own height, and overlap
+    -- up into the boundary is allowed within CB_STRIP_SLACK. A bar placed elsewhere
+    -- (e.g. a bottom-center class resource while the power bar is docked) never joins
+    -- the chain, so it is not reserved and the auras do not chase it down.
+    local boundary, lowest, used = fb, nil, {}
+    while true do
+        local best, bestT, bestI
+        for i = 1, #bars do
+            local b = bars[i]
+            if b and not used[i] and b.l < fr and b.r > fl then
+                local h = b.t - b.b
+                local drop = boundary - b.t
+                if h > 0 and drop < h and drop >= -CB_STRIP_SLACK then
+                    if not bestT or b.t > bestT then best, bestT, bestI = b, b.t, i end
+                end
+            end
+        end
+        if not best then break end
+        used[bestI] = true
+        if not lowest or best.b < lowest then lowest = best.b end
+        boundary = best.b
+    end
+    if not lowest then return 0 end
+    local gap = fb - lowest
+    if gap <= 0 then return 0 end
+    return gap / fs
+end
 
 -- Blizzard Style: point the frame's aura block (ns.UF_BlizzAuraBlock, the
 -- edge a cast bar linked under the frame follows) at the lowest
@@ -1748,7 +1953,10 @@ end
 -- ox + userX, oy + castbarPush + userY) with gap = 1.
 -- buffContainer (HARMFUL calls only): the unit's buff container, needed by
 -- the Anchor Buffs with Debuffs mode below.
-local function AnchorContainer(container, frame, unit, base, s, buffContainer)
+-- reanchorOnly (the footprint-watcher re-anchor path): re-run ONLY the geometry --
+-- SetPoint + aura-block point -- and skip the one-time weapon-enchant declaration
+-- below, which must not be re-issued every settle frame (the engine has no unregister).
+local function AnchorContainer(container, frame, unit, base, s, buffContainer, reanchorOnly)
     local isBuff = (base == "HELPFUL")
 
     -- Boss simple side display: forced side anchoring flush with the frame
@@ -1837,6 +2045,19 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
         if not cbH or cbH <= 0 then cbH = 14 end
         cbOff = -cbH
     end
+    -- Resource Bars stack (power bar / class resource / Forever shapeshift mana)
+    -- below the player frame: reserve down to its bottom edge the same way, and keep
+    -- whichever reserve reaches LOWER (the cast bar may sit above or below it). Same
+    -- bottom-anchor + non-Blizzard-aspect gate as the cast bar; player-only inside
+    -- ResourceStackBelowFrame. CfgFP leaves this value out: a stack footprint change
+    -- re-runs this anchor through the re-anchor Resource Bars arms (further down).
+    if (anchor == "bottomleft" or anchor == "bottomright")
+        and not (vl and CB_FRAME_NAMES[unit] and ns.UF_LayoutAspectOK and ns.UF_LayoutAspectOK()) then
+        local resReserve = ResourceStackBelowFrame(unit, frame)
+        if resReserve > 0 and -resReserve < cbOff then
+            cbOff = -resReserve
+        end
+    end
 
     local offX = Pick(isBuff, s.buffOffsetX, s.debuffOffsetX) or 0
     local offY = Pick(isBuff, s.buffOffsetY, s.debuffOffsetY) or 0
@@ -1883,7 +2104,7 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
                 local es = container:GetEffectiveScale()
                 local _, fcY = frame:GetCenter()
                 if fcY then
-                    local iconH = Pick(isBuff, s.buffSize, s.debuffSize) or 22
+                    local _, iconH = ElementSize(unit, base, s)
                     local rawY = fcY + oy + cbOff + offY
                     offY = offY + (PP.SnapCenterForDim(rawY, iconH, es) - rawY)
                 end
@@ -1908,11 +2129,12 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
         -- groups on this container (see AK.AddItemEnchantmentsToContainer),
         -- so nothing is anchored and no cells are reserved. They ride the
         -- broad-content modes (All Buffs or Has Duration), like every other
-        -- generic buff: declared once the first time a broad mode is on
-        -- (this pass re-runs on a chain change), and -- the engine has no
-        -- addon-facing unregister -- kept until the next reload should the
-        -- mode turn off again.
-        if unit == "player" and isBuff and (s.buffShowAll ~= false or s.buffHasDuration == true) then
+        -- generic buff: declared the first time the buff row shows in a broad
+        -- mode (this pass re-runs on a chain change and when the row turns
+        -- on), and -- the engine has no addon-facing unregister -- kept until
+        -- the next /reload should the row or the mode turn off again.
+        if not reanchorOnly and unit == "player" and isBuff and SideOn(unit, base, s)
+            and (s.buffShowAll ~= false or s.buffHasDuration == true) then
             local PP = EllesmereUI.PP
             local w, h = ElementSize(unit, base, s)
             local gap = PP.FromPixels(s.buffSpacingX or 1)
@@ -2132,12 +2354,7 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
     local mergedAB = s.debuffAnchorBuffs == true and not unit:match("^boss")
         and (s.debuffAnchor or "none") ~= "none"
 
-    local shown
-    if isBuff then
-        shown = (s.showBuffs ~= false) or simpleOn or mergedAB
-    else
-        shown = ((s.debuffAnchor or "none") ~= "none") or simpleOn
-    end
+    local shown = SideOn(unit, base, s)
 
     local num = 0
     if shown then
@@ -2162,20 +2379,34 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
     if simpleOn then growth = "auto" end
     if mergedAB and isBuff then growth = s.debuffGrowth end
     local maxPerRow = Pick(isBuff, s.buffMaxPerRow, s.debuffMaxPerRow)
-    local cols = ResolveColumns(growth, num > 0 and num or 1, maxPerRow)
+    -- Max Important lets the important links grow past Max Count, so a Max
+    -- Per Row between the two caps sizes the row from Max Important (an
+    -- unset Per Row, one equal to Max Count or one at or above Max
+    -- Important keeps the Max Count rule).
+    local capMax = num
+    local mi = (not isBuff) and s.maxImportantDebuffs or nil
+    if num > 0 and mi and maxPerRow and maxPerRow > num and mi > maxPerRow then
+        for i = 1, #chain do
+            if chain[i].important then capMax = mi break end
+        end
+    end
+    local cols = ResolveColumns(growth, capMax > 0 and capMax or 1, maxPerRow)
     local rowWidth = nil
     if cols then
         rowWidth = cols * size + (cols - 1) * spX + 0.4
     end
     AK.SetContainerRowWidth(container, rowWidth)
 
-    -- Candidate filters: (debuffs) the sated/always-hide excludes. Caster
-    -- scope rides the chain links' own PLAYER tokens, never this table.
+    -- Candidate filters: (debuffs) the always-hide and Hide Exhaustion
+    -- excludes. Caster scope rides the chain links' own PLAYER tokens, never
+    -- this table.
     local cand = nil
     if not isBuff then
         local ex = {}
         for id in pairs(ALWAYS_HIDE_DEBUFFS) do ex[id] = true end
-        for id in pairs(SATED_DEBUFFS) do ex[id] = true end
+        if s.debuffHideExhaustion ~= false then
+            for id in pairs(SATED_DEBUFFS) do ex[id] = true end
+        end
         -- Tracked Auras (target/focus/boss): user excludes hide everywhere; active
         -- INCLUDES are excluded from every OTHER group while an include link renders
         -- them (its own cand overrides both spell-ID sets). Show All carries no
@@ -2211,7 +2442,7 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
     -- or each chain link. Every other declared group -- disabled classes and
     -- retired variants -- parks at count 0 (declared sets only ever grow;
     -- setters run per declared key only).
-    local active, hiddenKeys, tokensOf, incKeys = {}, nil, {}, nil
+    local active, hiddenKeys, tokensOf, incKeys, impKeys = {}, nil, {}, nil, nil
     -- Purgeable Buff Glow groups lay out FIRST whatever their declaration
     -- order (layoutIndex beats every other group's registration index).
     local glowKeys, glowLayout
@@ -2235,6 +2466,10 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
                 if c.inc then
                     incKeys = incKeys or {}
                     incKeys[c.key] = true
+                end
+                if c.important then
+                    impKeys = impKeys or {}
+                    impKeys[c.key] = true
                 end
             end
         elseif isBuff and unit ~= "player" then
@@ -2280,8 +2515,9 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
     for eff, info in pairs(declared) do
         if active[eff] ~= nil then
             local n = num
+            if impKeys and impKeys[eff] then n = s.maxImportantDebuffs or num end
             if (hiddenKeys and hiddenKeys[eff]) or (incPark and incKeys[eff]) then n = 0 end
-            container:SetAuraGroupMaxFrameCount(eff, n)
+            EllesmereUI.AuraKit.SetGroupCap(container, eff, n)
             -- Filter strings follow the CURRENT chain too: a plain key's tokens
             -- depend on which earlier token classes are enabled, so a group first
             -- declared under another set would keep a stale string (a debuff shown
@@ -2316,7 +2552,7 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
                 container:SetAuraGroupLayout(eff, layout)
             end
         else
-            container:SetAuraGroupMaxFrameCount(eff, 0)
+            EllesmereUI.AuraKit.SetGroupCap(container, eff, 0)
         end
     end
 
@@ -2372,7 +2608,7 @@ local function CfgFP(unit, base, s, frame)
     -- merge flag or buff visibility flips. Off (the default), the extra
     -- slots are constant nils so no existing fingerprint ever moves.
     local mAB = s.debuffAnchorBuffs == true
-    return FP(size, h, spX, spY, simpleOn, simpleMode, sOffX, sOffY,
+    local fp = FP(size, h, spX, spY, simpleOn, simpleMode, sOffX, sOffY,
         Pick(isBuff, s.buffAnchor, s.debuffAnchor), Pick(isBuff, s.buffGrowth, s.debuffGrowth),
         Pick(isBuff, s.buffOffsetX, s.debuffOffsetX), Pick(isBuff, s.buffOffsetY, s.debuffOffsetY),
         showCb, cbH, Pick(isBuff, s.maxBuffs, s.maxDebuffs),
@@ -2381,6 +2617,10 @@ local function CfgFP(unit, base, s, frame)
         mAB and s.debuffOffsetX or nil, mAB and s.debuffOffsetY or nil,
         mAB and s.debuffSpacingY or nil,
         CastbarBelowFrame(unit, frame),
+        -- (The Resource Bars stack reserve is deliberately NOT in this fingerprint:
+        -- AnchorContainer reads it live whenever it runs, and a footprint change is
+        -- re-anchored by the Resource-Bars-armed throttle below -- not by forcing a full
+        -- restyle here on every geometry shift.)
         -- Tracked Auras lists: ApplyGroupConfig reads both (the shared
         -- excludes), and TRI-STATE flips don't move the chain sig -- an
         -- entry's enable checkbox must re-drive this pass. The caster-scope
@@ -2388,6 +2628,13 @@ local function CfgFP(unit, base, s, frame)
         -- include between the two scope links.
         TriListFP(s.debuffExclude), TriListFP(s.debuffInclude),
         TriListFP(s.debuffIncludeAnyCaster), TriListFP(s.debuffIncludeMine))
+    -- Hide Exhaustion (debuffs; nil = on) feeds ApplyGroupConfig's excludes.
+    -- Marked only while off, so a default fingerprint stays as it was.
+    if not isBuff and s.debuffHideExhaustion == false then fp = fp .. "|lx0" end
+    -- Max Important (Important or Own) caps the important-from-others links in
+    -- ApplyGroupConfig. Marked only while set, so a default fingerprint stays.
+    if not isBuff and s.maxImportantDebuffs then fp = fp .. "|mi" .. s.maxImportantDebuffs end
+    return fp
 end
 
 ------------------------------------------------------------------------------
@@ -2401,11 +2648,11 @@ end
 ------------------------------------------------------------------------------
 
 local DISPEL_SLOTS = {
-    { key = "magic",   colorKey = "dispelColorMagic",   fallback = { 0.349, 0.475, 1.0 },  level = 5 },
-    { key = "curse",   colorKey = "dispelColorCurse",   fallback = { 0.636, 0.0, 0.64 },   level = 4 },
-    { key = "disease", colorKey = "dispelColorDisease", fallback = { 0.671, 0.384, 0.098 }, level = 3 },
-    { key = "poison",  colorKey = "dispelColorPoison",  fallback = { 0.0, 0.706, 0.286 },  level = 2 },
-    { key = "bleed",   colorKey = "dispelColorBleed",   fallback = { 0.75, 0.15, 0.15 },   level = 1 },
+    { key = "magic",   colorKey = "dispelColorMagic",   fallback = { 0.349, 0.475, 1.0 },  level = 5, atlas = "RaidFrame-Icon-DebuffMagic" },
+    { key = "curse",   colorKey = "dispelColorCurse",   fallback = { 0.636, 0.0, 0.64 },   level = 4, atlas = "RaidFrame-Icon-DebuffCurse" },
+    { key = "disease", colorKey = "dispelColorDisease", fallback = { 0.671, 0.384, 0.098 }, level = 3, atlas = "RaidFrame-Icon-DebuffDisease" },
+    { key = "poison",  colorKey = "dispelColorPoison",  fallback = { 0.0, 0.706, 0.286 },  level = 2, atlas = "RaidFrame-Icon-DebuffPoison" },
+    { key = "bleed",   colorKey = "dispelColorBleed",   fallback = { 0.75, 0.15, 0.15 },   level = 1, atlas = "RaidFrame-Icon-DebuffBleed" },
 }
 local DISPEL_TYPE_TOKENS = { magic = "Magic", curse = "Curse", disease = "Disease", poison = "Poison", bleed = "Bleed" }
 
@@ -2447,13 +2694,45 @@ end
 -- a type rather than giving the by-me twin a filter that would match it: two
 -- slots declaring one filter string share a single engine parse batch (see
 -- AK.Filter) and both are not guaranteed to receive the aura. The rule itself
--- lives with the legacy overlay in EllesmereUIUnitFrames.lua, which needs the
+-- lives with the legacy overlay in EUI_UnitFrames_Lifecycle.lua, which needs the
 -- same answer.
 local function TokenBlindDispelSlot(slotKey)
     return ns.UF_TokenBlindDispel ~= nil and ns.UF_TokenBlindDispel(slotKey)
 end
 local GRADIENT_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
 local GRADIENT_SHARP_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
+
+-- Copy the separator's actual texture rect, so width, pixel snapping and future
+-- layout changes stay owned by the separator. Copies belong to the aura slot
+-- (engine visibility); the options preview tints its separators in place.
+-- Keep state outside the slot button, as with the border and outer ring copies.
+local function ApplyDispelSeparatorCopy(parent, state, key, seam, color)
+    local copy = state[key]
+    local source = seam and seam._tex
+    if not (source and seam:IsShown() and source:IsShown()) then
+        if copy then copy.host:Hide() end
+        return
+    end
+    if not copy then
+        local host = CreateFrame("Frame", nil, parent)
+        local tex = host:CreateTexture(nil, "OVERLAY", nil, 7)
+        tex:SetAllPoints(host)
+        host:SetAllPoints(source)
+        copy = { host = host, tex = tex, source = source }
+        state[key] = copy
+    end
+    if copy.source ~= source then
+        copy.host:ClearAllPoints()
+        copy.host:SetAllPoints(source)
+        copy.source = source
+    end
+    copy.host:SetFrameStrata(seam:GetFrameStrata())
+    copy.host:SetFrameLevel(seam:GetFrameLevel() + 1)
+    copy.tex:SetTexture(source:GetTexture())
+    copy.tex:SetTexCoord(source:GetTexCoord())
+    copy.tex:SetVertexColor(color.r, color.g, color.b, 1)
+    copy.host:Show()
+end
 
 -- applyExtra for dispel slots: builds/updates the overlay texture from the
 -- style (mode, color, opacity, health refs). Runs at init and every Restyle.
@@ -2585,6 +2864,37 @@ local function ApplyDispelSlotStyle(button, d, style)
         d.ufRingHost:Hide()
         d.ufRingOn = nil
     end
+
+    -- Only enabled, displayed separators get copies. The inactive by-me twin
+    -- and disabled custom-border mode clear any copies they previously drew.
+    if ub or d.ufPowerSeam or d.ufPortraitSeam then
+        ApplyDispelSeparatorCopy(button, d, "ufPowerSeam", ub and uf.Power and uf.Power._pbSeam, c)
+        ApplyDispelSeparatorCopy(button, d, "ufPortraitSeam", ub and uf._portraitSeparator, c)
+    end
+
+    -- Type Icon Position: the type's icon on a corner of the health bar (Raid
+    -- Frames parity). Only the live twin carries style.icon. health+18+level
+    -- (frame+21..+25) draws it over the border and the texts (frame+20), in
+    -- the Magic > ... > Bleed order, at most level with the raid marker.
+    local ic = style.icon
+    if ic then
+        if not d.ufIconHost then
+            local host = CreateFrame("Frame", nil, button)
+            local tex = host:CreateTexture(nil, "ARTWORK")
+            tex:SetAllPoints(host)
+            d.ufIconTex = tex
+            d.ufIconHost = host
+        end
+        local host = d.ufIconHost
+        host:SetFrameLevel(health:GetFrameLevel() + 18 + (style.level or 1))
+        d.ufIconTex:SetAtlas(ic.atlas)
+        host:SetSize(ic.size, ic.size)
+        host:ClearAllPoints()
+        host:SetPoint(ic.corner, health, ic.corner, ic.offX, ic.offY)
+        host:Show()
+    elseif d.ufIconHost then
+        d.ufIconHost:Hide()
+    end
 end
 
 local function DispelStyleKey(slotKey)
@@ -2598,10 +2908,12 @@ local function DispelCustomBorderOn(p)
     return p.dispelCustomBorder == true and ns.UF_CustomBorderOn(p.player)
 end
 
--- The slots show while the overlay or Color Custom Borders needs them; both off
--- (the default), the container stays hidden and parses nothing.
+-- The slots show while the overlay, Color Custom Borders or the type icon
+-- needs them; all off (the default), the container stays hidden and parses
+-- nothing.
 local function DispelSlotsShown(p)
     return (p.dispelOverlay or "none") ~= "none" or DispelCustomBorderOn(p)
+        or p.showDispelIcons == true
 end
 
 local function BuildDispelStyles(frame)
@@ -2628,6 +2940,8 @@ local function BuildDispelStyles(frame)
             px = EllesmereUI.BorderPx(s.borderSizePx, bs, btex),
         }
     end
+    -- Type Icon Position: one geometry for every type's icon (its art per slot).
+    local iconCorner = p.showDispelIcons == true and (p.dispelIconPosition or "right"):upper() or nil
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
         -- A type the engine token can never match keeps using the PLAIN slot in
@@ -2637,9 +2951,16 @@ local function BuildDispelStyles(frame)
         local byMeLive = byMe and not tokenBlind
         local col = p[slot.colorKey]
         local color = { r = col and col.r or slot.fallback[1], g = col and col.g or slot.fallback[2], b = col and col.b or slot.fallback[3] }
-        -- The border copy rides the live twin only; the inactive one draws nothing.
+        -- The border copy and the type icon ride the live twin only; the inactive
+        -- one draws nothing.
         local plainCB, byMeCB
         if byMeLive then byMeCB = customBorder else plainCB = customBorder end
+        local icon = iconCorner and {
+            atlas = slot.atlas, corner = iconCorner, size = p.dispelIconSize or 16,
+            offX = p.dispelIconOffsetX or 0, offY = p.dispelIconOffsetY or 0,
+        } or nil
+        local plainIcon, byMeIcon
+        if byMeLive then byMeIcon = icon else plainIcon = icon end
         AK.styles[DispelStyleKey(slot.key)] = {
             width = 1, height = 1,
             noRegions = true,
@@ -2650,6 +2971,7 @@ local function BuildDispelStyles(frame)
             healthFrame = frame.Health,
             unitFrame = frame,
             customBorder = plainCB,
+            icon = plainIcon,
             applyExtra = ApplyDispelSlotStyle,
         }
         AK.styles[DispelStyleKey(slot.key .. "_byme")] = {
@@ -2662,6 +2984,7 @@ local function BuildDispelStyles(frame)
             healthFrame = frame.Health,
             unitFrame = frame,
             customBorder = byMeCB,
+            icon = byMeIcon,
             applyExtra = ApplyDispelSlotStyle,
         }
     end
@@ -2733,10 +3056,12 @@ local function DispelFP(p)
     -- the copy reads counts too: the border keys; the strata (a strata change
     -- re-stacks child levels); the portrait mode and side (an inside 3D portrait
     -- lifts the unified border to frame+20); and the portrait and Outer Ring keys
-    -- that decide whether the ring copy shows and which art it takes.
+    -- that decide whether the ring copy shows and which art it takes. Separator
+    -- visibility and orientation changes must restyle their copies too; their
+    -- dimensions follow the source texture anchors without a restyle.
     local s = p.player
     local cb = p.dispelCustomBorder == true and s ~= nil
-    return FP(p.dispelOverlay, p.dispelOverlayOpacity, p.dispelOverlayByMe == true,
+    local fp = FP(p.dispelOverlay, p.dispelOverlayOpacity, p.dispelOverlayByMe == true,
         TokenBlindDispelSlot("poison") and 1 or 0,
         CK(p.dispelColorMagic), CK(p.dispelColorCurse),
         CK(p.dispelColorDisease), CK(p.dispelColorPoison), CK(p.dispelColorBleed),
@@ -2745,7 +3070,14 @@ local function DispelFP(p)
             s.borderTextureShiftY, s.borderBehind, p.frameStrata, s.frameStrata,
             s.portraitMode, s.portraitSide, p.portraitStyle, s.portraitStyle, s.showPortrait,
             s.portraitSize, s.detachedPortraitShape, s.detachedPortraitOuterRing,
-            s.detachedPortraitOuterRingScale) or false)
+            s.detachedPortraitOuterRingScale, s.borderPowerSeam, s.powerPosition,
+            s.powerHeight, s.portraitSeparator) or false)
+    -- Type Icon Position: marked only while on, so an off print stays as it was.
+    if p.showDispelIcons == true then
+        fp = fp .. "|ti|" .. FP(p.dispelIconPosition, p.dispelIconSize,
+            p.dispelIconOffsetX, p.dispelIconOffsetY)
+    end
+    return fp
 end
 
 local function ReloadDispelSlots(frame, entry)
@@ -2835,6 +3167,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
     entry.previewHid = nil
     entry.cfgDirty = nil
 
+    local anyOn = false
     for base, field in pairs({ HELPFUL = "buffs", HARMFUL = "debuffs" }) do
         local key = StyleKey(unit, base)
         local st = ufFP[key]
@@ -2864,11 +3197,25 @@ function ns.UF_ReloadAuraContainers(frame, unit)
         local force = forceCfg
         local container = entry[field]
         local declared = (entry.groups and entry.groups[field]) or {}
-        -- Additive declaration requires the REAL registry: declaring into a
-        -- fallback table would lose track and double-declare next change.
-        if entry.sig[field] ~= sig and container and entry.groups then
-            entry.sig[field] = sig
-            if not declared.all then
+        -- An element that is off declares nothing and leaves its signature
+        -- unstamped, so the first pass that sees it on declares what its chain
+        -- needs (then the config pass below shows it, which registers its
+        -- UNIT_AURA). Additive declaration requires the REAL registry:
+        -- declaring into a fallback table would lose track and double-declare
+        -- next change.
+        local on = SideOn(unit, base, s)
+        if on then anyOn = true end
+        if on and entry.sig[field] ~= sig and container and entry.groups then
+            -- The plain catch-all only for an empty chain: there it is the
+            -- group that shows (a non-player buff element, see
+            -- ApplyGroupConfig), or, showing nothing, it still gives the
+            -- container the layout aspect the engine requires before a debuff
+            -- container may ride the buff container (Anchor Buffs with
+            -- Debuffs). A chain with links never shows it (Show All's own
+            -- "all" link is declared with the chain). Purgeable Buff Glow
+            -- splits a hostile unit's buffs into links, so that row declares
+            -- its catch-all on the first friendly unit (once per session).
+            if not declared.all and #chain == 0 then
                 DeclareElementGroup(container, declared, key, "all", { base }, nil)
             end
             for i = 1, #chain do
@@ -2879,6 +3226,9 @@ function ns.UF_ReloadAuraContainers(frame, unit)
                     DeclareElementGroup(container, declared, sk, c.key, c.tokens, c.cand)
                 end
             end
+            -- Stamped once every group the chain needs is declared: a pass an
+            -- error cut short declares the rest on the next one.
+            entry.sig[field] = sig
             force = true
         end
 
@@ -2894,6 +3244,59 @@ function ns.UF_ReloadAuraContainers(frame, unit)
 
     if unit == "player" then
         ReloadDispelSlots(frame, entry)
+    elseif unit == "pet" then
+        -- Re-parse on pet swaps only while the pet's EllesmereUI frame shows
+        -- buffs or debuffs.
+        PetSwap.Sync(anyOn and ns.GetUnitFrameSource("pet") == "eui")
+    end
+end
+
+-- Resource-stack re-anchor (event-free). Bottom-anchored player auras reserve the
+-- Resource Bars stack hanging below the frame (power / class resource / shapeshift
+-- mana). Its footprint only changes on build / spec / form / expand / shift / options
+-- -- all of which converge on Resource Bars' BuildBars(). Rather than have UnitFrames
+-- watch a pile of game events, Resource Bars ARMS this one-shot throttle at the end of
+-- BuildBars via EllesmereUI.UF_RequestResourceReanchor(). Arming reads no geometry; the
+-- throttle's OnUpdate re-anchors once on the next frame, after the build has settled,
+-- then disarms. Mirrors the reloadThrottle pattern in EllesmereUIUnitFrames.lua. Zero cost when idle:
+-- no registered events, and non-bottom-anchored players never arm anything. Per-bar
+-- VISIBILITY modes (combat/target/group alpha) are intentionally NOT handled -- the
+-- footprint (ERB_PlayerStackBars) is predicate-based, so alpha toggles do not move it.
+do
+    local function BottomAnchored(a) return a == "bottomleft" or a == "bottomright" end
+    local function PlayerWantsStackReserve()
+        if not EllesmereUI.ERB_PlayerStackBars then return false end
+        local s = SettingsFor("player")
+        return s ~= nil and (BottomAnchored(s.debuffAnchor) or BottomAnchored(s.buffAnchor))
+    end
+    -- Cheap re-anchor: only the two player containers' SetPoint offsets change when the
+    -- footprint moves, so re-run just AnchorContainer (reanchorOnly -- folds in
+    -- ResourceStackBelowFrame, skips style/chain/group), never a full reload. Buffs first
+    -- so a merged debuff rides a positioned buff container. Self-skips non-bottom anchors.
+    local function reanchorPlayer()
+        local entry = registry.player
+        local frame = entry and entry.frame
+        if not frame or entry.building then return end
+        local s = SettingsFor("player")
+        if not s then return end
+        if entry.buffs then AnchorContainer(entry.buffs, frame, "player", "HELPFUL", s, entry.buffs, true) end
+        if entry.debuffs then AnchorContainer(entry.debuffs, frame, "player", "HARMFUL", s, entry.buffs, true) end
+    end
+    local pending = false
+    local throttle = CreateFrame("Frame")
+    throttle:Hide()
+    throttle:SetScript("OnUpdate", function(self)
+        self:Hide()            -- disarm FIRST so we fire exactly once per arm (an error
+        pending = false        -- below then cannot latch it)
+        reanchorPlayer()
+    end)
+    -- Armed (by Resource Bars' BuildBars, or anyone) when the footprint may have changed.
+    -- Coalesces many arms in one frame into a single re-anchor; gated so idle/irrelevant
+    -- configs do nothing and register nothing.
+    function EllesmereUI.UF_RequestResourceReanchor()
+        if pending or not PlayerWantsStackReserve() then return end
+        pending = true
+        throttle:Show()
     end
 end
 
@@ -2907,6 +3310,29 @@ local function RefreshUnit(unitKey)
     if entry.buffs then entry.buffs:UpdateAllAuras() end
     if entry.debuffs then entry.debuffs:UpdateAllAuras() end
     if entry.dispel then entry.dispel:UpdateAllAuras() end
+end
+
+-- Pet swap (a different pet summoned while one is out): the frame stays shown
+-- and the token stays "pet", so the containers see no show/hide and keep the
+-- old pet's auras until a full re-parse (Blizzard's own pet frame re-reads its
+-- auras on every UNIT_PET). UpdateAllAuras is a dirty mark the container
+-- drains once on its next visible frame, so a burst costs one parse.
+-- Registered only while the pet's reload holds it on.
+function PetSwap.Sync(on)
+    on = on and true or false
+    if PetSwap.on == on then return end
+    PetSwap.on = on
+    local f = PetSwap.frame
+    if on then
+        if not f then
+            f = CreateFrame("Frame")
+            f:SetScript("OnEvent", function() RefreshUnit("pet") end)
+            PetSwap.frame = f
+        end
+        f:RegisterUnitEvent("UNIT_PET", "player")
+    elseif f then
+        f:UnregisterEvent("UNIT_PET")
+    end
 end
 
 -- Degradation recovery for the PLAYER frame's containers: cinematics
@@ -3071,7 +3497,8 @@ local ELEMENT_ORDER = { { "HELPFUL", "buffs" }, { "HARMFUL", "debuffs" } }
 -- client watchdog under login contention ("script ran too long" -- and the killed job
 -- left the unit half-built). Every stage is existence-guarded, so a watchdog-killed
 -- invocation resumes cleanly: an aborted engine declare never stamps its
--- declared/progress mark and simply re-runs.
+-- declared/progress mark, so it re-runs, or, when the engine had already
+-- registered the group, DeclareElementGroup records it.
 local function BuildUnitContainers(frame, unit)
     local s = SettingsFor(unit)
     if not (AK and s) then return end
@@ -3112,31 +3539,37 @@ local function BuildUnitContainers(frame, unit)
     end
 
     -- Stage 2: one missing group declaration per invocation (the expensive
-    -- atom).
+    -- atom), for the elements that are on (SideOn, re-read every atom): an
+    -- element that is off declares nothing until a reload sees it on.
     for e = 1, 2 do
         local base, field = ELEMENT_ORDER[e][1], ELEMENT_ORDER[e][2]
-        local chain = ChainFor(unit, base, s)
-        local declared = entry.groups[field]
-        local styleKey = StyleKey(unit, base)
-        if not declared.all then
-            DeclareElementGroup(entry[field], declared, styleKey, "all", { base }, nil)
-            return "again"
-        end
-        for i = 1, #chain do
-            local c = chain[i]
-            if not declared[c.key] then
-                local sk = styleKey
-                if c.glow then
-                    sk = PurgeGlow.StyleKey(unit)
-                    -- The capability can arrive between stages (spellbook
-                    -- ready after stage 1): never declare against a missing style.
-                    if not AK.styles[sk] then
-                        PurgeGlow.Register(unit, s, frame,
-                            (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or "")
-                    end
-                end
-                DeclareElementGroup(entry[field], declared, sk, c.key, c.tokens, c.cand)
+        if SideOn(unit, base, s) then
+            local chain = ChainFor(unit, base, s)
+            local declared = entry.groups[field]
+            local styleKey = StyleKey(unit, base)
+            -- The plain catch-all only for an empty chain, where it is the
+            -- group that shows or, showing nothing, still gives the container
+            -- its layout aspect (see the reload's declaration).
+            if not declared.all and #chain == 0 then
+                DeclareElementGroup(entry[field], declared, styleKey, "all", { base }, nil)
                 return "again"
+            end
+            for i = 1, #chain do
+                local c = chain[i]
+                if not declared[c.key] then
+                    local sk = styleKey
+                    if c.glow then
+                        sk = PurgeGlow.StyleKey(unit)
+                        -- The capability can arrive between stages (spellbook
+                        -- ready after stage 1): never declare against a missing style.
+                        if not AK.styles[sk] then
+                            PurgeGlow.Register(unit, s, frame,
+                                (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or "")
+                        end
+                    end
+                    DeclareElementGroup(entry[field], declared, sk, c.key, c.tokens, c.cand)
+                    return "again"
+                end
             end
         end
     end
@@ -3164,9 +3597,11 @@ local function BuildUnitContainers(frame, unit)
         return "again"
     end
 
-    -- Final stage: the first real reload declares nothing new (entry.sig is
-    -- still unset, so its additive path walks the declared sets as no-ops,
-    -- stamps the signatures, and force-applies anchor/config/visibility).
+    -- Final stage: the first real reload stamps the signatures of the elements
+    -- that are on (their additive path walks the declared sets as no-ops,
+    -- unless one turned on mid-build) and force-applies anchor/config/
+    -- visibility; an element that is off stays unstamped until a reload sees
+    -- it on.
     entry.building = nil
     ns.UF_ReloadAuraContainers(frame, unit)
 end
@@ -3179,8 +3614,10 @@ end
 function ns.UF_CreateAuraContainers(frame, unit)
     AK = AK or EllesmereUI.AuraKit
     if not (AK and AK.QueueBuildJob) then return end
-    if registry[unit] then return end
+    if registry[unit] or buildQueued[unit] then return end
+    buildQueued[unit] = true
     AK.QueueBuildJob(function()
+        buildQueued[unit] = nil
         return BuildUnitContainers(frame, unit)
     end, "uf:unit")
 end

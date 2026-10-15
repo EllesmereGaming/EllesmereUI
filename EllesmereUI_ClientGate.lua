@@ -48,7 +48,7 @@ ev:SetScript("OnEvent", function(self)
 
     local bg = p:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.055, 0.06, 0.07, 0.97)
+    bg:SetColorTexture(0.062, 0.050, 0.039, 0.97)
 
     -- 1px accent border (no dependencies -- the shared border kit is gated).
     local function Edge(point1, point2, w, h)

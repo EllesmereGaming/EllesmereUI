@@ -47,14 +47,18 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --   ns.MakePreviewBackdrop(host, themeCfg, showBorder)
 --   ns.BLOCK_TYPES / ns.BLOCK_DEFAULTS / ns.EDB_VIS_CAPS / ns.EDGE_PAD
 --
---  The one call that runs the other way (options file -> runtime): a block
---  whose empty state invites a click can send the player to the control that
---  fills it in. Defined from the options PLAYER_LOGIN handler, hence the nil
---  guard at its call site:
+--  The calls that run the other way (options file -> runtime). Both are
+--  defined from the options PLAYER_LOGIN handler, hence the nil guard at
+--  their call sites:
 --
 --   ns.OpenBlockSettings(barId, blockId, settingKey)
---       deep-links to the "block:<blockId>:<settingKey>" click target the
---       options page registers for that row (see _edbClickTargets).
+--       a block whose empty state invites a click sends the player to the
+--       control that fills it in: deep-links to the
+--       "block:<blockId>:<settingKey>" click target the options page
+--       registers for that row (see _edbClickTargets).
+--   ns.OnBarLaidOut(barId)
+--       called at the end of every layout pass of a bar: the options page's
+--       preview strip re-solves from the block measurements that pass settled.
 
 local ADDON_NAME, ns = ...
 if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
@@ -96,7 +100,6 @@ local L = {
     SPENT                = "Spent",
     PROFIT               = "Profit",
     DEFICIT              = "Deficit",
-    WARBANK              = "Warbank",
     TOTAL                = "Total",
     WOW_TOKEN            = "WoW Token",
     OPEN_BAGS            = "Open Bags",
@@ -278,6 +281,8 @@ ns.BlockFactories = {}
 -- a bar saved with one shows an empty slot there instead of erroring.
 if EllesmereUI.IS_FOREVER then
     local FOREVER_OFF = { greatvault = true, crests = true, spec = true }
+    table.insert(ns.BLOCK_TYPES, #ns.BLOCK_TYPES, { key = "supplies", label = "Class Resources" })
+    ns.BLOCK_DEFAULTS.supplies = { showIcon = true }
     for i = #ns.BLOCK_TYPES, 1, -1 do
         if FOREVER_OFF[ns.BLOCK_TYPES[i].key] then table.remove(ns.BLOCK_TYPES, i) end
     end
@@ -2173,6 +2178,9 @@ ApplyLayout = function(id)
             end
         end
     end
+    -- The options page's preview strip solves from these measurements.
+    local onLaidOut = ns.OnBarLaidOut
+    if onLaidOut then onLaidOut(id) end
 end
 
 --- "Never" is this module's only disable channel, so every gate that asks it has to ask
@@ -2294,10 +2302,10 @@ function ns.ApplyBar(id)
 
     for i = 1, #cfg.blocks do
         local b = cfg.blocks[i]
-        -- WoW Forever: a saved block whose type has no factory there (a
-        -- retail-only block from an imported profile) builds no slot, so it
-        -- draws no background or hover region; the layout skips a missing slot.
-        if not (EllesmereUI.IS_FOREVER and not ns.BlockFactories[b.type]) then
+        -- A saved block whose type has no factory on this client (a block
+        -- from the other client's profile) builds no slot, so it draws no
+        -- background or hover region; the layout skips a missing slot.
+        if ns.BlockFactories[b.type] then
             local slot = EnsureSlot(rec, b)
             ApplyBlockDecor(slot, b, cfg)
             AnchorContent(slot, b, vertical, cfg)
@@ -3178,8 +3186,8 @@ end
 -------------------------------------------------------------------------------
 function WB:OnInitialize()
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIDataBarsDB", defaults)
-    -- Cross-character gold ledger is account data (EllesmereUIDB.dataBarsGold,
-    -- GoldStore), not profile -- a profile-scoped copy would leak every
+    -- Cross-character gold ledger is account data (EllesmereUIDB.goldLedger,
+    -- EllesmereUI.GetGoldLedger()), not profile -- a profile-scoped copy would leak every
     -- character's name/realm/balance into export strings. Drop any old
     -- profile copy (don't migrate): on an imported profile it holds the
     -- exporter's characters, and the account store refills from play anyway.

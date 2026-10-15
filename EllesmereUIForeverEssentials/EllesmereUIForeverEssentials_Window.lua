@@ -51,6 +51,8 @@ ns.WindowCorner = Corner
 -------------------------------------------------------------------------------
 --  Look: the EUI look's painters.
 --    inset       how far the header and rows sit inside the window
+--    clipRows    true when the rows draw clipped to the area inside the inset
+--                under the header (nil: unclipped)
 --    iconPad     gap between header buttons (the glyphs carry their own margin)
 --    stock       true for a stock look: no EUI window or bar borders, no
 --                configurable header line
@@ -420,12 +422,25 @@ end
 --  tracker header cut to its warm body and lower bronze rod, the header
 --  taller by the rod so the buttons sit on the body. Every atlas is probed
 --  once and a missing piece keeps plain Blizzard Style.
+--  The frame wears the Border Style the Damage Meters windows latched this
+--  session, read once as the look goes in: Slim draws the line from our
+--  shipped flat art, Slim Textured from Blizzard's live art, and Heavy
+--  Bronze wears the bronze frame of Forever's own windows instead
+--  (EllesmereUI.ForeverHeavy, on the same child frame at the art's window
+--  scale), the header and rows further in past its rim at the Damage Meters
+--  windows' own insets, the rows clipped inside them as theirs are in their
+--  viewport. With Damage Meters off, or not on its own WoW Forever look, it
+--  wears Slim.
 --  Installed after Blizzard Style's entries.
 -------------------------------------------------------------------------------
 local FV = {
     frameLevel = 14,   -- the line over the header and rows, under the grip and lock
     inset = EUI.FOREVER_BORDER.shade,     -- header and rows start past the line and its inner shadow
-    bodyInset = EUI.FOREVER_BORDER.line,  -- the body from the line's inner edge
+    bodyInset = EUI.FOREVER_BORDER.fill,  -- the body under the line's inner shadow, its corners inside the chamfers
+    -- Heavy Bronze: heavyInset (header and rows past the rim and its dark
+    -- line) and heavyBodyInset (the body tucked under the rim, its corners
+    -- inside the corner cuts) are the Damage Meters windows' own, set by
+    -- UseForever.
     plate = "common-button-tertiary-square-normal",
     plateHover = "common-button-tertiary-square-hover",
     glyph = { 0.95, 0.82, 0.60 },
@@ -444,6 +459,7 @@ local FV = {
 local plates = setmetatable({}, { __mode = "k" })  -- button -> { tex, atlas }
 local hdrCut = setmetatable({}, { __mode = "k" })  -- header textures set to the band
 local platesOK   -- both plate atlases exist
+local frameKind  -- the Damage Meters windows' Border Style ("slim", "textured", "heavy"; nil: Slim)
 
 -- Always installed; the window pieces go in only with their art (UseForever).
 local Forever = { iconPad = FV.btnPad, titleColor = FV.gold, menuLook = "meterForever" }
@@ -498,23 +514,33 @@ function Forever.LockIcon(btn, locked)
     FvGlyph(btn, locked and "dm_locked_top.png" or "dm_unlock_top.png")
 end
 
--- The bronze line on a window, on a child frame over its content, the
--- line's outer edge on the window's edge.
+-- The window's frame on a child frame over its content, in the Border Style
+-- (frameKind): the bronze line (the shipped art, or Blizzard's live art for
+-- Slim Textured), its outer edge on the window's edge; Heavy Bronze: the
+-- bronze window frame's rim there, the child frame drawn at the art's
+-- window scale (set before the art, which reads it).
 local function FrameArt(win)
+    local heavy = frameKind == "heavy"
     local host = CreateFrame("Frame", nil, win)
+    if heavy then host:SetScale(EUI.FOREVER_HEAVY.k) end
     host:SetFrameLevel(win:GetFrameLevel() + FV.frameLevel)
     host:SetAllPoints(win)
-    EUI.ForeverBorderSeat(EUI.ForeverBorder(host), win)
+    if heavy then
+        EUI.ForeverHeavySeat(EUI.ForeverHeavy(host, "ARTWORK"), win)
+        return
+    end
+    EUI.ForeverBorderSeat(EUI.ForeverBorder(host, nil, nil, nil, frameKind), win)
 end
 
--- The window wears the bronze line over a flat black body spanning it at
--- Blizzard Style's strength times the opacity (the configured colour is not
--- used), both made once per window; the bg texture itself paints nothing.
+-- The window wears its frame over a flat black body spanning it (from the
+-- line's inner edge; Heavy Bronze: tucked under the band) at Blizzard
+-- Style's strength times the opacity (the configured colour is not used),
+-- both made once per window; the bg texture itself paints nothing.
 local function FvWindowBg(tex, _, _, _, a)
     local body = windowArt[tex]
     if not body then
         local win = tex:GetParent()
-        local e = FV.bodyInset
+        local e = frameKind == "heavy" and FV.heavyBodyInset or FV.bodyInset
         body = win:CreateTexture(nil, "BACKGROUND", nil, -8)
         body:SetPoint("TOPLEFT", win, "TOPLEFT", e, -e)
         body:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -e, e)
@@ -548,13 +574,28 @@ local function FvHeaderRail(h)
     return math.floor(h * FV.hdrRail + 0.5)
 end
 
--- Over Blizzard Style's entries: the pieces whose art this client has.
+-- Over Blizzard Style's entries: the pieces whose art this client has. The
+-- frame's Border Style is the Damage Meters windows' (latched with their
+-- look, so a change there already asks for a reload), read once here through
+-- the module registry: nil while Damage Meters is off or not on its own WoW
+-- Forever look.
 local function UseForever()
     platesOK = HasAtlas(FV.plate) and HasAtlas(FV.plateHover)
     for key, value in pairs(Forever) do Look[key] = value end
     if EUI.ForeverBorderOK() then
-        Look.inset, Look.WindowBg = FV.inset, FvWindowBg
-        -- The band's rod ends run under the frame's side lines.
+        local dm = EUI._ModuleNS[DM_ADDON]
+        frameKind = dm and dm.DMFvKindShared and dm.DMFvKindShared() or nil
+        -- Heavy Bronze takes the Damage Meters windows' own insets (only they
+        -- offer it, so their table is there whenever it is picked) and clips
+        -- the rows inside them, as their viewport clips theirs.
+        if frameKind == "heavy" then
+            FV.heavyInset, FV.heavyBodyInset = dm.DM_FV.heavyInset, dm.DM_FV.heavyBodyInset
+            Look.clipRows = true
+        end
+        Look.inset = frameKind == "heavy" and FV.heavyInset or FV.inset
+        Look.WindowBg = FvWindowBg
+        -- The band's rod ends run under the frame's side lines (Heavy Bronze:
+        -- its side bands).
         if HasAtlas(FV.header) then
             Look.HeaderBg, Look.HeaderRail = FvHeaderBg, FvHeaderRail
         end
@@ -656,7 +697,8 @@ end
 -------------------------------------------------------------------------------
 --  Snapping (one window at a time is dragged, so the state is shared). The
 --  target list is read fresh at each drag or resize start: the Damage Meters
---  windows are built after login and replaced on a profile switch.
+--  windows are built after login, and New Window, the close button and
+--  profile switches change the set.
 -------------------------------------------------------------------------------
 local targets = {}
 local nearL, nearR, nearT, nearB

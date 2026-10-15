@@ -528,15 +528,15 @@ local function TileResourceBars(parent, y, W, tile)
     local gcdValues, gcdOrder = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
     -- Cast bar tables carry the module-side "blizzard" ATLAS entry.
     local castValues, castOrder = CopyBarDD(_G._ERB_CastBarTextureNames, _G._ERB_CastBarTextureOrder, _G._ERB_CastBarTextures, false)
-    -- "Choose texture per bar" (the module's Texture cog): Bar Texture narrows to the
-    -- class resource and Health / Power get their own rows, as on the module page. The
-    -- cog drops this page's cached build, so reading the flag at build time holds.
+    -- Health and power can each take their own texture (the module's Texture cog). While
+    -- one does, they get a row here too, Match Main Texture first; the cog drops this
+    -- page's cached build when that starts or ends, so reading the flag at build time holds.
     local p0 = db()
     local split = p0 and p0.splitTex == true
     local _, h = W:DualRow(parent, y,
-        { type = "dropdown", text = split and "Bar Texture (Class Resource)" or "Bar Texture",
+        { type = "dropdown", text = "Bar Texture",
           values = barValues, order = barOrder,
-          tooltip = split and "Texture for the class resource bar."
+          tooltip = split and "Texture for the class resource bar and any bar set to Match Main Texture."
               or "Texture for the health, power and class resource bars.",
           getValue = function()
               local p = db()
@@ -559,29 +559,27 @@ local function TileResourceBars(parent, y, W, tile)
               if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_CastBar") end
           end });  y = y - h
     if split then
-        local hpValues, hpOrder = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
-        local ppValues, ppOrder = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
+        local function BarRow(text, barKey)
+            local v, o = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
+            v.__match = "Match Main Texture"
+            table.insert(o, 1, "---")
+            table.insert(o, 1, "__match")
+            return { type = "dropdown", text = text, values = v, order = o,
+              getValue = function()
+                  local p = db()
+                  return p and ns.ERB_BarTexture(p, barKey) or "__match"
+              end,
+              setValue = function(val)
+                  local p = db(); if not p then return end
+                  ns.ERB_SetBarTexture(p, barKey, val ~= "__match" and val)
+                  RBApply()
+                  -- Neither bar has its own texture any more: the row goes.
+                  if p.splitTex ~= true then EllesmereUI:RefreshPage(true) end
+              end }
+        end
         _, h = W:DualRow(parent, y,
-            { type = "dropdown", text = "Health Bar Texture", values = hpValues, order = hpOrder,
-              getValue = function()
-                  local p = db()
-                  return (p and p.health and (p.health.barTexture or (p.general and p.general.barTexture))) or "none"
-              end,
-              setValue = function(v)
-                  local p = db(); if not (p and p.health) then return end
-                  p.health.barTexture = v
-                  RBApply()
-              end },
-            { type = "dropdown", text = "Power Bar Texture", values = ppValues, order = ppOrder,
-              getValue = function()
-                  local p = db()
-                  return (p and p.primary and (p.primary.barTexture or (p.general and p.general.barTexture))) or "none"
-              end,
-              setValue = function(v)
-                  local p = db(); if not (p and p.primary) then return end
-                  p.primary.barTexture = v
-                  RBApply()
-              end });  y = y - h
+            BarRow("Health Bar Texture", "health"),
+            BarRow("Power Bar Texture", "primary"));  y = y - h
     end
     _, h = W:DualRow(parent, y,
         { type = "dropdown", text = "GCD Bar Texture", values = gcdValues, order = gcdOrder,

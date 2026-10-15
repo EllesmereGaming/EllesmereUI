@@ -326,12 +326,12 @@ end
 -- Nearest physical pixel at UIParent scale, for every PAB grid number (icon size,
 -- padding, row gap). Not PP.Scale: it truncates, and the per-icon loss adds up
 -- along a row, so a bar measured a different number of UI units per resolution.
--- Rounds like EllesmereUIActionBars.lua's ComputeBarLayout, plus the 0.001 tie
--- guard PP.SnapForES uses, so an exact half pixel cannot flip between sessions.
+-- PP.ToPixels rounds with the 0.001 tie guard, so an exact half pixel cannot flip
+-- between sessions.
 local function PabSnap(x)
-    local m = EllesmereUI.PP.mult
-    if x == 0 or m == 1 then return x end
-    return math.floor(x / m + 0.5 + 0.001) * m
+    local PP = EllesmereUI.PP
+    if x == 0 or PP.mult == 1 then return x end
+    return PP.FromPixels(PP.ToPixels(x))
 end
 
 -- On ns, not file locals: this chunk sits near Lua's 200-local cap. The need
@@ -1285,9 +1285,16 @@ end
 -- Name=6, NameOnly=7, AuraInstanceIDOnly=8}, AuraContainerSortDirection = {Normal=0,
 -- Reverse=1}. Default=0 and Normal=0 are valid values, not "unset" -- compare against
 -- nil, never truthiness.
+--
+-- The dropdown's "Expiration"/"Name" resolve to the native *Only variants: the plain
+-- Expiration/Name comparators rank player-cast/canApplyAura FIRST and only then the
+-- named criterion, so a bar sorted "by Expiration" came out as two separately sorted
+-- runs (e.g. 1h 58m 57m ... then 11h 54m 6m). The saved value keeps the dropdown key.
 local function ResolveSortMethod(cfg)
     local key = cfg.sortMethod or "Default"
-    return AuraContainerSortMethod and AuraContainerSortMethod[key]
+    if not AuraContainerSortMethod then return nil end
+    local native = (key == "Expiration" and "ExpirationOnly") or (key == "Name" and "NameOnly") or nil
+    return (native and AuraContainerSortMethod[native]) or AuraContainerSortMethod[key]
 end
 local function ResolveSortDirection(cfg)
     local key = (cfg.sortDirection == "Reverse") and "Reverse" or "Normal"
@@ -1331,10 +1338,21 @@ local function DebuffCandidateExtras(cfg)
     -- Duration; nil = Unlimited = no extras at all (the candidate fingerprint
     -- sees the cap value, so edits re-declare like any payload change).
     local cap = cfg.maxDurSec or (cfg.hasDuration and math.huge) or nil
+    local out
     if cap then
-        return { maxDuration = cap }
+        out = { maxDuration = cap }
     end
-    return nil
+    -- Hide Exhaustion (the Filters dropdown, off by default): the Bloodlust
+    -- lockouts leave every group of the bar. They are never-secret, so the
+    -- exclude works on the player. Fresh table: merged maps never alias the set.
+    local sated = cfg.hideExhaustion == true and ns.UF_SatedDebuffs
+    if sated then
+        out = out or {}
+        local ex = {}
+        for id in pairs(sated) do ex[id] = true end
+        out.excludeSpellIDs = ex
+    end
+    return out
 end
 
 -- Has Duration is an AND-MODIFIER (user directive 2026-08-16), not a broad
@@ -1827,7 +1845,7 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
         end
         -- Hidden links (subtracted classes) stay declared so their chain negations
         -- keep excluding them from the catch-all, but render nothing themselves.
-        container:SetAuraGroupMaxFrameCount(effKey, link.hidden and 0 or effectiveMax)
+        EllesmereUI.AuraKit.SetGroupCap(container, effKey, link.hidden and 0 or effectiveMax)
         container:SetAuraGroupLayout(effKey, layout)
         container:SetAuraGroupCandidateFilters(effKey, candidateFilters)
         if sortMethod ~= nil and sortDirection ~= nil then
@@ -1841,7 +1859,7 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
     -- metadata, not group keys.
     for key in pairs(declaredSet) do
         if not active[key] and key:sub(1, 7) ~= "__cand|" then
-            container:SetAuraGroupMaxFrameCount(key, 0)
+            EllesmereUI.AuraKit.SetGroupCap(container, key, 0)
         end
     end
 end
@@ -1858,11 +1876,11 @@ local function RetireContainer(container, declaredSet)
     if declaredSet then
         for key in pairs(declaredSet) do
             if key:sub(1, 7) ~= "__cand|" then
-                pcall(container.SetAuraGroupMaxFrameCount, container, key, 0)
+                pcall(EllesmereUI.AuraKit.SetGroupCap, container, key, 0)
             end
         end
     end
-    pcall(container.SetAuraGroupMaxFrameCount, container, "spells", 0)
+    pcall(EllesmereUI.AuraKit.SetGroupCap, container, "spells", 0)
     AK.ReleaseContainer(container)
 end
 
@@ -3313,6 +3331,8 @@ function SyncCancelCVar()
     if not AnyRightClickCancelActive(s) then return end
     if InCombatLockdown() then return end
     if tonumber(GetCVar(CANCEL_CVAR)) == CANCEL_CVAR_BROKEN then
+        -- A repair to Blizzard's default, which Uninstall EUI must not undo:
+        -- plain SetCVar, not EllesmereUI.SetCVar.
         SetCVar(CANCEL_CVAR, CANCEL_CVAR_DEFAULT)
     end
 end
@@ -3475,7 +3495,7 @@ local function ApplyLiveConfig(isBuff)
             ApplyEnchants(container, cfg, pad, grid)
             ApplyGroupConfig(container, allChain, declared.buffs, STYLE_BUFFS, BuffAuraMax(grid), pad, grid.rowGap, cfg, BuffCandidateExtras(cfg))
             if declared.buffs.spells then
-                container:SetAuraGroupMaxFrameCount("spells", BuffAuraMax(grid))
+                EllesmereUI.AuraKit.SetGroupCap(container, "spells", BuffAuraMax(grid))
                 container:SetAuraGroupLayout("spells", BuildGroupLayout(cfg, pad, grid.rowGap))
                 local liveIncludeMap = {}
                 for i = 1, #spells do liveIncludeMap[spells[i]] = true end
@@ -4877,7 +4897,7 @@ local function ReloadCustomBuffBarImpl(barId)
             -- when Show All Buffs is off).
             if #spells > 0 then
                 local livePad = bar.padding or 5
-                container:SetAuraGroupMaxFrameCount("spells", grid.effectiveMax)
+                EllesmereUI.AuraKit.SetGroupCap(container, "spells", grid.effectiveMax)
                 container:SetAuraGroupLayout("spells", BuildGroupLayout(bar, livePad, grid.rowGap))
                 local liveIncludeMap = {}
                 for i = 1, #spells do liveIncludeMap[spells[i]] = true end
@@ -4937,22 +4957,9 @@ local function ReloadCustomDebuffBarImpl(barId)
     if not AK then return end
     local bar, barBucket = ns.PAB_GetCustomDebuffBar(barId)
     if not bar then
-        if customDebuffContainers[barId] then
-            -- Groups cannot be un-declared, so zero every group's frame count instead:
-            -- icons disappear even though the container itself is never released.
-            -- "__cand|" entries are generation metadata, not group keys (same skip
-            -- as ApplyGroupConfig's active-set sweep) -- passing one to the engine
-            -- errors with "aura group was not found".
-            for key in pairs(customDebuffDeclared[barId] or {}) do
-                if key:sub(1, 7) ~= "__cand|" then
-                    customDebuffContainers[barId]:SetAuraGroupMaxFrameCount(key, 0)
-                end
-            end
-        end
+        if customDebuffContainers[barId] then RetireContainer(customDebuffContainers[barId], customDebuffDeclared[barId]) end
         if customDebuffParents[barId] then customDebuffParents[barId]:Hide() end
-        -- Bar IDs are never reused, so this entry is never looked up again: drop our
-        -- tracking-table references (container stays alive engine-side, only
-        -- addon-side bookkeeping clears) so tables don't grow unbounded over time.
+        -- Bar IDs are never reused, so this entry is never looked up again.
         customDebuffParents[barId], customDebuffContainers[barId], customDebuffDeclared[barId] = nil, nil, nil
         return
     end
@@ -5316,21 +5323,27 @@ end
 -- Per Blizzard's AuraUtil.lua comparators: Expiration = ascending expirationTime,
 -- Name = alphabetical spell name, ImportantOnly = `C_Spell.IsSpellImportant(spellId)`
 -- first (a native per-spell flag, NOT dispel-type-based, applies equally to buffs).
--- The real comparators also weight player-cast/priority/canApplyAura ahead of the
--- named criterion and tie-break on auraInstanceID -- not reproduced here (fake
--- entries have no equivalent), so this approximates relative ORDER only.
+-- Expiration/Name resolve to the native *Only comparators (see ResolveSortMethod), so
+-- the live order is the named criterion alone, tie-broken on auraInstanceID.
 -- `sortDirection == "Reverse"` flips every comparison INCLUDING under Default: whether
 -- the engine's Default ordering respects direction is unknown, and reversing the
 -- pool's own order beats ignoring the toggle. Never mutates `list`.
+--
+-- Second return: each output entry's ORIGINAL index in `list`. The fake duration and
+-- stack text are keyed by that index (slot.pv in BuildPreviewSlots), so they travel WITH
+-- their icon; keying them by display cell instead left the Expiration sort invisible.
 local function SortPreviewList(list, isBuff, cfg)
     local method = cfg.sortMethod or "Default"
     local reverse = cfg.sortDirection == "Reverse"
     if method == "Default" then
-        if not reverse then return list end
-        local out = {}
+        local out, src = {}, {}
         local n = #list
-        for i = 1, n do out[i] = list[n - i + 1] end
-        return out
+        for i = 1, n do
+            local from = reverse and (n - i + 1) or i
+            out[i] = list[from]
+            src[i] = from
+        end
+        return out, src
     end
 
     local tagged = {}
@@ -5371,9 +5384,12 @@ local function SortPreviewList(list, isBuff, cfg)
         end)
     end
 
-    local out = {}
-    for i = 1, #tagged do out[i] = tagged[i].entry end
-    return out
+    local out, src = {}, {}
+    for i = 1, #tagged do
+        out[i] = tagged[i].entry
+        src[i] = tagged[i].idx
+    end
+    return out, src
 end
 
 -- Which bar-detail pane owns the visible preview box (kind: "buff"/"debuff", id:
@@ -5703,12 +5719,12 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
     local avail = math.max(0, count - numEnch)
 
     local mixed = isBuff and DedupeByIcon(BuildMixedRealSpells(cfg)) or nil
-    local extraIDs
+    local extraIDs, extraSrc
     if mixed then
         local numSelected = math.min(#mixed, avail)
         local selected = {}
         for i = 1, numSelected do selected[i] = mixed[i] end
-        extraIDs = SortPreviewList(selected, isBuff, cfg)
+        extraIDs, extraSrc = SortPreviewList(selected, isBuff, cfg)
     end
     local numExtra = extraIDs and #extraIDs or 0
     local numFiller = avail - numExtra
@@ -5716,8 +5732,10 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
     for i = 1, numEnch do
         slots[i] = { kind = "enchant", slot = enchSlots[i] }
     end
+    -- pv: the icon's fake duration/stack index, the same one SortPreviewList sorted it
+    -- by -- so the displayed numbers follow the chosen sort.
     for i = 1, numExtra do
-        slots[numEnch + i] = { kind = "extra", spellID = extraIDs[i] }
+        slots[numEnch + i] = { kind = "extra", spellID = extraIDs[i], pv = extraSrc[i] }
     end
     if numFiller > 0 then
         if hasFiller then
@@ -5760,10 +5778,12 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
                     fillerSelected[i] = list[((i - 1) % listLen) + 1]
                 end
             end
-            fillerSelected = SortPreviewList(fillerSelected, isBuff, cfg)
+            local fillerSrc
+            fillerSelected, fillerSrc = SortPreviewList(fillerSelected, isBuff, cfg)
             for i = 1, numFiller do
                 local e = fillerSelected[i]
-                slots[numEnch + numExtra + i] = e and { kind = "fake", entry = e } or { kind = "placeholder" }
+                slots[numEnch + numExtra + i] = e and { kind = "fake", entry = e, pv = fillerSrc[i] }
+                    or { kind = "placeholder" }
             end
         else
             for i = 1, numFiller do
@@ -6020,8 +6040,8 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                     end
                     btn.icon:SetTexture(PreviewSpellIcon(spellID))
                 end
-                local z = style.iconZoom or 0.055
-                btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+                -- The live icons' texcoords, the shaped fill included (AuraKit).
+                btn.icon:SetTexCoord(EllesmereUI.AuraKit.IconTexCoord(style))
             end
 
             -- Mirrors EllesmereUI_AuraKit.lua's ApplyStyleToRegions, unguarded (plain regions).
@@ -6030,27 +6050,14 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 btn.shapeMask:SetTexture(style.shapeMaskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
                 btn.shapeMask:SetAllPoints(btn)
                 btn.shapeMask:Show()
-                local sz = slotSize[i]
-                local zoom = style.iconZoom or 0.055
-                local shapeKey = style.iconShape .. "|" .. sz .. "|" .. zoom
-                if btn._shapeApplied ~= shapeKey then
+                if btn._shapeApplied ~= style.iconShape then
                     pcall(btn.icon.RemoveMaskTexture, btn.icon, btn.shapeMask)
                     btn.icon:AddMaskTexture(btn.shapeMask)
-                    local insetPx = style.shapeInsetPx or 17
-                    local visRatio = (128 - 2 * insetPx) / 128
-                    local fullExpand = ((1 / visRatio) - 1) * 0.5
-                    -- Coupled to Icon Zoom, same as the live bar (EllesmereUI_AuraKit.lua).
-                    local expand = math.max(fullExpand * (zoom / 0.055), 0)
-                    btn.icon:ClearAllPoints()
-                    btn.icon:SetPoint("TOPLEFT", btn, "TOPLEFT", -expand * sz, expand * sz)
-                    btn.icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", expand * sz, -expand * sz)
-                    btn._shapeApplied = shapeKey
+                    btn._shapeApplied = style.iconShape
                 end
             else
                 if btn._shapeApplied then
                     pcall(btn.icon.RemoveMaskTexture, btn.icon, btn.shapeMask)
-                    btn.icon:ClearAllPoints()
-                    btn.icon:SetAllPoints()
                     btn._shapeApplied = nil
                 end
                 btn.shapeMask:Hide()
@@ -6146,7 +6153,8 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 local dc = style.durationColor
                 btn.duration:SetTextColor(dc and dc.r or 1, dc and dc.g or 1, dc and dc.b or 1)
                 btn.duration:SetShown(not style.hideDurationText)
-                btn.duration:SetText(PREVIEW_DURATIONS[((i - 1) % #PREVIEW_DURATIONS) + 1])
+                local pv = slot.pv or i
+                btn.duration:SetText(PREVIEW_DURATIONS[((pv - 1) % #PREVIEW_DURATIONS) + 1])
 
                 btn.stack:ClearAllPoints()
                 btn.stack:SetFont(fontPath, style.stackFontSize or 11, "OUTLINE")
@@ -6154,7 +6162,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                     style.stackX or 0, style.stackY or 0)
                 local sc = style.stackColor
                 btn.stack:SetTextColor(sc and sc.r or 1, sc and sc.g or 1, sc and sc.b or 1)
-                local stackVal = PREVIEW_STACKS[((i - 1) % #PREVIEW_STACKS) + 1]
+                local stackVal = PREVIEW_STACKS[((pv - 1) % #PREVIEW_STACKS) + 1]
                 btn.stack:SetShown(style.showStacks ~= false and stackVal ~= nil)
                 if stackVal then btn.stack:SetText(stackVal) end
             end
@@ -6359,7 +6367,7 @@ end
 --  Lifecycle
 -------------------------------------------------------------------------------
 
--- Login build: EllesmereUIUnitFrames.lua's SetupOptionsPanel() calls this once it
+-- Login build: EUI_UnitFrames_OptionsSetup.lua's SetupOptionsPanel() calls this once it
 -- has set ns.db. A PLAYER_LOGIN listener here needed EnableBody's handler to run
 -- first and stood down silently otherwise (field: Blizzard buffs up, no custom
 -- bars until an options change). A disabled Unit Frames module never runs

@@ -43,7 +43,6 @@ ns.BlockFactories.bags = function(blockCfg, slot, content, barCtx)
     -- BAG_UPDATE_DELAYED: one event per batch of bag changes, not one per bag.
     inst.events = { "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD" }
 
-    local BAG_TEX = ns.MICROMENU_MEDIA .. "menu-bags.png"
     local mouseOver = false
 
     local function D() return blockCfg.settings or {} end
@@ -55,7 +54,6 @@ ns.BlockFactories.bags = function(blockCfg, slot, content, barCtx)
     button:RegisterForClicks("AnyUp")
 
     local icon = button:CreateTexture(nil, "OVERLAY")
-    icon:SetTexture(BAG_TEX)
     local bagText = button:CreateFontString(nil, "OVERLAY")
     AttachTextOffset(inst, bagText)
 
@@ -88,6 +86,7 @@ ns.BlockFactories.bags = function(blockCfg, slot, content, barCtx)
 
     function inst:Refresh()
         local s = D()
+        K.SetBlockIcon(icon, blockCfg)
         local barCfg = BC()
         local barH = barCtx.GetThickness()
         local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))

@@ -86,7 +86,7 @@ end
 
 -------------------------------------------------------------------------------
 --  Font resolution -- mirrors the Chat module's font / outline settings:
---  "__global" follows the EUI Fonts & Colors defaults, a named key resolves
+--  "__global" follows the EUI global font defaults, a named key resolves
 --  through the shared font registry, and outline overrides stay slug-gated.
 -------------------------------------------------------------------------------
 local function GetBrezFont()
@@ -359,21 +359,6 @@ local function ApplyPosition()
     frame:SetPoint("CENTER", UIParent, "CENTER", cx, cy)
 end
 
-local function SavePosition()
-    if not frame or not addon.db then return end
-    local left, bottom = frame:GetLeft(), frame:GetBottom()
-    if not left or not bottom then return end
-    local fw, fh = frame:GetSize()
-    local cx = left + fw / 2 - UIParent:GetWidth() / 2
-    local cy = bottom + fh / 2 - UIParent:GetHeight() / 2
-    local PPp = EllesmereUI and EllesmereUI.PP
-    if PPp and PPp.SnapCenterForDim then
-        cx = PPp.SnapCenterForDim(cx, fw)
-        cy = PPp.SnapCenterForDim(cy, fh)
-    end
-    local p = P(); if p then p.pos = { centerX = cx, centerY = cy } end
-end
-
 -------------------------------------------------------------------------------
 --  Visibility -- driven by encounter / keystone events, not polling.
 -------------------------------------------------------------------------------
@@ -432,21 +417,6 @@ function ns.ApplyInstanceEvent(st, event)
     elseif event == "PLAYER_ENTERING_WORLD" then
         ns.RefreshInstanceState(st)
     end
-end
-
--- Unlock-mode loadPos/clearPos for an icon whose slice (P()) stores pos as a center offset.
-function ns.CenterPosFns(P)
-    local function loadPos()
-        local p = P()
-        if p and p.pos then
-            return { point = "CENTER", relPoint = "CENTER", x = p.pos.centerX, y = p.pos.centerY }
-        end
-        return nil
-    end
-    local function clearPos()
-        local p = P(); if p then p.pos = nil end
-    end
-    return loadPos, clearPos
 end
 
 local function ShouldShow()
@@ -696,6 +666,17 @@ local function Apply()
 end
 _G._EUI_BattleRes_Apply = Apply
 
+-- QoL Reset: the Battle Res and Bloodlust slices back to their defaults (both
+-- live in this file's defaults table).
+function _G._EUI_BattleRes_Reset()
+    local prof = addon.db and addon.db.profile
+    if not prof then return end
+    prof.battleRes, prof.bloodlust = {}, {}
+    EllesmereUI.Lite.DeepMergeDefaults(prof, defaults.profile)
+    Apply()
+    if _G._EUI_Bloodlust_Apply then _G._EUI_Bloodlust_Apply() end
+end
+
 -------------------------------------------------------------------------------
 --  Event handler (state writes live in ns.ApplyInstanceEvent above)
 -------------------------------------------------------------------------------
@@ -806,12 +787,10 @@ local function RegisterUnlock()
                 end
             end,
             savePos = function(_, point, relPoint, x, y)
+                -- Unlock mode hands over CENTER/CENTER coords; on Cancel the frame
+                -- still sits at the dragged spot, so never read the live position.
                 local p = P(); if not p then return end
-                if frame and frame:GetLeft() then
-                    SavePosition()
-                else
-                    p.pos = { centerX = x, centerY = y }
-                end
+                p.pos = { centerX = x, centerY = y }
             end,
             loadPos = loadPos,
             clearPos = clearPos,

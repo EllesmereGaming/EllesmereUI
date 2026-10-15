@@ -21,6 +21,62 @@ local kickSpellsByClass = {
     DEMONHUNTER = { 183752 },
 }
 
+-- WoW Forever (Classic) interrupts. Classic abilities have one spell id per
+-- rank and these lists are used INSTEAD of kickSpellsByClass there, never
+-- merged into it: several Classic ids are different spells on retail (16979
+-- is Wild Charge, 8042 is a plain Earth Shock), so a shared table would make
+-- a retail Druid or Shaman resolve a kick they do not have.
+-- Each class holds groups of ranks, low to high so the last known one wins (the
+-- cooldown is shared across ranks). A group may name the stance it needs and
+-- only counts while one of those stances is up: `stances` are gapless warrior
+-- stance indexes, `formIds` druid form IDs (Forever orders the druid stance bar
+-- the vanilla way, so druids are read by form ID, as in EllesmereUI_Range.lua).
+-- Debuff ids (Kick - Silenced) are left out. The Felhunter's Spell Lock is a pet
+-- spell, found in the pet spellbook like retail's demon interrupts.
+local WARRIOR_STANCE = { BATTLE = 1, DEFENSIVE = 2, BERSERKER = 3 }
+local DRUID_FORM_ID = { BEAR = 5, DIRE_BEAR = 8 }
+local foreverKicksByClass = {
+    WARRIOR = {
+        { 72, 1671, 1672, stances = { WARRIOR_STANCE.BATTLE, WARRIOR_STANCE.DEFENSIVE } }, -- Shield Bash
+        { 6552, 6554, stances = { WARRIOR_STANCE.BERSERKER } },                           -- Pummel
+    },
+    ROGUE = { { 1766, 1767, 1768, 1769 } },                       -- Kick
+    MAGE = { { 2139 } },                                          -- Counterspell
+    SHAMAN = { { 8042, 8044, 8045, 8046, 10412, 10413, 10414 } }, -- Earth Shock
+    PRIEST = { { 15487 } },                                       -- Silence
+    WARLOCK = { { 19244, 19647 } },                               -- Spell Lock (Felhunter)
+    DRUID = {
+        { 16979, formIds = { DRUID_FORM_ID.BEAR, DRUID_FORM_ID.DIRE_BEAR } }, -- Feral Charge
+    },
+}
+
+local function InList(list, value)
+    for i = 1, #list do
+        if list[i] == value then return true end
+    end
+    return false
+end
+
+local function KickGroupFormOk(group)
+    if group.stances then return InList(group.stances, GetShapeshiftForm()) end
+    if group.formIds then return InList(group.formIds, GetShapeshiftFormID()) end
+    return true
+end
+
+-- Which spellbook knows a spell: "pet" (a summoned demon), "player", or nil.
+local function KickBank(spellId)
+    if C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook then
+        if Enum and Enum.SpellBookSpellBank
+            and C_SpellBook.IsSpellKnownOrInSpellBook(spellId, Enum.SpellBookSpellBank.Pet) then
+            return "pet"
+        elseif C_SpellBook.IsSpellKnownOrInSpellBook(spellId) then
+            return "player"
+        end
+    elseif IsSpellKnown and IsSpellKnown(spellId) then
+        return "player"
+    end
+end
+
 local activeKickSpell
 
 -- A summoned demon's interrupt beats anything the player bank still reports.
@@ -38,21 +94,22 @@ local activeKickSpell
 -- changes; only the pet-over-player precedence is new.
 local function RefreshKickAbility()
     local playerClass = UnitClassBase("player")
-    local classKicks = kickSpellsByClass[playerClass]
+    local isForever = EllesmereUI.IS_FOREVER == true
+    local kicks = isForever and foreverKicksByClass or kickSpellsByClass
+    local classKicks = kicks[playerClass]
     activeKickSpell = nil
     if not classKicks then return end
     local petHit, playerHit
+    -- Retail entries are bare spell ids; Forever entries are rank groups.
     for i = 1, #classKicks do
-        local spellId = classKicks[i]
-        if C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook then
-            if Enum and Enum.SpellBookSpellBank
-                and C_SpellBook.IsSpellKnownOrInSpellBook(spellId, Enum.SpellBookSpellBank.Pet) then
-                petHit = spellId
-            elseif C_SpellBook.IsSpellKnownOrInSpellBook(spellId) then
-                playerHit = spellId
+        local entry = classKicks[i]
+        local isGroup = type(entry) == "table"
+        if not isGroup or KickGroupFormOk(entry) then
+            for j = 1, isGroup and #entry or 1 do
+                local spellId = isGroup and entry[j] or entry
+                local bank = KickBank(spellId)
+                if bank == "pet" then petHit = spellId elseif bank == "player" then playerHit = spellId end
             end
-        elseif IsSpellKnown and IsSpellKnown(spellId) then
-            playerHit = spellId
         end
     end
     activeKickSpell = petHit or playerHit
@@ -263,6 +320,14 @@ if kickFrame.RegisterUnitEvent then
     kickFrame:RegisterUnitEvent("UNIT_PET", "player")
 else
     kickFrame:RegisterEvent("UNIT_PET")
+end
+-- WoW Forever's stance and form gated kicks (warrior Shield Bash / Pummel, druid
+-- Feral Charge) re-resolve on a stance or form change; no other class needs it.
+if EllesmereUI.IS_FOREVER == true then
+    local playerClass = UnitClassBase("player")
+    if playerClass == "WARRIOR" or playerClass == "DRUID" then
+        kickFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+    end
 end
 kickFrame:SetScript("OnEvent", function()
     RefreshKickAbility()

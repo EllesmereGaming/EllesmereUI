@@ -187,7 +187,7 @@ BuildPopup = function()
 
     local btnBg = secureBtn:CreateTexture(nil, "BACKGROUND")
     btnBg:SetAllPoints()
-    btnBg:SetColorTexture(0.04, 0.04, 0.06, 0.9)
+    btnBg:SetColorTexture(0.044, 0.034, 0.026, 0.9)
     if PP and PP.CreateBorder then PP.CreateBorder(secureBtn, 0, 0, 0, 1, 1, "OVERLAY", 7) end
 
     local icon = secureBtn:CreateTexture(nil, "ARTWORK")

@@ -11,20 +11,27 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  Default: whatever the user has saved; unset = shown (off).
 --
---  Mechanism: reparent the manager to a hidden frame (SetParent is blocked in
---  combat, so a PLAYER_REGEN_ENABLED watcher re-asserts it after combat). When
---  the setting is off, the manager is reparented back to its original parent.
+--  Mechanism: reparent the manager to a hidden frame (Blizzard's own code does
+--  not reparent it, so the hide holds). SetParent is blocked in combat, so a
+--  change made in combat waits on the core's combat queue. When the setting is
+--  off, the manager is reparented back to its original parent. Blizzard keeps
+--  its shown state current meanwhile (shown only in a group), so the restore
+--  never calls Show().
 -------------------------------------------------------------------------------
-
-local hookedMgr = false
 
 local _partyHiddenParent
 local _partyOrigParent
 
 local function ApplyHideBlizzardPartyFrame()
     local shouldHide = EllesmereUIDB and EllesmereUIDB.hideBlizzardPartyFrame
-    local mgr = CompactRaidFrameManager or _G["CompactRaidFrameManager"]
+    -- Never hidden this session and not wanted hidden: nothing to apply.
+    if not shouldHide and not _partyOrigParent then return end
+    local mgr = CompactRaidFrameManager
     if not mgr then return end
+    if InCombatLockdown() then
+        EllesmereUI.CombatQueue.Defer("BlizzardPartyPanel", ApplyHideBlizzardPartyFrame)
+        return
+    end
 
     if shouldHide then
         if not _partyHiddenParent then
@@ -34,26 +41,11 @@ local function ApplyHideBlizzardPartyFrame()
         if not _partyOrigParent then
             _partyOrigParent = mgr:GetParent()
         end
-        if not InCombatLockdown() then
+        if mgr:GetParent() ~= _partyHiddenParent then
             mgr:SetParent(_partyHiddenParent)
         end
-        if not hookedMgr then
-            hookedMgr = true
-            local regenFrame = CreateFrame("Frame")
-            regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-            regenFrame:SetScript("OnEvent", function()
-                if EllesmereUIDB and EllesmereUIDB.hideBlizzardPartyFrame then
-                    if mgr:GetParent() ~= _partyHiddenParent then
-                        mgr:SetParent(_partyHiddenParent)
-                    end
-                end
-            end)
-        end
-    else
-        if _partyOrigParent and not InCombatLockdown() then
-            mgr:SetParent(_partyOrigParent)
-            mgr:Show()
-        end
+    elseif mgr:GetParent() ~= _partyOrigParent then
+        mgr:SetParent(_partyOrigParent)
     end
 end
 

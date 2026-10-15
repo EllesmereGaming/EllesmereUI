@@ -126,6 +126,25 @@ local PANDEMIC_THRESHOLD = 0.3
 local LIFEBLOOM_SPELL_ID = 33763
 local _lbName               -- cached Lifebloom spell name (resolved lazily once)
 local _scanLast, _scanResult = 0, false
+-- How much of the aura's remaining time a refresh would carry over: the
+-- pandemic window as the client sees it (talents and effects that stretch
+-- the cap included). 12.1.5 answers directly; 12.1.0 derives it as Blizzard's
+-- own viewer did there (refreshed duration minus base duration). nil when
+-- neither API exists or the answer is secret: the caller then uses 30%.
+local function CarryOver(unit, auraInstanceID)
+    local U = C_UnitAuras
+    local ok, carry
+    if U.GetRefreshCarryOverDuration then
+        ok, carry = pcall(U.GetRefreshCarryOverDuration, unit, auraInstanceID)
+    elseif U.GetRefreshExtendedDuration and U.GetAuraBaseDuration then
+        local ok1, ext = pcall(U.GetRefreshExtendedDuration, unit, auraInstanceID)
+        local ok2, base = pcall(U.GetAuraBaseDuration, unit, auraInstanceID)
+        if ok1 and ok2 and ext and base and not issecretvalue(ext) and not issecretvalue(base) then
+            ok, carry = true, ext - base
+        end
+    end
+    if ok and carry and not issecretvalue(carry) then return carry end
+end
 -- Pandemic fallback for auras Blizzard never flags (currently only Lifebloom).
 -- bar._isLifebloom is cached on our own frame; the call site skips entirely once a
 -- bar is known not to be Lifebloom, so only Lifebloom reaches the throttled scan.
@@ -154,7 +173,15 @@ local function LifebloomPandemic(bar, blzChild)
         local isSec = issecretvalue
         if isSec and (isSec(dur) or isSec(exp)) then return end -- shouldn't be secret, for safety
         if dur <= 0 then return end
-        if (exp - now) <= dur * PANDEMIC_THRESHOLD then result = true end
+        local remaining = exp - now
+        -- The carry-over equals the remaining time once inside the window and
+        -- the cap before it (a hair of slack for the two clock reads).
+        local carry = aura.auraInstanceID and CarryOver(unit, aura.auraInstanceID)
+        if carry then
+            if carry > 0 and remaining <= carry + 0.05 then result = true end
+        elseif remaining <= dur * PANDEMIC_THRESHOLD then
+            result = true
+        end
     end
 
     -- Player first, then the group; stop as soon as one Lifebloom is in pandemic.
@@ -916,9 +943,11 @@ local _tickSm, _tickSmProf, _tickSmSp
 
 -- TBB idle sleeper: UpdateTrackedBuffBarTimers counts consecutive dead ticks (no
 -- active/fallback aura, self-timed window, running cooldown, or placeholder preview);
--- after ~2s it parks the tick frame (OnUpdate stops) and this frame listens for the
+-- after ~0.5s it parks the tick frame (OnUpdate stops) and this frame listens for the
 -- cheap edges that revive it. Lust from other players and the Time Spiral glow arm
--- outside these events, so their arm sites call Wake directly instead.
+-- outside these events, so their arm sites call Wake directly instead, and a Tracked
+-- Bars viewer item going active wakes it through ns.WakeTBBTickIfParked (the item's
+-- OnActiveStateChanged hook in EUI_CDM_HookViewers.lua).
 local _tbbWake = CreateFrame("Frame")
 _tbbWake._idleTicks = 0
 function _tbbWake.Sleep()
@@ -934,6 +963,9 @@ function _tbbWake.Sleep()
     _tbbWake:RegisterEvent("PLAYER_TARGET_CHANGED")
 end
 function _tbbWake.Wake()
+    -- Tracking Bars off: no tick to revive, so nothing registers. BuildTrackedBuffBars
+    -- sets _enabled before its own Wake.
+    if not _tbbWake._enabled then return end
     _tbbWake:UnregisterAllEvents()
     -- Stay subscribed to the aura edge while AWAKE: pool composition changes only on a
     -- player aura event or a pool Acquire (hooked separately), retiring the assignment memo.
@@ -944,7 +976,7 @@ function _tbbWake.Wake()
     _tbbWake._idleTicks = 0
     _tbbAssignDirty = true
     _tbbReflowDirty = true
-    if _tbbWake._enabled and tbbTickFrame then tbbTickFrame:Show() end
+    if tbbTickFrame then tbbTickFrame:Show() end
 end
 -- UNIT_AURA fires steadily in group content and every false wake buys ~0.5s of full
 -- ticking, so this probe answers "could any bar be live?" WITHOUT waking: an active
@@ -1034,6 +1066,13 @@ end
 _tbbWake:SetScript("OnEvent", _tbbWake.OnEvent)
 ns.WakeTBBTick = _tbbWake.Wake
 
+function ns.WakeTBBTickIfParked(item)
+    if _tbbWake._enabled and tbbTickFrame and not tbbTickFrame:IsShown()
+       and (not item or item:IsActive()) then
+        _tbbWake.Wake()
+    end
+end
+
 -- The Visibility edges (mount, shapeshift, gliding, target, group, zone, combat) are exactly
 -- the set the shared dispatcher already owns, so subscribe there instead of re-registering
 -- them on the sleeper. Without this a parked tick never learns that a Visibility condition
@@ -1043,10 +1082,7 @@ ns.WakeTBBTick = _tbbWake.Wake
 if EllesmereUI.RegisterVisibilityUpdater then
     EllesmereUI.RegisterVisibilityUpdater(function()
         -- Only a parked tick needs the nudge; an awake one re-evaluates every frame anyway.
-        if _anyVisCond and _tbbWake._enabled
-           and tbbTickFrame and not tbbTickFrame:IsShown() then
-            _tbbWake.Wake()
-        end
+        if _anyVisCond then ns.WakeTBBTickIfParked() end
     end)
 end
 
@@ -2079,7 +2115,7 @@ end
 
 function ns.IsTBBRebuildPending() return _tbbRebuildPending end
 
--- No-ops kept because options/main file may still reference them.
+-- No-ops kept because options or the other CDM files may still reference them.
 ns.RefreshTBBResolvedIDs = function() end
 ns.RefreshBuffBarGating  = function() end
 
@@ -4671,8 +4707,9 @@ function ns.TBB_BarCanCue(cfg)
         if EllesmereUI.IS_FOREVER then return _potionDur[pk] ~= nil end
         return pk == "bloodlust" or pk == "timespiral" or _potionDur[pk] ~= nil
     end
-    -- A dirty map still holds the previous pass's pairings: trust it only once rebuilt.
-    if not _tbbAssignDirty and _tbbAssignment[cfg] then return true end
+    -- A dirty map still holds the previous pass's pairings: trust it only once rebuilt,
+    -- and only while Tracking Bars are on (the tick is the only thing that keeps it current).
+    if _tbbWake._enabled and not _tbbAssignDirty and _tbbAssignment[cfg] then return true end
     local GetCanonical = ns.GetCanonicalSpellIDForFrame
     if not GetCanonical then return false end
     for vi = 1, 2 do
@@ -5529,7 +5566,7 @@ end
 
 -------------------------------------------------------------------------------
 --  "Visibility" gate (CDM-Bars-style mode + options, TBB-scoped)
---  Mirrors _CDMApplyVisibility's priority-2/3 checks (EllesmereUICooldownManager.lua),
+--  Mirrors _CDMApplyVisibility's priority-2/3 checks (EUI_CDM_Rebuild.lua),
 --  but folded into TBB's own tick since TBB bars are not native CDM bars.
 --  Zero cost for bars without a condition: the tick consults the gate only
 --  for bars flagged at build (bar._tbbVisCond) and fills the shared state
@@ -6502,6 +6539,9 @@ function ns.BuildTrackedBuffBars()
             end
         end
     end
+
+    -- Group loot rolls already up keep clear of the rebuilt bars.
+    ns.RequestLootPlacement()
 end
 
 -------------------------------------------------------------------------------

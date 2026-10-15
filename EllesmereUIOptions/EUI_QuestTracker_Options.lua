@@ -370,16 +370,26 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Auto Turn In Quests",
               getValue=function() return Cfg("autoTurnIn") or false end,
               setValue=function(v) Set("autoTurnIn", v) end })
+        local acceptRows = {
+            { type="toggle", label="Prevent Multi Quest Accept",
+              get=function() return Cfg("autoAcceptPreventMulti") ~= false end,
+              set=function(v) Set("autoAcceptPreventMulti", v) end },
+            { type="toggle", label="Hold Shift to Skip",
+              get=function() return Cfg("autoAcceptShiftSkip") ~= false end,
+              set=function(v) Set("autoAcceptShiftSkip", v) end },
+            { type="toggle", label="Ignore Low Level Quests",
+              get=function() return Cfg("autoAcceptIgnoreTrivial") or false end,
+              set=function(v) Set("autoAcceptIgnoreTrivial", v) end },
+        }
+        -- WoW Forever has no older expansions to skip.
+        if not EllesmereUI.IS_FOREVER then
+            acceptRows[#acceptRows + 1] = { type="toggle", label="Ignore Older Expansion Quests",
+                get=function() return Cfg("autoAcceptIgnoreOldExpansion") or false end,
+                set=function(v) Set("autoAcceptIgnoreOldExpansion", v) end }
+        end
         EllesmereUI.BuildInlineCog(row._leftRegion, {
             title = "Auto Accept Settings",
-            rows = {
-                { type="toggle", label="Prevent Multi Quest Accept",
-                  get=function() return Cfg("autoAcceptPreventMulti") ~= false end,
-                  set=function(v) Set("autoAcceptPreventMulti", v) end },
-                { type="toggle", label="Hold Shift to Skip",
-                  get=function() return Cfg("autoAcceptShiftSkip") ~= false end,
-                  set=function(v) Set("autoAcceptShiftSkip", v) end },
-            },
+            rows = acceptRows,
         })
 
         EllesmereUI.BuildInlineCog(row._rightRegion, {

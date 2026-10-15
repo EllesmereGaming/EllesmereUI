@@ -66,32 +66,8 @@ local function LeftAlignFilterLabel(dd)
     end
 end
 
--- Active-filter reset "X": strips Blizzard's glyph, draws house
--- uitools-icon-close above the dropdown border (white 0.9->1 on hover).
--- `host` = the dropdown it rides (frame-level layering); idempotent via FFD.x.
-local function SkinFilterResetX(rb, host)
-    if not rb or rb:IsForbidden() then return end
-    local rd = GetFFD(rb)
-    if rd.x then return end
-    local regions = { rb:GetRegions() }
-    for i = 1, #regions do
-        local r = regions[i]
-        if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
-    end
-    for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture" }) do
-        local t = rb[g] and rb[g](rb)
-        if t and t.SetAlpha then t:SetAlpha(0) end
-    end
-    if host then rb:SetFrameLevel(host:GetFrameLevel() + 5) end
-    local x = rb:CreateTexture(nil, "OVERLAY", nil, 7)
-    x:SetAtlas("uitools-icon-close", false)
-    x:SetSize(10, 10)
-    x:SetPoint("CENTER", rb, "CENTER", 0, 0)
-    x:SetVertexColor(1, 1, 1, 0.9)
-    rd.x = x
-    rb:HookScript("OnEnter", function() x:SetVertexColor(1, 1, 1, 1) end)
-    rb:HookScript("OnLeave", function() x:SetVertexColor(1, 1, 1, 0.9) end)
-end
+-- Active-filter reset "X": WSkin.FilterResetX (the window engine).
+local SkinFilterResetX = WSkin.FilterResetX
 
 do
 local PREVIEW_JOURNALS = { WarbandSceneJournal = true }  -- texture previews are content
@@ -5531,11 +5507,17 @@ local function HookRCScrollBox(box, isCurrency)
 end
 
 local function Skin_RepCurrency()
-    -- Stock character sheet styles (Style page) keep Blizzard's whole sheet,
+    -- The character sheet's Blizz Default keeps Blizzard's whole sheet,
     -- these tabs included.
     if ns.CharSheetStock and ns.CharSheetStock() then return end
     local rep = _G.ReputationFrame
-    if rep then
+    -- WoW Forever keeps the list, its filter and the detail pane Blizzard's on
+    -- the sheet's backdrop, like that client's other character tabs (Skills,
+    -- PvP, Currency); only the list's scroll bar takes the house style, as
+    -- the Currency and stats lists' do.
+    if rep and EllesmereUI.IS_FOREVER then
+        if rep.ScrollBar then WSkin.ScrollBar(rep.ScrollBar) end
+    elseif rep then
         if rep.filterDropdown then WSkin.Dropdown(rep.filterDropdown) end
         WSkin.ScrollBarsIn(rep)
         HookRCScrollBox(rep.ScrollBox)
@@ -7052,6 +7034,14 @@ local MICRO_BUTTONS = {
     "StoreMicroButton", "MainMenuMicroButton", "HelpMicroButton",
     "HousingMicroButton",
 }
+-- WoW Forever keeps several micro buttons retail folded away or renamed (spellbook
+-- and talents split out, socials and PvP as their own buttons). Add them so the
+-- Forever pass skins the whole row; missing/forbidden buttons are skipped per-button.
+if EllesmereUI.IS_FOREVER then
+    for _, n in ipairs({ "SpellbookMicroButton", "TalentMicroButton", "SocialsMicroButton", "PVPMicroButton", "LegacyMicroButton" }) do
+        MICRO_BUTTONS[#MICRO_BUTTONS + 1] = n
+    end
+end
 local MICRO_DECO  = { "Background", "PushedBackground", "FlashBorder", "Shadow", "PushedShadow", "Border", "Backdrop" }
 local MICRO_TRIM  = 0.08
 local MICRO_INSET = 1
@@ -7108,6 +7098,15 @@ local _microHook = false
 local function Skin_MicroMenu()
     if InCombatLockdown() then return end
     for _, name in ipairs(MICRO_BUTTONS) do SkinMicroButton(_G[name]) end
+    -- WoW Forever's MicroMenu keeps a Blizzard container strip (BackgroundArt +
+    -- BorderArt); on retail the EllesmereUI Bags addon hides the container, so it
+    -- never shows. Fade that art so the flat buttons do not sit inside an ornate
+    -- frame. Alpha only -- never :Hide() the Edit-Mode-owned container.
+    if EllesmereUI.IS_FOREVER and _G.MicroMenu then
+        local mm = _G.MicroMenu
+        if mm.BackgroundArt and mm.BackgroundArt.SetAlpha then mm.BackgroundArt:SetAlpha(0) end
+        if mm.BorderArt and mm.BorderArt.SetAlpha then mm.BorderArt:SetAlpha(0) end
+    end
     if not _microHook and _G.UpdateMicroButtons then
         _microHook = true
         -- UpdateMicroButtons fires several times per frame on routine events:
@@ -7120,10 +7119,8 @@ local function Skin_MicroMenu()
     end
 end
 
--- WoW Forever keeps Blizzard's micro menu art (user decision): the pack is not
--- registered there, so nothing above runs and the UpdateMicroButtons hook is
--- never installed. The options card is dropped on that client to match.
-if not EllesmereUI.IS_FOREVER then
+-- Registered on both clients. On WoW Forever this also covers the legacy micro
+-- buttons appended to MICRO_BUTTONS above, so the whole row matches the house look.
 WSkin.RegisterWindow({
     key = "micromenu",
     apply = function()
@@ -7135,7 +7132,6 @@ WSkin.RegisterWindow({
         pcall(Skin_MicroMenu)
     end,
 })
-end -- not IS_FOREVER
 end
 
 -------------------------------------------------------------------------------
@@ -8920,34 +8916,11 @@ local function Skin_AuctionHouse()
             end
         end
     end
-    -- Refresh corner: reload button becomes flat UI-RefreshButton glyph (desaturated+white vertex); quantity goes white.
+    -- Refresh corner: the house refresh glyph; quantity goes white.
     local function SkinRefresh(rf)
         if not rf then return end
         if rf.TotalQuantity then WSkin.White(rf.TotalQuantity) end
-        local rb = rf.RefreshButton
-        if rb and not GetFFD(rb).glyph
-           and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("UI-RefreshButton") then
-            local d = GetFFD(rb)
-            local regions = { rb:GetRegions() }
-            for i = 1, #regions do
-                local r = regions[i]
-                if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
-            end
-            for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture",
-                                 "GetHighlightTexture", "GetDisabledTexture" }) do
-                local t = rb[g] and rb[g](rb)
-                if t and t.SetAlpha then t:SetAlpha(0) end
-            end
-            local glyph = rb:CreateTexture(nil, "OVERLAY")
-            glyph:SetAtlas("UI-RefreshButton", false)
-            glyph:SetSize(16, 16)
-            glyph:SetPoint("CENTER")
-            glyph:SetDesaturated(true)
-            glyph:SetVertexColor(1, 1, 1, 0.9)
-            d.glyph = glyph
-            rb:HookScript("OnEnter", function() glyph:SetVertexColor(1, 1, 1, 1) end)
-            rb:HookScript("OnLeave", function() glyph:SetVertexColor(1, 1, 1, 0.9) end)
-        end
+        WSkin.RefreshGlyph(rf.RefreshButton)
     end
     -- List panel: framed chrome off, slim scrollbar, headers when present.
     -- seatTop: top-anchored views seat header row at the wash top; item-detail views keep stock header position.
@@ -10367,31 +10340,6 @@ local function Skin_CraftOrders()
             end
         end
     end
-    local function SkinRefreshBtn(rb)
-        if rb and not GetFFD(rb).glyph
-           and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("UI-RefreshButton") then
-            local d = GetFFD(rb)
-            local regions = { rb:GetRegions() }
-            for i = 1, #regions do
-                local r = regions[i]
-                if r and r.IsObjectType and r:IsObjectType("Texture") then r:SetAlpha(0) end
-            end
-            for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture",
-                                 "GetHighlightTexture", "GetDisabledTexture" }) do
-                local t = rb[g] and rb[g](rb)
-                if t and t.SetAlpha then t:SetAlpha(0) end
-            end
-            local glyph = rb:CreateTexture(nil, "OVERLAY")
-            glyph:SetAtlas("UI-RefreshButton", false)
-            glyph:SetSize(16, 16)
-            glyph:SetPoint("CENTER")
-            glyph:SetDesaturated(true)
-            glyph:SetVertexColor(1, 1, 1, 0.9)
-            d.glyph = glyph
-            rb:HookScript("OnEnter", function() glyph:SetVertexColor(1, 1, 1, 1) end)
-            rb:HookScript("OnLeave", function() glyph:SetVertexColor(1, 1, 1, 0.9) end)
-        end
-    end
     local function List(list)
         if not list then return end
         local ld = GetFFD(list)
@@ -10753,7 +10701,7 @@ local function Skin_CraftOrders()
             ad.moShowHook = true
             mo:HookScript("OnShow", WSkin.Debounce(function() Skin_CraftOrders() end))
         end
-        SkinRefreshBtn(mo.RefreshButton)
+        WSkin.RefreshGlyph(mo.RefreshButton)
         List(mo.OrderList)
     end
 
@@ -11925,8 +11873,11 @@ end
 
 -------------------------------------------------------------------------------
 --  Loot roll popups (GroupLootFrame1..N inside GroupLootContainer). The
---  CONTAINER is deliberately UNTOUCHED: a UIParent-managed frame whose
---  position EllesmereUIQoL's Shifter already owns; writing its layout flags from here taints the secure managed-layout pass.
+--  CONTAINER is deliberately UNTOUCHED: a bottom managed column frame whose
+--  position belongs to the shared frame placer (EllesmereUI.SetFramePlacer:
+--  the Shifter's saved spot, else the Cooldown Manager's, else Blizzard's own
+--  column spot); writing its layout flags from here taints the managed-layout
+--  pass.
 -------------------------------------------------------------------------------
 function LP.SkinRollFrame(f)
     if not f or f:IsForbidden() then return end
@@ -11976,17 +11927,22 @@ function LP.SkinRollFrame(f)
         WSkin.QualityBorder(host or f, icon, qr, qg, qb)
     end
 
-    LP.Bar(f.Timer or f.Bar or f.StatusBar)
-
-    -- Bonus Roll: its timer lives on PromptFrame, parked by Blizzard one frame
-    -- level BELOW the window so the window's own art frames it. The shell
-    -- backdrop is drawn on the window, so under it the bar all but vanishes:
-    -- it rides one level above the window instead (the roll buttons' level).
+    -- Blizzard parks both timers one frame level BELOW the window so the
+    -- window's own art frames them (GroupLootFrame_OnLoad; BonusRollFrame_OnLoad
+    -- for the Bonus Roll's, which lives on PromptFrame). The shell backdrop is
+    -- drawn on the window, so under it a bar all but vanishes: each rides one
+    -- level above the window instead (the roll buttons' level).
+    local level = f:GetFrameLevel() + 1
+    local timer = f.Timer or f.Bar or f.StatusBar
+    if timer and not timer:IsForbidden() then
+        LP.Bar(timer)
+        timer:SetFrameLevel(level)
+    end
     local prompt = f.PromptFrame
     local ptimer = prompt and prompt.Timer
     if ptimer and not ptimer:IsForbidden() then
         LP.Bar(ptimer)
-        ptimer:SetFrameLevel(f:GetFrameLevel() + 1)
+        ptimer:SetFrameLevel(level)
     end
 
     -- Name keeps its item-quality color; only the face changes.
@@ -12014,9 +11970,9 @@ function LP.ApplyLootRoll()
     if type(_G.GroupLootContainer_Update) == "function" then
         hooksecurefunc("GroupLootContainer_Update", resweep)
     end
-
-    local c = _G.GroupLootContainer
-    if c then WSkin.HookShow(c, resweep) end
+    -- No script hook on the container itself: it only shows inside
+    -- GroupLootContainer_Update (hooked above), and code run from its OnShow
+    -- would leave the rest of that update, the managed-layout pass, under our taint.
 
     -- Fallback for clients where those two globals have gone: the roll event itself is what puts a frame on screen.
     local ev = CreateFrame("Frame")
@@ -13445,8 +13401,8 @@ WSkin.RegisterWindow({
 --  registration on an existing key is the same shape charsheet and
 --  professionsbook already use.
 --
---  Blizzard swaps between two BACKGROUND textures depending on how many digits
---  the count needs (SingleItem vs MultiItem, chosen in ChooseFrameType), and
+--  Blizzard swaps between two BACKGROUND textures depending on whether the item
+--  is sold singly or in bundles (SingleItem vs MultiItem, chosen in ChooseFrameType), and
 --  re-shows whichever it picked on each open. Both are faded every pass rather
 --  than once, or the first multi-digit split brings the brass money-frame art
 --  back on a window that has already been skinned.
@@ -13505,14 +13461,21 @@ function HP.ApplyStackSplit()
                 WSkin.QualityBorder(f, bg,
                     Theme.brdR or 0.2, Theme.brdG or 0.2, Theme.brdB or 0.2)
 
-                -- ...and put the number in the MIDDLE of it. Stock leaves it
-                -- right-justified against an offset that only made sense with
-                -- the old money-frame plate behind it.
-                f.StackSplitText:ClearAllPoints()
-                f.StackSplitText:SetPoint("CENTER", bg, "CENTER", 0, 0)
                 if f.StackSplitText.SetJustifyH then
                     f.StackSplitText:SetJustifyH("CENTER")
                 end
+            end
+            -- A bundle shows two lines, the stacks over the total; Blizzard's
+            -- anchors for them already straddle the arrow row. A single count
+            -- goes in the MIDDLE of the field: stock right-justifies it against
+            -- an offset that only made sense with the old money-frame plate, and
+            -- ChooseFrameType puts that anchor back on every open.
+            if f.isMultiStack then
+                d.splitField:SetHeight(44)
+            else
+                d.splitField:SetHeight(22)
+                f.StackSplitText:ClearAllPoints()
+                f.StackSplitText:SetPoint("CENTER", d.splitField, "CENTER", 0, 0)
             end
         end
 
@@ -13541,9 +13504,11 @@ function HP.ApplyStackSplit()
     end
 
     Pass()
-    HP.OnShow(f, Pass)
-    -- ChooseFrameType is what swaps the two backdrops, so re-fade after it.
-    HP.HookMethod(f, "UpdateStackSplitFrame", WSkin.Debounce(function()
+    -- Every open runs ChooseFrameType (both clients open the box only through
+    -- OpenStackSplitFrame), and so does a shift-click on another item while the
+    -- box is up, which fires no OnShow. It swaps the two backdrops, resizes the
+    -- frame and re-anchors the count, so the pass follows it, one frame later.
+    HP.HookMethod(f, "ChooseFrameType", WSkin.Debounce(function()
         if f:IsVisible() then Pass() end
     end))
 end

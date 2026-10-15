@@ -12,8 +12,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  shows IN USE and stays lit as on the Style page; it keeps its hover and
 --  closes the popup with nothing written, and so does Escape; any other card
 --  sets every loaded module's Style flags at once through the Style page's
---  registry, then reloads. The default look (the first card, tagged DEFAULT)
---  is the EllesmereUI style, or WoW Forever on that client; either is
+--  registry, then reloads. The default look (tagged DEFAULT) is the
+--  EllesmereUI style, or WoW Forever on that client, whose card still sits
+--  second, after EllesmereUI's; either is
 --  normally the look in use (on WoW Forever the module picker applies it as
 --  its reload is confirmed).
 --  Once per install; an existing user never sees it, since only a first
@@ -149,7 +150,7 @@ local function ShowStyleChoicePopup()
     end
 
     -- The look cards (EllesmereUI_StyleCards.lua, shared with the Style page
-    -- header): three, plus WoW Forever on that client, the default card first.
+    -- header): three, plus WoW Forever on that client, EllesmereUI's first.
     -- Set 10 below the description so the IN USE badge above a card clears it.
     local cards = EllesmereUI.BuildStyleCards(popup, -138, {
         buttonText = {

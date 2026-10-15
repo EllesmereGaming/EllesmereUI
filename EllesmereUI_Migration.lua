@@ -1695,6 +1695,20 @@ EllesmereUI.RegisterMigration({
 })
 
 EllesmereUI.RegisterMigration({
+    id          = "chat_bubbles_to_blizzskin_v1",
+    scope       = "profile",
+    description = "Move Chat Bubbles settings from the Chat module profile to the profile root (Blizz UI Enhanced).",
+    body = function(ctx)
+        local chat = ctx.profile.addons and ctx.profile.addons.EllesmereUIChat
+        if not chat or type(chat.chatBubbles) ~= "table" then return end
+        if ctx.profile.chatBubbles == nil then
+            ctx.profile.chatBubbles = chat.chatBubbles
+        end
+        chat.chatBubbles = nil
+    end,
+})
+
+EllesmereUI.RegisterMigration({
     id          = "np_border_ellesmere_to_simple_v3",
     scope       = "profile",
     description = "No-op (superseded by np_border_v5).",
@@ -3814,7 +3828,7 @@ end
 -- ledger (addons.EllesmereUIDataBars.characters) and the QoL upgrade calculator's
 -- per-character scan state (addons.EllesmereUIQoL.chars) sat at profile scope, so
 -- exported profiles carried the sharer's character names, realms and gold. Both stores
--- are account-wide now (EllesmereUIDB.dataBarsGold / .qolUpgradeCalcChars); module init
+-- are account-wide now (EllesmereUIDB.goldLedger, which absorbed .dataBarsGold, / .qolUpgradeCalcChars); module init
 -- drops the keys from the ACTIVE profile, this sweep drops them from every stored
 -- profile (cleanup, not the safety line -- string export paths strip them too).
 -- Deliberately DROP rather than merge into the account stores: any profile may be an
@@ -3869,11 +3883,11 @@ EllesmereUI.RegisterMigration({
         if not db then return end
         local _, physH = GetPhysicalScreenSize()
         if type(physH) ~= "number" or physH <= 0 then return end
-        -- Snap BEFORE the reset test: the dropdown offers only fixed steps, so an
-        -- off-menu seed (1600p lands on 1.111) would leave the control reading
-        -- "Normal (100%)" while the panel renders larger. Testing the SNAPPED
-        -- value keeps the reset honest: a display rounding back to 1.00 has
-        -- nothing to correct and must not fire the overwrite branch.
+        -- Snap BEFORE the reset test: the Window Scale slider moves in 5% steps,
+        -- so an off-step seed (1600p lands on 1.111) would read differently from
+        -- what the panel renders at. Testing the SNAPPED value keeps the reset
+        -- honest: a display rounding back to 1.00 has nothing to correct and must
+        -- not fire the overwrite branch.
         local seeded = math.max(1, math.min(physH / 1440, 2))
         if EllesmereUI.SnapPanelScale then seeded = EllesmereUI.SnapPanelScale(seeded) end
 
@@ -4312,6 +4326,145 @@ EllesmereUI.RegisterMigration({
         end
     end,
 })
+
+-- Spell ID on Tooltip became on by default (an unset showSpellID reads as on,
+-- EllesmereUI.SpellIDOn). An account from before keeps it off: its unset value
+-- is written off. Existing users ONLY: a fresh install or Reset ALL has no
+-- profiles yet, is genesis-stamped, and takes the new default.
+EllesmereUI.RegisterMigration({
+    id          = "spellid_default_on_v1",
+    scope       = "global",
+    description = "Keep Spell ID on Tooltip off for existing users after its default changed from off to on.",
+    body = function(ctx)
+        local db = ctx.db
+        if not (db.profiles and next(db.profiles)) then return end
+        if db.showSpellID == nil then
+            db.showSpellID = false
+        end
+    end,
+})
+
+-- The Bags sidebar's one-time "categories can be dragged" tip is for new
+-- users: an account that already ran Bags (it seeds its default category
+-- groups at its first login) starts with it seen. A fresh install or Reset ALL
+-- is genesis-stamped and sees it, and so does an account that turns Bags on
+-- for the first time later.
+EllesmereUI.RegisterMigration({
+    id          = "bags_category_tip_existing_seen_v1",
+    scope       = "global",
+    description = "Mark the Bags category drag tip as seen for existing Bags users, so only new users see it.",
+    body = function(ctx)
+        local db = ctx.db
+        if db.bagCategoryTipSeen == nil and db.bagDefaultGroupsSeeded then
+            db.bagCategoryTipSeen = true
+        end
+    end,
+})
+
+-- Player Aura Bars icons with a custom Icon Shape used to zoom the spell art far
+-- past their Icon Zoom (the shaped icon grew past its button and still took the
+-- zoom crop), so most players with a shape dragged Icon Zoom down to 0. Shaped
+-- icons now take the crop an unshaped icon takes at the same zoom, where 0 shows
+-- the whole art, its dark edge included. Every bar with a custom shape still at 0
+-- moves to 6 (an unset zoom reads 5.5): the profile's own bars and every Spec
+-- Override or Condition value stored for one, each entry's banked default
+-- included, or leaving an override would write the 0 back. Unshaped bars never
+-- zoomed wrong and keep their zoom. PROFILE scope on purpose: an export string
+-- from before carries no stamp and is fixed at its next load, while a profile
+-- made from a fixed one inherits its stamp.
+do
+    local ZOOM = 0.06
+    local UF = "EllesmereUIUnitFrames"
+    local PAB_ROOT = UF .. "\31playerAuraBars"
+    local PAB_PREFIX = PAB_ROOT .. "\30"
+    local ZOOM_LEAF, SHAPE_LEAF = "\30iconZoom", "\30iconShape"
+    local NIL_SENT = "__SPECOV_NIL__"   -- a stored "key removed" override value
+    local OV_STORES = { "specOverrides", "condOverrides" }
+
+    -- Player Aura Bars' own test (PabShapeActive): any shape but "none".
+    local function Shaped(shape)
+        return type(shape) == "string" and shape ~= "none"
+    end
+
+    -- Every bar table under t. Only a bar carries iconShape and iconZoom, so the
+    -- walk needs no map of where bars live (the default bars, the custom lists,
+    -- the per-spec buckets).
+    local function FixTree(t, depth)
+        if t.iconZoom == 0 and Shaped(t.iconShape) then t.iconZoom = ZOOM end
+        if depth < 6 then
+            for _, v in pairs(t) do
+                if type(v) == "table" then FixTree(v, depth + 1) end
+            end
+        end
+    end
+
+    -- The bar table an override path names inside playerAuraBars (list indexes
+    -- are stored as strings, as the override engine writes them).
+    local function BarAt(pab, rel)
+        local t = pab
+        for seg in rel:gmatch("[^\30]+") do
+            if type(t) ~= "table" then return nil end
+            local v = t[seg]
+            if v == nil then
+                local n = tonumber(seg)
+                if n then v = t[n] end
+            end
+            t = v
+        end
+        return type(t) == "table" and t or nil
+    end
+
+    -- One stored override value map: a whole subtree is walked like the
+    -- profile's own bars; a lone zoom of 0 takes the shape this layer gives its
+    -- bar (the layer's own value, else the profile's bar).
+    local function FixMap(map, pab)
+        for fkey, v in pairs(map) do
+            if type(fkey) == "string"
+                and (fkey == PAB_ROOT or fkey:sub(1, #PAB_PREFIX) == PAB_PREFIX) then
+                if type(v) == "table" then
+                    FixTree(v, 0)
+                elseif v == 0 and fkey:sub(-#ZOOM_LEAF) == ZOOM_LEAF then
+                    local bar = fkey:sub(1, -#ZOOM_LEAF - 1)
+                    local shape = map[bar .. SHAPE_LEAF]
+                    if shape == nil and pab then
+                        local t = BarAt(pab, bar:sub(#PAB_PREFIX + 1))
+                        shape = t and t.iconShape
+                    end
+                    if shape ~= NIL_SENT and Shaped(shape) then map[fkey] = ZOOM end
+                end
+            end
+        end
+    end
+
+    EllesmereUI.RegisterMigration({
+        id          = "pab_shaped_icon_zoom_v1",
+        scope       = "profile",
+        description = "Player Aura Bars: Icon Zoom 6 on bars with a custom Icon Shape left at 0 by the old shaped-icon over-zoom.",
+        body = function(ctx)
+            local prof = ctx.profile
+            local addons = prof.addons
+            local uf = type(addons) == "table" and addons[UF] or nil
+            local pab = type(uf) == "table" and uf.playerAuraBars or nil
+            if type(pab) ~= "table" then pab = nil end
+            -- Overrides first: their shape test reads the profile's bars, which
+            -- the pass below never changes the shape of anyway.
+            for si = 1, #OV_STORES do
+                local store = prof[OV_STORES[si]]
+                if type(store) == "table" then
+                    for _, entry in pairs(store) do
+                        local values = type(entry) == "table" and entry.values
+                        if type(values) == "table" then
+                            for _, map in pairs(values) do
+                                if type(map) == "table" then FixMap(map, pab) end
+                            end
+                        end
+                    end
+                end
+            end
+            if pab then FixTree(pab, 0) end
+        end,
+    })
+end
 
 --------------------------------------------------------------------------------
 --  WOW FOREVER: ONE-TIME BUFF CLEAR
@@ -5024,6 +5177,144 @@ do
             db._capturedOnce_CDM = true
             if type(db.profiles) == "table" then
                 for _, prof in pairs(db.profiles) do FreezeProfile(prof) end
+            end
+        end)
+    end
+end
+
+--------------------------------------------------------------------------------
+--  WoW Forever: Nameplates Enemy Buff Filter to Show All (one-time).
+--  Show All is the WoW Forever default (every enemy buff, unfiltered). An
+--  account that already ran EllesmereUI there is moved to it once: the filter
+--  in every stored profile's Nameplates data and every Spec Override value
+--  stored for it (a stored "key not present" mark already reads the default).
+--  Profiles made afterwards start on the default and keep whatever is picked.
+--  Account flag, written before the pass; a brand-new account is marked once
+--  its saved data exists. Two client checks, as the blocks above.
+--------------------------------------------------------------------------------
+do
+    local FLAG = "forever_np_buff_showall_v1"
+    -- Spec Override value key: the module folder, "\31", then the key path
+    -- (EllesmereUI_SpecOverrides.lua's stored format), and its "not present"
+    -- mark.
+    local OVERRIDE_KEY = "EllesmereUINameplates\31npEnemyBuffFilter"
+    local NIL_SENT = "__SPECOV_NIL__"
+
+    local function ClientOK()
+        local toc = select(4, GetBuildInfo())
+        return EllesmereUI ~= nil and EllesmereUI.IS_FOREVER == true
+            and type(toc) == "number" and toc >= 16000 and toc < 20000
+    end
+
+    local function MoveProfile(prof)
+        if type(prof) ~= "table" then return end
+        local np = type(prof.addons) == "table" and prof.addons.EllesmereUINameplates
+        if type(np) == "table" then np.npEnemyBuffFilter = "showall" end
+        if type(prof.specOverrides) ~= "table" then return end
+        for _, entry in pairs(prof.specOverrides) do
+            local values = type(entry) == "table" and entry.values
+            if type(values) == "table" then
+                for _, bucket in pairs(values) do
+                    if type(bucket) == "table" then
+                        local v = bucket[OVERRIDE_KEY]
+                        if v ~= nil and v ~= NIL_SENT then bucket[OVERRIDE_KEY] = "showall" end
+                    end
+                end
+            end
+        end
+    end
+
+    if ClientOK() then
+        EllesmereUI.Lite.OnSavedVariablesLoaded(function()
+            if not ClientOK() then return end
+            local db = EllesmereUIDB
+            if type(db) ~= "table" then
+                -- A brand-new account: nothing to move. Marked at login, so
+                -- its own first session's choices are never overwritten.
+                local f = CreateFrame("Frame")
+                f:RegisterEvent("PLAYER_LOGIN")
+                f:SetScript("OnEvent", function(self)
+                    self:UnregisterAllEvents()
+                    local d = EllesmereUIDB
+                    if type(d) == "table" then
+                        if type(d._migrations) ~= "table" then d._migrations = {} end
+                        d._migrations[FLAG] = true
+                    end
+                end)
+                return
+            end
+            if type(db._migrations) ~= "table" then db._migrations = {} end
+            if db._migrations[FLAG] then return end
+            db._migrations[FLAG] = true
+            if type(db.profiles) == "table" then
+                for _, prof in pairs(db.profiles) do MoveProfile(prof) end
+            end
+        end)
+    end
+end
+
+--------------------------------------------------------------------------------
+--  WoW Forever: Nameplates Elite/Rare Indicator off on the WoW Forever look
+--  (one-time). That look drew no elite or rare marks whatever the box said;
+--  it now follows the box like every other look, and its own seed starts the
+--  box unchecked (NP_SeedForever). Every stored profile already on that look
+--  gets the same once: the value the other looks share is banked in its
+--  Forever-only style slot (it comes back on the way out), then the box is
+--  unchecked and the seed's stamp set, so the seed never runs over it again.
+--  Spec Override values stay as they are (an override wins over a look's
+--  seed, as on the Style page). Account flag, written before the pass; a
+--  brand-new account is marked once its saved data exists. Two client
+--  checks, as the blocks above.
+--------------------------------------------------------------------------------
+do
+    local FLAG = "forever_np_rare_box_v1"
+
+    local function ClientOK()
+        local toc = select(4, GetBuildInfo())
+        return EllesmereUI ~= nil and EllesmereUI.IS_FOREVER == true
+            and type(toc) == "number" and toc >= 16000 and toc < 20000
+    end
+
+    local function MoveProfile(prof)
+        if type(prof) ~= "table" then return end
+        local np = type(prof.addons) == "table" and prof.addons.EllesmereUINameplates
+        if type(np) ~= "table" or np.foreverRareSeeded then return end
+        -- The WoW Forever look: its flag rides a set Blizzard flag, and a
+        -- Classic flag wins over both.
+        if np.useClassicStyle or not (np.useBlizzardStyle and np.useForeverStyle) then return end
+        local s = np._foreverStyleSlots
+        if type(s) ~= "table" then s = {}; np._foreverStyleSlots = s end
+        local eui = s.eui
+        if type(eui) ~= "table" then eui = {}; s.eui = eui end
+        eui.classificationHideRare = np.classificationHideRare
+        np.classificationHideRare = true
+        np.foreverRareSeeded = true
+    end
+
+    if ClientOK() then
+        EllesmereUI.Lite.OnSavedVariablesLoaded(function()
+            if not ClientOK() then return end
+            local db = EllesmereUIDB
+            if type(db) ~= "table" then
+                -- A brand-new account: nothing to move. Marked at login, so
+                -- its own first session's choices are never overwritten.
+                local f = CreateFrame("Frame")
+                f:RegisterEvent("PLAYER_LOGIN")
+                f:SetScript("OnEvent", function(self)
+                    self:UnregisterAllEvents()
+                    local d = EllesmereUIDB
+                    if type(d) == "table" then
+                        if type(d._migrations) ~= "table" then d._migrations = {} end
+                        d._migrations[FLAG] = true
+                    end
+                end)
+                return
+            end
+            if type(db._migrations) ~= "table" then db._migrations = {} end
+            if db._migrations[FLAG] then return end
+            db._migrations[FLAG] = true
+            if type(db.profiles) == "table" then
+                for _, prof in pairs(db.profiles) do MoveProfile(prof) end
             end
         end)
     end

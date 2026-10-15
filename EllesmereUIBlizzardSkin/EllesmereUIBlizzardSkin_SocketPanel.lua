@@ -336,6 +336,32 @@ end
 
 local PP = EllesmereUI and EllesmereUI.PanelPP
 
+-- Stat letters on a socket icon ("VC" for a Versatility/Critical Strike gem,
+-- largest first), centred along its bottom edge. Opt-in
+-- (charSheetSocketPanelStats); "" for an empty socket, a gem with no
+-- secondary stat, or a gem whose data has not loaded yet (the load result
+-- repaints the strip).
+local function PaintStatLetters(btn, gemLink)
+    local text = ""
+    if gemLink and EllesmereUIDB and EllesmereUIDB.charSheetSocketPanelStats == true then
+        text = EllesmereUI.GetItemStatLetters(gemLink)
+    end
+    local fs = btn.statLetters
+    if text == "" then
+        if fs then fs:SetText("") end
+        return
+    end
+    if not fs then
+        local font = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+        fs = btn:CreateFontString(nil, "OVERLAY", nil, 7)
+        fs:SetFont(font, 10, EllesmereUI.SlugFlag("OUTLINE, SLUG"))
+        fs:SetPoint("BOTTOM", btn, "BOTTOM", 0, 1)
+        fs:SetTextColor(1, 1, 1, 1)
+        btn.statLetters = fs
+    end
+    fs:SetText(text)
+end
+
 local function PaintFilledIcon(btn, gemLink)
     local icon = btn.icon
     -- Clear atlas / color-texture mode before applying a fileID.
@@ -780,6 +806,7 @@ LayoutSockets = function()
         else
             PaintEmptyIcon(btn)
         end
+        PaintStatLetters(btn, rec.gemLink)
         btn:ClearAllPoints()
         btn:SetPoint("LEFT", panel, "LEFT",
             shift + EDGE_X + (paged and (PAGE_BUTTON_W + PAD) or 0) + (i - 1) * (SIZE + PAD), ICON_Y)
@@ -1440,8 +1467,8 @@ boot:SetScript("OnEvent", function()
     -- WoW Forever: part of the character sheet makeover, which stands down
     -- there (EllesmereUIBlizzardSkin_CharacterSheetForever.lua owns the sheet).
     if EllesmereUI and EllesmereUI.IS_FOREVER then return end
-    -- Stock character sheet styles (Style page, latched for the session):
-    -- the strip hangs below Blizzard's sheet as a tab-art plate. Layout values
+    -- The character sheet's Blizz Default (latched for the session): the
+    -- strip hangs below Blizzard's sheet as a tab-art plate. Layout values
     -- switch here, before the lazy build reads them.
     STOCK = (ns.CharSheetStock and ns.CharSheetStock()) and true or false
     if STOCK then

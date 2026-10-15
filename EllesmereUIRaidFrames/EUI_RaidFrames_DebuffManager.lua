@@ -185,7 +185,8 @@ end
 -- Debuff Manager tile sizes live inside dmDebuff rather than as top-level
 -- profile keys, so the raid-frame proxy cannot scale them through
 -- INDICATOR_SCALE_KEYS. Keep their physical size on the same class-specific
--- scale as the base debuff grid.
+-- scale as the base debuff grid. Snapped to whole physical pixels: styles,
+-- flow layouts and row widths all take this one value.
 local function EffectiveIconSizeForClass(rawSize, classToken)
     local scale
     if classToken == "party" then
@@ -196,7 +197,7 @@ local function EffectiveIconSizeForClass(rawSize, classToken)
             scale = scale * (ns._xfExtraRatio or 1)
         end
     end
-    return (tonumber(rawSize) or 18) * scale
+    return ns.RFC_SnapSize((tonumber(rawSize) or 18) * scale)
 end
 
 local function EffectiveIconSize(d, rawSize)
@@ -1133,6 +1134,34 @@ end
 -- Record synthesis
 -------------------------------------------------------------------------------
 
+-- Claims over a tile union, in its order: claims[cat] = the first enabled
+-- Match Any grid indicator that picks cat, claimsAll = the first enabled grid
+-- indicator in catch-all state (TileCatchAllOn: All Debuffs checked, or Has
+-- Duration alone), matchTiles = the Match All grid indicators (they claim
+-- nothing; nil when there are none). Record routing (EffectiveState) and the
+-- options page's owner hints (ns.DM_ClaimOwners) both read it.
+local function ClaimMap(tiles)
+    local claims, claimsAll, matchTiles = {}, nil, nil
+    if tiles then
+        for i = 1, #tiles do
+            local t = tiles[i]
+            if t.enabled and (t.type == "icons" or t.type == "square") then
+                if not claimsAll and TileCatchAllOn(t) then claimsAll = t end
+                if TileMatchOn(t) then
+                    matchTiles = matchTiles or {}
+                    matchTiles[#matchTiles + 1] = t
+                elseif t.claim then
+                    for c = 1, #CATS do
+                        local cat = CATS[c]
+                        if t.claim[cat] and not claims[cat] then claims[cat] = t end
+                    end
+                end
+            end
+        end
+    end
+    return claims, claimsAll, matchTiles
+end
+
 -- Effective enabled flags: a category is "on" if its base checkbox is set OR
 -- an enabled icons tile claims it; negations key off THESE (a claimed
 -- category must still be excluded from every other record). Also resolves
@@ -1158,35 +1187,12 @@ local function EffectiveState(dm, matchOn)
             castbyme = dm.castbyme, magic = dm.magic, curse = dm.curse, poison = dm.poison,
             disease = dm.disease, bleed = dm.bleed, canapply = dm.canapply }
     end
-    local claims = {}
-    -- First enabled grid tile in catch-all state (TileCatchAllOn: All Debuffs
-    -- checked, or Has Duration alone): it hosts a tile catch-all record, with
-    -- the tile's hide lane and duration modifier folded in by BuildRecords.
-    local claimsAll = nil
-    local matchTiles = nil
     -- The ACTIVE union (all-specs + group buckets + own spec, per-spec
     -- disables applied): claims follow whatever the current spec renders.
-    local tiles = ns.DM_ActiveTiles()
-    if tiles then
-        for i = 1, #tiles do
-            local t = tiles[i]
-            if t.enabled and (t.type == "icons" or t.type == "square") then
-                if not claimsAll and TileCatchAllOn(t) then claimsAll = t end
-                if TileMatchOn(t) then
-                    matchTiles = matchTiles or {}
-                    matchTiles[#matchTiles + 1] = t
-                elseif t.claim then
-                    for c = 1, #CATS do
-                        local cat = CATS[c]
-                        if t.claim[cat] and not claims[cat] then
-                            claims[cat] = t
-                            eff[cat] = true
-                        end
-                    end
-                end
-            end
-        end
-    end
+    -- claimsAll hosts a tile catch-all record, with the tile's hide lane and
+    -- duration modifier folded in by BuildRecords.
+    local claims, claimsAll, matchTiles = ClaimMap(ns.DM_ActiveTiles())
+    for cat in pairs(claims) do eff[cat] = true end
     return eff, claims, claimsAll, matchTiles
 end
 
@@ -2766,7 +2772,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
     if not (AK and declared) then return end
 
     local cap = s.debuffCap or 3
-    local size = s.debuffSize or 18
+    local size = ns.RFC_DebuffSize(s)
     local layout = {
         elementWidth = size, elementHeight = size,
         elementSpacing = s.debuffSpacing or 1, lineSpacing = s.debuffSpacing or 1,
@@ -2807,7 +2813,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
     -- Park everything the base does not want (legacy preset groups, stale record variants); setters are dirty marks, runs only on an FP change.
     for k in pairs(declared) do
         if k ~= "cc" and not wantedBase[k] then
-            container:SetAuraGroupMaxFrameCount(k, 0)
+            EllesmereUI.AuraKit.SetGroupCap(container, k, 0)
         end
     end
 
@@ -2826,7 +2832,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
         local ccBase = (ccPicked or (fxCats and fxCats.cc)) and not claims.cc
             and not baseSizedCC
         ccParkCount = ccBase and cap or 0
-        container:SetAuraGroupMaxFrameCount("cc", ccParkCount)
+        EllesmereUI.AuraKit.SetGroupCap(container, "cc", ccParkCount)
         container:SetAuraGroupCandidateFilters("cc", ccCand)
         container:SetAuraGroupLayout("cc", layout)
     end
@@ -2857,7 +2863,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
             end
             local n = cap
             if r.deadOnly then n = 0 end -- parked until the death edge unparks it
-            container:SetAuraGroupMaxFrameCount(gkey, n)
+            EllesmereUI.AuraKit.SetGroupCap(container, gkey, n)
             container:SetAuraGroupCandidateFilters(gkey, r.cand)
             if r.fxSize then
                 -- Sized record: keep the stable per-category style fresh (size edits restyle existing buttons) + same size in the flow math.
@@ -2943,7 +2949,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                             or (r.ccLead and ("rf:debuffcc:" .. ClassToken(d)))
                             or StyleKeyFor(d)
                         local groupSize = r.fxSize
-                            and EffectiveIconSize(d, r.fxSize) or s2.debuffSize or 18
+                            and EffectiveIconSize(d, r.fxSize) or ns.RFC_DebuffSize(s2)
                         local groupSpacing = s2.debuffSpacing or 1
                         AK.AddGroupToContainer(c2, {
                             key = gkey,
@@ -3095,7 +3101,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                         end
                         for k in pairs(tDecl) do
                             if tWanted[k] == nil then
-                                tc:SetAuraGroupMaxFrameCount(k, 0)
+                                EllesmereUI.AuraKit.SetGroupCap(tc, k, 0)
                             end
                         end
                         local tCap = t.cap or cap
@@ -3115,7 +3121,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                                 end
                                 local n = tCap
                                 if r.deadOnly then n = 0 end -- parked until the death edge unparks it
-                                tc:SetAuraGroupMaxFrameCount(gkey, n)
+                                EllesmereUI.AuraKit.SetGroupCap(tc, gkey, n)
                                 tc:SetAuraGroupCandidateFilters(gkey, r.cand)
                                 if r.fxSize then
                                     -- Sized record: per-category tile style variant fresh + matching flow math.
@@ -3278,7 +3284,8 @@ end
 -- Death-edge hook (from the UNIT_HEALTH repaint path, unit assignment, and the
 -- apply tail). Change-gated on d.dmDead; d.dmDeadSwap is nil for every button
 -- unless a config qualifies, so the hot-path cost is one field read. Count flips
--- re-render engine-side without an UpdateAllAuras.
+-- re-render engine-side; where a cap of 0 also switches the group off (12.1.5+,
+-- AuraKit.SetGroupCap) a group switched back on re-parses once.
 function ns.DM_DeadEdge(d, unit)
     local swap = d.dmDeadSwap
     if not swap or not unit then return end
@@ -3290,11 +3297,11 @@ function ns.DM_DeadEdge(d, unit)
     if swap.tileId then c = d.dmTiles and d.dmTiles[swap.tileId] else c = d.rfcDebuffs end
     if not c then return end
     if dead then
-        for k in pairs(swap.park) do c:SetAuraGroupMaxFrameCount(k, 0) end
-        c:SetAuraGroupMaxFrameCount(swap.show, swap.cap)
+        for k in pairs(swap.park) do EllesmereUI.AuraKit.SetGroupCap(c, k, 0) end
+        EllesmereUI.AuraKit.SetGroupCap(c, swap.show, swap.cap)
     else
-        for k, n in pairs(swap.park) do c:SetAuraGroupMaxFrameCount(k, n) end
-        c:SetAuraGroupMaxFrameCount(swap.show, 0)
+        for k, n in pairs(swap.park) do EllesmereUI.AuraKit.SetGroupCap(c, k, n) end
+        EllesmereUI.AuraKit.SetGroupCap(c, swap.show, 0)
     end
 end
 
@@ -3303,7 +3310,7 @@ end
 function ns.DM_ParkGroups(container, declared, d)
     for k in pairs(declared) do
         if k:sub(1, 3) == "dm_" then
-            container:SetAuraGroupMaxFrameCount(k, 0)
+            EllesmereUI.AuraKit.SetGroupCap(container, k, 0)
         end
     end
     if d and d.dmTiles then
@@ -3498,8 +3505,8 @@ function ns.DM_CurrentSpecBaseOff()
     return (b and b.baseOff) and true or false
 end
 
--- The ACTIVE union: every tile the CURRENT spec renders, in bucket order
--- (allspecs, nonhealer, role group, own spec); group tiles the spec has
+-- The union a spec renders (sid = its spec ID, nil = no spec yet), in bucket
+-- order (allspecs, nonhealer, role group, own spec); group tiles the spec has
 -- per-spec disabled drop out here. Returns a FRESH array per call -- the
 -- apply pass iterates one while nested BuildRecords/EffectiveState calls
 -- build another, so a reused scratch would be wiped under the iterator.
@@ -3507,22 +3514,14 @@ end
 -- The tile TABLES inside are the stable store tables. Role/tracked
 -- resolution rides the Buff Manager helpers (same ns, resolved at call
 -- time).
-function ns.DM_ActiveTiles()
+local function UnionFor(dm, sid)
     -- Read dm.tiles WITHOUT materializing it (DM_Tiles creates the array;
     -- this runs on the runtime config path and must not write an empty
     -- table into every tile-less profile's SavedVariables).
-    local dm = DM()
-    if not dm then return nil end
     local base = dm.tiles
     if base then HealTiles(base) end
     local out = {}
     local st = dm.specTiles
-    local sid
-    do
-        local idx = GetSpecialization and GetSpecialization()
-        sid = idx and GetSpecializationInfo and GetSpecializationInfo(idx) or nil
-        if EllesmereUI.IS_FOREVER then sid = ns.DM_ForeverSpecID() end
-    end
     local con = st and sid and st["spec" .. sid] or nil
     local dis = con and con.inhDis or nil
     if base then
@@ -3552,6 +3551,54 @@ function ns.DM_ActiveTiles()
         AddBucket("spec" .. sid, false)
     end
     return out
+end
+
+-- The ACTIVE union: every tile the CURRENT spec renders (UnionFor).
+function ns.DM_ActiveTiles()
+    local dm = DM()
+    if not dm then return nil end
+    local idx = GetSpecialization and GetSpecialization()
+    local sid = idx and GetSpecializationInfo and GetSpecializationInfo(idx) or nil
+    if EllesmereUI.IS_FOREVER then sid = ns.DM_ForeverSpecID() end
+    return UnionFor(dm, sid)
+end
+
+-- The union an options-page VIEW renders, in the same order: a concrete
+-- "spec<ID>" view is that spec's, All Specs is the current spec's, and a
+-- group view is All Specs, then All Non Healers/Aug under a tank or damage
+-- group, then its own tiles. Never materializes a bucket.
+function ns.DM_ViewTiles(view)
+    local dm = DM()
+    if not dm then return nil end
+    if not view or view == "allspecs" then return ns.DM_ActiveTiles() end
+    local m = type(view) == "string" and view:match("^spec(%d+)$")
+    if m then return UnionFor(dm, tonumber(m)) end
+    local out = {}
+    local function Add(list)
+        if not list then return end
+        HealTiles(list)
+        for i = 1, #list do out[#out + 1] = list[i] end
+    end
+    Add(dm.tiles)
+    local st = dm.specTiles
+    if st then
+        if view == "tanks" or view == "dps" then Add(st.nonhealer and st.nonhealer.tiles) end
+        Add(st[view] and st[view].tiles)
+    end
+    return out
+end
+
+-- Owner hints for the options page over a view's union (ns.DM_ViewTiles):
+-- claims[cat] = the indicator that shows cat, claimsAll = the indicator
+-- hosting the indicator catch-all, pos[tile] = its place in that order.
+function ns.DM_ClaimOwners(view)
+    local tiles = ns.DM_ViewTiles(view)
+    local claims, claimsAll = ClaimMap(tiles)
+    local pos = {}
+    if tiles then
+        for i = 1, #tiles do pos[tiles[i]] = i end
+    end
+    return claims, claimsAll, pos
 end
 
 function ns.DM_AddTile(tileType, bucketKey)

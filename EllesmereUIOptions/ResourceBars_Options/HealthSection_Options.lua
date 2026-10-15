@@ -14,7 +14,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
     local env = ns._ERB_OptEnv
     local DB, PP, Refresh, SmoothRefresh = env.DB, env.PP, env.Refresh, env.SmoothRefresh
     local RefreshHealth, RebuildHealth, AddFormBarBtn, AddFormTextBtn = env.RefreshHealth, env.RebuildHealth, env.AddFormBarBtn, env.AddFormTextBtn
-    local AttachThresholdNotice, BuildHashCog, BuildThresholdSettingsButton = env.AttachThresholdNotice, env.BuildHashCog, env.BuildThresholdSettingsButton
+    local BuildHashCog, BuildThresholdSettingsButton = env.BuildHashCog, env.BuildThresholdSettingsButton
     local W = EllesmereUI.Widgets
     local _, h
     local function cfg() return ctx.cfg() end
@@ -56,10 +56,143 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
     AddFormBarBtn(healthEnableRow._leftRegion, cfg, RebuildHealth)
     end
 
+    -- Texture lists for the health overlays (EUI_ResourceBars_HealthIndicators.lua): the shared
+    -- absorb styles (copied: the SharedMedia tail is appended into the copies) then the
+    -- SharedMedia bar textures. The absorb rows keep None (their off switch); the max health
+    -- reduction has its own toggle, so its list drops it.
+    local hiNames = CopyTable(EllesmereUI.ABSORB_STYLE_NAMES)
+    local hiOrder = CopyTable(EllesmereUI.ABSORB_STYLE_ORDER)
+    local hiHealOrder = CopyTable(EllesmereUI.HEAL_ABSORB_STYLE_ORDER)
+    local hiLossOrder = {}
+    for _, k in ipairs(hiOrder) do
+        if k ~= "none" then hiLossOrder[#hiLossOrder + 1] = k end
+    end
+    do
+        local smNames, smSep = _G._ERB_BarTextureNames or {}, false
+        for _, k in ipairs(_G._ERB_BarTextureOrder or {}) do
+            if type(k) == "string" and k:find("^sm:") then
+                if not smSep then
+                    smSep = true
+                    hiOrder[#hiOrder + 1] = "---"
+                    hiHealOrder[#hiHealOrder + 1] = "---"
+                    hiLossOrder[#hiLossOrder + 1] = "---"
+                end
+                hiNames[k] = smNames[k] or k
+                hiOrder[#hiOrder + 1] = k
+                hiHealOrder[#hiHealOrder + 1] = k
+                hiLossOrder[#hiLossOrder + 1] = k
+            end
+        end
+    end
+    -- Preview swatch behind each menu row, resolved exactly like the overlay.
+    hiNames._menuOpts = { itemHeight = 28, background = function(k)
+        if k and k ~= "---" and k ~= "none" then return ns.HealthIndicatorTex(k) end
+    end }
+
+    -- Max health reduction overlay, off by default: its texture and colour are listed while it is on.
+    if not EllesmereUI._prebuilding then
+        local k = ns.HEALTH_INDICATORS[3]
+        local function lossOff() local c = cfg(); return not (c and c[k.show] == true) end
+        EllesmereUI.BuildInlineCog(healthEnableRow._leftRegion, {
+            title = "Max Health Reduction",
+            disabled = healthOff,
+            disabledTooltip = "Health Bar",
+            rows = {
+                { type = "toggle", label = "Show Reduction",
+                  get = function() local c = cfg(); return c and c[k.show] == true end,
+                  set = function(v)
+                      local c = cfg(); if not c then return end
+                      c[k.show] = v or nil; RefreshHealth()
+                  end },
+                { type = "dropdown", label = "Texture", hidden = lossOff,
+                  values = hiNames, order = hiLossOrder,
+                  get = function() local c = cfg(); return c and c[k.style] or "striped" end,
+                  set = function(v)
+                      local c = cfg(); if not c then return end
+                      c[k.style] = v; RefreshHealth()
+                  end },
+                { type = "colorpicker", label = "Color", hasAlpha = true, hidden = lossOff,
+                  get = function()
+                      local c = cfg(); local col = c and c[k.color]
+                      if col then return col.r or k.r, col.g or k.g, col.b or k.b, col.a or k.a end
+                      return k.r, k.g, k.b, k.a
+                  end,
+                  set = function(r, g, b, a)
+                      local c = cfg(); if not c then return end
+                      c[k.color] = { r = r, g = g, b = b, a = a }; RefreshHealth()
+                  end },
+            },
+        })
+    end
+
     -- Per-spec health enables live in Spec Overrides: "Show Health Bar" is captured while editing as a group.
 
     -- Everything below Row 1 is hidden entirely while the bar is off.
     if not healthOff() then
+    -- Absorb Style | Absorb Opacity, then Heal Absorb Style | Heal Absorb Opacity: None turns
+    -- the overlay off, the inline swatch sets its colour and the slider its opacity.
+    for _, def in ipairs({
+        { k = ns.HEALTH_INDICATORS[1], styleText = "Absorb Style", opacityText = "Absorb Opacity", order = hiOrder },
+        { k = ns.HEALTH_INDICATORS[2], styleText = "Heal Absorb Style", opacityText = "Heal Absorb Opacity", order = hiHealOrder },
+    }) do
+        local k, styleText = def.k, def.styleText
+        local function styleOf() local c = cfg(); return c and c[k.style] or "none" end
+        local function styleOff() return styleOf() == "none" end
+        local absorbRow
+        absorbRow, h = W:DualRow(parent, y,
+            { type = "dropdown", text = styleText, values = hiNames, order = def.order,
+              getValue = styleOf,
+              setValue = function(v)
+                  local c = cfg(); if not c then return end
+                  c[k.style] = (v ~= "none") and v or nil; RefreshHealth()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type = "slider", text = def.opacityText, min = 5, max = 100, step = 1,
+              disabled = styleOff,
+              disabledTooltip = styleText,
+              getValue = function() local c = cfg(); return c and c[k.opacity] or k.opacityDef end,
+              setValue = function(v)
+                  local c = cfg(); if not c then return end
+                  c[k.opacity] = v; RefreshHealth()
+              end }
+        );  y = y - h
+        if not EllesmereUI._prebuilding then
+            local rgn = absorbRow._leftRegion
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, absorbRow:GetFrameLevel() + 3,
+                function()
+                    local c = cfg(); local col = c and c[k.color]
+                    if col then return col.r or k.r, col.g or k.g, col.b or k.b, 1 end
+                    return k.r, k.g, k.b, 1
+                end,
+                function(r, g, b)
+                    local c = cfg(); if not c then return end
+                    c[k.color] = { r = r, g = g, b = b }; RefreshHealth()
+                end, false, 20)
+            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+            EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
+            -- Blocked while the style is None, and for the outlined stripes, which carry their own colours.
+            local swBlock = CreateFrame("Frame", nil, swatch)
+            swBlock:SetAllPoints()
+            swBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            swBlock:EnableMouse(true)
+            swBlock:SetScript("OnEnter", function()
+                local tip = styleOff() and EllesmereUI.DisabledTooltip(styleText) or "This style uses its own colors"
+                EllesmereUI.ShowWidgetTooltip(swatch, tip)
+            end)
+            swBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdateSwatchDis()
+                local st = styleOf()
+                local dis = st == "none" or st == "largeOutlinedStripes" or st == "largeOutlinedStripesR"
+                swatch:SetAlpha(dis and 0.3 or 1)
+                if dis then swBlock:Show() else swBlock:Hide() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateSwatchDis)
+            UpdateSwatchDis()
+        end
+    end
+
     -- Row 2: Height | Width. A MatchGuard (dimension matched to ANOTHER element via
     -- Unlock Mode) is a global relationship and greys the slider in BOTH modes: a
     -- matched dimension cannot be per-spec overridden (only the "apply to all bars"
@@ -213,6 +346,30 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                 end,
                 true, 20)
             PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            rgn._lastInline = borderSwatch  -- the Corner Radius cog chains left of the swatch
+            -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
+            -- border size control. The stock styles keep the bars square.
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(hpBsRow._rightRegion, {
+                    title = "Corner Radius", tip = "Corner Radius",
+                    disabled = function()
+                        if healthOff() or EllesmereUI.BlizzStyle.Get("resourcebars") then return true end
+                        local c = cfg(); return not EllesmereUI.RoundedStyleOK(c and c.borderTexture)
+                    end,
+                    disabledTooltip = function()
+                        if EllesmereUI.BlizzStyle.Get("resourcebars") then return EllesmereUI.BlizzStyle.Label("resourcebars") end
+                        if healthOff() then return "Health Bar" end
+                        return "This option requires the Solid, Glow or Shadow border style."
+                    end,
+                    requireState = function() return EllesmereUI.BlizzStyle.Get("resourcebars") and "disabled" or "enabled" end,
+                    rows = EllesmereUI.RoundedCornerRows({
+                        { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                          get = function() local c = cfg(); return c and c.cornerRadius or 0 end,
+                          set = function(v) local c = cfg(); if not c then return end; c.cornerRadius = v; RebuildHealth() end },
+                    }, function() local c = cfg(); return c and c.cornerMask end,
+                       function(v) local c = cfg(); if not c then return end; c.cornerMask = v; RebuildHealth() end),
+                })
+            end
             EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
             local swBlock = CreateFrame("Frame", nil, borderSwatch)
             swBlock:SetAllPoints()
@@ -316,19 +473,20 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                     local r, g, b, a = p.health.borderR, p.health.borderG, p.health.borderB, p.health.borderA
                     local sz = p.health.borderSize or 1
                     local bt = p.health.borderTexture or "solid"
+                    local cr, cm = p.health.cornerRadius or 0, p.health.cornerMask
                     p.secondary.borderR, p.secondary.borderG, p.secondary.borderB, p.secondary.borderA = r, g, b, a
-                    p.secondary.borderSize = sz; p.secondary.borderTexture = bt
+                    p.secondary.borderSize = sz; p.secondary.borderTexture = bt; p.secondary.cornerRadius = cr; p.secondary.cornerMask = cm
                     ns.ERB_CopyBorderPx(p.secondary, p.health)
                     p.primary.borderR, p.primary.borderG, p.primary.borderB, p.primary.borderA = r, g, b, a
-                    p.primary.borderSize = sz; p.primary.borderTexture = bt
+                    p.primary.borderSize = sz; p.primary.borderTexture = bt; p.primary.cornerRadius = cr; p.primary.cornerMask = cm
                     ns.ERB_CopyBorderPx(p.primary, p.health)
                     SmoothRefresh(); EllesmereUI:RefreshPage(ns.ERB_TexturedBars(p) ~= was)
                 end,
                 isSynced = function()
                     local p = DB(); if not p then return false end
                     local sr, sg, sb, sa, ssz = p.health.borderR, p.health.borderG, p.health.borderB, p.health.borderA, p.health.borderSize or 1
-                    local sbt = p.health.borderTexture or "solid"
-                    local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt and ns.ERB_SameBorderPx(t, p.health) end
+                    local sbt, scr, scm = p.health.borderTexture or "solid", p.health.cornerRadius or 0, p.health.cornerMask or 15
+                    local function eq(t) return t.borderR == sr and t.borderG == sg and t.borderB == sb and t.borderA == sa and (t.borderSize or 1) == ssz and (t.borderTexture or "solid") == sbt and (t.cornerRadius or 0) == scr and (t.cornerMask or 15) == scm and ns.ERB_SameBorderPx(t, p.health) end
                     return eq(p.secondary) and eq(p.primary)
                 end,
                 flashTargets = function() return { ctx.syncRows.healthBorder, ctx.syncRows.classBorder, ctx.syncRows.powerBorder } end,
@@ -374,7 +532,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                   local c = cfg()
                   if not c or not c.enabled then return "Health Bar" end
                   local tse = _G._ERB_ResolveThresholdSpecEntry and _G._ERB_ResolveThresholdSpecEntry(c)
-                  if tse and (tse.thresholdEnabled ~= false) then return "This option requires Threshold Settings to be disabled" end
+                  if tse and (tse.thresholdEnabled ~= false) then return "This option requires the threshold to be off in Threshold & Hash Lines" end
                   return "Gradient"
               end,
               getValue = function()
@@ -525,8 +683,8 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         { type = "dropdown", text = "Health Text",
           disabled = healthOff,
           disabledTooltip = "Health Bar",
-          values = { none = "None", perhp = "Health %", perhpnosign = "Health % (No Sign)", curhpshort = "Health #", perhpnum = "Health % | #", both = "Health # | %" },
-          order = { "none", "---", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both" },
+          values = { none = "None", perhp = "Health %", perhpnosign = "Health % (No Sign)", curhpshort = "Health #", curmaxhp = "Health # / Max #", perhpnum = "Health % | #", both = "Health # | %" },
+          order = { "none", "---", "perhp", "perhpnosign", "curhpshort", "curmaxhp", "perhpnum", "both" },
           getValue = function() local c = cfg(); return c and c.textFormat or "none" end,
           setValue = function(v)
               local c = cfg(); if not c then return end
@@ -616,7 +774,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         AddFormTextBtn(rgn, cogBtn, cfg, RefreshHealth)
     end
 
-    -- Row 5: Text Size | Threshold Settings
+    -- Row 5: Text Size | Threshold & Hash Lines
     local healthColorRow
     healthColorRow, h = W:DualRow(parent, y,
         { type = "slider", text = "Text Size", min = 8, max = 24, step = 1,
@@ -627,30 +785,26 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
               local c = cfg(); if not c then return end
               c.textSize = v; RefreshHealth()
           end },
-        { type = "label", text = "Threshold Settings" }
+        { type = "label", text = "Threshold & Hash Lines" }
     );  y = y - h
-    -- Threshold Settings popup: edits DB().health (multi-spec, with the spec dropdown).
+    -- Threshold & Hash Lines editor: edits the health bar config (multi-spec, with the spec dropdown).
 
     if not EllesmereUI._prebuilding then
-    local _thrNoticeH   -- assigned below: the notice badge lives on the button itself
     local healthSettingsBtn = BuildThresholdSettingsButton({
         parentRgn = healthColorRow._rightRegion,
         getBarData = function() return cfg() end,
-        noticeFn = function() if _thrNoticeH then _thrNoticeH() end end,
-        singleSpec = ctx.advanced or nil,
+        pageParent = parent, pageTopY = _advTop, pageBotY = function() return y end,
         refreshFn = function() RefreshHealth(); SmoothRefresh() end,
         rebuildFn = function() RebuildHealth() end,
         disabledFn = healthOff,
         disabledTip = "Health Bar",
-        showHash = false,
-        showPartialCog = false,
+        roleShortcuts = true,
         thresholdLabel = "Threshold %",
         threshMin = 1, threshMax = 99,
-        popupTitle = "Health Bar Threshold",
         defaultR = 1.0, defaultG = 0.2, defaultB = 0.2, defaultA = 1,
     })
-    _thrNoticeH = AttachThresholdNotice(healthSettingsBtn, cfg, ctx.advanced and ctx.specID or nil)
 
+    -- Bar-wide hash lines (the fallback when the active threshold entry has none of its own).
     BuildHashCog({
         parentRgn = healthColorRow._rightRegion,
         anchorTo = healthSettingsBtn,

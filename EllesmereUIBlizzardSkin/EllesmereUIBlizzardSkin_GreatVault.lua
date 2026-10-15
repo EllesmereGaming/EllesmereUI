@@ -73,8 +73,9 @@ local STYLE = {
 }
 
 local function IsGreatVaultSkinEnabled()
-    -- Independent toggle, default on (not tied to any master reskin setting).
-    return not EllesmereUIDB or EllesmereUIDB.reskinGreatVault ~= false
+    -- Own toggle (default on), but like every window it honors the profile's
+    -- Window Skins kill switch: both resolve to "off" here.
+    return EllesmereUI.GetBlizzWindowStyle("greatvault") ~= "off"
 end
 
 local function BuildThemeContext()
@@ -655,8 +656,8 @@ local function RefreshActivityVisualState(frame, selectedActivity, theme)
             local ilvl
             if info and info.id and C_WeeklyRewards and C_WeeklyRewards.GetExampleRewardItemHyperlinks then
                 local itemLink = C_WeeklyRewards.GetExampleRewardItemHyperlinks(info.id)
-                if itemLink and GetDetailedItemLevelInfo then
-                    ilvl = GetDetailedItemLevelInfo(itemLink)
+                if itemLink then
+                    ilvl = C_Item.GetDetailedItemLevelInfo(itemLink)
                 end
             end
             if ilvl then
@@ -885,7 +886,7 @@ end
 
 local function HookGreatVault()
     local frame = _G.WeeklyRewardsFrame
-    if not frame then return end
+    if not frame or not IsGreatVaultSkinEnabled() then return end
     local d = GetFFD(frame)
     if d.hooked then return end
 

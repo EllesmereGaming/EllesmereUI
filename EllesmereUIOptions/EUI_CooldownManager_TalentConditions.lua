@@ -404,7 +404,7 @@ local function MakeChip(i)
     chip:SetSize(CHIP_W, CHIP_H)
     local bg = chip:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.04, 0.06, 0.08, 1)
+    bg:SetColorTexture(0.060, 0.049, 0.037, 1)
     chip.border = EllesmereUI.MakeBorder(chip, 1, 1, 1, 0.10, PP)
     chip.icon = chip:CreateTexture(nil, "ARTWORK")
     chip.icon:SetSize(CHIP_H - 8, CHIP_H - 8)
@@ -481,7 +481,7 @@ local function MakePanel(half)
         SIDE_PAD + (half - 1) * (PANEL_W + PANEL_GAP), -HEADER_H)
     local bg = frame:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.04, 0.06, 0.08, 1)
+    bg:SetColorTexture(0.060, 0.049, 0.037, 1)
     EllesmereUI.MakeBorder(frame, 1, 1, 1, 0.10, PP)
 
     local label = frame:CreateFontString(nil, "OVERLAY")
@@ -606,13 +606,13 @@ end
 -------------------------------------------------------------------------------
 
 -- For a CD/utility bar's assigned ids: id -> "on" when its conditions hold now,
--- "off" when they do not. nil when no assigned spell has a condition.
+-- "off" when they do not. Includes Empty Slot markers; nil when none have conditions.
 function ns.TalentCondPreviewSet(barKey, tracked)
     local store = ns.GetSpellSettingsStore(barKey)
     if not store or type(tracked) ~= "table" then return nil end
     local set
     for _, id in ipairs(tracked) do
-        local entry = type(id) == "number" and id > 0 and store[id]
+        local entry = type(id) == "number" and (id > 0 or ns.IsEmptySlotMarker(id)) and store[id]
         local conds = type(entry) == "table" and rawget(entry, "talentConditions")
         if type(conds) == "table" and #conds > 0 then
             set = set or {}
@@ -661,7 +661,8 @@ end
 function ns.ShowCDMTalentConditionsPopup(spellID, conds, confirm)
     Build()
 
-    local spellName = C_Spell.GetSpellName(spellID) or tostring(spellID)
+    local spellName = ns.IsEmptySlotMarker(spellID) and EllesmereUI.L("Empty Slot")
+        or C_Spell.GetSpellName(spellID) or tostring(spellID)
     titleFS:SetText(EllesmereUI.Lf("Talent Conditions: %1$s", spellName))
 
     local halves, specName = ReadTree()

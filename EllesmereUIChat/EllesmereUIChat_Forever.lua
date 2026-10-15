@@ -14,8 +14,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Every piece is framed by the bronze line of Forever's micro menu box
 --  (EllesmereUI.ForeverBorder: that art cut hollow, at its own size) over our
 --  own fill; the selected tab and a hovered plate add an additive copy that
---  warms the line toward copper. The variant latch asks for the art: a
---  client without it renders plain Blizzard Style.
+--  warms the line toward copper. The variant latch asks for that frame: a
+--  client that cannot draw it renders plain Blizzard Style.
+--  The Border Style (ns.ChatFvKind, latched with the look) picks the frame:
+--  Slim draws the line from our shipped flat art, Slim Textured from
+--  Blizzard's live art (the line and its copper copies alike), and Heavy
+--  Bronze frames every piece in the bronze frame of Forever's own windows
+--  instead (EllesmereUI.ForeverHeavy, on an art host at the piece's scale),
+--  its copper copy on the selected tab and a hovered plate.
 --
 --  At load this file only defines data and functions: nothing is built,
 --  registered or hooked off the variant (every caller tests the latch).
@@ -26,9 +32,14 @@ local ECHAT = ns.ECHAT
 if not ECHAT or not EUI then return end
 local CFD = EUI._chatCFD
 local BORDER = EUI.FOREVER_BORDER
+local HEAVY = EUI.FOREVER_HEAVY
 
 local FV = {
     lift   = { 1, 0.75, 0.45, 0.6 },   -- the additive copy: tint, alpha
+    -- Heavy Bronze: the art scale per piece (its rim and dark line are
+    -- HEAVY.band art units; the panel at the window scale) and each tab's
+    -- art pulled in from Blizzard's 1px tab gap.
+    panelK = HEAVY.k, tabK = 0.8, btnK = 0.7, hvTabInset = 1,
     -- Panel geometry off the chat frame's rect (UI units): both frames' outer
     -- edges X past its sides (the text stands well clear of the line) and
     -- TOP above it (Blizzard's tab row stands there), the message frame
@@ -56,11 +67,13 @@ ECHAT.FV = FV
 
 -------------------------------------------------------------------------------
 --  Framed box: the line and the body fill under it, on an art host of ours.
+--  The line's art is the latched Border Style's (shipped or Blizzard's live
+--  art; ForeverBorder reads "textured" as the live one).
 -------------------------------------------------------------------------------
 local function NewBox(host)
     local box = { host = host }
     box.fill = host:CreateTexture(nil, "BACKGROUND")
-    box.rim = EUI.ForeverBorder(host, "BORDER")
+    box.rim = EUI.ForeverBorder(host, "BORDER", 0, nil, ns.ChatFvKind())
     return box
 end
 
@@ -72,9 +85,10 @@ end
 
 -- The line's outer edge on the host's sides (pulled in by inX), its top ty
 -- off the host point tp (TOPLEFT or BOTTOMLEFT) and its bottom by above the
--- host's bottom; the fill from the line's inner edge.
+-- host's bottom; the fill FOREVER_BORDER.fill in from that edge (its
+-- corners inside the chamfers).
 local function SeatBox(box, host, tp, ty, by, inX)
-    local f, x = BORDER.line, inX or 0
+    local f, x = BORDER.fill, inX or 0
     local s = box.seat
     if not s then s = {}; box.seat = s end
     s[1], s[2], s[3], s[4], s[5] = tp, x, ty, -x, by
@@ -83,14 +97,39 @@ local function SeatBox(box, host, tp, ty, by, inX)
     Seat(box.fill, host, tp, x + f, ty - f, -x - f, by + f)
 end
 
+-- Heavy Bronze: the frame and the body fill under it, on an art host drawn
+-- at the piece's scale; with `lift` also its copper copy (a highlight),
+-- hidden until shown.
+local function NewHeavyBox(host, lift)
+    local box = { host = host, heavy = true }
+    box.fill = host:CreateTexture(nil, "BACKGROUND")
+    box.rim = EUI.ForeverHeavy(host, "BORDER")
+    if lift then
+        local l = HEAVY.lift
+        box.lift = EUI.ForeverHeavy(host, "ARTWORK", 0, true)
+        EUI.ForeverHeavyPaint(box.lift, l[1], l[2], l[3], l[4])
+        EUI.ForeverHeavyShown(box.lift, false)
+    end
+    return box
+end
+
+-- The rim's outer edge as SeatBox places the line's (UI units); the fill
+-- FOREVER_HEAVY.fill in from it, under the rim.
+local function SeatHeavyBox(box, host, tp, ty, by, inX)
+    local x = inX or 0
+    EUI.ForeverHeavySeat(box.rim, host, tp, x, ty, -x, by)
+    if box.lift then EUI.ForeverHeavySeat(box.lift, host, tp, x, ty, -x, by) end
+    EUI.ForeverHeavyFill(box.rim, box.fill, host, tp, x, ty, -x, by)
+end
+
 -- The line's copper copy over it (the selected tab, a hovered plate), built
--- the first time it shows, on the line's seat.
+-- the first time it shows, on the line's seat, from the line's own art.
 local function ShowLift(box, shown)
     local lift = box.lift
     if not lift then
         if not shown then return end
         local l, s = FV.lift, box.seat
-        lift = EUI.ForeverBorder(box.host, "ARTWORK", 0, true)
+        lift = EUI.ForeverBorder(box.host, "ARTWORK", 0, true, ns.ChatFvKind())
         EUI.ForeverBorderPaint(lift, l[1], l[2], l[3], l[4])
         EUI.ForeverBorderSeat(lift, box.host, s[1], s[2], s[3], s[4], s[5])
         box.lift = lift
@@ -148,19 +187,30 @@ function ECHAT.FV_LayoutPanel(cf, inputH)
     if not host or d.fvInputH == inputH then return end
     d.fvInputH = inputH
     local inTall = inputH + 2 * FV.IN_PAD
+    if d.fvMsg.heavy then
+        SeatHeavyBox(d.fvMsg, host, "TOPLEFT", 0, inTall + FV.GAP)
+        SeatHeavyBox(d.fvIn, host, "BOTTOMLEFT", inTall, 0)
+        return
+    end
     SeatBox(d.fvMsg, host, "TOPLEFT", 0, inTall + FV.GAP)
     SeatBox(d.fvIn, host, "BOTTOMLEFT", inTall, 0)
 end
 
 -- Built once per panel, at its creation. The host sits one level over the
--- panel, under our message frame (panel + 4).
+-- panel, under our message frame (panel + 4); Heavy Bronze draws it at the
+-- panel's art scale.
 function ECHAT.FV_BuildPanel(cf, bg, inputH)
     local d = CFD(cf)
     if d.fvHost then return end
     local host = CreateFrame("Frame", nil, bg)
+    local New = NewBox
+    if ns.ChatFvHeavy() then
+        host:SetScale(FV.panelK)
+        New = NewHeavyBox
+    end
     host:SetAllPoints(bg)
     d.fvHost = host
-    d.fvMsg, d.fvIn = NewBox(host), NewBox(host)
+    d.fvMsg, d.fvIn = New(host), New(host)
     ECHAT.FV_LayoutPanel(cf, inputH)
     local p = FV._fill
     PaintFill(d.fvMsg.fill, p.tex, p.r, p.g, p.b, p.a)
@@ -184,7 +234,8 @@ end
 -------------------------------------------------------------------------------
 --  Tabs: each ghost wears a bronze tab whose bottom line and lower chamfers
 --  run under the panel's top edge and are clipped away, so its sides meet
---  the message frame's line. Built once per ghost; repainted only when its
+--  the message frame's line (Heavy Bronze: its bottom rim and inner shadow,
+--  meeting the frame's rim). Built once per ghost; repainted only when its
 --  selected state flips.
 -------------------------------------------------------------------------------
 local tabCol   -- colour objects (selected bottom, top, idle bottom, top)
@@ -203,20 +254,33 @@ function ECHAT.FV_StyleGhost(g, isActive)
         clip:SetAllPoints(g)
         clip:SetClipsChildren(true)
         art = CreateFrame("Frame", nil, clip)
+        local heavy = ns.ChatFvHeavy()
+        if heavy then art:SetScale(FV.tabK) end
         art:SetAllPoints(clip)
         -- Label and alert glow over the art (they are the ghost's regions).
         local top = CreateFrame("Frame", nil, g)
         top:SetAllPoints(g)
         g._fs:SetParent(top)
         g._glow:SetParent(top)
-        -- The selected tab's line reads warmer than the panel's (the lift,
-        -- shown only while selected).
-        local box = NewBox(art)
-        box.fill:SetTexture("Interface\\Buttons\\WHITE8X8")
-        -- The bottom line sits the corners' reach under the ghost, so the
-        -- clip takes it and both lower chamfers: the sides run straight
-        -- down to the ghost's bottom edge.
-        SeatBox(box, art, "TOPLEFT", -FV.tabInset, -BORDER.corner, FV.tabInset)
+        local box
+        if heavy then
+            -- The selected tab's rim reads warmer than the panel's (its
+            -- copper copy, shown only while selected).
+            box = NewHeavyBox(art, true)
+            box.fill:SetTexture("Interface\\Buttons\\WHITE8X8")
+            -- The bottom rim and its inner shadow run under the ghost, where
+            -- the clip takes them.
+            SeatHeavyBox(box, art, "TOPLEFT", 0, -HEAVY.shade * FV.tabK, FV.hvTabInset)
+        else
+            -- The selected tab's line reads warmer than the panel's (the
+            -- lift, shown only while selected).
+            box = NewBox(art)
+            box.fill:SetTexture("Interface\\Buttons\\WHITE8X8")
+            -- The bottom line sits the corners' reach under the ghost, so the
+            -- clip takes it and both lower chamfers: the sides run straight
+            -- down to the ghost's bottom edge.
+            SeatBox(box, art, "TOPLEFT", -FV.tabInset, -BORDER.corner, FV.tabInset)
+        end
         g._fvClip, g._fvArt, g._fvTop, g._fvBox = clip, art, top, box
         g._bg:Hide()
         g._underline:Hide()
@@ -234,8 +298,13 @@ function ECHAT.FV_StyleGhost(g, isActive)
     g._fvOn = isActive
     local box = g._fvBox
     local v = isActive and 1 or 0.85
-    EUI.ForeverBorderPaint(box.rim, v, v, v, 1, not isActive)
-    ShowLift(box, isActive)
+    if box.heavy then
+        EUI.ForeverHeavyPaint(box.rim, v, v, v, 1, not isActive)
+        EUI.ForeverHeavyShown(box.lift, isActive)
+    else
+        EUI.ForeverBorderPaint(box.rim, v, v, v, 1, not isActive)
+        ShowLift(box, isActive)
+    end
     if isActive then
         box.fill:SetGradient("VERTICAL", tabCol[1], tabCol[2])
     else
@@ -245,8 +314,9 @@ end
 
 -------------------------------------------------------------------------------
 --  Sidebar plates: the square bronze button under a sidebar button's own
---  regions (glyph, count), its line warmed on hover. `on` false hides it
---  (the scroll button's chat seat wears plain art).
+--  regions (glyph, count), its line warmed on hover (Heavy Bronze: the
+--  bronze frame, its copper copy on hover). `on` false hides it (the scroll
+--  button's chat seat wears plain art).
 -------------------------------------------------------------------------------
 local function PlateEnter(self)
     local p = self._fvPlate
@@ -256,20 +326,34 @@ local function PlateLeave(self)
     local p = self._fvPlate
     if p then ShowLift(p, false) end
 end
+local function HeavyPlateEnter(self)
+    local p = self._fvPlate
+    if p then EUI.ForeverHeavyShown(p.lift, true) end
+end
+local function HeavyPlateLeave(self)
+    local p = self._fvPlate
+    if p then EUI.ForeverHeavyShown(p.lift, false) end
+end
 
 function ECHAT.FV_Plate(btn, on)
     local p = btn._fvPlate
     if not p then
         if not on then return end
         local host = CreateFrame("Frame", nil, btn)
+        local heavy = ns.ChatFvHeavy()
+        if heavy then host:SetScale(FV.btnK) end
         host:SetAllPoints(btn)
-        p = NewBox(host)
+        p = heavy and NewHeavyBox(host, true) or NewBox(host)
         local c = FV.plateFill
         p.fill:SetColorTexture(c[1], c[2], c[3], c[4])
-        SeatBox(p, host, "TOPLEFT", 0, 0)
+        if heavy then
+            SeatHeavyBox(p, host, "TOPLEFT", 0, 0)
+        else
+            SeatBox(p, host, "TOPLEFT", 0, 0)
+        end
         btn._fvPlate = p
-        btn:HookScript("OnEnter", PlateEnter)
-        btn:HookScript("OnLeave", PlateLeave)
+        btn:HookScript("OnEnter", heavy and HeavyPlateEnter or PlateEnter)
+        btn:HookScript("OnLeave", heavy and HeavyPlateLeave or PlateLeave)
     end
     -- One level under the button (re-asserted: the scroll button changes
     -- level with its seat).
@@ -311,6 +395,7 @@ if EUI.IS_FOREVER and Entry and ECHAT.SB_KITS then
         copy       = Entry(FSQ, { glyph = { P("chat_copy.png") } }),
         portals    = Entry(FSQ, { glyph = { P("chat_portal.png") } }),
         voice      = Entry(FSQ, { glyph = { A("chatframe-button-icon-voicechat", 20, 20) } }),
+        chatmenu   = Entry(FSQ, { glyph = { { file = ECHAT.CHAT_MENU_GLYPH, w = 18, h = 18 } } }),
         settings   = Entry(FSQ, { glyph = { P("chat_settings.png") } }),
         scroll = {
             sidebar = { w = 34, h = 34, plate = true,

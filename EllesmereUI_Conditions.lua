@@ -10,8 +10,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Resolution ladder (user-approved):
 --    1. keybind  -- any group whose keybind toggle is ON (creation order
 --                   breaks ties). Explicit user action outranks ambient state.
---    2. darkmode -- the MAIN Dark Mode master reads on (UF+RF; the Class
---                   Resource Bar master is a separate toggle and excluded).
+--    2. darkmode -- every per-module Dark Mode is on except the Class
+--                   Resource Bar's (it is excluded).
 --                   Location-independent, so it applies inside AND outside
 --                   instances; below keybind (explicit action still wins).
 --    3. instance -- dungeon / raid / arena / battleground. Naturally mutually
@@ -31,11 +31,10 @@ local L = function(s) return EllesmereUI.L(s) or s end
 --  Condition definitions (ordered display list for the picker UI).
 --  comingSoon entries render disabled in the picker and never match.
 -------------------------------------------------------------------------------
--- The Dark Mode condition tracks the MAIN "Dark Mode" master checkbox in
--- Fonts & Colors (Unit Frames + Raid Frames), NOT the separate "Dark Mode
--- (Class Resource Bar)" master: users commonly dark one without the other,
--- and the checkbox users read as "Dark Mode" is the main one. This filter
--- mirrors that checkbox's own read (_dmNotRB in EUI__General_Options.lua).
+-- The Dark Mode condition holds while every per-module Dark Mode is on
+-- except the class resource bar's (the Dark Mode checkbox dropdown on
+-- Global Settings > Colors; users commonly dark one without the other).
+-- That is exactly what the old main "Dark Mode" toggle read.
 local function _dmMainFilter(p) return p.id ~= "resourceBars" end
 local function DarkModeMasterOn()
     return (EllesmereUI.IsDarkModeAllOn(_dmMainFilter)) or false
@@ -48,9 +47,11 @@ EllesmereUI.CONDITIONS = {
     -- UNchecking is always allowed so an existing group can never be
     -- trapped). Same predicate the resolver reads, so the picker never
     -- offers a condition that cannot currently hold.
+    -- tooltip: shown on hover whenever the requirement hint is not.
     { id = "darkmode",     label = "Dark Mode",
       requires = DarkModeMasterOn,
-      requiresHint = "Enable Dark Mode (Global Settings, Fonts & Colors) to use this condition" },
+      tooltip = "Active while Dark Mode is on.",
+      requiresHint = "Check every Dark Mode in Global Settings > Colors, except Class Resource Bar, to use this condition." },
     { id = "dungeon",      label = "Dungeon" },
     { id = "raid",         label = "Raid" },
     { id = "arena",        label = "Arena" },
@@ -129,8 +130,8 @@ function EllesmereUI.Conditions_ActiveGroup()
     for _, g in ipairs(groups) do
         if g.conds and g.conds.keybind and g.keyOn then return g end
     end
-    -- Tier 2: the MAIN Dark Mode master (UF+RF; the Class Resource Bar
-    -- master is deliberately excluded -- see DarkModeMasterOn above).
+    -- Tier 2: every per-module Dark Mode but the Class Resource Bar's (it is
+    -- deliberately excluded -- see DarkModeMasterOn above).
     -- Location-independent, so it is checked BEFORE the instance early-outs.
     if DarkModeMasterOn() then
         for _, g in ipairs(groups) do

@@ -400,7 +400,7 @@ do
             -- Background
             local bg = popup:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
-            bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+            bg:SetColorTexture(0.077, 0.068, 0.058, 1)
 
             -- Border (2px inset)
             local BRD_A_SP = 0.15
@@ -524,7 +524,7 @@ do
 
             local defDDBg = defDDBtn:CreateTexture(nil, "BACKGROUND")
             defDDBg:SetAllPoints()
-            defDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+            defDDBg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
 
             -- Border textures for the default dropdown
             local defBrdT = defDDBtn:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -590,7 +590,7 @@ do
             defMenu:Hide()
             local defMenuBg = defMenu:CreateTexture(nil, "BACKGROUND")
             defMenuBg:SetAllPoints()
-            defMenuBg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
+            defMenuBg:SetColorTexture(0.103, 0.095, 0.088, 0.98)
             local dmT = defMenu:CreateTexture(nil, "OVERLAY", nil, 7); dmT:SetColorTexture(1,1,1,0.20)
             if dmT.SetSnapToPixelGrid then dmT:SetSnapToPixelGrid(false); dmT:SetTexelSnappingBias(0) end
             dmT:SetPoint("TOPLEFT"); dmT:SetPoint("TOPRIGHT"); dmT:SetHeight(1)
@@ -607,13 +607,13 @@ do
             popup._defMenuItems = {}
 
             defDDBtn:SetScript("OnEnter", function()
-                defDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
+                defDDBg:SetColorTexture(0.103, 0.095, 0.088, 0.98)
                 defDDLbl:SetTextColor(1, 1, 1, 0.60)
                 for _, e in ipairs(popup._defBrdEdges) do e:SetColorTexture(1, 1, 1, 0.30) end
             end)
             defDDBtn:SetScript("OnLeave", function()
                 if not defMenu:IsShown() then
-                    defDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+                    defDDBg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
                     defDDLbl:SetTextColor(1, 1, 1, 0.50)
                     for _, e in ipairs(popup._defBrdEdges) do e:SetColorTexture(1, 1, 1, 0.20) end
                 end
@@ -641,11 +641,11 @@ do
             defMenu:SetScript("OnHide", function(self)
                 self:SetScript("OnUpdate", nil)
                 if defDDBtn:IsMouseOver() then
-                    defDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
+                    defDDBg:SetColorTexture(0.103, 0.095, 0.088, 0.98)
                     defDDLbl:SetTextColor(1, 1, 1, 0.60)
                     for _, e in ipairs(popup._defBrdEdges) do e:SetColorTexture(1, 1, 1, 0.30) end
                 else
-                    defDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+                    defDDBg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
                     defDDLbl:SetTextColor(1, 1, 1, 0.50)
                     for _, e in ipairs(popup._defBrdEdges) do e:SetColorTexture(1, 1, 1, 0.20) end
                 end
@@ -663,7 +663,7 @@ do
             PP.Point(closeBtn, "BOTTOM", popup, "BOTTOM", 0, 38)
             local closeBg = closeBtn:CreateTexture(nil, "BACKGROUND")
             closeBg:SetAllPoints()
-            closeBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+            closeBg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
             local closeBrd = MakeBorder(closeBtn, EG.r, EG.g, EG.b, 0.9, PP)
             local closeLbl = closeBtn:CreateFontString(nil, "OVERLAY")
             closeLbl:SetFont(FONT, 16, "")
@@ -688,7 +688,7 @@ do
             PP.Point(cancelBtn, "BOTTOM", popup, "BOTTOM", 0, 38)
             local cancelBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
             cancelBg:SetAllPoints()
-            cancelBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+            cancelBg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
             local cancelBrd = MakeBorder(cancelBtn, 1, 1, 1, 0.25, PP)
             local cancelLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
             cancelLbl:SetFont(FONT, 16, "")

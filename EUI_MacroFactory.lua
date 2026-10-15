@@ -627,38 +627,20 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         return "INV_MISC_QUESTIONMARK"
     end
 
-    local pendingMacroUpdates = {}
-
     local function UpdateMacro(def, db)
         local idx = GetMacroIndexByName(def.name)
         if idx ~= 0 then
             if InCombatLockdown() then
-                pendingMacroUpdates[def.name] = true
+                EllesmereUI.CombatQueue.Defer("MacroFactory:" .. def.name, function()
+                    local i = GetMacroIndexByName(def.name)
+                    if i == 0 then return end
+                    local body = BuildMacroBody(def, GetMacroDB(def.name))
+                    if body then EditMacro(i, nil, nil, body) end
+                end)
             else
                 local body = BuildMacroBody(def, db)
                 if body then EditMacro(idx, nil, nil, body) end
             end
-        end
-    end
-
-    local function ProcessPendingMacroUpdates()
-        for macroName in pairs(pendingMacroUpdates) do
-            local mdef = nil
-            for _, def in ipairs(GENERAL_DEFS) do
-                if def.name == macroName then
-                    mdef = def
-                    break
-                end
-            end
-            if mdef then
-                local idx = GetMacroIndexByName(mdef.name)
-                if idx ~= 0 then
-                    local db = GetMacroDB(mdef.name)
-                    local body = BuildMacroBody(mdef, db)
-                    if body then EditMacro(idx, nil, nil, body) end
-                end
-            end
-            pendingMacroUpdates[macroName] = nil
         end
     end
 
@@ -905,7 +887,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                             if not InCombatLockdown() then ShowMacroFrame() end
                         end)
                     end
-                    C_Timer.After(0.1, function() RefreshState(); RefAct() end)
                 end)
                 mY = mY - MH
 
@@ -915,7 +896,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 tR:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
                 tR:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
                 local tB = CreateFrame("Frame", nil, tR); tB:SetSize(16, 16); tB:SetPoint("RIGHT", tR, "RIGHT", -10, 0)
-                local tBg = tB:CreateTexture(nil, "BACKGROUND"); tBg:SetAllPoints(); tBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                local tBg = tB:CreateTexture(nil, "BACKGROUND"); tBg:SetAllPoints(); tBg:SetColorTexture(0.114, 0.106, 0.099, 1)
                 local tBrd = EllesmereUI.MakeBorder(tB, 0.4, 0.4, 0.4, 0.6, PP)
                 local tCk = tB:CreateTexture(nil, "ARTWORK"); PP.SetInside(tCk, tB, 2, 2)
                 tCk:SetColorTexture(EG.r, EG.g, EG.b, 1); tCk:SetSnapToPixelGrid(false)
@@ -957,7 +938,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                         xR:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
                         xR:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
                         local xB = CreateFrame("Frame", nil, xR); xB:SetSize(16, 16); xB:SetPoint("RIGHT", xR, "RIGHT", -10, 0)
-                        local xBg = xB:CreateTexture(nil, "BACKGROUND"); xBg:SetAllPoints(); xBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                        local xBg = xB:CreateTexture(nil, "BACKGROUND"); xBg:SetAllPoints(); xBg:SetColorTexture(0.114, 0.106, 0.099, 1)
                         local xBrd = EllesmereUI.MakeBorder(xB, 0.4, 0.4, 0.4, 0.6, PP)
                         local xCk = xB:CreateTexture(nil, "ARTWORK"); PP.SetInside(xCk, xB, 2, 2)
                         xCk:SetColorTexture(EG.r, EG.g, EG.b, 1); xCk:SetSnapToPixelGrid(false)
@@ -1109,7 +1090,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                         local rl = row:CreateFontString(nil, "OVERLAY"); rl:SetFont(fontPath, 13, "")
                         rl:SetTextColor(0.75, 0.75, 0.75, 1); rl:SetPoint("LEFT", row, "LEFT", 12, 0); rl:SetText(OptionDisplayName(cb))
                         local rb = CreateFrame("Frame", nil, row); rb:SetSize(16, 16); rb:SetPoint("RIGHT", row, "RIGHT", -10, 0)
-                        local rBg = rb:CreateTexture(nil, "BACKGROUND"); rBg:SetAllPoints(); rBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                        local rBg = rb:CreateTexture(nil, "BACKGROUND"); rBg:SetAllPoints(); rBg:SetColorTexture(0.114, 0.106, 0.099, 1)
                         local rBrd = EllesmereUI.MakeBorder(rb, 0.4, 0.4, 0.4, 0.6, PP)
                         local rCk = rb:CreateTexture(nil, "ARTWORK"); PP.SetInside(rCk, rb, 2, 2)
                         rCk:SetColorTexture(EG.r, EG.g, EG.b, 1); rCk:SetSnapToPixelGrid(false)
@@ -1288,7 +1269,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 CreateMacro(def.name, ResolveMacroIcon(def), body, nil)
                 lastAvailableItems[def.name] = GetMacroInventoryKey(def, db)
                 self._playFlash()
-                C_Timer.After(0.1, RefreshState)
                 C_Timer.After(0.15, function()
                     if not InCombatLockdown() then ShowMacroFrame() end
                 end)
@@ -1333,25 +1313,17 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         end
     end
 
-    -- Poll for macro state changes (2s interval)
-    local pollFrame = CreateFrame("Frame", nil, container)
-    local elapsed = 0
-    pollFrame:SetScript("OnUpdate", function(self, dt)
-        elapsed = elapsed + dt
-        if elapsed < 2 then return end
-        elapsed = 0
+    -- Macro state follows UPDATE_MACROS while the section is shown: the event
+    -- registers on show (with one pass for changes made while hidden), goes on
+    -- hide, and a burst becomes one pass on the next frame.
+    local function SyncMacroStates()
         for _, btn in ipairs(allMacroButtons) do
             local mdef = btn._def
             if mdef and btn._tex then
                 local ex = GetMacroIndexByName(mdef.name) ~= 0
-                local wasCreated = btn._isGray
-                if wasCreated and not ex then
-                    btn._tex:SetDesaturated(false)
-                    btn._isGray = false
-                    if btn._refreshIcon then btn._refreshIcon() end
-                elseif not wasCreated and ex then
-                    btn._tex:SetDesaturated(true)
-                    btn._isGray = true
+                if ex ~= (btn._isGray == true) then
+                    btn._tex:SetDesaturated(ex)
+                    btn._isGray = ex
                     if btn._refreshIcon then btn._refreshIcon() end
                 end
                 if btn._cogPopup and btn._cogPopup:IsShown() and btn._cogPopup._refreshAction then
@@ -1359,7 +1331,25 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 end
             end
         end
+    end
+    local macroWatch = CreateFrame("Frame", nil, container)
+    local syncPending
+    local function SyncNow()
+        syncPending = nil
+        if macroWatch:IsVisible() then SyncMacroStates() end
+    end
+    macroWatch:SetScript("OnEvent", function()
+        if syncPending then return end
+        syncPending = true
+        C_Timer.After(0, SyncNow)
     end)
+    macroWatch:SetScript("OnShow", function(self)
+        self:RegisterEvent("UPDATE_MACROS")
+        SyncMacroStates()
+    end)
+    macroWatch:SetScript("OnHide", function(self) self:UnregisterEvent("UPDATE_MACROS") end)
+    -- Built while shown: the buttons were just painted, so only listen.
+    if macroWatch:IsVisible() then macroWatch:RegisterEvent("UPDATE_MACROS") end
 
     -- Update macros when bag changes (throttled), spec changes, login, or combat ends
     local eventFrame = CreateFrame("Frame", nil, container)
@@ -1372,7 +1362,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:SetScript("OnEvent", function(self, event)
         if event == "PLAYER_REGEN_ENABLED" then
-            ProcessPendingMacroUpdates()
             UpdateInventoryDependentMacros()
         elseif event == "PLAYER_ENTERING_WORLD" then
             C_Timer.After(1, UpdateInventoryDependentMacros)
@@ -1432,13 +1421,38 @@ function EllesmereUI.RefreshMacroFactory()
     end
 end
 
+-- A spec change only matters to what the options panel shows: the Macro
+-- Factory section's suggestions and the open page's spec-dependent controls.
+-- So the watcher listens only while the panel is shown, to the player's own
+-- spec alone, and an open catches up on a change made while it was closed.
 EllesmereUI._macroSpecWatcher = EllesmereUI._macroSpecWatcher or CreateFrame("Frame")
 EllesmereUI._macroSpecWatcher:UnregisterAllEvents()
-EllesmereUI._macroSpecWatcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-EllesmereUI._macroSpecWatcher:SetScript("OnEvent", function()
-    EllesmereUI.RefreshMacroFactory()
-    -- Also re-run the active page's in-place widget refreshers so other
-    -- spec-dependent controls update, as the old per-build event frame did.
-    -- No-arg (fast path) => re-reads values only, no frame teardown, no flash.
-    EllesmereUI:RefreshPage()
-end)
+do
+    local watcher = EllesmereUI._macroSpecWatcher
+    local seenSpecID
+    local function CurrentSpecID()
+        local idx = C_SpecializationInfo.GetSpecialization()
+        return idx and C_SpecializationInfo.GetSpecializationInfo(idx) or nil
+    end
+    local function OnSpecChanged()
+        seenSpecID = CurrentSpecID()
+        EllesmereUI.RefreshMacroFactory()
+        -- Also re-run the active page's in-place widget refreshers so other
+        -- spec-dependent controls update, as the old per-build event frame did.
+        -- No-arg (fast path) => re-reads values only, no frame teardown, no flash.
+        EllesmereUI:RefreshPage()
+    end
+    watcher:SetScript("OnEvent", OnSpecChanged)
+    EllesmereUI:RegisterOnShow(function()
+        watcher:RegisterUnitEvent("PLAYER_SPECIALIZATION_CHANGED", "player")
+        -- The first open builds its pages for the current spec already.
+        if seenSpecID ~= nil and CurrentSpecID() ~= seenSpecID then
+            OnSpecChanged()
+        else
+            seenSpecID = CurrentSpecID()
+        end
+    end)
+    EllesmereUI:RegisterOnHide(function()
+        watcher:UnregisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    end)
+end

@@ -363,13 +363,20 @@ function EllesmereUI.GetFontOutlineFlag(addonKey)
     else
         mode = db.outlineMode or "none"
     end
+    local flag = EllesmereUI.OutlineFlagForMode(mode)
+    c[k] = flag
+    return flag
+end
+
+-- The WoW font flag for one outline mode ("outline", "thick"; anything else is
+-- none/shadow), slug-gated. For a feature with its own outline choice; resolve
+-- "__global" through GetFontOutlineFlag first.
+function EllesmereUI.OutlineFlagForMode(mode)
     local flag
     if mode == "outline" then flag = "OUTLINE, SLUG"
     elseif mode == "thick" then flag = "THICKOUTLINE, SLUG"
     else flag = "" end
-    flag = EllesmereUI.SlugFlag(flag)
-    c[k] = flag
-    return flag
+    return EllesmereUI.SlugFlag(flag)
 end
 
 -- Per-profile "Never Show Slug": ON strips the SLUG token from every outline flag the

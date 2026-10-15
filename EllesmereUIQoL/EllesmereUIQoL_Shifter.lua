@@ -60,6 +60,7 @@ local ADDON_FRAMES = {
     ["Blizzard_ExpansionLandingPage"]              = { "ExpansionLandingPage" },
     ["Blizzard_FlightMap"]                         = { "FlightMapFrame" },
     ["Blizzard_GenericTraitUI"]                    = { "GenericTraitFrame" },
+    ["Blizzard_GroupFinder_VanillaStyle"]          = { "LFGParentFrame" },  -- WoW Forever's group finder
     ["Blizzard_GuildBankUI"]                       = { "GuildBankFrame" },
     ["Blizzard_GuildControlUI"]                    = { "GuildControlUI" },
     ["Blizzard_InspectUI"]                         = { "InspectFrame" },
@@ -73,6 +74,7 @@ local ADDON_FRAMES = {
     ["Blizzard_ProfessionsBook"]                   = { "ProfessionsBookFrame" },
     ["Blizzard_ProfessionsCustomerOrders"]         = { "ProfessionsCustomerOrdersFrame" },
     ["Blizzard_ScrappingMachineUI"]                = { "ScrappingMachineFrame" },
+    ["Blizzard_SocialUI"]                          = { "SocialUIFrame" },
     ["Blizzard_StableUI"]                          = { "StableFrame" },
     ["Blizzard_TokenUI"]                           = { "CurrencyTransferMenu" },
     ["Blizzard_TrainerUI"]                         = { "ClassTrainerFrame" },
@@ -101,10 +103,13 @@ local DRAG_HEADERS = {
 -- Extra drag handles layered ON TOP of the frame body. Used when a
 -- mouse-enabled child sits over the frame and would otherwise swallow the
 -- drag (e.g. the Achievement frame's floating points header). Values resolve
--- to a child frame: either a global name or a function(frame) -> child.
+-- to a child frame: either a global name or a function(frame) -> child, or a
+-- list of global names.
 local EXTRA_DRAG_TARGETS = {
     ["AchievementFrame"] = function(frame) return frame.Header or _G["AchievementFrameHeader"] end,
     ["ContainerFrameCombinedBags"] = function(frame) return frame.TitleContainer or _G["ContainerFrameCombinedBags"] end,
+    -- WoW Forever's group finder: each tab is a full window laid over the parent
+    ["LFGParentFrame"] = { "LFGBrowseFrame", "LFGListingFrame", "LFGWhoListFrame" },
 }
 
 -- Blizzard windows that normally dock beside CharacterFrame (Item Upgrade, Transmog,
@@ -115,18 +120,18 @@ local EXTRA_DRAG_TARGETS = {
 -- PVEFrame is deliberately NOT here: EllesmereUIBlizzardSkin_GroupFinder.lua owns that
 -- pairing instead, docking CharacterFrame beside PVEFrame (rather than the reverse)
 -- with room-detection that also accounts for third-party companion panels bolted onto
--- PVEFrame (e.g. RaiderIO's Mythic+ panel). Having both mechanisms active fought each
--- other: this one's plain room check has no idea RaiderIO's panel exists, so it could
--- re-dock PVEFrame right back on top of it the moment CharacterFrame got any saved/temp
--- Shifter position at all. PVEFrame being protected already skipped this module's
--- strata/Raise writes too (see the `else` branch below), so dropping it here leaves it
--- entirely to GroupFinder.lua, with nothing lost.
+-- PVEFrame. Both mechanisms at once would fight: this one's plain room check knows
+-- nothing of such a panel, so it could re-dock PVEFrame right on top of it the moment
+-- CharacterFrame got any saved/temp Shifter position at all. PVEFrame being protected
+-- already skips this module's strata/Raise writes (see the `else` branch below), so
+-- leaving it entirely to GroupFinder.lua loses nothing.
 local DOCKING_COMPANIONS = {
     ItemUpgradeFrame = true,
     TransmogFrame = true,
     ItemSocketingFrame = true,
     MerchantFrame = true,
     FriendsFrame = true,
+    SocialUIFrame = true,
     CommunitiesFrame = true,
     ProfessionsFrame = true,
     ProfessionsBookFrame = true,
@@ -607,7 +612,9 @@ local function HookFrame(frame, name)
 
     -- Extra handles layered on top of the frame body
     local extra = EXTRA_DRAG_TARGETS[name]
-    if extra then
+    if type(extra) == "table" then
+        for _, child in ipairs(extra) do AttachDrag(_G[child]) end
+    elseif extra then
         AttachDrag(type(extra) == "function" and extra(frame) or _G[extra])
     end
 
@@ -798,19 +805,26 @@ end
 --
 --  The Bonus Roll window and the group loot roll container cannot be made
 --  drag-movable: their top-level frames take no mouse input, and Blizzard
---  re-anchors them on every show through the GroupLootContainer docking and
---  the UIParent managed-frame-position system. Instead each gets a mover in
---  Unlock Mode. The mover drags a proxy frame we own; the saved position is
---  pushed onto the Blizzard window with plain ClearAllPoints/SetPoint (the
---  windows are unprotected) and re-applied whenever Blizzard repositions
---  them. ignoreFramePositionManager is the sanctioned per-frame opt-out from
---  the managed position system. Protected or forbidden frames are skipped
---  entirely, and no mouse state is ever touched.
+--  re-anchors them through SetPoint on every show and re-layout
+--  (GroupLootContainer_Update anchors each roll frame, the bottom managed
+--  column's Layout anchors the container). Instead each gets a mover in
+--  Unlock Mode. The mover drags a proxy frame we own; the saved position
+--  reaches the Blizzard window through the shared frame placer
+--  (EllesmereUI.SetFramePlacer), which puts it back after every Blizzard
+--  SetPoint (the container as the column's layout returns, before it is
+--  drawn) and writes nothing on the Blizzard frame. No script hook either:
+--  the windows show inside
+--  GroupLootContainer_Update, and code run from their OnShow would leave the
+--  rest of that update, the managed column layout, under our taint.
+--  Protected or forbidden frames are skipped entirely, and no mouse state is
+--  ever touched. A window is claimed only while the feature is on and it has
+--  a saved position.
 --
 --  AlertFrame is the anchor every toast banner stacks up from (loot and
 --  currency toasts, achievements, gold, recipes, Trading Post activities).
---  It rides the same enforcement; its own rect is a bare anchor rather than
---  a toast-sized box, so its mover uses a fixed size (fixedSize).
+--  Blizzard anchors it once in XML and never again, so the placement made
+--  when it is claimed is what moves it. Its own rect is a bare anchor rather
+--  than a toast-sized box, so its mover uses a fixed size (fixedSize).
 -------------------------------------------------------------------------------
 local LOOT_WINDOWS = {
     { name = "BonusRollFrame",     key = "EUI_BonusRoll",   label = "Bonus Roll",   order = 640, defW = 330, defH = 120, defY = 240 },
@@ -819,7 +833,8 @@ local LOOT_WINDOWS = {
 }
 
 local lootProxies = {}
-local lootHooked  = {}
+local lootPlacers = {}  -- name -> placement callback, built once per window
+local lootClaimed = {}  -- name -> true while our placement claim is registered
 
 local function LootEnabled()
     return EllesmereUIDB and EllesmereUIDB.shifterLootUnlock or false
@@ -840,42 +855,64 @@ local function SaveLootPos(name, point, relPoint, x, y)
     }
 end
 
--- Returns the live Blizzard frame only when it is safe to reposition.
+-- The live Blizzard frame, once loaded. The placer refuses protected,
+-- forbidden and anchor-restricted frames itself (secret-safe), so such a
+-- window is never claimed.
 local function LootFrame(name)
     local frame = _G[name]
-    if not frame or not frame.HookScript then return nil end
-    if frame.IsForbidden and frame:IsForbidden() then return nil end
-    if frame:IsProtected() then return nil end
-    return frame
+    if type(frame) == "table" then return frame end
 end
 
-local function ApplyLootPos(name)
-    if not LootEnabled() then return end
-    local pos = GetLootPos(name)
-    if not pos then return end
-    local frame = LootFrame(name)
-    if not frame then return end
-    local ffd = GetFFD(frame)
-    if ffd._shLootIgnoreSP then return end
-    ffd._shLootIgnoreSP = true
-    frame.ignoreFramePositionManager = true
-    frame:ClearAllPoints()
-    frame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
-    ffd._shLootIgnoreSP = false
+-- The saved spot while the feature is on; nil leaves the window to the next
+-- placement owner, or to Blizzard's own anchor.
+local function LootPlacer(name)
+    local fn = lootPlacers[name]
+    if not fn then
+        fn = function()
+            if not LootEnabled() then return nil end
+            local pos = GetLootPos(name)
+            if not pos then return nil end
+            return pos.point, UIParent, pos.relPoint, pos.x, pos.y
+        end
+        lootPlacers[name] = fn
+    end
+    return fn
 end
 
-local function HookLootWindow(name)
-    if lootHooked[name] then return end
+-- Drops our claim: the placer hands the window to the next owner, or back to
+-- Blizzard's last anchor.
+local function ReleaseLootWindow(name)
+    if not lootClaimed[name] then return end
+    lootClaimed[name] = nil
+    local frame = LootFrame(name)
+    if frame then EllesmereUI.SetFramePlacer(frame, "shifter", nil) end
+end
+
+-- Claims the window while the feature is on and a position is saved, and
+-- places it this frame; releases it otherwise.
+local function SyncLootWindow(name)
+    if not (LootEnabled() and GetLootPos(name)) then
+        ReleaseLootWindow(name)
+        return
+    end
     local frame = LootFrame(name)
     if not frame then return end
-    lootHooked[name] = true
-    hooksecurefunc(frame, "SetPoint", function()
-        if GetFFD(frame)._shLootIgnoreSP then return end
-        ApplyLootPos(name)
-    end)
-    frame:HookScript("OnShow", function()
-        ApplyLootPos(name)
-    end)
+    if not lootClaimed[name] then
+        if not EllesmereUI.SetFramePlacer(frame, "shifter", LootPlacer(name)) then return end
+        lootClaimed[name] = true
+    end
+    EllesmereUI.RequestFramePlacement(frame)
+end
+
+-- The proxy sits at the saved position, or at the window's default spot.
+local function PlaceLootProxy(proxy, info)
+    local pos = GetLootPos(info.name)
+    proxy:ClearAllPoints()
+    if pos then
+        proxy:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+    else
+        proxy:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, info.defY)
+    end
 end
 
 -- Hidden rect-only ghost the unlock mover attaches to; never visible.
@@ -885,24 +922,14 @@ local function EnsureLootProxy(info)
     proxy = CreateFrame("Frame", nil, UIParent)
     proxy:Hide()
     proxy:SetSize(info.defW, info.defH)
-    local pos = GetLootPos(info.name)
-    if pos then
-        proxy:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
-    else
-        proxy:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, info.defY)
-    end
+    PlaceLootProxy(proxy, info)
     lootProxies[info.name] = proxy
     return proxy
 end
 
 local function InitLootWindows()
     for i = 1, #LOOT_WINDOWS do
-        local name = LOOT_WINDOWS[i].name
-        HookLootWindow(name)
-        local frame = LootFrame(name)
-        if frame and frame:IsVisible() then
-            ApplyLootPos(name)
-        end
+        SyncLootWindow(LOOT_WINDOWS[i].name)
     end
 end
 
@@ -929,8 +956,8 @@ local function RegisterLootUnlockElements()
             isHidden = function()
                 if not LootEnabled() or not _G[info.name] then return true end
                 -- "Hide Unlock Mode Overlays": the movers stay out of unlock
-                -- mode but saved positions keep applying (the SetPoint/OnShow
-                -- enforcement never depends on the movers existing).
+                -- mode but saved positions keep applying (the placer claim
+                -- never depends on the movers existing).
                 return EllesmereUIDB and EllesmereUIDB.shifterLootHideOverlays or false
             end,
             getFrame = function()
@@ -947,11 +974,8 @@ local function RegisterLootUnlockElements()
             end,
             savePos = function(_, point, relPoint, x, y)
                 SaveLootPos(info.name, point, relPoint, x, y)
-                local proxy = EnsureLootProxy(info)
-                proxy:ClearAllPoints()
-                proxy:SetPoint(point, UIParent, relPoint, x, y)
-                HookLootWindow(info.name)
-                ApplyLootPos(info.name)
+                PlaceLootProxy(EnsureLootProxy(info), info)
+                SyncLootWindow(info.name)
             end,
             loadPos = function()
                 local pos = GetLootPos(info.name)
@@ -965,23 +989,12 @@ local function RegisterLootUnlockElements()
                     EllesmereUIDB.shifterLootPositions[info.name] = nil
                 end
                 local proxy = lootProxies[info.name]
-                if proxy then
-                    proxy:ClearAllPoints()
-                    proxy:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, info.defY)
-                end
-                local frame = LootFrame(info.name)
-                if frame then frame.ignoreFramePositionManager = nil end
+                if proxy then PlaceLootProxy(proxy, info) end
+                ReleaseLootWindow(info.name)
             end,
             applyPos = function()
-                local pos = GetLootPos(info.name)
-                local proxy = EnsureLootProxy(info)
-                proxy:ClearAllPoints()
-                if pos then
-                    proxy:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
-                else
-                    proxy:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, info.defY)
-                end
-                ApplyLootPos(info.name)
+                PlaceLootProxy(EnsureLootProxy(info), info)
+                SyncLootWindow(info.name)
             end,
         })
     end
@@ -990,26 +1003,33 @@ end
 
 -------------------------------------------------------------------------------
 --  Blizzard Top Bar Event Text (UIWidgetTopCenterContainerFrame) via an
---  Unlock Mode mover -- the loot-window recipe (hidden proxy + mover +
---  ignoreFramePositionManager + SetPoint/OnShow re-assert, no mouse state
---  ever touched) with ONE substitution: every position write on the live
---  frame runs through SecureSetPoint. The container hosts encounter and
---  scenario status-bar widgets whose Blizzard code compares SECRET values in
+--  Unlock Mode mover -- the loot-window recipe (hidden proxy + mover, no
+--  script hook, no mouse state ever touched) with ONE substitution: every
+--  position write on the live frame runs through SecureSetPoint, never the
+--  shared frame placer. The container hosts encounter and scenario
+--  status-bar widgets whose Blizzard code compares SECRET values in
 --  instanced combat; an insecure ClearAllPoints/SetPoint would taint that
---  tree and throw "attempt to compare a secret number" (the PVEFrame
---  lesson). The plain-SetPoint shortcut the loot windows use is safe there
---  only because their subtrees never touch secrets.
+--  tree and throw "attempt to compare a secret number" (see Secure
+--  repositioning above). The plain SetPoint writes the loot windows take are
+--  safe only because their subtrees never touch secrets.
 --
---  SecureSetPoint bails in combat, and Blizzard re-anchors this container
---  exactly then (widgets spawn mid-fight) -- missed re-asserts defer a
---  re-apply to the module's combat queue.
+--  Blizzard anchors the container once in XML (TOP of UIParent, 0, -15, on
+--  both clients) and never again in normal play, and it keeps that anchor
+--  through hide and show. So the saved spot is written once, shown or not,
+--  and again only when something else calls the container's SetPoint (a
+--  secure post-hook; the restricted environment's SetPoint never reaches
+--  it). SecureSetPoint bails in combat: a missed write waits for the
+--  module's combat queue, which decides again what to write.
 -------------------------------------------------------------------------------
 local TOPBAR_NAME = "UIWidgetTopCenterContainerFrame"
 local TOPBAR_KEY, TOPBAR_LABEL = "EUI_TopBarEventText", "Top Bar Event Text"
 local TOPBAR_DEFW, TOPBAR_DEFH, TOPBAR_DEFY = 400, 60, -120
+local TOPBAR_HOMEY = -15  -- Blizzard's own anchor: TOP of UIParent at this y
 
 local topBarProxy
 local topBarHooked = false
+local topBarMoved = false  -- our anchor is on the container
+local topBarWriting = false  -- our own secure write is running
 
 local function TopBarEnabled()
     return EllesmereUIDB and EllesmereUIDB.shifterTopBarUnlock or false
@@ -1024,30 +1044,39 @@ local function SaveTopBarPos(point, relPoint, x, y)
     EllesmereUIDB.shifterTopBarPos = { point = point, relPoint = relPoint, x = x, y = y }
 end
 
--- Returns the live Blizzard frame only when it is safe to reposition.
+-- Returns the live Blizzard frame only when it is safe to reposition. A
+-- secret answer (ObjectSecurity aspect) counts as unsafe.
 local function TopBarFrame()
     local frame = _G[TOPBAR_NAME]
-    if not frame or not frame.HookScript then return nil end
-    if frame.IsForbidden and frame:IsForbidden() then return nil end
-    if frame:IsProtected() then return nil end
+    if type(frame) ~= "table" or not frame.IsForbidden then return nil end
+    local v = frame:IsForbidden()
+    if issecretvalue(v) or v then return nil end
+    v = frame:IsProtected()
+    if issecretvalue(v) or v then return nil end
     return frame
 end
 
-local function ApplyTopBarPos()
-    if not TopBarEnabled() then return end
-    local pos = GetTopBarPos()
-    if not pos then return end
+-- Our saved spot while the feature is on; otherwise Blizzard's own anchor,
+-- and only while ours is still on the container. SECURE writes only (see
+-- block comment); false = in combat, so the queue decides again later.
+local function SyncTopBar()
     local frame = TopBarFrame()
     if not frame then return end
-    local ffd = GetFFD(frame)
-    if ffd._shTopBarIgnoreSP then return end
-    ffd._shTopBarIgnoreSP = true
-    frame.ignoreFramePositionManager = true
-    -- SECURE write only (see block comment); false = in combat, defer.
-    if not SecureSetPoint(frame, pos.point, pos.relPoint, pos.x, pos.y) then
-        ns.CombatQueue.Defer("ShifterTopBar", ApplyTopBarPos)
+    local pos = TopBarEnabled() and GetTopBarPos()
+    if not pos and not topBarMoved then return end
+    local ok
+    topBarWriting = true
+    if pos then
+        ok = SecureSetPoint(frame, pos.point, pos.relPoint, pos.x, pos.y)
+    else
+        ok = SecureSetPoint(frame, "TOP", "TOP", 0, TOPBAR_HOMEY)
     end
-    ffd._shTopBarIgnoreSP = false
+    topBarWriting = false
+    if ok then
+        topBarMoved = pos and true or false
+    else
+        ns.CombatQueue.Defer("ShifterTopBar", SyncTopBar)
+    end
 end
 
 local function HookTopBar()
@@ -1055,12 +1084,17 @@ local function HookTopBar()
     local frame = TopBarFrame()
     if not frame then return end
     topBarHooked = true
+    -- Something else anchored the container: our spot goes back on while the
+    -- feature is on; otherwise that anchor stands and ours is gone. The
+    -- restricted environment's SetPoint is the C method, so our own write
+    -- does not reach this hook; the guard stops a loop should it ever do so.
     hooksecurefunc(frame, "SetPoint", function()
-        if GetFFD(frame)._shTopBarIgnoreSP then return end
-        ApplyTopBarPos()
-    end)
-    frame:HookScript("OnShow", function()
-        ApplyTopBarPos()
+        if topBarWriting then return end
+        if TopBarEnabled() and GetTopBarPos() then
+            SyncTopBar()
+        else
+            topBarMoved = false
+        end
     end)
 end
 
@@ -1097,8 +1131,8 @@ local function RegisterTopBarUnlockElement()
             isHidden = function()
                 if not TopBarEnabled() or not _G[TOPBAR_NAME] then return true end
                 -- "Hide Unlock Mode Overlay": mover stays out of unlock mode
-                -- but the saved position keeps applying (the SetPoint/OnShow
-                -- enforcement never depends on the mover existing).
+                -- but the saved position keeps applying (the secure write and
+                -- its SetPoint post-hook never depend on the mover existing).
                 return EllesmereUIDB and EllesmereUIDB.shifterTopBarHideOverlay or false
             end,
             getFrame = EnsureTopBarProxy,
@@ -1112,7 +1146,7 @@ local function RegisterTopBarUnlockElement()
                 proxy:ClearAllPoints()
                 proxy:SetPoint(point, UIParent, relPoint, x, y)
                 HookTopBar()
-                ApplyTopBarPos()
+                SyncTopBar()
             end,
             loadPos = function()
                 local pos = GetTopBarPos()
@@ -1128,8 +1162,7 @@ local function RegisterTopBarUnlockElement()
                     proxy:ClearAllPoints()
                     proxy:SetPoint("TOP", UIParent, "TOP", 0, TOPBAR_DEFY)
                 end
-                local frame = TopBarFrame()
-                if frame then frame.ignoreFramePositionManager = nil end
+                SyncTopBar()
             end,
             applyPos = function()
                 local pos = GetTopBarPos()
@@ -1140,7 +1173,7 @@ local function RegisterTopBarUnlockElement()
                 else
                     proxy:SetPoint("TOP", UIParent, "TOP", 0, TOPBAR_DEFY)
                 end
-                ApplyTopBarPos()
+                SyncTopBar()
             end,
         }),
     }, "EllesmereUIQoL")
@@ -1149,17 +1182,14 @@ end
 -- Exposed for the options toggle (mid-session enable without /reload)
 function EllesmereUI._InitShifterTopBar()
     HookTopBar()
-    local frame = TopBarFrame()
-    if frame and frame:IsVisible() then
-        ApplyTopBarPos()
-    end
+    SyncTopBar()
 end
 
--- Exposed for the options toggle. Releases the container back to Blizzard's
--- position management; existing hooks go dormant via the TopBarEnabled gate.
+-- Exposed for the options toggle, which turns the setting off first: the
+-- container gets Blizzard's own anchor back (after combat if need be) and the
+-- post-hook goes dormant through the TopBarEnabled gate.
 function EllesmereUI._DisableShifterTopBar()
-    local frame = TopBarFrame()
-    if frame then frame.ignoreFramePositionManager = nil end
+    SyncTopBar()
 end
 
 -------------------------------------------------------------------------------
@@ -1243,6 +1273,12 @@ function EllesmereUI._ResetShifterPositions()
     end
     wipe(tempPos)
     wipe(tempScale)
+    -- No saved spots remain: the loot windows and the top bar take Blizzard's
+    -- own anchors back.
+    for i = 1, #LOOT_WINDOWS do
+        ReleaseLootWindow(LOOT_WINDOWS[i].name)
+    end
+    SyncTopBar()
 end
 
 -- Exposed for the options toggle (mid-session enable without /reload)
@@ -1250,11 +1286,10 @@ function EllesmereUI._InitShifterLootWindows()
     InitLootWindows()
 end
 
--- Exposed for the options toggle. Releases the loot windows back to Blizzard's position
--- management; existing hooks go dormant via the LootEnabled gate.
+-- Exposed for the options toggle. Releases the loot windows to the next
+-- placement owner, or back to Blizzard's own anchors.
 function EllesmereUI._DisableShifterLootWindows()
     for i = 1, #LOOT_WINDOWS do
-        local frame = LootFrame(LOOT_WINDOWS[i].name)
-        if frame then frame.ignoreFramePositionManager = nil end
+        ReleaseLootWindow(LOOT_WINDOWS[i].name)
     end
 end

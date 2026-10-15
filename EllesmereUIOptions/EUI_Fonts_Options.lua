@@ -893,6 +893,12 @@ local function TileBags(parent, y, W, tile)
     _, h = W:DualRow(parent, y,
         size("Set Name Text Size", "bagSetNameFontSize", 7, 14, 9, TextSizes),
         size("BoE / Warbound Text Size", "bagBindTypeFontSize", 8, 16, 11, TextSizes));  y = y - h
+    _, h = W:DualRow(parent, y,
+        size("List Text Size", "bagListFontSize", 8, 16, 11, function()
+            if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+            if _G.EUI_BankFrame and _G.EUI_BankFrame.RefreshBank then _G.EUI_BankFrame:RefreshBank() end
+        end),
+        BLANK());  y = y - h
     return y
 end
 
@@ -1031,11 +1037,6 @@ local function TileBlizzardSkin(parent, y, W, tile)
               EllesmereUIDB.charSheetEnchantSize = v
               if EllesmereUI._refreshCharSheetSlotLabels then EllesmereUI._refreshCharSheetSlotLabels() end
           end }
-    -- WoW Forever: the slot text belongs to the EllesmereUI look and the WoW
-    -- Forever style there, so Blizzard Style and Classic WoW UI leave this
-    -- size nothing to drive.
-    local BS = EllesmereUI.BlizzStyle
-    if EllesmereUI.IS_FOREVER and BS and not BS.Forever("charsheet") then BS.Gate("charsheet", enchSizeCfg) end
     -- WoW Forever has no skyriding (the Dragon Riding HUD never loads there),
     -- so the enchant size sits alone in the last row.
     _, h = W:DualRow(parent, y,
@@ -1084,7 +1085,7 @@ local function TileCombatText(parent, y, W, tile)
           setValue = function(v)
               if InCombatLockdown() then return end
               v = math.floor(v * 10 + 0.5) / 10
-              SetCVar("WorldTextScale_v2", v)
+              EllesmereUI.SetCVar("WorldTextScale_v2", v)
           end },
         BLANK());  y = y - h
     y = LinkRow(parent, y, "Combat Text Font (logout required)",
@@ -1328,7 +1329,9 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
     }
     local outlineModeOrder = { "none", "outline", "thick" }
 
-    _, h = W:DualRow(parent, y,
+    -- Global Font (+ cog: Apply to All Game Text) | Outline Mode
+    local globalFontRow
+    globalFontRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Global Font",
           values=fontDropValues, order=fontDropOrder,
           getValue=function()
@@ -1361,10 +1364,42 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
               if rl then for i2 = 1, #rl do rl[i2]() end end
               FontReload()
           end });  y = y - h
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(globalFontRow._leftRegion, {
+            title = "Global Font",
+            rows = {
+                { type="toggle", label="Apply to All Game Text",
+                  tooltip="Applies your Global Font to Blizzard's default game text (menus, tooltips, quest log, character panes, and more). Requires a UI reload.",
+                  get=function() return EllesmereUI.GetFontsDB().applyToAllGameText == true end,
+                  set=function(v)
+                      EllesmereUI.GetFontsDB().applyToAllGameText = v and true or false
+                      FontReload()
+                  end },
+            },
+        })
+    end
 
     -- Outline Icon Text: per-module control over icon-overlay text (stack
-    -- counts, durations, keybinds). Checked (default) forces a crisp outline; unchecked follows Outline Mode above. Left slot = per-module
-    -- checkbox dropdown, right = "Apply to All Game Text".
+    -- counts, durations, keybinds). Checked (default) forces a crisp outline;
+    -- unchecked follows Outline Mode above. Left slot = per-module checkbox
+    -- dropdown, right = Disable Slug Outline: per-profile (rides profile
+    -- export/import), drops the SLUG token from every outline (body/icon/aura
+    -- text, Outline Mode itself). Off by default; needs reload.
+    local oitRow
+    oitRow, h = W:DualRow(parent, y,
+        { type="dropdown", text="Outline Icon Text",
+          tooltip="Forces a crisp outline on icon text (stack counts, durations, keybinds). Uncheck a module to make its icon text follow the Outline Mode setting above instead.",
+          values={ ["_placeholder"]="..." }, order={ "_placeholder" },
+          getValue=function() return "_placeholder" end,
+          setValue=function() end },
+        { type="toggle", text="Disable Slug Outline",
+          tooltip="Slug outline renders higher quality outlines compared to the base WoW outline mode but may make outline effects appear slightly thicker.",
+          getValue=function() return EllesmereUI.IsSlugDisabled() end,
+          setValue=function(v)
+              EllesmereUI.GetFontsDB().neverShowSlug = v and true or false
+              FontReload()
+          end }
+    );  y = y - h
     if not EllesmereUI._prebuilding then
         local oitItems = {
             { key = "actionBars", label = "Action Bars Icons" },
@@ -1373,21 +1408,6 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
             { key = "raidFrames", label = "Raid Frames Icons" },
             { key = "bags",       label = "Bags Icons" },
         }
-        local oitRow
-        oitRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Outline Icon Text",
-              tooltip="Forces a crisp outline on icon text (stack counts, durations, keybinds). Uncheck a module to make its icon text follow the Outline Mode setting above instead.",
-              values={ ["_placeholder"]="..." }, order={ "_placeholder" },
-              getValue=function() return "_placeholder" end,
-              setValue=function() end },
-            { type="toggle", text="Apply to All Game Text",
-              tooltip="Applies your Global Font to Blizzard's default game text (menus, tooltips, quest log, character panes, and more). Requires a UI reload.",
-              getValue=function() return EllesmereUI.GetFontsDB().applyToAllGameText == true end,
-              setValue=function(v)
-                  EllesmereUI.GetFontsDB().applyToAllGameText = v and true or false
-                  FontReload()
-              end }
-        );  y = y - h
         local rgn = oitRow._leftRegion
         if rgn._control then rgn._control:Hide() end
         local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -1443,18 +1463,18 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
         end
     end
 
-    -- Never Show Slug: per-profile toggle (rides profile export/import) dropping the SLUG token from every outline (body/icon/aura text,
-    -- Outline Mode itself). Off by default; needs reload.
+    -- Name Font | Game Text Scale. Game Text Scale multiplies Blizzard
+    -- font-object sizes in the same login pass as Apply to All Game Text
+    -- (EllesmereUI.ApplyGlobalFontToGameText) but works with or without the
+    -- face swap. 100 = untouched (stored as nil); the pass runs once from
+    -- native sizes, so no compounding. The reload prompt is drag-aware:
+    -- mid-drag setValues only mark pending (EllesmereUI._sliderDragging, the
+    -- same contract CommitInput reads), and EndDrag's final setValue runs with
+    -- the counter already cleared, so one prompt fires per drag -- or
+    -- immediately for a typed value.
     do
-        local nssRow
-        nssRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Disable Slug Outline",
-              tooltip="Slug outline renders higher quality outlines compared to the base WoW outline mode but may make outline effects appear slightly thicker.",
-              getValue=function() return EllesmereUI.IsSlugDisabled() end,
-              setValue=function(v)
-                  EllesmereUI.GetFontsDB().neverShowSlug = v and true or false
-                  FontReload()
-              end },
+        local gtsPending
+        _, h = W:DualRow(parent, y,
             { type="dropdown", text="Name Font",
               -- Coloured inline rather than via tooltipOpts.color, which would tint the explanation red along with the warning.
               tooltip="Sets the font for the names that float above players, NPCs and enemies in the world.\n\nSeparate from Global Font - changing this does not affect the rest of the UI, and Global Font does not affect it.\n\nBlizzard Default leaves the name text completely untouched.\n\n|cffff4d4dRequires a re-log or restart of WoW to take effect.|r",
@@ -1477,21 +1497,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
                       confirmText = "Okay",
                       cancelText  = "Later",
                   })
-              end }
-        );  y = y - h
-    end
-
-    -- Game Text Scale: multiplies Blizzard font-object sizes in the same
-    -- login pass as Apply to All Game Text (EllesmereUI.ApplyGlobalFontToGameText)
-    -- but works with or without the face swap. 100 = untouched (stored as
-    -- nil); the pass runs once from native sizes, so no compounding. The
-    -- reload prompt is drag-aware: mid-drag setValues only mark pending
-    -- (EllesmereUI._sliderDragging, the same contract CommitInput reads),
-    -- and EndDrag's final setValue runs with the counter already cleared,
-    -- so one prompt fires per drag -- or immediately for a typed value.
-    do
-        local gtsPending
-        _, h = W:DualRow(parent, y,
+              end },
             { type="slider", text="Game Text Scale", min=75, max=125, step=5,
               tooltip="Scales the size of Blizzard's default game text (menus, tooltips, quest log, and more). Requires a UI reload.",
               getValue=function() return EllesmereUI.GetFontsDB().gameTextScale or 100 end,
@@ -1509,8 +1515,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
                       gtsPending = nil
                       FontReload()
                   end
-              end },
-            { type="label", text="" });  y = y - h
+              end });  y = y - h
     end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h

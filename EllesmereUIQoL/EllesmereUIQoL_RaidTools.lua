@@ -266,7 +266,7 @@ local Apply                    -- forward: the event handler closes over it
 --
 -- The keybind clicks the button, which is the only thing that works during combat. Out
 -- of combat the same snippet is run through SecureHandlerExecute instead of being
--- re-implemented in Lua. EllesmereUIRaidFrames.lua does exactly this, for exactly this
+-- re-implemented in Lua. EUI_RaidFrames_BossFrames.lua does exactly this, for exactly this
 -- reason: the driver manager only fires the attribute handlers on value CHANGES, so a
 -- reapply with unchanged states would otherwise never run.
 local RUN_APPLY = [[ self:RunAttribute("apply") ]]
@@ -800,7 +800,7 @@ local function StartPull(secs)
     local handler = BossModPullHandler()
     if handler then handler(tostring(secs)) end
     if ChatLocked() then
-        EllesmereUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("In-game countdown unavailable in combat; the boss mod pull timer still started."))
+        EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. EllesmereUI.L("In-game countdown unavailable in combat; the boss mod pull timer still started."))
         return
     end
     C_PartyInfo.DoCountdown(secs)
@@ -1037,8 +1037,8 @@ end
 -- Row order matches how they are used: unit markers first, ground markers
 -- under them. Labels reach L as variables (see the SECTIONS comment).
 local MARKER_ROWS = {
-    { kind = "target", label = "Target" },
-    { kind = "world",  label = "World"  },
+    { kind = "target", label = "Target Markers" },
+    { kind = "world",  label = "World Markers"  },
 }
 
 local function BuildMarkersContent()
@@ -2271,17 +2271,17 @@ end
 SLASH_EUIRAIDTOOLS1 = "/euiraid"
 SlashCmdList["EUIRAIDTOOLS"] = function()
     if Mode() == "never" then
-        EllesmereUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Raid Tools is disabled in the EllesmereUI options."))
+        EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. EllesmereUI.L("Raid Tools is disabled in the EllesmereUI options."))
         return
     end
     if InCombatLockdown() then
-        EllesmereUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Raid Tools cannot be toggled by slash command in combat -- use the keybind."))
+        EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. EllesmereUI.L("Raid Tools cannot be toggled by slash command in combat -- use the keybind."))
         return
     end
     -- The snippet would refuse anyway (enabled is false while the gate is
     -- shut); saying so beats a slash command that looks broken.
     if AssistSuppressed() then
-        EllesmereUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Raid Tools is hidden in a raid without leader or assist -- none of its buttons work there."))
+        EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. EllesmereUI.L("Raid Tools is hidden in a raid without leader or assist -- none of its buttons work there."))
         return
     end
     BuildAll()

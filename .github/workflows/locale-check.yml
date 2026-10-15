@@ -10,6 +10,13 @@ on:
       - '**/*.lua'
       - 'EllesmereUILocales/_keys.txt'
       - '.tools/extract-locale-keys.sh'
+  # Direct pushes and release commits skip the PR trigger; check main too.
+  push:
+    branches: [main]
+    paths:
+      - '**/*.lua'
+      - 'EllesmereUILocales/_keys.txt'
+      - '.tools/extract-locale-keys.sh'
 
 permissions:
   contents: read

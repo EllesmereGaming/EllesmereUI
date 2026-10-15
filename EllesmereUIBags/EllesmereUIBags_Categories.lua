@@ -9,6 +9,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local CategoryManager = {}
 -- Profile access helper (DB created in EUI_Bags_Options.lua, loaded first per TOC)
 local EUI = EllesmereUI
+local ns = select(2, ...)
 local GetItemInfoInstant = C_Item.GetItemInfoInstant
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
@@ -104,12 +105,30 @@ if EUI_CLIENT_FOREVER then
             break
         end
     end
+    -- What the special bags hold (quivers, ammo pouches, soul, herb and
+    -- enchanting bags; ns.SpecialBags). Appended last (only Junk follows), also
+    -- in a profile with a saved category order: no saved category's index moves
+    -- (bagVisualOrder).
+    DEFAULT_CATEGORIES[#DEFAULT_CATEGORIES + 1] = {
+        name = "Special Bags", types = {}, isSpecialBag = true, noGroup = true,
+        appendLast = true, icon = "Interface\\Icons\\INV_Misc_Bag_EnchantedRunecloth",
+    }
     for i = #DEFAULT_CATEGORIES, 1, -1 do
         if DEFAULT_CATEGORIES[i].name == "Housing" then
             table.remove(DEFAULT_CATEGORIES, i)
         end
     end
 end
+
+-- Junk: always the last category (InitCategories puts it there, and drags and
+-- moves never pass it), so turning the Junk Marker on or off never shifts
+-- another category's index (bagVisualOrder is index-keyed). No types: grey items
+-- and marks are its members. Its icon is the game's coin, as is the item badge
+-- (only the header button draws our own coin art).
+ns.JUNK_COIN = 133784
+DEFAULT_CATEGORIES[#DEFAULT_CATEGORIES + 1] = {
+    name = "Junk", types = {}, isJunk = true, appendLast = true, noGroup = true, icon = ns.JUNK_COIN,
+}
 
 -------------------------------------------------------------------------------
 --  Init
@@ -168,6 +187,10 @@ function CategoryManager:InitCategories()
                 if def.noMove then
                     -- noMove categories always go to the top
                     table.insert(orderedDefs, 1, def)
+                elseif def.appendLast then
+                    -- Last: no saved category's index moves (bagVisualOrder is
+                    -- keyed by index)
+                    orderedDefs[#orderedDefs + 1] = def
                 else
                     -- Insert before catch-all
                     local insertIdx = #orderedDefs
@@ -194,13 +217,20 @@ function CategoryManager:InitCategories()
     for _, def in ipairs(DEFAULT_CATEGORIES) do
         if def.noMove and pinnedSet[def.name] then pinned[#pinned + 1] = def end
     end
-    local rest = {}
+    local rest, junkDef = {}, nil
     for _, def in ipairs(orderedDefs) do
-        if not def.noMove then rest[#rest + 1] = def end
+        if def.isJunk then
+            junkDef = def
+        elseif not def.noMove then
+            rest[#rest + 1] = def
+        end
     end
     orderedDefs = {}
     for _, d in ipairs(pinned) do orderedDefs[#orderedDefs + 1] = d end
     for _, d in ipairs(rest) do orderedDefs[#orderedDefs + 1] = d end
+    -- Junk goes last, and exists only while the Junk Marker is on (its marks
+    -- stay saved meanwhile).
+    if junkDef and self:IsJunkMarkerEnabled() then orderedDefs[#orderedDefs + 1] = junkDef end
 
     -- Build runtime categories from ordered defaults + user state.
     -- Custom category placeholders (_isCustom) are expanded inline so
@@ -250,6 +280,8 @@ function CategoryManager:InitCategories()
                 isCatchAll        = def.isCatchAll,
                 isSetGear         = def.isSetGear,
                 isReagentBag      = def.isReagentBag,
+                isSpecialBag      = def.isSpecialBag,
+                isJunk            = def.isJunk,
                 isPinned          = def.isPinned,
                 isRecent          = def.isRecent,
                 noGroup           = def.noGroup,
@@ -351,7 +383,9 @@ function CategoryManager:SaveState()
 
     local userState = {}
     local userOrder = {}
+    local sawJunk = false
     for _, cat in ipairs(cats) do
+        if cat.isJunk then sawJunk = true end
         if cat.isEquipSet then
             -- Runtime-only children of the "Item Set Gear" anchor: never persisted;
             -- InitCategories re-appends them after the anchor each rebuild.
@@ -384,6 +418,11 @@ function CategoryManager:SaveState()
                 userState[cat._defaultName] = entry
             end
         end
+    end
+    -- Junk is out of the list while the Junk Marker is off: keep its saved rename
+    if not sawJunk then
+        local old = BP().bagCategoryState
+        if old and old[self.JUNK_KEY] then userState[self.JUNK_KEY] = old[self.JUNK_KEY] end
     end
     BP().bagCategoryState = userState
     BP().bagCategoryOrder = userOrder
@@ -450,14 +489,24 @@ local function BuildSetGearLookup()
     end
 end
 
+-- Sell Junk's equipment set check: the lookup, rebuilt now
+function CategoryManager:GetSetGearLookup()
+    BuildSetGearLookup()
+    return _setGearLookup
+end
+
 -- Manual overrides: itemID -> classID
 local ITEM_TYPE_OVERRIDES = {
     [180653] = IC_MISC,
 }
 
+-- WoW Forever's special bags (ns.SpecialBags) for the running ClassifyAll pass
+local _classifySpecial
+
 -- Classify a single item. Returns category index (1-based) or nil for empty slots.
--- bag/slot are needed for C_Container.GetContainerItemQuestInfo
-function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
+-- bag/slot are needed for C_Container.GetContainerItemQuestInfo; quality is
+-- optional (resolved from the link when nil)
+function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot, quality)
     if not itemLink then return nil end
 
     local cats = self:GetCategories()
@@ -466,6 +515,12 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
     if bag == 5 then
         for i, cat in ipairs(cats) do
             if cat.isReagentBag then return i end
+        end
+    end
+    -- A WoW Forever special bag's items always go to Special Bags
+    if _classifySpecial and _classifySpecial[bag] then
+        for i, cat in ipairs(cats) do
+            if cat.isSpecialBag then return i end
         end
     end
 
@@ -513,6 +568,13 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
                 end
             end
         end
+    end
+
+    -- Grey items go to Junk (no index while the Junk Marker is off); explicit
+    -- assignments and quest items are resolved above.
+    if self._junkCatIdx then
+        if quality == nil then quality = select(3, C_Item.GetItemInfo(itemLink)) end
+        if quality == 0 then return self._junkCatIdx end
     end
 
     -- Get classID + equip slot via GetItemInfoInstant (locale-safe numeric IDs)
@@ -584,6 +646,7 @@ local _claDisabledIdxSet = {}
 
 function CategoryManager:ClassifyAll(items)
     BuildSetGearLookup()
+    _classifySpecial = ns.SpecialBags()
     local cats = self:GetCategories()
     -- Rebuild setID -> index every pass: drag-reorder and custom-category
     -- add/remove mutate cats in place without InitCategories, shifting indices.
@@ -596,8 +659,14 @@ function CategoryManager:ClassifyAll(items)
         end
     end
     self._setCatIdxBySetID = setCatIdx
+    -- Junk's index too, for the same reason (nil while the Junk Marker is off).
+    local junkIdx
     wipe(_claCounts)
-    for i = 1, #cats do _claCounts[i] = 0 end
+    for i = 1, #cats do
+        _claCounts[i] = 0
+        if cats[i].isJunk then junkIdx = i end
+    end
+    self._junkCatIdx = junkIdx
     local counts = _claCounts
     local total = 0
 
@@ -626,7 +695,7 @@ function CategoryManager:ClassifyAll(items)
     local stampNames = BP().bagShowSetGearName == true
     for _, data in ipairs(items) do
         if data.info and data.itemLink then
-            local idx = self:ClassifyItem(data.itemLink, data.info.itemID, data.bag, data.slot)
+            local idx = self:ClassifyItem(data.itemLink, data.info.itemID, data.bag, data.slot, data.info.quality)
             if stampNames then
                 local sid = _setGearLookup[data.bag * 1000 + data.slot]
                 data._setName = sid and _setNames[sid] or nil
@@ -667,11 +736,14 @@ end
 -- Callers should NOT adjust for remove/insert -- this function handles it internally.
 function CategoryManager:ReorderCategory(fromIndex, toIndex)
     local cats = self:GetCategories()
-    if not cats[fromIndex] or fromIndex == toIndex then return end
+    if not cats[fromIndex] then return end
     -- Equip-set categories move as a block via their anchor; a single one dragged
     -- out would snap back on the next rebuild (SaveState collapses the block).
     if cats[fromIndex].isEquipSet then return end
-    if toIndex < 1 or toIndex > #cats + 1 then return end
+    -- Junk stays last: it never moves, and nothing lands after it
+    if cats[fromIndex].isJunk then return end
+    if cats[#cats].isJunk and toIndex > #cats then toIndex = #cats end
+    if fromIndex == toIndex or toIndex < 1 or toIndex > #cats + 1 then return end
     local entry = table.remove(cats, fromIndex)
     local insertAt = toIndex
     if fromIndex < toIndex then insertAt = toIndex - 1 end
@@ -869,11 +941,18 @@ function CategoryManager:RemoveCustomCategory(catIndex)
     if not cat or not cat.isUserCreated then return false end
     local key = cat._defaultName
 
-    -- Remove item assignments pointing to this category
+    -- Remove item assignments pointing to this category, and Junk marks'
+    -- memory of it (its key comes back on the next new category)
     local assignments = EllesmereUIDB and EllesmereUIDB.bagItemAssignments
     if assignments then
         for itemID, aKey in pairs(assignments) do
             if aKey == key then assignments[itemID] = nil end
+        end
+    end
+    local prev = EllesmereUIDB and EllesmereUIDB.bagJunkPrev
+    if prev then
+        for itemID, pKey in pairs(prev) do
+            if pKey == key then prev[itemID] = nil end
         end
     end
 
@@ -892,32 +971,117 @@ end
 -------------------------------------------------------------------------------
 --  Item Assignment (user overrides auto-classification)
 -------------------------------------------------------------------------------
--- Assign an itemID to a category. Pass nil to unassign.
-function CategoryManager:AssignItem(itemID, categoryKey)
-    if not itemID then return end
-    if not EllesmereUIDB then EllesmereUIDB = {} end
-    if not EllesmereUIDB.bagItemAssignments then EllesmereUIDB.bagItemAssignments = {} end
-    EllesmereUIDB.bagItemAssignments[itemID] = categoryKey
-end
-
--- Unassign an itemID (returns to auto-classification).
-function CategoryManager:UnassignItem(itemID)
-    if not itemID then return end
-    local assignments = EllesmereUIDB and EllesmereUIDB.bagItemAssignments
-    if assignments then
-        assignments[itemID] = nil
+-- A Junk mark remembers the category the item was filed in (nil: none), kept
+-- only while the item stays marked: EllesmereUIDB.bagJunkPrev[itemID].
+local function SetJunkPrev(itemID, key)
+    local prev = EllesmereUIDB.bagJunkPrev
+    if key then
+        if not prev then prev = {}; EllesmereUIDB.bagJunkPrev = prev end
+        prev[itemID] = key
+    elseif prev then
+        prev[itemID] = nil
     end
 end
 
+-- Assign an itemID to a category. Pass nil to unassign. Every route that marks
+-- an item as junk (the coin, a drop on the Junk row, its "+") comes through
+-- here, so each remembers the item's category and reports the mark
+-- (OnJunkChanged); filing a marked item anywhere else ends the mark.
+function CategoryManager:AssignItem(itemID, categoryKey)
+    if not itemID then return end
+    if categoryKey == nil then return self:UnassignItem(itemID) end
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    if not EllesmereUIDB.bagItemAssignments then EllesmereUIDB.bagItemAssignments = {} end
+    local assignments = EllesmereUIDB.bagItemAssignments
+    local current = assignments[itemID]
+    if categoryKey == self.JUNK_KEY then
+        if current ~= self.JUNK_KEY then SetJunkPrev(itemID, current) end
+    elseif current == self.JUNK_KEY then
+        SetJunkPrev(itemID, nil)
+    end
+    assignments[itemID] = categoryKey
+    if (current == self.JUNK_KEY) ~= (categoryKey == self.JUNK_KEY) then self:OnJunkChanged() end
+end
+
+-- Unassign an itemID (returns to auto-classification). Unmarking a junk item
+-- files it back in the category it was marked from, while that category
+-- still exists (a Bags reset or a profile without it leaves the item unfiled).
+function CategoryManager:UnassignItem(itemID)
+    if not itemID then return end
+    local assignments = EllesmereUIDB and EllesmereUIDB.bagItemAssignments
+    if not assignments then return end
+    local wasJunk = assignments[itemID] == self.JUNK_KEY
+    local back
+    if wasJunk then
+        local prev = EllesmereUIDB.bagJunkPrev
+        back = prev and prev[itemID]
+        if back then
+            local found
+            for _, cat in ipairs(self:GetCategories()) do
+                if cat._defaultName == back then found = true; break end
+            end
+            if not found then back = nil end
+        end
+    end
+    SetJunkPrev(itemID, nil)
+    assignments[itemID] = back
+    if wasJunk then self:OnJunkChanged() end
+end
+
 -- Check if a category can accept item assignments (drag targets).
--- Excludes Pinned, Recent, Reagent Bag (physical bag, not logical).
+-- Excludes Pinned, Recent, Reagent Bag and Special Bags (physical bags, not logical).
 function CategoryManager:CanAssignToCategory(catIndex)
     local cats = self:GetCategories()
     local cat = cats[catIndex]
     if not cat then return false end
-    if cat.isPinned or cat.isRecent or cat.isReagentBag then return false end
+    if cat.isPinned or cat.isRecent or cat.isReagentBag or cat.isSpecialBag then return false end
     if cat.isEquipSet then return false end  -- membership comes from the set itself
     return true
+end
+
+-------------------------------------------------------------------------------
+--  Junk Marker: a mark is an assignment to the Junk category's _defaultName
+--  (rename-proof). The badge, Sell Junk and mark mode all ask IsJunk.
+-------------------------------------------------------------------------------
+CategoryManager.JUNK_KEY = "Junk"
+
+-- The Junk Icon of Bag Top Bar Icons switches the whole Junk Marker
+function CategoryManager:IsJunkMarkerEnabled()
+    return BP().bagShowJunkIcon ~= false
+end
+
+-- Marked, or grey and not filed in another category (a grey quest item files as
+-- a quest item, so it is never junk unmarked). quality is optional.
+function CategoryManager:IsJunk(itemID, quality)
+    if not self:IsJunkMarkerEnabled() or not itemID then return false end
+    local assignments = EllesmereUIDB and EllesmereUIDB.bagItemAssignments
+    local assigned = assignments and assignments[itemID]
+    if assigned == self.JUNK_KEY then return true end
+    if assigned then return false end  -- filed into some other category
+    if quality == nil then quality = select(3, C_Item.GetItemInfo(itemID)) end
+    return quality == 0 and select(6, GetItemInfoInstant(itemID)) ~= IC_QUEST
+end
+
+-- Flips an item's mark (a grey item stays junk unmarked). Marking remembers the
+-- category the item was filed in, and unmarking files it back there (both in
+-- AssignItem / UnassignItem, so every other route does the same).
+function CategoryManager:ToggleJunk(itemID)
+    if not itemID then return end
+    local assignments = EllesmereUIDB and EllesmereUIDB.bagItemAssignments
+    if assignments and assignments[itemID] == self.JUNK_KEY then
+        self:UnassignItem(itemID)
+    else
+        self:AssignItem(itemID, self.JUNK_KEY)
+    end
+end
+
+-- A mark came or went, or the Junk Marker was switched. WoW Forever's Junk
+-- Items window (Forever Essentials) lists marked items, so it picks its list
+-- again; that costs nothing while the window is inactive, and the window
+-- exists on no other client.
+function CategoryManager:OnJunkChanged()
+    local junkItems = EUI._JunkItems
+    if junkItems then junkItems.Refresh() end
 end
 
 -- Equipment sets changed (created/renamed/deleted): drop the cached list so the

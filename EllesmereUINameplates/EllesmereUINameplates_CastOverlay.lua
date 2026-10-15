@@ -73,7 +73,7 @@ function ns.RefreshCastOverlay(plate)
             plate._castOverlayLifted = true
             -- The strata change just reset the custom spell icon border's (a cast bar
             -- child, when it exists): re-seat it above the icon.
-            if plate._castIconBorder then ns.ApplyCastIconBorder(plate) end
+            if plate._castIconBorder or cast._iconSeam then ns.ApplyCastIconBorder(plate) end
         end
         local s = plate:GetEffectiveScale()
         if plate._castLiftScale ~= s then
@@ -86,6 +86,6 @@ function ns.RefreshCastOverlay(plate)
         if plate.castTextFrame then plate.castTextFrame:SetFrameStrata("MEDIUM") end
         plate._castOverlayLifted = nil
         plate._castLiftScale = nil
-        if plate._castIconBorder then ns.ApplyCastIconBorder(plate) end
+        if plate._castIconBorder or cast._iconSeam then ns.ApplyCastIconBorder(plate) end
     end
 end

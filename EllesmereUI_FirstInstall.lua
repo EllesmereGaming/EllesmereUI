@@ -71,7 +71,7 @@ local GROUPS = {
     {
         header = "UI Reskin Addons",
         entries = {
-            { label = "Blizz UI Enhanced", addon = "EllesmereUIBlizzardSkin" },
+            { label = "Blizzard Skins+", addon = "EllesmereUIBlizzardSkin" },
             { label = "Friends List",      addon = "EllesmereUIFriends" },
             { label = "Damage Meters",     addon = "EllesmereUIDamageMeters" },
             { label = "Chat",              addon = "EllesmereUIChat" },
@@ -164,7 +164,7 @@ local function ShowFirstInstallPopup()
             PP.Point(card, "CENTER", popup, "TOP", (i - 2) * (CARD_W + CARD_GAP), MIDLINE)
             local cbg = card:CreateTexture(nil, "BACKGROUND")
             cbg:SetAllPoints()
-            cbg:SetColorTexture(0.12, 0.13, 0.15, 1)
+            cbg:SetColorTexture(0.121, 0.113, 0.106, 1)
 
             -- Green top accent (the suite's hero-card signature).
             local accent = card:CreateTexture(nil, "ARTWORK")
@@ -379,7 +379,7 @@ local function ShowFirstInstallPopup()
     PP.Point(doneBtn, "BOTTOM", popup, "BOTTOM", 0, 38)
     local doneBg = doneBtn:CreateTexture(nil, "BACKGROUND")
     doneBg:SetAllPoints()
-    doneBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+    doneBg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
     local doneBrd = MakeBorder(doneBtn, EG.r, EG.g, EG.b, 0.9, PP)
     local doneLbl = doneBtn:CreateFontString(nil, "OVERLAY")
     doneLbl:SetFont(FONT, 16, "")

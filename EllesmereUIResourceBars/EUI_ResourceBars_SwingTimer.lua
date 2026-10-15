@@ -62,23 +62,17 @@ local ROWS = {
     { type = SWING.Ranged,   key = "r",  tag = "R",  show = "showR" },
 }
 
--- On-next-swing attacks per class (base spell IDs; ranks resolve to the same
--- name): Warrior Heroic Strike / Cleave, Druid Maul. While one is queued the
--- melee rows take that attack's colour and carry its name, so the swing that
--- will consume it is visible. `key` is the colour-key prefix in the store
--- (queueR/G/B/A, queueCleaveR/...), r/g/b its fallback. Names resolve once per
--- session and only for a class that has one: ACTIONBAR_UPDATE_STATE storms in
--- combat and is registered only while there are names to compare (the paint
--- touches the rows only when the queued attack changes).
-local QUEUE_SPELLS = {
-    WARRIOR = {
-        { id = 78,  key = "queue",       r = 1,    g = 0.70, b = 0.20 },  -- Heroic Strike
-        { id = 845, key = "queueCleave", r = 0.95, g = 0.35, b = 0.25 },  -- Cleave
-    },
-    DRUID   = {
-        { id = 6807, key = "queue", r = 1, g = 0.70, b = 0.20 },  -- Maul
-    },
-}
+-- On-next-swing attacks: EllesmereUI.FOREVER_NEXT_SWING (Warrior Heroic Strike
+-- / Cleave, Druid Maul, Hunter Raptor Strike). While one is queued the melee
+-- rows take that attack's colour and carry its name, so the swing that will
+-- consume it is visible. Colours: `key` is the colour-key prefix in the store
+-- (queueR/G/B/A, queueCleaveR/...), r/g/b its fallback; Cleave has its own,
+-- every other attack shares "queue". Names resolve once per session and only
+-- for a class that has one: ACTIONBAR_UPDATE_STATE storms in combat and is
+-- registered only while there are names to compare (the paint touches the rows
+-- only when the queued attack changes).
+local QUEUE_COLOR  = { key = "queue", r = 1, g = 0.70, b = 0.20 }
+local QUEUE_COLORS = { [845] = { key = "queueCleave", r = 0.95, g = 0.35, b = 0.25 } }  -- Cleave
 
 -- Shell + ticker host at FILE SCOPE (attribution rule, see _erbEventFrame in the
 -- main file): the OnEvent and OnLoop work bills ResourceBars. Children stay lazy.
@@ -90,7 +84,8 @@ local tickFrame = CreateFrame("Frame")
 -- stacked on screen; a combined off hand takes no slot), live (rows mid-swing),
 -- rangeOn[swingType] = bool, sample (unlock mode preview on), moHooked,
 -- unlockHooked, lastH (frame height last laid out), queueSpells (this class's
--- QUEUE_SPELLS entries, name resolved), queued (the entry painted, false = none)
+-- on-next-swing attacks: id, colour key + fallback, resolved name), queued (the
+-- entry painted, false = none)
 local S = { rows = {}, byType = {}, shown = 0, live = 0, rangeOn = {}, queueSpells = {}, queued = false }
 
 -------------------------------------------------------------------------------
@@ -423,7 +418,7 @@ local function ApplyRowTag(row, cfg)
     end
 end
 
--- Which on-next-swing attack is queued right now (its QUEUE_SPELLS entry), or
+-- Which on-next-swing attack is queued right now (its S.queueSpells entry), or
 -- false. Reads only the names resolved at build; a restricted answer counts as
 -- not queued.
 local function QueuedSpell()
@@ -546,6 +541,18 @@ local function ApplyRowLook(row, cfg, w, h)
     if cfg.showLabel ~= false and not merged then row._tag:Show() else row._tag:Hide() end
     if cfg.showTime ~= false and not merged then row._time:Show() else row._time:Hide() end
     ApplyRangeLook(row, cfg)
+    -- Rounded corners (EllesmereUI_RoundedCorners.lua; nothing at radius 0).
+    -- A combined off-hand row is only a spark over the Main Hand row: no fill.
+    local radius = cfg.cornerRadius or 0
+    if radius > 0 then
+        EllesmereUI.RoundCorners(row, radius, {
+            roots = { clip }, textures = { row._bg },
+            border = not merged and bdr or nil, clip = clip,
+            style = cfg.borderTexture or "solid", corners = cfg.cornerMask,
+        })
+    else
+        EllesmereUI.RoundCorners(row, 0)
+    end
 end
 
 local function ApplyLook(cfg)
@@ -720,14 +727,13 @@ local function EnsureBuilt()
     end
     -- On-next-swing spell names, once per session, for a class that has one.
     local _, classFile = UnitClass("player")
-    local queueList = QUEUE_SPELLS[classFile]
-    if queueList and C_Spell and C_Spell.GetSpellName then
-        for i = 1, #queueList do
-            local q = queueList[i]
-            local name = C_Spell.GetSpellName(q.id)
+    local ids = EllesmereUI.FOREVER_NEXT_SWING and EllesmereUI.FOREVER_NEXT_SWING[classFile]
+    if ids and C_Spell and C_Spell.GetSpellName then
+        for i = 1, #ids do
+            local name = C_Spell.GetSpellName(ids[i])
             if Plain(name) and name then
-                q.name = name
-                S.queueSpells[#S.queueSpells + 1] = q
+                local c = QUEUE_COLORS[ids[i]] or QUEUE_COLOR
+                S.queueSpells[#S.queueSpells + 1] = { id = ids[i], key = c.key, r = c.r, g = c.g, b = c.b, name = name }
             end
         end
     end

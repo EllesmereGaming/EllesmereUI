@@ -5,6 +5,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  popup anchored to the sidebar. Loads after EllesmereUI_Fonts.lua.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
+-- Private namespace shared with EllesmereUI.lua (sidebar buttons).
+local _, EUI_NS = ...
+EUI_NS = EUI_NS.__euiCoreNS or EUI_NS  -- standalone builds: the core's own table (EllesmereUI.lua)
 
 -------------------------------------------------------------------------------
 --  Profile Sync System (mirror groups)
@@ -15,8 +18,9 @@ local EllesmereUI = _G.EllesmereUI
 --  [folder] = { key = true }; dot-wildcard "bars.*.growDirection" skips that key in any sub-table of bars.
 -------------------------------------------------------------------------------
 do
-    -- Modules that should NOT get a sync icon (no per-profile settings)
-    local SYNC_EXEMPT = { EllesmereUIPartyMode = true }
+    -- Modules that should NOT get a sync icon (no per-profile settings; Loadout
+    -- Manager keeps a per-character store of its own)
+    local SYNC_EXEMPT = { EllesmereUIPartyMode = true, EllesmereUILoadoutManager = true }
     EllesmereUI._syncExempt = SYNC_EXEMPT
 
     -- Modules with a sync icon but no per-profile data (always "synced"). BlizzardSkin hosts
@@ -465,13 +469,16 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUIDragonRiding", {
     "unlockPos",
 })
 
--- QoL Secondary Stats/FPS positions and the cursor slice (GCD ring, cast circle, at
--- profile.cursor) stay per-profile on sync: exported intact, never push-overwritten.
+-- QoL Secondary Stats/FPS positions, the cursor slice (GCD ring, cast circle, at
+-- profile.cursor) and the Battle Res and Bloodlust positions stay per-profile on
+-- sync: exported intact, never push-overwritten.
 EllesmereUI.RegisterSyncExclusions("EllesmereUIQoL", {
     "secondaryStatsPos",
     "fpsPos",
     "cursor.gcd.pos",
     "cursor.castCircle.pos",
+    "battleRes.pos",
+    "bloodlust.pos",
 })
 
 -- Minimap settings nest under profile.minimap.
@@ -507,7 +514,7 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUIDataBars", {
 
 -- Bags is the one auto-synced module: without this the bank position mirrors across profiles.
 EllesmereUI.RegisterSyncExclusions("EllesmereUIBags", {
-    "bankPosition",  -- bank window shift-drag position
+    "bankPosition",  -- bank window drag position
 })
 
 -------------------------------------------------------------------------------
@@ -539,7 +546,7 @@ do
             nf:SetFrameLevel(150)
             nf:EnableMouse(true)
             local bg = nf:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints(); bg:SetColorTexture(15/255, 17/255, 22/255, 1)
+            bg:SetAllPoints(); bg:SetColorTexture(17/255, 15/255, 12/255, 1)
             nf._bg = bg
             -- Fullscreen dimmer: darkens and click-blocks everything behind
             local dim = CreateFrame("Frame", nil, overlayParent)
@@ -562,75 +569,12 @@ do
         end
         local f = EllesmereUI._syncConfirmFrame
 
-        -- Clean old children/regions (recycled frame)
-        for _, c in ipairs({f:GetChildren()}) do c:Hide(); c:SetParent(nil) end
-        for _, r in ipairs({f:GetRegions()}) do
-            if r ~= f._bg then r:Hide(); r:SetParent(nil) end
-        end
-
         local function MakeFont(parent, size, r, g, b, a)
             local fs = parent:CreateFontString(nil, "OVERLAY")
             if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, true) end
             fs:SetFont(fontPath, size, "")
             fs:SetTextColor(r or 1, g or 1, b or 1, a or 1)
             return fs
-        end
-
-        if PP then EllesmereUI.MakeBorder(f, 1, 1, 1, 0.15, PP) end
-        f:ClearAllPoints()
-        f:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
-
-        local cy = -PAD
-
-        local title = MakeFont(f, 14, 1, 1, 1, 0.9)
-        title:SetPoint("TOP", f, "TOP", 0, cy)
-        title:SetText(EllesmereUI.L(opts.hadGroup and "Update Sync Group" or "Create Sync Group"))
-        cy = cy - 22 - 8
-
-        local msg = MakeFont(f, 11, 1, 1, 1, 0.6)
-        msg:SetPoint("TOP", f, "TOP", 0, cy)
-        msg:SetWidth(W - PAD * 2)
-        msg:SetJustifyH("CENTER")
-        msg:SetText(EllesmereUI.Lf("All selected profiles will keep their %1$s settings in sync: changes made on any of them carry over to the others. Choose which profile's settings the group starts from.", EllesmereUI.L(opts.displayName)))
-        cy = cy - (msg:GetStringHeight() or 42) - 14
-
-        local ddLabel = MakeFont(f, 11, 1, 1, 1, 0.5)
-        ddLabel:SetPoint("TOP", f, "TOP", 0, cy)
-        ddLabel:SetText(EllesmereUI.L("Sync settings from:"))
-        cy = cy - 16 - 6
-
-        local seedChoice = opts.defaultSeed
-        local ddValues = { _noLoc = true }  -- profile names: never translate
-        for _, name in ipairs(opts.memberOrder) do ddValues[name] = name end
-        local DD_W = 190
-        local DD_SCALE = 0.85
-        local ddVisW = math.floor(DD_W * DD_SCALE + 0.5)
-        local ddVisH = math.floor(30 * DD_SCALE + 0.5)
-        local ddHolder = CreateFrame("Frame", nil, f)
-        ddHolder:SetSize(ddVisW, ddVisH)
-        ddHolder:SetPoint("TOP", f, "TOP", 0, cy)
-        ddHolder:SetFrameLevel(f:GetFrameLevel() + 1)
-        local ddBtn = EllesmereUI.BuildDropdownControl(ddHolder, DD_W, ddHolder:GetFrameLevel() + 1,
-            ddValues, opts.memberOrder,
-            function() return seedChoice end,
-            function(v) seedChoice = v end)
-        ddBtn:SetScale(DD_SCALE)
-        ddBtn:SetPoint("TOPLEFT", ddHolder, "TOPLEFT", 0, 0)
-        -- Menu is created lazily at UIParent scale; match it to the scaled button once it exists
-        ddBtn:HookScript("OnClick", function(self)
-            if self._ddMenu and self._ddMenu:GetScale() ~= DD_SCALE then
-                self._ddMenu:SetScale(DD_SCALE)
-            end
-        end)
-        cy = cy - ddVisH - 14
-
-        if opts.hasWarning then
-            local warn = MakeFont(f, 10, 0.92, 0.3, 0.3, 1)
-            warn:SetPoint("TOP", f, "TOP", 0, cy)
-            warn:SetWidth(W - PAD * 2)
-            warn:SetJustifyH("CENTER")
-            warn:SetText(EllesmereUI.L("Position and size settings are not synced and keep each profile's own values."))
-            cy = cy - (warn:GetStringHeight() or 26) - 14
         end
 
         local function MakeBtn(label, r, g, b, a, hr, hg, hb)
@@ -645,12 +589,134 @@ do
             lbl:SetTextColor(1, 1, 1, 1); lbl:SetPoint("CENTER"); lbl:SetText(label)
             btn:SetScript("OnEnter", function() bgT:SetColorTexture(hr, hg, hb, 1) end)
             btn:SetScript("OnLeave", function() bgT:SetColorTexture(r, g, b, a) end)
+            -- Back to rest (each show starts un-hovered), in the font path given.
+            btn._reset = function(fp)
+                bgT:SetColorTexture(r, g, b, a)
+                lbl:SetFont(fp, 10, "")
+            end
             return btn
         end
 
-        local cancelBtn = MakeBtn(EllesmereUI.L("Cancel"), 0.18, 0.19, 0.22, 0.9, 0.25, 0.26, 0.3)
+        local DD_W = 190
+        local DD_SCALE = 0.85
+        local ddVisW = math.floor(DD_W * DD_SCALE + 0.5)
+        local ddVisH = math.floor(30 * DD_SCALE + 0.5)
+
+        -- The dropdown lists this call's members. Its values and order tables are the
+        -- same ones every call, so the built control keeps reading them.
+        local ui = f._ui
+        local ddValues = ui and ui.ddValues or { _noLoc = true }  -- profile names: never translate
+        local ddOrder = ui and ui.ddOrder or {}
+        local members = opts.memberOrder
+        local sameMembers = ui and #ddOrder == #members
+        if sameMembers then
+            for i = 1, #members do
+                if ddOrder[i] ~= members[i] then sameMembers = false; break end
+            end
+        end
+        if not sameMembers then
+            wipe(ddValues); wipe(ddOrder)
+            ddValues._noLoc = true
+            for i, name in ipairs(members) do
+                ddOrder[i] = name
+                ddValues[name] = name
+            end
+        end
+
+        -- Built once on the recycled frame; every call re-applies the font, texts,
+        -- positions and the buttons' actions.
+        if not ui then
+            ui = { ddValues = ddValues, ddOrder = ddOrder }
+            f._ui = ui
+            if PP then EllesmereUI.MakeBorder(f, 1, 1, 1, 0.15, PP) end
+            ui.title = MakeFont(f, 14, 1, 1, 1, 0.9)
+            ui.msg = MakeFont(f, 11, 1, 1, 1, 0.6)
+            ui.msg:SetWidth(W - PAD * 2)
+            ui.msg:SetJustifyH("CENTER")
+            ui.ddLabel = MakeFont(f, 11, 1, 1, 1, 0.5)
+
+            ui.seedChoice = opts.defaultSeed
+            local ddHolder = CreateFrame("Frame", nil, f)
+            ddHolder:SetSize(ddVisW, ddVisH)
+            ddHolder:SetFrameLevel(f:GetFrameLevel() + 1)
+            local ddBtn = EllesmereUI.BuildDropdownControl(ddHolder, DD_W, ddHolder:GetFrameLevel() + 1,
+                ddValues, ddOrder,
+                function() return ui.seedChoice end,
+                function(v) ui.seedChoice = v end)
+            ddBtn:SetScale(DD_SCALE)
+            ddBtn:SetPoint("TOPLEFT", ddHolder, "TOPLEFT", 0, 0)
+            -- Menu is created lazily at UIParent scale; match it to the scaled button once it exists
+            ddBtn:HookScript("OnClick", function(self)
+                if self._ddMenu and self._ddMenu:GetScale() ~= DD_SCALE then
+                    self._ddMenu:SetScale(DD_SCALE)
+                end
+            end)
+            ui.ddHolder, ui.ddBtn = ddHolder, ddBtn
+
+            ui.warn = MakeFont(f, 10, 0.92, 0.3, 0.3, 1)
+            ui.warn:SetWidth(W - PAD * 2)
+            ui.warn:SetJustifyH("CENTER")
+            ui.warn:SetText(EllesmereUI.L("Position and size settings are not synced and keep each profile's own values."))
+
+            ui.cancelBtn = MakeBtn(EllesmereUI.L("Cancel"), 0.172, 0.164, 0.156, 0.9, 0.231, 0.222, 0.215)
+            ui.confirmBtn = MakeBtn(EllesmereUI.L("Sync"), 0.05, 0.52, 0.39, 0.8, 0.07, 0.62, 0.49)
+        else
+            ui.seedChoice = opts.defaultSeed
+            if sameMembers then
+                ui.ddBtn._refreshLabel()
+            else
+                -- The member list changed: the next click builds the menu from it.
+                ui.ddBtn._invalidateMenu()
+            end
+        end
+
+        f:ClearAllPoints()
+        f:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
+
+        local cy = -PAD
+
+        local title = ui.title
+        title:SetFont(fontPath, 14, "")
+        title:ClearAllPoints()
+        title:SetPoint("TOP", f, "TOP", 0, cy)
+        title:SetText(EllesmereUI.L(opts.hadGroup and "Update Sync Group" or "Create Sync Group"))
+        cy = cy - 22 - 8
+
+        local msg = ui.msg
+        msg:SetFont(fontPath, 11, "")
+        msg:ClearAllPoints()
+        msg:SetPoint("TOP", f, "TOP", 0, cy)
+        msg:SetText(EllesmereUI.Lf("All selected profiles will keep their %1$s settings in sync: changes made on any of them carry over to the others. Choose which profile's settings the group starts from.", EllesmereUI.L(opts.displayName)))
+        cy = cy - (msg:GetStringHeight() or 42) - 14
+
+        local ddLabel = ui.ddLabel
+        ddLabel:SetFont(fontPath, 11, "")
+        ddLabel:ClearAllPoints()
+        ddLabel:SetPoint("TOP", f, "TOP", 0, cy)
+        ddLabel:SetText(EllesmereUI.L("Sync settings from:"))
+        cy = cy - 16 - 6
+
+        ui.ddHolder:ClearAllPoints()
+        ui.ddHolder:SetPoint("TOP", f, "TOP", 0, cy)
+        cy = cy - ddVisH - 14
+
+        local warn = ui.warn
+        if opts.hasWarning then
+            warn:SetFont(fontPath, 10, "")
+            warn:ClearAllPoints()
+            warn:SetPoint("TOP", f, "TOP", 0, cy)
+            warn:Show()
+            cy = cy - (warn:GetStringHeight() or 26) - 14
+        else
+            warn:Hide()
+        end
+
+        local cancelBtn, confirmBtn = ui.cancelBtn, ui.confirmBtn
+        cancelBtn._reset(fontPath)
+        confirmBtn._reset(fontPath)
+        cancelBtn:ClearAllPoints()
         cancelBtn:SetPoint("TOPRIGHT", f, "TOP", -6, cy)
-        local confirmBtn = MakeBtn(EllesmereUI.L("Sync"), 0.05, 0.52, 0.39, 0.8, 0.07, 0.62, 0.49)
+        confirmBtn:ClearAllPoints()
         confirmBtn:SetPoint("TOPLEFT", f, "TOP", 6, cy)
         cy = cy - 26
 
@@ -660,6 +726,7 @@ do
             f:Hide()
             if not EllesmereUIDB.syncedModules then EllesmereUIDB.syncedModules = {} end
             EllesmereUIDB.syncedModules[opts.folder] = opts.targets
+            local seedChoice = ui.seedChoice
             if seedChoice then
                 EllesmereUI.SyncModuleFromProfile(opts.folder, seedChoice, opts.targets)
             end
@@ -741,11 +808,11 @@ do
             _syncPopup:SetFrameLevel(200)
             _syncPopup:EnableMouse(true)
             local bg = _syncPopup:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints(); bg:SetColorTexture(15/255, 17/255, 22/255, 1)
+            bg:SetAllPoints(); bg:SetColorTexture(17/255, 15/255, 12/255, 1)
             _syncPopup._bg = bg
-            -- Controller cursor: born hidden, so the Show below runs its OnShow
-            -- (the click-away) on the first open too.
-            if EllesmereUI.PadInUse() then _syncPopup:Hide() end
+            -- Born hidden, so the Show below runs its OnShow (the click-away)
+            -- on the first open too.
+            _syncPopup:Hide()
             EllesmereUI.TrackOverlay(_syncPopup)
             EllesmereUI.PadHint(_syncPopup, "nodepass")
         end
@@ -753,15 +820,17 @@ do
         popup._folder = folder
         popup:SetFrameLevel(200)
 
-        -- Clean old children
-        for _, c in ipairs({popup:GetChildren()}) do c:Hide(); c:SetParent(nil) end
-        for _, r in ipairs({popup:GetRegions()}) do
-            if r ~= popup._bg then r:Hide(); r:SetParent(nil) end
-        end
-
         popup:SetSize(POPUP_W, popupH)
-        if PP then
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
+        -- The popup's border, header, profile rows (pooled by position) and action
+        -- button are built once; every open re-applies their fonts, texts, colours,
+        -- positions and actions.
+        local ui = popup._ui
+        if not ui then
+            ui = { rows = {} }
+            popup._ui = ui
+            if PP then
+                EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
+            end
         end
 
         -- Position: flush right of sidebar, centered on the sync icon, clamped
@@ -795,10 +864,21 @@ do
         local cy = -PAD
 
         -- Header: sync icon (left), title (centered), close X (right)
-        local iconTex = popup:CreateTexture(nil, "ARTWORK")
-        iconTex:SetSize(19, 19)
+        if not ui.iconTex then
+            local iconTex = popup:CreateTexture(nil, "ARTWORK")
+            iconTex:SetSize(19, 19)
+            iconTex:SetTexture(MEDIA_PATH .. "icons\\linked.png")
+            ui.iconTex = iconTex
+            ui.title = MakeFont(popup, 14, 1, 1, 1, 0.9)
+            local subtitle = MakeFont(popup, 10, 1, 1, 1, 0.45)
+            subtitle:SetWidth(POPUP_W - PAD * 2)
+            subtitle:SetJustifyH("CENTER")
+            subtitle:SetText(EllesmereUI.L("Syncing allows you to auto update all profiles whenever you change settings. This can be enabled per module."))
+            ui.subtitle = subtitle
+        end
+        local iconTex = ui.iconTex
+        iconTex:ClearAllPoints()
         iconTex:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD - 1, cy + 1)
-        iconTex:SetTexture(MEDIA_PATH .. "icons\\linked.png")
         -- Accent when this module has an active sync group, gray otherwise
         if EllesmereUI.IsModuleSynced(folder) then
             iconTex:SetVertexColor(accentColor.r, accentColor.g, accentColor.b, 1)
@@ -806,16 +886,17 @@ do
             iconTex:SetVertexColor(0.55, 0.55, 0.55, 1)
         end
 
-        local title = MakeFont(popup, 14, 1, 1, 1, 0.9)
+        local title = ui.title
+        title:SetFont(fontPath, 14, "")
+        title:ClearAllPoints()
         title:SetPoint("TOP", popup, "TOP", 0, cy - 1)
         title:SetText(EllesmereUI.Lf("%1$s Sync", EllesmereUI.L(displayName)))
         cy = cy - HEADER_H - 7
 
-        local subtitle = MakeFont(popup, 10, 1, 1, 1, 0.45)
+        local subtitle = ui.subtitle
+        subtitle:SetFont(fontPath, 10, "")
+        subtitle:ClearAllPoints()
         subtitle:SetPoint("TOP", popup, "TOP", 0, cy)
-        subtitle:SetWidth(POPUP_W - PAD * 2)
-        subtitle:SetJustifyH("CENTER")
-        subtitle:SetText(EllesmereUI.L("Syncing allows you to auto update all profiles whenever you change settings. This can be enabled per module."))
         cy = cy - SUBTITLE_H - 14
 
         -- Toggle rows for every profile (the active one included)
@@ -823,6 +904,9 @@ do
         local toggleState = {}
         local hadGroup = next(currentSynced) ~= nil
         local refreshSyncBtnLabel  -- defined with the button below
+        -- The pooled rows' toggles and clicks read and write this open's state.
+        popup._toggleState = toggleState
+        popup._refreshLabel = nil
 
         local accentHex = string.format("%02x%02x%02x",
             math.floor(accentColor.r * 255 + 0.5),
@@ -830,41 +914,61 @@ do
             math.floor(accentColor.b * 255 + 0.5))
 
         local BuildToggleControl = EllesmereUI.BuildToggleControl
-        for _, profName in ipairs(allProfiles) do
-            -- Card-style row: label left, toggle right, whole row clickable
-            local row = CreateFrame("Button", nil, popup)
-            row:SetSize(POPUP_W - PAD * 2, ROW_H)
-            row:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, cy)
-            row:SetFrameLevel(popup:GetFrameLevel() + 1)
-            local rowBg = row:CreateTexture(nil, "BACKGROUND")
-            rowBg:SetAllPoints()
-            rowBg:SetColorTexture(1, 1, 1, 0.05)
-
+        local rows = ui.rows
+        for i, profName in ipairs(allProfiles) do
             local isSynced = currentSynced[profName] == true
             toggleState[profName] = isSynced
 
-            local tg, _, tgSnap = BuildToggleControl(row, row:GetFrameLevel() + 1,
-                function() return toggleState[profName] end,
-                function(v)
-                    toggleState[profName] = v
-                    if refreshSyncBtnLabel then refreshSyncBtnLabel() end
-                end,
-                { sizeRatio = 0.75 })
-            tg:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+            -- Card-style row: label left, toggle right, whole row clickable
+            local row = rows[i]
+            if not row then
+                row = CreateFrame("Button", nil, popup)
+                row:SetFrameLevel(popup:GetFrameLevel() + 1)
+                local rowBg = row:CreateTexture(nil, "BACKGROUND")
+                rowBg:SetAllPoints()
+                rowBg:SetColorTexture(1, 1, 1, 0.05)
+                row._bg = rowBg
+                row._profName = profName
 
-            row:SetScript("OnClick", function()
-                toggleState[profName] = not toggleState[profName]
-                tgSnap(toggleState[profName])
-                if refreshSyncBtnLabel then refreshSyncBtnLabel() end
-            end)
-            row:SetScript("OnEnter", function() rowBg:SetColorTexture(1, 1, 1, 0.08) end)
-            row:SetScript("OnLeave", function() rowBg:SetColorTexture(1, 1, 1, 0.05) end)
-            -- Toggle hover fires the row's OnLeave (child frame); keep the card lit
-            tg:HookScript("OnEnter", function() rowBg:SetColorTexture(1, 1, 1, 0.08) end)
-            tg:HookScript("OnLeave", function() rowBg:SetColorTexture(1, 1, 1, 0.05) end)
+                local tg, _, tgSnap = BuildToggleControl(row, row:GetFrameLevel() + 1,
+                    function() return popup._toggleState[row._profName] end,
+                    function(v)
+                        popup._toggleState[row._profName] = v
+                        if popup._refreshLabel then popup._refreshLabel() end
+                    end,
+                    { sizeRatio = 0.75 })
+                tg:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+                row._tg, row._tgSnap = tg, tgSnap
 
-            local lblText = MakeFont(row, 12, 1, 1, 1, 0.85)
-            lblText:SetPoint("LEFT", row, "LEFT", 10, 0)
+                row:SetScript("OnClick", function(self)
+                    local state = popup._toggleState
+                    state[self._profName] = not state[self._profName]
+                    self._tgSnap()
+                    if popup._refreshLabel then popup._refreshLabel() end
+                end)
+                row:SetScript("OnEnter", function() rowBg:SetColorTexture(1, 1, 1, 0.08) end)
+                row:SetScript("OnLeave", function() rowBg:SetColorTexture(1, 1, 1, 0.05) end)
+                -- Toggle hover fires the row's OnLeave (child frame); keep the card lit
+                tg:HookScript("OnEnter", function() rowBg:SetColorTexture(1, 1, 1, 0.08) end)
+                tg:HookScript("OnLeave", function() rowBg:SetColorTexture(1, 1, 1, 0.05) end)
+
+                local lblText = MakeFont(row, 12, 1, 1, 1, 0.85)
+                lblText:SetPoint("LEFT", row, "LEFT", 10, 0)
+                row._lbl = lblText
+                rows[i] = row
+            end
+            row._profName = profName
+            row:SetSize(POPUP_W - PAD * 2, ROW_H)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, cy)
+            row:SetFrameLevel(popup:GetFrameLevel() + 1)
+            row._tg:SetFrameLevel(row:GetFrameLevel() + 1)
+            row._bg:SetColorTexture(1, 1, 1, 0.05)
+            row._tgSnap()
+            row:Show()
+
+            local lblText = row._lbl
+            lblText:SetFont(fontPath, 12, "")
             if profName == active then
                 lblText:SetText(profName .. " |cff" .. accentHex .. "(active)|r")
             else
@@ -873,24 +977,31 @@ do
 
             cy = cy - ROW_H - ROW_GAP
         end
+        for i = #allProfiles + 1, #rows do rows[i]:Hide() end
 
         cy = cy - (16 - ROW_GAP)
 
         -- Action button: full-width accent outline; label tracks the toggle state
-        local syncBtn = CreateFrame("Button", nil, popup)
+        if not ui.syncBtn then
+            local syncBtn = CreateFrame("Button", nil, popup)
+            syncBtn:SetFrameLevel(popup:GetFrameLevel() + 1)
+            local sBg = syncBtn:CreateTexture(nil, "BACKGROUND")
+            sBg:SetAllPoints()
+            local sBrd
+            if PP then
+                sBrd = EllesmereUI.MakeBorder(syncBtn, accentColor.r, accentColor.g, accentColor.b, 0.7, PP)
+            end
+            local sLbl = syncBtn:CreateFontString(nil, "OVERLAY")
+            if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(sLbl, false) end
+            sLbl:SetPoint("CENTER")
+            ui.syncBtn, ui.sBg, ui.sBrd, ui.sLbl = syncBtn, sBg, sBrd, sLbl
+        end
+        local syncBtn, sBg, sBrd, sLbl = ui.syncBtn, ui.sBg, ui.sBrd, ui.sLbl
         syncBtn:SetSize(POPUP_W - PAD * 2, 30)
+        syncBtn:ClearAllPoints()
         syncBtn:SetPoint("TOP", popup, "TOP", 0, cy)
         syncBtn:SetFrameLevel(popup:GetFrameLevel() + 1)
-        local sBg = syncBtn:CreateTexture(nil, "BACKGROUND")
-        sBg:SetAllPoints()
-        local sBrd
-        if PP then
-            sBrd = EllesmereUI.MakeBorder(syncBtn, accentColor.r, accentColor.g, accentColor.b, 0.7, PP)
-        end
-        local sLbl = syncBtn:CreateFontString(nil, "OVERLAY")
-        if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(sLbl, false) end
         sLbl:SetFont(fontPath, 11, "")
-        sLbl:SetPoint("CENTER")
 
         -- Grayed out until the toggles actually differ from the saved group
         local function ApplyBtnState(dirty)
@@ -929,10 +1040,11 @@ do
             end
             ApplyBtnState(dirty)
         end
+        popup._refreshLabel = refreshSyncBtnLabel
         refreshSyncBtnLabel()
 
         local function RefreshSidebarSyncIcon()
-            local sidebarBtns = EllesmereUI._sidebarButtons
+            local sidebarBtns = EUI_NS.sidebarButtons
             if sidebarBtns and sidebarBtns[folder] and sidebarBtns[folder]._syncBtn then
                 local sb = sidebarBtns[folder]._syncBtn
                 if sb._refreshAlpha then sb._refreshAlpha() end

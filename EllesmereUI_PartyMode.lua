@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUI_PartyMode.lua
---  Full-screen disco spotlight overlay — toggled from Global Settings.
+--  Full-screen disco spotlight overlay -- toggled from Global Settings.
 --  Cone-shaped beams shine down from the top of the screen like stage
 --  spotlights. Each beam uses 3 overlapping layers (wide dim outer,
 --  medium mid, narrow bright core) to create the cone/spotlight look.
@@ -11,11 +11,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Beams are extra tall so edges never show at screen bottom.
 --
 --  Performance:
---    • Zero CPU when disabled — container hidden, OnUpdate doesn't fire.
---    • OnUpdate throttled to ~30fps.
---    • Screen dimensions cached; refreshed on resize.
+--    - Zero CPU when disabled -- container hidden, OnUpdate doesn't fire.
+--    - OnUpdate throttled to ~30fps.
+--    - Screen dimensions cached; refreshed on resize.
 --
---  Shared across all EllesmereUI addons — only the first to load runs.
+--  Shared across all EllesmereUI addons -- only the first to load runs.
 -------------------------------------------------------------------------------
 if _G._EllesmereUIPartyModeLoaded then return end
 _G._EllesmereUIPartyModeLoaded = true
@@ -43,7 +43,7 @@ local math_pi     = math.pi
 local math_rad    = math.rad
 
 -------------------------------------------------------------------------------
---  Keybind registration (pure Lua — no Bindings.xml needed)
+--  Keybind registration (pure Lua -- no Bindings.xml needed)
 --  Uses a hidden button + SetOverrideBindingClick. Only the first addon
 --  to load creates the button; subsequent addons skip if it already exists.
 --  The bound key is saved in EllesmereUIDB.partyModeKey (nil = unbound).
@@ -78,6 +78,8 @@ function EllesmereUI_ApplyDimLights()
     if dimLightsActive then return end
     savedContrast = tonumber(GetCVar("contrast")) or 50
     savedBrightness = tonumber(GetCVar("brightness")) or 50
+    -- Plain SetCVar: graphics settings stay out of Uninstall EUI's record (this
+    -- puts them back itself, on toggle-off and at logout).
     SetCVar("contrast", math.max(0, math.min(100, savedContrast + 14)))
     SetCVar("brightness", math.max(0, savedBrightness - (savedBrightness - 10) * 0.7))
     dimLightsActive = true
@@ -91,7 +93,7 @@ function EllesmereUI_RestoreDimLights()
 end
 
 -------------------------------------------------------------------------------
---  Beam definitions — 12 beams
+--  Beam definitions -- 12 beams
 --  Each beam gets 3 layers: wide outer glow, medium mid, narrow core
 --  This creates the cone/spotlight spread effect
 --
@@ -104,9 +106,9 @@ end
 --  brightness, hue, phaseOff: visual tuning
 -------------------------------------------------------------------------------
 local BEAM_DEFS = {
-    -- Far left edge — steep inward angle
+    -- Far left edge -- steep inward angle
     { originX=-0.65, baseAngle=-60, sweepDeg=20, sweepSpeed=1.6, width=0.10, brightness=0.90, hue=0.00, phaseOff=0.0 },
-    -- Left — moderate inward
+    -- Left -- moderate inward
     { originX=-0.40, baseAngle=-35, sweepDeg=22, sweepSpeed=2.0, width=0.10, brightness=0.85, hue=0.12, phaseOff=1.8 },
     -- Left-center
     { originX=-0.20, baseAngle=-18, sweepDeg=18, sweepSpeed=1.8, width=0.10, brightness=0.90, hue=0.25, phaseOff=3.5 },
@@ -120,13 +122,13 @@ local BEAM_DEFS = {
     { originX= 0.25, baseAngle= 20, sweepDeg=20, sweepSpeed=1.9, width=0.10, brightness=0.85, hue=0.72, phaseOff=4.1 },
     -- Right
     { originX= 0.40, baseAngle= 35, sweepDeg=22, sweepSpeed=2.3, width=0.10, brightness=0.85, hue=0.82, phaseOff=5.8 },
-    -- Far right edge — steep inward angle
+    -- Far right edge -- steep inward angle
     { originX= 0.65, baseAngle= 60, sweepDeg=20, sweepSpeed=1.6, width=0.10, brightness=0.90, hue=0.92, phaseOff=1.3 },
     -- Extra center fill
     { originX=-0.10, baseAngle=-10, sweepDeg=16, sweepSpeed=2.4, width=0.10, brightness=0.80, hue=0.45, phaseOff=3.0 },
-    -- Far top-left gap filler — steep inward
+    -- Far top-left gap filler -- steep inward
     { originX=-0.50, baseAngle=-48, sweepDeg=18, sweepSpeed=1.8, width=0.10, brightness=0.88, hue=0.06, phaseOff=4.6 },
-    -- Far top-right gap filler — steep inward
+    -- Far top-right gap filler -- steep inward
     { originX= 0.50, baseAngle= 48, sweepDeg=18, sweepSpeed=1.8, width=0.10, brightness=0.88, hue=0.88, phaseOff=2.0 },
 }
 local NUM_BEAMS = #BEAM_DEFS
@@ -400,7 +402,7 @@ EllesmereUI:RegisterOnShow(OnSettingsOpen)
 EllesmereUI:RegisterOnHide(OnSettingsClose)
 
 -------------------------------------------------------------------------------
---  Init frame — handles PLAYER_LOGIN, events, PLAYER_LOGOUT
+--  Init frame -- handles PLAYER_LOGIN, events, PLAYER_LOGOUT
 -------------------------------------------------------------------------------
 -- Bloodlust celebration trigger: same player-only Sated/Exhaustion debuff edge
 -- detection used by the CDM lust bar. Fires a celebration the instant lust goes
@@ -590,12 +592,15 @@ end)
 --  default 120), collect() -> { { pivot = frame, frames = {...} }, ... }
 --  (runs about once a second while spinning, so it reuses its tables), and
 --  optional onClaim() (idempotent, same cadence) and onRestore().
+--  opts.homeInCombat: members go home as each fight starts instead of
+--  freezing mid-orbit (frames clicked in combat: party and raid frames).
 --  EllesmereUI.PartySpin_RefreshAll() re-applies every engine.
 --  A SetPoint post-hook marks a member dirty when its module re-anchors it.
 --  Pauses in combat and while Unlock Mode is open (members go home to drag).
 -------------------------------------------------------------------------------
 do
-local SPIN_TARGETS = { "actionBars", "dataBars", "unitFrames", "resource", "power" }
+local SPIN_TARGETS = { "actionBars", "dataBars", "unitFrames", "resource", "power",
+                       "partyFrames", "raidFrames" }
 
 -- EllesmereUIDB.partyModeSpinBars: nil / false = nothing spins, true = Action
 -- Bars only, a table = one boolean per target. Every reader comes through
@@ -667,7 +672,9 @@ local function Measure(f, rec)
     rec.w, rec.h = f:GetWidth(), f:GetHeight()
     local cx, cy = f:GetCenter()
     local px, py = rec.pivot:GetCenter()
-    if not (cx and px) then rec.dx = nil; return end
+    -- No rect yet: Tick retries it on rec.dx. Left dirty, it would make the
+    -- settle pass restore the whole set every frame.
+    if not (cx and px) then rec.dx, rec.dirty = nil, false; return end
     local fs, ps = f:GetEffectiveScale(), rec.pivot:GetEffectiveScale()
     rec.dx, rec.dy = cx * fs - px * ps, cy * fs - py * ps
     rec.dirty = false
@@ -697,7 +704,7 @@ EllesmereUI.PartySpin_RefreshAll = RefreshAll
 
 function EllesmereUI.PartySpin_Create(opts)
     local target = opts.target
-    local driver
+    local driver, combatWatch
     local angle, held, since, claimed = 0, false, 0, false
     local members = {}     -- frame -> its recOf record
     local order = {}       -- array of frames (stable iteration)
@@ -712,7 +719,24 @@ function EllesmereUI.PartySpin_Create(opts)
         end
         wipe(members); wipe(order)
         claimed = false
+        if combatWatch then combatWatch:UnregisterEvent("PLAYER_REGEN_DISABLED") end
         if opts.onRestore then opts.onRestore() end
+    end
+
+    -- InCombatLockdown() already reports true at PLAYER_REGEN_DISABLED, but
+    -- protected writes stay legal until its handler returns (the DataBars
+    -- tooltip host relies on the same window). Registered only while claimed.
+    local function WatchCombat()
+        if not opts.homeInCombat then return end
+        if not combatWatch then
+            combatWatch = CreateFrame("Frame")
+            combatWatch:SetScript("OnEvent", function()
+                if not claimed then return end
+                RestoreAll()
+                angle, held = 0, true
+            end)
+        end
+        combatWatch:RegisterEvent("PLAYER_REGEN_DISABLED")
     end
 
     local function Claim()
@@ -736,7 +760,8 @@ function EllesmereUI.PartySpin_Create(opts)
                             rec.pivot = pivot
                             members[f] = rec
                             order[#order + 1] = f
-                            Measure(f, rec)
+                            -- Measured by the next tick, with the set at rest.
+                            rec.dirty = true
                         end
                     end
                 end
@@ -752,18 +777,38 @@ function EllesmereUI.PartySpin_Create(opts)
             end
         end
         wipe(seen)
+        WatchCombat()
         if opts.onClaim then opts.onClaim() end
     end
 
     local function Tick(c, s)
         guardDepth = guardDepth + 1
+        -- Settle: re-anchored or new members are measured with every other
+        -- member back on its rest anchors. Header buttons anchor to each other,
+        -- so one still mid-orbit would skew the next one's rest.
+        local settle = false
+        for i = 1, #order do
+            if members[order[i]].dirty then settle = true; break end
+        end
+        if settle then
+            for i = 1, #order do
+                local f = order[i]
+                local rec = members[f]
+                if not rec.dirty then Restore(f, rec) end
+            end
+            for i = 1, #order do
+                local f = order[i]
+                local rec = members[f]
+                if rec.dirty then Measure(f, rec) end
+            end
+        end
         -- Members come grouped by pivot, so each pivot is read once a tick.
         local lastPivot, px, py, ps
         for i = 1, #order do
             local f = order[i]
             local rec = members[f]
-            -- The module just re-anchored it: that IS rest.
-            if rec.dirty or not rec.dx then Measure(f, rec) end
+            -- No position yet: retry.
+            if not rec.dx then Measure(f, rec) end
             local pivot = rec.pivot
             if pivot ~= lastPivot then
                 lastPivot = pivot

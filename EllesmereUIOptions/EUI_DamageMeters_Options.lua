@@ -2,7 +2,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_DamageMeters_Options.lua
 --  Options page for EllesmereUI Damage Meters.
---  All settings are live (no Edit Mode, no reload required).
+--  All settings are live (no Edit Mode, no reload required), except the WoW
+--  Forever look's Border Style, latched with the look (reload popup).
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUIDamageMeters"]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
@@ -34,7 +35,8 @@ initFrame:SetScript("OnEvent", function(self)
     local function Set(k, v) DB()[k] = v     end
 
     -- All settings are picked up on the next refresh cycle (0.3s combat,
-    -- 2s idle). Just Set() and go.
+    -- 2s idle). Just Set() and go -- except the WoW Forever look's Border
+    -- Style, which asks for a reload.
 
     -- Shared capture button for both damage meter hotkeys (reset data, show/hide
     -- windows). Returns the button so the caller can anchor its cog to it.
@@ -287,12 +289,38 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Reset Data Keybind (+ inline cog: hide reset button) | (free). Refresh Rate and
-        -- its "(seconds)" suffix moved up to the Visibility row.
+        -- Reset Data Keybind (+ inline cog: hide reset button) | (free; on the WoW
+        -- Forever look its window Border Style). Refresh Rate and its "(seconds)"
+        -- suffix moved up to the Visibility row. The Border Style is latched with
+        -- the look (the windows are built with its insets), so picking another kind
+        -- than the latched one asks for a reload; Slim Textured (Blizzard's live
+        -- art) is the default and reads for an unset value, each pick is saved,
+        -- and a kind this client has no art for draws Slim
+        -- (EllesmereUI.ForeverBorderKind).
+        local fvBorderCfg = EllesmereUI.BlizzStyle.Forever("damagemeters") and
+            { type="dropdown", text="Border Style",
+              tooltip="WoW Forever's frame round the meter windows, the breakdown, Spell History and the Forever Essentials threat meter. Slim Textured uses Blizzard's current art; a style whose art this client lacks draws Slim. Applies after a UI reload.",
+              values = { slim = "Slim", textured = "Slim Textured", heavy = "Heavy Bronze" },
+              order  = { "slim", "textured", "heavy" },
+              getValue = function()
+                  local v = Cfg("foreverBorder")
+                  return (v == "slim" or v == "heavy") and v or "textured"
+              end,
+              setValue = function(v)
+                  Set("foreverBorder", v)
+                  if EllesmereUI.ForeverBorderKind(v) == ns.DMFvKind() then return end
+                  EllesmereUI:ShowConfirmPopup({
+                      title       = "Reload Required",
+                      message     = "Border Style changed. A UI reload is needed to apply it.",
+                      confirmText = "Reload Now",
+                      cancelText  = "Later",
+                      reload      = true,
+                  })
+              end }
         local rrRow
         rrRow, h = W:DualRow(parent, y,
             { type="label", text="Reset Data Keybind" },
-            { type="label", text="" })
+            fvBorderCfg or { type="label", text="" })
         -- "(seconds)" suffix for Refresh Rate, which lives in the Visibility row's right
         -- slot -- not this row.
         do
@@ -1175,23 +1203,36 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(refreshLeft)
             refreshLeft()
 
-            -- Inline cog: left text X/Y offsets (live via ns.ApplyBarTextOffsets)
+            -- Inline cog: left text X/Y offsets (live via ns.ApplyBarTextOffsets).
+            -- WoW Forever heads it with the Name Format (a player's first or
+            -- last name; in combat other players' names are secret and show whole).
+            local leftRows = {
+                { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
+                  get = function() return Cfg("leftTextOffsetX") or 0 end,
+                  set = function(v)
+                      Set("leftTextOffsetX", v)
+                      if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
+                  end },
+                { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
+                  get = function() return Cfg("leftTextOffsetY") or 0 end,
+                  set = function(v)
+                      Set("leftTextOffsetY", v)
+                      if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
+                  end },
+            }
+            if EllesmereUI.IS_FOREVER then
+                local nameFormat = EllesmereUI.NameFormatCogRow(
+                    function() return Cfg("nameFormat") end,
+                    function(v)
+                        Set("nameFormat", v)
+                        ns.RefreshNames()
+                    end)
+                nameFormat.tooltip = "Other players' names show in full during combat."
+                table.insert(leftRows, 1, nameFormat)
+            end
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Left Text",
-                rows = {
-                    { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
-                      get = function() return Cfg("leftTextOffsetX") or 0 end,
-                      set = function(v)
-                          Set("leftTextOffsetX", v)
-                          if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
-                      end },
-                    { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
-                      get = function() return Cfg("leftTextOffsetY") or 0 end,
-                      set = function(v)
-                          Set("leftTextOffsetY", v)
-                          if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
-                      end },
-                },
+                rows = leftRows,
                 anchorTo = classSwatch, chain = false,
             })
         end
@@ -1744,7 +1785,9 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return SHDB().hideTopBar end,
               setValue = function(v) SHDB().hideTopBar = v; RefreshSH() end }
         );  y = y - h
-        do
+        -- Background colour swatch on the opacity slider; none in the search
+        -- pre-build (it indexes nothing, and the row is a stand-in there)
+        if not EllesmereUI._prebuilding then
             local rgn = bgRow._leftRegion
             local ctrl = rgn._control
             local swatch, swatchRefresh = EllesmereUI.BuildColorSwatch(

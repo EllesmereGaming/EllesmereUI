@@ -208,8 +208,8 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
     ); y = y - h
 
     -- Row 5: Show Calc Button on Character Sheet | Open with Crest Upgrader.
-    -- The button is a tab on the EllesmereUI character sheet: gated while a
-    -- stock character sheet style (Style page) keeps Blizzard's tab row.
+    -- The button is a tab on the EllesmereUI character sheet: gated while the
+    -- sheet's Blizz Default (Window Skins card) keeps Blizzard's tab row.
     local calcBtnCfg = { type = "toggle", text = "Show Calc Button on Character Sheet",
           tooltip = "Adds a Calc toggle button to the character sheet that opens and closes the Upgrade Calculator.",
           getValue = function() return GetAddonDB().showCalcButton or false end,
@@ -219,7 +219,12 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
                   EllesmereUI.ApplyCharSheetCalcTab()
               end
           end }
-    if EllesmereUI.BlizzStyle then EllesmereUI.BlizzStyle.Gate("charsheet", calcBtnCfg) end
+    local skinNS = EllesmereUI._ModuleNS and EllesmereUI._ModuleNS.EllesmereUIBlizzardSkin
+    if skinNS and skinNS.CharSheetStock() then
+        calcBtnCfg.disabled        = function() return true end
+        calcBtnCfg.disabledTooltip = "Character Sheet: Blizz Default"
+        calcBtnCfg.requireState    = "disabled"
+    end
     _, h = W:DualRow(parent, y,
         calcBtnCfg,
         { type = "toggle", text = "Open with Crest Upgrader",

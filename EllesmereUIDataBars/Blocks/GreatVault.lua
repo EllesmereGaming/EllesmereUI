@@ -315,7 +315,7 @@ ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
     button:RegisterForClicks("AnyUp")
 
     local icon = button:CreateTexture(nil, "OVERLAY")
-    icon:SetTexture(ns.MICROMENU_MEDIA .. "menu-vault.png")
+    K.SetBlockIcon(icon, blockCfg)
     local label = button:CreateFontString(nil, "OVERLAY")
     AttachTextOffset(inst, label)
 
