@@ -2263,10 +2263,11 @@ do
             -- off under secrecy, so the cooldown is painted from here directly.
             -- Blizzard's own SLOT_CHANGED registration reaches it untainted as
             -- well (the broadcaster quieting keeps that one); the slot refresh
-            -- here is our painter's pass on top of it.
+            -- here is our painter's pass on top of it. Gated on Blizzard's own
+            -- answer: the button itself is created shown and only its bar hides.
             if event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "ACTIONBAR_SLOT_CHANGED" then
                 local eab1 = ExtraActionButton1
-                if eab1 and eab1:IsShown() then
+                if eab1 and C_ActionBar.HasExtraActionBar() then
                     if event == "ACTIONBAR_SLOT_CHANGED" then
                         local action = eab1:GetAttribute("action")
                         if action and (arg1 == 0 or arg1 == action) then
@@ -2277,6 +2278,20 @@ do
                     else
                         ForceCooldownPaint(eab1)
                     end
+                end
+            end
+            -- WoW Forever never adds the tick set back, so a shown vehicle or
+            -- override bar takes its cooldowns from here too.
+            if event == "ACTIONBAR_UPDATE_COOLDOWN" and EllesmereUI.IS_FOREVER then
+                local ob = OverrideActionBar
+                if ob and ob:IsShown() then
+                    local list = ns._abOverrideBtns
+                    if not list then
+                        list = { ob.SpellButton1, ob.SpellButton2, ob.SpellButton3,
+                                 ob.SpellButton4, ob.SpellButton5, ob.SpellButton6 }
+                        ns._abOverrideBtns = list
+                    end
+                    for i = 1, #list do ForceCooldownPaint(list[i]) end
                 end
             end
 

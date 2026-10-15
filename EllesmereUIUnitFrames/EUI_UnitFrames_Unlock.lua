@@ -133,6 +133,7 @@ local function RegisterUFUnlockElements()
                     local unit = (k == "boss") and "boss1" or k
                     local s = GetSettingsForUnit(unit)
                     if not s then return end
+                    local oldW = s.frameWidth
                     local wPStyle = s.portraitStyle or db.profile.portraitStyle or "attached"
                     local showPortrait = wPStyle ~= "none" and s.showPortrait ~= false
                     local isAttached = wPStyle == "attached"
@@ -148,6 +149,10 @@ local function RegisterUFUnlockElements()
                     else
                         s.frameWidth = math.max(PP.Snap(w), 50)
                     end
+                    -- A size match re-applied at the width the frame already has
+                    -- (the settle pass re-runs every match after any anchored
+                    -- element resizes) leaves nothing to rebuild.
+                    if EllesmereUI._propagatingMatch and s.frameWidth == oldW then return end
                     Rebuild()
                 end,
                 setHeight = function(k, h)
@@ -164,7 +169,9 @@ local function RegisterUFUnlockElements()
                     local btbPos = s.btbPosition or "bottom"
                     local btbIsAtt = (btbPos == "top" or btbPos == "bottom")
                     local btbH = (s.bottomTextBar and btbIsAtt) and (s.bottomTextBarHeight or 16) or 0
+                    local oldH = s.healthHeight
                     s.healthHeight = math.max(PP.Snap(h - powerH - btbH), 8)
+                    if EllesmereUI._propagatingMatch and s.healthHeight == oldH then return end
                     Rebuild()
                 end,
                 loadPos = function(k)

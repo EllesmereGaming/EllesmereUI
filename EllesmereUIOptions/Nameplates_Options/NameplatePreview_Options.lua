@@ -2135,9 +2135,7 @@ local function BuildNameplatePreview(parent, parentW)
         for i = 1, PV_CONST.BUFF_COUNT do
             if buffSlotVal == "none" then
                 buffs[i]:Hide()
-                if buffs[i].dispelGlow and buffs[i].dispelGlow.active then
-                    ns.StopDispelGlow(buffs[i])
-                end
+                ns.NPC_PreviewBorder(buffs[i], nil, nil, false)
             else
                 buffs[i]:Show()
                 buffs[i]:SetSize(Snap(buffSz), Snap(buffH))
@@ -2146,16 +2144,9 @@ local function BuildNameplatePreview(parent, parentW)
                 buffs[i].durationText:SetTextColor(buffDurC.r, buffDurC.g, buffDurC.b, 1)
                 ApplyTimerPos(buffs[i].durationText, buffs[i], buffTPos, buffDurSz, buffDurX, buffDurY, buffDurC)
                 PlaceInSlot(buffs[i], buffSlotVal, i, PV_CONST.BUFF_COUNT, buffSz, buffH, buffSpacing, buffXOff, buffYOff)
-                -- Dispel glow preview (always stop first to pick up color/style changes)
-                local previewType = PreviewDispelType()
-                if DBVal("dispelGlow") == true and previewType then
-                    if buffs[i].dispelGlow and buffs[i].dispelGlow.active then
-                        ns.StopDispelGlow(buffs[i])
-                    end
-                    ns.StartDispelGlow(buffs[i], buffSz, previewType, buffH)
-                elseif buffs[i].dispelGlow and buffs[i].dispelGlow.active then
-                    ns.StopDispelGlow(buffs[i])
-                end
+                -- Show Glow preview: the border the live buff row draws.
+                ns.NPC_PreviewBorder(buffs[i], buffSz, buffH,
+                    DBVal("dispelGlow") == true and PreviewDispelType() ~= nil)
             end
         end
 

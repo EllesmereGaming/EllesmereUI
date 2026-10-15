@@ -2091,6 +2091,10 @@ local function ChatAtTarget(cf1, n)
     return true
 end
 
+-- Deferred pass that rewrites a foreign-form saved position as BOTTOMLEFT once
+-- the rect resolves (defined after ApplyChatPosition, which arms it).
+local CanonicalizeChatPosition
+
 local function ApplyChatPosition()
     -- A grip resize is an engine-driven op on ChatFrame1; the op re-anchors
     -- the frame, Edit Mode's machinery reacts with ApplySystemAnchor, and
@@ -2157,23 +2161,12 @@ local function ApplyChatPosition()
             SetFramePoint(cf1, t.point, UIParent, t.relPoint, t.x, t.y)
         end
     end
-    if sizeLane and (not composed or point ~= "BOTTOMLEFT") then
+    if sizeLane and (not composed or point ~= "BOTTOMLEFT") and not ns._chatCanonPending then
         -- Canonicalize foreign forms to BOTTOMLEFT once the rect resolves,
-        -- so every later apply composes on the fast path.
-        C_Timer.After(0, function()
-            local cfg2 = ECHAT.DB()
-            if not cfg2 or not cfg2.chatPosition or ns._chatSizingActive then return end
-            -- A rect pinned under other clamp insets is not where the anchors
-            -- put it: never save that spot. Re-anchor; that apply schedules
-            -- this pass again.
-            EnsureChatClampInsets()
-            if ns._chatReanchor then ApplyChatPosition() return end
-            local l, b = cf1:GetLeft(), cf1:GetBottom()
-            local issecret = _G.issecretvalue
-            if not (l and b) or (issecret and (issecret(l) or issecret(b))) then return end
-            cfg2.chatPosition = { point = "BOTTOMLEFT", relPoint = "BOTTOMLEFT", x = l, y = b }
-            ApplyChatPosition()
-        end)
+        -- so every later apply composes on the fast path. One pass pending at
+        -- a time: every apply in between lands in the same pass.
+        ns._chatCanonPending = true
+        C_Timer.After(0, CanonicalizeChatPosition)
     end
     -- The visible stack follows numerically; sync it now rather than at the
     -- next event so drags and guard re-applies land in one motion.
@@ -2195,6 +2188,39 @@ local function ApplyChatPosition()
     -- is installed at the first settled sight).
     if CFD(cf1).anchorGuarded then ScheduleChatStoreSync() end
 end
+CanonicalizeChatPosition = function()
+    ns._chatCanonPending = nil
+    local cf1 = _G.ChatFrame1
+    local cfg2 = ECHAT.DB()
+    if not cf1 or not cfg2 or not cfg2.chatPosition or ns._chatSizingActive then
+        ns._chatCanonLaps = nil
+        return
+    end
+    -- A rect pinned under other clamp insets is not where the anchors put it:
+    -- never save that spot. Re-anchor and try again next tick, at most twice:
+    -- Edit Mode re-seats the insets from its selection box on its own layout
+    -- passes, so a lap that keeps finding them moved would otherwise run every
+    -- frame forever. Stopping keeps the saved form, which every apply still
+    -- places; the next apply from elsewhere tries again.
+    EnsureChatClampInsets()
+    if ns._chatReanchor then
+        local laps = (ns._chatCanonLaps or 0) + 1
+        if laps > 2 then
+            ns._chatCanonLaps = nil
+            return
+        end
+        ns._chatCanonLaps = laps
+        ApplyChatPosition()
+        return
+    end
+    ns._chatCanonLaps = nil
+    local l, b = cf1:GetLeft(), cf1:GetBottom()
+    local issecret = _G.issecretvalue
+    if not (l and b) or (issecret and (issecret(l) or issecret(b))) then return end
+    cfg2.chatPosition = { point = "BOTTOMLEFT", relPoint = "BOTTOMLEFT", x = l, y = b }
+    ApplyChatPosition()
+end
+
 ECHAT.ApplyChatPosition = ApplyChatPosition
 ns._EMChatSizeDelta = EMChatSizeDelta
 

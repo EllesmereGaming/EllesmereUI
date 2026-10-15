@@ -1421,13 +1421,38 @@ function EllesmereUI.RefreshMacroFactory()
     end
 end
 
+-- A spec change only matters to what the options panel shows: the Macro
+-- Factory section's suggestions and the open page's spec-dependent controls.
+-- So the watcher listens only while the panel is shown, to the player's own
+-- spec alone, and an open catches up on a change made while it was closed.
 EllesmereUI._macroSpecWatcher = EllesmereUI._macroSpecWatcher or CreateFrame("Frame")
 EllesmereUI._macroSpecWatcher:UnregisterAllEvents()
-EllesmereUI._macroSpecWatcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-EllesmereUI._macroSpecWatcher:SetScript("OnEvent", function()
-    EllesmereUI.RefreshMacroFactory()
-    -- Also re-run the active page's in-place widget refreshers so other
-    -- spec-dependent controls update, as the old per-build event frame did.
-    -- No-arg (fast path) => re-reads values only, no frame teardown, no flash.
-    EllesmereUI:RefreshPage()
-end)
+do
+    local watcher = EllesmereUI._macroSpecWatcher
+    local seenSpecID
+    local function CurrentSpecID()
+        local idx = C_SpecializationInfo.GetSpecialization()
+        return idx and C_SpecializationInfo.GetSpecializationInfo(idx) or nil
+    end
+    local function OnSpecChanged()
+        seenSpecID = CurrentSpecID()
+        EllesmereUI.RefreshMacroFactory()
+        -- Also re-run the active page's in-place widget refreshers so other
+        -- spec-dependent controls update, as the old per-build event frame did.
+        -- No-arg (fast path) => re-reads values only, no frame teardown, no flash.
+        EllesmereUI:RefreshPage()
+    end
+    watcher:SetScript("OnEvent", OnSpecChanged)
+    EllesmereUI:RegisterOnShow(function()
+        watcher:RegisterUnitEvent("PLAYER_SPECIALIZATION_CHANGED", "player")
+        -- The first open builds its pages for the current spec already.
+        if seenSpecID ~= nil and CurrentSpecID() ~= seenSpecID then
+            OnSpecChanged()
+        else
+            seenSpecID = CurrentSpecID()
+        end
+    end)
+    EllesmereUI:RegisterOnHide(function()
+        watcher:UnregisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    end)
+end

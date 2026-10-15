@@ -1132,6 +1132,26 @@ do
         "UPDATE_BINDINGS", "GAME_PAD_ACTIVE_CHANGED", "PET_BAR_UPDATE",
         "UNIT_FLAGS", "UNIT_AURA", "PLAYER_MOUNT_DISPLAY_CHANGED",
     }
+    -- WoW Forever puts two of Blizzard's own bars on ActionBarButtonEventsFrame,
+    -- and both are on screen there: the shaman Call Totem Bar
+    -- (MultiCastActionBarFrame) and the Gamepad interface style's bars (their
+    -- cooldowns, keybind text, form icons and pet state ride it). For a
+    -- shaman, or with that style on once logged in, Blizzard keeps every
+    -- registration of that frame, untouched and so untainted. Decided once,
+    -- before the first quieting: nothing of ours can put a Blizzard
+    -- registration back untainted. ActionBarActionEventsFrame stays quiet for
+    -- everyone: our own buttons land in its frames list through the mixin's
+    -- Update (tainted entries), so its loop would carry our taint into the
+    -- Blizzard bars it reaches after them.
+    local _keepBlizz
+    local function KeepBlizzBroadcasters()
+        if _keepBlizz == nil then
+            local _, cls = UnitClass("player")
+            _keepBlizz = EllesmereUI.IS_FOREVER == true
+                and (cls == "SHAMAN" or EllesmereUI.PadGamepadUI())
+        end
+        return _keepBlizz
+    end
     -- Drops every registration except the two seeding events. Also the reset
     -- step of every mode change, and the setup path's safety net. Never
     -- UnregisterAllEvents on ActionBarButtonEventsFrame anywhere: it would take
@@ -1139,14 +1159,46 @@ do
     -- back untainted.
     ns.QuietBroadcasters = function()
         local abef = ActionBarButtonEventsFrame
-        if abef then
+        if abef and not KeepBlizzBroadcasters() then
             for _, ev in ipairs(_abefQuiet) do abef:UnregisterEvent(ev) end
             for _, ev in ipairs(_abefEvents) do abef:UnregisterEvent(ev) end
         end
         local aaef = ActionBarActionEventsFrame
         if aaef then aaef:UnregisterAllEvents() end
     end
-    ns.QuietBroadcasters()
+    -- Retail quiets at file load, before any button exists. WoW Forever waits
+    -- for login, where the interface style it decides on is settled, and from
+    -- then on asks for a reload when the player switches to the Gamepad style
+    -- with the broadcasters already quiet (its bars would stay unpainted).
+    if EllesmereUI.IS_FOREVER and not IsLoggedIn() then
+        local loginFrame = ns.TakeShell()
+        local styleAsked = false
+        local function StyleCheck()
+            if styleAsked or not EllesmereUI.PadGamepadUI() then return end
+            styleAsked = true
+            loginFrame:UnregisterAllEvents()
+            -- The Gamepad style's D-pad cannot reach the popup, so chat says it too.
+            EllesmereUI.PrintError(EllesmereUI.L("The interface style changed. Type /reload so the action bars match it."))
+            EllesmereUI.RequestReload(EllesmereUI.L("Reload Required"),
+                EllesmereUI.L("The interface style changed. Reload so the action bars match it."))
+        end
+        loginFrame:RegisterEvent("PLAYER_LOGIN")
+        loginFrame:SetScript("OnEvent", function(self, event)
+            if event == "PLAYER_LOGIN" then
+                self:UnregisterEvent("PLAYER_LOGIN")
+                ns.QuietBroadcasters()
+                if not KeepBlizzBroadcasters() and not (C_EventUtils and C_EventUtils.IsEventValid
+                    and not C_EventUtils.IsEventValid("INPUT_DEVICE_INTERFACE_TRANSITION")) then
+                    self:RegisterEvent("INPUT_DEVICE_INTERFACE_TRANSITION")
+                end
+                return
+            end
+            -- The style is read one frame after the transition event.
+            C_Timer.After(0, StyleCheck)
+        end)
+    else
+        ns.QuietBroadcasters()
+    end
     -- Add the tick set back only while needed, tracked as two independent
     -- flags so one turning off never strands the other: the vehicle/override
     -- bar (OverrideActionBarButton1-6) and ExtraActionButton1 (delve abilities
@@ -1169,16 +1221,18 @@ do
         local ok, secret = pcall(C_Secrets.ShouldCooldownsBeSecret)
         return (ok and secret) and true or false
     end
-    -- WoW Forever: cooldowns read secret in combat there too, and the check
-    -- above cannot see it coming at PLAYER_REGEN_DISABLED, so the tick set
-    -- stands down for every fight: dropped at that edge (combatEdge), back at
-    -- PLAYER_REGEN_ENABLED. Our dispatcher still paints ExtraActionButton1.
-    local function ApplyBroadcaster(combatEdge)
+    -- Never on WoW Forever. Its UpdateAction reads the cast-animation fields
+    -- (actionButtonCastType) before anything else, and our dispatch of the
+    -- tick and spellcast sets writes those fields onto every Blizzard button
+    -- tainted: one episode left Blizzard's own seeding dispatch tainted for
+    -- the session (blocked SetShown and rejected secret cooldowns in combat,
+    -- the gamepad bars' class flyout). Kept broadcasters need nothing added,
+    -- and our dispatcher paints ExtraActionButton1 and the override bar.
+    local function ApplyBroadcaster()
         local want = (_vehNeed or _extraNeed) and "full" or "off"
         -- Folded into `want` so the mode comparison below sees the change and
         -- re-applies; PLAYER_ENTERING_WORLD and the REGEN edges re-run this.
-        if want == "full" and (CooldownsSecret()
-            or (EllesmereUI.IS_FOREVER and (combatEdge or InCombatLockdown()))) then
+        if want == "full" and (EllesmereUI.IS_FOREVER or CooldownsSecret()) then
             want = "off"
         end
         if want == _broadcasterMode then return end
@@ -1208,12 +1262,15 @@ do
         _broadcasterMode = nil   -- the caller has just quieted the frames; never early-out
         ApplyBroadcaster()
     end
-    -- Recompute from ground truth (the buttons' actual visibility) on a broad event set
-    -- rather than tracking enter/exit: the extra button's OnShow doesn't fire on delve
-    -- entry, and vehicle enter events don't reliably fire/keep state.
+    -- Recompute from ground truth on a broad event set rather than tracking
+    -- enter/exit: vehicle enter events don't reliably fire/keep state. Ground
+    -- truth is Blizzard's own answer, never the buttons' shown state:
+    -- ExtraActionButton1 is created shown and only its bar is ever hidden, and
+    -- the override buttons stay shown from load until their bar's first use,
+    -- so reading IsShown() on them held "full" on for good.
     local function RefreshBroadcasterNeeds()
-        _vehNeed = (OverrideActionBarButton1 and OverrideActionBarButton1:IsShown()) and true or false
-        _extraNeed = (ExtraActionButton1 and ExtraActionButton1:IsShown()) and true or false
+        _vehNeed = (C_ActionBar.HasVehicleActionBar() or C_ActionBar.HasOverrideActionBar()) and true or false
+        _extraNeed = C_ActionBar.HasExtraActionBar() and true or false
         ApplyBroadcaster()
     end
     -- Exposed for the extra action button's Show-hook refresh in
@@ -1226,17 +1283,19 @@ do
     barFrame:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
     barFrame:RegisterEvent("UPDATE_EXTRA_ACTIONBAR")
     barFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    barFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-    barFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    -- The combat edges only re-check secrecy, and WoW Forever never re-registers.
+    if not EllesmereUI.IS_FOREVER then
+        barFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+        barFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    end
     barFrame:SetScript("OnEvent", function(_, event, unit)
         if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
             -- Undeferred, and a secrecy re-check only: the needs are unchanged
-            -- at a combat edge, so this early-outs unless the secret state moved
-            -- (or, on WoW Forever, the fight began or ended).
-            ApplyBroadcaster(event == "PLAYER_REGEN_DISABLED")
+            -- at a combat edge, so this early-outs unless the secret state moved.
+            ApplyBroadcaster()
             return
         end
-        C_Timer.After(0, RefreshBroadcasterNeeds) -- deferred so IsShown reflects post-event state
+        C_Timer.After(0, RefreshBroadcasterNeeds) -- deferred so Blizzard's bar state has settled
         -- On vehicle/override entry, force-paint OverrideActionBar cooldowns:
         -- the broadcaster only catches the NEXT change, so an already-running
         -- cooldown needs an initial paint.
@@ -6918,81 +6977,110 @@ function EAB:OnInitialize()
             fd.rankIconHolder:Show()
         end
 
-        local function QualityScan()
-            _qPending = false
-            local bars = EAB.db and EAB.db.profile and EAB.db.profile.bars
-            if not bars then return end
-            for _, info in ipairs(BAR_CONFIG) do
-                local btns = barButtons[info.key]
-                local s = bars[info.key]
-                if btns and s then
-                    local featureOn = s.showRankIcon and true or false
-                    for _, btn in ipairs(btns) do
-                        local rankAtlas
-                        if featureOn then
-                            local action = btn:GetAttribute("action") or 0
-                            if action > 0 then
-                                -- Blizzard's own source, from live ActionButton.lua
-                                -- UpdateProfessionQuality: a dedicated action API that
-                                -- returns the overlay atlas directly. Every other
-                                -- surface is dead from an action slot on live
-                                -- (verified via in-game debug 2026-07-19):
-                                -- C_TradeSkillUI reads off the bare itemID are nil (the
-                                -- reagent one returns a flat 2 for every ranked item),
-                                -- GetActionLink returns nil, and the tooltip's name
-                                -- line carries no quality markup.
-                                local ab = C_ActionBar
-                                if ab and ab.GetProfessionQualityInfo
-                                   and (not ab.IsItemAction or ab.IsItemAction(action)) then
-                                    local qi = ab.GetProfessionQualityInfo(action)
-                                    rankAtlas = qi and qi.iconInventory
-                                end
-                                -- Older-client fallback: crafted quality by
-                                -- itemID, mapped through the atlas probe.
-                                if not rankAtlas and GetActionInfo then
-                                    local aType, aID = GetActionInfo(action)
-                                    if aType == "item" and aID then
-                                        local ts = C_TradeSkillUI
-                                        local q = ts and ts.GetItemCraftedQualityByItemInfo
-                                            and ts.GetItemCraftedQualityByItemInfo(aID)
-                                        if type(q) == "number" and q >= 1 and q <= 5 then
-                                            rankAtlas = RankAtlasFor(q)
-                                        end
-                                    end
-                                end
-                                if EllesmereUI._RANKDEBUG and rankAtlas ~= nil then
-                                    pcall(function()
-                                        print("|cff33ff99[Rank]|r action", action,
-                                            "atlas", tostring(rankAtlas))
-                                    end)
-                                end
+        local function ScanButton(btn, featureOn)
+            local rankAtlas
+            if featureOn then
+                local action = btn:GetAttribute("action") or 0
+                if action > 0 then
+                    -- Blizzard's own source, from live ActionButton.lua
+                    -- UpdateProfessionQuality: a dedicated action API that
+                    -- returns the overlay atlas directly. Every other
+                    -- surface is dead from an action slot on live
+                    -- (verified via in-game debug 2026-07-19):
+                    -- C_TradeSkillUI reads off the bare itemID are nil (the
+                    -- reagent one returns a flat 2 for every ranked item),
+                    -- GetActionLink returns nil, and the tooltip's name
+                    -- line carries no quality markup.
+                    local ab = C_ActionBar
+                    if ab and ab.GetProfessionQualityInfo
+                       and (not ab.IsItemAction or ab.IsItemAction(action)) then
+                        local qi = ab.GetProfessionQualityInfo(action)
+                        rankAtlas = qi and qi.iconInventory
+                    end
+                    -- Older-client fallback: crafted quality by
+                    -- itemID, mapped through the atlas probe.
+                    if not rankAtlas and GetActionInfo then
+                        local aType, aID = GetActionInfo(action)
+                        if aType == "item" and aID then
+                            local ts = C_TradeSkillUI
+                            local q = ts and ts.GetItemCraftedQualityByItemInfo
+                                and ts.GetItemCraftedQualityByItemInfo(aID)
+                            if type(q) == "number" and q >= 1 and q <= 5 then
+                                rankAtlas = RankAtlasFor(q)
                             end
                         end
-                        SetRankShown(btn, rankAtlas)
-                        -- Blizzard's overlay must never draw over ours: it can
-                        -- pre-exist this fix or get shown by a hover-driven
-                        -- lazy creation. Hide + install the permanent OnShow
-                        -- hide for overlays born after the apply pass ran.
-                        local ov = btn.ProfessionQualityOverlayFrame
-                        if ov then
-                            if ov:IsShown() then ov:SetShown(false) end
-                            if not EFD(btn).qualityHooked then
-                                ov:HookScript("OnShow", function(self2)
-                                    self2:SetShown(false)
-                                end)
-                                EFD(btn).qualityHooked = true
+                    end
+                    if EllesmereUI._RANKDEBUG and rankAtlas ~= nil then
+                        pcall(function()
+                            print("|cff33ff99[Rank]|r action", action,
+                                "atlas", tostring(rankAtlas))
+                        end)
+                    end
+                end
+            end
+            SetRankShown(btn, rankAtlas)
+            -- Blizzard's overlay must never draw over ours: it can
+            -- pre-exist this fix or get shown by a hover-driven
+            -- lazy creation. Hide + install the permanent OnShow
+            -- hide for overlays born after the apply pass ran.
+            local ov = btn.ProfessionQualityOverlayFrame
+            if ov then
+                if ov:IsShown() then ov:SetShown(false) end
+                if not EFD(btn).qualityHooked then
+                    ov:HookScript("OnShow", function(self2)
+                        self2:SetShown(false)
+                    end)
+                    EFD(btn).qualityHooked = true
+                end
+            end
+        end
+
+        -- A scan covers every button (_qFull) or only the buttons showing the
+        -- slots that changed: a slot event or a hover names its slot, and
+        -- empowered casts re-fire slot events many times a minute.
+        local _qFull, _qSlots = false, {}
+        local function QualityScan()
+            _qPending = false
+            local full = _qFull
+            _qFull = false
+            local bars = EAB.db and EAB.db.profile and EAB.db.profile.bars
+            if bars then
+                for _, info in ipairs(BAR_CONFIG) do
+                    local btns = barButtons[info.key]
+                    local s = bars[info.key]
+                    if btns and s then
+                        local featureOn = s.showRankIcon and true or false
+                        for _, btn in ipairs(btns) do
+                            if full or _qSlots[btn:GetAttribute("action") or 0] then
+                                ScanButton(btn, featureOn)
                             end
                         end
                     end
                 end
             end
+            wipe(_qSlots)
         end
 
-        QueueQualityScan = function()
+        local function ArmQualityScan()
             if not _qPending then
                 _qPending = true
                 C_Timer_After(0, QualityScan)
             end
+        end
+        -- Every button: spec swaps, settings changes, the first paint.
+        QueueQualityScan = function()
+            _qFull = true
+            ArmQualityScan()
+        end
+        -- One slot. Slot 0, no slot or a secret one (Blizzard's own buttons
+        -- pass a secret action to the tooltip) means every slot.
+        local function QueueSlotQualityScan(slot)
+            if type(slot) == "number" and not issecretvalue(slot) and slot > 0 then
+                _qSlots[slot] = true
+            else
+                _qFull = true
+            end
+            ArmQualityScan()
         end
         EAB._QueueRankScan = QueueQualityScan
 
@@ -7004,7 +7092,13 @@ function EAB:OnInitialize()
         -- SPELLS_CHANGED covers that swap; the macro name is handled by the
         -- ForceButtonRefresh sweep on the same event.
         qf:RegisterEvent("SPELLS_CHANGED")
-        qf:SetScript("OnEvent", QueueQualityScan)
+        qf:SetScript("OnEvent", function(_, event, slot)
+            if event == "ACTIONBAR_SLOT_CHANGED" then
+                QueueSlotQualityScan(slot)
+            else
+                QueueQualityScan()
+            end
+        end)
         -- A hover is what makes Blizzard lazily CREATE its overlay (and shows it in the
         -- same breath) -- and no slot event fires from hovering, so the suppression +
         -- our repaint would otherwise lag until the next slot change. Re-scan off the
@@ -7012,7 +7106,9 @@ function EAB:OnInitialize()
         -- pattern as tooltip suppression). Also converges anything the hover's
         -- item-data load just made resolvable.
         if GameTooltip then
-            hooksecurefunc(GameTooltip, "SetAction", QueueQualityScan)
+            hooksecurefunc(GameTooltip, "SetAction", function(_, slot)
+                QueueSlotQualityScan(slot)
+            end)
         end
         -- Initial paint (login / reload): bars applied before this block ran.
         QueueQualityScan()
@@ -8400,8 +8496,19 @@ function EAB:FinishSetup()
 
     -- Slot changed: update visibility when a spell is placed/removed from a slot.
     -- This can fire per-slot (12+ times during a bar page swap), so use the
-    -- shared debounced visibility queue.
-    self:RegisterEvent("ACTIONBAR_SLOT_CHANGED", QueueAlwaysShowButtonsRefresh)
+    -- shared debounced visibility queue. Only an empty <-> filled flip changes
+    -- what the pass shows, and empowered casts and spell overrides re-fire this
+    -- for slots whose contents stay put, so a numbered slot is probed against
+    -- its last seen state first; slot 0 (every slot) always refreshes.
+    local asbSlotFilled = {}
+    self:RegisterEvent("ACTIONBAR_SLOT_CHANGED", function(_, _, slot)
+        if slot and slot ~= 0 then
+            local filled = HasAction(slot) and true or false
+            if asbSlotFilled[slot] == filled then return end
+            asbSlotFilled[slot] = filled
+        end
+        QueueAlwaysShowButtonsRefresh()
+    end)
 
     -- Pet bar: re-layout and refresh visibility when the pet's action bar changes.
     -- PET_BAR_UPDATE covers ability changes; PET_UI_UPDATE covers summoning/dismissal;
