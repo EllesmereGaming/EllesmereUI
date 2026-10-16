@@ -2,24 +2,29 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 -------------------------------------------------------------------------------
 --  EllesmereUIForeverEssentials_LFGZones.lua  (WoW Forever only)
---  Show Player Zones: the zone each player of a Looking For Group listing is
---  in, as the game sends it with the listing (areaName) but never shows it.
---  The leader's follows their level on the result row, every player's follows
---  their role in the listing's tooltip.
+--  Show Solo Player Zones: the zone a player listed on their own in the
+--  Looking For Group window is in, as the game sends it with the listing
+--  (areaName) but never shows it: on the result row and in the listing's
+--  tooltip. Groups are left out (the game sends their leader's zone only).
 -------------------------------------------------------------------------------
 local _, module = ...
 
 -- Settings live in EllesmereUIDB.lfgZones; unset keys read these.
---   enabled   Show Player Zones
+--   enabled   Show Solo Player Zones
 local F = module.Feature("lfgZones", { enabled = false })
 
 local hooked = false
--- Result row or tooltip player frame -> our zone FontString.
+-- Result row or tooltip leader frame -> our zone FontString.
 local zoneText = setmetatable({}, { __mode = "k" })
 
--- The zone a player's info carries, or nil (none sent, or secret).
-local function Zone(info)
-    local area = info and info.areaName
+-- The zone of a solo listing's player, or nil (a group, none sent, or secret).
+local function Zone(resultID)
+    if not (F.Enabled() and resultID) then return nil end
+    local info = C_LFGList.GetSearchResultInfo(resultID)
+    local count = info and info.numMembers
+    if count == nil or issecretvalue(count) or count ~= 1 then return nil end
+    local leader = C_LFGList.GetSearchResultLeaderInfo(resultID)
+    local area = leader and leader.areaName
     if area == nil or issecretvalue(area) or area == "" then return nil end
     return area
 end
@@ -34,14 +39,14 @@ local function ZoneString(frame)
     return fs
 end
 
--- The parts after the leader's name on a result row, left to right.
+-- The parts after the player's name on a result row, left to right.
 local NAME_LINE = { "DiscordIcon", "Level", "ClassIcon", "NewPlayerFriendlyIcon" }
 
 -- Result row: on the playstyle line, below the group data, up to the row's
 -- right edge. Rows without that line: after the last shown part of the name
 -- line, short of the group data.
 local function UpdateRow(row)
-    local zone = F.Enabled() and row.resultID and Zone(C_LFGList.GetSearchResultLeaderInfo(row.resultID))
+    local zone = Zone(row.resultID)
     if not zone then
         if zoneText[row] then zoneText[row]:Hide() end
         return
@@ -71,50 +76,26 @@ local function UpdateRow(row)
     fs:Show()
 end
 
--- Tooltip player frame: after the role icons. Returns its right edge.
-local function UpdatePlayer(frame, info)
-    local zone = frame:IsShown() and Zone(info)
+-- Tooltip: after the player's role icons. The tooltip sizes itself to its
+-- rows, so it is widened when the zone runs past it.
+local function UpdateTooltip(tip, resultID)
+    local leader = tip.Leader
+    local zone = leader:IsShown() and Zone(resultID)
     if not zone then
-        if zoneText[frame] then zoneText[frame]:Hide() end
-        return nil
+        if zoneText[leader] then zoneText[leader]:Hide() end
+        return
     end
-    local after = frame.Level
-    for _, icon in ipairs(frame.Roles) do
+    local after = leader.Level
+    for _, icon in ipairs(leader.Roles) do
         if icon:IsShown() then after = icon end
     end
-    local fs = ZoneString(frame)
+    local fs = ZoneString(leader)
     fs:ClearAllPoints()
     fs:SetPoint("LEFT", after, "RIGHT", 4, 0)
     fs:SetText(zone)
     fs:Show()
-    return fs:GetRight()
-end
-
--- The tooltip sizes itself to its rows: widened when a zone runs past it.
-local function UpdateTooltip(tip, resultID)
-    if not F.Enabled() then
-        if zoneText[tip.Leader] then zoneText[tip.Leader]:Hide() end
-        for frame in tip.memberPool:EnumerateActive() do
-            if zoneText[frame] then zoneText[frame]:Hide() end
-        end
-        return
-    end
-    local right = UpdatePlayer(tip.Leader, C_LFGList.GetSearchResultLeaderInfo(resultID)) or 0
-    -- Member frames come from a pool: matched to their player by name.
-    local byName = {}
-    local info = C_LFGList.GetSearchResultInfo(resultID)
-    for i = 1, (info and info.numMembers) or 0 do
-        local member = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
-        local name = member and member.name
-        if name and not issecretvalue(name) then byName[name] = member end
-    end
-    for frame in tip.memberPool:EnumerateActive() do
-        local name = frame.Name:GetText()
-        local r = UpdatePlayer(frame, name and not issecretvalue(name) and byName[name])
-        if r and r > right then right = r end
-    end
-    local left = tip:GetLeft()
-    if left and right - left + 11 > tip:GetWidth() then
+    local left, right = tip:GetLeft(), fs:GetRight()
+    if left and right and right - left + 11 > tip:GetWidth() then
         tip:SetWidth(right - left + 11)
     end
 end

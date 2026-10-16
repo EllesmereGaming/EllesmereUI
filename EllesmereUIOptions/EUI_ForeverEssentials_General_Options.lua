@@ -200,8 +200,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               LL.Cfg().enabled = v
               LL.Apply()
           end },
-        { type = "toggle", text = "Show Player Zones",
-          tooltip = "Shows the zone each player of a Looking For Group listing is in: the leader's on the result row, every player's in the listing's tooltip.",
+        { type = "toggle", text = "Show Solo Player Zones",
+          tooltip = "Shows the zone of the players listed on their own (not in a group) in the Looking For Group window, on their result row and in their listing's tooltip.",
           getValue = function() return LZ.Get("enabled") end,
           setValue = function(v)
               LZ.Cfg().enabled = v
