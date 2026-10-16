@@ -185,9 +185,10 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     );  y = y - h
 
     ---------------------------------------------------------------------------
-    --  GROUP FINDER (EllesmereUIForeverEssentials_LFGLanguages.lua)
+    --  GROUP FINDER (EllesmereUIForeverEssentials_LFGLanguages.lua, _LFGZones.lua)
     ---------------------------------------------------------------------------
     local LL = EllesmereUI._LFGLanguages
+    local LZ = EllesmereUI._LFGZones
     _, h = W:Spacer(parent, y, 20);  y = y - h
     _, h = W:SectionHeader(parent, "GROUP FINDER", y);  y = y - h
 
@@ -199,7 +200,13 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               LL.Cfg().enabled = v
               LL.Apply()
           end },
-        BLANK()
+        { type = "toggle", text = "Show Player Zones",
+          tooltip = "Shows the zone each player of a Looking For Group listing is in: the leader's on the result row, every player's in the listing's tooltip.",
+          getValue = function() return LZ.Get("enabled") end,
+          setValue = function(v)
+              LZ.Cfg().enabled = v
+              LZ.Apply()
+          end }
     );  y = y - h
 
     ---------------------------------------------------------------------------
