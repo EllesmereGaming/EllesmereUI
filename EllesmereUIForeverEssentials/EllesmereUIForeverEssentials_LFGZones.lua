@@ -34,25 +34,39 @@ local function ZoneString(frame)
     return fs
 end
 
--- Result row: after the level (or the class and new player icons beside it),
--- cut short of the group data on the right.
+-- The parts after the leader's name on a result row, left to right.
+local NAME_LINE = { "DiscordIcon", "Level", "ClassIcon", "NewPlayerFriendlyIcon" }
+
+-- Result row: on the playstyle line, below the group data, up to the row's
+-- right edge. Rows without that line: after the last shown part of the name
+-- line, short of the group data.
 local function UpdateRow(row)
     local zone = F.Enabled() and row.resultID and Zone(C_LFGList.GetSearchResultLeaderInfo(row.resultID))
     if not zone then
         if zoneText[row] then zoneText[row]:Hide() end
         return
     end
-    local after = row.Level
-    if row.ClassIcon:IsShown() then after = row.ClassIcon end
-    if row.NewPlayerFriendlyIcon:IsShown() then after = row.NewPlayerFriendlyIcon end
+    local after, gap, limit
+    local playstyle = row.PlaystyleLabel
+    if playstyle then
+        after, limit = playstyle, row:GetRight()
+        local text = playstyle:GetText()
+        gap = (text and text ~= "") and 8 or 0
+    else
+        after, gap, limit = row.Name, 6, row.DataDisplay:GetLeft()
+        for _, key in ipairs(NAME_LINE) do
+            local part = row[key]
+            if part and part:IsShown() then after = part end
+        end
+    end
     local fs = ZoneString(row)
     fs:ClearAllPoints()
-    fs:SetPoint("LEFT", after, "RIGHT", 6, 0)
+    fs:SetPoint("LEFT", after, "RIGHT", gap, 0)
     fs:SetText(zone)
     fs:SetWidth(0)
-    local left, limit = after:GetRight(), row.DataDisplay:GetLeft()
-    if left and limit and fs:GetWidth() > limit - left - 12 then
-        fs:SetWidth(math.max(limit - left - 12, 1))
+    local left = after:GetRight()
+    if left and limit and fs:GetWidth() > limit - left - gap - 8 then
+        fs:SetWidth(math.max(limit - left - gap - 8, 1))
     end
     fs:Show()
 end
