@@ -1125,6 +1125,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() local d = DDB(); return d and d.remindersEnabled ~= false end,
               setValue=function(v)
                   local d = DDB(); if not d then return end; d.remindersEnabled = v
+                  if _G._EABR_UpdateGroupAuraRegistration then _G._EABR_UpdateGroupAuraRegistration() end
                   RefreshAll()
                   EllesmereUI:RefreshPage()
               end },

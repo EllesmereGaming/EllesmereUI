@@ -13,7 +13,8 @@ addon.RaidTeam = RaidTeam
 local issecretvalue = issecretvalue
 
 
-local ROSTER_TTL = 5
+
+local ROSTER_TTL = 60
 
 local roster, rosterAt = nil, 0
 
@@ -224,8 +225,9 @@ end
 
 
 
+local lastAsked = nil
 
-function RaidTeam:GetRoster(force)
+local function Read(force)
     if roster and not force and (GetTime() - rosterAt) < ROSTER_TTL then
         return roster, true
     end
@@ -261,6 +263,53 @@ function RaidTeam:GetRoster(force)
     lastReadable, unreadable = built, false
     return roster, true
 end
+
+
+
+
+function RaidTeam:GetRoster(force)
+    lastAsked = GetTime()
+    return Read(force)
+end
+
+
+
+local index, indexOf = {}, nil
+function RaidTeam:GetRosterIndex()
+    local list, readable = RaidTeam:GetRoster()
+    if list ~= indexOf then
+        index, indexOf = {}, list
+        for _, member in ipairs(list) do
+            if member.fullName then index[member.fullName] = member end
+        end
+    end
+    return index, readable
+end
+
+
+
+local function Compare(old, new)
+    if not old or #old ~= #new then return "identity" end
+    local byGUID = {}
+    for _, member in ipairs(old) do
+        if member.guid then byGUID[member.guid] = member end
+    end
+    local what
+    for _, member in ipairs(new) do
+        local was = member.guid and byGUID[member.guid]
+        if not was or was.name ~= member.name or was.rank ~= member.rank
+            or was.rankOrder ~= member.rankOrder or was.classFile ~= member.classFile then
+            return "identity"
+        end
+        if not what and (was.online ~= member.online or was.mobile ~= member.mobile
+            or was.level ~= member.level or was.zone ~= member.zone or was.note ~= member.note
+            or was.officerNote ~= member.officerNote) then
+            what = "presence"
+        end
+    end
+    return what
+end
+RaidTeam.Compare = Compare
 
 
 function RaidTeam:GetMembers()
@@ -512,6 +561,46 @@ end
 
 
 
+
+
+local CHECK_SETTLE, CHECK_INTERVAL, CHECK_INTEREST = 2, 10, 300
+local checkPending, lastCheck = false, nil
+
+local function InUse()
+    if addon.Council and addon.Council.HasRankRule and addon.Council:HasRankRule() then
+        return true
+    end
+    return lastAsked ~= nil and GetTime() - lastAsked < CHECK_INTEREST
+end
+
+local function CheckRoster()
+    checkPending, lastCheck = false, GetTime()
+    local old = roster or lastReadable
+    local new, readable = Read(true)
+
+    if not readable then return end
+    local what = Compare(old, new)
+    if what == "identity" then
+        addon.Log:D("RaidTeam", "guild roster changed -", #new, "members")
+        addon.Callbacks:Fire("RaidTeamChanged")
+    elseif what == "presence" then
+        addon.Callbacks:Fire("GuildPresenceChanged")
+    end
+end
+RaidTeam.CheckRoster = CheckRoster
+
+local function OnRosterUpdate()
+    if not InUse() then
+        RaidTeam:Invalidate()
+        return
+    end
+    if checkPending then return end
+    checkPending = true
+    local wait = CHECK_SETTLE
+    if lastCheck then wait = math.max(wait, lastCheck + CHECK_INTERVAL - GetTime()) end
+    C_Timer.After(wait, CheckRoster)
+end
+
 function RaidTeam:Init()
     addon.db.raidTeam = addon.db.raidTeam or {}
 
@@ -521,6 +610,8 @@ function RaidTeam:Init()
 
     f:RegisterEvent("INITIAL_CLUBS_LOADED")
     f:SetScript("OnEvent", function(_, event)
+
+        if event == "GUILD_ROSTER_UPDATE" then return OnRosterUpdate() end
 
         if event == "PLAYER_GUILD_UPDATE" then lastReadable = nil end
         RaidTeam:Invalidate()

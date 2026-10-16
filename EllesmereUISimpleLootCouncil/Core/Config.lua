@@ -16,6 +16,79 @@ local shared = nil
 
 
 
+Config.MAX_TEXT = 100
+Config.MAX_RESPONSES = 7
+
+local MAX_NOTE = 255
+local MAX_WHISPER = 255
+
+
+function Config.CleanText(value)
+    if type(value) ~= "string" then return nil end
+    value = value:match("^%s*(.-)%s*$")
+    if value == "" or #value > Config.MAX_TEXT then return nil end
+    return value
+end
+
+
+function Config.CleanChannel(value)
+    value = tonumber(value)
+    if not value or value ~= value then return nil end
+    return math.max(0, math.min(1, value))
+end
+
+
+
+
+
+
+
+local malformedLogged, malformedCount = {}, 0
+local function Malformed(field, sender)
+    local key = field .. "|" .. tostring(sender)
+    if malformedLogged[key] then return end
+    if malformedCount >= 64 then malformedLogged, malformedCount = {}, 0 end
+    malformedLogged[key], malformedCount = true, malformedCount + 1
+    addon.Log:WLogOnly("Config", "malformed shared field kept at its last value", field,
+        "from", sender)
+end
+
+
+local function SharedChannel(value)
+    if value == nil then return 0.8 end
+    return Config.CleanChannel(value)
+end
+
+
+
+local function SharedResponses(list)
+    if type(list) ~= "table" then return nil end
+    local responses = {}
+    for index, entry in ipairs(list) do
+        if index > Config.MAX_RESPONSES then break end
+        if type(entry) ~= "table" then return nil end
+        local text = entry.t == nil and addon.Locale.Format(T["Response %d"], index)
+            or Config.CleanText(entry.t)
+        local r, g, b = SharedChannel(entry.r), SharedChannel(entry.g), SharedChannel(entry.b)
+        local sort = entry.s == nil and index or tonumber(entry.s)
+        local whisper = entry.w
+        if not text or not r or not g or not b or not sort or sort ~= sort
+            or whisper ~= nil and (type(whisper) ~= "string" or #whisper > MAX_WHISPER) then
+            return nil
+        end
+        responses[index] = {
+            id = "SHARED" .. index, text = text, r = r, g = g, b = b, sort = sort,
+
+            whisper = whisper,
+        }
+    end
+
+    return #responses > 0 and responses or nil
+end
+
+
+local VOTE_KEYS = { selfVote = true, multiVote = true, hideVotes = true }
+
 
 function Config:ApplyShared(config, sender)
     if type(config) ~= "table" then return end
@@ -23,54 +96,61 @@ function Config:ApplyShared(config, sender)
     local next_ = {}
     for key, value in pairs(shared or {}) do next_[key] = value end
 
-    if type(config.responses) == "table" then
-        local responses = {}
-        for index, entry in ipairs(config.responses) do
-            responses[index] = {
-                id = "SHARED" .. index,
-                text = entry.t or addon.Locale.Format(T["Response %d"], index),
-                r = entry.r or 0.8, g = entry.g or 0.8, b = entry.b or 0.8,
-                sort = entry.s or index,
+    if config.responses ~= nil then
+        local responses = SharedResponses(config.responses)
+        if responses then next_.responses = responses else Malformed("responses", sender) end
+    end
 
-                whisper = entry.w,
-            }
+    if config.vote ~= nil then
+        if type(config.vote) == "table" then
+
+            local vote = {}
+            for key, value in pairs((addon.db and addon.db.vote) or {}) do
+                vote[key] = value
+            end
+            for key, value in pairs(next_.vote or {}) do vote[key] = value end
+            for key in pairs(VOTE_KEYS) do
+                local value = config.vote[key]
+                if type(value) == "boolean" then
+                    vote[key] = value
+                elseif value ~= nil then
+                    Malformed("vote." .. key, sender)
+                end
+            end
+            next_.vote = vote
+        else
+            Malformed("vote", sender)
         end
-
-        if #responses > 0 then next_.responses = responses end
     end
 
-    if type(config.vote) == "table" then
-
-        local vote = {}
-        for key, value in pairs((addon.db and addon.db.vote) or {}) do
-            vote[key] = value
+    if config.noteMax ~= nil then
+        local noteMax = config.noteMax
+        if type(noteMax) == "number" and noteMax == math.floor(noteMax)
+            and noteMax >= 1 and noteMax <= MAX_NOTE then
+            next_.noteMax = noteMax
+        else
+            Malformed("noteMax", sender)
         end
-        for key, value in pairs(next_.vote or {}) do vote[key] = value end
-        for key, value in pairs(config.vote) do vote[key] = value end
-        next_.vote = vote
     end
 
-    if config.noteMax then next_.noteMax = config.noteMax end
-
-    if config.startRequests ~= nil then
-        next_.startRequests = config.startRequests and true or false
-    end
-
-    if config.councilMayStartRuns ~= nil then
-        next_.councilMayStartRuns = config.councilMayStartRuns == true
-    end
-
-    if config.councilBags ~= nil then
-        next_.councilBags = config.councilBags == true
+    for _, field in ipairs({ "startRequests", "councilMayStartRuns", "councilBags" }) do
+        local value = config[field]
+        if type(value) == "boolean" then
+            next_[field] = value
+        elseif value ~= nil then
+            Malformed(field, sender)
+        end
     end
 
 
     if config.lootMaster ~= nil then
         if config.lootMaster == false then
             next_.lootMaster = nil
-        else
+        elseif type(config.lootMaster) == "string" and #config.lootMaster <= Config.MAX_TEXT then
             local record = addon.Player:Get(config.lootMaster)
             next_.lootMaster = record.guid or nil
+        else
+            Malformed("lootMaster", sender)
         end
     end
 

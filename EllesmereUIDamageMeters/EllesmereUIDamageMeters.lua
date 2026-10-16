@@ -2370,14 +2370,18 @@ end
 local _ttLastStride = -1
 local _ttSorted = {}
 
-local function PopulatePreview(bar, curSession, curSessionID, curDMType)
-
-    if _ttFrame and _ttFrame._combatMsg then _ttFrame._combatMsg:Hide() end
-    -- Hide target sub-elements from prior tooltip
+-- Hide the "Targets" sub-section left over from a prior tooltip
+local function HideTTTargets()
     if _ttFrame and _ttFrame._tgtDivider then
         _ttFrame._tgtDivider:Hide(); _ttFrame._tgtLabel:Hide()
         for ti = 1, 3 do _ttFrame._tgtBars[ti].row:Hide() end
     end
+end
+
+local function PopulatePreview(bar, curSession, curSessionID, curDMType)
+
+    if _ttFrame and _ttFrame._combatMsg then _ttFrame._combatMsg:Hide() end
+    HideTTTargets()
     if not bar._src then return false end
     if not bar._srcGUID and not bar._src.sourceCreatureID then return false end
     if not C_DamageMeter then return false end
@@ -3270,6 +3274,7 @@ local function CreateDMWindow(winIdx)
                     else local tc = cfg2.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
                     _ttFrame._hdrText:SetTextColor(tR, tG, tB, 1)
                     for bi = 1, #_ttBars do if _ttBars[bi] then _ttBars[bi].row:Hide() end end
+                    HideTTTargets()
                     _ttFrame._combatMsg:SetText(EllesmereUI.L("No death recap available"))
                     _ttFrame._combatMsg:Show()
                     _ttFrame:SetSize(TT_WIDTH, TT_HDR_H + 40)
@@ -3302,6 +3307,7 @@ local function CreateDMWindow(winIdx)
                 _ttFrame._hdrText:SetTextColor(tR, tG, tB, 1)
                 -- Hide bars, show combat message
                 for bi = 1, #_ttBars do if _ttBars[bi] then _ttBars[bi].row:Hide() end end
+                HideTTTargets()
                 _ttFrame._combatMsg:SetText(EllesmereUI.L("Detailed information is\nsecret while in combat"))
                 _ttFrame._combatMsg:Show()
                 _ttFrame:SetSize(TT_WIDTH, TT_HDR_H + 40)

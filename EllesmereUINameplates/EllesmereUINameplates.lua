@@ -240,6 +240,7 @@ local defaults = {
     castBarUninterruptible = { r = 0.45, g = 0.45, b = 0.45 },
     castBarImportant = { r = 1, g = 0.2, b = 0.2 },
     importantCastColorEnabled = false,
+    importantCastKickReadyAsInterruptible = false,
     castBarShieldEnabled = true,
     interruptedFlashEnabled = true,
     interruptedFlashColor = { r = 0.8, g = 0.0, b = 0.0 },

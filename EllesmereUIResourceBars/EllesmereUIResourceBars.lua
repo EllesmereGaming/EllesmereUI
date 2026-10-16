@@ -1416,6 +1416,7 @@ local DEFAULTS = {
             gradientR     = 0.20, gradientG = 0.20, gradientB = 0.80, gradientA = 1,
             gradientDir   = "HORIZONTAL",  -- "HORIZONTAL","VERTICAL"
             texture       = "none",
+            textureBg     = false,  -- Textured Background (Texture Settings cog)
             showSpark     = true,
             borderSize    = 1,
             borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
@@ -1465,6 +1466,7 @@ local DEFAULTS = {
             gradientR     = 0.20, gradientG = 0.20, gradientB = 0.80, gradientA = 1,
             gradientDir   = "HORIZONTAL",  -- "HORIZONTAL","VERTICAL"
             texture       = "none",
+            textureBg     = false,  -- Textured Background (Texture Settings cog)
             showSpark     = false,
             depleteFill   = false,  -- start full and deplete instead of filling up
             borderSize    = 1,
@@ -1515,6 +1517,13 @@ local DEFAULTS = {
             queueHighlight = true,  -- melee rows take the queue colour + spell name while an on-next-swing attack is queued
             queueR = 1, queueG = 0.70, queueB = 0.20, queueA = 1,   -- Heroic Strike / Maul
             queueCleaveR = 0.95, queueCleaveG = 0.35, queueCleaveB = 0.25, queueCleaveA = 1,   -- Cleave
+            activeHighlight = false, -- rows take the active colour while their auto attack is on (melee: Auto Attack; ranged: Shoot / Auto Shot), and sit full while it is on with no swing running
+            activeR = 0.047, activeG = 0.824, activeB = 0.616, activeA = 1,   -- EUI teal #0CD29D
+            latencyEnabled = false,  -- latency zone at the end of each running swing
+            latencyR = 0.835, latencyG = 0.290, latencyB = 0.290, latencyA = 1,   -- cast bar latency default
+            pendingEnabled = false,  -- a row whose attack is on with no swing running fills with the pending colour
+            pendingR = 0.659, pendingG = 0.502, pendingB = 0.949, pendingA = 1,   -- violet #A880F2
+            smoothTiming = false,    -- start each swing from the expected rhythm, nudged by each arrival, not at the event's arrival
             borderSize    = 1,
             borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
             borderTexture = "solid",
@@ -1576,6 +1585,7 @@ local DEFAULTS = {
             anchorY     = -100,
             orientation = "HORIZONTAL",  -- "HORIZONTAL","VERTICAL_UP","VERTICAL_DOWN"
             barTexture  = "none",
+            barTextureBg = false,  -- Textured Background (Texture cog)
             -- Classic WoW UI: one frame round the resource bars as a group,
             -- with a separator line (physical pixels, 0 = none) between bars.
             classicBorderAll = false,
@@ -1913,6 +1923,20 @@ local function ApplyBarTexture(bar, texKey)
     -- Blizzard Style: a path swap can mint a new fill object; re-seat the
     -- bar-shape mask on it (memoized per object, so a no-op otherwise).
     if bar._blizzBarMask then ns.ERB_SeatBlizzMask(bar) end
+end
+
+-- Textured Background: the bar's own texture on a background, tinted by the
+-- background colour. Callers repaint the flat colour around it; nil path clears
+-- the tint a texture left behind (SetColorTexture keeps it).
+function ns.ERB_BgTexture(bg, path, r, g, b, a)
+    if path then
+        bg:SetTexture(path)
+        bg:SetVertexColor(r, g, b, a)
+        bg._erbBgTex = true
+    elseif bg._erbBgTex then
+        bg._erbBgTex = nil
+        bg:SetVertexColor(1, 1, 1, 1)
+    end
 end
 
 
@@ -3587,6 +3611,12 @@ local function BuildBars()
                 ApplyBarFlat(hft, fR, fG, fB, fA)
             end
             healthBar._bg:SetColorTexture(hp.bgR, hp.bgG, hp.bgB, hp.bgA)
+            -- Textured Background: flat while Fill Color is below 100.
+            if g.barTextureBg or healthBar._bg._erbBgTex then
+                ns.ERB_BgTexture(healthBar._bg, g.barTextureBg and (hp.fillOpacity or 100) >= 100
+                    and EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, (p.splitTex == true and hp.barTexture) or g.barTexture, nil),
+                    hp.bgR, hp.bgG, hp.bgB, hp.bgA)
+            end
         end
 
         healthBar._text:ClearAllPoints()
@@ -3778,6 +3808,12 @@ local function BuildBars()
                 ApplyBarFlat(pft, fR, fG, fB, fA)
             end
             primaryBar._bg:SetColorTexture(pp.bgR, pp.bgG, pp.bgB, pp.bgA)
+            -- Textured Background: flat while Fill Color is below 100.
+            if g.barTextureBg or primaryBar._bg._erbBgTex then
+                ns.ERB_BgTexture(primaryBar._bg, g.barTextureBg and (pp.fillOpacity or 100) >= 100
+                    and EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, (p.splitTex == true and pp.barTexture) or g.barTexture, nil),
+                    pp.bgR, pp.bgG, pp.bgB, pp.bgA)
+            end
         end
 
         primaryBar._text:ClearAllPoints()
@@ -4041,6 +4077,17 @@ local function BuildBars()
                 secondaryBar:GetStatusBarTexture():SetVertexColor(sp.fillR, sp.fillG, sp.fillB, 1)
                 secondaryBar._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
             end
+            -- Textured Background: the class resource textures its own empty-bar
+            -- background (Empty Bar Overlay; Dark Mode Background in Dark Mode).
+            if g.barTextureBg or secondaryBar._bg._erbBgTex then
+                local br, bgg, bb, ba = sp.bgR, sp.bgG, sp.bgB, sp.bgA
+                if sp.darkTheme then
+                    br, bgg, bb = EllesmereUI.GetDarkModeBg()
+                    ba = DARK_BG_A
+                end
+                ns.ERB_BgTexture(secondaryBar._bg, g.barTextureBg
+                    and (sp.fillOpacity or 100) >= 100 and EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, g.barTexture, nil), br, bgg, bb, ba)
+            end
             -- Blizzard atlas fill swaps in AFTER the tint chain: the art is
             -- pre-colored (every color mode above overridden to white) since
             -- SetStatusBarTexture resets orientation/vertex color. No atlas for
@@ -4154,6 +4201,11 @@ local function BuildBars()
                 end
                 runeFrames[i]:ApplyTexture(g.barTexture or "none")
                 runeFrames[i]._bg:SetColorTexture(ERB.PipBgColor(sp, pipBg))
+                -- Textured Background, as the bar-type branch.
+                if g.barTextureBg or runeFrames[i]._bg._erbBgTex then
+                    ns.ERB_BgTexture(runeFrames[i]._bg, g.barTextureBg and not pipBg
+                        and (sp.fillOpacity or 100) >= 100 and EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, g.barTexture, nil), ERB.PipBgColor(sp, pipBg))
+                end
                 -- Fill Opacity: same stamp as regular pips (consumed by
                 -- SetActive in the rune update). Inert at 100 unless restoring.
                 -- Background on individual pips takes the same path at factor 1:
@@ -4227,6 +4279,11 @@ local function BuildBars()
                 end
                 pips[i]:ApplyTexture(g.barTexture or "none")
                 pips[i]._bg:SetColorTexture(ERB.PipBgColor(sp, pipBg))
+                -- Textured Background, as the bar-type branch.
+                if g.barTextureBg or pips[i]._bg._erbBgTex then
+                    ns.ERB_BgTexture(pips[i]._bg, g.barTextureBg and not pipBg
+                        and (sp.fillOpacity or 100) >= 100 and EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, g.barTexture, nil), ERB.PipBgColor(sp, pipBg))
+                end
                 -- Fill Opacity: stamp the per-pip factor (consumed by SetActive
                 -- and the secret renderer). Inert at 100 unless restoring.
                 -- Background on individual pips takes the same path at factor 1:
@@ -5046,6 +5103,17 @@ end
 -- active state, so only buffs the Cooldown Manager tracks are found; any ID may
 -- still be entered and tried.
 local _euiBuffViewers = { "BuffBarCooldownViewer", "BuffIconCooldownViewer" }
+-- Spell names never change within a session, so the buff check and its viewer
+-- scan read them from here instead of asking the client on every update.
+local _euiSpellNames = {}
+local function CachedSpellName(spellID)
+    local nm = _euiSpellNames[spellID]
+    if nm == nil then
+        nm = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID) or false
+        _euiSpellNames[spellID] = nm
+    end
+    return nm or nil
+end
 local function BuffActiveViaCooldownViewer(spellID, wantName)
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     if not gci then return false end
@@ -5055,8 +5123,16 @@ local function BuffActiveViaCooldownViewer(spellID, wantName)
         if pool and pool.EnumerateActive then
             for frame in pool:EnumerateActive() do
                 if frame:IsShown() then    -- shown = the buff is currently up
-                    local cdID = frame.cooldownID or (frame.cooldownInfo and frame.cooldownInfo.cooldownID)
-                    local info = cdID and gci(cdID)
+                    -- The item's own cooldownInfo is the data provider's live
+                    -- table (Blizzard updates its override and linked IDs in
+                    -- place), so reading it allocates nothing; a
+                    -- GetCooldownViewerCooldownInfo call builds a fresh copy per
+                    -- item. Only an item without one asks.
+                    local info = frame.cooldownInfo
+                    if not info then
+                        local cdID = frame.cooldownID
+                        info = cdID and gci(cdID)
+                    end
                     if info then
                         if info.spellID == spellID or info.overrideSpellID == spellID then return true end
                         if info.linkedSpellIDs then
@@ -5064,8 +5140,7 @@ local function BuffActiveViaCooldownViewer(spellID, wantName)
                                 if lid == spellID then return true end
                             end
                         end
-                        if wantName and info.spellID and C_Spell and C_Spell.GetSpellName
-                           and C_Spell.GetSpellName(info.spellID) == wantName then
+                        if wantName and info.spellID and CachedSpellName(info.spellID) == wantName then
                             return true
                         end
                     end
@@ -5081,7 +5156,7 @@ IP.BuffActiveViaViewer = BuffActiveViaCooldownViewer
 
 local function PlayerHasBuff(spellID)
     if not spellID or spellID == 0 or not C_UnitAuras then return false end
-    local nm = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+    local nm = CachedSpellName(spellID)
     -- 1) Exact aura spellId match.
     local byID = C_UnitAuras.GetPlayerAuraBySpellID
     if byID then
@@ -9300,6 +9375,8 @@ BuildCastBar = function()
 
     local texKey = cb.texture
     local isBlizzard = (texKey == "blizzard")
+    -- Textured Background: back to the plain background before a branch repaints it.
+    if castBarFrame._bg._erbBgTex then ns.ERB_BgTexture(castBarFrame._bg, nil) end
     if blizzKit then
         -- Blizzard Style: the stock fill art follows the cast kind
         -- (ns.ERB_SetBlizzCastFill) and the background hugs the bar the way
@@ -9336,6 +9413,11 @@ BuildCastBar = function()
         bar:SetStatusBarTexture(texPath)
         castBarFrame._bg:SetTexture(nil)
         castBarFrame._bg:SetColorTexture(cb.bgR, cb.bgG, cb.bgB, cb.bgA)
+        -- Textured Background: flat while Fill Color is below 100.
+        if cb.textureBg and (cb.fillOpacity or 100) >= 100 then
+            ns.ERB_BgTexture(castBarFrame._bg, EllesmereUI.ResolveTexturePath(CAST_BAR_TEXTURES, texKey, nil),
+                cb.bgR, cb.bgG, cb.bgB, cb.bgA)
+        end
         ns.ApplyCastBgAnchor()
     end
 
@@ -11178,6 +11260,11 @@ BuildGCDBar = function()
     bar:SetStatusBarTexture(texPath)
     gcdBarFrame._bg:SetTexture(nil)
     gcdBarFrame._bg:SetColorTexture(g.bgR, g.bgG, g.bgB, g.bgA)
+    -- Textured Background.
+    if g.textureBg or gcdBarFrame._bg._erbBgTex then
+        ns.ERB_BgTexture(gcdBarFrame._bg, g.textureBg and EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, g.texture, nil),
+            g.bgR, g.bgG, g.bgB, g.bgA)
+    end
 
     ApplyBarOrientation(bar, ori)
     -- HORIZONTAL_LEFT = horizontal, but the fill grows right->left (reverse).

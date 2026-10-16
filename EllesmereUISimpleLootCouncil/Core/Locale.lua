@@ -274,32 +274,35 @@ Locale.PluralForm = PluralForm
 
 
 
+local function FormatString(format, ...)
+    if not format:find("%%%d+%$") then return format:format(...) end
+    local slots = Slots(format)
+    if not slots then return format:format(...) end
+    local pieces, values, last = {}, {}, 1
+    for index, slot in ipairs(slots) do
+        pieces[#pieces + 1] = format:sub(last, slot.first - 1)
+        pieces[#pieces + 1] = slot.plain
+        local from = slot.index or index
+        values[index] = from >= 1 and (select(from, ...)) or nil
+        last = slot.last + 1
+    end
+    pieces[#pieces + 1] = format:sub(last)
+    return string.format(table.concat(pieces), unpack(values, 1, #slots))
+end
+
+
+
 
 
 function Locale.Format(message, ...)
-    local function formatString(format, ...)
-        if not format:find("%%%d+%$") then return format:format(...) end
-        local slots = Slots(format)
-        if not slots then return format:format(...) end
-        local pieces, values, last = {}, {}, 1
-        local args = {...}
-        for index, slot in ipairs(slots) do
-            pieces[#pieces + 1] = format:sub(last, slot.first - 1)
-            pieces[#pieces + 1] = slot.plain
-            values[index] = args[slot.index or index]
-            last = slot.last + 1
-        end
-        pieces[#pieces + 1] = format:sub(last)
-        return string.format(table.concat(pieces), unpack(values, 1, #slots))
-    end
     if type(message) == "table" then
         local form = PluralForm(select(1, ...))
         message = message[form] or message.other or message.one
         if type(message) ~= "string" then return "" end
-        return formatString(message, select(2, ...))
+        return FormatString(message, select(2, ...))
     end
     if type(message) ~= "string" then return "" end
-    return formatString(message, ...)
+    return FormatString(message, ...)
 end
 
 

@@ -2043,6 +2043,101 @@ qolFrame:SetScript("OnEvent", function(self)
         end
     end
 
+    if not EllesmereUI.IS_FOREVER then
+        local function EndHiddenBanner()
+            if not (EllesmereUIDB and EllesmereUIDB.hideBanners) then return end
+            local current = TopBannerMgr.currentBanner
+            local f = current and current.frame
+            if not f then return end
+            if f == BossBanner then
+                BossBanner_Stop(f)
+                BossBanner_OnAnimOutFinished(f.AnimOut)
+            elseif f:GetParent() == EventToastManagerFrame and f.hideAutomatically
+                    and not f:ShouldSuppressAnimOut() then
+                f.showAnim:Stop()
+                f.hideAnim:Stop()
+                EventToastManagerFrame:Reset()
+                f:OnAnimatedOut()
+            end
+        end
+
+        local bannerHooks = false
+        EllesmereUI._applyHideBanners = function()
+            if not (EllesmereUIDB and EllesmereUIDB.hideBanners) then return end
+            if not bannerHooks then
+                bannerHooks = true
+                hooksecurefunc("TopBannerManager_Show", EndHiddenBanner)
+                hooksecurefunc("TopBannerManager_BannerFinished", EndHiddenBanner)
+            end
+            EndHiddenBanner()
+        end
+
+        local TOAST_KINDS = {
+            { key = "hideAlertToastsLoot", default = true, systems = {
+                LootAlertSystem, LootUpgradeAlertSystem, MoneyWonAlertSystem,
+                HonorAwardedAlertSystem, LegendaryItemAlertSystem,
+            } },
+            { key = "hideAlertToastsAchievements", systems = {
+                AchievementAlertSystem, CriteriaAlertSystem,
+            } },
+            { key = "hideAlertToastsHousing", systems = {
+                HousingItemEarnedAlertFrameSystem, InitiativeTaskCompleteAlertFrameSystem,
+            } },
+        }
+        local kindOf = {}
+        for i = 1, #TOAST_KINDS do
+            local kind = TOAST_KINDS[i]
+            for j = 1, #kind.systems do kindOf[kind.systems[j]] = kind end
+        end
+
+        local function KindHidden(kind)
+            local db = EllesmereUIDB
+            if not (db and db.hideAlertToasts) then return false end
+            local v = db[kind.key]
+            if v == nil then return kind.default or false end
+            return v
+        end
+
+        local hidingToasts = false
+
+        local function FirstShownToast(system)
+            for frame in system.alertFramePool:EnumerateActive() do
+                if frame:IsShown() then return frame end
+            end
+        end
+
+        local function HideAlertToasts(system)
+            if hidingToasts or not KindHidden(kindOf[system]) then return end
+            hidingToasts = true
+            local frame = FirstShownToast(system)
+            while frame do
+                frame:Hide()
+                frame = FirstShownToast(system)
+            end
+            hidingToasts = false
+        end
+
+        local hooked = {}
+        EllesmereUI._applyHideAlertToasts = function()
+            for i = 1, #TOAST_KINDS do
+                local kind = TOAST_KINDS[i]
+                if KindHidden(kind) then
+                    for j = 1, #kind.systems do
+                        local system = kind.systems[j]
+                        if not hooked[system] then
+                            hooked[system] = true
+                            hooksecurefunc(system, "ShowAlert", HideAlertToasts)
+                        end
+                        HideAlertToasts(system)
+                    end
+                end
+            end
+        end
+
+        EllesmereUI._applyHideBanners()
+        EllesmereUI._applyHideAlertToasts()
+    end
+
     ---------------------------------------------------------------------------
     --  Instance Reset Announce -- after a successful /reset, posts to instance
     --  chat so the group knows it's ready to re-enter.

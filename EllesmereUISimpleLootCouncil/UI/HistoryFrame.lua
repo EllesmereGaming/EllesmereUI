@@ -103,6 +103,14 @@ end
 
 
 
+local foldCache = setmetatable({}, { __mode = "k" })
+
+local function ResetFolds()
+    foldCache = setmetatable({}, { __mode = "k" })
+end
+
+
+
 
 local function Matches(entry, needle)
     if needle == "" then return true end
@@ -112,16 +120,19 @@ local function Matches(entry, needle)
         return DateKey(entry):find(dateQuery, 1, true) ~= nil
     end
 
-    local haystack = table.concat({
-        tostring(entry.winner or ""),
+    local haystack = foldCache[entry]
+    if not haystack then
+        haystack = addon.Locale.Fold(table.concat({
+            tostring(entry.winner or ""),
 
-        tostring(entry.link or ""), tostring(entry.name or ""),
-        tostring(entry.boss or ""),
+            tostring(entry.link or ""), tostring(entry.name or ""),
+            tostring(entry.boss or ""),
 
-        tostring(entry.instance or ""), tostring(addon.History.ResponseText(entry) or ""),
-        tostring(NoteText(entry.note) or ""),
-    }, " ")
-    haystack = addon.Locale.Fold(haystack)
+            tostring(entry.instance or ""), tostring(addon.History.ResponseText(entry) or ""),
+            tostring(NoteText(entry.note) or ""),
+        }, " "))
+        foldCache[entry] = haystack
+    end
 
 
     return haystack:find(needle, 1, true) ~= nil
@@ -258,10 +269,6 @@ end
 
 
 
-
-
-local shiftRow, shiftEntry, shiftShown
-
 local function ShowRowTooltip(row, entry)
     if not entry then return end
     S.SideTooltip(row)
@@ -327,22 +334,9 @@ local function ShowRowTooltip(row, entry)
     GameTooltip:AddLine(T["Right-click to edit this local copy"], 0.45, 0.44, 0.42)
     GameTooltip:Show()
 
-    shiftRow, shiftEntry, shiftShown = row, entry, IsShiftKeyDown()
+
+    S.WatchTooltipModifiers(row)
 end
-
-
-
-GameTooltip:HookScript("OnUpdate", function(self)
-    if not shiftRow then return end
-    if self:GetOwner() ~= shiftRow then
-        shiftRow, shiftEntry = nil, nil
-        return
-    end
-    local shift = IsShiftKeyDown()
-    if shift ~= shiftShown then
-        ShowRowTooltip(shiftRow, shiftEntry)
-    end
-end)
 
 local function ShowRowMenu(row, entry)
     if not entry or not entry.id then return end
@@ -450,6 +444,7 @@ end
 
 function HistoryFrame:Reload()
     if not frame then return end
+    ResetFolds()
     ResolveFilter()
     Tbl.SetData(table_, addon.History:GetAll(), not refilter)
     refilter = false
@@ -1275,10 +1270,11 @@ end
 
 
 
-function HistoryFrame:Init()
-    S, Tbl = addon.Style, UI.Table
-    L, P = addon.Layout, addon.Pixel
 
+local SEARCH_DELAY = 0.2
+
+
+local function Build()
     frame = S.Window("SimpleLootCouncilHistoryFrame", "history", 1170, 470, T["Loot history"])
     frame:RestorePosition()
 
@@ -1294,9 +1290,16 @@ function HistoryFrame:Init()
     local searchHolder, edit = S.EditBox(filterRow, 300, S.size.BTN_H)
     P.Point(searchHolder, "LEFT", filterRow, "LEFT", 0, 0)
     searchBox = edit
+
+    local typed = 0
     edit:SetScript("OnTextChanged", function(self)
-        filter.search = addon.Locale.Fold(self:GetText() or "")
-        HistoryFrame:Refresh()
+        typed = typed + 1
+        local mine = typed
+        C_Timer.After(SEARCH_DELAY, function()
+            if mine ~= typed then return end
+            filter.search = addon.Locale.Fold(self:GetText() or "")
+            HistoryFrame:Refresh()
+        end)
     end)
     edit:SetScript("OnEscapePressed", function(self)
         self:SetText("")
@@ -1514,6 +1517,29 @@ function HistoryFrame:Init()
         paint = function() HistoryFrame:Reload() end,
         frame = frame,
     })
+
+    addon.Log:D("UI", "history frame built")
+end
+
+
+local building
+local function WhenBuilt(fn)
+    if frame then
+        fn()
+    elseif not building then
+        building = true
+        S.BuildOnDriver(function()
+            building = false
+            Build()
+            fn()
+        end)
+    end
+end
+
+function HistoryFrame:Init()
+    S, Tbl = addon.Style, UI.Table
+    L, P = addon.Layout, addon.Pixel
+
     local function Invalidate() addon.Callbacks:Invalidate("history") end
     addon.Callbacks:Register("ItemAwarded", Invalidate)
     addon.Callbacks:Register("HistoryChanged", Invalidate)
@@ -1526,11 +1552,13 @@ function HistoryFrame:Init()
 end
 
 function HistoryFrame:Toggle()
-    if not frame then return end
-    if frame:IsShown() then
+    if frame and frame:IsShown() then
         frame:Hide()
-    else
-        frame:Show()
-        HistoryFrame:Reload()
+        return
     end
+    WhenBuilt(function()
+
+        addon.Callbacks:Invalidate("history")
+        frame:Show()
+    end)
 end

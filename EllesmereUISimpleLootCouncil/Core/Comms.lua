@@ -77,6 +77,7 @@ function Stats.Dropped(kind, command, frames)
 end
 
 
+
 function Stats.Refused(reason)
     statRefused[reason] = (statRefused[reason] or 0) + 1
 end
@@ -179,10 +180,15 @@ local LEGACY_MAX_PAYLOAD = 240
 local FIRST_CURRENT_MINOR = 41
 
 
+
+
 lanes = {
-    [CONTROL] = { name = "control", prefix = LEGACY_PREFIX .. "c", queue = {}, pausedUntil = 0 },
-    [BULK] = { name = "bulk", prefix = LEGACY_PREFIX .. "b", queue = {}, pausedUntil = 0 },
-    [PRESENCE] = { name = "presence", prefix = LEGACY_PREFIX .. "p", queue = {}, pausedUntil = 0 },
+    [CONTROL] = { name = "control", prefix = LEGACY_PREFIX .. "c", queue = {}, pausedUntil = 0,
+        maxChunks = 64 },
+    [BULK] = { name = "bulk", prefix = LEGACY_PREFIX .. "b", queue = {}, pausedUntil = 0,
+        maxChunks = 254 },
+    [PRESENCE] = { name = "presence", prefix = LEGACY_PREFIX .. "p", queue = {}, pausedUntil = 0,
+        maxChunks = 64 },
 }
 local laneByPrefix = {}
 for _, lane in ipairs(lanes) do laneByPrefix[lane.prefix] = lane end
@@ -248,6 +254,31 @@ local INCOMPLETE_TTL = 30
 
 local handlers = {}
 local pending = {}
+
+
+
+
+local MAX_INFLATED = 1048576
+local OUTSIDER_MAX_INFLATED = 32768
+
+local MAX_COMMAND = 32
+
+local MAX_PARTIALS, OUTSIDER_MAX_PARTIALS = 8, 1
+local partialsOf = {}
+
+local MAX_REMEMBERED = 256
+
+local function NewSet() return { keys = {}, n = 0 } end
+
+
+local function FirstTime(set, key)
+    if set.keys[key] then return false end
+    if set.n >= MAX_REMEMBERED then set.keys, set.n = {}, 0 end
+    set.keys[key] = true
+    set.n = set.n + 1
+    return true
+end
+
 
 local nextMessageId = math.random(1, MAX_MESSAGE_ID)
 
@@ -319,23 +350,31 @@ local function Encode(command, args)
     return deflated and Escape(deflated) or nil
 end
 
-local function Inflate(raw)
-    local ok, value = pcall(function()
+
+local function Inflate(raw, limit)
+    local ok, value, size = pcall(function()
         local inflated = C_EncodingUtil.DecompressString(raw, Enum.CompressionMethod.Deflate)
+        if type(inflated) ~= "string" then return nil end
+        if #inflated > limit then return nil, #inflated end
         return C_EncodingUtil.DeserializeCBOR(inflated)
     end)
     if ok and type(value) == "table" then return value end
-    return nil
+    return nil, ok and size or nil
 end
 
-local function Decode(escaped)
-    local value = Inflate(Unescape(escaped))
-    if not value then
 
+local undecodableLogged = NewSet()
 
-        addon.Log:WLogOnly("Comms", "undecodable message discarded")
+local function Decode(escaped, limit, sender)
+    local value, size = Inflate(Unescape(escaped), limit)
+    if not value and FirstTime(undecodableLogged, tostring(sender) .. "|" .. tostring(size ~= nil)) then
+        if size then
+            addon.Log:WLogOnly("Comms", "inflated message too large", size, "from", sender)
+        else
+            addon.Log:WLogOnly("Comms", "undecodable message discarded", "from", sender)
+        end
     end
-    return value
+    return value, size
 end
 
 
@@ -350,7 +389,7 @@ end
 local function LegacyDecode(encoded)
     local ok, raw = pcall(C_EncodingUtil.DecodeBase64, encoded,
         Enum.Base64Variant.StandardUrlSafe)
-    return ok and raw and Inflate(raw) or nil
+    return ok and raw and Inflate(raw, MAX_INFLATED) or nil
 end
 
 
@@ -532,6 +571,11 @@ end
 
 
 
+local PARK_AFTER = 1
+local parkGeneration = 0
+
+
+
 local function Pump()
     if pumping then return end
     pumping = true
@@ -543,7 +587,14 @@ local function Pump()
         wake = now + THROTTLE_PAUSE
     end
     if not driver then return end
-    if wake then
+    parkGeneration = parkGeneration + 1
+    if wake and wake - now >= PARK_AFTER then
+        driver:Hide()
+        local generation = parkGeneration
+        C_Timer.After(wake - now, function()
+            if generation == parkGeneration then Pump() end
+        end)
+    elseif wake then
         wakeAt = wake
         driver:Show()
     else
@@ -583,10 +634,11 @@ local function SendFramed(lane, command, escaped, channel, target)
         return true
     end
 
+
     local pieces = Split(escaped)
     local total = #pieces
-    if total > MAX_CHUNKS then
-        addon.Log:E("Comms", "payload too large to chunk", command, #escaped)
+    if total > MAX_CHUNKS or total > lane.maxChunks then
+        addon.Log:E("Comms", "payload too large to chunk", command, #escaped, lane.name)
         return false
     end
 
@@ -781,7 +833,7 @@ local outsiderPrefix = {}
 for command in pairs(FROM_OUTSIDE) do outsiderPrefix[LaneFor(command).prefix] = true end
 local OUTSIDER_MAX_CHUNKS = 32
 local OUTSIDER_WINDOW = 30
-local outsiderHeard = {}
+local outsiderHeard, outsiderCount = {}, 0
 
 
 local function IsMember(sender)
@@ -790,13 +842,32 @@ local function IsMember(sender)
 end
 
 
-local refusalLogged = {}
-local function Refuse(reason, subject, sender)
+
+local refusalLogged = NewSet()
+local function Refuse(reason, subject, sender, detail)
     Stats.Refused(reason)
-    local key = reason .. "|" .. tostring(subject) .. "|" .. tostring(sender)
-    if refusalLogged[key] then return end
-    refusalLogged[key] = true
-    addon.Log:D("Comms", "refused", reason, subject, "from", sender)
+    if not FirstTime(refusalLogged, reason .. "|" .. tostring(subject) .. "|" .. tostring(sender)) then
+        return
+    end
+    if detail ~= nil then
+        addon.Log:D("Comms", "refused", reason, subject, "from", sender, detail)
+    else
+        addon.Log:D("Comms", "refused", reason, subject, "from", sender)
+    end
+end
+
+
+
+local function KnownCommand(command)
+    if type(command) ~= "string" or #command > MAX_COMMAND then return nil end
+    if command == BATCH or handlers[command] then return command end
+    return nil
+end
+
+
+local function Shape(command)
+    if type(command) == "string" then return #command end
+    return type(command)
 end
 
 
@@ -827,7 +898,7 @@ end
 
 
 
-local legacyIgnored = {}
+local legacyIgnored = NewSet()
 
 
 local function IsCurrentFormat(version)
@@ -844,7 +915,7 @@ local function OnLegacy(body, sender)
     if byte(body, 1) == KIND_SINGLE then
         local message = LegacyDecode(sub(body, 2))
         local args = message and message.c == "version" and message.a
-        if type(args) == "table" and type(args.v) == "string" then
+        if type(args) == "table" and type(args.v) == "string" and #args.v <= MAX_COMMAND then
             if IsCurrentFormat(args.v) then return end
             addon.Log:D("Comms", "legacy peer", sender, args.v)
             Stats.Dispatched("legacy")
@@ -852,8 +923,7 @@ local function OnLegacy(body, sender)
             return
         end
     end
-    if not legacyIgnored[sender] then
-        legacyIgnored[sender] = true
+    if FirstTime(legacyIgnored, sender) then
         addon.Log:D("Comms", "ignoring 0.40-format traffic from", sender)
     end
 end
@@ -937,11 +1007,16 @@ local function ApplyBatch(args, sender)
     addon.Log:D("Comms", "recv batch from", sender, #list, "entries")
     Stats.Dispatched(BATCH)
     for _, inner in ipairs(list) do
-        local command = type(inner) == "table" and inner.c or nil
+        local raw = type(inner) == "table" and inner.c or nil
+        local command = KnownCommand(raw)
         if BATCHABLE[command] then
             Apply(command, inner.a, sender)
         else
-            addon.Log:WLogOnly("Comms", "refused unbatchable", tostring(command), "in a batch from", sender)
+            Stats.Refused("unbatchable")
+            if FirstTime(refusalLogged, "unbatchable|" .. tostring(sender)) then
+                addon.Log:WLogOnly("Comms", "refused unbatchable", command or Shape(raw),
+                    "in a batch from", sender)
+            end
         end
     end
     addon.Log:Release()
@@ -950,27 +1025,47 @@ end
 
 
 
+
+local ArmSweep
+
 local function Dispatch(escaped, sender, frames, bytes, member)
     if not member then
         local now = GetTime()
-        if now - (outsiderHeard[sender] or -OUTSIDER_WINDOW) < OUTSIDER_WINDOW then
+        local heard = outsiderHeard[sender]
+
+        if now - (heard or -OUTSIDER_WINDOW) < OUTSIDER_WINDOW
+            or not heard and outsiderCount >= MAX_REMEMBERED then
             Refuse("flood", "message", sender)
             return
         end
+        if not heard then outsiderCount = outsiderCount + 1 end
         outsiderHeard[sender] = now
+        ArmSweep()
     end
-    local message = Decode(escaped)
-    Stats.Received(message and message.c, frames, bytes)
-    if not message or not message.c then return end
-    if not member and not FROM_OUTSIDE[message.c] then
-        Refuse("outsider", message.c, sender)
+    local message = Decode(escaped, member and MAX_INFLATED or OUTSIDER_MAX_INFLATED, sender)
+    local command = message and KnownCommand(message.c)
+    Stats.Received(command, frames, bytes)
+    if not message then return end
+    if not command then
+        Refuse("command", nil, sender, Shape(message.c))
         return
     end
-    if message.c == BATCH then
+    if not member and not FROM_OUTSIDE[command] then
+        Refuse("outsider", command, sender)
+        return
+    end
+    if command == BATCH then
         ApplyBatch(message.a, sender)
         return
     end
-    Apply(message.c, message.a, sender)
+    Apply(command, message.a, sender)
+end
+
+
+local function DropPartial(key, buffer)
+    pending[key] = nil
+    local left = (partialsOf[buffer.sender] or 1) - 1
+    partialsOf[buffer.sender] = left > 0 and left or nil
 end
 
 local function OnMessage(prefix, body, sender, channel)
@@ -1010,8 +1105,13 @@ local function OnMessage(prefix, body, sender, channel)
         return
     end
 
+
     if not member and total > OUTSIDER_MAX_CHUNKS then
-        Refuse("outsider", "chunks=" .. total, sender)
+        Refuse("outsider", "chunks", sender, total)
+        return
+    end
+    if member and total > laneByPrefix[prefix].maxChunks then
+        Refuse("chunks", prefix, sender, total)
         return
     end
 
@@ -1028,13 +1128,20 @@ local function OnMessage(prefix, body, sender, channel)
         addon.Log:WLogOnly("Comms", "discarding superseded partial message", key,
             ("%d/%d chunks"):format(buffer.count, buffer.total))
         Stats.Received(nil, buffer.count, buffer.bytes)
-        pending[key] = nil
+        DropPartial(key, buffer)
         buffer = nil
     end
 
     if not buffer then
-        buffer = { parts = {}, count = 0, total = total, bytes = 0 }
+        local open = partialsOf[sender] or 0
+        if open >= (member and MAX_PARTIALS or OUTSIDER_MAX_PARTIALS) then
+            Refuse("partials", prefix, sender, open)
+            return
+        end
+        buffer = { parts = {}, count = 0, total = total, bytes = 0, sender = sender }
         pending[key] = buffer
+        partialsOf[sender] = open + 1
+        ArmSweep()
     end
 
 
@@ -1045,9 +1152,39 @@ local function OnMessage(prefix, body, sender, channel)
     buffer.at = now
 
     if buffer.count == buffer.total then
-        pending[key] = nil
+        DropPartial(key, buffer)
         Dispatch(table.concat(buffer.parts), sender, buffer.count, buffer.bytes, member)
     end
+end
+
+
+
+local sweepTicker
+
+local function Sweep()
+    local now = GetTime()
+    for key, buffer in pairs(pending) do
+        if now - buffer.at > INCOMPLETE_TTL then
+            addon.Log:WLogOnly("Comms", "discarding incomplete message", key,
+                ("%d/%d chunks"):format(buffer.count, buffer.total))
+            Stats.Received(nil, buffer.count, buffer.bytes)
+            DropPartial(key, buffer)
+        end
+    end
+    for sender, at in pairs(outsiderHeard) do
+        if now - at >= OUTSIDER_WINDOW then
+            outsiderHeard[sender] = nil
+            outsiderCount = outsiderCount - 1
+        end
+    end
+    if not next(pending) and outsiderCount == 0 and sweepTicker then
+        sweepTicker:Cancel()
+        sweepTicker = nil
+    end
+end
+
+function ArmSweep()
+    if not sweepTicker then sweepTicker = C_Timer.NewTicker(INCOMPLETE_TTL, Sweep) end
 end
 
 
@@ -1110,25 +1247,14 @@ function Comms:Init()
 
     Pump()
 
+
     addon.Restrictions:OnChange(function(isBlocked)
-        if not isBlocked then C_Timer.After(RESUME_DELAY, Resume) end
-    end)
-
-
-
-    C_Timer.NewTicker(INCOMPLETE_TTL, function()
-        local now = GetTime()
-        for key, buffer in pairs(pending) do
-            if now - buffer.at > INCOMPLETE_TTL then
-                addon.Log:WLogOnly("Comms", "discarding incomplete message", key,
-                    ("%d/%d chunks"):format(buffer.count, buffer.total))
-                Stats.Received(nil, buffer.count, buffer.bytes)
-                pending[key] = nil
-            end
+        if isBlocked then return end
+        for _, lane in ipairs(lanes) do
+            if lane.queue[1] and lane.queue[1].lockdowns then lane.pausedUntil = 0 end
         end
-        for sender, at in pairs(outsiderHeard) do
-            if now - at >= OUTSIDER_WINDOW then outsiderHeard[sender] = nil end
-        end
+        Pump()
+        C_Timer.After(RESUME_DELAY, Resume)
     end)
 
     addon.Log:I("Comms", "ready", "lanes", "SLCc SLCb SLCp", "legacy", LEGACY_PREFIX,

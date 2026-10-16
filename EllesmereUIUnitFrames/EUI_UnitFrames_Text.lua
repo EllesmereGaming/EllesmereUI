@@ -363,9 +363,11 @@ end
 local TagFns = {}
 
 do
-  -- Abbreviated health for the curhpshort / maxhpshort tags. status: an
-  -- offline, dead or ghost unit reads OFFLINE / DEAD. Only the current value
-  -- takes it, so Health # / Max # names the status once ("DEAD / 150 K").
+  -- Abbreviated health for the curhpshort / healthshort / maxhpshort tags.
+  -- status: an offline, dead or ghost unit reads OFFLINE / DEAD. Only the
+  -- current value takes it, so Health # / Max # names the status once
+  -- ("DEAD / 150 K"). shortHealth (healthshort): always one decimal with an
+  -- uppercase K/M/B (ns.AbbreviateShortHealth), whatever the decimal options say.
   local function MakeAbbrevHP(getHP, status, shortHealth)
     return function(unit)
       if not unit or not UnitExists(unit) then return "" end

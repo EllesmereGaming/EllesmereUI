@@ -10,12 +10,21 @@ addon.History = History
 
 
 
+
 local byWinner = {}
 local byItem = {}
 
+local indexState = "none"
+
+
+local pending, pendingAt, liveKeys
+
 local counter = 0
 
+
+
 local function WinnerKey(winner)
+    if type(winner) ~= "string" or winner == "" then return nil end
     if addon.Player and addon.Player.NameKey then
         local qualified = addon.Player.Qualify and addon.Player:Qualify(winner) or winner
         return addon.Player:NameKey(qualified) or winner
@@ -24,19 +33,27 @@ local function WinnerKey(winner)
 end
 
 
+local function EpochOf(entry)
+    local epoch = entry and entry.epoch
+    return type(epoch) == "number" and epoch or 0
+end
+History.EpochOf = EpochOf
+
+
 
 
 
 
 
 local function ItemKey(link)
-    if not link then return nil end
+    if type(link) ~= "string" then return nil end
     return link:match("|H(item:%d+)") or link:match("(item:%d+)") or link
 end
 
 local function Index(entry)
-    if entry.winner then
-        local winnerKey = WinnerKey(entry.winner)
+    if type(entry) ~= "table" then return end
+    local winnerKey = WinnerKey(entry.winner)
+    if winnerKey then
         byWinner[winnerKey] = byWinner[winnerKey] or {}
         table.insert(byWinner[winnerKey], entry)
     end
@@ -44,6 +61,10 @@ local function Index(entry)
     if key then
         byItem[key] = byItem[key] or {}
         table.insert(byItem[key], entry)
+    end
+    if liveKeys and entry.runId and entry.session then
+        local live = tostring(entry.runId) .. ":" .. tostring(entry.session)
+        liveKeys[live] = math.max(liveKeys[live] or 0, EpochOf(entry))
     end
 end
 
@@ -57,13 +78,34 @@ end
 History.EachEntry = EachEntry
 
 
+local function IndexStep(budget)
+    local last = math.min(#pending, pendingAt + budget - 1)
+    for i = pendingAt, last do Index(pending[i]) end
+    pendingAt = last + 1
+    if pendingAt <= #pending then return false end
+    pending, pendingAt, indexState = nil, nil, "ready"
+    return true
+end
+
+
+
 function History:Reindex()
     byWinner, byItem = {}, {}
+    pending, pendingAt = nil, nil
+    if liveKeys then liveKeys = {} end
     EachEntry(Index)
+    indexState = "ready"
 end
 
 local function Reindex()
     History:Reindex()
+end
+
+
+local function EnsureIndex()
+    if indexState == "ready" then return end
+    if indexState == "building" then IndexStep(math.huge) return end
+    Reindex()
 end
 
 
@@ -77,6 +119,11 @@ end
 
 
 local function ResolveCandidateResponse(candidate, responseByIndex, awardedWinner)
+
+    local boe = candidate and type(candidate.boe) == "table" and candidate.boe
+    if boe and (candidate.realStatus or candidate.status) == "RESPONDED" then
+        return boe.t, nil, boe.r, boe.g, boe.b, nil
+    end
     local index = candidate and (candidate.realResponse or candidate.response)
     if index then
         local response = responseByIndex(index)
@@ -223,20 +270,80 @@ end
 
 
 
-local function Stamp(entry)
+local ROW_FIELDS = {
+    id = "string", link = "string", winner = "string", session = "number",
+    runId = "string", owner = "string", responseText = "string",
+    responseCode = "string", responseID = "number", r = "number", g = "number",
+    b = "number", date = "string", time = "string", epoch = "number",
+    instance = "string", instanceType = "string", difficultyID = "number",
+    difficultyName = "string", boss = "string", encounterID = "number",
+    note = "string", votes = "number", groupSize = "number", delivered = "boolean",
+    awardSeq = "number", reason = "string", coin = "boolean", quantity = "number",
+}
+local MAX_TEXT, MAX_LONG = 255, 1024
+local LONG_FIELDS = { link = true, note = true, reason = true, responseText = true }
+
+
+
+function History.CleanRow(entry)
+    if type(entry) ~= "table" then return nil, "not_a_table" end
+    local id = entry.id
+    if type(id) ~= "string" or #id > 64 or not id:match("^[%w%-:]+$") then
+        return nil, "bad_id"
+    end
+    local link = entry.link
+    if type(link) ~= "string" or not (link:match("|Hitem:%d+") or link:match("^item:%d+")) then
+        return nil, "not_an_item"
+    end
+    if type(entry.winner) ~= "string" or entry.winner == "" then return nil, "no_winner" end
+    local epoch = entry.epoch
+    if type(epoch) ~= "number" or epoch ~= epoch or epoch < 0 or epoch == math.huge then
+        return nil, "bad_epoch"
+    end
+
     local row = {}
-    for key, value in pairs(entry) do row[key] = value end
-    local player, raidTeam = addon.Player, addon.RaidTeam
-    row.recorder = player and player.GetFullName and player:GetFullName("player") or nil
-    row.guild = raidTeam and raidTeam.GetGuildName and raidTeam:GetGuildName() or nil
-    if not row.guild and raidTeam and raidTeam.IsGuildPending and raidTeam:IsGuildPending() then
-        addon.Log:D("History", "guild not readable yet - row left untagged", entry.link)
+    for key, kind in pairs(ROW_FIELDS) do
+        local value = entry[key]
+        if type(value) == kind then
+            if kind == "number" and value ~= value then value = nil end
+            if kind == "string" and #value > (LONG_FIELDS[key] and MAX_LONG or MAX_TEXT) then
+                value = nil
+            end
+            row[key] = value
+        end
     end
     return row
 end
 
-function History:Record(entry)
-    if not entry or not entry.id then return end
+
+local refusalLogged = {}
+local function RefuseRow(reason, sender)
+    local key = reason .. "|" .. tostring(sender)
+    if refusalLogged[key] then return end
+    refusalLogged[key] = true
+    addon.Log:D("History", "refused a history row", reason, "from", tostring(sender))
+end
+
+
+
+local function Stamp(row)
+    local player, raidTeam = addon.Player, addon.RaidTeam
+    row.recorder = player and player.GetFullName and player:GetFullName("player") or nil
+    row.guild = raidTeam and raidTeam.GetGuildName and raidTeam:GetGuildName() or nil
+    if not row.guild and raidTeam and raidTeam.IsGuildPending and raidTeam:IsGuildPending() then
+        addon.Log:D("History", "guild not readable yet - row left untagged", row.link)
+    end
+    return row
+end
+
+
+function History:Record(entry, sender)
+    local clean, reason = History.CleanRow(entry)
+    if not clean then
+        RefuseRow(reason, sender)
+        return
+    end
+    entry = clean
     addon.db.history = addon.db.history or {}
 
     if addon.db.history[entry.id] then
@@ -265,7 +372,8 @@ function History:Record(entry)
     end
 
     addon.db.history[entry.id] = row
-    Index(row)
+
+    if indexState ~= "none" then Index(row) end
     addon.Log:D("History", "recorded", entry.link, "to", entry.winner)
 
     addon.Callbacks:Fire("HistoryChanged", "recorded", row)
@@ -277,8 +385,16 @@ end
 function History:RecordCoin(name, link, epoch, boss, encounterID, quantity)
     if not addon.PlayerIsMasterLooter() then return end
     if type(name) ~= "string" or type(link) ~= "string" then return end
+    epoch = math.floor(tonumber(epoch) or GetServerTime())
+    encounterID = tonumber(encounterID)
+    local difficultyID = addon.Encounter:DifficultyFor(boss, encounterID)
+
+    if addon.BonusRoll and addon.BonusRoll.AlreadyRecorded(History:GetForWinner(name), name, link, boss,
+            encounterID, difficultyID, epoch) then
+        addon.Log:D("History", "coin already recorded", link, "for", name)
+        return
+    end
     counter = counter + 1
-    epoch = epoch or GetServerTime()
 
     local entry = {
 
@@ -295,7 +411,7 @@ function History:RecordCoin(name, link, epoch, boss, encounterID, quantity)
         epoch = epoch,
         instance = GetInstanceInfo(),
 
-        difficultyID = addon.Encounter:DifficultyFor(boss, encounterID),
+        difficultyID = difficultyID,
         boss = boss,
         encounterID = encounterID,
 
@@ -389,21 +505,28 @@ function History.IsCoinLoot(entry)
 end
 
 function History:GetForWinner(winner)
-    return byWinner[WinnerKey(winner)] or {}
+    local key = WinnerKey(winner)
+    if not key then return {} end
+    EnsureIndex()
+    return byWinner[key] or {}
 end
 
 function History:GetWinnersOfItem(link)
-    return byItem[ItemKey(link)] or {}
+    local key = ItemKey(link)
+    if not key then return {} end
+    EnsureIndex()
+    return byItem[key] or {}
 end
 
 
 
 
 function History:GetStats(winner)
-    if not winner then return nil end
+    local winnerKey = WinnerKey(winner)
+    if not winnerKey then return nil end
+    EnsureIndex()
 
     local names = { winner }
-    local winnerKey = WinnerKey(winner)
     local hasAlts = addon.Player and addon.Player.Main and addon.Player.Alts
     local isAlt = hasAlts and WinnerKey(addon.Player:Main(winner)) ~= winnerKey
     if hasAlts and not isAlt then
@@ -446,7 +569,7 @@ function History:GetStats(winner)
 
     if not any then return nil end
 
-    table.sort(recent, function(a, b) return (a.epoch or 0) > (b.epoch or 0) end)
+    table.sort(recent, function(a, b) return EpochOf(a) > EpochOf(b) end)
 
     return {
         counts = counts, total = total, imported = imported,
@@ -467,7 +590,7 @@ end
 function History:GetAll()
     local all = {}
     EachEntry(function(entry) all[#all + 1] = entry end)
-    table.sort(all, function(a, b) return (a.epoch or 0) > (b.epoch or 0) end)
+    table.sort(all, function(a, b) return EpochOf(a) > EpochOf(b) end)
     return all
 end
 
@@ -663,7 +786,7 @@ function History:PruneOlderThan(days)
     local cutoff = GetServerTime() - (days * 24 * 60 * 60)
     local removed = 0
     for id, entry in pairs(addon.db.history or {}) do
-        if (entry.epoch or 0) < cutoff then
+        if EpochOf(entry) < cutoff then
             addon.db.history[id] = nil
             removed = removed + 1
         end
@@ -751,7 +874,7 @@ function History:ToCSV(scope, delimiter)
     else
         ordered = History:GetAll()
     end
-    table.sort(ordered, function(a, b) return (a.epoch or 0) < (b.epoch or 0) end)
+    table.sort(ordered, function(a, b) return EpochOf(a) < EpochOf(b) end)
 
     local function esc(value)
         if value == nil then return "" end
@@ -812,12 +935,37 @@ end
 
 
 
+
+local LOGIN_BUDGET = 250
+History.LOGIN_BUDGET = LOGIN_BUDGET
+
+
+
+local function StartLoginPass()
+    byWinner, byItem, liveKeys = {}, {}, {}
+    pending, pendingAt = {}, 1
+    EachEntry(function(entry) pending[#pending + 1] = entry end)
+    indexState = "building"
+    local driver = CreateFrame("Frame")
+    driver:SetScript("OnUpdate", function(self)
+        if indexState == "building" then
+            IndexStep(LOGIN_BUDGET)
+            return
+        end
+        self:SetScript("OnUpdate", nil)
+        local live = liveKeys
+        liveKeys = nil
+        if addon.Snapshot then addon.Snapshot:Prune(live, true) end
+    end)
+    return driver
+end
+
 function History:Init()
     addon.db.history = addon.db.history or {}
     addon.db.imported = addon.db.imported or {}
-    Reindex()
 
     local removed, days = History:PruneBySetting()
+    History.loginDriver = StartLoginPass()
     if removed > 0 then
 
         print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(addon.Locale.Plural{
@@ -857,14 +1005,14 @@ function History:Init()
         end
     end)
 
-    addon.Comms:Register("history", "ml", function(args, _)
-        if not args or not args.e then return end
+    addon.Comms:Register("history", "ml", function(args, sender)
+        if type(args) ~= "table" or type(args.e) ~= "table" then return end
         if addon.db.recordHistory then
-            History:Record(args.e)
+            History:Record(args.e, sender)
         elseif not addon.PlayerIsMasterLooter() then
 
 
-            addon.Log:D("History", "not recording", args.e.link,
+            addon.Log:D("History", "not recording", tostring(args.e.link),
                 "- Record award history is off in your settings")
         end
     end)

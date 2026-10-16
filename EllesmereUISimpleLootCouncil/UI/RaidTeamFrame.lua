@@ -126,9 +126,26 @@ local function SeasonCutoff()
     return addon.RaidTeam:GetSeasonStart()
 end
 
-local function Flatten()
-    local members = addon.RaidTeam:GetMembers()
-    local index = addon.RaidTeam:BuildLootIndex()
+
+
+local snapshot
+local memberFolds = setmetatable({}, { __mode = "k" })
+
+local function Folded(member)
+    local folds = memberFolds[member]
+    if not folds then
+        local Fold = addon.Locale.Fold
+        folds = { Fold(member.name or ""), Fold(member.rank or ""), Fold(member.className or "") }
+        memberFolds[member] = folds
+    end
+    return folds
+end
+
+local function Flatten(reuse)
+    if not (reuse and snapshot) then
+        snapshot = { members = addon.RaidTeam:GetMembers(), index = addon.RaidTeam:BuildLootIndex() }
+    end
+    local members, index = snapshot.members, snapshot.index
 
     local cutoff = SeasonCutoff()
     local needle = filter.search
@@ -136,10 +153,11 @@ local function Flatten()
 
     for _, member in ipairs(members) do
         if filter.offline or member.online then
+            local folds = needle ~= "" and Folded(member)
             local matches = needle == ""
-                or addon.Locale.Fold(member.name or ""):find(needle, 1, true) ~= nil
-                or addon.Locale.Fold(member.rank or ""):find(needle, 1, true) ~= nil
-                or addon.Locale.Fold(member.className or ""):find(needle, 1, true) ~= nil
+                or folds[1]:find(needle, 1, true) ~= nil
+                or folds[2]:find(needle, 1, true) ~= nil
+                or folds[3]:find(needle, 1, true) ~= nil
 
             if matches then
                 local loot = addon.RaidTeam:LootFor(index, member)
@@ -483,9 +501,6 @@ end
 
 
 
-
-local shiftRow, shiftData, shiftShown
-
 local function ShowRowTooltip(row, data)
     if not data then return end
     S.SideTooltip(row)
@@ -589,22 +604,9 @@ local function ShowRowTooltip(row, data)
     end
 
     GameTooltip:Show()
-    shiftRow, shiftData, shiftShown = row, data, IsShiftKeyDown()
+
+    if data.kind == "item" then S.WatchTooltipModifiers(row) end
 end
-
-
-
-GameTooltip:HookScript("OnUpdate", function(self)
-    if not shiftRow then return end
-    if self:GetOwner() ~= shiftRow then
-        shiftRow, shiftData = nil, nil
-        return
-    end
-    local shift = IsShiftKeyDown()
-    if shift ~= shiftShown then
-        ShowRowTooltip(shiftRow, shiftData)
-    end
-end)
 
 
 
@@ -685,12 +687,23 @@ end
 
 
 
-function RaidTeamFrame:Refresh(keepScroll)
-    if not frame then return end
-    local rows, shown = Flatten()
+local function Paint(keepScroll, reuse)
+    local rows, shown = Flatten(reuse)
     Tbl.SetData(table_, rows, keepScroll)
     UpdateSummary(shown)
     if originButton then originButton:Sync() end
+end
+
+
+function RaidTeamFrame:Refresh(keepScroll)
+    if not frame then return end
+    Paint(keepScroll, false)
+end
+
+
+local function Repaint(keepScroll)
+    if not frame then return end
+    Paint(keepScroll, true)
 end
 
 
@@ -811,10 +824,11 @@ end
 
 
 
-function RaidTeamFrame:Init()
-    S, Tbl = addon.Style, UI.Table
-    L, P = addon.Layout, addon.Pixel
 
+local SEARCH_DELAY = 0.2
+
+
+local function Build()
 
 
     frame = S.Window("SimpleLootCouncilRaidTeamFrame", "raidteam", 1263, 640,
@@ -832,9 +846,16 @@ function RaidTeamFrame:Init()
     local searchHolder, edit = S.EditBox(filterRow, 266, S.size.BTN_H)
     P.Point(searchHolder, "LEFT", filterRow, "LEFT", 0, 0)
     searchBox = edit
+
+    local typed = 0
     edit:SetScript("OnTextChanged", function(self)
-        filter.search = addon.Locale.Fold(self:GetText() or "")
-        RaidTeamFrame:Refresh()
+        typed = typed + 1
+        local mine = typed
+        C_Timer.After(SEARCH_DELAY, function()
+            if mine ~= typed then return end
+            filter.search = addon.Locale.Fold(self:GetText() or "")
+            Repaint()
+        end)
     end)
     edit:SetScript("OnEscapePressed", function(self)
         self:SetText("")
@@ -862,7 +883,7 @@ function RaidTeamFrame:Init()
         end
         sortMode = SORT_ORDER[(index % #SORT_ORDER) + 1]
         self:SetLabel(SORT_LABEL[sortMode])
-        RaidTeamFrame:Refresh()
+        Repaint()
     end)
 
 
@@ -871,7 +892,7 @@ function RaidTeamFrame:Init()
     seasonButton:SetScript("OnClick", function(self)
         filter.seasonOnly = not filter.seasonOnly
         self:SetLabel(filter.seasonOnly and T["This season"] or T["All time"])
-        RaidTeamFrame:Refresh()
+        Repaint()
     end)
     seasonButton:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
@@ -911,7 +932,7 @@ function RaidTeamFrame:Init()
 
     offlineCheck = S.Switch(filterRow, function(value)
         filter.offline = value
-        RaidTeamFrame:Refresh()
+        Repaint()
     end)
     P.Point(offlineCheck, "RIGHT", filterRow, "RIGHT", 0, 0)
     offlineCheck:SetChecked(filter.offline)
@@ -946,7 +967,7 @@ function RaidTeamFrame:Init()
         if data.kind == "player" then
             local key = data.member.fullName
             expanded[key] = (not expanded[key]) or nil
-            RaidTeamFrame:Refresh(true)
+            Repaint(true)
             return
         end
 
@@ -989,16 +1010,38 @@ function RaidTeamFrame:Init()
 
     frame:SetHeight(P.Snap(640))
 
+    addon.Log:D("UI", "raid team frame built")
+end
+
+
+local building
+local function WhenBuilt(fn)
+    if frame then
+        fn()
+    elseif not building then
+        building = true
+        S.BuildOnDriver(function()
+            building = false
+            Build()
+            fn()
+        end)
+    end
+end
+
+function RaidTeamFrame:Init()
+    S, Tbl = addon.Style, UI.Table
+    L, P = addon.Layout, addon.Pixel
+
 
 
     local function RepaintIfShown()
-        if frame:IsShown() then RaidTeamFrame:Refresh(true) end
+        if frame and frame:IsShown() then RaidTeamFrame:Refresh(true) end
     end
     addon.Callbacks:Register("ItemAwarded", RepaintIfShown)
     addon.Callbacks:Register("HistoryChanged", RepaintIfShown)
 
     addon.Callbacks:Register("HistoryFilterChanged", function()
-        if frame:IsShown() then RaidTeamFrame:Refresh() end
+        if frame and frame:IsShown() then RaidTeamFrame:Refresh() end
     end)
     addon.Callbacks:Register("AttendanceChanged", RepaintIfShown)
     addon.Callbacks:Register("RaidTeamChanged", function()
@@ -1014,13 +1057,14 @@ function RaidTeamFrame:Init()
 end
 
 function RaidTeamFrame:Toggle()
-    if not frame then return end
-    if frame:IsShown() then
+    if frame and frame:IsShown() then
         frame:Hide()
-    else
+        return
+    end
+    WhenBuilt(function()
 
         addon.RaidTeam:Request()
         frame:Show()
         RaidTeamFrame:Refresh()
-    end
+    end)
 end

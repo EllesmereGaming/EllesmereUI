@@ -21,17 +21,63 @@ end
 
 
 
+BoERoute.REASON_MAX_LETTERS = 16
+BoERoute.DEFAULT_COLOUR = { r = 0.90, g = 0.70, b = 0.20 }
+
+function BoERoute.DefaultReason() return T["Guild Bank"] end
+
+
+function BoERoute.Note() return T["BoE"] end
+
+local function Channel(value, fallback)
+    value = tonumber(value)
+    if not value then return fallback end
+    return math.max(0, math.min(1, value))
+end
+
+
+function BoERoute.ColourFor(rule)
+    local d = BoERoute.DEFAULT_COLOUR
+    if type(rule) ~= "table" then return d.r, d.g, d.b end
+    return Channel(rule.r, d.r), Channel(rule.g, d.g), Channel(rule.b, d.b)
+end
+
+
+function BoERoute.CleanStamp(stamp)
+    if type(stamp) ~= "table" or type(stamp.w) ~= "string" or stamp.w == "" then return nil end
+    local text = BoERoute.CleanReason(stamp.t)
+    if not text then return nil end
+    local r, g, b = BoERoute.ColourFor(stamp)
+    return { w = stamp.w, t = text, r = r, g = g, b = b }
+end
+
+
+function BoERoute.CleanReason(text)
+    if type(text) ~= "string" then return nil end
+    text = text:gsub("[%c|]", ""):match("^%s*(.-)%s*$")
+    text = addon.Locale.Truncate(text, BoERoute.REASON_MAX_LETTERS)
+    if text == "" then return nil end
+    return text
+end
+
+
+function BoERoute.ReasonFor(rule)
+    return rule and BoERoute.CleanReason(rule.reasonText) or BoERoute.DefaultReason()
+end
+
+
+
 function BoERoute.RouteFor(item, rule, candidates, bindTypeReader)
     if not rule then return nil end
 
     local hasWinner = type(rule.winner) == "string" and rule.winner ~= ""
-    local hasReason = rule.reason ~= nil
+    local custom = BoERoute.CleanReason(rule.reasonText) ~= nil
 
 
-    if not hasWinner and not hasReason then return nil end
-    if not hasWinner then return nil, addon.Locale.Format(T["Requires a recipient."]) end
-    if not hasReason then
-        return nil, addon.Locale.Format(T["Requires a reason to be chosen."])
+
+    if not hasWinner then
+        if custom then return nil, addon.Locale.Format(T["Requires a recipient."]) end
+        return nil
     end
 
     if not item or not item.link then return nil end
@@ -51,10 +97,12 @@ function BoERoute.RouteFor(item, rule, candidates, bindTypeReader)
         end
     end
 
+    local reason = BoERoute.ReasonFor(rule)
     if not present then
-        return { state = "absent", winner = rule.winner, reason = rule.reason }
+        return { state = "absent", winner = rule.winner, reason = reason }
     end
-    return { state = "routed", winner = rule.winner, reason = rule.reason }
+    local r, g, b = BoERoute.ColourFor(rule)
+    return { state = "routed", winner = rule.winner, reason = reason, r = r, g = g, b = b }
 end
 
 

@@ -558,6 +558,45 @@ local function TileResourceBars(parent, y, W, tile)
               RBApply()
               if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_CastBar") end
           end });  y = y - h
+    -- Textured Background: a cog per texture dropdown, as on the module pages.
+    local function TexBgCog(rgn, tbl, key, texKey, tooltip, needTip, blizz)
+        if EllesmereUI._prebuilding then return end
+        local blizzOn = blizz and EllesmereUI.BlizzStyle.Active("castbar") == "blizzard"
+        EllesmereUI.BuildInlineCog(rgn, {
+            disabled = blizzOn and function() return true end or nil,
+            disabledTooltip = blizzOn and EllesmereUI.BlizzStyle.Label("castbar") or nil,
+            requireState = blizzOn and "disabled" or nil,
+            title = "Texture Settings",
+            rows = {
+                { type = "toggle", label = "Textured Background", tooltip = tooltip,
+                  disabled = function()
+                      local p = db(); local t = p and p[tbl]
+                      if not t then return true end
+                      if tbl == "general" and p.splitTex == true then return false end
+                      local tx = t[texKey] or "none"
+                      return tx == "none" or (blizz and tx == "blizzard")
+                  end,
+                  disabledTooltip = needTip,
+                  rawTooltip = true,
+                  get = function()
+                      local p = db(); local t = p and p[tbl]
+                      return (t and t[key]) or false
+                  end,
+                  set = function(v)
+                      local p = db(); local t = p and p[tbl]; if not t then return end
+                      t[key] = v and true or false
+                      RBApply()
+                  end },
+            },
+        })
+    end
+    local barTexRow = _  -- the row DualRow just returned
+    TexBgCog(barTexRow._leftRegion, "general", "barTextureBg", "barTexture",
+        "Draws each bar's texture on its background too, tinted by the background color (the class resource uses its Empty Bar Overlay). A background stays flat while its bar's Fill Color is below 100 or Background on individual pips is on.",
+        "This option requires a Texture other than None.")
+    TexBgCog(barTexRow._rightRegion, "castBar", "textureBg", "texture",
+        "Draws the bar texture on the background too, tinted by the background color. The background stays flat while Fill Color is below 100.",
+        "This option requires a Bar Texture other than None or Blizzard.", true)
     if split then
         local function BarRow(text, barKey)
             local v, o = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
@@ -594,6 +633,10 @@ local function TileResourceBars(parent, y, W, tile)
               if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_GCDBar") end
           end },
         BLANK());  y = y - h
+    local gcdTexRow = _  -- the row DualRow just returned
+    TexBgCog(gcdTexRow._leftRegion, "gcdBar", "textureBg", "texture",
+        "Draws the bar texture on the background too, tinted by the background color.",
+        "This option requires a Bar Texture other than None.")
     y = LinkRow(parent, y, "Border Styles (per bar)",
         tile.folder, "Class, Power and Health Bars", nil, "Border Style")
     return y

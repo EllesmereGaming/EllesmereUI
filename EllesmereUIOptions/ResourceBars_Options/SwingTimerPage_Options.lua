@@ -567,5 +567,84 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
         EllesmereUI.RegisterWidgetRefresh(UpdateQueueSwatch)
     end
 
+    -- One swatch beside a toggle (store keys prefix .. R/G/B/A, `def` the
+    -- fallback), disabled while the timer or its toggle is off. Built only
+    -- outside the search pre-build.
+    local function ToggleSwatch(row, rgn, prefix, def, flag, flagTip, name)
+        local sw, updateSw = EllesmereUI.BuildColorSwatch(
+            rgn, row:GetFrameLevel() + 3,
+            function()
+                local p = DB(); local g = p and p.swingTimer
+                if not g then return def[1], def[2], def[3], 1 end
+                return g[prefix .. "R"] or def[1], g[prefix .. "G"] or def[2], g[prefix .. "B"] or def[3], g[prefix .. "A"] or 1
+            end,
+            function(r, gg, b, a)
+                local p = DB(); if not p then return end
+                local g = p.swingTimer
+                g[prefix .. "R"], g[prefix .. "G"], g[prefix .. "B"], g[prefix .. "A"] = r, gg, b, a
+                RefreshST()
+            end,
+            true, 20)
+        PP.Point(sw, "RIGHT", rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = sw
+        sw:SetMotionScriptsWhileDisabled(true)
+        sw:HookScript("OnEnter", function(self)
+            EllesmereUI.ShowWidgetTooltip(self, self._disabledTooltip and EllesmereUI.DisabledTooltip(self._disabledTooltip) or name)
+        end)
+        sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        local function UpdateSw()
+            local p = DB()
+            local tip
+            if not p or not p.swingTimer.enabled then tip = ST_TIP
+            elseif not p.swingTimer[flag] then tip = flagTip end
+            if tip then sw:SetAlpha(0.15); sw:Disable() else sw:SetAlpha(1); sw:Enable() end
+            sw._disabledTooltip = tip
+            updateSw()
+        end
+        UpdateSw()
+        EllesmereUI.RegisterWidgetRefresh(UpdateSw)
+    end
+
+    -- Row: Highlight Active Attack (+ active color swatch) | Latency Overlay
+    -- (+ latency color swatch)
+    local activeRow
+    activeRow, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Highlight Active Attack",
+          tooltip = "While your auto attack is on, its rows take this color, and a row with no swing running sits full so you can see the attack is still on: Main Hand and Off Hand while Auto Attack is on, Ranged while Shoot or Auto Shot is on. A queued on-next-swing attack keeps its own color.",
+          disabled = stOff, disabledTooltip = ST_TIP,
+          getValue = function() local p = DB(); return p and p.swingTimer.activeHighlight == true end,
+          setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.activeHighlight = v; RefreshST(); EllesmereUI:RefreshPage() end },
+        { type = "toggle", text = "Latency Overlay",
+          tooltip = "Shows a colored zone at the end of each running swing, sized to your network latency. An action pressed once the swing reaches the zone lands just after that swing.",
+          disabled = stOff, disabledTooltip = ST_TIP,
+          getValue = function() local p = DB(); return p and p.swingTimer.latencyEnabled == true end,
+          setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.latencyEnabled = v; RefreshST(); EllesmereUI:RefreshPage() end }
+    );  y = y - h
+    if not EllesmereUI._prebuilding then
+        ToggleSwatch(activeRow, activeRow._leftRegion, "active", { 0.047, 0.824, 0.616 },
+            "activeHighlight", "Highlight Active Attack", "Active Attack Color")
+        ToggleSwatch(activeRow, activeRow._rightRegion, "latency", { 0.835, 0.290, 0.290 },
+            "latencyEnabled", "Latency Overlay", "Latency Color")
+    end
+
+    -- Row: Show Shot Pending (+ pending color swatch) | Smooth Swing Timing
+    local pendingRow
+    pendingRow, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Show Shot Pending",
+          tooltip = "While a row's attack is on but no swing is running (its timer ran out, or you started attacking out of range or queued a shot behind a cast), the row fills with this color until a swing lands.",
+          disabled = stOff, disabledTooltip = ST_TIP,
+          getValue = function() local p = DB(); return p and p.swingTimer.pendingEnabled == true end,
+          setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.pendingEnabled = v; RefreshST(); EllesmereUI:RefreshPage() end },
+        { type = "toggle", text = "Smooth Swing Timing",
+          tooltip = "Start each swing from the expected rhythm, nudged by each shot's arrival, instead of exactly when the game reports it. Network jitter then moves the bar less, so its end predicts the next swing more closely.",
+          disabled = stOff, disabledTooltip = ST_TIP,
+          getValue = function() local p = DB(); return p and p.swingTimer.smoothTiming == true end,
+          setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.smoothTiming = v; RefreshST() end }
+    );  y = y - h
+    if not EllesmereUI._prebuilding then
+        ToggleSwatch(pendingRow, pendingRow._leftRegion, "pending", { 0.659, 0.502, 0.949 },
+            "pendingEnabled", "Show Shot Pending", "Shot Pending Color")
+    end
+
     return math.abs(y)
 end

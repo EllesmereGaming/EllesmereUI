@@ -177,6 +177,10 @@ local function DrawRow(r, entry)
 
         r.response:SetLabel(T["Auto-pass"])
         r.response:SetColour(nil)
+    elseif status == "RESPONDED" and candidate and type(candidate.boe) == "table" then
+
+        r.response:SetLabel(candidate.boe.t)
+        r.response:SetColour({ candidate.boe.r, candidate.boe.g, candidate.boe.b })
     elseif status == "RESPONDED" and response then
         local def = addon.Config:Responses()[response]
         if def then
@@ -394,9 +398,9 @@ local function Build()
     if panel then return panel end
 
 
-    FitColumns(UIParent)
 
     panel = CreateFrame("Frame", "SimpleLootCouncilSessionFrame", UIParent)
+    FitColumns(panel)
     panel:SetFrameStrata("DIALOG")
     panel:SetToplevel(true)
     panel:EnableMouse(true)
@@ -407,9 +411,10 @@ local function Build()
     panel:SetWidth(PANEL_W)
     panel.slcWidth = PANEL_W
 
+    S.FollowWindowAlpha(panel)
 
-    tinsert(UISpecialFrames, "SimpleLootCouncilSessionFrame")
-    panel:SetScript("OnHide", function()
+
+    panel:HookScript("OnHide", function()
         if suppressDismiss then return end
 
         local wasFloating, wasDismissed = floating, dismissed
@@ -423,6 +428,9 @@ local function Build()
             SessionPanel:Refresh()
         end)
     end)
+
+
+    tinsert(UISpecialFrames, "SimpleLootCouncilSessionFrame")
 
 
 

@@ -89,12 +89,35 @@ end
 
 
 
+local MAX_VALUE = 256
+local MAX_MESSAGE = 1024
+
+
+local function Cap(text, limit)
+    local length = #text
+    if length <= limit then return text end
+    local last = limit
+    while last > 0 and text:byte(last + 1) and text:byte(last + 1) >= 0x80
+        and text:byte(last + 1) < 0xC0 do
+        last = last - 1
+    end
+    local pipes = 0
+    while pipes < last and text:byte(last - pipes) == 124 do pipes = pipes + 1 end
+    if pipes % 2 == 1 then last = last - 1 end
+    return ("%s...(+%d bytes)"):format(text:sub(1, last), length - last)
+end
+Log.Cap = Cap
+
+
+
 local function Sanitise(value)
     if issecretvalue and issecretvalue(value) then
         return "<secret>"
     end
     local t = type(value)
-    if t == "string" or t == "number" or t == "boolean" or t == "nil" then
+    if t == "string" then
+        return #value > MAX_VALUE and Cap(value, MAX_VALUE) or value
+    elseif t == "number" or t == "boolean" or t == "nil" then
         return tostring(value)
     elseif t == "table" then
 
@@ -136,6 +159,7 @@ Log.CHAT_PREFIX = {
 
 
 local function Write(level, prefix, message, detail, logOnly)
+    if #message > MAX_MESSAGE then message = Cap(message, MAX_MESSAGE) end
     local line = ("%s %-5s [%s] %s"):format(Clock(), level, tostring(prefix), message)
     if not Fold(level, prefix, message, line, detail) then
         Append(detail and (line .. detail) or line)

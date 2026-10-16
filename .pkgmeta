@@ -13,7 +13,6 @@ move-folders:
   EllesmereUI/EllesmereUIForeverEssentials: EllesmereUIForeverEssentials
   EllesmereUI/EllesmereUIFriends: EllesmereUIFriends
   EllesmereUI/EllesmereUILocales: EllesmereUILocales
-  EllesmereUI/EllesmereUISimpleLootCouncil: EllesmereUISimpleLootCouncil
   EllesmereUI/EllesmereUIMinimap: EllesmereUIMinimap
   EllesmereUI/EllesmereUIMythicTimer: EllesmereUIMythicTimer
   EllesmereUI/EllesmereUINameplates: EllesmereUINameplates
@@ -57,3 +56,4 @@ ignore:
   - CHANGELOG.md
   - AGENTS.md
   - EllesmereUILoadoutManager
+  - EllesmereUISimpleLootCouncil

@@ -362,6 +362,18 @@ initFrame:SetScript("OnEvent", function(self)
                         pc._barBg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
                     end
                     UnsnapTex(pc._barBg)
+                    -- Textured Background on the preview's one background, in the colour above.
+                    if p.general.barTextureBg or pc._barBg._erbBgTex then
+                        local br, bgg, bb, ba = sp.bgR, sp.bgG, sp.bgB, sp.bgA
+                        if sp.darkTheme then
+                            br, bgg, bb = EllesmereUI.GetDarkModeBg()
+                            ba = 1
+                        elseif sp.classColored then
+                            br, bgg, bb, ba = pr * 0.3, pg * 0.3, pb * 0.3, 0.5
+                        end
+                        ns.ERB_BgTexture(pc._barBg, p.general.barTextureBg and (sp.fillOpacity or 100) >= 100
+                            and EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, p.general.barTexture, nil), br, bgg, bb, ba)
+                    end
                 end
 
                 if pc._barFill then
@@ -553,6 +565,18 @@ initFrame:SetScript("OnEvent", function(self)
                         pip._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
                     end
                     UnsnapTex(pip._bg)
+                    -- Textured Background, as live, in the colour above.
+                    if p.general.barTextureBg or pip._bg._erbBgTex then
+                        local br, bgg, bb, ba = sp.bgR, sp.bgG, sp.bgB, sp.bgA
+                        if sp.darkTheme then
+                            br, bgg, bb = EllesmereUI.GetDarkModeBg()
+                            ba = 1
+                        elseif sp.classColored then
+                            br, bgg, bb, ba = pr * 0.5, pg * 0.5, pb * 0.5, 0.5
+                        end
+                        ns.ERB_BgTexture(pip._bg, p.general.barTextureBg and not pvPipBg
+                            and (sp.fillOpacity or 100) >= 100 and EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, p.general.barTexture, nil), br, bgg, bb, ba)
+                    end
 
                     local texKey = p.general.barTexture or "none"
                     local texLookup = _G._ERB_BarTextures or {}
@@ -3540,6 +3564,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Background
         local texKey = cb.texture
+        -- Textured Background: back to the plain background before a branch repaints it.
+        if pf.bg._erbBgTex then ns.ERB_BgTexture(pf.bg, nil) end
         if blizzKit then
             -- The retail background under WoW Forever too, as live.
             local bgAtlas = ns.ERB_BlizzAtlas("bg")
@@ -3564,6 +3590,10 @@ initFrame:SetScript("OnEvent", function(self)
         else
             pf.bg:SetTexture(nil)
             pf.bg:SetColorTexture(cb.bgR, cb.bgG, cb.bgB, cb.bgA)
+            -- Textured Background: flat while Fill Color is below 100, as live.
+            if cb.textureBg and (cb.fillOpacity or 100) >= 100 then
+                ns.ERB_BgTexture(pf.bg, EllesmereUI.ResolveTexturePath(_G._ERB_CastBarTextures, texKey, nil), cb.bgR, cb.bgG, cb.bgB, cb.bgA)
+            end
             pf.bg:ClearAllPoints()
             pf.bg:SetAllPoints(pf.barFrame)
         end
@@ -3862,6 +3892,10 @@ initFrame:SetScript("OnEvent", function(self)
             end
         else
             bg:SetColorTexture(cb.bgR, cb.bgG, cb.bgB, cb.bgA)
+            -- Textured Background, as live (never under the Blizzard Style kit).
+            if cb.textureBg and (cb.fillOpacity or 100) >= 100 and not (ns.ERB_CastBlizz() and not ns.ERB_CastClassic()) then
+                ns.ERB_BgTexture(bg, EllesmereUI.ResolveTexturePath(_G._ERB_CastBarTextures, texKey, nil), cb.bgR, cb.bgG, cb.bgB, cb.bgA)
+            end
         end
         _castBarPreviewFrames.bg = bg
 

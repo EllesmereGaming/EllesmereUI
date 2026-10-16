@@ -20,6 +20,7 @@ local bagPanel, bagHost, bagEmpty, bagTitle, bagHint
 local bagScroll, bagContent
 local bagRows, bagHeaders = {}, {}
 local bagCache, bagCacheAt
+local autoOpenPanel, autoOpenBox, autoPopulateBox
 
 local ROW_HEIGHT = 32
 local BAG_ROW_HEIGHT = 28
@@ -468,13 +469,69 @@ function QueueFrame:Refresh()
 end
 
 
+function QueueFrame:AddAllFromBags(auto)
+    local me = addon.Player:GetFullName("player")
+
+
+    local picks, skipped = addon.BagShare.FreeToStage(
+        addon.Storage:GetTradeableItems(), me)
+    local links, bosses, encounterIDs = {}, {}, {}
+    for i, entry in ipairs(picks) do
+        links[i] = entry.link
+
+        bosses[i], encounterIDs[i] = addon.Encounter:ForTradeableItem(entry.secondsLeft)
+    end
+    if auto and #links == 0 then return 0 end
+
+
+    local added = #addon.Session:AddItems(links, me, bosses, encounterIDs)
+    if not auto or added > 0 then
+        print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(addon.Locale.Plural{
+            one = "added %d item from bags",
+            other = "added %d items from bags",
+        }, added, added))
+    end
+    if skipped > 0 and not auto then
+        print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(addon.Locale.Plural{
+            one = "skipped %d copy already owed to a winner in Loot to Trade - click it in the bags panel to queue it anyway.",
+            other = "skipped %d copies already owed to winners in Loot to Trade - click one in the bags panel to queue it anyway.",
+        }, skipped, skipped))
+    end
+    QueueFrame:Refresh()
+    return added
+end
+
+
+local killOpened
+local function AutoAddFromBags()
+    if not addon.db.autoAddBags or addon.Session:IsRunning() then return end
+    QueueFrame:AddAllFromBags(true)
+end
 
 
 
-function QueueFrame:Init()
-    S = addon.Style
-    L, P = addon.Layout, addon.Pixel
 
+
+
+local bagWatcher, bagTicker
+
+local function StartWatch()
+    if bagTicker then return end
+    bagWatcher:RegisterEvent("BAG_UPDATE_DELAYED")
+    bagTicker = C_Timer.NewTicker(15, function()
+        addon.Callbacks:Invalidate("queueBags")
+    end)
+end
+
+local function StopWatch()
+    if not bagTicker then return end
+    bagWatcher:UnregisterEvent("BAG_UPDATE_DELAYED")
+    bagTicker:Cancel()
+    bagTicker = nil
+end
+
+
+local function Build()
     frame = S.Window("SimpleLootCouncilQueueFrame", "queue", 600, 470, T["Loot queue"])
     frame:RestorePosition()
 
@@ -554,31 +611,7 @@ function QueueFrame:Init()
                 .. T["nothing added from bags - a run is in progress, and only the Loot Master can add to it."])
             return
         end
-        local me = addon.Player:GetFullName("player")
-
-
-        local picks, skipped = addon.BagShare.FreeToStage(
-            addon.Storage:GetTradeableItems(), me)
-        local links, bosses, encounterIDs = {}, {}, {}
-        for i, entry in ipairs(picks) do
-            links[i] = entry.link
-
-            bosses[i], encounterIDs[i] = addon.Encounter:ForTradeableItem(entry.secondsLeft)
-        end
-
-
-        local added = #addon.Session:AddItems(links, me, bosses, encounterIDs)
-        print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(addon.Locale.Plural{
-            one = "added %d item from bags",
-            other = "added %d items from bags",
-        }, added, added))
-        if skipped > 0 then
-            print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(addon.Locale.Plural{
-                one = "skipped %d copy already owed to a winner in Loot to Trade - click it in the bags panel to queue it anyway.",
-                other = "skipped %d copies already owed to winners in Loot to Trade - click one in the bags panel to queue it anyway.",
-            }, skipped, skipped))
-        end
-        QueueFrame:Refresh()
+        QueueFrame:AddAllFromBags(false)
     end)
 
     clearButton = S.Button(content, T["Clear"], { width = 105 })
@@ -626,6 +659,55 @@ function QueueFrame:Init()
     P.Point(bagEmpty, "TOPRIGHT", 0, 0)
 
 
+    autoOpenPanel = CreateFrame("Frame", nil, frame)
+    P.Point(autoOpenPanel, "BOTTOMLEFT", frame, "TOPLEFT", 0, S.size.ITEM_GAP)
+    P.Point(autoOpenPanel, "BOTTOMRIGHT", frame, "TOPRIGHT", 0, S.size.ITEM_GAP)
+    S.CanvasFill(autoOpenPanel, S.color.canvas, 0.96)
+    S.RoundBorder(autoOpenPanel, S.color.border, "OVERLAY")
+    local autoCursor = L.Cursor(autoOpenPanel, { x = S.size.PAD, top = S.size.PAD,
+        width = L.WidthOf(frame) - S.size.PAD * 2 })
+    autoCursor:Add(L.Section, T["Auto open"], { font = S.fontHeading })
+
+
+    local function QuestionRow(text, onToggle)
+        local row = autoCursor:Add(function(parent, x, width, y)
+            local host = CreateFrame("Frame", nil, parent)
+            P.Point(host, "TOPLEFT", parent, "TOPLEFT", x, y)
+            P.Size(host, width, S.size.CTRL_H)
+            local question = S.Label(host, S.fontBody, "LEFT", "wrap")
+            question:SetWidth(P.Snap(width - S.size.CTRL_H - S.size.GAP))
+            P.Point(question, "LEFT", host, "LEFT", 0, 0)
+            question:SetText(text)
+            local h = question:GetStringHeight()
+            if type(h) ~= "number" or (issecretvalue and issecretvalue(h)) then h = 0 end
+            local height = math.max(S.size.CTRL_H, math.ceil(h))
+            P.Size(host, width, height)
+            return host, height
+        end)
+        local box = S.Checkbox(autoOpenPanel, nil, onToggle)
+        P.Point(box, "RIGHT", row, "RIGHT", 0, 0)
+        return box
+    end
+    autoOpenBox = QuestionRow(T["Disable automatically opening the loot queue on boss kill?"], function(on)
+        if not on then return end
+        addon.db.autoOpenQueue = false
+        addon.Log:I("UI", "auto-open loot queue switched off from the queue window")
+        addon.Callbacks:Fire("AutoOpenQueueChanged")
+    end)
+    autoCursor:Gap()
+
+    autoPopulateBox = QuestionRow(T["Auto populate loot queue?"], function(on)
+        addon.db.autoAddBags = on
+        addon.Log:I("UI", "auto-populate loot queue", on and "on" or "off", "from the queue window")
+        addon.Callbacks:Fire("AutoAddBagsChanged")
+        if on then
+            killOpened = true
+            AutoAddFromBags()
+        end
+    end)
+    P.Size(autoOpenPanel, nil, autoCursor:Height(S.size.PAD))
+    autoOpenPanel:Hide()
+
     QueueFrame.view = addon.Callbacks:RegisterView("queue", {
         frame = frame,
         paint = PaintQueue,
@@ -634,6 +716,53 @@ function QueueFrame:Init()
         frame = frame,
         paint = function() QueueFrame:RefreshBags() end,
     })
+
+
+    bagWatcher = CreateFrame("Frame")
+    bagWatcher:SetScript("OnEvent", function()
+        bagCache, bagCacheAt = nil, nil
+        addon.Callbacks:Invalidate("queueBags")
+        if killOpened and frame:IsShown() then AutoAddFromBags() end
+    end)
+    frame:HookScript("OnShow", StartWatch)
+    frame:HookScript("OnHide", function()
+        killOpened = false
+        StopWatch()
+    end)
+
+    addon.Log:D("UI", "queue frame built")
+end
+
+
+
+local building
+local function WhenBuilt(fn)
+    if frame then
+        fn()
+    elseif not building then
+        building = true
+        S.BuildOnDriver(function()
+            building = false
+            Build()
+            fn()
+        end)
+    end
+end
+
+function QueueFrame:Init()
+    S = addon.Style
+    L, P = addon.Layout, addon.Pixel
+
+
+    addon.Callbacks:Register("AutoOpenQueueChanged", function()
+        if autoOpenPanel and not addon.db.autoOpenQueue then autoOpenPanel:Hide() end
+    end)
+    addon.Callbacks:Register("AutoAddBagsChanged", function()
+        if autoPopulateBox then
+            autoPopulateBox:SetChecked(addon.db.autoAddBags and true or false)
+        end
+    end)
+
     local function QueueChanged()
         addon.Callbacks:Invalidate("queue")
 
@@ -666,25 +795,34 @@ function QueueFrame:Init()
     addon.Callbacks:Register("RosterChanged", HeaderChanged)
 
 
-    local bagWatcher = CreateFrame("Frame")
-    bagWatcher:RegisterEvent("BAG_UPDATE_DELAYED")
-    bagWatcher:SetScript("OnEvent", function()
-        BagsChanged()
+    addon.Callbacks:Register("EncounterEnded", function(entry)
+        if not (entry and entry.success and addon.db.autoOpenQueue) then return end
+        if not IsInGroup() or not addon.PlayerIsMasterLooter() or not addon.Loot.handling then return end
+        if frame and frame:IsShown() then return end
+        addon.Log:I("UI", "boss kill - opening the loot queue", tostring(entry.name))
+        WhenBuilt(function()
+            if frame:IsShown() then return end
+            QueueFrame:Toggle()
+            autoOpenBox:SetChecked(false)
+            autoPopulateBox:SetChecked(addon.db.autoAddBags and true or false)
+            autoOpenPanel:Show()
 
-        if IsInGroup() and addon.BagShare:IsSharing() then addon.BagShare:PushSoon() end
-    end)
-    C_Timer.NewTicker(15, function()
-        if frame and frame:IsShown() then addon.Callbacks:Invalidate("queueBags") end
+            killOpened = true
+        end)
     end)
 
     addon.Log:I("UI", "queue frame ready")
 end
 
 function QueueFrame:Toggle()
-    if not frame then return end
-    if frame:IsShown() then
+    if frame and frame:IsShown() then
         frame:Hide()
-    else
+        return
+    end
+    WhenBuilt(function()
+
+        autoOpenPanel:Hide()
+        killOpened = false
         bagCache, bagCacheAt = nil, nil
 
         if not addon.PlayerIsMasterLooter() or addon.Config:CouncilBagsShared() then
@@ -694,5 +832,6 @@ function QueueFrame:Toggle()
         addon.Callbacks:Invalidate("queue")
         addon.Callbacks:Invalidate("queueBags")
         frame:Show()
-    end
+        AutoAddFromBags()
+    end)
 end

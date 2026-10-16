@@ -11,6 +11,22 @@ addon.Snapshot = Snapshot
 
 
 
+local function Str(value) return type(value) == "string" and value or nil end
+local function Num(value) return type(value) == "number" and value == value and value or nil end
+
+
+local function Voters(candidate)
+    local votes = type(candidate) == "table" and candidate.votes
+    if type(votes) ~= "table" then return {} end
+    local names = {}
+    for _, voter in ipairs(votes) do
+        if type(voter) == "string" then names[#names + 1] = voter end
+    end
+    return names
+end
+
+
+
 
 
 
@@ -82,11 +98,11 @@ function Snapshot.Compare(a, b, winner)
         return a.name == winner
     end
 
-    local ai = a.candidate.responseID or math.huge
-    local bi = b.candidate.responseID or math.huge
+    local ai = Num(a.candidate.responseID) or math.huge
+    local bi = Num(b.candidate.responseID) or math.huge
     if ai ~= bi then return ai < bi end
 
-    local av, bv = #(a.candidate.votes or {}), #(b.candidate.votes or {})
+    local av, bv = #Voters(a.candidate), #Voters(b.candidate)
     if av ~= bv then return av > bv end
 
     return a.name < b.name
@@ -95,11 +111,13 @@ end
 
 
 function Snapshot.Ordered(snapshot)
-    if not snapshot or type(snapshot.candidates) ~= "table" then return {} end
+    if type(snapshot) ~= "table" or type(snapshot.candidates) ~= "table" then return {} end
 
     local list = {}
     for name, candidate in pairs(snapshot.candidates) do
-        list[#list + 1] = { name = name, candidate = candidate }
+        if type(name) == "string" and type(candidate) == "table" then
+            list[#list + 1] = { name = name, candidate = candidate }
+        end
     end
     table.sort(list, function(a, b) return Snapshot.Compare(a, b, snapshot.winner) end)
     return list
@@ -159,26 +177,54 @@ end
 
 
 
-function Snapshot:Prune()
+local KEEP_DAYS = 60
+Snapshot.KEEP_DAYS = KEEP_DAYS
+
+
+local function AgeEpoch(snapshot, rowEpoch)
+    local epoch = type(snapshot) == "table" and snapshot.epoch
+    if type(epoch) == "number" then return epoch end
+    if type(rowEpoch) == "number" and rowEpoch > 0 then return rowEpoch end
+    return nil
+end
+
+
+
+
+function Snapshot:Prune(live, login)
     if not addon.db or not addon.db.historySnapshots then return 0 end
 
-    local live = {}
-    addon.History.EachEntry(function(entry)
-        local key = Key(entry.runId, entry.session)
-        if key then live[key] = true end
-    end)
+    if not live then
+        live = {}
+        addon.History.EachEntry(function(entry)
+            local key = Key(entry.runId, entry.session)
+            if key then
+                local epoch = type(entry.epoch) == "number" and entry.epoch or 0
+                live[key] = math.max(live[key] or 0, epoch)
+            end
+        end)
+    end
 
-    local removed = 0
-    for key in pairs(addon.db.historySnapshots) do
+    local cutoff = GetServerTime() - KEEP_DAYS * 24 * 60 * 60
+    local orphans, aged = 0, 0
+    for key, snapshot in pairs(addon.db.historySnapshots) do
         if not live[key] then
             addon.db.historySnapshots[key] = nil
-            removed = removed + 1
+            orphans = orphans + 1
+        else
+            local epoch = AgeEpoch(snapshot, live[key])
+            if epoch and epoch < cutoff then
+                addon.db.historySnapshots[key] = nil
+                aged = aged + 1
+            end
         end
     end
-    if removed > 0 then
-        addon.Log:D("Snapshot", "pruned", removed, "orphaned snapshot(s)")
+    if orphans + aged > 0 then
+        addon.Log:D("Snapshot", "pruned", orphans, "orphaned and", aged,
+            "snapshot(s) older than", KEEP_DAYS, "days")
     end
-    return removed
+    if login then Snapshot:LogReady() end
+    return orphans + aged
 end
 
 
@@ -187,18 +233,20 @@ end
 
 
 local function EstimateBytes(candidate)
+    if type(candidate) ~= "table" then return 0 end
     local n = 40
-    if candidate.response then n = n + #candidate.response end
-    if candidate.note then n = n + #candidate.note end
-    if candidate.gear1 then n = n + #candidate.gear1 end
-    if candidate.gear2 then n = n + #candidate.gear2 end
-    for _, voter in ipairs(candidate.votes or {}) do n = n + #voter end
+    for _, field in ipairs({ "response", "note", "gear1", "gear2" }) do
+        local text = Str(candidate[field])
+        if text then n = n + #text end
+    end
+    for _, voter in ipairs(Voters(candidate)) do n = n + #voter end
     return n
 end
 
 local function EstimateSnapshotBytes(snapshot)
     local n = 80
-    for _, candidate in pairs(snapshot.candidates or {}) do
+    local candidates = type(snapshot) == "table" and snapshot.candidates
+    for _, candidate in pairs(type(candidates) == "table" and candidates or {}) do
         n = n + EstimateBytes(candidate)
     end
     return n
@@ -213,33 +261,37 @@ local function CandidateLine(name, candidate)
 
 
 
-    local response = candidate.response
-        or (candidate.responseCode and addon.History.CodeText(candidate.responseCode))
+    local code = Str(candidate.responseCode)
+    local response = Str(candidate.response) or (code and addon.History.CodeText(code))
     if response then
-        if candidate.r then
-            text = text .. "  " .. S.Colorize(
-                { candidate.r, candidate.g, candidate.b }, response)
+        local r, g, b = Num(candidate.r), Num(candidate.g), Num(candidate.b)
+        if r and g and b then
+            text = text .. "  " .. S.Colorize({ r, g, b }, response)
         else
             text = text .. "  " ..
                 S.Colorize(S.Flatten(S.color.textMuted), response)
         end
     end
 
-    if candidate.roll then
+    local roll = Num(candidate.roll)
+    if roll then
+        roll = math.floor(roll)
         local rollText = candidate.rollBy == "leader"
-            and addon.Locale.Format(T["roll %d (assigned)"], candidate.roll)
-            or addon.Locale.Format(T["roll %d"], candidate.roll)
+            and addon.Locale.Format(T["roll %d (assigned)"], roll)
+            or addon.Locale.Format(T["roll %d"], roll)
         text = text .. "  " .. S.Colorize(S.Flatten(S.color.textFaint), rollText)
     end
 
-    if candidate.diff then
-        local diffText = addon.Locale.Format(T["%+d ilvl"], candidate.diff)
-        local diffColor = candidate.diff > 0 and S.color.good
-            or (candidate.diff < 0 and S.color.textMuted or S.color.textFaint)
+    local diff = Num(candidate.diff)
+    if diff then
+        diff = math.floor(diff)
+        local diffText = addon.Locale.Format(T["%+d ilvl"], diff)
+        local diffColor = diff > 0 and S.color.good
+            or (diff < 0 and S.color.textMuted or S.color.textFaint)
         text = text .. "  " .. S.Colorize(S.Flatten(diffColor), diffText)
     end
 
-    local votes = #(candidate.votes or {})
+    local votes = #Voters(candidate)
     if votes > 0 then
         text = text .. "  " .. S.Colorize(S.Flatten(S.color.textFaint),
             addon.Locale.Format(addon.Locale.Plural{ one = "%d vote", other = "%d votes" },
@@ -293,12 +345,14 @@ function Snapshot:Init()
     end)
 
 
-    Snapshot:Prune()
+end
 
+
+function Snapshot:LogReady()
     local n, candidates, bytes = 0, 0, 0
-    for _, snapshot in pairs(addon.db.historySnapshots) do
+    for _, snapshot in pairs(addon.db.historySnapshots or {}) do
         n = n + 1
-        candidates = candidates + (snapshot.count or 0)
+        candidates = candidates + (Num(type(snapshot) == "table" and snapshot.count) or 0)
         bytes = bytes + EstimateSnapshotBytes(snapshot)
     end
     addon.Log:I("Snapshot", "ready,", n, "council snapshot(s),", candidates,

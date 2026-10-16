@@ -14,6 +14,27 @@ local LOW, HIGH = 1, 100
 Roll.LOW, Roll.HIGH = LOW, HIGH
 
 
+function Roll.ValidValue(value)
+    return type(value) == "number" and value == math.floor(value)
+        and value >= LOW and value <= HIGH
+end
+
+
+local function ValidRound(round)
+    return round == nil or (type(round) == "number" and round >= 0
+        and round == math.floor(round))
+end
+
+
+local refusalLogged = {}
+local function Refuse(reason, sender, ...)
+    local key = reason .. "|" .. tostring(sender)
+    if refusalLogged[key] then return end
+    refusalLogged[key] = true
+    addon.Log:D("Roll", "refused", reason, "from", tostring(sender), ...)
+end
+
+
 local issecretvalue = issecretvalue
 local function IsSecret(value)
     return issecretvalue ~= nil and issecretvalue(value)
@@ -221,6 +242,11 @@ end
 
 function Roll:ApplyAsk(payload, sender)
     if type(payload) ~= "table" or type(payload.ss) ~= "table" then return end
+    if (payload.w ~= nil and type(payload.w) ~= "table")
+        or (payload.k ~= nil and type(payload.k) ~= "table") then
+        Refuse("malformed_roll_ask", sender)
+        return
+    end
 
 
 
@@ -265,9 +291,14 @@ function Roll:ApplyAsk(payload, sender)
     end
 end
 
-function Roll:ApplyRoll(session, name, value, round, sender)
+
+function Roll:ApplyRoll(session, name, value, round, sender, selfReport)
+    if type(name) ~= "string" or not Roll.ValidValue(value) or not ValidRound(round) then
+        Refuse("malformed_roll", sender, tostring(value))
+        return
+    end
     local item = addon.Session:GetItem(session)
-    if not item or not name then return end
+    if not item then return end
 
     local candidate = item.candidates and item.candidates[name]
     if not candidate then
@@ -295,6 +326,12 @@ function Roll:ApplyRoll(session, name, value, round, sender)
         return
     end
 
+
+    if selfReport and asked == 0 then
+        Refuse("unasked_roll", sender, tostring(name))
+        return
+    end
+
     if candidate.roll ~= nil then
         addon.Log:I("Roll", "a real roll supersedes",
             candidate.rollBy == "leader" and "the assigned number" or "an older roll",
@@ -312,8 +349,19 @@ function Roll:ApplyRoll(session, name, value, round, sender)
 end
 
 function Roll:ApplyRolls(session, round, assigned, sender)
+    if type(assigned) ~= "table" or not ValidRound(round) then
+        Refuse("malformed_rolls", sender)
+        return
+    end
+
+    for name, value in pairs(assigned) do
+        if type(name) ~= "string" or not Roll.ValidValue(value) then
+            Refuse("malformed_rolls", sender, tostring(value))
+            return
+        end
+    end
     local item = addon.Session:GetItem(session)
-    if not item or type(assigned) ~= "table" then return end
+    if not item then return end
 
 
     if round ~= nil and round <= Round(item) then
@@ -352,7 +400,9 @@ function Roll:ApplyClear(payload, sender)
     for session, round in pairs(payload.k) do
         local index = tonumber(session) or session
         local item = addon.Session:GetItem(index)
-        if item and round > Round(item) then
+        if not ValidRound(round) then
+            Refuse("malformed_roll_clear", sender)
+        elseif item and round > Round(item) then
             item.rollRound = round
             ClearRolls(item)
 
@@ -378,8 +428,13 @@ function Roll:ApplyOne(payload, sender)
     local q = tonumber(payload.q)
     if not candidate or not q or q <= (candidate.rollGen or 0) then return end
 
+    local value = payload.v
+    if value ~= nil and not Roll.ValidValue(value) then
+        Refuse("malformed_roll_one", sender, tostring(value))
+        return
+    end
+
     candidate.rollGen = q
-    local value = tonumber(payload.v)
     if value then
         candidate.roll, candidate.rollBy, candidate.rollSeq = value, "leader", nil
 
@@ -540,7 +595,7 @@ local function Report(name, value)
     local round = Round(item)
     addon.Comms:Send("roll_own", { s = item.session, v = value, k = round },
         nil, true)
-    Roll:ApplyRoll(item.session, name, value, round, name)
+    Roll:ApplyRoll(item.session, name, value, round, name, true)
     return true
 end
 
@@ -644,11 +699,27 @@ function Roll:Init()
         print(addon.Log.CHAT_PREFIX.accent .. T["this client's roll message could not be parsed, so typed rolls will not be recorded. The Loot Master can still generate rolls."])
     end
 
+
     local watcher = CreateFrame("Frame")
-    watcher:RegisterEvent("CHAT_MSG_SYSTEM")
     watcher:SetScript("OnEvent", function(_, _, message)
         Roll:OnSystemMessage(message)
     end)
+    local watching = false
+    local function Watch()
+        local want = systemPattern ~= nil and addon.Session:IsRunning() and true or false
+        if want == watching then return end
+        watching = want
+        if want then
+            watcher:RegisterEvent("CHAT_MSG_SYSTEM")
+        else
+            watcher:UnregisterEvent("CHAT_MSG_SYSTEM")
+        end
+        addon.Log:D("Roll", want and "listening for rolls" or "stopped listening for rolls")
+    end
+    Roll.IsWatching = function() return watching end
+    addon.Callbacks:Register("RunStarted", Watch)
+    addon.Callbacks:Register("RunEnded", Watch)
+    Watch()
 
 
     for _, command in ipairs({ "roll", "roll_own", "roll_ask", "rolls", "roll_clear", "roll_one" }) do
@@ -669,16 +740,17 @@ function Roll:Init()
 
 
     RegisterRun("roll", "ml", function(args, sender)
-        if not args or not args.s or not args.c or not args.v then return end
+        if type(args) ~= "table" or not args.s or not args.c or not args.v then return end
         Roll:ApplyRoll(args.s, args.c, args.v, args.k, sender)
     end)
 
 
+
     RegisterRun("roll_own", "any", function(args, sender)
-        if not args or not args.s or not args.v then return end
+        if type(args) ~= "table" or not args.s or not args.v then return end
         local record = addon.Player:Get(sender)
         if not record.fullName then return end
-        Roll:ApplyRoll(args.s, record.fullName, args.v, args.k, sender)
+        Roll:ApplyRoll(args.s, record.fullName, args.v, args.k, sender, true)
     end)
 
     RegisterRun("roll_ask", "ml", function(args, sender)
@@ -686,7 +758,7 @@ function Roll:Init()
     end)
 
     RegisterRun("rolls", "ml", function(args, sender)
-        if not args or not args.s then return end
+        if type(args) ~= "table" or not args.s then return end
         Roll:ApplyRolls(args.s, args.k, args.r, sender)
     end)
 

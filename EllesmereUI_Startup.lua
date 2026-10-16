@@ -536,4 +536,46 @@ if not SlashCmdList["RL"] then
         end
     end
     SLASH_RL1 = "/rl"
+
+    -- Instant /rl (Forever). The Enter that sends /rl reaches the
+    -- slash handler as addon code, which cannot reload there, so the chat box
+    -- is closed as soon as it reads "/rl" and that Enter goes to a secure
+    -- /reload binding instead. OnChar only fires for typed input.
+    if EUI_CLIENT_FOREVER == true then
+        local key, owner, timer
+        local function Disarm()
+            if timer then timer:Cancel(); timer = nil end
+            owner:UnregisterEvent("PLAYER_REGEN_DISABLED")
+            ClearOverrideBindings(owner)
+        end
+        local function OnChar(eb)
+            if InCombatLockdown() then return end
+            local text = eb:GetText()
+            if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then return end
+            if text:lower() ~= "/rl" then return end
+            if not key then
+                key = CreateFrame("Button", "EUIInstantReloadKey", UIParent, "InsecureActionButtonTemplate")
+                key:SetSize(1, 1)
+                key:SetAlpha(0)
+                key:EnableMouse(false)
+                key:RegisterForClicks("AnyDown")
+                key:SetAttribute("useOnKeyDown", true)
+                key:SetAttribute("type", "macro")
+                key:SetAttribute("macrotext", "/reload")
+                owner = CreateFrame("Frame")
+                -- Combat start, before the lockdown stops bindings being cleared.
+                owner:SetScript("OnEvent", Disarm)
+            end
+            eb:ClearFocus()
+            SetOverrideBindingClick(owner, true, "ENTER", "EUIInstantReloadKey")
+            SetOverrideBindingClick(owner, true, "NUMPADENTER", "EUIInstantReloadKey")
+            owner:RegisterEvent("PLAYER_REGEN_DISABLED")
+            if timer then timer:Cancel() end
+            timer = C_Timer.NewTimer(3, Disarm)
+        end
+        for i = 1, 10 do
+            local eb = _G["ChatFrame" .. i .. "EditBox"]
+            if eb then eb:HookScript("OnChar", OnChar) end
+        end
+    end
 end

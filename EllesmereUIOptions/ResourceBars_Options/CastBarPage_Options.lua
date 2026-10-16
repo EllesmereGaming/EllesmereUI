@@ -651,6 +651,28 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
               RefreshCast(); EllesmereUI:RefreshPage()
           end }
     );  y = y - h
+    -- Inline cog on Bar Texture: Textured Background (greyed with the dropdown).
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(textRow._leftRegion, {
+            disabled = function() return castOff() or EllesmereUI.BlizzStyle.Active("castbar") == "blizzard" end,
+            title = "Texture Settings",
+            rows = {
+                { type = "toggle", label = "Textured Background",
+                  tooltip = "Draws the bar texture on the background too, tinted by the background color. The background stays flat while Fill Color is below 100.",
+                  disabled = function()
+                      local p = DB(); local t = p and p.castBar.texture or "none"
+                      return t == "none" or t == "blizzard"
+                  end,
+                  disabledTooltip = "This option requires a Bar Texture other than None or Blizzard.",
+                  rawTooltip = true,
+                  get = function() local p = DB(); return (p and p.castBar.textureBg) or false end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.castBar.textureBg = v and true or false; RefreshCast()
+                  end },
+            },
+        })
+    end
     -- Spell Text colour (RGBA; white = the untinted text), left of the dropdown;
     -- the Spell Text Settings cog below chains left of it. Dimmed and blocked
     -- while the cast bar is off or Spell Text is None.

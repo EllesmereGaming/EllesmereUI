@@ -253,32 +253,92 @@ local function Pair(entries, copies)
 end
 
 
+local function IsEpicBoE(bag, slot, bonding)
+    if bonding ~= Enum.TooltipDataItemBinding.BindOnEquip then return false end
+    local info = C_Container.GetContainerItemInfo(bag, slot)
+    return info ~= nil and not info.isBound and info.quality == Enum.ItemQuality.Epic
+end
 
 
-function Storage:GetTradeableItems()
-    local found = {}
 
-    for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-        local slots = C_Container.GetContainerNumSlots(bag) or 0
-        for slot = 1, slots do
-            local link = C_Container.GetContainerItemLink(bag, slot)
-            if link then
-                local secondsLeft = Storage:GetSlotTradeInfo(bag, slot)
-                if secondsLeft and secondsLeft > 0 then
-                    found[#found + 1] = {
-                        link = link,
-                        bag = bag,
-                        slot = slot,
-                        secondsLeft = secondsLeft,
+local slotCache, dirtyBags = {}, nil
 
-                        eligible = addon.Loot and addon.Loot:IsCouncilItem(link) or false,
-                    }
-                end
+
+function Storage:InvalidateBags(bag)
+    if bag == nil then
+        dirtyBags = nil
+        wipe(slotCache)
+    elseif dirtyBags then
+        dirtyBags[bag] = true
+    end
+end
+
+
+local function RefreshBag(bag)
+    local cached = slotCache[bag] or {}
+    local fresh = { n = C_Container.GetContainerNumSlots(bag) or 0 }
+    for slot = 1, fresh.n do
+        local link = C_Container.GetContainerItemLink(bag, slot)
+        if link then
+            local old = cached[slot]
+            if old and old.link == link then
+                fresh[slot] = old
+            else
+                local seconds, bonding = Storage:GetSlotTradeInfo(bag, slot)
+                fresh[slot] = { link = link, seconds = seconds, bonding = bonding,
+                    at = GetTime() }
             end
         end
     end
+    slotCache[bag] = fresh
+    return fresh
+end
+
+
+
+
+
+function Storage:GetTradeableItems(cached)
+    local found = {}
+
+    for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+        local readings
+        if cached then
+            readings = (dirtyBags and not dirtyBags[bag] and slotCache[bag]) or RefreshBag(bag)
+        end
+        for slot = 1, readings and readings.n or C_Container.GetContainerNumSlots(bag) or 0 do
+            local link, secondsLeft, bonding
+            if readings then
+                local reading = readings[slot]
+                if reading then
+                    link, bonding = reading.link, reading.bonding
+                    secondsLeft = reading.seconds and reading.seconds - (GetTime() - reading.at)
+                end
+            else
+                link = C_Container.GetContainerItemLink(bag, slot)
+                if link then secondsLeft, bonding = Storage:GetSlotTradeInfo(bag, slot) end
+            end
+            if link and secondsLeft and secondsLeft > 0 then
+                found[#found + 1] = {
+                    link = link,
+                    bag = bag,
+                    slot = slot,
+                    secondsLeft = secondsLeft,
+
+                    eligible = addon.Loot and addon.Loot:IsCouncilItem(link) or false,
+                }
+            elseif link and IsEpicBoE(bag, slot, bonding) then
+
+                found[#found + 1] = {
+                    link = link, bag = bag, slot = slot, boe = true, eligible = true,
+                }
+            end
+        end
+    end
+    if cached then dirtyBags = {} end
 
     table.sort(found, function(a, b)
+        if (a.boe or false) ~= (b.boe or false) then return b.boe or false end
         if a.secondsLeft == b.secondsLeft then
 
             return (a.bag * 100 + a.slot) < (b.bag * 100 + b.slot)
@@ -291,7 +351,8 @@ function Storage:GetTradeableItems()
         local id = ItemID(item.link)
         if id then
             copies[id] = copies[id] or {}
-            table.insert(copies[id], { link = item.link, seconds = item.secondsLeft, item = item })
+            table.insert(copies[id], { link = item.link, seconds = item.secondsLeft or math.huge,
+                item = item })
         end
     end
     local ledger = addon.db and addon.db.itemStorage and Storage:GetAll(Storage.TO_TRADE)
@@ -308,26 +369,45 @@ end
 
 
 
-function Storage:WatchForItem(link, onFound, attempts, interval)
-    attempts = attempts or 5
-    interval = interval or 1
 
-    local tries = 0
-    local function poll()
-        tries = tries + 1
-        local bag, slot, secondsLeft = Storage:FindInBags(link)
-        if bag then
-            onFound(bag, slot, secondsLeft)
-            return
-        end
-        if tries < attempts then
-            C_Timer.After(interval, poll)
-        else
-            addon.Log:D("Storage", "gave up finding in bags", link)
-            onFound(nil)
-        end
+local watches, watchFrame = {}, nil
+
+local function Settle(watch, bag, slot, secondsLeft)
+    if watch.done then return end
+    watch.done = true
+    for i, other in ipairs(watches) do
+        if other == watch then table.remove(watches, i) break end
     end
-    C_Timer.After(interval, poll)
+    watch.onFound(bag, slot, secondsLeft)
+end
+
+local function CheckWatches()
+    for i = #watches, 1, -1 do
+        local watch = watches[i]
+        local bag, slot, secondsLeft = Storage:FindInBags(watch.link)
+        if bag then Settle(watch, bag, slot, secondsLeft) end
+    end
+end
+
+function Storage:WatchForItem(link, onFound, attempts, interval)
+    local watch = { link = link, onFound = onFound }
+    local bag, slot, secondsLeft = Storage:FindInBags(link)
+    if bag then
+        Settle(watch, bag, slot, secondsLeft)
+        return
+    end
+    if not watchFrame then
+        watchFrame = CreateFrame("Frame")
+        watchFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+        watchFrame:SetScript("OnEvent", function() if #watches > 0 then CheckWatches() end end)
+    end
+    watches[#watches + 1] = watch
+    C_Timer.After((attempts or 5) * (interval or 1), function()
+        if watch.done then return end
+        local found, foundSlot, foundSeconds = Storage:FindInBags(link)
+        if not found then addon.Log:D("Storage", "gave up finding in bags", link) end
+        Settle(watch, found, foundSlot, foundSeconds)
+    end)
 end
 
 
@@ -606,12 +686,55 @@ function Storage:Reconcile(reason, timeOnly)
     return removed, marked
 end
 
+
+
+local LOGIN_SLICE = 2
+
+local function LoginPrune()
+    local pending = {}
+    for i, entry in ipairs(addon.db.itemStorage) do pending[i] = entry end
+    local expired, index = 0, 1
+
+    local function Step()
+        local stop = math.min(index + LOGIN_SLICE - 1, #pending)
+        for i = index, stop do
+            local entry = pending[i]
+            local id = entry.link and ItemID(entry.link)
+            local why
+            if entry.untradeable then
+                why = nil
+            elseif not id then
+                why = "unusable"
+            else
+                local remaining = Storage:TimeRemaining(entry)
+                if remaining and remaining <= 0 then why = "expired" end
+            end
+
+            for at, current in ipairs(why and addon.db.itemStorage or {}) do
+                if current == entry then
+                    table.remove(addon.db.itemStorage, at)
+                    entry.dropped = why
+                    expired = expired + 1
+                    addon.Log:D("Storage", "dropped", why, entry.link, "owed to",
+                        tostring(entry.args and entry.args.recipient))
+                    break
+                end
+            end
+        end
+        index = stop + 1
+        if index <= #pending then
+            C_Timer.After(0, Step)
+            return
+        end
+        addon.Log:I("Storage", "ready", #addon.db.itemStorage, "held,", expired, "expired")
+        if expired > 0 and addon.Callbacks then addon.Callbacks:Fire("StorageChanged") end
+    end
+    C_Timer.After(0, Step)
+end
+
 function Storage:Init()
     addon.db.itemStorage = addon.db.itemStorage or {}
 
 
-    local removed = Storage:Reconcile("login", true)
-
-    addon.Log:I("Storage", "ready", #addon.db.itemStorage, "held,",
-        #removed, "expired")
+    LoginPrune()
 end

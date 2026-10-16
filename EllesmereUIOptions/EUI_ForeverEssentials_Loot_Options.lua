@@ -141,7 +141,16 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         Toggle("skills", "Skill Ups", "Weapon and profession skill increases.", Reapply),
-        BLANK()
+        Toggle("tracker", "Gold per Hour Tracker",
+            "Pins a row with your gold per hour and the total you looted this session.",
+            function()
+                LF.Apply()
+                LF.ApplyStyle()
+                if EllesmereUI._unlockActive and EllesmereUI.RepositionBarToMover then
+                    EllesmereUI.RepositionBarToMover("EUI_LootFeed")
+                end
+                EllesmereUI:RefreshPage()
+            end)
     );  y = y - h
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -172,9 +181,11 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
     );  y = y - h
 
     _, h = W:DualRow(parent, y,
-        Toggle("showPrice", "Show Vendor Price", "Shows what the looted stack sells for at a vendor.",
+        Toggle("showPrice", "Show Item Price", "Shows what the looted stack is worth.",
             LF.RefreshPreview, itemsOff, "Items"),
-        BLANK()
+        Toggle("auctionPrices", "Use Auctionator Prices",
+            "Will attempt to use pricing from Auctionator scans and defaults to vendor price if not installed.",
+            LF.RefreshPreview)
     );  y = y - h
 
     _, h = W:Spacer(parent, y, 20);  y = y - h

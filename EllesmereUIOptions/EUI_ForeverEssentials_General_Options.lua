@@ -150,7 +150,7 @@ end
 
 _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
-    local SU = EllesmereUI._SpellUprank
+    local SU, CS, CT = EllesmereUI._SpellUprank, EllesmereUI._ClassicSpellbook, EllesmereUI._ClassicTalents
     local BLANK = EllesmereUI.BlankRowCfg
     local y = yOffset
     local _, h
@@ -210,6 +210,31 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     end
 
     ---------------------------------------------------------------------------
+    --  CLASSIC WINDOWS (the vanilla spellbook and talent window)
+    ---------------------------------------------------------------------------
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "CLASSIC WINDOWS", y);  y = y - h
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Classic Spellbook",
+          tooltip = "Your spellbook key opens the vanilla spellbook. The micro menu still opens Talents & Spellbook. "
+              .. "A search or option changed in combat applies when the fight ends.",
+          getValue = function() return CS.Get("enabled") end,
+          setValue = function(v)
+              CS.Cfg().enabled = v
+              CS.Apply()
+          end },
+        { type = "toggle", text = "Classic Talents",
+          tooltip = "Your talents key opens the vanilla talent window for your active spec. "
+              .. "The micro menu still opens Talents & Spellbook.",
+          getValue = function() return CT.Get("enabled") end,
+          setValue = function(v)
+              CT.Cfg().enabled = v
+              CT.Apply()
+          end }
+    );  y = y - h
+
+    ---------------------------------------------------------------------------
     --  SIMPLIFIED STATS (item tooltips)
     ---------------------------------------------------------------------------
     local SS = EllesmereUI._SimplifiedStats
@@ -250,6 +275,119 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               getValue = function() return SS.Get("numColor") end,
               setValue = function(v) SS.Cfg().numColor = (v ~= "signed") and v or nil end }
         );  y = y - h
+    end
+
+    ---------------------------------------------------------------------------
+    --  ACTIVE STANCE, FORM, ASPECT & AURA
+    ---------------------------------------------------------------------------
+    local AF = EllesmereUI._ActiveForm
+    if AF then
+        local function afOff() return not AF.Get("enabled") end
+        local function AFSet(key, v)
+            AF.Cfg()[key] = v
+            AF.Apply()
+        end
+        local _, classFile = UnitClass("player")
+        local label = classFile == "WARRIOR" and "Show Current Stance"
+            or classFile == "DRUID" and "Show Current Form"
+            or classFile == "PALADIN" and "Show Current Aura"
+            or classFile == "HUNTER" and "Show Current Aspect"
+            or "Show Current Stance / Form"
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+        _, h = W:SectionHeader(parent, "ACTIVE STANCE, FORM, ASPECT & AURA", y);  y = y - h
+
+        _, h = EllesmereUI.BuildVisibilityRow(W, parent, y, {
+            leftCfg = { type = "toggle", text = label,
+                tooltip = "Shows an icon for your active stance, form, aura or aspect. Hidden while none is active.",
+                getValue = function() return not afOff() end,
+                setValue = EllesmereUI.SectionToggleSetValue(function(v) AFSet("enabled", v) end) },
+            -- The table exists once it was turned on, and the row is greyed out
+            -- while it is off, so viewing the page saves nothing.
+            getStore = function() return afOff() and AF.Read() or AF.Cfg() end,
+            caps = { partyIncludesRaid = false, luaDragonriding = true, noMouseover = true },
+            disabledFn = afOff, disabledTooltip = label,
+            onChanged = EllesmereUI.RequestVisibilityUpdate,
+            onOptionChanged = EllesmereUI.RequestVisibilityUpdate,
+        });  y = y - h
+
+        if not afOff() then
+            -- Icon Size | Icon Zoom
+            _, h = W:DualRow(parent, y,
+                { type = "slider", text = "Icon Size",
+                  min = 16, max = 96, step = 1, isPercent = false,
+                  getValue = function() return AF.Get("iconSize") end,
+                  setValue = function(v) AFSet("iconSize", v) end },
+                { type = "slider", text = "Icon Zoom",
+                  tooltip = "Crops the icon's edges.",
+                  min = 0, max = 25, step = 1, isPercent = false,
+                  getValue = function() return AF.Get("zoom") end,
+                  setValue = function(v) AFSet("zoom", v) end }
+            );  y = y - h
+
+            -- Border Style | Border Size (+ color swatch)
+            local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
+            local borderRow
+            borderRow, h = W:DualRow(parent, y,
+                { type = "dropdown", text = "Border Style",
+                  values = texValues, order = texOrder,
+                  getValue = function() return AF.Get("borderTexture") end,
+                  setValue = function(v)
+                      local c = AF.Cfg()
+                      c.borderTexture = v
+                      c.borderTextureOffset, c.borderTextureOffsetY = nil, nil
+                      local color = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                      c.borderR, c.borderG, c.borderB, c.borderA = color.r, color.g, color.b, 1
+                      local defaultSize = EllesmereUI.GetBorderDefaultSize(nil, v)
+                      if defaultSize then c.borderSize = defaultSize end
+                      if c.borderSizePx then c.borderSizePx = false end
+                      AF.Apply()
+                      -- Rebuild: the offset row follows the Solid / textured pick.
+                      EllesmereUI:RefreshPage(true)
+                  end },
+                EllesmereUI.BorderPxSliderCfg{
+                  text = "Border Size",
+                  getStep = function() return AF.Get("borderSize") end,
+                  setStep = function(v) AF.Cfg().borderSize = v end,
+                  getTex = function() return AF.Get("borderTexture") end,
+                  getPx = function() return AF.Read().borderSizePx end,
+                  setPx = function(v) AF.Cfg().borderSizePx = v end,
+                  apply = AF.Apply }
+            );  y = y - h
+
+            if not EllesmereUI._prebuilding then
+                local rgn = borderRow._rightRegion
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                    function()
+                        return AF.Get("borderR"), AF.Get("borderG"), AF.Get("borderB"), AF.Get("borderA")
+                    end,
+                    function(r, g, b, a)
+                        local c = AF.Cfg()
+                        c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a or 1
+                        AF.Apply()
+                    end, true, 20)
+                swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+                rgn._lastInline = swatch
+                EllesmereUI.RegisterWidgetRefresh(updateSwatch)
+            end
+
+            -- Width | Height Offset: only while a textured style is selected.
+            local texKey = AF.Get("borderTexture")
+            if texKey ~= "" and texKey ~= "solid" then
+                local offL, offR = EllesmereUI.BorderOffsetRowCfgs{
+                    getTex = function() return AF.Get("borderTexture") end,
+                    getStep = function() return AF.Get("borderSize") end,
+                    getSizeKey = function() return AF.Get("borderSize") end,
+                    getPx = function() return AF.Read().borderSizePx end,
+                    getX = function() return AF.Read().borderTextureOffset end,
+                    setX = function(v) AF.Cfg().borderTextureOffset = v end,
+                    getY = function() return AF.Read().borderTextureOffsetY end,
+                    setY = function(v) AF.Cfg().borderTextureOffsetY = v end,
+                    apply = AF.Apply,
+                }
+                _, h = W:DualRow(parent, y, offL, offR);  y = y - h
+            end
+        end
     end
 
     ---------------------------------------------------------------------------

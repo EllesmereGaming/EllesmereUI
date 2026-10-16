@@ -164,8 +164,7 @@ end
 
 local function TeachesNewAppearance(link)
 
-    if not addon.db.autopassTransmog or addon.IsForever then return false end
-    if not C_TransmogCollection then return false end
+    if addon.IsForever or not C_TransmogCollection then return false end
 
 
     local appearanceID, sourceID = C_TransmogCollection.GetItemInfo(link)
@@ -179,36 +178,15 @@ local function TeachesNewAppearance(link)
 
     local hasItemData, canCollect = C_TransmogCollection.PlayerCanCollectSource(sourceID)
     if not hasItemData then
-        addon.Log:D("Autopass", "appearance data not ready, exempting", link)
-        return true
+        addon.Log:D("Autopass", "appearance data not ready", link)
+        return nil
     end
 
     return canCollect and true or false
 end
 
 
-function Autopass:ShouldPass(link)
-    if not addon.db.autopass or not link then return false end
-
-
-    if not C_Item.GetItemInfoInstant(link) then return false end
-
-
-
-    local itemName, _, _, _, _, _, _, _, _, _, _, _, _, bindType =
-        C_Item.GetItemInfo(link)
-    if not itemName then
-        addon.Log:D("Autopass", "item not cached yet, not passing", link)
-        return false
-    end
-    if bindType == Enum.ItemBind.OnEquip then return false end
-
-
-    if TeachesNewAppearance(link) then
-        addon.Log:D("Autopass", "uncollected appearance, not passing", link)
-        return false
-    end
-
+local function Restriction(link)
     local read, data = false, nil
     local function Tooltip()
         if not read then
@@ -217,26 +195,72 @@ function Autopass:ShouldPass(link)
         return data
     end
 
-    if HasClassRestriction(link, Tooltip) then
-        return true, "class"
-    end
-
-    if IsUnusableWeaponType(link, Tooltip) then
-        return true, "weapon"
-    end
-
+    if HasClassRestriction(link, Tooltip) then return "class" end
+    if IsUnusableWeaponType(link, Tooltip) then return "weapon" end
 
     if addon.IsForever and IsUnusableWeaponType(link, Tooltip, true) then
-        return true, "unusable"
+        return "unusable"
     end
     if IsWrongArmourType(link) then
-        return true, addon.IsForever and "unusable" or "armour"
+        return addon.IsForever and "unusable" or "armour"
     end
-    if IsTrinketForOtherClasses(link) then
-        return true, "trinket"
-    end
+    if IsTrinketForOtherClasses(link) then return "trinket" end
+    return nil
+end
 
-    return false
+
+
+
+function Autopass:Check(link)
+    if not link then return false, nil, true, false end
+
+
+    if not C_Item.GetItemInfoInstant(link) then return false, nil, false, false end
+
+
+
+    local itemName, _, _, _, _, _, _, _, _, _, _, _, _, bindType =
+        C_Item.GetItemInfo(link)
+    if not itemName then
+        addon.Log:D("Autopass", "item not cached yet, not passing", link)
+        return false, nil, false, false
+    end
+    if bindType == Enum.ItemBind.OnEquip then return false, nil, true, false end
+
+    local reason = Restriction(link)
+    if not reason then return false, nil, true, false end
+
+
+
+    local appearance = TeachesNewAppearance(link)
+    if addon.db.autopassTransmog and appearance ~= false then
+        addon.Log:D("Autopass", "uncollected appearance, not passing", link, reason)
+        return false, reason, appearance ~= nil, appearance == true
+    end
+    return true, reason, appearance ~= nil, appearance == true
+end
+
+
+function Autopass:ShouldPass(link)
+    if not addon.db.autopass then return false end
+    local should, reason = Autopass:Check(link)
+    if not should then return false end
+    return true, reason
+end
+
+
+
+local verdicts = {}
+
+function Autopass:WouldPass(link)
+    if not link then return false, nil, true, false end
+    local known = verdicts[link]
+    if known then return known.should, known.reason, true, known.appearance end
+    local should, reason, judged, appearance = Autopass:Check(link)
+    if judged then
+        verdicts[link] = { should = should, reason = reason, appearance = appearance }
+    end
+    return should, reason, judged, appearance
 end
 
 
@@ -281,6 +305,21 @@ function Autopass.NoteText(note)
     local reason = Autopass.AutoReason(note)
     if not reason then return note end
     return addon.Locale.Format(T["Automatic pass: %s."], reason)
+end
+
+
+
+local CARD_TEXT = addon.Locale.Texts{
+    class  = T["Wrong class"],
+    weapon = T["Wrong weapon type"],
+    armour = T["Wrong armor type"],
+    unusable = T["Unusable by your class"],
+    trinket = T["Wrong class stat"],
+}
+
+function Autopass.CardReason(code)
+    if not code then return nil end
+    return CARD_TEXT[code] or REASON_TEXT[code] or code
 end
 
 
@@ -419,6 +458,8 @@ function Autopass:Init()
     end
 
     addon.Callbacks:Register("RunStarted", function()
+
+        verdicts = {}
         Schedule(nil, addon.Session:GetRunId())
     end)
 

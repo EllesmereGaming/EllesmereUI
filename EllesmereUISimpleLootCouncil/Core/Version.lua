@@ -158,6 +158,7 @@ end
 local function OnRosterChanged(diff)
     addon.Callbacks:Fire("VersionChanged")
     if not diff.inGroup then return end
+
     if not diff.wasInGroup then Version:RequestAnnounce() end
     if not next(diff.joined) then return end
     local me = addon.Player:GetFullName("player")
@@ -181,6 +182,26 @@ end
 function Version:Poll()
     addon.Comms:Send("version_request", {})
 end
+
+
+
+local POLL_COOLDOWN = 30
+local lastPollAnswer, whisperedAt = -math.huge, {}
+
+local function AnswerPoll(sender)
+    local now = GetTime()
+    if now - lastPollAnswer >= POLL_COOLDOWN then
+        lastPollAnswer, whisperedAt = now, {}
+        Version:RequestAnnounce(math.random() * 2)
+        return
+    end
+    local key = addon.Player:NameKey(sender) or sender
+    if whisperedAt[key] then return end
+    whisperedAt[key] = true
+    local spec = addon.Specs and addon.Specs:OwnSpec()
+    addon.Comms:Send("hello", { v = OWN, s = spec }, sender)
+end
+Version.AnswerPoll = AnswerPoll
 
 function Version:Init()
     local function RecordHello(args, sender)
@@ -219,7 +240,7 @@ function Version:Init()
 
     addon.Comms:Register("version_request", "any", function(_, sender)
         if addon.Player:IsSame(sender, addon.Player:GetFullName("player")) then return end
-        Version:RequestAnnounce(math.random() * 2)
+        AnswerPoll(sender)
     end)
 
 

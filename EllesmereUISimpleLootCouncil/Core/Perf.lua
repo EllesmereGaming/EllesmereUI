@@ -22,7 +22,6 @@ end
 
 
 local SELF = ADDON_NAME or "SimpleLootCouncil"
-local RIVAL = "RCLootCouncil"
 local KEEP_RUNS = 20
 
 local FRAME_BUDGET_MS = 1000 / 60
@@ -94,25 +93,14 @@ function Perf:Start(label)
     if not ProfilerOn() then return false, "off" end
     if recording then return false, "recording" end
 
-    local addons = { [SELF] = true }
-    if C_AddOns and C_AddOns.IsAddOnLoaded
-        and select(2, C_AddOns.IsAddOnLoaded(RIVAL)) then
-        addons[RIVAL] = true
-    end
-
     recording = {
         label = CleanLabel(label),
         startedAt = GetTime(),
         group = GroupSize(),
         samples = 0,
         appAvgMax = 0, overallAvgMax = 0, shareMax = 0,
-        addons = {},
+        addons = { [SELF] = { avgMax = 0, lastMax = 0, start = Counters(SELF) } },
     }
-    for name in pairs(addons) do
-        recording.addons[name] = {
-            avgMax = 0, lastMax = 0, start = Counters(name),
-        }
-    end
     Sample()
     recording.ticker = C_Timer.NewTicker(1, Sample)
     return true, recording.label
@@ -183,10 +171,9 @@ end
 
 
 function Perf.Summary(record)
-    local line = ("%s  raid=%d  window=%.0fs  %s  %s"):format(record.label,
+    local line = ("%s  raid=%d  window=%.0fs  %s"):format(record.label,
         record.group or 1, record.seconds or 0,
-        AddonColumns("SLC", record.addons[SELF]),
-        AddonColumns("RCLC", record.addons[RIVAL]))
+        AddonColumns("SLC", record.addons[SELF]))
 
     local t = record.stress
     if t and t.events and t.events > 0 then
@@ -204,12 +191,11 @@ end
 
 
 function Perf.Context(record)
-    local mine, rival = record.addons[SELF], record.addons[RIVAL]
-    return ("  v%s %s  app avg=%.2fms  all addons avg=%.3fms  SLC share max=%.1f%%  peak since game start: SLC %.1fms%s  samples=%d"):format(
+    local mine = record.addons[SELF]
+    return ("  v%s %s  app avg=%.2fms  all addons avg=%.3fms  SLC share max=%.1f%%  peak since game start: SLC %.1fms  samples=%d"):format(
         tostring(record.build), tostring(record.date or "?"),
         record.appAvgMax or 0, record.overallAvgMax or 0,
         (record.shareMax or 0) * 100, mine and mine.peak or 0,
-        rival and (" RCLC %.1fms"):format(rival.peak) or "",
         record.samples or 0)
 end
 

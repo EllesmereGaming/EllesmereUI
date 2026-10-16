@@ -513,7 +513,7 @@ local function BuildDisplayBars(parent, y, ctx)
                     UpdatePreview()
                   end },
                 { type = "toggle", label = "Important Cast Color",
-                  tooltip = "Tint the cast bar with the Important colour when the enemy casts a spell the game flags as important. Overrides the Interruptible Cast colour; your interrupt being on cooldown still takes priority.",
+                  tooltip = "Tint the cast bar with the Important colour when the enemy casts a spell the game flags as important.",
                   get = function()
                     local db = DB()
                     if db and db.importantCastColorEnabled ~= nil then return db.importantCastColorEnabled end
@@ -524,6 +524,24 @@ local function BuildDisplayBars(parent, y, ctx)
                     RefreshAllPlates()
                     EllesmereUI:RefreshPage()
                   end },
+                { type = "toggle", label = "Prefer Interruptible Color",
+                  tooltip = "Use the Interruptible colour for an important, interruptible cast while your interrupt is ready.\nOff: Use the Important colour.",
+                  get = function()
+                    local db = DB()
+                    if db and db.importantCastKickReadyAsInterruptible ~= nil then return db.importantCastKickReadyAsInterruptible end
+                    return defaults.importantCastKickReadyAsInterruptible
+                  end,
+                  set = function(v)
+                    DB().importantCastKickReadyAsInterruptible = v
+                    RefreshAllPlates()
+                  end,
+                  disabled = function()
+                    local db = DB()
+                    local on = db and db.importantCastColorEnabled
+                    if on == nil then on = defaults.importantCastColorEnabled end
+                    return not on
+                  end,
+                  disabledTooltip = "Important Cast Color" },
             },
         })
     end

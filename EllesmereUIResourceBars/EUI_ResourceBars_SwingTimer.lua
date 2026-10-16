@@ -27,10 +27,15 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- no Lua per frame, the way the QoL swing timer ran. A 20 Hz anim ticker runs
 -- only while a swing is in flight and does the two things the engine timer
 -- cannot: the remaining-time text (no engine formatter is proven to render the
--- bar's %.1f) and the end edge (idle fill, Hide When Idle). Range and the
--- queued attack are event-driven (PLAYER_SWING_RANGE_UPDATE,
--- ACTIONBAR_UPDATE_STATE). An idle row costs nothing: its timer holds a
--- finished duration, which paints a static state.
+-- bar's %.1f) and the end edge (idle fill, Hide When Idle). Range, the
+-- queued attack and the active attack are event-driven
+-- (PLAYER_SWING_RANGE_UPDATE, ACTIONBAR_UPDATE_STATE, the auto attack and
+-- auto-repeat edges); the latency zone is sized once per swing. A row whose
+-- attack is on with no swing running waits (parked full), entered on the end
+-- edge or an attack edge and left on the next swing or an attack-stop edge;
+-- Smooth Swing Timing is arithmetic on the swing start. An idle row
+-- costs nothing: its timer holds a finished duration, which paints a static
+-- state.
 --
 -- Everything is gated on the swing API and the engine timer it feeds: on retail
 -- this file returns right below and nothing below exists. Off by default = no
@@ -74,6 +79,27 @@ local ROWS = {
 local QUEUE_COLOR  = { key = "queue", r = 1, g = 0.70, b = 0.20 }
 local QUEUE_COLORS = { [845] = { key = "queueCleave", r = 0.95, g = 0.35, b = 0.25 } }  -- Cleave
 
+-- Active attack: while a row's auto attack is on, its fill takes the active
+-- colour (melee rows: Auto Attack; Ranged: the auto-repeat shot, Shoot or
+-- Auto Shot). The on/off edges are events; START_AUTOREPEAT_SPELL fires on the
+-- press, so a shot queued behind a cast already reads as on. AUTO_ATTACK and
+-- the action slot scan seed the state the edges missed (enable, /reload
+-- mid-attack).
+local ACTIVE_COLOR    = { r = 0.047, g = 0.824, b = 0.616 }
+local AUTO_ATTACK     = 6603
+local MAX_ACTION_SLOT = 180
+
+-- Shot Pending: the colour of a waiting row (attack on, no swing running: its
+-- timer ran out, or the attack started out of range or behind a cast).
+local PENDING_COLOR = { r = 0.659, g = 0.502, b = 0.949 }
+
+-- Smooth Swing Timing: swings land around the bar end with network / server
+-- jitter, so each swing starts from the expected rhythm moved SMOOTH_GAIN of
+-- the way toward its arrival, instead of at the arrival. A swing further than
+-- SMOOTH_TOL from the rhythm is a real interruption: start from it as is.
+local SMOOTH_TOL  = 0.25
+local SMOOTH_GAIN = 0.25
+
 -- Shell + ticker host at FILE SCOPE (attribution rule, see _erbEventFrame in the
 -- main file): the OnEvent and OnLoop work bills ResourceBars. Children stay lazy.
 local shell = CreateFrame("Frame", "ERB_SwingTimerFrame", UIParent)
@@ -85,8 +111,11 @@ local tickFrame = CreateFrame("Frame")
 -- rangeOn[swingType] = bool, sample (unlock mode preview on), moHooked,
 -- unlockHooked, lastH (frame height last laid out), queueSpells (this class's
 -- on-next-swing attacks: id, colour key + fallback, resolved name), queued (the
--- entry painted, false = none)
-local S = { rows = {}, byType = {}, shown = 0, live = 0, rangeOn = {}, queueSpells = {}, queued = false }
+-- entry painted, false = none), meleeOn / repeatOn (auto attack / auto-repeat
+-- on, from the edges), seeded (both read since the highlight came on), active
+-- (the state painted)
+local S = { rows = {}, byType = {}, shown = 0, live = 0, rangeOn = {}, queueSpells = {}, queued = false,
+            meleeOn = false, repeatOn = false, active = { melee = false, ranged = false } }
 
 -------------------------------------------------------------------------------
 --  Settings access
@@ -296,16 +325,102 @@ end
 
 -- Spark visibility, set on the row's edges only (swing start, swing end, look
 -- apply), never per frame. Show Spark's spark shows only while its row is
--- mid-swing. A combined off-hand row's spark IS the off-hand display: it
--- ignores Show Spark and shows only mid-swing. Unlock movers up show both.
+-- mid-swing (not while it waits: no edge moves). A combined off-hand
+-- row's spark IS the off-hand display: it ignores Show Spark and shows only
+-- mid-swing. Unlock movers up show both.
 local function UpdateSpark(row, cfg)
     local on
     if row._merged then
         on = row._live or S.sample
     else
-        on = cfg and cfg.showSpark and (row._live or S.sample)
+        on = cfg and cfg.showSpark and ((row._live and not row._waiting) or S.sample)
     end
     row._spark:SetShown(on and true or false)
+end
+
+-- Latency zone: the swing's last world-latency seconds (the cast bar's
+-- ShowLatencyOverlay recipe), sized once per swing. With Deplete Fill the
+-- swing ends on the left under the fill, so the zone draws over it there;
+-- a filling bar ends on the right and sweeps over the zone below it. Built on
+-- first enable; none on an idle or combined off-hand row.
+local function HideLatency(row)
+    if row._latBack then
+        row._latBack:Hide()
+        row._latFront:Hide()
+    end
+end
+
+local function StyleLatency(row, cfg, texPath)
+    if not cfg.latencyEnabled or row._merged then
+        HideLatency(row)
+        return
+    end
+    if not row._latBack then
+        row._latBack = row._clip:CreateTexture(nil, "ARTWORK", nil, 7)
+        row._latBack:Hide()
+        row._latFront = row._bar:CreateTexture(nil, "OVERLAY", nil, 0)
+        row._latFront:Hide()
+    end
+    local r, g, b, a = cfg.latencyR or 0.835, cfg.latencyG or 0.290, cfg.latencyB or 0.290, cfg.latencyA or 1
+    row._latBack:SetTexture(texPath)
+    row._latBack:SetVertexColor(r, g, b, a)
+    row._latFront:SetTexture(texPath)
+    row._latFront:SetVertexColor(r, g, b, a)
+end
+
+local function UpdateLatency(row, cfg, dur)
+    local back, front = row._latBack, row._latFront
+    if not back then return end
+    if not cfg.latencyEnabled or row._merged then
+        HideLatency(row)
+        return
+    end
+    local _, _, home, world = GetNetStats()
+    local ms = (world and world > 0) and world or home
+    local w = row._clip:GetWidth()
+    if not (w and w > 0) then w = cfg.width or 220 end
+    if not (ms and ms > 0 and dur and dur > 0) then
+        HideLatency(row)
+        return
+    end
+    local zw = w * math.min(1, ms / 1000 / dur)
+    if zw < 1 then zw = 1 end
+    local zone = cfg.depleteFill and front or back
+    local other = cfg.depleteFill and back or front
+    other:Hide()
+    zone:ClearAllPoints()
+    if cfg.depleteFill then
+        zone:SetPoint("TOPLEFT", row._clip, "TOPLEFT", 0, 0)
+        zone:SetPoint("BOTTOMLEFT", row._clip, "BOTTOMLEFT", 0, 0)
+    else
+        zone:SetPoint("TOPRIGHT", row._clip, "TOPRIGHT", 0, 0)
+        zone:SetPoint("BOTTOMRIGHT", row._clip, "BOTTOMRIGHT", 0, 0)
+    end
+    zone:SetWidth(zw)
+    zone:Show()
+end
+
+-- Defined with the look below; the swing edges above it repaint through it.
+local ApplyRowFill
+
+-- The auto attack and auto-repeat edges are tracked while either feature that
+-- reads them is on.
+local function TracksAttack(cfg)
+    return cfg.activeHighlight or cfg.pendingEnabled
+end
+
+-- The row's attack is on right now (melee rows: Auto Attack; Ranged: the
+-- auto-repeat shot).
+local function AttackOn(def)
+    if def.melee then return S.meleeOn == true end
+    return S.repeatOn == true
+end
+
+-- A row not mid-swing waits (parks full) while its attack is on. A hidden row
+-- (no weapon in the slot) never waits: it would count as live and hold the bar
+-- up under Hide When Idle.
+local function ShouldWait(row, cfg)
+    return TracksAttack(cfg) and row:IsShown() and not row._merged and AttackOn(row._def)
 end
 
 -- Idle render: empty (background) by default, full of the fill colour with
@@ -315,6 +430,10 @@ end
 -- recipe), so the engine has nothing left to animate. The SetValue keeps the
 -- value channel coherent with what is drawn.
 local function IdleRow(row, cfg)
+    if row._waiting then
+        row._waiting = nil
+        if cfg then ApplyRowFill(row, cfg) end
+    end
     if row._live then
         row._live = nil
         S.live = S.live - 1
@@ -327,34 +446,72 @@ local function IdleRow(row, cfg)
     row._bar:SetTimerDuration(obj, IMMEDIATE, full and DIR.ElapsedTime or DIR.RemainingTime)
     row._bar:SetValue(full and 1 or 0)
     row._time:SetText("")
+    HideLatency(row)
 end
 
 -- The fill is the engine's: the row's duration object takes this swing and the
 -- bar timer animates it every frame with no Lua, draining (Deplete Fill) or
 -- filling exactly as the direction says. The end time stays in Lua only for
--- the ticker's end edge; the duration object is never read.
+-- the ticker's end edge; the duration object is never read. _due (when the
+-- next swing is expected) outlives the idle render, so a swing that lands just
+-- after the end edge still smooths against it.
 local function StartRow(row, dur, cfg)
     if type(dur) ~= "number" or dur ~= dur or dur <= 0 or dur == math.huge then return end
     local now = GetTime()
-    row._end = now + dur
+    local start = now
+    local due = row._due
+    if cfg.smoothTiming and due then
+        local late = now - due
+        if late > -SMOOTH_TOL and late < SMOOTH_TOL then start = due + late * SMOOTH_GAIN end
+    end
+    row._end = start + dur
+    row._due = row._end
     row._dur = dur
+    if row._waiting then
+        row._waiting = nil
+        ApplyRowFill(row, cfg)
+        UpdateSpark(row, cfg)
+    end
     if not row._live then
         row._live = true
         S.live = S.live + 1
         UpdateSpark(row, cfg)
     end
     local obj = row._durObj
-    obj:SetTimeFromStart(now, dur)
+    obj:SetTimeFromStart(start, dur)
     row._bar:SetTimerDuration(obj, IMMEDIATE, cfg.depleteFill and DIR.RemainingTime or DIR.ElapsedTime)
     row._time:SetFormattedText("%.1f", dur)
+    UpdateLatency(row, cfg, dur)
     ns.STTick.Start()
     if cfg.hideWhenIdle and S.live == 1 and ns.ST_UpdateVisibility then ns.ST_UpdateVisibility() end
 end
 
+-- Waiting (attack on, no swing running): parked full, in the pending colour
+-- with Shot Pending, else the active one. Entered from a finished swing or from
+-- idle; the row counts as live (Hide When Idle keeps it) but the ticker skips
+-- it. The next swing (StartRow) or an attack-stop edge (IdleRow) ends it,
+-- never a timer.
+local function EnterWaiting(row, cfg)
+    row._waiting = true
+    row._end = nil
+    if not row._live then
+        row._live = true
+        S.live = S.live + 1
+    end
+    local obj = row._durObj
+    obj:SetTimeFromStart(GetTime() - 1, 1)
+    row._bar:SetTimerDuration(obj, IMMEDIATE, DIR.ElapsedTime)
+    row._bar:SetValue(1)
+    row._time:SetText("")
+    HideLatency(row)
+    UpdateSpark(row, cfg)
+    ApplyRowFill(row, cfg)
+end
+
 -- 20 Hz while any row is live, for what the engine timer cannot do: the
--- remaining-time text and the end edge (idle render, Hide When Idle). No
--- SetValue here, the fill is the engine's. Self-stops on the last row going
--- idle.
+-- remaining-time text and the end edge (idle render or waiting, Hide When
+-- Idle). No SetValue here, the fill is the engine's. Self-stops on the last
+-- row going idle or waiting.
 ns.STTick = EllesmereUI.Tick.NewAnimTicker(tickFrame, function()
     local cfg = P()
     if not (cfg and cfg.enabled and S.built) then return false end
@@ -362,10 +519,10 @@ ns.STTick = EllesmereUI.Tick.NewAnimTicker(tickFrame, function()
     local any = false
     for i = 1, #S.rows do
         local row = S.rows[i]
-        if row._live then
+        if row._live and not row._waiting then
             local rem = row._end - now
             if rem <= 0 then
-                IdleRow(row, cfg)
+                if ShouldWait(row, cfg) then EnterWaiting(row, cfg) else IdleRow(row, cfg) end
             else
                 if cfg.showTime ~= false and not row._merged then
                     -- Under 0.05s would print "0.0": blank until the end edge.
@@ -383,24 +540,35 @@ end, 0.05)
 --  Layout + look
 -------------------------------------------------------------------------------
 
--- Fill colour: the row's own (or class) colour, or the queued attack's own
--- colour on a melee row while an on-next-swing attack is queued. A combined
--- off-hand row paints no fill: its bar keeps running under its spark, unseen.
-local function ApplyRowFill(row, cfg)
+-- Fill colour: the row's own (or class) colour; the active colour while its
+-- auto attack is on; the queued attack's own colour on a melee row while an
+-- on-next-swing attack is queued; the pending colour while the row waits with
+-- Shot Pending on (each wins over the ones before). A combined off-hand row
+-- paints no fill: its bar keeps running under its spark, unseen.
+function ApplyRowFill(row, cfg)
     local fillTex = row._bar:GetStatusBarTexture()
     if row._merged then
         ns.ApplyBarFlat(fillTex, 0, 0, 0, 0)
         return
     end
-    local q = row._def.melee and S.queued
+    local def = row._def
+    local pend = row._waiting and cfg.pendingEnabled
+    local q = not pend and def.melee and S.queued
+    local act = not (pend or q) and S.active[def.melee and "melee" or "ranged"]
     local fR, fG, fB, fA
-    if q then
+    if pend then
+        local c = PENDING_COLOR
+        fR, fG, fB, fA = cfg.pendingR or c.r, cfg.pendingG or c.g, cfg.pendingB or c.b, cfg.pendingA or 1
+    elseif q then
         local k = q.key
         fR, fG, fB, fA = cfg[k .. "R"] or q.r, cfg[k .. "G"] or q.g, cfg[k .. "B"] or q.b, cfg[k .. "A"] or 1
+    elseif act then
+        local c = ACTIVE_COLOR
+        fR, fG, fB, fA = cfg.activeR or c.r, cfg.activeG or c.g, cfg.activeB or c.b, cfg.activeA or 1
     else
-        fR, fG, fB, fA = RowColor(cfg, row._def)
+        fR, fG, fB, fA = RowColor(cfg, def)
     end
-    if cfg.gradientEnabled and not q then
+    if cfg.gradientEnabled and not (pend or q or act) then
         ns.ApplyBarGradient(fillTex, cfg.gradientDir or "HORIZONTAL", fR, fG, fB, fA,
             cfg.gradientR, cfg.gradientG, cfg.gradientB, cfg.gradientA)
     else
@@ -445,6 +613,65 @@ local function PaintQueue(cfg)
             ApplyRowTag(row, cfg)
         end
     end
+end
+
+-- One-shot read of both states, for the edges this frame was not listening
+-- to: the action bars' own auto-repeat test, and Auto Attack as the current
+-- spell. The edges keep them current from here.
+local function SeedActive()
+    S.seeded = true
+    local rep = false
+    local isRep = C_ActionBar and C_ActionBar.IsAutoRepeatAction
+    if isRep then
+        for slot = 1, MAX_ACTION_SLOT do
+            local v = isRep(slot)
+            if Plain(v) and v then rep = true; break end
+        end
+    end
+    S.repeatOn = rep
+    local cur = C_Spell and C_Spell.IsCurrentSpell and C_Spell.IsCurrentSpell(AUTO_ATTACK)
+    S.meleeOn = (Plain(cur) and cur) and true or false
+end
+
+-- Delta paint: touches only the rows whose active state flipped.
+local function PaintActive(cfg)
+    cfg = cfg or P()
+    if not (cfg and S.built) then return end
+    local on = cfg.activeHighlight == true
+    local melee = on and S.meleeOn == true
+    local ranged = on and S.repeatOn == true
+    local A = S.active
+    local dMelee, dRanged = melee ~= A.melee, ranged ~= A.ranged
+    if not (dMelee or dRanged) then return end
+    A.melee, A.ranged = melee, ranged
+    for i = 1, #S.rows do
+        local row = S.rows[i]
+        if (row._def.melee and dMelee) or (not row._def.melee and dRanged) then
+            ApplyRowFill(row, cfg)
+        end
+    end
+end
+
+-- Matches every row not mid-swing to its attack: waiting while it is on, idle
+-- once it stops. Runs on the attack edges, after a loading screen and when the
+-- weapon rows change; a row mid-swing is left to its end edge.
+local function SyncWaiting(cfg)
+    local changed = false
+    for i = 1, #S.rows do
+        local row = S.rows[i]
+        if not (row._live and not row._waiting) then
+            if ShouldWait(row, cfg) then
+                if not row._waiting then
+                    EnterWaiting(row, cfg)
+                    changed = true
+                end
+            elseif row._waiting then
+                IdleRow(row, cfg)
+                changed = true
+            end
+        end
+    end
+    if changed and cfg.hideWhenIdle and ns.ST_UpdateVisibility then ns.ST_UpdateVisibility() end
 end
 
 -- Stack the applicable rows and size the frame to them; a combined off-hand
@@ -510,6 +737,7 @@ local function ApplyRowLook(row, cfg, w, h)
     bar:SetReverseFill(false)
     row._bg:SetTexture(nil)
     row._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgA or 0.7)
+    StyleLatency(row, cfg, texPath)
 
     ApplyRowFill(row, cfg)
 
@@ -660,10 +888,20 @@ shell:SetScript("OnEvent", function(self, event, a1, a2, a3)
         PaintQueue(cfg)
     elseif event == "ACTIONBAR_UPDATE_STATE" then
         PaintQueue(cfg)
+    elseif event == "START_AUTOREPEAT_SPELL" or event == "STOP_AUTOREPEAT_SPELL" then
+        S.repeatOn = event == "START_AUTOREPEAT_SPELL"
+        SyncWaiting(cfg)
+        PaintActive(cfg)
+    elseif event == "PLAYER_ENTER_COMBAT" or event == "PLAYER_LEAVE_COMBAT" then
+        S.meleeOn = event == "PLAYER_ENTER_COMBAT"
+        SyncWaiting(cfg)
+        PaintActive(cfg)
     elseif event == "PLAYER_DEAD" then
         for i = 1, #S.rows do
             if S.rows[i]._live then IdleRow(S.rows[i], cfg) end
         end
+        S.meleeOn, S.repeatOn = false, false
+        PaintActive(cfg)
     elseif event == "PLAYER_SWING_RANGE_UPDATE" then
         -- a1 = swingType, a2 = isInRange, a3 = checksRange
         if not (Plain(a1) and Plain(a2) and Plain(a3)) then return end
@@ -680,6 +918,13 @@ shell:SetScript("OnEvent", function(self, event, a1, a2, a3)
     else
         -- WEAPON_SLOT_CHANGED / UNIT_ATTACK_SPEED / PLAYER_ENTERING_WORLD
         if RefreshRows(cfg) then RestyleMarked(cfg) end
+        if TracksAttack(cfg) then
+            -- A loading screen can end an attack without its edge reaching us.
+            if event == "PLAYER_ENTERING_WORLD" then SeedActive() end
+            -- A row the weapon change just showed takes its attack's state.
+            SyncWaiting(cfg)
+            PaintActive(cfg)
+        end
     end
 end)
 
@@ -703,6 +948,23 @@ local function ApplyQueueEvents(cfg)
         shell:RegisterEvent("ACTIONBAR_UPDATE_STATE")
     else
         shell:UnregisterEvent("ACTIONBAR_UPDATE_STATE")
+    end
+end
+
+-- The auto attack and auto-repeat edges, only while Highlight Active Attack
+-- or Shot Pending is on.
+local function ApplyActiveEvents(cfg)
+    if not S.events then return end
+    if TracksAttack(cfg) then
+        shell:RegisterEvent("START_AUTOREPEAT_SPELL")
+        shell:RegisterEvent("STOP_AUTOREPEAT_SPELL")
+        shell:RegisterEvent("PLAYER_ENTER_COMBAT")
+        shell:RegisterEvent("PLAYER_LEAVE_COMBAT")
+    else
+        shell:UnregisterEvent("START_AUTOREPEAT_SPELL")
+        shell:UnregisterEvent("STOP_AUTOREPEAT_SPELL")
+        shell:UnregisterEvent("PLAYER_ENTER_COMBAT")
+        shell:UnregisterEvent("PLAYER_LEAVE_COMBAT")
     end
 end
 
@@ -761,6 +1023,7 @@ end
 local function Teardown()
     if not S.built then return end
     UnregisterEvents()
+    S.seeded = nil  -- the edges stop here: re-read on the next enable
     local cfg = P()
     for i = 1, #S.rows do
         local row = S.rows[i]
@@ -804,8 +1067,15 @@ function ns.ST_Apply()
     shell:Show()
     RegisterEvents()
     ApplyQueueEvents(cfg)
+    ApplyActiveEvents(cfg)
     -- Highlight turned off with an attack queued: the paint below must clear it.
     if cfg.queueHighlight == false then S.queued = false end
+    -- Attack state: read once per enable, kept by the edges while on.
+    if not TracksAttack(cfg) then
+        S.seeded = nil
+    elseif not S.seeded then
+        SeedActive()
+    end
     -- Size and stack the rows BEFORE styling them: the textured border is a
     -- BackdropTemplate nine-slice keyed on first setup, and set up on a 0x0
     -- row it never paints (cast/GCD bars size first for the same reason).
@@ -813,13 +1083,16 @@ function ns.ST_Apply()
     ApplyPosition(cfg)
     ApplyLook(cfg)
     PaintQueue(cfg)
+    PaintActive(cfg)
     -- Every row takes its paint here on every apply, always by re-arming the
     -- bar timer, never by a plain SetValue: a parked timer keeps painting its
     -- terminal state and SetValue does not repaint it (the GCD bar's idle
     -- recipe). Unlock movers up: a full bar with a sample time. A row
     -- mid-swing: its running swing again, in the direction now configured
-    -- (unlock exit, a Deplete Fill change). Otherwise the idle render, so a
-    -- Show Fill Color When Idle change shows at once, not at the next swing's end.
+    -- (unlock exit, a Deplete Fill change). A row whose attack is on: parked
+    -- full (waiting), also when the option just came on mid-attack. Otherwise
+    -- the idle render, so a Show Fill Color When Idle change shows at once, not
+    -- at the next swing's end.
     for i = 1, #S.rows do
         local row = S.rows[i]
         local obj = row._durObj
@@ -831,9 +1104,13 @@ function ns.ST_Apply()
             row._bar:SetTimerDuration(obj, IMMEDIATE, oh and DIR.RemainingTime or DIR.ElapsedTime)
             row._bar:SetValue(oh and 0 or 1)
             row._time:SetText("1.2")
-        elseif row._live and row._dur then
+            UpdateLatency(row, cfg, row._dur or 2)
+        elseif row._live and not row._waiting and row._dur then
             obj:SetTimeFromStart(row._end - row._dur, row._dur)
             row._bar:SetTimerDuration(obj, IMMEDIATE, cfg.depleteFill and DIR.RemainingTime or DIR.ElapsedTime)
+            UpdateLatency(row, cfg, row._dur)
+        elseif ShouldWait(row, cfg) then
+            EnterWaiting(row, cfg)
         else
             IdleRow(row, cfg)
         end

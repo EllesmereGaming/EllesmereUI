@@ -392,7 +392,8 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
     end
 
     -- Row: Bar Texture | Show Spark
-    _, h = W:DualRow(parent, y,
+    local gcdTexRow
+    gcdTexRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Bar Texture",
           disabled = gcdOff, disabledTooltip = "GCD Bar",
           values = texValues, order = texOrder,
@@ -404,6 +405,25 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
           getValue = function() local p = DB(); return p and p.gcdBar.showSpark end,
           setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.showSpark = v; RefreshGCD() end }
     );  y = y - h
+    -- Inline cog on Bar Texture: Textured Background (greyed with the dropdown).
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(gcdTexRow._leftRegion, {
+            disabled = gcdOff,
+            title = "Texture Settings",
+            rows = {
+                { type = "toggle", label = "Textured Background",
+                  tooltip = "Draws the bar texture on the background too, tinted by the background color.",
+                  disabled = function() local p = DB(); return not p or (p.gcdBar.texture or "none") == "none" end,
+                  disabledTooltip = "This option requires a Bar Texture other than None.",
+                  rawTooltip = true,
+                  get = function() local p = DB(); return (p and p.gcdBar.textureBg) or false end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.gcdBar.textureBg = v and true or false; RefreshGCD()
+                  end },
+            },
+        })
+    end
 
     -- Row: Deplete Fill (left half only)
     _, h = W:DualRow(parent, y,

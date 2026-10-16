@@ -455,6 +455,22 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                           })
                       end
                   end },
+                { type = "toggle", label = "Textured Background",
+                  tooltip = "Draws each bar's texture on its background too, tinted by the background color (the class resource uses its Empty Bar Overlay). A background stays flat while its bar's Fill Color is below 100 or Background on individual pips is on.",
+                  disabled = function()
+                      local p = DB(); if not p then return true end
+                      return (p.general.barTexture or "none") == "none" and p.splitTex ~= true
+                  end,
+                  disabledTooltip = "This option requires a Texture other than None.",
+                  rawTooltip = true,
+                  get = function()
+                      local p = DB(); return (p and p.general.barTextureBg) or false
+                  end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.general.barTextureBg = v and true or false
+                      SmoothRefresh()
+                  end },
             },
         })
         EllesmereUI.BuildInlineCog(texRow._rightRegion, {

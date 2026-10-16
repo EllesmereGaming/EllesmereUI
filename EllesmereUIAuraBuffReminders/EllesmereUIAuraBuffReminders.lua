@@ -1392,6 +1392,8 @@ end
 --  SPELL DATA Auras (some non-secret, some still OOC-only)
 -------------------------------------------------------------------------------
 local AURAS = {
+    { key="moonkin_form", class="DRUID", name="Moonkin Form", castSpell=24858,
+      check="player", specs={102}, combatOnly=true, isStance=true },
     -- Symbiotic Relationship: player gets a buff when active (group only)
     { key="symbiotic",  class="DRUID",   name="Symbiotic Relationship", castSpell=474750, buffIDs={474754},
       check="player", combatOk=false, requireGroup=true },
@@ -2263,6 +2265,7 @@ local defaults = {
         },
         auras = {
             enabled = {
+                moonkin_form=false,
                 symbiotic=true, battle_stance=true, def_stance=true, berserk_stance=true, shadowform=true,
                 devo_aura=true, bol=true, bof=true, som=true, blistering_scales=true,
                 bestow_weyrnstone=true, timelessness=true,
@@ -3651,6 +3654,7 @@ do
         if aura.standalone then
             -- Handled by standalone system, skip
         elseif au.enabled[aura.key] and (aura.class == playerClass)
+           and (not aura.combatOnly or InCombat())
            and ((aura.key == "soulstone"
                  and EABR.SectionShows(db.profile.consumables.warlockWhereToShow, inInstance))
                 or (aura.key ~= "soulstone" and auraSectionShows))
@@ -5920,6 +5924,17 @@ function EABR:OnEnable()
         -- synced by every refresh (EABR.FvSyncGroupWatch).
         if EABR.FOREVER then return end
         local playerClass = GetPlayerClass()
+        local moonkinOn = playerClass == "DRUID"
+            and db.profile.auras.enabled.moonkin_form == true
+            and db.profile.display.remindersEnabled ~= false
+            and GetSpecID() == 102 and Known(24858)
+        if moonkinOn then
+            mainFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+            mainFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORMS")
+        else
+            mainFrame:UnregisterEvent("UPDATE_SHAPESHIFT_FORM")
+            mainFrame:UnregisterEvent("UPDATE_SHAPESHIFT_FORMS")
+        end
         _needGroupAura = false
         _isEvokerOwnOnRaid = false
         EABR._needsProviderCoverage = false
@@ -6283,10 +6298,10 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         C_Timer.After(2.1, RequestRefresh)
     end
 
-    -- Talent/spec changes can enable/disable Elemental Orbit and therefore
-    -- change whether broad group UNIT_AURA tracking is required.
+    -- Talent/spec changes affect group aura tracking and form availability.
     if e == "PLAYER_TALENT_UPDATE" or e == "TRAIT_CONFIG_UPDATED"
-       or e == "PLAYER_SPECIALIZATION_CHANGED" then
+       or e == "PLAYER_SPECIALIZATION_CHANGED"
+       or (e == "SPELLS_CHANGED" and db and db.profile.auras.enabled.moonkin_form == true) then
         EABR.ReevaluateOwnOtherAuraTracking()
     end
 

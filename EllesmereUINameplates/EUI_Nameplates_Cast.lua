@@ -331,24 +331,30 @@ function NameplateFrame:ApplyCastColor(uninterruptible)
         normalCastTint = ns._npWhite
     end
     -- Important Cast Color (opt-in): a cast the game flags important shows the Important
-    -- colour instead of Interruptible. The flag may be SECRET, so blend per channel via
-    -- EvaluateColorValueFromBoolean (ifTrue=Important, ifFalse=Interruptible), never branch on
-    -- it. Interrupt-on-CD still wins: ComputeCastBarTint layers the kick-ready tint over any
-    -- base tint. Uninterruptible casts keep their look (overlay on top).
+    -- colour. The flag may be SECRET, so blend per channel via EvaluateColorValueFromBoolean
+    -- (ifTrue=Important, ifFalse=the tint it replaces), never branch on it. Two priorities
+    -- (importantCastKickReadyAsInterruptible): off (default), Important replaces Interruptible
+    -- and Interrupt-on-CD still wins; on, Interruptible wins while the kick is ready and
+    -- Important replaces Interrupt-on-CD. On with no known kick falls back to off, else
+    -- Important would never show. Uninterruptible casts keep their look (overlay on top).
     local importantOn = cfg.importantCastColorEnabled
     if importantOn == nil then importantOn = defaults.importantCastColorEnabled end
     if importantOn and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean then
         local imp = cfg.castBarImportant or defaults.castBarImportant
         local isImp = self._castImportant
         if type(isImp) == "nil" then isImp = false end
+        local kickFirst = cfg.importantCastKickReadyAsInterruptible
+        if kickFirst == nil then kickFirst = defaults.importantCastKickReadyAsInterruptible end
+        local impFirst = not (kickFirst and EllesmereUI.GetActiveKickSpell and EllesmereUI.GetActiveKickSpell())
+        local under = impFirst and normalCastTint or kickReadyTint
         local ev = C_CurveUtil.EvaluateColorValueFromBoolean
         -- Scratch table (same pattern as _dispelScratch): runs per cast event per plate, a fresh color table per call was pure GC churn.
         local sc = ns._castImpScratch
         if not sc then sc = {}; ns._castImpScratch = sc end
-        sc.r = ev(isImp, imp.r, normalCastTint.r)
-        sc.g = ev(isImp, imp.g, normalCastTint.g)
-        sc.b = ev(isImp, imp.b, normalCastTint.b)
-        normalCastTint = sc
+        sc.r = ev(isImp, imp.r, under.r)
+        sc.g = ev(isImp, imp.g, under.g)
+        sc.b = ev(isImp, imp.b, under.b)
+        if impFirst then normalCastTint = sc else kickReadyTint = sc end
     end
     local cr, cg, cb = ComputeCastBarTint(kickReadyTint, normalCastTint)
 
@@ -796,6 +802,13 @@ function NameplateFrame:MarkHealthDirty()
 end
 function NameplateFrame:UNIT_NAME_UPDATE()
     self:UpdateName()
+    -- UnitClassification can read "normal" on the one-frame-deferred spawn pass
+    -- (SetUnit's deferred setup) before the unit's data populates, which hides the
+    -- elite/rare badge until some unrelated refresh re-reads it. The name resolving
+    -- from its placeholder is that same readiness signal, so re-read classification
+    -- here. Rides this already-registered event -- no new registration, and
+    -- UpdateClassification early-returns when the indicator slot is off.
+    self:UpdateClassification()
 end
 function NameplateFrame:UNIT_THREAT_LIST_UPDATE()
     self:UpdateHealthColor()

@@ -241,6 +241,8 @@ S.fontSmall         = MakeFont("EllesmereUISimpleLootCouncilFontSmall",         
 S.fontBadge         = MakeFont("EllesmereUISimpleLootCouncilFontBadge",         14,   color.textMuted)
 S.fontTag           = MakeFont("EllesmereUISimpleLootCouncilFontTag",           11,   color.textFaint)
 S.fontHint          = MakeFont("EllesmereUISimpleLootCouncilFontHint",          11,   color.textFaint)
+
+S.fontNotice        = MakeFont("EllesmereUISimpleLootCouncilFontNotice",        16,   color.bad)
 S.fontConfirm       = MakeFont("EllesmereUISimpleLootCouncilFontConfirm",       12,   color.text)
 S.fontConfirmDetail = MakeFont("EllesmereUISimpleLootCouncilFontConfirmDetail", 11,   color.textFaint)
 S.fontNum           = MakeFont("EllesmereUISimpleLootCouncilFontNum",           12,   color.text)

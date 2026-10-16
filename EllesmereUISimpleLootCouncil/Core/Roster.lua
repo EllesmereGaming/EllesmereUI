@@ -60,16 +60,17 @@ end
 local function FindLeader()
     local function FromUnit(unit)
         local name, realm = UnitFullName(unit)
-        if not name or name == "" or name == UNKNOWNOBJECT
-            or IsSecret(name) or IsSecret(realm) then return nil end
+
+        if IsSecret(name) or IsSecret(realm) or not name or name == ""
+            or name == UNKNOWNOBJECT then return nil end
         return addon.Player:GetFullName(unit)
     end
     if not IsInGroup() then return FromUnit("player") end
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
             local name, rank = GetRaidRosterInfo(i)
-            if rank == 2 and name and name ~= "" and name ~= UNKNOWNOBJECT
-                and not IsSecret(name) then
+            if not IsSecret(name) and not IsSecret(rank) and rank == 2 and name
+                and name ~= "" and name ~= UNKNOWNOBJECT then
                 local record = addon.Player:Get(name)
                 return record.guid and record.fullName or nil
             end
@@ -97,20 +98,27 @@ function addon.GetGroupLeader()
     return leader
 end
 
-local function IndexMembers()
-    memberKeys, aliases = {}, {}
-    for name in pairs(members) do
-        local key = addon.Player:NameKey(name)
-        if key then memberKeys[key] = true end
+
+local indexedSet
+
+local function MemberSet()
+    local set = addon.GetCandidates()
+    if set ~= indexedSet then
+        indexedSet, memberKeys, aliases = set, {}, {}
+        for name in pairs(set) do
+            local key = addon.Player:NameKey(name)
+            if key then memberKeys[key] = true end
+        end
     end
+    return set
 end
 
 
 
 
 function Roster:IsMember(name)
-    if type(name) ~= "string" or name == "" or IsSecret(name) then return false end
-    if members[name] or aliases[name] then return true end
+    if IsSecret(name) or type(name) ~= "string" or name == "" then return false end
+    if MemberSet()[name] or aliases[name] then return true end
     local key = addon.Player:NameKey(name)
     if key then
         selfKey = selfKey or addon.Player:NameKey(addon.Player:GetFullName("player"))
@@ -148,7 +156,6 @@ local function Rebuild(immediate)
     snapshotLeader = newLeader
     local wasInGroup = inGroup
     members, inGroup = current, nowInGroup
-    IndexMembers()
     if next(joined) or next(left) or leaderChanged or wasInGroup ~= nowInGroup then
         addon.Callbacks:Fire("RosterChanged", {
             joined = joined, left = left, leaderChanged = leaderChanged,
@@ -163,7 +170,6 @@ function Roster:Init()
     self:RebuildUnitCache()
     inGroup = IsInGroup() and true or false
     members = inGroup and addon.GetCandidates() or {}
-    IndexMembers()
     selfKey = addon.Player:NameKey(addon.Player:GetFullName("player"))
     leaderCached = false
     snapshotLeader = addon.GetGroupLeader()
@@ -332,34 +338,58 @@ function addon.PlayerIsMasterLooter()
 end
 
 
-function addon.GetCandidates()
-    local candidates = {}
+local function BuildCandidates()
+    local candidates, complete = {}, true
 
     if not IsInGroup() then
         local self_ = addon.Player:GetFullName("player")
-        if self_ then candidates[self_] = true end
-        return candidates
+        if self_ then candidates[self_] = true else complete = false end
+        return candidates, complete
     end
 
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
             local name = GetRaidRosterInfo(i)
-            if name and name ~= "" and name ~= UNKNOWNOBJECT and not IsSecret(name) then
+            if not IsSecret(name) and name and name ~= "" and name ~= UNKNOWNOBJECT then
                 local record = addon.Player:Get(name)
-                if record.fullName then candidates[record.fullName] = true end
+                if record.fullName and not record.unresolved then
+                    candidates[record.fullName] = true
+                else
+                    if record.fullName then candidates[record.fullName] = true end
+                    complete = false
+                end
+            else
+                complete = false
             end
         end
-        return candidates
+        return candidates, complete
     end
 
     local self_ = addon.Player:GetFullName("player")
-    if self_ then candidates[self_] = true end
+    if self_ then candidates[self_] = true else complete = false end
     for i = 1, GetNumGroupMembers() - 1 do
         local unit = "party" .. i
         if UnitExists(unit) then
             local full = addon.Player:GetFullName(unit)
-            if full then candidates[full] = true end
+            if full then candidates[full] = true else complete = false end
         end
+    end
+    return candidates, complete
+end
+
+
+
+local candidateSet, candidateEpoch = nil, nil
+
+
+function addon.GetCandidates()
+    if initialised and candidateSet and candidateEpoch == epoch then return candidateSet end
+    local candidates, complete = BuildCandidates()
+    if not complete then epoch = epoch + 1 end
+    if initialised and complete then
+        candidateSet, candidateEpoch = candidates, epoch
+    else
+        candidateSet = nil
     end
     return candidates
 end

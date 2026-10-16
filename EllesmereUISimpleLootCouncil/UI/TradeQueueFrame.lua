@@ -16,8 +16,10 @@ UI.TradeQueueFrame = TradeQueueFrame
 local S, L, P
 local frame, host, heading, othersHeading, empty
 local rows = {}
-local rangeTicker
+local rangeTicker, clockTicker
 local visibleGroups
+
+local clockRows = {}
 
 
 
@@ -281,6 +283,7 @@ function TradeQueueFrame:Refresh()
     local groups = BuildGroups()
     local others = BuildOthers()
     visibleGroups = groups
+    clockRows = {}
     local index, owed, urgent, othersOwed = 0, 0, 0, 0
     local y = 0
 
@@ -367,6 +370,8 @@ function TradeQueueFrame:Refresh()
                 local text, colour = ClockText(record.remaining)
                 item.right:SetText(text)
                 item.right:SetTextColor(S.Unpack(colour))
+                clockRows[#clockRows + 1] = { row = item, entry = record.entry,
+                    remaining = record.remaining }
             end
 
 
@@ -479,6 +484,10 @@ function TradeQueueFrame:Refresh()
                 local text, colour = ClockText(entry.remaining)
                 item.right:SetText(text)
                 item.right:SetTextColor(S.Unpack(colour))
+                if record.expiresAt then
+                    clockRows[#clockRows + 1] = { row = item, record = record,
+                        remaining = entry.remaining }
+                end
             else
 
 
@@ -561,12 +570,49 @@ end
 
 
 
+local function UpdateClocks()
+    if not frame or not frame:IsShown() or #clockRows == 0 then return end
+
+    local clocks = addon.Storage:Clocks(addon.Storage:GetAll(addon.Storage.TO_TRADE))
+    local now = GetServerTime()
+    local fresh = {}
+    for i, clock in ipairs(clockRows) do
+        local remaining
+        if clock.entry then
+            if clock.entry.untradeable ~= nil then return TradeQueueFrame:Refresh() end
+            remaining = clocks[clock.entry]
+        else
+            if clock.record.untradeable ~= nil then return TradeQueueFrame:Refresh() end
+            remaining = math.max(0, clock.record.expiresAt - now)
+        end
+        local was = clock.remaining and clock.remaining < URGENT_BELOW
+        local urgent = remaining and remaining < URGENT_BELOW
+        if (was and true or false) ~= (urgent and true or false) then
+            return TradeQueueFrame:Refresh()
+        end
+        fresh[i] = remaining
+    end
+    for i, clock in ipairs(clockRows) do
+        clock.remaining = fresh[i]
+        local text, colour = ClockText(fresh[i])
+        clock.row.right:SetText(text)
+        clock.row.right:SetTextColor(S.Unpack(colour))
+    end
+end
 
 
-function TradeQueueFrame:Init()
-    S = addon.Style
-    L, P = addon.Layout, addon.Pixel
 
+
+
+local function StopTickers()
+    if rangeTicker then rangeTicker:Cancel(); rangeTicker = nil end
+    if clockTicker then clockTicker:Cancel(); clockTicker = nil end
+    visibleGroups = nil
+end
+
+
+
+local function Build()
     frame = S.Window("SimpleLootCouncilTradeQueueFrame", "tradeQueue",
         WINDOW_W, 420, T["Loot to trade"])
     frame:RestorePosition()
@@ -597,29 +643,8 @@ function TradeQueueFrame:Init()
     othersHeading:Hide()
 
 
-
-    local function SyncVisibility()
-        local owed = #addon.Storage:GetAll(addon.Storage.TO_TRADE)
-            + #addon.Trade:OwedByOthers()
-        if owed > 0 then
-            if not frame:IsShown() then frame:Show() end
-            TradeQueueFrame:Refresh()
-        elseif frame:IsShown() then
-            frame:Hide()
-        end
-    end
-    addon.Callbacks:Register("StorageChanged", SyncVisibility)
-    addon.Callbacks:Register("OwedByOthersChanged", SyncVisibility)
-
-
-    C_Timer.NewTicker(30, function() TradeQueueFrame:Refresh() end)
-
-    local function StopRangeTicker()
-        if rangeTicker then rangeTicker:Cancel(); rangeTicker = nil end
-        visibleGroups = nil
-    end
     frame:HookScript("OnShow", function()
-        StopRangeTicker()
+        StopTickers()
         rangeTicker = C_Timer.NewTicker(2, function()
             if not visibleGroups then return end
             for _, group in ipairs(visibleGroups) do
@@ -632,29 +657,77 @@ function TradeQueueFrame:Init()
                 PaintRange(group)
             end
         end)
+
+        clockTicker = C_Timer.NewTicker(30, UpdateClocks)
     end)
-    frame:HookScript("OnHide", StopRangeTicker)
-
-
-    SyncVisibility()
+    frame:HookScript("OnHide", StopTickers)
 
 
 
     frame:HookScript("OnHide", function()
         addon.AutoClose:AfterHide(function(swept)
-            if swept then SyncVisibility() end
+            if swept then TradeQueueFrame:SyncVisibility() end
         end)
     end)
+
+    addon.Log:D("UI", "trade queue frame built")
+end
+
+
+local building
+local function WhenBuilt(fn)
+    if frame then
+        fn()
+    elseif not building then
+        building = true
+        S.BuildOnDriver(function()
+            building = false
+            Build()
+            fn()
+        end)
+    end
+end
+
+
+
+local function OwedCount()
+    return #addon.Storage:GetAll(addon.Storage.TO_TRADE) + #addon.Trade:OwedByOthers()
+end
+
+function TradeQueueFrame:SyncVisibility()
+    if OwedCount() > 0 then
+        WhenBuilt(function()
+
+            if OwedCount() == 0 then return end
+            if not frame:IsShown() then frame:Show() end
+            TradeQueueFrame:Refresh()
+        end)
+    elseif frame and frame:IsShown() then
+        frame:Hide()
+    end
+end
+
+function TradeQueueFrame:Init()
+    S = addon.Style
+    L, P = addon.Layout, addon.Pixel
+
+    local function SyncVisibility() TradeQueueFrame:SyncVisibility() end
+    addon.Callbacks:Register("StorageChanged", SyncVisibility)
+    addon.Callbacks:Register("OwedByOthersChanged", SyncVisibility)
+
+
+    SyncVisibility()
 
     addon.Log:I("UI", "trade queue frame ready")
 end
 
 function TradeQueueFrame:Toggle()
-    if not frame then return end
-    if frame:IsShown() then
+    if frame and frame:IsShown() then
         frame:Hide()
-    else
+        return
+    end
+    WhenBuilt(function()
         frame:Show()
         TradeQueueFrame:Refresh()
-    end
+    end)
 end

@@ -820,6 +820,80 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
+        -- Hide Banners | Hide Alert Toasts. Not offered on WoW Forever: the row
+        -- is not built there and neither runtime block exists.
+        if not EllesmereUI.IS_FOREVER then
+        local toastRow
+        toastRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Hide Banners",
+              tooltip="Hides the large banners at the top of the screen: the boss kill and boss loot banner, and event banners such as level up, scenario and delve stages, and quest completion.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.hideBanners or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.hideBanners = v
+                  if EllesmereUI._applyHideBanners then EllesmereUI._applyHideBanners() end
+              end },
+            { type="toggle", text="Hide Alert Toasts",
+              tooltip="Hides Blizzard's pop-up alerts. Use the cog to pick which: loot (items, gold, currency and honor you receive and rolls you win), achievements and their progress, and housing (decor you earn and Endeavor tasks you complete). The rewards themselves still arrive as usual; collection pop-ups are not affected.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.hideAlertToasts or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.hideAlertToasts = v
+                  if EllesmereUI._applyHideAlertToasts then EllesmereUI._applyHideAlertToasts() end
+                  EllesmereUI:RefreshPage()
+              end }
+        );  y = y - h
+
+        if not EllesmereUI._prebuilding then
+            local rightRgn = toastRow._rightRegion
+            local function toastsOff()
+                return not (EllesmereUIDB and EllesmereUIDB.hideAlertToasts)
+            end
+            local function apply()
+                if EllesmereUI._applyHideAlertToasts then EllesmereUI._applyHideAlertToasts() end
+            end
+
+            EllesmereUI.BuildInlineCog(rightRgn, {
+                title = "Alert Toast Settings",
+                rows = {
+                    { type="toggle", label="Loot",
+                      get=function()
+                          if not EllesmereUIDB then return true end
+                          return EllesmereUIDB.hideAlertToastsLoot ~= false
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.hideAlertToastsLoot = v
+                          apply()
+                      end },
+                    { type="toggle", label="Achievements",
+                      get=function()
+                          return EllesmereUIDB and EllesmereUIDB.hideAlertToastsAchievements or false
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.hideAlertToastsAchievements = v
+                          apply()
+                      end },
+                    { type="toggle", label="Housing",
+                      get=function()
+                          return EllesmereUIDB and EllesmereUIDB.hideAlertToastsHousing or false
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.hideAlertToastsHousing = v
+                          apply()
+                      end },
+                },
+                gap = 9, disabled = toastsOff, disabledTooltip = "Hide Alert Toasts",
+            })
+        end
+        end -- not IS_FOREVER
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         ---------------------------------------------------------------------------
@@ -2472,6 +2546,11 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.lootHistoryMode = nil
                 EllesmereUIDB.lootHistoryDelay = nil
                 if EllesmereUI._applyHideLootHistory then EllesmereUI._applyHideLootHistory() end
+                EllesmereUIDB.hideBanners = false
+                EllesmereUIDB.hideAlertToasts = false
+                EllesmereUIDB.hideAlertToastsLoot = nil
+                EllesmereUIDB.hideAlertToastsAchievements = nil
+                EllesmereUIDB.hideAlertToastsHousing = nil
                 EllesmereUIDB.announceGroupDeaths = false
                 EllesmereUIDB.groupDeathTextSize = nil
                 EllesmereUIDB.groupDeathAlertPos = nil
