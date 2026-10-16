@@ -5824,3 +5824,8 @@ L["Reveal Unexplored Areas Settings"] = "Réglages : Révéler les zones inexplo
 L["Shows the parts of the world map you have not explored yet. Use the cog to pick their color."] = "Affiche les parties de la carte du monde que vous n'avez pas encore explorées. Le rouage permet de choisir leur couleur."
 L["Unexplored Color"] = "Couleur des zones inexplorées"
 L["Tints the areas you have not explored yet. White shows them as they are."] = "Teinte les zones que vous n'avez pas encore explorées. Le blanc les affiche telles quelles."
+
+-- Search Other Languages (EllesmereUIForeverEssentials_LFGLanguages.lua)
+L["Search Other Languages"] = "Chercher dans d'autres langues"
+L["Choose Languages"] = "Choix des langues"
+L["Adds Choose Languages to the cog menu of the Looking For Group window: each language you tick or untick there searches again, in the languages ticked (all by default), not only your game's. The refresh button still searches your language only."] = "Ajoute « Choix des langues » au menu du rouage de la fenêtre Recherche de groupe : chaque langue que vous y cochez ou décochez relance la recherche, dans les langues cochées (toutes par défaut), pas seulement celle de votre jeu. Le bouton d'actualisation cherche toujours dans votre langue uniquement."

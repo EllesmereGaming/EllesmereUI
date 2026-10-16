@@ -28,7 +28,7 @@ initFrame:SetScript("OnEvent", function(self)
         title       = "Forever Essentials",
         description = "Essential tools for WoW Forever.",
         pages       = { PAGE_GENERAL, PAGE_TRAVEL, PAGE_THREAT, PAGE_LOOT, PAGE_MACROS },
-        searchTerms = { "flight timer", "flight path", "threat", "threat meter", "aggro", "loot", "loot feed", "reputation", "currency", "uprank", "spell rank", "junk", "junk items", "macro", "macros", "macro manager", "simplified stats", "item stats", "stat colors", "tooltip stats", "world map", "map", "reveal", "unexplored", "fog of war" },
+        searchTerms = { "flight timer", "flight path", "threat", "threat meter", "aggro", "loot", "loot feed", "reputation", "currency", "uprank", "spell rank", "group finder", "lfg", "looking for group", "languages", "junk", "junk items", "macro", "macros", "macro manager", "simplified stats", "item stats", "stat colors", "tooltip stats", "world map", "map", "reveal", "unexplored", "fog of war" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_GENERAL and _G._EUI_BuildForeverGeneralPage then
                 return _G._EUI_BuildForeverGeneralPage(pageName, parent, yOffset)
@@ -61,6 +61,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.threatMeter = nil
                 EllesmereUIDB.lootFeed = nil
                 EllesmereUIDB.spellUprank = nil
+                EllesmereUIDB.lfgLanguages = nil
                 EllesmereUIDB.junkList = nil
                 EllesmereUIDB.junkListExcluded = nil
                 EllesmereUIDB.simplifiedStats = nil
@@ -91,6 +92,7 @@ initFrame:SetScript("OnEvent", function(self)
                 LF.ApplyPosition()
             end
             if EllesmereUI._SpellUprank then EllesmereUI._SpellUprank.Apply() end
+            if EllesmereUI._LFGLanguages then EllesmereUI._LFGLanguages.Apply() end
             if EllesmereUI._JunkItems then EllesmereUI._JunkItems.Apply() end
             EllesmereUI:InvalidatePageCache()
         end,
