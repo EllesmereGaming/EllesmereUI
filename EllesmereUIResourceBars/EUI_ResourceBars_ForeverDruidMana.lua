@@ -119,13 +119,8 @@ local function PowerBarReach(pp, pos, pbSide, vertical, es)
         local CF = EllesmereUI.ClassicFrame
         return ((pos == "above") and CF.OVER_T or CF.OVER_B) * ns.ERB_BarFrameK(pp)
     end
-    -- Extend Top / Extend Bottom move a horizontal bar's border host.
-    local ext = 0
-    if not vertical then
-        local top, bottom = ns.ERB_BorderExtents(pp)
-        ext = (pos == "above") and top or bottom
-    end
-    return Side(pbSide, ReachOf(pp, es)) + ext
+    local top, bottom, left, right = ns.ERB_BorderExtents(pp)
+    return Side(pbSide, ReachOf(pp, es)) + Side(pbSide, left, right, top, bottom)
 end
 
 -- Inside: the Power Bar's hash-line inset (an exact solid border size, else
