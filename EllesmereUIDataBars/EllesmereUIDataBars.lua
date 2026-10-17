@@ -1854,6 +1854,12 @@ end
 --  Live registry + bar factory
 -------------------------------------------------------------------------------
 local live = {}
+-- Read-only geometry endpoint for optional chat docking.
+function ns.GetChatDockBar(id)
+    local rec = live[id]
+    local cfg = ns.GetBar(id)
+    if rec and rec.enabled and cfg and cfg.orientation ~= "V" then return rec.bar end
+end
 ns._live = live
 ns._moEligible = {}
 

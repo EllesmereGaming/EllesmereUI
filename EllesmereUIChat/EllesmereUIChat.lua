@@ -1249,6 +1249,7 @@ function ECHAT.SyncChatFrameState()
     local cfgSz = ECHAT.DB()
     local pos = cfgSz and cfgSz.chatPosition
     local sz = pos and cfgSz.chatSize
+    if ECHAT.DataBarDockActive and ECHAT.DataBarDockActive() then sz = nil end
     if sz and sz.w and sz.h and not ns._chatSizingActive
         and not (_G.EllesmereUI and _G.EllesmereUI._unlockActive) then
         local cf1s = _G.ChatFrame1

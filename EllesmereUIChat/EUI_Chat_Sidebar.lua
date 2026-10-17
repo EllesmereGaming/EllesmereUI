@@ -487,6 +487,7 @@ local function DockedEditBoxShown()
 end
 
 function ECHAT.InputTopStripActive(cf)
+    if ECHAT.DataBarDockActive and ECHAT.DataBarDockActive() and (cf == ChatFrame1 or cf.isDocked) then return false end
     if not ECHAT.InputOnTop(ECHAT.DB()) then return false end
     local name = cf:GetName()
     local eb = name and _G[name .. "EditBox"]
@@ -633,6 +634,7 @@ function ECHAT.ApplyInputPosition()
 
         end
     end
+    if ECHAT.ApplyDataBarInputs then ECHAT.ApplyDataBarInputs() end
     -- Our message frames derive their text area from the recorded insets.
     if ECHAT.EngineLayoutWindows then ECHAT.EngineLayoutWindows() end
 end
