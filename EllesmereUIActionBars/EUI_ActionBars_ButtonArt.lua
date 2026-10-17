@@ -20,6 +20,8 @@ local EAB, EAB_VTABLE = ns.EAB, ns.EAB_VTABLE
 local HIGHLIGHT_TEXTURES, ResolveBorderThickness, ButtonHasAction = ns.HIGHLIGHT_TEXTURES, ns.ResolveBorderThickness, ns.ButtonHasAction
 local SHAPE_MASKS, SHAPE_BORDERS, SHAPE_INSETS = ns.SHAPE_MASKS, ns.SHAPE_BORDERS, ns.SHAPE_INSETS
 local SHAPE_ZOOM_DEFAULTS, SHAPE_ICON_EXPAND, SHAPE_ICON_EXPAND_OFFSETS = ns.SHAPE_ZOOM_DEFAULTS, ns.SHAPE_ICON_EXPAND, ns.SHAPE_ICON_EXPAND_OFFSETS
+local barButtons = ns.barButtons
+local BAR_CONFIG = ns._internals.BAR_CONFIG
 local I = ns._internals
 local SHAPE_EDGE_SCALES, _quickKeybindState, HideSlotArt = I.SHAPE_EDGE_SCALES, I._quickKeybindState, I.HideSlotArt
 
@@ -175,6 +177,7 @@ end
 -- buttons have no .bar; IconFrame on a bar-art button) is redrawn once from
 -- its retail sheet, where the client's atlas would draw Forever art.
 function ns.AB_StockNormal(btn)
+    if EFD(btn).masqueOwned then return end
     local fd = EFD(btn)
     if fd.stockNT then return end
     fd.stockNT = true
@@ -191,6 +194,7 @@ end
 -- Paints the whole kit on `btn` for a `w` x `h` button (its own size when
 -- omitted). Our bar buttons pass their native size; flyout buttons pass none.
 function ns.AB_PaintClassicButton(btn, w, h)
+    if EFD(btn).masqueOwned then return end
     local fd = EFD(btn)
     local art = ns.AB_CLASSIC
     if not w then w, h = btn:GetSize() end
@@ -376,6 +380,176 @@ function EAB_VTABLE.HideRegionDeferred(region, resetAlpha)
     C_Timer_After(0, fd.hideFn)
 end
 
+function EAB_VTABLE.SetupCastAnimSuppression(btn)
+    local fd = EFD(btn)
+    -- Set up these hooks separately since Masque buttons skip MakeButtonSquare.
+    -- Follow Hide Casting Animations. Always hide them on EUI's custom shapes because Blizzard's rectangular sweep doesn't fit those shapes.
+    if (btn.SpellCastAnimFrame and not fd.castHooked)
+       or (btn.InterruptDisplay and not fd.intHooked) then
+        local hideCastAnim = function(self)
+            local prof = EAB.db and EAB.db.profile
+            if not prof then return end
+            local bfd = EFD(btn)
+            if not prof.hideCastingAnimations and not bfd.shapeApplied
+               and not bfd.cropped then return end
+            self:SetAlpha(0)
+            if not self:IsForbidden() then self:Hide() end
+            EAB_VTABLE.HideRegionDeferred(self, 1)
+        end
+        if btn.SpellCastAnimFrame and not fd.castHooked then
+            btn.SpellCastAnimFrame:HookScript("OnShow", hideCastAnim)
+            fd.castHooked = true
+        end
+        if btn.InterruptDisplay and not fd.intHooked then
+            btn.InterruptDisplay:HookScript("OnShow", hideCastAnim)
+            fd.intHooked = true
+        end
+    end
+    -- The cast animation resets the swipe color when it hides.
+    -- Apply our color again so Masque buttons keep the user's setting.
+    if btn.SpellCastAnimFrame and not fd.castSwipeHooked then
+        fd.castSwipeHooked = true
+        btn.SpellCastAnimFrame:HookScript("OnHide", function()
+            local pdb = EAB.db and EAB.db.profile
+            local cd = btn.cooldown
+            if not pdb or not (cd and cd.SetSwipeColor) then return end
+            local c = pdb.cdSwipeColor or { r = 0, g = 0, b = 0 }
+            pcall(cd.SetSwipeColor, cd, c.r or 0, c.g or 0, c.b or 0, (pdb.cdSwipeAlpha or 80) / 100)
+        end)
+    end
+end
+
+function EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
+    -- Masque doesn't skin Blizzard's cast animation. Use the button's Masque mask so the fill and glow don't spill outside the skin.
+    local fd = EFD(btn)
+    local cfg = btn._MSQ_CFG
+    local mask = cfg and cfg.ButtonMask
+    if not mask then
+        local icon = btn.icon or btn.Icon
+        if icon and icon.GetMaskTexture then
+            local ok, iconMask = pcall(icon.GetMaskTexture, icon, 1)
+            if ok then mask = iconMask end
+        end
+    end
+    if not mask then return end
+    if fd.masqueCastMask == mask then return end
+
+    local castFrame = btn.SpellCastAnimFrame
+    local fill = castFrame and castFrame.Fill
+    local function applyMask(region)
+        if region and region.AddMaskTexture then
+            if fd.masqueCastMask and fd.masqueCastMask ~= mask
+               and region.RemoveMaskTexture then
+                pcall(region.RemoveMaskTexture, region, fd.masqueCastMask)
+            end
+            pcall(region.AddMaskTexture, region, mask)
+        end
+    end
+    applyMask(fill and fill.CastFill)
+    applyMask(fill and fill.InnerGlowTexture)
+    applyMask(castFrame and castFrame.EndBurst and castFrame.EndBurst.GlowRing)
+    local interrupt = btn.InterruptDisplay
+    applyMask(interrupt and interrupt.Base and interrupt.Base.Base)
+    applyMask(interrupt and interrupt.Highlight and interrupt.Highlight.HighlightTexture)
+    fd.masqueCastMask = mask
+end
+
+function EAB_VTABLE.SyncMasqueEmptySlotGloss(btn)
+    -- Masque hides Gloss on empty slots, but EUI can still show their backgrounds.
+    -- Keep the gloss visible so empty slots match the other skinned buttons, including after instance transitions.
+    local cfg = btn._MSQ_CFG
+    local gloss = cfg and cfg.Gloss
+    if not (gloss and gloss.GetTexture) then return end
+
+    local fd = EFD(btn)
+    if fd.masqueGlossHooked ~= gloss then
+        fd.masqueGlossHooked = gloss
+        hooksecurefunc(gloss, "Hide", function(self)
+            if self:GetTexture() and EFD(btn).masqueOwned then self:Show() end
+        end)
+    end
+    if gloss:GetTexture() then gloss:Show() end
+end
+
+function EAB_VTABLE.RegisterMasqueButtons()
+    if not ns.MasqueGroup then return end
+    if not ns._masqueInteractionReskinHooked then
+        local function QueueInteractionReskin()
+            if ns._masqueInteractionReskinQueued then return end
+            ns._masqueInteractionReskinQueued = true
+            C_Timer_After(0, function()
+                ns._masqueInteractionReskinQueued = false
+                EAB:ApplyPushedTextures()
+                EAB:ApplyHighlightTextures()
+            end)
+        end
+        if ns.MasqueGroup.RegisterCallback then
+            ns.MasqueGroup:RegisterCallback("OnSkin", QueueInteractionReskin)
+            ns._masqueInteractionReskinHooked = true
+        elseif ns.MasqueGroup.ReSkin then
+            hooksecurefunc(ns.MasqueGroup, "ReSkin", QueueInteractionReskin)
+            ns._masqueInteractionReskinHooked = true
+        end
+    end
+    -- AddButton skins the button right away, so wait until layout is done.
+    -- Registering in GetOrCreateButton uses the template size and leaves the skin too large until Masque reskins it.
+    for _, info in ipairs(BAR_CONFIG) do
+        if not info.isStance and not info.isPetBar and ns.MasqueOwnsBar(info.key) then
+            local buttons = barButtons[info.key]
+            if buttons then
+                for _, btn in ipairs(buttons) do
+                    local fd = EFD(btn)
+                    if not fd.masqueRegistered then
+                        ns.MasqueGroup:AddButton(btn)
+                        fd.masqueRegistered = true
+                    end
+                    EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
+                    EAB_VTABLE.SyncMasqueEmptySlotGloss(btn)
+                end
+            end
+        end
+    end
+end
+
+function EAB_VTABLE.SetupAssistRotationSuppression(btn)
+    local fd = EFD(btn)
+    if fd.rotHooked or not btn.UpdateAssistedCombatRotationFrame then return end
+    -- Masque buttons skip MakeButtonSquare, so they need this hook too.
+    hooksecurefunc(btn, "UpdateAssistedCombatRotationFrame", function(self)
+        -- Fires at Blizzard's combat cadence while a rotation action is on
+        -- a bar: change-guard so steady-state fires cost only the reads.
+        local rtf = self.AssistedCombatRotationFrame
+        if rtf and (EFD(self).squared or EFD(self).masqueOwned) then
+            local s = (self:GetWidth() or 45) / 45
+            if rtf:GetScale() ~= s then rtf:SetScale(s) end
+        end
+        -- Blizzard's swirl frame stays permanently hidden (its Lua OnUpdate polls
+        -- every render frame while shown); our script-free spinner clone replaces
+        -- it. UpdateState (the caller we hook behind) re-Shows it every call and
+        -- this hook runs right after, synchronously, so it never renders.
+        if rtf then
+            if rtf:IsShown() then rtf:Hide() end
+            local spin = ns.EnsureAssistSpinner(self, rtf)
+            local p2 = EAB.db and EAB.db.profile
+            local enabled = not p2 or p2.obaIconEnabled ~= false
+            local action = self.GetAttribute and self:GetAttribute("action") or self.action
+            local isAssist = action and C_ActionBar and C_ActionBar.IsAssistedCombatAction
+                and C_ActionBar.IsAssistedCombatAction(action) or false
+            spin:SetShown(enabled and isAssist)
+            -- Suggested-spell icon updates ride the assist ticker, armed
+            -- here on the only signal that identifies an assist button (see
+            -- ns._ArmAssistTicker for cost discipline). When the assist
+            -- action leaves, stop the ticker if no assist button remains.
+            if isAssist then
+                if ns._ArmAssistTicker then ns._ArmAssistTicker() end
+            elseif ns._assistTicker and ns._assistTicker.IsPlaying() then
+                if ns.RepaintAssistIcons() == 0 then ns._assistTicker.Stop() end
+            end
+        end
+    end)
+    fd.rotHooked = true
+end
+
 local function MakeButtonSquare(btn)
     if EFD(btn).squared then return end
     -- Always hide SlotBackground regardless of style (our own icon
@@ -394,13 +568,21 @@ local function MakeButtonSquare(btn)
     end
     local fd = EFD(btn)
     if btn.NormalTexture and not fd.ntHooked then
-        btn.NormalTexture:HookScript("OnShow", HideSelfDeferred)
+        fd.ntHideFn = function()
+            if btn.NormalTexture and not btn.NormalTexture:IsForbidden()
+               and not EFD(btn).masqueOwned then
+                btn.NormalTexture:Hide()
+            end
+        end
+        btn.NormalTexture:HookScript("OnShow", function()
+            C_Timer_After(0, fd.ntHideFn)
+        end)
         fd.ntHooked = true
     end
     if not fd.showHooked then
         -- Cache the deferred closure per button to avoid allocation on every OnShow
         local hideBorderFn = function()
-            if btn and not btn:IsForbidden() then HideBorder(btn) end
+            if btn and not btn:IsForbidden() and not EFD(btn).masqueOwned then HideBorder(btn) end
         end
         btn:HookScript("OnShow", function() C_Timer_After(0, hideBorderFn) end)
         fd.showHooked = true
@@ -418,7 +600,7 @@ local function MakeButtonSquare(btn)
             if not sfd.artFn then
                 sfd.artFn = function()
                     sfd.artPending = nil
-                    if self and not self:IsForbidden() then
+                    if self and not self:IsForbidden() and not sfd.masqueOwned then
                         HideBorder(self)
                     end
                 end
@@ -427,43 +609,7 @@ local function MakeButtonSquare(btn)
         end)
         fd.artHooked = true
     end
-    -- Hook UpdateAssistedCombatRotationFrame to scale the rotation frame
-    -- when Blizzard creates it lazily (default 45x45, needs our button size).
-    if not fd.rotHooked and btn.UpdateAssistedCombatRotationFrame then
-        hooksecurefunc(btn, "UpdateAssistedCombatRotationFrame", function(self)
-            -- Fires at Blizzard's combat cadence while a rotation action is on
-            -- a bar: change-guard so steady-state fires cost only the reads.
-            local rtf = self.AssistedCombatRotationFrame
-            if rtf and EFD(self).squared then
-                local s = (self:GetWidth() or 45) / 45
-                if rtf:GetScale() ~= s then rtf:SetScale(s) end
-            end
-            -- Blizzard's swirl frame stays permanently hidden (its Lua OnUpdate polls
-            -- every render frame while shown); our script-free spinner clone replaces
-            -- it. UpdateState (the caller we hook behind) re-Shows it every call and
-            -- this hook runs right after, synchronously, so it never renders.
-            if rtf then
-                if rtf:IsShown() then rtf:Hide() end
-                local spin = ns.EnsureAssistSpinner(self, rtf)
-                local p2 = EAB.db and EAB.db.profile
-                local enabled = not p2 or p2.obaIconEnabled ~= false
-                local action = self.GetAttribute and self:GetAttribute("action") or self.action
-                local isAssist = action and C_ActionBar and C_ActionBar.IsAssistedCombatAction
-                    and C_ActionBar.IsAssistedCombatAction(action) or false
-                spin:SetShown(enabled and isAssist)
-                -- Suggested-spell icon updates ride the assist ticker, armed
-                -- here on the only signal that identifies an assist button (see
-                -- ns._ArmAssistTicker for cost discipline). When the assist
-                -- action leaves, stop the ticker if no assist button remains.
-                if isAssist then
-                    if ns._ArmAssistTicker then ns._ArmAssistTicker() end
-                elseif ns._assistTicker and ns._assistTicker.IsPlaying() then
-                    if ns.RepaintAssistIcons() == 0 then ns._assistTicker.Stop() end
-                end
-            end
-        end)
-        fd.rotHooked = true
-    end
+    EAB_VTABLE.SetupAssistRotationSuppression(btn)
     SetSquareTexture(btn.HighlightTexture, HIGHLIGHT_TEXTURES[1])
     SetSquareTexture(btn.NewActionTexture, HIGHLIGHT_TEXTURES[1])
     SetSquareTexture(btn.PushedTexture, HIGHLIGHT_TEXTURES[2])
@@ -483,47 +629,7 @@ local function MakeButtonSquare(btn)
         btn.cooldown:ClearAllPoints()
         btn.cooldown:SetAllPoints(btn)
     end
-    -- Cast-anim suppression (SpellCastAnimFrame + InterruptDisplay): Hide the ANIMATED
-    -- frame synchronously -- its animation group re-drives alpha on the next render
-    -- tick, so SetAlpha(0) plus a deferred Hide leaks a one-frame blink of the cast
-    -- sweep, while a hidden frame renders no animations. The deferred Hide stays as a
-    -- fallback reset. Insecure UNIT_SPELLCAST/OnShow context, IsForbidden-guarded.
-    if (btn.SpellCastAnimFrame and not fd.castHooked)
-       or (btn.InterruptDisplay and not fd.intHooked) then
-        local hideCastAnim = function(self)
-            local prof = EAB.db and EAB.db.profile
-            if not prof then return end
-            local bfd = EFD(btn)
-            if not prof.hideCastingAnimations and not bfd.shapeApplied and not bfd.cropped then return end
-            self:SetAlpha(0)
-            if not self:IsForbidden() then self:Hide() end
-            EAB_VTABLE.HideRegionDeferred(self, 1)
-        end
-        if btn.SpellCastAnimFrame and not fd.castHooked then
-            btn.SpellCastAnimFrame:HookScript("OnShow", hideCastAnim)
-            fd.castHooked = true
-        end
-        if btn.InterruptDisplay and not fd.intHooked then
-            btn.InterruptDisplay:HookScript("OnShow", hideCastAnim)
-            fd.intHooked = true
-        end
-    end
-    -- The cast-on-button anim's OnHide resets the swipe to opaque black on the
-    -- button that hard-cast, clobbering the CD Swipe color/opacity setting there
-    -- (cast-time spells only; instants never play the anim, and the suppression
-    -- hook above trips the same OnHide at cast START). HookScript runs after the
-    -- reset, so re-assert ours on the same edge -- fires only when a cast anim
-    -- frame hides, nothing at idle.
-    if btn.SpellCastAnimFrame and not fd.castSwipeHooked then
-        fd.castSwipeHooked = true
-        btn.SpellCastAnimFrame:HookScript("OnHide", function()
-            local pdb = EAB.db and EAB.db.profile
-            local cd = btn.cooldown
-            if not pdb or not (cd and cd.SetSwipeColor) then return end
-            local c = pdb.cdSwipeColor or { r = 0, g = 0, b = 0 }
-            pcall(cd.SetSwipeColor, cd, c.r or 0, c.g or 0, c.b or 0, (pdb.cdSwipeAlpha or 80) / 100)
-        end)
-    end
+    EAB_VTABLE.SetupCastAnimSuppression(btn)
     if btn.SlotBackground then
         btn.SlotBackground:SetAlpha(0)
         if not fd.slotBgHooked then
@@ -557,6 +663,7 @@ local function MakeButtonSquare(btn)
     -- keeps it (in our square art and the item's rarity color).
     if btn.Border and not fd.borderHooked then
         local function BorderRefresh(self)
+            if EFD(btn).masqueOwned then return end
             if EAB.db.profile.showEquippedBorder then
                 ns.AB_EquippedBorderLook(self, btn)
             else

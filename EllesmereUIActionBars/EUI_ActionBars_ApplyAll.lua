@@ -116,6 +116,13 @@ local function ApplyAll()
     -- the engine's SetPoint hook.
     ns.PartySpin_Refresh()
 
+    -- Register with Masque after sizing and layout, since AddButton skins immediately.
+    EAB_VTABLE.RegisterMasqueButtons()
+    if ns.MasqueGroup then
+        EAB:ApplyPushedTextures()
+        EAB:ApplyHighlightTextures()
+    end
+
     if not inCombat then ns.RefreshPagingCycleMacros() end
     SetIsApplyingAll(false)
 end

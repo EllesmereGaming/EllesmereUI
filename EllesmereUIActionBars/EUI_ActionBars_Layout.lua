@@ -9,7 +9,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local _, ns = ...
 
 local ipairs = ipairs
-local ceil, floor, max = math.ceil, math.floor, math.max
+local abs, ceil, floor, max = math.abs, math.ceil, math.floor, math.max
 local wipe = wipe
 local InCombatLockdown = InCombatLockdown
 local GetBindingKey = GetBindingKey
@@ -120,7 +120,7 @@ local function ComputeBarLayout(key)
     local padding = s.buttonPadding or 2
     local isVertical = (s.orientation == "vertical")
     local growDir = EAB:ResolveGrowDirectionForLayout(key, s)
-    local shape = ns.AB_LayoutShape(s)
+    local shape = ns.AB_LayoutShape(s, key)
 
     local base = barBaseSize[key]
     local baseW = base and base.w or 45
@@ -279,6 +279,8 @@ local function LayoutBar(key)
     if not frame or not buttons then return end
 
     local s = EAB.db.profile.bars[key]
+    local masqueOwnsBar = ns.MasqueOwnsBar(key)
+    local masqueNeedsReskin = false
     -- LAYOUT STAMP: skips a re-layout whose inputs are unchanged (the combat-exit
     -- ApplyAll re-ran this full layout for nothing). EVERY input the body reads
     -- folds into one string: raw settings, profile flags, barPositions, base sizes,
@@ -374,7 +376,7 @@ local function LayoutBar(key)
     local padding = s.buttonPadding or 2
     local isVertical = (s.orientation == "vertical")
     local growDir = EAB:ResolveGrowDirectionForLayout(key, s)
-    local shape = ns.AB_LayoutShape(s)
+    local shape = ns.AB_LayoutShape(s, key)
 
     local base = barBaseSize[key]
     local baseW = base and base.w or 45
@@ -442,6 +444,11 @@ local function LayoutBar(key)
             if demote and btn:IsShown() then lfd.parkA0 = 1 end
 
             local col, row
+            local preSizeW, preSizeH, preScale
+            if masqueOwnsBar and not masqueNeedsReskin then
+                preSizeW, preSizeH = btn:GetSize()
+                preScale = btn:GetScale() or 1
+            end
             if isVertical then
                 if cornerFill then
                     -- Corner modes fill across columns first, then wrap down a
@@ -508,6 +515,15 @@ local function LayoutBar(key)
                 btn:SetPoint(anchor, frame, anchor, xOff, yOff)
                 btn:SetSize(thisBtnW, thisBtnH)
             end
+            if masqueOwnsBar and not masqueNeedsReskin then
+                local postSizeW, postSizeH = btn:GetSize()
+                local postScale = btn:GetScale() or 1
+                if abs((postSizeW or 0) - (preSizeW or 0)) > 0.01
+                   or abs((postSizeH or 0) - (preSizeH or 0)) > 0.01
+                   or abs(postScale - preScale) > 0.001 then
+                    masqueNeedsReskin = true
+                end
+            end
             HideSlotArt(btn)
 
             -- Stock styles: counter-scale SpellActivationAlert so the native
@@ -522,7 +538,7 @@ local function LayoutBar(key)
             end
 
             -- Resize the autocast overlay to match the button size
-            if btn.AutoCastOverlay then
+            if btn.AutoCastOverlay and not ns.MasqueOwnsBar(key) then
                 btn.AutoCastOverlay:SetAllPoints(btn)
             end
 
@@ -850,6 +866,9 @@ local function LayoutBar(key)
     -- links, profile swaps, ...), because hooking one leaves the rest applying a stale
     -- size. Cheap when nothing changed: the per-frame stamp no-ops unless size differs.
     EAB:ApplyCooldownFontsForBar(key)
+    if masqueNeedsReskin and ns.MasqueGroup and ns.MasqueGroup.ReSkin then
+        ns.MasqueGroup:ReSkin()
+    end
     -- A shown fitted-or-fittable assist ring on this bar: refit or restore it
     -- on the next assist pass (coalesced; never queued with the option off).
     if assistRefit then ns.QueueAssistRescan() end

@@ -90,7 +90,7 @@ local function UpdateFlipbook(btn)
             local bH = base and base.h or 45
             local w = (s.buttonWidth and s.buttonWidth > 0) and s.buttonWidth or bW
             local h = (s.buttonHeight and s.buttonHeight > 0) and s.buttonHeight or bH
-            local shape = ns.AB_LayoutShape(s)
+            local shape = ns.AB_LayoutShape(s, bk)
             if shape ~= "none" and shape ~= "cropped" then
                 w = w + SHAPE_BTN_EXPAND
                 h = h + SHAPE_BTN_EXPAND
@@ -334,7 +334,7 @@ function EAB:HookProcGlow()
             local buttons = (not ns._eabBarDormant[info.key]) and barButtons[info.key] or nil
             if buttons then
                 for _, btn in ipairs(buttons) do
-                    if btn and (EFD(btn).squared or blizz) and not _procState.active[btn] then
+                    if btn and (EFD(btn).squared or EFD(btn).masqueOwned or blizz) and not _procState.active[btn] then
                         UpdateOverlayGlow(btn)
                     end
                 end
@@ -390,7 +390,7 @@ function EAB:HookProcGlow()
                 local buttons = (not ns._eabBarDormant[info.key]) and barButtons[info.key] or nil
                 if buttons then
                     for _, btn in ipairs(buttons) do
-                        if btn and (EFD(btn).squared or blizz2) then
+                        if btn and (EFD(btn).squared or EFD(btn).masqueOwned or blizz2) then
                             local id = GetButtonSpellID(btn)
                             if id and id == arg1 then
                                 ShowGlow(btn)
@@ -408,7 +408,7 @@ function EAB:HookProcGlow()
     -- native glows must show normally.
     if ActionButtonSpellAlertManager and ActionButtonSpellAlertManager.ShowAlert then
         hooksecurefunc(ActionButtonSpellAlertManager, "ShowAlert", function(_, btn)
-            if btn and EFD(btn).squared and not IsBlizzStyle()
+            if btn and (EFD(btn).squared or EFD(btn).masqueOwned) and not IsBlizzStyle()
                and not _procState.active[btn]
                and btn.SpellActivationAlert then
                 btn.SpellActivationAlert:SetAlpha(0)
@@ -848,7 +848,7 @@ function EAB:ScanExistingProcs()
         if buttons then
             for i = 1, #buttons do
                 local btn = buttons[i]
-                if btn and (EFD(btn).squared or blizz) then
+                if btn and (EFD(btn).squared or EFD(btn).masqueOwned or blizz) then
                     total = total + 1
                     local spellID = _procState.GetButtonSpellID(btn)
                     local ISO = C_SpellActivationOverlay and C_SpellActivationOverlay.IsSpellOverlayed
@@ -975,7 +975,8 @@ local function _FlushCDPatch()
 end
 
 local function HookButtonCooldownEdge(btn)
-    if not btn or not EFD(btn).squared then return end
+    local bfd = btn and EFD(btn)
+    if not btn or not bfd or not (bfd.squared or bfd.masqueOwned) then return end
     if EFD(btn).cdEdgeHooked then return end
     EFD(btn).cdEdgeHooked = true
 
@@ -1027,6 +1028,14 @@ local function HookButtonCooldownEdge(btn)
     end
 end
 
+function EAB_VTABLE.HookCooldownVisualsForButton(btn)
+    if not btn then return end
+    HookButtonCooldownEdge(btn)
+    if EAB_VTABLE.CooldownFonts and EAB_VTABLE.CooldownFonts.HookButton then
+        EAB_VTABLE.CooldownFonts.HookButton(btn)
+    end
+end
+
 EAB_VTABLE.CooldownFonts.pending = {}
 EAB_VTABLE.CooldownFonts.timerScheduled = false
 
@@ -1061,7 +1070,7 @@ local function HookCooldownEdge()
         if buttons then
             for i = 1, #buttons do
                 local btn = buttons[i]
-                if btn and EFD(btn).squared then
+                if btn and (EFD(btn).squared or EFD(btn).masqueOwned) then
                     HookButtonCooldownEdge(btn)
                 end
             end
@@ -1080,7 +1089,8 @@ function EAB:ApplyCooldownEdge()
         if buttons then
             for i = 1, #buttons do
                 local btn = buttons[i]
-                if btn and EFD(btn).squared then
+                if btn and (EFD(btn).squared or EFD(btn).masqueOwned) then
+                    HookButtonCooldownEdge(btn)
                     -- Clear edge cache so the hook re-applies on next cooldown
                     if btn.cooldown then EFD(btn.cooldown).edgeDone = nil end
                     if btn.chargeCooldown then EFD(btn.chargeCooldown).edgeDone = nil end
@@ -1204,4 +1214,3 @@ function EAB:RefreshChargeRechargeNumbers()
         end
     end
 end
-
