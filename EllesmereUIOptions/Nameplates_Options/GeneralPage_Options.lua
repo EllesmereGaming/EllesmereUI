@@ -322,6 +322,18 @@ local function BuildGeneralPage(pageName, parent, yOffset)
               DB().friendlyBelowNameGuildBrackets = v and true or false
               if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
             end }
+        -- Guild line size, one setting for both modes. Until moved, the
+        -- effective value keeps the pre-split look; the set flag pins a choice.
+        local guildSizeRow = { type = "slider", label = "Guild Text Size", min = 6, max = 30, step = 1,
+            get = function()
+              if ns.GetFriendlySubTextSize then return ns.GetFriendlySubTextSize() end
+              return DBVal("friendlyBelowNameSize") or defaults.friendlyBelowNameSize
+            end,
+            set = function(v)
+              DB().friendlyBelowNameSize = v
+              DB().friendlyBelowNameSizeSet = true
+              if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+            end }
         local cog = {
             chain = false,
             disabled = subtitleGuildOff,
@@ -333,7 +345,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             end,
             rawTooltip = function() return not friendlyPlayersOff() end,
             title = "Subtitle Text Settings",
-            rows = { guildRow },
+            rows = { guildRow, guildSizeRow },
         }
         if EllesmereUI.IS_FOREVER then
             cog.title = "Name Text Settings"
@@ -342,6 +354,8 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             guildRow.disabled = subtitleGuildOff
             guildRow.disabledTooltip = "This option requires Subtitle Text to include the Guild Name"
             guildRow.rawTooltip = true
+            guildSizeRow.disabled = subtitleGuildOff
+            guildSizeRow.disabledTooltip = "This option requires Subtitle Text to include the Guild Name"
             table.insert(cog.rows, 1, EllesmereUI.NameFormatCogRow(
                 function() return DBVal("friendlyNameFormat") end,
                 function(v)
