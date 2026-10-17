@@ -1028,6 +1028,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if ns._KeepMainChatSizeCorner then ns._KeepMainChatSizeCorner() end
                 end,
                 savePos = function(_, point, relPoint, x, y)
+                    if ECHAT.DataBarDockActive and ECHAT.DataBarDockActive() then return end
                     local cfg = ECHAT.DB()
                     if not cfg then return end
                     cfg.chatPosition = { point = point, relPoint = relPoint or point, x = x, y = y }
