@@ -28,7 +28,7 @@ initFrame:SetScript("OnEvent", function(self)
         title       = "Forever Essentials",
         description = "Essential tools for WoW Forever.",
         pages       = { PAGE_GENERAL, PAGE_TRAVEL, PAGE_THREAT, PAGE_LOOT, PAGE_MACROS },
-        searchTerms = { "flight timer", "flight path", "threat", "threat meter", "aggro", "loot", "loot feed", "reputation", "currency", "uprank", "spell rank", "junk", "junk items", "macro", "macros", "macro manager", "simplified stats", "item stats", "stat colors", "tooltip stats", "world map", "map", "reveal", "unexplored", "fog of war", "quest reward", "quest rewards", "sell value" },
+        searchTerms = { "flight timer", "flight path", "threat", "threat meter", "aggro", "loot", "loot feed", "reputation", "currency", "uprank", "spell rank", "junk", "junk items", "macro", "macros", "macro manager", "simplified stats", "item stats", "stat colors", "tooltip stats", "world map", "map", "reveal", "unexplored", "fog of war", "quest reward", "quest rewards", "sell value", "boat", "zeppelin", "zone exit", "dungeon entrance", "instance" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_GENERAL and _G._EUI_BuildForeverGeneralPage then
                 return _G._EUI_BuildForeverGeneralPage(pageName, parent, yOffset)
@@ -72,9 +72,11 @@ initFrame:SetScript("OnEvent", function(self)
                 -- The CVars a session holds stay recorded, so Apply can give them back.
                 local fi = EllesmereUIDB.fishing
                 EllesmereUIDB.fishing = fi and fi.held and { held = fi.held } or nil
+                EllesmereUIDB.mapTravel = nil
                 -- The game's mapFade from before stays, so Apply can give it back.
                 local mf = EllesmereUIDB.worldMapFade
                 EllesmereUIDB.worldMapFade = mf and mf.mapFadeWas ~= nil and { mapFadeWas = mf.mapFadeWas } or nil
+                EllesmereUIDB.gatherSkill = nil
                 if EllesmereUIDB.unlockAnchors then
                     EllesmereUIDB.unlockAnchors.EUI_FlightTimer = nil
                     EllesmereUIDB.unlockAnchors.EUI_ThreatMeter = nil
@@ -106,7 +108,9 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._ZoneLevels then EllesmereUI._ZoneLevels.Apply() end
             if EllesmereUI._PetSummon then EllesmereUI._PetSummon.Apply() end
             if EllesmereUI._Fishing then EllesmereUI._Fishing.Apply() end
+            if EllesmereUI._MapTravel then EllesmereUI._MapTravel.Apply() end
             if EllesmereUI._MapFade then EllesmereUI._MapFade.Apply() end
+            if EllesmereUI._GatherSkill then EllesmereUI._GatherSkill.Apply() end
             EllesmereUI:InvalidatePageCache()
         end,
     })
