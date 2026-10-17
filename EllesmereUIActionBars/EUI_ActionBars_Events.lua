@@ -988,6 +988,12 @@ do
         -- outside active casting; the branch is a nil-check otherwise.
         dispatcher:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
         dispatcher:RegisterEvent("CURRENT_SPELL_CAST_CHANGED")
+        -- QuietBroadcasters disables ActionBarActionEventsFrame, which normally
+        -- delivers these edges and updates attack flash/checked state.
+        dispatcher:RegisterEvent("START_AUTOREPEAT_SPELL")
+        dispatcher:RegisterEvent("STOP_AUTOREPEAT_SPELL")
+        dispatcher:RegisterEvent("PLAYER_ENTER_COMBAT")
+        dispatcher:RegisterEvent("PLAYER_LEAVE_COMBAT")
         -- ACTIONBAR_UPDATE_STATE deliberately NOT registered: every button's own
         -- Blizzard mixin receives it per button (BUTTON_EVENT_LISTS.action) and drives
         -- SetChecked natively -- a central checked walk is redundant (field-verified).
@@ -1597,6 +1603,34 @@ do
         -- per-button overhead. With 60 populated buttons, the mixin path
         -- caused visible frame drops on high-frequency events.
         dispatcher:SetScript("OnEvent", function(_, event, arg1, arg2, arg3)
+            if event == "START_AUTOREPEAT_SPELL" or event == "STOP_AUTOREPEAT_SPELL"
+                or event == "PLAYER_ENTER_COMBAT" or event == "PLAYER_LEAVE_COMBAT" then
+                for _, info in ipairs(BAR_CONFIG) do
+                    if not info.isStance and not info.isPetBar then
+                        local btns = barButtons[info.key]
+                        if btns then
+                            for _, btn in ipairs(btns) do
+                                local action = btn:GetAttribute("action")
+                                local hasAction = action and HasAction(action)
+                                local attacking = hasAction and IsAttackAction(action)
+                                local current = hasAction and IsCurrentAction(action)
+                                local repeating = hasAction and IsAutoRepeatAction(action)
+                                if repeating or (attacking and current) then
+                                    if not btn:IsFlashing() then btn:StartFlash() end
+                                elseif btn:IsFlashing() then
+                                    btn:StopFlash()
+                                end
+                                -- Use the live paged slot, not the mixin's cached
+                                -- action. SetChecked also updates our cast-border hook.
+                                btn:SetChecked((current or repeating) and true or false)
+                            end
+                        end
+                    end
+                end
+                -- These rare edges include hidden bars: a stopped flash must not
+                -- survive until reveal. No cooldown/content refresh is needed.
+                return
+            end
             -- Press-time triggers for the hot set: a press QUEUED inside the
             -- running GCD updates the engine's cooldown record at the press
             -- itself (client-side), and these are the earliest edges that can
