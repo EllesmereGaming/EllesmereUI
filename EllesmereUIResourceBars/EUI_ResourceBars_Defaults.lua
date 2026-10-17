@@ -25,7 +25,7 @@ _G._ERB_TextHiddenByForm = function(cfg, isClassResource)
     local df = cfg and cfg.textDisabledForms
     if not df then return false end
     local f = GetShapeshiftFormID()
-    if isClassResource and (f == 31 or f == 35) then return false end
+    --if isClassResource and (f == 31 or f == 35) then return false end
     local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
     return df[key] and true or false
 end
@@ -36,7 +36,7 @@ _G._ERB_BarHiddenByForm = function(cfg, isClassResource)
     local df = cfg and cfg.barDisabledForms
     if not df then return false end
     local f = GetShapeshiftFormID()
-    if isClassResource and (f == 31 or f == 35) then return false end
+    --if isClassResource and (f == 31 or f == 35) then return false end
     local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
     return df[key] and true or false
 end
