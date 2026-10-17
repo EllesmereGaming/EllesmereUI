@@ -181,12 +181,23 @@ local function GetBelowNameMode()
     return (fp and fp.friendlyBelowName) or "none"
 end
 
--- User-configurable size for the Below Name sub text (one setting shared by
--- both friendly modes). Defaults to 12.
+-- Effective size for the guild (Below Name) line. Until the user actually sets
+-- a size (friendlyBelowNameSizeSet), reproduce the pre-split look exactly:
+-- name-only mode used to draw the guild on the name FontString, so it took the
+-- name's size, while full plates have always drawn subText1 at 12. A user-set
+-- size is always honoured, in both modes.
 local function GetSubTextSize()
     local fp = FP()
-    return (fp and fp.friendlyBelowNameSize) or 12
+    -- Before the profile is up (ApplySubtitleFont runs once at load), keep the
+    -- original 12 and skip the mode probe.
+    if not fp then return 12 end
+    if fp.friendlyBelowNameSizeSet then
+        return fp.friendlyBelowNameSize or 12
+    end
+    if IsNameOnlyMode() then return GetFriendlyNameSize() end
+    return 12
 end
+ns.GetFriendlySubTextSize = GetSubTextSize
 
 -- Shared font object for the guild sub texts (full-plate subText1 and the
 -- name-only overlay lines). Restyling this one object live-updates every
@@ -796,6 +807,10 @@ local playerSubtitles = setmetatable({}, { __mode = "k" })  -- nameFS -> { frame
 local hookedNameText = {}   -- nameFS -> true (permanent hooks, applied once)
 local _titledNameGuard = false
 
+-- Set by the TRP3 section below; installed lazily, the first time a guild line
+-- is actually built, so users who never show one pay nothing for TRP3.
+local InstallTRP3NamePlateHook
+
 -- Lazily build the guild FontString for a name-only player plate: a tiny
 -- container on the nameplate holding one FontString anchored under Blizzard's
 -- name. Created on UIParent then reparented, like the NPC overlay, so we never
@@ -805,6 +820,7 @@ local function GetPlayerSubtitle(nameFS)
     if entry then return entry.fs end
     local nameplate = nameFSPlates[nameFS]
     if not nameplate then return nil end
+    if InstallTRP3NamePlateHook then InstallTRP3NamePlateHook() end
     local frame = CreateFrame("Frame", nil, UIParent)
     frame:SetParent(nameplate)
     frame:SetSize(1, 1)
@@ -861,7 +877,7 @@ local function RefreshPlayerSubtitleAlpha(nameFS, nameplate)
 end
 
 local trp3HookInstalled = false
-local function InstallTRP3NamePlateHook()
+InstallTRP3NamePlateHook = function()
     if trp3HookInstalled then return end
     local mod = TRP3_BlizzardNamePlates
     if type(mod) ~= "table" or type(mod.UpdateNamePlate) ~= "function" then return end
@@ -2220,9 +2236,6 @@ end
 -- TRP3 hooks this and calls UpdateAllNamePlates which can reset our
 -- suppression on friendly plates. Debounced to batch multiple calls.
 if C_AddOns.IsAddOnLoaded("totalRP3") or C_AddOns.DoesAddOnExist("totalRP3") then
-    -- TRP3 may not have exposed its Blizzard nameplate module yet; the login
-    -- pass below retries.
-    InstallTRP3NamePlateHook()
     local _npOptsPending = false
     hooksecurefunc(NamePlateDriverFrame, "UpdateNamePlateOptions", function()
         if _npOptsPending then return end
@@ -2252,9 +2265,6 @@ initFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 initFrame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
         self:UnregisterEvent("PLAYER_LOGIN")
-        -- All addons are loaded by now, so TRP3's nameplate module (if present)
-        -- can be hooked even when it loaded after us.
-        InstallTRP3NamePlateHook()
         -- WoW Forever: the plates paint from these settings (the Name Format
         -- sync's first record, so an unchanged first refresh repaints nothing).
         if StampFriendlyNames then StampFriendlyNames() end
