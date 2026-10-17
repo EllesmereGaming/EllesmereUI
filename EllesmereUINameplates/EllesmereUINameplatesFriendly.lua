@@ -865,21 +865,21 @@ InstallTRP3NamePlateHook = function()
     end)
 end
 
+-- Guild line gate: name-only friendly players in the open world only. In
+-- instanced content plate frames are protected and pooled plates are reused
+-- heavily, and the guild line never showed there before.
+local function GuildLineAllowed()
+    return IsNameOnlyMode() and not IsInInstance()
+end
+
 -- Write the name-only name on Blizzard's FontString and the guild on ours.
 -- With Subtitle Text off this resolves to the plain single-line name.
 local function UpdateNameOnlyText(nameFS)
     local nameplate = nameFSPlates[nameFS]
     local unit = nameFSUnits[nameFS]
-    -- Recycle guard: only draw when the plate still holds the unit we attached
-    -- for. A pooled plate handed to an NPC would otherwise paint the previous
-    -- player's guild onto it. A nil current token keeps the stored one.
-    local current = nameplate and nameplate.namePlateUnitToken
-    if current and current ~= unit then
-        HidePlayerSubtitle(nameFS)
-        return
-    end
-    -- Never write on a hostile unit; hide the guild line too (it is ours).
-    if not unit or not UnitExists(unit) or UnitCanAttack("player", unit) then
+    -- The plate may have been recycled: only draw when the stored token still
+    -- resolves to a friendly, non-hostile player; hide our guild line otherwise.
+    if not unit or not UnitExists(unit) or not UnitIsPlayer(unit) or UnitCanAttack("player", unit) then
         HidePlayerSubtitle(nameFS)
         return
     end
@@ -897,7 +897,7 @@ local function UpdateNameOnlyText(nameFS)
     end
 
     local guild
-    if ModeHasGuild(mode) and isPlayer then
+    if ModeHasGuild(mode) and isPlayer and GuildLineAllowed() then
         guild = GetGuildInfo and GetGuildInfo(unit)
     end
 
@@ -1132,8 +1132,19 @@ end
 -------------------------------------------------------------------------------
 hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
     if not unit or unit == "preview" then return end
-    if UnitCanAttack("player", unit) then return end
     if UnitIsUnit(unit, "player") then return end
+
+    -- Drop the guild line a pooled plate may still carry from a previous
+    -- occupant unless this one is a friendly player we draw one for. Skipped
+    -- outright while no guild line exists, so the feature costs nothing off.
+    if next(playerSubtitles)
+        and not (UnitIsPlayer(unit) and not UnitCanAttack("player", unit) and GuildLineAllowed()) then
+        local np = C_NamePlate.GetNamePlateForUnit(unit)
+        local npuf = np and np.UnitFrame
+        if npuf and npuf.name then HidePlayerSubtitle(npuf.name) end
+    end
+
+    if UnitCanAttack("player", unit) then return end
 
     -- Re-assert the name-only font size for this newly added / camera-revealed
     -- plate -- Blizzard's per-plate setup resets the shared font object to default.
@@ -1156,16 +1167,11 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
         return
     end
 
-    -- Name-only NPCs: suppress Blizzard's UF and show our name overlay. First
-    -- drop any guild FontString a pooled plate carries from a previous player.
-    if IsNameOnlyMode() and not UnitIsPlayer(unit) then
+    -- Name-only NPCs: suppress Blizzard's UF and show our name overlay.
+    if IsNameOnlyMode() and not UnitIsPlayer(unit) and IsFriendlyNPCEnabled() then
         local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
         if nameplate then
-            local uf = nameplate.UnitFrame
-            if uf and uf.name then HidePlayerSubtitle(uf.name) end
-            if IsFriendlyNPCEnabled() then
-                SuppressNPCNameplate(nameplate, unit)
-            end
+            SuppressNPCNameplate(nameplate, unit)
         end
     end
 
@@ -2146,6 +2152,9 @@ function ns.UpdateFriendlyNameplateSystem()
     end
     if nameOnly and showFriendly then
         ApplyFriendlyFontOverride()
+        -- Guild lines are open-world only (see GuildLineAllowed); clear any left
+        -- over when zoning into instanced content.
+        if IsInInstance() then HideAllPlayerSubtitles() end
         -- (nameplate sizing handled by Blizzard in name-only mode)
         -- Sweep name-only plates. NPCs: suppress health bars and color names green,
         -- gated per-unit so Blizzard's "NPC Names" filter is respected -- widgets-only
