@@ -534,6 +534,7 @@ end
 
 -- Flip edit box between bottom (default) and top of chat panel
 function ECHAT.ApplyInputPosition()
+    if ECHAT.ConfigureDataBarDock then ECHAT.ConfigureDataBarDock() end
     local cfg = ECHAT.DB()
     local onTop = ECHAT.InputOnTop(cfg)
     local inputHeight = GetEditBoxHeight()

@@ -5,6 +5,14 @@ local EUI = EllesmereUI
 local CFD = EUI._chatCFD
 local cover, active, busy
 local original = {}
+local listening, refreshing, queued
+local events = CreateFrame("Frame")
+local combatQueue = EUI.NewCombatQueue(CreateFrame("Frame"))
+local UpdateCover, Configure, RequestRefresh, Restore
+local function Enabled()
+    local cfg = ECHAT.DB()
+    return cfg and cfg.dataBarDock and (not ns.ChatStock() or ns.ChatForever())
+end
 local function Target()
     local cfg = ECHAT.DB()
     if not cfg or not cfg.dataBarDock or (ns.ChatStock() and not ns.ChatForever()) then return end
@@ -31,7 +39,11 @@ end
 
 function ECHAT.ApplyDataBarInputs()
     local bar, x, y, w, h = Target()
-    if not bar or InCombatLockdown() then return end
+    if not bar then return end
+    if InCombatLockdown() then
+        combatQueue.Defer("chat-databar", ECHAT.RefreshDataBarDock)
+        return
+    end
     local panel = Cover()
     panel:ClearAllPoints()
     panel:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x, y)
@@ -57,13 +69,18 @@ function ECHAT.ApplyDataBarInputs()
             if d.inputDiv then d.inputDiv:Hide() end
         end
     end
+    UpdateCover()
 end
 
 function ECHAT.ApplyDataBarDock()
     local bar, x, y, w, h = Target()
     if not bar then return false end
     -- Defer protected geometry changes, retaining the last safe placement.
-    if InCombatLockdown() or busy then return true end
+    if InCombatLockdown() then
+        combatQueue.Defer("chat-databar", ECHAT.RefreshDataBarDock)
+        return true
+    end
+    if busy then return true end
     local cf = ChatFrame1
     if not cf or not CFD(cf).anchorGuarded then return false end
     busy = true
@@ -92,8 +109,7 @@ function ECHAT.ApplyDataBarDock()
     return true
 end
 
-function ECHAT.RefreshDataBarDock()
-    if InCombatLockdown() then return end
+Restore = function()
     for eb, saved in pairs(original) do
         eb:ClearAllPoints()
         for _, point in ipairs(saved.points) do eb:SetPoint(unpack(point)) end
@@ -108,40 +124,95 @@ function ECHAT.RefreshDataBarDock()
         if d and d.fvIn then d.fvIn:Show() end
     end
     active = false
-    ECHAT.ApplyInputPosition()
-    ECHAT.ApplyChatPosition()
 end
 
--- Use our own driver, never hook Blizzard edit-box scripts. This also covers
--- the Classic client without ChatFrame EventRegistry callbacks.
-local driver = CreateFrame("Frame")
-local elapsed, lastBar, lastX, lastY, lastW, lastH = 0
-driver:SetScript("OnUpdate", function(_, dt)
+UpdateCover = function(excluded, gained)
+    if not cover then return end
     local shown = false
-    if cover and Target() then
+    if listening and Target() then
         for eb in pairs(original) do
-            -- Inactive chat boxes can stay logically shown (including boxes
-            -- under hidden tabs). Only an actual focused input covers the bar.
-            local focused = eb:HasFocus()
-            if not (issecretvalue and issecretvalue(focused))
-                and focused and eb:IsVisible() then
-                shown = true
-                break
+            if eb ~= excluded then
+                local focused = eb:HasFocus()
+                if eb == gained or (not (issecretvalue and issecretvalue(focused))
+                    and focused and eb:IsVisible()) then
+                    shown = true
+                    break
+                end
             end
         end
     end
-    if cover then cover:SetShown(shown) end
-    elapsed = elapsed + dt
-    if elapsed < 0.1 or InCombatLockdown() then return end
-    elapsed = 0
-    local bar, x, y, w, h = Target()
-    if bar then
-        ECHAT.ApplyDataBarDock()
-        if bar ~= lastBar or x ~= lastX or y ~= lastY or w ~= lastW or h ~= lastH then
-            ECHAT.ApplyInputPosition()
+    cover:SetShown(shown)
+end
+
+local function FocusGained(_, eb) UpdateCover(nil, eb) end
+local function FocusLost(_, eb) UpdateCover(eb) end
+local function InputShown() RequestRefresh() end
+local callbacks = {
+    ["ChatFrame.OnEditBoxFocusGained"] = FocusGained,
+    ["ChatFrame.OnEditBoxFocusLost"] = FocusLost,
+    ["ChatFrame.OnEditBoxHide"] = FocusLost,
+    ["ChatFrame.OnEditBoxShow"] = InputShown,
+}
+
+RequestRefresh = function(id)
+    if not listening then return end
+    local cfg = ECHAT.DB()
+    if id and id ~= cfg.dataBarDockID then return end
+    if queued then return end
+    queued = true
+    -- One deferred pass for this notification, after frame geometry settles.
+    C_Timer.After(0, function()
+        queued = nil
+        if listening then ECHAT.RefreshDataBarDock() end
+    end)
+end
+
+Configure = function()
+    local enabled = Enabled() and true or false
+    local bars = EUI._ModuleNS.EllesmereUIDataBars
+    if bars then bars.ChatDockChanged = enabled and RequestRefresh or nil end
+    if enabled == listening then return end
+    listening = enabled
+    if enabled then
+        for event, fn in pairs(callbacks) do
+            EventRegistry:RegisterCallback(event, fn, events)
         end
-    elseif active or next(original) then
-        ECHAT.RefreshDataBarDock()
+        events:SetScript("OnEvent", function() RequestRefresh() end)
+        events:RegisterEvent("PLAYER_ENTERING_WORLD")
+        events:RegisterEvent("UI_SCALE_CHANGED")
+        events:RegisterEvent("DISPLAY_SIZE_CHANGED")
+        events:RegisterEvent("ADDON_LOADED")
+    else
+        for event in pairs(callbacks) do EventRegistry:UnregisterCallback(event, events) end
+        events:UnregisterAllEvents()
+        events:SetScript("OnEvent", nil)
+        if cover then cover:Hide() end
     end
-    lastBar, lastX, lastY, lastW, lastH = bar, x, y, w, h
-end)
+end
+
+function ECHAT.ConfigureDataBarDock()
+    Configure()
+    if not Target() and (active or next(original)) then
+        if InCombatLockdown() then
+            combatQueue.Defer("chat-databar", ECHAT.RefreshDataBarDock)
+        else
+            Restore()
+        end
+    end
+end
+
+function ECHAT.RefreshDataBarDock()
+    Configure()
+    if refreshing then return end
+    if InCombatLockdown() then
+        combatQueue.Defer("chat-databar", ECHAT.RefreshDataBarDock)
+        UpdateCover()
+        return
+    end
+    refreshing = true
+    if active or next(original) then Restore() end
+    ECHAT.ApplyInputPosition()
+    ECHAT.ApplyChatPosition()
+    UpdateCover()
+    refreshing = false
+end
