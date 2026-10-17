@@ -25,8 +25,8 @@ local InitPagingQuickKeybindButton, SyncPagingAlpha, StopFade = I.InitPagingQuic
 local SHOWGRID, SetShowGridInsecure = I.SHOWGRID, I.SetShowGridInsecure
 local SafeEnableMouseMotionOnly, ShouldQuickKeybindSurfaceBar = I.SafeEnableMouseMotionOnly, I.ShouldQuickKeybindSurfaceBar
 local EAB_UpdateQuickKeybindButtons -- assigned below, published as ns.EAB_UpdateQuickKeybindButtons
-local _pagingFrame -- set by the main file through ns._PagingFrameBind
-function ns._PagingFrameBind(f) _pagingFrame = f end
+local _pagingFrame -- set through SetPagingFrame (EUI_ActionBars_Paging.lua)
+I.pagingFrameSetters[#I.pagingFrameSetters + 1] = function(v) _pagingFrame = v end
 
 -------------------------------------------------------------------------------
 --  QuickKeybind compatibility: modern QuickKeybind works off visible

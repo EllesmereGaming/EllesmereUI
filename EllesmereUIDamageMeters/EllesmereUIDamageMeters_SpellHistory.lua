@@ -440,7 +440,7 @@ local function ShouldHide(hideInDungeon, hideInRaid, hideInDelve, hideInPvP, hid
     -- Always visible while configuring or positioning the element.
     if ns._optionsOpen or EUI._unlockActive then return false end
     -- Show/hide all windows hotkey. Both displays rebuild themselves on every cast, so
-    -- the check belongs here rather than in a one-off hide from the main file.
+    -- the check belongs here rather than in a one-off hide from ns.ApplyDMToggleState.
     if ns._toggleHidden and ns.EDM.DB().toggleIncludeSpellHistory then return true end
     local _, iType = IsInInstance()
     if hideInDungeon and iType == "party" then return true end

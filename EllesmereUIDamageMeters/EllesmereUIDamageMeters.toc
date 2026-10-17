@@ -11,6 +11,14 @@
 
 # Main Luas
 EllesmereUIDamageMeters.lua
+EUI_DamageMeters_Style.lua
+EUI_DamageMeters_State.lua
+EUI_DamageMeters_Format.lua
+EUI_DamageMeters_Tooltip.lua
+EUI_DamageMeters_Window.lua
+EUI_DamageMeters_Apply.lua
+EUI_DamageMeters_Timer.lua
+EUI_DamageMeters_Lifecycle.lua
 EllesmereUIDamageMeters_SpellHistory.lua
 EllesmereUIDamageMeters_ForeverThreat.lua
 

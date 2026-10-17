@@ -451,7 +451,7 @@ end
 
 -- Reset countdowns for the clock tooltip. SecondsToTime is the client's own duration
 -- formatter, so units come out localized. Same call the Minimap module
--- (EllesmereUIMinimap.lua) makes for the weekly reset, so both render identically.
+-- (EUI_Minimap_Tooltips.lua) makes for the weekly reset, so both render identically.
 -- Seconds are suppressed above a minute (3 units already covers "2d 5h 30m"); below a
 -- minute they're all that's left, so suppressing them there would return "".
 function ns.FormatTimeLeft(seconds)

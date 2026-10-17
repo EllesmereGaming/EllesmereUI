@@ -11,5 +11,14 @@
 
 # Main Luas
 EllesmereUIMinimap.lua
+EUI_Minimap_Flyout.lua
+EUI_Minimap_Info.lua
+EUI_Minimap_Buttons.lua
+EUI_Minimap_Indicators.lua
+EUI_Minimap_Tooltips.lua
+EUI_Minimap_Layout.lua
+EUI_Minimap_Styles.lua
+EUI_Minimap_Apply.lua
+EUI_Minimap_Lifecycle.lua
 
 # Options

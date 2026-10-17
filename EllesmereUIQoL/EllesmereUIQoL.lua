@@ -1641,6 +1641,10 @@ qolFrame:SetScript("OnEvent", function(self)
 
         local function ApplyTalkingHead(thf)
             local close = thf.MainFrame.CloseButton
+            -- The 3D portrait ignores its parents' alpha: alpha 0 on the frame
+            -- hides text and art but leaves the model talking on screen. Only
+            -- hiding the model itself stops it from rendering.
+            local model = thf.MainFrame.Model
             if EllesmereUIDB and EllesmereUIDB.hideTalkingHead and not thf.isInEditMode then
                 if not suppressed then
                     suppressed = true
@@ -1649,11 +1653,13 @@ qolFrame:SetScript("OnEvent", function(self)
                     close:EnableMouse(false)
                 end
                 if thf:GetAlpha() ~= 0 then thf:SetAlpha(0) end
+                if model and model:IsShown() then model:Hide() end
             elseif suppressed then
                 suppressed = false
                 thf:SetAlpha(1)
                 thf:EnableMouse(frameMouse)
                 close:EnableMouse(closeMouse)
+                if model then model:Show() end
             end
         end
 
@@ -1668,6 +1674,13 @@ qolFrame:SetScript("OnEvent", function(self)
             hooksecurefunc(thf, "SetAlpha", function(self, alpha)
                 if suppressed and alpha ~= 0 then ApplyTalkingHead(self) end
             end)
+            -- In case Blizzard shows the portrait again for a new line.
+            local model = thf.MainFrame.Model
+            if model then
+                hooksecurefunc(model, "Show", function(self)
+                    if suppressed then self:Hide() end
+                end)
+            end
             -- Audio: PlayCurrent keeps the line's sound handle in voHandle.
             hooksecurefunc(thf, "PlayCurrent", function(self)
                 if EllesmereUIDB and EllesmereUIDB.muteTalkingHead and self.voHandle then

@@ -916,7 +916,7 @@ end
 ns.QueueCustomBuffUpdate = QueueCustomBuffUpdate
 
 -- Bloodlust on a Custom Auras (icon) bar reuses the potion-preset machinery:
--- the Sated-debuff rising edge (detected in CdmBuffBars) emulates a "cast" of
+-- the Sated-debuff rising edge (detected in EUI_CDM_BuffBarPresets.lua) emulates a "cast" of
 -- the lust buff, so the existing self-timed icon + reverse swipe renders it with
 -- no duplicate display code. Both faction IDs are flagged so a profile shared
 -- across factions still resolves (only the bar's own ID is actually tracked).
@@ -951,7 +951,7 @@ function ns.AnyCustomAuraLust()
 end
 
 -- Time Spiral "Free Move" preset: same emulated-cast trick as Bloodlust. The
--- glow-armed rising edge (CdmBuffBars _ensureTimeSpiralListener) calls this to
+-- glow-armed rising edge (EUI_CDM_BuffBarPresets.lua _ensureTimeSpiralListener) calls this to
 -- mark spell 374968 as "just cast" so the existing self-timed-icon path renders
 -- a 10s Custom Auras (icon) display. A no-op for any bar not tracking it.
 function ns.SignalTimeSpiralCast()

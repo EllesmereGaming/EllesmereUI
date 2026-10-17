@@ -17,6 +17,10 @@ class TrackingBarWakeTests(unittest.TestCase):
         self.lua.execute("""
             ns = { bars = { { enabled = true, spellID = 12345 } } }
             ECME = { db = {} }
+            -- what the head of EUI_CDM_BuffBarGroups.lua takes from ns._buffBarInternals
+            I = { tickFrameSetters = {}, rebuildPendingSetters = {} }
+            function SetAssignDirty() end
+            function SetReflowDirty() end
             EllesmereUI = {}
             function EllesmereUI.RegisterVisibilityUpdater(updater) ns.visibilityUpdater = updater end
             C_UnitAuras = { GetPlayerAuraBySpellID = function() return nil end }
@@ -75,7 +79,7 @@ class TrackingBarWakeTests(unittest.TestCase):
             function ns.GetTrackedBuffBars() return { bars = ns.bars } end
         """)
 
-        source = (ROOT / "EllesmereUICdmBuffBars.lua").read_text()
+        source = (ROOT / "EUI_CDM_BuffBarGroups.lua").read_text()
         start = source.index("local tbbFrames")
         end = source.index("function ns.GetTBBFrame", start)
         self.lua.execute(source[start:end] + """

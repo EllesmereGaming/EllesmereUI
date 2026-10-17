@@ -1330,7 +1330,7 @@ L["Housing"] = "Moradia"
 L["Shop"] = "Loja"
 L["Support"] = "Suporte"
 
--- Minimap: remaining options (full pass over EUI_Minimap_Options.lua / EllesmereUIMinimap.lua)
+-- Minimap: remaining options (full pass over EUI_Minimap_Options.lua / the EllesmereUIMinimap files)
 L["Accented Text"] = "Texto com Destaque"
 L["Button Row Position"] = "Posição da Fileira de Botões"
 L["Button Row Settings"] = "Configurações da Fileira de Botões"

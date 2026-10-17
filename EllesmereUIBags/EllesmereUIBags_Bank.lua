@@ -5,7 +5,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Visually matches the Bags module with sidebar, search, and sorting
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
-local ns = select(2, ...)  -- helpers shared with EllesmereUIBags.lua (loaded first)
+local ns = select(2, ...)  -- helpers shared with EllesmereUIBags.lua and the EUI_Bags_*.lua files (loaded first)
 local GetItemInfo = C_Item.GetItemInfo
 local GetItemInfoInstant = C_Item.GetItemInfoInstant
 local GetItemQualityColor = C_Item.GetItemQualityColor
@@ -1660,7 +1660,7 @@ end
 
 -------------------------------------------------------------------------------
 --  Expansion nesting (OneBank / OneWarbank)
---  Bucket logic follows EllesmereUIBags.lua, with one deliberate difference: the
+--  Bucket logic follows EUI_Bags_Data.lua, with one deliberate difference: the
 --  bags side forces every item of ilvl >= 180 into Midnight before reading the
 --  real expansion ID. A bank holds years of gear, so that misfiles most of it --
 --  here the expansion ID from C_Item.GetItemInfo always wins.
@@ -1733,7 +1733,7 @@ local function GetSubTypeBucket(link)
 end
 
 -- Sub-bucket by equipment slot. Condensed port of GetArmorySlotBucket in
--- EllesmereUIBags.lua so gear sorts head-to-feet, then weapons, in both windows.
+-- EUI_Bags_Data.lua so gear sorts head-to-feet, then weapons, in both windows.
 local ARMORY_SLOT_KEYS = {
     INVTYPE_HEAD     = { 10,  "INVTYPE_HEAD" },
     INVTYPE_NECK     = { 20,  "INVTYPE_NECK" },

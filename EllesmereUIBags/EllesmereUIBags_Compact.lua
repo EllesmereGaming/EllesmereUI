@@ -539,7 +539,7 @@ end
 
 -- A label that takes mouse motion passes clicks and drops on (out of combat
 -- only, so one made in combat takes no mouse until a later paint): ns.PassClicks
--- in EllesmereUIBags.lua.
+-- in EUI_Bags_Refresh.lua.
 local PassClicks = ns.PassClicks
 
 function ns.CompactLabel(pool, idx, owner)

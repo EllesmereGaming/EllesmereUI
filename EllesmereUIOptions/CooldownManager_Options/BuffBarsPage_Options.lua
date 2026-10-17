@@ -1848,7 +1848,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             -- tracking-bar twin of the CDM icon menu's two audio rows. Opens beside the
             -- clicked row; each row flies out the shared sound list (search, scroll,
             -- preview speaker) from BuildSoundDropdownValues. Same keys and sound
-            -- catalogue as the icon menu; playback lives in EllesmereUICdmBuffBars.
+            -- catalogue as the icon menu; playback lives in EUI_CDM_BuffBarAssign.lua.
             local function OpenBarSoundMenu(idx, anchorRow)
                 local t = ns.GetTrackedBuffBars()
                 local cfg = t.bars and t.bars[idx]
