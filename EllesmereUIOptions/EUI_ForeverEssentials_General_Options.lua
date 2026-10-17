@@ -151,6 +151,7 @@ end
 _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
     local SU, CS, CT = EllesmereUI._SpellUprank, EllesmereUI._ClassicSpellbook, EllesmereUI._ClassicTalents
+    local MT = EllesmereUI._MapTravel
     local BLANK = EllesmereUI.BlankRowCfg
     local y = yOffset
     local _, h
@@ -170,7 +171,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     );  y = y - h
 
     ---------------------------------------------------------------------------
-    --  WORLD MAP (Reveal Unexplored Areas, its color in the cog)
+    --  WORLD MAP (Reveal Unexplored Areas, its color in the cog; Map Markers,
+    --  their sets in the cog: EllesmereUIForeverEssentials_MapTravel.lua)
     ---------------------------------------------------------------------------
     local MR = EllesmereUI._MapReveal
     local function revealOff() return not MR.Get("enabled") end
@@ -215,6 +217,19 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               EllesmereUI._ZoneLevels.Apply()
           end }
     );  y = y - h
+
+    local markersRow
+    markersRow, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Show Map Markers",
+          tooltip = "Shows travel markers on the world map: boats and zeppelins from the world map down, dungeon entrances from continents down, flight points and zone exits on zones. Hover a marker for its name, click it to link it in chat. Use the cog to pick which ones show.",
+          getValue = function() return MT.Get("enabled") end,
+          setValue = function(v)
+              MT.Cfg().enabled = v
+              MT.Apply()
+              EllesmereUI:RefreshPage()  -- the cog's disabled state
+          end },
+        BLANK()
+    );  y = y - h
     if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(revealRow._leftRegion, {
             title = "Reveal Unexplored Areas Settings",
@@ -231,6 +246,39 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
                   end },
             },
             disabled = revealOff, disabledTooltip = "Reveal Unexplored Areas",
+        })
+    end
+
+    -- Map Markers: one toggle; the cog picks the sets, all shown until turned
+    -- off.
+    if not EllesmereUI._prebuilding then
+        local function setRow(label, tooltip, key)
+            return { type = "toggle", label = label, tooltip = tooltip,
+                get = function() return MT.Get(key) end,
+                set = function(v)
+                    MT.Cfg()[key] = v
+                    MT.Apply()
+                end }
+        end
+        local rows = {
+            setRow("Transports",
+                "Boats, zeppelins and the tram, from the world map down, with where each one goes when you hover it.",
+                "transports"),
+            setRow("Zone Exits",
+                "On zone maps, an arrow on each road out of the zone, pointing to the zone it leads to.",
+                "exits"),
+            setRow("Instance Entrances",
+                "Dungeon and raid entrances, on continent and zone maps; hover one for its name.",
+                "instances"),
+            setRow("Flight Points",
+                "On zone maps, the flight masters, those you have not found yet included.",
+                "flights"),
+        }
+        EllesmereUI.BuildInlineCog(markersRow._leftRegion, {
+            title = "Map Markers",
+            rows = rows,
+            disabled = function() return not MT.Get("enabled") end,
+            disabledTooltip = "Show Map Markers",
         })
     end
 
@@ -524,6 +572,42 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
             List(row._leftRegion, "first")
             List(row._rightRegion, "last")
         end
+    end
+
+    ---------------------------------------------------------------------------
+    --  GATHERING (EllesmereUIForeverEssentials_GatherSkill.lua)
+    ---------------------------------------------------------------------------
+    local GS = EllesmereUI._GatherSkill
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "GATHERING", y);  y = y - h
+
+    local gsRow
+    gsRow, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Gathering Skill in Tooltips",
+          tooltip = "On herb and ore node tooltips, adds the skill the node needs to the game's \"Requires Herbalism\" or \"Requires Mining\" line and, when you can gather it, colors that line by your chance to raise your skill there: orange, yellow, green, grey.",
+          getValue = function() return GS.Get("enabled") end,
+          setValue = function(v)
+              GS.Cfg().enabled = v
+              GS.Apply()
+              EllesmereUI:RefreshPage()  -- the cog's disabled state
+          end },
+        BLANK()
+    );  y = y - h
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(gsRow._leftRegion, {
+            title = "Gathering Skill in Tooltips",
+            rows = {
+                { type = "toggle", label = "Minimap",
+                  tooltip = "Also on the minimap: a tracked herb or ore node's name is followed by its required skill, in the same colors (red when you cannot gather it).",
+                  get = function() return GS.Get("minimap") end,
+                  set = function(v)
+                      GS.Cfg().minimap = v
+                      GS.Apply()
+                  end },
+            },
+            disabled = function() return not GS.Get("enabled") end,
+            disabledTooltip = "Gathering Skill in Tooltips",
+        })
     end
 
     ---------------------------------------------------------------------------
