@@ -3,7 +3,7 @@ local _, ns = ...
 local ECHAT = ns.ECHAT
 local EUI = EllesmereUI
 local CFD = EUI._chatCFD
-local cover, active, busy
+local cover, active, busy, panelSyncQueued
 local original = {}
 local listening, refreshing, queued
 local events = CreateFrame("Frame")
@@ -89,20 +89,32 @@ function ECHAT.ApplyDataBarDock()
     local ins = CFD(cf)._bgIns or { l = -10, r = 10, b = -35 }
     local scale = UIParent:GetEffectiveScale() / cf:GetEffectiveScale()
     local height = cfg.chatSize and cfg.chatSize.h or cf:GetHeight()
-    local left = x * scale - (ins.l or 0)
-    local bottom = (y + h + 2) * scale - (ins.b or 0)
-    local width = w * scale - ((ins.r or 0) - (ins.l or 0))
+    local left = (x - (ins.l or 0)) * scale
+    local bottom = (y + h + 2 - (ins.b or 0)) * scale
+    local width = (w - ((ins.r or 0) - (ins.l or 0))) * scale
     if width > 40 then
         -- Numeric anchors avoid adding the protected DataBar to chat's rect chain.
         local p, rel, rp, px, py = cf:GetPoint(1)
         local p2, rel2, rp2, px2, py2 = cf:GetPoint(2)
-        if cf:GetNumPoints() ~= 2 or p ~= "BOTTOMLEFT" or rel ~= UIParent
+        if ns._chatReanchor or cf:GetNumPoints() ~= 2 or p ~= "BOTTOMLEFT" or rel ~= UIParent
             or rp ~= "BOTTOMLEFT" or px ~= left or py ~= bottom
             or p2 ~= "TOPRIGHT" or rel2 ~= UIParent or rp2 ~= "BOTTOMLEFT"
             or px2 ~= left + width or py2 ~= bottom + height then
+            ns._chatReanchor = nil
             cf:ClearAllPoints()
             cf:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
             cf:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", left + width, bottom + height)
+            -- Match the normal position path: repaint now and after layout resolves.
+            if ECHAT.PositionChatPanelsNow then ECHAT.PositionChatPanelsNow() end
+            if not panelSyncQueued then
+                panelSyncQueued = true
+                C_Timer.After(0, function()
+                    panelSyncQueued = nil
+                    if not Enabled() then return end
+                    if ECHAT.PositionChatPanelsNow then ECHAT.PositionChatPanelsNow() end
+                    if ECHAT.TabsRefreshNow then ECHAT.TabsRefreshNow() end
+                end)
+            end
         end
     end
     busy = false
@@ -181,6 +193,7 @@ Configure = function()
         events:RegisterEvent("PLAYER_ENTERING_WORLD")
         events:RegisterEvent("UI_SCALE_CHANGED")
         events:RegisterEvent("DISPLAY_SIZE_CHANGED")
+        events:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
         events:RegisterEvent("ADDON_LOADED")
     else
         for event in pairs(callbacks) do EventRegistry:UnregisterCallback(event, events) end

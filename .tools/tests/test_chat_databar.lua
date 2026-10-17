@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end
 local frames = {}
 local methods = {}
-function methods:GetEffectiveScale() return 1 end
+function methods:GetEffectiveScale() return self.scale or 1 end
 function methods:GetRect() return self.x or 100, 20, self.w or 500, 25 end
 function methods:HasFocus() return self.focused == true end
 function methods:IsVisible() return self:IsShown() and self.parentHidden ~= true end
@@ -13,7 +13,7 @@ function methods:GetFrameLevel() return self.level or 1 end
 function methods:SetFrameLevel(v) self.level=v end
 function methods:GetFrameStrata() return self.strata or 'MEDIUM' end
 function methods:SetFrameStrata(v) self.strata=v end
-function methods:ClearAllPoints() self.points={} end
+function methods:ClearAllPoints() self.clears=(self.clears or 0)+1; self.points={} end
 function methods:SetPoint(...) self.points[#self.points+1]={...} end
 function methods:GetPoint(n) return unpack(self.points[n] or {}) end
 function methods:GetNumPoints() return #self.points end
@@ -29,9 +29,12 @@ function methods:UnregisterAllEvents() self.events={} end
 local scheduled, deferred, callbacks = {}, {}, {}
 C_Timer={After=function(delay,fn) assert(delay==0); scheduled[#scheduled+1]=fn end}
 local function Flush()
-    local work=scheduled; scheduled={}
-    for _,fn in ipairs(work) do fn() end
-    assert(#scheduled==0, "notification must not rearm itself")
+    for pass=1,3 do
+        local work=scheduled; scheduled={}
+        for _,fn in ipairs(work) do fn() end
+        if #scheduled==0 then return end
+    end
+    error("notification must settle without polling")
 end
 EventRegistry={
  RegisterCallback=function(_,event,fn,owner) callbacks[event]={fn,owner} end,
@@ -63,7 +66,7 @@ assert(not next(callbacks) and #scheduled==0 and not next(deferred))
 e.ApplyInputPosition()
 assert(not next(callbacks) and not bars.ChatDockChanged and #scheduled==0)
 for _,f in ipairs(frames) do assert(not f.OnUpdate and not next(f.events or {})) end
-cfg.dataBarDock=true; e.RefreshDataBarDock()
+cfg.dataBarDock=true; e.RefreshDataBarDock(); Flush()
 assert(next(callbacks) and bars.ChatDockChanged)
 assert(ChatFrame1.points[1][4]==110 and ChatFrame1.points[1][5]==82)
 assert(ChatFrame1.points[2][4]==590)
@@ -82,6 +85,34 @@ bar.w=600; bar.x=140
 bars.ChatDockChanged("other"); assert(#scheduled==0)
 bars.ChatDockChanged("one"); bars.ChatDockChanged("one"); assert(#scheduled==1); Flush()
 assert(cover.width==600 and ChatFrame1.points[1][4]==150)
+-- Insets are in UIParent units, while chat rects are in chat-local units.
+local panels,tabs=0,0
+e.PositionChatPanelsNow=function() panels=panels+1 end
+e.TabsRefreshNow=function() tabs=tabs+1 end
+UIParent.scale=0.8; bar.scale=1.2; ChatFrame1.scale=0.64
+bars.ChatDockChanged("one"); Flush()
+local cs=ChatFrame1.scale/UIParent.scale
+local bs=bar.scale/UIParent.scale
+local left=ChatFrame1.points[1][4]*cs+data._bgIns.l
+local right=ChatFrame1.points[2][4]*cs+data._bgIns.r
+assert(math.abs(left-bar.x*bs)<0.001)
+assert(math.abs(right-(bar.x+bar.w)*bs)<0.001)
+assert(panels>=2 and tabs>0)
+-- A clamp reset requires re-anchoring even when GetPoint is unchanged.
+local clears=ChatFrame1.clears
+ns._chatReanchor=true; e.ApplyChatPosition(); Flush()
+assert(ChatFrame1.clears==clears+1 and not ns._chatReanchor)
+-- Late Edit Mode writes must restore both corners and the visible panels.
+ChatFrame1.points={{"BOTTOMLEFT",UIParent,"BOTTOMLEFT",999,888}}
+local before=panels
+for _,f in ipairs(frames) do
+ if f.events and f.events.EDIT_MODE_LAYOUTS_UPDATED then f.OnEvent(f,"EDIT_MODE_LAYOUTS_UPDATED") end
+end
+Flush()
+assert(#ChatFrame1.points==2 and ChatFrame1.points[1][4]~=999 and panels>before)
+local settledClears=ChatFrame1.clears
+for i=1,3 do e.ApplyChatPosition() end
+assert(ChatFrame1.clears==settledClears and #scheduled==0)
 assert(cfg.chatSize.w==400 and cfg.chatPosition.x==50)
 available=false; bars.ChatDockChanged(); Flush(); assert(not e.DataBarDockActive() and not cover.shown)
 available=true; bars.ChatDockChanged(); Flush(); assert(e.DataBarDockActive())
@@ -92,7 +123,7 @@ local work=deferred; deferred={}; for _,fn in pairs(work) do fn() end
 assert(restored>0 and ChatFrame1EditBox.level==1)
 assert(#scheduled==0 and not next(callbacks) and not next(deferred))
 -- A queued notification must not reactivate a disabled profile.
-cfg.dataBarDock=true; e.RefreshDataBarDock(); bars.ChatDockChanged()
+cfg.dataBarDock=true; e.RefreshDataBarDock(); Flush(); bars.ChatDockChanged()
 cfg.dataBarDock=false; e.ApplyInputPosition(); Flush()
 assert(not next(callbacks) and not bars.ChatDockChanged and not cover.shown)
-print("PASS: zero disabled subscriptions/polling, focus events, geometry notifications, coalescing, missing bar, combat queue, profile teardown")
+print("PASS: zero disabled subscriptions/polling, focus events, geometry notifications, coalescing, missing bar, combat queue, profile teardown, scaled panel edges, clamp reanchor, late Edit Mode writes")

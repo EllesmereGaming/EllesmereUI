@@ -369,7 +369,10 @@ end
 local CanonicalizeChatPosition
 
 local function ApplyChatPosition()
-    if ECHAT.ApplyDataBarDock and ECHAT.ApplyDataBarDock() then return end
+    if ECHAT.DataBarDockActive and ECHAT.DataBarDockActive() then
+        if not InCombatLockdown() then EnsureChatClampInsets() end
+        if ECHAT.ApplyDataBarDock and ECHAT.ApplyDataBarDock() then return end
+    end
     -- A grip resize is an engine-driven op on ChatFrame1; the op re-anchors
     -- the frame, Edit Mode's machinery reacts with ApplySystemAnchor, and
     -- the guard below would then re-apply the SAVED anchors every tick --
