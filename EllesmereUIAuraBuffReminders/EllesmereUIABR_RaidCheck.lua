@@ -226,6 +226,9 @@ local function MakeRow(i)
     r.buffsOk:SetSize(ICON, ICON)
     r.buffsOk:SetPoint("LEFT", r, "LEFT", BUFFS_X, 0)
     r.buffsOk:SetTexture(TEX_YES)
+    r.buffsQ = EllesmereUI.MakeFont(r, 11, nil, 0.6, 0.6, 0.6)
+    r.buffsQ:SetPoint("CENTER", r.buffsOk, "CENTER")
+    r.buffsQ:SetText("?")
     rows[i] = r
     return r
 end
@@ -473,7 +476,9 @@ local function PaintRow(r, unit)
             r.buffs[j]:Hide()
         end
     end
+    -- flask is nil only for a row that was not read at all (offline, dead, out of range).
     r.buffsOk:SetShown(s.flask ~= nil and s.missing == 0)
+    r.buffsQ:SetShown(s.flask == nil)
 end
 
 local function Layout(n)
