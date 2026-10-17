@@ -15,6 +15,9 @@ EllesmereUIAuraBuffReminders.lua
 # Beacon M+ Reminders (retail, Holy Paladin)
 EllesmereUIABR_BeaconMPlus.lua
 
+# Raid Check (retail, group consumables overview)
+EllesmereUIABR_RaidCheck.lua
+
 # Talent Reminders (standalone, no ABR dependency)
 EllesmereUIABR_TalentReminders.lua
 
