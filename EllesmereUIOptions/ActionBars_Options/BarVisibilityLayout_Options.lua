@@ -7,6 +7,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUIActionBars"]
 if not ns then return end  -- module disabled: no options page
+-- Options page pool (EllesmereUI_FramePool.lua, first in this addon): a frame
+-- made here on a pool host (a kept page and every frame it hands out) is reset
+-- and dressed again by the next build instead of made anew; on any other
+-- parent this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 local function BuildBarVisibilityLayout(parent, y, ctx)
     local env = ns._ABO_OptEnv
@@ -357,9 +362,12 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
                 w = 126, h = 29, level = 4,
                 get = function() return SB().toggleVisKey end,
                 set = function(v)
+                    -- Spec Overrides: the slot is read before the write, as
+                    -- a rebuild may dress this row again for another setting.
+                    local snap = EllesmereUI._SOAttribution(rgn)
                     SB().toggleVisKey = v
                     EAB:RebuildVisToggleBindings()
-                    EllesmereUI._NotifySettingWrite(rgn)
+                    EllesmereUI._NotifySettingWrite(rgn, snap)
                 end,
                 disabled = function()
                     local v = SB().barVisibility or "always"

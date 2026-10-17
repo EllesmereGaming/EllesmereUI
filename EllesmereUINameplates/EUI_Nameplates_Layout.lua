@@ -14,6 +14,11 @@ I.broken = true
 
 local ipairs, type = ipairs, type
 local PP = EllesmereUI.PP
+-- The core's table of the options page frame pool (EllesmereUI_PixelPerfect.lua
+-- makes it, the options addon fills it): the builders the options preview shares
+-- with the plates create through it, so a preview frame is handed back to the
+-- preview's next build. A plate's parent is no pool host: a plain CreateFrame.
+local Pool = EllesmereUI._Pool
 local UnitIsPlayer = UnitIsPlayer
 local GetTime = GetTime
 
@@ -80,11 +85,22 @@ if EllesmereUI then EllesmereUI.NameplatePandemicGlowStyles = PANDEMIC_GLOW_STYL
 -- PANDEMIC_GLOW_STYLES index -> shared EllesmereUI.Glows.STYLES index.
 ns.NP_TO_SHARED_GLOW = ns.NP_GLOW_VIEW.toShared
 
+-- Pandemic Glow style of a nameplate profile. A style picked from 9.6 on is
+-- pandemicGlowPick. Without one, the key from before 9.6 is read as a view:
+-- its old default (Pixel, 1) and nil mean Blizzard Pandemic Border, any other
+-- value is that pick (stored profiles and old profile strings can hold the old
+-- default written out, and must keep the border). Cross-addon for the CDM
+-- "Apply Pandemic Glow to all" sync.
+local function PandemicStyleOf(np)
+    local pick = np and np.pandemicGlowPick
+    if type(pick) == "number" then return pick end
+    local old = np and np.pandemicGlowStyle
+    if type(old) ~= "number" or old == 1 then return EllesmereUI.Glows.PANDEMIC_BORDER end
+    return old
+end
+EllesmereUI.NameplatePandemicStyle = PandemicStyleOf
 local function GetPandemicGlowStyle()
-    local raw = p and p.pandemicGlowStyle
-    if raw == nil then return defaults.pandemicGlowStyle end
-    if type(raw) == "number" then return raw end
-    return 1
+    return PandemicStyleOf(p)
 end
 ns.GetPandemicGlowStyle = GetPandemicGlowStyle
 local function GetPandemicGlowLines()
@@ -106,11 +122,19 @@ function ns.GetPandemicGlow()
 end
 -- Full render spec for the pandemic glow (live debuff glow and its preview).
 -- An unset color mode is Custom: the swatch color this glow always drew.
+-- Blizzard Pandemic Border (EllesmereUI.Glows.PANDEMIC_BORDER) sits outside
+-- the view and is always drawn untinted.
 function ns.GetPandemicGlowSpec(out)
     out = out or {}
-    out.style = ns.NP_TO_SHARED_GLOW[GetPandemicGlowStyle()] or 1
-    local c = (p and p.pandemicGlowColor) or defaults.pandemicGlowColor
-    out.r, out.g, out.b = EllesmereUI.Glows.ResolveColor((p and p.pandemicGlowMode) or "custom", c.r, c.g, c.b)
+    local idx = GetPandemicGlowStyle()
+    if idx == EllesmereUI.Glows.PANDEMIC_BORDER then
+        out.style = idx
+        out.r, out.g, out.b = nil, nil, nil
+    else
+        out.style = ns.NP_TO_SHARED_GLOW[idx] or 1
+        local c = (p and p.pandemicGlowColor) or defaults.pandemicGlowColor
+        out.r, out.g, out.b = EllesmereUI.Glows.ResolveColor((p and p.pandemicGlowMode) or "custom", c.r, c.g, c.b)
+    end
     out.lines = GetPandemicGlowLines()
     out.thickness = GetPandemicGlowThickness()
     out.speed = GetPandemicGlowSpeed()
@@ -141,11 +165,19 @@ do
         return (p and p.dispelGlow) or defaults.dispelGlow
     end
     ns.GetDispelGlowStyle = function()
-        local raw = p and p.dispelGlowStyle
-        if raw == nil then return defaults.dispelGlowStyle end
+        -- The same view as the Pandemic Glow's: dispelGlowPick holds a style
+        -- picked from 9.6 on; without one, the key from before 9.6 with its
+        -- old default (Action Button Glow, 2) or nil means Blizzard Pandemic
+        -- Border, and any other value is that pick.
+        local raw = p and p.dispelGlowPick
+        if raw == nil then
+            raw = p and p.dispelGlowStyle
+            if raw == nil or raw == 2 then return EllesmereUI.Glows.PANDEMIC_BORDER end
+        end
         -- Out-of-range picks read (and render) as Action Button Glow; Blizzard
-        -- Border sits outside the view.
+        -- Border and Blizzard Pandemic Border sit outside the view.
         if type(raw) == "number" and (raw == EllesmereUI.Glows.STEALABLE_BORDER
+           or raw == EllesmereUI.Glows.PANDEMIC_BORDER
            or (raw >= 1 and raw <= #ns.NP_GLOW_VIEW.list)) then
             return raw
         end
@@ -181,10 +213,14 @@ do
         out = out or {}
         local idx = ns.GetDispelGlowStyle()
         -- Blizzard Border sits outside the view and keeps Blizzard's own art
-        -- until a colour is picked (ns.GetDispelBorderColor).
+        -- until a colour is picked (ns.GetDispelBorderColor); Blizzard
+        -- Pandemic Border is always drawn untinted.
         if idx == EllesmereUI.Glows.STEALABLE_BORDER then
             out.style = idx
             out.r, out.g, out.b = ns.GetDispelBorderColor(dispelType)
+        elseif idx == EllesmereUI.Glows.PANDEMIC_BORDER then
+            out.style = idx
+            out.r, out.g, out.b = nil, nil, nil
         else
             out.style = ns.NP_TO_SHARED_GLOW[idx] or 2
             out.r, out.g, out.b = ns.GetDispelGlowColor(dispelType)
@@ -1037,7 +1073,7 @@ function ns.NP_ApplyCastIconSeparator(cast, icon, db, customOn, strata)
         return
     end
     if not seam then
-        seam = CreateFrame("Frame", nil, cast)
+        seam = Pool.CreateFrame("Frame", nil, cast)
         seam:SetAllPoints(cast)
         seam:EnableMouse(false)
         seam._tex = seam:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -1256,34 +1292,56 @@ ns.StopAllGlows        = StopAllGlows
 local function StopDispelGlow(slot)
     local dg = slot.dispelGlow
     if not dg or not dg.active then return end
+    dg.active = false
     _G_Glows.StopAllGlows(dg.wrapper)
     dg.wrapper:Hide()
-    dg.active = false
+end
+
+-- Draws the preview glow's last request (dg.sz, dg.h, dg.type). Same spec and
+-- engine path as the live purge glow, so the preview is the live look.
+local function DrawDispelGlow(dg)
+    ns.GetDispelGlowSpec(dg.type, dg.spec)
+    _G_Glows.StartSpecGlow(dg.wrapper, dg.spec, dg.sz, dg.h, "engine", _G_Glows.PANEL_EXTRA)
 end
 
 -- Preview only: the live nameplate glow runs through EllesmereUI.Glows on the
--- engine buttons. dispelType is "magic" / "enrage" / nil. Same spec and engine
--- path as the live purge glow, so the preview is the live look.
--- slotH: the icon height (cropped icons).
+-- engine buttons. dispelType is "magic" / "enrage" / nil. slotH: the icon
+-- height (cropped icons). The glow draws only while the preview is visible:
+-- hidden (options closed, another page, a build made hidden) it stops, so its
+-- animations cost nothing, and it draws again when it shows (unchanged,
+-- StartSpecGlow returns at once).
 local function StartDispelGlow(slot, slotSize, dispelType, slotH)
     local dg = slot.dispelGlow
     if not dg then
-        local wrapper = CreateFrame("Frame", nil, slot)
+        local wrapper = Pool.CreateFrame("Frame", nil, slot)
         wrapper:SetAllPoints()
-        wrapper:SetFrameLevel(slot:GetFrameLevel() + 5)
+        -- Under the duration text (its frame sits at slot + 2), as the live
+        -- glow host sits under the text carrier.
+        wrapper:SetFrameLevel(slot:GetFrameLevel() + 1)
         wrapper:Show()
         dg = { wrapper = wrapper, active = false, spec = {} }
         slot.dispelGlow = dg
+        wrapper:SetScript("OnShow", function()
+            if dg.active then DrawDispelGlow(dg) end
+        end)
+        wrapper:SetScript("OnHide", function(self)
+            if dg.active then _G_Glows.StopAllGlows(self) end
+        end)
     end
     local sz = slotSize or 26
-    ns.GetDispelGlowSpec(dispelType, dg.spec)
-    dg.wrapper:Show()
-    _G_Glows.StartSpecGlow(dg.wrapper, dg.spec, sz, slotH or sz, "engine", _G_Glows.PANEL_EXTRA)
+    dg.sz, dg.h, dg.type = sz, slotH or sz, dispelType
     dg.active = true
+    local wrapper = dg.wrapper
+    if not wrapper:IsShown() then
+        -- Its OnShow draws, now or once the preview shows.
+        wrapper:Show()
+    elseif wrapper:IsVisible() then
+        DrawDispelGlow(dg)
+    end
     -- Always opaque. Visibility used to ride a per-aura dispel-type curve's
     -- alpha; dispellability is now decided by which aura GROUP the button
     -- belongs to, and this path only ever draws the options preview.
-    dg.wrapper:SetAlpha(1)
+    wrapper:SetAlpha(1)
 end
 
 ns.StopDispelGlow = StopDispelGlow

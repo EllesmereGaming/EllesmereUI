@@ -22,6 +22,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
+-- Born in this module's main chunk, so the aura containers it builds bill this
+-- module (AuraKit's shared build scheduler).
+local AKWorker = EllesmereUI.AuraKit.NewBuildWorker()
 
 local EBON_AURA_ID = 395296
 
@@ -194,7 +197,7 @@ local function EnsureBuilt()
     local AK = EllesmereUI.AuraKit
     if not (AK and AK.QueueBuildJob) then return end
     S.queued = true
-    AK.QueueBuildJob(function()
+    AKWorker:Queue(function()
         S.queued = nil
         Build()
         if S.built and S.armed and S.rbBar then

@@ -6,6 +6,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUIResourceBars"]
 if not ns then return end  -- module disabled: no options page
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 -- Swing Timer page (WoW Forever only: the page exists only where the client
 -- has C_SwingTimer; see EUI_ResourceBars_SwingTimer.lua). Same widget set as
@@ -241,55 +245,44 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
                 _, h = W:DualRow(parent, y, ocfgL, ocfgR);  y = y - h
             end
         end
-        -- Border color swatch on the size slider (right region); none in the
-        -- search pre-build (it indexes nothing, and the row is a stand-in there)
+        -- Border color swatch on the size slider (right region), the Corner
+        -- Radius cog left of it; neither in the search pre-build (they index
+        -- nothing, and the row is a stand-in there)
         if not EllesmereUI._prebuilding then
-            local rgn = bsRow._rightRegion
-            local ctrl = rgn._control
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
-                rgn, bsRow:GetFrameLevel() + 3,
-                function()
-                    local p = DB()
-                    return (p and p.swingTimer.borderR or 0), (p and p.swingTimer.borderG or 0),
-                           (p and p.swingTimer.borderB or 0), (p and p.swingTimer.borderA or 1)
-                end,
-                function(r, g, b, a)
-                    local p = DB(); if not p then return end
-                    p.swingTimer.borderR, p.swingTimer.borderG, p.swingTimer.borderB, p.swingTimer.borderA = r, g, b, a
-                    RefreshST(); EllesmereUI:RefreshPage()
-                end, true, 20)
-            PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            rgn._lastInline = swatch  -- the Corner Radius cog chains left of the swatch
+            EllesmereUI.BuildInlineSwatches(bsRow._rightRegion, {
+                { tooltip = "Border Color", hasAlpha = true,
+                  disabled = function()
+                      local p = DB()
+                      return not (p and p.swingTimer.enabled and (p.swingTimer.borderSize or 0) > 0)
+                  end,
+                  disabledTooltip = function()
+                      if stOff() then return ST_TIP end
+                      return "This option requires a Border Size above 0."
+                  end,
+                  getValue = function()
+                      local p = DB()
+                      return (p and p.swingTimer.borderR or 0), (p and p.swingTimer.borderG or 0),
+                             (p and p.swingTimer.borderB or 0), (p and p.swingTimer.borderA or 1)
+                  end,
+                  setValue = function(r, g, b, a)
+                      local p = DB(); if not p then return end
+                      p.swingTimer.borderR, p.swingTimer.borderG, p.swingTimer.borderB, p.swingTimer.borderA = r, g, b, a
+                      RefreshST(); EllesmereUI:RefreshPage()
+                  end },
+            }, { size = 20 })
             -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
             -- border size control.
-            if not EllesmereUI._prebuilding then
-                EllesmereUI.BuildInlineCog(bsRow._rightRegion, {
-                    title = "Corner Radius", tip = "Corner Radius",
-                    disabled = function() if stOff() then return true end; local p = DB(); return not EllesmereUI.RoundedStyleOK(p and p.swingTimer.borderTexture) end,
-                    disabledTooltip = function() if stOff() then return ST_TIP end; return "This option requires the Solid, Glow or Shadow border style." end,
-                    rows = EllesmereUI.RoundedCornerRows({
-                        { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
-                          get = function() local p = DB(); return p and p.swingTimer.cornerRadius or 0 end,
-                          set = function(v) local p = DB(); if not p then return end; p.swingTimer.cornerRadius = v; RefreshST() end },
-                    }, function() local p = DB(); return p and p.swingTimer.cornerMask end,
-                       function(v) local p = DB(); if not p then return end; p.swingTimer.cornerMask = v; RefreshST() end),
-                })
-            end
-            local block = CreateFrame("Frame", nil, swatch)
-            block:SetAllPoints()
-            block:SetFrameLevel(swatch:GetFrameLevel() + 10)
-            block:EnableMouse(true)
-            block:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("This option requires a Border Size above 0."))
-            end)
-            block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateSwatchState()
-                local p = DB()
-                local noBorder = not p or (p.swingTimer.borderSize or 0) == 0
-                if noBorder then swatch:SetAlpha(0.3); block:Show() else swatch:SetAlpha(1); block:Hide() end
-            end
-            EllesmereUI.RegisterWidgetRefresh(function() updateSwatch(); UpdateSwatchState() end)
-            UpdateSwatchState()
+            EllesmereUI.BuildInlineCog(bsRow._rightRegion, {
+                title = "Corner Radius", tip = "Corner Radius",
+                disabled = function() if stOff() then return true end; local p = DB(); return not EllesmereUI.RoundedStyleOK(p and p.swingTimer.borderTexture) end,
+                disabledTooltip = function() if stOff() then return ST_TIP end; return "This option requires the Solid, Glow or Shadow border style." end,
+                rows = EllesmereUI.RoundedCornerRows({
+                    { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                      get = function() local p = DB(); return p and p.swingTimer.cornerRadius or 0 end,
+                      set = function(v) local p = DB(); if not p then return end; p.swingTimer.cornerRadius = v; RefreshST() end },
+                }, function() local p = DB(); return p and p.swingTimer.cornerMask end,
+                   function(v) local p = DB(); if not p then return end; p.swingTimer.cornerMask = v; RefreshST() end),
+            })
         end
         if not EllesmereUI._prebuilding then
             local rgn = bsRow._leftRegion
@@ -345,6 +338,8 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           disabled = stOff, disabledTooltip = ST_TIP,
           swatches = {
               { tooltip = "Gradient End Color", hasAlpha = true,
+                disabled = function() local p = DB(); return not (p and p.swingTimer.gradientEnabled) end,
+                disabledTooltip = function() if stOff() then return ST_TIP end; return "Gradient" end,
                 getValue = function() local p = DB(); if not p then return 0.20, 0.20, 0.80, 1 end; return p.swingTimer.gradientR, p.swingTimer.gradientG, p.swingTimer.gradientB, p.swingTimer.gradientA end,
                 setValue = function(r, g, b, a) local p = DB(); if not p then return end; p.swingTimer.gradientR, p.swingTimer.gradientG, p.swingTimer.gradientB, p.swingTimer.gradientA = r, g, b, a; RefreshST() end },
               RowSwatch("mh", "Main Hand Color"),
@@ -378,34 +373,12 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
             },
         })
     end
-    do
-        local swatch = colorRow._leftRegion._control
-        local function UpdateGradientSwatch()
-            local p = DB()
-            if not p or not p.swingTimer.enabled then swatch:SetAlpha(0.15); swatch:Disable(); swatch._disabledTooltip = ST_TIP
-            elseif not p.swingTimer.gradientEnabled then swatch:SetAlpha(0.15); swatch:Disable(); swatch._disabledTooltip = "Gradient"
-            else swatch:SetAlpha(1); swatch:Enable(); swatch._disabledTooltip = nil end
-        end
-        UpdateGradientSwatch()
-        EllesmereUI.RegisterWidgetRefresh(UpdateGradientSwatch)
-    end
     if not EllesmereUI._prebuilding then
-        local rgn = colorRow._rightRegion
-        local ctrl = rgn._control
-        local bgSwatch, bgUpdateSwatch = EllesmereUI.BuildColorSwatch(
-            rgn, colorRow:GetFrameLevel() + 3,
-            function() local p = DB(); return (p and p.swingTimer.bgR or 0), (p and p.swingTimer.bgG or 0), (p and p.swingTimer.bgB or 0) end,
-            function(r, g, b) local p = DB(); if not p then return end; p.swingTimer.bgR, p.swingTimer.bgG, p.swingTimer.bgB = r, g, b; RefreshST() end,
-            nil, 20)
-        PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-        local function UpdateBgSwatch()
-            local p = DB()
-            if not p or not p.swingTimer.enabled then bgSwatch:SetAlpha(0.15); bgSwatch:Disable(); bgSwatch._disabledTooltip = ST_TIP
-            else bgSwatch:SetAlpha(1); bgSwatch:Enable(); bgSwatch._disabledTooltip = nil end
-            bgUpdateSwatch()
-        end
-        UpdateBgSwatch()
-        EllesmereUI.RegisterWidgetRefresh(UpdateBgSwatch)
+        EllesmereUI.BuildInlineSwatches(colorRow._rightRegion, {
+            { tooltip = "Background Color",
+              getValue = function() local p = DB(); return (p and p.swingTimer.bgR or 0), (p and p.swingTimer.bgG or 0), (p and p.swingTimer.bgB or 0) end,
+              setValue = function(r, g, b) local p = DB(); if not p then return end; p.swingTimer.bgR, p.swingTimer.bgG, p.swingTimer.bgB = r, g, b; RefreshST() end },
+        }, { size = 20, disabled = stOff, disabledTooltip = ST_TIP })
     end
 
     -- Row: Bar Texture | Deplete Fill
@@ -439,17 +412,27 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
     );  y = y - h
     if not EllesmereUI._prebuilding then
         -- Not tied to Show Spark: a combined off hand's spark shows either way.
-        -- Colours: store keys <key>SparkR/G/B/A, unset by default; the swatch
-        -- shows the colour the bar paints (ST_SparkColor).
-        local function SparkRow(label, key)
+        -- Colours: store keys <key>SparkR/G/B/A, unset by default; each swatch
+        -- shows the colour the bar paints (ST_SparkColor). A pick of the unset
+        -- colour (white, or a combined off hand's fill) stores nothing, so the
+        -- picker's Cancel leaves an unset spark following its default.
+        local function Near(x, y) return math.abs(x - y) < 0.002 end
+        local function SparkSwatch(name, key)
             local prefix = key .. "Spark"
-            return { type = "colorpicker", label = label, hasAlpha = true,
-                get = function()
+            return { tooltip = name, hasAlpha = true,
+                getValue = function()
                     if ns.ST_SparkColor then return ns.ST_SparkColor(key) end
                     return 1, 1, 1, 1
                 end,
-                set = function(r, gg, b, a)
+                setValue = function(r, gg, b, a)
                     local p = DB(); if not p then return end
+                    a = a or 1
+                    if ns.ST_SparkColor then
+                        local ur, ug, ub, ua = ns.ST_SparkColor(key, true)
+                        if Near(r, ur) and Near(gg, ug) and Near(b, ub) and Near(a, ua) then
+                            r, gg, b, a = nil, nil, nil, nil
+                        end
+                    end
                     local g = p.swingTimer
                     g[prefix .. "R"], g[prefix .. "G"], g[prefix .. "B"], g[prefix .. "A"] = r, gg, b, a
                     RefreshST()
@@ -466,9 +449,12 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
                   tooltip = "How far the spark reaches past the top and bottom of the bar.",
                   get = function() local p = DB(); return p and p.swingTimer.sparkOverhang or 0 end,
                   set = function(v) local p = DB(); if not p then return end; p.swingTimer.sparkOverhang = v; RefreshST() end },
-                SparkRow("Main Hand Color", "mh"),
-                SparkRow("Off Hand Color", "oh"),
-                SparkRow("Ranged Color", "r"),
+                { type = "multiswatch", label = "Spark Colors",
+                  swatches = {
+                      SparkSwatch("Main Hand", "mh"),
+                      SparkSwatch("Off Hand", "oh"),
+                      SparkSwatch("Ranged", "r"),
+                  } },
             },
         })
     end
@@ -561,7 +547,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           getValue = function() local p = DB(); return p and p.swingTimer.rangeCheck ~= false end,
           setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.rangeCheck = v; RefreshST() end },
         { type = "dropdown", text = "Attack State",
-          tooltip = "How the rows show your attack. Queued Only colors a melee row and names the attack while Heroic Strike, Maul, Raptor Strike or Cleave is queued. Full also colors a row while its attack is on, and fills it violet while the attack is on but nothing is swinging (out of range, held by moving, Shoot queued behind a cast).",
+          tooltip = "Queued Only colors and names a queued attack; Full also colors rows while the attack is on or waiting.",
           disabled = stOff, disabledTooltip = ST_TIP,
           values = { off = "Off", queued = "Queued Only", full = "Full" },
           order = { "off", "queued", "full" },
@@ -573,10 +559,10 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
             disabled = stOff, disabledTooltip = ST_TIP,
             title = "Attack State Colors",
             rows = {
-                ColorRow("On", "active", { 0.047, 0.824, 0.616, 1 }, "While the attack is on and a swing is running.", stateNotFull, "Full"),
-                ColorRow("Waiting", "pending", { 0.659, 0.502, 0.949, 1 }, "While the attack is on but nothing is swinging.", stateNotFull, "Full"),
-                ColorRow("Queued", "queue", { 1, 0.70, 0.20, 1 }, "Heroic Strike, Maul or Raptor Strike queued.", stateOff, "Queued Only"),
-                ColorRow("Cleave", "queueCleave", { 0.95, 0.35, 0.25, 1 }, "Cleave queued.", stateOff, "Queued Only"),
+                ColorRow("On", "active", { 0.047, 0.824, 0.616, 1 }, "While the attack is on and a swing is running.", stateNotFull, "This option requires Attack State Full."),
+                ColorRow("Waiting", "pending", { 0.659, 0.502, 0.949, 1 }, "While the attack is on but nothing is swinging.", stateNotFull, "This option requires Attack State Full."),
+                ColorRow("Queued", "queue", { 1, 0.70, 0.20, 1 }, "Heroic Strike, Maul or Raptor Strike queued.", stateOff, "This option requires an Attack State other than Off."),
+                ColorRow("Cleave", "queueCleave", { 0.95, 0.35, 0.25, 1 }, "Cleave queued.", stateOff, "This option requires an Attack State other than Off."),
             },
         })
     end
@@ -596,7 +582,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
     local guideRow
     guideRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Movement Guide",
-          tooltip = "Shows when you can move and when you must stand still. GO marks the end of every swing, as long as your latency: anything started there lands after the swing. For wand Shoot and Auto Shot, Segments adds STILL, the half second to stand still before the shot (be still by its edge); Wind-Up Bar shows that half second as its own fill. Also smooths swing timing.",
+          tooltip = "Marks when you can move (GO) and, for wand Shoot and Auto Shot, when you must stand still (STILL).",
           disabled = stOff, disabledTooltip = ST_TIP,
           values = { off = "Off", segments = "Segments", windup = "Wind-Up Bar" },
           order = { "off", "segments", "windup" },

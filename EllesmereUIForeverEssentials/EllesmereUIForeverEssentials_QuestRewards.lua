@@ -24,15 +24,16 @@ local PURSE = "Interface\\Minimap\\Tracking\\Banker"
 local hooked, waiter, Update
 local coins = setmetatable({}, { __mode = "k" })  -- reward button -> our coin
 
--- A choice button's item link and count.
+-- A choice button's item and count: its link, or its item ID while the client
+-- has no link for it yet (not cached), so it still counts as missing.
 local function ChoiceItem(button)
     local i = button:GetID()
     if QuestInfoFrame.questLog then
-        local _, _, count = GetQuestLogChoiceInfo(i)
-        return GetQuestLogItemLink("choice", i), count or 1
+        local _, _, count, _, _, itemID = GetQuestLogChoiceInfo(i)
+        return GetQuestLogItemLink("choice", i) or itemID, count or 1
     end
-    local _, _, count = GetQuestItemInfo("choice", i)
-    return GetQuestItemLink("choice", i), count or 1
+    local _, _, count, _, _, itemID = GetQuestItemInfo("choice", i)
+    return GetQuestItemLink("choice", i) or itemID, count or 1
 end
 
 local function Coin(button)
@@ -62,17 +63,19 @@ local function WaitForItems()
     waiter:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 end
 
--- The coin on the shown choice that sells for most.
+-- The coin on the shown choice that sells for most. Off, Apply has hidden
+-- the coins.
 function Update()
+    if not F.Enabled() then return end
     for _, coin in pairs(coins) do coin:Hide() end
     local rewards = QuestInfoFrame.rewardsFrame
-    if not (F.Enabled() and rewards and rewards.RewardButtons) then return end
+    if not (rewards and rewards.RewardButtons) then return end
     local best, bestValue, missing = nil, 0, false
     for _, button in ipairs(rewards.RewardButtons) do
         if button:IsShown() and button.type == "choice" and button.objectType == "item" then
-            local link, count = ChoiceItem(button)
-            if link then
-                local sellPrice = select(11, C_Item.GetItemInfo(link))
+            local item, count = ChoiceItem(button)
+            if item then
+                local sellPrice = select(11, C_Item.GetItemInfo(item))
                 if not sellPrice then
                     missing = true
                 elseif sellPrice * count > bestValue then

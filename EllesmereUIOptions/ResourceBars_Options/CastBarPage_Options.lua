@@ -6,12 +6,17 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUIResourceBars"]
 if not ns then return end  -- module disabled: no options page
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 -- Cast Bar page
 function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
     local env = ns._ERB_OptEnv
     local DB, PP, CLASS_COLORS, _clickMappings = env.DB, env.PP, env.CLASS_COLORS, env._clickMappings
     local ShuffleCastBarIcons, UpdateCastBarPreview, _castBarPreviewBuilder = env.ShuffleCastBarIcons, env.UpdateCastBarPreview, env._castBarPreviewBuilder
+    local TexBgRowCfg = env.TexBgRowCfg
     local W = EllesmereUI.Widgets
     local y = yOffset
     local _, h
@@ -22,9 +27,11 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
     ShuffleCastBarIcons()
     EllesmereUI:SetContentHeader(_castBarPreviewBuilder)
 
-    -- Wipe click mappings (shared with display page; never from a hidden pre-build -- see the matching guard in BuildBarDisplayPage)
+    -- Clear this page's own click mappings (the table is shared with the display page, whose
+    -- cached preview keeps its own; never from a hidden pre-build -- see the matching guard in
+    -- BuildBarDisplayPage)
     if not EllesmereUI._prebuilding then
-        wipe(_clickMappings)
+        _clickMappings.castBar, _clickMappings.castIcon, _clickMappings.castSpellText, _clickMappings.castTimer = nil, nil, nil, nil
     end
 
     -- Re-append SharedMedia textures for cast bar (catches lazy-registered SM packs)
@@ -651,26 +658,18 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
               RefreshCast(); EllesmereUI:RefreshPage()
           end }
     );  y = y - h
-    -- Inline cog on Bar Texture: Textured Background (greyed with the dropdown).
+    -- Inline cog on Bar Texture: Textured Background (greyed while the cast bar
+    -- is off, and under Blizzard Style, whose own background art stays).
     if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(textRow._leftRegion, {
             disabled = function() return castOff() or EllesmereUI.BlizzStyle.Active("castbar") == "blizzard" end,
+            disabledTooltip = function()
+                if castOff() then return "Player Cast Bar" end
+                return EllesmereUI.BlizzStyle.Label("castbar")
+            end,
+            requireState = function() if not castOff() then return "disabled" end end,
             title = "Texture Settings",
-            rows = {
-                { type = "toggle", label = "Textured Background",
-                  tooltip = "Draws the bar texture on the background too, tinted by the background color. The background stays flat while Fill Color is below 100.",
-                  disabled = function()
-                      local p = DB(); local t = p and p.castBar.texture or "none"
-                      return t == "none" or t == "blizzard"
-                  end,
-                  disabledTooltip = "This option requires a Bar Texture other than None or Blizzard.",
-                  rawTooltip = true,
-                  get = function() local p = DB(); return (p and p.castBar.textureBg) or false end,
-                  set = function(v)
-                      local p = DB(); if not p then return end
-                      p.castBar.textureBg = v and true or false; RefreshCast()
-                  end },
-            },
+            rows = { TexBgRowCfg("cast", RefreshCast) },
         })
     end
     -- Spell Text colour (RGBA; white = the untinted text), left of the dropdown;

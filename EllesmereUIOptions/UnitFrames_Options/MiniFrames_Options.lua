@@ -8,6 +8,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
 if not ns then return end  -- module disabled: no options page
 
+-- Page reuse: the frames this file builds under a kept page go through the
+-- options frame pool (EllesmereUI_FramePool.lua), which hands the next build
+-- the previous build's frames reset to new; on any other parent it is the
+-- plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+-- The pool's other calls this file makes, read once here as CreateFrame is:
+-- the page path never calls the pool through its public slot, which
+-- another addon could replace.
+local PoolIsIdle = EllesmereUI._Pool.IsIdle
+
 ---------------------------------------------------------------------------
 --  Mini frame donor settings helper
 --  Returns the settings table unitKey copies its look from (its Copy Look
@@ -1865,13 +1875,23 @@ function ns.UFO_BuildBossOptions(W, parent, y)
         if activateBtnLbl then activateBtnLbl:SetText(PreviewLabel()) end
     end);  y = y - h
     do
-        activateBtn = select(1, activateBtnFrame:GetChildren())
+        -- The row's button and its label, picked by kind and use rather than by
+        -- position: on a kept page the row frame may still hold idle children
+        -- and regions of an earlier dress (page reuse).
+        local kids = { activateBtnFrame:GetChildren() }
+        for i = 1, #kids do
+            local c = kids[i]
+            if c:GetObjectType() == "Button" and not PoolIsIdle(c) then
+                activateBtn = c; break
+            end
+        end
         if activateBtn then
             local regions = { activateBtn:GetRegions() }
             for i = 1, #regions do
                 local rgn = regions[i]
-                if rgn and rgn.GetText and rgn:GetText() then
-                    activateBtnLbl = rgn; break
+                if rgn and rgn.GetText and not PoolIsIdle(rgn) then
+                    local t = rgn:GetText()
+                    if t and t ~= "" then activateBtnLbl = rgn; break end
                 end
             end
         end

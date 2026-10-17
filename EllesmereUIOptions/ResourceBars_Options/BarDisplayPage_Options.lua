@@ -11,6 +11,7 @@ if not ns then return end  -- module disabled: no options page
 function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
     local env = ns._ERB_OptEnv
     local DB, PP, Refresh, SmoothRefresh = env.DB, env.PP, env.Refresh, env.SmoothRefresh
+    local TexBgRowCfg = env.TexBgRowCfg
     local RebuildClass, RebuildPower, RebuildHealth, _clickMappings = env.RebuildClass, env.RebuildPower, env.RebuildHealth, env._clickMappings
     local _previewHeaderBuilder, CLASSIC_SYNC_KEYS, CLASSIC_MATCH_KEYS = env._previewHeaderBuilder, env.CLASSIC_SYNC_KEYS, env.CLASSIC_MATCH_KEYS
     local W = EllesmereUI.Widgets
@@ -64,9 +65,11 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
 
     EllesmereUI:SetContentHeader(_previewHeaderBuilder)
 
-    -- _clickMappings is ONE module-shared table read by the LIVE preview header's clicks, so a hidden search pre-build must NOT wipe it out from under whichever ERB page is being viewed.
+    -- _clickMappings is ONE module-shared table read by the LIVE preview headers' clicks: this page
+    -- clears only its own keys (the Cast Bar page's cached preview keeps its own), and a hidden
+    -- search pre-build clears nothing.
     if not EllesmereUI._prebuilding then
-        wipe(_clickMappings)
+        _clickMappings.classResource, _clickMappings.countText = nil, nil
     end
 
     -- Per-spec editing lives in the shared Spec Overrides system (spec groups + editing-as); legacy Advanced data migrates via MigrateRBAdvancedProfile.
@@ -455,22 +458,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                           })
                       end
                   end },
-                { type = "toggle", label = "Textured Background",
-                  tooltip = "Draws each bar's texture on its background too, tinted by the background color (the class resource uses its Empty Bar Overlay). A background stays flat while its bar's Fill Color is below 100 or Background on individual pips is on.",
-                  disabled = function()
-                      local p = DB(); if not p then return true end
-                      return (p.general.barTexture or "none") == "none" and p.splitTex ~= true
-                  end,
-                  disabledTooltip = "This option requires a Texture other than None.",
-                  rawTooltip = true,
-                  get = function()
-                      local p = DB(); return (p and p.general.barTextureBg) or false
-                  end,
-                  set = function(v)
-                      local p = DB(); if not p then return end
-                      p.general.barTextureBg = v and true or false
-                      SmoothRefresh()
-                  end },
+                TexBgRowCfg("bars", SmoothRefresh),
             },
         })
         EllesmereUI.BuildInlineCog(texRow._rightRegion, {

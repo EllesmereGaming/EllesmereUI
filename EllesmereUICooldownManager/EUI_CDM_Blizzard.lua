@@ -311,22 +311,10 @@ local function EnforceCooldownViewerEditModeSettings()
             message = "EllesmereUI has updated your CDM Edit Mode settings to ensure cooldown tracking works correctly.\n\nA UI reload is required for the changes to take effect.",
             confirmText = "Reload UI",
             reload    = true,
+            -- Forced: no cancel, no Escape, no click-outside dismiss.
+            hideCancel = true,
+            modal      = true,
         })
-        -- Force: no cancel, no escape, no click-outside dismiss.
-        local popup = _G["EUIConfirmPopup"]
-        if popup then
-            if popup._cancelBtn then popup._cancelBtn:Hide() end
-            if popup._confirmBtn then
-                popup._confirmBtn:ClearAllPoints()
-                popup._confirmBtn:SetPoint("BOTTOM", popup, "BOTTOM", 0, 13)
-            end
-            popup:SetScript("OnKeyDown", function(self, key)
-                self:SetPropagateKeyboardInput(key ~= "ESCAPE")
-            end)
-            if popup._dimmer then
-                popup._dimmer:SetScript("OnMouseDown", nil)
-            end
-        end
     end)
 end
 

@@ -719,8 +719,9 @@ do
                 end
             end)
 
-            popup:EnableKeyboard(true)
+            EllesmereUI.PopupTakeKeys(popup, dimmer)
             popup:SetScript("OnKeyDown", function(self, key)
+                if InCombatLockdown() then return end
                 if key == "ESCAPE" then
                     self:SetPropagateKeyboardInput(false)
                     dimmer:Hide()

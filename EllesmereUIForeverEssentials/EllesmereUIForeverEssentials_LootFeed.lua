@@ -10,6 +10,10 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  so this works in every client language.
 -------------------------------------------------------------------------------
 local _, module = ...
+-- The options page pool's table (made by the core, filled in place when the
+-- options addon loads): the settings preview reads a dress generation from
+-- it at call time.
+local POOL = EllesmereUI._Pool
 
 local GAP = 2
 local FADE_IN = 0.35
@@ -572,11 +576,11 @@ end
 local session = { coin = 0, items = 0 } -- copper; start: GetTime() of the first loot
 local summary, clock
 
--- 23m, 1h 05m: started minutes, so a session that has begun never reads 0m
+-- 23m, 1h 5m: started minutes, so a session that has begun never reads 0m
 local function Duration(seconds)
     local minutes = math.ceil(seconds / 60)
-    if minutes < 60 then return minutes .. "m" end
-    return string.format("%dh %02dm", math.floor(minutes / 60), minutes % 60)
+    if minutes < 60 then return string.format(EllesmereUI.L("%dm"), minutes) end
+    return string.format(EllesmereUI.L("%dh %dm"), math.floor(minutes / 60), minutes % 60)
 end
 
 -- The hourly rate leads; the session's total and length follow, dimmed.
@@ -593,9 +597,9 @@ local function FillSummary()
 end
 
 -- The rate falls while nothing is looted, so the row is repainted once a
--- minute while it shows a running session.
+-- minute while it is on screen with a running session.
 local function SyncClock()
-    local run = session.start and summary and summary:IsShown()
+    local run = session.start and summary and summary:IsVisible()
     if run and not clock then
         clock = C_Timer.NewTicker(RATE_TICK, FillSummary)
     elseif not run and clock then
@@ -644,23 +648,31 @@ local function ResetLeave(b)
 end
 
 -- The button takes the mouse only while Ctrl is held (and lights up), so the
--- row never blocks a click or a camera drag.
+-- row never blocks a click or a camera drag. Only a change of Ctrl (not Shift
+-- or Alt) repaints it.
 local function ResetArm(b)
     local on = IsControlKeyDown()
+    if on == b.armed then return end
+    b.armed = on
     local c = on and 1 or RESET_DIM
     b:EnableMouse(on)
     b.text:SetTextColor(c, c, c)
     if not on then ResetLeave(b) end
 end
 
+-- The button shows and hides with the row: Ctrl is watched, and the minute
+-- clock runs, only while the row is on screen.
 local function ResetShow(b)
     b:RegisterEvent("MODIFIER_STATE_CHANGED")
     ResetArm(b)
+    if summary and session.start then FillSummary() end
+    SyncClock()
 end
 
 local function ResetHide(b)
     b:UnregisterEvent("MODIFIER_STATE_CHANGED")
     ResetLeave(b)
+    SyncClock()
 end
 
 local function ResetClick()
@@ -729,21 +741,25 @@ local function UpdateSummary()
     SyncClock()
 end
 
--- looted: a real gain (not a preview sample), which the tracker counts even
--- when item rows are off or the item is below Minimum Quality.
-local function ShowItem(link, count, retried, looted)
+-- looted: a real loot line (not a preview sample). earned: one the tracker
+-- counts (looted or won, not bought or a quest reward), even when item rows
+-- are off or the item is below Minimum Quality.
+local function ShowItem(link, count, retried, looted, earned)
     local name, _, quality, itemLevel, _, _, _, _, _, icon, sellPrice, classID, _, bindType = C_Item.GetItemInfo(link)
     if not name then
         -- Not cached yet: try again once the client has it. Only once: the
         -- client also calls back when the item fails to load.
         if not retried then
-            Item:CreateFromItemLink(link):ContinueOnItemLoad(function() ShowItem(link, count, true, looted) end)
+            Item:CreateFromItemLink(link):ContinueOnItemLoad(function() ShowItem(link, count, true, looted, earned) end)
         end
         return
     end
-    local each = ItemValue(link, sellPrice, bindType)
+    local each -- what one counts for, priced only when the tracker or the row needs it
     if looted then
-        if Get("tracker") then Earn("items", each * count) end
+        if earned and Get("tracker") then
+            each = ItemValue(link, sellPrice, bindType)
+            Earn("items", each * count)
+        end
         if not Get("items") then return end
     end
     if (quality or 0) < Get("minQuality") then return end
@@ -759,9 +775,12 @@ local function ShowItem(link, count, retried, looted)
     elseif classID == Enum.ItemClass.Questitem and ITEM_BIND_QUEST then
         questSub = "|cffffd100" .. ITEM_BIND_QUEST .. "|r"
     end
-    -- The row shows the same price; the plain vendor one with Use Auctionator Prices off.
-    local price = Get("auctionPrices") and each or sellPrice or 0
-    local value = Get("showPrice") and price > 0 and Money(price * count) or nil
+    -- The row shows the tracker's price; the plain vendor one with Use Auctionator Prices off.
+    local value
+    if Get("showPrice") then
+        local price = Get("auctionPrices") and (each or ItemValue(link, sellPrice, bindType)) or sellPrice or 0
+        if price > 0 then value = Money(price * count) end
+    end
     Emit(key, { icon = icon, text = text, sub = sub, questSub = questSub, value = value, border = color, link = link,
         amount = count, badge = count > 1 and count or nil })
 end
@@ -830,18 +849,20 @@ local function ShowSkill(skill, rank)
 end
 
 -- Own loot only: the *_SELF lines, the multiple-item formats (link and count)
--- first, since the single-item ones match their lines too.
+-- first, since the single-item ones match their lines too. The flag: the
+-- tracker counts it (a pushed item, bought or a quest reward, shows but is no
+-- gain).
 local ITEM_KEYS = {
-    "LOOT_ITEM_SELF_MULTIPLE", "LOOT_ITEM_SELF",
-    "LOOT_ITEM_PUSHED_SELF_MULTIPLE", "LOOT_ITEM_PUSHED_SELF",
-    "LOOT_ITEM_BONUS_ROLL_SELF_MULTIPLE", "LOOT_ITEM_BONUS_ROLL_SELF",
+    { "LOOT_ITEM_SELF_MULTIPLE", true }, { "LOOT_ITEM_SELF", true },
+    { "LOOT_ITEM_PUSHED_SELF_MULTIPLE", false }, { "LOOT_ITEM_PUSHED_SELF", false },
+    { "LOOT_ITEM_BONUS_ROLL_SELF_MULTIPLE", true }, { "LOOT_ITEM_BONUS_ROLL_SELF", true },
 }
 
 local function OnLoot(text)
-    for _, key in ipairs(ITEM_KEYS) do
-        local link, count = Match(key, text)
+    for _, k in ipairs(ITEM_KEYS) do
+        local link, count = Match(k[1], text)
         if link then
-            if link:find("|Hitem:", 1, true) then ShowItem(link, tonumber(count) or 1, nil, true) end
+            if link:find("|Hitem:", 1, true) then ShowItem(link, tonumber(count) or 1, nil, true, k[2]) end
             return
         end
     end
@@ -1050,6 +1071,10 @@ RefreshPreview = function(force)
     if v.onHeightChanged then v.onHeightChanged(v.previewHeight) end
 end
 
+-- parent -> the dress its size hook was made for: the options page pool
+-- (EllesmereUI_FramePool.lua) resets a kept header root before each build,
+-- which drops the hook, so a new dress (Pool.Gen) hooks again; a plain frame
+-- (no Gen) is hooked once.
 local hookedParents = {}
 local function CreateSettingsPreview(parent, availableWidth, onHeightChanged)
     local v = preview
@@ -1067,8 +1092,9 @@ local function CreateSettingsPreview(parent, availableWidth, onHeightChanged)
     v.view:ClearAllPoints()
     v.view:SetPoint("TOPLEFT")
     v.view:SetPoint("TOPRIGHT")
-    if not hookedParents[parent] then
-        hookedParents[parent] = true
+    local dress = POOL.Gen and POOL.Gen(parent) or true
+    if hookedParents[parent] ~= dress then
+        hookedParents[parent] = dress
         local lastWidth
         parent:HookScript("OnSizeChanged", function(_, width)
             if width == lastWidth then return end

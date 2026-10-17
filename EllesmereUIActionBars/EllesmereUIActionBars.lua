@@ -8,7 +8,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  + _childupdate-eab-page with explicit action attrs.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local EAB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.EAB = EAB
@@ -289,6 +289,14 @@ local EXTRA_BARS = {
     { key = "ExtraActionButton", label = "Extra Action Button", visibilityOnly = true, isBlizzardMovable = true },
     { key = "EncounterBar",      label = "Encounter Bar",         visibilityOnly = true, isBlizzardMovable = true },
 }
+-- WoW Forever has no extra action bar (no binding, no Edit Mode system for
+-- it): no holder, mover or visibility row there, and its container is left
+-- to Blizzard.
+if EllesmereUI.IS_FOREVER then
+    for i = #EXTRA_BARS, 1, -1 do
+        if EXTRA_BARS[i].key == "ExtraActionButton" then table.remove(EXTRA_BARS, i) end
+    end
+end
 
 local ALL_BARS = {}
 for _, info in ipairs(BAR_CONFIG) do ALL_BARS[#ALL_BARS + 1] = info end
@@ -1133,9 +1141,15 @@ do
             styleAsked = true
             loginFrame:UnregisterAllEvents()
             -- The Gamepad style's D-pad cannot reach the popup, so chat says it too.
+            -- A confirm, not RequestReload: an event cannot reload, its click can.
             EllesmereUI.PrintError(EllesmereUI.L("The interface style changed. Type /reload so the action bars match it."))
-            EllesmereUI.RequestReload(EllesmereUI.L("Reload Required"),
-                EllesmereUI.L("The interface style changed. Reload so the action bars match it."))
+            EllesmereUI:ShowConfirmPopup({
+                title       = EllesmereUI.L("Reload Required"),
+                message     = EllesmereUI.L("The interface style changed. Reload so the action bars match it."),
+                confirmText = EllesmereUI.L("Reload Now"),
+                cancelText  = EllesmereUI.L("Later"),
+                reload      = true,
+            })
         end
         loginFrame:RegisterEvent("PLAYER_LOGIN")
         loginFrame:SetScript("OnEvent", function(self, event)
@@ -7654,13 +7668,26 @@ function EAB:FinishSetup()
         elseif event == "PLAYER_REGEN_ENABLED" then
             -- A lock toggled during combat deferred; pick it up on regen.
             ns.EABSyncBarsLocked()
+            -- The curated-set retire a combat SPELLS_CHANGED held back (below).
+            if ns._cdCuratedAfterCombat then
+                ns._cdCuratedAfterCombat = nil
+                ns._cdCuratedDirty = true
+                ns._cdFilledDirty = true
+            end
         elseif event == "PLAYER_ENTERING_WORLD" or event == "SPELLS_CHANGED" then
             if event == "PLAYER_ENTERING_WORLD" then ns.EABSyncBarsLocked() end
             -- Spec/talent swaps refill slots: retire the filled-slot fast
             -- lists (see the dispatcher's repaint walks) AND the curated-set
-            -- memo (talents change what the viewer curates).
+            -- memo (talents change what the viewer curates). Talents and spec
+            -- never change in combat, where SPELLS_CHANGED still fires (several
+            -- times a fight for some classes), so a combat fire re-curates at
+            -- combat's end instead of re-walking the viewer data now.
             ns._cdFilledDirty = true
-            ns._cdCuratedDirty = true
+            if event == "SPELLS_CHANGED" and InCombatLockdown() then
+                ns._cdCuratedAfterCombat = true
+            else
+                ns._cdCuratedDirty = true
+            end
             -- Force visibility update on all managed buttons
             if not InCombatLockdown() then
                 for btn in pairs(_controllerButtons) do

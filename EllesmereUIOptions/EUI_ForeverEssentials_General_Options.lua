@@ -171,10 +171,13 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     );  y = y - h
 
     ---------------------------------------------------------------------------
-    --  WORLD MAP (Reveal Unexplored Areas, its color in the cog; Map Markers,
-    --  their sets in the cog: EllesmereUIForeverEssentials_MapTravel.lua)
+    --  WORLD MAP (Fade Map While Moving | Show the Game Behind the Map, then
+    --  Reveal Unexplored Areas with its color in the cog | Show Zone Levels,
+    --  then Show Map Markers with its sets in the cog:
+    --  EllesmereUIForeverEssentials_MapTravel.lua)
     ---------------------------------------------------------------------------
     local MR = EllesmereUI._MapReveal
+    local ZL = EllesmereUI._ZoneLevels
     local function revealOff() return not MR.Get("enabled") end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -190,11 +193,11 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Fade Map While Moving",
-          tooltip = "Turns on the game's own map fade: while you move, the world map fades to half so you can see where you go, and comes back once you stop or put the cursor over it.",
+          tooltip = "The world map fades while you move and comes back when you stop or hover it.",
           getValue = function() return MF.Get("enabled") end,
           setValue = function(v) SetFade("enabled", v) end },
         { type = "toggle", text = "Show the Game Behind the Map",
-          tooltip = "Lightens the black screen behind the maximized world map so you can see the game around it.",
+          tooltip = "Lightens the black behind the maximized world map.",
           getValue = function() return MF.Get("dim") end,
           setValue = function(v) SetFade("dim", v) end }
     );  y = y - h
@@ -211,17 +214,17 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
           end },
         { type = "toggle", text = "Show Zone Levels",
           tooltip = "Shows the level range of the zone you hover on a continent of the world map, under its name, colored by difficulty.",
-          getValue = function() return EllesmereUI._ZoneLevels.Get("enabled") end,
+          getValue = function() return ZL.Get("enabled") end,
           setValue = function(v)
-              EllesmereUI._ZoneLevels.Cfg().enabled = v
-              EllesmereUI._ZoneLevels.Apply()
+              ZL.Cfg().enabled = v
+              ZL.Apply()
           end }
     );  y = y - h
 
     local markersRow
     markersRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Show Map Markers",
-          tooltip = "Shows travel markers on the world map: boats and zeppelins from the world map down, dungeon entrances from continents down, flight points and zone exits on zones. Hover a marker for its name, click it to link it in chat. Use the cog to pick which ones show.",
+          tooltip = "Shows boats, zeppelins, dungeon entrances, flight points and zone exits on the world map; click one to link it in chat.",
           getValue = function() return MT.Get("enabled") end,
           setValue = function(v)
               MT.Cfg().enabled = v
@@ -290,16 +293,14 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Classic Spellbook",
-          tooltip = "Your spellbook key opens the vanilla spellbook. The micro menu still opens Talents & Spellbook. "
-              .. "A search or option changed in combat applies when the fight ends.",
+          tooltip = "Your spellbook key opens the vanilla spellbook.",
           getValue = function() return CS.Get("enabled") end,
           setValue = function(v)
               CS.Cfg().enabled = v
               CS.Apply()
           end },
         { type = "toggle", text = "Classic Talents",
-          tooltip = "Your talents key opens the vanilla talent window for your active spec. "
-              .. "The micro menu still opens Talents & Spellbook.",
+          tooltip = "Your talents key opens the vanilla talent window.",
           getValue = function() return CT.Get("enabled") end,
           setValue = function(v)
               CT.Cfg().enabled = v
@@ -367,6 +368,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
           end },
         BLANK()
     );  y = y - h
+
+    ---------------------------------------------------------------------------
     --  COMPANION PETS (EllesmereUIForeverEssentials_PetSummon.lua)
     ---------------------------------------------------------------------------
     local PS = EllesmereUI._PetSummon
@@ -376,15 +379,15 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
 
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Auto Summon Pet",
-              tooltip = "Summons a random favorite pet again a moment after the game takes yours away (death, loading screen, taxi, vehicle...), or any random pet while you have no favorite. A pet you dismiss yourself stays dismissed. Never in combat, dungeons, raids, PvP, stealth or while mounted.",
+              tooltip = "Brings a random favorite pet back after loading screens, flights and deaths; a pet you dismiss stays away.",
               getValue = function() return PS.Get("enabled") end,
               setValue = function(v)
                   PS.Cfg().enabled = v
-                  PS.Apply()
+                  PS.Apply(v)  -- turning it on also ends an earlier dismissal
                   EllesmereUI:RefreshPage()  -- Favorites per Character's disabled state
               end },
             { type = "toggle", text = "Favorites per Character",
-              tooltip = "This character summons among its own favorites instead of your account's. Right-click a pet in the Pet Journal and check Favorite for This Character; a blue star marks it in the list. While this character has none, your account's favorites are used. Saved for this character only.",
+              tooltip = "Pick this character's favorites from a pet's right-click menu in the Pet Journal.",
               disabled = function() return not PS.Get("enabled") end,
               disabledTooltip = "Auto Summon Pet",
               -- This character's own setting, read without creating its table.
@@ -584,7 +587,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local gsRow
     gsRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Gathering Skill in Tooltips",
-          tooltip = "On herb and ore node tooltips, adds the skill the node needs to the game's \"Requires Herbalism\" or \"Requires Mining\" line and, when you can gather it, colors that line by your chance to raise your skill there: orange, yellow, green, grey.",
+          tooltip = "Adds the skill a herb or ore node needs to its tooltip, colored by your chance to raise your skill there.",
           getValue = function() return GS.Get("enabled") end,
           setValue = function(v)
               GS.Cfg().enabled = v
@@ -598,7 +601,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
             title = "Gathering Skill in Tooltips",
             rows = {
                 { type = "toggle", label = "Minimap",
-                  tooltip = "Also on the minimap: a tracked herb or ore node's name is followed by its required skill, in the same colors (red when you cannot gather it).",
+                  tooltip = "Also adds the required skill to herb and ore names on the minimap.",
                   get = function() return GS.Get("minimap") end,
                   set = function(v)
                       GS.Cfg().minimap = v
@@ -651,18 +654,6 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
 
     if not junkOff() then
         _, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Only Show When Bag Space Is Low",
-              tooltip = "Shows the window only when free slots in regular bags are below the threshold. Existing visibility conditions still apply.",
-              getValue = function() return JI.Get("onlyLowBagSpace") == true end,
-              setValue = function(v) JunkSet("onlyLowBagSpace", v) end },
-            { type = "slider", text = "Free-Slot Threshold",
-              min = 1, max = 100, step = 1, isPercent = false,
-              tooltip = "Show when fewer than this many regular bag slots are free. A threshold of 5 shows at 0-4 free slots.",
-              getValue = function() return JI.Get("freeSlotThreshold") end,
-              setValue = function(v) JunkSet("freeSlotThreshold", v) end }
-        );  y = y - h
-
-        _, h = W:DualRow(parent, y,
             { type = "slider", text = "Items Shown",
               min = 1, max = 6, step = 1, isPercent = false,
               tooltip = "How many junk stacks the window lists.",
@@ -707,6 +698,32 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               getValue = function() return JI.Get("showFreeSlots") == true end,
               setValue = function(v) JunkSet("showFreeSlots", v) end }
         );  y = y - h
+
+        -- Only Show When Bag Space Is Low, its threshold in the cog.
+        local lowRow
+        lowRow, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Only Show When Bag Space Is Low",
+              tooltip = "Shows the window only while few bag slots are free. Use the cog to set how few.",
+              getValue = function() return JI.Get("onlyLowBagSpace") == true end,
+              setValue = function(v)
+                  JunkSet("onlyLowBagSpace", v)
+                  EllesmereUI:RefreshPage()  -- the cog's disabled state
+              end },
+            BLANK()
+        );  y = y - h
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(lowRow._leftRegion, {
+                title = "Only Show When Bag Space Is Low",
+                disabled = function() return JI.Get("onlyLowBagSpace") ~= true end,
+                disabledTooltip = "Only Show When Bag Space Is Low",
+                rows = {
+                    { type = "slider", label = "Free-Slot Threshold", min = 1, max = 100, step = 1,
+                      tooltip = "Shows the window while fewer regular bag slots than this are free.",
+                      get = function() return JI.Get("freeSlotThreshold") end,
+                      set = function(v) JunkSet("freeSlotThreshold", v) end },
+                },
+            })
+        end
     end
 
     ---------------------------------------------------------------------------
@@ -725,9 +742,11 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local fishKeyRow
     fishKeyRow, h = W:DualRow(parent, y,
         { type = "label", text = "Fishing Key",
-          tooltip = "One key for the whole loop: casts your line, then reels it in once the bobber bites. With no fishing pole in hand, it first equips the best one in your bags. Use the cog to reel in, show the bobber indicator and apply lures." },
+          tooltip = "One key casts your line, equipping your best fishing pole first. Use the cog for reeling in, the bobber indicator and lures." },
         { type = "toggle", text = "Double-Click to Cast",
-          tooltip = "With a fishing pole in hand, a quick double right-click on the world casts your line (applying a lure first if its cog's option is on). Never on a character, in combat or while your line is in the water: right-click the bobber to reel in.",
+          tooltip = "With a fishing pole in hand, double right-click the world to cast.",
+          disabled = function() return EllesmereUI.PadGamepadUI() end,
+          disabledTooltip = "This option does not work with the Gamepad interface style.",
           getValue = function() return FI.Get("doubleClick") end,
           setValue = function(v)
               SetFish("doubleClick", v)
@@ -758,9 +777,9 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Fishing Key",
             rows = {
-                fishRow("Reel In With the Key", "While your line is in the water and the bobber is on screen, the Fishing Key reels it in; the line out, the key casts again. Turns on soft interact while you fish, and puts your settings back after.", "reel"),
-                fishRow("Bobber Indicator", "While your line is in the water, an icon shows whether the bobber is targeted: green, the key reels in; red, keep the bobber on screen. Hover it for details; place it in Unlock Mode.", "indicator"),
-                fishRow("Apply Lure", "When your fishing pole has no lure, the Fishing Key first applies the best lure in your bags; the next press casts.", "lure"),
+                fishRow("Reel In With the Key", "Once the bobber bites and is on screen, the Fishing Key reels it in.", "reel"),
+                fishRow("Bobber Indicator", "Shows whether the key will reel in. Place it in Unlock Mode.", "indicator"),
+                fishRow("Apply Lure", "With no lure on your pole, the key applies your best lure first.", "lure"),
             },
             anchorTo = kbBtn,
             disabled = function() return FI.Get("key") == nil end,
@@ -768,15 +787,18 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         })
         EllesmereUI.BuildInlineCog(fishKeyRow._rightRegion, {
             title = "Double-Click to Cast",
-            rows = { fishRow("Apply Lure", "When your fishing pole has no lure, a double-click first applies the best lure in your bags; the next one casts.", "clickLure") },
-            disabled = function() return not FI.Get("doubleClick") end,
-            disabledTooltip = "Double-Click to Cast",
+            rows = { fishRow("Apply Lure", "With no lure on your pole, a double-click applies your best lure first.", "clickLure") },
+            disabled = function() return EllesmereUI.PadGamepadUI() or not FI.Get("doubleClick") end,
+            disabledTooltip = function()
+                if EllesmereUI.PadGamepadUI() then return "This option does not work with the Gamepad interface style." end
+                return "Double-Click to Cast"
+            end,
         })
     end
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Fishing Sounds",
-          tooltip = "While you fish, lowers music and ambience, raises sound effects so you hear the bobber splash, and keeps sound on when the game is in the background. Your sound settings come back when you move, enter combat or change zone.",
+          tooltip = "While you fish: music and ambience down, effects up, sound on in the background.",
           getValue = function() return FI.Get("sound") end,
           setValue = function(v) SetFish("sound", v) end },
         BLANK()

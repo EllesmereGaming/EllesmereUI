@@ -1,17 +1,24 @@
-"""Focused production-source regression tests. Requires lupa (Lua 5.1)."""
+"""Raid Frames Buff Manager Pandemic Border: runs the shipped Lua against mocks.
+
+Checks that disabled displays allocate nothing, each button registers its region
+once, the enable toggle changes the container signature and pool key, and a
+restyle keeps a shared pool's registration for buttons made after it; on WoW
+Forever a saved choice reads as off.
+
+Run: python .tools/tests/test_rf_pandemic_border.py [repo root]  (needs lupa)
+"""
 from pathlib import Path
 import sys
-import re
 from lupa.lua51 import LuaRuntime
-ROOT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
-def source(pr, file):
+ROOT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
+def source(file):
     return (ROOT / file).read_text(encoding="utf-8-sig")
 def between(text, start, end):
     return text[text.index(start):text.index(end, text.index(start))]
 def runtime():
     return LuaRuntime(unpack_returned_tuples=True)
 
-aura=source(2072,'EllesmereUIRaidFrames/EUI_RaidFrames_AuraContainers.lua')
+aura=source('EllesmereUIRaidFrames/EUI_RaidFrames_AuraContainers.lua')
 lua=runtime()
 lua.execute('''
 made=0
@@ -40,8 +47,8 @@ pooled.bmRegistered=true
 Apply(button,pooled,{bmPandemicEnabled=true,bmPandemicRegister=true})
 assert(made==10 and bound==2,'a reused disabled-member button can show the border')
 ''')
-lua.execute('BmChainMode=function() return "g" end; BmEffOwnOnly=function() return true end')
-lua.execute(between(aura,'local function BmSignature(', '-- Candidate filters')+'\nSignature=BmSignature')
+lua.execute('BmChainMode=function() return "g" end; BmEffOwnOnly=function() return true end; EllesmereUI={IS_FOREVER=false}')
+lua.execute(between(aura,'local function BmPandemicOn(', '-- Candidate filters')+'\nSignature=BmSignature\n_G.BmPandemicOn=BmPandemicOn')
 lua.execute('''
 local ind={id=1,type='icon',enabled=true,spells={774}}
 local off=Signature({ind},1,'custom')
@@ -54,7 +61,16 @@ assert(Signature({ind},1,'custom')~=off,'default icon type also selects a creati
 key = between(aura, '    local ck = kind ..', '    if anySegs then')
 lua.execute('function PoolKey(a,b) local kind="icon"; local ownPat={"o","o"}; local members={{ind={pandemicBorderEnabled=a}},{ind={pandemicBorderEnabled=b}}}\n'+key+'\nreturn ck end')
 lua.execute('assert(PoolKey(true,false)==PoolKey(false,true)); assert(PoolKey(true,true)==PoolKey(true,false)); assert(PoolKey(false,false)~=PoolKey(true,false))')
-print('PASS: lazy pandemic regions, one registration, structural enable fingerprint')
+lua.execute('''
+EllesmereUI.IS_FOREVER=true
+local ind={id=1,type='icon',enabled=true,spells={774}}
+local off=Signature({ind},1,'custom')
+ind.pandemicBorderEnabled=true
+assert(Signature({ind},1,'custom')==off,'WoW Forever: a saved choice reads as off')
+assert(PoolKey(true,true)==PoolKey(false,false),'WoW Forever: no opted-in pool variant')
+EllesmereUI.IS_FOREVER=false
+''')
+print('PASS: lazy pandemic regions, one registration, structural enable fingerprint, off on WoW Forever')
 
 lua.execute('''
 bmStyleFP = {}; bmOwnFP = {}

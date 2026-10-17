@@ -17,6 +17,13 @@ local function DMBlizzGate(cfg, keepRow)
     return cfg
 end
 
+-- Page reuse: the frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua, the options addon's first file), which hands a
+-- kept page its previous build's frames back reset to new; on any other
+-- parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolIsIdle = EllesmereUI._Pool.IsIdle
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -329,10 +336,12 @@ initFrame:SetScript("OnEvent", function(self)
             suffix:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
             suffix:SetTextColor(1, 1, 1, 0.35)
             local rrLabel
+            -- An idle pooled region keeps its last build's text: skip it.
             local regions = { rgn:GetRegions() }
             for i = 1, #regions do
                 local reg = regions[i]
-                if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Refresh Rate" then
+                if reg and reg.GetText and not PoolIsIdle(reg)
+                    and EllesmereUI.EnKey(reg:GetText()) == "Refresh Rate" then
                     rrLabel = reg
                     break
                 end
@@ -1113,10 +1122,12 @@ initFrame:SetScript("OnEvent", function(self)
             suffix:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
             suffix:SetTextColor(1, 1, 1, 0.35)
             local hnLabel
+            -- An idle pooled region keeps its last build's text: skip it.
             local regions = { rgn:GetRegions() }
             for i = 1, #regions do
                 local reg = regions[i]
-                if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Hide Rank Numbers" then
+                if reg and reg.GetText and not PoolIsIdle(reg)
+                    and EllesmereUI.EnKey(reg:GetText()) == "Hide Rank Numbers" then
                     hnLabel = reg
                     break
                 end
@@ -1591,7 +1602,7 @@ initFrame:SetScript("OnEvent", function(self)
         local W = EllesmereUI.Widgets
         local PP = EllesmereUI.PP
         local y = yOffset
-        local h
+        local _, h
 
         parent._showRowDivider = true
 

@@ -5,7 +5,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  after this one in the TOC; this file publishes the module.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 
 -- Lifecycle object (OnInitialize / OnEnable) for features that need one. No
@@ -77,6 +77,7 @@ function ns.Feature(dbKey, defaults, defaultPos)
     --   u.size()         the frame's width and height
     --   u.snap           every placement snaps its centre (see Place)
     --   u.noAnchorTarget, u.noSizeMatchTarget  as MakeUnlockElement takes them
+    --   u.shown()        whether the frame is in use (default: the "enabled" setting)
     -- Nothing is built while the feature is off (the unlock core calls getFrame
     -- and applyPos for every element at each login).
     function F.Start(apply, u)
@@ -86,6 +87,7 @@ function ns.Feature(dbKey, defaults, defaultPos)
             self:UnregisterAllEvents()
             apply()
             if not u then return end
+            local Shown = u.shown or Enabled
             local e = {
                 key      = u.key,
                 label    = u.label,
@@ -93,9 +95,9 @@ function ns.Feature(dbKey, defaults, defaultPos)
                 order    = u.order,
                 noAnchorTarget    = u.noAnchorTarget,
                 noSizeMatchTarget = u.noSizeMatchTarget,
-                isHidden = function() return not Enabled() end,
+                isHidden = function() return not Shown() end,
                 getFrame = function()
-                    return Enabled() and u.frame(true) or nil
+                    return Shown() and u.frame(true) or nil
                 end,
                 savePos = function(_, point, relPoint, x, y)
                     if not point then return end
@@ -108,7 +110,7 @@ function ns.Feature(dbKey, defaults, defaultPos)
                     Place(u.frame(), u.snap)
                 end,
                 applyPos = function()
-                    if Enabled() then Place(u.frame(true), u.snap) end
+                    if Shown() then Place(u.frame(true), u.snap) end
                 end,
             }
             if u.size then

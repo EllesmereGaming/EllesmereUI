@@ -25,6 +25,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local PAGE_TEXTURES = "Textures"
 local GLOBAL_KEY = "_EUIGlobal"
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 -- Session-only card expand state (never saved).
 local _txExpanded = {}
 
@@ -533,7 +538,7 @@ local function TileResourceBars(parent, y, W, tile)
     -- page's cached build when that starts or ends, so reading the flag at build time holds.
     local p0 = db()
     local split = p0 and p0.splitTex == true
-    local _, h = W:DualRow(parent, y,
+    local barTexRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Bar Texture",
           values = barValues, order = barOrder,
           tooltip = split and "Texture for the class resource bar and any bar set to Match Main Texture."
@@ -558,45 +563,22 @@ local function TileResourceBars(parent, y, W, tile)
               RBApply()
               if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_CastBar") end
           end });  y = y - h
-    -- Textured Background: a cog per texture dropdown, as on the module pages.
-    local function TexBgCog(rgn, tbl, key, texKey, tooltip, needTip, blizz)
-        if EllesmereUI._prebuilding then return end
+    -- Textured Background: the module pages' Texture Settings cog on each
+    -- texture dropdown, with the same row (the module's options env builds it).
+    local env = ns._ERB_OptEnv
+    local function TexBgCog(rgn, kind, blizz)
+        if EllesmereUI._prebuilding or not env then return end
         local blizzOn = blizz and EllesmereUI.BlizzStyle.Active("castbar") == "blizzard"
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = blizzOn and function() return true end or nil,
             disabledTooltip = blizzOn and EllesmereUI.BlizzStyle.Label("castbar") or nil,
             requireState = blizzOn and "disabled" or nil,
             title = "Texture Settings",
-            rows = {
-                { type = "toggle", label = "Textured Background", tooltip = tooltip,
-                  disabled = function()
-                      local p = db(); local t = p and p[tbl]
-                      if not t then return true end
-                      if tbl == "general" and p.splitTex == true then return false end
-                      local tx = t[texKey] or "none"
-                      return tx == "none" or (blizz and tx == "blizzard")
-                  end,
-                  disabledTooltip = needTip,
-                  rawTooltip = true,
-                  get = function()
-                      local p = db(); local t = p and p[tbl]
-                      return (t and t[key]) or false
-                  end,
-                  set = function(v)
-                      local p = db(); local t = p and p[tbl]; if not t then return end
-                      t[key] = v and true or false
-                      RBApply()
-                  end },
-            },
+            rows = { env.TexBgRowCfg(kind, RBApply) },
         })
     end
-    local barTexRow = _  -- the row DualRow just returned
-    TexBgCog(barTexRow._leftRegion, "general", "barTextureBg", "barTexture",
-        "Draws each bar's texture on its background too, tinted by the background color (the class resource uses its Empty Bar Overlay). A background stays flat while its bar's Fill Color is below 100 or Background on individual pips is on.",
-        "This option requires a Texture other than None.")
-    TexBgCog(barTexRow._rightRegion, "castBar", "textureBg", "texture",
-        "Draws the bar texture on the background too, tinted by the background color. The background stays flat while Fill Color is below 100.",
-        "This option requires a Bar Texture other than None or Blizzard.", true)
+    TexBgCog(barTexRow._leftRegion, "bars")
+    TexBgCog(barTexRow._rightRegion, "cast", true)
     if split then
         local function BarRow(text, barKey)
             local v, o = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
@@ -616,11 +598,13 @@ local function TileResourceBars(parent, y, W, tile)
                   if p.splitTex ~= true then EllesmereUI:RefreshPage(true) end
               end }
         end
+        local _
         _, h = W:DualRow(parent, y,
             BarRow("Health Bar Texture", "health"),
             BarRow("Power Bar Texture", "primary"));  y = y - h
     end
-    _, h = W:DualRow(parent, y,
+    local gcdTexRow
+    gcdTexRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "GCD Bar Texture", values = gcdValues, order = gcdOrder,
           getValue = function()
               local p = db()
@@ -633,10 +617,7 @@ local function TileResourceBars(parent, y, W, tile)
               if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_GCDBar") end
           end },
         BLANK());  y = y - h
-    local gcdTexRow = _  -- the row DualRow just returned
-    TexBgCog(gcdTexRow._leftRegion, "gcdBar", "textureBg", "texture",
-        "Draws the bar texture on the background too, tinted by the background color.",
-        "This option requires a Bar Texture other than None.")
+    TexBgCog(gcdTexRow._leftRegion, "gcd")
     y = LinkRow(parent, y, "Border Styles (per bar)",
         tile.folder, "Class, Power and Health Bars", nil, "Border Style")
     return y

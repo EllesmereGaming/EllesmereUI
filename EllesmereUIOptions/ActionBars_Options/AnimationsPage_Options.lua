@@ -8,6 +8,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUIActionBars"]
 if not ns then return end  -- module disabled: no options page
+-- Options page pool (EllesmereUI_FramePool.lua, first in this addon): a frame
+-- made here on a pool host (a kept page and every frame it hands out) is reset
+-- and dressed again by the next build instead of made anew; on any other
+-- parent this is CreateFrame. The preview icons are made again by every build
+-- (never held back for a later one), so the pool hands each build the same ones.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
     local SECTION_BAR_INTERACTIONS = "BAR INTERACTIONS"

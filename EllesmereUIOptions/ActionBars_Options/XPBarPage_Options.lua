@@ -15,6 +15,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUIActionBars"]
 if not ns then return end  -- module disabled: no options page
+-- Options page pool (EllesmereUI_FramePool.lua, first in this addon): a frame
+-- made here on a pool host (a kept page and every frame it hands out) is reset
+-- and dressed again by the next build instead of made anew; on any other
+-- parent this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 local XP = "XPBar"
 
@@ -467,14 +472,17 @@ local function BuildXPBarPage(pageName, parent, yOffset)
     end
 
     -- Saves a text's new value; the old Default text keeps its rested part
-    -- (Show Rested) once it is rewritten. rgn: the row, for Spec Overrides.
+    -- (Show Rested) once it is rewritten. rgn: the row, for Spec Overrides,
+    -- whose slot is read before the write (a rebuild may dress the row again
+    -- for another setting).
     local function WriteSlot(stem, i, v, rgn)
+        local snap = rgn and EllesmereUI._SOAttribution(rgn)
         local s, key = S(), SlotKey(stem, i)
         local _, legacy = SlotItems(stem, i, scratch)
         if legacy and s[key .. "Rested"] == nil then s[key .. "Rested"] = true end
         s[key] = v
         ns.ApplyDataBarLayout(XP)
-        if rgn then EllesmereUI._NotifySettingWrite(rgn) end
+        if rgn then EllesmereUI._NotifySettingWrite(rgn, snap) end
     end
 
     -- Show Rested: the rested XP after the text's first Current %, Current or
@@ -552,8 +560,10 @@ local function BuildXPBarPage(pageName, parent, yOffset)
                 head = { { key = "none", label = "Remove" } },
                 onHead = function()
                     emptied = nil
+                    -- the row's slot, read before the write and the rebuild
+                    local snap = EllesmereUI._SOAttribution(rgn)
                     ClearSlot(stem, i)
-                    EllesmereUI._NotifySettingWrite(rgn)
+                    EllesmereUI._NotifySettingWrite(rgn, snap)
                     Rebuild()
                 end,
                 tail = SOLO_ITEMS,
@@ -577,8 +587,10 @@ local function BuildXPBarPage(pageName, parent, yOffset)
                 onClose = function()
                     if emptied and not Shows(stem, i) then
                         emptied = nil
+                        -- the row's slot, read before the write and the rebuild
+                        local snap = EllesmereUI._SOAttribution(rgn)
                         ClearSlot(stem, i)
-                        EllesmereUI._NotifySettingWrite(rgn)
+                        EllesmereUI._NotifySettingWrite(rgn, snap)
                         Rebuild()
                     end
                 end,
@@ -812,10 +824,12 @@ local function BuildXPBarPage(pageName, parent, yOffset)
         else
             SlotCog(rgn, c)
         end
-        -- The text Add Text Slot just made: its own row takes the write.
+        -- The text Add Text Slot just made: its own row takes the write, its
+        -- slot read now, while this build's row holds it.
         if addedKey and addedKey == SlotKey(c.pos.stem, c.i) then
             addedKey = nil
-            EllesmereUI._NotifySettingWrite(rgn)
+            local snap = EllesmereUI._SOAttribution(rgn)
+            EllesmereUI._NotifySettingWrite(rgn, snap)
         end
     end
     for k = 1, #cells, 2 do

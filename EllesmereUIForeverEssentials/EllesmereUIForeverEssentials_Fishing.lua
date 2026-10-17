@@ -17,16 +17,15 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  values from before saved and put back at the next login after a reload.
 -------------------------------------------------------------------------------
 local _, module = ...
-local OWNER = "EllesmereUIForeverEssentials"
 local BUTTON_NAME = "EllesmereUIFishingCastButton"
 
 -- Settings live in EllesmereUIDB.fishing; unset keys read these. key: the
 -- Fishing Key (nil: none); held: [set] = { [cvar] = the value before };
--- indicatorPos: where Unlock Mode put the Bobber Indicator.
+-- pos: where Unlock Mode put the Bobber Indicator.
 local F = module.Feature("fishing", {
     reel = true, indicator = true, lure = true,
     doubleClick = false, clickLure = false, sound = false,
-})
+}, { point = "CENTER", relPoint = "CENTER", x = 0, y = -180 })
 
 -- The Fishing ranks, highest first.
 local FISHING_SPELLS = { 18248, 7732, 7731, 7620 }
@@ -71,6 +70,7 @@ local lineOut = false         -- the Fishing channel runs
 local reeling = false         -- the key is bound to Interact With Target
 local clickArmed = false      -- the right-click is bound to the button
 local lastRightClick = 0
+local armedAt = 0             -- when the right-click was bound to the button
 local worldHooked = false
 
 -------------------------------------------------------------------------------
@@ -121,8 +121,10 @@ end
 
 -- The game object ID in a "GameObject-0-...-35591-..." GUID, or nil.
 local function ObjectID(guid)
-    if not guid or (issecretvalue and issecretvalue(guid)) then return nil end
-    return tonumber(guid:match("^GameObject%-%d+%-%d+%-%d+%-%d+%-(%d+)%-"))
+    if not guid or issecretvalue(guid) then return nil end
+    -- Only the object's ID field is read: the server and spawn fields before
+    -- and after it may be obfuscated.
+    return tonumber(guid:match("^GameObject%-[^-]*%-[^-]*%-[^-]*%-[^-]*%-(%d+)%-"))
 end
 
 -------------------------------------------------------------------------------
@@ -138,7 +140,7 @@ local function Hold(set, cvars)
     for name, value in pairs(cvars) do
         local cur = C_CVar.GetCVar(name)
         local want = cur and CVarText(value(tonumber(cur) or 0))
-        if cur ~= nil and cur ~= want and EllesmereUI.HoldCVar(name, want, OWNER) then
+        if cur ~= nil and cur ~= want and EllesmereUI.HoldCVar(name, want, "EllesmereUIForeverEssentials") then
             was[name] = cur
         end
     end
@@ -150,7 +152,7 @@ local function Release(set)
     local was = held and held[set]
     if not was then return end
     for name, value in pairs(was) do
-        EllesmereUI.ReleaseCVar(name, value, OWNER)
+        EllesmereUI.ReleaseCVar(name, value, "EllesmereUIForeverEssentials")
     end
     held[set] = nil
 end
@@ -162,18 +164,10 @@ end
 -------------------------------------------------------------------------------
 local INDICATOR_SIZE = 40
 local ICON = "Interface\\Icons\\Trade_Fishing"  -- the Fishing profession
-local DEFAULT_INDICATOR_POS = { point = "CENTER", relPoint = "CENTER", x = 0, y = -180 }
 
 local function IndicatorTip()
     if reeling then return EllesmereUI.Lf("Bobber found: %s reels in", GetBindingText(F.Get("key"))) end
     return EllesmereUI.L("Bobber not found: keep it on screen, cast again, or right-click it to reel in.")
-end
-
-local function PlaceIndicator()
-    if not indicator then return end
-    local pos = F.Get("indicatorPos") or DEFAULT_INDICATOR_POS
-    indicator:ClearAllPoints()
-    indicator:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
 end
 
 local function BuildIndicator()
@@ -200,29 +194,7 @@ local function BuildIndicator()
     indicator.key = key
     indicator:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, IndicatorTip()) end)
     indicator:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-    PlaceIndicator()
-
-    EllesmereUI:RegisterUnlockElements({ EllesmereUI.MakeUnlockElement({
-        key = "EUI_FishingBobber", label = "Bobber Indicator", group = "Forever Essentials", order = 60,
-        noResize = true,
-        isHidden = function() return not IndicatorOn() end,
-        getFrame = function() return indicator end,
-        getSize  = function() return INDICATOR_SIZE, INDICATOR_SIZE end,
-        savePos = function(_, point, relPoint, x, y)
-            if not point then return end
-            F.Cfg().indicatorPos = { point = point, relPoint = relPoint or point, x = x, y = y }
-            if not EllesmereUI._unlockActive then PlaceIndicator() end
-        end,
-        loadPos = function()
-            local pos = F.Get("indicatorPos")
-            return pos and { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y } or nil
-        end,
-        clearPos = function()
-            F.Cfg().indicatorPos = nil
-            PlaceIndicator()
-        end,
-        applyPos = PlaceIndicator,
-    }) }, "EllesmereUIForeverEssentials")
+    F.Place(indicator)
 end
 
 local function UpdateIndicator()
@@ -329,8 +301,13 @@ local function BuildButton()
     castButton:RegisterForClicks("AnyUp", "AnyDown")
     castButton:SetAttribute("useOnKeyDown", false)
     castButton:Hide()
+    -- The key's press sets what its release does (pole, lure or cast), out of
+    -- combat; in combat the release does what was set last.
     castButton:SetScript("PreClick", function(self, _, down)
-        if not down and self:GetAttribute("type") == "spell" and not InCombatLockdown() then
+        if InCombatLockdown() then return end
+        if down then
+            UpdateCastButton()
+        elseif self:GetAttribute("type") == "spell" then
             StartSession()
         end
     end)
@@ -339,10 +316,16 @@ local function BuildButton()
     end)
 end
 
+-- The safety net: no release reached the button within DISARM_DELAY of the
+-- arming (an older timer finds a newer arming and leaves it).
+local function DisarmLate()
+    if clickArmed and GetTime() - armedAt >= DISARM_DELAY - 0.05 then Disarm() end
+end
+
 -- A second right-click on the world soon after the first: bound to the
 -- button just for this click.
 local function OnWorldMouseDown(_, button)
-    if button ~= "RightButton" or not F.Get("doubleClick") then return end
+    if button ~= "RightButton" or not F.Get("doubleClick") or EllesmereUI.PadGamepadUI() then return end
     local now = GetTime()
     local double = now - lastRightClick < DOUBLE_CLICK_DELAY
     lastRightClick = double and 0 or now
@@ -353,7 +336,8 @@ local function OnWorldMouseDown(_, button)
     UpdateCastButton(true)
     SetOverrideBindingClick(clickOwner, true, "BUTTON2", BUTTON_NAME)
     clickArmed = true
-    C_Timer.After(DISARM_DELAY, Disarm)
+    armedAt = GetTime()
+    C_Timer.After(DISARM_DELAY, DisarmLate)
 end
 
 -------------------------------------------------------------------------------
@@ -376,7 +360,7 @@ ev:SetScript("OnEvent", function(_, event, _, arg2, arg3)
         end
     elseif event == "UNIT_SPELLCAST_CHANNEL_START" then
         -- arg3: the spell ID
-        if not (fishingName and arg3) or (issecretvalue and issecretvalue(arg3)) then return end
+        if not (fishingName and arg3) or issecretvalue(arg3) then return end
         if C_Spell.GetSpellName(arg3) == fishingName then
             lineOut = true
             StartSession()
@@ -388,9 +372,6 @@ ev:SetScript("OnEvent", function(_, event, _, arg2, arg3)
         UpdateIndicator()
     elseif event == "SPELLS_CHANGED" then
         ResolveFishing()
-        UpdateCastButton()
-    elseif event == "UNIT_INVENTORY_CHANGED" or event == "BAG_UPDATE_DELAYED" then
-        UpdateCastButton()
     else
         -- PLAYER_STARTED_MOVING, PLAYER_REGEN_DISABLED (bindings can still
         -- change), PLAYER_LEAVING_WORLD
@@ -404,7 +385,7 @@ ev:SetScript("OnEvent", function(_, event, _, arg2, arg3)
     end
 end)
 
-local FEATURE_EVENTS = { "SPELLS_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_REGEN_DISABLED", "PLAYER_LEAVING_WORLD" }
+local FEATURE_EVENTS = { "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_LEAVING_WORLD" }
 
 -- Login and the options; takes effect immediately in both directions. The
 -- button and the bindings only change out of combat: in combat the apply
@@ -435,10 +416,11 @@ local function Apply()
     ResolveFishing()
     if IndicatorOn() then BuildIndicator() end  -- placed in Unlock Mode before the first cast
     for i = 1, #FEATURE_EVENTS do ev:RegisterEvent(FEATURE_EVENTS[i]) end
-    ev:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
     ev:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "player")
     ev:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
-    if F.Get("doubleClick") and not worldHooked then
+    -- Never under the Gamepad interface style: a hook on a Blizzard frame
+    -- there can run inside its secure navigation.
+    if F.Get("doubleClick") and not worldHooked and not EllesmereUI.PadGamepadUI() then
         worldHooked = true
         WorldFrame:HookScript("OnMouseDown", OnWorldMouseDown)
     end
@@ -453,4 +435,12 @@ EllesmereUI._Fishing = {
     Apply = Apply,
 }
 
-F.Start(Apply)
+F.Start(Apply, {
+    key = "EUI_FishingBobber", label = "Bobber Indicator", order = 60,
+    shown = IndicatorOn,
+    frame = function(build)
+        if build then BuildIndicator() end
+        return indicator
+    end,
+    size = function() return INDICATOR_SIZE, INDICATOR_SIZE end,
+})

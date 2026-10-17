@@ -19,6 +19,11 @@ local cdmBarIcons, GetCDMFont, SetBlizzCDMFont = I.cdmBarIcons, I.GetCDMFont, I.
 
 local ApplyShapeToCDMIcon
 
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot, so nothing written to that slot later reaches the live icons.
+local POOL = EllesmereUI._Pool
+
 local _inCombat = false
 I.inCombatSetters[#I.inCombatSetters + 1] = function(v) _inCombat = v end
 
@@ -197,9 +202,11 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
         end
     end
 
-    -- Shape border texture (on a dedicated frame above the cooldown swipe)
+    -- Shape border texture (on a dedicated frame above the cooldown swipe).
+    -- On an options preview slot (an options page pool host) the frame is
+    -- pooled with the slot; on a live icon this is the plain CreateFrame.
     if not ifc.shapeBorderFrame then
-        local sbf = CreateFrame("Frame", nil, icon)
+        local sbf = POOL.CreateFrame("Frame", nil, icon)
         sbf:SetAllPoints(icon)
         sbf:SetFrameLevel(icon:GetFrameLevel() + 2)
         ifc.shapeBorderFrame = sbf

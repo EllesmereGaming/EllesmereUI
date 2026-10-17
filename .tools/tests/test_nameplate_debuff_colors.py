@@ -982,6 +982,8 @@ function EllesmereUI.BlankRowCfg() return { type="label", text="" } end
 function EllesmereUI.RegisterWidgetRefresh(fn) uiRefreshers[#uiRefreshers+1] = fn end
 function EllesmereUI:RegisterOnHide(fn) uiOnHide[#uiOnHide+1] = fn end
 function EllesmereUI._NotifySettingWrite(rgn) uiNotified[#uiNotified+1] = rgn end
+-- Spec Overrides slot snapshot (taken before a write; none outside a session).
+function EllesmereUI._SOAttribution() return nil end
 function EllesmereUI:ShowInputPopup(opts) uiPopup = opts end
 function EllesmereUI.PrintError(msg) uiErrors[#uiErrors+1] = msg end
 function EllesmereUI.ShowWidgetTooltip(_, text) uiTips[#uiTips+1] = text end
@@ -1138,8 +1140,8 @@ assert(picker.menu.shown and #picker.order == 4 and picker.order[1] == "DRUID"
 assert(picker.values.ROGUE:find("Rogue", 1, true) and picker.values._noLoc)
 picker.set("ROGUE")
 assert(profile.debuffColorsROGUE == "0:1,0.43,0.04/", "Add Class saved " .. tostring(profile.debuffColorsROGUE))
-assert(#uiCards == 1 and Card("ROGUE") and #uiHeaders == 2 and uiHeaders[2] == "CLASSES",
-    "the added class has no card under CLASSES")
+assert(#uiCards == 1 and Card("ROGUE") and #uiHeaders == 1,
+    "the added class has no card right under the settings")
 local newRogue = CellIn("ROGUE", "1. Debuff")
 assert(newRogue and uiNotified[#uiNotified] == newRogue.rgn, "the added class's row did not report the write")
 Fire(AddClass(), "OnClick")
@@ -1327,7 +1329,7 @@ assert(profile.debuffColorsDRUID == nil, "an emptied list left a saved value")
 local ten = ("1:1,1,1;"):rep(10)
 UseProfile({ debuffColorsEnabled=true, debuffColorsDRUID=ten .. "/", debuffColorsROGUE="703:1,1,1/" })
 EllesmereUI:RefreshPage(true)
-assert(#uiCards == 2 and uiCards[1].tile.key == "DRUID" and uiCards[2].tile.key == "ROGUE" and uiHeaders[2] == "CLASSES")
+assert(#uiCards == 2 and uiCards[1].tile.key == "DRUID" and uiCards[2].tile.key == "ROGUE" and #uiHeaders == 1)
 assert(uiCards[1].desc.text == "Debuffs: 10    Combos: 0" and math.abs(uiCards[2].hdr.children[1].children[1].coords[1] - .51) < 1e-9)
 local cells = Cells() -- 1-2: Debuff Coloring | Only My Debuffs; 3-4: Druid's column titles
 assert(cells[5].cfg.text == "1. Debuff" and cells[6].cfg.text == "+ Add Combo")

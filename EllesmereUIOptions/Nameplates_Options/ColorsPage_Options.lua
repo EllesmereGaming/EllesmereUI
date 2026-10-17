@@ -9,6 +9,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUINameplates"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page frame pool (EllesmereUI_FramePool.lua): frames made under a
+-- pooled page part are handed back to the page's next build.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 -- The nameplate Threat % cog's rows (WoW Forever): get(key) reads the
 -- profile, set(key, v) writes it and refreshes the text.
 if EllesmereUI.IS_FOREVER then
@@ -86,9 +90,12 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
             ns.DebuffColors_RequestRefresh()
         end
     end
+    -- rgn: the row reporting the write to Spec Overrides, its slot read before the
+    -- write (a structure change then rebuilds the page, dressing the row again).
     local function Write(class, singles, combos, rgn)
+        local snap = rgn and EllesmereUI._SOAttribution(rgn)
         ns.db.profile[DC.Key(class)] = DC.Encode(singles, combos)
-        if rgn then EllesmereUI._NotifySettingWrite(rgn) end
+        if rgn then EllesmereUI._NotifySettingWrite(rgn, snap) end
         Apply()
     end
     local function Rebuild() EllesmereUI:RefreshPage(true) end
@@ -679,11 +686,13 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
             rgn._captureCfg = setmetatable({ text = FullLabel(c) }, { __index = rgn._captureCfg })
         end
         if c.kind == "combo" then ComboChrome(rgn, c) else SingleChrome(rgn, c) end
-        -- The entry Add just made: its own row takes the write.
+        -- The entry Add just made: its own row takes the write (its slot read now,
+        -- while this build's row is its dress).
         local a = debuffColorAdded
         if a and a.kind == c.kind and a.class == c.class and a.n == c.n then
             debuffColorAdded = nil
-            EllesmereUI._NotifySettingWrite(rgn)
+            local snap = EllesmereUI._SOAttribution(rgn)
+            EllesmereUI._NotifySettingWrite(rgn, snap)
         end
     end
 
@@ -784,7 +793,14 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
         wide, h = W:WideButton(parent, "+ Add Class", y,
             function() if openClass then openClass() end end, CLASS_W); y = y - h
         if not EllesmereUI._prebuilding then
-            openClass = AddPicker((wide:GetChildren()), unlisted, AddSingle)
+            -- The row's button: its one shown child (page reuse keeps the row's
+            -- children of its earlier dresses among its children, hidden).
+            local btn
+            local kids = { wide:GetChildren() }
+            for i = 1, #kids do
+                if kids[i]:IsShown() then btn = kids[i]; break end
+            end
+            if btn then openClass = AddPicker(btn, unlisted, AddSingle) end
         end
     end
     _, h = W:Spacer(parent, y, 20); y = y - h

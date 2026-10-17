@@ -1360,17 +1360,19 @@ do
                         if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
                             and C_CooldownViewer.GetCooldownViewerCooldownInfo and Enum.CooldownViewerCategory then
                             local essential = Enum.CooldownViewerCategory.Essential
+                            -- One marker per rebuild, reading the category being walked.
+                            local isEss
+                            local function mark(id)
+                                if not id or id <= 0 then return end
+                                if isEss or curated[id] == nil then curated[id] = isEss end
+                            end
                             for _, cat in pairs(Enum.CooldownViewerCategory) do
-                                local isEss = (cat == essential)
+                                isEss = (cat == essential)
                                 local okS, set = pcall(C_CooldownViewer.GetCooldownViewerCategorySet, cat)
                                 if okS and type(set) == "table" then
                                     for _, cdID in ipairs(set) do
                                         local okI, ci = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cdID)
                                         if okI and ci and ci.spellID then
-                                            local function mark(id)
-                                                if not id or id <= 0 then return end
-                                                if isEss or curated[id] == nil then curated[id] = isEss end
-                                            end
                                             mark(ci.spellID)
                                             mark(ci.overrideSpellID)
                                             if type(ci.linkedSpellIDs) == "table" then
@@ -1386,6 +1388,8 @@ do
                         end
                     end
                     local haveCurated = next(curated) ~= nil
+                    local GetSpell = C_ActionBar.GetSpell
+                    local GetBaseSpell = C_Spell and C_Spell.GetBaseSpell
                     for _, info in ipairs(BAR_CONFIG) do
                         if not info.isStance and not info.isPetBar then
                             -- Dormant (driver-hidden) bars are excluded from lists
@@ -1405,9 +1409,11 @@ do
                                     if a and HasAction(a) then
                                         list[#list + 1] = btn
                                         local aType = GetActionInfo(a)
-                                        local sid = C_ActionBar.GetSpell and C_ActionBar.GetSpell(a)
-                                        if aType == "spell" and sid and sid > 0 then
-                                            local base = C_Spell and C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(sid)
+                                        -- Spell lookups only for spell slots (nothing
+                                        -- else reads them).
+                                        local sid = aType == "spell" and GetSpell and GetSpell(a)
+                                        if sid and sid > 0 then
+                                            local base = GetBaseSpell and GetBaseSpell(sid)
                                             -- Essential (true) -> fast; any other
                                             -- curated (false) or uncurated (nil)
                                             -- -> slow. No curated data at all ->
@@ -2045,6 +2051,37 @@ do
             -- event) can only skip, never wrongly refresh -- the paging event's own
             -- full pass repaints anything a stale map missed.
             local _slotFast, _infreqStampNew
+            -- A spell override flip names its base and override spell (arg1, arg2)
+            -- and can only change buttons holding one of them, or a macro (its icon
+            -- can follow the spell): the infrequent branch refreshes exactly those
+            -- (C_ActionBar.FindSpellActionButtons) instead of every button. A secret
+            -- or missing payload keeps the full pass.
+            local _ovrSlots
+            if event == "COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED" and arg1
+                and C_ActionBar.FindSpellActionButtons
+                and not (issecretvalue and (issecretvalue(arg1)
+                    or (arg2 ~= nil and issecretvalue(arg2)))) then
+                _ovrSlots = ns._eabOvrSlots
+                if _ovrSlots then wipe(_ovrSlots) else _ovrSlots = {}; ns._eabOvrSlots = _ovrSlots end
+                local ok1, found1 = pcall(C_ActionBar.FindSpellActionButtons, arg1)
+                local ok2, found2 = true, nil
+                if arg2 then ok2, found2 = pcall(C_ActionBar.FindSpellActionButtons, arg2) end
+                local usable = ok1 and ok2
+                for pass = 1, 2 do
+                    local found = (pass == 1) and found1 or found2
+                    if usable and found then
+                        if issecretvalue and issecretvalue(found) then
+                            usable = false
+                        else
+                            for _, s in ipairs(found) do
+                                if issecretvalue and issecretvalue(s) then usable = false; break end
+                                _ovrSlots[s] = true
+                            end
+                        end
+                    end
+                end
+                if not usable then _ovrSlots = nil end -- lookup refused or secret: the full pass
+            end
             if event == "ACTIONBAR_SLOT_CHANGED" and arg1 and arg1 ~= 0 then
                 local smap = ns._slotBtnMap
                 if not smap or ns._slotBtnMapDirty then
@@ -2149,9 +2186,11 @@ do
                             -- events always gets a final pass: correctness never rides
                             -- on skipped dupes. Target changes keep their own cheap
                             -- path and neither stamp nor skip.
+                            -- A targeted override pass (_ovrSlots) neither stamps
+                            -- nor skips: it is not the full pass a dupe would repeat.
                             local nowI = GetTime()
                             if not ns._eabNoBtns then ns._eabNoBtns = {} end
-                            local _infreqDup = event ~= "PLAYER_TARGET_CHANGED"
+                            local _infreqDup = event ~= "PLAYER_TARGET_CHANGED" and not _ovrSlots
                                 and ns._infreqPassAt == nowI and not _infreqStampNew
                             if _infreqDup then
                                 ns._infreqFlushEvent = event
@@ -2171,12 +2210,37 @@ do
                                     end
                                     C_Timer.After(0, ns._infreqFlushFn)
                                 end
-                            elseif event ~= "PLAYER_TARGET_CHANGED" then
+                            elseif event ~= "PLAYER_TARGET_CHANGED" and not _ovrSlots then
                                 ns._infreqPassAt = nowI
                                 _infreqStampNew = true
                             end
                             local canSetAttr = not InCombatLockdown()
-                            for _, btn in ipairs(_infreqDup and ns._eabNoBtns or btns) do
+                            local infreqBtns = _infreqDup and ns._eabNoBtns or btns
+                            if _ovrSlots then
+                                local pick = ns._eabOvrPick
+                                if pick then wipe(pick) else pick = {}; ns._eabOvrPick = pick end
+                                for _, b in ipairs(btns) do
+                                    local a = b:GetAttribute("action")
+                                    if a then
+                                        local take = _ovrSlots[a]
+                                        if not take then
+                                            local aType = GetActionInfo(a)
+                                            if issecretvalue and issecretvalue(aType) then
+                                                -- Instanced combat: the content token the
+                                                -- SPELLS_CHANGED gate cached ("macro..."),
+                                                -- unknown refreshes.
+                                                local tok = EFD(b).spellsTok
+                                                take = tok == nil or tok == "?" or tok:find("^macro") ~= nil
+                                            else
+                                                take = aType == "macro"
+                                            end
+                                        end
+                                        if take then pick[#pick + 1] = b end
+                                    end
+                                end
+                                infreqBtns = pick
+                            end
+                            for _, btn in ipairs(infreqBtns) do
                                 -- Covers SPELL_UPDATE_CHARGES (a regained charge must
                                 -- re-evaluate desat) plus form/stance/world entries;
                                 -- early-outs when both features are off. Target changes

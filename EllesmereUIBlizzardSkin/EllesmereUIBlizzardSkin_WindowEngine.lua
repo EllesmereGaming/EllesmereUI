@@ -439,14 +439,15 @@ function WSkin.Inset(inset)
     Register(inset, true)
 end
 
-function WSkin.Font(fs, r, g, b)
+-- size (optional): the size to set; otherwise the string keeps its own (12 if none).
+function WSkin.Font(fs, r, g, b, size)
     if not fs or not fs.GetFont or (fs.IsForbidden and fs:IsForbidden()) then return end
-    local _, size = fs:GetFont()
-    if size and issecretvalue(size) then return end
+    local _, cur = fs:GetFont()
+    if cur and issecretvalue(cur) then return end
     -- 12.0.7: shadows only render from a FontObject, never from instance
     -- SetShadowOffset. Prime BEFORE SetFont (SetFont then restores the face).
     EUI.PrimeFontShadow(fs, Theme.fontShadow)
-    fs:SetFont(Theme.fontPath, size or 12, Theme.fontFlag or "")
+    fs:SetFont(Theme.fontPath, size or cur or 12, Theme.fontFlag or "")
     if r then fs:SetTextColor(r, g, b or r) end
 end
 

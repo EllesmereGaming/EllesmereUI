@@ -410,6 +410,11 @@ local function ApplyLook(pp, g, p, ori)
     local r, gr, b = ManaColor()
     ns.ApplyBarFlat(sb:GetStatusBarTexture(), r, gr, b, 1)
     S.bg:SetColorTexture(pp.bgR or 0, pp.bgG or 0, pp.bgB or 0, pp.bgA or 0.75)
+    -- Textured Background, as the Power Bar's: flat while Fill Color is below 100.
+    if g.barTextureBg or S.bg._erbBgTex then
+        ns.ERB_BgTexture(S.bg, g.barTextureBg and (pp.fillOpacity or 100) >= 100 and path,
+            pp.bgR or 0, pp.bgG or 0, pp.bgB or 0, pp.bgA or 0.75)
+    end
     ns.ApplyFillOpacity(S.host, ori, pp.fillOpacity)
     return r, gr, b
 end

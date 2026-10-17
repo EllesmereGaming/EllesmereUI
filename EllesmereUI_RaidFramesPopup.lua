@@ -155,15 +155,12 @@ local function ShowRaidFramesPopup()
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.raidFramesIntroShown = true
         if disable then
-            if C_AddOns and C_AddOns.DisableAddOn then
-                C_AddOns.DisableAddOn(RF_FOLDER)
-            end
-            EllesmereUI.RequestReload()
-            -- On the Forever client the reload waits on its popup: close the
-            -- announcement and clear its pending flag so the popups queued
-            -- behind it stop waiting. Retail is already reloading.
-            dimmer:Hide()
-            EllesmereUI._raidFramesIntroPending = nil
+            -- The reload first, then the switch-off as its pre-reload work.
+            EllesmereUI.RequestReload(nil, nil, function()
+                if C_AddOns and C_AddOns.DisableAddOn then
+                    C_AddOns.DisableAddOn(RF_FOLDER)
+                end
+            end)
             return
         end
         dimmer:Hide()

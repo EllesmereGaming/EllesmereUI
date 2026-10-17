@@ -9,6 +9,11 @@ local ADDON_NAME = "EllesmereUIQoL"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local PAGE_CURSOR     = "Cursor"
 local PAGE_UNLOCK     = "Unlock Mode"
 

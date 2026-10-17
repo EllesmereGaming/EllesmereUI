@@ -139,7 +139,9 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
         local pending = ns._ufTextNotify
         if pending and pending.unit == opts.unit and pending.key == cell.key then
             ns._ufTextNotify = nil
-            EllesmereUI._NotifySettingWrite(rgn)
+            -- The slot read now, while this build's cell is its dress.
+            local snap = EllesmereUI._SOAttribution(rgn)
+            EllesmereUI._NotifySettingWrite(rgn, snap)
         end
     end
     for i = 1, #cells, 2 do

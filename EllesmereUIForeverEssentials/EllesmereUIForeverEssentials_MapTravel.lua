@@ -388,9 +388,10 @@ end
 -- pin keeps its tooltip.
 local function Refresh(force)
     local mapID = WorldMapFrame:GetMapID()
-    local key = mapID and (mapID .. (On("transports") and "t" or "")
-        .. (On("instances") and "i" or "") .. (On("exits") and "e" or "")
-        .. (On("flights") and "f" or ""))
+    -- One number for the map and the four toggles: no string per refresh.
+    local key = mapID and (mapID * 16 + (On("transports") and 1 or 0)
+        + (On("instances") and 2 or 0) + (On("exits") and 4 or 0)
+        + (On("flights") and 8 or 0))
     if key and key == shownKey and force ~= true then
         Rescale()
         return

@@ -8,6 +8,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUICooldownManager"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page pool (EllesmereUI_FramePool.lua): a frame made under a pool
+-- host (a reused header) is handed out again reset to fresh; anywhere else this
+-- is the plain CreateFrame. The drag ghost is one kept frame for the session.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolKept, PoolGen = EllesmereUI._Pool.Kept, EllesmereUI._Pool.Gen
+
 --- Build the live CDM bar preview in the content header (interactive)
 local function BuildCDMLivePreview(parent, yOff)
     local env = ns._CDMO_OptEnv
@@ -159,7 +165,9 @@ local function BuildCDMLivePreview(parent, yOff)
 
     local function EnsureDragGhost()
         if dragGhost then return dragGhost end
-        local g = CreateFrame("Frame", nil, UIParent)
+        -- One ghost frame for the session, dressed again by the first drag of
+        -- each preview build.
+        local g = PoolKept(optState, "cdmDragGhost", "Frame", UIParent)
         g:SetFrameStrata("TOOLTIP")
         g:SetSize(36, 36)
         g:SetAlpha(0.7)
@@ -545,6 +553,10 @@ local function BuildCDMLivePreview(parent, yOff)
 
     local function CreatePreviewSlot(idx)
         local slot = CreateFrame("Button", nil, pf)
+        -- A reused header hands this slot out again for a new build: what the
+        -- live icon passes cached on its previous dress (shape and stock style
+        -- frames, the keybind badge) went with that dress, so they start anew.
+        ns._ecmeFC[slot] = nil
         slot:SetSize(1, 1)
         slot:RegisterForClicks("LeftButtonUp", "RightButtonDown", "MiddleButtonDown")
         -- Expand hit area so small icons are easier to click/drag
@@ -603,6 +615,7 @@ local function BuildCDMLivePreview(parent, yOff)
 
         -- Keybind text (mirrors _keybindText on real CDM icons)
         local kbTxt = pvTextOvr:CreateFontString(nil, "OVERLAY")
+        ns.CdmForgetKeybindBadge(kbTxt)
         SetPVFont(kbTxt, FONT_PATH, 9)
         kbTxt:SetPoint("TOPLEFT", pvTextOvr, "TOPLEFT", 2, -2)
         kbTxt:SetJustifyH("LEFT")
@@ -657,14 +670,6 @@ local function BuildCDMLivePreview(parent, yOff)
                 return
             end
             EllesmereUI.HideWidgetTooltip()
-            -- Override editing sessions: per-spell settings and spell
-            -- placement are never part of the override system -- refuse
-            -- the interaction with an explanatory tooltip.
-            if EllesmereUI.SpecOverrides_EditSessionActive() then
-                EllesmereUI.ShowWidgetTooltip(self,
-                    "Per-spell settings are not part of the override system.")
-                return
-            end
             local bd = SelectedCDMBar()
             if not bd then return end
             local isDefaultBuffs = (bd.key == "buffs")
@@ -1044,12 +1049,6 @@ local function BuildCDMLivePreview(parent, yOff)
 
         slot:SetScript("OnMouseDown", function(self, button)
             if button ~= "LeftButton" then return end
-            -- Override editing sessions: spell placement never overrides.
-            if EllesmereUI.SpecOverrides_EditSessionActive() then
-                EllesmereUI.ShowWidgetTooltip(self,
-                    "Per-spell settings are not part of the override system.")
-                return
-            end
             -- Buff-family drag-reorder: extra/custom buff bars reorder via
             -- assignedSpells (1:1 preview), the default buffs bar via its
             -- dedicated buffDisplayOrder (stable cooldownID-keyed, reconciled
@@ -1143,9 +1142,13 @@ local function BuildCDMLivePreview(parent, yOff)
         -- immediate reanchor so source bars (where the spell got auto-removed from) re-render without waiting for the throttled queue. Then schedules a +0.05s preview refresh.
         local function FinalizeAdd()
             if ns.CollectAndReanchor then ns.CollectAndReanchor() end
+            -- pf's own pass only while it is still this build's preview (a
+            -- reused header dresses the frame again for a new build); the
+            -- current preview is updated either way.
+            local pfGen = PoolGen(pf)
             C_Timer.After(0.05, function()
                 if ns.CDMApplyVisibility then ns.CDMApplyVisibility() end
-                if pf.Update then pf:Update() end
+                if PoolGen(pf) == pfGen and pf.Update then pf:Update() end
                 UpdateCDMPreviewAndResize()
             end)
         end
@@ -1230,10 +1233,12 @@ local function BuildCDMLivePreview(parent, yOff)
         ns.CDMO_ShowBuffToCDPicker(self, bd.key, function()
             if ns.CollectAndReanchor then ns.CollectAndReanchor() end
             -- The buff-mirror walk (10Hz) binds to the freshly-created icon on
-            -- its own next tick; no re-arm needed.
+            -- its own next tick; no re-arm needed. pf's own pass only while it
+            -- is still this build's preview (as in FinalizeAdd).
+            local pfGen = PoolGen(pf)
             C_Timer.After(0.05, function()
                 if ns.CDMApplyVisibility then ns.CDMApplyVisibility() end
-                if pf.Update then pf:Update() end
+                if PoolGen(pf) == pfGen and pf.Update then pf:Update() end
                 UpdateCDMPreviewAndResize()
             end)
         end)
@@ -1903,6 +1908,10 @@ local function BuildCDMLivePreview(parent, yOff)
             self._reorderHintText = rh
         end
         local function ShowReorderHint(text)
+            -- Override editing sessions: the per-icon menu is Remove Spell only.
+            if EllesmereUI.SpecOverrides_EditSessionActive() then
+                text = "Drag to Reorder. Click to remove spells. Per-spell settings are not part of the override system."
+            end
             local rh = self._reorderHintText
             rh:SetText(EllesmereUI.L(text))
             rh:ClearAllPoints()
@@ -1921,7 +1930,7 @@ local function BuildCDMLivePreview(parent, yOff)
             end
             if self._hiddenHeader then self._hiddenHeader:Hide() end
             if self._focusKickInfoText then self._focusKickInfoText:Hide() end
-            ShowReorderHint("Drag to Reorder. Click to override display settings and add custom effects per icon")
+            ShowReorderHint("Drag to Reorder. Click to override display settings and add custom effects per icon.")
         elseif isFocusKick then
             if self._buffInfoText then self._buffInfoText:Hide() end
             if self._buffInfoClick then self._buffInfoClick:Hide() end
@@ -1990,6 +1999,10 @@ local function BuildCDMLivePreview(parent, yOff)
     pf._previewSlots = previewSlots
     optState._cdmPreview = pf
     pf:Update()
+    -- This module's own header preview slot (its readers: the CDM options and
+    -- the reanchor's preview pass); the shared slot is still written for the
+    -- readers that have not moved to their own.
+    EllesmereUI._cdmHeaderPreview = pf
     EllesmereUI._contentHeaderPreview = pf
     -- Start active state preview if toggled on
     if _cdmActivePreviewOn then

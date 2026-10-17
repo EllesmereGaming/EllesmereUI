@@ -6,11 +6,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUIResourceBars"]
 if not ns then return end  -- module disabled: no options page
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 -- GCD Bar page
 function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
     local env = ns._ERB_OptEnv
     local DB, PP, CLASS_COLORS = env.DB, env.PP, env.CLASS_COLORS
+    local TexBgRowCfg = env.TexBgRowCfg
     local W = EllesmereUI.Widgets
     local y = yOffset
     local _, h
@@ -408,20 +413,9 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
     -- Inline cog on Bar Texture: Textured Background (greyed with the dropdown).
     if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(gcdTexRow._leftRegion, {
-            disabled = gcdOff,
+            disabled = gcdOff, disabledTooltip = "GCD Bar",
             title = "Texture Settings",
-            rows = {
-                { type = "toggle", label = "Textured Background",
-                  tooltip = "Draws the bar texture on the background too, tinted by the background color.",
-                  disabled = function() local p = DB(); return not p or (p.gcdBar.texture or "none") == "none" end,
-                  disabledTooltip = "This option requires a Bar Texture other than None.",
-                  rawTooltip = true,
-                  get = function() local p = DB(); return (p and p.gcdBar.textureBg) or false end,
-                  set = function(v)
-                      local p = DB(); if not p then return end
-                      p.gcdBar.textureBg = v and true or false; RefreshGCD()
-                  end },
-            },
+            rows = { TexBgRowCfg("gcd", RefreshGCD) },
         })
     end
 

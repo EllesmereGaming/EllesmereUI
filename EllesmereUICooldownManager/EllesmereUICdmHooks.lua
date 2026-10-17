@@ -382,19 +382,25 @@ ns.FD = FD
 -------------------------------------------------------------------------------
 --  Show When Missing: "Also Show Below N Seconds" (per-icon, off by default).
 --  The active buff comes back for its last N seconds. One timer per opted-in
---  active buff, armed from the reanchor pass that hides it, queues the relayout
---  at that moment; nothing runs in between. An aura whose times read secret
---  (restricted combat, for auras Blizzard keeps secret) simply stays hidden.
+--  active buff, armed from the reanchor pass: at its deadline it re-checks only
+--  that icon and flips it in place (ns.MissingFlip, EUI_CDM_HookReanchor.lua);
+--  anything else that changed goes back to the full reanchor. Nothing runs in
+--  between. An aura whose times read secret stays hidden.
 -------------------------------------------------------------------------------
 do
-    -- The buff's expiration time: a plain number, or nil when unknown or secret.
+    -- The buff's expiration time and time rate, read the way Blizzard's
+    -- GetCooldownValues reads them (a totem item's data first); nil when
+    -- unknown or secret.
     local function ReadExpiration(frame)
-        local ad = frame.auraDataCached
-        local exp = ad and ad.expirationTime
+        local td = frame.totemData
+        local src = td or frame.auraDataCached
+        local exp = src and src.expirationTime
         -- Secret probe first: any other test on a secret is a hard error.
-        if issecretvalue and issecretvalue(exp) then return nil end
-        if type(exp) == "number" and exp > 0 then return exp end
-        return nil
+        if issecretvalue(exp) or type(exp) ~= "number" or exp <= 0 then return nil end
+        local rate
+        if td then rate = src.modRate else rate = src.timeMod end
+        if issecretvalue(rate) or type(rate) ~= "number" or rate <= 0 then rate = 1 end
+        return exp, rate
     end
 
     local function Disarm(fc)
@@ -402,53 +408,82 @@ do
         fc._missingExp = nil
     end
 
-    local function Arm(fc, exp, delay)
+    local Deadline
+
+    -- One timer per icon, memoized on the aura's expiration (a new N disarms
+    -- first, in ns.MissingShowBelow).
+    local function Arm(frame, fc, exp, delay)
         if fc._missingTimer and fc._missingExp == exp then return end
         Disarm(fc)
         fc._missingExp = exp
         fc._missingTimer = C_Timer.NewTimer(delay, function()
             fc._missingTimer = nil
-            fc._missingExp = nil
-            if ns.QueueReanchor then ns.QueueReanchor() end
+            Deadline(frame, fc, exp)
         end)
     end
 
-    -- Called from the reanchor pass for a Show When Missing buff. seconds nil =
-    -- option off. Returns true while the buff should show.
+    -- From the reanchor pass, a deadline or the buff ticker, for a Show When
+    -- Missing buff; seconds nil = option off. Returns true while the buff
+    -- should show, with the timer armed for its next change.
     function ns.MissingShowBelow(frame, fc, seconds)
         if not seconds or seconds <= 0 then
-            if fc._missingTimer or fc._missingLow then Disarm(fc); fc._missingLow = nil end
+            if fc._missingTimer or fc._missingLow or fc._missingN then
+                Disarm(fc)
+                fc._missingLow, fc._missingN = nil, nil
+            end
             return false
         end
-        local exp = ReadExpiration(frame)
+        -- Runtime session gate: the per-pass checks for gone buffs start
+        -- once any icon uses the option.
+        ns._cdmAnyMissingBelow = true
+        if fc._missingN ~= seconds then Disarm(fc); fc._missingN = seconds end
+        local exp, rate = ReadExpiration(frame)
         if not exp then
             Disarm(fc); fc._missingLow = nil
             return false
         end
-        local left = exp - GetTime()
+        local left = (exp - GetTime()) / rate
         if left <= seconds then
-            -- Showing. Re-evaluate once this aura would have ended: it either
-            -- is gone by then or was refreshed and must hide again.
+            -- Showing. Re-check once this aura would have ended: refreshed, it
+            -- hides again; gone, Blizzard's hide edge has the last word (an
+            -- expired one never re-arms).
             fc._missingLow = seconds
-            Arm(fc, exp, math.max(left, 0) + 0.2)
+            if left > 0 then Arm(frame, fc, exp, left * rate + 0.2) else Disarm(fc) end
             return true
         end
         fc._missingLow = nil
-        Arm(fc, exp, left - seconds)
+        Arm(frame, fc, exp, (left - seconds) * rate)
         return false
     end
 
-    -- Buff ticker (already armed by the aura change): a refreshed buff that is
-    -- showing goes back into hiding at once instead of at its old end time.
-    function ns.MissingLowRecheck(frame, fc)
-        local exp = ReadExpiration(frame)
-        if exp and exp - GetTime() > fc._missingLow and ns.QueueReanchor then
-            fc._missingLow = nil
+    -- Re-check one icon and flip it when its state changed.
+    local function Recheck(frame, fc)
+        local show = ns.MissingShowBelow(frame, fc, fc._missingN)
+        if show == (fc._missingActiveHidden and true or false) then
+            ns.MissingFlip(frame, fc, not show)
+        end
+    end
+
+    -- A deadline: the same aura on a shown, routed frame flips in place; any
+    -- other change goes back to the full reanchor pass.
+    Deadline = function(frame, fc, exp)
+        if fc._missingN and fc.barKey and frame:IsShown() and ReadExpiration(frame) == exp then
+            Recheck(frame, fc)
+        else
+            fc._missingExp = nil
             ns.QueueReanchor()
         end
     end
-end
 
+    -- Buff ticker (armed by the aura change): a refresh, a shorter
+    -- re-application or a time that now reads secret re-checks the icon at
+    -- once instead of at its old deadline.
+    function ns.MissingRecheck(frame, fc)
+        local exp = ReadExpiration(frame)
+        if exp and exp == fc._missingExp then return end
+        Recheck(frame, fc)
+    end
+end
 -------------------------------------------------------------------------------
 --  Resource verification for the CD Ready Glow.
 --

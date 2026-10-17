@@ -74,6 +74,13 @@ ns.UF_BLIZZ = {
         power = { x = 23, y = 61, w = 134, h = 10,
                   prefix = "UI-HUD-UnitFrame-Target-PortraitOn-Bar-",
                   mask = "UI-HUD-UnitFrame-Target-PortraitOn-Bar-Mana-Mask", mx = -61, my = 3 },
+        -- Hide Power Bar's health bar (UF_MergedHealth): the power track runs
+        -- further right under the ring than the health track, so the taller
+        -- bar takes the power track's width and a mask of both stock openings
+        -- joined (.tools/stock-merged-mask), 1 texel per unit.
+        mergedHealth = { x = 23, y = 40, w = 134, h = 31,
+                         maskFile = "Interface\\AddOns\\EllesmereUIUnitFrames\\Media\\blizz-target-merged-mask.tga",
+                         mx = 0, my = 0, mw = 256, mh = 32 },
         rep = { atlas = "UI-HUD-UnitFrame-Target-PortraitOn-Type", x = -75, y = -25 },
         -- Level number on the type strip: the stock frame puts it in the
         -- circle at the strip's LEFT end (-133,-2 off the strip's top-right),
@@ -138,6 +145,13 @@ ns.UF_KITS.classic = {
         portrait = { point = "TOPLEFT", x = 24, y = -16, size = 64, mask = "CircleMask" },
         health = { x = 90, y = 45, w = 119, h = 12 },
         power  = { x = 90, y = 56, w = 119, h = 12 },
+        -- Hide Power Bar (UF_PaintArtCut): the divider band between the health
+        -- and power windows is the sheet's rows 50..56; across the windows and
+        -- their left rim (the sheet's columns before 147) it takes the power
+        -- window's clear rows from 56 instead. From 147 the right rim and the
+        -- portrait ring's edge slant with the rows, so they keep their own.
+        -- The target's elite, rare and rare-elite sheets share this layout.
+        merge = { t = 50 / 128, b = 56 / 128, src = 56 / 128, x = 147 / 256 },
         name  = { point = "CENTER", x = 34, y = 15, w = 100, justify = "CENTER" },
         -- Level number in the ring under the portrait. The ring is an oval
         -- in the sheet (28 wide, 24 tall) centred 35.6 from the frame's left
@@ -163,6 +177,7 @@ ns.UF_KITS.classic = {
         portrait = { point = "TOPRIGHT", x = -24, y = -16, size = 64, mask = "CircleMask" },
         health = { x = 23, y = 45, w = 119, h = 12 },
         power  = { x = 23, y = 56, w = 119, h = 12 },
+        merge = { t = 50 / 128, b = 56 / 128, src = 56 / 128, x = 147 / 256 },
         -- The name plaque behind the name, tinted by the unit's selection
         -- colour, under the art (the art's name window shows it).
         rep = { art = { key = "c-namebg", file = "Interface\\TargetingFrame\\UI-TargetingFrame-LevelBackground", w = 119, h = 19 },
@@ -192,29 +207,95 @@ ns.UF_KITS.classic = {
         name = { point = "TOPLEFT", x = 50, y = -9, w = 70, justify = "LEFT" },
     },
 }
+-- Hide Power Bar on the stock atlas art (Blizzard Style, WoW Forever): that
+-- art draws under the bars, but a health fill or background that is not
+-- fully opaque shows the groove between its health and power tracks through
+-- the taller bar, so the art goes on cut as the classic sheet does
+-- (UF_PaintArtCut). Keyed by the file the client draws for the atlas, 1x and
+-- 2x (the WoW Forever look draws its own player and target art, and the
+-- retail sheet for the rare target), then by atlas name. In the atlas's 1x
+-- pixels (w x h; the 2x art scales with it): rows t..b-1 -- the groove plus
+-- the soft shadow the 2x art draws round it -- take the track rows from src
+-- instead, on the bars' side of column x; the portrait ring's side (left of
+-- x when ringLeft) keeps its own rows. Every row next to a piece's edge is
+-- plain track, so a scaled draw that samples one row past an edge never
+-- picks up the groove.
+do
+    local retail = {
+        ["UI-HUD-UnitFrame-Player-PortraitOn"]      = { w = 198, h = 71, t = 44, b = 51, src = 36, x = 68, ringLeft = true },
+        ["UI-HUD-UnitFrame-Target-PortraitOn"]      = { w = 192, h = 67, t = 41, b = 49, src = 33, x = 126 },
+        ["UI-HUD-UnitFrame-Target-Rare-PortraitOn"] = { w = 192, h = 67, t = 41, b = 49, src = 33, x = 126 },
+    }
+    local forever = {
+        ["UI-HUD-UnitFrame-Player-PortraitOn"] = { w = 198, h = 71, t = 44, b = 50, src = 38, x = 69, ringLeft = true },
+        ["UI-HUD-UnitFrame-Target-PortraitOn"] = { w = 194, h = 68, t = 41, b = 47, src = 34, x = 127 },
+    }
+    ns.UF_ATLAS_MERGE = { [4631591] = retail, [4642466] = retail, [8036204] = forever, [8036209] = forever }
+end
 -- WoW Forever (a Blizzard Style variant, Forever client only): the stock kit,
 -- whose atlas names the client already paints with its Forever art, plus the
--- Forever layout -- the level in a round badge at the frame's bottom corner
+-- Forever layout -- the bars in the Forever art's tracks, the names centred
+-- on their strips, the level in a round badge at the frame's bottom corner
 -- (the target's skull centred in it, the target name widened into the strip
--- the level left), a round PvP badge, Forever's dragon offsets and the
--- silver-winged dragon on rares too. The badge hangs below the art, so the
--- visible bottom edge (auras, cast bar, mover) is the badge's. Built once,
--- when the variant latches.
+-- the level left), the PvP crest below the portrait, Forever's dragon
+-- offsets and the silver-winged dragon on rares too. The badge hangs below
+-- the art, so the visible bottom edge (auras, cast bar, mover) is the
+-- badge's. Built once, when the variant latches.
 function ns.UF_ForeverKit()
     local k = ns.UF_KITS.forever
     if k then return k end
     k = CopyTable(ns.UF_KITS.blizzard)
     local circle = "UI-HUD-UnitFrame-SmallCircle"
-    local P, T = k.player, k.target
+    local P, T, M = k.player, k.target, k.mini
+    -- Every bar fills its track up to the bright bronze rim on all four
+    -- sides (the art's dark inner line and bevel covered): the bar takes the
+    -- rect inside the rim, and its mask is stretched so the mask's opening
+    -- (cols l..r, rows t..b of its mw x mh file) covers exactly that rect.
+    -- The player art is centred half a unit down the box, so its rows fall
+    -- on halves.
+    local function Fit(bar, x, y, w, h, l, r, t, b, mw, mh)
+        local kx, ky = w / (r - l + 1), h / (b - t + 1)
+        bar.x, bar.y, bar.w, bar.h = x, y, w, h
+        bar.mx, bar.my = -l * kx, t * ky
+        bar.mw, bar.mh = mw * kx, mh * ky
+    end
+    Fit(P.health, 88, 45.5, 123, 15, 4, 123, 9, 21, 128, 32)
+    Fit(P.power, 88, 61.5, 123, 10, 4, 123, 4, 11, 128, 16)
+    P.name = { point = "CENTER", x = 33, y = 13, w = 116, justify = "CENTER" }
     P.badge = { point = "BOTTOMLEFT", x = 13, y = 7, size = 39, atlas = circle }
     P.level = { point = "CENTER", x = 0, y = -0.5, justify = "CENTER", skullDy = 0.5 }
-    P.pvp = { point = "TOP", relPoint = "TOPLEFT", x = 20, y = -50, scale = 0.8, atlas = circle }
+    P.pvp = { point = "TOP", relPoint = "TOPLEFT", x = 22, y = -65, scale = 0.8 }
     P.vis.b, P.pad.bottom = 7, 7
+    Fit(T.health, 22, 44, 123, 15, 4, 123, 10, 22, 128, 32)
+    Fit(T.power, 22, 60, 123, 10, 68, 187, 4, 11, 256, 16)
+    -- Both Forever target bars end alike: Hide Power Bar's stretched health
+    -- mask fits, not the retail art's joined one.
+    T.mergedHealth = nil
+    T.rep.x, T.rep.y = -82, -26
     T.badge = { point = "BOTTOMRIGHT", x = -13, y = 7, size = 39, atlas = circle }
     T.level = { point = "CENTER", x = 0, y = -0.5, justify = "CENTER", skullDy = 0.5 }
-    T.name = { point = "TOPLEFT", x = 24, y = -26, w = 117 }
-    T.pvp = { point = "TOP", relPoint = "TOPRIGHT", x = -23, y = -50, scale = 0.8, atlas = circle }
+    T.name = { point = "TOPLEFT", x = 24, y = -30, w = 117, justify = "CENTER" }
+    T.pvp = { point = "TOP", relPoint = "TOPRIGHT", x = -24, y = -65, scale = 0.8 }
+    T.vis.t, T.pad.top = 17, 17
     T.vis.b, T.pad.bottom = 7, 7
+    -- The small masks' names can still draw the retail files (the Forever
+    -- health file is left out of the client's Forever atlas set), whose
+    -- openings sit elsewhere, so each mask fits by the file that draws.
+    local hm = C_Texture.GetAtlasInfo(M.health.mask)
+    if hm and hm.file == 4737301 then
+        Fit(M.health, 45, 18, 70, 11, 29, 98, 3, 12, 128, 16)
+    else
+        Fit(M.health, 45, 18, 70, 11, 26, 96, 4, 12, 128, 16)
+    end
+    local pm = C_Texture.GetAtlasInfo(M.power.mask)
+    if pm and pm.file == 4737298 then
+        Fit(M.power, 45, 30, 70, 7, 28, 100, 4, 10, 128, 16)
+    else
+        Fit(M.power, 45, 30, 70, 7, 29, 98, 4, 10, 128, 16)
+    end
+    M.name = { point = "TOPLEFT", x = 44, y = -6, w = 68, justify = "CENTER" }
+    -- The Forever small art ends above the box's bottom (its ring's lowest row).
+    M.vis = { l = 2, r = 2, t = 2, b = 5 }
     T.boss.silver = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged"
     T.boss.silverRare = true
     T.boss.pos = { winged = { 11, -4 }, silver = { 8, -7 }, gold = { 0, 1 } }
@@ -296,6 +377,56 @@ end
 -- name plaque either way.
 function ns.UF_BlizzHeaderOn(s)
     return not (ns.UF_Style() == "blizzard" and s and s.blizzColoredHeader == false)
+end
+-- Hide Power Bar (blizzHidePower, a main frame's own setting under a stock
+-- style): no power bar, the health bar taking the power track too. Unset, a
+-- saved Bar Position of None reads as hidden, as it drew no bar there before.
+function ns.UF_StockHidesPower(s)
+    if not s then return false end
+    local v = s.blizzHidePower
+    if v == nil then return s.powerPosition == "none" end
+    return v == true
+end
+-- The main frames (player, target, focus), known by their settings tables.
+function ns.UF_IsMainSettings(s)
+    local p = s and db and db.profile
+    return p ~= nil and (s == p.player or s == p.target or s == p.focus)
+end
+-- The power bar position a frame is laid out with. Under a stock style a
+-- main frame's bar sits in the stock track below the health bar whatever
+-- its Bar Position says, or is not drawn while Hide Power Bar is on; every
+-- other frame, and every frame under the EllesmereUI look, reads its own.
+function ns.UF_PowerPos(s)
+    if not s then return "below" end
+    if ns.UF_Blizz() and ns.UF_IsMainSettings(s) then
+        return ns.UF_StockHidesPower(s) and "none" or "below"
+    end
+    return s.powerPosition or "below"
+end
+-- Hide Power Bar's health bar: the kit's health bar grown down to the power
+-- bar's bottom, its mask stretched with it so the mask's opening still covers
+-- the whole bar (the opening's rows map onto the taller bar, the columns
+-- stay). A mask the kit seats at its own size (no mw / mh) scales that size
+-- by sy (UF_SeatBarMask). Built once per kit geometry. A kit whose two tracks
+-- end apart gives its own (G.mergedHealth: the retail target art).
+ns._ufMergedMemo = setmetatable({}, { __mode = "k" })
+function ns.UF_MergedHealth(G)
+    if G.mergedHealth then return G.mergedHealth end
+    local m = ns._ufMergedMemo[G]
+    if m then return m end
+    local H, P = G.health, G.power
+    local k = (P.y + P.h - H.y) / H.h
+    m = {}
+    for key, v in pairs(H) do m[key] = v end
+    m.h = H.h * k
+    if H.my then m.my = H.my * k end
+    if H.mh then
+        m.mh = H.mh * k
+    elseif H.mask then
+        m.sy = k
+    end
+    ns._ufMergedMemo[G] = m
+    return m
 end
 -- The stock-style seeds on the profile `p` for `styleKey` ("blizzard" |
 -- "classic"). Once per profile: the "Blizzard" cast fill (the vanilla cast
@@ -401,6 +532,32 @@ end
 function ns.UF_StockAtlasInfo(name)
     if ns.UF_Forever() then return C_Texture.GetAtlasInfo(name) end
     return EllesmereUI.StockAtlasInfo(name)
+end
+-- Bar and portrait masks the same way: the stock looks take the retail
+-- masks on the Forever client (it redrew them under the retail names), the
+-- WoW Forever look the client's own.
+function ns.UF_StockMask(mask, name, useSize)
+    if ns.UF_Forever() then return mask:SetAtlas(name, useSize) end
+    return EllesmereUI.StockMask(mask, name, useSize)
+end
+-- A kit bar's mask on `bar`: the stock mask at its own size, or at the size
+-- the kit stretches it to (mw x mh), hung from the bar's top-left. B.maskFile:
+-- a mask file of ours instead of the stock atlas.
+function ns.UF_SeatBarMask(mask, bar, B)
+    if B.maskFile then
+        mask:SetTexture(B.maskFile, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    else
+        ns.UF_StockMask(mask, B.mask, true)
+    end
+    if B.mw then
+        mask:SetSize(B.mw, B.mh)
+    elseif B.sy then
+        -- Hide Power Bar's taller health bar: the mask's own size, stretched down.
+        local w, h = mask:GetSize()
+        mask:SetSize(w, h * B.sy)
+    end
+    mask:ClearAllPoints()
+    mask:SetPoint("TOPLEFT", bar, "TOPLEFT", B.mx, B.my)
 end
 -- Paints an art entry on a texture; useSize takes the entry's own size.
 function ns.UF_SetArt(tex, a, useSize)
@@ -684,6 +841,8 @@ function ns.UF_ApplyBlizzBarArt(frame)
     local mirror = frame._blizzMirror
     local health = frame.Health
     if health then
+        -- Hide Power Bar: the taller bar and its stretched mask.
+        local HB = frame._blizzMerged and ns.UF_MergedHealth(G) or G.health
         local fill = health:GetStatusBarTexture()
         health:SetOrientation("HORIZONTAL")
         ns.ApplyFillRotation(health)
@@ -700,12 +859,10 @@ function ns.UF_ApplyBlizzBarArt(frame)
         if not bars then bars = {}; ns._ufBarScratch = bars end
         bars[1], bars[2], bars[3], bars[4], bars[5] = hp, hp and hp._forward, hp and hp._healAbsorb, hp and hp._topBar, hp and hp._healTopBar
         if not mirror and ns.UF_AtlasOK(G.health.mask) then
-            mask:SetAtlas(G.health.mask, true)
-            mask:ClearAllPoints()
-            mask:SetPoint("TOPLEFT", health, "TOPLEFT", G.health.mx, G.health.my)
+            ns.UF_SeatBarMask(mask, health, HB)
             ns.UF_SetMask(fill, mask)
             if health.bg then ns.UF_SetMask(health.bg, mask) end
-            ns.UF_BlizzBarShadow(health, mask, G.health.h)
+            ns.UF_BlizzBarShadow(health, mask, HB.h)
             -- Absorb fills ride the same rounded ends.
             for i = 1, 5 do
                 local sb = bars[i]
@@ -724,7 +881,7 @@ function ns.UF_ApplyBlizzBarArt(frame)
                 end
             end
             if hp then hp._blizzMaskOn = nil end
-            ns.UF_BlizzBarShadow(health, nil, G.health.h)
+            ns.UF_BlizzBarShadow(health, nil, HB.h)
         end
         -- Heal prediction segments take the shape too (Overheal 0 only).
         if hp and hp._predMy then ns.UF_HealPredMasks(hp) end
@@ -741,9 +898,7 @@ function ns.UF_ApplyBlizzBarArt(frame)
                     pm = power:CreateMaskTexture()
                     power._blizzMask = pm
                 end
-                pm:SetAtlas(G.power.mask, true)
-                pm:ClearAllPoints()
-                pm:SetPoint("TOPLEFT", power, "TOPLEFT", G.power.mx, G.power.my)
+                ns.UF_SeatBarMask(pm, power, G.power)
                 ns.UF_SetMask(pfill, pm)
                 if power.bg then ns.UF_SetMask(power.bg, pm) end
                 ns.UF_BlizzBarShadow(power, pm, G.power.h)
@@ -767,6 +922,51 @@ end
 -- Paints the frame art (one texture on the art frame, centred) from the
 -- atlas sheet; a mirrored small frame samples the sheet flipped. The extras
 -- (type strip, dragon) draw above it on higher sublevels.
+-- Hide Power Bar: the art goes on in four pieces of its own sheet, so the
+-- divider between the health and power windows is never drawn -- over the
+-- bars (the classic frames) it would cross the health bar, under them (the
+-- stock atlas art) it shows through a fill that is not fully opaque. `cut`
+-- (in sheet texcoords): rows t..b are the divider band; on the bars' side of
+-- column x the band takes the clear window rows from src down instead, which
+-- carries the windows' end rims through it, and on the portrait ring's side
+-- it keeps its own rows. keepLeft: the ring lies left of x; unset, the bars
+-- lie on the sheet's columns before x (the classic sheets, whose player frame
+-- samples its sheet flipped). The art is centred on the frame plus (ax, ay),
+-- w x h, from sheet coords l, r, t, b.
+local function PlaceArtPiece(tex, frame, file, left, top, x0, x1, y0, y1, u0, u1, v0, v1)
+    tex:SetTexture(file)
+    tex:SetTexCoord(u0, u1, v0, v1)
+    tex:ClearAllPoints()
+    tex:SetPoint("TOPLEFT", frame, "CENTER", left + x0, top - y0)
+    tex:SetSize(x1 - x0, y1 - y0)
+    tex:Show()
+end
+function ns.UF_PaintArtCut(frame, art, pieces, file, cut, l, r, t, b, w, h, ax, ay, keepLeft)
+    -- Art-local spans (y down from the art's top) and the art's top-left off
+    -- the frame's centre.
+    local y0 = (cut.t - t) / (b - t) * h
+    local y1 = (cut.b - t) / (b - t) * h
+    local xs = (cut.x - l) / (r - l) * w
+    local left, top = ax - w / 2, ay + h / 2
+    local du = (r - l) / w
+    -- The art's own texture draws the rows above the band.
+    PlaceArtPiece(art, frame, file, left, top, 0, w, 0, y0, l, r, t, cut.t)
+    PlaceArtPiece(pieces[1], frame, file, left, top, 0, w, y1, h, l, r, cut.b, b)
+    -- The sheet's columns past x lie right of xs, or left of it on an art
+    -- sampled flipped (the classic player frame's).
+    if keepLeft == nil then keepLeft = r < l end
+    local kx0, kx1, cx0, cx1
+    if keepLeft then
+        kx0, kx1, cx0, cx1 = 0, xs, xs, w
+    else
+        kx0, kx1, cx0, cx1 = xs, w, 0, xs
+    end
+    PlaceArtPiece(pieces[2], frame, file, left, top, kx0, kx1, y0, y1,
+        l + kx0 * du, l + kx1 * du, cut.t, cut.b)
+    PlaceArtPiece(pieces[3], frame, file, left, top, cx0, cx1, y0, y1,
+        l + cx0 * du, l + cx1 * du, cut.src, cut.src + (cut.b - cut.t))
+end
+
 function ns.UF_PaintBlizzArt(frame, atlas)
     local af = frame._blizzArtFrame
     local art = af._art
@@ -774,6 +974,11 @@ function ns.UF_PaintBlizzArt(frame, atlas)
         art = af:CreateTexture(nil, "BACKGROUND")
         UnsnapTex(art)
         af._art = art
+    end
+    -- Hide Power Bar's art pieces show only while that paint runs (below).
+    local pieces = af._artCut
+    if pieces then
+        for i = 1, 3 do pieces[i]:Hide() end
     end
     local file, l, r, t, b, w, h, point, x, y
     if type(atlas) == "table" then
@@ -793,6 +998,34 @@ function ns.UF_PaintBlizzArt(frame, atlas)
     end
     if not file then art:Hide(); return end
     art:SetTexture(file)
+    -- Hide Power Bar: the kit's own cut (the classic sheets), else the stock
+    -- atlas art's for the file the client draws (UF_ATLAS_MERGE).
+    local cut, keepLeft = frame._blizzMergeCut, nil
+    if not cut and frame._blizzMerged and type(atlas) == "string" then
+        local byName = ns.UF_ATLAS_MERGE[file]
+        local c = byName and byName[atlas]
+        if c then
+            cut = af._atlasCut
+            if not cut then cut = {}; af._atlasCut = cut end
+            local dv, du = (b - t) / c.h, (r - l) / c.w
+            cut.t, cut.b, cut.src = t + c.t * dv, t + c.b * dv, t + c.src * dv
+            cut.x = l + c.x * du
+            keepLeft = c.ringLeft == true
+        end
+    end
+    if cut and point == "CENTER" and not frame._blizzMirror then
+        if not pieces then
+            pieces = {}
+            for i = 1, 3 do
+                local tex = af:CreateTexture(nil, "BACKGROUND")
+                UnsnapTex(tex)
+                pieces[i] = tex
+            end
+            af._artCut = pieces
+        end
+        ns.UF_PaintArtCut(frame, art, pieces, file, cut, l, r, t, b, w, h, x, y, keepLeft)
+        return
+    end
     if frame._blizzMirror then
         art:SetTexCoord(r, l, t, b)
         point = ns._ufMirrorPoint[point] or point
@@ -914,7 +1147,8 @@ function ns.UF_ApplyBlizzFrameArt(frame, G)
     else
         af:SetFrameLevel(math.max(0, base - 1))
     end
-    af._artSig = mirror and "|m" or ""
+    -- The paint memo's key: the mirror, and Hide Power Bar's cut art.
+    af._artSig = (mirror and "|m" or "") .. (frame._blizzMerged and "|h" or "")
     -- The target family resolves its art (classification variants) in the
     -- refresh below: one paint per change, never the base art first.
     if not af._rep then
@@ -1074,7 +1308,7 @@ function ns.UF_ApplyBlizzPortrait(frame, G)
     end
     -- Re-set each pass: a side change swaps the player crop for the circle.
     -- (A mirrored small frame keeps its circle; masks cannot flip anyway.)
-    if m and ns.UF_AtlasOK(G.portrait.mask) then m:SetAtlas(G.portrait.mask) end
+    if m and ns.UF_AtlasOK(G.portrait.mask) then ns.UF_StockMask(m, G.portrait.mask) end
     -- SetPortraitTexture crops the art to a circle by itself (the stock
     -- target/pet frames keep that crop under their CircleMask); the player
     -- frame's mask is not a circle, so there the crop is switched off and the
@@ -1218,29 +1452,23 @@ function ns.UF_BlizzLevelPass(frame)
     skull:ClearAllPoints()
     ns.UF_BlizzPoint(skull, L.point, rel, L.relPoint or L.point, L.x + ox, L.y + (L.skullDy or 2) + oy, frame._blizzMirror)
     ns.UF_SetArt(skull, ns.UF_BLIZZ.skull or ns.UF_BLIZZ_SKULL, true)
-    -- WoW Forever: the round PvP badge on the player, target and focus
-    -- frames (Blizzard's own display rule paints and shows it, below).
+    -- WoW Forever: the PvP crest on the player, target and focus frames
+    -- (Blizzard's own display rule paints and shows it, below).
     local PV = G.pvp
     local u = frame._euiUnit
     if PV and (u == "player" or u == "target" or u == "focus") then
         local els = frame._blizzPvP
         if not els then
-            els = { pvpBackground = host:CreateTexture(nil, "OVERLAY", nil, 2),
-                    pvpIcon = host:CreateTexture(nil, "OVERLAY", nil, 3) }
-            UnsnapTex(els.pvpBackground)
+            els = { pvpIcon = host:CreateTexture(nil, "OVERLAY", nil, 3) }
             UnsnapTex(els.pvpIcon)
-            -- Blizzard's own scale and offsets, so the badge lands where the
+            -- Blizzard's own scale and offsets, so the crest lands where the
             -- stock frame puts it whatever the scale does to the offsets.
-            els.pvpBackground:SetScale(PV.scale)
             els.pvpIcon:SetScale(PV.scale)
-            ns.UF_SetArt(els.pvpBackground, PV.atlas, true)
-            els.pvpIcon:SetPoint("CENTER", els.pvpBackground, "CENTER", 0, 0)
-            els.pvpBackground:Hide()
             els.pvpIcon:Hide()
             frame._blizzPvP = els
         end
-        els.pvpBackground:ClearAllPoints()
-        ns.UF_BlizzPoint(els.pvpBackground, PV.point, frame, PV.relPoint, PV.x, PV.y, frame._blizzMirror)
+        els.pvpIcon:ClearAllPoints()
+        ns.UF_BlizzPoint(els.pvpIcon, PV.point, frame, PV.relPoint, PV.x, PV.y, frame._blizzMirror)
     end
     -- Where the level shares the name's end of the strip, the name gives up
     -- that width while the level shows (the text pass set the full width).
@@ -1318,10 +1546,10 @@ function ns.UF_BlizzLevelRefresh(frame, event)
         fs:Hide(); skull:Show()
     end
 end
--- WoW Forever's round PvP badge: the client's own secret-safe painter (the
--- one its unit frames call, offered to addons) sets the faction or free for
--- all crest and shows the crest and circle under Blizzard's rule, including
--- the mercenary swap on the player. Rides the level refresh's events.
+-- WoW Forever's PvP crest: the client's own secret-safe painter (the one its
+-- unit frames call, offered to addons) sets the faction or free for all
+-- crest and shows it under Blizzard's rule, including the mercenary swap on
+-- the player. Rides the level refresh's events.
 -- The level events that leave the badge alone, or repaint one frame's only:
 -- a target or focus swap repaints that frame alone, and a level change or
 -- an encounter unit none. Every other event (the unit's own UNIT_FACTION,
@@ -1335,7 +1563,6 @@ function ns.UF_ForeverPvPRefresh(frame, unit)
         paint(els, unit, unit == "player")
     else
         els.pvpIcon:Hide()
-        els.pvpBackground:Hide()
     end
 end
 
@@ -1613,27 +1840,45 @@ function ns.UF_ApplyBlizzardLayout(frame, unit)
         frame._barClip:SetAllPoints(frame)
     end
 
+    -- Hide Power Bar: a main frame's health bar takes the power track too.
+    -- Stamped for the bar art pass, and for the art painter (the cut that a
+    -- kit drawing its art over the bars needs, UF_PaintArtCut).
+    local main = ns.UF_IsMainSettings(settings)
+    local merged = main and not G.small and G.power ~= nil and ns.UF_StockHidesPower(settings)
+    frame._blizzMerged = merged or nil
+    frame._blizzMergeCut = (merged and G.merge) or nil
+
     -- Health bar at the stock position; the offsets the class power and
     -- scale passes read back are kept in step.
     local health = frame.Health
     local clip = frame._barClip or frame
+    local HB = merged and ns.UF_MergedHealth(G) or G.health
     health:ClearAllPoints()
-    ns.UF_BlizzPoint(health, "TOPLEFT", clip, "TOPLEFT", G.health.x, -G.health.y, mirror)
-    health:SetSize(G.health.w, G.health.h)
-    local hx = mirror and (G.w - G.health.x - G.health.w) or G.health.x
+    ns.UF_BlizzPoint(health, "TOPLEFT", clip, "TOPLEFT", HB.x, -HB.y, mirror)
+    health:SetSize(HB.w, HB.h)
+    local hx = mirror and (G.w - HB.x - HB.w) or HB.x
     health._xOffset = hx
-    health._rightInset = G.w - hx - G.health.w
-    health._topOffset = G.health.y
+    health._rightInset = G.w - hx - HB.w
+    health._topOffset = HB.y
 
     -- Power bar: stock position when attached; detached bars keep their own
-    -- spot (only the art changes); "none" stays hidden. The small frames carry
-    -- the stock bar in the art's track, never a user-positioned one.
+    -- spot (only the art changes); "none" stays hidden. The main frames' bar
+    -- is always attached (ns.UF_PowerPos). The small frames carry the stock
+    -- bar in the art's track, never a user-positioned one.
     local power = frame.Power
-    local ppPos = settings and settings.powerPosition or "below"
+    local ppPos = ns.UF_PowerPos(settings)
     if power and G.small then
+        -- The stock power bar starts under the portrait ring and its mask
+        -- rounds it off round the ring; mirrored it runs unmasked (masks
+        -- cannot flip), so it stops where the health bar does instead.
+        local px, pw = G.power.x, G.power.w
+        if mirror and px < HB.x then
+            pw = pw - (HB.x - px)
+            px = HB.x
+        end
         power:ClearAllPoints()
-        ns.UF_BlizzPoint(power, "TOPLEFT", clip, "TOPLEFT", G.power.x, -G.power.y, mirror)
-        power:SetSize(G.power.w, G.power.h)
+        ns.UF_BlizzPoint(power, "TOPLEFT", clip, "TOPLEFT", px, -G.power.y, mirror)
+        power:SetSize(pw, G.power.h)
         if power._pbBorder then power._pbBorder:Hide() end
         power._blizzMasked = true
         power:Show()
@@ -1650,6 +1895,10 @@ function ns.UF_ApplyBlizzardLayout(frame, unit)
         end
         if power._pbBorder then power._pbBorder:Hide() end
     end
+    -- Hide Power Bar: the bar stays down (the reload pass hides it for its
+    -- "none" position; its text and Power element stand down with it there,
+    -- through the power text and ns.UF_PowerElementSync).
+    if merged and power then power:Hide() end
 
     ns.UF_ApplyBlizzFrameArt(frame, G)
 

@@ -7,6 +7,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Builders, which re-imports from it. db is set through I.dbSetters.
 -------------------------------------------------------------------------------
 local _, ns = ...
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot.
+local POOL = EllesmereUI._Pool
 
 local issecretvalue = issecretvalue
 local PP = EllesmereUI.PP
@@ -216,7 +220,9 @@ function ns.UF_ApplyCastBorder(castbar, s, stock, unit, icon, preview)
         return
     end
     if not host then
-        host = CreateFrame("Frame", nil, castbar)
+        -- Through the options frame pool: a real frame for a live bar, handed
+        -- back by the pool on the options preview's next build.
+        host = POOL.CreateFrame("Frame", nil, castbar)
         castbar._cbBorder = host
     end
     host:ClearAllPoints()
@@ -278,7 +284,8 @@ function ns.UF_ApplyCastIconBorder(castbar, s, stock, unit, icon, preview)
     local px = custom and EllesmereUI.BorderPx(s.castBorderSizePx, size, tex) or nil
     if styled then
         if not host then
-            host = CreateFrame("Frame", nil, icon)
+            -- Options frame pool: a real frame for a live bar (as above).
+            host = POOL.CreateFrame("Frame", nil, icon)
             host:SetAllPoints(icon)
             icon._castBorder = host
         end
@@ -331,7 +338,8 @@ function ns.UF_ApplyCastIconBorder(castbar, s, stock, unit, icon, preview)
         return
     end
     if not seam then
-        seam = CreateFrame("Frame", nil, castbar)
+        -- Options frame pool: a real frame for a live bar (as above).
+        seam = POOL.CreateFrame("Frame", nil, castbar)
         seam:SetAllPoints(castbar)
         seam._tex = seam:CreateTexture(nil, "OVERLAY")
         castbar._iconSeam = seam
@@ -400,12 +408,20 @@ function ns.UF_CastBorderPad(unit, s)
     return w, h
 end
 
--- Keep portrait decoration above the cast icon without lowering it behind 3D.
+-- While the cast icon shows on the portrait (backdrop +2), the backdrop's shape
+-- border, inner shadow and Outer Ring move onto an overlay at backdrop +3, so
+-- the icon sits under them; when it hides they go back under a 3D model. The
+-- overlay is a child of the backdrop, so the backdrop's shape mask still clips
+-- them. Built through the options page pool (the preview shares this), which
+-- also hands a pooled texture back to its own frame on reset.
+local function MoveDecoration(tex, parent)
+    if tex and tex:GetParent() ~= parent then tex:SetParent(parent) end
+end
 local function CastIconPortraitOverlay(bd, on)
     local overlay = bd._castIconOverlay
     if on then
         if not overlay then
-            overlay = CreateFrame("Frame", nil, bd)
+            overlay = POOL.CreateFrame("Frame", nil, bd)
             overlay:SetAllPoints(bd)
             bd._castIconOverlay = overlay
         end
@@ -415,9 +431,9 @@ local function CastIconPortraitOverlay(bd, on)
         return
     end
     local parent = on and overlay or bd
-    if bd._shapeBorderTex then bd._shapeBorderTex:SetParent(parent) end
-    if bd._innerShadow then bd._innerShadow:SetParent(parent) end
-    if bd._outerRing then bd._outerRing:SetParent(parent) end
+    MoveDecoration(bd._shapeBorderTex, parent)
+    MoveDecoration(bd._innerShadow, parent)
+    MoveDecoration(bd._outerRing, parent)
 end
 
 -- Show Icon on Portrait: lays the cast icon over the portrait backdrop bd, or
@@ -1549,9 +1565,12 @@ local function ApplyBlizzCastbarState()
         -- there is no EUI cast bar, so leave Blizzard's alone. Visibility "never"
         -- counts as no replacement too: our cast bar is built now but hides with the
         -- frame, and taking Blizzard's away would leave no player cast bar at all.
+        -- Nor while ours stands down for the controller under WoW Forever's
+        -- Gamepad interface style, whose cast bar is Blizzard's own.
         local suppress = (db.profile.player.showPlayerCastbar
             and ns.VisEffective(db.profile.player) ~= "never"
-            and ns.GetUnitFrameSource("player") == "eui") or false
+            and ns.GetUnitFrameSource("player") == "eui"
+            and not (ns._ufCastPadHidden and EllesmereUI.PadGamepadUI())) or false
         EllesmereUI.SetPlayerCastBarSuppressed("UnitFrames", suppress)
     end
 end
@@ -1560,10 +1579,12 @@ end
 -- draws its own player cast bar, so ours stands down while a controller is
 -- connected. It rides the same element switch "Show Player Cast Bar" off uses,
 -- keyed on a runtime flag the reload and visibility passes also read
--- (ns._ufCastPadHidden); the saved toggle is never written and Blizzard's bar
--- stays suppressed. The pad edges are watched only while the option is on and
--- our player cast bar is on screen. padOn is the watcher's verdict; the login,
--- reload and options callers pass nothing and it is read live.
+-- (ns._ufCastPadHidden); the saved toggle is never written. Blizzard's bar
+-- stays suppressed, except under WoW Forever's Gamepad interface style: from
+-- build 70425 that style draws the cast on Blizzard's player bar itself, so it
+-- is handed back meanwhile. The pad edges are watched only while the option is
+-- on and our player cast bar is on screen. padOn is the watcher's verdict; the
+-- login, reload and options callers pass nothing and it is read live.
 function ns.UF_ApplyGamepadCastbar(padOn)
     local s = db and db.profile and db.profile.player
     local frame = frames.player
@@ -1586,6 +1607,7 @@ function ns.UF_ApplyGamepadCastbar(padOn)
     end
     if hide == (ns._ufCastPadHidden == true) then return end
     ns._ufCastPadHidden = hide
+    ApplyBlizzCastbarState()
     if not cb then return end
     local castbarBg = cb:GetParent()
     if hide then

@@ -7,6 +7,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- "CharacterFrame" -> "Character", "AuctionHouseFrame" -> "Auction House", etc.
 if not EllesmereUI._ModuleNS["EllesmereUIQoL"] then return end  -- module disabled: no options page
 
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local function PrettifyName(name)
     local pretty = name:gsub("Frame$", "")
     pretty = pretty:gsub("(%l)(%u)", "%1 %2")

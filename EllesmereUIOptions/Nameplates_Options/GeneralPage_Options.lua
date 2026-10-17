@@ -8,6 +8,18 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUINameplates"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page frame pool (EllesmereUI_FramePool.lua): frames made under a
+-- pooled page part are handed back to the page's next build.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
+-- A row half's slider label, for a "(Percent)" suffix beside it: the half's own
+-- label (a page built again keeps its earlier dresses' font strings, idle,
+-- among the half's regions).
+local function SliderLabel(rgn, text)
+    local label = rgn._label
+    if label and label.GetText and EllesmereUI.EnKey(label:GetText()) == text then return label end
+end
+
 ---------------------------------------------------------------------------
 --  General page (Friendly settings, Spacing, Show All Debuffs); two-column DualRow layout where possible
 ---------------------------------------------------------------------------
@@ -697,18 +709,74 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
           end });  y = y - h
 
-    -- --- Pandemic Glow | Enemy Buff Filter -----------------------------
-    -- Both borders are Blizzard's static pandemic art (EUI_Nameplates_AuraContainers).
-    -- pandemicGlow and dispelGlow are the booleans the retired style dropdowns
-    -- wrote (None = false), so every saved choice reads on unchanged.
-    -- Enemy Buff Filter (npEnemyBuffFilter, default "important", "showall" on
-    -- WoW Forever; the retired Show All Enemy Buffs key is an inert orphan).
-    -- UNION semantics: Important = important OR dispellable (two engine groups);
-    -- Dispellable = dispellable only; Show All = every buff; the removed "all"
-    -- value reads back as important. Show Glow never changes the filters: it
-    -- borders the dispellable group, so every dispellable buff shown gets one.
+    local GO = EllesmereUI.GlowOptions
+
+    -- --- Pandemic Glow -------------------------------------------------
+    -- Style with its color swatches and cog, the preview in the right half.
+    local panDesc = npPandemicGlowDesc
+    local panRow
+    panRow, h = W:DualRow(parent, y,
+        GO.DropdownSpec(panDesc, "Pandemic Glow Style",
+            "Show a glow on your debuffs while they can be refreshed without losing any duration."),
+        { type="label", text="Pandemic Glow Preview" });  y = y - h
+    GO.AttachInline(panRow._leftRegion, panDesc)
+
+    if not EllesmereUI._prebuilding then
+        -- A pandemic debuff of the player's class (Rip, Moonfire, Festering
+        -- Wound, Vampiric Touch / Shadow Word: Pain, Agony, Rupture), any of
+        -- them otherwise; the first the client knows from a random start.
+        local BY_CLASS = {
+            DRUID = { 1079, 8921 }, DEATHKNIGHT = { 194310 }, PRIEST = { 34914, 589 },
+            WARLOCK = { 980 }, ROGUE = { 1943 },
+        }
+        local pool = BY_CLASS[select(2, UnitClass("player"))] or { 1079, 8921, 194310, 34914, 980, 1943 }
+        local icon = 136197
+        local start = math.random(#pool)
+        for i = 0, #pool - 1 do
+            local info = C_Spell.GetSpellInfo(pool[(start + i - 1) % #pool + 1])
+            if info and info.iconID then icon = info.iconID; break end
+        end
+        local rightRgn = panRow._rightRegion
+        GO.BuildPreview(rightRgn, panDesc, { anchor = rightRgn, point = "RIGHT", relPoint = "RIGHT", x = -20, icon = icon })
+        -- The preview's label dims with it while no glow is picked.
+        local previewLabel = rightRgn._label
+        local function DimPreviewLabel()
+            previewLabel:SetAlpha(GO.Renders(panDesc) and 1 or 0.3)
+        end
+        EllesmereUI.RegisterWidgetRefresh(DimPreviewLabel)
+        DimPreviewLabel()
+
+        -- Apply to all: the CDM pandemic sync (only while that module is loaded).
+        if EllesmereUI.ApplyPandemicGlowToAll then
+            EllesmereUI.BuildSyncIcon({
+                region = panRow._leftRegion,
+                tooltip = "Apply this pandemic glow to all CDM bars and tracking bars. A surface that can't show a style uses its closest match.",
+                isSynced = function()
+                    return EllesmereUI.IsPandemicGlowSyncedToAll(
+                        EllesmereUI.PandemicPayloadFromNameplate(DB()), { skipNameplates = true })
+                end,
+                onClick = function()
+                    EllesmereUI.ApplyPandemicGlowToAll(
+                        EllesmereUI.PandemicPayloadFromNameplate(DB()), { skipNameplates = true })
+                    C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+                end,
+            })
+        end
+    end
+
+    -- --- Dispellable Buff Glow ----------------------------------------
+    local dispelDesc = npDispelGlowDesc
+    local dispelGlowDropdown = GO.DropdownSpec(dispelDesc, "Dispel Glow Style")
+    -- Enemy Buff Filter (replaces the retired Show All Enemy Buffs toggle;
+    -- npEnemyBuffFilter, default "important", "showall" on WoW Forever; the
+    -- old key is an inert orphan). UNION semantics: Important = important OR
+    -- dispellable (two engine groups); Dispellable = dispellable only; Show
+    -- All = every buff; the removed "all" value reads back as important.
+    -- The Dispel Glow never changes the filters -- it is just the style the
+    -- dispellable group wears, so every shown dispellable buff glows when a
+    -- style is set.
     local buffFilterDropdown = { type="dropdown", text="Enemy Buff Filter",
-        tooltip = "Which enemy buffs show on nameplates. Important shows the buffs Blizzard flags for enemy nameplates plus anything dispellable; Only Dispellable shows just the buffs that can be dispelled, purged or soothed; Show All shows every buff. With Show Glow on (in the cog), every dispellable buff shown gets a border.",
+        tooltip = "Which enemy buffs show on nameplates. Important shows the buffs Blizzard flags for enemy nameplates plus anything dispellable; Only Dispellable shows just the buffs that can be dispelled, purged or soothed; Show All shows every buff. With a Dispel Glow style set, every dispellable buff shown glows.",
         values = { important = "Important", dispellable = "Only Dispellable", showall = "Show All" },
         order = { "important", "dispellable", "showall" },
         getValue = function()
@@ -725,32 +793,10 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             UpdatePreview()
             C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
         end }
-    local auraGlowRow
-    auraGlowRow, h = W:DualRow(parent, y,
-        { type="toggle", text="Pandemic Glow",
-          tooltip="Show a border on your debuffs while they can be refreshed without losing any duration.",
-          getValue=function() return DBVal("pandemicGlow") == true end,
-          setValue=function(v)
-            DB().pandemicGlow = v
-            RefreshAllAuras()
-            UpdatePreview()
-          end },
-        buffFilterDropdown);  y = y - h
-    if not EllesmereUI._prebuilding then
-        EllesmereUI.BuildInlineCog(auraGlowRow._rightRegion, {
-            title = "Enemy Buff Filter Settings",
-            rows = {
-                { type = "toggle", label = "Show Glow",
-                  tooltip = "Show a border on enemy buffs you can dispel, purge or soothe.",
-                  get = function() return DBVal("dispelGlow") == true end,
-                  set = function(v)
-                    DB().dispelGlow = v
-                    RefreshAllAuras()
-                    UpdatePreview()
-                  end },
-            },
-        })
-    end
+    local dispelGlowRow
+    dispelGlowRow, h = W:DualRow(parent, y, buffFilterDropdown, dispelGlowDropdown);  y = y - h
+
+    GO.AttachInline(dispelGlowRow._rightRegion, dispelDesc)
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -788,15 +834,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             local suffixFS = rightFrame:CreateFontString(nil, "OVERLAY")
             suffixFS:SetFont(EllesmereUI.EXPRESSWAY, 11, GetNPOptOutline())
             suffixFS:SetTextColor(1, 1, 1, 0.35)
-            local sliderLabel
-            local regions = { rightFrame:GetRegions() }
-            for i = 1, #regions do
-                local reg = regions[i]
-                if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Hash Line Location" then
-                    sliderLabel = reg
-                    break
-                end
-            end
+            local sliderLabel = SliderLabel(rightFrame, "Hash Line Location")
             if sliderLabel then
                 suffixFS:SetPoint("LEFT", sliderLabel, "RIGHT", 5, -1)
             else
@@ -866,15 +904,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             local suffixFS = leftFrame:CreateFontString(nil, "OVERLAY")
             suffixFS:SetFont(EllesmereUI.EXPRESSWAY, 11, GetNPOptOutline())
             suffixFS:SetTextColor(1, 1, 1, 0.35)
-            local sliderLabel
-            local regions = { leftFrame:GetRegions() }
-            for i = 1, #regions do
-                local reg = regions[i]
-                if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Scale Target Nameplate" then
-                    sliderLabel = reg
-                    break
-                end
-            end
+            local sliderLabel = SliderLabel(leftFrame, "Scale Target Nameplate")
             if sliderLabel then
                 suffixFS:SetPoint("LEFT", sliderLabel, "RIGHT", 5, -1)
             else
@@ -933,15 +963,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             local suffixFS = leftFrame:CreateFontString(nil, "OVERLAY")
             suffixFS:SetFont(EllesmereUI.EXPRESSWAY, 11, GetNPOptOutline())
             suffixFS:SetTextColor(1, 1, 1, 0.35)
-            local sliderLabel
-            local regions = { leftFrame:GetRegions() }
-            for i = 1, #regions do
-                local reg = regions[i]
-                if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Focus Cast Height" then
-                    sliderLabel = reg
-                    break
-                end
-            end
+            local sliderLabel = SliderLabel(leftFrame, "Focus Cast Height")
             if sliderLabel then
                 suffixFS:SetPoint("LEFT", sliderLabel, "RIGHT", 5, -1)
             else
@@ -1090,15 +1112,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             local suffixFS = leftFrame:CreateFontString(nil, "OVERLAY")
             suffixFS:SetFont(EllesmereUI.EXPRESSWAY, 11, GetNPOptOutline())
             suffixFS:SetTextColor(1, 1, 1, 0.35)
-            local sliderLabel
-            local regions = { leftFrame:GetRegions() }
-            for i = 1, #regions do
-                local reg = regions[i]
-                if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Scale Nameplate On Cast" then
-                    sliderLabel = reg
-                    break
-                end
-            end
+            local sliderLabel = SliderLabel(leftFrame, "Scale Nameplate On Cast")
             if sliderLabel then
                 suffixFS:SetPoint("LEFT", sliderLabel, "RIGHT", 5, -1)
             else

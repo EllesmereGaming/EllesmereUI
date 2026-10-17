@@ -229,19 +229,17 @@ function ns.NP_ReclaimBlizzardFrame(uf)
     if wc and wc:GetParent() ~= uf then wc:SetParent(uf) end
     if stf and stf:GetParent() ~= uf then stf:SetParent(uf) end
 end
--- WoW Forever: Blizzard's behind-camera arrow (the rotated offscreen icon under a plate
--- whose unit is behind the camera) stays hidden on every plate, friendly ones included.
--- Alpha only: Blizzard drives nothing but its shown state, so alpha 0 holds for the
--- life of the pooled UnitFrame; once per frame (weak external record, nothing written
--- on Blizzard's frame).
-if EllesmereUI.IS_FOREVER then
-    local hiddenBehindCam = setmetatable({}, { __mode = "k" })
-    function ns.NP_HideBehindCameraIcon(uf)
-        if not uf or hiddenBehindCam[uf] or uf:IsForbidden() then return end
-        hiddenBehindCam[uf] = true
-        local icon = uf.behindCameraIcon
-        if icon then icon:SetAlpha(0) end
-    end
+-- Blizzard's behind-camera arrow (the rotated offscreen icon under a plate whose unit is
+-- behind the camera; retail and WoW Forever) stays hidden on every plate, friendly ones
+-- included. Alpha only: Blizzard drives nothing but its shown state, so alpha 0 holds
+-- for the life of the pooled UnitFrame; once per frame (weak external record, nothing
+-- written on Blizzard's frame). A client without the arrow has nothing to hide.
+local hiddenBehindCam = setmetatable({}, { __mode = "k" })
+function ns.NP_HideBehindCameraIcon(uf)
+    if not uf or hiddenBehindCam[uf] or uf:IsForbidden() then return end
+    hiddenBehindCam[uf] = true
+    local icon = uf.behindCameraIcon
+    if icon then icon:SetAlpha(0) end
 end
 ns.HideBlizzardFrame = HideBlizzardFrame
 local castFallbackFrame = CreateFrame("Frame")
@@ -969,6 +967,8 @@ function NameplateFrame:SetUnit(unit, nameplate)
     self:RegisterUnitEvent("UNIT_MAXHEALTH", unit)
     self:RegisterUnitEvent("UNIT_ABSORB_AMOUNT_CHANGED", unit)
     self:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
+    -- Elite/rare badge: Blizzard's own plates repaint it on this event.
+    self:RegisterUnitEvent("UNIT_CLASSIFICATION_CHANGED", unit)
     self:RegisterUnitEvent("UNIT_THREAT_LIST_UPDATE", unit)
     -- Target of Target text: its event only while a slot shows it.
     self:SyncToT(unit)

@@ -247,7 +247,6 @@ local function GhostAuraCheck()
                 if d.rfcUnit == unit and d.ghostUnit == unit then
                     if d.rfcDebuffs then d.rfcDebuffs:UpdateAllAuras() end
                     if d.rfcDispLoc then d.rfcDispLoc:UpdateAllAuras() end
-                    if d.rfcDispel then d.rfcDispel:UpdateAllAuras() end
                     if d.rfcBm then d.rfcBm:UpdateAllAuras() end
                     if d.rfcBmChain then
                         for _, cc in pairs(d.rfcBmChain) do cc:UpdateAllAuras() end

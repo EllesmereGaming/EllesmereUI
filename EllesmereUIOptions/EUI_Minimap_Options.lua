@@ -18,6 +18,13 @@ local PAGE_DMG_METERS    = "Damage Meters"
 local SECTION_CHAT    = "CHAT"
 local SECTION_MINIMAP = "DISPLAY"
 
+-- Page reuse: the frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua, the options addon's first file), which hands a
+-- kept page its previous build's frames back reset to new; on any other
+-- parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolIsIdle = EllesmereUI._Pool.IsIdle
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -599,10 +606,12 @@ initFrame:SetScript("OnEvent", function(self)
             suffix:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
             suffix:SetTextColor(1, 1, 1, 0.35)
             local rzLabel
+            -- An idle pooled region keeps its last build's text: skip it.
             local regions = { rgn:GetRegions() }
             for i = 1, #regions do
                 local reg = regions[i]
-                if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Reset Zoom" then
+                if reg and reg.GetText and not PoolIsIdle(reg)
+                    and EllesmereUI.EnKey(reg:GetText()) == "Reset Zoom" then
                     rzLabel = reg
                     break
                 end

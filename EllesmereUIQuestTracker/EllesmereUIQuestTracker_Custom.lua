@@ -1,4 +1,5 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if not EllesmereUI.IS_FOREVER then return end
 -------------------------------------------------------------------------------
 -- EllesmereUIQuestTracker_Custom.lua  (WoW Forever only)
 --
@@ -6,11 +7,32 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- Custom Quest Tracker option is on. Blizzard's tracker is muted (alpha 0,
 -- click-through, see EQT.MuteBlizzardTracker) and never skinned or fed watch
 -- list edits. This file only reads the quest log and watch list: untracking,
--- zone auto-track, filters and sorting all live in our own list.
+-- zone auto-track, filters and sorting all live in our own list (the
+-- Forever file's quest tools, read-only).
 -------------------------------------------------------------------------------
 local _, ns = ...
 local EQT = ns.EQT
 local function Cfg(k) return EQT.Cfg(k) end
+
+-- Defaults, merged into the module's table before its DB is made at login.
+do
+    local qt = ns.QT_DEFAULTS.profile.questTracker
+    qt.customTracker           = false  -- reload-gated; position in customPos
+    qt.customGroupByZone       = true
+    qt.customDifficultyColor   = true
+    qt.customWidth             = 260
+    qt.customMaxHeight         = 450
+    qt.customCollapseCompleted = false
+    qt.customZoneFontSize      = 13
+    qt.customQuestSpacing      = 4
+    qt.customObjSpacing        = 1
+    qt.customFocusClick        = false     -- focus buttons + menu entry
+    qt.customWrapTitles        = true      -- off: one line, cut with "..."
+    qt.customWrapObjectives    = true
+    qt.customScrollbar         = "always"  -- always / hover / hidden
+    qt.customBgHover           = false     -- background + top line only while hovered
+    qt.customBgFade            = true      -- fade it in and out
+end
 
 local PAD      = 8
 local HEADER_H = 24
@@ -34,14 +56,22 @@ local inEncounter = false
 -------------------------------------------------------------------------------
 -- Per-character state: untracked = removed from our list by the player,
 -- collapsed = questID / "z:<zone>" / "all", doneOpen = completed quests
--- expanded while Collapse Completed Quests is on.
+-- expanded while Collapse Completed Quests is on. Kept per character in the
+-- account DB, as the Forever file keeps its watch sets.
 -------------------------------------------------------------------------------
+local charDB
 local function CharDB()
-    local sv = _G.EllesmereUIQuestTrackerCharDB
-    if type(sv) ~= "table" then sv = {}; _G.EllesmereUIQuestTrackerCharDB = sv end
+    if charDB then return charDB end
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    local all = EllesmereUIDB.questTrackerChars
+    if type(all) ~= "table" then all = {}; EllesmereUIDB.questTrackerChars = all end
+    local guid = UnitGUID("player")
+    local sv = all[guid]
+    if type(sv) ~= "table" then sv = {}; all[guid] = sv end
     if type(sv.ctUntracked) ~= "table" then sv.ctUntracked = {} end
     if type(sv.ctCollapsed) ~= "table" then sv.ctCollapsed = {} end
     if type(sv.ctDoneOpen) ~= "table" then sv.ctDoneOpen = {} end
+    charDB = sv
     return sv
 end
 
@@ -60,17 +90,18 @@ local function BuildList()
             if not untracked[questID] then order[#order + 1] = questID end
         end
     end
-    local auto = Cfg("autoTrackZone")
-    local zone, inArea = nil, false
+    -- One log snapshot per pass; filters and sort keys read it too.
+    EQT.QuestLogSnapshot()
+    local auto = EQT.AutoTrackOn()
+    local zone
     for i = 1, C_QuestLog.GetNumQuestLogEntries() do
         local info = C_QuestLog.GetInfo(i)
         if info and info.isHeader then
             zone = info.title
-            inArea = auto and EQT.IsAreaHeader(zone)
         elseif info and info.questID then
             local questID = info.questID
             zoneOf[questID] = zone
-            if inArea then
+            if auto and EQT.QuestInArea(info, zone) then
                 if not watched[questID] and not untracked[questID]
                    and not info.isHidden and not info.isTask and not info.isBounty then
                     order[#order + 1] = questID

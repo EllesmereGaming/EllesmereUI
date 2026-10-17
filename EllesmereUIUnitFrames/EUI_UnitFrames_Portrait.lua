@@ -7,6 +7,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  before Layout and Builders, which re-import. db is set via I.dbSetters.
 -------------------------------------------------------------------------------
 local _, ns = ...
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot.
+local POOL = EllesmereUI._Pool
 
 local math_max = math.max
 local issecretvalue = issecretvalue
@@ -694,7 +698,9 @@ function ns.UF_PortraitDragon(host, e, mirrored)
         return nil
     end
     if not holder then
-        holder = CreateFrame("Frame", nil, host)
+        -- Through the options frame pool: a real frame for a live portrait,
+        -- handed back by the pool on the options preview's next build.
+        holder = POOL.CreateFrame("Frame", nil, host)
         holder:SetAllPoints(host)
         host._winglessHolder = holder
         host._winglessDragon = holder:CreateTexture(nil, "OVERLAY")

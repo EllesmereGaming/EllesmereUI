@@ -19,6 +19,13 @@ local PAGE_THREAT  = "Threat"
 local PAGE_LOOT    = "Loot"
 local PAGE_MACROS  = "Macros"
 
+-- Page reuse: a frame this file builds goes through the options frame pool
+-- (EllesmereUI_FramePool.lua, the options addon's first file), which hands a
+-- kept page its previous build's frames back reset to new; on any other
+-- parent it is the plain CreateFrame. The buildPage below only hands each
+-- tab to its own page file.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -64,6 +71,9 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.junkList = nil
                 EllesmereUIDB.junkListExcluded = nil
                 EllesmereUIDB.simplifiedStats = nil
+                EllesmereUIDB.activeForm = nil
+                EllesmereUIDB.classicSpellbook = nil
+                EllesmereUIDB.classicTalents = nil
                 EllesmereUIDB.macroManager = nil
                 EllesmereUIDB.questRewards = nil
                 EllesmereUIDB.zoneLevels = nil
@@ -82,6 +92,7 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUIDB.unlockAnchors.EUI_ThreatMeter = nil
                     EllesmereUIDB.unlockAnchors.EUI_LootFeed = nil
                     EllesmereUIDB.unlockAnchors.EUI_JunkList = nil
+                    EllesmereUIDB.unlockAnchors.EUI_ActiveForm = nil
                 end
             end
             local FT = EllesmereUI._FlightTimer
@@ -104,6 +115,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if EllesmereUI._SpellUprank then EllesmereUI._SpellUprank.Apply() end
             if EllesmereUI._JunkItems then EllesmereUI._JunkItems.Apply() end
+            if EllesmereUI._ActiveForm then EllesmereUI._ActiveForm.Apply() end
+            if EllesmereUI._ClassicSpellbook then EllesmereUI._ClassicSpellbook.Apply() end
+            if EllesmereUI._ClassicTalents then EllesmereUI._ClassicTalents.Apply() end
             if EllesmereUI._QuestRewards then EllesmereUI._QuestRewards.Apply() end
             if EllesmereUI._ZoneLevels then EllesmereUI._ZoneLevels.Apply() end
             if EllesmereUI._PetSummon then EllesmereUI._PetSummon.Apply() end

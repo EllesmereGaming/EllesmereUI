@@ -13,10 +13,10 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --
 --  World object tooltips carry no object ID, so a node is known by its name:
 --  a herb node bears its herb's name, read from the herb item in the client's
---  language; an ore node's name comes from the locale strings (every client
---  language, the game's own names). Required skills: the game's (wowhead.com,
---  Classic objects). Nodes WoW Forever added are left as the game shows them
---  until their skill is known.
+--  language; an ore node's name comes from the locale files (the game's own
+--  names in each language, read through EllesmereUI.L: game data, so never
+--  reworded). Required skills: the game's (Classic objects). Nodes WoW
+--  Forever added are left as the game shows them until their skill is known.
 -------------------------------------------------------------------------------
 local _, module = ...
 

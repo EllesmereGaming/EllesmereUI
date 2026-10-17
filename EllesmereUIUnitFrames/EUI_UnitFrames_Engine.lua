@@ -26,7 +26,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    one paint (heal prediction adds one trailing next-frame paint for a
 --    deduped repeat, see predFlush). The player's power value channel is
 --    never stamped: its events only mark the frame, and one flush pass
---    paints it (see valFlush).
+--    paints it (see valFlush). The text channel is not stamped either: its
+--    painter collapses per zone (PaintText in EUI_UnitFrames_Text.lua).
 -------------------------------------------------------------------------------
 
 local ADDON_NAME, ns = ...
@@ -478,7 +479,9 @@ local function Paint(frame, channel, event)
     local stamps = frame._euiPaintStamps
     if not stamps then stamps = {}; frame._euiPaintStamps = stamps end
     -- Castbar events are never deduped: each event name is a distinct edge.
-    if channel ~= "castbar" and not IDENTITY_EVENTS[event] then
+    -- The text painter collapses per zone instead (a value event repaints only
+    -- the zones reading that value, so a channel stamp would eat the others).
+    if channel ~= "castbar" and channel ~= "text" and not IDENTITY_EVENTS[event] then
         local key = stamps[channel]
         if key == gen then
             if channel == "healpred" then
@@ -817,6 +820,7 @@ end
 
 local function Frame_EnableElement(self, elementName)
     local off = self._euiElementsOff
+    local wasOff = off and off[elementName]
     if off then off[elementName] = nil end
     -- Match the old enable semantics: an immediate refresh of that element.
     local channel = ELEMENT_CHANNEL[elementName]
@@ -824,6 +828,11 @@ local function Frame_EnableElement(self, elementName)
         local fn = painters[channel]
         if fn then fn(self, self._euiUnit, "ForceUpdate") end
     elseif channel then
+        -- A paint earlier in this frame (the settings reload repaints every
+        -- frame first) skipped the element while it was off: its stamp must
+        -- not eat this one.
+        local stamps = self._euiPaintStamps
+        if wasOff and stamps then stamps[channel] = nil end
         Paint(self, channel, "ForceUpdate")
     end
     -- The player's power value channel follows the Power element.

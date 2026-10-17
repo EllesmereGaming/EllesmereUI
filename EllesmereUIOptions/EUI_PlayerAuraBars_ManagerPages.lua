@@ -25,6 +25,20 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
+-- Page reuse: the manager root and the Filter Editor are kept for the session
+-- (Pool.Kept below) and every frame this file builds under them goes through
+-- the options frame pool (EllesmereUI_FramePool.lua), which hands the next
+-- render the previous render's frames reset to new; on any other parent it
+-- is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+-- The pool's other calls this file makes, read once here as CreateFrame is:
+-- the page path never calls the pool through its public slot, which
+-- another addon could replace.
+local PoolKept = EllesmereUI._Pool.Kept
+local PoolOwned = EllesmereUI._Pool.Owned
+-- The root's render, for the refresh callbacks it registers (_BeginRootRender).
+local PAB_RENDER_KEY = "EllesmereUIUnitFrames::Player Aura Bars::root"
+
 local floor, max = math.floor, math.max
 
 local function L(s) return EllesmereUI.L(s) or s end
@@ -2152,7 +2166,12 @@ AttachEditorScroll = function(scroll, child, onScroll, rightInset, panelWheel)
 end
 
 function ns.PABMP_ShowFilterEditor()
-    if ns._pabFilterEditor then ns._pabFilterEditor:Hide(); ns._pabFilterEditor = nil end
+    -- A shown editor is not hidden here: PoolKept below dresses the same
+    -- window again, and its reset hides it first (its OnHide hooks run with
+    -- the old scripts) and notes the control under a still cursor for the
+    -- pool's hover replay. A window the pool cannot reset is hidden as the
+    -- pool replaces it.
+    ns._pabFilterEditor = nil
     local filters = SortFiltersCanonical((ns.PAB_Filters and ns.PAB_Filters()) or {})
     local fontPath = (EllesmereUI.GetFontPath("unitFrames")) or "Fonts\\FRIZQT__.TTF"
     local ar, ag, ab = 1, 0.82, 0.30
@@ -2162,7 +2181,9 @@ function ns.PABMP_ShowFilterEditor()
 
     local POPUP_W, POPUP_H, SIDE_W = 620, 520, 180
 
-    local dimmer = CreateFrame("Frame", nil, UIParent)
+    -- One editor for the session: every open and every Rebuild() dresses the
+    -- same dimmer again, and the frames below it come back from the pool.
+    local dimmer = PoolKept(ns, "pabFilterEditor", "Frame", UIParent)
     dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
     dimmer:SetAllPoints(UIParent)
     dimmer:EnableMouse(true)
@@ -2200,6 +2221,28 @@ function ns.PABMP_ShowFilterEditor()
         close:SetScript("OnEnter", function() closeIcon:SetAlpha(0.50) end)
         close:SetScript("OnLeave", function() closeIcon:SetAlpha(0.40) end)
         close:SetScript("OnClick", function() dimmer:Hide(); ns._pabFilterEditor = nil end)
+    end
+
+    -- Escape closes the editor alone: the key is swallowed here, so it never
+    -- reaches the Escape proxy that would close the options window too.
+    -- SetPropagateKeyboardInput is protected in combat, so the editor takes
+    -- the keyboard only when built out of combat and stands aside in it. The
+    -- capture is a frame of its own, owned by the popup outside its child
+    -- list: a dress in combat cannot clear keyboard flags, so it leaves only
+    -- that frame for the next dress out of combat, never the popup.
+    if not InCombatLockdown() then
+        local keys = PoolOwned(popup, "keys", "Frame", popup)
+        keys:SetAllPoints(popup)
+        keys:EnableKeyboard(true)
+        keys:SetPropagateKeyboardInput(true)
+        keys:SetScript("OnKeyDown", function(self, key)
+            if InCombatLockdown() then return end
+            self:SetPropagateKeyboardInput(key ~= "ESCAPE")
+            if key == "ESCAPE" then
+                dimmer:Hide()
+                ns._pabFilterEditor = nil
+            end
+        end)
     end
 
     if pabFilterSel then
@@ -2751,9 +2794,30 @@ end
 --  Page entry point
 -------------------------------------------------------------------------------
 
+-- Between renders the kept root waits hidden under a holder of its own (made
+-- once), off the shared scroll frame whose children the other manager pages'
+-- roots join; its next render (Pool.Kept) puts it back on the scroll frame.
+-- ns._pabRoot = nil means "needs a render". Called where the page is left.
+local pabRootPark
+function ns.PABMP_ParkRoot()
+    local root = ns._pabRoot
+    if not root then return end
+    ns._pabRoot = nil
+    root:Hide()
+    if not pabRootPark then
+        pabRootPark = CreateFrame("Frame", nil, UIParent)
+        pabRootPark:Hide()
+    end
+    root:SetParent(pabRootPark)
+end
+
 function ns.PABMP_BuildPage(pageName, parent, yOffset)
     local scrollFrame = EllesmereUI._scrollFrame
     if not scrollFrame then return 0 end
+    -- The refresh callbacks of the previous render of this root leave the live
+    -- list before this render records its own (also for the render the panel's
+    -- on-show runs outside a page pass).
+    EllesmereUI._BeginRootRender(PAB_RENDER_KEY)
     local fontPath = (EllesmereUI.GetFontPath("unitFrames")) or "Fonts\\FRIZQT__.TTF"
 
     -- Runs every time this page opens, not just when empty: creates any
@@ -2772,11 +2836,18 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
     local sidebarW = floor(parentW * 0.28) - 20
     local leftW = parentW - sidebarW
 
-    local outerRoot = CreateFrame("Frame", nil, scrollFrame)
+    -- One root for the session: every render dresses it again (the reset hides
+    -- and parks the previous render's frames) on the scroll frame; a root it
+    -- replaced is parked.
+    local outerRoot = PoolKept(ns, "pabRoot", "Frame", scrollFrame)
     outerRoot:SetAllPoints(scrollFrame)
     outerRoot:SetFrameLevel(scrollFrame:GetFrameLevel() + 5)
-    if ns._pabRoot then ns._pabRoot:Hide(); ns._pabRoot:SetParent(nil) end
+    if ns._pabRoot ~= outerRoot then ns.PABMP_ParkRoot() end
     if EllesmereUI._pickMenu then EllesmereUI._pickMenu:Hide() end
+    -- The Add Bar popup hangs on an Add button of the previous render, which
+    -- this render dresses again (maybe as another control): it closes, as the
+    -- pick menu does.
+    if pabAddPopup then pabAddPopup:Hide() end
     ns._pabRoot = outerRoot
 
     -- Editing-spec bucket sanity: stale/unknown keys reset to All Specs.
@@ -3423,5 +3494,6 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
         end)
     end
 
+    EllesmereUI._EndRootRender(PAB_RENDER_KEY)
     return 0
 end

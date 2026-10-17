@@ -213,6 +213,12 @@ end
 -- re-queue when the restriction lifts; see the lift watcher below the restyle worker.
 local deferredRestyles = {}
 
+-- The button whose initializeFrame callback is running (AK.MakeInitializer):
+-- its creation window, where every call into it is legal whatever the aura
+-- restriction says (the engine applies the access restriction right after the
+-- callback returns). AK.InCreationWindow / AK.CanTouchButton read it.
+local initButton
+
 -- Textured dispel ring (style.dispelBorderTexture): the eight slices of an edge file,
 -- in a fixed order (the registration loop walks the array part; the named keys are
 -- what EllesmereUI.LayoutSecretBorderEdges anchors).
@@ -1183,13 +1189,21 @@ end
 -- Returns the initializeFrame callback for a style. It runs ONCE per created
 -- button (buttons are pre-created in engine batches of 10, so it fires at
 -- group-declare time, not per shown aura), and it receives the PUBLIC button
--- reference. All region wiring happens here.
-function AK.MakeInitializer(styleKey, extra)
-    return function(button)
+-- reference. All region wiring happens here. rec: the group record of an
+-- aura group (AK.AddGroupToContainer), which numbers its buttons in build
+-- order for AK.ButtonCanShow.
+function AK.MakeInitializer(styleKey, extra, rec)
+    local built = 0
+    local function Init(button)
         local style = AK.styles[styleKey] or {}
         local d = {}
         bd[button] = d
         d.styleKey = styleKey
+        if rec then
+            built = built + 1
+            d.akGroup, d.akIndex = rec, built
+            rec.buttons[built] = button
+        end
 
         -- Bare mode: no standard regions at all. The button is a pure
         -- presence-driven host (engine still drives its visibility); the
@@ -1274,6 +1288,9 @@ function AK.MakeInitializer(styleKey, extra)
         ApplyStyleToRegions(button, style)
 
         button:SetIcon(d.icon)
+        -- Re-registering the icon re-runs the button's visibility: the kick for
+        -- the animations it runs itself (AK.KickShownAnimations).
+        d.akKickIcon = d.icon
         button:SetDurationCooldown(d.cooldown)
         button:SetApplicationCount(d.stack, {})
 
@@ -1299,6 +1316,15 @@ function AK.MakeInitializer(styleKey, extra)
         GetStyleSet(styleKey)[button] = true
 
         if extra then extra(button, d, style) end
+    end
+    -- Holds the button's creation window open for the whole body and always
+    -- closes it, also when the body errors (raised again after, so the
+    -- engine still reports it).
+    return function(button)
+        initButton = button
+        local ok, err = pcall(Init, button)
+        initButton = nil
+        if not ok then error(err, 0) end
     end
 end
 
@@ -1570,15 +1596,226 @@ function AK.CreateContainerShell(parent, spec)
     return container
 end
 
+------------------------------------------------------------------------------
+-- Animations the button runs itself (12.1.5)
+--
+-- A group handed to button:AddAuraShownAnimation is played by Blizzard when
+-- the button starts showing an aura and stopped whenever it has none
+-- (CustomAuraButton ApplyVisibility, also on clear and release), so decoration
+-- that animates costs nothing on hidden pooled buttons. The glow engine is the
+-- one caller (EllesmereUI.Glows.BindEngineHost): it registers only the groups
+-- the drawn style plays, since Blizzard plays every registered group on each
+-- show. Once registered, a group's progress may not be queried (IsPlaying
+-- throws); its setters, Play and Stop still work out of restriction. The
+-- registrations are stamped in the button's weak bd entry (d.akShown), never
+-- on the button.
+--
+-- While auras are restricted the button subtree refuses every call from our
+-- code outside the creation window: such work is skipped and its style key
+-- re-runs at the restriction lift (AK.DeferRestyle). Inside the creation
+-- window every call is legal.
+--
+-- Registering does not refresh the button, and its shown state is secret even
+-- out of restriction, so a group added or restarted outside the creation
+-- window is played at once and the button is then made to re-run its own
+-- visibility (the kick): re-registering an element it already holds runs its
+-- display update, which stops the group again when the button has no aura and
+-- leaves it playing when it shows one. The element is d.akKickIcon: the
+-- standard icon, a module's own icon texture (AK.EnsureKickIcon with held), or
+-- a hidden texture made for a bare button that registers no icon. Inside the
+-- creation window no kick is needed: the engine updates the button right after
+-- its initializer returns. Buttons without the API (WoW Forever) keep the
+-- AK.ButtonCanShow gate below.
+------------------------------------------------------------------------------
+local animErrShown = false
+
+-- A refused button call: deferred to the lift while auras are restricted,
+-- else a real error, reported once a session. Returns false.
+local function AnimCallFailed(d, err)
+    if AK.AurasRestricted() then
+        if d and d.styleKey then deferredRestyles[d.styleKey] = true end
+    elseif not animErrShown then
+        animErrShown = true
+        geterrorhandler()(err)
+    end
+    return false
+end
+
+-- True while this button's initializeFrame callback runs.
+function AK.InCreationWindow(button)
+    return button ~= nil and button == initButton
+end
+
+-- May our code call into this button's subtree right now: inside its creation
+-- window, or while auras are not restricted.
+function AK.CanTouchButton(button)
+    return (button ~= nil and button == initButton) or not AK.AurasRestricted()
+end
+
+-- Re-runs a style key once the aura restriction lifts (for module code that
+-- skipped a button call it may not make yet).
+function AK.DeferRestyle(styleKey)
+    if styleKey then deferredRestyles[styleKey] = true end
+end
+
+-- Can the live button run animations itself (12.1.5+; not on WoW Forever).
+function AK.CanRunAnimations(button)
+    return button ~= nil and button.AddAuraShownAnimation ~= nil
+        and button.RemoveAuraShownAnimation ~= nil
+end
+
+-- Registers (on = true) or removes one shown animation. Stamped after success
+-- in d.akShown, so a repeat is free and never adds a group twice (the engine
+-- asserts on a duplicate). A call the button refuses under restriction defers
+-- d.styleKey to the lift (callers that can test first use AK.CanTouchButton).
+-- true when the button's registration now matches on.
+function AK.SetShownAnimation(button, d, ag, on)
+    local reg = d.akShown
+    if on then
+        if reg and reg[ag] then return true end
+    elseif not (reg and reg[ag]) then
+        return true
+    end
+    if on then
+        local ok, err = pcall(button.AddAuraShownAnimation, button, ag)
+        -- "already been added": registered under a lost stamp, which is the state wanted.
+        if not ok and not (type(err) == "string" and string.find(err, "already been added", 1, true)) then
+            return AnimCallFailed(d, err)
+        end
+        if not reg then
+            reg = {}
+            d.akShown = reg
+        end
+        reg[ag] = true
+        return true
+    end
+    local ok, err = pcall(button.RemoveAuraShownAnimation, button, ag)
+    if not ok then return AnimCallFailed(d, err) end
+    reg[ag] = nil
+    return true
+end
+
+-- The kick (see above): plays groups[1..n], then has the button re-run its
+-- visibility, which stops them again on a button with no aura. A no-op inside
+-- the button's creation window; refused under restriction like the calls
+-- above. true when it landed.
+function AK.KickShownAnimations(button, d, groups, n)
+    if button == initButton then return true end
+    for i = 1, n do
+        local ag = groups[i]
+        local ok, err = pcall(ag.Play, ag)
+        if not ok then return AnimCallFailed(d, err) end
+    end
+    local icon = d.akKickIcon
+    -- A bare button without one: making and registering it is the kick.
+    if not icon then return AK.EnsureKickIcon(button, d) end
+    local ok, err = pcall(button.SetIcon, button, icon)
+    if not ok then return AnimCallFailed(d, err) end
+    return true
+end
+
+-- The kick element of a bare button (style.noRegions builds no icon). held: an
+-- icon texture the module registered itself with button:SetIcon -- pass it, or
+-- the kick would replace that registration with a hidden texture of its own.
+-- Without held, a hidden texture is made on the button and registered as its
+-- icon (the engine only ever sets its texture), in the creation window or out
+-- of restriction. true once the button has a kick element.
+function AK.EnsureKickIcon(button, d, held)
+    if held then
+        d.akKickIcon = held
+        return true
+    end
+    if d.akKickIcon then return true end
+    -- Made once: a refused step keeps it for the next attempt. It draws nothing
+    -- before registration (no texture set), and is hidden before it is handed
+    -- over, so the aura's art the engine then sets never shows.
+    local tex = d.akKickTex
+    if not tex then
+        local ok
+        ok, tex = pcall(button.CreateTexture, button, nil, "BACKGROUND")
+        if not ok then return AnimCallFailed(d, tex) end
+        d.akKickTex = tex
+    end
+    if not d.akKickHidden then
+        local ok, err = pcall(tex.Hide, tex)
+        if not ok then return AnimCallFailed(d, err) end
+        d.akKickHidden = true
+    end
+    local ok, err = pcall(button.SetIcon, button, tex)
+    if not ok then return AnimCallFailed(d, err) end
+    d.akKickIcon = tex
+    return true
+end
+
+-- Which of a group's buttons can ever show an aura: the fallback for buttons
+-- that cannot run animations themselves (AK.CanRunAnimations false; on a
+-- client with the API the glow engine registers its groups instead and never
+-- asks this). The engine hands a group's buttons out from the top of a stack:
+-- AddAuraGroup builds one batch of GROUP_BATCH up front, an acquire pops the
+-- last free button and a release pushes it back on top
+-- (Blizzard_AuraContainerFrameProviders). While the
+-- group's cap fits in that batch, the bottom (batch - cap) buttons are never
+-- popped, so only the last <cap> buttons built can show. Decoration that costs
+-- while its button is hidden (a playing glow animation) goes on those alone;
+-- the rest still build it in the creation window and leave it stopped. The cap
+-- is the highest the group ever had: released buttons go back on top in any
+-- order, so every button a past cap reached stays in use. Slot and enchant
+-- buttons always can show. A "no" marks the group gated: only gated groups
+-- are re-dressed when their cap grows.
+local GROUP_BATCH = 10
+
+function AK.ButtonCanShow(button)
+    local d = bd[button]
+    local rec = d and d.akGroup
+    if not rec or rec.allShow or rec.maxCap > GROUP_BATCH
+        or d.akIndex > GROUP_BATCH - rec.maxCap then
+        return true
+    end
+    rec.gated = true
+    return false
+end
+
+-- Re-dresses group buttons that just became able to show, so the decoration
+-- AK.ButtonCanShow held back starts on them. Under aura secrecy their child
+-- writes are denied: the whole style re-runs once the restriction lifts.
+local function RedressGroupButtons(rec, first, last)
+    if not rec.gated then return end
+    for i = first, last do
+        local button = rec.buttons[i]
+        local d = button and bd[button]
+        local style = d and AK.styles[d.styleKey]
+        if style and not pcall(ApplyStyleToRegions, button, style) then
+            if AK.AurasRestricted() then
+                deferredRestyles[d.styleKey] = true
+            else
+                AK.RestyleSoon(d.styleKey)
+            end
+        end
+    end
+end
+
 function AK.AddGroupToContainer(container, g)
+    local rec = { maxCap = g.maxFrameCount or math.huge, buttons = {} }
     container:AddAuraGroup(g.key, AK.Filter(unpack(g.filter)), {
         maxFrameCount = g.maxFrameCount,
         sortMethod = g.sortMethod,
         sortDirection = g.sortDirection,
         candidateFilters = g.candidateFilters,
-        initializeFrame = AK.MakeInitializer(g.style, g.extraInit),
+        initializeFrame = AK.MakeInitializer(g.style, g.extraInit, rec),
         layout = g.layout,
     })
+    -- A first batch of another size breaks the stack rule: every button can show.
+    -- None built yet counts too: buttons made later may come one at a time.
+    local built = #rec.buttons
+    if built ~= GROUP_BATCH and rec.maxCap < GROUP_BATCH then
+        rec.allShow = true
+        RedressGroupButtons(rec, 1, built)
+    end
+    local cd = containerData[container]
+    if cd then
+        cd.groups = cd.groups or {}
+        cd.groups[g.key] = rec
+    end
 end
 
 -- A declared group's frame cap. Where the client can (12.1.5+), a cap of 0
@@ -1588,14 +1825,23 @@ end
 -- Every cap write goes through here, so a group switched off always wakes
 -- with its next cap. Both setters return at once on an unchanged value, so
 -- only a real flip costs anything (the container re-parses, once per frame).
+-- A cap above the group's highest yet brings more of its buttons into use
+-- (AK.ButtonCanShow): those are re-dressed.
 function AK.SetGroupCap(container, key, cap)
     if container.SetAuraGroupEnabled then
         if cap > 0 then container:SetAuraGroupEnabled(key, true) end
         container:SetAuraGroupMaxFrameCount(key, cap)
         if cap <= 0 then container:SetAuraGroupEnabled(key, false) end
-        return
+    else
+        container:SetAuraGroupMaxFrameCount(key, cap)
     end
-    container:SetAuraGroupMaxFrameCount(key, cap)
+    local cd = containerData[container]
+    local rec = cd and cd.groups and cd.groups[key]
+    if not rec or rec.allShow or cap <= rec.maxCap then return end
+    local old = rec.maxCap
+    rec.maxCap = cap
+    if old >= GROUP_BATCH then return end
+    RedressGroupButtons(rec, GROUP_BATCH - math.min(cap, GROUP_BATCH) + 1, GROUP_BATCH - old)
 end
 
 function AK.AddSlotToContainer(container, s)
@@ -1824,13 +2070,17 @@ end
 ------------------------------------------------------------------------------
 -- Shared build scheduler
 --
--- One time-budgeted queue for ALL deferred container construction (RF buttons, NP
--- bundle pool, UF units). Jobs run in FIFO order until the per-frame budget is spent; a
--- single queue means the modules' builders can never stack their work into the same
--- frame. OnUpdate never ticks during a loading screen, so queued work always lands in
--- rendered gameplay frames; combat clamps the budget (client combat watchdog), never
--- the work. Explicit head/tail indices: consumed slots are nil'd and the length
--- operator is undefined on arrays with holes.
+-- Time-budgeted queues for ALL deferred container construction (RF buttons, NP
+-- bundle pool, UF units). Each module builds through its own worker frame
+-- (AK.NewBuildWorker, called from the module's main chunk): the engine bills a
+-- container's aura processing, and the buttons it builds, to the addon whose code
+-- created the frame the build ran from, so a module's aura work shows on that
+-- module's row instead of the parent's. Every worker runs its own jobs in FIFO order
+-- and all of them draw on ONE per-frame budget, so the modules' builders can never
+-- stack their work into the same frame. OnUpdate never ticks during a loading screen,
+-- so queued work always lands in rendered gameplay frames; combat clamps the budget
+-- (client combat watchdog), never the work. Explicit head/tail indices: consumed
+-- slots are nil'd and the length operator is undefined on arrays with holes.
 ------------------------------------------------------------------------------
 
 local BUILD_BUDGET_MS = 8
@@ -1845,11 +2095,13 @@ local BUILD_BUDGET_MS = 8
 local BUILD_BUDGET_LOGIN_MS = 250
 local LOGIN_WINDOW_S = 15
 local loginStamp = -LOGIN_WINDOW_S
--- ONE queue, every job combat-runnable: 68914 made container creation
+-- ONE budget, every job combat-runnable: 68914 made container creation
 -- legal in combat (/euit3 field PASS), which retired the whole
--- hold-lane/oocOnly regime -- jobs run in FIFO order whenever the worker
+-- hold-lane/oocOnly regime -- jobs run in FIFO order whenever their worker
 -- ticks, and the only pacing is the per-frame budget (combat-clamped).
-local buildQueue, buildHead, buildTail = {}, 1, 0
+local workers = {}
+-- Budget spent this frame across every worker (GetTime() names the frame).
+local spentStamp, spentMs = nil, 0
 
 -- Job verdicts: nil = done; "again" = the job is a multi-atom stepper with
 -- more bounded work left (front-requeued so it finishes before newer work,
@@ -1873,9 +2125,7 @@ local function RunJob(entry)
     geterrorhandler()(verdict)
 end
 
-local buildWorker = CreateFrame("Frame")
-buildWorker:Hide()
-buildWorker:SetScript("OnUpdate", function(self)
+local function WorkerOnUpdate(self)
     local inCombat = InCombatLockdown()
     -- The turbo budget is OOC and non-raid only: raid-instance login can use the lower
     -- script watchdog before combat lockdown reflects the new world, so a 250ms drain
@@ -1886,69 +2136,108 @@ buildWorker:SetScript("OnUpdate", function(self)
         and GetTime() - loginStamp < LOGIN_WINDOW_S then
         budget = BUILD_BUDGET_LOGIN_MS
     end
+    local now = GetTime()
+    if spentStamp ~= now then spentStamp, spentMs = now, 0 end
+    if spentMs >= budget then return end
     local t0 = debugprofilestop()
 
-    while buildHead <= buildTail do
-        local entry = buildQueue[buildHead]
-        buildQueue[buildHead] = nil
-        buildHead = buildHead + 1
+    local queue = self._akQueue
+    while self._akHead <= self._akTail do
+        local head = self._akHead
+        local entry = queue[head]
+        queue[head] = nil
+        self._akHead = head + 1
         if entry then
             local verdict = RunJob(entry)
-            if verdict == "again" then
-                buildHead = buildHead - 1
-                buildQueue[buildHead] = entry
-            elseif verdict == "watchdog" then
-                buildHead = buildHead - 1
-                buildQueue[buildHead] = entry
-                return
+            if verdict == "again" or verdict == "watchdog" then
+                self._akHead = head
+                queue[head] = entry
+                if verdict == "watchdog" then
+                    spentMs = spentMs + debugprofilestop() - t0
+                    return
+                end
             end
         end
-        if debugprofilestop() - t0 >= budget then return end
+        if spentMs + debugprofilestop() - t0 >= budget then
+            spentMs = spentMs + debugprofilestop() - t0
+            return
+        end
     end
-    buildQueue, buildHead, buildTail = {}, 1, 0
+    spentMs = spentMs + debugprofilestop() - t0
+    self._akQueue, self._akHead, self._akTail = {}, 1, 0
     self:Hide()
-end)
+end
 
--- Regen wake: a backlog that accrued under the gentle budget snaps in at the turbo
--- budget instead of trickling when the current world allows it.
-buildWorker:RegisterEvent("PLAYER_REGEN_ENABLED")
-buildWorker:SetScript("OnEvent", function(self)
-    if buildHead <= buildTail then
-        loginStamp = GetTime()
-        self:Show()
+local function QueueOnWorker(worker, fn, label)
+    local tail = worker._akTail + 1
+    worker._akTail = tail
+    worker._akQueue[tail] = { fn = fn, label = label }
+    worker:Show()
+end
+
+-- A module's build worker. Call it from the module's MAIN CHUNK: the frame has
+-- to be created in the module's own load context for its builds to bill the
+-- module. worker:Queue(fn, label) queues a job on it.
+function AK.NewBuildWorker()
+    local worker = CreateFrame("Frame")
+    worker:Hide()
+    worker._akQueue, worker._akHead, worker._akTail = {}, 1, 0
+    worker.Queue = QueueOnWorker
+    worker:SetScript("OnUpdate", WorkerOnUpdate)
+    workers[#workers + 1] = worker
+    return worker
+end
+
+-- The parent's own worker, for callers that bring none.
+local buildWorker = AK.NewBuildWorker()
+
+-- Shows every worker holding jobs; true when any did.
+local function WakeWorkers()
+    local any = false
+    for i = 1, #workers do
+        local worker = workers[i]
+        if worker._akHead <= worker._akTail then
+            any = true
+            worker:Show()
+        end
     end
-end)
+    return any
+end
 
-function AK.QueueBuildJob(fn, label)
-    buildTail = buildTail + 1
-    buildQueue[buildTail] = { fn = fn, label = label }
-    buildWorker:Show()
+function AK.QueueBuildJob(fn, label, worker)
+    QueueOnWorker(worker or buildWorker, fn, label)
 end
 
 -- Back-compat name: a combat-runnable job (declarations/setters on
 -- EXISTING containers). Back-compat alias; identical to QueueBuildJob.
-function AK.QueueLiveBuildJob(fn, label)
-    AK.QueueBuildJob(fn, label, nil)
+function AK.QueueLiveBuildJob(fn, label, worker)
+    QueueOnWorker(worker or buildWorker, fn, label)
 end
 
 -- NO synchronous loading-screen burst: a long drain inside the PEW handler stacks onto
 -- every other addon's login work in ONE script execution and trips the client watchdog
 -- ("script ran too long") -- field-hit at 1500ms. It also cannot reach the RF/UF jobs,
 -- which are enqueued by timer-deferred module setup AFTER the screen drops. PEW only
--- opens the worker's login window: outside raids the whole demand-architecture queue
+-- opens the workers' login window: outside raids the whole demand-architecture queue
 -- drains in a handful of 250ms frames during the world fade-in; raids retain the safe
--- 8ms budget.
-local burstFrame = CreateFrame("Frame")
-burstFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-burstFrame:SetScript("OnEvent", function()
+-- 8ms budget. Regen wake: a backlog that accrued under the gentle budget snaps in at
+-- the turbo budget instead of trickling when the current world allows it.
+local wakeFrame = CreateFrame("Frame")
+wakeFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+wakeFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+wakeFrame:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_ENABLED" then
+        if WakeWorkers() then loginStamp = GetTime() end
+        return
+    end
     -- A reconnect mid-pull lands here before InCombatLockdown reflects the fight;
     -- the turbo drain would run straight into the lower in-combat watchdog, so the
-    -- window opens only out of combat (the regen wake above snaps the backlog in
-    -- at turbo once the pull ends).
+    -- window opens only out of combat (the regen wake snaps the backlog in at turbo
+    -- once the pull ends).
     local fighting = UnitAffectingCombat("player")
     if issecretvalue and issecretvalue(fighting) then fighting = false end
     if not fighting then loginStamp = GetTime() end
-    buildWorker:Show() -- in case jobs were queued behind the screen
+    WakeWorkers() -- in case jobs were queued behind the screen
 end)
 
 -- Synchronous create-and-callback, in ANY combat state. Container creation
@@ -1990,6 +2279,19 @@ function AK.ReleaseContainer(container)
     end
     containerData[container] = nil
     container:Hide()
+    -- Release its buttons now: a hidden container runs no aura pass, so they
+    -- would keep the auras they show, and the animations they play themselves
+    -- (bound glows) would run for the rest of the session. Switching a slot
+    -- or group off clears its buttons at once; after the hide, so the switches
+    -- register no events. pcall: a key the build never finished is no error.
+    if data and data.slotFrames and container.SetAuraSlotEnabled then
+        for key in pairs(data.slotFrames) do
+            pcall(container.SetAuraSlotEnabled, container, key, false)
+        end
+    end
+    if data and data.groups then
+        for key in pairs(data.groups) do pcall(AK.SetGroupCap, container, key, 0) end
+    end
 end
 
 ------------------------------------------------------------------------------

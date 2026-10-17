@@ -8,6 +8,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  ns._internals; db is set through I.dbSetters.
 -------------------------------------------------------------------------------
 local _, ns = ...
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot.
+local POOL = EllesmereUI._Pool
 
 local issecretvalue = issecretvalue
 local PP = EllesmereUI.PP
@@ -74,7 +78,9 @@ function ns.UpdatePowerSeam(power, s, stock, preview)
     local border = owner and (owner.unifiedBorder or owner._border)
     local parent = owner or power
     if not seam then
-        seam = CreateFrame("Frame", nil, parent)
+        -- Through the options frame pool: a real frame for a live bar, handed
+        -- back by the pool on the options preview's next build.
+        seam = POOL.CreateFrame("Frame", nil, parent)
         seam._tex = seam:CreateTexture(nil, "ARTWORK")
         power._pbSeam = seam
     elseif seam:GetParent() ~= parent then
@@ -166,7 +172,8 @@ function ns.UpdatePortraitSeparator(frame, portrait, s, side, attached, stock, p
         return
     end
     if not seam then
-        seam = CreateFrame("Frame", nil, frame)
+        -- Options frame pool: a real frame for a live frame (as above).
+        seam = POOL.CreateFrame("Frame", nil, frame)
         seam._tex = seam:CreateTexture(nil, "ARTWORK")
         frame._portraitSeparator = seam
     end
@@ -199,7 +206,7 @@ function ns.UpdatePowerBorder(power, settings)
     if not power or not settings then return end
     -- Before the lazy return below: the seam has its own host.
     local seamOn = ns.UpdatePowerSeam(power, settings)
-    local pos = settings.powerPosition or "below"
+    local pos = ns.UF_PowerPos(settings)
     local isDet = (pos == "detached_top" or pos == "detached_bottom")
     local isAttached = (pos == "above" or pos == "below")
     local size = settings.powerBorderSize or 0
@@ -207,7 +214,8 @@ function ns.UpdatePowerBorder(power, settings)
     if not border then
         -- Nothing to render and nothing to hide: stay lazy.
         if not ((isDet or isAttached) and size > 0) then return end
-        border = CreateFrame("Frame", nil, power)
+        -- Options frame pool: a real frame for a live bar (see UpdatePowerSeam).
+        border = POOL.CreateFrame("Frame", nil, power)
         power._pbBorder = border
     end
     -- Re-anchored every pass: a pass that lands while the power bar is zero-height
@@ -273,11 +281,12 @@ function ns.UF_PowerCostColor(s)
     return EllesmereUI.SpellCostPrediction.Color(s)
 end
 
--- True while the player power bar draws: a position other than None, and a
--- height above 0 in the EUI look (a stock style draws the attached bar at its
--- own height). Spell Cost Prediction and the mana regen spark gate on it.
+-- True while the player power bar draws: a position other than None (under a
+-- stock style: Hide Power Bar off), and a height above 0 in the EUI look (a
+-- stock style draws the attached bar at its own height). Spell Cost
+-- Prediction and the mana regen spark gate on it.
 function ns.UF_PowerBarDraws(settings)
-    local pos = settings.powerPosition or "below"
+    local pos = ns.UF_PowerPos(settings)
     return pos ~= "none" and ((settings.powerHeight or 6) > 0
         or (ns.UF_Blizz() and (pos == "below" or pos == "above")))
 end
@@ -339,6 +348,33 @@ function ns.UF_PowerValSync(frame)
     ns.Engine.SetChannelOn(frame, "powerval", on)
 end
 
+-- A main frame's Power element under a stock style with Hide Power Bar on
+-- paints nothing while no text zone reads power (Engine.ElementOn), and the
+-- player's power value channel follows the element (UF_PowerValSync). A zone
+-- that reads power keeps it on: the player's value pass, which repaints those
+-- zones at full rate, and the power type they format run through it. Run on
+-- every text zone change (the reload pass re-applies the power text, so a
+-- Hide Power Bar change reaches it there). Every other frame, and the
+-- EllesmereUI look, keeps the element as it is.
+function ns.UF_PowerElementSync(frame)
+    local base = frame._euiBaseUnit
+    if not frame.Power or not (base == "player" or base == "target" or base == "focus") then return end
+    local want = not (ns.UF_Blizz() and ns.UF_PowerPos(GetSettingsForUnit(base)) == "none")
+    if not want then
+        local zones = frame._euiTextZones
+        if zones then
+            for i = 1, #zones do
+                if zones[i].power then want = true break end
+            end
+        end
+    end
+    if ns.Engine.ElementOn(frame, "Power") ~= want then
+        if want then frame:EnableElement("Power") else frame:DisableElement("Power") end
+    elseif base == "player" then
+        ns.UF_PowerValSync(frame)
+    end
+end
+
 -- Gray-out classification for the power bar's PostUpdate: true for a generic
 -- melee NPC (no real power). One function, run through pcall with the unit.
 function ns.UF_PowerShouldGray(u)
@@ -359,7 +395,7 @@ function ns.UF_PowerShouldGray(u)
 end
 
 local function CreatePowerBar(frame, unit, settings)
-    local powerPos = settings.powerPosition or "below"
+    local powerPos = ns.UF_PowerPos(settings)
 
     local power = CreateFrame("StatusBar", nil, frame)
     local isDetached = (powerPos == "detached_top" or powerPos == "detached_bottom")
@@ -522,6 +558,9 @@ local function CreatePowerBar(frame, unit, settings)
 
     local function ApplyPowerPercentText(s)
         local pos = s.powerPercentText or "none"
+        -- Hide Power Bar (a stock style's main frames) takes the text down
+        -- with the bar, its zone included, so nothing reads power for it.
+        if ns.UF_Blizz() and ns.UF_IsMainSettings(s) and ns.UF_StockHidesPower(s) then pos = "none" end
         local sz  = s.powerPercentSize or 9
         local ox  = s.powerPercentX or 0
         local oy  = s.powerPercentY or 0
@@ -532,8 +571,9 @@ local function CreatePowerBar(frame, unit, settings)
         -- Anchor the text overlay to the HEALTH bar instead (always resolved), giving
         -- it real height in the row the power bar would occupy. _euiHeight0 leaves
         -- frames that never hit height 0 untouched; a positive height restores SetAllPoints.
-        if (s.powerHeight or 6) <= 0 then
-            local pPos = s.powerPosition or "below"
+        -- A stock style draws an attached bar at its track's own height.
+        local pPos = ns.UF_PowerPos(s)
+        if (s.powerHeight or 6) <= 0 and not (ns.UF_Blizz() and (pPos == "below" or pPos == "above")) then
             local anchorTo = frame.Health or power
             ppTextOvr:ClearAllPoints()
             if pPos == "above" or pPos == "detached_top" then
@@ -616,7 +656,7 @@ local function CreatePowerBar(frame, unit, settings)
         local s = GetSettingsForUnit(u)
         if not s then return end
 
-        local pp = s.powerPosition or "below"
+        local pp = ns.UF_PowerPos(s)
         if pp == "none" or pp == "detached_top" or pp == "detached_bottom" then return end
 
         -- Classification check: generic melee NPCs get the gray bar.

@@ -24,24 +24,26 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 -- Cost on: PLAYER_SWING re-sets the row's C_DurationUtil duration object and
 -- arms the bar timer (SetTimerDuration), so the engine animates the fill with
--- no Lua per frame, the way the QoL swing timer ran. A 20 Hz anim ticker runs
--- only while a swing is in flight and does the two things the engine timer
--- cannot: the remaining-time text (no engine formatter is proven to render the
--- bar's %.1f) and the end edge (idle fill, Hide When Idle). Range and the
+-- no Lua per frame, the way the QoL swing timer ran. The remaining-time text is
+-- the engine's too: a duration text binding on the same duration object
+-- writes it through a tenths formatter. Lua runs at a swing's edges only: its
+-- start, and deadlines at its end (idle fill or waiting, Hide When Idle) and,
+-- on a Movement Guide row, at Stop by and the last latency (the edges with no
+-- event). Range and the
 -- Attack State (queued, on, waiting) are event-driven
 -- (PLAYER_SWING_RANGE_UPDATE, ACTIONBAR_UPDATE_STATE, the auto attack and
 -- auto-repeat edges). A row whose attack is on with no swing running waits
 -- (parked full), entered on the end edge or an attack edge and left on the
 -- next swing or an attack-stop edge. The Movement Guide's GO and STILL zones
 -- are placed once per swing, its smoothing is arithmetic on the swing start,
--- and its aim phase starts on the ticker's Stop by edge or a stop that ends a
+-- and its aim phase starts on a deadline at Stop by or a stop that ends a
 -- held shot, with PLAYER_STARTED/STOPPED_MOVING registered only while a wand
 -- or Auto Shot is on with that mode. An idle row costs nothing: its timer holds
 -- a finished duration, which paints a static state.
 --
 -- Everything is gated on the swing API and the engine timer it feeds: on retail
 -- this file returns right below and nothing below exists. Off by default = no
--- frame children, no events, no ticker.
+-- frame children, no events, no timers.
 
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
@@ -114,11 +116,10 @@ local AIM_TIME  = 0.5
 local AIM_CLASS = { PRIEST = true, MAGE = true, WARLOCK = true, HUNTER = true }
 local AIM_COLOR = { r = 1, g = 0.82, b = 0.25 }
 
--- Shell + ticker host at FILE SCOPE (attribution rule, see _erbEventFrame in the
--- main file): the OnEvent and OnLoop work bills ResourceBars. Children stay lazy.
+-- Shell at FILE SCOPE (attribution rule, see _erbEventFrame in the main file):
+-- the OnEvent work bills ResourceBars. Children stay lazy.
 local shell = CreateFrame("Frame", "ERB_SwingTimerFrame", UIParent)
 shell:Hide()
-local tickFrame = CreateFrame("Frame")
 
 -- built, rows[i] (row frames in ROWS order), byType[swingType] = row, shown (rows
 -- stacked on screen; a combined off hand takes no slot), live (rows mid-swing),
@@ -221,12 +222,58 @@ end
 
 -- Spark tint: the row's own spark colour once set, else white. A combined off
 -- hand's spark is its whole display: unset, it takes the row's fill colour.
-local function SparkColor(cfg, def, merged)
+-- unset: the tint it has without a colour of its own.
+local function SparkColor(cfg, def, merged, unset)
     local k = def.key .. "Spark"
-    local r = cfg[k .. "R"]
+    local r = not unset and cfg[k .. "R"]
     if r then return r, cfg[k .. "G"] or 1, cfg[k .. "B"] or 1, cfg[k .. "A"] or 1 end
     if merged then return RowColor(cfg, def) end
     return 1, 1, 1, 1
+end
+
+-------------------------------------------------------------------------------
+--  Countdown text
+-------------------------------------------------------------------------------
+
+-- The remaining time in tenths ("1.2"), written by the engine. The first table
+-- also leaves the last 0.05s blank, as the text always has (never "0.0"); if
+-- the client refuses it, the plain tenths table the Tracking Bars use stands
+-- in. nil: no countdown (neither table taken).
+local timeFormatter -- false once both tables were refused
+local function TimeFormatter()
+    if timeFormatter ~= nil then return timeFormatter or nil end
+    timeFormatter = false
+    if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter and Enum.NumericRuleFormatRounding) then
+        return nil
+    end
+    local Nearest = Enum.NumericRuleFormatRounding.Nearest
+    local tables = {
+        { { threshold = 0, format = "", rounding = Nearest },
+          { threshold = 0.05, format = "%.1f", rounding = Nearest } },
+        { { threshold = 0, format = "%.1f", rounding = Nearest } },
+    }
+    for i = 1, #tables do
+        local f = C_StringUtil.CreateNumericRuleFormatter()
+        if pcall(f.SetBreakpoints, f, tables[i]) then
+            timeFormatter = f
+            return f
+        end
+    end
+    return nil
+end
+
+-- The Text Cue's Move countdown in tenths ("Move 1.2"). nil: the client
+-- refused the format, and the plain countdown stands in.
+local cueFormatter -- false once refused
+local function CueFormatter()
+    if cueFormatter ~= nil then return cueFormatter or nil end
+    cueFormatter = false
+    if not TimeFormatter() then return nil end
+    local f = C_StringUtil.CreateNumericRuleFormatter()
+    local rule = { { threshold = 0, format = EllesmereUI.L("Move %.1f"),
+        rounding = Enum.NumericRuleFormatRounding.Nearest } }
+    if pcall(f.SetBreakpoints, f, rule) then cueFormatter = f end
+    return cueFormatter or nil
 end
 
 -------------------------------------------------------------------------------
@@ -290,6 +337,20 @@ local function BuildRow(def)
     time:SetWordWrap(false)
     time:SetText("")
     row._time = time
+    -- The countdown, written engine-side from the row's duration object.
+    local fmt = C_DurationUtil.CreateDurationTextBinding and TimeFormatter()
+    if fmt then
+        local b = C_DurationUtil.CreateDurationTextBinding()
+        b:SetFontString(time)
+        b:SetDuration(row._durObj)
+        b:SetFormatter(fmt)
+        b:SetUpdateInterval(0.05)
+        b:SetExpiredText("")
+        b:SetZeroDurationText("")
+        b:SetEnabled(false)
+        row._timeBind = b
+        row._timeBindOn = false
+    end
 
     row._outOfRange = false
     return row
@@ -518,6 +579,8 @@ end
 
 -- Defined with the look below; the swing edges above it repaint through it.
 local ApplyRowFill
+-- Defined with the edge helpers below; the idle render already writes through it.
+local SyncTimeText
 
 -- The auto attack and auto-repeat edges are tracked while a feature reads them:
 -- Attack State Full, or the Movement Guide for a wand or Auto Shot class.
@@ -564,39 +627,130 @@ local function IdleRow(row, cfg)
     obj:SetTimeFromStart(GetTime() - 1, 1)
     row._bar:SetTimerDuration(obj, IMMEDIATE, full and DIR.ElapsedTime or DIR.RemainingTime)
     row._bar:SetValue(full and 1 or 0)
+    SyncTimeText(row, cfg)
     row._time:SetText("")
     HideZones(row)
 end
 
--- The time text: seconds to the swing, or with the Text Cue on a guide row
--- what to do now: Move (seconds left to move), Still, Go. Under 0.05s would
--- print "0.0": blank until the end edge.
-local function TimeText(row, cfg, rem)
-    if cfg.moveCue and GuideRow(row, cfg) then
-        local rtt = row._rtt or 0
-        if rem <= rtt then
-            row._time:SetText("Go")
-        elseif row._aiming or rem <= AIM_TIME + rtt then
-            row._time:SetText("Still")
-        else
-            row._time:SetFormattedText("Move %.1f", rem - AIM_TIME - rtt)
-        end
-    elseif rem >= 0.05 then
-        row._time:SetFormattedText("%.1f", rem)
-    else
-        row._time:SetText("")
+-- Defined below the waiting state; ArmEdges schedules it at a swing's edges.
+local EndEdge
+
+-- A deadline that fires a frame early still counts as its edge: the countdown
+-- already reads blank in a swing's last 0.05s.
+local END_SLACK = 0.05
+
+-- The deadlines a running row needs: its end; on a guide row Stop by (a
+-- Wind-Up row's aim phase, the Text Cue's Still) and, with the Text Cue, the
+-- last latency (Go). Each runs EndEdge, which acts only on what is due, so a
+-- stale or repeated one does nothing.
+local function ArmEdges(row, cfg)
+    local e = row._end
+    if not e then return end
+    local now = GetTime()
+    C_Timer.After(math.max(e - now, 0), EndEdge)
+    if not GuideRow(row, cfg) then return end
+    local a = row._aimAt
+    if a and not row._aiming and (cfg.moveCue or WindRow(row, cfg)) then
+        C_Timer.After(math.max(a - now, 0), EndEdge)
+    end
+    if cfg.moveCue then
+        local go = e - (row._rtt or 0)
+        if go > now then C_Timer.After(go - now, EndEdge) end
     end
 end
 
--- The fill is the engine's: the row's duration object takes this swing and the
--- bar timer animates it every frame with no Lua, draining (Deplete Fill) or
--- filling exactly as the direction says. The end time stays in Lua only for
--- the ticker's end edge; the duration object is never read. _due (when the
+-- The Text Cue's Move countdown: a second binding on the row's time text, on a
+-- duration object that ends at Stop by, reading Still once it runs out. nil
+-- when the client refused the format.
+local function CueBind(row)
+    if row._cueBind then return row._cueBind end
+    local fmt = row._timeBind and CueFormatter()
+    if not fmt then return nil end
+    row._cueObj = C_DurationUtil.CreateDuration()
+    local b = C_DurationUtil.CreateDurationTextBinding()
+    b:SetFontString(row._time)
+    b:SetDuration(row._cueObj)
+    b:SetFormatter(fmt)
+    b:SetUpdateInterval(0.05)
+    b:SetExpiredText(EllesmereUI.L("Still"))
+    b:SetZeroDurationText(EllesmereUI.L("Still"))
+    b:SetEnabled(false)
+    row._cueBind, row._cueBindOn = b, false
+    return b
+end
+
+-- The time text. Mid-swing the engine writes it: the swing's countdown, or with
+-- the Text Cue on a guide row the seconds left to move until Stop by, then
+-- Still and, in the swing's last latency, Go. Every other state writes its own
+-- text with both bindings off. Runs at each edge and on a settings pass.
+function SyncTimeText(row, cfg)
+    local b = row._timeBind
+    if not b then return end
+    local phase
+    if cfg and cfg.showTime ~= false and not row._merged and row._live and not row._waiting and not S.sample then
+        phase = "swing"
+        if cfg.moveCue and GuideRow(row, cfg) then
+            local now = GetTime()
+            if row._end and row._end - now <= (row._rtt or 0) + END_SLACK then
+                phase = "go"
+            elseif row._aiming or not (row._aimAt and row._start) or now >= row._aimAt - END_SLACK then
+                phase = "still"
+            elseif CueBind(row) then
+                phase = "move"
+            end
+        end
+    end
+    local swingOn = phase == "swing"
+    if swingOn then
+        -- A Wind-Up row's bar runs only to Stop by; its countdown still runs to
+        -- the shot, on a duration object of its own.
+        local target = row._durObj
+        if not row._aiming and row._start and row._end and WindRow(row, cfg) then
+            local so = row._swingObj
+            if not so then
+                so = C_DurationUtil.CreateDuration()
+                row._swingObj = so
+            end
+            so:SetTimeFromStart(row._start, row._end - row._start)
+            target = so
+        end
+        if target ~= row._bindObj then
+            row._bindObj = target
+            b:SetDuration(target)
+        end
+    end
+    if swingOn ~= row._timeBindOn then
+        row._timeBindOn = swingOn
+        b:SetEnabled(swingOn)
+    end
+    local cb = row._cueBind
+    local moveOn = phase == "move"
+    if moveOn then row._cueObj:SetTimeFromStart(row._start, math.max(row._aimAt - row._start, 0.01)) end
+    if cb and moveOn ~= row._cueBindOn then
+        row._cueBindOn = moveOn
+        cb:SetEnabled(moveOn)
+    end
+    if swingOn then
+        b:UpdateFontString()
+    elseif moveOn then
+        cb:UpdateFontString()
+    elseif phase == "still" then
+        row._time:SetText(EllesmereUI.L("Still"))
+    elseif phase == "go" then
+        row._time:SetText(EllesmereUI.L("Go"))
+    end
+end
+
+-- The fill and the countdown are the engine's: the row's duration object takes
+-- this swing, the bar timer animates it every frame with no Lua, draining
+-- (Deplete Fill) or filling exactly as the direction says, and the countdown
+-- binding writes its remaining time. The end time stays in Lua only for the
+-- end edge's deadline; the duration object is never read in Lua. _due (when the
 -- next swing is expected) outlives the idle render, so a swing that lands just
 -- after the end edge still smooths against it (Movement Guide only). _rtt is
 -- the latency read for this swing. A guide row's _aimAt is its Stop by point:
 -- AIM_TIME plus one latency before the shot. A Wind-Up row's bar is the reload
--- only, up to _aimAt; the ticker starts the aim phase there.
+-- only, up to _aimAt; a deadline there starts the aim phase.
 local function StartRow(row, dur, cfg)
     if type(dur) ~= "number" or dur ~= dur or dur <= 0 or dur == math.huge then return end
     local now = GetTime()
@@ -609,6 +763,7 @@ local function StartRow(row, dur, cfg)
     row._end = start + dur
     row._due = row._end
     row._dur = dur
+    row._start = start
     row._rtt = NetLatency() or 0
     local wind = WindRow(row, cfg)
     row._aimAt = GuideRow(row, cfg) and (row._end - AIM_TIME - row._rtt) or nil
@@ -625,16 +780,16 @@ local function StartRow(row, dur, cfg)
     local obj = row._durObj
     obj:SetTimeFromStart(start, wind and math.max(row._aimAt - start, 0.01) or dur)
     row._bar:SetTimerDuration(obj, IMMEDIATE, cfg.depleteFill and DIR.RemainingTime or DIR.ElapsedTime)
-    TimeText(row, cfg, dur)
     UpdateZones(row, cfg, dur)
-    ns.STTick.Start()
+    ArmEdges(row, cfg)
+    SyncTimeText(row, cfg)
     if cfg.hideWhenIdle and S.live == 1 and ns.ST_UpdateVisibility then ns.ST_UpdateVisibility() end
 end
 
 -- Waiting (attack on, no swing running): parked full, in the Waiting colour
 -- under Attack State Full, else the row's own. Entered from a finished swing or
 -- from idle (a guide row also from a shot held by moving); the row counts as
--- live (Hide When Idle keeps it) but the ticker skips it. The next swing
+-- live (Hide When Idle keeps it) but has no deadline. The next swing
 -- (StartRow), an attack-stop edge (IdleRow) or a stop that restarts the aim
 -- (EnterAim) ends it, never a timer.
 local function EnterWaiting(row, cfg)
@@ -649,7 +804,9 @@ local function EnterWaiting(row, cfg)
     obj:SetTimeFromStart(GetTime() - 1, 1)
     row._bar:SetTimerDuration(obj, IMMEDIATE, DIR.ElapsedTime)
     row._bar:SetValue(1)
-    row._time:SetText((cfg.moveCue and GuideRow(row, cfg)) and "Still" or "")
+    SyncTimeText(row, cfg)
+    row._time:SetText((cfg.moveCue and cfg.showTime ~= false and GuideRow(row, cfg))
+        and EllesmereUI.L("Still") or "")
     HideZones(row)
     UpdateSpark(row, cfg)
     ApplyRowFill(row, cfg)
@@ -676,23 +833,25 @@ local function EnterAim(row, cfg, from, to)
     PlaceAimLatency(row, cfg, from, to)
     UpdateSpark(row, cfg)
     ApplyRowFill(row, cfg)
-    ns.STTick.Start()
+    ArmEdges(row, cfg)
+    SyncTimeText(row, cfg)
 end
 
--- 20 Hz while any row is live, for what the engine timer cannot do: the
--- remaining-time text, the aim edge of a Wind-Up row and the end edge (idle
--- render or waiting, Hide When Idle). No SetValue here, the fill is the
--- engine's. Self-stops on the last row going idle or waiting.
-ns.STTick = EllesmereUI.Tick.NewAnimTicker(tickFrame, function()
+-- The edges, run by the deadlines ArmEdges schedules: a Wind-Up row's reload
+-- done at Stop by starts its aim phase, each row whose swing is over goes idle
+-- or waits while its attack is on, a running row's time text takes its next
+-- step (the Text Cue's Still and Go), and Hide When Idle hides the bar once no
+-- swing runs. No SetValue here, the fill is the engine's.
+function EndEdge()
     local cfg = P()
-    if not (cfg and cfg.enabled and S.built) then return false end
+    if not (cfg and cfg.enabled and S.built) then return end
     local now = GetTime()
-    local any = false
+    local running = false
     for i = 1, #S.rows do
         local row = S.rows[i]
         -- Wind-Up reload done at Stop by: the aim phase, held while moving, none
         -- once the shot is off (no shot is coming). Segments keeps its bar.
-        if row._live and not row._waiting and row._aimAt and not row._aiming and now >= row._aimAt
+        if row._live and not row._waiting and row._aimAt and not row._aiming and now >= row._aimAt - END_SLACK
             and WindRow(row, cfg) then
             if not AttackOn(row._def) then
                 IdleRow(row, cfg)
@@ -703,18 +862,16 @@ ns.STTick = EllesmereUI.Tick.NewAnimTicker(tickFrame, function()
             end
         end
         if row._live and not row._waiting then
-            local rem = row._end - now
-            if rem <= 0 then
+            if row._end - now <= END_SLACK then
                 if ShouldWait(row, cfg) then EnterWaiting(row, cfg) else IdleRow(row, cfg) end
             else
-                if cfg.showTime ~= false and not row._merged then TimeText(row, cfg, rem) end
-                any = true
+                running = true
+                SyncTimeText(row, cfg)
             end
         end
     end
-    if not any and cfg.hideWhenIdle and ns.ST_UpdateVisibility then ns.ST_UpdateVisibility() end
-    return any
-end, 0.05)
+    if not running and cfg.hideWhenIdle and ns.ST_UpdateVisibility then ns.ST_UpdateVisibility() end
+end
 
 -------------------------------------------------------------------------------
 --  Layout + look
@@ -1270,8 +1427,9 @@ local function EnsureBuilt()
     end
 end
 
--- Off: drop events, range checks and the ticker, and idle every live row (its
--- bar timer is parked on a finished duration); the frame stays shown at alpha 0
+-- Off: drop events and range checks, and idle every live row (its bar timer is
+-- parked on a finished duration, its countdown off; a pending end-edge deadline
+-- finds the timer off and does nothing); the frame stays shown at alpha 0
 -- so anchored neighbours keep a valid rect (SetElementVisibility rule).
 local function Teardown()
     if not S.built then return end
@@ -1283,7 +1441,6 @@ local function Teardown()
         if row._live then IdleRow(row, cfg) end
         SetRangeCheck(row._def.type, false)
     end
-    ns.STTick.Stop()
     local ERB = ns.ERB
     if ERB and ERB._moEligible then ERB._moEligible[MO_KEY] = false end
     EllesmereUI.SetElementVisibility(shell, false)
@@ -1309,14 +1466,15 @@ function ns.ST_UpdateVisibility()
     EllesmereUI.SetElementVisibility(shell, vis == true)
 end
 
--- The colour a row's spark paints (by colour key), for the options swatch.
-function ns.ST_SparkColor(key)
+-- The colour a row's spark paints (by colour key), for the options swatch;
+-- unset = true gives the tint it has without a colour of its own.
+function ns.ST_SparkColor(key, unset)
     local cfg = P()
     if not cfg then return 1, 1, 1, 1 end
     for i = 1, #ROWS do
         if ROWS[i].key == key then
             local row = S.rows[i]
-            return SparkColor(cfg, ROWS[i], row and row._merged)
+            return SparkColor(cfg, ROWS[i], row and row._merged, unset)
         end
     end
     return 1, 1, 1, 1
@@ -1371,6 +1529,7 @@ function ns.ST_Apply()
             obj:SetTimeFromStart(GetTime() - 1, 1)
             row._bar:SetTimerDuration(obj, IMMEDIATE, oh and DIR.RemainingTime or DIR.ElapsedTime)
             row._bar:SetValue(oh and 0 or 1)
+            SyncTimeText(row, cfg)
             row._time:SetText("1.2")
             UpdateZones(row, cfg, row._dur or 2)
         elseif row._live and not row._waiting and row._dur then
@@ -1387,11 +1546,14 @@ function ns.ST_Apply()
                 PlaceAimLatency(row, cfg, row._aimFrom, row._end)
             else
                 local start = row._end - row._dur
+                row._start = start
                 if guide then row._aimAt = row._end - AIM_TIME - (row._rtt or 0) end
                 obj:SetTimeFromStart(start, wind and math.max(row._aimAt - start, 0.01) or row._dur)
                 row._bar:SetTimerDuration(obj, IMMEDIATE, cfg.depleteFill and DIR.RemainingTime or DIR.ElapsedTime)
                 UpdateZones(row, cfg, row._dur)
             end
+            ArmEdges(row, cfg)
+            SyncTimeText(row, cfg)
         elseif ShouldWait(row, cfg) then
             EnterWaiting(row, cfg)
         else

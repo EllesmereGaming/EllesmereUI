@@ -1,14 +1,18 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
--- EllesmereUIGroupFinder.lua: premade group filters, list tweaks, the M+
--- applications bar and the Dungeon / Raid Finder layout. Nothing hooks in until
--- it's enabled.
+-- EllesmereUIGroupFinder.lua: premade group filters, list tweaks and the M+
+-- applications bar. Nothing hooks in until it's enabled.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.Lite) then EUI_CLIENT_BLOCKED = true; return end
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.Lite and EllesmereUI.HELD_BACK_ADDONS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+-- Held back from this release (EllesmereUI.HELD_BACK_ADDONS): nothing runs,
+-- and with no namespace published the options page never registers.
+if EllesmereUI.HELD_BACK_ADDONS[ADDON_NAME] then return end
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- options file grabs the ns from here
 
 local GF = EllesmereUI.Lite.NewAddon(ADDON_NAME)
+-- Work on Blizzard frames that waits for combat to end; inert until a Defer.
+ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
 local DEFAULTS = {
     padding          = 12,
@@ -25,7 +29,7 @@ local DEFAULTS = {
 ns.DEFAULTS = DEFAULTS
 
 local APPS_DEFAULTS = {
-    enabled       = true,
+    enabled       = false,
     scope         = "character",
     texture       = "none",
     showAccepted  = true,
@@ -60,6 +64,12 @@ function ns.SetEnabled(v)
     Account("groupFinder").enabled = v and true or false
 end
 
+-- True while another premade groups filter that hooks the same panel is loaded:
+-- Group Finder can't be turned on then (its page and the login announcement ask).
+function ns.Blocked()
+    return C_AddOns.IsAddOnLoaded("PremadeGroupsFilter") and true or false
+end
+
 -- Read-only defaults until the profile's ready.
 local readOnly = { search = setmetatable({}, { __index = DEFAULTS, __newindex = function() end }),
                    apps   = setmetatable({}, { __index = APPS_DEFAULTS, __newindex = function() end }) }
@@ -91,17 +101,16 @@ end
 function GF:OnEnable()
     if not ns.Enabled() then return end
     -- PGF hooks the same panel, so we turn ourselves off while it's loaded.
-    if C_AddOns.IsAddOnLoaded("PremadeGroupsFilter") then
+    if ns.Blocked() then
         ns.SetEnabled(false)
-        print("|cff0cd29fEllesmereUI|r Group Finder has been turned off because Premade Groups Filter is loaded.")
+        EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI|r "
+            .. EllesmereUI.L("Group Finder has been turned off because Premade Groups Filter is loaded."))
         return
     end
 
     if ns.Apps_Enable then ns.Apps_Enable() end
     local function Start()
         if ns.Search_OnEnable then ns.Search_OnEnable() end
-        if ns.Rail_Enable then ns.Rail_Enable() end
-        if ns.Finder_Enable then ns.Finder_Enable() end
     end
     if C_AddOns.IsAddOnLoaded("Blizzard_GroupFinder") and PVEFrame then
         Start()

@@ -767,14 +767,27 @@ local function UpdateAbsorb(button, unit, now)
     local RFShow, RFHide, PushRange = ns._RFShow, ns._RFHide, ns._RFPushRange
 
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
+    -- The settings this function reads on every paint, re-derived only when the settings
+    -- generation or this button's proxy moves (unset keys walk the whole proxy chain).
+    if ab._pGen ~= ns._absorbGen or ab._pS ~= s then
+        ab._pGen, ab._pS = ns._absorbGen, s
+        ab._pBarPos = ns.GetAbsorbBarPosition(s)
+        ab._pHealBarPos = ns.GetHealAbsorbBarPosition(s)
+        local st = s.absorbStyle
+        ab._pStyleOn = (st and st ~= "none") and true or false
+        ab._pModern = st == "blizzardModern"
+        ab._pHealOn = (s.healAbsorbStyle or "clean") ~= "none"
+        ab._pPredOn = s.healPrediction and true or false
+        ab._pMaxHealthOn = (s.maxHealthStyle or "maxHealthStripes") ~= "none"
+    end
     local topBar = ab._topBar
-    local barPos = ns.GetAbsorbBarPosition(s)
+    local barPos = ab._pBarPos
     local barOn = topBar and barPos ~= "none"
     local healTopBar = ab._healTopBar
-    local healBarPos = ns.GetHealAbsorbBarPosition(s)
+    local healBarPos = ab._pHealBarPos
     local healBarOn = healTopBar and healBarPos ~= "none"
-    local styleOn = s.absorbStyle and s.absorbStyle ~= "none"
-    local modern = s.absorbStyle == "blizzardModern"
+    local styleOn = ab._pStyleOn
+    local modern = ab._pModern
     -- Blizzard Glow Line, settings-derived and gen-gated (an unset key would otherwise fall
     -- through the proxy chain on every paint). Unset follows the style: on for Default Blizz
     -- Frames only. _glowEdge = where the line sits on the drawn layout:
@@ -812,13 +825,13 @@ local function UpdateAbsorb(button, unit, now)
     -- overshield boolean; Overlay Reverse (3) needs none.
     local needClamp = glowOn and ab._glowEdge ~= 3
     -- Heal absorb is independent of the shield absorb: keep going whenever its style is on.
-    local healOn = (s.healAbsorbStyle or "clean") ~= "none"
+    local healOn = ab._pHealOn
     -- Heal prediction is also independent, and shares this frame, so it must keep the frame alive too.
-    local predOn = s.healPrediction and true or false
+    local predOn = ab._pPredOn
     -- Reduced max health is independent too (a max-HP-loss debuff has nothing to do with
     -- shield absorbs) -- without this the whole overlay frame bails out below whenever
     -- Absorb Style is "none", even with Max Health Style on, so it never gets to paint.
-    local maxHealthOn = (s.maxHealthStyle or "maxHealthStripes") ~= "none"
+    local maxHealthOn = ab._pMaxHealthOn
     if not styleOn and not barOn and not healOn and not healBarOn and not predOn and not maxHealthOn then
         RFHide(ab)
         if fw then RFHide(fw) end

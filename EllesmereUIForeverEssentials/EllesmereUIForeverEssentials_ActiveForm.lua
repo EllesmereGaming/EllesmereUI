@@ -52,6 +52,10 @@ local buffSpells = BUFF_SPELLS[classFile]
 local FORM_CLASSES = { WARRIOR = true, DRUID = true, PALADIN = true, HUNTER = true }
 local supported = FORM_CLASSES[classFile] == true
 local buffIDs  -- [spell id] = true, built the first time it is needed
+-- The last buff scan's answer (the aspect or aura icon and its aura instance),
+-- reused until an aura change can have moved it (buffDirty).
+local buffIcon, buffInstance
+local buffDirty = true
 
 local frame, tex, border
 local eventFrame = CreateFrame("Frame")
@@ -62,7 +66,13 @@ local function IsSecret(v)
     return issecretvalue and issecretvalue(v)
 end
 
+-- Only the player's own buffs count, so another hunter's Aspect of the Pack or
+-- another paladin's aura never shows as yours. While aura data is restricted an
+-- index scan is a hard error, so the last answer stands until the restriction
+-- lifts (combat end rescans).
 local function BuffIcon()
+    if not buffDirty then return buffIcon end
+    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return buffIcon end
     if not buffIDs then
         buffIDs = {}
         for i = 1, #buffSpells do
@@ -70,19 +80,68 @@ local function BuffIcon()
             for j = 1, #ids do buffIDs[ids[j]] = true end
         end
     end
+    buffDirty = false
+    buffIcon, buffInstance = nil, nil
     for i = 1, 40 do
-        local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
-        if not aura then return nil end
+        local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL|PLAYER")
+        if not aura then break end
         local id = aura.spellId
-        if id and not IsSecret(id) and buffIDs[id] then return aura.icon end
+        if not IsSecret(id) and id and buffIDs[id] then
+            buffIcon = aura.icon
+            local iid = aura.auraInstanceID
+            if not IsSecret(iid) then buffInstance = iid end
+            break
+        end
     end
+    return buffIcon
 end
 
--- The active form's icon, or nil.
+-- An aura change needs a rescan only when it adds one of the tracked spells or
+-- removes the one shown (or is a full update); the rest leave the icon as is.
+-- In restricted content the payload and each of its lists can be secret, and
+-- indexing one is a hard error, so every layer is gated; a payload that cannot
+-- be read counts as one that matters (the scan keeps its last answer while
+-- aura data is restricted).
+local function AuraChangeMatters(info)
+    if info == nil or IsSecret(info) then return true end
+    local full = info.isFullUpdate
+    if IsSecret(full) or full then return true end
+    local added = info.addedAuras
+    if added ~= nil and buffIDs then
+        if IsSecret(added) then return true end
+        for i = 1, #added do
+            local aura = added[i]
+            if aura == nil or IsSecret(aura) then return true end
+            local id = aura.spellId
+            if not IsSecret(id) and id and buffIDs[id] then return true end
+        end
+    end
+    local removed = info.removedAuraInstanceIDs
+    if removed ~= nil and buffInstance then
+        if IsSecret(removed) then return true end
+        for i = 1, #removed do
+            local iid = removed[i]
+            if not IsSecret(iid) and iid == buffInstance then return true end
+        end
+    end
+    return false
+end
+
+-- The active form's icon, or nil; false when the stance bar does not answer
+-- (secret), so the icon keeps what it shows. The form's own spell icon: the
+-- stance bar gives an active druid form or paladin aura a generic one.
 local function CurrentIcon()
-    for i = 1, GetNumShapeshiftForms() do
-        local icon, isActive = GetShapeshiftFormInfo(i)
-        if isActive then return icon end
+    local n = GetNumShapeshiftForms()
+    if IsSecret(n) then return false end
+    for i = 1, n do
+        local icon, isActive, _, spellID = GetShapeshiftFormInfo(i)
+        if IsSecret(isActive) then return false end
+        if isActive then
+            if spellID and not IsSecret(spellID) then
+                return C_Spell.GetSpellTexture(spellID) or icon
+            end
+            return icon
+        end
     end
     return buffSpells and BuffIcon() or nil
 end
@@ -90,12 +149,32 @@ end
 local function Refresh()
     if not active then return end
     local icon = CurrentIcon()
+    -- A secret icon still paints (the texture takes it); it cannot be tested.
+    if IsSecret(icon) then
+        tex:SetTexture(icon)
+        frame:Show()
+        return
+    end
+    if icon == false then return end
     if icon then
         tex:SetTexture(icon)
         frame:Show()
     else
         frame:Hide()
     end
+end
+
+-- Stance and form changes only repaint (the buff answer is kept); aura
+-- changes rescan only when they can matter; combat end and a loading screen
+-- rescan, since a restricted stretch may have hidden a change.
+local function OnEvent(_, event, _, info)
+    if event == "UNIT_AURA" then
+        if not AuraChangeMatters(info) then return end
+        buffDirty = true
+    elseif event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_ENTERING_WORLD" then
+        buffDirty = true
+    end
+    Refresh()
 end
 
 local function SnappedSize()
@@ -125,7 +204,7 @@ local function BuildFrame()
     border = CreateFrame("Frame", nil, frame)
     border:SetAllPoints()
     border:EnableMouse(false)
-    eventFrame:SetScript("OnEvent", Refresh)
+    eventFrame:SetScript("OnEvent", OnEvent)
 end
 
 -- Active = shown, with its events registered. While enabled but hidden by the
@@ -137,7 +216,11 @@ local function SetActive(on)
         eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
         eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORMS")
         eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-        if buffSpells then eventFrame:RegisterUnitEvent("UNIT_AURA", "player") end
+        if buffSpells then
+            eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+            eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            buffDirty = true  -- nothing was watched while inactive
+        end
         Refresh()
         return
     end

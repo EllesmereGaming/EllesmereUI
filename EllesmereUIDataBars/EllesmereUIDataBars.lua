@@ -61,7 +61,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --       preview strip re-solves from the block measurements that pass settled.
 
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -186,6 +186,9 @@ local floor             = math.floor
 local max, min, abs     = math.max, math.min, math.abs
 
 local PP = EllesmereUI.PP
+-- The options page frame pool's table (made by the parent, filled in place when
+-- the options addon loads it): read for its Gen at call time.
+local POOL = EllesmereUI._Pool
 
 local MEDIA = "Interface\\AddOns\\EllesmereUIDataBars\\media\\"
 ns.MEDIA = MEDIA
@@ -1743,7 +1746,12 @@ local BASE_L, BASE_R, BASE_T, BASE_B = 0.25, 1, 0, 0.75
 local BASE_U, BASE_V = BASE_R - BASE_L, BASE_B - BASE_T
 
 local function EnsureThemeTextures(host)
-    if host._edbBgAtlas then return end
+    -- Made once per host. An options preview strip is a frame of the options
+    -- page pool that every header build dresses again for another use: the
+    -- textures count only for the dress (generation) they were made in. Gen
+    -- is nil for every frame the pool did not make (the live bars).
+    local gen = POOL.Gen and POOL.Gen(host)
+    if host._edbBgAtlas and host._edbThemeGen == gen then return end
     local bgAtlas = host:CreateTexture(nil, "BACKGROUND", nil, -8)
     bgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
     bgAtlas:SetAllPoints(host)
@@ -1762,6 +1770,7 @@ local function EnsureThemeTextures(host)
     host._edbBgOverlay = bgOverlay
     host._edbModernBg  = modernBg
     host._edbBarTex    = barTex
+    host._edbThemeGen  = gen
 
     -- Cover-fit: crop the atlas so it fills the host without stretching.
     local function UpdateBgTexCoords()

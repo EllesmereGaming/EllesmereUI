@@ -345,7 +345,7 @@ function NameplateFrame:ApplyCastColor(uninterruptible)
         if type(isImp) == "nil" then isImp = false end
         local kickFirst = cfg.importantCastKickReadyAsInterruptible
         if kickFirst == nil then kickFirst = defaults.importantCastKickReadyAsInterruptible end
-        local impFirst = not (kickFirst and EllesmereUI.GetActiveKickSpell and EllesmereUI.GetActiveKickSpell())
+        local impFirst = not (kickFirst and GetActiveKickSpell())
         local under = impFirst and normalCastTint or kickReadyTint
         local ev = C_CurveUtil.EvaluateColorValueFromBoolean
         -- Scratch table (same pattern as _dispelScratch): runs per cast event per plate, a fresh color table per call was pure GC churn.
@@ -802,12 +802,11 @@ function NameplateFrame:MarkHealthDirty()
 end
 function NameplateFrame:UNIT_NAME_UPDATE()
     self:UpdateName()
-    -- UnitClassification can read "normal" on the one-frame-deferred spawn pass
-    -- (SetUnit's deferred setup) before the unit's data populates, which hides the
-    -- elite/rare badge until some unrelated refresh re-reads it. The name resolving
-    -- from its placeholder is that same readiness signal, so re-read classification
-    -- here. Rides this already-registered event -- no new registration, and
-    -- UpdateClassification early-returns when the indicator slot is off.
+    -- A unit first seen this session reads "normal" until its data arrives, the
+    -- same moment its name resolves: re-read the elite/rare badge with the name.
+    self:UpdateClassification()
+end
+function NameplateFrame:UNIT_CLASSIFICATION_CHANGED()
     self:UpdateClassification()
 end
 function NameplateFrame:UNIT_THREAT_LIST_UPDATE()

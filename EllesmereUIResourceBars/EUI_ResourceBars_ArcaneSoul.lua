@@ -33,6 +33,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
+-- Born in this module's main chunk, so the aura containers it builds bill this
+-- module (AuraKit's shared build scheduler).
+local AKWorker = EllesmereUI.AuraKit.NewBuildWorker()
 
 -- Arcane Surge splits cast id from aura id, exactly like Ebon Might (395152 ->
 -- 395296, which EUI_ResourceBars_EbonMight121 tracks by the AURA id). The suite
@@ -611,7 +614,7 @@ local function EnsureBuilt()
     local AK = EllesmereUI.AuraKit
     if not (AK and AK.QueueBuildJob) then return end
     S.queued = true
-    AK.QueueBuildJob(function()
+    AKWorker:Queue(function()
         S.queued = nil
         -- Latched, not retried: every ERB:ApplyAll would otherwise re-enter a
         -- hard build failure and turn one broken container into an error storm.

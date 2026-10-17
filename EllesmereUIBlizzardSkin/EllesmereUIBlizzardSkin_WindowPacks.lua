@@ -503,6 +503,11 @@ local function Skin_PlayerSpells()
     if f.SpellBookFrame and f.SpellBookFrame.CategoryTabSystem then
         WSkin.TabSystem(f.SpellBookFrame.CategoryTabSystem, { darkActive = true })
     end
+    -- WoW Forever's talents page carries its own dual-spec tabs (Primary /
+    -- Secondary): the same tab treatment, also ahead of the button sweep.
+    if f.TalentsFrame and f.TalentsFrame.TabSystem then
+        WSkin.TabSystem(f.TalentsFrame.TabSystem, { darkActive = true })
+    end
     -- Collapse/restore control: quest-tracker collapse/expand atlas pair,
     -- 16x16, desaturated white. Atlas-guarded: a missing name keeps Blizzard's art.
     local function MaxMinGlyph(btn, atlas)
@@ -555,6 +560,24 @@ local function Skin_PlayerSpells()
                 -- Tree background is content: exempt from art sweeps, shown at 75%.
                 WSkin.ExemptArt(sub)
                 DimTalentArt(sub)
+                -- WoW Forever keeps the spec art in ClassBackground and draws a
+                -- backdrop of its own as Background, 20px taller than the page,
+                -- over the shell's top bar: off, so the shell shows round the tree.
+                if sub.ClassBackground and sub.Background and sub.Background.SetAlpha then
+                    sub.Background:SetAlpha(0)
+                end
+                -- WoW Forever's search options button beside the search box: our
+                -- arrow alone, no block, on the search box's centre line (Blizzard
+                -- seats the button 2px below it). One-shot.
+                local sod = sub.SearchOptionsDropdown
+                if sod and not sod:IsForbidden() and not GetFFD(sod).arrow then
+                    WSkin.FadeRegions(sod)
+                    local arrow = sod:CreateTexture(nil, "OVERLAY")
+                    arrow:SetAtlas("Azerite-PointingArrow")
+                    arrow:SetSize(14, 10)
+                    arrow:SetPoint("CENTER", sod, "CENTER", 0, 2)
+                    GetFFD(sod).arrow = arrow
+                end
                 -- Search box matches loadout dropdown height (one-shot, retries until laid out).
                 local dd = sub.LoadSystem and sub.LoadSystem.Dropdown
                 local sbx = sub.SearchBox

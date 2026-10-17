@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUIBags.lua -- Enhanced Bags System for EllesmereUI (Midnight): sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS["EllesmereUIBags"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -2591,9 +2591,16 @@ do
         if styleAsked then return end
         styleAsked = true
         -- The Gamepad style's D-pad cannot reach the popup, so chat says it too.
+        -- A confirm, not RequestReload: this can run outside a click, which
+        -- cannot reload; the popup's click can.
         EllesmereUI.PrintError(EllesmereUI.L("The interface style changed. Type /reload so the bags match it."))
-        EUI.RequestReload(EllesmereUI.L("Reload Required"),
-            EllesmereUI.L("The interface style changed. Reload so the bags match it."))
+        EUI:ShowConfirmPopup({
+            title       = EllesmereUI.L("Reload Required"),
+            message     = EllesmereUI.L("The interface style changed. Reload so the bags match it."),
+            confirmText = EllesmereUI.L("Reload Now"),
+            cancelText  = EllesmereUI.L("Later"),
+            reload      = true,
+        })
     end
 end
 
@@ -2695,16 +2702,6 @@ do
         if win == EUI_Bags and EUI_Bags._unmergedLinks then wipe(EUI_Bags._unmergedLinks) end
     end
 
-    local function Current()
-        return Clamp(dialog._eb:GetNumber(), 1, dialog._max)
-    end
-
-    local function SetValue(n)
-        n = Clamp(n, 1, dialog._max)
-        dialog._eb:SetText(tostring(n))
-        dialog._eb:SetCursorPosition(#dialog._eb:GetText())
-    end
-
     -- Re-checks the slot the dialog was opened on after every repaint: pooled
     -- buttons get repurposed, and the count can change under us.
     local function Validate()
@@ -2718,9 +2715,8 @@ do
             dialog:Hide(); return
         end
         if info.stackCount ~= dialog._max then
-            dialog._max = info.stackCount
-            dialog._maxLbl:SetText("/ " .. info.stackCount)
-            SetValue(Current())
+            dialog:SetRange(1, info.stackCount)
+            dialog:SetValue(dialog:Current())
         end
     end
 
@@ -2743,7 +2739,7 @@ do
 
     local function DoSplit(auto)
         local d = dialog
-        local bag, slot, n, ops = d._bag, d._slot, Current(), d._ops
+        local bag, slot, n, ops = d._bag, d._slot, d:Current(), d._ops
         d:Hide()
         local info = ops.info(bag, slot)
         if not info or info.isLocked or info.itemID ~= d._itemID or not info.stackCount or n >= info.stackCount then return end
@@ -2766,93 +2762,52 @@ do
         end
     end
 
+    -- The splitter's own dark look on the shared quantity window
+    -- (EllesmereUI.CreateQuantityDialog).
+    local SKIN = {
+        frame = function(d)
+            local PP = EUI.PP
+            local bg = d:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints()
+            bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
+            if PP and PP.CreateBorder then PP.CreateBorder(d, 0.2, 0.2, 0.2, 1) end
+        end,
+        font = SetBagFont,
+        button = function(parent, w, h, label) return MakeButton(parent, w, h, label, EUI.PP) end,
+        editBox = function(eb)
+            local PP = EUI.PP
+            eb:SetFont(GetFont(), 12, "")
+            local ebBg = eb:CreateTexture(nil, "BACKGROUND")
+            ebBg:SetAllPoints()
+            ebBg:SetColorTexture(0.1, 0.1, 0.1, 1)
+            if PP and PP.CreateBorder then PP.CreateBorder(eb, 0.15, 0.15, 0.15, 1) end
+        end,
+        close = function(close)
+            close:SetSize(12, 12)
+            close:SetPoint("TOPRIGHT", close:GetParent(), "TOPRIGHT", -9, -9)
+            close.icon = close:CreateTexture(nil, "OVERLAY")
+            close.icon:SetAllPoints()
+            close.icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
+            close.icon:SetAlpha(0.7)
+            close:SetScript("OnEnter", function() close.icon:SetAlpha(0.9) end)
+            close:SetScript("OnLeave", function() close.icon:SetAlpha(0.7) end)
+        end,
+    }
+
     local function CreateDialog()
-        local PP = EUI and EUI.PP
-        local d = CreateFrame("Frame", "EUI_BagsStackSplitFrame", UIParent)
-        d:SetFrameStrata("DIALOG")
-        d:SetSize(206, 94)
-        d:SetClampedToScreen(true)
-        d:EnableMouse(true)
-        d:EnableMouseWheel(true)
-        d:Hide()
-        local bg = d:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-        if PP and PP.CreateBorder then PP.CreateBorder(d, 0.2, 0.2, 0.2, 1) end
-
-        local title = d:CreateFontString(nil, "OVERLAY")
-        SetBagFont(title, 13)
-        title:SetPoint("TOPLEFT", d, "TOPLEFT", 10, -9)
-        title:SetTextColor(1, 1, 1, 0.9)
-        title:SetText(EllesmereUI.L("Split Stack"))
-
-        local close = CreateFrame("Button", nil, d)
-        close:SetSize(12, 12)
-        close:SetPoint("TOPRIGHT", d, "TOPRIGHT", -9, -9)
-        close.icon = close:CreateTexture(nil, "OVERLAY")
-        close.icon:SetAllPoints()
-        close.icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
-        close.icon:SetAlpha(0.7)
-        close:SetScript("OnEnter", function() close.icon:SetAlpha(0.9) end)
-        close:SetScript("OnLeave", function() close.icon:SetAlpha(0.7) end)
-        close:SetScript("OnClick", function() d:Hide() end)
-
-        local minus = MakeButton(d, 22, 22, "-", PP)
-        minus:SetPoint("TOPLEFT", d, "TOPLEFT", 10, -30)
-        minus:SetScript("OnClick", function() SetValue(Current() - 1) end)
-
-        local eb = CreateFrame("EditBox", nil, d)
-        eb:SetSize(56, 22)
-        eb:SetPoint("LEFT", minus, "RIGHT", 4, 0)
-        eb:SetAutoFocus(false)
-        eb:SetNumeric(true)
-        eb:SetMaxLetters(5)
-        eb:SetFont(GetFont(), 12, "")
-        eb:SetTextColor(1, 1, 1, 1)
-        eb:SetJustifyH("CENTER")
-        eb:SetTextInsets(4, 4, 0, 0)
-        local ebBg = eb:CreateTexture(nil, "BACKGROUND")
-        ebBg:SetAllPoints()
-        ebBg:SetColorTexture(0.1, 0.1, 0.1, 1)
-        if PP and PP.CreateBorder then PP.CreateBorder(eb, 0.15, 0.15, 0.15, 1) end
-        eb:SetScript("OnTextChanged", function(self, userInput)
-            if userInput and self:GetNumber() > d._max then SetValue(d._max) end
-        end)
-        eb:SetScript("OnEditFocusLost", function() SetValue(Current()) end)
-        eb:SetScript("OnEnterPressed", function() DoSplit(IsAltKeyDown()) end)
-        eb:SetScript("OnEscapePressed", function() d:Hide() end)
-        -- Controller cursor: the -/+ buttons cover the amount, so no
-        -- on-screen keyboard for this box.
-        EUI.PadHint(eb, "hidekeyboard")
-        d._eb = eb
-
-        local plus = MakeButton(d, 22, 22, "+", PP)
-        plus:SetPoint("LEFT", eb, "RIGHT", 4, 0)
-        plus:SetScript("OnClick", function() SetValue(Current() + 1) end)
-
-        local maxLbl = d:CreateFontString(nil, "OVERLAY")
-        SetBagFont(maxLbl, 12)
-        maxLbl:SetPoint("LEFT", plus, "RIGHT", 8, 0)
-        maxLbl:SetTextColor(0.7, 0.7, 0.7, 1)
-        d._maxLbl = maxLbl
-
-        local split = MakeButton(d, 88, 24, EllesmereUI.L("Split"), PP)
-        split:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", 10, 10)
-        split:SetScript("OnClick", function() DoSplit(false) end)
-        d._split = split
-        -- Controller cursor: Cancel finds the dialog's close button.
-        if EUI.PadCP() then d.CloseButton = close end
-
-        local auto = MakeButton(d, 88, 24, EllesmereUI.L("Auto Split"), PP)
-        auto:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -10, 10)
-        auto:SetScript("OnClick", function() DoSplit(true) end)
-        auto:HookScript("OnEnter", function()
-            EUI.ShowWidgetTooltip(auto, EllesmereUI.L("Split this stack into empty slots repeatedly until only the chosen amount or less remains. Alt+Enter does the same."))
-        end)
-        auto:HookScript("OnLeave", function() EUI.HideWidgetTooltip() end)
-
-        d:SetScript("OnMouseWheel", function(_, delta) SetValue(Current() + (delta > 0 and 1 or -1)) end)
-        d:SetScript("OnHide", function() eb:ClearFocus() end)
+        local d = EUI.CreateQuantityDialog({
+            name = "EUI_BagsStackSplitFrame", width = 206, height = 94,
+            title = EllesmereUI.L("Split Stack"), editWidth = 56, maxLetters = 5,
+            skin = SKIN,
+            onEnter = function() DoSplit(IsAltKeyDown()) end,
+            buttons = {
+                { key = "split", label = EllesmereUI.L("Split"), width = 88, height = 24,
+                  point = "BOTTOMLEFT", onClick = function() DoSplit(false) end, primary = true },
+                { key = "auto", label = EllesmereUI.L("Auto Split"), width = 88, height = 24,
+                  point = "BOTTOMRIGHT", onClick = function() DoSplit(true) end,
+                  tooltip = EllesmereUI.L("Split this stack into empty slots repeatedly until only the chosen amount or less remains. Alt+Enter does the same.") },
+            },
+        })
 
         hooksecurefunc(EUI_Bags, "RefreshInventory", Validate)
         EUI_Bags:HookScript("OnHide", function() WindowHidden(EUI_Bags) end)
@@ -2863,7 +2818,6 @@ do
             hooksecurefunc(bankFrame, "RefreshBank", Validate)
             bankFrame:HookScript("OnHide", function() WindowHidden(bankFrame) end)
         end
-        EllesmereUI.RegisterEscapeClose(d)
         return d
     end
 
@@ -2877,13 +2831,11 @@ do
         -- Stack Splitter setting decides whether the dialog replaces the popup.
         local placeOnce = (window == EUI_Bags and selectedCategoryIndex >= 0)
         if not placeOnce and BP().bagStackSplitter ~= true then return end
-        local ssf = StackSplitFrame
-        if not ssf:IsShown() or ssf.owner ~= owner then return end
-        local maxStack = ssf.maxStack
-        -- Hide only: no field writes on Blizzard's popup. Its OnHide leaves .owner
-        -- pointing at our permanent pooled button, which is harmless; the flag it
-        -- writes onto that button is read by nothing on a click path.
-        ssf:Hide()
+        local maxStack = EUI.StackSplitFor(owner)
+        if not maxStack then return end
+        -- Its OnHide leaves .owner on the owner button and writes a flag onto
+        -- it, which nothing reads on a click path.
+        EUI.TakeStackSplit()
         ops = ops or containerOps
         local bag, slot = ops.ownerBag(owner), owner:GetID()
         local info = ops.info(bag, slot)
@@ -2893,20 +2845,10 @@ do
         dialog._owner, dialog._bag, dialog._slot, dialog._itemID = owner, bag, slot, info.itemID
         dialog._targets, dialog._window, dialog._ops = targets, window, ops
         dialog._placeOnce = placeOnce
-        dialog._max = maxStack
-        dialog._maxLbl:SetText("/ " .. maxStack)
-        SetValue(1)
-        dialog:ClearAllPoints()
-        dialog:SetPoint("BOTTOMLEFT", owner, "TOPLEFT", -4, 6)
-        dialog:Show()
-        -- Controller cursor on screen: no keyboard focus (it would raise the
-        -- on-screen keyboard); the cursor moves onto Split instead.
-        if EUI.PadCursorShown() then
-            EUI.PadFocus(dialog._split)
-        else
-            dialog._eb:SetFocus()
-            dialog._eb:HighlightText()
-        end
+        dialog:SetRange(1, maxStack)
+        dialog:SetValue(1)
+        dialog:Open(owner)
+        dialog:FocusInput()
     end
 
     -- Blizzard's guild bank buttons open StackSplitFrame the same way ours do,
@@ -5968,11 +5910,14 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                         EUI_Bags:RefreshInventory()
                     end)
 
+                    -- EnableKeyboard and SetPropagateKeyboardInput are protected in
+                    -- combat: the popup takes the keyboard as it shows out of combat
+                    -- (below) and stands aside in it, keys reaching the game.
                     popup:SetScript("OnKeyDown", function(s, key)
+                        if InCombatLockdown() then return end
                         if key == "ESCAPE" then s:Hide(); s:SetPropagateKeyboardInput(false)
                         else s:SetPropagateKeyboardInput(true) end
                     end)
-                    popup:EnableKeyboard(true)
                     -- Controller cursor: Cancel finds Add Category, which toggles the popup closed.
                     if EUI.PadCP() then popup.CloseButton = self end
 
@@ -5986,6 +5931,10 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                 popup._updateSelection()
                 popup:ClearAllPoints()
                 popup:SetPoint("BOTTOMLEFT", self, "BOTTOMRIGHT", 4, 0)
+                if not InCombatLockdown() then
+                    popup:EnableKeyboard(true)
+                    popup:SetPropagateKeyboardInput(true)
+                end
                 popup:Show()
                 popup._nameEB:SetFocus()
             end)

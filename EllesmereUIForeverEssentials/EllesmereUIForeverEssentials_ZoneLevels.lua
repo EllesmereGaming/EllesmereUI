@@ -82,14 +82,15 @@ local function LevelsText(lv)
     else
         c = QuestDifficultyColors["difficult"]
     end
-    return ("|cff%02x%02x%02x(%d-%d)|r"):format(c.r * 255, c.g * 255, c.b * 255, lo, hi)
+    return EllesmereUI.HexColor(c.r, c.g, c.b) .. ("(%d-%d)|r"):format(lo, hi)
 end
 
 -- The area label's Name changed: the range when it names a zone of the shown
--- continent, nothing otherwise.
+-- continent, nothing otherwise. Off, Apply has hidden the text.
 local function OnLabelName(_, name)
+    if not F.Enabled() then return end
     local lv
-    if F.Enabled() and name and name ~= "" then
+    if name and name ~= "" then
         local info = C_Map.GetMapInfo(WorldMapFrame:GetMapID())
         if info and info.mapType == Enum.UIMapType.Continent then lv = byName[name] end
     end

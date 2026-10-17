@@ -14,6 +14,11 @@ I.broken = true
 
 local pairs, ipairs, type = pairs, ipairs, type
 local UnitIsUnit, UnitCanAttack = UnitIsUnit, UnitCanAttack
+-- The core's table of the options page frame pool (EllesmereUI_PixelPerfect.lua
+-- makes it, the options addon fills it): the builders the options preview shares
+-- with the plates create through it, so a preview frame is handed back to the
+-- preview's next build. A plate's parent is no pool host: a plain CreateFrame.
+local Pool = EllesmereUI._Pool
 
 local defaults = I.defaults
 
@@ -541,7 +546,7 @@ function ns.NP_ApplyClassicIconArt(frame, w, h)
     local host = frame._classicIconHost
     local border = frame._classicIconBorder
     if not border then
-        host = CreateFrame("Frame", nil, frame)
+        host = Pool.CreateFrame("Frame", nil, frame)
         host:SetAllPoints(frame)
         host:EnableMouse(false)
         border = host:CreateTexture(nil, "OVERLAY", nil, 5)
@@ -640,10 +645,11 @@ end
 function ns.NP_BuildForeverLevelBox(health)
     local B, L = ns.NP_BLIZZ, ns.NP_FOREVER_LVL
     if not ns.NP_AtlasOK(B.lvlBg) then return nil end
-    local box = CreateFrame("Frame", nil, health)
+    local box = Pool.CreateFrame("Frame", nil, health)
     box:EnableMouse(false)
     box:SetFrameLevel(health:GetFrameLevel() + 6)
-    box:SetPoint("LEFT", health, "RIGHT", L.gap, 0)
+    -- As the stock plate hangs it: L.pad taller than the bar, 3 of it above.
+    box:SetPoint("LEFT", health, "RIGHT", L.gap, 0.5)
     local bg = box:CreateTexture(nil, "BACKGROUND")
     bg:SetAtlas(B.lvlBg)
     bg:SetAllPoints(box)
@@ -657,12 +663,13 @@ function ns.NP_BuildForeverLevelBox(health)
     sk:Hide()
     box._skull = sk
     if ns.NP_AtlasOK(B.lvlSel) then
-        -- Where the stock plate hangs it (4 past a box 2 shorter), level with
-        -- the bar's own selection ring.
+        -- Where the stock plate hangs it (3 past the box's top and 4 past its
+        -- bottom, so 6 past the bar's each way), level with the bar's own
+        -- selection ring.
         local sel = box:CreateTexture(nil, "OVERLAY", nil, 1)
         sel:SetAtlas(B.lvlSel)
         sel:SetPoint("TOPLEFT", box, "TOPLEFT", -3, 3)
-        sel:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", 3, -3)
+        sel:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", 3, -4)
         sel:Hide()
         box._sel = sel
     end
@@ -1132,15 +1139,15 @@ end
 -- Shared with the options preview (owner is any table holding the bars).
 function ns.NP_BuildAbsorbBars(owner, health, mask)
     local lvl = health:GetFrameLevel() + 1
-    local curClip = CreateFrame("Frame", nil, health)
+    local curClip = Pool.CreateFrame("Frame", nil, health)
     curClip:SetClipsChildren(true)
     curClip:SetFrameLevel(lvl)
-    local missClip = CreateFrame("Frame", nil, health)
+    local missClip = Pool.CreateFrame("Frame", nil, health)
     missClip:SetClipsChildren(true)
     missClip:SetFrameLevel(lvl)
-    local fw = CreateFrame("StatusBar", nil, missClip)
+    local fw = Pool.CreateFrame("StatusBar", nil, missClip)
     fw:SetReverseFill(false)
-    local ab = CreateFrame("StatusBar", nil, curClip)
+    local ab = Pool.CreateFrame("StatusBar", nil, curClip)
     for _, bar in ipairs({ ab, fw }) do
         bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
         local fill = bar:GetStatusBarTexture()

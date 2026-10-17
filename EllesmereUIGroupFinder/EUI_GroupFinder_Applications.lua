@@ -4,6 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- session, character and account.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
+if EllesmereUI.HELD_BACK_ADDONS[ADDON_NAME] then return end -- held back (EllesmereUIGroupFinder.lua)
 local CM = EllesmereUI
 
 local function IsSecret(v) return issecretvalue ~= nil and issecretvalue(v) end
@@ -35,21 +36,43 @@ local STATUS_KEY = {
 
 -- Bar segments. Invites aren't shown, every invite counts as accepted.
 local SEGMENTS = {
-    { key = "accepted",  label = "Accepted",  cfg = "showAccepted",  r = 0.35, g = 0.85, b = 0.40 },
-    { key = "declined",  label = "Declined",  cfg = "showDeclined",  r = 0.95, g = 0.30, b = 0.30 },
-    { key = "delisted",  label = "Delisted",  cfg = "showDelisted",  r = 1.00, g = 0.60, b = 0.20 },
-    { key = "cancelled", label = "Cancelled", cfg = "showCancelled", r = 0.55, g = 0.55, b = 0.55 },
+    { key = "accepted",  cfg = "showAccepted",  r = 0.35, g = 0.85, b = 0.40 },
+    { key = "declined",  cfg = "showDeclined",  r = 0.95, g = 0.30, b = 0.30 },
+    { key = "delisted",  cfg = "showDelisted",  r = 1.00, g = 0.60, b = 0.20 },
+    { key = "cancelled", cfg = "showCancelled", r = 0.55, g = 0.55, b = 0.55 },
 }
 local SCOPES = { "session", "character", "account" }
-local SCOPE_LABEL = { session = "Session", character = "Character", account = "Account" }
+local VALID_SCOPE = { session = true, character = true, account = true }
 
--- Built-in bar textures plus SharedMedia's.
-local barTextures, barTexNames, barTexOrder = {}, {}, {}
-if CM.BuildBarTextureTables then
-    barTextures, barTexNames, barTexOrder = CM.BuildBarTextureTables()
-    if CM.AppendSharedMediaTextures then CM.AppendSharedMediaTextures(barTexNames, barTexOrder, nil, barTextures) end
+-- Tooltip labels and colour escapes, built on the first hover (the locale is
+-- ready by then).
+local tipText
+local function TipText()
+    if tipText then return tipText end
+    tipText = {
+        session   = EllesmereUI.L("Session"),
+        character = EllesmereUI.L("Character"),
+        account   = EllesmereUI.L("Account"),
+        accepted  = EllesmereUI.L("Accepted"),
+        declined  = EllesmereUI.L("Declined"),
+        delisted  = EllesmereUI.L("Delisted"),
+        cancelled = EllesmereUI.L("Cancelled"),
+        scopeHex  = CM.HexColor(1, 0.82, 0.3),
+        segHex    = {},
+    }
+    for i, seg in ipairs(SEGMENTS) do tipText.segHex[i] = CM.HexColor(seg.r, seg.g, seg.b) end
+    return tipText
 end
-ns.BarTextureTables = function() return barTextures, barTexNames, barTexOrder end
+
+-- Built-in bar textures plus SharedMedia's, built on first use.
+local barTextures, barTexNames, barTexOrder
+function ns.BarTextureTables()
+    if not barTextures then
+        barTextures, barTexNames, barTexOrder = CM.BuildBarTextureTables()
+        CM.AppendSharedMediaTextures(barTexNames, barTexOrder, nil, barTextures)
+    end
+    return barTextures, barTexNames, barTexOrder
+end
 
 local function Cfg() return ns.AppsCfg() end
 
@@ -60,7 +83,14 @@ local function Get(key, default)
     return v
 end
 
-local function On() return Get("enabled", true) ~= false end
+local function On() return Get("enabled", false) == true end
+
+-- The picked bar texture's file, or nil for a flat colour.
+local function TexturePath()
+    local key = Get("texture", "none")
+    if key == "none" then return nil end
+    return CM.ResolveTexturePath((ns.BarTextureTables()), key)
+end
 
 local function Blank()
     local t = {}
@@ -97,11 +127,9 @@ end
 local card
 local TITLE_SIZE = 12
 
-local function FontPath() return (CM.GetFontPath and CM.GetFontPath()) or STANDARD_TEXT_FONT end
-
 local function Scope()
     local s = Get("scope", "character")
-    return SCOPE_LABEL[s] and s or "character"
+    return VALID_SCOPE[s] and s or "character"
 end
 
 -- Counts use the search box font (12 until it's set).
@@ -110,22 +138,28 @@ local function CountFont()
     local path, size
     if type(sb) == "table" and sb.GetFont then path, size = sb:GetFont() end
     if path and size and size > 0 then return path, size end
-    return FontPath(), 12
+    return CM.GetFontPath(ADDON_NAME), 12
 end
 
+local tipLines = {}  -- reused per hover
 local function ShowTip(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("M+ Applications (Dungeons only)")
+    local T = TipText()
+    local n = 1
+    tipLines[1] = EllesmereUI.L("M+ Applications")
     for _, scope in ipairs(SCOPES) do
         local c = Counts(scope)
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddDoubleLine(SCOPE_LABEL[scope], ("%d applied"):format(c.applied), 1, 0.82, 0.3, 1, 1, 1)
-        for _, seg in ipairs(SEGMENTS) do
-            GameTooltip:AddDoubleLine("   " .. seg.label, tostring(c[seg.key]), seg.r, seg.g, seg.b, 1, 1, 1)
+        tipLines[n + 1] = " "
+        tipLines[n + 2] = T.scopeHex .. T[scope] .. "|r  " .. EllesmereUI.Lf("%d applied", c.applied)
+        n = n + 2
+        for i, seg in ipairs(SEGMENTS) do
+            n = n + 1
+            tipLines[n] = "   " .. T.segHex[i] .. T[seg.key] .. "|r  " .. c[seg.key]
         end
     end
-    GameTooltip:Show()
+    for i = #tipLines, n + 1, -1 do tipLines[i] = nil end
+    CM.ShowWidgetTooltip(self, table.concat(tipLines, "\n"), { anchor = "right", justify = "LEFT" })
 end
+local function HideTip() CM.HideWidgetTooltip() end
 
 -- Where the search rows sit, in PVEFrame coordinates.
 local function Place()
@@ -142,7 +176,7 @@ local function Place()
     local il, ir, pl = ref:GetLeft(), ref:GetRight(), pve:GetLeft()
     if not (il and ir and pl) then il, ir = inset:GetLeft(), inset:GetRight() end
     if not (il and ir and pl) then return end
-    local pad = tonumber(ns.Cfg and ns.Cfg().padding) or 12
+    local pad = tonumber(ns.Cfg().padding) or 12
     local x1, x2 = il - pl + pad, ir - pl - pad
     card.box:ClearAllPoints()
     card.box:SetPoint("TOPLEFT", pve, "TOPLEFT", x1, dy + r2)
@@ -154,9 +188,8 @@ end
 
 local function Layout()
     if not card then return end
-    local path = FontPath()
     local npath, nsize = CountFont()
-    card.title:SetFont(path, TITLE_SIZE, "")
+    CM.ApplyModuleFont(card.title, nil, TITLE_SIZE, ADDON_NAME, "")
     -- The Premade Groups title, same size and colour as ours.
     local lbl = _G.LFGListFrame and _G.LFGListFrame.CategorySelection and _G.LFGListFrame.CategorySelection.Label
     if lbl and lbl.GetFont then
@@ -166,7 +199,7 @@ local function Layout()
         local r, g, b = lbl:GetTextColor()
         if r then card.title:SetTextColor(r, g, b, 1) end
     end
-    local texPath = CM.ResolveTexturePath and CM.ResolveTexturePath(barTextures, Get("texture", "none"))
+    local texPath = TexturePath()
     for i, seg in ipairs(SEGMENTS) do
         local t = card.segs[i]
         if texPath then
@@ -177,17 +210,18 @@ local function Layout()
             t:SetVertexColor(1, 1, 1, 1)
             t:SetTexCoord(0, 1, 0, 1)
         end
-        card.nums[i]:SetFont(npath, nsize, "OUTLINE")
-        card.empty:SetFont(npath, nsize, "OUTLINE")
+        CM.ApplyModuleFont(card.nums[i], npath, nsize, ADDON_NAME, "OUTLINE")
     end
+    CM.ApplyModuleFont(card.empty, npath, nsize, ADDON_NAME, "OUTLINE")
     Place()
 end
 
+local shares = {}  -- reused per paint
 local function Refresh()
-    if not (card and card:IsShown()) then return end
+    if not (card and card:IsVisible()) then return end
     local c = Counts(Scope())
     -- Split the bar between the shown outcomes so it always fills.
-    local shares, total = {}, 0
+    local total = 0
     for i, seg in ipairs(SEGMENTS) do
         local v = c[seg.key]
         shares[i] = Get(seg.cfg, true) and v or 0
@@ -195,7 +229,7 @@ local function Refresh()
     end
     local bar = card.bar
     local w = bar:GetWidth() or 0
-    local textured = CM.ResolveTexturePath and CM.ResolveTexturePath(barTextures, Get("texture", "none"))
+    local textured = TexturePath()
     local x = 0
     for i, seg in ipairs(SEGMENTS) do
         local tex, num = card.segs[i], card.nums[i]
@@ -207,7 +241,7 @@ local function Refresh()
         -- Each segment shows its slice of the texture so it reads as one bar.
         if textured and w > 0 then tex:SetTexCoord(x / w, (x + sw) / w, 0, 1) end
         tex:SetShown(sw >= 0.5)
-        num:SetText(tostring(c[seg.key]))
+        num:SetFormattedText("%d", c[seg.key])
         num:ClearAllPoints()
         num:SetPoint("CENTER", tex, "CENTER", 0, 0)
         num:SetShown(sw >= 0.5 and (num:GetStringWidth() or 0) + 4 <= sw)
@@ -234,34 +268,28 @@ BuildCardInto = function()
     local card = CreateFrame("Frame", nil, host)
     card:SetAllPoints(host)
     card:SetFrameLevel(host:GetFrameLevel() + 5)
-    local function NewText(parent)
-        local fs = parent:CreateFontString(nil, "OVERLAY")
-        fs:SetFont(FontPath(), 12, "")
-        return fs
-    end
 
-    card.title = NewText(card)
+    card.title = card:CreateFontString(nil, "OVERLAY")
+    CM.ApplyModuleFont(card.title, nil, 12, ADDON_NAME, "")
     card.title:SetTextColor(1, 0.82, 0, 1)
-    card.title:SetText("M+ Applications")
-
+    card.title:SetText(EllesmereUI.L("M+ Applications"))
 
     local box = CreateFrame("Frame", nil, card)
     box:EnableMouse(true)
     box:SetScript("OnEnter", ShowTip)
-    box:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    box:SetScript("OnLeave", HideTip)
     local bg = box:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.2, 0.2, 0.2, 1)
-    local S = ns.Skin and ns.Skin()
+    local S = ns.Skin()
     if S and S.AddBorder then
         S.AddBorder(box)
-    elseif CM.MakeBorder then
-        local r, g, b, a = 0.2, 0.2, 0.2, 1
-        if ns.ThemeBorder then r, g, b, a = ns.ThemeBorder() end
+    else
+        local r, g, b, a = ns.ThemeBorder()
         CM.MakeBorder(box, r, g, b, a)
     end
     card.box = box
-    local px = (CM.PP and CM.PP.mult) or 1
+    local px = CM.PP.mult
     local bar = CreateFrame("Frame", nil, box)
     bar:SetPoint("TOPLEFT", box, "TOPLEFT", px, -px)
     bar:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -px, px)
@@ -270,29 +298,42 @@ BuildCardInto = function()
     for i = 1, #SEGMENTS do
         card.segs[i] = bar:CreateTexture(nil, "ARTWORK", nil, 1)
         local num = bar:CreateFontString(nil, "OVERLAY")
-        num:SetFont(FontPath(), 12, "OUTLINE")
+        CM.ApplyModuleFont(num, nil, 12, ADDON_NAME, "OUTLINE")
         num:SetTextColor(1, 1, 1, 1)
         num:SetJustifyH("CENTER")
         num:SetJustifyV("MIDDLE")
         card.nums[i] = num
     end
     card.empty = bar:CreateFontString(nil, "OVERLAY")
-    card.empty:SetFont(FontPath(), 12, "OUTLINE")
+    CM.ApplyModuleFont(card.empty, nil, 12, ADDON_NAME, "OUTLINE")
     card.empty:SetTextColor(1, 1, 1, 0.6)
     card.empty:SetPoint("CENTER", bar, "CENTER", 0, 0)
-    card.empty:SetText("N/A")
+    card.empty:SetText(EllesmereUI.L("N/A"))
     card.empty:Hide()
     bar:SetScript("OnSizeChanged", function() Refresh() end)
     return card
 end
 
--- Only shown on the Dungeons search, the only thing it counts.
+-- Only shown on the Dungeons search, the only category it counts.
 local function InDungeonSearch()
     local sp = _G.LFGListFrame and _G.LFGListFrame.SearchPanel
     return sp and sp:IsShown() and sp.categoryID == (GROUP_FINDER_CATEGORY_ID_DUNGEONS or 2) or false
 end
 
+-- The status event is registered only while the bar is on.
+local ev
+local function SyncCountEvent()
+    if not ev then return end
+    if On() then
+        ev:RegisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED")
+    else
+        ev:UnregisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED")
+    end
+end
+
 local function Apply()
+    if not ns.Enabled() then return end
+    SyncCountEvent()
     local on = On()
     local want = on and InDungeonSearch()
     if want then BuildCard() end
@@ -310,26 +351,22 @@ local function Apply()
     Refresh()
 end
 ns.ApplyApplications = Apply
--- Follow the search rows when they resize.
-if ns.Search_Layout then
-    hooksecurefunc(ns, "Search_Layout", function() Apply() end)
-end
 
 -------------------------------------------------------------------------------
 -- Counting
 -------------------------------------------------------------------------------
-local DUNGEONS = GROUP_FINDER_CATEGORY_ID_DUNGEONS or 2
-local isDungeon = {}  -- resultID -> is a dungeon group
-local function LookUpDungeon(id)
+local isMythicPlus = {}  -- resultID -> is a Mythic+ group
+local function LookUpMythicPlus(id)
     local info = C_LFGList.GetSearchResultInfo(id)
     if type(info) ~= "table" or IsSecret(info) or (canaccesstable and not canaccesstable(info)) then return nil end
     local acts = info.activityIDs
     local aid = (type(acts) == "table" and not IsSecret(acts)) and acts[1] or info.activityID
     if type(aid) ~= "number" or IsSecret(aid) then return nil end
     local ai = C_LFGList.GetActivityInfoTable(aid)
-    local cat = type(ai) == "table" and ai.categoryID
-    if type(cat) ~= "number" or IsSecret(cat) then return nil end
-    return cat == DUNGEONS
+    if type(ai) ~= "table" or IsSecret(ai) or (canaccesstable and not canaccesstable(ai)) then return nil end
+    local mp = ai.isMythicPlusActivity
+    if IsSecret(mp) then return nil end
+    return mp == true
 end
 
 local function Count(status, oldStatus, resultID)
@@ -337,21 +374,22 @@ local function Count(status, oldStatus, resultID)
     if type(resultID) ~= "number" or IsSecret(resultID) then return end
     if status == "applied" then
         if oldStatus == "applied" then return end
-        isDungeon[resultID] = LookUpDungeon(resultID)
-    elseif isDungeon[resultID] == nil then
-        isDungeon[resultID] = LookUpDungeon(resultID)
+        isMythicPlus[resultID] = LookUpMythicPlus(resultID)
+    elseif isMythicPlus[resultID] == nil then
+        isMythicPlus[resultID] = LookUpMythicPlus(resultID)
     end
-    local dungeon = isDungeon[resultID]
-    if status ~= "applied" and status ~= "invited" then isDungeon[resultID] = nil end
-    if not key or status == oldStatus or dungeon ~= true then return end
+    local counted = isMythicPlus[resultID]
+    if status ~= "applied" and status ~= "invited" then isMythicPlus[resultID] = nil end
+    if not key or status == oldStatus or counted ~= true then return end
     local a = Store()
-    for _, t in ipairs({ Fill(a.account), Fill(a.session), Counts("character") }) do
-        t[key] = t[key] + 1
-    end
+    local t = Fill(a.account); t[key] = t[key] + 1
+    t = Fill(a.session); t[key] = t[key] + 1
+    t = Counts("character"); t[key] = t[key] + 1
     Refresh()
 end
 
 function ns.ResetApplications(scope)
+    if not ns.Enabled() then return end
     local a = Store()
     if scope == "account" then
         a.account = Blank()
@@ -384,21 +422,27 @@ function ns.Apps_Enable()
     if name then myKey = name .. "-" .. (PlainString(realm) or MyRealm()) end
     local a = Store()
     if time() - (tonumber(a.session.t) or 0) > SESSION_GAP then a.session = Blank() end
-    HookPVE()
-    local ev = CreateFrame("Frame")
-    ev:RegisterEvent("ADDON_LOADED")
+    -- Follow the search rows when they resize.
+    if ns.Search_Layout then hooksecurefunc(ns, "Search_Layout", Apply) end
+    ev = CreateFrame("Frame")
     ev:RegisterEvent("PLAYER_LOGOUT")
-    ev:RegisterEvent("LFG_LIST_APPLICATION_STATUS_UPDATED")
-    ev:SetScript("OnEvent", function(_, event, ...)
+    ev:SetScript("OnEvent", function(self, event, ...)
         if event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
+            -- Live check: a profile swap can turn the bar off before the next Apply.
             if On() then
                 local id, status, oldStatus = ...
                 Count(PlainString(status), PlainString(oldStatus), id)
             end
         elseif event == "ADDON_LOADED" then
-            if (...) == "Blizzard_GroupFinder" then HookPVE() end
+            if (...) == "Blizzard_GroupFinder" then
+                HookPVE()
+                self:UnregisterEvent("ADDON_LOADED")
+            end
         elseif event == "PLAYER_LOGOUT" then
             Store().session.t = time()
         end
     end)
+    HookPVE()
+    if not hooked then ev:RegisterEvent("ADDON_LOADED") end
+    SyncCountEvent()
 end

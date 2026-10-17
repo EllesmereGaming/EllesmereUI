@@ -9,6 +9,12 @@ local ns = EllesmereUI._ModuleNS["EllesmereUIChat"]  -- module namespace (publis
 if not ns then return end  -- module disabled: no options page
 local ECHAT = ns.ECHAT
 
+-- Page reuse: the frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua, the options addon's first file), which hands a
+-- kept page its previous build's frames back reset to new; on any other
+-- parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -36,7 +42,7 @@ initFrame:SetScript("OnEvent", function(self)
         local W  = EllesmereUI.Widgets
         local PP = EllesmereUI.PP
         local y  = yOffset
-        local h
+        local _, h
 
         if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
         parent._showRowDivider = true

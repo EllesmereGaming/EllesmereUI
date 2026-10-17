@@ -25,6 +25,7 @@ local HOLY_SPEC = 65
 local ICON_SIZE = 30
 local STYLE_KEY = "abrBeaconMPlus"
 local GLOW_SPEC = { style = 2, r = 1, g = 0.15, b = 0.15 } -- Action Button Glow, red
+local GLOW_NEED = { flip = true } -- the family Action Button Glow draws on an engine host
 
 local ev = CreateFrame("Frame")
 local started = false   -- the first PLAYER_ENTERING_WORLD ran the initial sync
@@ -75,7 +76,7 @@ end
 -- decorated: the aura icon, no mouse (the tank's frame keeps its clicks and
 -- mouseover casts), and the red glow on a child host, whose C-side animation
 -- runs the same in and out of restricted content.
-local function InitButton(button)
+local function InitButton(button, d)
     local icon = button:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints(button)
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
@@ -86,8 +87,27 @@ local function InitButton(button)
     glow:SetFrameLevel(button:GetFrameLevel() + 2)
     glow:EnableMouse(false)
     local Glows = EllesmereUI.Glows
-    Glows.PrewarmEngineHost(glow, ICON_SIZE, ICON_SIZE, nil)
+    -- The button runs the animation itself (12.1.5): Blizzard plays it while
+    -- the button shows the Beacon and stops it otherwise, so every button
+    -- carries the glow; the icon above is its own (the button re-registers it
+    -- to re-run its visibility). Without that API the animation plays while
+    -- hidden too, and the group's cap is a fixed 1: only the one button it
+    -- can ever show carries the glow.
+    if not Glows.BindEngineHost(glow, button, d, icon)
+        and not EllesmereUI.AuraKit.ButtonCanShow(button) then
+        return
+    end
+    Glows.PrewarmEngineHost(glow, ICON_SIZE, ICON_SIZE, GLOW_NEED)
+    d.abrBeaconGlow = glow
     Glows.StartSpecGlow(glow, GLOW_SPEC, ICON_SIZE, ICON_SIZE, "engine")
+end
+
+-- The style's restyle runs only when AuraKit deferred it to the restriction
+-- lift, after the button refused the glow's registration: it starts the glow
+-- again (an unchanged one returns at once).
+local function RetryGlow(button, d)
+    local glow = d.abrBeaconGlow
+    if glow then EllesmereUI.Glows.StartSpecGlow(glow, GLOW_SPEC, ICON_SIZE, ICON_SIZE, "engine") end
 end
 
 local function EnsureContainer(unit)
@@ -96,7 +116,8 @@ local function EnsureContainer(unit)
         return
     end
     local AK = EllesmereUI.AuraKit
-    AK.styles[STYLE_KEY] = AK.styles[STYLE_KEY] or { noRegions = true, width = ICON_SIZE, height = ICON_SIZE }
+    AK.styles[STYLE_KEY] = AK.styles[STYLE_KEY]
+        or { noRegions = true, width = ICON_SIZE, height = ICON_SIZE, applyExtra = RetryGlow }
     host = CreateFrame("Frame", nil, UIParent)
     host:SetSize(ICON_SIZE, ICON_SIZE)
     host:SetFrameStrata("HIGH")

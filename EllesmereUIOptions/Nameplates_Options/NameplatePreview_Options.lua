@@ -8,6 +8,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUINameplates"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page frame pool (EllesmereUI_FramePool.lua): under page reuse the
+-- preview is built into the page's kept header root, and every frame the preview
+-- makes there is handed back to the header's next build.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 -- The name slot's Strata, as on the live plate: a slot's text host sits at
 -- level 900 in the slot's strata and the aura icons at 800 in MEDIUM (HIGH with
 -- Raise Strata). MEDIUM keeps the name where the preview's text tier puts it
@@ -2135,7 +2140,9 @@ local function BuildNameplatePreview(parent, parentW)
         for i = 1, PV_CONST.BUFF_COUNT do
             if buffSlotVal == "none" then
                 buffs[i]:Hide()
-                ns.NPC_PreviewBorder(buffs[i], nil, nil, false)
+                if buffs[i].dispelGlow and buffs[i].dispelGlow.active then
+                    ns.StopDispelGlow(buffs[i])
+                end
             else
                 buffs[i]:Show()
                 buffs[i]:SetSize(Snap(buffSz), Snap(buffH))
@@ -2144,9 +2151,14 @@ local function BuildNameplatePreview(parent, parentW)
                 buffs[i].durationText:SetTextColor(buffDurC.r, buffDurC.g, buffDurC.b, 1)
                 ApplyTimerPos(buffs[i].durationText, buffs[i], buffTPos, buffDurSz, buffDurX, buffDurY, buffDurC)
                 PlaceInSlot(buffs[i], buffSlotVal, i, PV_CONST.BUFF_COUNT, buffSz, buffH, buffSpacing, buffXOff, buffYOff)
-                -- Show Glow preview: the border the live buff row draws.
-                ns.NPC_PreviewBorder(buffs[i], buffSz, buffH,
-                    DBVal("dispelGlow") == true and PreviewDispelType() ~= nil)
+                -- Dispel glow preview: the live buff row's glow. StartSpecGlow
+                -- restarts it only when the style or a setting changed.
+                local previewType = PreviewDispelType()
+                if DBVal("dispelGlow") == true and previewType then
+                    ns.StartDispelGlow(buffs[i], buffSz, previewType, buffH)
+                elseif buffs[i].dispelGlow and buffs[i].dispelGlow.active then
+                    ns.StopDispelGlow(buffs[i])
+                end
             end
         end
 
@@ -2612,9 +2624,14 @@ local function BuildNameplatePreview(parent, parentW)
         ToggleAbsorbPreview()
 
         -- Notify framework so the scroll area adjusts: report full content header height (preset offset + bottom padding, not just the preview frame), converting totalH from preview-local to parent-space.
-        local headerExtra = pf._headerExtra or 0
-        local hintH = (optState._previewHintFS and optState._previewHintFS:IsShown()) and 29 or 0
-        EllesmereUI:UpdateContentHeaderHeight(totalH * previewScale + headerExtra + hintH)
+        -- Only while this preview is the header on screen: an update of the preview
+        -- left on another page (stashed, or in its hidden kept header root) must not
+        -- resize that page's header.
+        if self:IsVisible() then
+            local headerExtra = pf._headerExtra or 0
+            local hintH = (optState._previewHintFS and optState._previewHintFS:IsShown()) and 29 or 0
+            EllesmereUI:UpdateContentHeaderHeight(totalH * previewScale + headerExtra + hintH)
+        end
 
         -- Refresh text overlay sizes (font/text may have changed)
         if pf._textOverlays then

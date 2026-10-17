@@ -517,7 +517,7 @@ local function UpdateBordersForScale(frame, unit)
     end
 
     -- 2) Gather layout info.
-    local ppPos = settings.powerPosition or "below"
+    local ppPos = ns.UF_PowerPos(settings)
     local ppIsAtt = (ppPos == "below" or ppPos == "above")
     local ppIsDet = (ppPos == "detached_top" or ppPos == "detached_bottom")
     local ph = settings.powerHeight or 6
@@ -810,7 +810,7 @@ local function CreateHealthBar(frame, unit, height, xOffset, settings, rightInse
     rightInset = rightInset or 0
 
     -- Power bar "above" pushes the health bar down by the power bar height.
-    local ppPos = settings.powerPosition or "below"
+    local ppPos = ns.UF_PowerPos(settings)
     local powerAboveOff = (ppPos == "above") and (settings.powerHeight or 0) or 0
 
     local health = CreateFrame("StatusBar", nil, frame)

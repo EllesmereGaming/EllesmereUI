@@ -12,6 +12,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUINameplates"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page frame pool (EllesmereUI_FramePool.lua): frames made under a
+-- pooled page part are handed back to the page's next build.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolGen = EllesmereUI._Pool.Gen
+
 -- Core Text Positions. KNOWN: the elements a text position draws; any other
 -- saved value (None, unset, one this build does not know) shows nothing and
 -- leaves the position free.
@@ -68,8 +73,29 @@ function ns.NPO_TextStructureFP()
 end
 
 -- The Display page cog popup and the cog icon that owns it: built on the first
--- cog click and kept across page builds (ShowCogPopup below).
-local cogPopup, cogPopupOwner
+-- cog click and kept across page builds (ShowCogPopup below). cogPopupOwnerGen:
+-- the owner's dress when it opened the popup (page reuse dresses the same button
+-- again for a later build, which then is a new owner).
+local cogPopup, cogPopupOwner, cogPopupOwnerGen
+
+-- The cog that opened the popup, while it is still the dress that opened it.
+local function LiveCogOwner()
+    if cogPopupOwner and PoolGen(cogPopupOwner) == cogPopupOwnerGen then return cogPopupOwner end
+end
+
+-- True once the cog that opened the popup no longer stands for it: a later
+-- page build dressed it again (for its element or another one), left it idle
+-- or dropped the row it sits in. The popup would edit one element from
+-- another one's control, or hang off a hidden frame, so it closes. A cog made
+-- outside the page pool (every page while page reuse is off) has no
+-- generation and never closes here.
+local function CogOwnerGone()
+    local owner = cogPopupOwner
+    if not owner then return false end
+    local g = PoolGen(owner)
+    if g == nil and cogPopupOwnerGen == nil then return false end
+    return g ~= cogPopupOwnerGen or not owner:IsVisible()
+end
 
 local function BuildDisplayLayout(parent, y, ctx)
     local env = ns._NPO_OptEnv
@@ -79,6 +105,9 @@ local function BuildDisplayLayout(parent, y, ctx)
     local GetElementAtPosition, RefreshAllSlots, SetElementAtPosition, SetTextElementAtSlot = ctx.GetElementAtPosition, ctx.RefreshAllSlots, ctx.SetElementAtPosition, ctx.SetTextElementAtSlot
     local W = ctx.W
     local _, h
+    -- This build of the page (the serial moves after every page pass; page reuse
+    -- keeps one wrapper, so the wrapper cannot tell two builds apart).
+    local buildSerial = EllesmereUI._pageBuildSerial or 0
 
     -----------------------------------------------------------------------
     --  STYLE
@@ -749,18 +778,17 @@ local function BuildDisplayLayout(parent, y, ctx)
     local coreHeader
     coreHeader, h = W:SectionHeader(parent, "CORE POSITIONS", y);  y = y - h
 
-    -- Subtitle hint next to the section header
+    -- Subtitle hint next to the section header's title (the header's own label:
+    -- a page built again keeps its earlier dresses' font strings, idle, among
+    -- the header's regions)
     do
-        local regions = { coreHeader:GetRegions() }
-        for _, rgn in ipairs(regions) do
-            if rgn:IsObjectType("FontString") and EllesmereUI.EnKey(rgn:GetText()) == "CORE POSITIONS" then
-                local sub = coreHeader:CreateFontString(nil, "OVERLAY")
-                sub:SetFont(rgn:GetFont())
-                sub:SetTextColor(1, 1, 1, 0.25)
-                sub:SetText(EllesmereUI.L("(one slot per element)"))
-                sub:SetPoint("LEFT", rgn, "RIGHT", 6, 0)
-                break
-            end
+        local rgn = coreHeader._label
+        if rgn and EllesmereUI.EnKey(rgn:GetText()) == "CORE POSITIONS" then
+            local sub = coreHeader:CreateFontString(nil, "OVERLAY")
+            sub:SetFont(rgn:GetFont())
+            sub:SetTextColor(1, 1, 1, 0.25)
+            sub:SetText(EllesmereUI.L("(one slot per element)"))
+            sub:SetPoint("LEFT", rgn, "RIGHT", 6, 0)
         end
     end
 
@@ -781,9 +809,13 @@ local function BuildDisplayLayout(parent, y, ctx)
     local _refreshRaidMarkerEyePos
     local _refreshClassificationEyePos
 
-    optState.RefreshCoreEyes = function()
-        if _refreshRaidMarkerEyePos then _refreshRaidMarkerEyePos() end
-        if _refreshClassificationEyePos then _refreshClassificationEyePos() end
+    -- Never from the search pre-build: it builds no eyes, and the shown page's
+    -- Core Positions rows call this to move theirs.
+    if not EllesmereUI._prebuilding then
+        optState.RefreshCoreEyes = function()
+            if _refreshRaidMarkerEyePos then _refreshRaidMarkerEyePos() end
+            if _refreshClassificationEyePos then _refreshClassificationEyePos() end
+        end
     end
 
     -- Each slot's control is a checkbox dropdown, one box per element: a view
@@ -997,7 +1029,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     -------------------------------------------------------------------
     --  Combined Settings Popup  (singleton, slide-up, pos + optional size)
     -------------------------------------------------------------------
-    local function CogPopupOpen(btn) return cogPopupOwner == btn and cogPopup:IsShown() end
+    local function CogPopupOpen(btn) return LiveCogOwner() == btn and cogPopup:IsShown() end
 
     -- opts = {title, xGet, xSet, yGet, ySet, sizeGet, sizeSet, sizeMin, sizeMax, sizeStep, sizeLabel}; sizeGet nil = no size row.
     -- questTextGet/Set: the quest objective's Text Size, mirrored as the cog's top row.
@@ -1418,6 +1450,10 @@ local function BuildDisplayLayout(parent, y, ctx)
             -- Close on click outside
             local wasDown = false
             pf._clickOutside = function(self, dt)
+                if CogOwnerGone() then
+                    self:Hide()
+                    return
+                end
                 local down = IsMouseButtonDown("LeftButton")
                 if down and not wasDown then
                     -- The Grow/Strata/second dropdown menus float outside this popup's rect; a click there must not count as click-outside.
@@ -1427,7 +1463,8 @@ local function BuildDisplayLayout(parent, y, ctx)
                     local overMenu = (m and m:IsShown() and m:IsMouseOver())
                         or (m2 and m2:IsShown() and m2:IsMouseOver())
                         or (m3 and m3:IsShown() and m3:IsMouseOver())
-                    if not self:IsMouseOver() and not (cogPopupOwner and cogPopupOwner:IsMouseOver()) and not overMenu then
+                    local owner = LiveCogOwner()
+                    if not self:IsMouseOver() and not (owner and owner:IsMouseOver()) and not overMenu then
                         self:Hide()
                     end
                 end
@@ -1436,8 +1473,8 @@ local function BuildDisplayLayout(parent, y, ctx)
 
             pf:SetScript("OnHide", function(self)
                 self:SetScript("OnUpdate", nil)
-                local owner = cogPopupOwner
-                cogPopupOwner = nil
+                local owner = LiveCogOwner()
+                cogPopupOwner, cogPopupOwnerGen = nil, nil
                 -- MakeCogIcon/MakeTextCogIcon buttons have no _euiCogState.
                 if owner and owner._euiCogState then owner._euiCogState()
                 elseif owner then owner:SetAlpha(0.4) end
@@ -1451,18 +1488,18 @@ local function BuildDisplayLayout(parent, y, ctx)
 
             pf._refreshFns = {}
             for i = firstRefresh, #refreshList do pf._refreshFns[#pf._refreshFns + 1] = refreshList[i] end
-            pf._refreshParent = parent
+            pf._refreshSerial = buildSerial
             cogPopup = pf
         end
         -- Each page build starts a fresh refresh list: the first cog shown from
-        -- a page the popup was not built on registers the popup's sliders there.
-        if cogPopup._refreshParent ~= parent then
+        -- a build the popup was not built on registers the popup's sliders there.
+        if cogPopup._refreshSerial ~= buildSerial then
             for i = 1, #cogPopup._refreshFns do EllesmereUI.RegisterWidgetRefresh(cogPopup._refreshFns[i]) end
-            cogPopup._refreshParent = parent
+            cogPopup._refreshSerial = buildSerial
         end
 
         -- Toggle off if same icon clicked again
-        if cogPopupOwner == anchorBtn and cogPopup:IsShown() then
+        if LiveCogOwner() == anchorBtn and cogPopup:IsShown() then
             cogPopup:Hide()
             return
         end
@@ -1471,8 +1508,8 @@ local function BuildDisplayLayout(parent, y, ctx)
         cogPopup._xGet = opts.xGet; cogPopup._xSet = opts.xSet
         cogPopup._yGet = opts.yGet; cogPopup._ySet = opts.ySet
         cogPopup._titleFS:SetText(EllesmereUI.L(opts.title))
-        local prevOwner = cogPopupOwner
-        cogPopupOwner = anchorBtn
+        local prevOwner = LiveCogOwner()
+        cogPopupOwner, cogPopupOwnerGen = anchorBtn, PoolGen(anchorBtn)
         if prevOwner and prevOwner._euiCogState then prevOwner._euiCogState() end
 
         -- Show/hide size row and adjust height
@@ -1900,6 +1937,11 @@ local function BuildDisplayLayout(parent, y, ctx)
         local elapsed = 0
         local ANIM_DUR = 0.15
         cogPopup:SetScript("OnUpdate", function(self, dt)
+            -- A build dressed the anchor again mid-slide.
+            if CogOwnerGone() then
+                self:Hide()
+                return
+            end
             elapsed = elapsed + dt
             local t = math.min(elapsed / ANIM_DUR, 1)
             self:SetAlpha(t)
@@ -1985,7 +2027,7 @@ local function BuildDisplayLayout(parent, y, ctx)
         end)
         btn:SetScript("OnLeave", function(self)
             EllesmereUI.HideWidgetTooltip()
-            if cogPopupOwner ~= self then self:SetAlpha(CorePosOffDisabled(posKey) and 0.15 or 0.4) end
+            if LiveCogOwner() ~= self then self:SetAlpha(CorePosOffDisabled(posKey) and 0.15 or 0.4) end
         end)
         btn:SetScript("OnClick", function(self)
             if CorePosOffDisabled(posKey) then return end
@@ -2170,7 +2212,7 @@ local function BuildDisplayLayout(parent, y, ctx)
         end)
         EllesmereUI.RegisterWidgetRefresh(function()
             local off = CorePosOffDisabled(posKey)
-            btn:SetAlpha(off and 0.15 or (cogPopupOwner == btn and 0.7 or 0.4))
+            btn:SetAlpha(off and 0.15 or (LiveCogOwner() == btn and 0.7 or 0.4))
         end)
         if CorePosOffDisabled(posKey) then btn:SetAlpha(0.15) end
 
@@ -2399,18 +2441,15 @@ local function BuildDisplayLayout(parent, y, ctx)
     local coreTextHeader
     coreTextHeader, h = W:SectionHeader(parent, "CORE TEXT POSITIONS", y);  y = y - h
 
-    -- Subtitle hint next to the section header (same style as Core Positions)
+    -- Subtitle hint next to the section header's title (same style as Core Positions)
     do
-        local regions = { coreTextHeader:GetRegions() }
-        for _, rgn in ipairs(regions) do
-            if rgn:IsObjectType("FontString") and EllesmereUI.EnKey(rgn:GetText()) == "CORE TEXT POSITIONS" then
-                local sub = coreTextHeader:CreateFontString(nil, "OVERLAY")
-                sub:SetFont(rgn:GetFont())
-                sub:SetTextColor(1, 1, 1, 0.25)
-                sub:SetText(EllesmereUI.L("(one per slot)"))
-                sub:SetPoint("LEFT", rgn, "RIGHT", 6, 0)
-                break
-            end
+        local rgn = coreTextHeader._label
+        if rgn and EllesmereUI.EnKey(rgn:GetText()) == "CORE TEXT POSITIONS" then
+            local sub = coreTextHeader:CreateFontString(nil, "OVERLAY")
+            sub:SetFont(rgn:GetFont())
+            sub:SetTextColor(1, 1, 1, 0.25)
+            sub:SetText(EllesmereUI.L("(one per slot)"))
+            sub:SetPoint("LEFT", rgn, "RIGHT", 6, 0)
         end
     end
 
@@ -2495,7 +2534,7 @@ local function BuildDisplayLayout(parent, y, ctx)
         end)
         btn:SetScript("OnLeave", function(self)
             EllesmereUI.HideWidgetTooltip()
-            if cogPopupOwner ~= self then self:SetAlpha(TextPosDisabled(slotKey) and 0.15 or 0.4) end
+            if LiveCogOwner() ~= self then self:SetAlpha(TextPosDisabled(slotKey) and 0.15 or 0.4) end
         end)
         btn:SetScript("OnClick", function(self)
             if TextPosDisabled(slotKey) then return end
@@ -2570,7 +2609,7 @@ local function BuildDisplayLayout(parent, y, ctx)
         end)
         EllesmereUI.RegisterWidgetRefresh(function()
             local off = TextPosDisabled(slotKey)
-            btn:SetAlpha(off and 0.15 or (cogPopupOwner == btn and 0.7 or 0.4))
+            btn:SetAlpha(off and 0.15 or (LiveCogOwner() == btn and 0.7 or 0.4))
         end)
         if TextPosDisabled(slotKey) then btn:SetAlpha(0.15) end
         return btn
@@ -2730,7 +2769,9 @@ local function BuildDisplayLayout(parent, y, ctx)
         MakeTextCogIcon(row, side, c.key, c.label)
         if optState._npNotifySlot == c.key then
             optState._npNotifySlot = nil
-            EllesmereUI._NotifySettingWrite(rgn)
+            -- The slot read now, while this build's cell is its dress.
+            local snap = EllesmereUI._SOAttribution(rgn)
+            EllesmereUI._NotifySettingWrite(rgn, snap)
         end
     end
     for k = 1, #cells, 2 do

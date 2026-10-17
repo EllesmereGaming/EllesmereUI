@@ -693,11 +693,14 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         -- lands with this event, after the cast arm already read the old count.
         -- Re-read the shown non-pot item counts and arm only on a real change.
         -- A count crossing zero also re-runs the Hide Items if Missing check,
-        -- which otherwise only bag-content edges drive.
+        -- which otherwise only bag-content edges drive. Only items held now:
+        -- nothing held has no charges to change (gaining one is a bag-content
+        -- edge), and this event fires on nearly every ability press, where an
+        -- unheld family preset would count every one of its ranks.
         local hit, crossed
         for f in pairs(_pcActive) do
             if f._isItemPresetFrame and f._presetItemID and not f._displayItemID
-               and f._cachedTotal and f._countArm == false then
+               and f._cachedTotal and f._cachedTotal > 0 and f._countArm == false then
                 local old, n = f._cachedTotal, ns._ReadItemPresetCount(f)
                 if n ~= old then
                     f._countArm = true

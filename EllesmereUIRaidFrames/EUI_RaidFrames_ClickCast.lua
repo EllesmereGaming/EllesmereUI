@@ -8,6 +8,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  targeting @mouseover, friend/harm filtered via macro conditionals.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot.
+local POOL = EllesmereUI._Pool
 
 local pairs        = pairs
 local ipairs       = ipairs
@@ -2771,6 +2775,14 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     local PP = EllesmereUI.PanelPP
     local db = ns.db
     if not db then return 0 end
+    -- Options page pool (EllesmereUI_FramePool.lua): everything below builds on
+    -- the page's kept root, so the next render hands the same frames out again
+    -- (in creation order) instead of making new ones. The session-wide picker
+    -- popups and the spell strip hang from UIParent and the panel: plain new frames.
+    local CreateFrame = POOL.CreateFrame
+    -- A handler's own tail after a setter that renders the page again stops once
+    -- its widget was dressed again (that render painted it, maybe as another row's).
+    local PoolGen = POOL.Gen
 
     local cc = GetClickCastDB()
     if not cc then return 0 end
@@ -2786,15 +2798,18 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     local visibleH = scrollFrame:GetHeight()
     local parentW = scrollFrame:GetWidth()
 
-    -- Drop the old root; every render builds a new one.
-    if ns._ccRoot then ns._ccRoot:Hide(); ns._ccRoot:SetParent(nil) end
+    -- The refreshers this render registers replace the previous render's (it
+    -- runs outside a page pass too: RebuildPage, the deferred renders).
+    EllesmereUI._BeginRootRender("rf.cc")
     if ns._ccGridPopup then ns._ccGridPopup:Hide(); ns._ccGridPopup = nil end
     if ns._ccSpecPopup then ns._ccSpecPopup:Hide(); ns._ccSpecPopup = nil end
     -- QB popup is NOT cleaned up here -- it stays open during rebuilds
     -- The spell strip (parented to the panel) is re-dressed further down.
     if ns._ccSpellStrip then ns._ccSpellStrip:Hide() end
 
-    local root = CreateFrame("Frame", nil, scrollFrame)
+    -- One root for the session (the options page pool): every render dresses
+    -- it again, and its reset is the previous render's teardown.
+    local root = POOL.Kept(ns, "ccRoot", "Frame", scrollFrame)
     root:SetSize(parentW, visibleH)
     root:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
     root:SetFrameLevel(scrollFrame:GetFrameLevel() + 1)
@@ -2950,6 +2965,15 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             RefreshLabel()
         end
 
+        -- Runs a key setter; false once it rendered the page again: that
+        -- render dressed this button again (maybe as another row's), painted
+        -- it and dropped the capture (the row's OnHide below).
+        local function SetKey(fn, v)
+            local gen = PoolGen(kbBtn)
+            if fn then fn(v) end
+            return PoolGen(kbBtn) == gen
+        end
+
         kbBtn:SetScript("OnClick", function(self, button)
             if not listening then
                 if button == "LeftButton" then
@@ -2958,16 +2982,14 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     kbBtn:EnableKeyboard(true)
                     kbBtn:EnableMouseWheel(true)
                 elseif button == "RightButton" then
-                    if onKeyClear then onKeyClear() end
-                    RefreshLabel()
+                    if SetKey(onKeyClear) then RefreshLabel() end
                 end
                 return
             end
             -- While listening, any click is a binding (including bare left-click).
             local mods = ns.CC_GetModifierPrefix()
             local normalized = MOUSE_BUTTON_MAP[button] or ("BUTTON" .. (button:match("%d+") or button))
-            if onKeySet then onKeySet(mods .. normalized) end
-            StopListening()
+            if SetKey(onKeySet, mods .. normalized) then StopListening() end
         end)
 
         kbBtn:SetScript("OnKeyDown", function(self, key)
@@ -2981,8 +3003,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             end
             local captured = ns.CC_CaptureKey(key)
             if not captured then return end
-            if onKeySet then onKeySet(captured) end
-            StopListening()
+            if SetKey(onKeySet, captured) then StopListening() end
         end)
 
         -- Scroll-wheel binding only via this capture button (never Quickbind);
@@ -2992,8 +3013,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             if not listening then return end
             local mods = ns.CC_GetModifierPrefix()
             local wheel = delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN"
-            if onKeySet then onKeySet(mods .. wheel) end
-            StopListening()
+            if SetKey(onKeySet, mods .. wheel) then StopListening() end
         end)
 
         kbBtn:SetScript("OnEnter", function(self)
@@ -3307,12 +3327,14 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         return popup
     end
 
-    -- Page rebuild (called on selection change, add, delete, toggle).
+    -- Page rebuild (called on selection change, add, delete, toggle): the
+    -- render again, on the same kept root. The root stays shown until the
+    -- render resets it (that reset is the teardown), so the frame under the
+    -- cursor, dressed again in place, gets its OnEnter back from the pool.
     local function RebuildPage()
         -- Hides any open popups (QB stays open -- it's parented to UIParent).
         if ns._ccGridPopup then ns._ccGridPopup:Hide(); ns._ccGridPopup = nil end
         if ns._ccSpecPopup then ns._ccSpecPopup:Hide(); ns._ccSpecPopup = nil end
-        if ns._ccRoot then ns._ccRoot:Hide(); ns._ccRoot:SetParent(nil); ns._ccRoot = nil end
         ns.CC_BuildPage(pageName, parent, yOffset)
     end
 
@@ -3752,6 +3774,11 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             dimmer:SetScript("OnMouseDown", function(self, button)
                 if not popup:IsMouseOver() then dimmer:Hide() end
             end)
+            -- Closes as combat starts, with the settings window: its cells take
+            -- the keyboard on hover, which combat forbids. Listens only while open
+            -- (the OnHide below unregisters).
+            dimmer:SetScript("OnShow", function(self) self:RegisterEvent("PLAYER_REGEN_DISABLED") end)
+            dimmer:SetScript("OnEvent", function(self) self:Hide() end)
 
             ui = {
                 dimmer = dimmer, title = titleLbl, scroll = gridScrollQB, child = gridChildQB,
@@ -3826,18 +3853,19 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     iconBd:Show()
                     if cellLbl3 then cellLbl3:SetAlpha(1) end
                     hoveredItem = item
-                    cell:EnableKeyboard(true)
+                    if not InCombatLockdown() then cell:EnableKeyboard(true) end
                     ns.CC_RankTip(cell, item)
                 end)
                 cell:SetScript("OnLeave", function()
                     iconBd:Hide()
                     if cellLbl3 then cellLbl3:SetAlpha(dimmed3 and 0.3 or 0.7) end
                     hoveredItem = nil
-                    cell:EnableKeyboard(false)
+                    if not InCombatLockdown() then cell:EnableKeyboard(false) end
                     if item.lowRank or item.ranked then EllesmereUI.HideWidgetTooltip() end
                 end)
                 -- Key press while hovering: bind this item to that key
                 cell:SetScript("OnKeyDown", function(self, key)
+                    if InCombatLockdown() then return end
                     if MODIFIER_KEYS[key] then self:SetPropagateKeyboardInput(true); return end
                     if key == "ESCAPE" then self:SetPropagateKeyboardInput(false); dimmer:Hide(); return end
                     self:SetPropagateKeyboardInput(false)
@@ -3928,9 +3956,15 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         ui.macroTgl:SetScript("OnClick", function() toggleModeQB = "macro"; UpdateToggleQB() end)
         ui.itemTgl:SetScript("OnClick", function() toggleModeQB = "item"; UpdateToggleQB() end)
 
-        dimmer:SetScript("OnHide", function()
+        dimmer:SetScript("OnHide", function(self)
+            self:UnregisterEvent("PLAYER_REGEN_DISABLED")
             if ns._ccQBPopup == dimmer then ns._ccQBPopup = nil end
-            RebuildPage()
+            -- A close in combat rebuilds the page once combat ends.
+            if InCombatLockdown() then
+                ns.CombatQueue.Defer("CC_QuickbindPage", RebuildPage)
+            else
+                RebuildPage()
+            end
         end)
 
         dimmer:Show()
@@ -4289,8 +4323,11 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
         Refresh()
         pill:SetScript("OnClick", function()
+            local gen = PoolGen(pill)
             setValue(not getValue())
-            Refresh()
+            -- A setter that renders the page again dressed this pill again
+            -- (maybe as another row's): that render painted it.
+            if PoolGen(pill) == gen then Refresh() end
         end)
         return pill, Refresh
     end
@@ -4663,6 +4700,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local stripOuter = ns._ccSpellStrip
         if not stripOuter then
             stripOuter = CreateFrame("Frame", nil, host)
+            -- Held across renders: never handed out again by the options page
+            -- pool should it be made on a pool host (a no-op on the panel).
+            POOL.Keep(stripOuter)
             stripOuter:SetFrameLevel(host:GetFrameLevel() + 10)
             local stripBg = stripOuter:CreateTexture(nil, "BACKGROUND")
             stripBg:SetAllPoints(); stripBg:SetColorTexture(0, 0, 0, 0.6)
@@ -4830,5 +4870,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         blocker:SetScript("OnMouseWheel", function() end)
     end
 
+    EllesmereUI._EndRootRender("rf.cc")
     return 0  -- bypass framework scroll (custom root)
 end

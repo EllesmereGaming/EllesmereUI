@@ -20,6 +20,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  through the callers' existing edges; nothing here ticks.
 -------------------------------------------------------------------------------
 local _, ns = ...
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot.
+local POOL = EllesmereUI._Pool
 
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 
@@ -84,6 +88,10 @@ function ns.RF_StockBuild(owner, st, power)
     if st.stockEdge or not (ns.RF_Stock and ns.RF_Stock()) then return end
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
     if not PP then return end
+    -- On the Buff / Debuff Manager preview's replica (a frame of the options
+    -- page pool, EllesmereUI_FramePool.lua) these pieces are pooled with it and
+    -- handed out again by its next build; on every other owner a plain new frame.
+    local CreateFrame = POOL.CreateFrame
     local classic = ns.RF_Classic()
     -- The edge rides the EllesmereUI base border's level (+8): above the
     -- health, absorbs and dispel overlay, under the raised hover border and
@@ -919,15 +927,16 @@ function ns.RF_KitBuild(owner, st, health, power, bdr)
     st._kitHov, st._kitSel = hov, sel
 
     -- Blizzard: the stock rounded masks and bevel, on the bars themselves
-    -- (the mana mask shapes the bar's own background too).
+    -- (the mana mask shapes the bar's own background too). The retail masks
+    -- on every client, like the art (WoW Forever redrew these names).
     if K.health.mask then
         local hm = health:CreateMaskTexture()
-        hm:SetAtlas(K.health.mask)
+        EllesmereUI.StockMask(hm, K.health.mask)
         st.kitHMask = hm
         if K.bevel then st.kitHShade = MakeBevel(health, hm) end
         if power and K.power.mask then
             local pm = power:CreateMaskTexture()
-            pm:SetAtlas(K.power.mask)
+            EllesmereUI.StockMask(pm, K.power.mask)
             st.kitPMask = pm
             local pbg = st.powerBg or st._powerBg
             if pbg then pbg:AddMaskTexture(pm) end

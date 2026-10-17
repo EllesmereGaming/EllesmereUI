@@ -121,6 +121,22 @@ end
 --  5. Alpha 0 for unclaimed, alpha 1 for claimed
 -------------------------------------------------------------------------------
 
+-- A shown buff icon's alpha (Phase 2's rule; also the Also Show Below flip's):
+-- Hide Icon renders an Always-Show placeholder fully invisible while it keeps
+-- its slot, and a vis-hidden bar paints nothing.
+local function BuffIconAlpha(frame, barData, container)
+    if ns.IsPlaceholderRenderHidden(frame, barData) then
+        frame:SetAlpha(0)
+    else
+        frame:SetAlpha((container and container._visHidden) and 0 or ns.EffectiveBarAlpha(barData))
+    end
+end
+
+-- Bars whose Show When Missing icon flipped this pass without their icon list
+-- changing: Phase 2 lays them out in the same pass (the end of the pass
+-- queues any it did not reach).
+ns._missingFlipBars = {}
+
 local function CollectAndReanchor()
     local p = ECME.db and ECME.db.profile
     if not p or not p.cdmBars or not p.cdmBars.enabled then return end
@@ -222,6 +238,11 @@ local function CollectAndReanchor()
                                         cf[#cf + 1] = frame
                                         local fc = FC(frame)
                                         fc.barKey = targetBar
+                                        -- Hosted here, a buff is never Show When Missing hidden:
+                                        -- drop a flag (and any Also Show Below timer) it brought
+                                        -- from a buff bar.
+                                        if fc._missingActiveHidden then fc._missingActiveHidden = nil end
+                                        if fc._missingN then ns.MissingShowBelow(frame, fc, nil) end
                                         if repSID then
                                             -- Replacement: takes the COOLDOWN's identity, so Phase 3
                                             -- ranks it in that slot and the claim set covers the
@@ -265,9 +286,9 @@ local function CollectAndReanchor()
                                         end
                                         local fcMV = FC(frame)
                                         -- Also Show Below N Seconds: the buff comes back for its last
-                                        -- seconds (ns.MissingShowBelow arms the relayout timer).
+                                        -- seconds (ns.MissingShowBelow arms the timer that re-checks it).
                                         local showLow = false
-                                        if belowSec or fcMV._missingTimer or fcMV._missingLow then
+                                        if belowSec or fcMV._missingN then
                                             showLow = ns.MissingShowBelow(frame, fcMV, belowSec)
                                         end
                                         local wasHidden = fcMV._missingActiveHidden and true or false
@@ -278,17 +299,25 @@ local function CollectAndReanchor()
                                             fcMV._missingActiveHidden = nil
                                         end
                                         -- The icon list is unchanged when only this flag flips, so
-                                        -- the bar would not lay out: the icon would show at its
-                                        -- stale point, or leave its gap open.
+                                        -- Phase 2 would not lay the bar out: it does so in this same
+                                        -- pass, and Glow When Visible follows.
                                         if wasHidden ~= (fcMV._missingActiveHidden and true or false) then
-                                            ns.QueueShiftLayout(targetBar)
+                                            ns._missingFlipBars[targetBar] = true
+                                            ns._btDirty = true
+                                            if ns.ArmBuffTicker then ns.ArmBuffTicker() end
                                         end
                                     end
                                     barSeen[dedupKey] = true
                                 else
-                                    -- Buff gone: drop any Also Show Below timer.
-                                    local fcOff = _ecmeFC[frame]
-                                    if fcOff and (fcOff._missingTimer or fcOff._missingLow) then
+                                    -- Buff gone: drop any Also Show Below timer. Gone while it
+                                    -- showed for its last seconds: hidden again, so its next
+                                    -- application comes up invisible, as without the option.
+                                    local fcOff = ns._cdmAnyMissingBelow and _ecmeFC[frame]
+                                    if fcOff and fcOff._missingN then
+                                        if fcOff._missingLow then
+                                            fcOff._missingActiveHidden = true
+                                            frame:SetAlpha(0)
+                                        end
                                         ns.MissingShowBelow(frame, fcOff, nil)
                                     end
                                     -- This buff is DISPLAYED in the viewer but currently OFF
@@ -930,7 +959,6 @@ local function CollectAndReanchor()
                             and not ns.IsPlaceholderRenderHidden(frame, barData)) and true or false)
                     end
                     if frame:IsShown() and not isFocusKickBar then
-                        local barHidden = container and container._visHidden
                         local fcH = _ecmeFC[frame]
                         if not (fcH and (fcH._cdStateHidden or fcH._missingActiveHidden)) then
                             -- Hide Icon: an Always-Show placeholder still reserves its
@@ -939,11 +967,7 @@ local function CollectAndReanchor()
                             -- via frame alpha 0. The same check is mirrored in the two
                             -- other per-icon opacity passes (_CDMApplyVisibility and
                             -- ApplyBarOpacity) so none of them paint over it.
-                            if ns.IsPlaceholderRenderHidden(frame, barData) then
-                                frame:SetAlpha(0)
-                            else
-                                frame:SetAlpha(barHidden and 0 or ns.EffectiveBarAlpha(barData))
-                            end
+                            BuffIconAlpha(frame, barData, container)
                         end
                     end
                     -- Ensure stack/charge text stays above our border overlay. Blizzard
@@ -1015,6 +1039,11 @@ local function CollectAndReanchor()
                         end
                     end
                 else
+                    iconsChanged = true
+                end
+                -- A Show When Missing icon that only flipped (Also Show Below).
+                if ns._missingFlipBars[barKey] then
+                    ns._missingFlipBars[barKey] = nil
                     iconsChanged = true
                 end
                 if iconsChanged then
@@ -2294,10 +2323,12 @@ local function CollectAndReanchor()
 
     -- Refresh the options-panel preview (if open) so the content header reflects the
     -- icons we just populated. Without this, the preview shows empty on login/spec swap
-    -- because it builds before the first queued CollectAndReanchor fires.
+    -- because it builds before the first queued CollectAndReanchor fires. The CDM Bars
+    -- preview (its own slot) only while it shows: a page left behind keeps its preview,
+    -- hidden, and brings it up to date as it shows again (onPageCacheRestore).
     if EllesmereUI and EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown() then
-        local pv = EllesmereUI._contentHeaderPreview
-        if pv and pv.Update then pv:Update() end
+        local pv = EllesmereUI._cdmHeaderPreview
+        if pv and pv.Update and pv:IsVisible() then pv:Update() end
     end
     -- Frames we could not identify this pass were skipped by the Phase 4 sweep
     -- and are still sitting wherever Blizzard left them. Re-collect shortly so
@@ -2326,6 +2357,31 @@ local function CollectAndReanchor()
     -- rebuilds it against the fresh claim set.
     if ns._cdmClaimGen then ns._cdmClaimGen = ns._cdmClaimGen + 1 end
     if ns.RefreshStaleCDMKeybinds then ns.RefreshStaleCDMKeybinds() end
+    -- A flipped Show When Missing icon whose bar Phase 2 did not reach.
+    if next(ns._missingFlipBars) then
+        for bk in pairs(ns._missingFlipBars) do ns.QueueShiftLayout(bk) end
+        wipe(ns._missingFlipBars)
+    end
+end
+
+-- Also Show Below (EllesmereUICdmHooks.lua): a deadline or the buff ticker
+-- flips one Show When Missing icon without a reanchor pass: its flag, its
+-- alpha (Phase 2's rule), its bar's layout, its mouse state and Glow When
+-- Visible.
+function ns.MissingFlip(frame, fc, hide)
+    local bk = fc.barKey
+    if hide then
+        fc._missingActiveHidden = true
+        frame:SetAlpha(0)
+    else
+        fc._missingActiveHidden = nil
+        local bd = barDataByKey[bk]
+        if bd then BuffIconAlpha(frame, bd, cdmBarFrames[bk]) end
+    end
+    ns.QueueShiftLayout(bk)
+    ns.ApplyCDMTooltipState(bk)
+    ns._btDirty = true
+    if ns.ArmBuffTicker then ns.ArmBuffTicker() end
 end
 ns.CollectAndReanchor = CollectAndReanchor
 

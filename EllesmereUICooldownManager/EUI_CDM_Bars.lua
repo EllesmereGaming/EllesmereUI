@@ -1523,14 +1523,6 @@ end
 -- close the gap. Deferred to a clean execution context: callers run inside SetDesaturated hooks/
 -- the Fake-Active poll, where LayoutCDMBar's SetSize/SetPoint could propagate taint (same pattern
 -- as the _visHidden relayout in _CDMApplyVisibility). Coalesced per bar; steady-state calls return immediately.
---
--- Growth-edge preservation is LOCAL to this relayout call: capture the fixed growth edge before
--- LayoutCDMBar and, if the resize moved it, translate the frame back through whatever point it
--- already has (offset-only SetPoint on the existing point/relTo -- no ClearAllPoints, no DB
--- writes, no anchor-system calls). A non-CENTER-grow bar's persistent point normally IS its fixed
--- growth edge (delta 0, frame untouched); this only corrects bars whose point is center/corner-
--- based at that moment (anchored bars mid-cascade, first-row corner pins, legacy CENTER
--- positions). Anchored bars still get their deferred anchor batch reapply afterwards (OnSizeChanged fired during LayoutCDMBar), which remains authoritative.
 ns._cdShiftLayoutPending = {}
 function ns.SetCdStateShiftHidden(fc, shiftHidden)
     shiftHidden = shiftHidden or false
@@ -1544,6 +1536,14 @@ end
 -- The relayout a layout-dropped icon needs when it joins or leaves its bar's
 -- layout without the bar's icon list changing (the reanchor pass lays a bar out
 -- only when that list changes). One pass per bar on the next frame.
+--
+-- Growth-edge preservation is LOCAL to this relayout call: capture the fixed growth edge before
+-- LayoutCDMBar and, if the resize moved it, translate the frame back through whatever point it
+-- already has (offset-only SetPoint on the existing point/relTo -- no ClearAllPoints, no DB
+-- writes, no anchor-system calls). A non-CENTER-grow bar's persistent point normally IS its fixed
+-- growth edge (delta 0, frame untouched); this only corrects bars whose point is center/corner-
+-- based at that moment (anchored bars mid-cascade, first-row corner pins, legacy CENTER
+-- positions). Anchored bars still get their deferred anchor batch reapply afterwards (OnSizeChanged fired during LayoutCDMBar), which remains authoritative.
 function ns.QueueShiftLayout(bk)
     if not bk or ns._cdShiftLayoutPending[bk] then return end
     ns._cdShiftLayoutPending[bk] = true
@@ -1644,11 +1644,14 @@ local function ApplyCDMTooltipState(barKey)
             for i = 1, #icons do
                 local ic = icons[i]
                 if ic and ic.EnableMouseMotion then
-                    -- Invisible placeholders and Empty Slots are excluded even with
-                    -- tooltips on: a slot with no art has nothing to hover, so
-                    -- capturing here would only take mouseover away from whatever
-                    -- the bar sits over.
+                    -- Invisible placeholders, Empty Slots and Show When Missing
+                    -- icons hidden while active are excluded even with tooltips
+                    -- on: a slot with no art has nothing to hover, so capturing
+                    -- here would only take mouseover away from whatever the bar
+                    -- sits over.
+                    local sfc = _ecmeFC[ic]
                     ic:EnableMouseMotion(wantHover and not ic._isEmptySlotFrame
+                        and not (sfc and sfc._missingActiveHidden)
                         and not IsPlaceholderRenderHidden(ic, bd))
                 end
             end

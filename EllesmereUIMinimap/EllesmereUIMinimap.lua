@@ -3201,6 +3201,43 @@ function EBS._RingIndicator(btn)
     end
 end
 
+-- WoW Forever's minimap header: its bar art (EBS._ApplyBlizzMinimapChrome)
+-- and its own button arts, each plate and glyph in one atlas.
+EBS.FV_HEADER_ATLAS = "ui-hud-minimap-header-button"
+EBS.FV_HEADER_BUTTONS = {
+    tracking = { "ui-hud-minimap-tracking-button", 23, 23 },
+    calendar = { "ui-hud-minimap-calendar-button", 23, 23 },
+    mail     = { "ui-hud-minimap-mail-icon", 32, 24 },
+}
+-- An indicator (tracking, calendar, mail) in its WoW Forever header art at
+-- the header's scale `s` (map size / 198): the art fills the button in place
+-- of the icon's own (every hover state reads the same atlas, so the swaps go
+-- quiet) and an additive copy lights it on mouseover at Blizzard's 0.1, as
+-- the stock header buttons light. Re-applied per pass: the indicator pass
+-- sizes the button for the EUI row and the day rollover repaints the
+-- calendar's icon before it. Our own buttons only.
+function EBS._FvHeaderIndicator(btn, key, s)
+    local art = btn and EBS.FV_HEADER_BUTTONS[key]
+    if not art then return end
+    local atlas = art[1]
+    btn:SetSize(art[2] * s, art[3] * s)
+    if btn._bg then btn._bg:Hide() end
+    btn._upAtlas, btn._overAtlas, btn._downAtlas = atlas, atlas, atlas
+    local icon = btn._icon
+    icon:ClearAllPoints()
+    icon:SetAllPoints(btn)
+    icon:SetAtlas(atlas)
+    local hl = btn._fvHeaderHL
+    if not hl then
+        hl = btn:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetBlendMode("ADD")
+        hl:SetAllPoints(btn)
+        hl:SetAlpha(0.1)
+        btn._fvHeaderHL = hl
+    end
+    hl:SetAtlas(atlas)
+end
+
 local function LayoutIndicatorFrames(minimap, p, circleMode)
     local flvl = minimap:GetFrameLevel() + 10
     local mapAnchor = GetFFD(minimap).layoutFrame or minimap
@@ -3296,13 +3333,21 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         -- stacks the mail under the tracking button too; Classic WoW UI puts
         -- it at the vanilla spot on the ring's upper right, below the flag,
         -- and dresses the row's indicators as the vanilla round buttons (a
-        -- corner-pinned mail renders bare). Corner mail and every hide toggle
+        -- corner-pinned mail renders bare). WoW Forever's bar takes its own
+        -- header buttons (EBS._FvHeaderIndicator) where its client puts them:
+        -- tracking centred 8.5 past the bar's left end, the calendar
+        -- overlapping its right end by 4, the mail icon under its left end
+        -- (a corner mail keeps that art). Corner mail and every hide toggle
         -- still apply.
         local classic = EBS._MinimapClassic()
         local cs = (p.mapSize or 140) / 140
+        local fvBar = blizzHdr._fvBar
+        local hs = (p.mapSize or 140) / 198
         if ci.tracking and not p.hideTrackingButton then
             if classic then
                 EBS._ClassicRingButton(ci.tracking, nil, ci.tracking._icon)
+            elseif fvBar then
+                EBS._FvHeaderIndicator(ci.tracking, "tracking", hs)
             elseif not ci.tracking._blizzRing then
                 -- The stock tracking button sits on a round plate (our own button, so the
                 -- texture lives on it directly).
@@ -3312,7 +3357,11 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                 ci.tracking._blizzRing = ring
             end
             ci.tracking:ClearAllPoints()
-            ci.tracking:SetPoint("RIGHT", blizzHdr, "LEFT", -2, 0)
+            if fvBar then
+                ci.tracking:SetPoint("CENTER", blizzHdr, "LEFT", -8.5 * hs, 0)
+            else
+                ci.tracking:SetPoint("RIGHT", blizzHdr, "LEFT", -2, 0)
+            end
             ci.tracking:Show()
         elseif ci.tracking then
             ci.tracking:Hide()
@@ -3320,10 +3369,16 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         if ci.calendar and not p.hideGameTime then
             -- Stock: the clock hangs from the bar's top-right corner.
             ci.calendar:ClearAllPoints()
-            ci.calendar:SetPoint("TOPLEFT", blizzHdr, "TOPRIGHT", 1, 0)
+            if fvBar then
+                EBS._FvHeaderIndicator(ci.calendar, "calendar", hs)
+                ci.calendar:SetPoint("TOPLEFT", blizzHdr, "TOPRIGHT", -4 * hs, 0)
+            else
+                ci.calendar:SetPoint("TOPLEFT", blizzHdr, "TOPRIGHT", 1, 0)
+            end
         end
-        local under = (ci.tracking and ci.tracking:IsShown()) and ci.tracking or nil
+        local under = (ci.tracking and ci.tracking:IsShown() and not fvBar) and ci.tracking or nil
         if ci.mail and ci.mail:IsShown() then
+            if fvBar then EBS._FvHeaderIndicator(ci.mail, "mail", hs) end
             if classic then
                 if mailCorner then
                     EBS._ClassicRingUndress(ci.mail, ci.mail._icon)
@@ -3344,6 +3399,9 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                 -- that top-left, 6 lower than the vanilla spot so the difficulty
                 -- flag hanging under the banner's right end clears the ring.
                 ci.mail:SetPoint("TOPLEFT", minimap, "TOPRIGHT", -9 * cs, -43 * cs)
+            elseif fvBar then
+                ci.mail:SetPoint("TOPLEFT", blizzHdr, "BOTTOMLEFT", 0, 0)
+                under = ci.mail
             else
                 if under then
                     ci.mail:SetPoint("TOP", under, "BOTTOM", 0, 0)
@@ -4080,7 +4138,11 @@ function EBS._PositionAddonCompartment(btn)
         if corner == "TOPRIGHT" then
             local cal = _customIndicators.calendar
             local hdr = GetFFD(Minimap).blizzHeader
-            if cal and cal:IsShown() then
+            if cal and cal:IsShown() and hdr and hdr._fvBar then
+                -- WoW Forever's header: centred under the calendar, 1 up.
+                btn:SetPoint("TOP", cal, "BOTTOM", nx, 1 + ny)
+                placed = true
+            elseif cal and cal:IsShown() then
                 btn:SetPoint("TOPLEFT", cal, "BOTTOMLEFT", nx, ny)
                 placed = true
             elseif hdr then
@@ -4380,11 +4442,11 @@ EBS._ApplyBlizzMinimapChrome = function(minimap, mapSize)
     local compass = _G.MinimapCompassTexture
     -- WoW Forever look only: plain Blizzard Style keeps its own geometry everywhere.
     local fv = EBS._MinimapForever() == true
-    local hw, hh, barY = nil, nil, 24
+    local hw, hh, rh = nil, nil, nil
     if fv then
-        local rw, rh = EBS._ForeverRingSize()
+        local rw
+        rw, rh = EBS._ForeverRingSize()
         hw, hh = rw * s / 2, rh * s / 2
-        barY = rh / 2 - 89
     end
     -- MinimapBackdrop is the Minimap's own child frame carrying the compass ring
     -- (and the landing page button, which this module positions itself).
@@ -4424,21 +4486,45 @@ EBS._ApplyBlizzMinimapChrome = function(minimap, mapSize)
     end
     -- Top bar: the stock 175x16 kit, bottom edge 24px above the map's top,
     -- centred 5px right of the map centre in the stock cluster; scaled, so
-    -- the offsets stay unscaled. Forever's taller ring grows the stock
-    -- container, which lifts the bar to (ring height / 2 - 89) above the map
-    -- (37.5 for the 253px ring), clear of the north chevron.
+    -- the offsets stay unscaled. WoW Forever's bar is its header button art
+    -- (152x23) over the map's centre: its taller ring grows the stock
+    -- container, which lifts the bar to (ring height / 2 - 92) above the map
+    -- (34.5 for the 253px ring), clear of the north chevron. The zone text
+    -- rides that bar's slot, 8 in from each end (the clock, Blizzard's tenant
+    -- of its right end, stays the module's own element); a client without the
+    -- art keeps the stock kit 3 higher.
     local header = d.blizzHeader
     if not header then
         header = CreateFrame("Frame", nil, minimap)
-        header:SetSize(175, 16)
         header:EnableMouse(false)
-        if NineSliceUtil and NineSliceUtil.ApplyLayoutByName then
-            pcall(NineSliceUtil.ApplyLayoutByName, header, "UniqueCornersLayout", "ui-hud-minimap-button")
+        local bar = fv and C_Texture.GetAtlasInfo(EBS.FV_HEADER_ATLAS)
+        if bar then
+            local tex = header:CreateTexture(nil, "BACKGROUND")
+            tex:SetAllPoints(header)
+            tex:SetAtlas(EBS.FV_HEADER_ATLAS)
+            header:SetSize(bar.width, bar.height)
+            local slot = CreateFrame("Frame", nil, header)
+            slot:EnableMouse(false)
+            slot:SetPoint("TOPLEFT", header, "TOPLEFT", 8, -1)
+            slot:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", -8, -1)
+            header._zoneSlot = slot
+            header._fvBar = true
+        else
+            header:SetSize(175, 16)
+            if NineSliceUtil and NineSliceUtil.ApplyLayoutByName then
+                pcall(NineSliceUtil.ApplyLayoutByName, header, "UniqueCornersLayout", "ui-hud-minimap-button")
+            end
         end
         d.blizzHeader = header
     end
+    local barY = 24
+    if header._fvBar then
+        barY = rh / 2 - 92
+    elseif fv then
+        barY = rh / 2 - 89
+    end
     header:ClearAllPoints()
-    header:SetPoint("BOTTOM", minimap, "TOP", 5, barY)
+    header:SetPoint("BOTTOM", minimap, "TOP", header._fvBar and 0 or 5, barY)
     header:SetScale(s)
     header:SetFrameLevel(minimap:GetFrameLevel() + 4)
     header:Show()
@@ -4599,9 +4685,9 @@ EllesmereUI._ModuleNS[ADDON_NAME].MinimapQueueEyeSpot = EBS._QueueEyeSpot
 
 -- WoW Forever look: the day/night orb Blizzard hangs on the ring's upper
 -- right (its own sits in the cluster this module hides). Stock geometry: a
--- 42px bronze rim over a 33px sun or moon disc, centred 53 right of and 89
--- above the 198px map's centre; never drawn below its native size, while the
--- offset still scales with the map. Above the compass so the rotating chevron
+-- 42px bronze rim over a 33px sun or moon disc, centred 55 right of and 86
+-- above the 198px map's centre; always drawn at its native size, while the
+-- offset scales with the map. Above the compass so the rotating chevron
 -- passes under it, below the ping blocker, mouse-transparent like the stock
 -- one; a child of the map, so it hides with it. Built once under the latch;
 -- the disc repaints only on DIEL_CYCLE_CHANGED.
@@ -4628,10 +4714,8 @@ EBS._ApplyForeverDiel = function(minimap, mapSize)
         d.foreverDiel = orb
     end
     local s = mapSize / 198
-    local k = math.max(1, s)
-    orb:SetScale(k)
     orb:ClearAllPoints()
-    orb:SetPoint("CENTER", minimap, "CENTER", 53 * s / k, 89 * s / k)
+    orb:SetPoint("CENTER", minimap, "CENTER", 55 * s, 86 * s)
     orb:SetFrameLevel(minimap:GetFrameLevel() + 5)
     orb:Show()
 end
@@ -5499,13 +5583,21 @@ local function ApplyMinimap()
         end
         if blizz and GetFFD(minimap).blizzHeader then
             -- Stock styles: the zone text rides the top bar -- the banner's text
-            -- slot under Classic WoW UI (offsets still apply).
+            -- slot under Classic WoW UI, held to the slot by both ends on WoW
+            -- Forever's bar (a longer name is cut short with an ellipsis), as
+            -- that client's own zone text is (offsets still apply).
             local hdr = GetFFD(minimap).blizzHeader
             locationBg:SetBackdropColor(0, 0, 0, 0)
             locationBg:ClearAllPoints()
             locationBg:SetPoint("CENTER", hdr._zoneSlot or hdr, "CENTER", lxOff, lyOff)
             locationFrame:ClearAllPoints()
-            locationFrame:SetPoint("CENTER", locationBg, "CENTER", 0, 0)
+            if hdr._fvBar then
+                locationFrame:SetPoint("LEFT", hdr._zoneSlot, "LEFT", lxOff, lyOff)
+                locationFrame:SetPoint("RIGHT", hdr._zoneSlot, "RIGHT", lxOff, lyOff)
+                locationFrame:SetWordWrap(false)
+            else
+                locationFrame:SetPoint("CENTER", locationBg, "CENTER", 0, 0)
+            end
         elseif EBS._fvSquare and EBS._fvTitleOn then
             -- Either square: the zone text rides the frame's title bar, held
             -- to the bar's band by both ends (a longer name is cut short with
@@ -5866,6 +5958,33 @@ local function ApplyMinimap()
 
     ApplyOmniumFolio()
     EBS._ApplyAddonCompartment()
+    EBS._ApplyExternalEventButton()
+end
+
+-- Blizzard's external event button (a link to an event outside the game,
+-- shown and hidden by Blizzard while one runs; a child of MinimapBackdrop,
+-- WoW Forever only) stays on the map with the backdrop. Blizzard Style and
+-- the WoW Forever look give it the stock spot on the ring (its centre 101.5
+-- left of and 0.5 above the map centre at the stock 198px map, scaled with
+-- the map); the other looks the map's top-left corner at the folio's scale.
+-- Above the ping blocker so it takes the mouse. Method calls on Blizzard's
+-- plain button only, every apply pass (Blizzard anchors it once, at load).
+function EBS._ApplyExternalEventButton()
+    local backdrop = _G.MinimapBackdrop
+    local btn = backdrop and backdrop.ExternalEventURLButton
+    if not (btn and Minimap) then return end
+    btn:ClearAllPoints()
+    if EBS._MinimapBlizz() and not EBS._MinimapClassic() then
+        btn:SetScale(1)
+        local s = (Minimap:GetWidth() or 198) / 198
+        btn:SetPoint("CENTER", Minimap, "CENTER", -101.5 * s, 0.5 * s)
+    else
+        -- Forever Square steps it in past the heavy band, as the texts inside the map.
+        local x, y = EBS._FvInsideXY("top", 2, -2)
+        btn:SetScale(0.75)
+        btn:SetPoint("TOPLEFT", GetFFD(Minimap).layoutFrame or Minimap, "TOPLEFT", x, y)
+    end
+    btn:SetFrameLevel(Minimap:GetFrameLevel() + 11)
 end
 
 

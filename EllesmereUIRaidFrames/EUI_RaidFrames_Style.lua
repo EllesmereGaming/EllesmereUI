@@ -11,6 +11,10 @@ local I = ns._internals
 -- EllesmereUIRaidFrames.lua or an earlier Raid Frames file failed to load.
 if not I or I.broken then return end
 I.broken = true
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot.
+local POOL = EllesmereUI._Pool
 
 local floor        = math.floor
 local max          = math.max
@@ -407,7 +411,10 @@ function ns.RF_ApplyPowerBorderArt(host, s, force, preview, nameBar)
     if mode == "divider" then
         local t = host._powerArtTex
         if not t then
-            local seam = CreateFrame("Frame", nil, host)
+            -- On the Buff / Debuff Manager preview (a frame of the options page
+            -- pool, EllesmereUI_FramePool.lua) the seam is pooled with its host
+            -- and handed out again by the next build; elsewhere a plain new frame.
+            local seam = POOL.CreateFrame("Frame", nil, host)
             seam:SetAllPoints(host)
             host._powerArtSeam = seam
             t = seam:CreateTexture(nil, "ARTWORK")
@@ -436,7 +443,8 @@ function ns.RF_ApplyTopNameDivider(tnb, s, preview)
         return
     end
     if not host then
-        host = CreateFrame("Frame", nil, tnb:GetParent())
+        -- Pooled with the options preview's replica, as the seam above.
+        host = POOL.CreateFrame("Frame", nil, tnb:GetParent())
         host:SetAllPoints(tnb)
         tnb._divider = host
     end

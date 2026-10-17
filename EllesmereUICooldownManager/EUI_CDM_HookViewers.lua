@@ -521,7 +521,7 @@ function ns.SetupViewerHooks()
                                 -- below regardless of the hosting bar's family.
                                 local isBuffIcon = isBuff or (fd and fd._isBuffViewerFrame)
                                     or frame._isPlaceholderFrame or false
-                                if fc and fc._missingLow then ns.MissingLowRecheck(frame, fc) end
+                                if fc and fc._missingN then ns.MissingRecheck(frame, fc) end
 
                                 local isActiveBuff = (frame.wasSetFromAura == true
                                     or frame.auraInstanceID ~= nil)

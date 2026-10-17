@@ -5,14 +5,14 @@
 ## Group: EllesmereUI
 ## Notes: Essential tools for WoW Forever.
 ## Author: Ellesmere
-## Version: 9.5.5
+## Version: 9.6
 ## Dependencies: EllesmereUI
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Lua
 EllesmereUIForeverEssentials.lua
 
-# General (spell uprank, classic spellbook and talents, junk items, simplified stats, map reveal, map travel pins)
+# General (spell uprank, classic spellbook and talents, junk items, simplified stats, gathering skill, map fade, active stance icon, map reveal, map markers, quest rewards)
 EllesmereUIForeverEssentials_Uprank.lua
 EllesmereUIForeverEssentials_ClassicSpellbook.lua
 EllesmereUIForeverEssentials_ClassicTalents.lua

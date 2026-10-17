@@ -40,7 +40,9 @@ local function MakeStyledButton(btn, text, fontSize, colours, onClick)
     bg:SetAllPoints()
     local brd = MakeBorder(btn, c[9], c[10], c[11], c[12], PP)
     local lbl = MakeFont(btn, fontSize, nil, c[17], c[18], c[19])
-    lbl:SetAlpha(c[20])
+    -- The resting alpha lives in the text colour, as the hover scripts below set it
+    -- (a region alpha on top would multiply with it after the first hover).
+    lbl:SetTextColor(c[17], c[18], c[19], c[20])
     lbl:SetPoint("CENTER")
     lbl:SetText(EllesmereUI.L(text))
     btn:SetScript("OnEnter", function()
@@ -388,9 +390,10 @@ local function ShowWidgetTooltip(label, text, opts)
 end
 
 local function HideWidgetTooltip(instant)
-    local tt = GetTooltipFrame()
+    -- Never shown yet: nothing to hide, and nothing is built for it.
+    local tt = tooltipFrame
     tooltipOwner[1] = nil
-    if not tt:IsShown() then return end
+    if not (tt and tt:IsShown()) then return end
     if tt._fadeOutAG then tt._fadeOutAG:Stop() end
     if tt._fadeAG then tt._fadeAG:Stop() end
     if instant then

@@ -6,6 +6,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  right after the main file and reads it through ns only.
 -------------------------------------------------------------------------------
 local _, ns = ...
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot.
+local POOL = EllesmereUI._Pool
 
 local _G = _G
 local pairs = pairs
@@ -282,7 +286,10 @@ function ns.AB_PaintCaps(st, owner, ox, oy, w, h, btnW, look, multi, pxK, key, s
         return
     end
     if not host then
-        host = CreateFrame("Frame", nil, owner)
+        -- Through the options page pool: the options preview builds its chrome on a
+        -- frame of that pool, which hands it to the preview's next build; on a
+        -- live bar this is CreateFrame.
+        host = POOL.CreateFrame("Frame", nil, owner)
         st.capL = host:CreateTexture(nil, "OVERLAY", nil, 5)
         st.capR = host:CreateTexture(nil, "OVERLAY", nil, 5)
         st.capHost = host
@@ -333,7 +340,8 @@ function ns.AB_PaintForeverChrome(st, owner, ox, oy, w, h, k, vertical, n, step,
     -- Under the buttons, in 45px-button units.
     local under = st.under
     if not under then
-        under = CreateFrame("Frame", nil, owner)
+        -- Through the options page pool, as the caps' host (AB_PaintCaps).
+        under = POOL.CreateFrame("Frame", nil, owner)
         st.under = under
         st.divs = {}
     end

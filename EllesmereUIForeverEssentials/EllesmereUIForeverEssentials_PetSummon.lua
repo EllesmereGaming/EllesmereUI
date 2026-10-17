@@ -25,7 +25,8 @@ local STAR = "PetJournal-FavoritesIcon"   -- the journal's favorite star, tinted
 
 -- Settings live in EllesmereUIDB.petSummon; unset keys read these.
 --   enabled                 Auto Summon Pet
---   chars[player GUID]      own = Favorites per Character, favorites = { [pet GUID] = true }
+--   chars[player GUID]      own = Favorites per Character, favorites = { [pet GUID] = true },
+--                           dismissed = the player put the pet away (until they summon one)
 local F = module.Feature("petSummon", { enabled = false })
 local IsEnabled = F.Enabled
 
@@ -71,8 +72,16 @@ end
 local ev = CreateFrame("Frame")
 local timer
 local hooked = false
-local userDismissed = false  -- the player put the pet away themselves
+local userDismissed = false  -- the player put the pet away themselves (also kept per character)
 local current          -- the pet we last saw out (nil: none)
+
+-- The dismissal outlives a reload or a relog: written only when it changes.
+local function SetDismissed(on)
+    if userDismissed == on then return end
+    userDismissed = on
+    local c = CharCfg(on)
+    if c then c.dismissed = on or nil end
+end
 
 local function CanSummonNow()
     if UnitIsDeadOrGhost("player") or UnitOnTaxi("player")
@@ -128,7 +137,7 @@ ev:SetScript("OnEvent", function(_, event, arg1)
         -- Also fires for other players' pets: only ours is read.
         local guid = C_PetJournal.GetSummonedPetGUID()
         current = guid
-        if guid then userDismissed = false end
+        if guid then SetDismissed(false) end
         return
     elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
         ev:UnregisterEvent("UNIT_SPELLCAST_STOP")
@@ -142,9 +151,9 @@ end)
 -- The player's own dismissals: DismissSummonedPet, or SummonPetByGUID on the
 -- pet out (the journal's toggle). The pet out is the one we last saw: the
 -- post-hook may run once it is gone.
-local function OnDismiss() userDismissed = true end
+local function OnDismiss() SetDismissed(true) end
 local function OnSummonByGUID(guid)
-    if guid and guid == current then userDismissed = true end
+    if guid and guid == current then SetDismissed(true) end
 end
 
 -------------------------------------------------------------------------------
@@ -222,7 +231,8 @@ end
 --  Apply
 -------------------------------------------------------------------------------
 -- Login and the options toggles; takes effect immediately in both directions.
-local function ApplyPetSummon()
+-- fresh: the player just turned it on, which also ends an earlier dismissal.
+local function ApplyPetSummon(fresh)
     if not C_PetJournal then return end
     RefreshJournal()
     local on = IsEnabled()
@@ -242,7 +252,10 @@ local function ApplyPetSummon()
         HookPetJournal()
     end
     current = C_PetJournal.GetSummonedPetGUID()
-    userDismissed = false
+    -- A dismissal from an earlier session holds until a pet is out again.
+    local c = CharCfg()
+    if c and c.dismissed and (current or fresh) then c.dismissed = nil end
+    userDismissed = (c and c.dismissed) and true or false
     Queue()
 end
 -- Options-page entry points. Favorites per Character changed: only the

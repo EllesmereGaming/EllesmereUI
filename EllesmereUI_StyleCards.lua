@@ -11,6 +11,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI then return end
 
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it, the
+-- options addon fills it in place): each builder below takes CreateFrame from
+-- it when it runs, so its frames are pooled on a pool host (the Style page)
+-- and plain new frames anywhere else (the first-install picker).
+local POOL = EllesmereUI._Pool
+
 local GOLD_R, GOLD_G, GOLD_B = 1.0, 0.80, 0.18
 local BRONZE_R, BRONZE_G, BRONZE_B = 0.86, 0.65, 0.42
 local FOREVER_R, FOREVER_G, FOREVER_B = 0.47, 0.75, 0.95
@@ -46,6 +52,7 @@ end
 --  line) over a row of square icons -- the look in miniature.
 -------------------------------------------------------------------------------
 local function DrawEUIMock(stage, PP, MakeBorder, teal)
+    local CreateFrame = POOL.CreateFrame
     local frame = CreateFrame("Frame", nil, stage)
     frame:SetFrameLevel(stage:GetFrameLevel() + 1)
     PP.Size(frame, 150, 40)
@@ -108,6 +115,7 @@ end
 --  by DrawForeverMock). Returns the unit frame.
 -------------------------------------------------------------------------------
 local function DrawBlizzMock(stage, PP, MakeBorder, _eg, _font, forever)
+    local CreateFrame = POOL.CreateFrame
     local ART = "UI-HUD-UnitFrame-Player-PortraitOn"
     local HEALTH = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Health"
     local MANA = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Mana"
@@ -205,6 +213,7 @@ end
 --  atlas just leaves its piece out.
 -------------------------------------------------------------------------------
 local function DrawForeverMock(stage, PP, MakeBorder, EG, font)
+    local CreateFrame = POOL.CreateFrame
     local frame, rowW = DrawBlizzMock(stage, PP, MakeBorder, EG, font, true)
     -- Level badge: Blizzard's Forever spot is BOTTOMLEFT 13,7 of the 232x100
     -- box, i.e. -4,-7.5 off the centred art, at the mock's 0.78.
@@ -253,6 +262,7 @@ end
 --  nothing needs validating.
 -------------------------------------------------------------------------------
 local function DrawClassicMock(stage, PP, _mb, _eg, font)
+    local CreateFrame = POOL.CreateFrame
     local s = 0.78
     local frame = CreateFrame("Frame", nil, stage)
     frame:SetFrameLevel(stage:GetFrameLevel() + 1)
@@ -345,6 +355,7 @@ end
 --  nothing) with an optional label while it has nothing to apply.
 -------------------------------------------------------------------------------
 function EllesmereUI.BuildStyleCards(parent, topY, opts)
+    local CreateFrame = POOL.CreateFrame
     local PP = EllesmereUI.PanelPP
     local MakeBorder = EllesmereUI.MakeBorder
     if not (PP and MakeBorder) then return nil end

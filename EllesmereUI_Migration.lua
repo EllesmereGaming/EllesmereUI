@@ -4331,41 +4331,32 @@ EllesmereUI.RegisterMigration({
 -- Queued Only / Full) replaces Highlight Queued Attacks, Highlight Active Attack
 -- and Show Shot Pending; Movement Guide (Off / Segments / Wind-Up Bar) replaces
 -- Latency Overlay and Smooth Swing Timing. Only explicit values
--- move (defaults are stripped at logout); the colour keys keep their names.
--- GLOBAL with per-profile stamps, gated on existing profiles, like the
--- visibility migration above.
+-- move (defaults are stripped at logout); the colour keys keep their names, and
+-- the latency zone keeps its old red where no colour was stored (GO's default
+-- is white). Per profile: no current setting writes the old keys, so a profile
+-- imported later from an older string migrates on its next load.
 EllesmereUI.RegisterMigration({
     id          = "swing_timer_indicators_v1",
-    scope       = "global",
+    scope       = "profile",
     description = "Move the Swing Timer's indicator toggles into Attack State and Movement Guide.",
     body        = function(ctx)
-        local ID = "swing_timer_indicators_v1"
-        local db = ctx.db
-        if not (db and type(db.profiles) == "table" and next(db.profiles)) then return end
-        for _, profData in pairs(db.profiles) do
-            if type(profData) == "table" then
-                local stamps = profData._migrations
-                if type(stamps) ~= "table" then
-                    stamps = {}
-                    profData._migrations = stamps
-                end
-                if not stamps[ID] then
-                    local erb = type(profData.addons) == "table" and profData.addons.EllesmereUIResourceBars
-                    local st = type(erb) == "table" and erb.swingTimer
-                    if type(st) == "table" then
-                        if st.activeHighlight or st.pendingEnabled then
-                            st.attackState = "full"
-                        elseif st.queueHighlight == false then
-                            st.attackState = "off"
-                        end
-                        if st.latencyEnabled then st.moveGuide = "segments" end
-                        st.queueHighlight, st.activeHighlight, st.pendingEnabled = nil, nil, nil
-                        st.latencyEnabled, st.smoothTiming = nil, nil
-                    end
-                    stamps[ID] = true
-                end
+        local profData = ctx.profile
+        local erb = type(profData.addons) == "table" and profData.addons.EllesmereUIResourceBars
+        local st = type(erb) == "table" and erb.swingTimer
+        if type(st) ~= "table" then return end
+        if st.activeHighlight or st.pendingEnabled then
+            st.attackState = "full"
+        elseif st.queueHighlight == false then
+            st.attackState = "off"
+        end
+        if st.latencyEnabled then
+            st.moveGuide = "segments"
+            if st.latencyR == nil then
+                st.latencyR, st.latencyG, st.latencyB, st.latencyA = 0.835, 0.290, 0.290, 1
             end
         end
+        st.queueHighlight, st.activeHighlight, st.pendingEnabled = nil, nil, nil
+        st.latencyEnabled, st.smoothTiming = nil, nil
     end,
 })
 

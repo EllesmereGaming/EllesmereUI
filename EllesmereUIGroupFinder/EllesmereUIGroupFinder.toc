@@ -4,8 +4,8 @@
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: Premade Group search filters, listing, and application tools.
-## Author: MorningCawfee
-## Version: 9.4.1
+## Author: Ellesmere
+## Version: 9.6
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIGroupFinderDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -15,5 +15,3 @@
 EllesmereUIGroupFinder.lua
 EUI_GroupFinder_Search.lua
 EUI_GroupFinder_Applications.lua
-EUI_GroupFinder_Rail.lua
-EUI_GroupFinder_Finder.lua

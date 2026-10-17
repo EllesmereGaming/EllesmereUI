@@ -753,29 +753,16 @@ ns._pvBuffTicker = nil
 ns._pvBuffAssignments = {}
 
 local function GetConfiguredBuffSpells()
-    -- WoW Forever: this preview reads only the retired pre-v2 Buff Manager
-    -- keys, which a profile there can still carry; it previews nothing there.
-    if EllesmereUI.IS_FOREVER then return {} end
-    if not db or not db.profile or not db.profile.bmIndicators then return {} end
-    -- BM indicators are keyed by "CLASS_SPEC" strings (e.g. "PALADIN_HOLY").
-    -- Resolve the player's spec via the shared, locale-independent helper (matches
-    -- by spec ID, not the localized spec name) so indicators show on every client.
-    local specKey = ns.BM_CurrentSpecKey and ns.BM_CurrentSpecKey()
-    -- Untracked spec: preview only the class-fallback indicators flagged
-    -- Show Own on All Specs (the ones that actually render live there).
-    local flaggedOnly = false
-    if not specKey then
-        specKey = ns.BM_ClassFallbackSpecKey and ns.BM_ClassFallbackSpecKey()
-        flaggedOnly = true
-    end
-    if not specKey then return {} end
-    local indicators = db.profile.bmIndicators[specKey]
+    -- The Buff Manager groups the live raid frames render for the player's
+    -- spec (every bucket it draws from, Show In and per-spec disables applied,
+    -- spell unions resolved), at the live frames' size.
+    local indicators = ns.BM2_SpecIndicators and ns.BM2_SpecIndicators("raid")
     if not indicators then return {} end
+    local iscale = ns._bmScale or 1
     local spells = {}
     local seen = {}
     for _, ind in ipairs(indicators) do
-        if ind.enabled and ind.spells and (not flaggedOnly or ind.showOwnAllSpecs)
-           and (ind.type == "icon" or ind.type == "square") then
+        if ind.enabled and ind.spells and (ind.type == "icon" or ind.type == "square") then
             for _, sid in ipairs(ind.spells) do
                 if not seen[sid] then
                     seen[sid] = true
@@ -784,15 +771,11 @@ local function GetConfiguredBuffSpells()
                         local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
                         iconTex = info and info.iconID or 136243
                     end
-                    local baseSz = ind.size or 18
-                    local soff = ind.sizeOffsets and ind.sizeOffsets[sid] or 0
-                    local spellSz = baseSz + soff
-                    if spellSz < 1 then spellSz = 1 end
                     spells[#spells + 1] = {
                         id = sid, icon = iconTex,
                         indType = ind.type,
                         color = (ind.spellColors and ind.spellColors[sid]) or ind.color,
-                        size = ns.RFC_SnapSize(spellSz),
+                        size = ns.RFC_BmSize(ind, iscale),
                         position = ind.position or "TOPLEFT",
                         offsetX = ind.offsetX or 0,
                         offsetY = ind.offsetY or 0,

@@ -76,58 +76,12 @@ local QT_DEFAULTS = {
             autoTurnIn           = false,
             autoTurnInShiftSkip  = true,
             questItemHotkey      = nil,
-
-            -- Sorting: "default" + "mixed" leaves Blizzard's order alone.
-            questSortMode        = "default",
-            questSortCompleted   = "mixed",
-            questSortThenBy      = "none",
-
-            -- Filters: untrack matching quests, re-track when they pass.
-            -- Master toggle gates the per-filter choices below.
-            filterEnabled        = false,
-            filterZone           = true,
-            filterCompleted      = false,
-            filterTrivial        = false,
-            filterOldExpansion   = false,
-            filterRepeatable     = false,
-
-            -- Tracks quests under the current zone / instance quest log header.
-            autoTrackZone        = false,
-
-            -- Progress feedback: alert sound keys ("none" = off), party chat.
-            soundObjective       = "none",
-            soundQuest           = "none",
-            announceProgress     = false,
-
-            -- Objective line colors (EllesmereUI style only).
-            objProgressColor     = false,
-            objDimCompleted      = false,
-            objDimAlpha          = 45,
-            -- Progress gradient stops (mirrored in Skin.lua ProgressRGB).
-            objStartR = 1.0, objStartG = 0.4, objStartB = 0.4,
-            objMidR   = 1.0, objMidG   = 1.0, objMidB   = 0.4,
-            objEndR   = 0.4, objEndG   = 1.0, objEndB   = 0.4,
-
-            -- WoW Forever: our own tracker frame instead of Blizzard's
-            -- (reload-gated). Position lives in customPos.
-            customTracker        = false,
-            customGroupByZone    = true,
-            customDifficultyColor = true,
-            customWidth          = 260,
-            customMaxHeight      = 450,
-            customCollapseCompleted = false,
-            customZoneFontSize   = 13,
-            customQuestSpacing   = 4,
-            customObjSpacing     = 1,
-            customFocusClick     = false,  -- focus buttons + menu entry
-            customWrapTitles     = true,   -- off: one line, cut with "..."
-            customWrapObjectives = true,
-            customScrollbar      = "always",  -- always / hover / hidden
-            customBgHover        = false,     -- background + top line only while hovered
-            customBgFade         = true,      -- fade it in and out
         },
     },
 }
+-- WoW Forever's quest tools add their keys to this table at load
+-- (EllesmereUIQuestTracker_Forever.lua), before the DB is made.
+ns.QT_DEFAULTS = QT_DEFAULTS
 
 local _qtDB
 local function EnsureDB()
@@ -260,6 +214,7 @@ _G._EQT_RefreshAll = function()
     -- profile's key stays overridden -- taken from whatever the player really
     -- has bound there -- and the incoming profile's key is never laid down.
     if EQT.ApplyQuestItemHotkey then EQT.ApplyQuestItemHotkey() end
+    -- WoW Forever's quest tools (nil on retail).
     if EQT.ApplyQuestWatches then EQT.ApplyQuestWatches() end
     if EQT.ApplyQuestProgress then EQT.ApplyQuestProgress() end
 end

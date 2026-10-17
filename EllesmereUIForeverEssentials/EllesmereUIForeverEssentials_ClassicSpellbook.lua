@@ -33,6 +33,7 @@ local query      -- lowercase search text; nil when not searching
 local stale      -- the spellbook changed while the book was closed
 local boundKeys  -- the keys the toggle holds, space separated
 local found = { slots = {} } -- the search results, shown as a line of their own
+local pushed     -- the snippet text the snippets last ran
 
 -------------------------------------------------------------------------------
 --  Spell data
@@ -340,11 +341,20 @@ local function Push()
     local out = { "LINES = newtable() COUNTS = newtable()" }
     for i, data in ipairs(lines) do LineText(out, i, data.slots) end
     if query then LineText(out, 0, found.slots) end
-    if newSearch then out[#out + 1] = "PAGES[0] = 1" end
+    local reset = newSearch
+    if reset then out[#out + 1] = "PAGES[0] = 1" end
     newSearch = nil
     out[#out + 1] = ("LINE = %d"):format(query and 0 or line)
     out[#out + 1] = AIM
-    book:Execute(table.concat(out, "\n"))
+    -- The snippets already hold these lists (a refresh that found no change,
+    -- as most of the ones a pull starts do): only the page is drawn again.
+    local text = table.concat(out, "\n")
+    if text == pushed and not reset then
+        Paint()
+        return
+    end
+    pushed = text
+    book:Execute(text)
 end
 
 -- Rereads the spellbook and repaints; waits out combat.

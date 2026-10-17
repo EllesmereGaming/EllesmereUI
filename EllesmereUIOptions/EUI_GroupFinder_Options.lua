@@ -13,21 +13,27 @@ local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
-    if not EUI.RegisterModule then return end
-    local function Cfg() return ns.Cfg() end
-    local function Get(key, fallback)
-        local c = Cfg()
-        local v = c and c[key]
-        if v == nil then return fallback end
-        return v
-    end
-    local function Set(key, val, relayout)
-        local c = Cfg()
-        if c then c[key] = val end
-        if relayout and ns.Search_Layout then ns.Search_Layout() end
-    end
 
     local AddAppsSections
+
+    -----------------------------------------------------------------------
+    -- Applications settings (greyed while the module is off)
+    -----------------------------------------------------------------------
+    local function APCfg() return ns.AppsCfg() end
+    local function APGet(key, default)
+        local c = APCfg()
+        local v = c and c[key]
+        if v == nil then return default end
+        return v
+    end
+    local function APSet(key, val)
+        local c = APCfg()
+        if c then c[key] = val end
+        ns.ApplyApplications()
+    end
+    local function ModOff() return not ns.Enabled() end
+    local function APOff() return ModOff() or APGet("enabled", false) ~= true end
+    local function APOffTip() return ModOff() and "Group Finder" or "Show Applications in Group Finder" end
 
     local function BuildSearchPage(pageName, parent, yOffset)
         local W = EUI.Widgets
@@ -38,16 +44,17 @@ initFrame:SetScript("OnEvent", function(self)
         parent._showRowDivider = true
 
         -- Off until enabled; toggling reloads.
-        local function PGFLoaded() return C_AddOns.IsAddOnLoaded("PremadeGroupsFilter") end
+        local PGFLoaded = ns.Blocked
         local pgfNote = PGFLoaded()
-            and { type = "label", text = "|cffff6060Premade Groups Filter is loaded. Disable it to use the Group Finder.|r" }
+            and { type = "label", text = EUI.COLOR_CODES.ERROR
+                    .. EllesmereUI.L("Premade Groups Filter is loaded. Disable it to use the Group Finder.") .. "|r" }
             or EUI.BlankRowCfg()
         _, h = W:SectionHeader(parent, "GROUP FINDER", y); y = y - h
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Enable Group Finder",
               disabled = function() return PGFLoaded() and not ns.Enabled() end,
               disabledTooltip = "Premade Groups Filter", requireState = "disabled",
-              tooltip = "Premade Groups search filters, group list and applicant tools, the M+ applications bar and the Dungeon Finder / Raid Finder layout in the Dungeons & Raids window. Requires a reload.",
+              tooltip = "Premade Groups search filters, group list and the M+ applications bar in the Dungeons & Raids window. Requires a reload.",
               getValue = function() return ns.Enabled() end,
               setValue = function(v)
                   v = v and true or false
@@ -75,47 +82,57 @@ initFrame:SetScript("OnEvent", function(self)
         return math.abs(y - yOffset)
     end
 
-    -----------------------------------------------------------------------
-    -- Applications settings
-    -----------------------------------------------------------------------
-    local function APCfg() return ns.AppsCfg() end
-    local function APGet(key, default)
-        local c = APCfg()
-        local v = c and c[key]
-        if v == nil then return default end
-        return v
-    end
-    local function APSet(key, val)
-        local c = APCfg()
-        if c then c[key] = val end
-        if ns.ApplyApplications then ns.ApplyApplications() end
-    end
-    local function APOff() return APGet("enabled", true) == false end
-    local function APToggle(text, key, default, tooltip)
-        return { type="toggle", text=text, tooltip=tooltip,
-                 disabled=APOff, disabledTooltip="Show in Group Finder",
-                 getValue=function() return APGet(key, default) == true end,
-                 setValue=function(v) APSet(key, v and true or false) end }
+    local function ResetMessage(scope)
+        if scope == "session" then return EllesmereUI.L("Reset the session application counts to zero?") end
+        if scope == "account" then return EllesmereUI.L("Reset the account application counts to zero?") end
+        return EllesmereUI.L("Reset the character application counts to zero?")
     end
 
     AddAppsSections = function(parent, y)
         local W = EUI.Widgets
-        local row, h
+        local _, h
 
-        row, h = W:SectionHeader(parent, "APPLICATIONS", y); y = y - h
+        _, h = W:SectionHeader(parent, "APPLICATIONS", y); y = y - h
 
         local scopeValues = { session = "Session", character = "Character", account = "Account" }
-        row, h = W:DualRow(parent, y,
-            { type="toggle", text="Show in Group Finder",
-              tooltip="A bar at the top of the Dungeons & Raids sidebar counting your Mythic+ (Dungeons) Group Finder applications and how they ended, each count inside its part of the bar. Raids, delves and other groups are not counted.",
-              getValue=function() return APGet("enabled", true) ~= false end,
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Applications in Group Finder",
+              tooltip="A bar at the top of the Dungeons & Raids sidebar counting your Mythic+ Group Finder applications and how they ended, each count inside its part of the bar. Other dungeon difficulties, raids, delves and other groups are not counted.",
+              disabled=ModOff, disabledTooltip="Group Finder",
+              getValue=function() return APGet("enabled", false) == true end,
               setValue=function(v) APSet("enabled", v and true or false); EUI:RefreshPage() end },
             { type="dropdown", text="Counts Shown",
               tooltip="Which totals the card shows. Hover the card for all three.",
               values=scopeValues, order={ "session", "character", "account" },
-              disabled=APOff, disabledTooltip="Show in Group Finder",
+              disabled=APOff, disabledTooltip=APOffTip,
               getValue=function() return APGet("scope", "character") end,
               setValue=function(v) APSet("scope", v) end });  y = y - h
+
+        -- Application Visibility: which results get a share of the bar, one
+        -- checklist row per saved show* key (all on when unset).
+        local VIS_LABEL = "Application Visibility"
+        local VIS_ITEMS = {
+            { key = "showAccepted",  label = "Accepted",  tooltip = "Invites you accepted." },
+            { key = "showDeclined",  label = "Declined",  tooltip = "Declined by the leader, the group filled, or the application timed out." },
+            { key = "showDelisted",  label = "Delisted",  tooltip = "The group was delisted before answering." },
+            { key = "showCancelled", label = "Cancelled", tooltip = "You cancelled the application." },
+        }
+        -- Global search sees row labels and tooltips only, so this row's entry,
+        -- registered before the row (the index keeps the first one), carries the
+        -- checklist's names as search text; it is never shown.
+        if EllesmereUI._RegisterSearchEntry then
+            local words = {}
+            for i = 1, #VIS_ITEMS do
+                local label = VIS_ITEMS[i].label
+                words[#words + 1] = label
+                local loc = EllesmereUI.L(label)
+                if loc ~= label then words[#words + 1] = loc end
+            end
+            local labelLoc = EllesmereUI.L(VIS_LABEL)
+            EllesmereUI._RegisterSearchEntry(VIS_LABEL, labelLoc ~= VIS_LABEL and labelLoc or nil,
+                table.concat(words, " "), EllesmereUI._buildingModule, EllesmereUI._buildingPage,
+                parent._currentSection and parent._currentSection._sectionName)
+        end
 
         -- Built-in textures, then SharedMedia's.
         local tex, names, order = ns.BarTextureTables()
@@ -125,49 +142,70 @@ initFrame:SetScript("OnEvent", function(self)
             texOrder[#texOrder + 1] = key
         end
         texValues._menuOpts = { itemHeight = 28, background = function(key) return tex[key] end }
-        row, h = W:DualRow(parent, y,
+        local visRow
+        visRow, h = W:DualRow(parent, y,
+            -- Placeholder: carries the label and its disabled look; the
+            -- checklist below takes its place.
+            { type="dropdown", text=VIS_LABEL,
+              tooltip="Choose which application results show on the bar.",
+              disabled=APOff, disabledTooltip=APOffTip,
+              values={ __placeholder = "..." }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end,
+              setValue=function() end },
             { type="dropdown", text="Bar Texture", values=texValues, order=texOrder,
-              disabled=APOff, disabledTooltip="Show in Group Finder",
+              disabled=APOff, disabledTooltip=APOffTip,
               getValue=function() return APGet("texture", "none") end,
-              setValue=function(v) APSet("texture", v) end },
-            EUI.BlankRowCfg());  y = y - h
+              setValue=function(v) APSet("texture", v) end });  y = y - h
 
-        row, h = W:SectionHeader(parent, "APPLICATION VISIBILITY", y); y = y - h
-        row, h = W:DualRow(parent, y,
-            APToggle("Accepted", "showAccepted", true, "Invites you accepted."),
-            APToggle("Declined", "showDeclined", true, "Declined by the leader, the group filled, or the application timed out."));  y = y - h
-        row, h = W:DualRow(parent, y,
-            APToggle("Delisted", "showDelisted", true, "The group was delisted before answering."),
-            APToggle("Cancelled", "showCancelled", true, "You cancelled the application."));  y = y - h
+        if not EUI._prebuilding then
+            local rgn = visRow._leftRegion
+            if rgn._control then rgn._control:Hide() end
+            local visDD, visDDRefresh = EUI.BuildVisOptsCBDropdown(
+                rgn, 210, rgn:GetFrameLevel() + 2, VIS_ITEMS,
+                function(key) return APGet(key, true) == true end,
+                function(key, v) APSet(key, v and true or false) end,
+                nil, nil, nil, nil, nil, { disabled = APOff, disabledTooltip = APOffTip })
+            EUI.PanelPP.Point(visDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = visDD
+            rgn._lastInline = nil
+            EUI.RegisterWidgetRefresh(visDDRefresh)
+        end
 
-        row, h = W:SectionHeader(parent, "RESET APPLICATION COUNTS", y); y = y - h
+        _, h = W:SectionHeader(parent, "RESET APPLICATION COUNTS", y); y = y - h
         local function Reset(label, scope)
             return function()
                 EUI:ShowConfirmPopup({
                     title = label,
-                    message = ("Reset the %s application counts to zero?"):format(scope),
+                    message = ResetMessage(scope),
                     confirmText = "Reset", cancelText = "Cancel",
-                    onConfirm = function()
-                        if ns.ResetApplications then ns.ResetApplications(scope) end
-                    end,
+                    onConfirm = function() ns.ResetApplications(scope) end,
                 })
             end
         end
-        row, h = W:WideTripleButton(parent, "Reset Session", "Reset Character", "Reset Account", y,
-            Reset("Reset Session", "session"), Reset("Reset Character", "character"), Reset("Reset Account", "account"))
+        -- The module's on state only changes with a reload, so build time is enough.
+        local offOpts
+        if ModOff() then
+            local tip = EUI.DisabledTooltip("Group Finder")
+            offOpts = { { disabled = true, tooltip = tip }, { disabled = true, tooltip = tip }, { disabled = true, tooltip = tip } }
+        end
+        _, h = W:WideTripleButton(parent, "Reset Session", "Reset Character", "Reset Account", y,
+            Reset("Reset Session", "session"), Reset("Reset Character", "character"), Reset("Reset Account", "account"),
+            nil, offOpts)
         y = y - h
         return y
     end
 
     EUI:RegisterModule(ADDON_NAME, {
         title       = "Group Finder",
-        description = "Premade Groups search filters, group list and applicant tools in the Dungeons & Raids window.",
+        description = "Premade Groups search filters and group list in the Dungeons & Raids window.",
         pages       = { PAGE_SEARCH },
         buildPage   = BuildSearchPage,
         onReset     = function()
             ns.ResetSettings()
-            if ns.Search_Layout then ns.Search_Layout() end
-            if ns.ApplyApplications then ns.ApplyApplications() end
+            if ns.Enabled() then
+                ns.Search_Layout()
+                ns.ApplyApplications()
+            end
         end,
     })
 end)

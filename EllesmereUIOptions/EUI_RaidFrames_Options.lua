@@ -9,6 +9,14 @@ local ADDON_NAME = "EllesmereUIRaidFrames"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host (a kept page wrapper or popup and every frame it hands out) are reset
+-- and dressed again by the next build instead of made anew; elsewhere this is
+-- CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+-- Deferred work on a pooled frame stops once the frame was dressed again.
+local PoolGen = EllesmereUI._Pool.Gen
+
 -- WoW Forever: the preview's numbers follow the live frames (EllesmereUI_NumberFormat.lua).
 local AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
 
@@ -894,17 +902,26 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
-    -- Every preview mode dropdown across tabs; all refresh when one changes.
+    -- The preview mode dropdown label of each tab's latest build (raid, party);
+    -- all refresh when one changes.
     local pvModeDropdowns = {}
 
     -- Preview Mode controls carrying override-preview chrome (gold border host
-    -- + tooltip), one entry per built row across tabs/rebuilds.
+    -- + tooltip): each tab's latest build (raid, party), so a rebuild replaces
+    -- its tab's entry and nothing holds an earlier build.
     local pvModeCtrls = {}
+
+    -- An entry of either list is its build's only while the dropdown control
+    -- keeps the dress generation it was stored at (the options page pool):
+    -- a control dressed again since is another row's now, and is skipped.
+    local function PvEntryLive(e)
+        return PoolGen(e.ctrl) == e.gen
+    end
 
     -- Gold border + tooltip on every Preview Mode control while the REAL preview renders an override's effective values (spec group or applied conditional). State comes from the runtime resolvers, NEVER the panel's view flags, so it always matches what the real preview shows.
     -- Recomputed at row build time and from ns._RebuildPvOverlay (view/spec/conditional changes).
     function ns._UpdatePvModeChrome()
-        if #pvModeCtrls == 0 then return end
+        if not next(pvModeCtrls) then return end
         local text
         if (db.profile.previewMode or "overlay") == "real" then
             -- Editing-as session: preview shows THAT session's values (effective overlay off there by design), so name it.
@@ -921,9 +938,9 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
         end
-        for _, e in ipairs(pvModeCtrls) do
-            if e.gold then e.gold:SetShown(text ~= nil) end
-            if e.ctrl then
+        for _, e in pairs(pvModeCtrls) do
+            if PvEntryLive(e) then
+                e.gold:SetShown(text ~= nil)
                 e.ctrl._ttText = text
                 e.ctrl._ttOpts = nil
             end
@@ -940,6 +957,8 @@ initFrame:SetScript("OnEvent", function(self)
         local ROW_H = 50
         local fontPath = (EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
         local contentPad = EllesmereUI.CONTENT_PAD or 45
+        -- The tab this row belongs to (the page being built sets the context first).
+        local pvCtx = optState._partyCtx and "party" or "raid"
 
         y = y - 10
         local modeRow = CreateFrame("Frame", nil, parent)
@@ -978,14 +997,19 @@ initFrame:SetScript("OnEvent", function(self)
                     if ns.ApplyPreviewMode then ns.ApplyPreviewMode() end
                     if ns.HidePartyPreview then ns.HidePartyPreview() end
                 end
-                for _, syncLbl in ipairs(pvModeDropdowns) do
-                    syncLbl:SetText(previewModeValues[v] or v)
+                for _, e in pairs(pvModeDropdowns) do
+                    if PvEntryLive(e) then e.lbl:SetText(previewModeValues[v] or v) end
                 end
                 EllesmereUI:RefreshPage()
             end)
         ddCtrl:SetPoint("TOP", modeLabel, "BOTTOM", 0, -9)
 
-        pvModeDropdowns[#pvModeDropdowns + 1] = ddLbl
+        -- The search prebuild's row is a stand-in: it never takes a tab's place.
+        if not EllesmereUI._prebuilding then
+            local d = pvModeDropdowns[pvCtx]
+            if not d then d = {}; pvModeDropdowns[pvCtx] = d end
+            d.lbl, d.ctrl, d.gen = ddLbl, ddCtrl, PoolGen(ddCtrl)
+        end
 
         -- Override-preview chrome lives on a SEPARATE gold border host: the control's own border is re-asserted by its hover scripts, so never recolor it directly (same pattern as the overrides UI slot marks).
         do
@@ -995,7 +1019,11 @@ initFrame:SetScript("OnEvent", function(self)
             host:SetFrameLevel(ddCtrl:GetFrameLevel() + 30)
             EllesmereUI.PP.CreateBorder(host, gold[1], gold[2], gold[3], 0.9, 1, "OVERLAY", 7)
             host:Hide()
-            pvModeCtrls[#pvModeCtrls + 1] = { ctrl = ddCtrl, gold = host }
+            if not EllesmereUI._prebuilding then
+                local e = pvModeCtrls[pvCtx]
+                if not e then e = {}; pvModeCtrls[pvCtx] = e end
+                e.ctrl, e.gold, e.gen = ddCtrl, host, PoolGen(ddCtrl)
+            end
         end
         if ns._UpdatePvModeChrome then ns._UpdatePvModeChrome() end
 
@@ -1208,6 +1236,9 @@ initFrame:SetScript("OnEvent", function(self)
                             C_Timer.After(0.1, function()
                                 local target = ns._editTargets and ns._editTargets[editTarget.key]
                                 if not target then return end
+                                -- A row the page rebuilt since is dressed again (maybe as
+                                -- another row): the glow below is for this dress only.
+                                local targetGen = PoolGen(target)
                                 local sf = EllesmereUI._scrollFrame
                                 if sf then
                                     local _, _, _, _, rowY = target:GetPoint(1)
@@ -1217,7 +1248,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     end
                                 end
                                 C_Timer.After(0.15, function()
-                                    if not target:IsShown() then return end
+                                    if PoolGen(target) ~= targetGen or not target:IsShown() then return end
                                     local eg = EllesmereUI.ELLESMERE_GREEN
                                     if not editGlow or glowR ~= eg.r or glowG ~= eg.g or glowB ~= eg.b then
                                         glowR, glowG, glowB = eg.r, eg.g, eg.b
@@ -1390,6 +1421,7 @@ initFrame:SetScript("OnEvent", function(self)
         end)
 
         testModeFrame:SetScript("OnKeyDown", function(self, key)
+            if InCombatLockdown() then return end
             if key == "ESCAPE" then
                 self:SetPropagateKeyboardInput(false)
                 CloseTestMode()
@@ -1397,7 +1429,7 @@ initFrame:SetScript("OnEvent", function(self)
                 self:SetPropagateKeyboardInput(true)
             end
         end)
-        testModeFrame:EnableKeyboard(true)
+        EllesmereUI.PopupTakeKeys(testModeFrame, testModeFrame)
 
         -- Every open starts the sidebar from the look a new one has.
         panel._redress = function(fp, ac)
@@ -1571,35 +1603,58 @@ initFrame:SetScript("OnEvent", function(self)
         "click", "cast", "binding", "keybind", "spell", "macro", "mouseover",
     }
 
+    -- A dropped manager root waits here, hidden and off the scroll frame, so
+    -- the scroll frame only ever holds the root on screen; its next render
+    -- dresses it again and puts it back (the options page pool's kept frame).
+    local rootPark
+    local function ParkRoot(root)
+        root:Hide()
+        if not rootPark then
+            rootPark = CreateFrame("Frame")
+            rootPark:Hide()
+        end
+        root:SetParent(rootPark)
+    end
+
     -- Drops the BM / DM / CC roots (built on the shared scroll frame, not a
-    -- page wrapper) except keepPage's. popups: true = also hide the Add New,
-    -- DM add and BM2 editor/menu popups; "dm" = those DM/BM2 popups only when
+    -- page wrapper) except keepPage's: parked, and marked for a render (nil).
+    -- Each root is a kept frame of the options page pool, so its next render
+    -- dresses the same frame again. popups: true = also hide the Add New,
+    -- DM add and BM2 editor popups; "dm" = those DM/BM2 popups only when
     -- the DM root drops. stripAlways: hide the CC spell strip (parented to
     -- the panel, not the CC root; kept for the next build) even with no CC root.
     local function DropManagerRoots(keepPage, popups, stripAlways)
         if popups == true and ns._addNewPopup then ns._addNewPopup:Hide() end
         if keepPage ~= PAGE_BUFFS and ns._bmRoot then
-            ns._bmRoot:Hide(); ns._bmRoot:SetParent(nil); ns._bmRoot = nil
+            ParkRoot(ns._bmRoot); ns._bmRoot = nil
         end
         local dropDm = keepPage ~= PAGE_DM and ns._dmRoot
         if popups == true or (popups == "dm" and dropDm) then
             if ns._dmAddPopup then ns._dmAddPopup:Hide() end
             if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
-            if ns._bm2Menu then ns._bm2Menu:Hide(); ns._bm2Menu = nil end
         end
         if dropDm then
-            ns._dmRoot:Hide(); ns._dmRoot:SetParent(nil); ns._dmRoot = nil
+            ParkRoot(ns._dmRoot); ns._dmRoot = nil
         end
         local dropCc = keepPage ~= PAGE_CLICKCAST and ns._ccRoot
         if dropCc then
             if ns._ccGridPopup then ns._ccGridPopup:Hide(); ns._ccGridPopup = nil end
             if ns._ccSpecPopup then ns._ccSpecPopup:Hide(); ns._ccSpecPopup = nil end
             if ns._ccQBPopup then ns._ccQBPopup:Hide(); ns._ccQBPopup = nil end
-            ns._ccRoot:Hide(); ns._ccRoot:SetParent(nil); ns._ccRoot = nil
+            -- (The Quickbind popup's hide renders the page again, which sets
+            -- ns._ccRoot anew: read it after the popups.)
+            if ns._ccRoot then ParkRoot(ns._ccRoot); ns._ccRoot = nil end
         end
         if (dropCc or stripAlways) and ns._ccSpellStrip then
             ns._ccSpellStrip:Hide()
         end
+    end
+
+    -- A manager root's deferred build runs only while its page still shows: a
+    -- deep link opens this module on its last page and moves on in one click.
+    local function RFPageShown(page)
+        return EllesmereUI:GetActiveModule() == "EllesmereUIRaidFrames"
+            and EllesmereUI:GetActivePage() == page
     end
 
     local function WithStack(err) return tostring(err) .. "\n" .. debugstack(2) end
@@ -1614,6 +1669,8 @@ initFrame:SetScript("OnEvent", function(self)
         description = "Configure raid frame appearance and behavior.",
         -- No Auras page: debuffs and defensives/externals live in the managers.
         pages       = { PAGE_MAIN, PAGE_PARTY, PAGE_BUFFS, PAGE_DM, PAGE_CLICKCAST },
+        -- The managers draw over the scroll frame: no inline search there.
+        noSearchPages = { [PAGE_BUFFS] = true, [PAGE_DM] = true, [PAGE_CLICKCAST] = true },
         searchTerms = rfSearchTerms,
         buildPage   = function(pageName, parent, yOffset)
             -- The cleanup/preview logic below acts on live state (BM/CC roots, raid/party preview overlays over the player's real frames) keyed only on the pageName being built, not what the player is actually looking at. An off-screen search pre-build cycles pageName through every page in `pages`, so NONE of it may run here.
@@ -1702,7 +1759,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if ns.HidePartyPreview then ns.HidePartyPreview() end
                 if not ns._bmRoot then
                     C_Timer.After(0, function()
-                        if EllesmereUI:GetActiveModule() == "EllesmereUIRaidFrames" then
+                        if RFPageShown(pageName) then
                             BuildBuffManagerPage(pageName, nil, -6)
                         end
                     end)
@@ -1712,7 +1769,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if ns.HidePartyPreview then ns.HidePartyPreview() end
                 if not ns._dmRoot then
                     C_Timer.After(0, function()
-                        if EllesmereUI:GetActiveModule() == "EllesmereUIRaidFrames" and ns.DMP_BuildPage then
+                        if RFPageShown(PAGE_DM) and ns.DMP_BuildPage then
                             ns.DMP_BuildPage(PAGE_DM, nil, -6)
                         end
                     end)
@@ -1721,7 +1778,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if ns.HidePreview then ns.HidePreview() end
                 if not ns._ccRoot then
                     C_Timer.After(0, function()
-                        if EllesmereUI:GetActiveModule() == "EllesmereUIRaidFrames" and ns.CC_BuildPage then
+                        if RFPageShown(PAGE_CLICKCAST) and ns.CC_BuildPage then
                             ns.CC_BuildPage(PAGE_CLICKCAST, nil, -6)
                         end
                     end)
@@ -1762,7 +1819,7 @@ initFrame:SetScript("OnEvent", function(self)
                 ns.BM_EnterAllSpecs()
                 if not ns._bmRoot then
                     C_Timer.After(0, function()
-                        if EllesmereUI:GetActiveModule() == "EllesmereUIRaidFrames" then
+                        if RFPageShown(PAGE_BUFFS) then
                             BuildBuffManagerPage(PAGE_BUFFS, nil, -6)
                         end
                     end)
@@ -1770,7 +1827,7 @@ initFrame:SetScript("OnEvent", function(self)
             elseif page == PAGE_DM then
                 if not ns._dmRoot then
                     C_Timer.After(0, function()
-                        if EllesmereUI:GetActiveModule() == "EllesmereUIRaidFrames" and ns.DMP_BuildPage then
+                        if RFPageShown(PAGE_DM) and ns.DMP_BuildPage then
                             ns.DMP_BuildPage(PAGE_DM, nil, -6)
                         end
                     end)
@@ -1778,7 +1835,7 @@ initFrame:SetScript("OnEvent", function(self)
             elseif page == PAGE_CLICKCAST then
                 if not ns._ccRoot then
                     C_Timer.After(0, function()
-                        if EllesmereUI:GetActiveModule() == "EllesmereUIRaidFrames" and ns.CC_BuildPage then
+                        if RFPageShown(PAGE_CLICKCAST) and ns.CC_BuildPage then
                             ns.CC_BuildPage(PAGE_CLICKCAST, nil, -6)
                         end
                     end)
@@ -1803,9 +1860,11 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     -- HideAllChildren callback: BM/CC intentionally bypass the scroll child, so their scrollFrame-parented roots need explicit cleanup.
-    EllesmereUI._hideScrollFrameRoots = function()
+    -- Registered beside the other modules' scroll-root hiders (never in place of them).
+    local function HideManagerRoots()
         DropManagerRoots(nil, true, true)
     end
+    EllesmereUI._AddScrollRootHider(HideManagerRoots)
 
     -- Module switch: drop the BM/CC roots and hide the preview.
     if EllesmereUI.SelectModule then
@@ -1855,6 +1914,10 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
+    -- The eye refreshers (ns._eye[ctx]) of the preview effects a tab change turns off.
+    local TAB_RESET_EYES = { "refreshHealthEye", "refreshPowerEye", "refreshAbsorbEye",
+        "refreshIndicatorEye", "refreshDispelEye" }
+
     -- Page switch cleanup within RF. PRE-hook (wrap, not hooksecurefunc): _partyCtx must be set BEFORE SelectPage refreshes widget values.
     if EllesmereUI.SelectPage then
         local origSelectPage = EllesmereUI.SelectPage
@@ -1885,6 +1948,17 @@ initFrame:SetScript("OnEvent", function(self)
             ns._powerAnimActive = false
             if ns._healthAnimTicker then ns._healthAnimTicker:Cancel(); ns._healthAnimTicker = nil end
             if ns._powerAnimTicker then ns._powerAnimTicker:Cancel(); ns._powerAnimTicker = nil end
+            -- Each tab's latest eyes show the reset too (a page shown from the
+            -- cache keeps the icons it last painted).
+            local eyes = ns._eye
+            if eyes then
+                for _, eye in pairs(eyes) do
+                    for i = 1, #TAB_RESET_EYES do
+                        local refresh = eye[TAB_RESET_EYES[i]]
+                        if refresh then refresh() end
+                    end
+                end
+            end
             ns._bmFrameEffectsVisible = false
             if ns.RestartPvAuraTicker then ns.RestartPvAuraTicker() end
             if ns.ResetPreviewRandomization then ns.ResetPreviewRandomization() end
@@ -1915,8 +1989,9 @@ initFrame:SetScript("OnEvent", function(self)
             return
         end
         if msg == "reset" then
-            db:ResetProfile()
+            -- The reload first (RequestReload); the reset lands before it.
             EllesmereUI.RequestReload()
+            db:ResetProfile()
             return
         end
         EllesmereUI:ShowModule("EllesmereUIRaidFrames")

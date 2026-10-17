@@ -20,13 +20,25 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  API (suite-internal; the core captures what it uses once the options addon
 --  has loaded, EllesmereUI.lua EnsureLoaded):
 --    Pool.CreateFrame(type, name, parent, template, id)  drop-in CreateFrame
---    Pool.Kept(owner, key, type, parent, template, name) -> frame, isNew
+--    Pool.Kept(owner, key, type, parent, template, name, hidden) -> frame, isNew
+--      (hidden: the frame comes back hidden, new or reset, and the code that
+--      dresses it shows it itself, so the OnShow scripts that survive resets
+--      run once, at that show, never at the reset; an edit box kept hidden
+--      takes the keyboard at that show while its auto-focus is on, so that
+--      dress calls SetAutoFocus(false) before it shows the box)
 --    Pool.Owned(owner, label, type, parent, template)    -> frame
 --    Pool.Begin(host)       restart a kept host's cursors without resetting it
+--      (what it handed out and what module state keeps of it are parked; its
+--      own decorations, made through Pool.Attach, stay as they are)
+--    Pool.Pin(host)         pin what shows over host as its next pass will,
+--      with nothing reset (see below)
 --    Pool.Keep(obj)         obj is held by module state: it leaves its pool
 --    Pool.Attach(host, obj, key, onReset) -> true when obj now rides on host
 --    Pool.Gen(obj)          dress generation (+1 per reset), nil when unpooled
 --    Pool.IsIdle(obj)       pooled and not handed out since its host's reset
+--      (obj's own host only: an object under a child that was put away keeps
+--      its generation and reads not idle; deferred work whose effect shows
+--      while hidden, such as keyboard focus, also checks obj:IsVisible())
 --    Pool.Managed(obj)      the pool manages obj (false: made without it)
 --    Pool.ExemptScripts(obj, slot, ...)     slots whose scripts survive resets
 --      (the code that dresses obj sets them on its first dress only: dev mode
@@ -52,6 +64,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  role dresses them again. Only a region the pool cannot name, on a frame
 --  whose engine may make its own (status bar, cooldown, edit box), makes the
 --  pool retire that frame to the graveyard and build a new one.
+--
+--  A pass starts at a kept host's reset (Pool.Kept) or at Pool.Begin. Before
+--  anything under the host moves, each kept or owned object that shows over
+--  it and is placed by its parts (an open popup, menu or flyout) is pinned at
+--  its spot to what the host itself is placed by, as what a dropped build left
+--  behind stayed where it was (FreezeUnder). Pool.Pin does the same ahead of
+--  the pass, for code that moves what the host is placed by first.
 --
 --  Bypassed while the global search builds its hidden index
 --  (EllesmereUI._prebuilding): every call then creates as today.
@@ -123,7 +142,7 @@ local PROBE_ART = "Interface\\Buttons\\WHITE8X8"
 -- Settings SetToDefaults keeps, per frame type: the getter, and the setter that
 -- puts back a new object's values (read once from the probe).
 local KEPT_VALUES = {
-    EditBox = { { "GetHistoryLines", "SetHistoryLines" } },
+    EditBox = { { "GetHistoryLines", "SetHistoryLines" }, { "GetHighlightColor", "SetHighlightColor" } },
     StatusBar = { { "GetMinMaxValues", "SetMinMaxValues" } },
     Cooldown = {
         { "GetDrawEdge", "SetDrawEdge" }, { "GetDrawSwipe", "SetDrawSwipe" }, { "GetDrawBling", "SetDrawBling" },
@@ -151,7 +170,7 @@ local ANIM_KEPT = {
 -- Per-object keys of the glow engines (EllesmereUI_Glows.lua): their presence
 -- means a glow may be registered with the shared glow driver.
 local GLOW_KEYS = { "_euiGlowActive", "_euiScrollData", "_euiFlipData", "_euiSgData", "_euiBgData",
-    "_euiFillData", "_euiAcData", "_euiAnimAnts", "_euiSpecSig", "_euiStealTex" }
+    "_euiFillData", "_euiAcData", "_euiAnimAnts", "_euiSpecSig", "_euiStealTex", "_euiPanTex" }
 
 -- A template's own script handlers (Blizzard_SharedXML/Backdrop.xml), put back
 -- on a slot code had changed.
@@ -805,15 +824,180 @@ local function HasPropagate(obj, m)
     return false
 end
 
--- A kept object that was showing when its owner was reset stays where it is
--- on screen (what a dropped build's orphaned anchor used to give it).
-local function Freeze(f)
-    local l, b, w, h = f:GetRect()
+-------------------------------------------------------------------------------
+--  The start of a pass: what shows over a host stays where it is
+-------------------------------------------------------------------------------
+-- A pass on a host (its reset by Pool.Kept, or Pool.Begin) dresses again what
+-- the host handed out. A kept or owned object that shows meanwhile (an open
+-- popup, menu or flyout) and is placed by those parts would follow them to
+-- their new places, while what a dropped build left behind stayed where it
+-- was, placed only by what the build's root was placed by. So before anything
+-- under the host moves, each such object is pinned at its spot to what the
+-- host is placed by (the host itself for Pool.Begin, which leaves it where it
+-- is), until code places it again.
+-- rec.fw: the walk that visited an object; rec.fm: the walk that found it
+-- moved (a part the pass dresses again, or the host its own reset moves).
+local walkSerial, walking = 0, false
+local frzList, frzN = {}, 0
+local PASS_RESET, PASS_BEGIN = 1, 2
+
+-- Everything under o as the pool knows it, each with whether the pass dresses
+-- it again (moved): what o handed out, its attachments and its owned objects
+-- move when o's parts do (the reset that parks an owned object starts its
+-- owner's next dress, which hands it out again); its kept objects never do
+-- (the pass dresses none of the kept ones, nor what they hand out). The kept
+-- and owned objects of every owner met are listed, the shown ones, as pin
+-- candidates. Regions are not visited: one is moved with the frame that
+-- handed it out (MovedBy).
+local Visit
+local function Parts(o, r, moved, depth)
+    local km = KEPT[o]
+    if km then
+        for _, k in pairs(km) do
+            local kr = REC[k]
+            if kr then Visit(k, kr, false, true, depth) end
+        end
+    end
+    local om = OWNED[o]
+    if om then
+        for _, slot in pairs(om) do
+            local list = slot.list
+            for i = 1, #list do
+                local x = list[i]
+                local xr = REC[x]
+                if xr then Visit(x, xr, moved, true, depth) end
+            end
+        end
+    end
+    if not r.isFrame then return end
+    local pools = r.pools
+    if pools then
+        for _, list in pairs(pools) do
+            for i = 1, #list do
+                local x = list[i]
+                local xr = REC[x]
+                if xr and xr.isFrame then Visit(x, xr, moved, false, depth) end
+            end
+        end
+    end
+    local att = r.attach
+    if att then
+        for i = 1, #att do
+            local a = att[i]
+            local ar = REC[a]
+            if ar and ar.host == o then Visit(a, ar, moved, false, depth) end
+        end
+    end
+end
+Visit = function(o, r, moved, listed, depth)
+    if r.fw == walkSerial or depth > 64 then return end
+    r.fw = walkSerial
+    if moved then r.fm = walkSerial end
+    if listed and o:IsShown() then
+        frzN = frzN + 1
+        frzList[frzN] = o
+    end
+    Parts(o, r, moved, depth + 1)
+end
+
+-- Whether walk `serial` found rel moved (a region moves with its frame).
+local function MovedBy(rel, serial)
+    local rr = REC[rel]
+    if not rr then return false end
+    if rr.fm == serial then return true end
+    local hr = rr.region and rr.host and REC[rr.host]
+    return hr ~= nil and hr.fm == serial
+end
+
+-- Whether something walk `serial` found moved places f, through its anchors
+-- and theirs (at most depBudget anchors read; running out counts as placed).
+-- An anchoring code may not read (restricted, or answered with a secret) is
+-- not followed: every value is cleared by issecretvalue before any test.
+local depBudget = 0
+local function PlacedByMoved(f, serial)
     local isv = _G.issecretvalue
-    if not (l and b and w and h) or (isv and (isv(l) or isv(b) or isv(w) or isv(h))) then return end
+    local restricted = f.IsAnchoringRestricted and f:IsAnchoringRestricted()
+    if isv and isv(restricted) then return false end
+    if restricted then return false end
+    local last
+    for i = 1, f:GetNumPoints() do
+        local _, rel = f:GetPoint(i)
+        if isv and isv(rel) then return false end
+        if rel ~= nil and rel ~= last then
+            last = rel
+            if MovedBy(rel, serial) then return true end
+            depBudget = depBudget - 1
+            if depBudget <= 0 or PlacedByMoved(rel, serial) then return true end
+        end
+    end
+    return false
+end
+
+-- What a host is placed by: its first anchor's frame (the screen: UIParent).
+local function PlacedBy(h)
+    local isv = _G.issecretvalue
+    for i = 1, h:GetNumPoints() do
+        local _, rel = h:GetPoint(i)
+        if isv and isv(rel) then break end
+        if rel ~= nil then return rel end
+    end
+    return _G.UIParent
+end
+
+-- f pinned where it is now: to ref's top left corner, or to the screen
+-- (UIParent's bottom left, as a dropped build's orphaned anchor kept it) when
+-- ref is UIParent or has no place itself.
+local function FreezeTo(f, ref)
+    local isv = _G.issecretvalue
+    local l, b, w, h = f:GetRect()
+    if isv and (isv(l) or isv(b) or isv(w) or isv(h)) then return end
+    if not (l and b and w and h) then return end
+    local UIParent = _G.UIParent
+    if ref ~= UIParent and ref ~= f then
+        local rl, rb, rw, rh = ref:GetRect()
+        if not (isv and (isv(rl) or isv(rb) or isv(rw) or isv(rh))) and rl and rb and rw and rh then
+            -- ref's corner in f's own units (each scales its own offsets)
+            local k = ref:GetEffectiveScale() / f:GetEffectiveScale()
+            f:ClearAllPoints()
+            if pcall(f.SetPoint, f, "TOPLEFT", ref, "TOPLEFT", l - rl * k, b + h - (rb + rh) * k) then
+                f:SetSize(w, h)
+                return
+            end
+        end
+    end
     f:ClearAllPoints()
-    f:SetPoint("BOTTOMLEFT", _G.UIParent, "BOTTOMLEFT", l, b)
+    f:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", l, b)
     f:SetSize(w, h)
+end
+
+local function FreezeWalk(host, hrec, hostMoved)
+    walkSerial = walkSerial + 1
+    local serial = walkSerial
+    frzN = 0
+    hrec.fw = serial
+    if hostMoved then hrec.fm = serial end
+    -- the host's own parts are dressed again by its pass, whether or not the
+    -- host itself is
+    Parts(host, hrec, true, 1)
+    if frzN == 0 then return end
+    local ref = hostMoved and PlacedBy(host) or host
+    for i = 1, frzN do
+        local f = frzList[i]
+        depBudget = 64
+        if f ~= ref and f:IsShown() and PlacedByMoved(f, serial) then FreezeTo(f, ref) end
+    end
+end
+
+-- Called once per pass, before its host's parts move (ResetContents). A pass
+-- that starts while one pins (a script a pin fires) leaves it to that one.
+local function FreezeUnder(host, hrec, hostMoved)
+    if walking then return end
+    walking = true
+    local ok, err = pcall(FreezeWalk, host, hrec, hostMoved)
+    walking = false
+    for i = 1, frzN do frzList[i] = nil end
+    frzN = 0
+    if not ok then _G.geterrorhandler()(err) end
 end
 
 -------------------------------------------------------------------------------
@@ -835,7 +1019,9 @@ local function ParkList(list)
     end
 end
 
-local function ResetContents(obj, rec, info)
+-- pass: PASS_RESET (a kept host's reset) or PASS_BEGIN (Pool.Begin) starts a
+-- pass on obj; nil for an object handed out again within one (already walked).
+local function ResetContents(obj, rec, info, pass)
     -- pooled objects of this host, wherever they are now: hidden, idle
     local pools = rec.pools
     if pools then
@@ -851,25 +1037,24 @@ local function ResetContents(obj, rec, info)
             slot.cur = 0
         end
     end
-    -- attachments: hidden, their onReset runs
+    -- attachments: hidden, their onReset runs. Pool.Begin does not reset the
+    -- host, so the host's own decorations (Pool.Attach: a border, a mark, a
+    -- glow) stay as they are; what module state keeps (Pool.Keep) is parked
+    -- as the rest of what the host handed out is
     local att = rec.attach
     if att then
         for i = 1, #att do
             local a = att[i]
             local ar = REC[a]
-            if ar and ar.host == obj then
+            if ar and ar.host == obj and (pass ~= PASS_BEGIN or ar.cls == "keep") then
                 if a:IsShown() then a:Hide() end
                 if ar.onReset then pcall(ar.onReset, a) end
             end
         end
     end
-    -- kept objects this one owns: frozen in place while they show
-    local km = KEPT[obj]
-    if km then
-        for _, k in pairs(km) do
-            if k:IsShown() then Freeze(k) end
-        end
-    end
+    -- the start of a pass, after what the parts' hiding closes and before any
+    -- part moves: what shows over the host and hangs on its parts stays put
+    if pass then FreezeUnder(obj, rec, pass == PASS_RESET) end
     if not rec.isFrame then return end
     -- children and regions the pool does not manage
     local buried = 0
@@ -1055,8 +1240,9 @@ end
 
 -- Returns false when the object cannot be reset now (a propagation,
 -- pass-through or keyboard flag in combat: only an out-of-combat reset may
--- clear it).
-local function ResetFrame(obj, rec, parent)
+-- clear it). pass: see ResetContents. hidden: left hidden at the end (shown
+-- by the code that dresses it), so no OnShow runs at the reset.
+local function ResetFrame(obj, rec, parent, pass, hidden)
     local m = getmetatable(obj).__index
     local info = KindInfo(rec)
     if _G.InCombatLockdown() and (HasPropagate(obj, m) or KeyboardChanged(obj, m, info)) then
@@ -1078,13 +1264,20 @@ local function ResetFrame(obj, rec, parent)
     end
     if rec.ftype == "EditBox" and obj:HasFocus() then obj:ClearFocus() end
     if rec.scrollOwner then ReleaseScrollChild(obj, rec) end
-    ResetContents(obj, rec, info)
+    ResetContents(obj, rec, info, pass)
     ResetScripts(obj, rec, m, info.scripts)
     obj:UnregisterAllEvents()
     ResetAttrs(obj, rec, m)
     ForgetRegistries(obj, true)
     WipeKeys(obj, rec, m, info.keys)
     if rec.ftype == "Cooldown" then obj:Clear() end
+    -- Click and drag registration: no getter reads either back, so the
+    -- in-game reset check cannot tell whether SetToDefaults clears them.
+    -- A new object's are put back first (a button answers the left
+    -- button's release, nothing is registered for drag), so a reused
+    -- button never answers the clicks, or starts the drags, of an earlier dress.
+    if m.RegisterForClicks then obj:RegisterForClicks("LeftButtonUp") end
+    if m.RegisterForDrag then obj:RegisterForDrag() end
     if obj.SetToDefaults then
         obj:SetToDefaults()
     else
@@ -1135,11 +1328,12 @@ local function ResetFrame(obj, rec, parent)
         if obj:IsShown() then obj:Hide() end
     elseif rec.ftype == "EditBox" then
         -- a shown auto-focus edit box takes the keyboard: show it without, then
-        -- put the new object's default back
+        -- put the new object's default back (one kept hidden is shown by its
+        -- dress, which turns auto-focus off first: see Pool.Kept)
         obj:SetAutoFocus(false)
-        m.Show(obj)
+        if not hidden then m.Show(obj) end
         obj:SetAutoFocus(info.autoFocus)
-    else
+    elseif not hidden then
         -- shown as a new frame is: through the type's method, so an instance Show
         -- hook (EllesmereUI.TrackOverlay) never sees the reset (the Hide above it does)
         m.Show(obj)
@@ -1282,8 +1476,23 @@ end
 
 -- Next object of a list for a new dress: an idle one reset to fresh, or nil.
 -- Objects that cannot be reset now go to the end of the list (each candidate
--- is tried once); objects with a region the pool cannot name are retired.
+-- is tried once) and mark it (list.skipped); objects with a region the pool
+-- cannot name are retired.
 local function TakeFrame(list, i, parent)
+    -- Out of combat an idle object a combat reset skipped is taken first, so
+    -- it is reset and reused instead of idling behind the newer ones; the
+    -- mark clears on the first look that finds none.
+    if list.skipped and not _G.InCombatLockdown() then
+        list.skipped = nil
+        for j = i + 1, #list do
+            local r = REC[list[j]]
+            if r and r.dirty then
+                list[i], list[j] = list[j], list[i]
+                list.skipped = true
+                break
+            end
+        end
+    end
     local tries = #list - i + 1
     while tries > 0 and list[i] do
         tries = tries - 1
@@ -1296,6 +1505,7 @@ local function TakeFrame(list, i, parent)
         else
             tremove(list, i)
             list[#list + 1] = obj
+            list.skipped = true
         end
     end
     return nil
@@ -1443,13 +1653,21 @@ function Pool.CreateFrame(ftype, name, parent, tmpl, id)
     return _G.CreateFrame(ftype, name, parent, tmpl, id)
 end
 
-function Pool.Kept(owner, key, ftype, parent, tmpl, name)
+-- A new frame for Pool.Kept, hidden when asked (it has no OnShow script yet,
+-- so nothing runs).
+local function NewKept(obj, hidden)
+    if hidden and obj:IsShown() then obj:Hide() end
+    return obj, true
+end
+
+-- Every reset of a kept frame starts a pass on it (ResetContents).
+function Pool.Kept(owner, key, ftype, parent, tmpl, name, hidden)
     if EllesmereUI._prebuilding or owner == nil or key == nil then
-        return _G.CreateFrame(ftype, name, parent, tmpl), true
+        return NewKept(_G.CreateFrame(ftype, name, parent, tmpl), hidden)
     end
     local ft = CanonicalType(ftype)
     if not ft or (tmpl ~= nil and not TEMPLATES[tmpl]) then
-        return _G.CreateFrame(ftype, name, parent, tmpl), true
+        return NewKept(_G.CreateFrame(ftype, name, parent, tmpl), hidden)
     end
     RefreshDev()
     local map = KEPT[owner]
@@ -1460,7 +1678,7 @@ function Pool.Kept(owner, key, ftype, parent, tmpl, name)
     local obj = map[key]
     if obj then
         local rec = REC[obj]
-        if rec and ResetFrame(obj, rec, parent) and not rec.engine then
+        if rec and ResetFrame(obj, rec, parent, PASS_RESET, hidden) and not rec.engine then
             rec.host = parent
             return obj, false
         end
@@ -1472,7 +1690,7 @@ function Pool.Kept(owner, key, ftype, parent, tmpl, name)
     rec.key = key
     RegisterFrame(obj, rec)
     map[key] = obj
-    return obj, true
+    return NewKept(obj, hidden)
 end
 
 function Pool.Owned(owner, label, ftype, parent, tmpl)
@@ -1510,12 +1728,23 @@ function Pool.Begin(host)
     local rec = REC[host]
     if not (rec and rec.isFrame) then return end
     RefreshDev()
-    ResetContents(host, rec, KindInfo(rec))
+    ResetContents(host, rec, KindInfo(rec), PASS_BEGIN)
     -- the host itself is not reset: its own engine regions stay as they are
     local named = rec.engRegs
     if named then
         for k in pairs(named) do named[k] = nil end
     end
+end
+
+-- What shows over a kept host and is placed by its parts is pinned as the
+-- start of its next pass would pin it, with nothing reset: for code that moves
+-- what the host is placed by before that pass starts (the panel collapses the
+-- content header before its header root is dressed again). The pass then
+-- finds those objects placed by what the host is placed by and leaves them.
+function Pool.Pin(host)
+    if EllesmereUI._prebuilding then return end
+    local rec = REC[host]
+    if rec and rec.isFrame then FreezeUnder(host, rec, true) end
 end
 
 -- Records whenever obj is a pooled object, also during the global search's
@@ -1631,9 +1860,19 @@ local function DevIdleShown(rec, label, level)
     end
 end
 function Pool._DevEndPass(host, label)
-    if not devOn then return end
-    local rec = host and REC[host]
+    if not devOn or host == nil then return end
+    local rec = REC[host]
     if rec then DevIdleShown(rec, label, 0) end
+    -- kept frames another owner placed on this host (a section a module keeps
+    -- on a page wrapper) hold pools of their own: walked too
+    for _, map in pairs(KEPT) do
+        for _, k in pairs(map) do
+            local kr = REC[k]
+            if kr and kr.host == host then
+                DevIdleShown(kr, tostring(label) .. "/" .. tostring(kr.key), 0)
+            end
+        end
+    end
 end
 
 -- In-game check (/dump EllesmereUI._Pool._DevCounts()): the objects the pool
@@ -1813,6 +2052,7 @@ function Pool._DevVerifyReset()
         { "SetTextInsets", v = { 1, 2, 3, 4 }, get = "GetTextInsets" }, { "SetAutoFocus", flip = "IsAutoFocus" },
         { "SetJustifyH", v = { "RIGHT" }, get = "GetJustifyH" }, { "SetJustifyV", v = { "TOP" }, get = "GetJustifyV" },
         { "SetSpacing", v = { 3 }, get = "GetSpacing" }, { "SetTextColor", v = { 1, 0, 0, 1 }, get = "GetTextColor" },
+        { "SetHighlightColor", v = { 1, 0, 0, 1 }, get = "GetHighlightColor" },
         { "SetText", v = { "abc" }, get = "GetText" },
         { "SetCountInvisibleLetters", flip = "IsCountInvisibleLetters" }, { "Disable", get = "IsEnabled" },
     }
