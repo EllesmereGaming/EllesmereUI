@@ -1200,7 +1200,9 @@ local function ShowPreview()
         if hasTarget then
             local tc = cfg.targetColor
             if cfg.targetClassColor ~= false and C_ClassColor and UnitClassBase then
-                local col = C_ClassColor.GetClassColor(UnitClassBase("player"))
+                -- Class token only: UnitClassBase also returns the class ID, which
+                -- would land in GetClassColor's optional tint color argument.
+                local col = C_ClassColor.GetClassColor((UnitClassBase("player")))
                 if col then e.bar.target:SetTextColor(col:GetRGB()) end
             elseif tc then
                 e.bar.target:SetTextColor(tc.r, tc.g, tc.b, 1)

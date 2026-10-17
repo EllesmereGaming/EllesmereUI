@@ -699,6 +699,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
     { folder = "EllesmereUIQuickdraw",         display = "Quickdraw",            search_name = "EllesmereUI Quickdraw"               },
     { folder = "EllesmereUILoadoutManager",    display = "Loadout Manager",      search_name = "EllesmereUI Loadout Manager"         },
+    { folder = "EllesmereUIGroupFinder",       display = "Group Finder",         search_name = "EllesmereUI Group Finder Premade Groups" },
     { folder = "EllesmereUIPartyMode",         display = "Party Mode",           search_name = "EllesmereUI Party Mode",             alwaysLoaded = true },
     { folder = "EllesmereUISimpleLootCouncil", display = "Simple Loot Council",  search_name = "EllesmereUI Simple Loot Council Loot Council" },
 }
@@ -740,6 +741,7 @@ EllesmereUI.ADDON_GROUPS = {
         label   = "UI Reskin Addons",
         members = {
             "EllesmereUIBlizzardSkin",
+            "EllesmereUIGroupFinder",
             "EllesmereUIDamageMeters",
             "EllesmereUIMythicTimer",
             "EllesmereUIQuestTracker",
@@ -787,6 +789,7 @@ end
 EllesmereUI.FOREVER_HIDDEN_ADDONS = {
     EllesmereUIMythicTimer = true, EllesmereUIFriends = true,
     EllesmereUILoadoutManager = true,
+    EllesmereUIGroupFinder = true,
     -- Not an addon: the Dragon Riding profile pseudo-folder (its file returns at
     -- load on Forever), listed so the profile import/export checklists drop it.
     EllesmereUIDragonRiding = true,
@@ -797,10 +800,12 @@ EllesmereUI.FOREVER_ONLY_ADDONS = {
     EllesmereUIForeverEssentials = true,
 }
 -- Modules held back from the current release on every client: they leave the
--- same lists, their runtime stops at its top, and neither the packager nor
--- the tester zip ships their folder (.pkgmeta ignore, package-for-testers.ps1).
--- To ship one, drop it here and restore its .pkgmeta move-folders line and
--- the tester zip.
+-- same lists, and neither the packager nor the tester zip ships their folder
+-- (.pkgmeta ignore, package-for-testers.ps1). Loadout Manager and Simple Loot
+-- Council never load (their TOCs are LoadOnDemand and nothing loads them); a
+-- Group Finder listed here would stop at the top of each runtime file. To ship
+-- one, drop it here, drop its TOC's LoadOnDemand hold line, and restore its
+-- .pkgmeta move-folders line and the tester zip.
 EllesmereUI.HELD_BACK_ADDONS = {
     EllesmereUILoadoutManager = true,
     EllesmereUISimpleLootCouncil = true,
@@ -1122,9 +1127,10 @@ local function MakeDropdownArrow(parent, xPad, ppOverride)
 end
 
 -- Page reuse (EllesmereUIOptions/EllesmereUI_FramePool.lua): ONE switch for the
--- whole suite, off until every module has passed its parity gates. While it is
--- off every page takes the build-and-drop path it always took.
-EllesmereUI._reusePages = false
+-- whole suite. On: a page built again gets its earlier frames back reset to
+-- fresh instead of building new ones. Off: every page takes the old
+-- build-and-drop path (the one-line rollback).
+EllesmereUI._reusePages = true
 -- The frame pool's table (EllesmereUI_PixelPerfect.lua makes it): for the
 -- resident helpers that build options frames (MakeBorder, AttachSmoothScrollbar)
 -- a plain CreateFrame until the options addon loads the pool, which fills this
@@ -1361,6 +1367,20 @@ function EllesmereUI.BuildAlertSoundTables()
         if f then paths[k] = dir .. f end
     end
     return paths, names, order
+end
+
+-- Plays one catalogue path: a file path, a SoundKit id (1 = silent), or a
+-- FileDataID when isFile is set (a number the catalogue cannot tell apart).
+function EllesmereUI.PlaySoundPath(path, isFile)
+    if type(path) == "number" then
+        if isFile then
+            PlaySoundFile(path, "Master")
+        elseif path ~= 1 then
+            PlaySound(path, "Master")
+        end
+    elseif path then
+        PlaySoundFile(path, "Master")
+    end
 end
 
 -- Statusbar texture catalogue: same contract as the sound catalogue above.
@@ -3169,7 +3189,7 @@ function EllesmereUI:EnsureLoaded()
     if Pool.Kept then
         EUI_NS.PoolKept, EUI_NS.PoolCreateFrame = Pool.Kept, Pool.CreateFrame
         EUI_NS.PoolIsIdle, EUI_NS.PoolGen, EUI_NS.PoolDevEndPass = Pool.IsIdle, Pool.Gen, Pool._DevEndPass
-        EUI_NS.PoolManaged = Pool.Managed
+        EUI_NS.PoolManaged, EUI_NS.PoolPin = Pool.Managed, Pool.Pin
     end
     -- Deferred inits run inside the suite registration window: some options
     -- files register their module page from here (e.g. Party Mode).
@@ -3182,7 +3202,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.5.5"
+EllesmereUI.VERSION = "9.6"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -3434,12 +3454,14 @@ end
 C_Timer.After(2, function()
     if EllesmereUIDB and EllesmereUIDB.firstInstallPopupShown then
         -- Defer while any intro popup is still pending/open; each runs the conflict check itself
-        -- when dismissed (RaidFrames / PatchNotes / WindowSkins / SpecOverrides / PTRManagers
-        -- popup files, plus the 12.1 launch video announcement in EllesmereUI_VideoGuides.lua).
+        -- when dismissed (RaidFrames / PatchNotes / WindowSkins / SpecOverrides / PTRManagers /
+        -- StyleLaunch / GroupFinder popup files, plus the 12.1 launch video announcement in
+        -- EllesmereUI_VideoGuides.lua).
         if EllesmereUI._raidFramesIntroPending or EllesmereUI._patchNotesIntroPending
            or EllesmereUI._windowSkinsIntroPending or EllesmereUI._specOvIntroPending
            or EllesmereUI._ptrManagersIntroPending or EllesmereUI._launchVideoIntroPending
-           or EllesmereUI._styleLaunchIntroPending or EllesmereUI._styleChoicePending then return end
+           or EllesmereUI._styleLaunchIntroPending or EllesmereUI._groupFinderIntroPending
+           or EllesmereUI._styleChoicePending then return end
         EllesmereUI._RunConflictCheck()
     end
 end)
@@ -3745,8 +3767,9 @@ do
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.showMinimapButton = false
                 btn:Hide()
+                -- an open page re-reads its rows (a closed panel catches up when it next shows)
                 local rl = EllesmereUI and EllesmereUI._widgetRefreshList
-                if rl then for i = 1, #rl do rl[i]() end end
+                if rl and #rl > 0 then EllesmereUI:RefreshPage() end
             end
         end)
 

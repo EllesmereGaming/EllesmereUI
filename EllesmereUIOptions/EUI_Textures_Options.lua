@@ -25,6 +25,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local PAGE_TEXTURES = "Textures"
 local GLOBAL_KEY = "_EUIGlobal"
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 -- Session-only card expand state (never saved).
 local _txExpanded = {}
 
@@ -533,7 +538,7 @@ local function TileResourceBars(parent, y, W, tile)
     -- page's cached build when that starts or ends, so reading the flag at build time holds.
     local p0 = db()
     local split = p0 and p0.splitTex == true
-    local _, h = W:DualRow(parent, y,
+    local barTexRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Bar Texture",
           values = barValues, order = barOrder,
           tooltip = split and "Texture for the class resource bar and any bar set to Match Main Texture."
@@ -558,6 +563,22 @@ local function TileResourceBars(parent, y, W, tile)
               RBApply()
               if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_CastBar") end
           end });  y = y - h
+    -- Textured Background: the module pages' Texture Settings cog on each
+    -- texture dropdown, with the same row (the module's options env builds it).
+    local env = ns._ERB_OptEnv
+    local function TexBgCog(rgn, kind, blizz)
+        if EllesmereUI._prebuilding or not env then return end
+        local blizzOn = blizz and EllesmereUI.BlizzStyle.Active("castbar") == "blizzard"
+        EllesmereUI.BuildInlineCog(rgn, {
+            disabled = blizzOn and function() return true end or nil,
+            disabledTooltip = blizzOn and EllesmereUI.BlizzStyle.Label("castbar") or nil,
+            requireState = blizzOn and "disabled" or nil,
+            title = "Texture Settings",
+            rows = { env.TexBgRowCfg(kind, RBApply) },
+        })
+    end
+    TexBgCog(barTexRow._leftRegion, "bars")
+    TexBgCog(barTexRow._rightRegion, "cast", true)
     if split then
         local function BarRow(text, barKey)
             local v, o = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
@@ -577,11 +598,13 @@ local function TileResourceBars(parent, y, W, tile)
                   if p.splitTex ~= true then EllesmereUI:RefreshPage(true) end
               end }
         end
+        local _
         _, h = W:DualRow(parent, y,
             BarRow("Health Bar Texture", "health"),
             BarRow("Power Bar Texture", "primary"));  y = y - h
     end
-    _, h = W:DualRow(parent, y,
+    local gcdTexRow
+    gcdTexRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "GCD Bar Texture", values = gcdValues, order = gcdOrder,
           getValue = function()
               local p = db()
@@ -594,6 +617,7 @@ local function TileResourceBars(parent, y, W, tile)
               if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_GCDBar") end
           end },
         BLANK());  y = y - h
+    TexBgCog(gcdTexRow._leftRegion, "gcd")
     y = LinkRow(parent, y, "Border Styles (per bar)",
         tile.folder, "Class, Power and Health Bars", nil, "Border Style")
     return y

@@ -237,7 +237,10 @@ B.PARAMS = {
       default = function() local o = EquipOptions()[1] return o and o.value or "" end,
       tip = "You have an item of this type equipped, e.g. only shoot with a bow or gun, Shield Bash only with a shield." },
     { key = "btn", label = "mouse button", default = "2",
-      options = function() return Numbers(5, { "left", "right", "middle", "button 4", "button 5" }) end,
+      options = function()
+          return Numbers(5, { EllesmereUI.L("left"), EllesmereUI.L("right"), EllesmereUI.L("middle"),
+              EllesmereUI.L("button 4"), EllesmereUI.L("button 5") })
+      end,
       tip = "Which mouse button clicked the action button (or which key binding: 1 = normal)." },
     { key = "actionbar", label = "action bar page", default = "1",
       options = function() return Numbers(6) end,
@@ -273,11 +276,12 @@ function B.Stances()
     local names = {}
     for i = 1, GetNumShapeshiftForms() do
         local _, _, _, spellID = GetShapeshiftFormInfo(i)
-        names[i] = (spellID and C_Spell.GetSpellName(spellID)) or ("Stance " .. i)
+        names[i] = (spellID and C_Spell.GetSpellName(spellID)) or EllesmereUI.Lf("Stance %d", i)
         items[#items + 1] = { value = tostring(i), label = i .. " - " .. names[i] }
     end
     for i = 1, #names - 1 do
-        items[#items + 1] = { value = i .. "/" .. (i + 1), label = i .. "/" .. (i + 1) .. " - " .. names[i] .. " or " .. names[i + 1] }
+        items[#items + 1] = { value = i .. "/" .. (i + 1),
+            label = i .. "/" .. (i + 1) .. " - " .. EllesmereUI.Lf("%1$s or %2$s", names[i], names[i + 1]) }
     end
     return items
 end

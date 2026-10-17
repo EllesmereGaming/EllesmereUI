@@ -37,6 +37,11 @@ initFrame:SetScript("OnEvent", function(self)
 
     if not EllesmereUI or not EllesmereUI.RegisterModule then return end
     local PP = EllesmereUI.PanelPP
+    -- Page reuse (EllesmereUI_FramePool.lua): a frame made under a page pool
+    -- host comes from the pool and is dressed again by every later build; under
+    -- any other parent it is a plain new frame.
+    local Pool = EllesmereUI._Pool
+    local CreateFrame = Pool.CreateFrame
 
     local function GetABROptOutline() return EllesmereUI.GetFontOutlineFlag("auraBuff") end
 
@@ -384,14 +389,23 @@ initFrame:SetScript("OnEvent", function(self)
         local sf = EllesmereUI._scrollFrame
         if not sf then return end
 
+        -- The glow plays a moment later: a target of the page pool that is
+        -- dressed again for another row by then belongs to a newer build.
+        local target = m.target
+        local gen = Pool.Gen(target)
+        local function PlayLater()
+            if Pool.Gen(target) ~= gen or Pool.IsIdle(target) then return end
+            EABRPlaySettingGlow(target)
+        end
+
         local child = sf.GetScrollChild and sf:GetScrollChild()
-        if child and m.target and m.target.GetTop and child.GetTop then
-            local targetTop = m.target:GetTop()
+        if child and target.GetTop and child.GetTop then
+            local targetTop = target:GetTop()
             local childTop = child:GetTop()
             if targetTop and childTop then
                 local scrollPos = math.max(0, childTop - targetTop - 40)
                 EllesmereUI.SmoothScrollTo(scrollPos)
-                C_Timer.After(0.15, function() EABRPlaySettingGlow(m.target) end)
+                C_Timer.After(0.15, PlayLater)
                 return
             end
         end
@@ -402,7 +416,7 @@ initFrame:SetScript("OnEvent", function(self)
             local scrollPos = math.max(0, math.abs(headerY) - 40)
             EllesmereUI.SmoothScrollTo(scrollPos)
         end
-        C_Timer.After(0.15, function() EABRPlaySettingGlow(m.target) end)
+        C_Timer.After(0.15, PlayLater)
     end
 
     local function EABRCreateHitOverlay(element, mappingKey, frameLevelOverride)
@@ -427,12 +441,16 @@ initFrame:SetScript("OnEvent", function(self)
         if _previewContainer and #_previewIcons == #icons then
             -- Re-parent and re-show (may have been orphaned by ClearContentHeader)
             _previewContainer:SetParent(hdr)
+            -- The levels the first build gave the container and its icons (a
+            -- kept header root's own dress can raise what it holds)
+            _previewContainer:SetFrameLevel(hdr:GetFrameLevel() + 1)
             _previewContainer:ClearAllPoints()
             _previewContainer:SetPoint("CENTER", hdr, "CENTER", 0, 0)
             _previewContainer:SetSize(hdrW, _previewContainer:GetHeight())
             _previewContainer:Show()
             -- Update textures/labels in case the icon set changed content
             for i, pIcon in ipairs(_previewIcons) do
+                if pIcon.frame then pIcon.frame:SetFrameLevel(_previewContainer:GetFrameLevel() + 1) end
                 if pIcon.frame and icons[i] then
                     if pIcon.frame._icon then pIcon.frame._icon:SetTexture(icons[i].texture or 134400) end
                     if pIcon.frame._text then pIcon.frame._text:SetText(icons[i].label or "") end
@@ -453,17 +471,25 @@ initFrame:SetScript("OnEvent", function(self)
         local textSz = d and d.textSize or 11
         local textOverhang = showText and (math.abs(textYOff) + textSz) or 0
 
-        -- Recycle or create container
+        -- Recycle or create container (kept across header builds: Pool.Keep
+        -- takes it out of its host's pool, so a later build never hands it out
+        -- as another frame)
         if _previewContainer then
             _previewContainer:SetParent(hdr)
             _previewContainer:ClearAllPoints()
         else
-            _previewContainer = CreateFrame("Frame", nil, hdr)
+            _previewContainer = Pool.Keep(CreateFrame("Frame", nil, hdr))
         end
+        -- (the level a new container gets: see the reuse branch above)
+        _previewContainer:SetFrameLevel(hdr:GetFrameLevel() + 1)
         _previewContainer:SetSize(hdrW, sz + textOverhang)
         _previewContainer:SetPoint("CENTER", hdr, "CENTER", 0, 0)
         _previewContainer:Show()
         local container = _previewContainer
+
+        -- The previous icon set goes before the new one is made: on a pool host
+        -- the icons below are handed back in order and dressed again.
+        Pool.Begin(container)
 
         -- Hide old icon frames before rebuilding
         for _, pIcon in ipairs(_previewIcons) do
@@ -556,7 +582,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         if hintShown then
             if not _previewHintFS then
-                _previewHintFS = EllesmereUI.MakeFont(container, 11, nil, 1, 1, 1)
+                -- Kept across builds too (out of the container's pool).
+                _previewHintFS = Pool.Keep(EllesmereUI.MakeFont(container, 11, nil, 1, 1, 1))
                 _previewHintFS:SetAlpha(0.45)
                 _previewHintFS:SetText(EllesmereUI.L("Click elements to scroll to and highlight their options"))
             end
@@ -742,7 +769,8 @@ initFrame:SetScript("OnEvent", function(self)
             local regions = { rgn:GetRegions() }
             for i = 1, #regions do
                 local reg = regions[i]
-                if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == labelText then
+                -- (an idle pooled region still holds the text of an earlier dress)
+                if reg and reg.GetText and not Pool.IsIdle(reg) and EllesmereUI.EnKey(reg:GetText()) == labelText then
                     found = reg; break
                 end
             end
@@ -1012,6 +1040,10 @@ initFrame:SetScript("OnEvent", function(self)
             end
             watch:Hide()
             watch:SetParent(parent)
+            -- On a kept page wrapper the watcher rides it as an attachment: the
+            -- wrapper's next dress hides it (as dropping the page did) and
+            -- never moves it to the pool's graveyard.
+            Pool.Attach(parent, watch)
             watch:Show()
             return holy
         end
@@ -1125,6 +1157,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() local d = DDB(); return d and d.remindersEnabled ~= false end,
               setValue=function(v)
                   local d = DDB(); if not d then return end; d.remindersEnabled = v
+                  if _G._EABR_UpdateGroupAuraRegistration then _G._EABR_UpdateGroupAuraRegistration() end
                   RefreshAll()
                   EllesmereUI:RefreshPage()
               end },
@@ -1618,6 +1651,7 @@ initFrame:SetScript("OnEvent", function(self)
                         label = _G._EABR_SpellName(aura.castSpell, aura.name),
                         classToken = aura.class,
                         key = aura.key,
+                        tooltip = (aura.combatOnly and aura.isStance) and "Shows in combat only, while you are out of this form." or nil,
                         getVal = function() local a = ADB(); return a and a.enabled and a.enabled[aura.key] end,
                         setVal = function(v) local a = ADB(); if a and a.enabled then a.enabled[aura.key] = v end end,
                     }
@@ -2222,6 +2256,10 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Talent Reminders Page
     ---------------------------------------------------------------------------
+    -- Owner of the page's kept popups (Pool.Kept): the zone popup and the
+    -- talent popup are made once for the session, on UIParent.
+    local _trPopups = {}
+
     local function BuildTalentRemindersPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
@@ -2344,10 +2382,13 @@ initFrame:SetScript("OnEvent", function(self)
         zoneDDLbl:SetPoint("LEFT", zoneDDBtn, "LEFT", 14, 0)
         zoneDDLbl:SetPoint("RIGHT", zoneArrow, "LEFT", -5, 0)
 
-        -- Multi-select checkbox popup
+        -- Multi-select checkbox popup: one kept frame for the session that
+        -- every build of the page dresses again. The global search's hidden
+        -- pre-build makes none (the popup holds nothing to index).
         local SEARCH_H = 26
         local ITEM_H = 28
-        local zonePopup = CreateFrame("Frame", nil, UIParent)
+        if not EllesmereUI._prebuilding then
+        local zonePopup = Pool.Kept(_trPopups, "zone", "Frame", UIParent)
         zonePopup:SetFrameStrata("FULLSCREEN_DIALOG")
         zonePopup:SetFrameLevel(200)
         zonePopup:SetClampedToScreen(true)
@@ -2502,6 +2543,10 @@ initFrame:SetScript("OnEvent", function(self)
         zoneDDBtn:SetScript("OnClick", function()
             if zonePopup:IsShown() then zonePopup:Hide() else zonePopup:Show() end
         end)
+        -- The zone list closes with its page (rebuild, tab switch, panel
+        -- close), as the talent list does.
+        zoneDDBtn:SetScript("OnHide", function() zonePopup:Hide() end)
+        end -- not prebuilding
         zoneDDBtn:SetScript("OnEnter", function()
             zoneDDBg:SetColorTexture(0.128, 0.120, 0.113, 1)
         end)
@@ -2558,10 +2603,12 @@ initFrame:SetScript("OnEvent", function(self)
             btn:SetScript("OnEnter", function() btnBg:SetColorTexture(0.128, 0.120, 0.113, 1) end)
             btn:SetScript("OnLeave", function() btnBg:SetColorTexture(0.103, 0.095, 0.088, 0.9) end)
 
-            -- Popup with search
+            -- Popup with search: kept like the zone popup above (one per
+            -- dropdown), and likewise not made by the global search's pre-build.
+            if EllesmereUI._prebuilding then return btn, btnLbl end
             local T_ITEM_H = 26
             local popupH = math.min(#allTalents * T_ITEM_H + 8, 250) + SEARCH_H + 10
-            local popup = CreateFrame("Frame", nil, UIParent)
+            local popup = Pool.Kept(_trPopups, "talent:" .. labelText, "Frame", UIParent)
             popup:SetFrameStrata("FULLSCREEN_DIALOG")
             popup:SetFrameLevel(200)
             popup:SetClampedToScreen(true)
@@ -2805,7 +2852,9 @@ initFrame:SetScript("OnEvent", function(self)
         local listRowCount = 0  -- manual alternating row counter
 
         local function RebuildReminderList()
-            -- Clear existing rows
+            -- Clear existing rows. On a page pool host the rows go back to the
+            -- container's pool and the list below dresses them again in order.
+            Pool.Begin(listContainer)
             for _, row in ipairs(listRows) do row:Hide() end
             wipe(listRows)
             listRowCount = 0

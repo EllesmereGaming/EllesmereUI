@@ -8,6 +8,15 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIRaidFrames"]
 if not ns then return end  -- module disabled: no options page
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host (a kept page wrapper or menu and every frame it hands out) are reset
+-- and dressed again by the next build instead of made anew; elsewhere this is
+-- CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolKept = EllesmereUI._Pool.Kept
+-- Deferred work on a pooled frame stops once the frame was dressed again.
+local PoolGen = EllesmereUI._Pool.Gen
+
 ---------------------------------------------------------------------------
 --  Shared "Sort By" control: Group/Role radio + drag-to-reorder role rows, installed into a DualRow half-region
 --  (replaces its placeholder dropdown); used by both raid LAYOUT and party FRAMES tabs. opts wires it to:
@@ -65,7 +74,9 @@ local function BuildSortByControl(rgn, opts)
     local DH = 16       -- divider height
     local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
 
-    local menuFrame = CreateFrame("Frame", nil, UIParent)
+    -- Kept per Sort By button (the options page pool): a page build that
+    -- dresses the same button again dresses the same menu again.
+    local menuFrame = PoolKept(sortBtn, "rfSortMenu", "Frame", UIParent)
     menuFrame:SetFrameStrata("FULLSCREEN_DIALOG")
     menuFrame:SetFrameLevel(200)
     menuFrame:SetClampedToScreen(true)
@@ -448,7 +459,12 @@ local function BuildMainPage(pageName, parent, yOffset)
                     local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
                     eyeTex:SetAllPoints()
 
+                    -- Kept on ns until this tier's next build, which may never come
+                    -- (the tier was removed): once a rebuild dresses this eye again,
+                    -- maybe as another row's, this refresher leaves it alone.
+                    local eyeGen = PoolGen(eyeBtn)
                     local function RefreshSizeEye()
+                        if PoolGen(eyeBtn) ~= eyeGen then return end
                         local active = ns._sizePreviewTier == tier
                         eyeTex:SetTexture(active and EYE_INVISIBLE or EYE_VISIBLE)
                         eyeBtn:SetAlpha(active and 0.6 or 0.4)

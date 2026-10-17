@@ -10,7 +10,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --       "spell activation overlay glow" on a spell we're tracking). A second,
 --       CDM-bar based implementation of the same proc also exists as the
 --       "timespiral" Tracked Buff Bar preset in
---       EllesmereUICooldownManager\EllesmereUICdmBuffBars.lua (~line 3590,
+--       EllesmereUICooldownManager\EUI_CDM_BuffBarPresets.lua (
 --       TIME_SPIRAL_TRIGGERS/TIME_SPIRAL_GLOW_FILTERS) for users who run CDM
 --       bars. The two are intentionally independent (this one needs no CDM
 --       bar at all), but they track the same spell/talent-filter lists --
@@ -39,7 +39,7 @@ local playerClassToken = select(2, UnitClass("player")) -- class never changes: 
 --  live client before shipping and keep an eye on the in-options "Tracked
 --  Spells" add/override list, which lets users self-correct gaps without an
 --  addon update. The `filter` sub-table (Time Spiral cast filtering) mirrors
---  EllesmereUICdmBuffBars.lua's TIME_SPIRAL_GLOW_FILTERS -- keep both in sync.
+--  EUI_CDM_BuffBarPresets.lua's TIME_SPIRAL_GLOW_FILTERS -- keep both in sync.
 -------------------------------------------------------------------------------
 local MOVEMENT_ABILITIES = {
     DEATHKNIGHT = {[250] = {48265, 212552}, [251] = {48265, 212552}, [252] = {48265, 444010, 444347, 212552}},
@@ -1860,8 +1860,8 @@ end
 --  Time Spiral -- flashes when a tracked mobility spell's cooldown is
 --  proc-reset (generic spell-activation-overlay glow on a tracked spell).
 --  A second, CDM-bar based implementation of this same proc exists in
---  EllesmereUICooldownManager\EllesmereUICdmBuffBars.lua's "timespiral"
---  Tracked Buff Bar preset (~line 3590). The two are independent (this one
+--  EllesmereUICooldownManager\EUI_CDM_BuffBarPresets.lua's "timespiral"
+--  Tracked Buff Bar preset. The two are independent (this one
 --  works without any CDM bar) but share the same spell/talent-filter lists --
 --  keep MOVEMENT_ABILITIES[...].filter above in sync with that file's
 --  TIME_SPIRAL_GLOW_FILTERS if either changes. Enabling both trackers at

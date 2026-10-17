@@ -643,7 +643,7 @@ do
 
     local function ComputeDecision()
         -- RETIRED 2026-09-19: superseded by a newer login announcement (now
-        -- EllesmereUI_StyleLaunchPopup.lua) -- only the newest
+        -- EllesmereUI_GroupFinderPopup.lua) -- only the newest
         -- login announcement fires, so users upgrading across versions never
         -- see two intro popups back to back. The guide itself stays reachable
         -- from the Patch Notes video banner and /euivideos. Delete the next

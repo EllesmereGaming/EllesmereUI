@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Modern action bars built for performance and clarity.
 ## Author: Ellesmere
-## Version: 9.5.5
+## Version: 9.6
 ## Dependencies: EllesmereUI
 ## OptionalDeps: Masque
 ## SavedVariables: EllesmereUIActionBarsDB
@@ -12,6 +12,20 @@
 
 # Main Luas
 EllesmereUIActionBars.lua
+EUI_ActionBars_Disposal.lua
+EUI_ActionBars_Controllers.lua
+EUI_ActionBars_Secure.lua
+EUI_ActionBars_Paging.lua
+EUI_ActionBars_Bars.lua
+EUI_ActionBars_Layout.lua
+EUI_ActionBars_Fade.lua
+EUI_ActionBars_VisibilityDrivers.lua
+EUI_ActionBars_Keybinds.lua
+EUI_ActionBars_Vehicle.lua
+EUI_ActionBars_ApplyAll.lua
+EUI_ActionBars_Unlock.lua
+EUI_ActionBars_Init.lua
+EUI_ActionBars_Setup.lua
 EUI_ActionBars_ButtonArt.lua
 EUI_ActionBars_Range.lua
 EUI_ActionBars_Apply.lua

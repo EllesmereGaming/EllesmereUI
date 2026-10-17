@@ -8,6 +8,16 @@ local ADDON_NAME = "EllesmereUIUnitFrames"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
+-- Page reuse: the frames this file builds under a kept page, header or row go
+-- through the options frame pool (EllesmereUI_FramePool.lua), which hands the
+-- next build the previous build's frames reset to new; on any other parent it
+-- is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+-- The pool's other calls this file makes, read once here as CreateFrame is:
+-- the page path never calls the pool through its public slot, which
+-- another addon could replace.
+local PoolGen, PoolIsIdle, PoolKeep = EllesmereUI._Pool.Gen, EllesmereUI._Pool.IsIdle, EllesmereUI._Pool.Keep
+
 local PAGE_DISPLAY   = "Main Frames"
 local PAGE_BOSS      = "Boss Frames"
 local PAGE_MINI      = "Mini Frames"
@@ -929,12 +939,20 @@ initFrame:SetScript("OnEvent", function(self)
             local region = (m.slotSide == "left") and m.target._leftRegion or m.target._rightRegion
             if region then glowTarget = region end
         end
-        C_Timer.After(0.15, function() playGlow(glowTarget) end)
+        -- A page rebuilt before the glow plays (page reuse) has parked or dressed
+        -- its rows again: a target that moved on gets no glow.
+        local gen = PoolGen(glowTarget)
+        C_Timer.After(0.15, function()
+            if PoolGen(glowTarget) ~= gen or PoolIsIdle(glowTarget) then return end
+            playGlow(glowTarget)
+        end)
     end
 
+    -- allPreviews: unit -> its preview. An entry whose frame a kept header root
+    -- dressed again for another unit (pv._pvUnit) is stale and skipped.
     local function UpdatePreview()
-        for _, pv in pairs(allPreviews) do
-            if pv and pv.Update then pv:Update() end
+        for k, pv in pairs(allPreviews) do
+            if pv and pv._pvUnit == k and pv.Update then pv:Update() end
         end
         -- Sync in-game boss preview fake debuffs with live edits (location, simple display, size).
         if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end
@@ -957,8 +975,8 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Hide UIParent-parented disabled overlays when the options window closes
     EllesmereUI:RegisterOnHide(function()
-        for _, pv in pairs(allPreviews) do
-            if pv and pv._disabledOverlay then pv._disabledOverlay:Hide() end
+        for k, pv in pairs(allPreviews) do
+            if pv and pv._pvUnit == k and pv._disabledOverlay then pv._disabledOverlay:Hide() end
         end
         -- Auto-disable in-game boss preview so live boss frames don't linger on close.
         if ns._bossPreviewActive and ns.SetBossPreview then
@@ -967,11 +985,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- Player Aura Bars root lives on the shared live scrollFrame, not a page's
         -- own `parent`; only fires on full window close (cf. _bmRoot/_dmRoot/_ccRoot
         -- cleanup in EUI_RaidFrames_Options.lua). Module switching is handled below via SelectModule.
-        if ns._pabRoot then
-            ns._pabRoot:Hide()
-            ns._pabRoot:SetParent(nil)
-            ns._pabRoot = nil
-        end
+        -- The root is kept for the session (its next render dresses it again):
+        -- parked hidden, off the scroll frame; nil means "needs a render".
+        if ns._pabRoot then ns.PABMP_ParkRoot() end
     end)
 
     -- Rebuild Player Aura Bars on re-open while already on that page: RegisterOnHide
@@ -982,7 +998,8 @@ initFrame:SetScript("OnEvent", function(self)
            and EllesmereUI:GetActivePage() == PAGE_AURA_BARS
            and not ns._pabRoot then
             C_Timer.After(0, function()
-                if EllesmereUI:GetActiveModule() == "EllesmereUIUnitFrames" and ns.PABMP_BuildPage then
+                if EllesmereUI:GetActiveModule() == "EllesmereUIUnitFrames"
+                   and EllesmereUI:GetActivePage() == PAGE_AURA_BARS and ns.PABMP_BuildPage then
                     ns.PABMP_BuildPage(PAGE_AURA_BARS, nil, -6)
                 end
             end)
@@ -995,9 +1012,7 @@ initFrame:SetScript("OnEvent", function(self)
     if EllesmereUI.SelectModule then
         hooksecurefunc(EllesmereUI, "SelectModule", function(_, folderName)
             if folderName ~= "EllesmereUIUnitFrames" and ns._pabRoot then
-                ns._pabRoot:Hide()
-                ns._pabRoot:SetParent(nil)
-                ns._pabRoot = nil
+                ns.PABMP_ParkRoot()
             end
         end)
     end
@@ -1193,8 +1208,8 @@ initFrame:SetScript("OnEvent", function(self)
             end,
             onItemHover = function(key)
                 local texPath = texLookup[key]
-                for _, pv in pairs(allPreviews) do
-                    if pv then
+                for k, pv in pairs(allPreviews) do
+                    if pv and pv._pvUnit == k then
                         local hFill = pv._healthFill
                         if hFill then
                             if texPath then
@@ -1221,8 +1236,8 @@ initFrame:SetScript("OnEvent", function(self)
             end,
             onItemLeave = function(key)
                 -- Revert to the saved texture
-                for _, pv in pairs(allPreviews) do
-                    if pv and pv.Update then pv:Update() end
+                for k, pv in pairs(allPreviews) do
+                    if pv and pv._pvUnit == k and pv.Update then pv:Update() end
                 end
             end,
         }
@@ -2018,6 +2033,8 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage(true)
                   -- Close the cog popup before the reload prompt: the page under
                   -- it was just rebuilt, so it would float stale rows behind the dialog.
+                  -- (The popup is kept by its cog button, not built by the page: the
+                  -- rebuild leaves it showing where it was, for this Hide.)
                   if fsShow and fsShow._popupFrame and fsShow._popupFrame:IsShown() then
                       fsShow._popupFrame:Hide()
                   end
@@ -2413,12 +2430,12 @@ initFrame:SetScript("OnEvent", function(self)
                 function() return optState.selectedUnit end,
                 function(v)
                     -- Preserve scroll position across the unit swap; capture BEFORE the
-                    -- rebuild since SetContentHeader's relayout can clobber the live value.
+                    -- rebuild since the header relayout can clobber the live value.
                     -- Settings sit below the fixed header, so the same offset lands on the same section for any unit.
                     local savedScroll = EllesmereUI.GetContentScroll and EllesmereUI.GetContentScroll() or 0
                     optState.selectedUnit = v
-                    EllesmereUI:InvalidateContentHeaderCache()
-                    EllesmereUI:SetContentHeader(_displayHeaderBuilder)
+                    -- One pass builds the page and its header together (buildPage
+                    -- sets the header for the new unit).
                     EllesmereUI:RefreshPage(true)
                     EllesmereUI.SmoothScrollTo(savedScroll)
                     -- Preview:Update() runs DURING the rebuild above, before the header
@@ -2457,7 +2474,10 @@ initFrame:SetScript("OnEvent", function(self)
             local hintH = 0
             if not IsPreviewHintDismissed() then
                 if not optState._ufPreviewHintFS_display then
-                    optState._ufPreviewHintFS_display = EllesmereUI.MakeFont(preview or hdr, 11, nil, 1, 1, 1)
+                    -- Held across builds by optState: it leaves the preview's
+                    -- region pool (Pool.Keep), so no later build hands it out
+                    -- for another text; it is still hidden at its host's reset.
+                    optState._ufPreviewHintFS_display = PoolKeep(EllesmereUI.MakeFont(preview or hdr, 11, nil, 1, 1, 1))
                     optState._ufPreviewHintFS_display:SetAlpha(0.45)
                     optState._ufPreviewHintFS_display:SetText(EllesmereUI.L("Click elements to scroll to and highlight their options"))
                 end
@@ -2504,9 +2524,10 @@ initFrame:SetScript("OnEvent", function(self)
             return (EllesmereUI.CreatePreviewHitOverlay(element, NavigateToSetting, mappingKey, isText, frameLevelOverride, opts))
         end
 
-        -- Create hit overlays on preview elements
+        -- Create hit overlays on preview elements. Never from the global search's
+        -- hidden prebuild: the preview is live header content, not this hidden job's.
         local textOverlays = {}
-        if activePreview then
+        if activePreview and not EllesmereUI._prebuilding then
             local pv = activePreview
             local baseLevel = (pv._health and pv._health:GetFrameLevel() or 20) + 15
             local textLevel = baseLevel + 10
@@ -2661,8 +2682,7 @@ initFrame:SetScript("OnEvent", function(self)
                 function() return selectedMiniUnit end,
                 function(v)
                     selectedMiniUnit = v
-                    EllesmereUI:InvalidateContentHeaderCache()
-                    EllesmereUI:SetContentHeader(_miniHeaderBuilder)
+                    -- One pass builds the page and its header together.
                     EllesmereUI:RefreshPage(true)
                     EllesmereUI.SmoothScrollTo(0)
                     -- Re-run the preview next frame once the rebuilt layout has
@@ -2721,8 +2741,9 @@ initFrame:SetScript("OnEvent", function(self)
             return (EllesmereUI.CreatePreviewHitOverlay(element, NavigateToSetting, mappingKey, isText, frameLevelOverride, opts, hitStyle))
         end
 
-        -- Create hit overlays on preview elements
-        if activePreview then
+        -- Create hit overlays on preview elements (never from the global search's
+        -- hidden prebuild: the preview is live header content)
+        if activePreview and not EllesmereUI._prebuilding then
             local pv = activePreview
             local baseLevel = (pv._health and pv._health:GetFrameLevel() or 20) + 15
             local textLevel = baseLevel + 10
@@ -2817,8 +2838,9 @@ initFrame:SetScript("OnEvent", function(self)
             return (EllesmereUI.CreatePreviewHitOverlay(element, NavigateToSetting, mappingKey, isText, frameLevelOverride, opts, hitStyle))
         end
 
-        -- Create hit overlays on preview elements
-        if activePreview then
+        -- Create hit overlays on preview elements (never from the global search's
+        -- hidden prebuild: the preview is live header content)
+        if activePreview and not EllesmereUI._prebuilding then
             local pv = activePreview
             local baseLevel = (pv._health and pv._health:GetFrameLevel() or 20) + 15
             local textLevel = baseLevel + 10
@@ -2941,6 +2963,8 @@ initFrame:SetScript("OnEvent", function(self)
         title       = "Unit Frames",
         description = "Configure unit frame appearance and behavior.",
         pages       = { PAGE_DISPLAY, PAGE_BOSS, PAGE_MINI, PAGE_AURA_BARS },
+        -- Player Aura Bars draws over the scroll frame: no inline search there.
+        noSearchPages = { [PAGE_AURA_BARS] = true },
         searchTerms = ufSearchTerms,
         buildPage   = function(pageName, parent, yOffset)
             if EllesmereUI._prebuilding and pageName == PAGE_AURA_BARS then
@@ -2950,10 +2974,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- onPageCacheRestore below: this covers a fresh build of the destination
             -- page, that one covers a cache-restored destination -- without both,
             -- cleanup is inconsistent across tab switches (mirrors EUI_RaidFrames_Options.lua's _bmRoot/_dmRoot/_ccRoot pattern).
-            if pageName ~= PAGE_AURA_BARS and ns._pabRoot then
-                ns._pabRoot:Hide()
-                ns._pabRoot:SetParent(nil)
-                ns._pabRoot = nil
+            -- Never from the global search's hidden prebuild of another page: the
+            -- root is the live page's.
+            if pageName ~= PAGE_AURA_BARS and ns._pabRoot and not EllesmereUI._prebuilding then
+                ns.PABMP_ParkRoot()
             end
             -- Randomize preview creature IDs on every tab switch
             RandomizePreviewCreatures()
@@ -3002,9 +3026,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             -- Clean up Player Aura Bars root when switching away
             if pageName ~= PAGE_AURA_BARS and ns._pabRoot then
-                ns._pabRoot:Hide()
-                ns._pabRoot:SetParent(nil)
-                ns._pabRoot = nil
+                ns.PABMP_ParkRoot()
             elseif pageName == PAGE_AURA_BARS and not ns._pabRoot then
                 -- PABMP_BuildPage bypasses `parent` and builds onto the live shared
                 -- scrollFrame into ns._pabRoot (see buildPage's _prebuilding guard
@@ -3023,12 +3045,12 @@ initFrame:SetScript("OnEvent", function(self)
             ns.UF_AskExisting2DMirror()
             -- Hide all UIParent-parented disabled overlays before restoring
             -- (they persist across tab switches since they're not children of pf)
-            for _, pv in pairs(allPreviews) do
-                if pv and pv._disabledOverlay then pv._disabledOverlay:Hide() end
+            for k, pv in pairs(allPreviews) do
+                if pv and pv._pvUnit == k and pv._disabledOverlay then pv._disabledOverlay:Hide() end
             end
             -- Force re-anchor previews after cache restore (parent changed)
-            for _, pv in pairs(allPreviews) do
-                if pv then
+            for k, pv in pairs(allPreviews) do
+                if pv and pv._pvUnit == k then
                     pv._lastOY = nil
                     -- Reset portrait anchor flag so Update() re-anchors it
                     if pv._portraitFrame then pv._portraitFrame._anchored = false end
@@ -3072,8 +3094,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         if msg == "reset" then
-            db:ResetProfile()
+            -- The reload first (RequestReload); the reset lands before it.
             EllesmereUI.RequestReload()
+            db:ResetProfile()
             return
         end
 

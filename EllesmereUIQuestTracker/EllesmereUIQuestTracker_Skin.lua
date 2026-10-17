@@ -818,6 +818,10 @@ local function HookBlockLineMethods(block)
     -- gold/focus color we chose is what the player sees.
     local function reassertTitle()
         ApplyFocusHighlight(block)
+        -- Hover highlight swaps line colors too (WoW Forever's objective
+        -- colors; nil on retail).
+        local paint = EQT.ColorObjectiveLines
+        if paint then paint(block) end
     end
     if block.HookScript then
         block:HookScript("OnEnter", reassertTitle)
@@ -1186,13 +1190,15 @@ local function SkinExistingBlocks(tracker)
             SkinBlock(block)
         end
 
-        -- Style objective lines.
+        -- Style objective lines (and WoW Forever's objective colors).
+        local paint = EQT.ColorObjectiveLines
         for _, block in ipairs(ordered) do
             if block.lines then
                 for _, line in pairs(block.lines) do
                     StyleObjectiveLine(line)
                 end
             end
+            if paint then paint(block) end
         end
     end
 end
@@ -1349,6 +1355,9 @@ local function HookTracker(tracker)
                 _updateDirty = false
                 local skip = STOCK or ShouldSkipSkin()
                 local mouseOff = EQT._trackerMouseOff
+                -- WoW Forever's objective colors (nil on retail).
+                local paint = EQT.ColorObjectiveLines
+                local colorLines = paint and EQT.ObjColorsWanted()
                 if skip and not mouseOff then return end
                 if not skip then
                     if tracker.Header then EnsureAccentDivider(tracker.Header) end
@@ -1359,7 +1368,10 @@ local function HookTracker(tracker)
                         if type(byTemplate) == "table" then
                             for _, block in pairs(byTemplate) do
                                 if type(block) == "table" then
-                                    if not skip then SuppressPOI(block) end
+                                    if not skip then
+                                        SuppressPOI(block)
+                                        if colorLines then paint(block) end
+                                    end
                                     -- Blizzard's own Update re-enables bonus
                                     -- blocks; this lands after it.
                                     if mouseOff then ApplyBlockMouse(block) end

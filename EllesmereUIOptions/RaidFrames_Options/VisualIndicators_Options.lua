@@ -9,6 +9,27 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIRaidFrames"]
 if not ns then return end  -- module disabled: no options page
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host (a kept page wrapper or cog popup and every frame it hands out) are
+-- reset and dressed again by the next build instead of made anew; elsewhere
+-- this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
+-- Panel close turns the Healer Mana preview off and resets the eye of each
+-- tab's latest build (ns._eye[ctx]): registered once for the session, by the
+-- first build that has the eye.
+local hmEyeOnHide
+local function StopHMPreviewOnHide()
+    if not (ns._hmPreview and ns.HM_SetPreview) then return end
+    ns.HM_SetPreview(false)
+    local eyes = ns._eye
+    if eyes then
+        for _, eye in pairs(eyes) do
+            if eye.refreshHMEye then eye.refreshHMEye() end
+        end
+    end
+end
+
 local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderOff, CustomBorderOffTip)
     local env = ns._RFO_OptEnv
     local db, floor, IsPreviewOff, MissingGlowDesc = env.db, env.floor, env.IsPreviewOff, env.MissingGlowDesc
@@ -143,10 +164,10 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             -- if the names are not loaded. Reads go through the runtime's
             -- resolver over the page's raw, party-aware reads, so an unset
             -- role shows what it does.
-            local blessOrder = { "none", "might", "wisdom", "kings", "salvation", "light" }
+            local blessOrder = { "none", "might", "wisdom", "kings", "light" }
             local blessItems = {}
-            local BLESS_ID = { might = 19740, wisdom = 19742, kings = 20217, salvation = 1038, light = 19977 }
-            local BLESS_EN = { might = "Might", wisdom = "Wisdom", kings = "Kings", salvation = "Salvation", light = "Light" }
+            local BLESS_ID = { might = 19740, wisdom = 19742, kings = 20217, light = 19977 }
+            local BLESS_EN = { might = "Might", wisdom = "Wisdom", kings = "Kings", light = "Light" }
             local blessValues = { none = "None" }
             local full, common = {}, nil
             for i = 2, #blessOrder do
@@ -268,14 +289,17 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 -- One switch per buff (all on by default). The list is the
                 -- profile's, shared across classes, so every buff is listed;
                 -- only the ones this character can cast ever show. The
-                -- paladin blessings follow the role rows below instead.
+                -- paladin blessings follow the role rows below instead;
+                -- Salvation, which stacks with them, is a switch here and
+                -- never shows on a tank.
                 { type="reordercheck", label="Buffs", ddWidth=170,  -- the Glow dropdown's width
                   hint="Only buffs you can cast show",
                   items={
-                      { key="missingBuffsFort",   label="Fortitude",        fixed=true },
-                      { key="missingBuffsMark",   label="Mark of the Wild", fixed=true },
-                      { key="missingBuffsSpirit", label="Spirit",           fixed=true },
-                      { key="missingBuffsThorns", label="Thorns",           fixed=true },
+                      { key="missingBuffsFort",      label="Fortitude",        fixed=true },
+                      { key="missingBuffsMark",      label="Mark of the Wild", fixed=true },
+                      { key="missingBuffsSpirit",    label="Spirit",           fixed=true },
+                      { key="missingBuffsThorns",    label="Thorns",           fixed=true },
+                      { key="missingBuffsSalvation", label="Salvation",        fixed=true },
                   },
                   get=function(key) return SVal(key, true) end,
                   set=function(key, on) SSet(key, on) end },
@@ -1900,6 +1924,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         local function RefreshHMEye()
             eyeTex:SetTexture(ns._hmPreview and EYE_INVISIBLE or EYE_VISIBLE)
         end
+        EYE.refreshHMEye = RefreshHMEye
         eyeBtn:SetScript("OnClick", function()
             if ns.HM_SetPreview then ns.HM_SetPreview(not ns._hmPreview) end
             RefreshHMEye()
@@ -1912,15 +1937,13 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             s:SetAlpha(0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
-        EllesmereUI:RegisterOnHide(function()
-            if ns._hmPreview and ns.HM_SetPreview then
-                ns.HM_SetPreview(false)
-                RefreshHMEye()
-            end
-        end)
+        if not hmEyeOnHide then
+            hmEyeOnHide = true
+            EllesmereUI:RegisterOnHide(StopHMPreviewOnHide)
+        end
     end
 
-    -- Hide Blizzard Party Panel shares the exact global setting and apply function as the QoL toggle (EllesmereUIDB.hideBlizzardPartyFrame -> EllesmereUI._applyHideBlizzardPartyFrame); the QoL toggle is disabled while Raid Frames is loaded. Off when unset.
+    -- Hide Blizzard Party Panel shares the exact global setting and apply function as Quality of Life's Hide Blizzard Elements > Party Panel (EllesmereUIDB.hideBlizzardPartyFrame -> EllesmereUI._applyHideBlizzardPartyFrame): one setting, changeable on either page. Off when unset.
     _, h = W:DualRow(parent, y,
         { type="toggle", text="Hide Blizzard Party Panel",
           tooltip="Hides the collapsed Blizzard party/raid sidebar panel on the side of the screen.",

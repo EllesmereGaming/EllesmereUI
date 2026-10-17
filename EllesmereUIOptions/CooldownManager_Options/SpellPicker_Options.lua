@@ -8,6 +8,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUICooldownManager"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page pool (EllesmereUI_FramePool.lua): a frame made under a pool
+-- host (a kept menu) is handed out again reset to fresh; anywhere else this is
+-- the plain CreateFrame. The picker and the per-icon settings menu are one kept
+-- frame each for the session (PoolKept), dressed again on every open: their
+-- rows, flyouts, apply strip and scroll parts are pooled under them. A menu
+-- remembers its anchor with the anchor's dress generation (PoolGen): an anchor
+-- a rebuild dressed again for a new build is another anchor, as a new frame was.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolKept, PoolGen = EllesmereUI._Pool.Kept, EllesmereUI._Pool.Gen
+
 local function ShowWrongBarTypePopup(spellName, isSpellBuff)
     if not EllesmereUI or not EllesmereUI.ShowConfirmPopup then return end
     local correctBar = isSpellBuff and "a Buff bar" or "a Cooldown or Utility bar"
@@ -67,8 +77,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
     local EnsureAssignedSpells, ShowAlphaPopup, ShowBuffToCDPicker, ShowCustomItemIDPopup = ns.CDMO_EnsureAssignedSpells, ns.CDMO_ShowAlphaPopup, ns.CDMO_ShowBuffToCDPicker, ns.CDMO_ShowCustomItemIDPopup
     local ShowDurationPopup, ShowEquipmentSlotPopup, ShowThresholdSecondsPopup = ns.CDMO_ShowDurationPopup, ns.CDMO_ShowEquipmentSlotPopup, ns.CDMO_ShowThresholdSecondsPopup
     -- Toggle: if the picker is already open for this same icon, close it
-    if optState._spellPickerMenu and optState._spellPickerMenu:IsShown() and optState._spellPickerMenu._anchorFrame == anchorFrame then
-        optState._spellPickerMenu:Hide()
+    local open = optState._spellPickerMenu
+    if open and open:IsShown() and open._anchorFrame == anchorFrame and open._anchorGen == PoolGen(anchorFrame) then
+        open:Hide()
         return
     end
     -- Close existing
@@ -133,7 +144,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
     local ITEM_H = 26
     local MAX_H = 400  -- full picker scrolls past this; the per-spell menu has no scroll and sizes to its rows
 
-    local menu = CreateFrame("Frame", nil, UIParent)
+    local menu = PoolKept(optState, removeOnly and "spSettings" or "spPicker", "Frame", UIParent)
     menu:SetFrameStrata("FULLSCREEN_DIALOG")
     menu:SetFrameLevel(300)
     menu:SetClampedToScreen(true)
@@ -358,7 +369,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
     if removeOnly then
         -- Per-icon settings: CD/utility bars get the full menu; buff-family bars get a
         -- buff-specific subset. custom_buff (Auras) bars excluded here (separate system).
-        if slotIndex and not isCustomBuff then
+        -- Override editing sessions: settings would leak outside the override, so Remove only.
+        if slotIndex and not isCustomBuff and not EllesmereUI.SpecOverrides_EditSessionActive() then
             local sd = ns.GetBarSpellData(barKey)
             -- Buff bars: the preview slot's own _previewSpellID is authoritative. The
             -- default buffs bar's preview maps to a MIXED list (Blizzard buffs +
@@ -2104,8 +2116,11 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                         -- carries a per-spell colour payload (an R/G/B triple in applyKeys),
                                         -- or an item the row flags as carrying another payload (apply.payload(item): the Blackout opacity).
                                         -- For those, equality must be judged by valuesMatch, not the identifier, or the rejoin/toggle-off shortcuts discard the payload (see the two branches in the apply handler above).
+                                        -- A scalar item (Threshold Seconds, Also Show Below) is a payload too:
+                                        -- a different number is pushed, the same one toggles off.
                                         payloadValue = hasColourPayload(applyKeys)
-                                            or (rowApply and rowApply.payload and rowApply.payload(item)) or false,
+                                            or (rowApply and rowApply.payload and rowApply.payload(item))
+                                            or item.scalarApply or false,
                                         -- Toggles: "Apply to Bar" ENABLES the feature (apply true);
                                         -- disabling is the toggle-off press (ctx.isToggle un-applies when
                                         -- the scope already holds the value). Never key this off isSelected: that flips an already-ON toggle OFF when switching scopes (e.g. All Specs -> Apply to Bar). Value items apply their value.
@@ -2516,9 +2531,10 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                           tooltip = "Seconds remaining below which Threshold Color and Threshold Decimals apply (0 = off).",
                           toggleGet = function() return armedSeconds() > 0 end,
                           applyKeys = { "thresholdSeconds" },
-                          applyWrite = function(t)
-                              -- Push this spell's current seconds; "off" applied bar-wide blocks the tier below.
-                              local s = armedSeconds()
+                          applyWrite = function(t, v)
+                              -- Push this spell's current seconds; "off" (0, or Exclude This
+                              -- Spell's false) blocks the tier below.
+                              local s = (v ~= false) and armedSeconds() or 0
                               t.thresholdSeconds = (s > 0) and s or false
                           end },
                         { val = "color", label = "Threshold Color",
@@ -2664,16 +2680,49 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             -- buff is MISSING, and the ACTIVE buff renders hidden
                             -- (layout gap closes).
                             { val = "missing", label = "Show When Missing" },
+                            -- Independent of the choice above, used with Show When Missing: the
+                            -- active buff also shows for its last N seconds (0 = off). Scalar popup
+                            -- value, same shape as Threshold Seconds.
+                            { val = "below", label = "Also Show Below",
+                              scalarApply = true,
+                              dynamicLabel = function()
+                                  local base = EllesmereUI.L("Also Show Below")
+                                  local s = tonumber(ss.missingShowBelow) or 0
+                                  if s > 0 then return base .. " (" .. s .. "s)" end
+                                  return base
+                              end,
+                              tooltip = "With Show When Missing, also show the buff for its last seconds. Buffs whose timers are hidden from addons in instances stay hidden there.",
+                              toggleGet = function() return (tonumber(ss.missingShowBelow) or 0) > 0 end,
+                              applyKeys = { "missingShowBelow" },
+                              applyWrite = function(t, v)
+                                  local s = (v ~= false) and tonumber(ss.missingShowBelow) or 0
+                                  t.missingShowBelow = (s > 0) and s or false
+                              end },
                         }
                         MakeSubnavRow("Always Show Buff", ALWAYS_SHOW_ITEMS,
                             function() return ss.alwaysShow end,
                             function(v)
+                                -- Also Show Below opens its own popup; any other value is not this row's.
+                                if v ~= nil and v ~= "on" and v ~= "off" and v ~= "missing" then return end
                                 EnsureSS(); SetOwn("alwaysShow", v)
                                 -- Refresh the page so "Keep Buffs in Same Place" grays/ungrays as this per-icon override flips.
                                 EllesmereUI:RefreshPage()
                             end,
                             function() return ss.alwaysShow == nil end,
-                            nil,
+                            function(si, item)
+                                if item.val ~= "below" then return end
+                                -- Popup flow (mirrors Threshold Seconds): 0 turns it off.
+                                si:SetScript("OnClick", function()
+                                    local cur = tonumber(ss.missingShowBelow) or 0
+                                    menu:Hide()
+                                    ShowThresholdSecondsPopup(cur > 0 and cur or nil, function(v)
+                                        EnsureSS()
+                                        SetOwn("missingShowBelow", (v and v > 0) and v or nil)
+                                        ns.QueueReanchor()
+                                    end, EllesmereUI.L("Also Show Below"),
+                                        EllesmereUI.L("Seconds left when the buff shows again (0 = off)"))
+                                end)
+                            end,
                             -- Mutually exclusive with the bar's "Keep Buffs in Same Place": that
                             -- mode reserves every buff's slot and ignores per-icon overrides, so
                             -- disable this row while it's on. Escape hatch: if THIS icon is the one
@@ -2684,6 +2733,13 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                       and ss.alwaysShow ~= "on" or false
                               end,
                               disabledTooltip = "Disabled while Keep Buffs in Same Place is enabled",
+                              -- Also Show Below acts only with Show When Missing: locked
+                              -- otherwise, unless it holds a value (clickable to clear it).
+                              itemState = function(si, item)
+                                  if item.val ~= "below" then return end
+                                  SetFlyoutItemLocked(si, ss.alwaysShow ~= "missing"
+                                      and (tonumber(ss.missingShowBelow) or 0) <= 0, "Requires Show When Missing")
+                              end,
                               apply = { keys = { "alwaysShow" },
                                         write = function(t, v) t.alwaysShow = v end } })
                     end
@@ -2865,7 +2921,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0); hl:SetAlpha(0)
                         -- Show on hover, anchored to the side, like the other subnav flyouts.
                         -- Reuse BuildCogPopup but drop its slide animation + click-outside dismiss so the menu's _openSub machinery (hover-to-switch, close-with-menu) controls it.
-                        local showFn, pf
+                        local _, showFn, pf
                         local function ShowCog()
                             if not showFn then _, showFn = buildCog(row) end
                             if not pf then
@@ -4456,6 +4512,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
         menu:ClearAllPoints()
         menu:SetPoint("TOP", anchorFrame, "BOTTOM", 0, -4)
         menu._anchorFrame = anchorFrame
+        menu._anchorGen = PoolGen(anchorFrame)
         optState._spellPickerMenu = menu
         menu._openSub = nil  -- track open subnav for close checks
         menu:SetScript("OnUpdate", function(m)
@@ -5521,7 +5578,11 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
             potItem:SetScript("OnLeave", function()
                 potLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
                 potHl:SetAlpha(0)
+                -- Stands down once the menu was dressed again for another open:
+                -- this flyout and its row belong to the dress that left them.
+                local menuGen = PoolGen(menu)
                 C_Timer.After(0.3, function()
+                    if PoolGen(menu) ~= menuGen then return end
                     if _potionsSub and _potionsSub:IsShown() and not _potionsSub:IsMouseOver() and not potItem:IsMouseOver() then
                         _potionsSub:Hide()
                     end
@@ -5853,6 +5914,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
     menu:Show()
     optState._spellPickerMenu = menu
     menu._anchorFrame = anchorFrame
+    menu._anchorGen = PoolGen(anchorFrame)
 end
 
 -- Used by EUI_CooldownManager_Options.lua

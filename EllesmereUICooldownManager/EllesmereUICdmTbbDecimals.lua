@@ -18,7 +18,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  string onto the bar's real timer FS -- the exact passthrough mechanics it
 --  already uses for Blizzard's FontString, just reading a decimal source.
 --
---  Contract with the tick (EllesmereUICdmBuffBars.lua):
+--  Contract with the tick (EUI_CDM_BuffBarTick.lua):
 --    * bar._tbbEngineText = the bound slot button, bar._tbbEngineFS = the
 --      hidden engine-written FS (both set/cleared ONLY here). While set, the
 --      tick mirrors engineFS -> bar._timerText, gated on the slot button's

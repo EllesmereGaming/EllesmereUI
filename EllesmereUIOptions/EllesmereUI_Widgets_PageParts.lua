@@ -161,14 +161,7 @@ function EllesmereUI.BuildSoundDropdownValues(paths, names, order)
             if key == "none" or not paths[key] then return nil end
             return EllesmereUI.SOUND_ICON_PRESSED_ATLAS
         end,
-        iconOnClick = function(key)
-            local path = paths[key]
-            if type(path) == "number" then
-                if path ~= 1 then PlaySound(path, "Master") end
-            elseif path then
-                PlaySoundFile(path, "Master")
-            end
-        end,
+        iconOnClick = function(key) EllesmereUI.PlaySoundPath(paths[key]) end,
         iconTooltip = function() return "Preview Sound" end,
     }
     return values, order
@@ -345,17 +338,20 @@ local function BuildInlineRow(parent, y, cards, availW, fullW, footer)
         if not spec.accent then
             EllesmereUI.RegisterWidgetRefresh(function() Paint(card:IsMouseOver()) end)
         end
+        -- The labels' resting alpha is their text colour's (MakeFont), so the
+        -- hover moves that alpha, never the region's: a leave puts back exactly
+        -- the look a new card has.
         card:SetScript("OnEnter", function()
             Paint(true)
             icon:SetAlpha(boxed and (BOX_ICON_A + 0.25) or 1)
-            titleFs:SetAlpha(1)
-            if not boxed then descFs:SetAlpha(DESC_A + 0.15) end
+            titleFs:SetTextColor(1, 1, 1, 1)
+            if not boxed then descFs:SetTextColor(1, 1, 1, DESC_A + 0.15) end
         end)
         card:SetScript("OnLeave", function()
             Paint(false)
             icon:SetAlpha(p.iconA)
-            titleFs:SetAlpha(TITLE_A)
-            descFs:SetAlpha(p.descA)
+            titleFs:SetTextColor(1, 1, 1, TITLE_A)
+            descFs:SetTextColor(1, 1, 1, p.descA)
         end)
         if spec.onClick then card:SetScript("OnClick", spec.onClick) end
     end
@@ -436,16 +432,17 @@ function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
         end
         card:SetCardContent(spec.icon, spec.title, spec.desc)
 
+        -- The title's resting alpha is its text colour's (as BuildInlineRow's).
         card:SetScript("OnEnter", function()
             bg:SetColorTexture(0.119, 0.111, 0.104, 0.50)
             brd:SetColor(1, 1, 1, BRD_A + 0.10)
-            titleFs:SetAlpha(1)
+            titleFs:SetTextColor(1, 1, 1, 1)
             icon:SetAlpha(ICON_A + 0.25)
         end)
         card:SetScript("OnLeave", function()
             bg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
             brd:SetColor(1, 1, 1, BRD_A)
-            titleFs:SetAlpha(TITLE_A)
+            titleFs:SetTextColor(1, 1, 1, TITLE_A)
             icon:SetAlpha(ICON_A)
         end)
         if spec.onClick then card:SetScript("OnClick", spec.onClick) end
@@ -454,17 +451,29 @@ function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
     return y - CARD_H, built
 end
 
--- Dim note row shown inside a card when its module is disabled.
-function EllesmereUI.BuildNoteRow(parent, y, text)
+-- Note row: a dim aside (inside a card when its module is disabled, under a
+-- row). opts.banner: the section banner look (row background, brighter text,
+-- up to two lines), for a note the player must read before the rows below.
+function EllesmereUI.BuildNoteRow(parent, y, text, opts)
+    local banner = opts and opts.banner
+    local ROW_H = banner and 40 or 34
+    -- The search prebuild only indexes rows: same y advance, no frames.
+    if EllesmereUI._prebuilding then return y - ROW_H end
     local PP = EllesmereUI.PanelPP
-    local ROW_H = 34
     local row = CreateFrame("Frame", nil, parent)
     PP.Size(row, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, ROW_H)
     PP.Point(row, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
     row._skipRowDivider = true
+    if banner then EllesmereUI.RowBg(row, parent) end
     local lbl = EllesmereUI.MakeFont(row, 12, nil, 1, 1, 1)
-    lbl:SetAlpha(0.45)
+    lbl:SetAlpha(banner and 0.6 or 0.45)
     lbl:SetPoint("LEFT", row, "LEFT", 20, 0)
+    if banner then
+        lbl:SetPoint("RIGHT", row, "RIGHT", -20, 0)
+        lbl:SetJustifyH("LEFT")
+        lbl:SetWordWrap(true)
+        lbl:SetMaxLines(2)
+    end
     lbl:SetText(EllesmereUI.L(text))
     return y - ROW_H
 end
@@ -558,16 +567,18 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
     local dd = enabled and opts.headerDD and opts.headerDD(hdr)
 
     local strip
+    -- The title's resting alpha is its text colour's (MakeFont), so the hover
+    -- moves that alpha: a leave puts back exactly the look a new card has.
     local function ApplyHeaderHover()
         hbg:SetColorTexture(1, 1, 1, 0.05)
-        title:SetAlpha(1)
+        title:SetTextColor(1, 1, 1, 1)
         if chev then chev:SetAlpha(0.85) end
         if brd then brd:SetColor(1, 1, 1, 0.22) end
     end
     local function ClearHeaderHover()
         if hdr:IsMouseOver() then return end
         hbg:SetColorTexture(0, 0, 0, 0)
-        title:SetAlpha(0.9)
+        title:SetTextColor(1, 1, 1, 0.9)
         if chev then chev:SetAlpha(0.45) end
         if brd then brd:SetColor(1, 1, 1, expanded and 0.16 or 0.12) end
     end
@@ -628,6 +639,13 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
     PP.Point(strip, "TOPLEFT", hdr, "TOPLEFT", 1, -1)
     PP.Point(strip, "BOTTOMLEFT", hdr, "BOTTOMLEFT", 1, 1)
     if strip.SetSnapToPixelGrid then strip:SetSnapToPixelGrid(false); strip:SetTexelSnappingBias(0) end
+    -- The accent parts follow a live accent change (it refreshes the shown page).
+    if enabled then
+        EllesmereUI.RegisterWidgetRefresh(function()
+            strip:SetColorTexture(EG.r, EG.g, EG.b, 0.7)
+            if chev and expanded then chev:SetVertexColor(EG.r, EG.g, EG.b) end
+        end)
+    end
 
     return y - MC_CARD_GAP
 end

@@ -6,6 +6,22 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local PP = EllesmereUI.PanelPP
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame. The profiles root is kept for the session
+-- (PROFILES_ROOT owns it), so everything built on it is pooled.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolKept, PoolBegin, PoolManaged = EllesmereUI._Pool.Kept, EllesmereUI._Pool.Begin, EllesmereUI._Pool.Managed
+local PoolGen, PoolIsIdle = EllesmereUI._Pool.Gen, EllesmereUI._Pool.IsIdle
+local PROFILES_ROOT = {}
+
+-- A deferred callback's frame is still in the dress it had when the callback
+-- was scheduled (gen = PoolGen(obj) then): a rebuild dresses the same pooled
+-- frames again, so a callback from before it must leave them alone.
+local function SameDress(obj, gen)
+    return PoolGen(obj) == gen and not PoolIsIdle(obj)
+end
+
 ---------------------------------------------------------------------------
 --  Profiles page
 ---------------------------------------------------------------------------
@@ -285,12 +301,9 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
     local scrollFrame = EllesmereUI._scrollFrame
     if not scrollFrame then return 0 end
 
-    if EllesmereUI._profilesRoot then
-        EllesmereUI._profilesRoot:Hide()
-        EllesmereUI._profilesRoot:SetParent(nil)
-    end
-
-    local root = CreateFrame("Frame", nil, scrollFrame)
+    -- One root for the session: each build dresses it again, and its previous
+    -- contents reset to new first (the reset hides whatever they showed).
+    local root = PoolKept(PROFILES_ROOT, "root", "Frame", scrollFrame)
     root:SetAllPoints(scrollFrame)
     root:SetFrameLevel(scrollFrame:GetFrameLevel() + 5)
     EllesmereUI._profilesRoot = root
@@ -368,8 +381,10 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         return btn, lbl, bg, brd
     end
 
+    -- One menu per dropdown button, kept with the button: a build that dresses
+    -- the button again dresses its menu again too.
     local function MakeDropdownMenu(anchor, w)
-        local menuFrame = CreateFrame("Frame", nil, UIParent)
+        local menuFrame = PoolKept(anchor, "profilesMenu", "Frame", UIParent)
         menuFrame:SetFrameStrata("FULLSCREEN_DIALOG")
         menuFrame:SetFrameLevel(200)
         menuFrame:SetClampedToScreen(true)
@@ -466,8 +481,9 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                 if popup._dimmer then popup._dimmer:Hide() end
             end)
 
-            popup:EnableKeyboard(true)
+            EllesmereUI.PopupTakeKeys(popup, dimmer)
             popup:SetScript("OnKeyDown", function(self, kkey)
+                if InCombatLockdown() then return end
                 -- kbBtn takes the keyboard only while it is capturing.
                 if kkey == "ESCAPE" and not kbBtn:IsKeyboardEnabled() then
                     self:SetPropagateKeyboardInput(false)
@@ -514,10 +530,16 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
     --  IMPORT PAGE BUILDER (shared by presets + import profile)
     -------------------------------------------------------------------
     ShowImportPage = function(exportString, payload, defaultName, editModeString, editModeLayoutName, applyImportedScale)
-        -- Clear any previous import page content
-        for _, child in ipairs({ importPage:GetChildren() }) do
-            child:Hide()
-            child:SetParent(nil)
+        -- The previous import page goes: its frames and texts are reset and
+        -- dressed again below (options page pool), or dropped where the page
+        -- is no pool host.
+        if PoolManaged(importPage) then
+            PoolBegin(importPage)
+        else
+            for _, child in ipairs({ importPage:GetChildren() }) do
+                child:Hide()
+                child:SetParent(nil)
+            end
         end
 
         -- Optional Blizzard Edit Mode layout to apply alongside this import (preset path only; the manual paste path leaves these nil).
@@ -1065,12 +1087,16 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                           includeWindowSkinsImport = false
                           return
                       end
+                      -- The answer is for this build of the import page: a build
+                      -- that dresses the dropdown again before it comes drops it.
+                      local ddGen = PoolGen(ddBtn)
                       EllesmereUI:ShowConfirmPopup({
                           title       = EllesmereUI.L("Overwrite Window & Tooltip Settings?"),
                           message     = EllesmereUI.L("This will replace YOUR Blizzard Skins+ settings (the Window Skins and Tooltips & Menus tabs) with the sharer's, across ALL of your profiles. Your current settings on those two tabs cannot be recovered afterward."),
                           confirmText = EllesmereUI.L("OK"),
                           cancelText  = EllesmereUI.L("Cancel"),
                           onConfirm   = function()
+                              if not SameDress(ddBtn, ddGen) then return end
                               includeWindowSkinsImport = true
                               if refresh then refresh() end
                           end,
@@ -1294,6 +1320,13 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                 -- CONCURRENT silent imports) never cancels the committing one.
                 local apiSession = EllesmereUI._apiImportSession
                 if apiSession and apiSession.state == "done" then apiSession = nil end
+                -- The import reloads the UI as it lands (an interactive-API session hands that to its caller), and only a
+                -- profile payload imports (ImportProfile refuses every other type), so the outcome is known now: the reload
+                -- is asked for first in the click (RequestReload; WoW Forever refused it after the import's own work) and the
+                -- import below runs before the client reloads.
+                if not apiSession and filteredPayload and filteredPayload.type == "full" then
+                    EllesmereUI.RequestReload(EllesmereUI.L("Profile Imported"), EllesmereUI.ImportReloadMessage(filteredPayload))
+                end
                 if apiSession then apiSession.committing = true end
                 local ok, err, status = EllesmereUI.ImportProfile(filteredPayload, name)
                 if apiSession then apiSession.committing = nil end
@@ -1316,10 +1349,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                         title   = EllesmereUI.L("Profile Imported"),
                         content = EllesmereUI.Lf("\"%1$s\" was saved but cannot be loaded because this spec has an assigned profile. Switch specs or remove the spec assignment to use it.", name),
                     })
-                    EllesmereUI.RequestReload(EllesmereUI.L("Profile Imported"), EllesmereUI.ImportReloadMessage(filteredPayload))
-                elseif ok then
-                    EllesmereUI.RequestReload(EllesmereUI.L("Profile Imported"), EllesmereUI.ImportReloadMessage(filteredPayload))
-                else
+                elseif not ok then
                     EllesmereUI:ShowInfoPopup({ title = EllesmereUI.L("Import Failed"), content = err or EllesmereUI.L("Unknown error") })
                 end
             end
@@ -1351,9 +1381,14 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
     --  PASTE PAGE (Import Profile step 1: paste string)
     -------------------------------------------------------------------
     local function ShowPastePage()
-        for _, child in ipairs({ pastePage:GetChildren() }) do
-            child:Hide()
-            child:SetParent(nil)
+        -- The previous paste page goes (as the import page's, above).
+        if PoolManaged(pastePage) then
+            PoolBegin(pastePage)
+        else
+            for _, child in ipairs({ pastePage:GetChildren() }) do
+                child:Hide()
+                child:SetParent(nil)
+            end
         end
 
         local PAD = EllesmereUI.CONTENT_PAD
@@ -1498,8 +1533,12 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                 contLbl:SetText(EllesmereUI.L("Continue"))
                 contReset()
             end
+            -- The paste page this decode belongs to: once it is dressed again
+            -- (reopened, or the page rebuilt), the result is dropped.
+            local btnGen = PoolGen(contBtn)
             decodeRun = EllesmereUI.DecodeImportStringAsync(importStr,
                 function(payload, err)
+                    if not SameDress(contBtn, btnGen) then return end
                     Restore()
                     -- The user may have navigated away mid-decode; a stale run's result is simply dropped.
                     if not pastePage:IsVisible() then return end
@@ -1528,11 +1567,15 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                         return
                     end
                     pastePage:Hide()
+                    local pageGen = PoolGen(pastePage)
                     MaybeConfirmUIScale(payload, function(applyScale)
+                        -- Not after a rebuild of the profiles page meanwhile.
+                        if not SameDress(pastePage, pageGen) then return end
                         ShowImportPage(importStr, payload, nil, nil, nil, applyScale)
                     end)
                 end,
                 function(frac)
+                    if not SameDress(contBtn, btnGen) then return end
                     contLbl:SetFormattedText("%s %d%%", EllesmereUI.L("Processing"), frac * 100)
                 end)
         end)
@@ -1985,8 +2028,10 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                         })
                         return
                     end
-                    EllesmereUI.SaveCurrentAsProfile(name)
-                    EllesmereUI.RequestReload(EllesmereUI.L("Copy Profile"), EllesmereUI.L("Reload to finish switching to the new profile."))
+                    -- The reload first, then the copy and the switch to it
+                    -- as its pre-reload work.
+                    EllesmereUI.RequestReload(EllesmereUI.L("Copy Profile"), EllesmereUI.L("Reload to finish switching to the new profile."),
+                        function() EllesmereUI.SaveCurrentAsProfile(name) end)
                 end,
             })
         end)

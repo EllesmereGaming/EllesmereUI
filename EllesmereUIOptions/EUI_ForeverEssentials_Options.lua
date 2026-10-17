@@ -19,6 +19,13 @@ local PAGE_THREAT  = "Threat"
 local PAGE_LOOT    = "Loot"
 local PAGE_MACROS  = "Macros"
 
+-- Page reuse: a frame this file builds goes through the options frame pool
+-- (EllesmereUI_FramePool.lua, the options addon's first file), which hands a
+-- kept page its previous build's frames back reset to new; on any other
+-- parent it is the plain CreateFrame. The buildPage below only hands each
+-- tab to its own page file.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -28,7 +35,7 @@ initFrame:SetScript("OnEvent", function(self)
         title       = "Forever Essentials",
         description = "Essential tools for WoW Forever.",
         pages       = { PAGE_GENERAL, PAGE_TRAVEL, PAGE_THREAT, PAGE_LOOT, PAGE_MACROS },
-        searchTerms = { "flight timer", "flight path", "threat", "threat meter", "aggro", "loot", "loot feed", "reputation", "currency", "uprank", "spell rank", "junk", "junk items", "macro", "macros", "macro manager", "simplified stats", "item stats", "stat colors", "tooltip stats", "world map", "map", "reveal", "unexplored", "fog of war" },
+        searchTerms = { "flight timer", "flight path", "threat", "threat meter", "aggro", "loot", "loot feed", "reputation", "currency", "uprank", "spell rank", "junk", "junk items", "macro", "macros", "macro manager", "simplified stats", "item stats", "stat colors", "tooltip stats", "world map", "map", "reveal", "unexplored", "fog of war", "quest reward", "quest rewards", "sell value", "boat", "zeppelin", "zone exit", "dungeon entrance", "instance" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_GENERAL and _G._EUI_BuildForeverGeneralPage then
                 return _G._EUI_BuildForeverGeneralPage(pageName, parent, yOffset)
@@ -64,12 +71,28 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.junkList = nil
                 EllesmereUIDB.junkListExcluded = nil
                 EllesmereUIDB.simplifiedStats = nil
+                EllesmereUIDB.activeForm = nil
+                EllesmereUIDB.classicSpellbook = nil
+                EllesmereUIDB.classicTalents = nil
                 EllesmereUIDB.macroManager = nil
+                EllesmereUIDB.questRewards = nil
+                EllesmereUIDB.zoneLevels = nil
+                -- The per-character favorites are the player's picks: only the switch resets.
+                if EllesmereUIDB.petSummon then EllesmereUIDB.petSummon.enabled = nil end
+                -- The CVars a session holds stay recorded, so Apply can give them back.
+                local fi = EllesmereUIDB.fishing
+                EllesmereUIDB.fishing = fi and fi.held and { held = fi.held } or nil
+                EllesmereUIDB.mapTravel = nil
+                -- The game's mapFade from before stays, so Apply can give it back.
+                local mf = EllesmereUIDB.worldMapFade
+                EllesmereUIDB.worldMapFade = mf and mf.mapFadeWas ~= nil and { mapFadeWas = mf.mapFadeWas } or nil
+                EllesmereUIDB.gatherSkill = nil
                 if EllesmereUIDB.unlockAnchors then
                     EllesmereUIDB.unlockAnchors.EUI_FlightTimer = nil
                     EllesmereUIDB.unlockAnchors.EUI_ThreatMeter = nil
                     EllesmereUIDB.unlockAnchors.EUI_LootFeed = nil
                     EllesmereUIDB.unlockAnchors.EUI_JunkList = nil
+                    EllesmereUIDB.unlockAnchors.EUI_ActiveForm = nil
                 end
             end
             local FT = EllesmereUI._FlightTimer
@@ -92,6 +115,16 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if EllesmereUI._SpellUprank then EllesmereUI._SpellUprank.Apply() end
             if EllesmereUI._JunkItems then EllesmereUI._JunkItems.Apply() end
+            if EllesmereUI._ActiveForm then EllesmereUI._ActiveForm.Apply() end
+            if EllesmereUI._ClassicSpellbook then EllesmereUI._ClassicSpellbook.Apply() end
+            if EllesmereUI._ClassicTalents then EllesmereUI._ClassicTalents.Apply() end
+            if EllesmereUI._QuestRewards then EllesmereUI._QuestRewards.Apply() end
+            if EllesmereUI._ZoneLevels then EllesmereUI._ZoneLevels.Apply() end
+            if EllesmereUI._PetSummon then EllesmereUI._PetSummon.Apply() end
+            if EllesmereUI._Fishing then EllesmereUI._Fishing.Apply() end
+            if EllesmereUI._MapTravel then EllesmereUI._MapTravel.Apply() end
+            if EllesmereUI._MapFade then EllesmereUI._MapFade.Apply() end
+            if EllesmereUI._GatherSkill then EllesmereUI._GatherSkill.Apply() end
             EllesmereUI:InvalidatePageCache()
         end,
     })

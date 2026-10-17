@@ -1506,7 +1506,7 @@ local function InitializeFrames()
             -- in the other frameStrata-apply pass above for why this is needed.
             if frame.Power then
                 local us2 = GetSettingsForUnit(unitKey)
-                local ppPos = us2 and us2.powerPosition or "below"
+                local ppPos = ns.UF_PowerPos(us2)
                 if ppPos == "detached_top" or ppPos == "detached_bottom" then
                     if db.profile.enableCustomBarStratas then
                         frame.Power:SetFrameStrata(db.profile.detachedPowerStrata or "HIGH")

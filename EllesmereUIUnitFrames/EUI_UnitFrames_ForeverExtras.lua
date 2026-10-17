@@ -137,8 +137,8 @@ ns.UF_COMBO_FILE = "Interface\\ComboFrame\\ComboPoint"
 -- Each slot's TOPRIGHT from the target box's TOPRIGHT (the stock container
 -- offset folded in); slots 7-9 are the extra points, at 0.6 alpha.
 ns.UF_COMBO_SLOTS = {
-    { -65, -6 }, { -52.5, -5 }, { -40, -6 }, { -28.5, -11.5 }, { -19.5, -20 },
-    { -14, -31.5 }, { -12, -43 }, { -14, -54 }, { -2, -46 },
+    { -63, -6 }, { -50.5, -5 }, { -38, -6 }, { -26.5, -11.5 }, { -17.5, -20 },
+    { -12, -31.5 }, { -10, -43 }, { -12, -54 }, { 0, -46 },
 }
 -- A w x h gate and its mask: the mask is the gate's size and rides the fill's
 -- right edge, so an empty fill parks it a full width clear of the payload.
@@ -384,7 +384,7 @@ function ns.UF_ApplyForeverComboArc()
         if arc:GetParent() ~= host then arc:SetParent(host) end
         local dx, dy = ns.UF_ComboRingShift(G)
         arc:ClearAllPoints()
-        ns.UF_BlizzPoint(arc, "TOPRIGHT", host, "TOPRIGHT", 2 + dx, dy, mirror)
+        ns.UF_BlizzPoint(arc, "TOPRIGHT", host, "TOPRIGHT", 4 + dx, dy, mirror)
         local slots, pips = ns.UF_COMBO_SLOTS, arc._pips
         for k = 1, 9 do
             pips[k]:ClearAllPoints()

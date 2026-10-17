@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Incredibly light performance, modern raid frames with endless flexibility.
 ## Author: Ellesmere
-## Version: 9.5.5
+## Version: 9.6
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIRaidFramesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -32,6 +32,14 @@ EUI_RaidFrames_Lifecycle.lua
 
 # Options preview (fake raid/party members while the options panel is open)
 EUI_RaidFrames_Preview.lua
+EUI_RaidFrames_PreviewAuras.lua
+EUI_RaidFrames_PreviewBuffs.lua
+EUI_RaidFrames_PreviewFrame.lua
+EUI_RaidFrames_PreviewRoles.lua
+EUI_RaidFrames_PreviewData.lua
+EUI_RaidFrames_PreviewRaid.lua
+EUI_RaidFrames_PreviewSize.lua
+EUI_RaidFrames_PreviewParty.lua
 
 # Blizzard Style / Classic WoW UI (edge, highlights, defaults)
 EUI_RaidFrames_Stock.lua

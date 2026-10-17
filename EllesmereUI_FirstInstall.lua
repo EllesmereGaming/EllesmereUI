@@ -432,9 +432,7 @@ local function ShowFirstInstallPopup()
         RefreshButtonLabel()
     end)
 
-    -- reloading: the click already fired the secure /reload (WoW Forever), so
-    -- the choices are written and no reload prompt follows.
-    local function Close(triggerReload, reloading)
+    local function Close(triggerReload)
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.firstInstallPopupShown = true
         EllesmereUIDB.bagsUserChosen = true
@@ -475,36 +473,24 @@ local function ShowFirstInstallPopup()
         end
 
         if triggerReload then
-            -- Apply addon enable/disable changes then reload
-            for _, row in ipairs(allRows) do
-                if row._entry.addon then
-                    SetAddonEnabled(row._entry.addon, row._checked)
+            -- The reload first in the click, then what it applies as its
+            -- pre-reload work (RequestReload): the addon enable/disable
+            -- changes and, on WoW Forever, the look a fresh install starts
+            -- on, written so the style picker opens on the look in use (its
+            -- card then closes the picker without a second reload). The
+            -- options addon loads for it, never in combat; in combat, or when
+            -- it cannot load, the picker offers the look as its default instead.
+            EllesmereUI.RequestReload(nil, nil, function()
+                for _, row in ipairs(allRows) do
+                    if row._entry.addon then
+                        SetAddonEnabled(row._entry.addon, row._checked)
+                    end
                 end
-            end
-            -- WoW Forever: a fresh install starts on the WoW Forever look,
-            -- written as this reload's pre-reload step so the style picker
-            -- opens on the look in use (its card then closes the picker
-            -- without a second reload), and "Later" writes nothing. The
-            -- options addon loads now, never in combat; in combat, or when it
-            -- cannot load, the picker offers the look as its default instead.
-            local applyLook
-            if EllesmereUI.IS_FOREVER and lookOpen and not InCombatLockdown()
-                and EllesmereUI.EnsureOptionsLoaded() then
-                applyLook = function()
-                    if InCombatLockdown() then return end
+                if EllesmereUI.IS_FOREVER and lookOpen and not InCombatLockdown()
+                    and EllesmereUI.EnsureOptionsLoaded() then
                     EllesmereUI.ApplyFirstInstallLook("forever")
                 end
-            end
-            if reloading then
-                if applyLook then applyLook() end
-            else
-                EllesmereUI.RequestReload(nil, nil, applyLook)
-            end
-            -- The Forever fallback (picker shown in combat) waits on the reload
-            -- popup: close the picker so "Later" leaves the game usable (the
-            -- addon choices are saved and apply at the next reload; the look
-            -- is left to the style picker). Otherwise the UI is reloading.
-            dimmer:Hide()
+            end)
             return
         end
 
@@ -522,10 +508,6 @@ local function ShowFirstInstallPopup()
         -- Always reload so the addon enable/disable selections take effect.
         Close(true)
     end)
-    -- WoW Forever: Done is itself the secure /reload click (one click saves
-    -- the choices and reloads, no reload popup after it). A picker shown in
-    -- combat keeps the plain button and its reload popup.
-    EllesmereUI.AttachReloadClick(doneBtn, function() Close(true, true) end)
 
     dimmer:Show()
     -- Controller cursor: the picker has no other way out, so bring the gamepad pointer up.

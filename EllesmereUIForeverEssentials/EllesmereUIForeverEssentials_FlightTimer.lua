@@ -15,6 +15,10 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  so the bar returns with the next takeoff instead.
 -------------------------------------------------------------------------------
 local _, module = ...
+-- The options page pool's table (made by the core, filled in place when the
+-- options addon loads): the settings preview reads a dress generation from
+-- it at call time.
+local POOL = EllesmereUI._Pool
 
 local DEFAULT_SPEED = 30.4 -- yards per second; fitted to measured Classic flight times
 local PREVIEW_SECONDS = 20
@@ -641,6 +645,10 @@ RefreshPreviewNow = function()
     if v.onHeightChanged then v.onHeightChanged(v.previewHeight) end
 end
 
+-- parent -> the dress its size hook was made for: the options page pool
+-- (EllesmereUI_FramePool.lua) resets a kept header root before each build,
+-- which drops the hook, so a new dress (Pool.Gen) hooks again; a plain frame
+-- (no Gen) is hooked once.
 local hookedParents = {}
 local function CreateSettingsPreview(parent, availableWidth, onHeightChanged)
     local v = preview
@@ -665,8 +673,9 @@ local function CreateSettingsPreview(parent, availableWidth, onHeightChanged)
     v.view:ClearAllPoints()
     v.view:SetPoint("TOPLEFT")
     v.view:SetPoint("TOPRIGHT")
-    if not hookedParents[parent] then
-        hookedParents[parent] = true
+    local dress = POOL.Gen and POOL.Gen(parent) or true
+    if hookedParents[parent] ~= dress then
+        hookedParents[parent] = dress
         local lastWidth
         parent:HookScript("OnSizeChanged", function(_, width)
             if width == lastWidth then return end

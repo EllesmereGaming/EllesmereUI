@@ -11,6 +11,12 @@ local ns = EllesmereUI._ModuleNS["EllesmereUIQuestTracker"]  -- module namespace
 if not ns then return end  -- module disabled: no options page
 local EQT = ns.EQT
 
+-- Page reuse: the frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua, the options addon's first file), which hands a
+-- kept page its previous build's frames back reset to new; on any other
+-- parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -96,6 +102,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- rows only apply to the EllesmereUI look.
         local BS = EllesmereUI.BlizzStyle
         local STOCK = BS and BS.Get("questtracker")
+        -- WoW Forever's quest tools and objective colors (none of their rows on retail).
+        local FOREVER = EllesmereUI.IS_FOREVER
 
         -- -- DISPLAY ---------------------------------------------------------
         _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
@@ -347,18 +355,199 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Line Color | spacer
+        -- Line Color | Color Objectives by Progress (+ color stops cog). The
+        -- objective colors are WoW Forever only; retail keeps the spacer.
         do
             local lClass, lCustom, lAccent = MakeColorModeSwatches("line", { 1.0, 1.0, 1.0 })
-            _, h = W:DualRow(parent, y,
+            local r
+            r, h = W:DualRow(parent, y,
                 { type="multiSwatch", text="Line Color",
                   swatches = { lClass, lCustom, lAccent } },
-                { type="spacer" })
+                FOREVER and { type="toggle", text="Color Objectives by Progress",
+                  tooltip="Colors objectives by how far along they are.",
+                  getValue=function() return Cfg("objProgressColor") or false end,
+                  setValue=function(v) Set("objProgressColor", v); RefreshAll(); EllesmereUI:RefreshPage() end }
+                  or { type="spacer" })
+            if FOREVER then
+                local function Stop(label, name)
+                    local d = EQT.OBJ_STOPS[name]
+                    local kr, kg, kb = "obj" .. name .. "R", "obj" .. name .. "G", "obj" .. name .. "B"
+                    return { type="colorpicker", label=label,
+                        get=function() return Cfg(kr) or d[1], Cfg(kg) or d[2], Cfg(kb) or d[3] end,
+                        set=function(cr, cg, cb) Set(kr, cr); Set(kg, cg); Set(kb, cb); RefreshAll() end }
+                end
+                EllesmereUI.BuildInlineCog(r._rightRegion, {
+                    disabled = function() return not Cfg("objProgressColor") end,
+                    disabledTooltip = "Color Objectives by Progress",
+                    title = "Progress Colors",
+                    rows = {
+                        Stop("Start Color", "Start"),
+                        Stop("Halfway Color", "Mid"),
+                        Stop("End Color", "End"),
+                    },
+                })
+            end
         end
         y = y - h
 
+        -- Dim Completed Objectives (+ opacity cog) | blank (WoW Forever only)
+        if FOREVER then
+            row, h = W:DualRow(parent, y,
+                { type="toggle", text="Dim Completed Objectives",
+                  tooltip="Fades objective lines that are already done.",
+                  getValue=function() return Cfg("objDimCompleted") or false end,
+                  setValue=function(v) Set("objDimCompleted", v); RefreshAll(); EllesmereUI:RefreshPage() end },
+                EllesmereUI.BlankRowCfg())
+            EllesmereUI.BuildInlineCog(row._leftRegion, {
+                disabled = function() return not Cfg("objDimCompleted") end,
+                disabledTooltip = "Dim Completed Objectives",
+                title = "Dim Settings",
+                rows = {
+                    { type="slider", label="Opacity", min=10, max=100, step=5,
+                      get=function() return Cfg("objDimAlpha") or 45 end,
+                      set=function(v) Set("objDimAlpha", v); RefreshAll() end },
+                },
+            })
+            y = y - h
+        end
+
         y = y - 10
         end -- not STOCK
+
+        if FOREVER then
+        -- -- TRACKING (WoW Forever only) --------------------------------------
+        -- Sorting and filters edit the watch list; filtered quests are
+        -- untracked and come back once they pass again. They wait behind the
+        -- Experimental Quest Tools switch, which warns before it turns on.
+        _, h = W:SectionHeader(parent, "TRACKING", y); y = y - h
+        -- The rows change nothing while the map is open (watch list edits wait
+        -- for it to close, CanEditWatches), so the note says so up front.
+        y = EllesmereUI.BuildNoteRow(parent, y,
+            "Sorting, filtering and auto-tracking don't update while the map or quest log is open, in combat or in dungeons. Close the map to apply them.",
+            { banner = true })
+
+        local ApplyWatches, ApplyProgress = EQT.ApplyQuestWatches, EQT.ApplyQuestProgress
+        local StandDown = EQT.QuestToolsStandDown
+        local GAMEPAD_TIP = "This option does not work with the Gamepad interface style."
+        -- Quest Log Order is the base sort mode (a saved "default", the retired
+        -- Blizzard order mode, reads as it).
+        local function SortModeCfg()
+            local m = Cfg("questSortMode")
+            if m == nil or m == "default" then return "log" end
+            return m
+        end
+        -- Section gate: Sort Quests, Filter Quests and Auto Track Zone Quests are
+        -- built only while Experimental Quest Tools is on (and usable); turning
+        -- it on or off rebuilds the page. The progress rows always show.
+        local toolsOn = Cfg("questWatchExperimental") == true and not StandDown()
+        local function FilterRow(key, label)
+            return { type="toggle", label=label,
+                get=function() return Cfg(key) or false end,
+                set=function(v) Set(key, v); ApplyWatches() end }
+        end
+
+        local expCfg = { type="toggle", text="Experimental Quest Tools",
+              tooltip="Unlocks Sort Quests, Filter Quests and Auto Track Zone Quests.",
+              disabled=StandDown, disabledTooltip=GAMEPAD_TIP,
+              getValue=function() return Cfg("questWatchExperimental") == true end,
+              setValue=function(v)
+                  if not v then
+                      Set("questWatchExperimental", false)
+                      ApplyWatches(); EllesmereUI:RefreshPage(true)
+                      return
+                  end
+                  -- Saved only once the warning is confirmed.
+                  EllesmereUI:ShowConfirmPopup({
+                      title       = EllesmereUI.L("Experimental Feature"),
+                      message     = EllesmereUI.L("Quest sorting, filtering and zone auto-tracking are experimental and may cause occasional Lua errors. If you run into one, type /reload or turn this option off."),
+                      confirmText = EllesmereUI.L("Enable"),
+                      cancelText  = EllesmereUI.L("Cancel"),
+                      onConfirm   = function()
+                          Set("questWatchExperimental", true)
+                          ApplyWatches(); EllesmereUI:RefreshPage(true)
+                      end,
+                      onCancel    = function() EllesmereUI:RefreshPage() end,
+                  })
+              end }
+
+        local sndValues, sndOrder = EllesmereUI.BuildSoundDropdownValues(EQT.Sounds())
+        -- Preview through the module so the peon FileDataIDs play correctly.
+        sndValues._menuOpts.iconOnClick = EQT.PlaySoundKey
+        local announceCfg = { type="toggle", text="Announce Progress",
+              tooltip="Posts your quest progress to party or instance chat, never in raids.",
+              getValue=function() return Cfg("announceProgress") or false end,
+              setValue=function(v) Set("announceProgress", v); ApplyProgress() end }
+        local objSoundCfg = { type="dropdown", text="Objective Complete Sound", values=sndValues, order=sndOrder,
+              getValue=function() return Cfg("soundObjective") or "none" end,
+              setValue=function(v) Set("soundObjective", v); ApplyProgress() end }
+        local questSoundCfg = { type="dropdown", text="Quest Complete Sound", values=sndValues, order=sndOrder,
+              getValue=function() return Cfg("soundQuest") or "none" end,
+              setValue=function(v) Set("soundQuest", v); ApplyProgress() end }
+
+        if not toolsOn then
+            -- Experimental Quest Tools | Announce Progress, then the two sounds.
+            _, h = W:DualRow(parent, y, expCfg, announceCfg);  y = y - h
+            _, h = W:DualRow(parent, y, objSoundCfg, questSoundCfg);  y = y - h
+        else
+            -- Experimental Quest Tools | Sort Quests (+ completed placement cog)
+            row, h = W:DualRow(parent, y, expCfg,
+                { type="dropdown", text="Sort Quests",
+                  tooltip="Reorders your tracked quests; Quest Log Order lists them as your quest log does.",
+                  values = { log = "Quest Log Order", zone = "Zone", level = "Level",
+                             name = "Name", progress = "Progress", type = "Quest Type" },
+                  order  = { "log", "zone", "level", "name", "progress", "type" },
+                  getValue=SortModeCfg,
+                  setValue=function(v) Set("questSortMode", v); ApplyWatches() end })
+            EllesmereUI.BuildInlineCog(row._rightRegion, {
+                title = "Sort Settings",
+                rows = {
+                    { type="dropdown", label="Completed Quests",
+                      values = { mixed = "Mixed In", top = "Top", bottom = "Bottom" },
+                      order  = { "mixed", "top", "bottom" },
+                      get=function() return Cfg("questSortCompleted") or "mixed" end,
+                      set=function(v) Set("questSortCompleted", v); ApplyWatches() end },
+                    { type="dropdown", label="Then By",
+                      values = { none = "None", zone = "Zone", level = "Level", name = "Name",
+                                 progress = "Progress", type = "Quest Type" },
+                      order  = { "none", "zone", "level", "name", "progress", "type" },
+                      disabled=function() return SortModeCfg() == "log" end,
+                      disabledTooltip="Requires Sort Quests set to something other than Quest Log Order.", rawTooltip=true,
+                      get=function() return Cfg("questSortThenBy") or "none" end,
+                      set=function(v) Set("questSortThenBy", v); ApplyWatches() end },
+                },
+            })
+            y = y - h
+
+            -- Filter Quests (+ filters cog) | Auto Track Zone Quests
+            row, h = W:DualRow(parent, y,
+                { type="toggle", text="Filter Quests",
+                  tooltip="Untracks quests that match the filters in the cog until they no longer match.",
+                  getValue=function() return Cfg("filterEnabled") or false end,
+                  setValue=function(v) Set("filterEnabled", v); ApplyWatches(); EllesmereUI:RefreshPage() end },
+                { type="toggle", text="Auto Track Zone Quests",
+                  tooltip="Tracks your current zone's or dungeon's quests and untracks them when you leave.",
+                  getValue=function() return Cfg("autoTrackZone") or false end,
+                  setValue=function(v) Set("autoTrackZone", v); ApplyWatches() end })
+            EllesmereUI.BuildInlineCog(row._leftRegion, {
+                disabled = function() return not Cfg("filterEnabled") end,
+                disabledTooltip = "Filter Quests",
+                title = "Filter Settings",
+                rows = {
+                    FilterRow("filterZone", "Current Zone Only"),
+                    FilterRow("filterCompleted", "Hide Completed Quests"),
+                    FilterRow("filterTrivial", "Hide Low Level Quests"),
+                    FilterRow("filterRepeatable", "Hide Daily & Weekly Quests"),
+                },
+            })
+            y = y - h
+
+            -- Announce Progress | Objective Complete Sound, then Quest Complete Sound
+            _, h = W:DualRow(parent, y, announceCfg, objSoundCfg);  y = y - h
+            _, h = W:DualRow(parent, y, questSoundCfg, EllesmereUI.BlankRowCfg());  y = y - h
+        end
+
+        y = y - 10
+        end -- FOREVER
 
         -- -- EXTRAS ----------------------------------------------------------
         _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h

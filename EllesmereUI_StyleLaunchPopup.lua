@@ -27,7 +27,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Only the newest announcement stays live: the WoW Forever launch
 --  announcement retired when this shipped, so users upgrading across several
 --  versions never see two intro popups back to back.
+--
+--  RETIRED 2026-10-17: superseded by the Group Finder announcement
+--  (EllesmereUI_GroupFinderPopup.lua); killed at the top so only the newest
+--  announcement fires. Everything below is inert -- loader, popup, reset
+--  command and DB stamping all dead; styleLaunchIntroShown is no longer
+--  written for anyone. Delete the guard below to revive the popup.
 -------------------------------------------------------------------------------
+do return end
 
 local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI then return end

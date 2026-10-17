@@ -10,6 +10,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUINameplates"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page frame pool (EllesmereUI_FramePool.lua): frames made under a
+-- pooled page part are handed back to the page's next build.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolGen, PoolIsIdle = EllesmereUI._Pool.Gen, EllesmereUI._Pool.IsIdle
+
 local function BuildDisplayBars(parent, y, ctx)
     local env = ns._NPO_OptEnv
     local BAR_W, DB, DBColor, DBVal = env.BAR_W, env.DB, env.DBColor, env.DBVal
@@ -513,7 +518,7 @@ local function BuildDisplayBars(parent, y, ctx)
                     UpdatePreview()
                   end },
                 { type = "toggle", label = "Important Cast Color",
-                  tooltip = "Tint the cast bar with the Important colour when the enemy casts a spell the game flags as important. Overrides the Interruptible Cast colour; your interrupt being on cooldown still takes priority.",
+                  tooltip = "Tint the cast bar with the Important colour when the enemy casts a spell the game flags as important.",
                   get = function()
                     local db = DB()
                     if db and db.importantCastColorEnabled ~= nil then return db.importantCastColorEnabled end
@@ -524,6 +529,24 @@ local function BuildDisplayBars(parent, y, ctx)
                     RefreshAllPlates()
                     EllesmereUI:RefreshPage()
                   end },
+                { type = "toggle", label = "Interruptible While Kick Ready",
+                  tooltip = "While your interrupt is ready, important casts keep the Interruptible color.",
+                  get = function()
+                    local db = DB()
+                    if db and db.importantCastKickReadyAsInterruptible ~= nil then return db.importantCastKickReadyAsInterruptible end
+                    return defaults.importantCastKickReadyAsInterruptible
+                  end,
+                  set = function(v)
+                    DB().importantCastKickReadyAsInterruptible = v
+                    RefreshAllPlates()
+                  end,
+                  disabled = function()
+                    local db = DB()
+                    local on = db and db.importantCastColorEnabled
+                    if on == nil then on = defaults.importantCastColorEnabled end
+                    return not on
+                  end,
+                  disabledTooltip = "Important Cast Color" },
             },
         })
     end
@@ -644,15 +667,18 @@ local function BuildDisplayBars(parent, y, ctx)
                 rgn._lastInline = swatch
                 swatch:SetScript("OnEnter", function(s) EllesmereUI.ShowWidgetTooltip(s, "Interrupted Flash Colour") end)
                 swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                -- Blizzard Style uses the stock interrupted fill art, so the flash colour is inert there.
-                EllesmereUI.RegisterWidgetRefresh(function()
+                -- Blizzard Style uses the stock interrupted fill art, so the flash colour is
+                -- inert there: the build and every refresh grey the swatch out alike.
+                local function ApplyFlashSwatchState()
                     local off = flashOff() or ns.NP_BlizzOnly()
                     swatch:SetAlpha(off and 0.15 or 1)
                     swatch:EnableMouse(not off)
+                end
+                EllesmereUI.RegisterWidgetRefresh(function()
+                    ApplyFlashSwatchState()
                     updateSwatch()
                 end)
-                swatch:SetAlpha(flashOff() and 0.15 or 1)
-                swatch:EnableMouse(not flashOff())
+                ApplyFlashSwatchState()
             end
         end
     end
@@ -1281,13 +1307,18 @@ local function BuildDisplayBars(parent, y, ctx)
         { type="label", text="Target Preview" },
         { type="label", text="Focus Preview" });  y = y - h
 
+    -- The two bars sit at their half's right edge: the row's child anchored to that
+    -- half, moved. Page reuse: the row's children of its earlier dresses stay among
+    -- them, idle, and the deferred pass stops once the row was dressed again.
+    local previewRowGen = PoolGen(previewDualRow)
     if not EllesmereUI._prebuilding then
     targetPrev = LazyColorPreviewBar(previewDualRow, "health", "target", previewDualRow._leftRegion)
     do
         local function RepositionTargetBar()
+            if PoolGen(previewDualRow) ~= previewRowGen then return end
             local rgn = previewDualRow._leftRegion
             for _, child in ipairs({ previewDualRow:GetChildren() }) do
-                if child.GetNumPoints and child:GetNumPoints() > 0 then
+                if child.GetNumPoints and child:GetNumPoints() > 0 and not PoolIsIdle(child) then
                     local _, rel = child:GetPoint(1)
                     if rel == rgn then
                         child:ClearAllPoints()
@@ -1311,9 +1342,10 @@ local function BuildDisplayBars(parent, y, ctx)
     focusPrev = LazyColorPreviewBar(previewDualRow, "health", "focus", previewDualRow._rightRegion)
     do
         local function RepositionFocusBar()
+            if PoolGen(previewDualRow) ~= previewRowGen then return end
             local rgn = previewDualRow._rightRegion
             for _, child in ipairs({ previewDualRow:GetChildren() }) do
-                if child.GetNumPoints and child:GetNumPoints() > 0 then
+                if child.GetNumPoints and child:GetNumPoints() > 0 and not PoolIsIdle(child) then
                     local _, rel = child:GetPoint(1)
                     if rel == rgn then
                         child:ClearAllPoints()

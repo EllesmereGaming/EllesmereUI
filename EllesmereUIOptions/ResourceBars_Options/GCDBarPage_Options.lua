@@ -6,11 +6,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUIResourceBars"]
 if not ns then return end  -- module disabled: no options page
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 -- GCD Bar page
 function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
     local env = ns._ERB_OptEnv
     local DB, PP, CLASS_COLORS = env.DB, env.PP, env.CLASS_COLORS
+    local TexBgRowCfg = env.TexBgRowCfg
     local W = EllesmereUI.Widgets
     local y = yOffset
     local _, h
@@ -392,7 +397,8 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
     end
 
     -- Row: Bar Texture | Show Spark
-    _, h = W:DualRow(parent, y,
+    local gcdTexRow
+    gcdTexRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Bar Texture",
           disabled = gcdOff, disabledTooltip = "GCD Bar",
           values = texValues, order = texOrder,
@@ -404,6 +410,14 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
           getValue = function() local p = DB(); return p and p.gcdBar.showSpark end,
           setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.showSpark = v; RefreshGCD() end }
     );  y = y - h
+    -- Inline cog on Bar Texture: Textured Background (greyed with the dropdown).
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(gcdTexRow._leftRegion, {
+            disabled = gcdOff, disabledTooltip = "GCD Bar",
+            title = "Texture Settings",
+            rows = { TexBgRowCfg("gcd", RefreshGCD) },
+        })
+    end
 
     -- Row: Deplete Fill (left half only)
     _, h = W:DualRow(parent, y,

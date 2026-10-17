@@ -4,13 +4,21 @@
 ## Group: EllesmereUI
 ## Notes: Lightweight damage meters with simple but powerful customization.
 ## Author: Ellesmere
-## Version: 9.5.5
+## Version: 9.6
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIDamageMetersDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Luas
 EllesmereUIDamageMeters.lua
+EUI_DamageMeters_Style.lua
+EUI_DamageMeters_State.lua
+EUI_DamageMeters_Format.lua
+EUI_DamageMeters_Tooltip.lua
+EUI_DamageMeters_Window.lua
+EUI_DamageMeters_Apply.lua
+EUI_DamageMeters_Timer.lua
+EUI_DamageMeters_Lifecycle.lua
 EllesmereUIDamageMeters_SpellHistory.lua
 EllesmereUIDamageMeters_ForeverThreat.lua
 

@@ -9,9 +9,39 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIRaidFrames"]
 if not ns then return end  -- module disabled: no options page
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host (a kept page wrapper and every frame it hands out) are reset and
+-- dressed again by the next build instead of made anew; elsewhere this is
+-- CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 -- The eyeball hint's tip callout: built by the first raid build that shows it,
 -- then kept for the session (every later raid build points it at its own eye).
 local eyeHintTip
+
+-- Panel close stops the health and power animations and resets the eye of each
+-- tab's latest build (ns._eye[ctx]): registered once for the session, by the
+-- first build that has the eyes.
+local animEyesOnHide
+local function StopAnimEyesOnHide()
+    local eyes = ns._eye
+    if ns._healthAnimActive then
+        if ns.StopHealthAnim then ns.StopHealthAnim() end
+        if eyes then
+            for _, eye in pairs(eyes) do
+                if eye.refreshHealthEye then eye.refreshHealthEye() end
+            end
+        end
+    end
+    if ns._powerAnimActive then
+        if ns.StopPowerAnim then ns.StopPowerAnim() end
+        if eyes then
+            for _, eye in pairs(eyes) do
+                if eye.refreshPowerEye then eye.refreshPowerEye() end
+            end
+        end
+    end
+end
 
 local function BuildVisualBars(parent, y, W, onSection, EYE)
     local env = ns._RFO_OptEnv
@@ -210,9 +240,10 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
             EllesmereUI.HideWidgetTooltip()
         end)
 
-        EllesmereUI:RegisterOnHide(function()
-            if ns._healthAnimActive then StopHealthAnim(); RefreshHealthEye() end
-        end)
+        if not animEyesOnHide then
+            animEyesOnHide = true
+            EllesmereUI:RegisterOnHide(StopAnimEyesOnHide)
+        end
 
         -- One-time eyeball hint, raid/main page only. On the panel body like
         -- the other panel tips: it hides with the window when it collapses and
@@ -1195,10 +1226,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
             if not IsPreviewOff() then self:SetAlpha(0.4) end
             EllesmereUI.HideWidgetTooltip()
         end)
-
-        EllesmereUI:RegisterOnHide(function()
-            if ns._powerAnimActive then StopPowerAnim(); RefreshPowerEye() end
-        end)
+        -- (The panel-close stop and eye reset: StopAnimEyesOnHide, at the top.)
     end  -- power eyeball
 
     -- Power bar is off when no role is selected.

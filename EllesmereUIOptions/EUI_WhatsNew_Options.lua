@@ -1,6 +1,12 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -- Patch Notes and EUI Legends page builders; their content tables stay in EUI__General_Options.lua.
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolKeep, PoolGen = EllesmereUI._Pool.Keep, EllesmereUI._Pool.Gen
+
 -------------------------------------------------------------------------------
 --  What's New page -- one expandable card per patch (the shared module card),
 --  newest first. A card's header counts the patch's major features,
@@ -356,7 +362,14 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         eb:SetText(url)
         eb:SetCursorPosition(0)
         eb:SetScript("OnMouseUp", function(self)
-            C_Timer.After(0, function() self:SetFocus(); self:HighlightText() end)
+            -- Next frame, unless a rebuild dressed the box again or put it
+            -- away by then: a box put away (or under a card put away) is
+            -- hidden, and a hidden box must not take the keyboard.
+            local gen = PoolGen(self)
+            C_Timer.After(0, function()
+                if PoolGen(self) ~= gen or not self:IsVisible() then return end
+                self:SetFocus(); self:HighlightText()
+            end)
         end)
         eb:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
         -- Read-only: typing/paste/cut restore the URL and re-select.
@@ -717,7 +730,9 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
     local lead    = season and season.colors[1]
 
     -- Every piece of the page hangs on this root, which later builds move.
-    local root = CreateFrame("Frame", nil, parent)
+    -- Kept by this file (Keep): on a kept page wrapper it leaves the wrapper's
+    -- pool, so the wrapper's resets only hide it and the move above shows it.
+    local root = PoolKeep(CreateFrame("Frame", nil, parent))
     root:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     root:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, 0)
 

@@ -6,6 +6,12 @@ local ADDON_NAME = "EllesmereUIQuickdraw"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it is the plain CreateFrame.
+local Pool = EllesmereUI._Pool
+local CreateFrame = Pool.CreateFrame
+
 local PAGE_DISPLAY = "Quickdraw"
 local BINDING_PREFIX = "EUI_RADIAL"
 -- Every palette has a <Binding> entry of its own, so the keybind row below
@@ -2615,8 +2621,11 @@ initFrame:SetScript("OnEvent", function(self)
         btn:SetScript("OnClick", function()
             if Cfg("enabled") ~= true then return end
             local m = EnsureMenuMenu()
-            if m:IsShown() and m._anchor == btn then m:Hide() return end
-            m._anchor = btn
+            -- The same anchor only in the same dress: a page rebuild may dress
+            -- this button again (page reuse), and an open menu then re-anchors
+            -- to it as it would to a new button.
+            if m:IsShown() and m._anchor == btn and m._anchorGen == Pool.Gen(btn) then m:Hide() return end
+            m._anchor, m._anchorGen = btn, Pool.Gen(btn)
             m:ClearAllPoints()
             m:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
             RebuildMenuRows()
@@ -2866,6 +2875,10 @@ initFrame:SetScript("OnEvent", function(self)
 
         if not previewBlock then
             previewBlock = CreateFrame("Frame", nil, parent)
+            -- Held by this file across builds: out of its page's frame pool, so
+            -- no later dress of the page hands it out for another use, and the
+            -- live palette view built on it below stays as it is.
+            Pool.Keep(previewBlock)
             -- Opted out of the inline search (the RaidFrames overlays'
             -- _searchIgnore, same reason): the search re-anchors collected
             -- children with a single saved point against the WRAPPER it first
@@ -3184,7 +3197,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local W = EllesmereUI.Widgets
         local y = yOffset
-        local row, h
+        local _, row, h
 
         if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
         parent._showRowDivider = true

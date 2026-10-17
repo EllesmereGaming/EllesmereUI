@@ -170,7 +170,6 @@ local function CreateHeaders()
 
     -- Container frame for positioning (not secure, just holds headers)
     SetContainerFrame(CreateFrame("Frame", "EllesmereUIRaidFrameContainer", UIParent))
-    ns._PreviewBind(db, PP, containerFrame)
     containerFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     containerFrame:SetSize(1, 1)
     containerFrame:SetFrameStrata(ns._ResolveFrameStrata(false))

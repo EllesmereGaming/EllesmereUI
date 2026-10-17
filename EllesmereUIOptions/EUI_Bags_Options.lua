@@ -11,6 +11,12 @@ if not EllesmereUI._ModuleNS["EllesmereUIBags"] then return end  -- module disab
 -- file is LoadOnDemand and only builds the options page).
 local db = EllesmereUI._bagsDB
 
+-- Page reuse: the frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua, the options addon's first file), which hands a
+-- kept page its previous build's frames back reset to new; on any other
+-- parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -455,16 +461,32 @@ initFrame:SetScript("OnEvent", function(self)
                 ---------------------------------------------------------------------------
                 _, h = W:SectionHeader(parent, "DISPLAY (GRID / COMPACT)", y); y = y - h
 
-                -- Show Item Level (+ inline cog: Gear Track Rank) | Item Level Text Size
+                -- Show Item Level: Never / Default Colors / Custom Colored (+ inline
+                -- swatch, live only under Custom Colored, and the Gear Track Rank cog
+                -- left of it) | Item Level Text Size. A view over the saved keys:
+                -- showItemlevelInBags (false = Never) and itemlevelUseCustomColor
+                -- (Custom Colored); viewing the page writes nothing.
+                local function IlvlMode()
+                    if db.profile.showItemlevelInBags == false then return "never" end
+                    return db.profile.itemlevelUseCustomColor and "custom" or "default"
+                end
                 local ilvlRow
                 ilvlRow, h = W:DualRow(parent, y,
-                    { type="toggle", text="Show Item Level",
-                      tooltip="Display item levels on equipment items in the inventory.",
-                      getValue=function() return db.profile.showItemlevelInBags ~= false end,
+                    { type="dropdown", text="Show Item Level",
+                      tooltip="Display item levels on equipment items in the inventory, in their usual colors or in one color of your choice.",
+                      values={ never = "Never", default = "Default Colors", custom = "Custom Colored" },
+                      order={ "never", "default", "custom" },
+                      getValue=IlvlMode,
                       setValue=function(v)
-                          db.profile.showItemlevelInBags = v
+                          local p = db.profile
+                          p.showItemlevelInBags = v ~= "never"
+                          if v ~= "never" then p.itemlevelUseCustomColor = v == "custom" end
+                          -- The first Custom Colored pick starts from white.
+                          if v == "custom" and not p.itemlevelCustomColor then
+                              p.itemlevelCustomColor = { r = 1, g = 1, b = 1 }
+                          end
                           if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
-                          EllesmereUI:RefreshPage()  -- refresh the cog's disabled state
+                          EllesmereUI:RefreshPage()  -- the swatch's and the cog's disabled states
                       end },
                     { type="slider", text="Item Level Text Size", min=8, max=16, step=1,
                       tooltip="Font size for item level numbers on equipment items.",
@@ -477,11 +499,41 @@ initFrame:SetScript("OnEvent", function(self)
                       end }
                 ); y = y - h
 
-                -- Inline cog on Show Item Level (left region): Show Gear Track Rank
-                -- (gated by Show Item Level; the rank only renders when ilvl is shown).
+                -- Show Item Level's inlines: the Custom Colored swatch nearest the
+                -- control, then the cog left of it (Show Gear Track Rank, live while
+                -- item levels show: the rank only renders beside them).
                 if not EllesmereUI._prebuilding then
-                    EllesmereUI.BuildInlineCog(ilvlRow._leftRegion, {
-                        chain = false,
+                    local rgn = ilvlRow._leftRegion
+                    local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                        function()
+                            local c = db.profile.itemlevelCustomColor
+                            if c then return c.r, c.g, c.b, 1 end
+                            return 1, 1, 1, 1
+                        end,
+                        function(r, g, b)
+                            db.profile.itemlevelCustomColor = { r = r, g = g, b = b }
+                            if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                        end, false, 20)
+                    swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+                    rgn._lastInline = swatch
+                    local swatchBlock = CreateFrame("Frame", nil, swatch)
+                    swatchBlock:SetAllPoints()
+                    swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
+                    swatchBlock:EnableMouse(true)
+                    swatchBlock:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("This option requires Show Item Level to be set to Custom Colored"))
+                    end)
+                    swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    local function UpdateIlvlSwatch()
+                        local off = IlvlMode() ~= "custom"
+                        swatch:SetAlpha(off and 0.3 or 1)
+                        swatchBlock:SetShown(off)
+                    end
+                    UpdateIlvlSwatch()
+                    EllesmereUI.RegisterWidgetRefresh(UpdateIlvlSwatch)
+                    EllesmereUI.RegisterWidgetRefresh(updateSwatch)
+
+                    EllesmereUI.BuildInlineCog(rgn, {
                         disabled = function() return db.profile.showItemlevelInBags == false end,
                         disabledTooltip = "Show Item Level",
                         title = "Item Level Options",

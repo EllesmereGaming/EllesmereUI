@@ -9,6 +9,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIQoL"]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -139,10 +144,13 @@ initFrame:SetScript("OnEvent", function(self)
             local kbBtn, refresh = EllesmereUI.BuildKeybindButton(rgn, {
                 w = 126, h = 29, level = 4,
                 get = function() return Cfg("toggleKey") end,
+                -- Spec Overrides: the slot is read before the write (a write
+                -- that rebuilds the page dresses this region again).
                 set = function(v)
+                    local snap = EllesmereUI._SOAttribution(rgn)
                     Set("toggleKey", v or false)
                     Refresh()
-                    EllesmereUI._NotifySettingWrite(rgn)
+                    EllesmereUI._NotifySettingWrite(rgn, snap)
                 end,
                 disabled = Disabled, disabledTip = "Show Raid Tools",
                 tooltip = "Toggles the Raid Tools panels, in or out of combat.\n\nLeft-click to set a keybind.\nRight-click to unbind.",
@@ -242,9 +250,10 @@ initFrame:SetScript("OnEvent", function(self)
                     w = 126, h = 29, level = 4, mouse = true,
                     get = function() return Cfg(key) end,
                     set = function(v)
+                        local snap = EllesmereUI._SOAttribution(region)
                         Set(key, v or false)
                         Refresh()
-                        EllesmereUI._NotifySettingWrite(region)
+                        EllesmereUI._NotifySettingWrite(region, snap)
                     end,
                     disabled = QuickFireDisabled,
                     disabledTip = function() return Disabled() and "Show Raid Tools" or "Enable Quick Fire" end,

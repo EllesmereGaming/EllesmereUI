@@ -10,6 +10,10 @@ _G._EllesmereUIPartyModeOptionsLoaded = true
 
 local EllesmereUI = _G.EllesmereUI
 EllesmereUI._deferredInits[#EllesmereUI._deferredInits + 1] = function()
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 -- EnsureLoaded runs after PLAYER_LOGIN, so execute the init body directly.
 do
@@ -44,14 +48,17 @@ do
                 end
             end
         );  y = y - h
-        -- Grab the label FontString from the button child
+        -- Grab the label FontString from the button child: the SHOWN button and
+        -- label (a pooled row also holds the hidden children and regions an
+        -- earlier dress left there, so the first child is not necessarily it).
         if not EllesmereUI._prebuilding then
-            local btn = select(1, activateBtnFrame:GetChildren())
+            local btn
+            for _, c in ipairs({ activateBtnFrame:GetChildren() }) do
+                if c:IsShown() and c:IsObjectType("Button") then btn = c; break end
+            end
             if btn then
-                local regions = { btn:GetRegions() }
-                for i = 1, #regions do
-                    local rgn = regions[i]
-                    if rgn and rgn.GetText and rgn:GetText() then
+                for _, rgn in ipairs({ btn:GetRegions() }) do
+                    if rgn:IsShown() and rgn:IsObjectType("FontString") and rgn:GetText() then
                         activateBtnLbl = rgn
                         break
                     end

@@ -150,7 +150,8 @@ end
 
 _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
-    local SU = EllesmereUI._SpellUprank
+    local SU, CS, CT = EllesmereUI._SpellUprank, EllesmereUI._ClassicSpellbook, EllesmereUI._ClassicTalents
+    local MT = EllesmereUI._MapTravel
     local BLANK = EllesmereUI.BlankRowCfg
     local y = yOffset
     local _, h
@@ -170,13 +171,36 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     );  y = y - h
 
     ---------------------------------------------------------------------------
-    --  WORLD MAP (Reveal Unexplored Areas, its color in the cog)
+    --  WORLD MAP (Fade Map While Moving | Show the Game Behind the Map, then
+    --  Reveal Unexplored Areas with its color in the cog | Show Zone Levels,
+    --  then Show Map Markers with its sets in the cog:
+    --  EllesmereUIForeverEssentials_MapTravel.lua)
     ---------------------------------------------------------------------------
     local MR = EllesmereUI._MapReveal
+    local ZL = EllesmereUI._ZoneLevels
     local function revealOff() return not MR.Get("enabled") end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
     _, h = W:SectionHeader(parent, "WORLD MAP", y);  y = y - h
+
+    -- Fade Map While Moving | Show the Game Behind the Map. Runtime in
+    -- EllesmereUIForeverEssentials_MapFade.lua.
+    local MF = EllesmereUI._MapFade
+    local function SetFade(key, v)
+        MF.Cfg()[key] = v
+        MF.Apply()
+    end
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Fade Map While Moving",
+          tooltip = "The world map fades while you move and comes back when you stop or hover it.",
+          getValue = function() return MF.Get("enabled") end,
+          setValue = function(v) SetFade("enabled", v) end },
+        { type = "toggle", text = "Show the Game Behind the Map",
+          tooltip = "Lightens the black behind the maximized world map.",
+          getValue = function() return MF.Get("dim") end,
+          setValue = function(v) SetFade("dim", v) end }
+    );  y = y - h
 
     local revealRow
     revealRow, h = W:DualRow(parent, y,
@@ -186,6 +210,25 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
           setValue = function(v)
               MR.Cfg().enabled = v
               MR.Apply()
+              EllesmereUI:RefreshPage()  -- the cog's disabled state
+          end },
+        { type = "toggle", text = "Show Zone Levels",
+          tooltip = "Shows the level range of the zone you hover on a continent of the world map, under its name, colored by difficulty.",
+          getValue = function() return ZL.Get("enabled") end,
+          setValue = function(v)
+              ZL.Cfg().enabled = v
+              ZL.Apply()
+          end }
+    );  y = y - h
+
+    local markersRow
+    markersRow, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Show Map Markers",
+          tooltip = "Shows boats, zeppelins, dungeon entrances, flight points and zone exits on the world map; click one to link it in chat.",
+          getValue = function() return MT.Get("enabled") end,
+          setValue = function(v)
+              MT.Cfg().enabled = v
+              MT.Apply()
               EllesmereUI:RefreshPage()  -- the cog's disabled state
           end },
         BLANK()
@@ -208,6 +251,62 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
             disabled = revealOff, disabledTooltip = "Reveal Unexplored Areas",
         })
     end
+
+    -- Map Markers: one toggle; the cog picks the sets, all shown until turned
+    -- off.
+    if not EllesmereUI._prebuilding then
+        local function setRow(label, tooltip, key)
+            return { type = "toggle", label = label, tooltip = tooltip,
+                get = function() return MT.Get(key) end,
+                set = function(v)
+                    MT.Cfg()[key] = v
+                    MT.Apply()
+                end }
+        end
+        local rows = {
+            setRow("Transports",
+                "Boats, zeppelins and the tram, from the world map down, with where each one goes when you hover it.",
+                "transports"),
+            setRow("Zone Exits",
+                "On zone maps, an arrow on each road out of the zone, pointing to the zone it leads to.",
+                "exits"),
+            setRow("Instance Entrances",
+                "Dungeon and raid entrances, on continent and zone maps; hover one for its name.",
+                "instances"),
+            setRow("Flight Points",
+                "On zone maps, the flight masters, those you have not found yet included.",
+                "flights"),
+        }
+        EllesmereUI.BuildInlineCog(markersRow._leftRegion, {
+            title = "Map Markers",
+            rows = rows,
+            disabled = function() return not MT.Get("enabled") end,
+            disabledTooltip = "Show Map Markers",
+        })
+    end
+
+    ---------------------------------------------------------------------------
+    --  CLASSIC WINDOWS (the vanilla spellbook and talent window)
+    ---------------------------------------------------------------------------
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "CLASSIC WINDOWS", y);  y = y - h
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Classic Spellbook",
+          tooltip = "Your spellbook key opens the vanilla spellbook.",
+          getValue = function() return CS.Get("enabled") end,
+          setValue = function(v)
+              CS.Cfg().enabled = v
+              CS.Apply()
+          end },
+        { type = "toggle", text = "Classic Talents",
+          tooltip = "Your talents key opens the vanilla talent window.",
+          getValue = function() return CT.Get("enabled") end,
+          setValue = function(v)
+              CT.Cfg().enabled = v
+              CT.Apply()
+          end }
+    );  y = y - h
 
     ---------------------------------------------------------------------------
     --  SIMPLIFIED STATS (item tooltips)
@@ -250,6 +349,175 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               getValue = function() return SS.Get("numColor") end,
               setValue = function(v) SS.Cfg().numColor = (v ~= "signed") and v or nil end }
         );  y = y - h
+    end
+
+    ---------------------------------------------------------------------------
+    --  QUEST REWARDS (EllesmereUIForeverEssentials_QuestRewards.lua)
+    ---------------------------------------------------------------------------
+    local QR = EllesmereUI._QuestRewards
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "QUEST REWARDS", y);  y = y - h
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Most Valuable Reward",
+          tooltip = "Among a quest's reward choices, a money bag marks the one that sells for most, its count included.",
+          getValue = function() return QR.Get("enabled") end,
+          setValue = function(v)
+              QR.Cfg().enabled = v
+              QR.Apply()
+          end },
+        BLANK()
+    );  y = y - h
+
+    ---------------------------------------------------------------------------
+    --  COMPANION PETS (EllesmereUIForeverEssentials_PetSummon.lua)
+    ---------------------------------------------------------------------------
+    local PS = EllesmereUI._PetSummon
+    if PS and C_PetJournal then
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+        _, h = W:SectionHeader(parent, "COMPANION PETS", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Auto Summon Pet",
+              tooltip = "Brings a random favorite pet back after loading screens, flights and deaths; a pet you dismiss stays away.",
+              getValue = function() return PS.Get("enabled") end,
+              setValue = function(v)
+                  PS.Cfg().enabled = v
+                  PS.Apply(v)  -- turning it on also ends an earlier dismissal
+                  EllesmereUI:RefreshPage()  -- Favorites per Character's disabled state
+              end },
+            { type = "toggle", text = "Favorites per Character",
+              tooltip = "Pick this character's favorites from a pet's right-click menu in the Pet Journal.",
+              disabled = function() return not PS.Get("enabled") end,
+              disabledTooltip = "Auto Summon Pet",
+              -- This character's own setting, read without creating its table.
+              getValue = function()
+                  local chars, guid = PS.Get("chars"), UnitGUID("player")
+                  return chars ~= nil and guid ~= nil and chars[guid] ~= nil and chars[guid].own == true
+              end,
+              setValue = function(v)
+                  local guid = UnitGUID("player")
+                  if not guid then return end
+                  local cfg = PS.Cfg()
+                  cfg.chars = cfg.chars or {}
+                  cfg.chars[guid] = cfg.chars[guid] or {}
+                  cfg.chars[guid].own = v or nil
+                  PS.RefreshJournal()
+              end }
+        );  y = y - h
+    end
+
+    ---------------------------------------------------------------------------
+    --  ACTIVE STANCE, FORM, ASPECT & AURA
+    ---------------------------------------------------------------------------
+    local AF = EllesmereUI._ActiveForm
+    if AF then
+        local function afOff() return not AF.Get("enabled") end
+        local function AFSet(key, v)
+            AF.Cfg()[key] = v
+            AF.Apply()
+        end
+        local _, classFile = UnitClass("player")
+        local label = classFile == "WARRIOR" and "Show Current Stance"
+            or classFile == "DRUID" and "Show Current Form"
+            or classFile == "PALADIN" and "Show Current Aura"
+            or classFile == "HUNTER" and "Show Current Aspect"
+            or "Show Current Stance / Form"
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+        _, h = W:SectionHeader(parent, "ACTIVE STANCE, FORM, ASPECT & AURA", y);  y = y - h
+
+        _, h = EllesmereUI.BuildVisibilityRow(W, parent, y, {
+            leftCfg = { type = "toggle", text = label,
+                tooltip = "Shows an icon for your active stance, form, aura or aspect. Hidden while none is active.",
+                getValue = function() return not afOff() end,
+                setValue = EllesmereUI.SectionToggleSetValue(function(v) AFSet("enabled", v) end) },
+            -- The table exists once it was turned on, and the row is greyed out
+            -- while it is off, so viewing the page saves nothing.
+            getStore = function() return afOff() and AF.Read() or AF.Cfg() end,
+            caps = { partyIncludesRaid = false, luaDragonriding = true, noMouseover = true },
+            disabledFn = afOff, disabledTooltip = label,
+            onChanged = EllesmereUI.RequestVisibilityUpdate,
+            onOptionChanged = EllesmereUI.RequestVisibilityUpdate,
+        });  y = y - h
+
+        if not afOff() then
+            -- Icon Size | Icon Zoom
+            _, h = W:DualRow(parent, y,
+                { type = "slider", text = "Icon Size",
+                  min = 16, max = 96, step = 1, isPercent = false,
+                  getValue = function() return AF.Get("iconSize") end,
+                  setValue = function(v) AFSet("iconSize", v) end },
+                { type = "slider", text = "Icon Zoom",
+                  tooltip = "Crops the icon's edges.",
+                  min = 0, max = 25, step = 1, isPercent = false,
+                  getValue = function() return AF.Get("zoom") end,
+                  setValue = function(v) AFSet("zoom", v) end }
+            );  y = y - h
+
+            -- Border Style | Border Size (+ color swatch)
+            local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
+            local borderRow
+            borderRow, h = W:DualRow(parent, y,
+                { type = "dropdown", text = "Border Style",
+                  values = texValues, order = texOrder,
+                  getValue = function() return AF.Get("borderTexture") end,
+                  setValue = function(v)
+                      local c = AF.Cfg()
+                      c.borderTexture = v
+                      c.borderTextureOffset, c.borderTextureOffsetY = nil, nil
+                      local color = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                      c.borderR, c.borderG, c.borderB, c.borderA = color.r, color.g, color.b, 1
+                      local defaultSize = EllesmereUI.GetBorderDefaultSize(nil, v)
+                      if defaultSize then c.borderSize = defaultSize end
+                      if c.borderSizePx then c.borderSizePx = false end
+                      AF.Apply()
+                      -- Rebuild: the offset row follows the Solid / textured pick.
+                      EllesmereUI:RefreshPage(true)
+                  end },
+                EllesmereUI.BorderPxSliderCfg{
+                  text = "Border Size",
+                  getStep = function() return AF.Get("borderSize") end,
+                  setStep = function(v) AF.Cfg().borderSize = v end,
+                  getTex = function() return AF.Get("borderTexture") end,
+                  getPx = function() return AF.Read().borderSizePx end,
+                  setPx = function(v) AF.Cfg().borderSizePx = v end,
+                  apply = AF.Apply }
+            );  y = y - h
+
+            if not EllesmereUI._prebuilding then
+                local rgn = borderRow._rightRegion
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                    function()
+                        return AF.Get("borderR"), AF.Get("borderG"), AF.Get("borderB"), AF.Get("borderA")
+                    end,
+                    function(r, g, b, a)
+                        local c = AF.Cfg()
+                        c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a or 1
+                        AF.Apply()
+                    end, true, 20)
+                swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+                rgn._lastInline = swatch
+                EllesmereUI.RegisterWidgetRefresh(updateSwatch)
+            end
+
+            -- Width | Height Offset: only while a textured style is selected.
+            local texKey = AF.Get("borderTexture")
+            if texKey ~= "" and texKey ~= "solid" then
+                local offL, offR = EllesmereUI.BorderOffsetRowCfgs{
+                    getTex = function() return AF.Get("borderTexture") end,
+                    getStep = function() return AF.Get("borderSize") end,
+                    getSizeKey = function() return AF.Get("borderSize") end,
+                    getPx = function() return AF.Read().borderSizePx end,
+                    getX = function() return AF.Read().borderTextureOffset end,
+                    setX = function(v) AF.Cfg().borderTextureOffset = v end,
+                    getY = function() return AF.Read().borderTextureOffsetY end,
+                    setY = function(v) AF.Cfg().borderTextureOffsetY = v end,
+                    apply = AF.Apply,
+                }
+                _, h = W:DualRow(parent, y, offL, offR);  y = y - h
+            end
+        end
     end
 
     ---------------------------------------------------------------------------
@@ -307,6 +575,42 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
             List(row._leftRegion, "first")
             List(row._rightRegion, "last")
         end
+    end
+
+    ---------------------------------------------------------------------------
+    --  GATHERING (EllesmereUIForeverEssentials_GatherSkill.lua)
+    ---------------------------------------------------------------------------
+    local GS = EllesmereUI._GatherSkill
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "GATHERING", y);  y = y - h
+
+    local gsRow
+    gsRow, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Gathering Skill in Tooltips",
+          tooltip = "Adds the skill a herb or ore node needs to its tooltip, colored by your chance to raise your skill there.",
+          getValue = function() return GS.Get("enabled") end,
+          setValue = function(v)
+              GS.Cfg().enabled = v
+              GS.Apply()
+              EllesmereUI:RefreshPage()  -- the cog's disabled state
+          end },
+        BLANK()
+    );  y = y - h
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(gsRow._leftRegion, {
+            title = "Gathering Skill in Tooltips",
+            rows = {
+                { type = "toggle", label = "Minimap",
+                  tooltip = "Also adds the required skill to herb and ore names on the minimap.",
+                  get = function() return GS.Get("minimap") end,
+                  set = function(v)
+                      GS.Cfg().minimap = v
+                      GS.Apply()
+                  end },
+            },
+            disabled = function() return not GS.Get("enabled") end,
+            disabledTooltip = "Gathering Skill in Tooltips",
+        })
     end
 
     ---------------------------------------------------------------------------
@@ -394,7 +698,111 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               getValue = function() return JI.Get("showFreeSlots") == true end,
               setValue = function(v) JunkSet("showFreeSlots", v) end }
         );  y = y - h
+
+        -- Only Show When Bag Space Is Low, its threshold in the cog.
+        local lowRow
+        lowRow, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Only Show When Bag Space Is Low",
+              tooltip = "Shows the window only while few bag slots are free. Use the cog to set how few.",
+              getValue = function() return JI.Get("onlyLowBagSpace") == true end,
+              setValue = function(v)
+                  JunkSet("onlyLowBagSpace", v)
+                  EllesmereUI:RefreshPage()  -- the cog's disabled state
+              end },
+            BLANK()
+        );  y = y - h
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(lowRow._leftRegion, {
+                title = "Only Show When Bag Space Is Low",
+                disabled = function() return JI.Get("onlyLowBagSpace") ~= true end,
+                disabledTooltip = "Only Show When Bag Space Is Low",
+                rows = {
+                    { type = "slider", label = "Free-Slot Threshold", min = 1, max = 100, step = 1,
+                      tooltip = "Shows the window while fewer regular bag slots than this are free.",
+                      get = function() return JI.Get("freeSlotThreshold") end,
+                      set = function(v) JunkSet("freeSlotThreshold", v) end },
+                },
+            })
+        end
     end
+
+    ---------------------------------------------------------------------------
+    --  FISHING (EllesmereUIForeverEssentials_Fishing.lua)
+    ---------------------------------------------------------------------------
+    local FI = EllesmereUI._Fishing
+    local function SetFish(key, v)
+        FI.Cfg()[key] = v
+        FI.Apply()
+    end
+
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "FISHING", y);  y = y - h
+
+    -- Fishing Key (keybind, its options in the cog) | Double-Click to Cast
+    local fishKeyRow
+    fishKeyRow, h = W:DualRow(parent, y,
+        { type = "label", text = "Fishing Key",
+          tooltip = "One key casts your line, equipping your best fishing pole first. Use the cog for reeling in, the bobber indicator and lures." },
+        { type = "toggle", text = "Double-Click to Cast",
+          tooltip = "With a fishing pole in hand, double right-click the world to cast.",
+          disabled = function() return EllesmereUI.PadGamepadUI() end,
+          disabledTooltip = "This option does not work with the Gamepad interface style.",
+          getValue = function() return FI.Get("doubleClick") end,
+          setValue = function(v)
+              SetFish("doubleClick", v)
+              EllesmereUI:RefreshPage()  -- the cog's disabled state
+          end }
+    );  y = y - h
+    if not EllesmereUI._prebuilding then
+        local rgn = fishKeyRow._leftRegion
+        local kbBtn, refresh = EllesmereUI.BuildKeybindButton(rgn, {
+            w = 140, h = 30, font = 13,
+            get = function() return FI.Get("key") end,
+            set = function(v)
+                SetFish("key", v)
+                EllesmereUI:RefreshPage()  -- the cog's disabled state
+            end,
+            tooltip = "Left-click to set a keybind.\nRight-click to unbind.",
+        })
+        EllesmereUI.PanelPP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.RegisterWidgetRefresh(refresh)
+
+        local function fishRow(label, tooltip, key)
+            return { type = "toggle", label = label, tooltip = tooltip,
+                get = function() return FI.Get(key) end,
+                set = function(v) SetFish(key, v) end }
+        end
+        -- A label half has no control: the cog sits left of the keybind
+        -- button, which also bounds the label.
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Fishing Key",
+            rows = {
+                fishRow("Reel In With the Key", "Once the bobber bites and is on screen, the Fishing Key reels it in.", "reel"),
+                fishRow("Bobber Indicator", "Shows whether the key will reel in. Place it in Unlock Mode.", "indicator"),
+                fishRow("Apply Lure", "With no lure on your pole, the key applies your best lure first.", "lure"),
+            },
+            anchorTo = kbBtn,
+            disabled = function() return FI.Get("key") == nil end,
+            disabledTooltip = "Fishing Key",
+        })
+        EllesmereUI.BuildInlineCog(fishKeyRow._rightRegion, {
+            title = "Double-Click to Cast",
+            rows = { fishRow("Apply Lure", "With no lure on your pole, a double-click applies your best lure first.", "clickLure") },
+            disabled = function() return EllesmereUI.PadGamepadUI() or not FI.Get("doubleClick") end,
+            disabledTooltip = function()
+                if EllesmereUI.PadGamepadUI() then return "This option does not work with the Gamepad interface style." end
+                return "Double-Click to Cast"
+            end,
+        })
+    end
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Fishing Sounds",
+          tooltip = "While you fish: music and ambience down, effects up, sound on in the background.",
+          getValue = function() return FI.Get("sound") end,
+          setValue = function(v) SetFish("sound", v) end },
+        BLANK()
+    );  y = y - h
 
     return math.abs(y)
 end

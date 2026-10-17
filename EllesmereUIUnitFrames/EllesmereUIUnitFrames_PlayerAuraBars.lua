@@ -384,7 +384,15 @@ local function PAB_ApplyDmFx(button, d, style, arming)
             end
         end
     end
-    if spec then
+    -- Bound once, on the button's first glow: the button runs the glow's
+    -- animations itself (12.1.5), Blizzard playing them while it shows an
+    -- aura and stopping them when it has none (false where it cannot: no
+    -- API). Binding registers nothing; the start below does, in the creation
+    -- window or at a later restyle out of restriction (a glow block added
+    -- later). Bound, every button carries the glow. Unbound, the animation
+    -- plays while hidden too, so only buttons the group can ever show run one.
+    if spec and d.pabFxBound == nil then d.pabFxBound = Glows.BindEngineHost(gov, button, d) end
+    if spec and (d.pabFxBound or EllesmereUI.AuraKit.ButtonCanShow(button)) then
         gov:Show()
         Glows.StartSpecGlow(gov, spec, sz, style.height or sz, "engine")
     else
@@ -5413,6 +5421,10 @@ end
 -- texture (btn, ARTWORK) below border (child frame, level+1) below duration/stack
 -- text (textHost, child frame, level+2, ABOVE the border).
 local function CreatePreviewIcon(box)
+    -- Options preview only: the options frame pool (EllesmereUI_FramePool.lua)
+    -- hands the box's next render these frames back reset to new.
+    local Pool = EllesmereUI._Pool
+    local CreateFrame = Pool.CreateFrame
     local btn = CreateFrame("Frame", nil, box)
     btn.icon = btn:CreateTexture(nil, "ARTWORK")
     btn.icon:SetAllPoints()
@@ -5433,8 +5445,18 @@ local function CreatePreviewIcon(box)
     btn.cooldown:SetDrawEdge(false)
     btn.cooldown:SetHideCountdownNumbers(true)
     btn.cooldown:Hide()
+    -- A cooldown the pool dressed before keeps the swipe texture an earlier
+    -- dress gave it (the engine's reset keeps a cooldown's settings, and no
+    -- getter reads that one back): the first render of this dress applies
+    -- the bar's shape or the plain swipe either way. A new cooldown keeps its
+    -- template swipe untouched.
+    local cdGen = Pool.Gen and Pool.Gen(btn.cooldown)
+    if cdGen and cdGen > 1 then btn._cdShapeApplied = false end
     btn.border = CreateFrame("Frame", nil, btn)
-    btn.borderState = {}
+    -- The border frame is its own secret-safe border state (as the boss preview's
+    -- aura border): a pooled frame's reset wipes these keys, so a pixel-grid
+    -- change never repaints an earlier dress's look over this one.
+    btn.borderState = btn.border
     -- Dispel-type icon host: a child frame created after the cooldown and the border,
     -- so the icon draws above the swipe and the border like the live button's holder.
     -- A texture on the button itself sits under every child frame whatever its layer,
@@ -5802,6 +5824,7 @@ end
 -- left over from a previous render of this reused frame.
 ns.PAB_PREVIEW_GLOW_SPEC = {}
 local function ApplyPreviewFx(btn, e)
+    local CreateFrame = EllesmereUI._Pool.CreateFrame -- options preview only (the pool)
     local Glows = EllesmereUI.Glows
     local spec = e and Glows.SpecFromPrefix(ns.PAB_PREVIEW_GLOW_SPEC, e, "glow", 1.0, 0.776, 0.376)
     local gov = btn.fxGlow
@@ -6222,6 +6245,9 @@ end
 -- Returns the outerFrame-local Y where the preview area ends -- passed straight to
 -- WrapCompensatedBody(outerFrame, returnedY) as the scroll area's top offset.
 function ns.PAB_BuildPreviewBox(outerFrame, fontPath, startY, kind, id, cfg)
+    -- Options page only: under the kept manager root the options frame pool
+    -- (EllesmereUI_FramePool.lua) hands the next render these frames back.
+    local CreateFrame = EllesmereUI._Pool.CreateFrame
     local isBuff = kind == "buff"
     local sy = startY
 
@@ -6318,6 +6344,9 @@ function ns.PAB_BuildPreviewBox(outerFrame, fontPath, startY, kind, id, cfg)
         kind = kind, id = id, box = box, icons = icons, fontPath = fontPath, pool = pool,
         outerFrame = outerFrame, boxTopY = sy, bandTopY = startY,
         headerBg = headerBg, divider = divider,
+        -- the box's dress (nil off the pool): PAB_MaybeRefreshPreview stands down
+        -- once a later render parked the box or dressed it again
+        gen = EllesmereUI._Pool.Gen(box),
     }
     RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
 
@@ -6339,6 +6368,19 @@ end
 -- ManagerPages.lua needing to know the preview exists or wrap its ApplyBar() closures.
 PAB_MaybeRefreshPreview = function(kind, id)
     if not (activePreview and activePreview.kind == kind and activePreview.id == id) then return end
+    -- The page was left: its root waits parked and hidden until its next
+    -- render, which builds a new preview, so nothing is drawn into the hidden
+    -- box meanwhile (ns._pabRoot is nil only while the root is parked).
+    if not ns._pabRoot then activePreview = nil; return end
+    -- A render of the kept manager root without this box parked it (or a later
+    -- one dressed it again): its frames belong to the pool now, not to this
+    -- preview. (activePreview exists only once the options addon, and with it
+    -- the pool, has loaded.)
+    local Pool = EllesmereUI._Pool
+    if Pool.IsIdle(activePreview.box) or Pool.Gen(activePreview.box) ~= activePreview.gen then
+        activePreview = nil
+        return
+    end
     local cfg, isBuff = ResolvePreviewCfg(kind, id)
     if not cfg then return end
 

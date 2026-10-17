@@ -19,6 +19,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local _, ns = ...
 
 local AK -- EllesmereUI.AuraKit, resolved at first use (parent loads first)
+-- Born in this module's main chunk, so the aura containers it builds bill this
+-- module (AuraKit's shared build scheduler).
+local AKWorker = EllesmereUI.AuraKit.NewBuildWorker()
 
 local AURA_CROP_HEIGHT = 0.80
 local AURA_ZOOM = 0.07
@@ -1724,6 +1727,9 @@ function PurgeGlow.StyleKey(unit)
     return StyleKey(unit, "HELPFUL") .. ":glow"
 end
 
+-- The glow families the menu offers: Pixel, the flipbooks and Blizzard Border.
+PurgeGlow.NEED = { ants = true, flip = true, stealable = true }
+
 function PurgeGlow.Extra(button, d, style)
     ApplyUFText(button, d, style)
     if not style.purgeSpec then return end
@@ -1743,12 +1749,21 @@ function PurgeGlow.Extra(button, d, style)
         end
         host:EnableMouse(false)
         d.ufPurgeGlow = host
-        -- nil need: every family (Pixel, the flipbooks and Blizzard Border).
-        Glows.PrewarmEngineHost(host, style.width, style.height, nil)
+        Glows.PrewarmEngineHost(host, style.width, style.height, PurgeGlow.NEED)
     end
+    -- Bound once: the button runs the glow's animations itself (12.1.5),
+    -- Blizzard playing them while it shows a buff and stopping them when it
+    -- has none. false where the button cannot (no API).
+    if d.ufPurgeBound == nil then d.ufPurgeBound = Glows.BindEngineHost(host, button, d) end
     -- C-side animations only (engine-button subtree); Blizzard Border
-    -- (static stealable art) renders through the same call.
-    Glows.StartSpecGlow(host, style.purgeSpec, style.width, style.height, "engine")
+    -- (static stealable art) renders through the same call. Bound, every
+    -- button carries the glow. Unbound (no API), the animations play while
+    -- hidden too, so only buttons the group can ever show run one.
+    if d.ufPurgeBound or EllesmereUI.AuraKit.ButtonCanShow(button) then
+        Glows.StartSpecGlow(host, style.purgeSpec, style.width, style.height, "engine")
+    elseif host._euiGlowActive then
+        Glows.StopGlow(host)
+    end
 end
 
 -- Unset color = "default" mode: the suite's default look (gold).
@@ -2832,9 +2847,12 @@ local function ApplyDispelSlotStyle(button, d, style)
 
     -- The portrait's Outer Ring (its texture on the backdrop, backdrop._outerRing)
     -- gets the same copy while it shows: the ring's own art laid on the ring's own
-    -- rect (anchor-derived, so size and position follow it), on a holder one level
-    -- over the portrait backdrop (a detached backdrop sits at frame+15, over the
-    -- unified border and its copy).
+    -- rect (anchor-derived, so size and position follow it), on a holder over the
+    -- portrait backdrop (a detached backdrop sits at frame+15, over the unified
+    -- border and its copy): one level up, or four with Show Icon on Portrait,
+    -- whose cast icon lifts the ring to the backdrop's +3 while it shows
+    -- (EUI_UnitFrames_Castbar.lua). Set here once per restyle, never per cast:
+    -- a slot child's level cannot be written while auras are secret.
     local bd = ub and uf.Portrait and uf.Portrait.backdrop
     local ring = bd and bd._outerRing
     if ring and ring:IsShown() and bd:IsShown() then
@@ -2852,7 +2870,7 @@ local function ApplyDispelSlotStyle(button, d, style)
             d.ufRingAnchor = ring
         end
         d.ufRingOn = true
-        host:SetFrameLevel(bd:GetFrameLevel() + 1)
+        host:SetFrameLevel(bd:GetFrameLevel() + (style.ringLift or 1))
         local art = ring:GetTexture()
         if d.ufRingArt ~= art then
             d.ufRingTex:SetTexture(art)
@@ -2940,6 +2958,8 @@ local function BuildDispelStyles(frame)
             px = EllesmereUI.BorderPx(s.borderSizePx, bs, btex),
         }
     end
+    -- The Outer Ring copy's lift over the portrait backdrop (ApplyDispelSlotStyle).
+    local ringLift = (customBorder and ns.UF_CastIconOnPortrait("player", p.player)) and 4 or 1
     -- Type Icon Position: one geometry for every type's icon (its art per slot).
     local iconCorner = p.showDispelIcons == true and (p.dispelIconPosition or "right"):upper() or nil
     for i = 1, #DISPEL_SLOTS do
@@ -2971,6 +2991,7 @@ local function BuildDispelStyles(frame)
             healthFrame = frame.Health,
             unitFrame = frame,
             customBorder = plainCB,
+            ringLift = ringLift,
             icon = plainIcon,
             applyExtra = ApplyDispelSlotStyle,
         }
@@ -2984,6 +3005,7 @@ local function BuildDispelStyles(frame)
             healthFrame = frame.Health,
             unitFrame = frame,
             customBorder = byMeCB,
+            ringLift = ringLift,
             icon = byMeIcon,
             applyExtra = ApplyDispelSlotStyle,
         }
@@ -3055,8 +3077,10 @@ local function DispelFP(p)
     -- Color Custom Borders copies the frame border, so while it is on every input
     -- the copy reads counts too: the border keys; the strata (a strata change
     -- re-stacks child levels); the portrait mode and side (an inside 3D portrait
-    -- lifts the unified border to frame+20); and the portrait and Outer Ring keys
-    -- that decide whether the ring copy shows and which art it takes. Separator
+    -- lifts the unified border to frame+20); the portrait and Outer Ring keys
+    -- that decide whether the ring copy shows and which art it takes; and Show
+    -- Icon on Portrait, which lifts the ring copy over the cast icon's overlay.
+    -- Separator
     -- visibility and orientation changes must restyle their copies too; their
     -- dimensions follow the source texture anchors without a restyle.
     local s = p.player
@@ -3071,7 +3095,7 @@ local function DispelFP(p)
             s.portraitMode, s.portraitSide, p.portraitStyle, s.portraitStyle, s.showPortrait,
             s.portraitSize, s.detachedPortraitShape, s.detachedPortraitOuterRing,
             s.detachedPortraitOuterRingScale, s.borderPowerSeam, s.powerPosition,
-            s.powerHeight, s.portraitSeparator) or false)
+            s.powerHeight, s.portraitSeparator, ns.UF_CastIconOnPortrait("player", s)) or false)
     -- Type Icon Position: marked only while on, so an off print stays as it was.
     if p.showDispelIcons == true then
         fp = fp .. "|ti|" .. FP(p.dispelIconPosition, p.dispelIconSize,
@@ -3616,7 +3640,7 @@ function ns.UF_CreateAuraContainers(frame, unit)
     if not (AK and AK.QueueBuildJob) then return end
     if registry[unit] or buildQueued[unit] then return end
     buildQueued[unit] = true
-    AK.QueueBuildJob(function()
+    AKWorker:Queue(function()
         buildQueued[unit] = nil
         return BuildUnitContainers(frame, unit)
     end, "uf:unit")

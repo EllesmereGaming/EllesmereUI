@@ -193,7 +193,7 @@ end
 
 local function Layout(frame, power, s)
     local bar, PP = S.bar, EllesmereUI.PP
-    local pos = s.powerPosition or "below"
+    local pos = ns.UF_PowerPos(s)
     local detached = (pos == "detached_top" or pos == "detached_bottom")
     -- A stock look draws an attached power bar inside its frame art.
     local G = (not detached) and ns.UF_Blizz() and ns.UF_BlizzGeom(frame)

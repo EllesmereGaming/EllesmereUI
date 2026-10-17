@@ -40,6 +40,23 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
     local function itemsOff()
         return off() or not LF.Get("items")
     end
+    -- Auction prices count only while the tracker or an item price shows, and
+    -- only with the price addon's API at hand.
+    local function auctionSource()
+        local api = Auctionator and Auctionator.API and Auctionator.API.v1
+        return api and api.GetAuctionPriceByItemLink and true or false
+    end
+    local function pricesUnused()
+        return not (LF.Get("tracker") or (LF.Get("items") and LF.Get("showPrice")))
+    end
+    local function auctionOff()
+        return off() or not auctionSource() or pricesUnused()
+    end
+    local function auctionTip()
+        if off() then return "Loot Feed" end
+        if not auctionSource() then return "This option requires Auctionator to be loaded." end
+        return "This option requires Gold per Hour Tracker or Show Item Price to be enabled."
+    end
     local function style()
         return LF.Get("style")
     end
@@ -141,7 +158,15 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         Toggle("skills", "Skill Ups", "Weapon and profession skill increases.", Reapply),
-        BLANK()
+        Toggle("tracker", "Gold per Hour Tracker", "Pins a row with your gold per hour.",
+            function()
+                LF.Apply()
+                LF.ApplyStyle()
+                if EllesmereUI._unlockActive and EllesmereUI.RepositionBarToMover then
+                    EllesmereUI.RepositionBarToMover("EUI_LootFeed")
+                end
+                EllesmereUI:RefreshPage()
+            end)
     );  y = y - h
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -172,9 +197,13 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
     );  y = y - h
 
     _, h = W:DualRow(parent, y,
-        Toggle("showPrice", "Show Vendor Price", "Shows what the looted stack sells for at a vendor.",
-            LF.RefreshPreview, itemsOff, "Items"),
-        BLANK()
+        Toggle("showPrice", "Show Item Price", "Shows what the looted stack is worth.",
+            function()
+                LF.RefreshPreview()
+                EllesmereUI:RefreshPage()  -- Use Auctionator Prices greys with it
+            end, itemsOff, "Items"),
+        Toggle("auctionPrices", "Use Auctionator Prices", "Prices items from Auctionator scans.",
+            LF.RefreshPreview, auctionOff, auctionTip)
     );  y = y - h
 
     _, h = W:Spacer(parent, y, 20);  y = y - h

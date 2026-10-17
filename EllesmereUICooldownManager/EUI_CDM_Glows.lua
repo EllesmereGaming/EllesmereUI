@@ -40,9 +40,12 @@ ns.GLOW_STYLES = GLOW_STYLES
 --  surface. Each surface advertises a different subset; an unrenderable style is coerced
 --  to the nearest supported one and the COERCED value is stored, so dropdown name and preview always match what's displayed.
 --    - CDM icon bars  : full set + "Blizzard Default" (-1 = Blizzard's own glow)
---    - Nameplate icons: same set MINUS "Blizzard Default" (no native glow there)
+--    - Nameplate icons: same set, with "Blizzard Default" as the nameplates'
+--      Blizzard Pandemic Border (EllesmereUI.Glows.PANDEMIC_BORDER, the same
+--      Cooldown Manager pandemic art, drawn static), their default style
 -------------------------------------------------------------------------------
 local PG_BLIZZ_NAME = "Blizzard Default"
+local PG_NP_BLIZZ = _G_Glows.PANDEMIC_BORDER
 
 -- CDM icon-bar style index <-> canonical name
 local function PG_CdmNameFromIndex(idx)
@@ -58,20 +61,30 @@ local function PG_CdmIndexFromName(name)
     return 1  -- Pixel Glow
 end
 
--- Nameplate style index <-> canonical name (no Blizzard Default; coerce to Pixel)
+-- Nameplate style index <-> canonical name (Blizzard Default = Blizzard
+-- Pandemic Border; anything unsupported coerces to Pixel)
 local function PG_NameplateNameFromIndex(idx)
+    if idx == PG_NP_BLIZZ then return PG_BLIZZ_NAME end
     local list = EllesmereUI.NameplatePandemicGlowStyles
     local e = list and list[idx]
     return (e and e.name) or "Pixel Glow"
 end
 local function PG_NameplateIndexFromName(name)
+    if name == PG_BLIZZ_NAME then return PG_NP_BLIZZ end
     local list = EllesmereUI.NameplatePandemicGlowStyles
-    if name and name ~= PG_BLIZZ_NAME and list then
+    if name and list then
         for i = 1, #list do
             if list[i].name == name then return i end
         end
     end
-    return 1  -- Pixel Glow (covers Blizzard Default / anything unsupported)
+    return 1  -- Pixel Glow (anything unsupported)
+end
+-- The style a nameplate profile shows: the Nameplates' own view over its
+-- saved keys (the 9.6 pick, else the older key), exported by Nameplates;
+-- its default is Blizzard Pandemic Border.
+local function PG_NameplateStyle(np)
+    local styleOf = EllesmereUI.NameplatePandemicStyle
+    return styleOf and styleOf(np) or PG_NP_BLIZZ
 end
 
 -- Tracked Buff Bars render as rectangles: Pixel Glow and Auto-Cast Shine only
@@ -94,9 +107,10 @@ local function PG_GetNPProfile()
 end
 
 -- Write a canonical payload into a destination, coercing the style through the destination's own name->index resolver (so the stored index is renderable).
-local function PG_Write(dst, payload, indexFromName)
+-- styleKey: where the destination keeps its style (Nameplates: pandemicGlowPick); default pandemicGlowStyle.
+local function PG_Write(dst, payload, indexFromName, styleKey)
     dst.pandemicGlow          = payload.on
-    dst.pandemicGlowStyle     = indexFromName(payload.styleName or "Pixel Glow")
+    dst[styleKey or "pandemicGlowStyle"] = indexFromName(payload.styleName or "Pixel Glow")
     dst.pandemicGlowColor     = payload.color and CopyTable(payload.color) or nil
     -- Color mode travels with the color (Default/Custom/Class); nil = Default.
     dst.pandemicGlowMode      = payload.mode
@@ -168,7 +182,7 @@ end
 function EllesmereUI.PandemicPayloadFromNameplate(np)
     return {
         on        = np.pandemicGlow == true,
-        styleName = PG_NameplateNameFromIndex(np.pandemicGlowStyle or 1),
+        styleName = PG_NameplateNameFromIndex(PG_NameplateStyle(np)),
         color     = np.pandemicGlowColor,
         mode      = np.pandemicGlowMode or "custom",
         lines     = np.pandemicGlowLines,
@@ -186,7 +200,7 @@ function EllesmereUI.ApplyPandemicGlowToAll(payload, opts)
     if not opts.skipNameplates then
         local np = PG_GetNPProfile()
         if np and EllesmereUI.NameplatePandemicGlowStyles then
-            PG_Write(np, payload, PG_NameplateIndexFromName)
+            PG_Write(np, payload, PG_NameplateIndexFromName, "pandemicGlowPick")
             -- Nameplates read an unset mode as Custom: Default is stored as itself.
             np.pandemicGlowMode = payload.mode or "default"
         end
@@ -219,7 +233,7 @@ function EllesmereUI.IsPandemicGlowSyncedToAll(payload, opts)
     if not opts.skipNameplates then
         local np = PG_GetNPProfile()
         if np and EllesmereUI.NameplatePandemicGlowStyles
-           and not PG_Matches(np, payload, PG_NameplateIndexFromName, nil, "custom") then
+           and not PG_Matches(np, payload, PG_NameplateIndexFromName, PG_NameplateStyle, "custom") then
             return false
         end
     end
@@ -249,9 +263,9 @@ end
 -- a ticker re-evaluates them. This one gates the renderer: the proc glow and
 -- the CD ready flush are pure edges with no re-assert, so a suppressed request
 -- can only come back by being replayed from here.
--- overlay -> its last StartNativeGlow request. Weak keys: the options preview
--- overlays are rebuilt per page build and would otherwise pile up here for the
--- combat sweep to walk; a live overlay is held by its owner's frame data.
+-- overlay -> its last StartNativeGlow request, for live overlays only:
+-- options preview overlays get none (see StartNativeGlow). Weak keys: a
+-- record lives as long as its overlay, which its owner's frame data holds.
 -- The rec.active filter keeps the sweep below short.
 ns._cdmGlowRec = setmetatable({}, { __mode = "k" })
 
@@ -291,7 +305,12 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     -- its resolved spellID ride along so the replay can tell a record that is
     -- still current from one whose pooled icon has since been handed a
     -- different spell (fc.spellID is our cached plain identity, never secret).
-    if ns._cdmGlowGateEverOn then
+    -- Options previews opt out on their own overlay rather than through opts:
+    -- three overlays serve the four preview call sites, and a non-nil opts
+    -- flips the pixel-glow branch off the bar's settings. They get no record:
+    -- the sweep never reads one, and an options page can hand a preview
+    -- overlay out again for other uses, which a record keyed by it outlives.
+    if ns._cdmGlowGateEverOn and not overlay._euiGlowPreview then
         local rec = ns._cdmGlowRec[overlay]
         if not rec then rec = {}; ns._cdmGlowRec[overlay] = rec end
         local ownerFC = parent and _ecmeFC[parent]
@@ -302,10 +321,7 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
         -- active-glow integrity pass and the preset cd-state re-assert restart
         -- any glow whose overlay reads dark, so the truth would churn every
         -- tick for exactly the users who asked for less work out of combat.
-        -- Options previews opt out on their own overlay rather than through
-        -- opts: three overlays serve the four preview call sites, and a
-        -- non-nil opts flips the pixel-glow branch off the bar's settings.
-        if ns._cdmGlowOOCGate and not _inCombat and not overlay._euiGlowPreview then
+        if ns._cdmGlowOOCGate and not _inCombat then
             rec.suppressed = true
             overlay._glowActive = true
             overlay:SetAlpha(0)

@@ -1607,301 +1607,10 @@ qolFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Quick Signup (double-click to sign up; not on WoW Forever: Blizzard's
-    --  premade-group list does not load there, so the block and its options
-    --  row do not exist)
+    --  Quick Signup and Persistent Signup Note -- implemented in the parent
+    --  (EllesmereUI_SignupHelpers.lua) so Group Finder shares them; the QoL
+    --  toggles drive them via EllesmereUI._applyQuickSignup / _applyPersistSignupNote.
     ---------------------------------------------------------------------------
-    if not EllesmereUI.IS_FOREVER then
-        local lastClickTime  = 0
-        local lastClickEntry = nil
-        local DOUBLE_CLICK_THRESHOLD = 0.4
-        local installed = false   -- hooks are installed ONCE, on first enable
-        local roleFrame           -- classic role-check listener (created on install)
-
-        -- Hooks install only on enable, so nothing touches LFG unless in use.
-        -- hooksecurefunc/HookScript can't be undone, so bodies keep a setting
-        -- guard for toggle-off; the role-check event alone registers/unregisters live for true zero cost when off.
-        local function InstallQuickSignupHooks()
-            if installed then return end
-            installed = true
-
-            hooksecurefunc("LFGListSearchEntry_OnClick", function(entry, button)
-                if not (EllesmereUIDB and EllesmereUIDB.quickSignup) then return end
-                if button == "RightButton" then return end
-
-                local panel = LFGListFrame and LFGListFrame.SearchPanel
-                if not panel then return end
-                if not LFGListSearchPanelUtil_CanSelectResult(entry.resultID) then return end
-                if not panel.SignUpButton or not panel.SignUpButton:IsEnabled() then return end
-
-                local now = GetTime()
-                if lastClickEntry == entry.resultID and (now - lastClickTime) < DOUBLE_CLICK_THRESHOLD then
-                    if panel.selectedResult ~= entry.resultID then
-                        LFGListSearchPanel_SelectResult(panel, entry.resultID)
-                    end
-                    LFGListSearchPanel_SignUp(panel)
-                    lastClickEntry = nil
-                    lastClickTime  = 0
-                else
-                    lastClickEntry = entry.resultID
-                    lastClickTime  = now
-                end
-            end)
-
-            -- Auto-accept role check; Holding Shift skips it so the dialog stays open (e.g. to type a signup note).
-            if LFGListApplicationDialog then
-                LFGListApplicationDialog:HookScript("OnShow", function(self)
-                    if not (EllesmereUIDB and EllesmereUIDB.quickSignup) then return end
-                    if self.SignUpButton:IsEnabled() and not IsShiftKeyDown() then
-                        self.SignUpButton:Click()
-                    end
-                end)
-            end
-
-            -- Classic Dungeon Finder role check
-            roleFrame = CreateFrame("Frame")
-            roleFrame:SetScript("OnEvent", function()
-                if not (EllesmereUIDB and EllesmereUIDB.quickSignup) then return end
-                if not UnitInParty("player") then return end
-                -- Holding Shift skips the auto role-check accept
-                if IsShiftKeyDown() then return end
-                local leader, tank, healer, dps = GetLFGRoles()
-                if LFDRoleCheckPopupRoleButtonTank.checkButton:IsEnabled() then
-                    LFDRoleCheckPopupRoleButtonTank.checkButton:SetChecked(tank)
-                end
-                if LFDRoleCheckPopupRoleButtonHealer.checkButton:IsEnabled() then
-                    LFDRoleCheckPopupRoleButtonHealer.checkButton:SetChecked(healer)
-                end
-                if LFDRoleCheckPopupRoleButtonDPS.checkButton:IsEnabled() then
-                    LFDRoleCheckPopupRoleButtonDPS.checkButton:SetChecked(dps)
-                end
-                LFDRoleCheckPopupAcceptButton:Enable()
-                LFDRoleCheckPopupAcceptButton:Click()
-            end)
-        end
-
-        -- Called at load and from the options toggle: installs hooks on first enable and matches role-check event registration.
-        EllesmereUI._applyQuickSignup = function()
-            local on = EllesmereUIDB and EllesmereUIDB.quickSignup
-            if on then InstallQuickSignupHooks() end
-            if roleFrame then
-                if on then
-                    roleFrame:RegisterEvent("LFG_ROLE_CHECK_SHOW")
-                else
-                    roleFrame:UnregisterEvent("LFG_ROLE_CHECK_SHOW")
-                end
-            end
-        end
-
-        EllesmereUI._applyQuickSignup()
-    end
-
-    ---------------------------------------------------------------------------
-    --  Persistent LFG Signup Note (not on WoW Forever: no premade Sign Up dialog
-    --  there, so the block and its options row do not exist)
-    ---------------------------------------------------------------------------
-    if not EllesmereUI.IS_FOREVER then
-        local vanilla = LFGListApplicationDialog_Show
-        local patched = false
-        local copyHooked = false
-        local copyHelper
-        local hidingCopyField = false
-
-        local function LimitNote(text)
-            if type(text) ~= "string" then return "" end
-            text = text:gsub("[\r\n]+", " ")
-            local bytes, position, count, last = #text, 1, 0, 0
-            while position <= bytes and count < 63 do
-                local byte = text:byte(position)
-                local width = byte < 128 and 1 or byte < 224 and 2 or byte < 240 and 3 or 4
-                if position + width - 1 > bytes then break end
-                last = position + width - 1
-                position = last + 1
-                count = count + 1
-            end
-            return text:sub(1, last)
-        end
-
-        local function SavedNote()
-            return LimitNote(EllesmereUIDB and EllesmereUIDB.signupNote)
-        end
-
-        local function Enabled()
-            return EllesmereUIDB and EllesmereUIDB.persistSignupNote
-        end
-
-        local function HideCopyField(focusTarget)
-            if not copyHelper then return end
-            copyHelper.buttonText:SetText(EllesmereUI.L("Copy"))
-            if copyHelper.copyBox:IsShown() then
-                hidingCopyField = true
-                copyHelper.copyBox:Hide()
-                copyHelper.copyBox:ClearFocus()
-                hidingCopyField = false
-            end
-            if focusTarget and copyHelper.targetEditBox then
-                copyHelper.targetEditBox:SetFocus()
-            end
-        end
-
-        local function RefreshCopyHelper(dialog)
-            if not Enabled() or not dialog or not dialog:IsShown() then return end
-            local description = dialog and dialog.Description
-            local editBox = description and description.EditBox
-            if not editBox then return end
-            if SavedNote() == "" then
-                if copyHelper then copyHelper:Hide() end
-                return
-            end
-
-            if not copyHelper then
-                local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
-                local FONT = EllesmereUI.GetFontPath("main")
-                    or EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
-                local PP = EllesmereUI.PP
-
-                local helper = CreateFrame("Frame", nil, dialog)
-                helper:SetAllPoints(dialog)
-                helper:EnableMouse(false)
-
-                local button = CreateFrame("Button", nil, helper)
-                button:SetSize(42, 20)
-                button:SetPoint("LEFT", description, "RIGHT", 4, 0)
-                button:EnableMouse(true)
-
-                local buttonBg = button:CreateTexture(nil, "BACKGROUND")
-                buttonBg:SetAllPoints()
-                buttonBg:SetColorTexture(0.030, 0.023, 0.018, 0.92)
-                local buttonBorder = EllesmereUI.MakeBorder(button, EG.r, EG.g, EG.b, 0.72, PP)
-
-                local buttonText = button:CreateFontString(nil, "OVERLAY")
-                buttonText:SetFont(FONT, 9, "")
-                buttonText:SetPoint("CENTER", 0, 0)
-                buttonText:SetText(EllesmereUI.L("Copy"))
-                buttonText:SetTextColor(EG.r, EG.g, EG.b, 0.92)
-
-                local copyBox = CreateFrame("EditBox", nil, helper)
-                copyBox:SetPoint("TOPLEFT", description, "TOPLEFT", 0, 0)
-                copyBox:SetPoint("BOTTOMRIGHT", description, "BOTTOMRIGHT", 0, 0)
-                copyBox:SetAutoFocus(false)
-                copyBox:SetFont(FONT, 11, "")
-                copyBox:SetTextColor(1, 1, 1, 0.96)
-                copyBox:SetTextInsets(5, 5, 0, 0)
-                copyBox:SetJustifyH("LEFT")
-                copyBox:SetHighlightColor(EG.r, EG.g, EG.b, 0.45)
-                copyBox:EnableMouse(true)
-                local copyBg = copyBox:CreateTexture(nil, "BACKGROUND")
-                copyBg:SetAllPoints()
-                copyBg:SetColorTexture(0.030, 0.023, 0.018, 1)
-                EllesmereUI.MakeBorder(copyBox, EG.r, EG.g, EG.b, 0.9, PP)
-                copyBox:Hide()
-
-                copyBox:SetScript("OnEditFocusLost", function()
-                    if not hidingCopyField and not button:IsMouseOver() then
-                        HideCopyField(false)
-                    end
-                end)
-                copyBox:SetScript("OnKeyUp", function(_, key)
-                    if key == "C" and IsControlKeyDown() then
-                        HideCopyField(true)
-                    end
-                end)
-
-                button:SetScript("OnEnter", function()
-                    buttonBorder:SetColor(EG.r, EG.g, EG.b, 1)
-                    buttonText:SetTextColor(EG.r, EG.g, EG.b, 1)
-                end)
-                button:SetScript("OnLeave", function()
-                    buttonBorder:SetColor(EG.r, EG.g, EG.b, 0.72)
-                    buttonText:SetTextColor(EG.r, EG.g, EG.b, 0.92)
-                end)
-                button:SetScript("OnClick", function()
-                    if copyBox:IsShown() then
-                        HideCopyField(false)
-                        return
-                    end
-                    local note = SavedNote()
-                    if note == "" then return end
-                    copyBox:SetText(note)
-                    copyBox:Show()
-                    copyBox:SetFocus()
-                    copyBox:HighlightText()
-                    buttonText:SetText("Ctrl+C")
-                end)
-
-                helper.button = button
-                helper.buttonText = buttonText
-                helper.copyBox = copyBox
-                copyHelper = helper
-            end
-
-            copyHelper.targetEditBox = editBox
-            copyHelper:SetFrameLevel(dialog:GetFrameLevel() + 20)
-            copyHelper.button:SetFrameLevel(copyHelper:GetFrameLevel() + 1)
-            copyHelper.copyBox:SetFrameLevel(copyHelper:GetFrameLevel() + 2)
-            HideCopyField()
-            copyHelper:Show()
-        end
-
-        local function PatchedShow(self, resultID)
-            if resultID then
-                self.resultID = resultID
-                -- Apply-phase search result is SECRET: activityID can be secret and
-                -- activityIDs a secret table whose indexing throws. Guard every read; degrade to nil rather than erroring the dialog.
-                pcall(function()
-                    -- Cleared up-front so a mid-read throw can't leave a stale activityID from a previous dialog open.
-                    self.activityID = nil
-                    local info = C_LFGList.GetSearchResultInfo(resultID)
-                    if type(info) ~= "table" then return end
-                    local aid = info.activityID
-                    if issecretvalue(aid) then aid = nil end
-                    if aid == nil and info.activityIDs and not issecretvalue(info.activityIDs) then
-                        aid = info.activityIDs[1]
-                        if issecretvalue(aid) then aid = nil end
-                    end
-                    self.activityID = aid
-                end)
-            end
-            LFGListApplicationDialog_UpdateRoles(self)
-            StaticPopupSpecial_Show(self)
-        end
-
-        EllesmereUI.GetPersistentSignupNote = function()
-            return SavedNote()
-        end
-
-        local function SyncPatch()
-            if Enabled() then
-                if not patched then
-                    LFGListApplicationDialog_Show = PatchedShow
-                    patched = true
-                end
-                -- PGF can replace the show function after login; the dialog hook survives it.
-                if LFGListApplicationDialog and not copyHooked then
-                    LFGListApplicationDialog:HookScript("OnShow", RefreshCopyHelper)
-                    copyHooked = true
-                end
-                RefreshCopyHelper(LFGListApplicationDialog)
-            else
-                if patched then
-                    if LFGListApplicationDialog_Show == PatchedShow then
-                        LFGListApplicationDialog_Show = vanilla
-                    end
-                    patched = false
-                end
-                if copyHelper then copyHelper:Hide() end
-            end
-        end
-
-        EllesmereUI.SetPersistentSignupNote = function(note)
-            if not EllesmereUIDB then EllesmereUIDB = {} end
-            EllesmereUIDB.signupNote = LimitNote(note)
-            SyncPatch()
-        end
-
-        EllesmereUI._applyPersistSignupNote = SyncPatch
-        SyncPatch()
-    end
 
     ---------------------------------------------------------------------------
     --  Hide Blizzard Party / Raid Manager frame -- implemented in the parent
@@ -1910,32 +1619,116 @@ qolFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
 
     ---------------------------------------------------------------------------
-    --  Hide Talking Head Frame (the NPC dialogue rectangle during quests/dungeons;
-    --  not on WoW Forever: the block, its hook and its options row do not exist there)
+    --  Hide Talking Head Frame (the NPC dialogue rectangle during quests/dungeons)
+    --  and Talking Head Audio (its voice lines), each on its own; not on WoW
+    --  Forever: the block, its hooks and its options rows do not exist there.
+    --
+    --  The frame stays shown but invisible: alpha 0 and no mouse on the frame
+    --  itself and on its close button, its one mouse-enabled child. A Hide()
+    --  from here would run the bottom managed column's layout under our taint,
+    --  and would leave the line half-closed (the close fade never runs on a
+    --  hidden frame), so Blizzard showed it again on its next pass. Shown, the
+    --  line closes through Blizzard's own fade. Edit Mode still shows the frame.
     ---------------------------------------------------------------------------
     if not EllesmereUI.IS_FOREVER then
-        local function HookTalkingHead()
-            local thf = _G.TalkingHeadFrame
-            if not thf or EllesmereUI._GetFFD(thf).hooked then return end
-            EllesmereUI._GetFFD(thf).hooked = true
+        local hooked, suppressed = false, false
+        local frameMouse, closeMouse  -- mouse states found when suppression began
+
+        local function Wanted()
+            local db = EllesmereUIDB
+            return db and (db.hideTalkingHead or db.muteTalkingHead)
+        end
+
+        local function ApplyTalkingHead(thf)
+            local close = thf.MainFrame.CloseButton
+            -- The 3D portrait ignores its parents' alpha: alpha 0 on the frame
+            -- hides text and art but leaves the model talking on screen. Only
+            -- hiding the model itself stops it from rendering.
+            local model = thf.MainFrame.Model
+            if EllesmereUIDB and EllesmereUIDB.hideTalkingHead and not thf.isInEditMode then
+                if not suppressed then
+                    suppressed = true
+                    frameMouse, closeMouse = thf:IsMouseEnabled(), close:IsMouseEnabled()
+                    thf:EnableMouse(false)
+                    close:EnableMouse(false)
+                end
+                if thf:GetAlpha() ~= 0 then thf:SetAlpha(0) end
+                if model and model:IsShown() then model:Hide() end
+            elseif suppressed then
+                suppressed = false
+                thf:SetAlpha(1)
+                thf:EnableMouse(frameMouse)
+                close:EnableMouse(closeMouse)
+                if model then model:Show() end
+            end
+        end
+
+        local function Install(thf)
+            if hooked then return end
+            hooked = true
+            -- Every show and hide runs through UpdateShownState: each line, its
+            -- close, a loading screen, Edit Mode coming and going.
+            hooksecurefunc(thf, "UpdateShownState", ApplyTalkingHead)
+            -- The bottom managed column sets the frame's alpha back to 1 when
+            -- the UI returns from Alt-Z.
+            hooksecurefunc(thf, "SetAlpha", function(self, alpha)
+                if suppressed and alpha ~= 0 then ApplyTalkingHead(self) end
+            end)
+            -- In case Blizzard shows the portrait again for a new line.
+            local model = thf.MainFrame.Model
+            if model then
+                hooksecurefunc(model, "Show", function(self)
+                    if suppressed then self:Hide() end
+                end)
+            end
+            -- Audio: PlayCurrent keeps the line's sound handle in voHandle.
             hooksecurefunc(thf, "PlayCurrent", function(self)
-                if EllesmereUIDB and EllesmereUIDB.hideTalkingHead then
-                    self:Hide()
+                if EllesmereUIDB and EllesmereUIDB.muteTalkingHead and self.voHandle then
+                    StopSound(self.voHandle)
                 end
             end)
         end
-        -- TalkingHeadFrame is load-on-demand; hook when it becomes available
-        if _G.TalkingHeadFrame then
-            HookTalkingHead()
-        else
-            local hookFrame = CreateFrame("Frame")
-            hookFrame:RegisterEvent("ADDON_LOADED")
-            hookFrame:SetScript("OnEvent", function(self, _, addon)
+
+        -- Install now, or arm ONE waiter for the frame's addon (shared by the
+        -- login install and a mid-session enable).
+        local waiterArmed = false
+        local function EnsureInstalled()
+            local thf = _G.TalkingHeadFrame
+            if thf then
+                Install(thf)
+                ApplyTalkingHead(thf)
+                return
+            end
+            if waiterArmed then return end
+            waiterArmed = true
+            local waiter = CreateFrame("Frame")
+            waiter:RegisterEvent("ADDON_LOADED")
+            waiter:SetScript("OnEvent", function(self)
                 if _G.TalkingHeadFrame then
-                    HookTalkingHead()
                     self:UnregisterAllEvents()
+                    EnsureInstalled()
                 end
             end)
+        end
+
+        -- Options-side apply (both options): a change bites at once, mid-line
+        -- included.
+        EllesmereUI._applyHideTalkingHead = function()
+            if Wanted() then
+                EnsureInstalled()
+                local thf = _G.TalkingHeadFrame
+                if EllesmereUIDB.muteTalkingHead and thf and thf.voHandle then
+                    StopSound(thf.voHandle)
+                end
+            elseif hooked then
+                ApplyTalkingHead(_G.TalkingHeadFrame)
+            end
+        end
+
+        -- Login install only with an option on (nothing is hooked otherwise;
+        -- a later enable installs through _applyHideTalkingHead above).
+        if Wanted() then
+            EnsureInstalled()
         end
     end
 
@@ -2043,6 +1836,104 @@ qolFrame:SetScript("OnEvent", function(self)
         end
     end
 
+    if not EllesmereUI.IS_FOREVER then
+        local function EndHiddenBanner()
+            if not (EllesmereUIDB and EllesmereUIDB.hideBanners) then return end
+            local current = TopBannerMgr.currentBanner
+            local f = current and current.frame
+            if not f then return end
+            if f == BossBanner then
+                -- The banner's own right-click dismiss: its state stays mid-show, so
+                -- no loot banner (or its sound) starts for this encounter; the next
+                -- boss kill starts it fresh.
+                BossBanner_Stop(f)
+                TopBannerManager_BannerFinished()
+            elseif f:GetParent() == EventToastManagerFrame and f.hideAutomatically
+                    and not f:ShouldSuppressAnimOut() then
+                f.showAnim:Stop()
+                f.hideAnim:Stop()
+                EventToastManagerFrame:Reset()
+                f:OnAnimatedOut()
+            end
+        end
+
+        local bannerHooks = false
+        EllesmereUI._applyHideBanners = function()
+            if not (EllesmereUIDB and EllesmereUIDB.hideBanners) then return end
+            if not bannerHooks then
+                bannerHooks = true
+                hooksecurefunc("TopBannerManager_Show", EndHiddenBanner)
+                hooksecurefunc("TopBannerManager_BannerFinished", EndHiddenBanner)
+            end
+            EndHiddenBanner()
+        end
+
+        local TOAST_KINDS = {
+            { key = "hideAlertToastsLoot", default = true, systems = {
+                LootAlertSystem, LootUpgradeAlertSystem, MoneyWonAlertSystem,
+                HonorAwardedAlertSystem, LegendaryItemAlertSystem,
+            } },
+            { key = "hideAlertToastsAchievements", systems = {
+                AchievementAlertSystem, CriteriaAlertSystem,
+            } },
+            { key = "hideAlertToastsHousing", systems = {
+                HousingItemEarnedAlertFrameSystem, InitiativeTaskCompleteAlertFrameSystem,
+            } },
+        }
+        local kindOf = {}
+        for i = 1, #TOAST_KINDS do
+            local kind = TOAST_KINDS[i]
+            for j = 1, #kind.systems do kindOf[kind.systems[j]] = kind end
+        end
+
+        local function KindHidden(kind)
+            local db = EllesmereUIDB
+            if not (db and db.hideAlertToasts) then return false end
+            local v = db[kind.key]
+            if v == nil then return kind.default or false end
+            return v
+        end
+
+        local hidingToasts = false
+
+        local function FirstShownToast(system)
+            for frame in system.alertFramePool:EnumerateActive() do
+                if frame:IsShown() then return frame end
+            end
+        end
+
+        local function HideAlertToasts(system)
+            if hidingToasts or not KindHidden(kindOf[system]) then return end
+            hidingToasts = true
+            local frame = FirstShownToast(system)
+            while frame do
+                frame:Hide()
+                frame = FirstShownToast(system)
+            end
+            hidingToasts = false
+        end
+
+        local hooked = {}
+        EllesmereUI._applyHideAlertToasts = function()
+            for i = 1, #TOAST_KINDS do
+                local kind = TOAST_KINDS[i]
+                if KindHidden(kind) then
+                    for j = 1, #kind.systems do
+                        local system = kind.systems[j]
+                        if not hooked[system] then
+                            hooked[system] = true
+                            hooksecurefunc(system, "ShowAlert", HideAlertToasts)
+                        end
+                        HideAlertToasts(system)
+                    end
+                end
+            end
+        end
+
+        EllesmereUI._applyHideBanners()
+        EllesmereUI._applyHideAlertToasts()
+    end
+
     ---------------------------------------------------------------------------
     --  Instance Reset Announce -- after a successful /reset, posts to instance
     --  chat so the group knows it's ready to re-enter.
@@ -2123,7 +2014,7 @@ qolFrame:SetScript("OnEvent", function(self)
                                        EllesmereUIDB.instanceResetAnnounceMsg ~= "")
                                       and EllesmereUIDB.instanceResetAnnounceMsg
                                       or "Instance has been reset - you can re-enter now!"
-                    SendChatMessage("[EUI] " .. customMsg, channel)
+                    C_ChatInfo.SendChatMessage("[EUI] " .. customMsg, channel)
                 end)
             elseif MatchesAny(msg, FAIL_PATTERNS) then
                 if resetFailPending then return end
@@ -2131,7 +2022,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 C_Timer.After(0.3, function()
                     resetFailPending = false
                     local channel = IsInRaid() and "RAID" or "PARTY"
-                    SendChatMessage("[EUI] Reset failed - there are still players inside the instance.", channel)
+                    C_ChatInfo.SendChatMessage("[EUI] Reset failed - there are still players inside the instance.", channel)
                 end)
             end
         end)

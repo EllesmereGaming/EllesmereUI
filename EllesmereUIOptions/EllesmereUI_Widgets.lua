@@ -626,7 +626,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                         flyoutTimer = nil
                     end)
                 end
-                local fH = 4
+                local fH, fW = 4, menuW
                 -- This populate's rows (the flyout also keeps idle rows an earlier populate parked).
                 local flyRows = {}
                 item._flyoutRows = flyRows
@@ -644,6 +644,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                         cLbl:SetPoint('LEFT', ci, 'LEFT', 10, 0)
                         cLbl:SetText(TR(childText))
                         cLbl:SetJustifyH('LEFT')
+                        local rowW = cLbl:GetStringWidth() + 22
                         if sn.icon then
                             local iconPath, l, r, t, b = sn.icon(childKey)
                             if iconPath then
@@ -653,8 +654,10 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                                 ico:SetTexture(iconPath)
                                 if l then ico:SetTexCoord(l, r, t, b) end
                                 cLbl:SetPoint('RIGHT', ico, 'LEFT', -4, 0)
+                                rowW = rowW + icoSz + 4
                             end
                         end
+                        if rowW > fW then fW = rowW end
                         local cHl = SolidTex(ci, 'ARTWORK', 1, 1, 1, 1); cHl:SetAlpha(0)
                         cHl:SetAllPoints()
                         ci._key = childKey
@@ -696,13 +699,17 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                         fH = fH + (sn.itemHeight or 26)
                     end
                 end
-                flyout:SetHeight(fH + 4)
+                flyout:SetSize(fW, fH + 4)
 
                 item:SetScript('OnEnter', function()
                     iLbl:SetTextColor(1, 1, 1, 1)
                     arrowTex:SetAlpha(1)
                     iHl:SetAlpha(DD_ITEM_HL_A)
                     if flyoutTimer then flyoutTimer:Cancel(); flyoutTimer = nil end
+                    -- Close the previous flyout now; its delayed close would leave it under this one.
+                    for _, fo in ipairs(menu._flyouts) do
+                        if fo ~= flyout then fo:Hide() end
+                    end
                     flyout:ClearAllPoints()
                     flyout:SetPoint('TOPLEFT', item, 'TOPRIGHT', 2, 0)
                     flyout:Show()
@@ -1966,8 +1973,9 @@ EllesmereUI.DD_STYLE = {
     ITEM_HL_A = DD_ITEM_HL_A, ITEM_SEL_A = DD_ITEM_SEL_A,
 }
 
--- Section header  (e.g. "APPEARANCE", "KEY BINDING TEXT")
-function WidgetFactory:SectionHeader(parent, text, yOffset)
+-- Section header  (e.g. "APPEARANCE", "KEY BINDING TEXT"). tooltip (optional):
+-- shown while the title is hovered.
+function WidgetFactory:SectionHeader(parent, text, yOffset, tooltip)
     local splitParent = parent._splitParent
     local fullW = (splitParent or parent):GetWidth() - CONTENT_PAD * 2
     local frame = CreateFrame("Frame", nil, parent)
@@ -1978,6 +1986,17 @@ function WidgetFactory:SectionHeader(parent, text, yOffset)
     PP.Point(label, "BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 8)
     label:SetText(EllesmereUI.L(text))
     frame._label = label
+
+    -- Title tooltip: a hit frame round the title, as a row label's; clicks
+    -- pass through.
+    if tooltip then
+        local hit = CreateFrame("Frame", nil, frame)
+        hit:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
+        hit:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
+        hit:SetScript("OnEnter", function() ShowWidgetTooltip(label, tooltip) end)
+        hit:SetScript("OnLeave", function() HideWidgetTooltip() end)
+        hit:SetMouseClickEnabled(false)
+    end
 
     -- Separator spans full width when in split mode
     local sepParent = splitParent or frame
@@ -2577,18 +2596,23 @@ EllesmereUI.DismissPreviewHint = function(hint, headerBaseH, hintH, startY)
     local g = PoolGen(hint)
     ticker = C_Timer.NewTicker(0.016, function()
         if PoolGen(hint) ~= g then ticker:Cancel(); return end
+        -- The hint's page was left mid-fade (the panel is up and the hint is not
+        -- visible): the hint still fades out, but the header showing now is
+        -- another page's and keeps its height (the hint's page sets its own on
+        -- return). A closed or folded panel shows no other page meanwhile.
+        local ownHeader = hint:IsVisible() or not EllesmereUI:IsShown() or EllesmereUI._panelCollapsed
         steps = steps + 1
         local progress = steps * 0.016 / 0.3
         if progress >= 1 then
             hint:Hide(); ticker:Cancel()
-            if headerBaseH > 0 then EllesmereUI:SetContentHeaderHeightSilent(headerBaseH) end
+            if ownHeader and headerBaseH > 0 then EllesmereUI:SetContentHeaderHeightSilent(headerBaseH) end
             return
         end
         hint:SetAlpha(0.45 * (1 - progress))
         hint:ClearAllPoints()
         hint:SetPoint("BOTTOM", anchorTo, "BOTTOM", 0, y0 + progress * 12)
         local hh = startHeaderH - hintH * progress
-        if hh > 0 then EllesmereUI:SetContentHeaderHeightSilent(hh) end
+        if ownHeader and hh > 0 then EllesmereUI:SetContentHeaderHeightSilent(hh) end
     end)
 end
 

@@ -2126,7 +2126,7 @@ do
         "inspectShowItemLevel", "inspectShowUpgradeTrack",
         -- LFG / Merchant cards
         "lfgRememberRoles",
-        "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel",
+        "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel", "merchantBulkBuy",
         -- Friends List card (WoW Forever: the friend tiles and auto-accept)
         "friendsListCard",
     })
@@ -2385,6 +2385,8 @@ end
 --    goldLedger           cross-character and warband gold record
 --    qolUpgradeCalcChars  Upgrade Calculator per-character cache
 --    xpBarChars           XP bar session clock, XP rate and time this level
+--    questWatchChars      WoW Forever quest tools: quests each character's
+--                         filters and auto-track moved
 --  (The upgrade-calc and gold blobs are what PRIVATE_ADDON_KEYS strips from
 --  normal strings, at their current top-level homes. The three legacy gold
 --  keys stay listed: until Bags or DataBars loads and absorbs them they are
@@ -2408,6 +2410,8 @@ local FULL_EXPORT_EXCLUDED = {
     gfxBackup             = true,
     friendlyPlateVisSaved = true,
     chatTellMuted         = true,
+    groupFinderApps       = true,
+    questWatchChars       = true,
 }
 
 --- Builds a full-account export string, or nil.
@@ -2478,6 +2482,9 @@ function EllesmereUI.ImportFullAccountData(payload)
     if not EllesmereUI.IsFullAccountPayload(payload) then return false end
     local data = payload.data
     if type(data) ~= "table" or not EllesmereUIDB then return false end
+    -- The reload is asked for first in the click (RequestReload); the client
+    -- reloads only once this function has finished, so everything below lands.
+    EllesmereUI.RequestReload(EllesmereUI.L("Profile Imported"), EllesmereUI.ImportReloadMessage(payload))
     local activeName = data.activeProfile or payload.profileName or "Default"
 
     -- 1) Account globals, wholesale. profiles/profileOrder/activeProfile are
@@ -2580,8 +2587,6 @@ function EllesmereUI.ImportFullAccountData(payload)
             end
         end
     end
-
-    EllesmereUI.RequestReload(EllesmereUI.L("Profile Imported"), EllesmereUI.ImportReloadMessage(payload))
     return true
 end
 
@@ -4613,8 +4618,9 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     end)
 
     -- Escape to close
-    popup:EnableKeyboard(true)
+    EllesmereUI.PopupTakeKeys(popup, dimmer)
     popup:SetScript("OnKeyDown", function(self, key)
+        if InCombatLockdown() then return end
         if key == "ESCAPE" then
             self:SetPropagateKeyboardInput(false)
             dimmer:Hide()
@@ -4700,10 +4706,20 @@ function EllesmereUI.ApplyPresetEditMode(layoutString, layoutName)
     -- then, so newer per-system options (e.g. the Tracked Bars "Display Mode",
     -- "Bar Width", "Show Timer", and crucially "Hide When Inactive") would be
     -- absent and never appear in Edit Mode. Reconciling adds them with their modern
-    -- defaults so the imported layout behaves like a natively-created one.
-    if mgr.ReconcileWithModern then
-        mgr:ReconcileWithModern(imported)
+    -- defaults so the imported layout behaves like a natively-created one. WoW
+    -- Forever's Gamepad interface style layouts reconcile with that style's own
+    -- systems: the modern list removes every system only it has (retail has
+    -- neither the style nor its enum).
+    local styles = Enum.InputDeviceInterfaceType
+    local gamepad = styles and styles.Gamepad
+    local function Reconcile(layout)
+        if gamepad and layout.interfaceStyle == gamepad then
+            if mgr.ReconcileWithGamepad then mgr:ReconcileWithGamepad(layout) end
+        elseif mgr.ReconcileWithModern then
+            mgr:ReconcileWithModern(layout)
+        end
     end
+    Reconcile(imported)
 
     -- C_EditMode.GetLayouts returns only the saved layouts; the live game keeps
     -- Blizzard's built-in presets ahead of them, and SaveLayouts / SetActiveLayout
@@ -4712,9 +4728,7 @@ function EllesmereUI.ApplyPresetEditMode(layoutString, layoutName)
     local info, presetCount = EllesmereUI.EditModeLayoutsForSave()
     if not info then return false end
     local layouts = info.layouts
-    if mgr.ReconcileWithModern then
-        for i = presetCount + 1, #layouts do mgr:ReconcileWithModern(layouts[i]) end
-    end
+    for i = presetCount + 1, #layouts do Reconcile(layouts[i]) end
 
     -- Re-importing a preset should refresh, not duplicate: drop any earlier copy of
     -- our layout. Only the editable (post-preset) range can hold one.

@@ -45,6 +45,16 @@ local GLOW_STYLES = {
     { name = "Blackout",           solidFill = true },
 }
 
+-- Static border styles, picker values outside the STYLES list (see the
+-- Blizzard Border and Blizzard Pandemic Border blocks below).
+local STEALABLE_BORDER = 99
+local PANDEMIC_BORDER  = 98
+
+-- Engine hosts bound to their aura button (G.BindEngineHost): wrapper ->
+-- { button, d }. Kept outside the wrapper's own fields, so the options frame
+-- pool needs no key for it.
+local BOUND = setmetatable({}, { __mode = "k" })
+
 -------------------------------------------------------------------------------
 --  Texture constants
 -------------------------------------------------------------------------------
@@ -771,7 +781,9 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH, opts)
     d.anim:SetDuration(entry.duration or 1.0)
     d.anim:SetFlipBookFrameWidth(entry.frameW or 0)
     d.anim:SetFlipBookFrameHeight(entry.frameH or 0)
-    if d.ag:IsPlaying() then d.ag:Stop() end
+    -- Restart. Never asked through IsPlaying: once a bound host's group is
+    -- registered with its aura button, querying its progress throws.
+    d.ag:Stop()
     d.ag:Play()
 
     -- Ants overlay: a non-desaturated duplicate at low alpha for atlas styles
@@ -788,7 +800,7 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH, opts)
         d.antsAnim:SetFlipBookFrameWidth(entry.frameW or 0)
         d.antsAnim:SetFlipBookFrameHeight(entry.frameH or 0)
         d.ants:Show()
-        if d.antsAg:IsPlaying() then d.antsAg:Stop() end
+        d.antsAg:Stop()
         d.antsAg:Play()
     elseif d.ants then
         d.ants:Hide()
@@ -813,7 +825,8 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH, opts)
         d.halo:Hide()
     end
 
-    wrapper:SetScript("OnUpdate", nil)
+    -- The scrub is pointless on a bound host, whose wrapper never had a script.
+    if not BOUND[wrapper] then wrapper:SetScript("OnUpdate", nil) end
 end
 
 local function StopFlipBookGlow(wrapper)
@@ -883,10 +896,13 @@ local function StopAllGlows(wrapper)
     StopFlipBookGlow(wrapper)
     StopSolidFill(wrapper)
     StopAnimatedAnts(wrapper)
-    -- Blizzard Border (EllesmereUI.Glows.STEALABLE_BORDER) is a static texture
-    -- on the same hosts; a stop clears it too.
+    -- Blizzard Border (EllesmereUI.Glows.STEALABLE_BORDER) and Blizzard
+    -- Pandemic Border (PANDEMIC_BORDER) are static textures on the same hosts;
+    -- a stop clears them too.
     local steal = wrapper._euiStealTex
     if steal then steal:Hide() end
+    local pan = wrapper._euiPanTex
+    if pan then pan:Hide() end
     -- StartSpecGlow's change signature describes a glow that is now gone.
     local sig = wrapper._euiSpecSig
     if sig then sig.idx = nil end
@@ -894,7 +910,9 @@ local function StopAllGlows(wrapper)
     -- five Stop* calls above already unregistered this wrapper from the driver.
     -- This clears any stale OnUpdate a pre-migration build may have left on the
     -- wrapper itself (harmless on our own frame; never touches the driver).
-    wrapper:SetScript("OnUpdate", nil)
+    -- A bound host (G.BindEngineHost) never had one. Its groups stay
+    -- registered here: StopGlow hands them back, a restart re-plays them.
+    if not BOUND[wrapper] then wrapper:SetScript("OnUpdate", nil) end
 end
 
 -------------------------------------------------------------------------------
@@ -988,11 +1006,124 @@ local function StartGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
     -- on children of Blizzard viewer frames triggers Layout cascades.
 end
 
+-------------------------------------------------------------------------------
+--  Bound engine hosts (12.1.5): the aura button runs the host's animations.
+--  A group handed to the button's AddAuraShownAnimation is played by Blizzard
+--  when the button starts showing an aura and stopped whenever it has none,
+--  so a glow on a hidden pooled button costs nothing. Our engines still
+--  configure the host exactly as before; a bound host then registers only
+--  the groups the drawn style plays (Blizzard plays every registered group on
+--  each show) and, after a change outside the button's creation window, has
+--  the button re-run its own visibility (the kick, AuraKit's
+--  KickShownAnimations), because a button's shown state is secret: our code
+--  can never tell a hidden button from a shown one. The registrations and
+--  their stamps live in AuraKit (the button's weak bd entry). While auras are
+--  restricted the button subtree refuses every call from our code outside
+--  the creation window: such a start or stop is skipped, its change
+--  signature left unset, and the button's style key re-runs at the lift.
+--  Unbound wrappers (previews, Mythic Timer, cast bars, Action Bars, CDM)
+--  are untouched by all of this.
+-------------------------------------------------------------------------------
+
+-- The groups the style drawn for shared index idx plays on wrapper, written to
+-- out[1..n] (the rest of out cleared); returns n. Mirrors StartEngineGlow's
+-- routing: Pixel (and Blackout or an unknown index, both drawn as Pixel) its
+-- four ants groups, Action Button Glow its Classic twin's flipbook, Auto-Cast
+-- and Shape the Modern loop (flipbook and atlas overlay), an atlas flipbook
+-- both groups, a texture flipbook its one group, the static borders none.
+-- Only groups that exist are listed.
+local function EngineGroupsInto(wrapper, idx, out)
+    local n = 0
+    idx = tonumber(idx) or 1
+    if idx ~= STEALABLE_BORDER and idx ~= PANDEMIC_BORDER then
+        if idx < 1 or idx > #GLOW_STYLES or GLOW_STYLES[idx].solidFill then idx = 1 end
+        local entry = GLOW_STYLES[idx]
+        if entry.procedural then
+            local a = wrapper._euiAnimAnts
+            if a then
+                for i = 1, 4 do out[i] = a.groups[i] end
+                n = 4
+            end
+        else
+            if entry.buttonGlow then
+                entry = GLOW_STYLES[7]
+            elseif entry.autocast or entry.shapeGlow then
+                entry = GLOW_STYLES[6]
+            end
+            local f = wrapper._euiFlipData
+            if f then
+                n = 1
+                out[1] = f.ag
+                if entry.atlas and f.antsAg then
+                    n = 2
+                    out[2] = f.antsAg
+                end
+            end
+        end
+    end
+    for i = n + 1, #out do out[i] = nil end
+    return n
+end
+
+-- Scratch for the wanted groups (read synchronously by the sync below).
+local _bWant = {}
+
+local function _InWant(ag, n)
+    for i = 1, n do
+        if _bWant[i] == ag then return true end
+    end
+    return false
+end
+
+-- True (after deferring the button's style key to the restriction lift) when
+-- the bound host's button refuses our calls right now.
+local function BoundBlocked(rec)
+    local AK = EllesmereUI.AuraKit
+    if AK.CanTouchButton(rec.button) then return false end
+    AK.DeferRestyle(rec.d.styleKey)
+    return true
+end
+
+-- Makes the button hold exactly _bWant[1..n] of the wrapper's groups (the
+-- others it holds are removed), then kicks when anything is wanted. n = 0
+-- hands every group back. true when all of it landed.
+local function SyncBoundHost(wrapper, rec, n)
+    local AK = EllesmereUI.AuraKit
+    local button, d = rec.button, rec.d
+    local ok = true
+    local a = wrapper._euiAnimAnts
+    if a then
+        for i = 1, 4 do
+            local ag = a.groups[i]
+            if not _InWant(ag, n) and not AK.SetShownAnimation(button, d, ag, false) then ok = false end
+        end
+    end
+    local f = wrapper._euiFlipData
+    if f then
+        if not _InWant(f.ag, n) and not AK.SetShownAnimation(button, d, f.ag, false) then ok = false end
+        local antsAg = f.antsAg
+        if antsAg and not _InWant(antsAg, n)
+            and not AK.SetShownAnimation(button, d, antsAg, false) then
+            ok = false
+        end
+    end
+    for i = 1, n do
+        if not AK.SetShownAnimation(button, d, _bWant[i], true) then ok = false end
+    end
+    if ok and n > 0 then ok = AK.KickShownAnimations(button, d, _bWant, n) end
+    return ok
+end
+
+-- Bound host: false when the stop had to wait for the restriction lift (the
+-- glow keeps its state until then), else whether its groups were handed back.
 local function StopGlow(wrapper)
     if not wrapper then return end
+    local rec = BOUND[wrapper]
+    if rec and BoundBlocked(rec) then return false end
     StopAllGlows(wrapper)
     wrapper._euiGlowActive = false
     wrapper:SetAlpha(0)
+    if rec then return SyncBoundHost(wrapper, rec, 0) end
 end
 
 -------------------------------------------------------------------------------
@@ -1000,9 +1131,9 @@ end
 --  The 12.1 slot-button subtree is forbidden to addon code outside its
 --  creation window, so the driver-ticked engines above (Lua OnUpdate)
 --  freeze there. This variant reproduces the Pixel Glow march with C-side
---  AnimationGroups: created and started once in the creation window, it
---  animates forever with zero per-frame Lua -- identically in and out of
---  secret contexts.
+--  AnimationGroups: created in the creation window, it animates with zero
+--  per-frame Lua -- identically in and out of secret contexts (on a bound
+--  host only while its button shows an aura).
 -------------------------------------------------------------------------------
 local ANIM_MASK_TEX = [[Interface\Buttons\WHITE8X8]]
 
@@ -1192,6 +1323,29 @@ local function RestrictionSafeStyle(idx)
     return idx
 end
 
+-- The public animated ants for direct callers (the Buff Manager's dashed
+-- border): on a bound host (G.BindEngineHost) a start registers the four ants
+-- groups and kicks, a stop hands them back, both skipped and deferred to the
+-- restriction lift while the button refuses our calls (they then return
+-- false). Unbound wrappers run the engine exactly as before.
+local function StartAnimatedAntsPublic(wrapper, ...)
+    local rec = BOUND[wrapper]
+    if not rec then return StartAnimatedAnts(wrapper, ...) end
+    if BoundBlocked(rec) then return false end
+    StartAnimatedAnts(wrapper, ...)
+    return SyncBoundHost(wrapper, rec, EngineGroupsInto(wrapper, 1, _bWant))
+end
+
+local function StopAnimatedAntsPublic(wrapper)
+    local rec = BOUND[wrapper]
+    if not rec then return StopAnimatedAnts(wrapper) end
+    -- Never armed: nothing to stop and nothing registered.
+    if not wrapper._euiAnimAnts then return true end
+    if BoundBlocked(rec) then return false end
+    StopAnimatedAnts(wrapper)
+    return SyncBoundHost(wrapper, rec, 0)
+end
+
 EllesmereUI.Glows = {
     STYLES              = GLOW_STYLES,
 
@@ -1209,8 +1363,8 @@ EllesmereUI.Glows = {
     StopButtonGlow      = StopButtonGlow,
     StartAutoCastShine  = StartAutoCastShine,
     StopAutoCastShine   = StopAutoCastShine,
-    StartAnimatedAnts   = StartAnimatedAnts,
-    StopAnimatedAnts    = StopAnimatedAnts,
+    StartAnimatedAnts   = StartAnimatedAntsPublic,
+    StopAnimatedAnts    = StopAnimatedAntsPublic,
     StartShapeGlow      = StartShapeGlow,
     StopShapeGlow       = StopShapeGlow,
     StartFlipBookGlow   = StartFlipBookGlow,
@@ -1235,7 +1389,7 @@ do
     local TEX = "Interface\\TargetingFrame\\UI-TargetingFrame-Stealable"
     -- Blizzard draws it 24 px on a 21 px buff icon.
     local SCALE = 24 / 21
-    G.STEALABLE_BORDER = 99
+    G.STEALABLE_BORDER = STEALABLE_BORDER
 
     function G.EnsureStealableBorder(host)
         local tex = host._euiStealTex
@@ -1268,6 +1422,52 @@ do
         -- StartSpecGlow's change check must not skip showing it again.
         local s = host and host._euiSpecSig
         if s and s.idx == G.STEALABLE_BORDER then s.idx = nil end
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Blizzard Pandemic Border: the Cooldown Manager's own pandemic art, drawn
+--  static round an icon, outset a fifth of the icon so it covers the icon's
+--  square corners. Untinted (it always shows Blizzard's own look), no driver
+--  and no animation, so like the Blizzard Border it renders the same in and
+--  out of restricted content and costs nothing per frame. Its picker value
+--  sits outside the STYLES list. The texture is made on first use (or by
+--  PrewarmEngineHost); Show/Hide then only re-anchor and toggle it.
+-------------------------------------------------------------------------------
+do
+    local G = EllesmereUI.Glows
+    local ATLAS = "UI-CooldownManager-PandemicBorder"
+    G.PANDEMIC_BORDER = PANDEMIC_BORDER
+
+    function G.EnsurePandemicBorder(host)
+        local tex = host._euiPanTex
+        if not tex then
+            tex = host:CreateTexture(nil, "ARTWORK")
+            tex:SetAtlas(ATLAS)
+            tex:Hide()
+            host._euiPanTex = tex
+        end
+        return tex
+    end
+
+    -- w/h: the icon's size (the host covers the icon).
+    function G.ShowPandemicBorder(host, w, h)
+        local tex = G.EnsurePandemicBorder(host)
+        w = w or 24
+        h = h or w
+        local out = floor(min(w, h) * 0.2 + 0.5)
+        tex:ClearAllPoints()
+        tex:SetPoint("TOPLEFT", host, "TOPLEFT", -out, out)
+        tex:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", out, -out)
+        tex:Show()
+    end
+
+    function G.HidePandemicBorder(host)
+        local tex = host and host._euiPanTex
+        if tex then tex:Hide() end
+        -- StartSpecGlow's change check must not skip showing it again.
+        local s = host and host._euiSpecSig
+        if s and s.idx == PANDEMIC_BORDER then s.idx = nil end
     end
 end
 
@@ -1345,8 +1545,8 @@ do
     -- Shared index -> renderable shared index, plus whether it had to change.
     function G.ResolveStyle(idx, host, excludes)
         idx = tonumber(idx) or 1
-        -- Blizzard Border is a plain texture: every host can show it.
-        if idx == G.STEALABLE_BORDER then return idx, false end
+        -- The two static borders are plain textures: every host can show them.
+        if idx == STEALABLE_BORDER or idx == PANDEMIC_BORDER then return idx, false end
         if idx < 1 or idx > #GLOW_STYLES then idx = 1 end
         local caps = G.HOSTS[host or "icon"] or G.HOSTS.icon
         if caps[idx] and not (excludes and excludes[idx]) then return idx, false end
@@ -1448,14 +1648,25 @@ do
     --          borderPath, shapeMask, anchorFrame, panel } (optional, read in this call)
     -- Restarts only when something changed; returns the rendered shared index
     -- and whether it was converted from the requested one.
+    -- A bound host (G.BindEngineHost) always draws as an engine host, then
+    -- makes its button hold exactly the groups the drawn style plays and kicks
+    -- (see the bound engine hosts note above StopGlow). The change signature
+    -- is stored only once all of that landed. While its button refuses our
+    -- calls (auras restricted, outside the creation window) a call that would
+    -- change anything returns nothing and defers the button's style key to
+    -- the restriction lift; an unchanged glow still returns at once.
     function G.StartSpecGlow(wrapper, spec, w, h, host, extra)
         if not (wrapper and spec) then return end
         local idx, converted = G.ResolveStyle(spec.style, host, spec.excludes)
         w = w or 36; h = h or w
         local s = wrapper._euiSpecSig
-        -- Blizzard Border: no glow, no parameters; nil color = Blizzard's art.
-        if idx == G.STEALABLE_BORDER then
-            local r, g, b = spec.r, spec.g, spec.b
+        local rec = BOUND[wrapper]
+        -- The static borders: no glow, no parameters. Blizzard Border: nil
+        -- color = Blizzard's art. Blizzard Pandemic Border: always untinted.
+        if idx == STEALABLE_BORDER or idx == PANDEMIC_BORDER then
+            local r, g, b
+            if idx == STEALABLE_BORDER then r, g, b = spec.r, spec.g, spec.b end
+            if rec and BoundBlocked(rec) then return end
             -- StopGlow leaves the host at alpha 0 and a caller may park it
             -- there, so the alpha is re-asserted even when nothing changed.
             wrapper:SetAlpha(1)
@@ -1464,21 +1675,36 @@ do
                 return idx, false
             end
             -- Clear the flag too (StopAllGlows keeps it), so later calls skip the teardown.
-            if wrapper._euiGlowActive then StopAllGlows(wrapper); wrapper._euiGlowActive = false end
-            G.ShowStealableBorder(wrapper, w, h, r, g, b)
+            if wrapper._euiGlowActive then
+                StopAllGlows(wrapper)
+                wrapper._euiGlowActive = false
+            else
+                -- From the other static border: only its texture can be up.
+                local other = (idx == STEALABLE_BORDER) and wrapper._euiPanTex or wrapper._euiStealTex
+                if other then other:Hide() end
+                if s then s.idx = nil end
+            end
+            if idx == STEALABLE_BORDER then
+                G.ShowStealableBorder(wrapper, w, h, r, g, b)
+            else
+                G.ShowPandemicBorder(wrapper, w, h)
+            end
+            -- A static border plays no group: a bound host hands them back.
+            if rec and not SyncBoundHost(wrapper, rec, 0) then return idx, false end
             if not s then s = {}; wrapper._euiSpecSig = s end
             s.idx, s.host, s.w, s.h, s.r, s.g, s.b = idx, host, w, h, r, g, b
             return idx, false
         end
-        -- A shown Blizzard Border needs no separate hide: every start below
+        -- A shown static border needs no separate hide: every start below
         -- runs StopAllGlows first, which hides it and clears the signature.
+        local engineHost = (host == "engine") or rec ~= nil
         local entry = GLOW_STYLES[idx]
         local r, g, b = spec.r, spec.g, spec.b
         local isFlip = not (entry.procedural or entry.buttonGlow or entry.autocast or entry.shapeGlow)
         -- Default look: FlipBooks stay untinted (nil). The engine-hosted ABG
         -- twin takes nil too (white ants, gold halo); everything else is gold.
         if r == nil and not isFlip
-           and not (host == "engine" and entry.buttonGlow) then
+           and not (engineHost and entry.buttonGlow) then
             r, g, b = DEF_R, DEF_G, DEF_B
         end
         local N, th, period = spec.lines or 8, spec.thickness or 2, spec.speed or 4
@@ -1499,6 +1725,7 @@ do
            and s.mask == mask and s.maskPath == maskPath and s.shapeMask == shapeMask then
             return idx, converted
         end
+        if rec and BoundBlocked(rec) then return end
 
         local o = _opts
         o.N, o.th, o.period = N, th, period
@@ -1515,10 +1742,15 @@ do
         o.borderPath  = extra and extra.borderPath or nil
         o.shapeMask   = shapeMask
         o.anchorFrame = extra and extra.anchorFrame or nil
-        if host == "engine" then
+        if engineHost then
             StartEngineGlow(wrapper, idx, w, r, g, b, o, h)
         else
             StartGlow(wrapper, idx, w, r, g, b, o, h)
+        end
+        -- The start's StopAllGlows left the signature unset, so a failed
+        -- registration retries on the next call (at the lift when deferred).
+        if rec and not SyncBoundHost(wrapper, rec, EngineGroupsInto(wrapper, idx, _bWant)) then
+            return idx, converted
         end
 
         -- Stored after the start: StartGlow's StopAllGlows invalidates it.
@@ -1538,15 +1770,56 @@ do
     -- played here). need = nil creates every family; else a table naming what
     -- the site can draw: ants (Pixel's animated ants and their background
     -- strips), flip (the FlipBook styles, with the atlas ants overlay and
-    -- ABG's halo), stealable (the Blizzard Border texture). Pass a file-scope
-    -- constant. w, h stay for call compatibility (creation needs no size).
-    -- Repeat calls are free: each family's data table appears only once its
-    -- regions exist.
+    -- ABG's halo), stealable (the Blizzard Border texture), pandemic (the
+    -- Blizzard Pandemic Border texture). Pass a file-scope constant. w, h
+    -- stay for call compatibility (creation needs no size). Repeat calls are
+    -- free: each family's data table appears only once its regions exist.
     function G.PrewarmEngineHost(wrapper, w, h, need)
         if not wrapper then return end
         if not need or need.ants then _EnsureAnimAnts(wrapper) end
         if not need or need.flip then _EnsureFlip(wrapper, true, true) end
         if not need or need.stealable then G.EnsureStealableBorder(wrapper) end
+        if not need or need.pandemic then G.EnsurePandemicBorder(wrapper) end
+    end
+
+    -- Binds an engine host to the aura button it sits on, so the button runs
+    -- the host's animations (see the bound engine hosts note above StopGlow).
+    -- d is the button's AuraKit data (the d its initializer and applyExtra
+    -- receive). Call it once, at host creation, right after PrewarmEngineHost;
+    -- repeat calls are free. kickIcon: for a bare button (style.noRegions)
+    -- whose module registered an icon texture of its own with button:SetIcon,
+    -- that texture (EllesmereUI.AuraKit.EnsureKickIcon); a bare button with no
+    -- icon gets a hidden one on its first kick. Returns true when bound;
+    -- false when the button cannot run animations itself (no
+    -- AddAuraShownAnimation: WoW Forever), and the caller keeps its unbound
+    -- path. A glow already running on the host restarts through the next
+    -- StartSpecGlow, which registers it.
+    function G.BindEngineHost(wrapper, button, d, kickIcon)
+        if not (wrapper and button and d) then return false end
+        local AK = EllesmereUI.AuraKit
+        local rec = BOUND[wrapper]
+        if not rec then
+            if not (AK and AK.CanRunAnimations(button)) then return false end
+            rec = { button = button, d = d }
+            BOUND[wrapper] = rec
+            local s = wrapper._euiSpecSig
+            if s then s.idx = nil end
+        end
+        if kickIcon then AK.EnsureKickIcon(button, d, kickIcon) end
+        return true
+    end
+
+    function G.IsEngineHostBound(wrapper)
+        return wrapper ~= nil and BOUND[wrapper] ~= nil
+    end
+
+    -- The groups shared style idx (as ResolveStyle returned it) plays on an
+    -- engine host, in out[1..n] (the rest of out cleared; pass a reused
+    -- table); returns n. A static border, or a family the host has no regions
+    -- for yet, lists none.
+    function G.EngineGroups(wrapper, idx, out)
+        if not (wrapper and out) then return 0 end
+        return EngineGroupsInto(wrapper, idx, out)
     end
 end
 

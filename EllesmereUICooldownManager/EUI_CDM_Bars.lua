@@ -1523,6 +1523,19 @@ end
 -- close the gap. Deferred to a clean execution context: callers run inside SetDesaturated hooks/
 -- the Fake-Active poll, where LayoutCDMBar's SetSize/SetPoint could propagate taint (same pattern
 -- as the _visHidden relayout in _CDMApplyVisibility). Coalesced per bar; steady-state calls return immediately.
+ns._cdShiftLayoutPending = {}
+function ns.SetCdStateShiftHidden(fc, shiftHidden)
+    shiftHidden = shiftHidden or false
+    if (fc._cdStateShiftHidden or false) == shiftHidden then return end
+    fc._cdStateShiftHidden = shiftHidden
+    -- Overflow-diverted frames render on the target bar, so the gap-close relayout must hit the
+    -- bar the frame is actually laid out on. Normally unreachable for diverted frames (Phase 3b's no-op rule), but a one-reanchor window exists after a shift effect is first configured.
+    ns.QueueShiftLayout(fc._overflowLayoutBar or fc.barKey)
+end
+
+-- The relayout a layout-dropped icon needs when it joins or leaves its bar's
+-- layout without the bar's icon list changing (the reanchor pass lays a bar out
+-- only when that list changes). One pass per bar on the next frame.
 --
 -- Growth-edge preservation is LOCAL to this relayout call: capture the fixed growth edge before
 -- LayoutCDMBar and, if the resize moved it, translate the frame back through whatever point it
@@ -1531,14 +1544,7 @@ end
 -- growth edge (delta 0, frame untouched); this only corrects bars whose point is center/corner-
 -- based at that moment (anchored bars mid-cascade, first-row corner pins, legacy CENTER
 -- positions). Anchored bars still get their deferred anchor batch reapply afterwards (OnSizeChanged fired during LayoutCDMBar), which remains authoritative.
-ns._cdShiftLayoutPending = {}
-function ns.SetCdStateShiftHidden(fc, shiftHidden)
-    shiftHidden = shiftHidden or false
-    if (fc._cdStateShiftHidden or false) == shiftHidden then return end
-    fc._cdStateShiftHidden = shiftHidden
-    -- Overflow-diverted frames render on the target bar, so the gap-close relayout must hit the
-    -- bar the frame is actually laid out on. Normally unreachable for diverted frames (Phase 3b's no-op rule), but a one-reanchor window exists after a shift effect is first configured.
-    local bk = fc._overflowLayoutBar or fc.barKey
+function ns.QueueShiftLayout(bk)
     if not bk or ns._cdShiftLayoutPending[bk] then return end
     ns._cdShiftLayoutPending[bk] = true
     C_Timer.After(0, function()
@@ -1638,11 +1644,14 @@ local function ApplyCDMTooltipState(barKey)
             for i = 1, #icons do
                 local ic = icons[i]
                 if ic and ic.EnableMouseMotion then
-                    -- Invisible placeholders and Empty Slots are excluded even with
-                    -- tooltips on: a slot with no art has nothing to hover, so
-                    -- capturing here would only take mouseover away from whatever
-                    -- the bar sits over.
+                    -- Invisible placeholders, Empty Slots and Show When Missing
+                    -- icons hidden while active are excluded even with tooltips
+                    -- on: a slot with no art has nothing to hover, so capturing
+                    -- here would only take mouseover away from whatever the bar
+                    -- sits over.
+                    local sfc = _ecmeFC[ic]
                     ic:EnableMouseMotion(wantHover and not ic._isEmptySlotFrame
+                        and not (sfc and sfc._missingActiveHidden)
                         and not IsPlaceholderRenderHidden(ic, bd))
                 end
             end

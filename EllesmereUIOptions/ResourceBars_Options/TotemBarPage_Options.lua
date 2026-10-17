@@ -8,6 +8,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUIResourceBars"]
 if not ns then return end  -- module disabled: no options page
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 -- One totem bar section. S: title, key (the profile table), unlockKey, off()
 -- (the section's controls grey while it returns true) with its disabled
@@ -270,7 +274,7 @@ end
 -- Totem Bar options page
 function ns.ERB_BuildTotemBarPage(pageName, parent, yOffset)
     local env = ns._ERB_OptEnv
-    local DB, PP, _clickMappings = env.DB, env.PP, env._clickMappings
+    local DB, PP = env.DB, env.PP
     local W = EllesmereUI.Widgets
     local y = yOffset
     local _, h
@@ -279,11 +283,6 @@ function ns.ERB_BuildTotemBarPage(pageName, parent, yOffset)
     parent._showRowDivider = true
 
     EllesmereUI:HideContentHeader()
-
-    -- Shared live table; never wiped from a hidden pre-build (see the matching guard in BuildBarDisplayPage).
-    if not EllesmereUI._prebuilding then
-        wipe(_clickMappings)
-    end
 
     -- Blizzard's active totems (every class list). On WoW Forever it is the first
     -- of two totem bar sections.

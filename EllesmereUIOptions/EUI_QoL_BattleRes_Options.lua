@@ -6,6 +6,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 
 if not EllesmereUI._ModuleNS["EllesmereUIQoL"] then return end  -- module disabled: no options page
 
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local function DB()
     local fn = _G._EUI_BattleRes_DB
     return fn and fn() or nil
@@ -145,7 +150,7 @@ local function BuildBattleResPage(pageName, parent, yOffset)
     if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
     parent._showRowDivider = true
 
-    -- ── BATTLE RES ────────────────────────────────────────────────────
+    -- -- BATTLE RES ----------------------------------------------------
     _, h = W:SectionHeader(parent, "BATTLE RES", y); y = y - h
 
     -- Enable + Icon Size

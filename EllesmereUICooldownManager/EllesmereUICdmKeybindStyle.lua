@@ -4,6 +4,10 @@ local _, ns = ...
 -- Shared by live icons and the options preview. No events, hooks or polling.
 -- Decorations belong to EUI's text overlay, never to a Blizzard frame.
 local PP = EllesmereUI.PP
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot, so nothing written to that slot later reaches the live icons.
+local POOL = EllesmereUI._Pool
 local badges
 local anchors = {
     TOPLEFT = true, TOP = true, TOPRIGHT = true,
@@ -23,7 +27,9 @@ local function StyleBadge(text, bd, scale)
     if not badge then
         if not on then return nil end
         if not badges then badges = setmetatable({}, { __mode = "k" }) end
-        local f = CreateFrame("Frame", nil, text:GetParent())
+        -- Pooled with the options preview's text overlay (an options page pool
+        -- host); the plain CreateFrame on a live icon.
+        local f = POOL.CreateFrame("Frame", nil, text:GetParent())
         local fill = f:CreateTexture(nil, "BACKGROUND")
         fill:SetAllPoints()
         badge = { frame = f, fill = fill, rim = PP.CreateBorder(f, 1, 1, 1, 1, 1) }
@@ -75,6 +81,12 @@ local function RefreshBadge(text, bd, scale)
     if badge then ShowBadge(text, badge) end
 end
 ns.RefreshCDMKeybindBadge = RefreshBadge
+
+-- The options preview dresses a pooled label again for a new preview: its
+-- badge of the previous dress went with that dress, so it is built anew.
+function ns.CdmForgetKeybindBadge(text)
+    if badges then badges[text] = nil end
+end
 
 -- Visibility pass for the keybind apply paths (every CDM icon, the Rotation
 -- Assist Icon). It restyles only when the label now belongs to other

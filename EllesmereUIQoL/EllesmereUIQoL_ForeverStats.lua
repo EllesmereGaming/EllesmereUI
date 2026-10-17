@@ -44,6 +44,11 @@ local GROUPS = {
         -- Base and ammo haste, as the character pane adds them.
         S("rhaste", "Ranged Haste", "R.Haste", HUE.haste, PCT, function() return Sum(GetRangedHaste()) end),
         S("mhit",   "Melee Hit",    "Hit",     HUE.hit, PCT, GetHitModifier),
+        -- Off-hand hit, as the character pane shows it ("?" on a client
+        -- without the getter).
+        S("ohit",   "Off-hand Hit", "OH Hit",  HUE.hit, PCT, function()
+            if GetOffhandHitModifier then return GetOffhandHitModifier() end
+        end),
     } },
     { title = "Spell", stats = {
         -- The highest school's bonus, so school-specific gear counts.

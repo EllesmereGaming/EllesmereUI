@@ -693,11 +693,14 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         -- lands with this event, after the cast arm already read the old count.
         -- Re-read the shown non-pot item counts and arm only on a real change.
         -- A count crossing zero also re-runs the Hide Items if Missing check,
-        -- which otherwise only bag-content edges drive.
+        -- which otherwise only bag-content edges drive. Only items held now:
+        -- nothing held has no charges to change (gaining one is a bag-content
+        -- edge), and this event fires on nearly every ability press, where an
+        -- unheld family preset would count every one of its ranks.
         local hit, crossed
         for f in pairs(_pcActive) do
             if f._isItemPresetFrame and f._presetItemID and not f._displayItemID
-               and f._cachedTotal and f._countArm == false then
+               and f._cachedTotal and f._cachedTotal > 0 and f._countArm == false then
                 local old, n = f._cachedTotal, ns._ReadItemPresetCount(f)
                 if n ~= old then
                     f._countArm = true
@@ -913,7 +916,7 @@ end
 ns.QueueCustomBuffUpdate = QueueCustomBuffUpdate
 
 -- Bloodlust on a Custom Auras (icon) bar reuses the potion-preset machinery:
--- the Sated-debuff rising edge (detected in CdmBuffBars) emulates a "cast" of
+-- the Sated-debuff rising edge (detected in EUI_CDM_BuffBarPresets.lua) emulates a "cast" of
 -- the lust buff, so the existing self-timed icon + reverse swipe renders it with
 -- no duplicate display code. Both faction IDs are flagged so a profile shared
 -- across factions still resolves (only the bar's own ID is actually tracked).
@@ -948,7 +951,7 @@ function ns.AnyCustomAuraLust()
 end
 
 -- Time Spiral "Free Move" preset: same emulated-cast trick as Bloodlust. The
--- glow-armed rising edge (CdmBuffBars _ensureTimeSpiralListener) calls this to
+-- glow-armed rising edge (EUI_CDM_BuffBarPresets.lua _ensureTimeSpiralListener) calls this to
 -- mark spell 374968 as "just cast" so the existing self-timed-icon path renders
 -- a 10s Custom Auras (icon) display. A no-op for any bar not tracking it.
 function ns.SignalTimeSpiralCast()

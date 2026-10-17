@@ -8,6 +8,32 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUICooldownManager"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page pool (EllesmereUI_FramePool.lua): a frame made under a pool
+-- host (a reused page or header, a kept menu) is handed out again reset to
+-- fresh; anywhere else this is the plain CreateFrame. The bar menu is one kept
+-- frame for the session (PoolKept), dressed again on each open; PoolBegin
+-- hands its rows out again in place when the open menu draws itself again.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolKept, PoolBegin = EllesmereUI._Pool.Kept, EllesmereUI._Pool.Begin
+
+-- Live preview on mount and dismount (skyriding swaps the icons the preview
+-- copies). One event frame for the session, registered only while the CDM
+-- Bars page shows (its page frame's OnShow and OnHide), so nothing listens
+-- while the page is hidden. Only the preview is drawn again: the rows below
+-- it do not change with the mount.
+local mountLive = {}
+function mountLive.OnEvent()
+    local env = ns._CDMO_OptEnv
+    local pv = env and (env.optState._cdmPreview or EllesmereUI._cdmHeaderPreview)
+    if pv and pv:IsVisible() then env.UpdateCDMPreviewAndResize() end
+end
+function mountLive.Arm()
+    mountLive.frame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
+end
+function mountLive.Disarm()
+    mountLive.frame:UnregisterAllEvents()
+end
+
 local function BuildCDMBarsPage(pageName, parent, yOffset)
     local env = ns._CDMO_OptEnv
     local AnyIconAlwaysShowOn, BuildKeybindStyleControls, DB, durationPositionOrder = env.AnyIconAlwaysShowOn, env.BuildKeybindStyleControls, env.DB, env.durationPositionOrder
@@ -438,9 +464,19 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
 
         -- Custom dropdown menu
         local ddMenu
-        local function BuildDDMenu()
-            if ddMenu then ddMenu:Hide(); ddMenu = nil end
-            local menu = CreateFrame("Frame", nil, UIParent)
+        local function BuildDDMenu(redraw)
+            local menu
+            local inPlace = redraw and ddMenu ~= nil
+            if inPlace then
+                -- Drawn again in place (a reorder drop): the open menu keeps
+                -- its frame and hands its rows out again in creation order.
+                menu = ddMenu
+                PoolBegin(menu)
+            else
+                if ddMenu then ddMenu:Hide(); ddMenu = nil end
+                -- One menu frame for the session, dressed again on every open.
+                menu = PoolKept(optState, "cdmBarMenu", "Frame", UIParent)
+            end
             menu:SetFrameStrata("FULLSCREEN_DIALOG")
             menu:SetFrameLevel(300)
             menu:SetClampedToScreen(true)
@@ -671,8 +707,8 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                                 end
                             end
                             -- Re-render in the new order (also re-anchors the
-                            -- dragged row); the rebuilt menu stays open.
-                            BuildDDMenu()
+                            -- dragged row); the redrawn menu stays open.
+                            BuildDDMenu(true)
                         end)
                     end
 
@@ -724,8 +760,10 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                                     if bb.key == "cooldowns" then optState.selectedCDMBarIndex = bi; break end
                                 end
                                 Refresh()
+                                -- Other pages' saved headers name the bars (Bar Glows'
+                                -- target): built again on their next visit. This
+                                -- page's header is built by its own rebuild below.
                                 EllesmereUI:InvalidateContentHeaderCache()
-                                EllesmereUI:SetContentHeader(optState._cdmHeaderBuilder)
                                 EllesmereUI:RefreshPage(true)
                             end,
                         })
@@ -743,8 +781,9 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                                 newName = newName and strtrim(newName) or ""
                                 if newName == "" or newName == oldName then return end
                                 b.name = newName
+                                -- Other pages' saved headers name the bars; this
+                                -- page's header is built by its own rebuild below.
                                 EllesmereUI:InvalidateContentHeaderCache()
-                                EllesmereUI:SetContentHeader(optState._cdmHeaderBuilder)
                                 EllesmereUI:RefreshPage(true)
                                 if ns.RegisterCDMUnlockElements then
                                     ns.RegisterCDMUnlockElements()
@@ -771,8 +810,8 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                 item:SetScript("OnClick", function()
                     menu:Hide()
                     optState.selectedCDMBarIndex = idx
-                    EllesmereUI:InvalidateContentHeaderCache()
-                    EllesmereUI:SetContentHeader(optState._cdmHeaderBuilder)
+                    -- The rebuild builds this page's header with the page,
+                    -- once (no other page's header shows the selection).
                     EllesmereUI:RefreshPage(true)
                 end)
 
@@ -828,8 +867,9 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                         ns.AddCDMBar(bType)
                         optState.selectedCDMBarIndex = #p.cdmBars.bars
                         Refresh()
+                        -- Other pages' saved headers name the bars; this
+                        -- page's header is built by its own rebuild below.
                         EllesmereUI:InvalidateContentHeaderCache()
-                        EllesmereUI:SetContentHeader(optState._cdmHeaderBuilder)
                         EllesmereUI:RefreshPage(true)
                     end)
                 end
@@ -845,7 +885,10 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                     m:Hide()
                 end
             end)
-            menu:HookScript("OnHide", function(m) m:SetScript("OnUpdate", nil) end)
+            -- Hooked once per dress: an in-place redraw keeps the dress's hook.
+            if not inPlace then
+                menu:HookScript("OnHide", function(m) m:SetScript("OnUpdate", nil) end)
+            end
 
             menu:Show()
             ddMenu = menu
@@ -881,17 +924,17 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
     end
     EllesmereUI:SetContentHeader(optState._cdmHeaderBuilder)
 
-    -- Refresh preview icons on mount/dismount (skyriding swaps action bar icons). Skipped
-    -- during a hidden search pre-build for the same reason as the pageListener in BuildBarGlowsPage: OnHide cleanup may never fire for a never-visible wrapper, leaking the listener all session.
+    -- Refresh preview icons on mount/dismount (mountLive above): listening while this page
+    -- shows, from now on and whenever it shows again. Skipped during a hidden search
+    -- pre-build: nothing to preview while indexing.
     if not EllesmereUI._prebuilding then
-        local mountListener = CreateFrame("Frame")
-        mountListener:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
-        mountListener:SetScript("OnEvent", function()
-            EllesmereUI:RefreshPage(true)
-        end)
-        parent:HookScript("OnHide", function()
-            mountListener:UnregisterAllEvents()
-        end)
+        if not mountLive.frame then
+            mountLive.frame = CreateFrame("Frame")
+            mountLive.frame:SetScript("OnEvent", mountLive.OnEvent)
+        end
+        if parent:IsVisible() then mountLive.Arm() end
+        parent:HookScript("OnShow", mountLive.Arm)
+        parent:HookScript("OnHide", mountLive.Disarm)
     end
 
     -------------------------------------------------------------------
@@ -3350,9 +3393,12 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                     setMode = function(mode)
                         local c = RotationBars()
                         if not c or c.rotationAssistStyle == "blizzard" then return end
+                        -- Spec Overrides: the slot this write belongs to, read
+                        -- before the write (as the widget factory does).
+                        local snap = EllesmereUI._SOAttribution(colorRgn)
                         c.rotationAssistColorMode = mode
                         if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
-                        EllesmereUI._NotifySettingWrite(colorRgn)
+                        EllesmereUI._NotifySettingWrite(colorRgn, snap)
                     end,
                     getCustomRGB = function()
                         local c = RotationBars()

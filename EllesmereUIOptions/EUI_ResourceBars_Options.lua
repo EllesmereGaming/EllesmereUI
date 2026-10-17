@@ -139,6 +139,12 @@ initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
 
     if not EllesmereUI or not EllesmereUI.RegisterModule then return end
+    -- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+    -- host are reset and dressed again by the next build instead of made anew;
+    -- elsewhere this is CreateFrame. Captured once, never read through the
+    -- public slot later.
+    local CreateFrame = EllesmereUI._Pool.CreateFrame
+    local PoolGen, PoolKeep = EllesmereUI._Pool.Gen, EllesmereUI._Pool.Keep
     local PP = EllesmereUI.PanelPP
     local THR_BORDER_WHITE = { 1, 1, 1 }  -- Threshold & Hash Lines buttons: default (unconfigured) border tint
 
@@ -176,7 +182,16 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local elapsed = 0
         local ticker
+        -- A frame of the options page pool dressed again mid-animation belongs
+        -- to its new build: the animation stops and leaves it alone.
+        local gen = PoolGen(frame)
         ticker = C_Timer.NewTicker(0.016, function()
+            if PoolGen(frame) ~= gen then
+                ticker:Cancel()
+                local slots = _animTimers[frame]
+                if slots and slots[key] == ticker then slots[key] = nil end
+                return
+            end
             elapsed = elapsed + 0.016
             local t = math.min(elapsed / ANIM_DURATION, 1)
             t = 1 - (1 - t) * (1 - t)  -- ease-out quad
@@ -210,6 +225,33 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function IsPreviewHintDismissed()
         return EllesmereUIDB and EllesmereUIDB.previewHintDismissed
+    end
+
+    -- The preview hint is one font string the Class, Power and Health Bars and
+    -- Cast Bar headers share, each build moving it onto its own header. Under
+    -- page reuse each page keeps a header frame of its own (a frame of the
+    -- options page pool): a build starts with the hint off its own header, as
+    -- the shared header's clear dropped it, and a header shown again from the
+    -- cache takes the hint back from the other page's header (with one shared
+    -- header frame its cache restore already did).
+    local _hintHdr = {}  -- [page] = the header frame that page's preview last built on
+    local _classHdrEmpty -- the Class, Power and Health Bars header last built into its kept frame with nothing to show
+    local function HintBuildStart(page, hdr)
+        _hintHdr[page] = hdr
+        local host = PoolGen(hdr) and _previewHintFS and _previewHintFS:GetParent()
+        if host and host:GetParent() == hdr then host:Hide() end
+    end
+    local function RehomeHint(page, other)
+        local host = _previewHintFS and _previewHintFS:GetParent()
+        local hdr, away = _hintHdr[page], _hintHdr[other]
+        if not (host and hdr and away) or hdr == away then return end
+        if host:GetParent() == away then
+            host:SetParent(hdr)
+            host:SetFrameLevel(hdr:GetFrameLevel() + 1)
+            _previewHintFS:ClearAllPoints()
+            _previewHintFS:SetPoint("BOTTOM", hdr, "BOTTOM", 0, 20)
+        end
+        if host:GetParent() == hdr then host:Show() end
     end
 
     local FONT_PATH = (EllesmereUI.GetFontPath("resourceBars"))
@@ -362,6 +404,18 @@ initFrame:SetScript("OnEvent", function(self)
                         pc._barBg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
                     end
                     UnsnapTex(pc._barBg)
+                    -- Textured Background on the preview's one background, in the colour above.
+                    if p.general.barTextureBg or pc._barBg._erbBgTex then
+                        local br, bgg, bb, ba = sp.bgR, sp.bgG, sp.bgB, sp.bgA
+                        if sp.darkTheme then
+                            br, bgg, bb = EllesmereUI.GetDarkModeBg()
+                            ba = 1
+                        elseif sp.classColored then
+                            br, bgg, bb, ba = pr * 0.3, pg * 0.3, pb * 0.3, 0.5
+                        end
+                        ns.ERB_BgTexture(pc._barBg, p.general.barTextureBg and (sp.fillOpacity or 100) >= 100
+                            and EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, p.general.barTexture, nil), br, bgg, bb, ba)
+                    end
                 end
 
                 if pc._barFill then
@@ -553,6 +607,18 @@ initFrame:SetScript("OnEvent", function(self)
                         pip._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
                     end
                     UnsnapTex(pip._bg)
+                    -- Textured Background, as live, in the colour above.
+                    if p.general.barTextureBg or pip._bg._erbBgTex then
+                        local br, bgg, bb, ba = sp.bgR, sp.bgG, sp.bgB, sp.bgA
+                        if sp.darkTheme then
+                            br, bgg, bb = EllesmereUI.GetDarkModeBg()
+                            ba = 1
+                        elseif sp.classColored then
+                            br, bgg, bb, ba = pr * 0.5, pg * 0.5, pb * 0.5, 0.5
+                        end
+                        ns.ERB_BgTexture(pip._bg, p.general.barTextureBg and not pvPipBg
+                            and (sp.fillOpacity or 100) >= 100 and EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, p.general.barTexture, nil), br, bgg, bb, ba)
+                    end
 
                     local texKey = p.general.barTexture or "none"
                     local texLookup = _G._ERB_BarTextures or {}
@@ -848,9 +914,12 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Preview Header Builder
     _previewHeaderBuilder = function(hdr, hdrW)
+        HintBuildStart(PAGE_DISPLAY, hdr)
+        _classHdrEmpty = PoolGen(hdr) ~= nil
         local p = DB()
         if not p then return 0 end
         if not HasClassResource() then return 0 end
+        _classHdrEmpty = nil
         _previewBuilding = true
         local _, classFile = UnitClass("player")
 
@@ -989,15 +1058,19 @@ initFrame:SetScript("OnEvent", function(self)
         _headerBaseH = TOTAL_H
         if hintShown then
             if not _previewHintFS then
-                -- Thin non-clipping child frame so the cache system stashes/restores it properly on page switch
-                local hintHost = CreateFrame("Frame", nil, hdr)
+                -- Thin non-clipping child frame so the cache system stashes/restores it properly on page switch.
+                -- Held across builds and pages (module state): out of its header's pool.
+                local hintHost = PoolKeep(CreateFrame("Frame", nil, hdr))
                 hintHost:SetAllPoints(hdr)
                 _previewHintFS = EllesmereUI.MakeFont(hintHost, 11, nil, 1, 1, 1)
                 _previewHintFS:SetAlpha(0.45)
                 _previewHintFS:SetText(EllesmereUI.L("Click elements to scroll to and highlight their options"))
             end
-            _previewHintFS:GetParent():SetParent(hdr)
-            _previewHintFS:GetParent():Show()
+            -- The host is kept across builds: one level above the header, as a new one sits.
+            local host = _previewHintFS:GetParent()
+            host:SetParent(hdr)
+            host:SetFrameLevel(hdr:GetFrameLevel() + 1)
+            host:Show()
             _previewHintFS:ClearAllPoints()
             _previewHintFS:SetPoint("BOTTOM", hdr, "BOTTOM", 0, 20)
             _previewHintFS:Show()
@@ -1042,7 +1115,12 @@ initFrame:SetScript("OnEvent", function(self)
             if region then glowTarget = region end
         end
         PlaySettingGlow = PlaySettingGlow or EllesmereUI.MakeSettingGlow({ color = EllesmereUI.ELLESMERE_GREEN, thickness = function() return PP.Scale(2) end, noSnap = true })
-        C_Timer.After(0.15, function() PlaySettingGlow(glowTarget) end)
+        -- A row the page dressed again meanwhile (a rebuild) shows another setting now: no glow.
+        local gen = PoolGen(glowTarget)
+        C_Timer.After(0.15, function()
+            if PoolGen(glowTarget) ~= gen then return end
+            PlaySettingGlow(glowTarget)
+        end)
     end
 
     CreateHitOverlay = function(element, mappingKey, frameLevelOverride)
@@ -2054,10 +2132,14 @@ initFrame:SetScript("OnEvent", function(self)
             redraw = true
             C_Timer.After(0, RedrawNow)
         end
-        -- One in-place refresh per burst, a frame later, once the bars have seen the change
+        -- One in-place refresh per burst, a frame later, once the bars have seen the change.
+        -- An editor whose page the options page pool dressed again since is over: it
+        -- leaves the watcher instead of painting widgets that now show something else.
         local function FlushRefresh()
             refreshQueued = nil
-            for _, ed in pairs(shown) do ed.refresh() end
+            for page, ed in pairs(shown) do
+                if PoolGen(page) == ed.gen then ed.refresh() else ThrEditorHidden(page) end
+            end
         end
         local function OnEvent(_, event)
             local specSwap = event == "PLAYER_SPECIALIZATION_CHANGED" or event == "ACTIVE_TALENT_GROUP_CHANGED"
@@ -2068,7 +2150,13 @@ initFrame:SetScript("OnEvent", function(self)
                     C_Timer.After(0, FlushRefresh)
                 end
             elseif specSwap then
-                RedrawDisplay()
+                if OnDisplayPage() then
+                    RedrawDisplay()
+                else
+                    -- Away from the page (another page or module, or the panel
+                    -- closed): its next visit builds it for the new spec.
+                    EllesmereUI:InvalidateModulePageCache("EllesmereUIResourceBars")
+                end
             end
         end
         -- Every editor build: makes the watcher once; the page being built is current again
@@ -2081,7 +2169,9 @@ initFrame:SetScript("OnEvent", function(self)
             watch:SetScript("OnEvent", OnEvent)
             -- The selection highlight follows the live theme accent
             EllesmereUI.RegAccent({ type = "callback", fn = function()
-                for _, ed in pairs(shown) do ed.repaint() end
+                for page, ed in pairs(shown) do
+                    if PoolGen(page) == ed.gen then ed.repaint() else ThrEditorHidden(page) end
+                end
             end })
         end
         ThrEditorShown = function(page, ed)
@@ -2343,7 +2433,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local f = GetCurrentKeyBoardFocus()
                 if f and paneBoxes[f] then f:ClearFocus() end
                 RefreshSpecEntries(); RefreshDetail()
-            end, repaint = RepaintRows }
+            end, repaint = RepaintRows, gen = PoolGen(thrPage) }
             thrPage:SetScript("OnShow", function(self) ThrEditorShown(self, ed) end)
             thrPage:SetScript("OnHide", ThrEditorHidden)
             local obg = thrPage:CreateTexture(nil, "BACKGROUND"); obg:SetAllPoints()
@@ -3336,9 +3426,13 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         settingsBtn:SetScript("OnClick", function() ToggleFrame() end)
-        -- Close on page switch or main panel close
+        -- Close on page switch or main panel close. Hidden inside its page's own
+        -- hide, the editor may get no OnHide of its own (the engine's cascade
+        -- order decides), so it also leaves the spec / talent watcher here (a
+        -- second call does nothing).
         settingsBtn:HookScript("OnHide", function()
             if thrPage and thrPage:IsShown() then thrPage:Hide() end
+            if thrPage then ThrEditorHidden(thrPage) end
         end)
 
         return settingsBtn
@@ -3540,6 +3634,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Background
         local texKey = cb.texture
+        -- Textured Background: back to the plain background before a branch repaints it.
+        if pf.bg._erbBgTex then ns.ERB_BgTexture(pf.bg, nil) end
         if blizzKit then
             -- The retail background under WoW Forever too, as live.
             local bgAtlas = ns.ERB_BlizzAtlas("bg")
@@ -3564,6 +3660,10 @@ initFrame:SetScript("OnEvent", function(self)
         else
             pf.bg:SetTexture(nil)
             pf.bg:SetColorTexture(cb.bgR, cb.bgG, cb.bgB, cb.bgA)
+            -- Textured Background: flat while Fill Color is below 100, as live.
+            if cb.textureBg and (cb.fillOpacity or 100) >= 100 then
+                ns.ERB_BgTexture(pf.bg, EllesmereUI.ResolveTexturePath(_G._ERB_CastBarTextures, texKey, nil), cb.bgR, cb.bgG, cb.bgB, cb.bgA)
+            end
             pf.bg:ClearAllPoints()
             pf.bg:SetAllPoints(pf.barFrame)
         end
@@ -3789,6 +3889,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     local _castBarPreviewBuilder = function(hdr, hdrW)
+        HintBuildStart(PAGE_CASTBAR, hdr)
         local p = DB()
         if not p then return 0 end
         local cb = p.castBar
@@ -3862,6 +3963,10 @@ initFrame:SetScript("OnEvent", function(self)
             end
         else
             bg:SetColorTexture(cb.bgR, cb.bgG, cb.bgB, cb.bgA)
+            -- Textured Background, as live (never under the Blizzard Style kit).
+            if cb.textureBg and (cb.fillOpacity or 100) >= 100 and not (ns.ERB_CastBlizz() and not ns.ERB_CastClassic()) then
+                ns.ERB_BgTexture(bg, EllesmereUI.ResolveTexturePath(_G._ERB_CastBarTextures, texKey, nil), cb.bgR, cb.bgG, cb.bgB, cb.bgA)
+            end
         end
         _castBarPreviewFrames.bg = bg
 
@@ -3982,14 +4087,18 @@ initFrame:SetScript("OnEvent", function(self)
         local hintShown = not IsPreviewHintDismissed()
         if hintShown then
             if not _previewHintFS then
-                local hintHost = CreateFrame("Frame", nil, hdr)
+                -- Held across builds and pages (module state): out of its header's pool.
+                local hintHost = PoolKeep(CreateFrame("Frame", nil, hdr))
                 hintHost:SetAllPoints(hdr)
                 _previewHintFS = EllesmereUI.MakeFont(hintHost, 11, nil, 1, 1, 1)
                 _previewHintFS:SetAlpha(0.45)
                 _previewHintFS:SetText(EllesmereUI.L("Click elements to scroll to and highlight their options"))
             end
-            _previewHintFS:GetParent():SetParent(hdr)
-            _previewHintFS:GetParent():Show()
+            -- The host is kept across builds: one level above the header, as a new one sits.
+            local host = _previewHintFS:GetParent()
+            host:SetParent(hdr)
+            host:SetFrameLevel(hdr:GetFrameLevel() + 1)
+            host:Show()
             _previewHintFS:ClearAllPoints()
             _previewHintFS:SetPoint("BOTTOM", hdr, "BOTTOM", 0, 20)
             _previewHintFS:Show()
@@ -4001,10 +4110,43 @@ initFrame:SetScript("OnEvent", function(self)
         return TOTAL_H
     end
 
+    -- Textured Background: the Texture Settings cog row, one per bar kind, shared
+    -- by the module pages and Global Settings > Textures. apply: the page's own
+    -- refresh after a write.
+    local TEXBG_KINDS = {
+        bars = { tbl = "general", key = "barTextureBg", tex = "barTexture",
+                 need = "This option requires a Texture other than None." },
+        cast = { tbl = "castBar", key = "textureBg", tex = "texture", blizz = true,
+                 need = "This option requires a Bar Texture other than None or Blizzard." },
+        gcd  = { tbl = "gcdBar", key = "textureBg", tex = "texture",
+                 need = "This option requires a Bar Texture other than None." },
+    }
+    local function TexBgRowCfg(kind, apply)
+        local k = TEXBG_KINDS[kind]
+        return { type = "toggle", label = "Textured Background",
+            tooltip = "Draws the bar texture on the background too.",
+            disabled = function()
+                local p = DB(); local t = p and p[k.tbl]
+                if not t then return true end
+                -- Split textures: the health and power bars may carry their own.
+                if kind == "bars" and p.splitTex == true then return false end
+                local tx = t[k.tex] or "none"
+                return tx == "none" or (k.blizz == true and tx == "blizzard")
+            end,
+            disabledTooltip = k.need,
+            get = function() local p = DB(); local t = p and p[k.tbl]; return (t and t[k.key]) or false end,
+            set = function(v)
+                local p = DB(); local t = p and p[k.tbl]; if not t then return end
+                t[k.key] = v and true or false
+                apply()
+            end }
+    end
+
     -- Shared helpers for the section and page builders under ResourceBars_Options\
     -- (loaded before this file, read when a page builds). Preview state stays
     -- here; the pages write it through the two setters.
     ns._ERB_OptEnv = {
+        TexBgRowCfg = TexBgRowCfg,
         DB = DB, PP = PP, Refresh = Refresh,
         SmoothRefresh = SmoothRefresh, RefreshHealth = RefreshHealth, RebuildHealth = RebuildHealth,
         AddFormBarBtn = AddFormBarBtn, AddFormTextBtn = AddFormTextBtn,
@@ -4051,6 +4193,14 @@ initFrame:SetScript("OnEvent", function(self)
         end,
         onPageCacheRestore = function(pageName)
             if pageName == PAGE_DISPLAY then
+                -- A kept header that built with nothing to show (no class
+                -- resource) is built again on every visit, as an empty header
+                -- is never cached without page reuse (its spec rows included;
+                -- the build draws its own preview values).
+                if _classHdrEmpty then
+                    EllesmereUI:RefreshPage(true)
+                    return
+                end
                 -- Randomize preview values when switching TO this tab
                 local minPips = math.floor(5 * 0.50 + 0.5)
                 local maxPips = math.floor(5 * 0.75 + 0.5)
@@ -4063,6 +4213,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if dismissed then
                         _previewHintFS:Hide()
                     else
+                        RehomeHint(PAGE_DISPLAY, PAGE_CASTBAR)
                         _previewHintFS:SetAlpha(0.45)
                         _previewHintFS:Show()
                         if _previewHintFS:GetParent() then _previewHintFS:GetParent():Show() end
@@ -4075,6 +4226,8 @@ initFrame:SetScript("OnEvent", function(self)
             elseif pageName == PAGE_CASTBAR then
                 -- Randomize cast bar preview fill each time the tab is opened
                 _castBarPreviewFill = math.random(30, 85) / 100
+                -- Before the preview update: it sizes the header for the hint.
+                if not IsPreviewHintDismissed() then RehomeHint(PAGE_CASTBAR, PAGE_DISPLAY) end
                 UpdateCastBarPreview()
             end
         end,

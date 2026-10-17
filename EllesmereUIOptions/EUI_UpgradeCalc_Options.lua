@@ -7,6 +7,11 @@ if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- no item upgrade sys
 
 if not EllesmereUI._ModuleNS["EllesmereUIQoL"] then return end  -- module disabled: no options page
 
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local function GetAddonDB()
     -- Always delegate to the main module so we read from the same profile
     -- slice that persists via EllesmereUIDB (not the wiped EllesmereUIQoLDB).

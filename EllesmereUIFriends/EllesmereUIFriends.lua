@@ -2100,15 +2100,15 @@ local function SkinFriendsFrame()
                 if InCombatLockdown() then return end
                 local status = GetPlayerStatusName()
                 if status == (FRIENDS_LIST_ONLINE or "Online") then
-                    SendChatMessage("", "AFK")
+                    C_ChatInfo.SendChatMessage("", "AFK")
                     if BNSetAFK then BNSetAFK(true) end
                 elseif status == (AWAY or "Away") then
-                    SendChatMessage("", "AFK")
-                    SendChatMessage("", "DND")
+                    C_ChatInfo.SendChatMessage("", "AFK")
+                    C_ChatInfo.SendChatMessage("", "DND")
                     if BNSetAFK then BNSetAFK(false) end
                     if BNSetDND then BNSetDND(true) end
                 else
-                    SendChatMessage("", "DND")
+                    C_ChatInfo.SendChatMessage("", "DND")
                     if BNSetDND then BNSetDND(false) end
                     if BNSetAFK then BNSetAFK(false) end
                 end

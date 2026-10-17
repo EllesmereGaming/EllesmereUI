@@ -7,6 +7,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  from the indicator config; no per-frame allocs (wipe + reuse).
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot.
+local POOL = EllesmereUI._Pool
 
 local pairs    = pairs
 local ipairs   = ipairs
@@ -65,6 +69,9 @@ tinsert(INDICATOR_TYPE_ORDER, 4, "---")
 -- overlays). UI-only (the runtime side of these settings is inert elsewhere);
 -- callers anchor the returned frame.
 local function BuildPTROverlay(parentFrame, label, fontSize)
+    -- Options page pool (EllesmereUI_FramePool.lua): on a page's pooled tile
+    -- the overlay is handed out again by the next render instead of made anew.
+    local CreateFrame = POOL.CreateFrame
     local ov = CreateFrame("Frame", nil, parentFrame)
     ov._searchIgnore = true -- inline search must never re-anchor/collapse it
     ov:SetFrameLevel(parentFrame:GetFrameLevel() + 60)
@@ -791,6 +798,8 @@ end
 -- styles/levels. Dashed diverges: the host sits on the forbidden slot-button
 -- subtree where driver-ticked ants error outside sanctioned windows, so it uses
 -- the C-side animated engine instead (identical in/out of secret; w/h come from OUR frame -- the engine never measures there).
+-- Where the client can, the host is bound to its slot button (BmEffectInit), which runs the march itself while it shows an aura: a start
+-- or stop the button refuses while auras are restricted re-runs at the lift (the glow engine defers it).
 function ns.BM_ApplyEffectBorder(borderFrame, ind, r, g, b, a, w, h)
     local Glows = EllesmereUI.Glows
     if w and (ind.borderStyle or "solid") == "dashed" then
@@ -890,6 +899,8 @@ end
 
 local function AttachPvIndHover(fr, PP)
     if PP then
+        -- The preview's pooled frames (options page pool): handed out again by the next render.
+        local CreateFrame = POOL.CreateFrame
         local hb = CreateFrame("Frame", nil, fr)
         hb:SetAllPoints()
         hb:SetFrameLevel(fr:GetFrameLevel() + 8)
@@ -906,6 +917,9 @@ end
 
 function ns.BM_CreatePreviewIndicators(f, health, PP)
     if not health then return end
+    -- Options page pool (EllesmereUI_FramePool.lua): on the Buff Manager's kept
+    -- root these are handed out again, in creation order, by the next render.
+    local CreateFrame = POOL.CreateFrame
 
     local iconPool = {}
     -- Pool is larger than per-group caps: every group must still get icons on
@@ -1470,8 +1484,14 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                     end
                                     if fr._bdr and PP then
                                         local ibs = pvHideIcon and 0 or (ind.indBorderSize or 1)
+                                        local pandemicPreview = indType == "icon" and isSelected
+                                            and ind.pandemicBorderEnabled and not pvHideIcon
+                                            and not EllesmereUI.IS_FOREVER
+                                        if pandemicPreview then ibs = ind.pandemicBorderWidth or 2 end
                                         if ibs > 0 then
-                                            local ibc = ind.indBorderColor or { r=0, g=0, b=0 }
+                                            local ibc = pandemicPreview
+                                                and (ind.pandemicBorderColor or { r=1, g=0.2, b=0.2 })
+                                                or ind.indBorderColor or { r=0, g=0, b=0 }
                                             PP.UpdateBorder(fr._bdr, ibs, ibc.r, ibc.g, ibc.b, 1)
                                             fr._bdr:Show()
                                         else
@@ -1555,6 +1575,9 @@ end
 --  the active spec's class), minH (150), noUniformRef. Returns pvFrame,
 --  sectionH, scale.
 function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
+    -- Options page pool (EllesmereUI_FramePool.lua): on a manager page's kept
+    -- root the replica is handed out again, in creation order, by the next render.
+    local CreateFrame = POOL.CreateFrame
     opts = opts or {}
     local PV_SCALE = 1.5
     local rawW = s.frameWidth or 72
@@ -1885,6 +1908,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     if not W then return 0 end
     local db = ns.db
     if not db then return 0 end
+    -- Options page pool (EllesmereUI_FramePool.lua): everything below builds on
+    -- the page's kept root, so the next render hands the same frames out again
+    -- (in creation order) instead of making new ones.
+    local CreateFrame = POOL.CreateFrame
     -- Override-session gate: heals a stale BM layer FIRST (renders the edited group's fork) and reports the end overlay; nil = normal WYSIWYG.
     local bmOverlayState = EllesmereUI.SpecOverrides_BmPagePrelude() or nil
     local PP = EllesmereUI.PanelPP
@@ -2035,13 +2062,17 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     local sidebarW = floor(parentW * 0.28)
     local leftW = parentW - sidebarW
 
-    -- Outer container: parented to scrollFrame, fills entire viewport
-    local outerRoot = CreateFrame("Frame", nil, scrollFrame)
+    -- The refreshers this render registers replace the previous render's (it
+    -- may run outside a page pass: the deferred renders of a cache restore).
+    EllesmereUI._BeginRootRender("rf.bm")
+    -- Outer container: parented to scrollFrame, fills entire viewport. One
+    -- for the session (the options page pool): every render dresses it again,
+    -- and its reset is the previous render's teardown.
+    local outerRoot = POOL.Kept(ns, "bmRoot", "Frame", scrollFrame)
     outerRoot:SetAllPoints(scrollFrame)
     outerRoot:SetFrameLevel(scrollFrame:GetFrameLevel() + 5)
 
     -- Store reference so we can clean up on page switch
-    if ns._bmRoot then ns._bmRoot:Hide(); ns._bmRoot:SetParent(nil) end
     if ns._addNewPopup then ns._addNewPopup:Hide() end
     if EllesmereUI._pickMenu then EllesmereUI._pickMenu:Hide() end
     ns._bmRoot = outerRoot
@@ -3398,11 +3429,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
             local bdrRow = SettingsRow(
                 { type="slider", text="Opacity", min=0, max=100, step=1,
-                  disabled=IconHidden, disabledTooltip="Hide Icons",
+                  disabled=IconHidden, disabledTooltip="Hide Icons", requireState="disabled",
                   getValue=function() return ind.iconOpacity or 100 end,
                   setValue=function(v) ind.iconOpacity = v; ReloadAndUpdate() end },
                 { type="slider", text="Border", min=0, max=4, step=1, trackWidth=120,
-                  disabled=IconHidden, disabledTooltip="Hide Icons",
+                  disabled=IconHidden, disabledTooltip="Hide Icons", requireState="disabled",
                   getValue=function() return ind.indBorderSize or 1 end,
                   setValue=function(v) ind.indBorderSize = v; ReloadAndUpdate() end })
             do
@@ -3423,7 +3454,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
             local durRow = SettingsRow(
                 { type="toggle", text="Duration Swipe",
-                  disabled=IconHidden, disabledTooltip="Hide Icons",
+                  disabled=IconHidden, disabledTooltip="Hide Icons", requireState="disabled",
                   getValue=function() return ind.showDuration ~= false end,
                   setValue=function(v) ind.showDuration = v; ReloadAndUpdate() end },
                 { type="toggle", text="Duration Text",
@@ -3597,7 +3628,43 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 end
             end
 
-            -- THRESHOLD section (Enable, seconds, color, opacity)
+            -- Pandemic Border (icon only, not on WoW Forever): the game shows it while
+            -- the buff is in its refresh window; color and size in the row's swatch and cog.
+            if indType == "icon" and not EllesmereUI.IS_FOREVER then
+                local pandemicOff = function() return IconHidden() or not ind.pandemicBorderEnabled end
+                local pandemicTip = function() return IconHidden() and "Hide Icons" or "Pandemic Border" end
+                local pandemicState = function() return IconHidden() and "disabled" or "enabled" end
+                local pandemicRow = SettingsRow(
+                    { type="toggle", text="Pandemic Border",
+                      tooltip="Shows a colored border on these icons while the buff can be refreshed without losing time.",
+                      disabled=IconHidden, disabledTooltip="Hide Icons", requireState="disabled",
+                      getValue=function() return ind.pandemicBorderEnabled == true end,
+                      setValue=function(v) ind.pandemicBorderEnabled = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
+                    { type="label", text="" })
+                local rgn = pandemicRow._leftRegion
+                EllesmereUI.BuildInlineSwatches(rgn, {
+                    { tooltip = "Pandemic Border Color",
+                      getValue = function()
+                          local c = ind.pandemicBorderColor or { r=1, g=0.2, b=0.2 }
+                          return c.r, c.g, c.b, 1
+                      end,
+                      setValue = function(r, g, b)
+                          ind.pandemicBorderColor = { r=r, g=g, b=b }
+                          ReloadAndUpdate()
+                      end },
+                }, { disabled = pandemicOff, disabledTooltip = pandemicTip, requireState = pandemicState, size = 20 })
+                EllesmereUI.BuildInlineCog(rgn, {
+                    disabled = pandemicOff, disabledTooltip = pandemicTip, requireState = pandemicState,
+                    title = "Pandemic Border",
+                    rows = {
+                        { type="slider", label="Border Size", min=1, max=5, step=1,
+                          get=function() return ind.pandemicBorderWidth or 2 end,
+                          set=function(v) ind.pandemicBorderWidth = v; ReloadAndUpdate() end },
+                    },
+                })
+            end
+
+            -- THRESHOLD section
             BuildThresholdRow()
 
         elseif typeInfo and typeInfo.placed then
@@ -3949,6 +4016,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
     local sidebarContentH = max(10, math.abs(tileY))
     sidebarChild:SetHeight(sidebarContentH)
 
+    EllesmereUI._EndRootRender("rf.bm")
     -- Return 0: content lives on scrollFrame directly, so no outer scroll range.
     return 0
 end

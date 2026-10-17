@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local addon, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[addon] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -12,6 +12,11 @@ local p
 local ipairs = ipairs
 local PP = EllesmereUI.PP
 local UnitIsUnit = UnitIsUnit
+-- The core's table of the options page frame pool (EllesmereUI_PixelPerfect.lua
+-- makes it, the options addon fills it): the builders the options preview shares
+-- with the plates create through it, so a preview frame is handed back to the
+-- preview's next build. A plate's parent is no pool host: a plain CreateFrame.
+local Pool = EllesmereUI._Pool
 
 local function GetFont() return EllesmereUI.GetFontPath("nameplates") end
 -- Slug-gated at the source (GetFontOutlineFlag); SetFSFont gates the
@@ -240,6 +245,7 @@ local defaults = {
     castBarUninterruptible = { r = 0.45, g = 0.45, b = 0.45 },
     castBarImportant = { r = 1, g = 0.2, b = 0.2 },
     importantCastColorEnabled = false,
+    importantCastKickReadyAsInterruptible = false,
     castBarShieldEnabled = true,
     interruptedFlashEnabled = true,
     interruptedFlashColor = { r = 0.8, g = 0.0, b = 0.0 },
@@ -448,6 +454,10 @@ local defaults = {
     customBorderAlpha = 1,
     customBorderBehind = false,
     pandemicGlow = false,
+    -- The aura glow styles' saved keys from before 9.6, read as a view
+    -- (EUI_Nameplates_Layout.lua): this old default and nil mean Blizzard
+    -- Pandemic Border; a style picked from 9.6 on is pandemicGlowPick /
+    -- dispelGlowPick (no defaults: nil = no pick).
     pandemicGlowStyle = 1,
     pandemicGlowColor = { r = 1.0, g = 0.800, b = 0.329 },
     pandemicGlowLines = 8,
@@ -903,7 +913,7 @@ function ns.NP_SetWrapSeam(owner, anchor, show, tex, step, px, r, g, b, a, healt
         return
     end
     if not host then
-        host = CreateFrame("Frame", nil, owner)
+        host = Pool.CreateFrame("Frame", nil, owner)
         host:SetAllPoints(owner)
         host._seam = host:CreateTexture(nil, "OVERLAY", nil, 7)
         owner._cbSeamHost = host

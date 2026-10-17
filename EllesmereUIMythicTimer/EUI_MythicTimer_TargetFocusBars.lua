@@ -919,7 +919,9 @@ local function ShowPreview(which)
     bar.name:SetText(which == "target" and "Crushing Blow" or "Dark Mending")
     local tc = tf and tf.targetColor
     if tf and tf.targetClassColor ~= false and C_ClassColor and UnitClassBase then
-        local col = C_ClassColor.GetClassColor(UnitClassBase("player"))
+        -- Class token only: UnitClassBase also returns the class ID, which would
+        -- land in GetClassColor's optional tint color argument and be rejected.
+        local col = C_ClassColor.GetClassColor((UnitClassBase("player")))
         if col then bar.target:SetTextColor(col:GetRGB()) end
     elseif tc then
         bar.target:SetTextColor(tc.r, tc.g, tc.b, 1)

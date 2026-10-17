@@ -4327,6 +4327,39 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- The Swing Timer's indicator toggles became two settings: Attack State (Off /
+-- Queued Only / Full) replaces Highlight Queued Attacks, Highlight Active Attack
+-- and Show Shot Pending; Movement Guide (Off / Segments / Wind-Up Bar) replaces
+-- Latency Overlay and Smooth Swing Timing. Only explicit values
+-- move (defaults are stripped at logout); the colour keys keep their names, and
+-- the latency zone keeps its old red where no colour was stored (GO's default
+-- is white). Per profile: no current setting writes the old keys, so a profile
+-- imported later from an older string migrates on its next load.
+EllesmereUI.RegisterMigration({
+    id          = "swing_timer_indicators_v1",
+    scope       = "profile",
+    description = "Move the Swing Timer's indicator toggles into Attack State and Movement Guide.",
+    body        = function(ctx)
+        local profData = ctx.profile
+        local erb = type(profData.addons) == "table" and profData.addons.EllesmereUIResourceBars
+        local st = type(erb) == "table" and erb.swingTimer
+        if type(st) ~= "table" then return end
+        if st.activeHighlight or st.pendingEnabled then
+            st.attackState = "full"
+        elseif st.queueHighlight == false then
+            st.attackState = "off"
+        end
+        if st.latencyEnabled then
+            st.moveGuide = "segments"
+            if st.latencyR == nil then
+                st.latencyR, st.latencyG, st.latencyB, st.latencyA = 0.835, 0.290, 0.290, 1
+            end
+        end
+        st.queueHighlight, st.activeHighlight, st.pendingEnabled = nil, nil, nil
+        st.latencyEnabled, st.smoothTiming = nil, nil
+    end,
+})
+
 -- Spell ID on Tooltip became on by default (an unset showSpellID reads as on,
 -- EllesmereUI.SpellIDOn). An account from before keeps it off: its unset value
 -- is written off. Existing users ONLY: a fresh install or Reset ALL has no

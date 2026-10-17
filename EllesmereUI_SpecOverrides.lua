@@ -205,6 +205,8 @@ local FOLDER_BLACKLIST = {
     -- A per-character store outside the profiles; each assignment picks its
     -- own spec (Assign For) instead.
     EllesmereUILoadoutManager    = true,
+    -- Its settings are look and search filters, not spec choices.
+    EllesmereUIGroupFinder       = true,
     -- Minimap + Chat + CooldownManager ARE override-eligible; their
     -- spell/engine-coupled settings are excluded per-path via
     -- SETTING_BLACKLIST below (CDM spell data itself lives OUTSIDE the profile
@@ -3660,6 +3662,7 @@ local EXCLUDED_CONTEXTS = {
     ["EllesmereUIForeverEssentials"] = true,
     ["EllesmereUIQuickdraw"]         = true,
     ["EllesmereUILoadoutManager"]    = true,
+    ["EllesmereUIGroupFinder"]       = true,
     -- CDM: module eligible (bar settings override); these two tabs are
     -- spell/spec-coupled systems with their own per-spec storage.
     ["EllesmereUICooldownManager"] = {
@@ -6126,23 +6129,35 @@ end
 --- as the notified pass. In a session it fills ONE reused table: the first write
 --- of a frame wins the next frame's attribution (ProcessNotifiedWrites), so the
 --- writes after it, until that pass ran, take none (their frames are queued).
-function EllesmereUI._SOAttribution(frame)
+--- detached (optional): a table the caller owns, filled instead, in or out of a
+--- session and leaving that one-per-frame rule alone, for a widget that writes
+--- later for the slot it was opened from (the color picker takes one when it
+--- opens and hands it to _NotifySettingWrite with each later write: it names
+--- that slot even after a rebuild dressed the widget again for another one).
+--- Returns detached (marked as a snapshot), or nil when no slot holds frame.
+function EllesmereUI._SOAttribution(frame, detached)
     if type(frame) ~= "table" then return nil end
-    local into
-    if _editGroup or Cond._edit then
-        if _lastAttr.busy then return nil end
-        into = _lastAttr.pend
-    elseif _defaultView then
-        -- read at once by MaybeWarnDefaultEdit, only until its guide was seen
-        local VG = EllesmereUI.VideoGuides
-        if not VG or VG.HasSeen("override_default_edit") then return nil end
-    else
-        return nil
+    local into = detached
+    if into == nil then
+        if _editGroup or Cond._edit then
+            if _lastAttr.busy then return nil end
+            into = _lastAttr.pend
+        elseif _defaultView then
+            -- read at once by MaybeWarnDefaultEdit, only until its guide was seen
+            local VG = EllesmereUI.VideoGuides
+            if not VG or VG.HasSeen("override_default_edit") then return nil end
+        else
+            return nil
+        end
     end
     local n = frame
     while n do
         if n._captureCfg then
-            if into then _lastAttr.busy = true end
+            if detached then
+                detached._soSnap = true
+            elseif into then
+                _lastAttr.busy = true
+            end
             return _lastAttr.Snap(n, into or { _soSnap = true })
         end
         n = n.GetParent and n:GetParent() or nil
@@ -6151,13 +6166,14 @@ function EllesmereUI._SOAttribution(frame)
 end
 
 --- Called by the widget factory whenever any options widget writes a value.
---- snap: the slot snapshot the factory took before the setter ran (optional).
+--- snap: the slot snapshot the factory took before the setter ran (optional;
+--- a detached one stands alone, with no frame).
 function EllesmereUI._NotifySettingWrite(frame, snap)
     -- Conditional sessions capture through this path too. Without them in the gate they
     -- fall back to watcher/exit-sweep capture only, losing edits whenever a setter's
     -- forced refresh raises the resync absorb before a tick can attribute them.
     if not (_editGroup or Cond._edit) then
-        if _defaultView and type(frame) == "table" then MaybeWarnDefaultEdit(frame, snap) end
+        if _defaultView and (type(frame) == "table" or snap ~= nil) then MaybeWarnDefaultEdit(frame, snap) end
         return
     end
     _pendingWrites = _pendingWrites or {}
@@ -8330,6 +8346,9 @@ local function TitleCase(s)
 end
 
 local function BuildListRow(parent, y, entry)
+    -- Options page pool (EllesmereUI_FramePool.lua): on a pool host these rows
+    -- are reset and dressed again by the next build (the list builders below).
+    local CreateFrame = EllesmereUI._Pool.CreateFrame
     local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
     local row = CreateFrame("Frame", nil, parent)
     row:SetSize(parent:GetWidth() - CONTENT_PAD * 2, 36)
@@ -8446,6 +8465,7 @@ end
 -- spec to the shared default. Removal is the only possible action -- no editing
 -- session can reach them.
 local function BuildStrandedRow(parent, y, entry, specID)
+    local CreateFrame = EllesmereUI._Pool.CreateFrame
     local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
     local row = CreateFrame("Frame", nil, parent)
     row:SetSize(parent:GetWidth() - CONTENT_PAD * 2, 36)
@@ -8625,6 +8645,7 @@ local function BuildUnlockLayoutRow(parent, y, g, opts)
         or "Delete the custom unlock mode for '%s'? Its specs return to your default unlock mode layout."
     local removeFn = opts.removeFn or EllesmereUI.SpecOverrides_RemoveUnlockLayout
 
+    local CreateFrame = EllesmereUI._Pool.CreateFrame
     local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
     local row = CreateFrame("Frame", nil, parent)
     row:SetSize(parent:GetWidth() - CONTENT_PAD * 2, 36)
@@ -8758,6 +8779,9 @@ local function PromoteGroupToProfile(g)
         })
         return
     end
+    -- The reload is asked for first in the click (RequestReload); the client
+    -- reloads only once this function has finished, so every step below lands.
+    EllesmereUI.RequestReload()
     -- Bank any open session and leave the Default view so the stores hold the
     -- freshest edits and live holds canonical spec values.
     EllesmereUI.SpecOverrides_CloseEditSessions()
@@ -8900,24 +8924,20 @@ local function PromoteGroupToProfile(g)
         pcall(EllesmereUI.SpecOverrides_ApplyBm, sid, true)
         pcall(EllesmereUI.SpecOverrides_ApplyDm, sid, true)
     end
-    -- 6) RELOAD. The converge's element writes are DEFERRED (FlushUnlock) and
-    --    reloading inside that window strands them: the logout bank keeps the
-    --    intent in the bucket, but the post-reload login early-outs on the nil
-    --    active pointer and never paints it back into module DBs. Flush
-    --    synchronously first (out of combat by the gate above), then reload --
-    --    every runtime cache, ticker and session structure rebuilds clean.
+    -- 6) FLUSH before the reload asked for at the top. The converge's element
+    --    writes are DEFERRED (FlushUnlock) and reloading inside that window
+    --    strands them: the logout bank keeps the intent in the bucket, but the
+    --    post-reload login early-outs on the nil active pointer and never
+    --    paints it back into module DBs. Flush synchronously (out of combat by
+    --    the gate above); the reload then rebuilds every runtime cache, ticker
+    --    and session structure clean.
     pcall(EllesmereUI.SpecOverrides_FlushUnlock)
-    EllesmereUI.RequestReload()
-    -- On the Forever client the reload waits on its popup: repaint the list
-    -- so the deleted groups leave it (retail is already reloading).
-    if EllesmereUI.IS_FOREVER and EllesmereUI:GetActivePage() == LIST_PAGE then
-        EllesmereUI:RefreshPage(true)
-    end
 end
 
 --- Page builder for the "Spec Overrides" tab (called from the Profiles &
 --- Presets module registration).
 function EllesmereUI.SpecOverrides_BuildListPage(parent, startY)
+    local CreateFrame = EllesmereUI._Pool.CreateFrame
     local W = EllesmereUI.Widgets
     local y = startY
     -- Skip during a hidden search pre-build: the page is only indexed for its
@@ -9196,6 +9216,7 @@ end
 
 --- Page builder for the "Conditional Overrides" tab (mirror of the spec tab).
 function EllesmereUI.Conditions_BuildListPage(parent, startY)
+    local CreateFrame = EllesmereUI._Pool.CreateFrame
     local W = EllesmereUI.Widgets
     local y = startY
     Cond.PruneEntries()

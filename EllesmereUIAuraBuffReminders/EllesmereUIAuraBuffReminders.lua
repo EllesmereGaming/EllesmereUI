@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 
 local ADDON_NAME = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read this module ns via the registry
 
 local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
@@ -1368,14 +1368,13 @@ local RAID_BUFFS = {
 -- options grid). Same keys as retail, so a profile's switches move between
 -- the clients. castSpell = rank 1 (label and options icon); fam = the shared
 -- buff family (every rank, the group version, other casters' versions);
--- selfCast = cast with no target; party = reaches only the caster's party
--- (in a raid, their subgroup), as a shout does.
+-- selfCast = cast with no target.
 if EABR.FOREVER then
     RAID_BUFFS = {
         { key="motw",   class="DRUID",   name="Mark of the Wild",      castSpell=1126, dismissKey="raidbuff:motw",
           fam=EllesmereUI.FOREVER_BUFF_FAMILIES.mark },
         { key="bshout", class="WARRIOR", name="Battle Shout",          castSpell=6673, dismissKey="raidbuff:bshout",
-          fam=EllesmereUI.FOREVER_BUFF_FAMILIES.bshout, benefit="attackPower", selfCast=true, party=true },
+          fam=EllesmereUI.FOREVER_BUFF_FAMILIES.bshout, benefit="attackPower", selfCast=true },
         { key="fort",   class="PRIEST",  name="Power Word: Fortitude", castSpell=1243, dismissKey="raidbuff:fort",
           fam=EllesmereUI.FOREVER_BUFF_FAMILIES.fort },
         { key="ai",     class="MAGE",    name="Arcane Intellect",      castSpell=1459, dismissKey="raidbuff:ai",
@@ -1387,6 +1386,8 @@ end
 --  SPELL DATA Auras (some non-secret, some still OOC-only)
 -------------------------------------------------------------------------------
 local AURAS = {
+    { key="moonkin_form", class="DRUID", name="Moonkin Form", castSpell=24858,
+      check="player", specs={102}, combatOnly=true, isStance=true },
     -- Symbiotic Relationship: player gets a buff when active (group only)
     { key="symbiotic",  class="DRUID",   name="Symbiotic Relationship", castSpell=474750, buffIDs={474754},
       check="player", combatOk=false, requireGroup=true },
@@ -2258,6 +2259,7 @@ local defaults = {
         },
         auras = {
             enabled = {
+                moonkin_form=false,
                 symbiotic=true, battle_stance=true, def_stance=true, berserk_stance=true, shadowform=true,
                 devo_aura=true, bol=true, bof=true, som=true, blistering_scales=true,
                 bestow_weyrnstone=true, timelessness=true,
@@ -2429,48 +2431,58 @@ end
 -- keeps all BackdropTemplate work away from secure action attributes. Secure
 -- owners are never created/restyled under combat lockdown; visual-only combat
 -- and cursor icons can still update immediately.
-function EABR.ApplyIconBorder(f, protectedOwner)
-    if not f or (protectedOwner and InCombatLockdown()) then return end
-    local border = f._eabrBorderFrame
-    if not border then
-        border = CreateFrame("Frame", nil, f)
-        border:SetAllPoints()
-        border:EnableMouse(false)
-        f._eabrBorderFrame = border
+-- The options page frame pool's table (the parent makes it, the options addon
+-- fills it in place when it loads the pool), captured once at load as the
+-- core's paths capture it, so a later write to the public slot never reaches
+-- this path. A block local: this file sits near Lua's 200-local ceiling.
+do
+    local POOL = EllesmereUI._Pool
+    function EABR.ApplyIconBorder(f, protectedOwner)
+        if not f or (protectedOwner and InCombatLockdown()) then return end
+        local border = f._eabrBorderFrame
+        if not border then
+            -- The options preview icons are frames of the options page pool, so
+            -- their border comes from it too; a live reminder icon gets a plain
+            -- new frame.
+            border = POOL.CreateFrame("Frame", nil, f)
+            border:SetAllPoints()
+            border:EnableMouse(false)
+            f._eabrBorderFrame = border
+        end
+
+        local p = db and db.profile and db.profile.display
+        local size = (p and p.borderSize) or 1
+        local texture = (p and p.borderTexture) or "solid"
+        local r, g, b, a = (p and p.borderR) or 0, (p and p.borderG) or 0,
+            (p and p.borderB) or 0, (p and p.borderA) or 1
+        local ox, oy = p and p.borderTextureOffset, p and p.borderTextureOffsetY
+        local sx, sy = p and p.borderTextureShiftX, p and p.borderTextureShiftY
+        local behind = p and p.borderBehind == true
+        -- +2: the strips sit one level up (PP.CreateBorder), below the glow
+        -- wrapper (+4), so a 1px glow is never hidden under a 1px border.
+        local level = behind and max(0, f:GetFrameLevel() - 1) or (f:GetFrameLevel() + 2)
+        -- Exact size companion, memoized raw: it only counts while paired with size + texture.
+        local pxRaw = p and p.borderSizePx
+
+        -- Layout refreshes can be frequent in a raid. Restyle only when an actual
+        -- setting or owner-level change occurred; size changes are handled by the
+        -- border frame's anchors/BackdropTemplate size hook.
+        if border._eabrSize == size and border._eabrTexture == texture and border._eabrPx == pxRaw
+            and border._eabrR == r and border._eabrG == g and border._eabrB == b and border._eabrA == a
+            and border._eabrOX == ox and border._eabrOY == oy and border._eabrSX == sx and border._eabrSY == sy
+            and border._eabrBehind == behind and border._eabrLevel == level then
+            return
+        end
+
+        border:SetFrameLevel(level)
+        EllesmereUI.ApplyBorderStyle(border, size, r, g, b, a, texture,
+            ox, oy, sx, sy, "aurabuffreminders", size, nil,
+            EllesmereUI.BorderPx(pxRaw, size, texture))
+        border._eabrSize, border._eabrTexture, border._eabrPx = size, texture, pxRaw
+        border._eabrR, border._eabrG, border._eabrB, border._eabrA = r, g, b, a
+        border._eabrOX, border._eabrOY, border._eabrSX, border._eabrSY = ox, oy, sx, sy
+        border._eabrBehind, border._eabrLevel = behind, level
     end
-
-    local p = db and db.profile and db.profile.display
-    local size = (p and p.borderSize) or 1
-    local texture = (p and p.borderTexture) or "solid"
-    local r, g, b, a = (p and p.borderR) or 0, (p and p.borderG) or 0,
-        (p and p.borderB) or 0, (p and p.borderA) or 1
-    local ox, oy = p and p.borderTextureOffset, p and p.borderTextureOffsetY
-    local sx, sy = p and p.borderTextureShiftX, p and p.borderTextureShiftY
-    local behind = p and p.borderBehind == true
-    -- +2: the strips sit one level up (PP.CreateBorder), below the glow
-    -- wrapper (+4), so a 1px glow is never hidden under a 1px border.
-    local level = behind and max(0, f:GetFrameLevel() - 1) or (f:GetFrameLevel() + 2)
-    -- Exact size companion, memoized raw: it only counts while paired with size + texture.
-    local pxRaw = p and p.borderSizePx
-
-    -- Layout refreshes can be frequent in a raid. Restyle only when an actual
-    -- setting or owner-level change occurred; size changes are handled by the
-    -- border frame's anchors/BackdropTemplate size hook.
-    if border._eabrSize == size and border._eabrTexture == texture and border._eabrPx == pxRaw
-        and border._eabrR == r and border._eabrG == g and border._eabrB == b and border._eabrA == a
-        and border._eabrOX == ox and border._eabrOY == oy and border._eabrSX == sx and border._eabrSY == sy
-        and border._eabrBehind == behind and border._eabrLevel == level then
-        return
-    end
-
-    border:SetFrameLevel(level)
-    EllesmereUI.ApplyBorderStyle(border, size, r, g, b, a, texture,
-        ox, oy, sx, sy, "aurabuffreminders", size, nil,
-        EllesmereUI.BorderPx(pxRaw, size, texture))
-    border._eabrSize, border._eabrTexture, border._eabrPx = size, texture, pxRaw
-    border._eabrR, border._eabrG, border._eabrB, border._eabrA = r, g, b, a
-    border._eabrOX, border._eabrOY, border._eabrSX, border._eabrSY = ox, oy, sx, sy
-    border._eabrBehind, border._eabrLevel = behind, level
 end
 
 function EABR.ApplyAllIconBorders()
@@ -3643,6 +3655,7 @@ do
         if aura.standalone then
             -- Handled by standalone system, skip
         elseif au.enabled[aura.key] and (aura.class == playerClass)
+           and (not aura.combatOnly or InCombat())
            and ((aura.key == "soulstone"
                  and EABR.SectionShows(db.profile.consumables.warlockWhereToShow, inInstance))
                 or (aura.key ~= "soulstone" and auraSectionShows))
@@ -4438,44 +4451,15 @@ function EABR.FvTokens()
     return t
 end
 
--- Whether a raid member is in the player's own party (subgroup), where a
--- party-wide buff reaches. Unreadable reads as not.
-function EABR.FvInMyParty(u)
-    local v = UnitInSubgroup(u)
-    if isSecret(v) then return false end
-    if v then return true end
-    local me = UnitIsUnit(u, "player")
-    return not isSecret(me) and me == true
-end
-
--- Classes in the player's own party (in a raid, their subgroup: party1-4
--- there), online and in range: who a party-wide buff can come from.
-function EABR.FvPartyClassSet()
-    local set = EABR._fvPartyClasses
-    if not set then set = {}; EABR._fvPartyClasses = set end
-    wipe(set)
-    local list = EABR.FvTokens().party
-    for i = 1, GetNumSubgroupMembers() do
-        local u = list[i + 1]
-        if u and _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) then
-            local _, class = UnitClass(u)
-            if class ~= nil and not isSecret(class) then set[class] = true end
-        end
-    end
-    return set
-end
-
 -- In-range beneficiaries carrying a family vs all of them (the "12/15" badge),
--- plus the first one without it (the click's target); party = a party-wide
--- buff, counted in a raid on the player's own subgroup only. A member whose
--- answer cannot be read counts on neither side. The found aura instances
+-- plus the first one without it (the click's target). A member whose answer
+-- cannot be read counts on neither side. The found aura instances
 -- (EABR._fvInst, kept outside the watch so the pass that first builds it
 -- records them too) feed the group aura probe (EABR.FvAuraRelevant).
-function EABR.FvCoverage(fam, benefit, party)
+function EABR.FvCoverage(fam, benefit)
     local inst = EABR._fvInst
     if not inst then inst = {}; EABR._fvInst = inst end
     local raid = IsInRaid()
-    local subgroup = raid and party
     local tokens = EABR.FvTokens()
     local list = raid and tokens.raid or tokens.party
     local n = raid and GetNumGroupMembers() or (GetNumSubgroupMembers() + 1)
@@ -4485,8 +4469,7 @@ function EABR.FvCoverage(fam, benefit, party)
         if not u then break end
         local rec = inst[u]
         if rec then wipe(rec) end
-        if _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) and EABR.UnitBenefits(u, benefit)
-            and (not subgroup or EABR.FvInMyParty(u)) then
+        if _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) and EABR.UnitBenefits(u, benefit) then
             if not rec then rec = {}; inst[u] = rec end
             local has = EABR.FvUnitHas(u, fam, rec)
             if has ~= nil then
@@ -4531,7 +4514,6 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
         local iAmMissing = sw and sw.iAmMissing == true
         local grouped = IsInGroup()
         local groupClasses = iAmMissing and grouped and EABR.BuildGroupClassSet() or nil
-        local partyClasses -- a party-wide buff's casters: built on first need
         local restricted = EllesmereUI.AuraKit.AurasRestricted()
         for _, buff in ipairs(RAID_BUFFS) do
             if rb.enabled[buff.key] then
@@ -4540,17 +4522,12 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
                     and (EABR.FvHighest(fam.single) or EABR.FvHighest(fam.group)) ~= nil
                 if iCast and othersMissing then watch = fam end
                 if not iCast and iAmMissing then roster = true end
-                local classes = groupClasses
-                if classes and buff.party then
-                    partyClasses = partyClasses or EABR.FvPartyClassSet()
-                    classes = partyClasses
-                end
-                local doReceiver = not iCast and classes and classes[buff.class]
+                local doReceiver = not iCast and groupClasses and groupClasses[buff.class]
                     and EABR.PlayerBenefitsFromBuff(buff)
                 if (iCast or doReceiver) and EABR.FvReadable(fam, restricted) then
                     local isMissing, have, total, first
                     if iCast and othersMissing and grouped then
-                        have, total, first = EABR.FvCoverage(fam, buff.benefit, buff.party)
+                        have, total, first = EABR.FvCoverage(fam, buff.benefit)
                         isMissing = total > 0 and have < total
                     else
                         isMissing = EABR.FvUnitHas("player", fam) == false
@@ -5858,6 +5835,17 @@ function EABR:OnEnable()
         -- synced by every refresh (EABR.FvSyncGroupWatch).
         if EABR.FOREVER then return end
         local playerClass = GetPlayerClass()
+        local moonkinOn = playerClass == "DRUID"
+            and db.profile.auras.enabled.moonkin_form == true
+            and db.profile.display.remindersEnabled ~= false
+            and GetSpecID() == 102 and Known(24858)
+        if moonkinOn then
+            mainFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+            mainFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORMS")
+        else
+            mainFrame:UnregisterEvent("UPDATE_SHAPESHIFT_FORM")
+            mainFrame:UnregisterEvent("UPDATE_SHAPESHIFT_FORMS")
+        end
         _needGroupAura = false
         _isEvokerOwnOnRaid = false
         EABR._needsProviderCoverage = false
@@ -6221,8 +6209,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         C_Timer.After(2.1, RequestRefresh)
     end
 
-    -- Talent/spec changes can enable/disable Elemental Orbit and therefore
-    -- change whether broad group UNIT_AURA tracking is required.
+    -- Talent/spec changes affect group aura tracking and form availability.
     if e == "PLAYER_TALENT_UPDATE" or e == "TRAIT_CONFIG_UPDATED"
        or e == "PLAYER_SPECIALIZATION_CHANGED" then
         EABR.ReevaluateOwnOtherAuraTracking()

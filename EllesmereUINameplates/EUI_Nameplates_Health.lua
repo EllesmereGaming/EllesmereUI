@@ -215,7 +215,7 @@ function NameplateFrame:UpdateHealthValues()
         local anyNum = ca._anyNum
         if anyNum == nil then
             anyNum = false
-            local anyNoSign, anyMax = false, false
+            local anyNoSign, anyMax, anyCombo = false, false, false
             for si = 1, ca._count do
                 local entry = ca[si]
                 local el = entry.element
@@ -224,12 +224,14 @@ function NameplateFrame:UpdateHealthValues()
                 -- classification call per slot per paint.
                 entry.combo = IsComboHealthText(el) or false
                 if el == "healthNumber" or entry.combo then anyNum = true end
+                if entry.combo then anyCombo = true end
                 if el == "healthPercentNoSign" then anyNoSign = true end
                 if el == "healthNumMax" then anyMax = true end
             end
             ca._anyNum = anyNum
             ca._anyNoSign = anyNoSign
             ca._anyMax = anyMax
+            ca._anyCombo = anyCombo
         end
         local hpKey
         if not anyNum then
@@ -252,49 +254,57 @@ function NameplateFrame:UpdateHealthValues()
         self._hpTxtPct = pctKey
         self._hpTxtCur = hpKey
         self._hpTxtMax = maxKey
-        local pctText, pctNoSignText, numText, maxText
-        local pctTextDec, pctNoSignTextDec
-        local anyDec = ca._anyDecimal
-        if dead then
-            pctText = "0%"
-            pctNoSignText = "0"
-            numText = "0"
-            maxText = "0"
-            if anyDec then pctTextDec = "0.0%"; pctNoSignTextDec = "0.0" end
-        elseif pctVal ~= nil then
-            pctText = string.format("%d%%", pctVal)
-            -- No-sign variant only when a slot actually renders it.
-            if ca._anyNoSign then pctNoSignText = string.format("%d", pctVal) end
-            -- Number text only when a number/combo slot renders it (percent-only
-            -- layouts were paying the abbreviation call + string every tick).
+        if dead or pctVal == nil then
+            -- Constant text: a corpse reads 0, an unreadable percent blank.
+            local pctText, pctNoSignText, numText, pctTextDec, pctNoSignTextDec
+            if dead then
+                pctText, pctNoSignText, numText = "0%", "0", "0"
+                pctTextDec, pctNoSignTextDec = "0.0%", "0.0"
+            else
+                pctText, pctNoSignText, numText = "", "", ""
+                pctTextDec, pctNoSignTextDec = "", ""
+            end
+            for si = 1, ca._count do
+                local entry = ca[si]
+                local el = entry.element
+                local fs = entry.fs
+                if el == "healthPercent" then
+                    fs:SetText(entry.pctDecimal and pctTextDec or pctText)
+                elseif el == "healthPercentNoSign" then
+                    fs:SetText(entry.pctDecimal and pctNoSignTextDec or pctNoSignText)
+                elseif el == "healthNumber" then
+                    fs:SetText(numText)
+                elseif entry.combo then
+                    SetCombinedHealthText(fs, el, entry.pctDecimal and pctTextDec or pctText, numText, numText)
+                end
+            end
+        else
+            -- Percent slots format engine-side (SetFormattedText takes the percent
+            -- secret or plain); Lua strings are built only for the number and
+            -- combo slots that take them. Number text only when a number/combo
+            -- slot renders it.
+            local numText, maxText, pctText, pctTextDec
             if anyNum then
                 numText = ns.AbbreviateNumbers(curHealth)
                 if ca._anyMax then maxText = ns.AbbreviateNumbers(maxHealth) end
             end
-            -- Decimal variants computed only when at least one slot opts in.
-            if anyDec then
-                pctTextDec = string.format("%.1f%%", pctVal)
-                if ca._anyNoSign then pctNoSignTextDec = string.format("%.1f", pctVal) end
+            if ca._anyCombo then
+                pctText = string.format("%d%%", pctVal)
+                if anyDec then pctTextDec = string.format("%.1f%%", pctVal) end
             end
-        else
-            pctText = ""
-            pctNoSignText = ""
-            numText = ""
-            maxText = ""
-            if anyDec then pctTextDec = ""; pctNoSignTextDec = "" end
-        end
-        for si = 1, ca._count do
-            local entry = ca[si]
-            local el = entry.element
-            local fs = entry.fs
-            if el == "healthPercent" then
-                fs:SetText(entry.pctDecimal and pctTextDec or pctText)
-            elseif el == "healthPercentNoSign" then
-                fs:SetText(entry.pctDecimal and pctNoSignTextDec or pctNoSignText)
-            elseif el == "healthNumber" then
-                fs:SetText(numText)
-            elseif entry.combo then
-                SetCombinedHealthText(fs, el, entry.pctDecimal and pctTextDec or pctText, numText, maxText)
+            for si = 1, ca._count do
+                local entry = ca[si]
+                local el = entry.element
+                local fs = entry.fs
+                if el == "healthPercent" then
+                    fs:SetFormattedText(entry.pctDecimal and "%.1f%%" or "%d%%", pctVal)
+                elseif el == "healthPercentNoSign" then
+                    fs:SetFormattedText(entry.pctDecimal and "%.1f" or "%d", pctVal)
+                elseif el == "healthNumber" then
+                    fs:SetText(numText)
+                elseif entry.combo then
+                    SetCombinedHealthText(fs, el, entry.pctDecimal and pctTextDec or pctText, numText, maxText)
+                end
             end
         end
         end -- skipText

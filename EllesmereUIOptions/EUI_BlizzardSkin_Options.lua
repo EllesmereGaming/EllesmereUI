@@ -22,6 +22,10 @@ initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
     if not EllesmereUI or not EllesmereUI.RegisterModule then return end
+    -- Page reuse (EllesmereUI_FramePool.lua): a frame made under a page pool
+    -- host comes from the pool and is dressed again by every later build; under
+    -- any other parent it is a plain new frame.
+    local CreateFrame = EllesmereUI._Pool.CreateFrame
 
     local function BuildTooltipsPage(pageName, parent, yOffset)
         if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -724,8 +728,10 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "BLIZZARD BARS, POPUPS & BUTTONS", y);  y = y - h
 
-        local hudRow
-        hudRow, h = W:DualRow(parent, y,
+        -- The slot configs, laid out per client below: WoW Forever has no
+        -- extra action button, so its toggle is not built there and the
+        -- queue pair moves up a slot.
+        local widgetCfg =
             { type="toggle", text="Reskin Widget Bars",
               tooltip="Restyles Blizzard's on-screen progress bars (event objectives, nameplate counters)",
               getValue=function()
@@ -744,7 +750,8 @@ initFrame:SetScript("OnEvent", function(self)
                       cancelText  = "Later",
                       reload      = true,
                   })
-              end },
+              end }
+        local extraCfg = not EllesmereUI.IS_FOREVER and
             { type="toggle", text="Reskin Extra Action Buttons",
               getValue=function()
                   -- DEFAULT OFF: opt-in, so nil reads as unchecked.
@@ -753,14 +760,60 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.reskinExtraActionButton = v and true or false
-              end })
-        y = y - h
+              end } or nil
+        local queueCfg =
+            { type="toggle", text="Reskin Queue Popup",
+              tooltip="Reskins the dungeon and battleground queue accept popups and adds an accept countdown timer bar to the dungeon one.",
+              getValue=function()
+                  -- Independent, default on (not tied to any master reskin toggle).
+                  return not EllesmereUIDB or EllesmereUIDB.reskinQueuePopup ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.reskinQueuePopup = v
+                  if not v and EllesmereUI.ShowConfirmPopup then
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Disabling queue popup reskin requires a UI reload to restore Blizzard's default style.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Later",
+                          reload      = true,
+                      })
+                  end
+              end }
+        local timerCfg =
+            { type="toggle", text="Show Queue Timer",
+              getValue=function()
+                  return not EllesmereUIDB or EllesmereUIDB.showQueueTimer ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.showQueueTimer = v
+                  EllesmereUI:RefreshPage()  -- update the style cog + swatch disabled states
+              end }
+
+        -- The regions the inline controls below sit on, whichever slot their
+        -- toggle took.
+        local hudRow, queueRow, widgetRgn, queueRgn, timerRgn
+        if extraCfg then
+            hudRow, h = W:DualRow(parent, y, widgetCfg, extraCfg);  y = y - h
+            queueRow, h = W:DualRow(parent, y, queueCfg, timerCfg);  y = y - h
+            widgetRgn = hudRow and hudRow._leftRegion
+            queueRgn = queueRow and queueRow._leftRegion
+            timerRgn = queueRow and queueRow._rightRegion
+        else
+            hudRow, h = W:DualRow(parent, y, widgetCfg, queueCfg);  y = y - h
+            queueRow, h = W:DualRow(parent, y, timerCfg, EllesmereUI.BlankRowCfg());  y = y - h
+            widgetRgn = hudRow and hudRow._leftRegion
+            queueRgn = hudRow and hudRow._rightRegion
+            timerRgn = queueRow and queueRow._leftRegion
+        end
 
         -- Minimum widget bar size (plate-hosted covers), a cog on "Reskin Widget
         -- Bars": the floor below which a shrunken nameplate's bar scales itself
         -- up. 0 = off (default, mirror Blizzard's rect exactly).
-        if hudRow and hudRow._leftRegion and not EllesmereUI._prebuilding then
-            local lrgn  = hudRow._leftRegion
+        if widgetRgn and not EllesmereUI._prebuilding then
+            local lrgn  = widgetRgn
             local function CogOff()
                 -- Same default-on test the toggle itself uses: nil means on.
                 return not (not EllesmereUIDB or EllesmereUIDB.reskinWidgetBars ~= false)
@@ -794,43 +847,11 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        local queueRow
-        queueRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Reskin Queue Popup",
-              tooltip="Reskins the dungeon and battleground queue accept popups and adds an accept countdown timer bar to the dungeon one.",
-              getValue=function()
-                  -- Independent, default on (not tied to any master reskin toggle).
-                  return not EllesmereUIDB or EllesmereUIDB.reskinQueuePopup ~= false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.reskinQueuePopup = v
-                  if not v and EllesmereUI.ShowConfirmPopup then
-                      EllesmereUI:ShowConfirmPopup({
-                          title       = "Reload Required",
-                          message     = "Disabling queue popup reskin requires a UI reload to restore Blizzard's default style.",
-                          confirmText = "Reload Now",
-                          cancelText  = "Later",
-                          reload      = true,
-                      })
-                  end
-              end },
-            { type="toggle", text="Show Queue Timer",
-              getValue=function()
-                  return not EllesmereUIDB or EllesmereUIDB.showQueueTimer ~= false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.showQueueTimer = v
-                  EllesmereUI:RefreshPage()  -- update the style cog + swatch disabled states
-              end }
-        );  y = y - h
-
         -- Red "!" warning left of the Reskin Queue Popup toggle while a mover addon
         -- that conflicts with the reskin is loaded
         local _eqolLoaded = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("EnhanceQoL")
-        if _eqolLoaded and queueRow and queueRow._leftRegion and not EllesmereUI._prebuilding then
-            local rgn = queueRow._leftRegion
+        if _eqolLoaded and queueRgn and not EllesmereUI._prebuilding then
+            local rgn = queueRgn
             local toggle = rgn._control
             if toggle then
                 local fontPath = (EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
@@ -851,10 +872,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Countdown text color swatch + style cog (left of it) on the Show Queue Timer toggle.
-        if not EllesmereUI._prebuilding then
+        if timerRgn and not EllesmereUI._prebuilding then
             local PP = EllesmereUI.PanelPP
             local QT = EllesmereUI.QUEUE_TIMER
-            local timerRgn = queueRow._rightRegion
             local function timerOff()
                 return EllesmereUIDB and EllesmereUIDB.showQueueTimer == false
             end
@@ -1765,7 +1785,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(refresh); refresh()
         end
 
-        _, h = WSCardSection(parent, "QUALITY OF LIFE", y);  y = y - h
+        _, h = WSCardSection(parent, "MERCHANT OPTIONS", y);  y = y - h
 
         local function merchantShowAsListOff()
             return EllesmereUIDB and EllesmereUIDB.merchantShowAsList == false
@@ -1818,7 +1838,18 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.merchantShowItemLevel = v
                   if EllesmereUI._Merchant_RefreshItemLevels then EllesmereUI._Merchant_RefreshItemLevels() end
               end },
-            { type="label", text="" }
+            { type="toggle", text="Bulk Buy",
+              tooltip="Shift-click a vendor item to buy more than one stack at a time.",
+              disabled=function() return EllesmereUI.PadGamepadUI() end,
+              disabledTooltip="This option does not work with the Gamepad interface style.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.merchantBulkBuy == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.merchantBulkBuy = v
+                  if EllesmereUI._Merchant_RefreshBulkBuy then EllesmereUI._Merchant_RefreshBulkBuy() end
+              end }
         ); y = y - h
 
         return y
@@ -4090,7 +4121,7 @@ initFrame:SetScript("OnEvent", function(self)
                     "charSheetSocketPanel", "charSheetIconZoom", "charSheetEnchantNames",
                     "charSheetEnchantSize", "inspectShowEnchants", "inspectShowItemLevel",
                     "inspectShowUpgradeTrack", "merchantShowAsList", "merchantListRowHeight",
-                    "merchantShowItemLevel", "tooltipItemLevel", "tooltipShowMode",
+                    "merchantShowItemLevel", "merchantBulkBuy", "tooltipItemLevel", "tooltipShowMode",
                     "tooltipShowModifier", "tooltipGrowthDirection", "tooltipBgColor",
                     "tooltipBgOpacity", "showSpellID", "spellIDModifier", "showIconID",
                     "showItemID", "friendsListCard",

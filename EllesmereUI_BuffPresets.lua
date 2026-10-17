@@ -589,9 +589,11 @@ if EllesmereUI.IS_FOREVER == true then
         kings = { names = { 20217, 25898 },
             single = { 20217 }, group = { 25898 },
             ids = { 20217, 1213408, 25898 } },
+        -- Salvation and Mass Salvation (the blessings' names before build
+        -- 70425; 1912 is the client's other copy).
         salvation = { names = { 1038, 25895 },
             single = { 1038 }, group = { 25895 },
-            ids = { 1038, 25895 } },
+            ids = { 1038, 1912, 25895 } },
         light = { names = { 19977, 25890 },
             single = { 19977, 19978, 19979 }, group = { 25890 },
             ids = { 19977, 19978, 19979, 26650, 25890 } },

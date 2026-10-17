@@ -9,6 +9,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
 if not ns then return end  -- module disabled: no options page
 
+-- Page reuse: the frames this file builds under a kept page go through the
+-- options frame pool (EllesmereUI_FramePool.lua), which hands the next build
+-- the previous build's frames reset to new; on any other parent it is the
+-- plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+-- The pool's other calls this file makes, read once here as CreateFrame is:
+-- the page path never calls the pool through its public slot, which
+-- another addon could replace.
+local PoolIsIdle = EllesmereUI._Pool.IsIdle
+
 function ns.UFO_BuildHealthBarSection(parent, y, ctx)
     local env = ns._UFO_OptEnv
     local AddDarkModeBlock, GROUP_UNIT_ORDER, PP, RegisterWidgetRefresh = env.AddDarkModeBlock, env.GROUP_UNIT_ORDER, env.PP, env.RegisterWidgetRefresh
@@ -655,10 +665,13 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                 PP.Point(ltClassSwatch, "RIGHT", ltAnchor, "LEFT", -8, 0)
                 ltClassSwatch:SetScript("OnClick", function()
                     if SVal("leftTextContent", "name") == "none" then return end
+                    -- Attribution read before the write: a setter that rebuilds the page
+                    -- may dress this swatch again for another slot.
+                    local snap = EllesmereUI._SOAttribution(ltClassSwatch)
                     SSet("leftTextClassColor", true)
                     -- Bespoke write: notify for exact Spec Overrides attribution (the
                     -- forced RefreshPage below would otherwise resync-absorb it).
-                    EllesmereUI._NotifySettingWrite(ltClassSwatch)
+                    EllesmereUI._NotifySettingWrite(ltClassSwatch, snap)
                     UpdatePreview(); EllesmereUI:RefreshPage()
                 end)
                 ltClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltClassSwatch, "Class Colored") end)
@@ -678,8 +691,9 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                 ltSwatch:SetScript("OnClick", function(self, ...)
                     if SVal("leftTextContent", "name") == "none" then return end
                     if SVal("leftTextClassColor", false) then
+                        local snap = EllesmereUI._SOAttribution(self)
                         SSet("leftTextClassColor", false)
-                        EllesmereUI._NotifySettingWrite(self)
+                        EllesmereUI._NotifySettingWrite(self, snap)
                         UpdatePreview(); EllesmereUI:RefreshPage(); return
                     end
                     if ltOrigClick then ltOrigClick(self, ...) end
@@ -854,10 +868,12 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                 PP.Point(rtClassSwatch, "RIGHT", rtAnchor, "LEFT", -8, 0)
                 rtClassSwatch:SetScript("OnClick", function()
                     if SVal("rightTextContent", "both") == "none" then return end
+                    -- Attribution read before the write (see the Left Text swatch).
+                    local snap = EllesmereUI._SOAttribution(rtClassSwatch)
                     SSet("rightTextClassColor", true)
                     -- Bespoke write: notify for exact Spec Overrides attribution (the
                     -- forced RefreshPage below would otherwise resync-absorb it).
-                    EllesmereUI._NotifySettingWrite(rtClassSwatch)
+                    EllesmereUI._NotifySettingWrite(rtClassSwatch, snap)
                     UpdatePreview(); EllesmereUI:RefreshPage()
                 end)
                 rtClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtClassSwatch, "Class Colored") end)
@@ -876,8 +892,9 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                 rtSwatch:SetScript("OnClick", function(self, ...)
                     if SVal("rightTextContent", "both") == "none" then return end
                     if SVal("rightTextClassColor", false) then
+                        local snap = EllesmereUI._SOAttribution(self)
                         SSet("rightTextClassColor", false)
-                        EllesmereUI._NotifySettingWrite(self)
+                        EllesmereUI._NotifySettingWrite(self, snap)
                         UpdatePreview(); EllesmereUI:RefreshPage(); return
                     end
                     if rtOrigClick then rtOrigClick(self, ...) end
@@ -1367,30 +1384,51 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     local ppFmtValues = { ["none"]="None", ["smart"]="Smart Text", ["curpp"]="Power Value", ["curmaxpp"]="Power Value / Max", ["perpp"]="Power %", ["both"]="Value | %" }
     local ppFmtOrder = { "none", "smart", "curpp", "curmaxpp", "perpp", "both" }
 
-    -- Row 1: Bar Height + Bar Position
+    -- Row 1: Bar Height + Bar Position. Under a stock style the track fixes
+    -- the bar's height and place: the height slot is Hide Power Bar instead
+    -- (the health bar then takes the track too) and Bar Position shows the
+    -- stock Below Health Bar, locked (ns.UF_PowerPos).
+    local stockPower = EllesmereUI.BlizzStyle.Get("unitframes")
+    local powerLeftCfg
+    if stockPower then
+        powerLeftCfg = { type="toggle", text="Hide Power Bar",
+          tooltip="Hides the power bar and stretches the health bar over its space.",
+          getValue=function() return ns.UF_StockHidesPower(SDB()) end,
+          setValue=function(v)
+              SSet("blizzHidePower", v and true or false)
+              UpdatePreview()
+              EllesmereUI:RefreshPage()
+          end }
+    else
+        powerLeftCfg = { type="slider", text="Power Bar Height", min=0, max=100, step=1,
+          getValue=function() return SValSupported("powerHeight", 6) end,
+          setValue=function(v) SSetSupported("powerHeight", v); ReloadAndUpdate(); UpdatePreview() end }
+    end
     local sharedPowerRow1
     sharedPowerRow1, h = W:DualRow(parent, y,
-        -- Blizzard Style: the stock track fixes the height; the Reverse Fill
-        -- cog on this slot keeps working (keepRow).
-        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Power Bar Height", min=0, max=100, step=1,
-          getValue=function() return SValSupported("powerHeight", 6) end,
-          setValue=function(v) SSetSupported("powerHeight", v); ReloadAndUpdate(); UpdatePreview() end }, true),
-        { type="dropdown", text="Bar Position", values=ppPosValues, order=ppPosOrder,
-          getValue=function() return SVal("powerPosition", "below") end,
+        powerLeftCfg,
+        EllesmereUI.BlizzStyle.Gate("unitframes", { type="dropdown", text="Bar Position", values=ppPosValues, order=ppPosOrder,
+          getValue=function() return stockPower and "below" or SVal("powerPosition", "below") end,
           setValue=function(v)
               SSet("powerPosition", v)
               ReloadAndUpdate(); UpdatePreview()
               -- Attached bars paint a Solid border: the power border's Width /
               -- Height Offset row comes and goes with the detached state.
               EllesmereUI:RefreshPage(true)
-          end });  y = y - h
-    -- Cog on Position for X/Y offsets + Width (disabled unless detached)
+          end }));  y = y - h
+    -- Cog on Position for X/Y offsets + Width (disabled unless detached, and
+    -- under a stock style, which places the bar itself)
     if not EllesmereUI._prebuilding then
         local posRgn = sharedPowerRow1._rightRegion
         EllesmereUI.BuildInlineCog(posRgn, {
             icon = EllesmereUI.RESIZE_ICON,
-            disabled = function() local pos = SVal("powerPosition", "below"); return pos ~= "detached_top" and pos ~= "detached_bottom" end,
-            disabledTooltip = "This option requires a detached position to be active.",
+            disabled = function()
+                if stockPower then return true end
+                local pos = SVal("powerPosition", "below"); return pos ~= "detached_top" and pos ~= "detached_bottom"
+            end,
+            disabledTooltip = stockPower and EllesmereUI.BlizzStyle.Label("unitframes")
+                or "This option requires a detached position to be active.",
+            requireState = stockPower and "disabled" or nil,
             title = "Position Settings",
             rows = {
                 { type="slider", label="Width", min=0, max=400, step=1,
@@ -1405,8 +1443,36 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             },
         })
     end
-    -- Sync icons: Power Height (left) and Power Position (right)
-    if not EllesmereUI._prebuilding then
+    -- Sync icons: Power Height, or Hide Power Bar under a stock style (left),
+    -- and Power Position (right; a stock style places the bar itself)
+    if not EllesmereUI._prebuilding and stockPower then
+        local rgn = sharedPowerRow1._leftRegion
+        local function HiddenOf(key) return ns.UF_StockHidesPower(UNIT_DB_MAP[key]()) end
+        local function ApplyHideTo(keys)
+            local v = HiddenOf(optState.selectedUnit)
+            for _, key in ipairs(keys) do UNIT_DB_MAP[key]().blizzHidePower = v end
+            ReloadAndUpdate(); EllesmereUI:RefreshPage()
+        end
+        EllesmereUI.BuildSyncIcon({
+            region  = rgn,
+            tooltip = "Apply Hide Power Bar to all Frames",
+            onClick = function() ApplyHideTo(GROUP_UNIT_ORDER) end,
+            isSynced = function()
+                local v = HiddenOf(optState.selectedUnit)
+                for _, key in ipairs(GROUP_UNIT_ORDER) do
+                    if HiddenOf(key) ~= v then return false end
+                end
+                return true
+            end,
+            flashTargets = function() return { rgn } end,
+            multiApply = {
+                elementKeys   = GROUP_UNIT_ORDER,
+                elementLabels = SHORT_LABELS,
+                getCurrentKey = function() return optState.selectedUnit end,
+                onApply       = function(checkedKeys) ApplyHideTo(checkedKeys) end,
+            },
+        })
+    elseif not EllesmereUI._prebuilding then
         local rgn = sharedPowerRow1._leftRegion
         EllesmereUI.BuildSyncIcon({
             region  = rgn,
@@ -1436,11 +1502,14 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             },
         })
     end
-    -- Reverse Fill cog on Bar Height (left region)
+    -- Reverse Fill cog on Bar Height or Hide Power Bar (left region)
     if not EllesmereUI._prebuilding then
         local rgn = sharedPowerRow1._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Power Bar Fill",
+            disabled = stockPower and function() return ns.UF_StockHidesPower(SDB()) end or nil,
+            disabledTooltip = stockPower and "Hide Power Bar" or nil,
+            requireState = stockPower and "disabled" or nil,
             rows = {
                 { type="toggle", label="Reverse Fill",
                   get=function() return SVal("powerReverseFill", false) end,
@@ -1448,7 +1517,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             },
         })
     end
-    if not EllesmereUI._prebuilding then
+    if not EllesmereUI._prebuilding and not stockPower then
         local rgn = sharedPowerRow1._rightRegion
         EllesmereUI.BuildSyncIcon({
             region  = rgn,
@@ -3124,7 +3193,9 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             local pf = cogShow and cogShow._popupFrame
             if pf and pf.GetChildren then
                 for _, child in ipairs({ pf:GetChildren() }) do
-                    if child._invalidateMenu then child._invalidateMenu() end
+                    -- an idle child is a parked control of an earlier dress
+                    -- (page reuse): its menu belongs to no row any more
+                    if child._invalidateMenu and not PoolIsIdle(child) then child._invalidateMenu() end
                 end
             end
         end)
@@ -3281,7 +3352,9 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             local pf = cogShow and cogShow._popupFrame
             if pf and pf.GetChildren then
                 for _, child in ipairs({ pf:GetChildren() }) do
-                    if child._invalidateMenu then child._invalidateMenu() end
+                    -- an idle child is a parked control of an earlier dress
+                    -- (page reuse): its menu belongs to no row any more
+                    if child._invalidateMenu and not PoolIsIdle(child) then child._invalidateMenu() end
                 end
             end
         end)

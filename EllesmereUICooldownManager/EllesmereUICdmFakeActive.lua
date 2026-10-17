@@ -1,5 +1,8 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local _, ns = ...
+-- Born in this module's main chunk, so the aura containers it builds bill this
+-- module (AuraKit's shared build scheduler).
+local AKWorker = EllesmereUI.AuraKit.NewBuildWorker()
 
 -- ===========================================================================
 --  EllesmereUI CDM -- Custom Active State engine (isolated)
@@ -783,7 +786,7 @@ end
         local AK = EllesmereUI.AuraKit
         if not (AK and AK.QueueBuildJob) then return end
         st.queued = true
-        AK.QueueBuildJob(function()
+        AKWorker:Queue(function()
             st.queued = nil
             Build(rule, st)
             -- Rescan ONLY after a build that actually completed (it attaches

@@ -11,6 +11,14 @@ local ns = EllesmereUI._ModuleNS["EllesmereUIRaidFrames"]  -- module namespace (
 if not ns then return end  -- module disabled: no options page
 local EllesmereUI = _G.EllesmereUI
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host (the kept Debuff Manager root, the kept Filter Editor and every frame
+-- they hand out) are reset and dressed again by the next render instead of
+-- made anew; elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolKept = EllesmereUI._Pool.Kept
+local PoolOwned = EllesmereUI._Pool.Owned
+
 local floor = math.floor
 local max = math.max
 
@@ -591,6 +599,8 @@ local function BuildBaseDetailDM(frame, fontPath)
     if not (W and p and dm) then return 0 end
     frame._showRowDivider = true
     local sy, hh = 0, 0
+    -- A local _: the global _ would hold the last row, and through it the page.
+    local _
 
     _, hh = W:SectionHeader(frame, "ASSIGNED DEBUFFS", sy); sy = sy - hh
 
@@ -1071,6 +1081,8 @@ local function BuildTileDetail(frame, fontPath, t)
     if not W then return 0 end
     frame._showRowDivider = true
     local sy, hh = 0, 0
+    -- A local _: the global _ would hold the last row, and through it the page.
+    local _
 
     local function TSet(key, v) t[key] = v; DmApply() end
 
@@ -2020,10 +2032,14 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     local sidebarW = floor(parentW * 0.28)
     local leftW = parentW - sidebarW
 
-    local outerRoot = CreateFrame("Frame", nil, scrollFrame)
+    -- The refreshers this render registers replace the previous render's (it
+    -- may run outside a page pass: the deferred renders of a cache restore).
+    EllesmereUI._BeginRootRender("rf.dm")
+    -- One root for the session (the options page pool): every render dresses
+    -- it again; its reset is the previous render's teardown.
+    local outerRoot = PoolKept(ns, "dmRoot", "Frame", scrollFrame)
     outerRoot:SetAllPoints(scrollFrame)
     outerRoot:SetFrameLevel(scrollFrame:GetFrameLevel() + 5)
-    if ns._dmRoot then ns._dmRoot:Hide(); ns._dmRoot:SetParent(nil) end
     if ns._dmAddPopup then ns._dmAddPopup:Hide() end
     if EllesmereUI._pickMenu then EllesmereUI._pickMenu:Hide() end
     ns._dmRoot = outerRoot
@@ -2101,7 +2117,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     end
 
     local p = DmProfile()
-    if not p then return 0 end
+    if not p then EllesmereUI._EndRootRender("rf.dm"); return 0 end
 
     -- No header bar (matches the redesigned Buff Manager page): content
     -- starts at the top of the viewport.
@@ -2824,6 +2840,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         end
     end
 
+    EllesmereUI._EndRootRender("rf.dm")
     return 0
 end
 
@@ -2854,9 +2871,14 @@ local fdScrollPos = 0 -- preserved spell-list scroll across editor rebuilds
 -- editor opens on the first picked filter in list order; with none picked it
 -- keeps the last one viewed.
 function ns.BMP_ShowFilterEditor(show, hide)
-    if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
     local filters = ns.BM2_Filters and ns.BM2_Filters()
-    if not filters then return end
+    if not filters then
+        if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
+        return
+    end
+    -- An open editor stays shown until the kept frame's reset below (that
+    -- reset is the previous dress's teardown), so the frame under the cursor,
+    -- dressed again in place, gets its OnEnter back from the pool.
     if show or hide then
         for i = 1, #filters do
             local id = filters[i].id
@@ -2873,7 +2895,10 @@ function ns.BMP_ShowFilterEditor(show, hide)
     local POPUP_W, POPUP_H = 620, 520
     local SIDE_W = 180
 
-    local dimmer = CreateFrame("Frame", nil, UIParent)
+    -- One editor for the session (the options page pool): every open and every
+    -- Rebuild below dress it again; its reset is the previous dress's teardown
+    -- (a keyboard capture is put back out of combat only, by the pool).
+    local dimmer = PoolKept(ns, "bm2FilterEditor", "Frame", UIParent)
     dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
     dimmer:SetAllPoints(UIParent)
     dimmer:EnableMouse(true)
@@ -2929,11 +2954,16 @@ function ns.BMP_ShowFilterEditor(show, hide)
     -- Escape closes the editor alone: the key is swallowed here, so it never
     -- reaches the Escape proxy that would close the options window too.
     -- SetPropagateKeyboardInput is protected in combat, so the editor takes
-    -- the keyboard only when built out of combat and stands aside in it.
+    -- the keyboard only when built out of combat and stands aside in it. The
+    -- capture is a frame of its own, owned by the popup outside its child
+    -- list: a dress in combat cannot clear keyboard flags, so it leaves only
+    -- that frame for the next dress out of combat, never the popup.
     if not InCombatLockdown() then
-        popup:EnableKeyboard(true)
-        popup:SetPropagateKeyboardInput(true)
-        popup:SetScript("OnKeyDown", function(self, key)
+        local keys = PoolOwned(popup, "keys", "Frame", popup)
+        keys:SetAllPoints(popup)
+        keys:EnableKeyboard(true)
+        keys:SetPropagateKeyboardInput(true)
+        keys:SetScript("OnKeyDown", function(self, key)
             if InCombatLockdown() then return end
             self:SetPropagateKeyboardInput(key ~= "ESCAPE")
             if key == "ESCAPE" then

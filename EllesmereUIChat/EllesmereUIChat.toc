@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Modern chat enhancements with useful utilities.
 ## Author: Ellesmere
-## Version: 9.5.5
+## Version: 9.6
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIChatDB
 ## SavedVariablesPerCharacter: EllesmereUIChatScrollDB
@@ -12,6 +12,14 @@
 
 # Main Luas
 EllesmereUIChat.lua
+EUI_Chat_SidebarIcons.lua
+EUI_Chat_Position.lua
+EUI_Chat_Sidebar.lua
+EUI_Chat_Visibility.lua
+EUI_Chat_Links.lua
+EUI_Chat_EditBox.lua
+EUI_Chat_Skin.lua
+EUI_Chat_Init.lua
 
 # Display engine: our message frames fed by the AddMessage bridge; Blizzard's
 # chat frames stay as the secure formatting/data plane with visuals parked.

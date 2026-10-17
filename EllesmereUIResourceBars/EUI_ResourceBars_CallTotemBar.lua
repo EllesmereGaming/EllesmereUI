@@ -11,7 +11,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --   position  pinned to our holder (the unlock element) with the Edit Mode
 --             system's saved base SetPoint / ClearAllPoints / SetScale, which
 --             never flag Edit Mode's anchor pass; a layout apply's re-anchor
---             (ApplySystemAnchor) is answered by re-pinning
+--             (ApplySystemAnchor) and Edit Mode's bottom bar stack, which
+--             holds this bar too, are answered by re-pinning
 --   overlay   its Edit Mode selection at alpha 0 with no mouse, so Edit Mode
 --             cannot select or drag it
 --   layout    scale from Icon Size, and the shown buttons laid out in a row
@@ -365,6 +366,13 @@ local function Hook()
     -- A snap break (Edit Mode resetting, reverting or hiding the system the bar
     -- was snapped to) re-anchors the bar to UIParent: re-pin it the same way.
     if bar.BreakFrameSnap then hooksecurefunc(bar, "BreakFrameSnap", OnSystemAnchor) end
+    -- The bar is one of the bottom action bars Edit Mode stacks: its stack
+    -- pass (after every layout apply, on this bar's own show and hide, on a
+    -- status bar change) moves a shown bar that sits at its default spot.
+    local mgr = _G.EditModeManagerFrame
+    if mgr and mgr.UpdateBottomActionBarPositions then
+        hooksecurefunc(mgr, "UpdateBottomActionBarPositions", OnSystemAnchor)
+    end
     hooksecurefunc("MultiCastActionBarFrame_Update", OnBarUpdate)
     if _G.MultiCastFlyoutFrameOpenButton_Show then
         hooksecurefunc("MultiCastFlyoutFrameOpenButton_Show", OnFlyoutArrow)

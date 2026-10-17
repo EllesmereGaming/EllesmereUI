@@ -130,6 +130,7 @@ L["Information"]       = "Informazione"
 L["Enter Name"]        = "Inserisci un nome"
 L["Search..."]         = "Cerca..."
 L["Search Module Settings..."] = "Cerca nelle impostazioni..."
+L["Search is not available on this page."] = "La ricerca non è disponibile in questa pagina."
 L["Language"]          = "Lingua"
 
 -- == Format templates (keep %1$s / %2$s) ===================================

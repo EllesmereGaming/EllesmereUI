@@ -6,6 +6,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ADDON_NAME = "EllesmereUIActionBars"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
+-- Options page pool (EllesmereUI_FramePool.lua, first in this addon): a frame
+-- made here on a pool host (a kept page or header root and every frame it
+-- hands out) is reset and dressed again by the next build instead of made
+-- anew; on any other parent this is CreateFrame. Captured once here.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+-- Keep: an object this file holds across builds leaves the pool. Gen: the
+-- dress generation of a pooled object (nil when it is not pooled).
+local PoolKeep, PoolGen = EllesmereUI._Pool.Keep, EllesmereUI._Pool.Gen
 local EAB = ns.EAB
 local VisibilityCompat = EAB and EAB.VisibilityCompat
 -- Anchor dropdown for the three button texts (keybind / charges / macro name);
@@ -265,6 +273,9 @@ initFrame:SetScript("OnEvent", function(self)
     local headerFixedH = 0 -- fixed height in content header (dropdown + label + padding), excluding preview
     local _barsHeaderBuilder  -- stored header builder for cache restore
     local _abPreviewHintFS                 -- hint FontString for Single Bar Edit
+    -- The header Bar Display's own builds use, and the header the hint's host
+    -- was last moved into (page reuse gives each page a header of its own).
+    local _abDisplayHdr, _abHintHdr
     local barsHeaderBaseH = 0              -- bars header height WITHOUT hint
 
     local function IsPreviewHintDismissed()
@@ -273,9 +284,10 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Lightweight refresh: re-read settings, update visuals.
     local function UpdatePreview()
-        -- Recover activePreview from content header if lost (e.g. page cache restore)
-        if not optState.activePreview and EllesmereUI._contentHeaderPreview then
-            optState.activePreview = EllesmereUI._contentHeaderPreview
+        -- Recover activePreview from this module's header preview slot if lost
+        -- (e.g. page cache restore)
+        if not optState.activePreview and EllesmereUI._abHeaderPreview then
+            optState.activePreview = EllesmereUI._abHeaderPreview
         end
         if optState.activePreview and optState.activePreview.Update then
             optState.activePreview:Update()
@@ -284,8 +296,8 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Full refresh also recalculates content header height (for bar scale changes)
     local function UpdatePreviewAndResize()
-        if not optState.activePreview and EllesmereUI._contentHeaderPreview then
-            optState.activePreview = EllesmereUI._contentHeaderPreview
+        if not optState.activePreview and EllesmereUI._abHeaderPreview then
+            optState.activePreview = EllesmereUI._abHeaderPreview
         end
         if optState.activePreview and optState.activePreview.Update then
             optState.activePreview:Update()
@@ -681,7 +693,13 @@ initFrame:SetScript("OnEvent", function(self)
                     local region = (m.slotSide == "left") and m.target._leftRegion or m.target._rightRegion
                     if region then glowTarget = region end
                 end
-                C_Timer.After(0.15, function() PlaySettingGlow(glowTarget) end)
+                -- The glow is for the row of the build that was clicked: a row
+                -- the page pool dressed again in the meantime (a rebuild) gets none.
+                local glowGen = PoolGen(glowTarget)
+                C_Timer.After(0.15, function()
+                    if PoolGen(glowTarget) ~= glowGen then return end
+                    PlaySettingGlow(glowTarget)
+                end)
             end
 
             local hitStyle = { tightText = true }
@@ -736,6 +754,7 @@ initFrame:SetScript("OnEvent", function(self)
         --  CONTENT HEADER  (dropdown + preview)
         -------------------------------------------------------------------
         _barsHeaderBuilder = function(hdr, hdrW)
+            if EllesmereUI:GetActivePage() == PAGE_DISPLAY then _abDisplayHdr = hdr end
             local PAD = EllesmereUI.CONTENT_PAD
             local PV_PAD = 10  -- internal padding inside BuildLivePreview
             local fy = -20
@@ -750,9 +769,8 @@ initFrame:SetScript("OnEvent", function(self)
                 function() return SelectedKey() end,
                 function(v)
                     _selectedBarKey = v
-                    EllesmereUI:InvalidateContentHeaderCache()
-                    EllesmereUI:SetContentHeader(_barsHeaderBuilder)
                     -- Always force a full rebuild: visibility-only bars and StanceBar share visOnly/dataBar flags, so a conditional misses transitions.
+                    -- The rebuild builds this header as well (BuildBarDisplayPage sets it), so no header is built here first.
                     EllesmereUI:RefreshPage(true)
                     ShowEditOverlay(v)
                 end,
@@ -814,12 +832,19 @@ initFrame:SetScript("OnEvent", function(self)
             if not IsPreviewHintDismissed() then
                 if not _abPreviewHintFS then
                     local hintHost = CreateFrame("Frame", nil, hdr)
+                    -- Built once and held by this file across builds (each
+                    -- build moves it into its header below): out of the page pool.
+                    PoolKeep(hintHost)
                     hintHost:SetAllPoints(hdr)
                     _abPreviewHintFS = EllesmereUI.MakeFont(hintHost, 11, nil, 1, 1, 1)
                     _abPreviewHintFS:SetAlpha(0.45)
                     _abPreviewHintFS:SetText(EllesmereUI.L("Click elements to scroll to and highlight their options"))
                 end
                 _abPreviewHintFS:GetParent():SetParent(hdr)
+                _abHintHdr = hdr
+                -- The level a new host gets: a header the page pool dressed
+                -- again may have raised its kept host on the way.
+                _abPreviewHintFS:GetParent():SetFrameLevel(hdr:GetFrameLevel() + 1)
                 _abPreviewHintFS:GetParent():Show()
                 _abPreviewHintFS:ClearAllPoints()
                 _abPreviewHintFS:SetPoint("BOTTOM", hdr, "BOTTOM", 0, 17)
@@ -930,7 +955,20 @@ initFrame:SetScript("OnEvent", function(self)
                     else
                         _abPreviewHintFS:SetAlpha(0.45)
                         _abPreviewHintFS:Show()
-                        if _abPreviewHintFS:GetParent() then _abPreviewHintFS:GetParent():Show() end
+                        local host = _abPreviewHintFS:GetParent()
+                        if host then
+                            -- The spec change handler built a bars header for
+                            -- another page and took the host along (page reuse
+                            -- gives each page its own header): back into this one.
+                            if _abDisplayHdr and _abHintHdr ~= _abDisplayHdr then
+                                _abHintHdr = _abDisplayHdr
+                                host:SetParent(_abDisplayHdr)
+                                host:SetFrameLevel(_abDisplayHdr:GetFrameLevel() + 1)
+                                _abPreviewHintFS:ClearAllPoints()
+                                _abPreviewHintFS:SetPoint("BOTTOM", _abDisplayHdr, "BOTTOM", 0, 17)
+                            end
+                            host:Show()
+                        end
                     end
                 end
                 if barsHeaderBaseH > 0 then

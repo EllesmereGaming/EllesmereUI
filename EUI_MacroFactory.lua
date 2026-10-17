@@ -1,9 +1,16 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_MacroFactory.lua
---  Builds the Macro Factory UI for the Quality of Life options page.
---  Called by BuildQoLPage via EllesmereUI.BuildMacroFactory(parent, y, PP)
+--  The Macro Factory: the macro definitions and the macro writer, the
+--  resident item macro upkeep, and the UI the Quality of Life options page
+--  builds through EllesmereUI.BuildMacroFactory(parent, y, PP) while its
+--  card is open (EllesmereUI.ParkMacroFactory while it is closed).
 -------------------------------------------------------------------------------
+
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot.
+local POOL = EllesmereUI._Pool
 
 -------------------------------------------------------------------------------
 --  Set Focus extras -- auto raid marker, ping and group announce
@@ -41,8 +48,343 @@ local function OptionDisplayName(opt, noRequest)
     return EllesmereUI.L(opt.label)
 end
 
+-- Page reuse (EllesmereUIOptions/EllesmereUI_FramePool.lua): the owner of the
+-- section's kept frames. On a kept page the section and its event frame are
+-- kept, so a Quality of Life page pass and a spec change dress the same frames
+-- again, and what the section builds under them comes back from the pool reset
+-- to new.
+local MF = {}
+
+-------------------------------------------------------------------------------
+--  Macro definitions (general; the spec sets live in the builder)
+-------------------------------------------------------------------------------
+local GENERAL_DEFS = {
+    {
+        name = "EUI_Potion",
+        icon = "Interface\\Icons\\inv_potion_54",
+        label = "Potion",
+        checkboxes = {
+            { key = "opt1", label = "Fleeting Light's Potential", items = {245898, 245897} },
+            { key = "opt2", label = "Light's Potential",          items = {241308, 241309} },
+            { key = "opt3", label = "Fleeting Recklessness",      items = {245902, 245903} },
+            { key = "opt4", label = "Recklessness",               items = {241288, 241289} },
+        },
+    },
+    {
+        name = "EUI_Health",
+        icon = "Interface\\Icons\\inv_potion_131",
+        label = "Health / Recuperate (Combat Based)",
+        spells = {1231418}, -- Recuperate (universal campfire self-heal)
+        -- Line order is the priority: the first potion in bags is the one used.
+        -- Concentrated Silvermoon r2 > r1, then Silvermoon r2 > r1.
+        fixedBody = "/stopcasting\n/cast [nocombat] {1}\n/use [combat] item:271884\n/use [combat] item:271883\n/use [combat] item:241304\n/use [combat] item:241305",
+        fixedTooltip = "item:271884",
+    },
+    {
+        name = "EUI_Food",
+        icon = "Interface\\Icons\\inv_misc_food_73cinnamonroll",
+        label = "Food",
+        checkboxes = {
+            { key = "opt1", label = "Conjured Mana Bun",          items = {113509} },
+            { key = "opt2", label = "Fairbreeze Feast",           items = {260262} },
+            { key = "opt3", label = "Silvermoon Soiree Spread",   items = {260263} },
+            { key = "opt4", label = "Quel'Danas Rations",         items = {260264} },
+            { key = "opt5", label = "Mana Lily Tea",              items = {242297} },
+            { key = "opt6", label = "Springrunner Sparkling",     items = {260260} },
+            { key = "opt7", label = "Tranquility Bloom Tea",      items = {1226196} },
+            { key = "opt8", label = "Sanguithorn Tea",            items = {242299} },
+            { key = "opt9", label = "Azeroot Tea",                items = {242301} },
+            { key = "opt10", label = "Argentleaf Tea",            items = {242298} },
+            { key = "opt11", label = "Everspring Water",          items = {260259} },
+        },
+    },
+    {
+        name = "EUI_Trinket1",
+        icon = "Interface\\Icons\\inv_jewelry_trinketpvp_01",
+        label = "Trinket 1",
+        fixedBody = "/use 13",
+        fixedTooltip = "13",
+    },
+    {
+        name = "EUI_Trinket2",
+        icon = "Interface\\Icons\\inv_jewelry_trinketpvp_02",
+        label = "Trinket 2",
+        fixedBody = "/use 14",
+        fixedTooltip = "14",
+    },
+    {
+        name = "EUI_Focus",
+        icon = "Interface\\Icons\\ability_hunter_focusedaim",
+        macroIcon = 236203,
+        label = "Set Focus",
+        fixedBody = "/focus [@mouseover,exists,nodead] []",
+        -- Each toggle stands alone: any combination is valid, and with all
+        -- three off the macro body is byte-for-byte what it has always been.
+        extraToggles = {
+            { key = "autoMark", label = "Auto Mark Focus" },
+            { key = "ping",     label = "Ping Focus" },
+            { key = "announce", label = "Announce Focus" },
+        },
+        -- Independent of the toggles above -- pick the marker whenever, it
+        -- only takes effect once Auto Mark is on.
+        extraChoices = {
+            { key = "markIcon", label = "Focus Marker", default = FOCUS_DEFAULT_MARK },
+        },
+        extraBody = function(db)
+            if not (db.autoMark or db.ping or db.announce) then return nil end
+            -- Every trailing command acts on the focus, so bail out when none
+            -- was acquired rather than marking, pinging or announcing whatever
+            -- happens to be targeted.
+            local lines = { "/stopmacro [@focus,noexists]" }
+            local mark = db.markIcon
+            if not FOCUS_MARK_COORDS[mark] then mark = FOCUS_DEFAULT_MARK end
+            if db.autoMark then
+                -- `~` is the 12.0.7 macro extension that declines to overwrite
+                -- a marker a group member already placed.
+                lines[#lines + 1] = "/tm [@focus] ~" .. mark
+            end
+            if db.ping then
+                -- Numeric alias (3 = On My Way): the word forms resolve through
+                -- localized PING_TYPE_* globals and only match on English clients.
+                lines[#lines + 1] = "/ping [@focus] 3"
+            end
+            if db.announce then
+                -- %f is the built-in chat substitution for the focus unit's
+                -- name. The marker icon is only advertised when Auto Mark is
+                -- on -- otherwise the message would name a marker nothing set.
+                -- The one player-visible word: localized at bake time so the
+                -- party message reads in the user's language (macro text is
+                -- baked when written, so a later game-language switch keeps
+                -- the old wording until a toggle is touched -- inherent to
+                -- macros).
+                local focusWord = (EllesmereUI.L("Focus")) or "Focus"
+                lines[#lines + 1] = db.autoMark
+                    and ("/p " .. focusWord .. ": {rt" .. mark .. "} %f")
+                    or ("/p " .. focusWord .. ": %f")
+            end
+            return table.concat(lines, "\n")
+        end,
+    },
+}
+
+-------------------------------------------------------------------------------
+--  DB helper (shared across all buttons and event handlers)
+-------------------------------------------------------------------------------
+local function GetMacroDB(macroName)
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    if not EllesmereUIDB.macroFactory then EllesmereUIDB.macroFactory = {} end
+    if not EllesmereUIDB.macroFactory[macroName] then EllesmereUIDB.macroFactory[macroName] = {} end
+    return EllesmereUIDB.macroFactory[macroName]
+end
+
+-------------------------------------------------------------------------------
+--  Macro body generation
+-------------------------------------------------------------------------------
+local function GetFirstAvailableItemID(def, db)
+    if not def.checkboxes then return nil end
+    local cbs = def.checkboxes
+    local order = db.order
+    if not order or #order < #cbs then
+        order = {}
+        for i = 1, #cbs do order[i] = i end
+    end
+    for _, idx in ipairs(order) do
+        local cb = cbs[idx]
+        if cb and db[cb.key] ~= false then
+            for _, itemID in ipairs(cb.items) do
+                if (C_Item.GetItemCount(itemID, false) or 0) > 0 then
+                    return itemID
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function GetMacroInventoryKey(def, db)
+    return GetFirstAvailableItemID(def, db)
+end
+
+-- Replace {n} placeholders in a macro string with the client-localized name of
+-- the nth entry in def.spells, resolved from its spell ID via C_Spell.GetSpellInfo.
+-- Spec macros store spell IDs instead of hard-coded English names because /cast
+-- only accepts the client's own language; this makes them work on any locale.
+-- Returns nil if a referenced spell's data is not cached yet (kicks off an async
+-- load so a later refresh completes it); callers skip the macro write on nil.
+local function ResolveSpellTokens(text, spells)
+    if not text then return nil end
+    if not spells or not text:find("{%d+}") then return text end
+    local missing = false
+    local out = text:gsub("{(%d+)}", function(n)
+        local id = spells[tonumber(n)]
+        if not id then return "{" .. n .. "}" end
+        local info = C_Spell.GetSpellInfo(id)
+        if info and info.name then return info.name end
+        C_Spell.RequestLoadSpellData(id)
+        missing = true
+        return ""
+    end)
+    if missing then return nil end
+    return out
+end
+
+local function BuildMacroBody(def, db)
+    if def.checkboxes then
+        local cbs = def.checkboxes
+        local order = db.order
+        if not order or #order < #cbs then
+            order = {}
+            for i = 1, #cbs do order[i] = i end
+        end
+
+        -- Collect all enabled items
+        local availItems = {}
+        local firstItemID
+        for _, idx in ipairs(order) do
+            local cb = cbs[idx]
+            if cb and db[cb.key] ~= false then
+                for _, itemID in ipairs(cb.items) do
+                    if not firstItemID then firstItemID = itemID end
+                    availItems[#availItems + 1] = itemID
+                end
+            end
+        end
+
+        if #availItems == 0 and not firstItemID then return "" end
+
+        local body = ""
+        if db.showTooltip ~= false then
+            local tipID = GetFirstAvailableItemID(def, db) or firstItemID
+            if tipID then body = "#showtooltip item:" .. tipID .. "\n" end
+        end
+        local lines = {}
+        for _, itemID in ipairs(availItems) do
+            lines[#lines + 1] = "/use item:" .. itemID
+        end
+        if #lines == 0 then return "" end
+        return body .. table.concat(lines, "\n")
+    elseif def.fixedBody then
+        local fbody = ResolveSpellTokens(def.fixedBody, def.spells)
+        if fbody == nil then return nil end -- spell data not cached; skip write
+        local body = ""
+        if db.showTooltip ~= false and def.fixedTooltip then
+            local tip = ResolveSpellTokens(def.fixedTooltip, def.spells)
+            if tip == nil then return nil end
+            body = "#showtooltip " .. tip .. "\n"
+        elseif db.showTooltip ~= false then
+            body = "#showtooltip\n"
+        end
+        -- Optional trailing lines driven by the def's own extra toggles. Returns
+        -- nil when every toggle is off, leaving the body untouched.
+        if def.extraBody then
+            local extra = def.extraBody(db)
+            if extra and extra ~= "" then
+                return body .. fbody .. "\n" .. extra
+            end
+        end
+        return body .. fbody
+    end
+    return ""
+end
+
+-- Pick the icon stored on the created WoW macro. Single-spell / item macros
+-- keep the "?" placeholder so the game shows a live icon from their
+-- #showtooltip line. Multi-spell combo macros have no #showtooltip to derive
+-- from, so they'd show a bare "?" -- give them their first spell's texture.
+local function ResolveMacroIcon(def)
+    if def.macroIcon then return def.macroIcon end
+    if def.spells and def.fixedBody and not def.fixedTooltip then
+        local tex = def.spells[1] and C_Spell.GetSpellTexture(def.spells[1])
+        if tex then return tex end
+    end
+    return "INV_MISC_QUESTIONMARK"
+end
+
+local function UpdateMacro(def, db)
+    local idx = GetMacroIndexByName(def.name)
+    if idx ~= 0 then
+        if InCombatLockdown() then
+            EllesmereUI.CombatQueue.Defer("MacroFactory:" .. def.name, function()
+                local i = GetMacroIndexByName(def.name)
+                if i == 0 then return end
+                local body = BuildMacroBody(def, GetMacroDB(def.name))
+                if body then EditMacro(i, nil, nil, body) end
+            end)
+        else
+            local body = BuildMacroBody(def, db)
+            if body then EditMacro(idx, nil, nil, body) end
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Item macro upkeep. An item macro (Potion, Food) names the first item of its
+--  list still in your bags on its #showtooltip line, so a bag change can move
+--  it. Resident, built or not: armed once the session's macros are in (its
+--  first loading screen, or the first macro update, whichever finds one of
+--  these macros first) and by the factory when it creates one; a pass that
+--  finds none left (deleted in the game's macro window) disarms it. Nothing
+--  listens on WoW Forever (its EUI_ macros are left as they are), without
+--  Quality of Life, or for a player with no such macro.
+-------------------------------------------------------------------------------
+-- The item each item macro was last written for this session (nil: not yet).
+local lastAvailableItems = {}
+
+local ITEM_DEFS = {}
+for i = 1, #GENERAL_DEFS do
+    if GENERAL_DEFS[i].checkboxes then ITEM_DEFS[#ITEM_DEFS + 1] = GENERAL_DEFS[i] end
+end
+
+local itemUpkeep = CreateFrame("Frame")
+
+local function ArmItemUpkeep()
+    itemUpkeep:RegisterEvent("BAG_UPDATE_DELAYED")
+    itemUpkeep:RegisterEvent("PLAYER_REGEN_ENABLED")
+end
+
+local function ItemUpkeepPass()
+    local any = false
+    for i = 1, #ITEM_DEFS do
+        local def = ITEM_DEFS[i]
+        if GetMacroIndexByName(def.name) ~= 0 then
+            any = true
+            local db = GetMacroDB(def.name)
+            local key = GetMacroInventoryKey(def, db)
+            if key ~= lastAvailableItems[def.name] then
+                lastAvailableItems[def.name] = key
+                UpdateMacro(def, db)
+            end
+        end
+    end
+    if not any then itemUpkeep:UnregisterAllEvents() end
+end
+
+itemUpkeep:SetScript("OnEvent", function(self, event)
+    if event == "BAG_UPDATE_DELAYED" or event == "PLAYER_REGEN_ENABLED" then
+        ItemUpkeepPass()
+        return
+    end
+    -- PLAYER_ENTERING_WORLD and UPDATE_MACROS: one look each.
+    self:UnregisterEvent(event)
+    if EllesmereUI.IS_FOREVER or not EllesmereUI._ModuleNS["EllesmereUIQoL"] then return end
+    if self:IsEventRegistered("BAG_UPDATE_DELAYED") then return end
+    for i = 1, #ITEM_DEFS do
+        if GetMacroIndexByName(ITEM_DEFS[i].name) ~= 0 then
+            ArmItemUpkeep()
+            ItemUpkeepPass()
+            return
+        end
+    end
+end)
+itemUpkeep:RegisterEvent("PLAYER_ENTERING_WORLD")
+itemUpkeep:RegisterEvent("UPDATE_MACROS")
 
 function EllesmereUI.BuildMacroFactory(parent, startY, PP)
+    -- The options frame pool: this file is resident, and the options addon
+    -- (whose Quality of Life page is the only caller of this builder) fills
+    -- the table in place when it loads.
+    local Pool = POOL
+    local CreateFrame = Pool.CreateFrame
     local ICON_SIZE = 40
     local ICON_GAP = 40
     local ICONS_PER_ROW = 4
@@ -53,118 +395,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     local fontPath = EllesmereUI.GetFontPath() or STANDARD_TEXT_FONT
     local EG = EllesmereUI.ELLESMERE_GREEN
     local y = startY
-
-    ---------------------------------------------------------------------------
-    --  Macro definitions
-    ---------------------------------------------------------------------------
-    local GENERAL_DEFS = {
-        {
-            name = "EUI_Potion",
-            icon = "Interface\\Icons\\inv_potion_54",
-            label = "Potion",
-            checkboxes = {
-                { key = "opt1", label = "Fleeting Light's Potential", items = {245898, 245897} },
-                { key = "opt2", label = "Light's Potential",          items = {241308, 241309} },
-                { key = "opt3", label = "Fleeting Recklessness",      items = {245902, 245903} },
-                { key = "opt4", label = "Recklessness",               items = {241288, 241289} },
-            },
-        },
-        {
-            name = "EUI_Health",
-            icon = "Interface\\Icons\\inv_potion_131",
-            label = "Health / Recuperate (Combat Based)",
-            spells = {1231418}, -- Recuperate (universal campfire self-heal)
-            -- Line order is the priority: the first potion in bags is the one used.
-            -- Concentrated Silvermoon r2 > r1, then Silvermoon r2 > r1.
-            fixedBody = "/stopcasting\n/cast [nocombat] {1}\n/use [combat] item:271884\n/use [combat] item:271883\n/use [combat] item:241304\n/use [combat] item:241305",
-            fixedTooltip = "item:271884",
-        },
-        {
-            name = "EUI_Food",
-            icon = "Interface\\Icons\\inv_misc_food_73cinnamonroll",
-            label = "Food",
-            checkboxes = {
-                { key = "opt1", label = "Conjured Mana Bun",          items = {113509} },
-                { key = "opt2", label = "Fairbreeze Feast",           items = {260262} },
-                { key = "opt3", label = "Silvermoon Soiree Spread",   items = {260263} },
-                { key = "opt4", label = "Quel'Danas Rations",         items = {260264} },
-                { key = "opt5", label = "Mana Lily Tea",              items = {242297} },
-                { key = "opt6", label = "Springrunner Sparkling",     items = {260260} },
-                { key = "opt7", label = "Tranquility Bloom Tea",      items = {1226196} },
-                { key = "opt8", label = "Sanguithorn Tea",            items = {242299} },
-                { key = "opt9", label = "Azeroot Tea",                items = {242301} },
-                { key = "opt10", label = "Argentleaf Tea",            items = {242298} },
-                { key = "opt11", label = "Everspring Water",          items = {260259} },
-            },
-        },
-        {
-            name = "EUI_Trinket1",
-            icon = "Interface\\Icons\\inv_jewelry_trinketpvp_01",
-            label = "Trinket 1",
-            fixedBody = "/use 13",
-            fixedTooltip = "13",
-        },
-        {
-            name = "EUI_Trinket2",
-            icon = "Interface\\Icons\\inv_jewelry_trinketpvp_02",
-            label = "Trinket 2",
-            fixedBody = "/use 14",
-            fixedTooltip = "14",
-        },
-        {
-            name = "EUI_Focus",
-            icon = "Interface\\Icons\\ability_hunter_focusedaim",
-            macroIcon = 236203,
-            label = "Set Focus",
-            fixedBody = "/focus [@mouseover,exists,nodead] []",
-            -- Each toggle stands alone: any combination is valid, and with all
-            -- three off the macro body is byte-for-byte what it has always been.
-            extraToggles = {
-                { key = "autoMark", label = "Auto Mark Focus" },
-                { key = "ping",     label = "Ping Focus" },
-                { key = "announce", label = "Announce Focus" },
-            },
-            -- Independent of the toggles above -- pick the marker whenever, it
-            -- only takes effect once Auto Mark is on.
-            extraChoices = {
-                { key = "markIcon", label = "Focus Marker", default = FOCUS_DEFAULT_MARK },
-            },
-            extraBody = function(db)
-                if not (db.autoMark or db.ping or db.announce) then return nil end
-                -- Every trailing command acts on the focus, so bail out when none
-                -- was acquired rather than marking, pinging or announcing whatever
-                -- happens to be targeted.
-                local lines = { "/stopmacro [@focus,noexists]" }
-                local mark = db.markIcon
-                if not FOCUS_MARK_COORDS[mark] then mark = FOCUS_DEFAULT_MARK end
-                if db.autoMark then
-                    -- `~` is the 12.0.7 macro extension that declines to overwrite
-                    -- a marker a group member already placed.
-                    lines[#lines + 1] = "/tm [@focus] ~" .. mark
-                end
-                if db.ping then
-                    -- Numeric alias (3 = On My Way): the word forms resolve through
-                    -- localized PING_TYPE_* globals and only match on English clients.
-                    lines[#lines + 1] = "/ping [@focus] 3"
-                end
-                if db.announce then
-                    -- %f is the built-in chat substitution for the focus unit's
-                    -- name. The marker icon is only advertised when Auto Mark is
-                    -- on -- otherwise the message would name a marker nothing set.
-                    -- The one player-visible word: localized at bake time so the
-                    -- party message reads in the user's language (macro text is
-                    -- baked when written, so a later game-language switch keeps
-                    -- the old wording until a toggle is touched -- inherent to
-                    -- macros).
-                    local focusWord = (EllesmereUI.L("Focus")) or "Focus"
-                    lines[#lines + 1] = db.autoMark
-                        and ("/p " .. focusWord .. ": {rt" .. mark .. "} %f")
-                        or ("/p " .. focusWord .. ": %f")
-                end
-                return table.concat(lines, "\n")
-            end,
-        },
-    }
 
     ---------------------------------------------------------------------------
     --  Spec macro definitions (keyed by specID)
@@ -495,156 +725,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     local activeSpecDefs = activeSpecID and SPEC_DEFS[activeSpecID] or {}
 
     ---------------------------------------------------------------------------
-    --  DB helper (shared across all buttons and event handlers)
-    ---------------------------------------------------------------------------
-    local function GetMacroDB(macroName)
-        if not EllesmereUIDB then EllesmereUIDB = {} end
-        if not EllesmereUIDB.macroFactory then EllesmereUIDB.macroFactory = {} end
-        if not EllesmereUIDB.macroFactory[macroName] then EllesmereUIDB.macroFactory[macroName] = {} end
-        return EllesmereUIDB.macroFactory[macroName]
-    end
-
-    ---------------------------------------------------------------------------
-    --  Macro body generation
-    ---------------------------------------------------------------------------
-    local function GetFirstAvailableItemID(def, db)
-        if not def.checkboxes then return nil end
-        local cbs = def.checkboxes
-        local order = db.order
-        if not order or #order < #cbs then
-            order = {}
-            for i = 1, #cbs do order[i] = i end
-        end
-        for _, idx in ipairs(order) do
-            local cb = cbs[idx]
-            if cb and db[cb.key] ~= false then
-                for _, itemID in ipairs(cb.items) do
-                    if (C_Item.GetItemCount(itemID, false) or 0) > 0 then
-                        return itemID
-                    end
-                end
-            end
-        end
-        return nil
-    end
-
-    local function GetMacroInventoryKey(def, db)
-        return GetFirstAvailableItemID(def, db)
-    end
-
-    -- Replace {n} placeholders in a macro string with the client-localized name of
-    -- the nth entry in def.spells, resolved from its spell ID via C_Spell.GetSpellInfo.
-    -- Spec macros store spell IDs instead of hard-coded English names because /cast
-    -- only accepts the client's own language; this makes them work on any locale.
-    -- Returns nil if a referenced spell's data is not cached yet (kicks off an async
-    -- load so a later refresh completes it); callers skip the macro write on nil.
-    local function ResolveSpellTokens(text, spells)
-        if not text then return nil end
-        if not spells or not text:find("{%d+}") then return text end
-        local missing = false
-        local out = text:gsub("{(%d+)}", function(n)
-            local id = spells[tonumber(n)]
-            if not id then return "{" .. n .. "}" end
-            local info = C_Spell.GetSpellInfo(id)
-            if info and info.name then return info.name end
-            C_Spell.RequestLoadSpellData(id)
-            missing = true
-            return ""
-        end)
-        if missing then return nil end
-        return out
-    end
-
-    local function BuildMacroBody(def, db)
-        if def.checkboxes then
-            local cbs = def.checkboxes
-            local order = db.order
-            if not order or #order < #cbs then
-                order = {}
-                for i = 1, #cbs do order[i] = i end
-            end
-
-            -- Collect all enabled items
-            local availItems = {}
-            local firstItemID
-            for _, idx in ipairs(order) do
-                local cb = cbs[idx]
-                if cb and db[cb.key] ~= false then
-                    for _, itemID in ipairs(cb.items) do
-                        if not firstItemID then firstItemID = itemID end
-                        availItems[#availItems + 1] = itemID
-                    end
-                end
-            end
-
-            if #availItems == 0 and not firstItemID then return "" end
-
-            local body = ""
-            if db.showTooltip ~= false then
-                local tipID = GetFirstAvailableItemID(def, db) or firstItemID
-                if tipID then body = "#showtooltip item:" .. tipID .. "\n" end
-            end
-            local lines = {}
-            for _, itemID in ipairs(availItems) do
-                lines[#lines + 1] = "/use item:" .. itemID
-            end
-            if #lines == 0 then return "" end
-            return body .. table.concat(lines, "\n")
-        elseif def.fixedBody then
-            local fbody = ResolveSpellTokens(def.fixedBody, def.spells)
-            if fbody == nil then return nil end -- spell data not cached; skip write
-            local body = ""
-            if db.showTooltip ~= false and def.fixedTooltip then
-                local tip = ResolveSpellTokens(def.fixedTooltip, def.spells)
-                if tip == nil then return nil end
-                body = "#showtooltip " .. tip .. "\n"
-            elseif db.showTooltip ~= false then
-                body = "#showtooltip\n"
-            end
-            -- Optional trailing lines driven by the def's own extra toggles. Returns
-            -- nil when every toggle is off, leaving the body untouched.
-            if def.extraBody then
-                local extra = def.extraBody(db)
-                if extra and extra ~= "" then
-                    return body .. fbody .. "\n" .. extra
-                end
-            end
-            return body .. fbody
-        end
-        return ""
-    end
-
-    -- Pick the icon stored on the created WoW macro. Single-spell / item macros
-    -- keep the "?" placeholder so the game shows a live icon from their
-    -- #showtooltip line. Multi-spell combo macros have no #showtooltip to derive
-    -- from, so they'd show a bare "?" -- give them their first spell's texture.
-    local function ResolveMacroIcon(def)
-        if def.macroIcon then return def.macroIcon end
-        if def.spells and def.fixedBody and not def.fixedTooltip then
-            local tex = def.spells[1] and C_Spell.GetSpellTexture(def.spells[1])
-            if tex then return tex end
-        end
-        return "INV_MISC_QUESTIONMARK"
-    end
-
-    local function UpdateMacro(def, db)
-        local idx = GetMacroIndexByName(def.name)
-        if idx ~= 0 then
-            if InCombatLockdown() then
-                EllesmereUI.CombatQueue.Defer("MacroFactory:" .. def.name, function()
-                    local i = GetMacroIndexByName(def.name)
-                    if i == 0 then return end
-                    local body = BuildMacroBody(def, GetMacroDB(def.name))
-                    if body then EditMacro(i, nil, nil, body) end
-                end)
-            else
-                local body = BuildMacroBody(def, db)
-                if body then EditMacro(idx, nil, nil, body) end
-            end
-        end
-    end
-
-    ---------------------------------------------------------------------------
     --  Layout
     ---------------------------------------------------------------------------
     local MAX_SPEC_VISIBLE_ROWS = 3
@@ -655,13 +735,23 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     local maxRows = math.max(generalRows, MAX_SPEC_VISIBLE_ROWS)
     local SECTION_H = 102 + ROW_STRIDE * (maxRows - 1)
 
-    local container = CreateFrame("Frame", nil, parent)
+    -- On a kept page (a pool host) the section is one frame for the session:
+    -- each build dresses it again (its reset is the old section's teardown).
+    -- A page built anew gets a new section, as everything on it is new.
+    local keep = Pool.Managed(parent)
+    local container = keep and Pool.Kept(MF, "section", "Frame", parent) or CreateFrame("Frame", nil, parent)
+    -- The right-click menu still open on the previous build closes with it,
+    -- also when its icon is not dressed again (a shorter spec list leaves
+    -- that button, and the menu it owns, out of this build).
+    if keep and MF.openMenu then
+        if MF.openMenu:IsShown() then MF.openMenu:Hide() end
+        MF.openMenu = nil
+    end
     container:SetSize(parent:GetWidth(), SECTION_H)
     container:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, y)
 
     local halfW = parent:GetWidth() / 2
     local allMacroButtons = {}
-    local lastAvailableItems = {}
 
     -- Center divider (1px absolute pixel)
     local divider = container:CreateTexture(nil, "ARTWORK")
@@ -711,7 +801,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             sc:SetSize(halfW, contentH)
             sf:SetScrollChild(sc)
 
-            EllesmereUI.AttachSmoothScrollbar(sf, { rightInset = 70, topInset = 32, bottomInset = 8 })
+            EllesmereUI.AttachSmoothScrollbar(sf, { rightInset = 70, topInset = 32, bottomInset = 8, panelWheel = true })
 
             iconParent = sc
             iconAnchor = sc
@@ -847,7 +937,9 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                     menuH = menuH + DH + HH + (#cbItems * MH)
                 end
 
-                menuFrame = CreateFrame("Frame", nil, UIParent)
+                -- Owned by its icon button on a kept section: the button's next
+                -- dress hides it, the next build's first right-click dresses it again.
+                menuFrame = keep and Pool.Owned(btn, "menu", "Frame", UIParent) or CreateFrame("Frame", nil, UIParent)
                 menuFrame:SetFrameStrata("FULLSCREEN_DIALOG"); menuFrame:SetFrameLevel(200)
                 menuFrame:SetClampedToScreen(true); menuFrame:EnableMouse(true)
                 menuFrame:SetSize(MW, menuH)
@@ -882,6 +974,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                         if body == nil then return end -- spell data not cached yet
                         CreateMacro(def.name, ResolveMacroIcon(def), body, nil)
                         lastAvailableItems[def.name] = GetMacroInventoryKey(def, db)
+                        if def.checkboxes then ArmItemUpkeep() end
                         PlayFlash()
                         C_Timer.After(0.15, function()
                             if not InCombatLockdown() then ShowMacroFrame() end
@@ -1243,6 +1336,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 menuFrame:SetPoint("TOP", btn, "BOTTOM", 0, -18)
                 if menuFrame._refreshAction then menuFrame._refreshAction() end
                 menuFrame:Show(); btn._cogPopup = menuFrame
+                if keep then MF.openMenu = menuFrame end
             end
 
             btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -1268,6 +1362,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 if body == nil then return end -- spell data not cached yet
                 CreateMacro(def.name, ResolveMacroIcon(def), body, nil)
                 lastAvailableItems[def.name] = GetMacroInventoryKey(def, db)
+                if def.checkboxes then ArmItemUpkeep() end
                 self._playFlash()
                 C_Timer.After(0.15, function()
                     if not InCombatLockdown() then ShowMacroFrame() end
@@ -1295,27 +1390,12 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         emptyFS:SetJustifyH("CENTER")
     end
 
-    -- Update macros when inventory changes
-    local function UpdateInventoryDependentMacros()
-        for _, btn in ipairs(allMacroButtons) do
-            local mdef = btn._def
-            if mdef and btn._tex and mdef.checkboxes then
-                local idx = GetMacroIndexByName(mdef.name)
-                if idx ~= 0 then
-                    local db = GetMacroDB(mdef.name)
-                    local newKey = GetMacroInventoryKey(mdef, db)
-                    if newKey ~= lastAvailableItems[mdef.name] then
-                        lastAvailableItems[mdef.name] = newKey
-                        UpdateMacro(mdef, db)
-                    end
-                end
-            end
-        end
-    end
-
     -- Macro state follows UPDATE_MACROS while the section is shown: the event
     -- registers on show (with one pass for changes made while hidden), goes on
-    -- hide, and a burst becomes one pass on the next frame.
+    -- hide, and a burst becomes one pass on the next frame. On a kept page the
+    -- show's pass is queued the same way: a page pass shows the kept section
+    -- again before this builder dresses it again, and that dress, in the same
+    -- frame, drops the queued pass.
     local function SyncMacroStates()
         for _, btn in ipairs(allMacroButtons) do
             local mdef = btn._def
@@ -1333,58 +1413,35 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         end
     end
     local macroWatch = CreateFrame("Frame", nil, container)
-    local syncPending
+    local syncPending, syncGen
     local function SyncNow()
         syncPending = nil
+        -- A pass queued before the section was dressed again is dropped: its
+        -- buttons now show the new build, which painted them as it built.
+        if Pool.Gen(macroWatch) ~= syncGen then return end
         if macroWatch:IsVisible() then SyncMacroStates() end
     end
-    macroWatch:SetScript("OnEvent", function()
+    local function QueueSync()
         if syncPending then return end
         syncPending = true
+        syncGen = Pool.Gen(macroWatch)
         C_Timer.After(0, SyncNow)
-    end)
+    end
+    macroWatch:SetScript("OnEvent", QueueSync)
     macroWatch:SetScript("OnShow", function(self)
         self:RegisterEvent("UPDATE_MACROS")
-        SyncMacroStates()
+        if keep then QueueSync() else SyncMacroStates() end
     end)
     macroWatch:SetScript("OnHide", function(self) self:UnregisterEvent("UPDATE_MACROS") end)
     -- Built while shown: the buttons were just painted, so only listen.
     if macroWatch:IsVisible() then macroWatch:RegisterEvent("UPDATE_MACROS") end
 
-    -- Update macros when bag changes (throttled), spec changes, login, or combat ends
-    local eventFrame = CreateFrame("Frame", nil, container)
-    local bagUpdatePending = false
-    -- Spec changes are handled by a single persistent watcher (see end of file)
-    -- that rebuilds only this section, not here -- registering per build would
-    -- stack up handlers and multi-flash on every subsequent spec change.
-    eventFrame:RegisterEvent("BAG_UPDATE")
-    eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    eventFrame:SetScript("OnEvent", function(self, event)
-        if event == "PLAYER_REGEN_ENABLED" then
-            UpdateInventoryDependentMacros()
-        elseif event == "PLAYER_ENTERING_WORLD" then
-            C_Timer.After(1, UpdateInventoryDependentMacros)
-        elseif not bagUpdatePending then
-            bagUpdatePending = true
-            C_Timer.After(0.5, function()
-                bagUpdatePending = false
-                UpdateInventoryDependentMacros()
-            end)
-        end
-    end)
-
     -- Remember this build so a spec change can rebuild just this section in place
-    -- (constant SECTION_H keeps the rest of the page from shifting). Retire the
-    -- previous build's inventory event frame so its handlers don't stack up.
+    -- (constant SECTION_H keeps the rest of the page from shifting).
     local mf = EllesmereUI._macroFactory
     if not mf then mf = {}; EllesmereUI._macroFactory = mf end
-    if mf.eventFrame and mf.eventFrame ~= eventFrame then
-        mf.eventFrame:UnregisterAllEvents()
-        mf.eventFrame:SetScript("OnEvent", nil)
-    end
     mf.parent, mf.startY, mf.PP = parent, startY, PP
-    mf.container, mf.eventFrame = container, eventFrame
+    mf.container = container
     mf.builtSpecID = activeSpecID
 
     return SECTION_H
@@ -1392,8 +1449,9 @@ end
 
 -- Rebuild only the Macro Factory section when the player's spec changes, so its
 -- spec suggestions update without a full options-page rebuild (which flashed the
--- whole page). The new section is built before the old one is removed, and its
--- height is constant, so there is no visible gap or layout shift. Works whether
+-- whole page). On a kept page the section is the same frame dressed again;
+-- otherwise the new section is built before the old one is removed. Its height
+-- is constant, so there is no visible gap or layout shift. Works whether
 -- the options panel is open (user sees it refresh) or closed (the cached page's
 -- section is updated in place, so reopening already shows the new spec).
 function EllesmereUI.RefreshMacroFactory()
@@ -1413,12 +1471,28 @@ function EllesmereUI.RefreshMacroFactory()
     pcall(EllesmereUI.BuildMacroFactory, mf.parent, mf.startY, mf.PP)
     EllesmereUI._searchIndexSuppress = nil
 
-    -- The new section is built (constant SECTION_H, same anchor) before the old
-    -- one is dropped, so there is no gap or layout shift -- both apply in one frame.
+    -- A new section (constant SECTION_H, same anchor) was built before the old
+    -- one is dropped, so there is no gap or layout shift -- both apply in one
+    -- frame. A kept section is the same frame: nothing to drop.
     if oldContainer and oldContainer ~= mf.container then
         oldContainer:Hide()
         oldContainer:SetParent(nil)
     end
+end
+
+-- The Quality of Life page built without the section (its card closed): the
+-- kept section and the menu it owns hide, and a spec change finds nothing
+-- built to refresh. The next build dresses the section again (the pool shows
+-- it as it resets it).
+function EllesmereUI.ParkMacroFactory()
+    local mf = EllesmereUI._macroFactory
+    if not mf then return end
+    if MF.openMenu then
+        if MF.openMenu:IsShown() then MF.openMenu:Hide() end
+        MF.openMenu = nil
+    end
+    if mf.container and mf.container:IsShown() then mf.container:Hide() end
+    mf.parent = nil
 end
 
 -- A spec change only matters to what the options panel shows: the Macro

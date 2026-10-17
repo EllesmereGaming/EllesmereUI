@@ -10,6 +10,9 @@ local I = ns._hookInternals
 -- EllesmereUICdmHooks.lua or an earlier hook file failed to load.
 if not I or I.broken then return end
 I.broken = true
+-- Born in this module's main chunk, so the aura containers it builds bill this
+-- module (AuraKit's shared build scheduler).
+local AKWorker = EllesmereUI.AuraKit.NewBuildWorker()
 
 local ECME = ns.ECME
 local barDataByKey = ns.barDataByKey
@@ -945,7 +948,7 @@ function ns.UpdateCustomBuffAuraTracking()
                             if AK and AK.QueueBuildJob then
                                 rec.queued = true
                                 local barKey, bdRef, sidsRef, sigRef, cisRef = bd.key, bd, sids, sig, cis
-                                AK.QueueBuildJob(function()
+                                AKWorker:Queue(function()
                                     rec.queued = nil
                                     _AC.Build(rec, barKey, bdRef, sidsRef, sigRef, cisRef)
                                     -- The job captured the id list as it was when

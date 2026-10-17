@@ -110,7 +110,7 @@ ReloadFramesBody = function()
             -- can end up behind the frame's own border, however "Detached Power Bar" strata is configured.
             if frame.Power then
                 local us2 = GetSettingsForUnit(unitKey)
-                local ppPos = us2 and us2.powerPosition or "below"
+                local ppPos = ns.UF_PowerPos(us2)
                 if ppPos == "detached_top" or ppPos == "detached_bottom" then
                     if profile.enableCustomBarStratas then
                         frame.Power:SetFrameStrata(profile.detachedPowerStrata or "HIGH")
@@ -348,7 +348,7 @@ ReloadFramesBody = function()
             end
 
             if unit == "player" or unit == "target" then
-                local ppPos = settings.powerPosition or "below"
+                local ppPos = ns.UF_PowerPos(settings)
                 local ppIsAtt = (ppPos == "below" or ppPos == "above")
                 local ppExtra = ppIsAtt and settings.powerHeight or 0
                 local playerTargetHeight = settings.healthHeight + ppExtra
@@ -702,7 +702,7 @@ ReloadFramesBody = function()
                     end
 
                     UpdateBordersForScale(frame, unit)
-                    ReparentBarsToClip(frame, settings.powerPosition, settings)
+                    ReparentBarsToClip(frame, ns.UF_PowerPos(settings), settings)
 
                 elseif unit == "target" then
                     local pSide = settings.portraitSide or "right"
@@ -984,13 +984,13 @@ ReloadFramesBody = function()
                     end
 
                     UpdateBordersForScale(frame, unit)
-                    ReparentBarsToClip(frame, settings.powerPosition, settings)
+                    ReparentBarsToClip(frame, ns.UF_PowerPos(settings), settings)
                 end
 
                 -- (health tag re-tagging now handled by _applyTextTags above)
 
             elseif unit == "focus" then
-                local fPpPos = settings.powerPosition or "below"
+                local fPpPos = ns.UF_PowerPos(settings)
                 local fPpIsAtt = (fPpPos == "below" or fPpPos == "above")
                 local powerHeight = fPpIsAtt and (settings.powerHeight or 6) or 0
                 local focusBarHeight = settings.healthHeight + powerHeight
@@ -1265,7 +1265,7 @@ ReloadFramesBody = function()
                 end
 
                 UpdateBordersForScale(frame, unit)
-                ReparentBarsToClip(frame, settings.powerPosition, settings)
+                ReparentBarsToClip(frame, ns.UF_PowerPos(settings), settings)
 
             elseif unit == "pet" or unit == "targettarget" or unit == "focustarget" then
                 -- Pet, ToT and FoT all share the same simple-frame layout:
@@ -1338,7 +1338,7 @@ ReloadFramesBody = function()
                 end
 
                 UpdateBordersForScale(frame, unit)
-                ReparentBarsToClip(frame, settings.powerPosition, settings)
+                ReparentBarsToClip(frame, ns.UF_PowerPos(settings), settings)
 
             elseif unit:match("^boss%d$") then
                 local bPpPos = settings.powerPosition or "below"
@@ -1544,7 +1544,7 @@ ReloadFramesBody = function()
                 end
 
                 UpdateBordersForScale(frame, unit)
-                ReparentBarsToClip(frame, settings.powerPosition, settings)
+                ReparentBarsToClip(frame, ns.UF_PowerPos(settings), settings)
             end
 
             -- Determine if this is a mini frame that inherits border/texture/font
@@ -1915,7 +1915,7 @@ ReloadFramesBody = function()
             local radius = (not frame._blizzArtFrame and src and src.cornerRadius) or 0
             local corners = src and src.cornerMask
             local power = frame.Power
-            local pp = us and us.powerPosition or "below"
+            local pp = ns.UF_PowerPos(us)
             local det = pp == "detached_top" or pp == "detached_bottom"
             -- Join Power Bar: a detached bar right above or below the frame
             -- shares its outline (the frame keeps the far corners).

@@ -1,5 +1,5 @@
 """Builds the crop masks of the Forever client's square minimap frames
-(EllesmereUIMinimap.lua, EBS._MapCrop).
+(EUI_Minimap_Styles.lua, EBS._MapCrop).
 
 While a square frame (the WoW Forever look's Forever Square, Blizzard Style's
 slim Square) shows its title bar, the map loses half the bar's extra height

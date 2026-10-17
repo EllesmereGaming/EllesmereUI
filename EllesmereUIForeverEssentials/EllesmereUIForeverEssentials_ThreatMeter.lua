@@ -13,6 +13,10 @@ local ADDON_NAME, module = ...
 local ns = module.ThreatMeter
 local EUI = EllesmereUI
 local Look = ns.Look
+-- The options page pool's table (made by the core, filled in place when the
+-- options addon loads): the settings preview reads a dress generation from
+-- it at call time.
+local POOL = EUI._Pool
 
 local UPDATE_DELAY = 0.2
 local FOLLOW_INTERVAL = 0.5
@@ -320,14 +324,8 @@ function ns.Sounds()
     return soundPaths, soundNames, soundOrder
 end
 
--- A SharedMedia sound is a file path or a SoundKit id.
 function ns.PlaySoundKey(key)
-    local path = ns.Sounds()[key]
-    if type(path) == "number" then
-        if path ~= 1 then PlaySound(path, "Master") end
-    elseif path then
-        PlaySoundFile(path, "Master")
-    end
+    EUI.PlaySoundPath(ns.Sounds()[key])
 end
 
 -------------------------------------------------------------------------------
@@ -814,6 +812,10 @@ end
 --  the live meter's style and renderer. No threat reads, no saved writes.
 -------------------------------------------------------------------------------
 local settingsPreview
+-- parent -> the dress its size hook was made for: the options page pool
+-- (EllesmereUI_FramePool.lua) resets a kept header root before each build,
+-- which drops the hook, so a new dress (Pool.Gen) hooks again; a plain frame
+-- (no Gen) is hooked once.
 local hookedParents = setmetatable({}, { __mode = "k" })
 
 local function RefreshPreview(self)
@@ -852,8 +854,9 @@ function ns.CreateSettingsPreview(parent, availableWidth, onHeightChanged)
     -- Frames outlive a page rebuild, so the surface is reused.
     view.availableWidth, view.onHeightChanged = availableWidth, onHeightChanged
     view:SetParent(parent)
-    if not hookedParents[parent] then
-        hookedParents[parent] = true
+    local dress = POOL.Gen and POOL.Gen(parent) or true
+    if hookedParents[parent] ~= dress then
+        hookedParents[parent] = dress
         local lastWidth
         parent:HookScript("OnSizeChanged", function(_, width)
             if width == lastWidth then return end
