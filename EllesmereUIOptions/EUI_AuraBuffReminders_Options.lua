@@ -14,7 +14,7 @@ local PAGE_UNLOCK    = "Unlock Mode"
 
 -- WoW Forever: the page keeps CORE, DISPLAY and RAID BUFFS (that client's
 -- locations and four buffs) and swaps every other retail section for the one
--- Forever section (Camp Benefits + custom spell IDs); the Talent Reminders
+-- Forever section (Camp Benefits, weapon buffs + custom spell IDs); the Talent Reminders
 -- page does not exist there.
 local FOREVER = EllesmereUI.IS_FOREVER == true
 
@@ -1567,9 +1567,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         -----------------------------------------------------------------------
         --  WOW FOREVER section: on that client the rest of the page.
-        --  Camp Benefits | Well Fed, then the spell-ID entry that adds a custom
-        --  reminder followed by one slot per tracked spell; the retail sections
-        --  below never build.
+        --  Camp Benefits | Well Fed, Weapon Buffs, then the spell-ID entry that
+        --  adds a custom reminder followed by one slot per tracked spell; the
+        --  retail sections below never build.
         -----------------------------------------------------------------------
         if FOREVER then
             _, h = W:SectionHeader(parent, SECTION_FOREVER, y);  y = y - h
@@ -1601,7 +1601,38 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             );  y = y - h
 
-            -- Add Custom Spell, paired with the tracked spells
+            local weaponBuffRow
+            weaponBuffRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Weapon Buffs",
+                  tooltip="Reminds you when an equipped bladed or blunt weapon has no temporary buff, such as a sharpening stone or weightstone. Shields, held items and ranged weapons are ignored.",
+                  getValue=function() local f = FDB(); return f and f.weaponBuffs == true end,
+                  setValue=EllesmereUI.DependentSetValue(
+                      function() local f = FDB(); return f and f.weaponBuffs end,
+                      function(v)
+                          local f = FDB(); if not f then return end; f.weaponBuffs = v
+                          RefreshAll()
+                      end) },
+                EllesmereUI.BlankRowCfg()
+            );  y = y - h
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(weaponBuffRow._leftRegion, {
+                    title="Weapon Buff Settings",
+                    disabled=function() local f = FDB(); return not f or not f.weaponBuffs end,
+                    disabledTooltip="Weapon Buffs",
+                    rows={
+                        { type="toggle", label="Only show with matching item in bags",
+                          tooltip="Hide the reminder until you carry a sharpening stone for a bladed weapon or a weightstone for a blunt weapon.",
+                          get=function() local f = FDB(); return f and f.weaponBuffRequireItem == true end,
+                          set=function(v)
+                              local f = FDB(); if not f then return end; f.weaponBuffRequireItem = v
+                              RefreshAll()
+                          end },
+                    },
+                })
+            end
+
+            -- Add Custom Spell, paired with the tracked spells. Keep this last
+            -- so its dynamic rows always follow the built-in Forever reminders.
             y = BuildForeverCustomRows(parent, y,
                 { type="input", text="Add Custom Spell", inputStyle="popup", placeholder="Spell ID", inputWidth=110,
                   tooltip="Type a spell ID and press Enter to be reminded whenever that buff is missing.\nUnknown IDs are ignored.",
