@@ -21,6 +21,8 @@ local isSecret = issecretvalue or function() return false end
 local WELL_FED_ICON = 136000
 local EATING_ICON   = 133950
 local AURA_SCAN_LIMIT = 255
+local EXPIRE_SOON = 600     -- under 10 minutes left shows the time instead of a check
+local TICK = 15             -- re-render interval for the countdowns while the window is open
 local TEX_YES  = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local TEX_NO   = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local RUNE_ITEM   = 259085   -- header icons come from items: the buff spells have no cached texture
@@ -36,7 +38,7 @@ local VANTUS_IDS = {
     1303186, 1303187, 1310437, 1310439, 1319284, 1319286,
 }
 
-local PAD, TITLE_H, HEAD_H, FOOT_H = 8, 24, 20, 30
+local PAD, TITLE_H, HEAD_H = 8, 24, 20
 local ROW_H, NAME_W, CELL_W, ICON = 18, 110, 24, 14
 local BUFF_SLOTS, BUFF_STEP = 6, 16
 local CELLS = 4             -- flask, food, rune, vantus
@@ -44,7 +46,9 @@ local BUFFS_X = NAME_W + CELLS * CELL_W + 4
 local BLOCK_W = BUFFS_X + BUFF_SLOTS * BUFF_STEP + 2
 local BLOCK_GAP = 12
 local ROWS_PER_BLOCK = 20
-local MIN_W = 470           -- fits the summary and note lines
+local TOTAL_ROWS = 3        -- Missing, Expiring soon, Unknown
+local MIN_W = 400           -- fits the title bar and the note line
+local NOTE_H = 16
 
 local ev = CreateFrame("Frame")
 local started = false
@@ -123,26 +127,48 @@ local function LoadData()
     return true
 end
 
--- Non-nil means the aura is there, even when its fields are secret.
-local function HasID(unit, id)
-    local ok, aura = pcall(C_UnitAuras.GetUnitAuraBySpellID, unit, id)
-    return ok and aura ~= nil
+-- What a present aura reads as: its expiration time, or true when that is
+-- secret or the aura never expires.
+local function Present(aura)
+    local exp = aura.expirationTime
+    if exp == nil or isSecret(exp) or exp == 0 then return true end
+    return exp
 end
 
--- true = has it, false = verified missing, nil = cannot tell.
+-- Non-nil means the aura is there, even when its fields are secret.
+local function FindID(unit, id)
+    local ok, aura = pcall(C_UnitAuras.GetUnitAuraBySpellID, unit, id)
+    if ok and aura ~= nil then return Present(aura) end
+end
+
+-- State values: true or an expiration time = has it, false = verified
+-- missing, nil = cannot tell, "eating" = food channel up.
 local function FlaskState(unit)
     for id in pairs(flaskSet) do
-        if HasID(unit, id) then return true end
+        local v = FindID(unit, id)
+        if v then return v end
     end
     return false
 end
 
 local function ListState(unit, ids, readable, restricted)
     for i = 1, #ids do
-        if HasID(unit, ids[i]) then return true end
+        local v = FindID(unit, ids[i])
+        if v then return v end
     end
     if restricted and not readable then return nil end
     return false
+end
+
+-- Seconds left when under EXPIRE_SOON, else nil.
+local function SoonLeft(v, now)
+    if type(v) ~= "number" then return nil end
+    local left = v - now
+    if left < EXPIRE_SOON then return math.max(0, left) end
+end
+
+local function MinutesText(left)
+    return EllesmereUI.Lf("%dm", math.ceil(left / 60))
 end
 
 -- "eating" while the food channel is up.
@@ -156,7 +182,7 @@ local function FoodState(unit, restricted)
         local ic = aura.icon
         if ic ~= nil and not isSecret(ic) then
             sawReadable = true
-            if ic == WELL_FED_ICON then return true end
+            if ic == WELL_FED_ICON then return Present(aura) end
             if ic == EATING_ICON then return "eating" end
         end
     end
@@ -167,9 +193,19 @@ end
 -------------------------------------------------------------------------------
 --  Window
 -------------------------------------------------------------------------------
-local function SetCell(cell, state)
+local function SetCell(cell, state, now)
     if state == nil then
         cell.tex:Hide()
+        cell.q:SetText("?")
+        cell.q:SetTextColor(0.6, 0.6, 0.6)
+        cell.q:Show()
+        return
+    end
+    local left = SoonLeft(state, now)
+    if left then
+        cell.tex:Hide()
+        cell.q:SetText(MinutesText(left))
+        cell.q:SetTextColor(1, 0.8, 0.2)
         cell.q:Show()
         return
     end
@@ -227,7 +263,7 @@ local function MakeRow(i)
     r.buffsOk:SetPoint("LEFT", r, "LEFT", BUFFS_X, 0)
     r.buffsOk:SetTexture(TEX_YES)
     r.buffsQ = EllesmereUI.MakeFont(r, 11, nil, 0.6, 0.6, 0.6)
-    r.buffsQ:SetPoint("CENTER", r.buffsOk, "CENTER")
+    r.buffsQ:SetPoint("LEFT", r.buffsOk, "LEFT", 0, 0)
     r.buffsQ:SetText("?")
     rows[i] = r
     return r
@@ -293,7 +329,10 @@ local function Build()
         SavePosition()
     end)
     frame:Hide()
-    frame:SetScript("OnHide", function() Listen(false) end)
+    frame:SetScript("OnHide", function()
+        Listen(false)
+        if frame._ticker then frame._ticker:Cancel(); frame._ticker = nil end
+    end)
 
     local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
     bg:SetColorTexture(0.05, 0.05, 0.05, 0.92)
@@ -352,8 +391,33 @@ local function Build()
     frame.empty:SetText(EllesmereUI.L("Everyone is fully buffed."))
     frame.empty:Hide()
 
-    frame.summary = EllesmereUI.MakeFont(frame, 11, nil, 0.9, 0.9, 0.9)
-    frame.summary:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, 16)
+    -- Totals under the first block: one count per column, aligned with its cells.
+    local labels = { EllesmereUI.L("Missing"), EllesmereUI.L("Expiring soon"), EllesmereUI.L("Unknown") }
+    frame.totals = {}
+    for t = 1, TOTAL_ROWS do
+        local tr = CreateFrame("Frame", nil, frame)
+        tr:SetSize(BLOCK_W, ROW_H)
+        tr:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, NOTE_H + (TOTAL_ROWS - t) * ROW_H)
+        local lbl = EllesmereUI.MakeFont(tr, 11, nil, 0.85, 0.85, 0.85)
+        lbl:SetPoint("LEFT", tr, "LEFT", 4, 0)
+        lbl:SetText(labels[t])
+        tr.counts = {}
+        for k = 1, CELLS + 1 do
+            local fs = EllesmereUI.MakeFont(tr, 11, nil, 1, 1, 1)
+            if k <= CELLS then
+                fs:SetPoint("CENTER", tr, "LEFT", NAME_W + (k - 0.5) * CELL_W, 0)
+            else
+                fs:SetPoint("CENTER", tr, "LEFT", BUFFS_X + ICON / 2, 0)
+            end
+            tr.counts[k] = fs
+        end
+        frame.totals[t] = tr
+    end
+    local sep = frame:CreateTexture(nil, "ARTWORK")
+    sep:SetColorTexture(1, 1, 1, 0.15)
+    sep:SetHeight(1)
+    sep:SetPoint("BOTTOMLEFT", frame.totals[1], "TOPLEFT", 0, 1)
+    sep:SetPoint("BOTTOMRIGHT", frame.totals[1], "TOPRIGHT", 0, 1)
     frame.note = EllesmereUI.MakeFont(frame, 10, nil, 0.6, 0.6, 0.6)
     frame.note:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, 4)
 
@@ -374,10 +438,15 @@ local function UnitClassToken(unit)
     return cls
 end
 
-local sortSub = {}
-local function SortBySubgroup(a, b)
-    local sa, sb = sortSub[a], sortSub[b]
-    if sa ~= sb then return sa < sb end
+-- Alphabetical by name; a secret name sorts last, by unit token.
+local sortName = {}
+local function SortByName(a, b)
+    local na, nb = sortName[a], sortName[b]
+    if na ~= nb then
+        if not na then return false end
+        if not nb then return true end
+        return na < nb
+    end
     return a < b
 end
 
@@ -386,16 +455,10 @@ local function CollectUnits()
     wipe(providers)
     wipe(isMember)
     if IsInRaid() then
-        wipe(sortSub)
         for i = 1, GetNumGroupMembers() do
             local u = "raid" .. i
-            if UnitExists(u) then
-                local _, _, sub = GetRaidRosterInfo(i)
-                sortSub[u] = (sub and not isSecret(sub)) and sub or 9
-                units[#units + 1] = u
-            end
+            if UnitExists(u) then units[#units + 1] = u end
         end
-        table.sort(units, SortBySubgroup)
     else
         units[1] = "player"
         for i = 1, GetNumSubgroupMembers() do
@@ -403,6 +466,13 @@ local function CollectUnits()
             if UnitExists(u) then units[#units + 1] = u end
         end
     end
+    wipe(sortName)
+    for i = 1, #units do
+        local u = units[i]
+        local name = UnitName(u)
+        if name ~= nil and not isSecret(name) then sortName[u] = strlower(name) end
+    end
+    table.sort(units, SortByName)
     for i = 1, #units do
         local u = units[i]
         isMember[u] = true
@@ -422,6 +492,7 @@ local function ComputeState(unit, restricted)
     if isSecret(visible) then visible = true end
     s.online = online
     s.missing = 0
+    s.buffsExp = nil
     local icons = s.icons
     if not online or dead or not visible then
         s.flask, s.food, s.rune, s.vantus = nil, nil, nil, nil
@@ -435,14 +506,17 @@ local function ComputeState(unit, restricted)
     local n = 0
     for _, buff in ipairs(raidBuffs) do
         if providers[buff.class] then
-            local has = false
+            local has
             local ids = buff.buffIDs
             for k = 1, #ids do
-                if HasID(unit, ids[k]) then has = true; break end
+                has = FindID(unit, ids[k])
+                if has then break end
             end
             if not has then
                 n = n + 1
                 icons[n] = buff.castSpell
+            elseif type(has) == "number" and (not s.buffsExp or has < s.buffsExp) then
+                s.buffsExp = has
             end
         end
     end
@@ -450,22 +524,23 @@ local function ComputeState(unit, restricted)
     s.missing = n
 end
 
--- Only what is verified missing counts; unknown and eating do not.
-local function NotFullyBuffed(s)
-    return s.flask == false or s.food == false or s.rune == false or s.vantus == false
-        or s.missing > 0
+-- Missing, unknown (nil) and running out count; eating does not.
+local function NotFullyBuffed(s, now)
+    return not s.flask or not s.food or not s.rune or not s.vantus or s.missing > 0
+        or SoonLeft(s.flask, now) or SoonLeft(s.food, now) or SoonLeft(s.rune, now)
+        or SoonLeft(s.vantus, now) or SoonLeft(s.buffsExp, now)
 end
 
-local function PaintRow(r, unit)
+local function PaintRow(r, unit, now)
     local s = states[unit]
     r.name:SetText(UnitName(unit))
     local cls = UnitClassToken(unit)
     local cc = cls and EllesmereUI.GetClassColor(cls)
     if cc and s.online then r.name:SetTextColor(cc.r, cc.g, cc.b) else r.name:SetTextColor(0.5, 0.5, 0.5) end
-    SetCell(r.flask, s.flask)
-    SetCell(r.food, s.food)
-    SetCell(r.rune, s.rune)
-    SetCell(r.vantus, s.vantus)
+    SetCell(r.flask, s.flask, now)
+    SetCell(r.food, s.food, now)
+    SetCell(r.rune, s.rune, now)
+    SetCell(r.vantus, s.vantus, now)
     local icons = s.icons
     for j = 1, BUFF_SLOTS do
         local id = icons[j]
@@ -477,8 +552,19 @@ local function PaintRow(r, unit)
         end
     end
     -- flask is nil only for a row that was not read at all (offline, dead, out of range).
-    r.buffsOk:SetShown(s.flask ~= nil and s.missing == 0)
-    r.buffsQ:SetShown(s.flask == nil)
+    local left = s.missing == 0 and SoonLeft(s.buffsExp, now)
+    r.buffsOk:SetShown(s.flask ~= nil and s.missing == 0 and not left)
+    if s.flask == nil then
+        r.buffsQ:SetText("?")
+        r.buffsQ:SetTextColor(0.6, 0.6, 0.6)
+        r.buffsQ:Show()
+    elseif left then
+        r.buffsQ:SetText(MinutesText(left))
+        r.buffsQ:SetTextColor(1, 0.8, 0.2)
+        r.buffsQ:Show()
+    else
+        r.buffsQ:Hide()
+    end
 end
 
 local function Layout(n)
@@ -501,32 +587,57 @@ local function Layout(n)
     end
     for i = n + 1, #rows do rows[i]:Hide() end
     frame:SetSize(math.max(MIN_W, PAD * 2 + blocks * BLOCK_W + (blocks - 1) * BLOCK_GAP),
-        TITLE_H + 2 + HEAD_H + perBlock * ROW_H + FOOT_H + 4)
+        TITLE_H + 2 + HEAD_H + perBlock * ROW_H + 6 + TOTAL_ROWS * ROW_H + NOTE_H)
+end
+
+-- totals[row][column]; columns are flask, food, rune, vantus, raid buffs.
+local totals = { {}, {}, {} }
+
+local function Tally(t, col, v, now)
+    if v == false then t[1][col] = t[1][col] + 1
+    elseif v == nil then t[3][col] = t[3][col] + 1
+    elseif SoonLeft(v, now) then t[2][col] = t[2][col] + 1 end
 end
 
 function Render()
     local filter = OnlyMissing()
-    local mFlask, mFood, mRune, mVantus, mBuffs = 0, 0, 0, 0, 0
+    local now = GetTime()
+    for t = 1, TOTAL_ROWS do
+        for k = 1, CELLS + 1 do totals[t][k] = 0 end
+    end
     wipe(shownUnits)
     for i = 1, #units do
         local u = units[i]
         local s = states[u]
         if s then
-            if s.flask == false then mFlask = mFlask + 1 end
-            if s.food == false then mFood = mFood + 1 end
-            if s.rune == false then mRune = mRune + 1 end
-            if s.vantus == false then mVantus = mVantus + 1 end
-            if s.missing > 0 then mBuffs = mBuffs + 1 end
-            if not filter or NotFullyBuffed(s) then shownUnits[#shownUnits + 1] = u end
+            Tally(totals, 1, s.flask, now)
+            Tally(totals, 2, s.food, now)
+            Tally(totals, 3, s.rune, now)
+            Tally(totals, 4, s.vantus, now)
+            -- Raid buffs: unread row = unknown, a missing buff = missing, else the soonest expiry.
+            if s.flask == nil then
+                totals[3][5] = totals[3][5] + 1
+            elseif s.missing > 0 then
+                totals[1][5] = totals[1][5] + 1
+            elseif SoonLeft(s.buffsExp, now) then
+                totals[2][5] = totals[2][5] + 1
+            end
+            if not filter or NotFullyBuffed(s, now) then shownUnits[#shownUnits + 1] = u end
         end
     end
     local n = #shownUnits
     Layout(n)
-    for i = 1, n do PaintRow(rows[i], shownUnits[i]) end
+    for i = 1, n do PaintRow(rows[i], shownUnits[i], now) end
     frame.empty:SetShown(n == 0)
     frame.check:SetShown(filter)
-    frame.summary:SetText(EllesmereUI.Lf("No flask: %d   No food: %d   No rune: %d   No vantus: %d   Missing buffs: %d",
-        mFlask, mFood, mRune, mVantus, mBuffs))
+    for t = 1, TOTAL_ROWS do
+        local counts = frame.totals[t].counts
+        for k = 1, CELLS + 1 do
+            local c = totals[t][k]
+            counts[k]:SetText(c)
+            if c == 0 then counts[k]:SetTextColor(0.3, 0.9, 0.3) else counts[k]:SetTextColor(1, 0.3, 0.3) end
+        end
+    end
     if frame._restricted then
         frame.note:SetText(EllesmereUI.L("Food and runes cannot be read here (aura restriction). ? = unknown"))
     else
@@ -569,6 +680,7 @@ local function Open()
     frame:Show()
     Listen(true)
     Rebuild()
+    if not frame._ticker then frame._ticker = C_Timer.NewTicker(TICK, Render) end
 end
 
 local function Sync()
