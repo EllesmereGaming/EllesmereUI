@@ -503,6 +503,12 @@ local function IsFiltered(questID, superID)
     return false
 end
 
+-- Read-only filter test for the custom tracker (no watch edits).
+EQT.IsAreaHeader = IsAreaHeader
+function EQT.IsQuestFiltered(questID)
+    return FilterOn() and IsFiltered(questID, C_SuperTrack.GetSuperTrackedQuestID())
+end
+
 local function ApplyFilter()
     local db = CharDB()
     local hidden, exempt = db.hidden, db.exempt
@@ -655,29 +661,37 @@ local function SortKeyFor(mode, questID, rank)
     return rank
 end
 
-local function ApplySort()
+-- Sorts a quest ID list in place by the sort settings; list order is the rank.
+local function SortQuestList(ids)
     local mode, completed, thenBy = SortMode(), SortCompleted(), SortThenBy()
     wipe(sortGroup); wipe(sortKey); wipe(sortKey2); wipe(sortRank)
     if mode == "zone" or thenBy == "zone" then BuildZoneMap() end
+    for i, questID in ipairs(ids) do
+        sortRank[questID] = i
+        local group = 1
+        if completed ~= "mixed" then
+            local done = C_QuestLog.IsComplete(questID) == true
+            group = ((completed == "top") == done) and 1 or 2
+        end
+        sortGroup[questID] = group
+        sortKey[questID] = SortKeyFor(mode, questID, i)
+        sortKey2[questID] = SortKeyFor(thenBy, questID, i)
+    end
+    table.sort(ids, CompareQuests)
+end
+EQT.SortQuestList = SortQuestList
+
+local function ApplySort()
     local count = 0
     for i = 1, C_QuestLog.GetNumQuestWatches() do
         local questID = C_QuestLog.GetQuestIDForQuestWatchIndex(i)
         if questID then
             count = count + 1
             sortIDs[count] = questID
-            sortRank[questID] = count
-            local group = 1
-            if completed ~= "mixed" then
-                local done = C_QuestLog.IsComplete(questID) == true
-                group = ((completed == "top") == done) and 1 or 2
-            end
-            sortGroup[questID] = group
-            sortKey[questID] = SortKeyFor(mode, questID, count)
-            sortKey2[questID] = SortKeyFor(thenBy, questID, count)
         end
     end
     for i = #sortIDs, count + 1, -1 do sortIDs[i] = nil end
-    table.sort(sortIDs, CompareQuests)
+    SortQuestList(sortIDs)
 
     -- AddQuestWatch inserts at the top, so re-add the out-of-place head in
     -- reverse; the already-correct tail is left alone.
@@ -799,6 +813,11 @@ end
 
 -- Options / profile entry point.
 function EQT.ApplyQuestWatches()
+    -- The custom tracker sorts, filters and auto-tracks on its own list.
+    if ns.UseCustomTracker() then
+        if EQT.RefreshCustom then EQT.RefreshCustom() end
+        return
+    end
     ApplyBlizzardSort()
     local on = WatchesActive()
     if not watchFrame then

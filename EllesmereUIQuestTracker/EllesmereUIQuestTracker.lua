@@ -107,6 +107,24 @@ local QT_DEFAULTS = {
             objStartR = 1.0, objStartG = 0.4, objStartB = 0.4,
             objMidR   = 1.0, objMidG   = 1.0, objMidB   = 0.4,
             objEndR   = 0.4, objEndG   = 1.0, objEndB   = 0.4,
+
+            -- WoW Forever: our own tracker frame instead of Blizzard's
+            -- (reload-gated). Position lives in customPos.
+            customTracker        = false,
+            customGroupByZone    = true,
+            customDifficultyColor = true,
+            customWidth          = 260,
+            customMaxHeight      = 450,
+            customCollapseCompleted = false,
+            customZoneFontSize   = 13,
+            customQuestSpacing   = 4,
+            customObjSpacing     = 1,
+            customFocusClick     = false,  -- focus buttons + menu entry
+            customWrapTitles     = true,   -- off: one line, cut with "..."
+            customWrapObjectives = true,
+            customScrollbar      = "always",  -- always / hover / hidden
+            customBgHover        = false,     -- background + top line only while hovered
+            customBgFade         = true,      -- fade it in and out
         },
     },
 }
@@ -156,6 +174,19 @@ function ns.QT_Style()
     return v
 end
 -- Stock mode: true for both stock styles (Blizzard's own tracker art and text).
+-- WoW Forever: our own tracker replaces Blizzard's. Latched like the style.
+function ns.UseCustomTracker()
+    local v = ns._customTracker
+    if v == nil then
+        local d = EnsureDB()
+        local qt = d and d.profile and d.profile.questTracker
+        if not qt then return false end
+        v = EllesmereUI.IS_FOREVER == true and qt.customTracker == true
+        ns._customTracker = v
+    end
+    return v
+end
+
 function EQT.Blizz() return ns.QT_Style() ~= "eui" end
 function EQT.Classic() return ns.QT_Style() == "classic" end
 
@@ -193,8 +224,12 @@ end
 local function TryInit()
     if not (_sawSelf and _sawOT and _loggedIn) then return end
     EnsureDB()
-    if EQT.InitSkin       then EQT.InitSkin()       end
-    if EQT.InitVisibility then EQT.InitVisibility() end
+    if ns.UseCustomTracker() then
+        EQT.InitCustom()
+    else
+        if EQT.InitSkin       then EQT.InitSkin()       end
+        if EQT.InitVisibility then EQT.InitVisibility() end
+    end
     if EQT.InitQoL        then EQT.InitQoL()        end
     loader:UnregisterAllEvents()
 end

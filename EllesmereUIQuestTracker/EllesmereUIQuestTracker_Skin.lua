@@ -822,6 +822,11 @@ local function ProgressRGB(f)
     return r1 + (r2 - r1) * f, g1 + (g2 - g1) * f, b1 + (b2 - b1) * f
 end
 
+-- Shared with the custom tracker (Custom.lua).
+EQT.GetFont, EQT.ProgressRGB = GetFont, ProgressRGB
+EQT.GetTitleRGB, EQT.GetCompletedRGB, EQT.GetFocusRGB = GetTitleRGB, GetCompletedRGB, GetFocusRGB
+EQT.GetHeaderRGB, EQT.GetLineRGB = GetHeaderRGB, GetLineRGB
+
 local function ColorObjectiveLines(block)
     local lines = block and block.usedLines
     if not lines then return end
@@ -1560,6 +1565,38 @@ EQT.ApplyTrackerMouse = function(on)
     if master then
         MouseOff(master.MinimizeButton)
         MouseOff(master.FilterButton)
+    end
+end
+
+-- Custom tracker (WoW Forever): Blizzard's tracker stays shown but alpha 0 and
+-- click-through, never skinned. No Hide(): its OnHide relayouts the right
+-- managed frame container from our execution. Blocks are laid out before
+-- AddBlock, so the hook catches their lines and right-edge buttons too.
+function EQT.MuteBlizzardTracker()
+    local otf = _G.ObjectiveTrackerFrame
+    if not otf then return end
+    otf:SetAlpha(0)
+    -- Blizzard (Edit Mode, managed frames) and unlock mode set alpha back.
+    hooksecurefunc(otf, "SetAlpha", function(self, a)
+        if a ~= 0 then self:SetAlpha(0) end
+    end)
+    EQT.ApplyTrackerMouse(false)
+    local function hook(tracker)
+        if _hookedTrackers[tracker] or SharesWidgetPool(tracker) or not tracker.AddBlock then return end
+        _hookedTrackers[tracker] = true
+        hooksecurefunc(tracker, "AddBlock", function(_, block)
+            if block then ApplyBlockMouse(block) end
+        end)
+    end
+    EachTracker(hook)
+    if otf.AddModule then
+        hooksecurefunc(otf, "AddModule", function(_, module)
+            if not module then return end
+            C_Timer.After(0, function()
+                hook(module)
+                TrackerMouseOff(module)
+            end)
+        end)
     end
 end
 
