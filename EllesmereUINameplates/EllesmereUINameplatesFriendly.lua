@@ -166,14 +166,10 @@ end
 -------------------------------------------------------------------------------
 --  Subtitle Text (player title / guild name)
 --  One shared setting drives both friendly modes. The TITLE is inline with
---  the name (one string via UnitPVPName): full plates set it on their own
---  name FontString, name-only mode writes Blizzard's. The GUILD is a line
---  below: full plates use subText1 (between name and bar), name-only mode its
---  own FontString hung under Blizzard's name. Implementations live after the
---  NPC overlay section; this is the shared state plus forward declarations.
+--  the name (one string via UnitPVPName). The GUILD is a line below: full
+--  plates use subText1, name-only mode its own FontString under the name.
 -------------------------------------------------------------------------------
--- Name-only mode keeps the title on Blizzard's name FontString (inline) and
--- draws the guild on its own FontString below it (see the composition section).
+-- Name-only mode keeps the title inline; the guild gets its own FontString.
 
 -- "none" | "title" | "guild" | "both"
 local function GetBelowNameMode()
@@ -181,16 +177,12 @@ local function GetBelowNameMode()
     return (fp and fp.friendlyBelowName) or "none"
 end
 
--- Effective size for the guild (Below Name) line. Until the user actually sets
--- a size (friendlyBelowNameSizeSet), reproduce the pre-split look exactly:
--- name-only mode used to draw the guild on the name FontString, so it took the
--- name's size, while full plates have always drawn subText1 at 12. A user-set
--- size is always honoured, in both modes.
+-- Effective guild size. Until the user sets one (friendlyBelowNameSizeSet),
+-- keep the pre-split look: name-only mode takes the name's size, full plates 12.
+-- A user-set size always wins, in both modes.
 local function GetSubTextSize()
     local fp = FP()
-    -- Before the profile is up (ApplySubtitleFont runs once at load), keep the
-    -- original 12 and skip the mode probe.
-    if not fp then return 12 end
+    if not fp then return 12 end   -- load-time call, before the profile is up
     if fp.friendlyBelowNameSizeSet then
         return fp.friendlyBelowNameSize or 12
     end
@@ -784,21 +776,10 @@ end
 -------------------------------------------------------------------------------
 --  Name-only mode: Blizzard's name FontString plus our own guild line
 --
---  Blizzard renders the name, so the title is folded in inline (via
---  UnitPVPName). The guild rides a SECOND, separate FontString hung under
---  Blizzard's name -- the same shape the friendly NPC name-only overlay uses
---  for its name and title -- so it carries its own size (the Below Name size,
---  friendlyBelowNameSize) instead of being stuck at the name's size as a
---  second line of the name string.
---
---  The guild FontString is anchored to Blizzard's name rect, so it tracks the
---  name (and any plate bounce) rather than an independent overlay frame that
---  could drift against it. It attaches to the shared subtitleFont object, so
---  size / font / slug changes live-update every guild line.
---
---  The unit token, nameplate and last-written text for a Blizzard name
---  FontString ride external weak-keyed tables -- never custom keys on the
---  Blizzard widget.
+--  Blizzard draws the name (title folded in inline via UnitPVPName); the guild
+--  rides a second FontString hung under the name, like the friendly NPC
+--  overlay's title, so it carries its own size. Per-plate state rides the
+--  external weak-keyed tables below -- never custom keys on the Blizzard widget.
 -------------------------------------------------------------------------------
 local nameFSUnits  = setmetatable({}, { __mode = "k" })   -- nameFS -> unit token
 local nameFSPlates = setmetatable({}, { __mode = "k" })   -- nameFS -> nameplate
@@ -807,14 +788,11 @@ local playerSubtitles = setmetatable({}, { __mode = "k" })  -- nameFS -> { frame
 local hookedNameText = {}   -- nameFS -> true (permanent hooks, applied once)
 local _titledNameGuard = false
 
--- Set by the TRP3 section below; installed lazily, the first time a guild line
--- is actually built, so users who never show one pay nothing for TRP3.
+-- Installed lazily by the TRP3 section below, the first time a guild line is built.
 local InstallTRP3NamePlateHook
 
--- Lazily build the guild FontString for a name-only player plate: a tiny
--- container on the nameplate holding one FontString anchored under Blizzard's
--- name. Created on UIParent then reparented, like the NPC overlay, so we never
--- build regions directly on a Blizzard frame.
+-- Build the guild FontString for a name-only player plate: a container on the
+-- nameplate (built on UIParent, then reparented) holding one string under the name.
 local function GetPlayerSubtitle(nameFS)
     local entry = playerSubtitles[nameFS]
     if entry then return entry.fs end
@@ -850,13 +828,9 @@ local function HideAllPlayerSubtitles()
     end
 end
 
--- TotalRP 3's Blizzard nameplate module draws its own title/guild FontStrings
--- under the same name string, exactly where our guild line sits. Yield to it:
--- when either TRP3 widget is visible our guild FontString goes transparent, so
--- the two never overlap. The module is optional and may load after us, so the
--- re-evaluation hook installs lazily (see InstallTRP3NamePlateHook).
--- IsShown on a nameplate widget is probed through pcall: the plate tree can
--- hand back values we must not touch, and a throw here would break nameplates.
+-- TRP3 draws its own title/guild FontStrings where our guild line sits; yield
+-- (alpha 0) when either is shown. IsShown goes through pcall because the plate
+-- tree can throw on restricted widgets.
 local function WidgetIsShown(widget)
     if not widget or not widget.IsShown then return false end
     local ok, shown = pcall(widget.IsShown, widget)
@@ -882,8 +856,7 @@ InstallTRP3NamePlateHook = function()
     local mod = TRP3_BlizzardNamePlates
     if type(mod) ~= "table" or type(mod.UpdateNamePlate) ~= "function" then return end
     trp3HookInstalled = true
-    -- TRP3 repaints its nameplate widgets through UpdateNamePlate; a post-hook
-    -- here sees the final shown state of its title/guild line.
+    -- Post-hook sees TRP3's final title/guild shown state.
     hooksecurefunc(mod, "UpdateNamePlate", function(_, nameplate)
         if not IsNameOnlyMode() or not ModeHasGuild(GetBelowNameMode()) then return end
         local uf = nameplate and nameplate.UnitFrame
@@ -892,26 +865,20 @@ InstallTRP3NamePlateHook = function()
     end)
 end
 
--- Compose and write the name-only name and its optional guild line. The name
--- rides Blizzard's FontString (single line); the guild rides our own FontString
--- below (see GetPlayerSubtitle). Also the restore path -- with the Subtitle
--- Text setting off this resolves to the plain single-line name.
+-- Write the name-only name on Blizzard's FontString and the guild on ours.
+-- With Subtitle Text off this resolves to the plain single-line name.
 local function UpdateNameOnlyText(nameFS)
     local nameplate = nameFSPlates[nameFS]
     local unit = nameFSUnits[nameFS]
-    -- Recycle guard: the plate's CURRENT occupant must be the unit we attached
-    -- for. Blizzard pools plates, so one that held a friendly player can be
-    -- handed straight to an NPC; the stored player token would pass the attack
-    -- check and paint that player's guild onto the NPC. A nil current token
-    -- means the plate is between occupants, so the stored one still stands.
+    -- Recycle guard: only draw when the plate still holds the unit we attached
+    -- for. A pooled plate handed to an NPC would otherwise paint the previous
+    -- player's guild onto it. A nil current token keeps the stored one.
     local current = nameplate and nameplate.namePlateUnitToken
     if current and current ~= unit then
         HidePlayerSubtitle(nameFS)
         return
     end
-    -- Never write on a hostile unit (Blizzard's own name write is already
-    -- correct there). The guild line is ours, so it has to be hidden on these
-    -- dead ends too.
+    -- Never write on a hostile unit; hide the guild line too (it is ours).
     if not unit or not UnitExists(unit) or UnitCanAttack("player", unit) then
         HidePlayerSubtitle(nameFS)
         return
@@ -945,18 +912,15 @@ local function UpdateNameOnlyText(nameFS)
     if not st then st = {}; nameFSText[nameFS] = st end
     st.name, st.guild = want, guildKey
 
-    -- The name stays a single line of Blizzard's FontString; the guild no
-    -- longer shares it, so neither wrap nor the extra line is ever needed.
+    -- The name is a single line now; the guild no longer shares it.
     _titledNameGuard = true
     nameFS:SetWordWrap(false)
     nameFS:SetMaxLines(1)
     nameFS:SetText(want)
     _titledNameGuard = false
 
-    -- Guild line: its own FontString, anchored under Blizzard's name (the same
-    -- shape the friendly NPC overlay uses for its title). The guild is only
-    -- ever a SetFormattedText argument (display sinks accept secrets); the
-    -- brackets are literals built from our own values.
+    -- Guild line: our FontString under the name. Guild is only ever a
+    -- SetFormattedText argument (secret-safe); brackets are our own literals.
     if guild then
         local fs = GetPlayerSubtitle(nameFS)
         if fs then
@@ -983,9 +947,8 @@ local function AttachNameOnlyText(nameFS, unit, nameplate)
     EnsureNameUnconstrained(nameFS)
     nameFSUnits[nameFS] = unit
     if nameplate then nameFSPlates[nameFS] = nameplate end
-    -- A pooled plate can come back with its guild FontString hidden (plate
-    -- removal hides it) while the dedupe still holds the same text, so drop the
-    -- dedupe here rather than let UpdateNameOnlyText skip the re-show.
+    -- Drop the dedupe: a pooled plate can return with its guild string hidden
+    -- but the same text cached, and UpdateNameOnlyText would skip the re-show.
     nameFSText[nameFS] = nil
     if not hookedNameText[nameFS] then
         hookedNameText[nameFS] = true
@@ -1193,10 +1156,8 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
         return
     end
 
-    -- Name-only mode: suppress Blizzard UF and show our own name overlay for
-    -- NPCs. First drop any guild FontString a pooled plate still carries from
-    -- its previous (player) occupant -- ours is not rewritten by Blizzard the
-    -- way the name string is, so it would otherwise linger on the NPC.
+    -- Name-only NPCs: suppress Blizzard's UF and show our name overlay. First
+    -- drop any guild FontString a pooled plate carries from a previous player.
     if IsNameOnlyMode() and not UnitIsPlayer(unit) then
         local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
         if nameplate then
@@ -1233,8 +1194,7 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
                 uf:RegisterEvent("RAID_TARGET_UPDATE")
             end
             EnsureNameUnconstrained(nameplate.UnitFrame.name)
-            -- Subtitle Text (inline title on Blizzard's FontString, guild on
-            -- ours) and WoW Forever's Name Format both hang off this attach.
+            -- Subtitle Text (title inline, guild on ours) + Forever Name Format.
             if GetBelowNameMode() ~= "none" or (FriendlyNameFormat and FriendlyNameFormat()) then
                 AttachNameOnlyText(nameplate.UnitFrame.name, unit, nameplate)
             end
@@ -1245,16 +1205,12 @@ end)
 hooksecurefunc(NamePlateDriverFrame, "OnNamePlateRemoved", function(_, unit)
     -- Guard: Blizzard settings panel can fire this with "preview" which is not a valid unit
     if not unit or not unit:find("^nameplate") then return end
-    -- Clean up the NPC overlay if present. The player name-only NAME needs no
-    -- teardown -- it lives on Blizzard's own FontString, which Blizzard rewrites
-    -- when the plate is reused (our SetText hook recomposes then) -- but our
-    -- guild FontString does.
+    -- The player name needs no teardown (Blizzard rewrites its FontString), but
+    -- our guild FontString does.
     local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
     if nameplate then
         HideNPCOverlay(nameplate)
         nameOnlyNPCSuppressed[nameplate] = nil
-        -- Our guild FontString lives on the plate and is not rewritten by
-        -- Blizzard the way the name string is, so hide it explicitly.
         local uf = nameplate.UnitFrame
         if uf and uf.name then HidePlayerSubtitle(uf.name) end
     end
@@ -2128,8 +2084,7 @@ function ns.UpdateFriendlyNameplateSystem()
     if shouldEnable and not friendlyEnabled then
         -- Switching TO health-bar mode
         RestoreFriendlyFontOverride()               -- undo any font override
-        -- Our name-only guild FontStrings live on the plates and are not
-        -- rewritten by Blizzard, so park them before the full plates take over.
+        -- Park our name-only guild FontStrings before full plates take over.
         HideAllPlayerSubtitles()
         -- Clean up any name-only NPC overlays. The player name-only name
         -- needs no teardown: full-plate mode suppresses the Blizzard UF

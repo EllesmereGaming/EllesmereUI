@@ -322,12 +322,8 @@ local function BuildGeneralPage(pageName, parent, yOffset)
               DB().friendlyBelowNameGuildBrackets = v and true or false
               if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
             end }
-        -- The guild line carries its own size, independent of the name: in
-        -- name-only mode it is its own FontString under the name, in full-plate
-        -- mode the subText1 line. One setting drives both. Until the user moves
-        -- this slider the effective value keeps the pre-split look -- the name's
-        -- size in name-only mode, 12 on full plates -- so adding the control
-        -- changes nothing on its own; the set flag then pins any chosen size.
+        -- Guild line size, one setting for both modes. Until moved, the
+        -- effective value keeps the pre-split look; the set flag pins a choice.
         local guildSizeRow = { type = "slider", label = "Guild Text Size", min = 6, max = 30, step = 1,
             get = function()
               if ns.GetFriendlySubTextSize then return ns.GetFriendlySubTextSize() end
