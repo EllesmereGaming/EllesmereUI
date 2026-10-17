@@ -444,9 +444,10 @@ end
 function EBS._RaiseLateFlyoutChildren(btn)
     if not flyoutPanel or btn:GetParent() ~= flyoutPanel then return end
     local combat = InCombatLockdown()
+    local box = GetFFD(btn).ungroupBg
     local function raise(frame, level)
         for _, child in ipairs({ frame:GetChildren() }) do
-            if not (combat and child:IsProtected()) then
+            if child ~= box and not (combat and child:IsProtected()) then
                 child:SetFrameStrata("DIALOG")
                 child:SetFrameLevel(level)
                 raise(child, level + 1)
