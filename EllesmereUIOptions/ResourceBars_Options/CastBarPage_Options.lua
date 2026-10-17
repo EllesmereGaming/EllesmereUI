@@ -387,7 +387,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                           local p = DB(); if not p then return end
                           p.castBar.borderBehind = v == false and nil or v; RefreshCast(); EllesmereUI:RefreshPage()
                       end },
-                    -- Extend Top / Extend Bottom: the whole border host (bar + icon). This cog
+                    -- Border extensions: the whole border host (bar + icon). This cog
                     -- has no bar-off block, so the rows carry their own.
                     { type = "slider", label = "Extend Top", min = 0, max = 50, step = 1,
                       tooltip = "Grows the border past the bar's top edge on screen without resizing the bar.",
@@ -404,6 +404,22 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                       set = function(v)
                           local p = DB(); if not p then return end
                           p.castBar.borderExtendBottom = v; RefreshCast(); EllesmereUI:RefreshPage()
+                      end },
+                    { type = "slider", label = "Extend Left", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's left edge on screen without resizing the bar.",
+                      disabled = castOff, disabledTooltip = "Player Cast Bar",
+                      get = function() local p = DB(); return p and p.castBar.borderExtendLeft or 0 end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.castBar.borderExtendLeft = v; RefreshCast(); EllesmereUI:RefreshPage()
+                      end },
+                    { type = "slider", label = "Extend Right", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's right edge on screen without resizing the bar.",
+                      disabled = castOff, disabledTooltip = "Player Cast Bar",
+                      get = function() local p = DB(); return p and p.castBar.borderExtendRight or 0 end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.castBar.borderExtendRight = v; RefreshCast(); EllesmereUI:RefreshPage()
                       end },
                     -- Bottom Separator: None = off (edgeSep false); an art entry turns it
                     -- on with that art. Across the whole bar, icon included.

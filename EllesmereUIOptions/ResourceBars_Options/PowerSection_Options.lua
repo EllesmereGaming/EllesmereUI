@@ -303,7 +303,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                           local c = cfg(); if not c then return end
                           c.borderAboveGCD = v and true or false; RebuildPower(); EllesmereUI:RefreshPage()
                       end },
-                    -- Extend Top / Extend Bottom: 0 = off, stored explicitly (mirror sync
+                    -- Border extensions: 0 = off, stored explicitly (mirror sync
                     -- never carries a nil). Screen axes, so a vertical bar too.
                     { type = "slider", label = "Extend Top", min = 0, max = 50, step = 1,
                       tooltip = "Grows the border past the bar's top edge on screen without resizing the bar.",
@@ -320,6 +320,22 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                       set = function(v)
                           local c = cfg(); if not c then return end
                           c.borderExtendBottom = v; RebuildPower(); EllesmereUI:RefreshPage()
+                      end },
+                    { type = "slider", label = "Extend Left", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's left edge on screen without resizing the bar.",
+                      disabled = powerOff, disabledTooltip = powerDisTip,
+                      get = function() local c = cfg(); return c and c.borderExtendLeft or 0 end,
+                      set = function(v)
+                          local c = cfg(); if not c then return end
+                          c.borderExtendLeft = v; RebuildPower(); EllesmereUI:RefreshPage()
+                      end },
+                    { type = "slider", label = "Extend Right", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's right edge on screen without resizing the bar.",
+                      disabled = powerOff, disabledTooltip = powerDisTip,
+                      get = function() local c = cfg(); return c and c.borderExtendRight or 0 end,
+                      set = function(v)
+                          local c = cfg(); if not c then return end
+                          c.borderExtendRight = v; RebuildPower(); EllesmereUI:RefreshPage()
                       end },
                     -- Bottom Separator: None = off (edgeSep false); an art entry turns it
                     -- on with that art (edgeSepArt). Out of the Border Style syncs.
