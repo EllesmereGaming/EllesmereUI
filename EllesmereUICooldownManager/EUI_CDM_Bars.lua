@@ -53,6 +53,14 @@ function ns.ResolveGrowAnchorPoint(barData, ignoreRowGrow)
     elseif grow == "UP" then
         vert = "BOTTOM"
     end
+    -- Horizontal bars add rows on the perpendicular (vertical) axis. Pin the
+    -- top edge by default so a new row grows downward instead of recentering
+    -- the existing row. Unlock mode still preserves the frame's current center
+    -- when converting the saved anchor to this corner.
+    if barData and not barData.verticalOrientation
+       and (grow == "LEFT" or grow == "RIGHT") then
+        vert = vert or "TOP"
+    end
     local rowGrow = barData and barData.rowGrowDirection
     if rowGrow and not ignoreRowGrow then
         -- Same opposite-edge mapping applied to the perpendicular axis. The orientation guards keep a value left stale by an orientation flip from clobbering the main-axis component.
@@ -141,7 +149,9 @@ local function ApplyBarPositionCentered(frame, pos, barKey)
     -- Lossless round-trip -- the bar does not move, only the pinned edge/corner changes. Bars without a row growth direction take the conversion below. No persistence: positions are only saved by unlock mode's Save & Exit.
     local storedIsCorner = (anchor:find("TOP", 1, true) or anchor:find("BOTTOM", 1, true))
         and (anchor:find("LEFT", 1, true) or anchor:find("RIGHT", 1, true))
-    if (bd and bd.rowGrowDirection) or storedIsCorner then
+    local horizontalGrowth = bd and not bd.verticalOrientation
+        and (bd.growDirection == "LEFT" or bd.growDirection == "RIGHT")
+    if (bd and bd.rowGrowDirection) or horizontalGrowth or storedIsCorner then
         local cx, cy = ns.AnchorCoordToCenter(anchor, px, py, fw, fh)
         anchor = ns.ResolveGrowAnchorPoint(bd)
         px, py = ns.CenterToAnchorCoord(anchor, cx, cy, fw, fh)
@@ -724,6 +734,12 @@ end
 local function ComputeTopRowStride(barData, count)
     local numRows = barData.numRows or 1
     if numRows < 1 then numRows = 1 end
+    -- Balance mode is opt-in, but only applies when every configured row can
+    -- contain the same number of icons. Otherwise fall back to the normal layout.
+    if barData.balanceRows and count > 0 and count % numRows == 0 then
+        local perRow = count / numRows
+        return perRow, numRows, perRow
+    end
     if numRows == 2 then
         local topCount
         if barData.customTopRowEnabled and barData.topRowCount and barData.topRowCount > 0 then
@@ -1243,6 +1259,13 @@ LayoutCDMBar = function(barKey)
             local rowIdx   = (i <= topN) and 1 or 2        -- 1 = top, 2 = bottom
             local idxInRow = (rowIdx == 1) and (i - 1) or (i - topN - 1)
             local rowN     = (rowIdx == 1) and topN or (sizeCount - topN)
+            -- Reverse icon placement on the primary growth axis. The data order remains
+            -- unchanged; only the visual slot within each row/column is mirrored.
+            local rowDirs = barData.rowGrowthDirections
+            local rowDir = (rowDirs and rowDirs[rowIdx]) or barData.growDirection
+            local reverseGrowth = (isHoriz and rowDir == "LEFT")
+                or (not isHoriz and rowDir == "UP")
+            if reverseGrowth then idxInRow = rowN - 1 - idxInRow end
             local wPx, hPx = rowWPx[rowIdx], rowHPx[rowIdx]
 
             FC(icon).matchExpanded = nil
@@ -1263,7 +1286,15 @@ LayoutCDMBar = function(barKey)
                 -- Growth axis = width (center the row within the bar width);
                 -- perpendicular = height (top band, then bottom band).
                 local rowMainPx = rowN * wPx + math.max(0, rowN - 1) * spacingPx
-                local offMainPx = math.floor((totalWPx - rowMainPx) / 2 + 0.5)
+                local rowDir = (barData.rowGrowthDirections and barData.rowGrowthDirections[rowIdx]) or barData.growDirection
+                local offMainPx
+                if rowDir == "LEFT" then
+                    offMainPx = math.max(0, totalWPx - rowMainPx)
+                elseif rowDir == "CENTER" then
+                    offMainPx = math.max(0, math.floor((totalWPx - rowMainPx) / 2 + 0.5))
+                else
+                    offMainPx = 0
+                end
                 local xPx = offMainPx + idxInRow * (wPx + spacingPx)
                 -- Reversed when rows grow upward: rowIdx 2 on top, 1 below.
                 local yPx
@@ -1278,7 +1309,15 @@ LayoutCDMBar = function(barKey)
                 -- Growth axis = height (center the row within the bar height);
                 -- perpendicular = width (left band, then right band).
                 local rowMainPx = rowN * hPx + math.max(0, rowN - 1) * spacingPx
-                local offMainPx = math.floor((totalHPx - rowMainPx) / 2 + 0.5)
+                local rowDir = (barData.rowGrowthDirections and barData.rowGrowthDirections[rowIdx]) or barData.growDirection
+                local offMainPx
+                if rowDir == "UP" then
+                    offMainPx = math.max(0, totalHPx - rowMainPx)
+                elseif rowDir == "CENTER" then
+                    offMainPx = math.max(0, math.floor((totalHPx - rowMainPx) / 2 + 0.5))
+                else
+                    offMainPx = 0
+                end
                 local yPx = offMainPx + idxInRow * (hPx + spacingPx)
                 -- Reversed when columns grow leftward: rowIdx 2 at the left.
                 local xPx
@@ -1313,8 +1352,14 @@ LayoutCDMBar = function(barKey)
     -- Per-row centering: rows with fewer icons than stride get centered.
     local function RowIconCount(row)
         if row == 0 then return topRowCount end
-        return bottomRowCount
+        -- Each subsequent row may be partial; return its actual occupancy, not
+        -- the total number of icons assigned to all lower rows.
+        return math.max(0, math.min(stride, bottomRowCount - (row - 1) * stride))
     end
+
+    -- Per-row fill directions mirror slots along the primary growth axis while
+    -- preserving the assigned-spell order and the panel's independent anchor.
+    local rowDirs = barData.rowGrowthDirections
 
     -- Cursor-anchored bars need explicit icon strata: icons aren't parented to
     -- the container, so they don't inherit its TOOLTIP strata.
@@ -1350,7 +1395,12 @@ LayoutCDMBar = function(barKey)
         -- +1 physical pixel on expanded icons: horizontal bars expand the WIDTH axis (iconW),
         -- vertical bars (col = height-axis) expand HEIGHT (iconH). Keeps icons square on the perpendicular axis.
         local onePx = PP.mult
-        local expandedCol = (growthW > 0 and col < growthW)
+        local rowCount = RowIconCount(row)
+        local rowDir = (rowDirs and rowDirs[row + 1]) or barData.growDirection
+        local reverseGrowth = (isHoriz and rowDir == "LEFT")
+            or (not isHoriz and rowDir == "UP")
+        local visualCol = reverseGrowth and (rowCount - 1 - col) or col
+        local expandedCol = (growthW > 0 and visualCol < growthW)
         local expandedRow = (growthH > 0 and row < growthH)
         local thisIconW, thisIconH
         if isHoriz then
@@ -1369,7 +1419,7 @@ LayoutCDMBar = function(barKey)
         -- the same axis (extraBefore = growth axis/col; extraBeforeR = perpendicular axis/row).
         -- extraBeforeR counts expanded rows VISUALLY before this one: expanded rows are data rows
         -- < growthH, so normal order has min(row, growthH) above, and reversed order has data rows in (row, effRows-1] above, of which max(0, min(growthH, effRows) - row - 1) are expanded.
-        local extraBefore  = math.min(col, growthW) * onePx
+        local extraBefore  = math.min(visualCol, growthW) * onePx
         local extraBeforeR
         if rowsReversed then
             extraBeforeR = math.max(0, math.min(growthH, effRows) - row - 1) * onePx
@@ -1386,33 +1436,40 @@ LayoutCDMBar = function(barKey)
         end
         icon:ClearAllPoints()
 
-        local rowCount = RowIconCount(row)
         local rowHasLess = (rowCount > 0 and rowCount < stride)
 
         -- Offsets as absolute parent-space integers, divided by iconScale for SetPoint. NO per-position snapping: dividing integers by the same constant produces mathematically uniform gaps.
-        local posX = col * stepW + extraBefore
+        local posX = visualCol * stepW + extraBefore
         local posY = vRow * stepH
 
         -- Resolve anchor params first, then stamp fd._cdmAnchor BEFORE SetPoint: the SetPoint hook
         -- fires AFTER SetPoint and compares relativeTo against fd._cdmAnchor[2]; updated after, it
         -- reads a stale anchor (the previous bar) and snaps the icon ~50px wrong when moving a
-        -- spell between bars. All growth directions use the same TOPLEFT icon layout; growth only affects which FRAME edge stays fixed during resize, never icon order.
+        -- spell between bars. Growth direction mirrors each row/column's visual slot while data order stays intact.
         local anchorPt, anchorRelPt, anchorX, anchorY
         local rowOffset = 0
         if isHoriz then
             if rowHasLess then
-                rowOffset = math.floor((stride - rowCount) * stepW / 2 + 0.5)
+                if rowDir == "LEFT" then
+                    rowOffset = (stride - rowCount) * stepW
+                elseif rowDir == "CENTER" then
+                    rowOffset = math.floor((stride - rowCount) * stepW / 2 + 0.5)
+                end
             end
             anchorPt, anchorRelPt = "TOPLEFT", "TOPLEFT"
             anchorX = (posX + rowOffset + padOffset) * iS
             anchorY = -(posY + extraBeforeR) * iS
         else
             if rowHasLess then
-                rowOffset = math.floor((stride - rowCount) * stepH / 2 + 0.5)
+                if rowDir == "UP" then
+                    rowOffset = (stride - rowCount) * stepH
+                elseif rowDir == "CENTER" then
+                    rowOffset = math.floor((stride - rowCount) * stepH / 2 + 0.5)
+                end
             end
             anchorPt, anchorRelPt = "TOPLEFT", "TOPLEFT"
             anchorX = (vRow * stepW + extraBeforeR) * iS
-            anchorY = -(col * stepH + extraBefore + rowOffset + padOffset) * iS
+            anchorY = -(visualCol * stepH + extraBefore + rowOffset + padOffset) * iS
         end
 
         if anchorPt then
@@ -1538,13 +1595,7 @@ function ns.SetCdStateShiftHidden(fc, shiftHidden)
     fc._cdStateShiftHidden = shiftHidden
     -- Overflow-diverted frames render on the target bar, so the gap-close relayout must hit the
     -- bar the frame is actually laid out on. Normally unreachable for diverted frames (Phase 3b's no-op rule), but a one-reanchor window exists after a shift effect is first configured.
-    ns.QueueShiftLayout(fc._overflowLayoutBar or fc.barKey)
-end
-
--- The relayout a layout-dropped icon needs when it joins or leaves its bar's
--- layout without the bar's icon list changing (the reanchor pass lays a bar out
--- only when that list changes). One pass per bar on the next frame.
-function ns.QueueShiftLayout(bk)
+    local bk = fc._overflowLayoutBar or fc.barKey
     if not bk or ns._cdShiftLayoutPending[bk] then return end
     ns._cdShiftLayoutPending[bk] = true
     C_Timer.After(0, function()

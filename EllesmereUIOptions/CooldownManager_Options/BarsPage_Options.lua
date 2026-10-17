@@ -1104,35 +1104,76 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
             rowGrowOrder = { "CENTER", "DOWN", "UP" }
             rowGrowTip = "How extra rows grow when the second row appears or disappears. Grow Down keeps the top row in place, Grow Up keeps the bottom row in place, Grow Centered keeps the bar centered."
         end
+        -- Per-row fill direction is independent of the panel's overall growth
+        -- anchor. Missing values inherit the legacy growth direction.
+        local function RowFillOption(rowIndex)
+            local function defaultDirection()
+                local bd = BD()
+                if bd.verticalOrientation then
+                    return bd.growDirection == "UP" and "UP" or "DOWN"
+                end
+                return bd.growDirection == "LEFT" and "LEFT" or "RIGHT"
+            end
+            local vertical = BD().verticalOrientation
+            local values = vertical
+                and { UP = "Grow Up", DOWN = "Grow Down", CENTER = "Grow Centered" }
+                or { LEFT = "Grow Left", RIGHT = "Grow Right", CENTER = "Grow Centered" }
+            local order = vertical and { "UP", "DOWN", "CENTER" } or { "LEFT", "RIGHT", "CENTER" }
+            return { type="dropdown", label="Row " .. rowIndex .. " Fill",
+                values=values, order=order,
+                tooltip="Choose whether icons in row " .. rowIndex .. " fill from either edge or remain centered. This does not change the panel's anchor or the other rows.",
+                rawTooltip=true,
+                disabled=function() return (BD().numRows or 1) < rowIndex end,
+                disabledTooltip="Increase Number of Rows to enable this direction",
+                get=function()
+                    local bd = BD()
+                    local dirs = bd.rowGrowthDirections
+                    return (dirs and dirs[rowIndex]) or defaultDirection()
+                end,
+                set=function(v)
+                    local bd = BD()
+                    bd.rowGrowthDirections = bd.rowGrowthDirections or {}
+                    bd.rowGrowthDirections[rowIndex] = v
+                    ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                end }
+        end
         EllesmereUI.BuildInlineCog(leftRgn, { anchorTo = ctrl, icon = EllesmereUI.COGS_ICON,
             title = "Row Icons",
             rows = {
+                { type="toggle", label="Balance Row Counts",
+                  tooltip="Distribute icons as evenly as possible across the visible rows, instead of filling the base row first. For example, 4 icons across 2 rows becomes 2 + 2 even if the custom base row count is set to 3.",
+                  rawTooltip=true,
+                  get=function() return BD().balanceRows end,
+                  set=function(v)
+                      BD().balanceRows = v and true or nil
+                      ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                  end },
+                RowFillOption(1),
+                RowFillOption(2),
+                RowFillOption(3),
+                RowFillOption(4),
+                RowFillOption(5),
+                RowFillOption(6),
                 { type="dropdown", label="Row Growth",
                   values=rowGrowValues, order=rowGrowOrder,
                   tooltip=rowGrowTip,
-                  -- Only meaningful with the 2-row custom split (the only
-                  -- layout whose row count changes at runtime). Anchored
-                  -- bars are positioned by their anchor system, which
-                  -- ignores the pin entirely.
-                  disabled=function()
-                      if rowsNotTwo() then return true end
-                      local b = BD()
-                      if b.anchorTo and b.anchorTo ~= "none" then return true end
-                      if EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored("CDM_" .. b.key) then return true end
-                      return false
-                  end,
-                  disabledTooltip=function()
-                      if rowsNotTwo() then return "This option requires exactly 2 rows" end
-                      return "Not available while this bar is anchored to another element"
-                  end,
+                  -- Row order is a layout choice, independent of how the panel
+                  -- itself is anchored. It applies whenever the bar has 2+ rows.
+                  disabled=function() return (BD().numRows or 1) < 2 end,
+                  disabledTooltip="This option requires at least 2 rows",
                   rawTooltip=true,
                   get=function() return BD().rowGrowDirection or "CENTER" end,
                   set=function(v)
                       local bd = BD()
                       bd.rowGrowDirection = (v ~= "CENTER") and v or nil
-                      -- Recapture the corner from the bar's current spot BEFORE
-                      -- rebuilding, so the new anchor pins where the bar sits now.
-                      if ns.RecaptureBarAnchor then ns.RecaptureBarAnchor(bd.key) end
+                      -- Only recapture free-standing bars. For anchored panels,
+                      -- rowGrowDirection controls visual row order; it must not
+                      -- rewrite the anchor relationship to the player/target frame.
+                      local externallyAnchored = (bd.anchorTo and bd.anchorTo ~= "none")
+                          or (EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored("CDM_" .. bd.key))
+                      if not externallyAnchored and ns.RecaptureBarAnchor then
+                          ns.RecaptureBarAnchor(bd.key)
+                      end
                       ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
                   end },
                 { type="toggle", label="Custom Base Row Count",
@@ -1405,6 +1446,9 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
             -- Orientation flip invalidates the row growth direction too (UP/DOWN are
             -- horizontal-bar values, LEFT/RIGHT vertical).
             bd.rowGrowDirection = nil
+            -- Per-row fill directions use horizontal values on horizontal bars
+            -- and vertical values on vertical bars; reset to inherit the new axis.
+            bd.rowGrowthDirections = nil
             -- Orientation flip swaps the meaning of width-axis vs height-axis, so width/height match caches no longer apply.
             bd._matchIconPhys = nil
             bd._matchExtraPixels = nil

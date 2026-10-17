@@ -1439,7 +1439,11 @@ local function BuildCDMLivePreview(parent, yOff)
         -- Bottom override is the flip (pick the bottom count, top gets rest).
         local stride, topRowCount
         local customTop
-        if numRows == 2 then
+        local balanceRowsActive = bd.balanceRows and count > 0 and count % numRows == 0
+        if balanceRowsActive then
+            stride = count / numRows
+            topRowCount = stride
+        elseif numRows == 2 then
             if bd.customTopRowEnabled and bd.topRowCount and bd.topRowCount > 0 then
                 customTop = math.min(bd.topRowCount, count)
             elseif bd.customBottomRowEnabled and bd.bottomRowCount and bd.bottomRowCount > 0 then
@@ -1459,7 +1463,7 @@ local function BuildCDMLivePreview(parent, yOff)
             else
                 stride = math.max(topRowCount, bottomCount)
             end
-        else
+        elseif not balanceRowsActive then
             stride = math.ceil(count / numRows)
             if stride < 1 then stride = 1 end
             topRowCount = count - (numRows - 1) * stride
@@ -1476,7 +1480,7 @@ local function BuildCDMLivePreview(parent, yOff)
         -- Per-row icon count for centering
         local function RowIconCount(row)
             if row == 0 then return topRowCount end
-            return bottomRowCount
+            return math.max(0, math.min(stride, bottomRowCount - (row - 1) * stride))
         end
 
         -- Mirror the live bar's visual row order: with reversed row growth the base
@@ -1514,22 +1518,38 @@ local function BuildCDMLivePreview(parent, yOff)
             PP.Size(frame, iconSize, iconH); frame:ClearAllPoints()
             local rowCount = RowIconCount(row)
             local rowHasLess = (rowCount > 0 and rowCount < stride)
+            local rowDirs = bd.rowGrowthDirections
+            local rowDir = (rowDirs and rowDirs[row + 1]) or grow
+            local reverseGrowth = ((not isVert) and rowDir == "LEFT") or (isVert and rowDir == "UP")
+            local visualCol = reverseGrowth and (rowCount - 1 - col) or col
             local vRow = pvReversed and (numRows - 1 - row) or row
             local rowOffset = 0
             if isVert then
+                local rowDirs = bd.rowGrowthDirections
+                local rowDir = (rowDirs and rowDirs[row + 1]) or grow
                 if rowHasLess then
-                    rowOffset = math.floor((stride - rowCount) * (iconH + spacing) / 2)
+                    if rowDir == "UP" then
+                        rowOffset = (stride - rowCount) * (iconH + spacing)
+                    elseif rowDir == "CENTER" then
+                        rowOffset = math.floor((stride - rowCount) * (iconH + spacing) / 2 + 0.5)
+                    end
                 end
                 local px = startX + vRow * (iconSize + spacing)
-                local py = startY - col * (iconH + spacing) - rowOffset
+                local py = startY - visualCol * (iconH + spacing) - rowOffset
                 PP.Point(frame, "TOPLEFT", self, "TOPLEFT", px, py)
                 frame._baseX = px
                 frame._baseY = py
             else
+                local rowDirs = bd.rowGrowthDirections
+                local rowDir = (rowDirs and rowDirs[row + 1]) or grow
                 if rowHasLess then
-                    rowOffset = math.floor((stride - rowCount) * (iconSize + spacing) / 2)
+                    if rowDir == "LEFT" then
+                        rowOffset = (stride - rowCount) * (iconSize + spacing)
+                    elseif rowDir == "CENTER" then
+                        rowOffset = math.floor((stride - rowCount) * (iconSize + spacing) / 2 + 0.5)
+                    end
                 end
-                local px = startX + col * (iconSize + spacing) + rowOffset
+                local px = startX + visualCol * (iconSize + spacing) + rowOffset
                 local py = startY - vRow * (iconH + spacing)
                 PP.Point(frame, "TOPLEFT", self, "TOPLEFT", px, py)
                 frame._baseX = px
