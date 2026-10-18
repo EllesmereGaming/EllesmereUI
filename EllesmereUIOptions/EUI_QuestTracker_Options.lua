@@ -193,13 +193,27 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) Set("customScrollbar", v); RefreshAll() end })
             y = y - h
 
-            -- Zone Header Font Size | blank
+            -- Zone Header Font Size | Quest Item Buttons
             _, h = W:DualRow(parent, y,
                 { type="slider", text="Zone Header Font Size",
                   min = 8, max = 24, step = 1,
                   disabled=Off, disabledTooltip="Custom Quest Tracker",
                   getValue=function() return Cfg("customZoneFontSize") or 13 end,
                   setValue=function(v) Set("customZoneFontSize", v); RefreshAll() end },
+                { type="toggle", text="Quest Item Buttons",
+                  tooltip="Adds a button beside quests that have a usable item. In combat, buttons stay where they are until combat ends.",
+                  disabled=Off, disabledTooltip="Custom Quest Tracker",
+                  getValue=function() return Cfg("customItemButtons") or false end,
+                  setValue=function(v) Set("customItemButtons", v); RefreshAll() end })
+            y = y - h
+
+            -- Flash Objective Updates | blank
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Flash Objective Updates",
+                  tooltip="Briefly highlights an objective when its progress changes.",
+                  disabled=Off, disabledTooltip="Custom Quest Tracker",
+                  getValue=function() return Cfg("customFlashUpdates") or false end,
+                  setValue=function(v) Set("customFlashUpdates", v); RefreshAll() end },
                 EllesmereUI.BlankRowCfg())
             y = y - h
 

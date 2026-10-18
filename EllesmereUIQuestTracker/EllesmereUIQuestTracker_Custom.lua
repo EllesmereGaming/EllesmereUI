@@ -32,6 +32,8 @@ do
     qt.customScrollbar         = "always"  -- always / hover / hidden
     qt.customBgHover           = false     -- background + top line only while hovered
     qt.customBgFade            = true      -- fade it in and out
+    qt.customItemButtons       = false     -- quest item buttons beside titles
+    qt.customFlashUpdates      = false     -- flash objectives that just changed
 end
 
 local PAD      = 8
@@ -52,11 +54,13 @@ local pending = false
 local stale = false   -- skipped a render while hidden
 local fontGen = 1
 local inEncounter = false
+local prevObj = {}    -- questID -> objective texts last shown (update flashes)
 
 -------------------------------------------------------------------------------
 -- Per-character state: untracked = removed from our list by the player,
 -- collapsed = questID / "z:<zone>" / "all", doneOpen = completed quests
--- expanded while Collapse Completed Quests is on. Kept per character in the
+-- expanded while Collapse Completed Quests is on, pinned = kept listed and
+-- sorted first. Kept per character in the
 -- account DB, as the Forever file keeps its watch sets.
 -------------------------------------------------------------------------------
 local charDB
@@ -71,17 +75,30 @@ local function CharDB()
     if type(sv.ctUntracked) ~= "table" then sv.ctUntracked = {} end
     if type(sv.ctCollapsed) ~= "table" then sv.ctCollapsed = {} end
     if type(sv.ctDoneOpen) ~= "table" then sv.ctDoneOpen = {} end
+    if type(sv.ctPinned) ~= "table" then sv.ctPinned = {} end
     charDB = sv
     return sv
 end
 
 -------------------------------------------------------------------------------
 -- Quest list: watched quests in watch order (Blizzard's order), then quests
--- under the current zone header when zone auto-track is on.
+-- under the current zone header when zone auto-track is on, then pinned ones.
 -------------------------------------------------------------------------------
+-- Stable sort of order by rank(questID), lowest first.
+local function StableSortBy(rank)
+    local pos = {}
+    for i, questID in ipairs(order) do pos[questID] = i end
+    table.sort(order, function(a, b)
+        local ra, rb = rank(a), rank(b)
+        if ra ~= rb then return ra < rb end
+        return pos[a] < pos[b]
+    end)
+end
+
 local function BuildList()
     wipe(order); wipe(zoneOf); wipe(seen)
-    local untracked = CharDB().ctUntracked
+    local db = CharDB()
+    local untracked, pinned = db.ctUntracked, db.ctPinned
     local watched = seen
     for i = 1, C_QuestLog.GetNumQuestWatches() do
         local questID = C_QuestLog.GetQuestIDForQuestWatchIndex(i)
@@ -101,7 +118,7 @@ local function BuildList()
         elseif info and info.questID then
             local questID = info.questID
             zoneOf[questID] = zone
-            if auto and EQT.QuestInArea(info, zone) then
+            if pinned[questID] or (auto and EQT.QuestInArea(info, zone)) then
                 if not watched[questID] and not untracked[questID]
                    and not info.isHidden and not info.isTask and not info.isBounty then
                     order[#order + 1] = questID
@@ -116,26 +133,23 @@ local function BuildList()
         if EQT.IsQuestFiltered(order[i]) then table.remove(order, i) end
     end
     EQT.SortQuestList(order)
+    if next(pinned) then
+        StableSortBy(function(q) return pinned[q] and 0 or 1 end)
+    end
     if not Cfg("customGroupByZone") then return end
-    -- Stable regroup: zones in order of their first quest.
+    -- Zones in order of their first quest.
     local zoneRank, n = {}, 0
     for _, questID in ipairs(order) do
         local z = zoneOf[questID] or ""
         if not zoneRank[z] then n = n + 1; zoneRank[z] = n end
     end
-    local pos = {}
-    for i, questID in ipairs(order) do pos[questID] = i end
-    table.sort(order, function(a, b)
-        local za, zb = zoneRank[zoneOf[a] or ""], zoneRank[zoneOf[b] or ""]
-        if za ~= zb then return za < zb end
-        return pos[a] < pos[b]
-    end)
+    StableSortBy(function(q) return zoneRank[zoneOf[q] or ""] end)
 end
 
 -------------------------------------------------------------------------------
 -- Lines: one pooled Button per row (zone header, quest title, objective).
 -------------------------------------------------------------------------------
-local OnLineClick, OnLineEnter, OnLineLeave, ToggleFocus  -- defined below
+local OnLineClick, OnLineEnter, OnLineLeave, ToggleFocus, SyncItems  -- defined below
 
 -- Outline and shadow follow the Fonts page's Module Outline.
 local function StyleText(fs, size)
@@ -149,7 +163,8 @@ end
 local SIZE_KEY = { zone = "customZoneFontSize", quest = "titleFontSize", obj = "objectiveFontSize" }
 local SIZE_DEF = { zone = 13, quest = 12, obj = 10 }
 
-local function AcquireLine(kind, id, text, x, y, width)
+-- key: objective identity, so a flash survives re-renders of the same row.
+local function AcquireLine(kind, id, text, x, y, width, key)
     used = used + 1
     local l = lines[used]
     if not l then
@@ -168,6 +183,8 @@ local function AcquireLine(kind, id, text, x, y, width)
         StyleText(l.text, Cfg(SIZE_KEY[kind]) or SIZE_DEF[kind])
     end
     l.id = id
+    if l.flash and l.key ~= key then l.flash:Stop() end
+    l.key = key
     if l.focus then l.focus:Hide() end
     l:EnableMouse(kind ~= "obj")
     l.text:SetWordWrap(Cfg(kind == "obj" and "customWrapObjectives" or "customWrapTitles") ~= false)
@@ -179,6 +196,27 @@ local function AcquireLine(kind, id, text, x, y, width)
     l:SetPoint("TOPLEFT", child, "TOPLEFT", x, -y)
     l:Show()
     return l, h
+end
+
+-- Update flash: a white band that fades in and out behind the row.
+local function Flash(l)
+    local f = l.flash
+    if not f then
+        local tex = l:CreateTexture(nil, "BACKGROUND")
+        tex:SetPoint("TOPLEFT", -2, 1)
+        tex:SetPoint("BOTTOMRIGHT", 2, -1)
+        tex:SetColorTexture(1, 1, 1)
+        tex:SetBlendMode("ADD")
+        tex:SetAlpha(0)
+        f = l:CreateAnimationGroup()
+        local a = f:CreateAnimation("Alpha")
+        a:SetTarget(tex); a:SetFromAlpha(0); a:SetToAlpha(0.3); a:SetDuration(0.15); a:SetOrder(1)
+        a = f:CreateAnimation("Alpha")
+        a:SetTarget(tex); a:SetFromAlpha(0.3); a:SetToAlpha(0); a:SetDuration(0.85); a:SetOrder(2)
+        l.flash = f
+    end
+    f:Stop()
+    f:Play()
 end
 
 -------------------------------------------------------------------------------
@@ -296,6 +334,7 @@ end
 local function ScrollTo(v)
     scroll:SetVerticalScroll(math.max(0, math.min(v, MaxScroll())))
     UpdateThumb()
+    SyncItems()
 end
 
 -------------------------------------------------------------------------------
@@ -375,18 +414,113 @@ local function AddObjectives(questID, y, width, x)
     end
     local objectives = C_QuestLog.GetQuestObjectives(questID)
     if not objectives then return y end
-    for _, obj in ipairs(objectives) do
+    -- First sight of a quest records its texts without flashing.
+    local prev = Cfg("customFlashUpdates") and prevObj[questID]
+    if Cfg("customFlashUpdates") and not prev then prev = {}; prevObj[questID] = prev end
+    for i, obj in ipairs(objectives) do
         local text = obj.text
         if text and text ~= "" then
             if obj.type == "progressbar" then
                 text = text .. " (" .. math.floor(GetQuestProgressBarPercent(questID) or 0) .. "%)"
             end
-            l, h = AcquireLine("obj", questID, "- " .. text, x, y, w)
+            l, h = AcquireLine("obj", questID, "- " .. text, x, y, w, questID .. ":" .. i)
             l.text:SetTextColor(ObjectiveRGBA(obj))
+            if prev then
+                if prev[i] and prev[i] ~= text then Flash(l) end
+                prev[i] = text
+            end
             y = y + h + gap
         end
     end
     return y
+end
+
+-------------------------------------------------------------------------------
+-- Quest item buttons (customItemButtons). Secure, so they live on their own
+-- layer under UIParent and are placed by screen position, never anchored to
+-- our frame (which must stay free to move and hide in combat). In combat a
+-- layout change waits for combat to end; buttons keep their spot and item.
+-------------------------------------------------------------------------------
+local itemLayer
+local items, itemWant = {}, {}
+local cdRegistered = false
+
+-- Tooltip side facing the screen centre, away from the edge.
+local function TooltipSide()
+    local cx = frame:GetCenter()
+    local onLeft = cx and cx * frame:GetEffectiveScale() < UIParent:GetWidth() * UIParent:GetEffectiveScale() / 2
+    return onLeft and "ANCHOR_RIGHT" or "ANCHOR_LEFT"
+end
+
+-- Log index looked up per use: it shifts as quests come and go.
+local function UpdateItemCooldown(b)
+    local logIndex = C_QuestLog.GetLogIndexForQuestID(b.questID)
+    if not logIndex then return end
+    local start, duration, enable = GetQuestLogSpecialItemCooldown(logIndex)
+    if start then CooldownFrame_Set(b.cd, start, duration, enable) end
+end
+
+local function ItemButton(i)
+    local b = items[i]
+    if b then return b end
+    b = CreateFrame("Button", nil, itemLayer, "SecureActionButtonTemplate")
+    b:RegisterForClicks("AnyUp")
+    b:SetAttribute("type", "item")
+    b:SetAttribute("useOnKeyDown", false)
+    local bg = b:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0, 0, 0, 1)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetPoint("TOPLEFT", 1, -1)
+    b.icon:SetPoint("BOTTOMRIGHT", -1, 1)
+    b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
+    b.cd:SetAllPoints(b.icon)
+    b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    b.count:SetPoint("BOTTOMRIGHT", -1, 1)
+    b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    b:SetScript("OnEnter", function(self)
+        UpdateHover()
+        GameTooltip:SetOwner(self, TooltipSide())
+        local logIndex = C_QuestLog.GetLogIndexForQuestID(self.questID)
+        if logIndex then GameTooltip:SetQuestLogSpecialItem(logIndex) end
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() UpdateHover(); GameTooltip:Hide() end)
+    items[i] = b
+    return b
+end
+
+-- Shows a button for each wanted item whose title row is fully in view.
+function SyncItems()
+    if not itemLayer or (#items == 0 and #itemWant == 0) then return end
+    if InCombatLockdown() then
+        ns.CombatQueue.Defer("EQT_CustomItems", SyncItems)
+        return
+    end
+    local n = 0
+    local top, bottom = scroll:GetTop(), scroll:GetBottom()
+    if frame:IsVisible() and top then
+        for _, w in ipairs(itemWant) do
+            local l = w.line
+            local lt, lr = l:GetTop(), l:GetRight()
+            if lt and lt <= top + 0.5 and lt - w.size >= bottom - 0.5 then
+                n = n + 1
+                local b = ItemButton(n)
+                local s = l:GetEffectiveScale() / b:GetEffectiveScale()
+                b:SetSize(w.size * s, w.size * s)
+                b:ClearAllPoints()
+                b:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", (lr + 4) * s, lt * s)
+                b:SetAttribute("item", "item:" .. w.itemID)
+                b.questID = w.questID
+                b.icon:SetTexture(w.tex)
+                b.count:SetText((w.charges and w.charges > 1) and w.charges or "")
+                UpdateItemCooldown(b)
+                b:Show()
+            end
+        end
+    end
+    for i = n + 1, #items do items[i]:Hide() end
 end
 
 local function Render()
@@ -395,12 +529,15 @@ local function Render()
     if not frame:IsShown() then stale = true; return end
     stale = false
     frame:SetMouseMotionEnabled(HoverWanted() and true or false)
+    if not Cfg("customFlashUpdates") then wipe(prevObj) end
+    wipe(itemWant)
     BuildList()
     local collapsed = CharDB().ctCollapsed
     local width = (Cfg("customWidth") or 260) - PAD * 2 - BAR_GAP
     child:SetWidth(width)
     used = 0
     local y = 0
+    local itemSize = Cfg("customItemButtons") and (Cfg("titleFontSize") or 12) + 12
     if not collapsed.all then
         local group = Cfg("customGroupByZone")
         -- Focus buttons take a column left of the titles.
@@ -424,9 +561,23 @@ local function Render()
             end
             if not (group and collapsed["z:" .. zone]) then
                 local complete = C_QuestLog.IsComplete(questID) == true
-                local l, h = AcquireLine("quest", questID, QuestTitle(questID), titleX, y, width - titleX)
+                local item
+                if itemSize then
+                    local logIndex = C_QuestLog.GetLogIndexForQuestID(questID)
+                    local link, tex, charges, showDone
+                    if logIndex then link, tex, charges, showDone = GetQuestLogSpecialItemInfo(logIndex) end
+                    local itemID = link and tonumber(link:match("item:(%d+)"))
+                    if itemID and (not complete or showDone) then
+                        item = { itemID = itemID, tex = tex, charges = charges,
+                                 questID = questID, size = itemSize }
+                    end
+                end
+                local itemW = item and itemSize + 8 or 0
+                local top = y
+                local l, h = AcquireLine("quest", questID, QuestTitle(questID), titleX, y, width - titleX - itemW)
                 l.text:SetTextColor(TitleRGB(questID, complete))
                 if focusSize > 0 then ShowFocusButton(l, questID, complete, focusSize) end
+                if item then item.line = l; itemWant[#itemWant + 1] = item end
                 y = y + h + 2
                 local shut
                 if complete and collapseDone then
@@ -435,6 +586,7 @@ local function Render()
                     shut = collapsed[questID]
                 end
                 if not shut then y = AddObjectives(questID, y, width, objX) end
+                if item then y = math.max(y, top + itemSize + 2) end
                 y = y + (Cfg("customQuestSpacing") or 4)
             end
         end
@@ -453,6 +605,11 @@ local function Render()
     viewH = math.max(h - HEADER_H - PAD, 0)
     frame:SetHeight(h)
     UpdateThumb()
+    if (itemSize and true or false) ~= cdRegistered then
+        cdRegistered = not cdRegistered
+        if cdRegistered then evt:RegisterEvent("BAG_UPDATE_COOLDOWN") else evt:UnregisterEvent("BAG_UPDATE_COOLDOWN") end
+    end
+    SyncItems()
 end
 
 local function Queue()
@@ -464,10 +621,19 @@ EQT.RefreshCustom = Queue
 
 -------------------------------------------------------------------------------
 -- Interaction. Nothing here touches Blizzard's tracker, the watch list, the
--- super-track or the world map (opening it from addon code taints it).
+-- super-track or the world map (opening it from addon code taints its pins:
+-- SetPassThroughButtons blocked in combat, tested 2026-10-17).
 -------------------------------------------------------------------------------
 local function Untrack(questID)
-    CharDB().ctUntracked[questID] = true
+    local db = CharDB()
+    db.ctUntracked[questID] = true
+    db.ctPinned[questID] = nil
+    Queue()
+end
+
+local function TogglePin(questID)
+    local pinned = CharDB().ctPinned
+    pinned[questID] = not pinned[questID] or nil
     Queue()
 end
 
@@ -501,6 +667,8 @@ local function ShowMenu(owner, questID)
             root:CreateButton(focused and STOP_SUPER_TRACK_QUEST or SUPER_TRACK_QUEST,
                 function() ToggleFocus(questID) end)
         end
+        root:CreateButton(CharDB().ctPinned[questID] and "Unpin" or "Pin to Top",
+            function() TogglePin(questID) end)
         root:CreateButton(OBJECTIVES_STOP_TRACKING, function() Untrack(questID) end)
         if IsInGroup() and C_QuestLog.IsPushableQuest(questID) then
             root:CreateButton(SHARE_QUEST, function()
@@ -538,10 +706,7 @@ end
 function OnLineEnter(self)
     UpdateHover()
     if self.kind ~= "quest" then return end
-    -- Tooltip on the side facing the screen centre, away from the edge.
-    local cx = frame:GetCenter()
-    local onLeft = cx and cx * frame:GetEffectiveScale() < UIParent:GetWidth() * UIParent:GetEffectiveScale() / 2
-    GameTooltip:SetOwner(self, onLeft and "ANCHOR_RIGHT" or "ANCHOR_LEFT")
+    GameTooltip:SetOwner(self, TooltipSide())
     if IsInGroup() then
         GameTooltip:SetQuestPartyProgress(self.id)
     else
@@ -607,6 +772,7 @@ local function Place()
     local p = TopAnchored(SavedPos())
     frame:ClearAllPoints()
     frame:SetPoint(p.point, UIParent, p.relPoint or p.point, p.x or 0, p.y or 0)
+    SyncItems()
 end
 
 local function BuildFrame()
@@ -615,7 +781,17 @@ local function BuildFrame()
     frame:SetWidth(Cfg("customWidth") or 260)
     frame:SetHeight(HEADER_H)
     frame:SetClampedToScreen(Cfg("forceOnScreen") == true)
-    frame:SetScript("OnShow", function() if stale then Render() end end)
+    frame:SetScript("OnShow", function()
+        itemLayer:SetAlpha(frame:GetAlpha())
+        if stale then Render() else SyncItems() end
+    end)
+    -- Alpha first: in combat the hide itself waits for combat to end.
+    frame:SetScript("OnHide", function() itemLayer:SetAlpha(0); SyncItems() end)
+    -- Item buttons sit outside our frame: they follow its alpha (mouseover fade).
+    itemLayer = CreateFrame("Frame", nil, UIParent)
+    itemLayer:SetFrameStrata("LOW")
+    itemLayer:SetFrameLevel(frame:GetFrameLevel() + 20)
+    hooksecurefunc(frame, "SetAlpha", function(_, a) itemLayer:SetAlpha(a) end)
     -- Hover modes only: motion (no clicks) so hover sees the cursor over gaps.
     frame:SetMouseClickEnabled(false)
     frame:SetScript("OnEnter", UpdateHover)
@@ -730,7 +906,12 @@ local EVENTS = {
 }
 
 evt:SetScript("OnEvent", function(_, event, questID, added)
-    if event == "QUEST_WATCH_LIST_CHANGED" then
+    if event == "BAG_UPDATE_COOLDOWN" then
+        for _, b in ipairs(items) do
+            if b:IsShown() then UpdateItemCooldown(b) end
+        end
+        return
+    elseif event == "QUEST_WATCH_LIST_CHANGED" then
         -- Tracking it again in the quest log brings it back.
         if questID and added then CharDB().ctUntracked[questID] = nil end
     elseif event == "QUEST_REMOVED" and questID then
@@ -738,6 +919,8 @@ evt:SetScript("OnEvent", function(_, event, questID, added)
         db.ctUntracked[questID] = nil
         db.ctCollapsed[questID] = nil
         db.ctDoneOpen[questID] = nil
+        db.ctPinned[questID] = nil
+        prevObj[questID] = nil
     elseif event == "ENCOUNTER_START" or event == "ENCOUNTER_END" or event == "PLAYER_ENTERING_WORLD" then
         inEncounter = event == "ENCOUNTER_START"
         UpdateVisibility()
