@@ -2,10 +2,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 if not EllesmereUI or EllesmereUI.IS_FOREVER then return end
 -------------------------------------------------------------------------------
 --  EllesmereUIABR_RaidCheck.lua
---  Raid Check (CONSUMABLES > Raid Check, off by default): a window listing each
+--  Raid Buff Check (options under QoL > Raid Tools, off by default; settings in
+--  this module's consumables slice): a window listing each
 --  group member's flask, food, augment rune, vantus rune and missing raid
---  buffs. Opens on a ready check while the player leads or assists, or with
---  /euicheck.
+--  buffs. Opens on a ready check while the player leads or assists, or from
+--  the Buff Check button of Raid Tools.
 --
 --  Out of combat only. Flask and raid buff IDs are non-secret and looked up by
 --  ID. Food has no fixed ID and needs an index scan, which errors under the
@@ -296,10 +297,11 @@ local function MakeHeader(b)
     return h
 end
 
+-- The window's own events follow the window, which Raid Tools can open while
+-- the option is off; only the ready check trigger follows the option.
 local function Listen(shown)
     ev:UnregisterAllEvents()
-    if not Enabled() then return end
-    if OpenOnReady() then ev:RegisterEvent("READY_CHECK") end
+    if Enabled() and OpenOnReady() then ev:RegisterEvent("READY_CHECK") end
     if shown then
         ev:RegisterEvent("UNIT_AURA")
         ev:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -346,7 +348,7 @@ local function Build()
 
     local title = EllesmereUI.MakeFont(frame, 12, nil, 1, 1, 1)
     title:SetPoint("LEFT", frame, "TOPLEFT", PAD, -TITLE_H / 2)
-    title:SetText(EllesmereUI.L("Raid Check"))
+    title:SetText(EllesmereUI.L("Raid Buff Check"))
 
     local close = CreateFrame("Button", nil, frame)
     close:SetSize(16, 16)
@@ -684,7 +686,6 @@ local function Open()
 end
 
 local function Sync()
-    if not Enabled() and frame then frame:Hide() end
     Listen(frame and frame:IsShown())
 end
 
@@ -715,16 +716,8 @@ ev:SetScript("OnEvent", function(_, event, unit)
 end)
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 
-SLASH_EUIRAIDCHECK1 = "/euicheck"
-SlashCmdList["EUIRAIDCHECK"] = function()
-    if not Enabled() then
-        Msg(EllesmereUI.L("Raid Check is disabled in the EllesmereUI options."))
-        return
-    end
+-- Raid Tools' Buff Check button; works with the option off.
+_G._EABR_RaidCheckToggle = function()
     if frame and frame:IsShown() then frame:Hide(); return end
     Open()
-end
-
-_G._EABR_RaidCheckOpen = function()
-    if Enabled() then Open() end
 end

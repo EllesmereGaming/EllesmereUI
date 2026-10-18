@@ -2327,31 +2327,6 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateRcwInlinesDisabled)
         end
 
-        -- Raid Check | Open on Ready Check
-        local function RaidCheckOff()
-            local c = CDB()
-            return not c or c.raidCheck ~= true
-        end
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Raid Check",
-              tooltip="A window listing every group member's flask, food, augment rune and missing raid buffs. Open it with /euicheck. Out of combat only; in restricted content food and runes may show as unknown.",
-              getValue=function() local c = CDB(); return c and c.raidCheck == true end,
-              setValue=function(v)
-                  local c = CDB(); if c then c.raidCheck = v or nil end
-                  RefreshAll()
-                  EllesmereUI:RefreshPage()
-              end },
-            { type="toggle", text="Open on Ready Check",
-              tooltip="Opens the Raid Check window on every ready check while you are the group leader or a raid assistant.",
-              disabled=RaidCheckOff,
-              disabledTooltip=EllesmereUI.DisabledTooltip("Raid Check"),
-              getValue=function() local c = CDB(); return not c or c.raidCheckOnReady ~= false end,
-              setValue=function(v)
-                  local c = CDB(); if c then c.raidCheckOnReady = v end
-                  RefreshAll()
-              end }
-        );  y = y - h
-
         -- Wire up click mappings for preview hit overlays.
         wipe(_eabrClickMappings)
         _eabrClickMappings.display = { section = displaySection, target = borderRow }

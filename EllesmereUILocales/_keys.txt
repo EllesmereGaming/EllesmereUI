@@ -989,10 +989,9 @@ REAGENTS
 Racial
 Raid
 Raid & Party Frames
+Raid Buff Check
 Raid Buffs
-Raid Check
 Raid Check cannot be opened in combat.
-Raid Check is disabled in the EllesmereUI options.
 Raid Tools cannot be toggled by slash command in combat -- use the keybind.
 Raid Tools is disabled in the EllesmereUI options.
 Raid Tools is hidden in a raid without leader or assist -- none of its buttons work there.

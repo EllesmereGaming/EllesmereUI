@@ -306,7 +306,57 @@ initFrame:SetScript("OnEvent", function(self)
             ButtonToggle("showDisband", "Show Disband",
                 "Shows the Disband button. It always asks before disbanding, but hiding it puts it out of misclick range for good.",
                 FullPanelButtonDisabled),
-            { type = "spacer" }
+            { type = "toggle", text = "Show Buff Check",
+              tooltip = "Shows the Buff Check button, which opens the Raid Buff Check window of AuraBuff Reminders: flask, food, runes and raid buffs of every group member. On Compact Band it is Shift + Left Click on the ready check button.",
+              disabled = function()
+                  return RoleCheckDisabled() or not _G._EABR_RaidCheckToggle
+              end,
+              getValue = function() return Cfg("showBuffCheck") == true end,
+              setValue = function(v)
+                  Set("showBuffCheck", v)
+                  Refresh()
+              end }
+        );  y = y - h
+
+        -- RAID BUFF CHECK
+        --
+        -- The window lives in AuraBuff Reminders and so do these two settings
+        -- (its consumables slice); without that module both rows stay off.
+        _, h = W:SectionHeader(parent, "RAID BUFF CHECK", y);  y = y - h
+
+        local function RCDB()
+            local abr = _G._EABR_AceDB
+            local p = abr and abr.profile
+            return p and p.consumables
+        end
+        local function RCRefresh()
+            if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+        end
+        local function RCUnavailable()
+            return not (RCDB() and _G._EABR_RaidCheckToggle)
+        end
+
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Raid Check",
+              tooltip = "A window listing every group member's flask, food, augment rune, vantus rune and missing raid buffs, opened on ready checks or with the Buff Check button. Out of combat only; in restricted content food and runes may show as unknown. Needs EllesmereUI AuraBuff Reminders.",
+              disabled = RCUnavailable,
+              getValue = function() local c = RCDB(); return c and c.raidCheck == true end,
+              setValue = function(v)
+                  local c = RCDB(); if c then c.raidCheck = v or nil end
+                  RCRefresh()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type = "toggle", text = "Open on Ready Check",
+              tooltip = "Opens the Raid Buff Check window on every ready check while you are the group leader or a raid assistant.",
+              disabled = function()
+                  local c = RCDB()
+                  return RCUnavailable() or c.raidCheck ~= true
+              end,
+              getValue = function() local c = RCDB(); return not c or c.raidCheckOnReady ~= false end,
+              setValue = function(v)
+                  local c = RCDB(); if c then c.raidCheckOnReady = v end
+                  RCRefresh()
+              end }
         );  y = y - h
 
         -- PULL TIMER

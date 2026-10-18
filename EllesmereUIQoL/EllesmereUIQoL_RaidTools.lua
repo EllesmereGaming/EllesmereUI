@@ -408,7 +408,7 @@ local markerButtons = {}       -- secure buttons, dimmed on assist
 local pullButtons = {}         -- fixed set of 3; only the ones above 0s show
 -- Created once at build; the layout pass decides which reach the screen. Ready
 -- Check has no switch by design.
-local readyButton, roleButton, convertButton, disbandButton, stopButton
+local readyButton, roleButton, convertButton, disbandButton, stopButton, buffButton
 local compactReadyButton, compactPullButton, compactDivider
 local compactMarkerButtons = {}
 local ShowCompactTip, HideCompactTip
@@ -476,6 +476,8 @@ local DB_DEFAULTS = {
         showRoleCheck = true,
         showConvert   = true,
         showDisband   = true,
+        -- Opt-in: opens AuraBuff Reminders' Raid Check window.
+        showBuffCheck = false,
         -- Per-section: pos[key] = { point, relPoint, x, y }
         pos           = {},
     },
@@ -729,6 +731,17 @@ local function ButtonShown(key)
     return not p or p[key] ~= false
 end
 
+-- Buff Check is opt-in and needs AuraBuff Reminders' Raid Check (retail, module loaded).
+local function BuffCheckShown()
+    local p = P()
+    return p and p.showBuffCheck == true and _G._EABR_RaidCheckToggle ~= nil
+end
+
+local function ToggleBuffCheck()
+    local toggle = _G._EABR_RaidCheckToggle
+    if toggle then toggle() end
+end
+
 -- The pull durations worth a button, in slot order. 0 (and anything below it)
 -- means the user turned that slot off.
 local function VisiblePullTimes()
@@ -958,6 +971,7 @@ local function LayoutGroupContent()
     end
     Add(readyButton)
     if ButtonShown("showRoleCheck") then Add(roleButton) end
+    if BuffCheckShown()             then Add(buffButton) end
     if ButtonShown("showConvert")   then Add(convertButton) end
     if ButtonShown("showDisband")   then Add(disbandButton) end
     if #pair > 0 then rows[#rows + 1] = pair end
@@ -1011,6 +1025,7 @@ local function BuildGroupContent()
 
     readyButton = MakeGroupButton(f, "Ready Check", full, function() DoReadyCheck() end)
     roleButton  = MakeGroupButton(f, "Role Check", full, function() InitiateRolePoll() end)
+    buffButton  = MakeGroupButton(f, "Buff Check", full, ToggleBuffCheck)
 
     convertButton = MakeGroupButton(f, "Convert to Raid", full, function()
         if IsInRaid() then C_PartyInfo.ConvertToParty() else C_PartyInfo.ConvertToRaid() end
@@ -1319,19 +1334,20 @@ local function BuildCompactContent()
     compactReadyButton = MakeCompactActionButton(compactHolder,
         "RC",
         function()
+            local actions = { { "Left Click", "Ready Check" } }
             if ButtonShown("showRoleCheck") then
-                return "Ready Check", {
-                    { "Left Click", "Ready Check" },
-                    { "Right Click", "Role Check" },
-                }
+                actions[#actions + 1] = { "Right Click", "Role Check" }
             end
-            return "Ready Check", {
-                { "Left Click", "Ready Check" },
-            }
+            if BuffCheckShown() then
+                actions[#actions + 1] = { "Shift + Left Click", "Buff Check" }
+            end
+            return "Ready Check", actions
         end,
         function(_, button)
             if button == "RightButton" then
                 if ButtonShown("showRoleCheck") then InitiateRolePoll() end
+            elseif IsShiftKeyDown() and BuffCheckShown() then
+                ToggleBuffCheck()
             else
                 DoReadyCheck()
             end
