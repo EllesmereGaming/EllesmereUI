@@ -476,7 +476,12 @@ local DB_DEFAULTS = {
         showRoleCheck = true,
         showConvert   = true,
         showDisband   = true,
-        -- Opt-in: opens AuraBuff Reminders' Raid Check window.
+        -- Raid Buff Check (EllesmereUIQoL_RaidBuffCheck.lua): the feature, its
+        -- ready check trigger and window state. Off by default.
+        buffCheck            = false,
+        buffCheckOnReady     = true,
+        buffCheckOnlyMissing = true,
+        -- Opt-in Buff Check group button (needs buffCheck).
         showBuffCheck = false,
         -- Per-section: pos[key] = { point, relPoint, x, y }
         pos           = {},
@@ -499,6 +504,7 @@ local DB_DEFAULTS = {
 local function P()
     return db and db.profile and db.profile.raidTools
 end
+ns.RaidToolsProfile = P
 
 local function Mode()
     local p = P()
@@ -731,15 +737,15 @@ local function ButtonShown(key)
     return not p or p[key] ~= false
 end
 
--- Buff Check is opt-in and needs AuraBuff Reminders' Raid Check (retail, module loaded).
+-- The Buff Check button needs Raid Buff Check on (and a retail client: the
+-- feature file publishes ns.ToggleBuffCheck only there).
 local function BuffCheckShown()
     local p = P()
-    return p and p.showBuffCheck == true and _G._EABR_RaidCheckToggle ~= nil
+    return p and p.showBuffCheck == true and p.buffCheck == true and ns.ToggleBuffCheck ~= nil
 end
 
 local function ToggleBuffCheck()
-    local toggle = _G._EABR_RaidCheckToggle
-    if toggle then toggle() end
+    if ns.ToggleBuffCheck then ns.ToggleBuffCheck() end
 end
 
 -- The pull durations worth a button, in slot order. 0 (and anything below it)
@@ -2206,6 +2212,9 @@ end
 -- protected as Hide). So in combat the whole request is parked behind applyPending,
 -- with the REGEN listener guaranteed alive to finish it.
 function Apply()
+    -- Raid Buff Check registers plain events only, so it follows the settings
+    -- even in combat and with the panels on Never.
+    if ns.BuffCheckSync then ns.BuffCheckSync() end
     if InCombatLockdown() then
         applyPending = true
         EnsureEvents()

@@ -1,21 +1,22 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 if not EllesmereUI or EllesmereUI.IS_FOREVER then return end
 -------------------------------------------------------------------------------
---  EllesmereUIABR_RaidCheck.lua
---  Raid Buff Check (options under QoL > Raid Tools, off by default; settings in
---  this module's consumables slice): a window listing each
---  group member's flask, food, augment rune, vantus rune and missing raid
---  buffs. Opens on a ready check while the player leads or assists, or from
---  the Buff Check button of Raid Tools.
+--  EllesmereUIQoL_RaidBuffCheck.lua -- Raid Buff Check, part of Raid Tools
+--
+--  A window listing each group member's flask, food, augment rune, vantus rune
+--  and missing raid buffs (QoL > Raid Tools > RAID BUFF CHECK, off by default).
+--  Opens from the Buff Check button and, if wanted, on every ready check while
+--  the player leads or assists. Settings live in the Raid Tools profile slice;
+--  RaidTools' Apply calls ns.BuffCheckSync, so nothing listens while it is off.
 --
 --  Out of combat only. Flask and raid buff IDs are non-secret and looked up by
 --  ID. Food has no fixed ID and needs an index scan, which errors under the
 --  12.1 aura restriction, so food reads as unknown there, and so do augment
---  and vantus runes while their IDs are secret. Durability, weapon oils and healthstones of other
---  players are not readable without addon comms. The window hides when combat
---  starts; events are registered only while the option is on (READY_CHECK) or
---  the window is shown.
+--  and vantus runes while their IDs are secret. Durability, weapon oils and
+--  healthstones of other players are not readable without addon comms. The
+--  window hides when combat starts.
 -------------------------------------------------------------------------------
+local _, ns = ...
 
 local isSecret = issecretvalue or function() return false end
 
@@ -28,6 +29,30 @@ local TEX_YES  = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local TEX_NO   = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local RUNE_ITEM   = 259085   -- header icons come from items: the buff spells have no cached texture
 local VANTUS_ITEM = 272195   -- Vantus Rune: Tides
+
+-- Buff IDs. A copy of AuraBuff Reminders' lists on purpose: QoL must not depend
+-- on a sibling child addon the user may have disabled (the same reason Raid
+-- Tools replicates the window skin).
+local FLASK_BUFF_IDS = {
+    1235110, 1235108, 1235111, 1235057, 1239355,                -- Midnight
+    1235113, 1235114, 1235115, 1235116,                         -- Midnight, PvP variants
+    432473, 432021, 431974, 431973, 431972, 431971,             -- The War Within
+}
+-- Augment runes of the current expansion: Tidesworn (12.1), Void-Touched (12.0).
+local RUNE_IDS = { 1295329, 1264426 }
+-- Older runes count as missing: Ethereal, Soulgorged, Crystallization (TWW),
+-- Draconic (DF), Veiled (SL).
+local OLD_RUNE_IDS = { 1234969, 1242347, 453250, 393438, 347901 }
+-- class = who provides it; only buffs whose class is in the group are checked.
+local RAID_BUFFS = {
+    { class = "DRUID",   castSpell = 1126,   buffIDs = { 1126, 432661 } },
+    { class = "WARRIOR", castSpell = 6673,   buffIDs = { 6673 } },
+    { class = "PRIEST",  castSpell = 21562,  buffIDs = { 21562 } },
+    { class = "MAGE",    castSpell = 1459,   buffIDs = { 1459, 432778 } },
+    { class = "EVOKER",  castSpell = 364342, buffIDs = { 381732, 381741, 381746, 381748, 381749,
+        381750, 381751, 381752, 381753, 381754, 381756, 381757, 381758 } },
+    { class = "SHAMAN",  castSpell = 462854, buffIDs = { 462854 } },
+}
 
 -- Midnight boss buffs of Vantus Runes (Season 1 and 2, both IDs of each boss).
 local VANTUS_IDS = {
@@ -52,7 +77,6 @@ local MIN_W = 400           -- fits the title bar and the note line
 local NOTE_H = 16
 
 local ev = CreateFrame("Frame")
-local started = false
 local frame
 local rows, heads = {}, {}
 local units = {}            -- display order
@@ -62,29 +86,26 @@ local shownUnits = {}       -- units drawn, in order
 local Render                -- defined with the refresh code below
 local providers = {}        -- [classToken] = true for connected members
 local dirty, flushPending = {}, false
-local flaskSet, runeIDs, raidBuffs
-local runeReadable, vantusReadable  -- every ID of the list is non-secret on this client
+local runeReadable, vantusReadable  -- every ID of the list is non-secret on this client; set on first open
 
 local function CDB()
-    local db = _G._EABR_AceDB
-    local p = db and db.profile
-    return p and p.consumables
+    return ns.RaidToolsProfile and ns.RaidToolsProfile()
 end
 
 local function Enabled()
     local c = CDB()
-    return c and c.raidCheck == true
+    return c and c.buffCheck == true
 end
 
 local function OpenOnReady()
     local c = CDB()
-    return c and c.raidCheckOnReady ~= false
+    return c and c.buffCheckOnReady ~= false
 end
 
--- Default on: a missing key shows only the players who are not fully buffed.
+-- Default on: shows only the players who are not fully buffed.
 local function OnlyMissing()
     local c = CDB()
-    return not c or c.raidCheckOnlyMissing ~= false
+    return not c or c.buffCheckOnlyMissing ~= false
 end
 
 local function CanLead()
@@ -104,7 +125,7 @@ local function Msg(text)
 end
 
 -------------------------------------------------------------------------------
---  Data (ABR's tables, published at its OnEnable)
+--  Aura lookups
 -------------------------------------------------------------------------------
 local function AllReadable(ids)
     local should = C_Secrets and C_Secrets.ShouldSpellAuraBeSecret
@@ -113,18 +134,6 @@ local function AllReadable(ids)
         local ok, secret = pcall(should, ids[i])
         if not ok or isSecret(secret) or secret ~= false then return false end
     end
-    return true
-end
-
-local function LoadData()
-    if flaskSet then return true end
-    flaskSet, runeIDs, raidBuffs = _G._EABR_FLASK_BUFF_ID_SET, _G._EABR_RUNE_BUFF_IDS, _G._EABR_RAID_BUFFS
-    if not (flaskSet and runeIDs and raidBuffs) then
-        flaskSet = nil
-        return false
-    end
-    runeReadable = AllReadable(runeIDs)
-    vantusReadable = AllReadable(VANTUS_IDS)
     return true
 end
 
@@ -145,8 +154,8 @@ end
 -- State values: true or an expiration time = has it, false = verified
 -- missing, nil = cannot tell, "eating" = food channel up.
 local function FlaskState(unit)
-    for id in pairs(flaskSet) do
-        local v = FindID(unit, id)
+    for i = 1, #FLASK_BUFF_IDS do
+        local v = FindID(unit, FLASK_BUFF_IDS[i])
         if v then return v end
     end
     return false
@@ -297,8 +306,7 @@ local function MakeHeader(b)
     return h
 end
 
--- The window's own events follow the window, which Raid Tools can open while
--- the option is off; only the ready check trigger follows the option.
+-- The window's events follow the window; READY_CHECK follows the option.
 local function Listen(shown)
     ev:UnregisterAllEvents()
     if Enabled() and OpenOnReady() then ev:RegisterEvent("READY_CHECK") end
@@ -314,12 +322,12 @@ local function SavePosition()
     local c = CDB()
     if not c then return end
     local point, _, relPoint, x, y = frame:GetPoint(1)
-    c.raidCheckPos = { point = point, relPoint = relPoint, x = x, y = y }
+    c.buffCheckPos = { point = point, relPoint = relPoint, x = x, y = y }
 end
 
 local function Build()
     if frame then return end
-    frame = CreateFrame("Frame", "EllesmereUIRaidCheck", UIParent)
+    frame = CreateFrame("Frame", "EllesmereUIRaidBuffCheck", UIParent)
     frame:SetFrameStrata("MEDIUM")
     frame:SetClampedToScreen(true)
     frame:SetMovable(true)
@@ -384,7 +392,7 @@ local function Build()
     cb:SetScript("OnClick", function()
         local c = CDB()
         if not c then return end
-        c.raidCheckOnlyMissing = not OnlyMissing()
+        c.buffCheckOnlyMissing = not OnlyMissing()
         Render()
     end)
 
@@ -394,12 +402,12 @@ local function Build()
     frame.empty:Hide()
 
     -- Totals under the first block: one count per column, aligned with its cells.
+    -- Render places them; a row of zeros is hidden.
     local labels = { EllesmereUI.L("Missing"), EllesmereUI.L("Expiring soon"), EllesmereUI.L("Unknown") }
     frame.totals = {}
     for t = 1, TOTAL_ROWS do
         local tr = CreateFrame("Frame", nil, frame)
         tr:SetSize(BLOCK_W, ROW_H)
-        tr:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, NOTE_H + (TOTAL_ROWS - t) * ROW_H)
         local lbl = EllesmereUI.MakeFont(tr, 11, nil, 0.85, 0.85, 0.85)
         lbl:SetPoint("LEFT", tr, "LEFT", 4, 0)
         lbl:SetText(labels[t])
@@ -415,15 +423,13 @@ local function Build()
         end
         frame.totals[t] = tr
     end
-    local sep = frame:CreateTexture(nil, "ARTWORK")
-    sep:SetColorTexture(1, 1, 1, 0.15)
-    sep:SetHeight(1)
-    sep:SetPoint("BOTTOMLEFT", frame.totals[1], "TOPLEFT", 0, 1)
-    sep:SetPoint("BOTTOMRIGHT", frame.totals[1], "TOPRIGHT", 0, 1)
+    frame.sep = frame:CreateTexture(nil, "ARTWORK")
+    frame.sep:SetColorTexture(1, 1, 1, 0.15)
+    frame.sep:SetHeight(1)
     frame.note = EllesmereUI.MakeFont(frame, 10, nil, 0.6, 0.6, 0.6)
     frame.note:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, 4)
 
-    local pos = CDB() and CDB().raidCheckPos
+    local pos = CDB() and CDB().buffCheckPos
     if pos and pos.point then
         frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
     else
@@ -503,10 +509,11 @@ local function ComputeState(unit, restricted)
     end
     s.flask = FlaskState(unit)
     s.food = FoodState(unit, restricted)
-    s.rune = ListState(unit, runeIDs, runeReadable, restricted)
+    s.rune = ListState(unit, RUNE_IDS, runeReadable, restricted)
+    if not s.rune and ListState(unit, OLD_RUNE_IDS, true, false) then s.rune = false end
     s.vantus = ListState(unit, VANTUS_IDS, vantusReadable, restricted)
     local n = 0
-    for _, buff in ipairs(raidBuffs) do
+    for _, buff in ipairs(RAID_BUFFS) do
         if providers[buff.class] then
             local has
             local ids = buff.buffIDs
@@ -569,7 +576,7 @@ local function PaintRow(r, unit, now)
     end
 end
 
-local function Layout(n)
+local function Layout(n, nTotals)
     local blocks = math.max(1, math.ceil(n / ROWS_PER_BLOCK))
     local perBlock = math.max(1, math.ceil(n / blocks))
     for b = 1, blocks do
@@ -589,7 +596,7 @@ local function Layout(n)
     end
     for i = n + 1, #rows do rows[i]:Hide() end
     frame:SetSize(math.max(MIN_W, PAD * 2 + blocks * BLOCK_W + (blocks - 1) * BLOCK_GAP),
-        TITLE_H + 2 + HEAD_H + perBlock * ROW_H + 6 + TOTAL_ROWS * ROW_H + NOTE_H)
+        TITLE_H + 2 + HEAD_H + perBlock * ROW_H + 6 + nTotals * ROW_H + NOTE_H)
 end
 
 -- totals[row][column]; columns are flask, food, rune, vantus, raid buffs.
@@ -627,19 +634,41 @@ function Render()
             if not filter or NotFullyBuffed(s, now) then shownUnits[#shownUnits + 1] = u end
         end
     end
+    -- Totals rows with a non-zero count, stacked upward from the note line.
+    local nTotals, top = 0, nil
+    for t = TOTAL_ROWS, 1, -1 do
+        local tr = frame.totals[t]
+        local any = false
+        for k = 1, CELLS + 1 do
+            local c = totals[t][k]
+            tr.counts[k]:SetText(c)
+            if c == 0 then
+                tr.counts[k]:SetTextColor(0.3, 0.9, 0.3)
+            else
+                tr.counts[k]:SetTextColor(1, 0.3, 0.3)
+                any = true
+            end
+        end
+        tr:SetShown(any)
+        if any then
+            tr:ClearAllPoints()
+            tr:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, NOTE_H + nTotals * ROW_H)
+            nTotals = nTotals + 1
+            top = tr
+        end
+    end
+    frame.sep:ClearAllPoints()
+    if top then
+        frame.sep:SetPoint("BOTTOMLEFT", top, "TOPLEFT", 0, 1)
+        frame.sep:SetPoint("BOTTOMRIGHT", top, "TOPRIGHT", 0, 1)
+    end
+    frame.sep:SetShown(top ~= nil)
+
     local n = #shownUnits
-    Layout(n)
+    Layout(n, nTotals)
     for i = 1, n do PaintRow(rows[i], shownUnits[i], now) end
     frame.empty:SetShown(n == 0)
     frame.check:SetShown(filter)
-    for t = 1, TOTAL_ROWS do
-        local counts = frame.totals[t].counts
-        for k = 1, CELLS + 1 do
-            local c = totals[t][k]
-            counts[k]:SetText(c)
-            if c == 0 then counts[k]:SetTextColor(0.3, 0.9, 0.3) else counts[k]:SetTextColor(1, 0.3, 0.3) end
-        end
-    end
     if frame._restricted then
         frame.note:SetText(EllesmereUI.L("Food and runes cannot be read here (aura restriction). ? = unknown"))
     else
@@ -674,10 +703,13 @@ end
 -------------------------------------------------------------------------------
 local function Open()
     if InCombatLockdown() then
-        Msg(EllesmereUI.L("Raid Check cannot be opened in combat."))
+        Msg(EllesmereUI.L("Raid Buff Check cannot be opened in combat."))
         return
     end
-    if not LoadData() then return end
+    if runeReadable == nil then
+        runeReadable = AllReadable(RUNE_IDS)
+        vantusReadable = AllReadable(VANTUS_IDS)
+    end
     Build()
     frame:Show()
     Listen(true)
@@ -685,7 +717,9 @@ local function Open()
     if not frame._ticker then frame._ticker = C_Timer.NewTicker(TICK, Render) end
 end
 
-local function Sync()
+-- Called by RaidTools' Apply (login, settings, profile switch).
+function ns.BuffCheckSync()
+    if not Enabled() and frame then frame:Hide() end
     Listen(frame and frame:IsShown())
 end
 
@@ -704,20 +738,12 @@ ev:SetScript("OnEvent", function(_, event, unit)
         if CanLead() then Open() end
     elseif event == "PLAYER_REGEN_DISABLED" then
         if frame then frame:Hide() end
-    elseif event == "PLAYER_ENTERING_WORLD" then
-        if not started then
-            -- After every module's OnEnable, so ABR's DB and refresh exist; the
-            -- options page and profile switches both go through that refresh.
-            started = true
-            if _G._EABR_RequestRefresh then hooksecurefunc("_EABR_RequestRefresh", Sync) end
-            Sync()
-        end
     end
 end)
-ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 
--- Raid Tools' Buff Check button; works with the option off.
-_G._EABR_RaidCheckToggle = function()
+-- The Buff Check button.
+function ns.ToggleBuffCheck()
+    if not Enabled() then return end
     if frame and frame:IsShown() then frame:Hide(); return end
     Open()
 end

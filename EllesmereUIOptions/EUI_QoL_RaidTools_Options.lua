@@ -79,6 +79,13 @@ initFrame:SetScript("OnEvent", function(self)
         local mode = ShowAsVal()
         return Disabled() or mode == "compact" or mode == "markers"
     end
+    -- Raid Buff Check is retail only: its file publishes ns.ToggleBuffCheck there.
+    local function BuffCheckUnavailable()
+        return ns.ToggleBuffCheck == nil
+    end
+    local function BuffCheckOff()
+        return BuffCheckUnavailable() or Cfg("buffCheck") ~= true
+    end
     local function PullDisabled()
         return Disabled() or ShowAsVal() == "markers"
     end
@@ -307,9 +314,9 @@ initFrame:SetScript("OnEvent", function(self)
                 "Shows the Disband button. It always asks before disbanding, but hiding it puts it out of misclick range for good.",
                 FullPanelButtonDisabled),
             { type = "toggle", text = "Show Buff Check",
-              tooltip = "Shows the Buff Check button, which opens the Raid Buff Check window of AuraBuff Reminders: flask, food, runes and raid buffs of every group member. On Compact Band it is Shift + Left Click on the ready check button.",
+              tooltip = "Shows the Buff Check button, which opens the Raid Buff Check window (needs Raid Buff Check below). On Compact Band it is Shift + Left Click on the ready check button.",
               disabled = function()
-                  return RoleCheckDisabled() or not _G._EABR_RaidCheckToggle
+                  return RoleCheckDisabled() or BuffCheckOff()
               end,
               getValue = function() return Cfg("showBuffCheck") == true end,
               setValue = function(v)
@@ -319,43 +326,25 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- RAID BUFF CHECK
-        --
-        -- The window lives in AuraBuff Reminders and so do these two settings
-        -- (its consumables slice); without that module both rows stay off.
         _, h = W:SectionHeader(parent, "RAID BUFF CHECK", y);  y = y - h
 
-        local function RCDB()
-            local abr = _G._EABR_AceDB
-            local p = abr and abr.profile
-            return p and p.consumables
-        end
-        local function RCRefresh()
-            if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
-        end
-        local function RCUnavailable()
-            return not (RCDB() and _G._EABR_RaidCheckToggle)
-        end
-
         _, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Raid Check",
-              tooltip = "A window listing every group member's flask, food, augment rune, vantus rune and missing raid buffs, opened on ready checks or with the Buff Check button. Out of combat only; in restricted content food and runes may show as unknown. Needs EllesmereUI AuraBuff Reminders.",
-              disabled = RCUnavailable,
-              getValue = function() local c = RCDB(); return c and c.raidCheck == true end,
+            { type = "toggle", text = "Raid Buff Check",
+              tooltip = "A window listing every group member's flask, food, augment rune, vantus rune and missing raid buffs, opened with the Buff Check button or on ready checks. Out of combat only; in restricted content food and runes may show as unknown.",
+              disabled = BuffCheckUnavailable,
+              getValue = function() return Cfg("buffCheck") == true end,
               setValue = function(v)
-                  local c = RCDB(); if c then c.raidCheck = v or nil end
-                  RCRefresh()
+                  Set("buffCheck", v)
+                  Refresh()
                   EllesmereUI:RefreshPage()
               end },
             { type = "toggle", text = "Open on Ready Check",
               tooltip = "Opens the Raid Buff Check window on every ready check while you are the group leader or a raid assistant.",
-              disabled = function()
-                  local c = RCDB()
-                  return RCUnavailable() or c.raidCheck ~= true
-              end,
-              getValue = function() local c = RCDB(); return not c or c.raidCheckOnReady ~= false end,
+              disabled = BuffCheckOff,
+              getValue = function() return Cfg("buffCheckOnReady") ~= false end,
               setValue = function(v)
-                  local c = RCDB(); if c then c.raidCheckOnReady = v end
-                  RCRefresh()
+                  Set("buffCheckOnReady", v)
+                  Refresh()
               end }
         );  y = y - h
 
