@@ -69,8 +69,7 @@ local PAD, TITLE_H, HEAD_H = 8, 24, 20
 local ROW_H, NAME_W, CELL_W, ICON = 18, 110, 24, 14
 local BUFF_SLOTS, BUFF_STEP = 6, 16
 local CELLS = 4             -- flask, food, rune, vantus
-local BUFFS_X = NAME_W + CELLS * CELL_W + 4
-local BLOCK_W = BUFFS_X + BUFF_SLOTS * BUFF_STEP + 2
+local RUNE_COL = 3
 local BLOCK_GAP = 12
 local ROWS_PER_BLOCK = 20
 local TOTAL_ROWS = 3        -- Missing, Expiring soon, Unknown
@@ -86,6 +85,27 @@ local isMember = {}         -- [unit] = true for listed group members
 local states = {}           -- [unit] = last computed state
 local shownUnits = {}       -- units drawn, in order
 local Render                -- defined with the refresh code below
+
+-- Column geometry. The rune column drops out while Require Augment Rune is
+-- off; SetColumns recomputes this and bumps colsKey, and every row, header
+-- and totals row re-places itself once per change (Place*).
+local colShown, colX = { true, true, true, true }, {}
+local buffsX, blockW
+local colsKey = 0
+
+local function SetColumns(runeShown)
+    if buffsX and colShown[RUNE_COL] == runeShown then return end
+    colShown[RUNE_COL] = runeShown
+    local x = NAME_W
+    for k = 1, CELLS do
+        colX[k] = x
+        if colShown[k] then x = x + CELL_W end
+    end
+    buffsX = x + 4
+    blockW = buffsX + BUFF_SLOTS * BUFF_STEP + 2
+    colsKey = colsKey + 1
+end
+SetColumns(true)
 local providers = {}        -- [classToken] = true for connected members
 local dirty, flushPending = {}, false
 local runeReadable, vantusReadable  -- every ID of the list is non-secret on this client; set on first open
@@ -240,10 +260,9 @@ local function SetCell(cell, state, now)
     cell.tex:Show()
 end
 
-local function MakeCell(parent, x)
+local function MakeCell(parent)
     local cell = CreateFrame("Frame", nil, parent)
     cell:SetSize(CELL_W, ROW_H)
-    cell:SetPoint("LEFT", parent, "LEFT", x, 0)
     cell.tex = cell:CreateTexture(nil, "ARTWORK")
     cell.tex:SetSize(ICON, ICON)
     cell.tex:SetPoint("CENTER")
@@ -254,8 +273,8 @@ local function MakeCell(parent, x)
 end
 
 local function MakeRow(i)
-    local r = CreateFrame("Frame", nil, frame)
-    r:SetSize(BLOCK_W, ROW_H)
+    local r = CreateFrame("Frame", nil, frame.table)
+    r:SetHeight(ROW_H)
     if i % 2 == 0 then
         local stripe = r:CreateTexture(nil, "BACKGROUND")
         stripe:SetColorTexture(1, 1, 1, 0.03)
@@ -266,21 +285,20 @@ local function MakeRow(i)
     r.name:SetWidth(NAME_W - 6)
     r.name:SetJustifyH("LEFT")
     r.name:SetWordWrap(false)
-    r.flask = MakeCell(r, NAME_W)
-    r.food  = MakeCell(r, NAME_W + CELL_W)
-    r.rune  = MakeCell(r, NAME_W + 2 * CELL_W)
-    r.vantus = MakeCell(r, NAME_W + 3 * CELL_W)
+    r.flask = MakeCell(r)
+    r.food  = MakeCell(r)
+    r.rune  = MakeCell(r)
+    r.vantus = MakeCell(r)
+    r.cells = { r.flask, r.food, r.rune, r.vantus }
     r.buffs = {}
     for j = 1, BUFF_SLOTS do
         local t = r:CreateTexture(nil, "ARTWORK")
         t:SetSize(ICON, ICON)
-        t:SetPoint("LEFT", r, "LEFT", BUFFS_X + (j - 1) * BUFF_STEP, 0)
         t:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         r.buffs[j] = t
     end
     r.buffsOk = r:CreateTexture(nil, "ARTWORK")
     r.buffsOk:SetSize(ICON, ICON)
-    r.buffsOk:SetPoint("LEFT", r, "LEFT", BUFFS_X, 0)
     r.buffsOk:SetTexture(TEX_YES)
     r.buffsQ = EllesmereUI.MakeFont(r, 11, nil, 0.6, 0.6, 0.6)
     r.buffsQ:SetPoint("LEFT", r.buffsOk, "LEFT", 0, 0)
@@ -289,13 +307,60 @@ local function MakeRow(i)
     return r
 end
 
+local function PlaceRow(r)
+    if r._colsKey == colsKey then return end
+    r._colsKey = colsKey
+    r:SetWidth(blockW)
+    for k = 1, CELLS do
+        local cell = r.cells[k]
+        cell:ClearAllPoints()
+        cell:SetPoint("LEFT", r, "LEFT", colX[k], 0)
+        cell:SetShown(colShown[k])
+    end
+    for j = 1, BUFF_SLOTS do
+        r.buffs[j]:ClearAllPoints()
+        r.buffs[j]:SetPoint("LEFT", r, "LEFT", buffsX + (j - 1) * BUFF_STEP, 0)
+    end
+    r.buffsOk:ClearAllPoints()
+    r.buffsOk:SetPoint("LEFT", r, "LEFT", buffsX, 0)
+end
+
+local function PlaceHeader(h)
+    if h._colsKey == colsKey then return end
+    h._colsKey = colsKey
+    h:SetWidth(blockW)
+    for k = 1, CELLS do
+        local hit = h.icons[k]
+        hit:ClearAllPoints()
+        hit:SetPoint("LEFT", h, "LEFT", colX[k], 0)
+        hit:SetShown(colShown[k])
+    end
+    h.buffsLabel:ClearAllPoints()
+    h.buffsLabel:SetPoint("LEFT", h, "LEFT", buffsX, 0)
+end
+
+local function PlaceTotals(tr)
+    if tr._colsKey == colsKey then return end
+    tr._colsKey = colsKey
+    tr:SetWidth(blockW)
+    for k = 1, CELLS do
+        local fs = tr.counts[k]
+        fs:ClearAllPoints()
+        fs:SetPoint("CENTER", tr, "LEFT", colX[k] + CELL_W / 2, 0)
+        fs:SetShown(colShown[k])
+    end
+    tr.counts[CELLS + 1]:ClearAllPoints()
+    tr.counts[CELLS + 1]:SetPoint("CENTER", tr, "LEFT", buffsX + ICON / 2, 0)
+end
+
 local function MakeHeader(b)
-    local h = CreateFrame("Frame", nil, frame)
-    h:SetSize(BLOCK_W, HEAD_H)
-    local function Icon(x, tex, tip)
+    local h = CreateFrame("Frame", nil, frame.table)
+    h:SetHeight(HEAD_H)
+    h.icons = {}
+    local function Icon(tex, tip)
         local hit = CreateFrame("Frame", nil, h)
         hit:SetSize(CELL_W, HEAD_H)
-        hit:SetPoint("LEFT", h, "LEFT", x, 0)
+        h.icons[#h.icons + 1] = hit
         local t = hit:CreateTexture(nil, "ARTWORK")
         t:SetSize(ICON + 2, ICON + 2)
         t:SetPoint("CENTER")
@@ -305,13 +370,12 @@ local function MakeHeader(b)
         hit:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, tip) end)
         hit:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
     end
-    Icon(NAME_W, C_Spell.GetSpellTexture(1235110), EllesmereUI.L("Flask"))
-    Icon(NAME_W + CELL_W, WELL_FED_ICON, EllesmereUI.L("Food"))
-    Icon(NAME_W + 2 * CELL_W, C_Item.GetItemIconByID(RUNE_ITEM), EllesmereUI.L("Augment Rune"))
-    Icon(NAME_W + 3 * CELL_W, C_Item.GetItemIconByID(VANTUS_ITEM), EllesmereUI.L("Vantus Rune"))
-    local fs = EllesmereUI.MakeFont(h, 11, nil, 0.8, 0.8, 0.8)
-    fs:SetPoint("LEFT", h, "LEFT", BUFFS_X, 0)
-    fs:SetText(EllesmereUI.L("Raid Buffs"))
+    Icon(C_Spell.GetSpellTexture(1235110), EllesmereUI.L("Flask"))
+    Icon(WELL_FED_ICON, EllesmereUI.L("Food"))
+    Icon(C_Item.GetItemIconByID(RUNE_ITEM), EllesmereUI.L("Augment Rune"))
+    Icon(C_Item.GetItemIconByID(VANTUS_ITEM), EllesmereUI.L("Vantus Rune"))
+    h.buffsLabel = EllesmereUI.MakeFont(h, 11, nil, 0.8, 0.8, 0.8)
+    h.buffsLabel:SetText(EllesmereUI.L("Raid Buffs"))
     heads[b] = h
     return h
 end
@@ -424,33 +488,32 @@ local function Build()
     frame.runeBox:SetPoint("LEFT", frame.onlyBox.label, "RIGHT", 16, 0)
 
     frame.empty = EllesmereUI.MakeFont(frame, 11, nil, 0.4, 0.9, 0.4)
-    frame.empty:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + 4, -TITLE_H - 2 - HEAD_H - 2)
+    frame.empty:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + 4, -TITLE_H - 6)
     frame.empty:SetText(EllesmereUI.L("Everyone is fully buffed."))
     frame.empty:Hide()
+
+    -- The table (column headers, player rows, totals) in one container, so
+    -- "everyone fully buffed" hides it in one go.
+    frame.table = CreateFrame("Frame", nil, frame)
+    frame.table:SetAllPoints(frame)
 
     -- Totals under the first block: one count per column, aligned with its cells.
     -- Render places them; a row of zeros is hidden.
     local labels = { EllesmereUI.L("Missing"), EllesmereUI.L("Expiring soon"), EllesmereUI.L("Unknown") }
     frame.totals = {}
     for t = 1, TOTAL_ROWS do
-        local tr = CreateFrame("Frame", nil, frame)
-        tr:SetSize(BLOCK_W, ROW_H)
+        local tr = CreateFrame("Frame", nil, frame.table)
+        tr:SetHeight(ROW_H)
         local lbl = EllesmereUI.MakeFont(tr, 11, nil, 0.85, 0.85, 0.85)
         lbl:SetPoint("LEFT", tr, "LEFT", 4, 0)
         lbl:SetText(labels[t])
         tr.counts = {}
         for k = 1, CELLS + 1 do
-            local fs = EllesmereUI.MakeFont(tr, 11, nil, 1, 1, 1)
-            if k <= CELLS then
-                fs:SetPoint("CENTER", tr, "LEFT", NAME_W + (k - 0.5) * CELL_W, 0)
-            else
-                fs:SetPoint("CENTER", tr, "LEFT", BUFFS_X + ICON / 2, 0)
-            end
-            tr.counts[k] = fs
+            tr.counts[k] = EllesmereUI.MakeFont(tr, 11, nil, 1, 1, 1)
         end
         frame.totals[t] = tr
     end
-    frame.sep = frame:CreateTexture(nil, "ARTWORK")
+    frame.sep = frame.table:CreateTexture(nil, "ARTWORK")
     frame.sep:SetColorTexture(1, 1, 1, 0.15)
     frame.sep:SetHeight(1)
     frame.note = EllesmereUI.MakeFont(frame, 10, nil, 0.6, 0.6, 0.6)
@@ -604,18 +667,26 @@ local function PaintRow(r, unit, now)
     end
 end
 
+-- n == 0: Render hides the whole table; the empty message takes one row
+-- under the title.
 local function Layout(n, nTotals)
+    if n == 0 then
+        frame:SetSize(MIN_W, TITLE_H + 2 + ROW_H + 6 + CB_H + NOTE_H)
+        return
+    end
     local blocks = math.max(1, math.ceil(n / ROWS_PER_BLOCK))
     local perBlock = math.max(1, math.ceil(n / blocks))
     for b = 1, blocks do
         local h = heads[b] or MakeHeader(b)
+        PlaceHeader(h)
         h:ClearAllPoints()
-        h:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + (b - 1) * (BLOCK_W + BLOCK_GAP), -TITLE_H - 2)
+        h:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + (b - 1) * (blockW + BLOCK_GAP), -TITLE_H - 2)
         h:Show()
     end
     for b = blocks + 1, #heads do heads[b]:Hide() end
     for i = 1, n do
         local r = rows[i] or MakeRow(i)
+        PlaceRow(r)
         local b = math.floor((i - 1) / perBlock)
         local slot = (i - 1) % perBlock
         r:ClearAllPoints()
@@ -623,7 +694,7 @@ local function Layout(n, nTotals)
         r:Show()
     end
     for i = n + 1, #rows do rows[i]:Hide() end
-    frame:SetSize(math.max(MIN_W, PAD * 2 + blocks * BLOCK_W + (blocks - 1) * BLOCK_GAP),
+    frame:SetSize(math.max(MIN_W, PAD * 2 + blocks * blockW + (blocks - 1) * BLOCK_GAP),
         TITLE_H + 2 + HEAD_H + perBlock * ROW_H + 6 + nTotals * ROW_H + CB_H + NOTE_H)
 end
 
@@ -639,6 +710,7 @@ end
 function Render()
     local filter = OnlyMissing()
     local runeRequired = RuneRequired()
+    SetColumns(runeRequired)
     local now = GetTime()
     for t = 1, TOTAL_ROWS do
         for k = 1, CELLS + 1 do totals[t][k] = 0 end
@@ -664,9 +736,11 @@ function Render()
         end
     end
     -- Totals rows with a non-zero count, stacked upward from the note line.
+    local n = #shownUnits
     local nTotals, top = 0, nil
     for t = TOTAL_ROWS, 1, -1 do
         local tr = frame.totals[t]
+        PlaceTotals(tr)
         local any = false
         for k = 1, CELLS + 1 do
             local c = totals[t][k]
@@ -675,7 +749,8 @@ function Render()
                 tr.counts[k]:SetTextColor(0.3, 0.9, 0.3)
             else
                 tr.counts[k]:SetTextColor(1, 0.3, 0.3)
-                any = true
+                -- A hidden column's count does not keep its row up.
+                if k > CELLS or colShown[k] then any = true end
             end
         end
         tr:SetShown(any)
@@ -693,15 +768,14 @@ function Render()
     end
     frame.sep:SetShown(top ~= nil)
 
-    local n = #shownUnits
     Layout(n, nTotals)
     for i = 1, n do PaintRow(rows[i], shownUnits[i], now) end
+    -- Nobody listed (everyone fully buffed): no header and no totals either,
+    -- even when a count is non-zero for a column the filter ignores.
+    frame.table:SetShown(n > 0)
     frame.empty:SetShown(n == 0)
     frame.onlyBox.check:SetShown(filter)
     frame.runeBox.check:SetShown(runeRequired)
-    -- The rune box only feeds the filter: dimmed while the filter is off.
-    frame.runeBox:SetAlpha(filter and 1 or 0.4)
-    frame.runeBox.label:SetAlpha(filter and 1 or 0.4)
     if frame._restricted then
         frame.note:SetText(EllesmereUI.L("Food and runes cannot be read here (aura restriction). ? = unknown"))
     else
