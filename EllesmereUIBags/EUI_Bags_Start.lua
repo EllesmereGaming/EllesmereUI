@@ -756,7 +756,7 @@ local function StartAddon()
     end
     EUI_Bags.UpdateSetEventRegistration()
     -- Replays a refresh that was deferred during combat (secure-button taint guard).
-    EUI_Bags:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral by JuJuFX-dev: moved unchanged by the file split
+    EUI_Bags:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral by Ellesmere: moved unchanged by the file split
     -- Drives the post-mailbox/bank Recent Items resync (see MailOpen/BankOpen/DetectNewItems above).
     if C_PlayerInteractionManager then
         EUI_Bags:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")

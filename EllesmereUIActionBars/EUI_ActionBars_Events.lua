@@ -30,7 +30,7 @@ local ReRegisterButtonEvents, barFrames = I.ReRegisterButtonEvents, I.barFrames
 
 -- Usable-tint mirror for ForceButtonRefresh, a named function so pcall passes
 -- args instead of allocating a closure per call (runs in the
--- ACTIONBAR_SLOT_CHANGED storm path). On ns: file at the 200-local cap.
+-- ACTIONBAR_SLOT_CHANGED storm path). On ns.
 ns._TintUsableIcon = function(icon, action)
     local isUsable, noMana
     if C_ActionBar and C_ActionBar.IsUsableAction then
@@ -442,7 +442,7 @@ end
 --
 --  Alpha-0 mouseover bars are SHOWN frames and deliberately count as
 --  visible: gating on alpha would move reconcile work onto the hover-in edge
---  -- the exact spike the mouseover fix removed. (On ns: 200-local cap.)
+--  -- the exact spike the mouseover fix removed. (On ns.)
 -------------------------------------------------------------------------------
 ns._eabBarDormant = {}
 -- HARD dormancy: bars whose visibility mode is "Never" (or disabled, or hidden by
@@ -1022,7 +1022,7 @@ do
         dispatcher:RegisterEvent("COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED")
         -- Per-button content refresh for a changed slot. Shared by the
         -- dispatcher's SLOT_CHANGED full walk (arg1 == 0) and the
-        -- slot->buttons fast path; on ns because this chunk is at the 200-local cap.
+        -- slot->buttons fast path; on ns.
         ns._eabSlotRefreshBtn = function(btn, action)
             -- Assisted-combat slot: its "content changes" are the manager
             -- re-stamping the suggestion (idle spam plus per rotation step in
@@ -1222,7 +1222,7 @@ do
         -- the deliberate exception -- they paint the SUGGESTED spell's
         -- texture, not the action's, and stamping that would clobber them.
         -- Used by the full walk below and the payload-targeted
-        -- SPELL_UPDATE_ICON fast path; ns-hosted (200-local cap).
+        -- SPELL_UPDATE_ICON fast path; on ns.
         ns._cdIconHeal = function(btn)
             local action = btn:GetAttribute("action")
             if action and HasAction(action) then

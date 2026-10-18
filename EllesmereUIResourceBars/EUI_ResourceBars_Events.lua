@@ -656,11 +656,10 @@ function ERB:OnInitialize()
         -- spec has no class resource. The frame is created unconditionally (zero
         -- alpha when off), so there is always a target to anchor to -- mirrors
         -- ResolveShiftDirPower. The form test must match the visibility pass
-        -- EXACTLY, second argument included: isClassResource exempts Moonkin
-        -- forms, whose Astral Power IS this bar -- omitting it left a form-hidden
-        -- bar's empty slot uncovered because the shift never fired.
+        -- exactly, or a form-hidden bar's empty slot stays uncovered (the shift
+        -- never fires).
         if sp.enabled ~= false and not IsSpecDisabled(sp)
-           and not _G._ERB_BarHiddenByForm(sp, true)
+           and not _G._ERB_BarHiddenByForm(sp)
            and GetSecondaryResource() then return 0 end
         return (mode == "Up") and 1 or -1
     end

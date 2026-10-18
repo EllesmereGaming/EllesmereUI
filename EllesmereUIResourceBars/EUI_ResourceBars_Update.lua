@@ -2747,7 +2747,7 @@ local function UpdateVisibility()
     -- Secondary resource visibility + ooc alpha
     if secondaryFrame then
         local sp = _G._ERB_ResolveSecondaryCfg()
-        local vis = sp and sp.enabled ~= false and not IsSpecDisabled(sp) and not _G._ERB_BarHiddenByForm(sp, true) and cachedSecondary and not inVehicle and ShouldShowSecondary()
+        local vis = sp and sp.enabled ~= false and not IsSpecDisabled(sp) and not _G._ERB_BarHiddenByForm(sp) and cachedSecondary and not inVehicle and ShouldShowSecondary()
         ERB._moEligible.secondary = (vis == "mouseover")
         -- Blizzard Class Resource Art: the host holding Blizzard's frame takes
         -- this visibility; while that frame stands in for the pips the slot

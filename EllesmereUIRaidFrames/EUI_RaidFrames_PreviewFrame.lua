@@ -37,7 +37,6 @@ RF.containerFrameSetters[#RF.containerFrameSetters + 1] = function(v) containerF
 local previewGroupLabels = {}  -- [1..4] FontStrings showing group numbers
 local previewContainer = nil   -- standalone anchor frame for preview (doesn't move with containerFrame)
 I.previewContainerSetters[#I.previewContainerSetters + 1] = function(v) previewContainer = v end
-local previewHiddenParent = nil -- hidden frame to reparent containerFrame into during preview
 
 local function CreatePreviewFrame(index, party)
     local s = db.profile

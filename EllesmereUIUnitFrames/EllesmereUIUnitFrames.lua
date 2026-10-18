@@ -190,8 +190,8 @@ local defaults = {
             maxDebuffs = 16,
         },
         -- No playerAuras/externalDefensives defaults: those keys are one-time migration
-        -- SOURCES read from a saved profile (EllesmereUIUnitFrames_PlayerAuraBars.lua
-        -- MigratePlayerAuraStyle/MigrateExternalDefensives), independent of this table --
+        -- SOURCES read from a saved profile (EUI_PlayerAuraBars_Config.lua: MigratePlayerAuraStyle
+        -- and the External Defensives seed), independent of this table --
         -- a new profile has nothing to migrate and starts at PAB's fallbacks.
         castbarOpacity = 1.0,
         castbarColor = { r = 0.114, g = 0.655, b = 0.514 },

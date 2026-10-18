@@ -770,4 +770,4 @@ end)
     end)
 end)()
 
-ns.EAB_UpdateQuickKeybindButtons = EAB_UpdateQuickKeybindButtons -- called by the main file
+ns.EAB_UpdateQuickKeybindButtons = EAB_UpdateQuickKeybindButtons -- called by EUI_ActionBars_ButtonArt.lua

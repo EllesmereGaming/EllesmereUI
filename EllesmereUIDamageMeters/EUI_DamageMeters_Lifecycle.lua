@@ -61,10 +61,13 @@ local StopSharedTicker
 local StartSharedTicker
 local ScheduleStopTicker
 
--- Shared refresh ticker (one ticker for ALL windows). _sharedTicker is declared in
--- EUI_DamageMeters_State.lua (so the session-update handler can revive it after a teardown race); assigned by Start/StopSharedTicker
+-- Shared refresh ticker (one ticker for ALL windows). _sharedTicker is one copy per
+-- reading file (State, Format, this one), all fed by SetSharedTicker; State's lets the
+-- session-update handler revive it after a teardown race. Start/StopSharedTicker assign it.
 
 local _regenTimestamp = 0  -- GetTime() when player left combat
+-- State's zone-in group poll drops a stale stamp through this (State loads first).
+ns.DMClearRegenStamp = function() _regenTimestamp = 0 end
 
 -- Dedicated combat-timer ticker: keeps header clocks (and the standalone timer) ticking once per displayed second regardless of refresh rate, only while the shared ticker runs (combat); the second
 -- memo in UpdateTimerText makes redundant ticks free. Historical-session windows are skipped -- their duration is static and already painted by RefreshUI.

@@ -679,6 +679,7 @@ initFrame:SetScript("OnEvent", function(self)
                     FilterRow("filterCompleted", "Hide Completed Quests"),
                     FilterRow("filterTrivial", "Hide Low Level Quests"),
                     FilterRow("filterRepeatable", "Hide Daily & Weekly Quests"),
+                    FilterRow("filterHeaderToggle", "Show Toggle on Quests Header"),
                 },
             })
             y = y - h

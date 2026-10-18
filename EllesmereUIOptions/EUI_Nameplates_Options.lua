@@ -356,7 +356,7 @@ initFrame:SetScript("OnEvent", function(self)
         _displayHeaderBuilder = function(headerParent, headerW)
 
             local PRESET_HEADER_H = 0
-            local PREVIEW_TOP_PAD = 10
+            local PREVIEW_TOP_PAD = 5
             local PREVIEW_BOTTOM_PAD = 5
             local previewH = ns.NPO_BuildNameplatePreview(headerParent, headerW)
             -- Position the preview at the top of the header area. pf's SetScale matches the UIParent/panel ratio, so SetPoint offsets (in that scaled space) must divide by the same ratio for the correct visual offset.

@@ -216,7 +216,7 @@ L["Ooze Covered Mithril Deposit"] = "Depósito de mitril cubierto de moco"
 L["Ooze Covered Truesilver Deposit"] = "Depósito de veraplata cubierta de moco"
 L["Ooze Covered Thorium Vein"] = "Filón de torio cubierto de moco"
 L["Ooze Covered Rich Thorium Vein"] = "Filón de torio enriquecido cubierto de moco"
-L["Hakkari Thorium Vein"] = "Filon de torio de Hakkari"
+L["Hakkari Thorium Vein"] = "Filón de torio de Hakkari"
 -- == Bloque 1: etiquetas comunes (alvaro1929) ==============================
 L["Match Frames"] = "Ajustar a los marcos"
 L["Match Frames grows the pets the same way as the frames."] = "Ajustar a los marcos hace que las mascotas crezcan en la misma dirección que los marcos."
@@ -9639,7 +9639,7 @@ L["When enabled, EUI relinquishes full control of friendly player nameplates to 
 L["With Hide Active State on, a charge cooldown's recharge swipe and edge now stay visible instead of disappearing while a charge is in hand or when you press another ability."] = "Con Ocultar el estado activo activado, el barrido y el borde de recarga de una reutilización con cargas se siguen viendo en lugar de desaparecer mientras tienes una carga o cuando pulsas otra facultad."
 L["You can now color the gaps between class resource pips and set the color and opacity of the empty slot overlay."] = "Ahora puedes poner color a los huecos entre los puntos del recurso de clase y elegir el color y la opacidad de la capa de los huecos vacíos."
 
--- == Bloque 29: novedades de la 9.6 (buscador de grupos, Forever, pesca, misiones…) (alvaro1929) ====
+-- == Bloque 29: novedades de la 9.6 (buscador de grupos, Forever, pesca, misiones...) (alvaro1929) ====
 L["%d applied"] = "%d solicitudes"
 L["%s (e.g. 10-12)"] = "%s (p. ej. 10-12)"
 L["A bar at the top of the Dungeons & Raids sidebar counting your Mythic+ Group Finder applications and how they ended, each count inside its part of the bar. Other dungeon difficulties, raids, delves and other groups are not counted."] = "Una barra arriba en el lateral de Mazmorras y bandas que cuenta tus solicitudes de mítica+ del buscador de grupos y cómo acabaron, cada número en su parte de la barra. No cuenta otras dificultades de mazmorra, bandas, profundidades ni otros grupos."
@@ -9894,7 +9894,7 @@ L["quest rewards"] = "recompensas de misión"
 L["zeppelin"] = "zepelín"
 L["zone exit"] = "salida de zona"
 
--- == Bloque 30: textos que ningún idioma tenía (editor de macros de Forever, chatarra, mapa…) (alvaro1929) ====
+-- == Bloque 30: textos que ningún idioma tenía (editor de macros de Forever, chatarra, mapa...) (alvaro1929) ====
 L["Modifier/Target Paging"] = "Página por mod./objetivo"
 L["Next and previous page, from the keybinds or the paging arrows, skip the pages your other enabled bars use."] = "Las páginas siguiente y anterior, con los atajos o las flechas, se saltan las páginas que usan tus otras barras activadas."
 L["Show Equipped Item Color"] = "Ver color de equipados"
@@ -10239,7 +10239,6 @@ L["Unknown zone: %1$s"] = "Zona desconocida: %1$s"
 L["Usage:"] = "Uso:"
 L["You have arrived:"] = "Has llegado:"
 L["Glow Settings"] = "Ajustes de brillo"
-L["why it's off"] = "por qué está desactivado"
 L["How far from the top of the screen nameplates stop. 0 lets them reach the edge."] = "Hasta dónde llegan por arriba las placas de nombre. Con 0 llegan al borde."
 L["How fast stacked nameplates slide into place. 100% is Blizzard's default."] = "Lo rápido que se colocan las placas de nombre amontonadas. Con 100% irán como las de Blizzard."
 L["Show the spell tooltip when you hover a buff or debuff icon on a nameplate.\n\nWhile the cursor is over an icon, the plate behind it will not highlight or take mouseover targeting."] = "Muestra la descripción del hechizo al pasar el ratón por un icono de beneficio o perjuicio en una placa de nombre.\n\nMientras el cursor está sobre un icono, la placa de detrás no se resalta ni se puede seleccionar al pasar el ratón."

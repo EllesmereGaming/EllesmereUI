@@ -12253,7 +12253,7 @@ end
 --  application: group title, activity, your role, Accept/Decline) and
 --  LFGInvitePopup (invited to a group finder party, with role checks).
 --
---  EllesmereUIBlizzardSkin.lua also skins LFGListInviteDialog, gated on
+--  EUI_BlizzardSkin_Dialogs.lua also skins LFGListInviteDialog, gated on
 --  EllesmereUIDB.reskinQueuePopup (a plain truthiness test, unlike the Queue
 --  Popup's `~= false`, so it only runs for users who toggled the option ON).
 --  When it does, it lays a flat BACKGROUND texture at sublevel 0 over this

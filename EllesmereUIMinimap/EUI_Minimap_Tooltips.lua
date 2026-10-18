@@ -134,8 +134,8 @@ local function GatherOnlineFriends()
 end
 
 -- Custom two-column friends tooltip (same pattern as the M+ death tooltip). FTT_FONT
--- stays file-scope (shared with the calendar/vault tooltips below); everything else
--- lives in the do-block so locals release instead of eating main-chunk slots.
+-- stays file-scope (shared with the calendar tooltip below); everything else lives
+-- in the do-block.
 -- Only ShowFriendsTooltip/HideFriendsTooltip are used outside, hence the forward declarations.
 local function FTT_FONT()
     return (EllesmereUI.GetFontPath("minimap")) or EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"

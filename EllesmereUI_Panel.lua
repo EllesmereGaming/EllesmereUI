@@ -3415,7 +3415,7 @@ BuildTabs = function(pageNames, disabledPages, disabledTooltips)
         tabBar._searchFrame = searchFrame
 
         -- Spec Override capture toggle (left of the search box). All look
-        -- and behavior live in EllesmereUI_SpecOverrides.lua.
+        -- and behavior live in EUI_SpecOverrides_Popups.lua (SpecOverrides_SetupButton).
         if EllesmereUI.SpecOverrides_SetupButton then
             local soBtn = CreateFrame("Button", nil, tabBar)
             soBtn:SetSize(26, 26)

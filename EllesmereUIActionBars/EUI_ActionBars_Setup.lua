@@ -542,7 +542,7 @@ function EAB:FinishSetup()
     EAB._abcEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
     EAB._abcEvents:RegisterEvent("SPELLS_CHANGED")
     EAB._abcEvents:RegisterEvent("CVAR_UPDATE")
-    EAB._abcEvents:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral until 2027-01-31 by JuJu: moved verbatim from EllesmereUIActionBars.lua
+    EAB._abcEvents:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral by Ellesmere: moved verbatim from EllesmereUIActionBars.lua
     -- Seed before the first drag: PLAYER_ENTERING_WORLD may already be past.
     ns.EABSyncBarsLocked()
 
@@ -1062,7 +1062,7 @@ function EAB:FinishSetup()
     -- guaranteeing restoration.
     do
         local regenFrame = ns.TakeShell()
-        regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral until 2027-01-31 by JuJu: moved verbatim from EllesmereUIActionBars.lua
+        regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral by Ellesmere: moved verbatim from EllesmereUIActionBars.lua
         regenFrame:SetScript("OnEvent", function()
             for _, info in ipairs(ALL_BARS) do
                 local s = self.db.profile.bars[info.key]

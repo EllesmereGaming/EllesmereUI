@@ -130,7 +130,7 @@ end
 
 -- Called by EUI_UnlockMode.lua's Grow Direction dropdown for barKey ==
 -- "PAB_Buffs" / "PAB_Debuffs". Thin delegation to
--- EllesmereUIUnitFrames_PlayerAuraBars.lua's ns.PAB_Get/SetGrowDirection so
+-- EUI_PlayerAuraBars_Bars.lua's ns.PAB_Get/SetGrowDirection so
 -- the settings field names stay defined in exactly one file.
 
 function EllesmereUF:GetGrowDirectionForBar(barKey)

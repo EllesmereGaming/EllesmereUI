@@ -4072,7 +4072,7 @@ EllesmereUI.RegisterMigration({
 -- Same split for the Health/Power "hide bar/text per form" popups: Moonkin
 -- used to share the "mana"/Caster bucket, so disabling Caster there also hid
 -- Moonkin. Seed moonkin=true wherever mana=true so that choice survives.
--- Class Resource is skipped: it exempts Moonkin from this system entirely.
+-- Class Resource is skipped: its Caster choice never applied in Moonkin Form.
 EllesmereUI.RegisterMigration({
     id          = "erb_moonkin_form_bucket_v1",
     scope       = "profile",

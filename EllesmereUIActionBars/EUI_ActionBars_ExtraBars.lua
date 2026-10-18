@@ -800,4 +800,4 @@ extraBarFrame:SetScript("OnEvent", function(self)
 end)
 
 
-ns.AttachExtraBarHoverHooks = AttachExtraBarHoverHooks -- called by the main file
+ns.AttachExtraBarHoverHooks = AttachExtraBarHoverHooks -- called by EUI_ActionBars_Fade.lua

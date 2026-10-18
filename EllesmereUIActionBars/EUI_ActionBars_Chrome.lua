@@ -31,7 +31,7 @@ local _fadeAlpha, extraBarHolders = I._fadeAlpha, I.extraBarHolders
 --  Bar 1 only), from Blizzard's own atlases (they draw the Forever art on
 --  that client). Built per bar the first time a piece is on (LayoutBar's
 --  tail, out of combat, stamp-gated); off, nothing is built and a built
---  piece hides. All on ns: the main chunk is at the 200-local cap.
+--  piece hides. All on ns.
 -------------------------------------------------------------------------------
 ns.AB_FV_ART = {
     frame = "UI-HUD-ActionBar-Frame",

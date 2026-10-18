@@ -21,7 +21,7 @@ local barFrames, blizzMovableHolders, dataBarFrames = I.barFrames, I.blizzMovabl
 local extraBarHolders, SecureSetupHandler_PrepareRefs = I.extraBarHolders, I.SecureSetupHandler_PrepareRefs
 local LayoutBar = I.LayoutBar
 local SetSecureRefsReady = I.SetSecureRefsReady
--- Written in EUI_ActionBars_Layout.lua;
+-- Written by ApplyAll (EUI_ActionBars_ApplyAll.lua);
 -- SetIsApplyingAll hands the value to this copy.
 local _isApplyingAll = false
 I.isApplyingAllSetters[#I.isApplyingAllSetters + 1] = function(v) _isApplyingAll = v end

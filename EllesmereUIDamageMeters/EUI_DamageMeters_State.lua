@@ -623,6 +623,8 @@ instanceFrame:SetScript("OnEvent", function(_, event)
             -- teammate pre-warm rather than asserting _inCombat -- SharedRefreshTick self-terminates the instant the group leaves combat, so a stale flag can't tick forever.
             SetInCombat(false)
             SetCombatEndTime(0)
+            -- A stale stamp of the last fight would trip the 5s failsafe on the first tick.
+            if ns.DMClearRegenStamp then ns.DMClearRegenStamp() end
             SetNeedsFinalRefresh(true)
             if not _sharedTicker then StartSharedTicker() end
         else

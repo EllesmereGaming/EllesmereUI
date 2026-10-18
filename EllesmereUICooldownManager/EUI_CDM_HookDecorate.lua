@@ -30,9 +30,12 @@ local TryHookSwiftmend, ApplyResourceTint = I.TryHookSwiftmend, I.ApplyResourceT
 
 -------------------------------------------------------------------------------
 --  Viewer re-anchoring
---  All viewers measure their children after placing them. Restore our anchors
---  (or park unclaimed icons) only after that measurement, from RefreshLayout's
---  post-hook or this one-shot callback when Layout runs on its own.
+--  All viewers measure their children after placing them. An icon moved to our
+--  bar (or parked) mid-Layout makes the viewer measure that gap as its own size,
+--  which pushes everything above it in Blizzard's bottom stack. Restore our
+--  anchors (or park unclaimed icons) only after that measurement, from
+--  RefreshLayout's post-hook (Blizzard's one Layout call) or this one-shot
+--  callback when an icon moves outside a layout.
 -------------------------------------------------------------------------------
 local viewerPending = setmetatable({}, { __mode = "k" })
 local viewerRestore = ns.TakeShell()

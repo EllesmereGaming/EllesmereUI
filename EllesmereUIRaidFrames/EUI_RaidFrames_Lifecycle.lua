@@ -30,8 +30,6 @@ local SetInCombat = I.SetInCombat
 
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
-local PP
-I.PPSetters[#I.PPSetters + 1] = function(v) PP = v end
 local containerFrame
 I.containerFrameSetters[#I.containerFrameSetters + 1] = function(v) containerFrame = v end
 local framesVisible = false

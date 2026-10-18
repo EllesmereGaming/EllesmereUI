@@ -3202,7 +3202,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.6"
+EllesmereUI.VERSION = "9.6.1"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -4065,7 +4065,7 @@ initFrame:SetScript("OnEvent", function(self, event)
 
     -- Add EllesmereUI + Unlock Mode buttons to the Game Menu (pause menu); both share a single Layout hook to avoid double-push conflicts.
     if GameMenuFrame and not EllesmereUI._GetFFD(GameMenuFrame).euiBtn then
-        -- Game menu frame+button skinning lives in EllesmereUIBlizzardSkin.lua so it only
+        -- Game menu frame+button skinning lives in EllesmereUIBlizzardSkin (EUI_BlizzardSkin_Dialogs.lua) so it only
         -- applies when that addon is enabled; detect whether the skin is active so EUI's own buttons match the skinned menu style.
         local _blizzSkinLoaded = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("EllesmereUIBlizzardSkin")
         -- "Reskin Pause Menu" is an independent toggle (default on); the migration blizzskin_reskin_master_split_v1 seeds reskinGameMenu for existing users.

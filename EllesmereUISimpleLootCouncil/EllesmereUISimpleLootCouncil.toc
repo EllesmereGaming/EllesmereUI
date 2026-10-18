@@ -5,7 +5,7 @@
 ## Notes: Lets a raid's loot council vote on item distribution over addon comms.
 ## Author: Laxx
 ## X-License: All Rights Reserved
-## Version: 9.6
+## Version: 9.6.1
 ## X-SLC-Version: 0.43.34
 ## X-SLC-Commit: ba4e88284814
 ## X-SLC-Port-Commit: 4c3112901583

@@ -68,7 +68,7 @@ function EllesmereUI.ERB_PlayerStackBars()
     if not IsPowerBarHidden() then add(primaryBar) end
     local sp = p.secondary
     if sp and sp.enabled ~= false and not IsSpecDisabled(sp)
-        and not _G._ERB_BarHiddenByForm(sp, true) and cachedSecondary then
+        and not _G._ERB_BarHiddenByForm(sp) and cachedSecondary then
         add(secondaryFrame)
         add(secondaryBar)
     end

@@ -129,7 +129,7 @@ local MAP_POS_ANCHORS = {
 -- rises over the title bar while it shows, keeping its gap to the frame;
 -- Below Map, and every other look, keep their offsets. Blizzard Style's slim
 -- square keeps the 4px inset (its line's inner shadow ends at the map's
--- edge). EBS field: main-chunk local cap.
+-- edge). An EBS field.
 function EBS._FvInsideXY(pos, x, y)
     if not EBS._fvSquare or pos == "belowMap" then return x, y end
     if pos == "aboveMap" then

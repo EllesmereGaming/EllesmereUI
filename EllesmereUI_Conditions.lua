@@ -3,8 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUI_Conditions.lua
 --  Conditional Overrides engine: condition definitions, the active-group
 --  resolver, event wiring, and the keybind toggle. The value/unlock override
---  integration lives in EllesmereUI_SpecOverrides.lua (it shares that file's
---  fkey helpers); this file only decides WHICH conditional group is active
+--  integration lives in EUI_SpecOverrides_Conditional.lua (it shares
+--  EllesmereUI_SpecOverrides.lua's fkey helpers); this file only decides WHICH conditional group is active
 --  and notifies the override system when that changes.
 --
 --  Resolution ladder (user-approved):

@@ -17,26 +17,24 @@ local UnitClass, GetShapeshiftFormID = UnitClass, GetShapeshiftFormID
 -------------------------------------------------------------------------------
 local _, playerClassFile = UnitClass("player")
 
--- Druid "hide bar text per form". isClassResource: Moonkin (31/35) is exempt on
--- the class resource bar (shows Astral there); power/health get their own
--- "Moonkin" bucket, separate from "Caster" (no form).
-_G._ERB_TextHiddenByForm = function(cfg, isClassResource)
+-- Druid "hide bar text per form", the same buckets on every bar: Cat (1),
+-- Bear (5) and Moonkin (31/35) each have their own; any other form, or none,
+-- is "Caster" ("mana").
+_G._ERB_TextHiddenByForm = function(cfg)
     if playerClassFile ~= "DRUID" then return false end
     local df = cfg and cfg.textDisabledForms
     if not df then return false end
     local f = GetShapeshiftFormID()
-    if isClassResource and (f == 31 or f == 35) then return false end
     local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
     return df[key] and true or false
 end
--- Druid "hide whole bar per form": same buckets/isClassResource rule as above,
--- driven by cfg.barDisabledForms. Alpha-based hide, safe to flip mid-combat.
-_G._ERB_BarHiddenByForm = function(cfg, isClassResource)
+-- Druid "hide whole bar per form": the same buckets as above, driven by
+-- cfg.barDisabledForms. Alpha-based hide, safe to flip mid-combat.
+_G._ERB_BarHiddenByForm = function(cfg)
     if playerClassFile ~= "DRUID" then return false end
     local df = cfg and cfg.barDisabledForms
     if not df then return false end
     local f = GetShapeshiftFormID()
-    if isClassResource and (f == 31 or f == 35) then return false end
     local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
     return df[key] and true or false
 end

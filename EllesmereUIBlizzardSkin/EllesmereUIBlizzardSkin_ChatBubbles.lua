@@ -185,7 +185,7 @@ end
 
 -- Either side can be a secret string in restricted content, and comparing one raises. That is
 -- exactly why the existence test is type() and not "== nil": comparing a secret to nil is the
--- operation our own secret rules forbid (EllesmereUIChat.lua's OnEditBoxPreSendText carries
+-- operation our own secret rules forbid (EUI_Chat_EditBox.lua's OnEditBoxPreSendText carries
 -- the same note), so a nil belt in front of the guard would itself be the hazard. type()
 -- reports a secret's underlying type, so a secret string still reaches the guarded compare.
 local function SafeEq(a, b)
