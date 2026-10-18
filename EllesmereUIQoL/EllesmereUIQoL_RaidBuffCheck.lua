@@ -5,8 +5,9 @@ if not EllesmereUI or EllesmereUI.IS_FOREVER then return end
 --
 --  A window listing each group member's flask, food, augment rune, vantus rune
 --  and missing raid buffs (QoL > Raid Tools > RAID BUFF CHECK, off by default).
---  Opens from the Buff Check button and, if wanted, on every ready check while
---  the player leads or assists. Settings live in the Raid Tools profile slice;
+--  Opens from the Buff Check button (any group member: it only reads auras)
+--  and, if wanted, on every ready check while the player leads or assists.
+--  Settings live in the Raid Tools profile slice;
 --  RaidTools' Apply calls ns.BuffCheckSync, so nothing listens while it is off.
 --
 --  Out of combat only. Flask and raid buff IDs are non-secret and looked up by
@@ -73,8 +74,9 @@ local BLOCK_W = BUFFS_X + BUFF_SLOTS * BUFF_STEP + 2
 local BLOCK_GAP = 12
 local ROWS_PER_BLOCK = 20
 local TOTAL_ROWS = 3        -- Missing, Expiring soon, Unknown
-local MIN_W = 400           -- fits the title bar and the note line
+local MIN_W = 400           -- fits the checkbox row and the note line
 local NOTE_H = 16
+local CB_H = 22             -- checkbox row between the totals and the note
 
 local ev = CreateFrame("Frame")
 local frame
@@ -106,6 +108,12 @@ end
 local function OnlyMissing()
     local c = CDB()
     return not c or c.buffCheckOnlyMissing ~= false
+end
+
+-- Default on: a missing augment rune makes a player not fully buffed.
+local function RuneRequired()
+    local c = CDB()
+    return not c or c.buffCheckRuneRequired ~= false
 end
 
 local function CanLead()
@@ -184,7 +192,7 @@ end
 -- "eating" while the food channel is up.
 local function FoodState(unit, restricted)
     if restricted then return nil end
-    local sawReadable = false
+    local sawReadable, eating = false, false
     for i = 1, AURA_SCAN_LIMIT do
         local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HELPFUL")
         if not ok then return nil end
@@ -193,9 +201,11 @@ local function FoodState(unit, restricted)
         if ic ~= nil and not isSecret(ic) then
             sawReadable = true
             if ic == WELL_FED_ICON then return Present(aura) end
-            if ic == EATING_ICON then return "eating" end
+            -- Eating only counts when no stat buff is up: refreshing one shows both.
+            if ic == EATING_ICON then eating = true end
         end
     end
+    if eating then return "eating" end
     if not sawReadable then return nil end
     return false
 end
@@ -318,11 +328,17 @@ local function Listen(shown)
     end
 end
 
+-- Kept as a TOPLEFT offset: the height (and width) change with the roster and
+-- the filter, and the top-left corner must stay put while they do.
 local function SavePosition()
     local c = CDB()
     if not c then return end
-    local point, _, relPoint, x, y = frame:GetPoint(1)
-    c.buffCheckPos = { point = point, relPoint = relPoint, x = x, y = y }
+    local left, top = frame:GetLeft(), frame:GetTop()
+    if not (left and top) then return end
+    local x, y = left, top - UIParent:GetTop()
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", x, y)
+    c.buffCheckPos = { point = "TOPLEFT", relPoint = "TOPLEFT", x = x, y = y }
 end
 
 local function Build()
@@ -369,32 +385,43 @@ local function Build()
     close:SetScript("OnLeave", function() cfs:SetAlpha(0.7) end)
     close:SetScript("OnClick", function() frame:Hide() end)
 
-    -- Only Not Fully Buffed checkbox, left of the close button; the label is part of the hit rect.
-    local cb = CreateFrame("Button", nil, frame)
-    cb:SetSize(14, 14)
-    cb:SetPoint("RIGHT", close, "LEFT", -10, 0)
-    local box = cb:CreateTexture(nil, "BACKGROUND")
-    box:SetColorTexture(0.08, 0.08, 0.08, 0.92)
-    box:SetAllPoints(cb)
-    EllesmereUI.MakeBorder(cb, 0.35, 0.35, 0.35, 1)
-    local check = cb:CreateTexture(nil, "ARTWORK")
-    check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    check:SetPoint("CENTER")
-    check:SetSize(16, 16)
+    -- Checkbox row above the note, left to right; each label is part of its
+    -- box's hit rect.
     local ar, ag, ab = 1, 1, 1
     if EllesmereUI.GetAccentColor then ar, ag, ab = EllesmereUI.GetAccentColor() end
-    check:SetVertexColor(ar, ag, ab)
-    frame.check = check
-    local cbLabel = EllesmereUI.MakeFont(frame, 11, nil, 0.85, 0.85, 0.85)
-    cbLabel:SetPoint("RIGHT", cb, "LEFT", -6, 0)
-    cbLabel:SetText(EllesmereUI.L("Only Not Fully Buffed"))
-    cb:SetHitRectInsets(-(cbLabel:GetStringWidth() + 6), 0, 0, 0)
-    cb:SetScript("OnClick", function()
+    local function MakeCheckbox(text, onClick)
+        local cb = CreateFrame("Button", nil, frame)
+        cb:SetSize(14, 14)
+        local box = cb:CreateTexture(nil, "BACKGROUND")
+        box:SetColorTexture(0.08, 0.08, 0.08, 0.92)
+        box:SetAllPoints(cb)
+        EllesmereUI.MakeBorder(cb, 0.35, 0.35, 0.35, 1)
+        cb.check = cb:CreateTexture(nil, "ARTWORK")
+        cb.check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+        cb.check:SetPoint("CENTER")
+        cb.check:SetSize(16, 16)
+        cb.check:SetVertexColor(ar, ag, ab)
+        cb.label = EllesmereUI.MakeFont(frame, 11, nil, 0.85, 0.85, 0.85)
+        cb.label:SetPoint("LEFT", cb, "RIGHT", 6, 0)
+        cb.label:SetText(text)
+        cb:SetHitRectInsets(0, -(cb.label:GetStringWidth() + 6), 0, 0)
+        cb:SetScript("OnClick", onClick)
+        return cb
+    end
+    frame.onlyBox = MakeCheckbox(EllesmereUI.L("Hide Fully Buffed"), function()
         local c = CDB()
         if not c then return end
         c.buffCheckOnlyMissing = not OnlyMissing()
         Render()
     end)
+    frame.runeBox = MakeCheckbox(EllesmereUI.L("Require Augment Rune"), function()
+        local c = CDB()
+        if not c then return end
+        c.buffCheckRuneRequired = not RuneRequired()
+        Render()
+    end)
+    frame.onlyBox:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD + 4, NOTE_H + (CB_H - 14) / 2)
+    frame.runeBox:SetPoint("LEFT", frame.onlyBox.label, "RIGHT", 16, 0)
 
     frame.empty = EllesmereUI.MakeFont(frame, 11, nil, 0.4, 0.9, 0.4)
     frame.empty:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + 4, -TITLE_H - 2 - HEAD_H - 2)
@@ -430,10 +457,10 @@ local function Build()
     frame.note:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, 4)
 
     local pos = CDB() and CDB().buffCheckPos
-    if pos and pos.point then
-        frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+    if pos and pos.point == "TOPLEFT" then
+        frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", pos.x or 0, pos.y or 0)
     else
-        frame:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
+        frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", UIParent:GetWidth() / 2 - MIN_W / 2, -150)
     end
 end
 
@@ -534,9 +561,10 @@ local function ComputeState(unit, restricted)
 end
 
 -- Missing, unknown (nil) and running out count; eating does not.
-local function NotFullyBuffed(s, now)
-    return not s.flask or not s.food or not s.rune or not s.vantus or s.missing > 0
-        or SoonLeft(s.flask, now) or SoonLeft(s.food, now) or SoonLeft(s.rune, now)
+local function NotFullyBuffed(s, now, runeRequired)
+    if runeRequired and (not s.rune or SoonLeft(s.rune, now)) then return true end
+    return not s.flask or not s.food or not s.vantus or s.missing > 0
+        or SoonLeft(s.flask, now) or SoonLeft(s.food, now)
         or SoonLeft(s.vantus, now) or SoonLeft(s.buffsExp, now)
 end
 
@@ -596,7 +624,7 @@ local function Layout(n, nTotals)
     end
     for i = n + 1, #rows do rows[i]:Hide() end
     frame:SetSize(math.max(MIN_W, PAD * 2 + blocks * BLOCK_W + (blocks - 1) * BLOCK_GAP),
-        TITLE_H + 2 + HEAD_H + perBlock * ROW_H + 6 + nTotals * ROW_H + NOTE_H)
+        TITLE_H + 2 + HEAD_H + perBlock * ROW_H + 6 + nTotals * ROW_H + CB_H + NOTE_H)
 end
 
 -- totals[row][column]; columns are flask, food, rune, vantus, raid buffs.
@@ -610,6 +638,7 @@ end
 
 function Render()
     local filter = OnlyMissing()
+    local runeRequired = RuneRequired()
     local now = GetTime()
     for t = 1, TOTAL_ROWS do
         for k = 1, CELLS + 1 do totals[t][k] = 0 end
@@ -631,7 +660,7 @@ function Render()
             elseif SoonLeft(s.buffsExp, now) then
                 totals[2][5] = totals[2][5] + 1
             end
-            if not filter or NotFullyBuffed(s, now) then shownUnits[#shownUnits + 1] = u end
+            if not filter or NotFullyBuffed(s, now, runeRequired) then shownUnits[#shownUnits + 1] = u end
         end
     end
     -- Totals rows with a non-zero count, stacked upward from the note line.
@@ -652,7 +681,7 @@ function Render()
         tr:SetShown(any)
         if any then
             tr:ClearAllPoints()
-            tr:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, NOTE_H + nTotals * ROW_H)
+            tr:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, NOTE_H + CB_H + nTotals * ROW_H)
             nTotals = nTotals + 1
             top = tr
         end
@@ -668,7 +697,11 @@ function Render()
     Layout(n, nTotals)
     for i = 1, n do PaintRow(rows[i], shownUnits[i], now) end
     frame.empty:SetShown(n == 0)
-    frame.check:SetShown(filter)
+    frame.onlyBox.check:SetShown(filter)
+    frame.runeBox.check:SetShown(runeRequired)
+    -- The rune box only feeds the filter: dimmed while the filter is off.
+    frame.runeBox:SetAlpha(filter and 1 or 0.4)
+    frame.runeBox.label:SetAlpha(filter and 1 or 0.4)
     if frame._restricted then
         frame.note:SetText(EllesmereUI.L("Food and runes cannot be read here (aura restriction). ? = unknown"))
     else

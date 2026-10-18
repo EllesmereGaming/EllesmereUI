@@ -481,6 +481,7 @@ local DB_DEFAULTS = {
         buffCheck            = false,
         buffCheckOnReady     = true,
         buffCheckOnlyMissing = true,
+        buffCheckRuneRequired = true,
         -- Opt-in Buff Check group button (needs buffCheck).
         showBuffCheck = false,
         -- Per-section: pos[key] = { point, relPoint, x, y }
@@ -775,7 +776,8 @@ local function RefreshPermissions(force)
 
     for _, b in ipairs(groupButtons) do
         local allowed
-        if b.needsLeader then allowed = leader else allowed = assist end
+        if b.ungated then allowed = true
+        elseif b.needsLeader then allowed = leader else allowed = assist end
         SetButtonEnabled(b, allowed)
     end
 
@@ -1032,6 +1034,7 @@ local function BuildGroupContent()
     readyButton = MakeGroupButton(f, "Ready Check", full, function() DoReadyCheck() end)
     roleButton  = MakeGroupButton(f, "Role Check", full, function() InitiateRolePoll() end)
     buffButton  = MakeGroupButton(f, "Buff Check", full, ToggleBuffCheck)
+    buffButton.ungated = true   -- only reads auras: needs no leader or assist
 
     convertButton = MakeGroupButton(f, "Convert to Raid", full, function()
         if IsInRaid() then C_PartyInfo.ConvertToParty() else C_PartyInfo.ConvertToRaid() end
