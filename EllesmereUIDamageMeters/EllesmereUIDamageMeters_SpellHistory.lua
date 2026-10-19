@@ -219,6 +219,63 @@ local _pendingTargets = {}  -- castGUID -> target name (from UNIT_SPELLCAST_SENT
 local _activeChannelSpell = nil  -- spellID of currently channeling spell (suppress tick SUCCEEDEDs)
 local _knownOverrides = {}  -- spellID -> true for override spells that pass IsSpellKnownOrOverridesKnown
 
+-- Healthstones and potions cast spells outside the spellbook, so the known-spell
+-- filter lets exactly their cast ids through: the ids the shared consumables
+-- catalogue lists (EllesmereUI.CONSUMABLES) plus each of its items' use spell.
+-- Each id maps to the item whose icon its entry shows (a use spell's own icon
+-- is often a generic one). An item the client has not cached yet adds its
+-- spell once its data arrives, through a listener held only while one is
+-- pending. Built when tracking first turns on.
+local _consumableSpells = {}
+local BuildConsumableSpells
+do
+    local built, pending, loader = false, {}, nil
+    local function AddUseSpell(itemID)
+        local _, sid = C_Item.GetItemSpell(itemID)
+        if sid and not _consumableSpells[sid] then _consumableSpells[sid] = itemID end
+    end
+    local function AddItem(itemID)
+        if C_Item.IsItemDataCachedByID(itemID) then AddUseSpell(itemID) else pending[itemID] = true end
+    end
+    BuildConsumableSpells = function()
+        if built then return end
+        built = true
+        -- WoW Forever offers only the Healthstone family, with that client's stones.
+        local fv = EUI.IS_FOREVER == true
+        for key, fam in pairs(EUI.CONSUMABLES) do
+            if not fv or key == "healthstone" then
+                local ids = fam.spellIDs
+                if ids then for i = 1, #ids do _consumableSpells[ids[i]] = fam.itemID end end
+                AddItem(fam.itemID)
+                local alts = fv and EUI.FOREVER_HEALTHSTONES or fam.altItemIDs
+                if alts then for i = 1, #alts do AddItem(alts[i]) end end
+            end
+        end
+        if not next(pending) then return end
+        loader = CreateFrame("Frame")
+        loader:SetScript("OnEvent", function(self, _, itemID, success)
+            if not pending[itemID] then return end
+            pending[itemID] = nil
+            if success then AddUseSpell(itemID) end
+            if not next(pending) then self:UnregisterAllEvents() end
+        end)
+        loader:RegisterEvent("ITEM_DATA_LOAD_RESULT")
+        for itemID in pairs(pending) do C_Item.RequestLoadItemDataByID(itemID) end
+    end
+end
+
+-- An entry's icon: a consumable's item icon, else the spell's.
+local function EntryIcon(spellID, info)
+    local itemID = spellID and _consumableSpells[spellID]
+    return itemID and C_Item.GetItemIconByID(itemID) or (info and info.iconID)
+end
+
+-- The castGUID of the consumable use the player last sent (UNIT_SPELLCAST_SENT).
+-- One use can report a second cast, an effect it triggers, which is never
+-- sent: a consumable cast not sent right after a consumable entry is that
+-- same use, so it adds no entry.
+local _sentConsumable = nil
+
 local function FinishPending(castGUID, status)
     _pendingTargets[castGUID] = nil
     local entry = _pendingCasts[castGUID]
@@ -256,9 +313,12 @@ local function OnSpellEvent(_, event, unit, ...)
 
     -- UNIT_SPELLCAST_SENT has unique args: unit, target, castGUID, spellID
     if event == "UNIT_SPELLCAST_SENT" then
-        local target, castGUID2 = ...
+        local target, castGUID2, sentSpellID = ...
         if castGUID2 and target then
             _pendingTargets[castGUID2] = target
+        end
+        if castGUID2 and sentSpellID and _consumableSpells[sentSpellID] then
+            _sentConsumable = castGUID2
         end
         return
     end
@@ -274,7 +334,7 @@ local function OnSpellEvent(_, event, unit, ...)
         local entry = {
             spellID      = spellID,
             spellName    = name,
-            icon         = info and info.iconID,
+            icon         = EntryIcon(spellID, info),
             target       = castGUID and _pendingTargets[castGUID],
             startTime    = (startMS or 0) / 1000,
             endTime      = (endMS or 0) / 1000,
@@ -282,6 +342,7 @@ local function OnSpellEvent(_, event, unit, ...)
             status       = "casting",
             isInstant    = false,
             isChannel    = false,
+            consumable   = _consumableSpells[spellID] and true or nil,
             timestamp    = GetTime(),
         }
         if castGUID then _pendingCasts[castGUID] = entry end
@@ -297,7 +358,7 @@ local function OnSpellEvent(_, event, unit, ...)
         local entry = {
             spellID      = sid,
             spellName    = name,
-            icon         = info and info.iconID,
+            icon         = EntryIcon(sid, info),
             target       = castGUID and _pendingTargets[castGUID],
             startTime    = (startMS or 0) / 1000,
             endTime      = (endMS or 0) / 1000,
@@ -305,6 +366,7 @@ local function OnSpellEvent(_, event, unit, ...)
             status       = "channeling",
             isInstant    = false,
             isChannel    = true,
+            consumable   = sid and _consumableSpells[sid] and true or nil,
             timestamp    = GetTime(),
         }
         _activeChannelSpell = sid
@@ -322,13 +384,22 @@ local function OnSpellEvent(_, event, unit, ...)
             -- IsPlayerSpell catches most, but override/transform spells (e.g.
             -- Lightsmith armaments) fail it. Fall back to IsSpellKnownOrOverridesKnown
             -- and cache the result (that API is flaky on repeated calls).
+            -- Healthstones and potions pass through the consumables set.
+            local consumable = _consumableSpells[spellID] and true or nil
             if not IsPlayerSpell(spellID) then
                 if not _knownOverrides[spellID] then
                     if IsSpellKnownOrOverridesKnown and IsSpellKnownOrOverridesKnown(spellID) then
                         _knownOverrides[spellID] = true
-                    else
+                    elseif not consumable then
                         return
                     end
+                end
+            end
+            if consumable then
+                if castGUID and castGUID == _sentConsumable then
+                    _sentConsumable = nil
+                elseif _history[1] and _history[1].consumable then
+                    return
                 end
             end
             spellID = ResolveOverride(spellID)
@@ -365,7 +436,7 @@ local function OnSpellEvent(_, event, unit, ...)
                 PushEntry({
                     spellID      = spellID,
                     spellName    = info.name or "?",
-                    icon         = info.iconID,
+                    icon         = EntryIcon(spellID, info),
                     target       = castGUID and _pendingTargets[castGUID],
                     startTime    = GetTime(),
                     endTime      = GetTime(),
@@ -373,6 +444,7 @@ local function OnSpellEvent(_, event, unit, ...)
                     status       = "success",
                     isInstant    = true,
                     isChannel    = false,
+                    consumable   = consumable,
                     timestamp    = GetTime(),
                 })
             end
@@ -413,6 +485,7 @@ end
 
 local function RegisterEvents()
     if _eventsActive then return end
+    BuildConsumableSpells()
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")  -- player only (was global, fired for all units)
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")

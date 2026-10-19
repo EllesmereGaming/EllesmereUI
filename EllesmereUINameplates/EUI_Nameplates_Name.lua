@@ -250,12 +250,14 @@ function NameplateFrame:UpdateFaction(artOnly)
         end
         return
     end
-    -- Repaint only when the art or the dim changes (inputs: faction, Icon Style, dim).
-    -- The texture keeps its art across pool recycles, so the memo never goes stale.
+    -- Repaint only when the art or the dim changes (inputs: faction, Icon Style, honor
+    -- badge, dim). The texture keeps its art across pool recycles, so the memo never
+    -- goes stale.
     local style = ns.NP_GetFactionStyle()
-    if self._facArt ~= atlas or self._facStyle ~= style then
-        EllesmereUI.SetFactionArt(self.faction, style, atlas)
-        self._facArt, self._facStyle = atlas, style
+    local badge = EllesmereUI.FactionBadgeFor(style, unit)
+    if self._facArt ~= atlas or self._facStyle ~= style or self._facBadge ~= badge then
+        EllesmereUI.SetFactionArt(self.faction, style, atlas, badge)
+        self._facArt, self._facStyle, self._facBadge = atlas, style, badge
     end
     if self._facDim ~= dim then
         self.faction:SetDesaturated(dim)
@@ -522,7 +524,7 @@ function NameplateFrame:UpdateRaidIcon()
     elseif pos == "topright" then
         PP.Point(self.raidFrame, "BOTTOMRIGHT", self.health, "TOPRIGHT", rxOff, cpPush + ryOff)
     elseif pos == "bottom" then
-        -- Below the cast bar, centered (matches PositionAuraSlot "bottom" convention).
+        -- Below the cast bar, centered (the aura slots' "bottom" convention).
         PP.Point(self.raidFrame, "TOP", self.cast, "BOTTOM", rxOff, -2 + ryOff)
     end
     self.raidFrame:Show()

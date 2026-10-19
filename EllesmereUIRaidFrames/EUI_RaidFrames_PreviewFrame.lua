@@ -282,10 +282,11 @@ local function CreatePreviewFrame(index, party)
         absorbBar._healTopBar = thb
     end
 
-    -- Power bar (anchored to frame bottom for pixel alignment; the Party
-    -- Frames kit always has its mana bar)
+    -- Power bar (anchored to frame bottom for pixel alignment). Always built:
+    -- frames are reused for the session and the party preview reads its own
+    -- role flags, so ApplyPreviewData shows or hides it per unit.
     local power
-    if powerH > 0 or kit then
+    do
         power = CreateFrame("StatusBar", nil, f)
         power:SetFrameLevel(f:GetFrameLevel() + 3)
         power:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)

@@ -92,7 +92,6 @@ local function EnableBody()
     end
     C_Timer.After(0, SetupOptionsPanel)
     C_Timer.After(0, function()
-        EllesmereUI.ApplyColorsToOUF()
         -- Restore the threat watchers saved enabled (nothing registers when off).
         ns.SyncPlayerThreat()
         if ns.SyncThreatPct then ns.SyncThreatPct() end

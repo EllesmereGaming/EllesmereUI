@@ -594,7 +594,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                   local isClassColored = not c or not c.customColored
                   return isClassColored and 1 or 0.3
               end },
-    }, { disabled = healthOff, disabledTooltip = "Health Bar" })
+    }, { size = 20, disabled = healthOff, disabledTooltip = "Health Bar" })
     end
     if not ctx.advanced and ctx.syncRows and not EllesmereUI._prebuilding then
         ctx.syncRows.healthOpacity = healthBorderRow._leftRegion
@@ -827,5 +827,5 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
     -- Simple page: cover these controls when the current spec overrides Health in Advanced, so edits here aren't silently ignored.
     if not ctx.advanced then ns.ERB_SimpleOverrideOverlay(parent, _advTop, y, "health") end
 
-    return y
+    return y, hdr, healthEnableRow
 end

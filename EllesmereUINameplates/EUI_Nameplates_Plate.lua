@@ -23,17 +23,14 @@ local UnitCastingInfo, UnitChannelInfo = UnitCastingInfo, UnitChannelInfo
 
 local defaults, GetNPOutline, HP_BAR_SLOTS = I.defaults, I.GetNPOutline, I.HP_BAR_SLOTS
 local SetFSFont, ApplyHealthBarTexture = I.SetFSFont, I.ApplyHealthBarTexture
-local GetAuraSlotOffsets, GetAuraSlots = I.GetAuraSlotOffsets, I.GetAuraSlots
-local GetAuraSpacing, GetBuffIconSize = I.GetAuraSpacing, I.GetBuffIconSize
-local GetCastBarHeight, GetCCIconSize = I.GetCastBarHeight, I.GetCCIconSize
-local GetDebuffIconSize, GetEnemyNameTextSize = I.GetDebuffIconSize, I.GetEnemyNameTextSize
+local GetCastBarHeight, GetEnemyNameTextSize = I.GetCastBarHeight, I.GetEnemyNameTextSize
 local GetFocusCastHeight, GetHealthBarHeight = I.GetFocusCastHeight, I.GetHealthBarHeight
 local GetHealthBarWidth, GetHitboxYShift = I.GetHealthBarWidth, I.GetHitboxYShift
 local GetNameplateYOffset, GetNameYOffset = I.GetNameplateYOffset, I.GetNameYOffset
 local GetShowCastIcon, GetStackSpacingScale = I.GetShowCastIcon, I.GetStackSpacingScale
 local GetTextSlot, GetTextSlotColor = I.GetTextSlot, I.GetTextSlotColor
 local GetTextSlotOffsets, GetTextSlotSize = I.GetTextSlotOffsets, I.GetTextSlotSize
-local IsComboHealthText, PositionAuraSlot = I.IsComboHealthText, I.PositionAuraSlot
+local IsComboHealthText = I.IsComboHealthText
 local NotifyCastEnded, GetClassPowerTopPush = I.NotifyCastEnded, I.GetClassPowerTopPush
 local HideClassPowerOnPlate = I.HideClassPowerOnPlate
 
@@ -523,137 +520,9 @@ function NameplateFrame:ApplyAppearance()
     ns.ReflowFontString(self.castTarget)
     ns.ReflowFontString(self.castTimer)
     self.castName:SetTextColor(cnc.r, cnc.g, cnc.b, 1)
-    local function GetAuraDurationCfg(kind)
-        local sizeKey = kind .. "DurationTextSize"
-        local xKey = kind .. "DurationTextX"
-        local yKey = kind .. "DurationTextY"
-        local colorKey = kind .. "DurationTextColor"
-        return {
-            size = (p and p[sizeKey]) or (p and p.auraDurationTextSize) or defaults.auraDurationTextSize,
-            x = (p and p[xKey]) or (p and p.auraDurationTextX) or defaults.auraDurationTextX,
-            y = (p and p[yKey]) or (p and p.auraDurationTextY) or defaults.auraDurationTextY,
-            color = (p and p[colorKey]) or (p and p.auraDurationTextColor) or defaults.auraDurationTextColor,
-        }
-    end
-    local debuffDur = GetAuraDurationCfg("debuff")
-    local buffDur = GetAuraDurationCfg("buff")
-    local ccDur = GetAuraDurationCfg("cc")
-    local auraStackSize = (p and p.auraStackTextSize) or defaults.auraStackTextSize
-    local auraStackColor = (p and p.auraStackTextColor) or defaults.auraStackTextColor
-    local auraStackX = (p and p.auraStackTextX) or defaults.auraStackTextX
-    local auraStackY = (p and p.auraStackTextY) or defaults.auraStackTextY
-    local auraStackPos = (p and p.auraStackTextPosition) or defaults.auraStackTextPosition
-    local debuffTPos = (p and p.debuffTimerPosition) or (p and p.auraTextPosition) or defaults.debuffTimerPosition
-    local buffTPos   = (p and p.buffTimerPosition)   or (p and p.auraTextPosition) or defaults.buffTimerPosition
-    local ccTPos     = (p and p.ccTimerPosition)     or (p and p.auraTextPosition) or defaults.ccTimerPosition
-    local function ApplyTimerPosition(durText, auraFrame, pos, cfg)
-        local cd = auraFrame.cd
-        if pos == "none" then
-            if cd and cd.SetHideCountdownNumbers then
-                cd:SetHideCountdownNumbers(true)
-            end
-            return
-        end
-        if cd and cd.SetHideCountdownNumbers then
-            cd:SetHideCountdownNumbers(false)
-        end
-        SetFSFont(durText, cfg.size, "OUTLINE, SLUG")
-        durText:SetTextColor(cfg.color.r, cfg.color.g, cfg.color.b, 1)
-        durText:ClearAllPoints()
-        if pos == "center" then
-            durText:SetPoint("CENTER", auraFrame, "CENTER", cfg.x, cfg.y)
-            durText:SetJustifyH("CENTER")
-        elseif pos == "topright" then
-            PP.Point(durText, "TOPRIGHT", auraFrame, "TOPRIGHT", 3 + cfg.x, 4 + cfg.y)
-            durText:SetJustifyH("RIGHT")
-        elseif pos == "bottomleft" then
-            PP.Point(durText, "BOTTOMLEFT", auraFrame, "BOTTOMLEFT", -3 + cfg.x, -4 + cfg.y)
-            durText:SetJustifyH("LEFT")
-        elseif pos == "bottomright" then
-            PP.Point(durText, "BOTTOMRIGHT", auraFrame, "BOTTOMRIGHT", 3 + cfg.x, -4 + cfg.y)
-            durText:SetJustifyH("RIGHT")
-        else
-            PP.Point(durText, "TOPLEFT", auraFrame, "TOPLEFT", -3 + cfg.x, 4 + cfg.y)
-            durText:SetJustifyH("LEFT")
-        end
-    end
-    local function ApplyStackPosition(countText, auraFrame, pos)
-        if pos == "none" then
-            countText:Hide()
-            return
-        end
-        countText:Show()
-        countText:ClearAllPoints()
-        if pos == "center" then
-            countText:SetPoint("CENTER", auraFrame, "CENTER", auraStackX, auraStackY)
-            countText:SetJustifyH("CENTER")
-        elseif pos == "topright" then
-            PP.Point(countText, "TOPRIGHT", auraFrame, "TOPRIGHT", 3 + auraStackX, 4 + auraStackY)
-            countText:SetJustifyH("RIGHT")
-        elseif pos == "bottomleft" then
-            PP.Point(countText, "BOTTOMLEFT", auraFrame, "BOTTOMLEFT", -3 + auraStackX, -4 + auraStackY)
-            countText:SetJustifyH("LEFT")
-        elseif pos == "topleft" then
-            PP.Point(countText, "TOPLEFT", auraFrame, "TOPLEFT", -3 + auraStackX, 4 + auraStackY)
-            countText:SetJustifyH("LEFT")
-        else
-            PP.Point(countText, "BOTTOMRIGHT", auraFrame, "BOTTOMRIGHT", 3 + auraStackX, -4 + auraStackY)
-            countText:SetJustifyH("RIGHT")
-        end
-    end
-    for i = 1, #self.debuffs do
-        if self.debuffs[i] and self.debuffs[i].cd and self.debuffs[i].cd.text then
-            SetFSFont(self.debuffs[i].cd.text, debuffDur.size, "OUTLINE, SLUG")
-            self.debuffs[i].cd.text:SetTextColor(debuffDur.color.r, debuffDur.color.g, debuffDur.color.b, 1)
-            ApplyTimerPosition(self.debuffs[i].cd.text, self.debuffs[i], debuffTPos, debuffDur)
-        end
-        if self.debuffs[i] and self.debuffs[i].count then
-            SetFSFont(self.debuffs[i].count, auraStackSize, "OUTLINE, SLUG")
-            self.debuffs[i].count:SetTextColor(auraStackColor.r, auraStackColor.g, auraStackColor.b, 1)
-            ApplyStackPosition(self.debuffs[i].count, self.debuffs[i], auraStackPos)
-        end
-    end
-    local debuffSz = GetDebuffIconSize()
-    local buffSz = GetBuffIconSize()
-    local ccSz = GetCCIconSize()
-    local debuffCrop = ns.GetAuraCrop("debuffs")
-    local buffCrop = ns.GetAuraCrop("buffs")
-    local ccCrop = ns.GetAuraCrop("ccs")
-    local debuffH = ns.GetAuraCropHeight(debuffCrop, debuffSz)
-    local buffH = ns.GetAuraCropHeight(buffCrop, buffSz)
-    local ccH = ns.GetAuraCropHeight(ccCrop, ccSz)
-    local debuffSlot, buffSlot, ccSlot = GetAuraSlots()
-    for i = 1, #self.debuffs do
-        ns.ApplyAuraSlotCrop(self.debuffs[i], debuffCrop, debuffSz)
-        ns.ApplyFrameIconBorder(self.debuffs[i], ns.GetIconBorderEnabled("debuffs"), true)
-    end
-    for i = 1, 4 do
-        ns.ApplyAuraSlotCrop(self.buffs[i], buffCrop, buffSz)
-        ns.ApplyFrameIconBorder(self.buffs[i], ns.GetIconBorderEnabled("buffs"), true)
-        if self.buffs[i].cd and self.buffs[i].cd.text then
-            SetFSFont(self.buffs[i].cd.text, buffDur.size, "OUTLINE, SLUG")
-            self.buffs[i].cd.text:SetTextColor(buffDur.color.r, buffDur.color.g, buffDur.color.b, 1)
-            ApplyTimerPosition(self.buffs[i].cd.text, self.buffs[i], buffTPos, buffDur)
-        end
-        if self.buffs[i].count then
-            SetFSFont(self.buffs[i].count, auraStackSize, "OUTLINE, SLUG")
-            self.buffs[i].count:SetTextColor(auraStackColor.r, auraStackColor.g, auraStackColor.b, 1)
-            ApplyStackPosition(self.buffs[i].count, self.buffs[i], auraStackPos)
-        end
-    end
-    PositionAuraSlot(self.buffs, 4, buffSlot, self, buffSz, buffH, GetAuraSpacing("buffs"), GetAuraSlotOffsets("buffSlot"))
-    for i = 1, 2 do
-        ns.ApplyAuraSlotCrop(self.cc[i], ccCrop, ccSz)
-        ns.ApplyFrameIconBorder(self.cc[i], ns.GetIconBorderEnabled("ccs"), true)
-        if self.cc[i].cd and self.cc[i].cd.text then
-            SetFSFont(self.cc[i].cd.text, ccDur.size, "OUTLINE, SLUG")
-            self.cc[i].cd.text:SetTextColor(ccDur.color.r, ccDur.color.g, ccDur.color.b, 1)
-            ApplyTimerPosition(self.cc[i].cd.text, self.cc[i], ccTPos, ccDur)
-        end
-    end
-    PositionAuraSlot(self.cc, 2, ccSlot, self, ccSz, ccH, GetAuraSpacing("ccs"), GetAuraSlotOffsets("ccSlot"))
     ApplyHealthBarTexture(self)
     ns.ApplyCastBarTexture(self)
+    ns.ApplyBarBackgrounds(self)
     ns.ApplyAbsorbStyle(self)
     self:ApplyBorder()
     self:ApplyBorderColor()
@@ -1101,43 +970,6 @@ function NameplateFrame:ClearUnit()
     end
 
     self.name:SetText("")
-    for i = 1, 2 do
-        local slot = self.cc[i]
-        if slot.cd then
-            if slot.cd.SetDrawSwipe then slot.cd:SetDrawSwipe(false) end
-            if slot.cd.Clear then slot.cd:Clear() else slot.cd:SetCooldown(0, 0) end
-            slot.cd:Hide()
-        end
-        RawSetTex(slot.icon, nil)
-        slot:Hide()
-        slot._auraId = nil
-    end
-    for i = 1, #self.debuffs do
-        local dSlot = self.debuffs[i]
-        if dSlot.cd then
-            if dSlot.cd.SetDrawSwipe then dSlot.cd:SetDrawSwipe(false) end
-            if dSlot.cd.Clear then dSlot.cd:Clear() else dSlot.cd:SetCooldown(0, 0) end
-            dSlot.cd:Hide()
-        end
-        RawSetTex(dSlot.icon, nil)
-        dSlot:Hide()
-        dSlot._durationObj = nil
-        dSlot._auraId = nil
-    end
-    for i = 1, 4 do
-        local bSlot = self.buffs[i]
-        if bSlot.cd then
-            if bSlot.cd.SetDrawSwipe then bSlot.cd:SetDrawSwipe(false) end
-            if bSlot.cd.Clear then bSlot.cd:Clear() else bSlot.cd:SetCooldown(0, 0) end
-            bSlot.cd:Hide()
-        end
-        RawSetTex(bSlot.icon, nil)
-        bSlot:Hide()
-        if bSlot.dispelGlow and bSlot.dispelGlow.active then
-            ns.StopDispelGlow(bSlot)
-        end
-        bSlot._auraId = nil
-    end
     -- Release this plate's aura-container bundle back to the pool.
     if ns.NPC_DetachPlate then ns.NPC_DetachPlate(self) end
     if ns.DebuffColors_Detach then ns.DebuffColors_Detach(self) end

@@ -1090,12 +1090,14 @@ local function BuildNameplatePreview(parent, parentW)
         cast:SetValue(optState._previewCastFill or 0.60)
         castParts.icon:SetTexture(displayCastIcons[optState._previewCastIconIdx or 1])
         do
+            -- Backgrounds and Textured Background as live (the Blizzard Style
+            -- pass below wins).
             local hbgC = (DB() and DB().bgColor) or defaults.bgColor
-            local hbgA = DBVal("bgAlpha") or defaults.bgAlpha
-            healthBG:SetColorTexture(hbgC.r, hbgC.g, hbgC.b, hbgA)
             local cbgC = (DB() and DB().castBgColor) or defaults.castBgColor
-            local cbgA = DBVal("castBgAlpha") or defaults.castBgAlpha
-            castParts.bg:SetColorTexture(cbgC.r, cbgC.g, cbgC.b, cbgA)
+            ns.NP_TexBgPaint(healthBG, ns.NP_TexBgPath(DB(), false),
+                hbgC.r, hbgC.g, hbgC.b, DBVal("bgAlpha") or defaults.bgAlpha)
+            ns.NP_TexBgPaint(castParts.bg, ns.NP_TexBgPath(DB(), true),
+                cbgC.r, cbgC.g, cbgC.b, DBVal("castBgAlpha") or defaults.castBgAlpha)
         end
 
         -- Cast bar border (pixel-perfect, mirrors the real nameplates)
@@ -1468,7 +1470,8 @@ local function BuildNameplatePreview(parent, parentW)
             end
             local mine = UnitFactionGroup("player")
             local fac = (mine == "Horde") and "Alliance" or "Horde"
-            EllesmereUI.SetFactionArt(factionIcon, DBVal("factionStyle") or defaults.factionStyle, fac)
+            local fStyle = DBVal("factionStyle") or defaults.factionStyle
+            EllesmereUI.SetFactionArt(factionIcon, fStyle, fac, EllesmereUI.FactionBadgeFor(fStyle, "player"))
             factionIcon:SetSize(fcSz, fcSz)
             if fcPos == "top" then
                 factionTopExtent = debuffY + fcSz + fcY

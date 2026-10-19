@@ -4360,6 +4360,39 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- WoW Forever: the Swing Timer follows the Resource Bars row of Global
+-- Settings > Style, and its texture rides that row's style slots. Slots saved
+-- before then take the texture it has now, so switching styles later brings a
+-- custom texture back (also after the Classic seed's Plating, which a profile
+-- already on Classic gets at its first load with this build); a slot without
+-- it restores the default. Existing accounts only: a fresh install stamps it
+-- without running.
+if EllesmereUI.IS_FOREVER == true then
+EllesmereUI.RegisterMigration({
+    id          = "swing_timer_style_slots_v1",
+    scope       = "global",
+    description = "Save the Swing Timer's texture into the Resource Bars style slots saved before it joined them.",
+    body        = function(ctx)
+        local profiles = ctx.db and ctx.db.profiles
+        if type(profiles) ~= "table" then return end
+        for _, profData in pairs(profiles) do
+            local erb = type(profData) == "table" and type(profData.addons) == "table"
+                and profData.addons.EllesmereUIResourceBars
+            local st = type(erb) == "table" and erb.swingTimer
+            local tex = type(st) == "table" and st.texture or nil
+            local slots = tex ~= nil and erb._styleSlots
+            if type(slots) == "table" then
+                for _, slot in pairs(slots) do
+                    if type(slot) == "table" and slot["swingTimer.texture"] == nil then
+                        slot["swingTimer.texture"] = tex
+                    end
+                end
+            end
+        end
+    end,
+})
+end
+
 -- Spell ID on Tooltip became on by default (an unset showSpellID reads as on,
 -- EllesmereUI.SpellIDOn). An account from before keeps it off: its unset value
 -- is written off. Existing users ONLY: a fresh install or Reset ALL has no

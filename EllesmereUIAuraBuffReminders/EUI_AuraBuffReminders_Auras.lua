@@ -91,11 +91,18 @@ local function BuildPlayerAuraCache()
     -- srcByID is only needed by PlayerHasSelfCastAuraByID; wiped lazily there
 end
 
--- Lazy: runs once per refresh, only when a name-based check (WellFed/Flask/ByName) needs it.
+-- Food buffs share the Well Fed icon, not a spell ID.
+local WELL_FED_ICON = 136000
+
+-- Lazy: runs once per refresh, only when a name-based check (Flask/ByName) or the
+-- Well Fed check needs it. One pass serves them all, so a refresh reads the aura
+-- list once (each read can cost milliseconds right after an encounter): names
+-- into byName, and the first aura wearing the Well Fed icon into wellFed.
 function _AC.ensureNames()
     if _AC.nameScanned then return end
     _AC.nameScanned = true
     wipe(_AC.byName)
+    _AC.wellFed, _AC.sawIcon = nil, false
     if InCombat() then return end
     -- 12.1: index scans hard-error under restrictions even out of combat.
     if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return end
@@ -105,6 +112,11 @@ function _AC.ensureNames()
         local aName = aura.name
         if aName and not isSecret(aName) then
             _AC.byName[aName] = true
+        end
+        local ic = aura.icon
+        if ic and not isSecret(ic) then
+            _AC.sawIcon = true
+            if ic == WELL_FED_ICON and not _AC.wellFed then _AC.wellFed = aura end
         end
     end
 end

@@ -914,20 +914,21 @@ end
 -- here. On: our built data bars hide (each update then runs its hidden
 -- path, so the Favor bar disarms its events) and Blizzard's status tracking
 -- bars return. Off: our built bars show unless set to Never and repaint, and
--- Blizzard's hide. Returns true when a bar this client builds does not exist
--- yet (they are built at login only while the switch is off), so the caller
--- can offer a reload. On ns.
+-- Blizzard's hide. Returns true when the switch needs a reload, so the caller
+-- can offer one: a bar of ours this client builds does not exist yet (they are
+-- built at login only while the switch is off), or Blizzard's bars come back
+-- after their events were dropped this session. On ns.
 function ns.SetUseBlizzardDataBars(v)
     local p = EAB.db.profile
     p.useBlizzardDataBars = v
-    local anyMissing = false
+    local needsReload = false
     for _, info in ipairs(EXTRA_BARS) do
         local k = info.key
         -- WoW Forever builds no House Favor bar: never a reload for it there.
         if info.isDataBar and not (k == "FavorBar" and EllesmereUI.IS_FOREVER) then
             local frame = dataBarFrames[k]
             if not frame then
-                if not v then anyMissing = true end
+                if not v then needsReload = true end
             elseif v then
                 frame:Hide()
                 if frame._updateFunc then frame._updateFunc() end
@@ -943,13 +944,17 @@ function ns.SetUseBlizzardDataBars(v)
     if StatusTrackingBarManager then
         if v then
             StatusTrackingBarManager:Show()
-            StatusTrackingBarManager:RegisterAllEvents()
+            -- Dropped events come back only with a reload: a registration made
+            -- from here would run every one of them, and the bottom bar stack
+            -- pass a shown or hidden bar starts, under our taint.
+            if ns._eabBlizzDataBarsDropped then needsReload = true end
         else
             StatusTrackingBarManager:UnregisterAllEvents()
             StatusTrackingBarManager:Hide()
+            ns._eabBlizzDataBarsDropped = true
         end
     end
-    return anyMissing
+    return needsReload
 end
 
 I.SetupDataBars = SetupDataBars -- called by EUI_ActionBars_ExtraBars.lua

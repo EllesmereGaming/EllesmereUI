@@ -508,6 +508,19 @@ local function PlayerHasWellFed()
     if EABR.ConsumablePresenceUnverifiable() then return true end
     -- Well Fed has no whitelisted spell ID (icon scan). If icons aren't
     -- readable, suppress rather than false-fire "missing".
+    if _AC.valid then
+        -- Read from the refresh's one aura pass (shared with the flask check).
+        _AC.ensureNames()
+        if not _AC.sawIcon then return true end
+        local aura = _AC.wellFed
+        if not aura then return false end
+        local dur, exp = aura.duration, aura.expirationTime
+        if dur ~= nil and exp ~= nil and not isSecret(dur) and not isSecret(exp)
+           and IsUnderDuration(dur, exp, "consumable") then
+            return false
+        end
+        return true
+    end
     local sawReadableIcon = false
     for i = 1, AURA_SCAN_LIMIT do
         local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")

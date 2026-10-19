@@ -956,24 +956,69 @@ local function QueuePOIRepair(pb)
     end)
 end
 
+-- The fanfare fades the button in when a quest is put on the tracker
+-- (accepted, or returned by the quest filter) and keeps the final alpha, so the
+-- icon showed until the repair above. Its Alpha animation is given a target of
+-- 0 instead: the fanfare still plays, invisibly, and ends hidden. A method
+-- call on the animation, no hook and no script; once per button (weak table),
+-- and back to 1 where the native icons are put back.
+local _poiAnimMuted = setmetatable({}, { __mode = "k" })
+local function SetPOIFanfareAlpha(anim, toAlpha)
+    local anims = { anim:GetAnimations() }
+    for i = 1, #anims do
+        local a = anims[i]
+        if a:GetObjectType() == "Alpha" then a:SetToAlpha(toAlpha) end
+    end
+end
+
+-- A quest put on the tracker gets its POI button in the block's OnLayout,
+-- after AddBlock, and that same pass draws the button and plays its fanfare,
+-- so the AddBlock hook and the deferred sweep came too late for it (the
+-- icon flashed). The block's GetPOIButton is the moment it takes the button:
+-- suppressed there too, before either. Post-hook, once per block.
+local _poiBlockHooked = setmetatable({}, { __mode = "k" })
+local OnBlockGetPOIButton
+
 local function SuppressPOI(block)
-    local pb = block and block.poiButton
-    if not pb then return end
+    if not block then return end
 
     if NativeIcons() then
         -- Restore buttons we suppressed earlier in this session so flipping the
         -- setting on takes effect without waiting for the reload prompt.
-        if _suppressedPOIs[pb] then
+        local pb = block.poiButton
+        if pb and _suppressedPOIs[pb] then
             _suppressedPOIs[pb] = nil
             pb:SetAlpha(1)
             pb:EnableMouse(true)
+            local anim = pb.AddAnim
+            if anim and _poiAnimMuted[anim] then
+                _poiAnimMuted[anim] = nil
+                SetPOIFanfareAlpha(anim, 1)
+            end
         end
         return
     end
 
+    if not _poiBlockHooked[block] and block.GetPOIButton then
+        _poiBlockHooked[block] = true
+        hooksecurefunc(block, "GetPOIButton", OnBlockGetPOIButton)
+    end
+    local pb = block.poiButton
+    if not pb then return end
+
     _suppressedPOIs[pb] = true
     ApplyPOISuppression(pb)
+    local anim = pb.AddAnim
+    if anim and not _poiAnimMuted[anim] then
+        _poiAnimMuted[anim] = true
+        SetPOIFanfareAlpha(anim, 0)
+    end
     QueuePOIRepair(pb)
+end
+
+OnBlockGetPOIButton = function(block)
+    if STOCK or ShouldSkipSkin() then return end
+    SuppressPOI(block)
 end
 
 -------------------------------------------------------------------------------

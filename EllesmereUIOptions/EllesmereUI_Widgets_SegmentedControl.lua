@@ -30,7 +30,7 @@ local HideWidgetTooltip = EllesmereUI.HideWidgetTooltip
 --      isDisabled   = function(key) -> bool  (optional, grays out segment)
 --      disabledTip  = function(key) -> string (optional, tooltip for disabled)
 --  }
---  Returns: frame, height, refreshFn
+--  Returns: frame, height, refreshFn, buttons (key -> segment button)
 -------------------------------------------------------------------------------
 -- The one hidden font string every control measures its labels with (made on
 -- the first build, shown only while it measures, as a new one was).
@@ -200,6 +200,7 @@ local function BuildSegmentedControl(cfg)
     -- Segments each has full 1px border; adjacent segments overlap by 1px
     -------------------------------------------------------------------
     local segments = {}
+    local btnByKey = {}
     local BASE_LEVEL = pillBody:GetFrameLevel() + 3
     local CHECKED_LEVEL = BASE_LEVEL + 1  -- checked segments draw on top
 
@@ -265,6 +266,7 @@ local function BuildSegmentedControl(cfg)
             key = key, btn = btn, lbl = lbl, w = thisW, segBg = segBg, accentBg = accentBg,
             segTop = segTop, segBot = segBot, segLeft = segLeft, segRight = segRight,
         }
+        btnByKey[key] = btn
 
         btn:SetScript("OnClick", function()
             if cfg.isDisabled and cfg.isDisabled(key) then return end
@@ -440,7 +442,8 @@ local function BuildSegmentedControl(cfg)
     RefreshAll()
 
     -- Pill sits at 90% opacity permanently
-    frame:SetAlpha(0.9)    return frame, SEG_H, RefreshAll
+    frame:SetAlpha(0.9)
+    return frame, SEG_H, RefreshAll, btnByKey
 end
 
 

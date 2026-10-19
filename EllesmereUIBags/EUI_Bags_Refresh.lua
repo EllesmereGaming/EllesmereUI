@@ -46,6 +46,15 @@ I.anyItemPanelOpenSetters[#I.anyItemPanelOpenSetters + 1] = function(v) _anyItem
 local _lastCatCounts = {}      -- category counts from last full refresh
 local _lastTotalCount = 0      -- total item count from last full refresh
 
+-- RefreshInventory's per-item reads. One location is reused for every slot
+-- (CreateFromBagAndSlot builds a new mixin table per call). An item link names
+-- one exact item, bonus IDs included, so its quality, bind type, gear flag and
+-- upgrade track never change: they are kept per link, and only answers given
+-- once the item's data is loaded (a quality came back), never an empty track,
+-- so a later read can still fill them in. Bounded like the crafted-track memo.
+local _slotLoc = ItemLocation:CreateEmpty()
+local _linkFacts, _linkFactsN = {}, 0
+
 -------------------------------------------------------------------------------
 --  Category header pool (for "All Items" view)
 -------------------------------------------------------------------------------
@@ -548,8 +557,23 @@ function EUI_Bags:RefreshInventory()
                 EUI_Bags.ApplyBindKeyword(info, bag, slot)
                 -- Pre-cache per-item data for RenderButton (zero API calls at render time)
                 if itemLink then
-                    local _, _, q, _, _, _, _, _, _, _, _, _, _, bindType = GetItemInfo(itemLink)
-                    local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
+                    local facts = _linkFacts[itemLink]
+                    local q, bindType, isGear
+                    if facts then
+                        q, bindType, isGear = facts.q, facts.bindType, facts.isGear
+                    else
+                        local _
+                        _, _, q, _, _, _, _, _, _, _, _, _, _, bindType = GetItemInfo(itemLink)
+                        isGear = IsGearItem(itemLink)
+                        if q ~= nil then
+                            if _linkFactsN >= 4000 then wipe(_linkFacts); _linkFactsN = 0 end
+                            facts = { q = q, bindType = bindType, isGear = isGear }
+                            _linkFacts[itemLink] = facts
+                            _linkFactsN = _linkFactsN + 1
+                        end
+                    end
+                    _slotLoc:SetBagAndSlot(bag, slot)
+                    local loc = _slotLoc
                     -- Slot-grouping fields (_equipSlot/_classID/_subclassID) are NOT
                     -- pre-cached here: GetArmorySlotBucket fetches them lazily, only
                     -- for gear items and only while Group Gear by Slot is on, so the
@@ -557,7 +581,6 @@ function EUI_Bags:RefreshInventory()
                     d._giQuality = q
                     d._giBindType = bindType
                     -- Track rank + cooldown: only for types that need them
-                    local isGear = IsGearItem(itemLink)
                     d._isGear = isGear
                     -- The List view's iLvl column always needs the real level
                     d._giIlvl = isGear and (BP().showItemlevelInBags ~= false or EUI_Bags.IsListMode())
@@ -566,7 +589,15 @@ function EUI_Bags:RefreshInventory()
                     -- List view only while its Track column shows or sorts.
                     if isGear and GetUpgradeTrack
                         and (not EUI_Bags.IsListMode() or ns.ListUsesColumn("track")) then
-                        local rankText, trackColor = GetUpgradeTrack(itemLink)
+                        local rankText, trackColor
+                        if facts and facts.trackText then
+                            rankText, trackColor = facts.trackText, facts.trackColor
+                        else
+                            rankText, trackColor = GetUpgradeTrack(itemLink)
+                            if facts and rankText and rankText ~= "" then
+                                facts.trackText, facts.trackColor = rankText, trackColor
+                            end
+                        end
                         if rankText and rankText ~= "" then
                             d._giTrackRank = rankText
                             d._giTrackColor = trackColor

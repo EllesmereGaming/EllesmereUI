@@ -226,6 +226,8 @@ local function Layout(frame, power, s)
     bar:SetHeight(math.max(1, h or 1))
     local fill = power:GetStatusBarTexture()
     bar:SetStatusBarTexture((fill and fill:GetTexture()) or WHITE)
+    -- Textured Background: as the power bar's (Color() paints it next).
+    ns.UF_TexBgTint(bar.bg, power.bg and power.bg._euiTexPath)
     bar:SetReverseFill(s.powerReverseFill and true or false)
     if bs > 0 then
         PP.UpdateBorder(bar.border, bs, c and c.r or 0, c and c.g or 0, c and c.b or 0, 1)

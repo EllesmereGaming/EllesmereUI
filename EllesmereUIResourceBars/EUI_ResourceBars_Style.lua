@@ -125,6 +125,10 @@ ns._erbCastSlotKeys = { "texture" }
 ns._erbBarsSlotKeys = { "general.barTexture", "splitTex", "health.barTexture", "primary.barTexture",
     "general.classicBorderAll", "general.classicBorderAllSepSize",
     "general.classicBorderAllSepR", "general.classicBorderAllSepG", "general.classicBorderAllSepB" }
+-- WoW Forever: the Swing Timer's texture rides the bars' slots.
+if EllesmereUI.IS_FOREVER == true then
+    ns._erbBarsSlotKeys[#ns._erbBarsSlotKeys + 1] = "swingTimer.texture"
+end
 function ns.ERB_SeedStockCast(cb)
     if not cb or cb.stockTextureSeeded then return end
     cb.stockTextureSeeded = true
@@ -152,8 +156,9 @@ end
 -- profile (the controls stay the user's afterwards): Border Around All on
 -- when the shown bars already sit as one anchored stack, and "Plating" as
 -- the bar texture (on the health and power keys too where a bar has its own
--- texture). Run by the Style page on the switch and at enable for a
--- profile that arrives already switched.
+-- texture, and on WoW Forever's Swing Timer, under a stamp of its own). Run by
+-- the Style page on the switch and at enable for a profile that arrives
+-- already switched.
 function ns.ERB_SeedStockBars(p, styleKey)
     local g = p and p.general
     if not g or styleKey ~= "classic" then return end
@@ -166,6 +171,11 @@ function ns.ERB_SeedStockBars(p, styleKey)
             local s = ns.ERB_GroupLeadCfg(p).stockBorderScale
             p.health.stockBorderScale, p.primary.stockBorderScale, p.secondary.stockBorderScale = s, s, s
         end
+    end
+    local st = EllesmereUI.IS_FOREVER == true and p.swingTimer
+    if st and not st.classicTextureSeeded then
+        st.classicTextureSeeded = true
+        st.texture = "plating"
     end
     if g.classicTextureSeeded then return end
     g.classicTextureSeeded = true

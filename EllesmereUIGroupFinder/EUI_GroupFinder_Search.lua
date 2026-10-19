@@ -1024,11 +1024,17 @@ local function IconLayer(icon)
     d.crown:SetAtlas("groupfinder-icon-leader", false)
     d.crown:SetSize(10, 6)
     d.crown:SetPoint("BOTTOM", icon, "TOP", 0, 1)
+    -- Blizzard's leaver mark sits on the icon under this layer, so it is drawn
+    -- again up here (same atlas, size and spot).
+    d.leaver = f:CreateTexture(nil, "OVERLAY", nil, 1)
+    d.leaver:SetAtlas("groupfinder-icon-leaver", false)
+    d.leaver:SetSize(12, 12)
+    d.leaver:SetPoint("TOPRIGHT", icon, "TOPRIGHT", 4, 2)
     return d
 end
 
 local function ClearLayer(d)
-    d.circle:Hide(); d.ring:Hide(); d.spec:Hide(); d.role:Hide(); d.full:Hide(); d.crown:Hide()
+    d.circle:Hide(); d.ring:Hide(); d.spec:Hide(); d.role:Hide(); d.full:Hide(); d.crown:Hide(); d.leaver:Hide()
 end
 
 -- Our icon layers off on a row we leave alone (a recycled row would keep the
@@ -1182,6 +1188,13 @@ local function DecorateIcons(entry, resultID, info, ai)
                 if m and crownOn and not IsSecret(m.isLeader) and m.isLeader then
                     d.crown:SetDesaturated(disabled)
                     d.crown:Show()
+                end
+                local lv = icon.LeaverIcon
+                local leaver = lv and lv:IsShown()
+                if not IsSecret(leaver) and leaver then
+                    d.leaver:SetDesaturated(disabled)
+                    d.leaver:SetAlpha(disabled and 0.5 or 1)
+                    d.leaver:Show()
                 end
             end
         end
@@ -2039,6 +2052,9 @@ XF.GROUP_MENU = {
     { title = EllesmereUI.L("Misc") },
     { key = "dungeonAbbr",    label = EllesmereUI.L("Dungeon Names"),
       tip = EllesmereUI.L("Each dungeon square shows the dungeon's short name (e.g. KR for King's Rest, AoF for Altar of Fangs)."),
+      onToggle = function() ns.Search_Layout() end },
+    { key = "dungeonScore",   label = EllesmereUI.L("Dungeon Keystone Level"),
+      tip = EllesmereUI.L("Each dungeon square shows your best keystone level this season, colored by its score rarity."),
       onToggle = function() ns.Search_Layout() end },
     { key = "iconSize",       label = EllesmereUI.L("Role Icon Size"), stepper = { min = 100, max = 160, step = 5 },
       tip = EllesmereUI.L("Size of the role and specialization icons in the group list.") },
@@ -2914,27 +2930,47 @@ function XF.Abbr(name)
     local abbr = table.concat(out)
     if abbr == "" then abbr = Abbrev(name) end
     if abbr == "" then abbr = name end
+    local ov = EllesmereUI._dungeonAbbrevOverride
+    if ov and ov[abbr] then abbr = ov[abbr] end
     return abbr
 end
 
--- Short name on a square (Dungeon Names setting).
-function XF.SquareAbbr(sq, d, size)
-    local on = Cfg().dungeonAbbr == true and d ~= nil
-    if on and not sq.abbr then
-        local f = CreateFrame("Frame", nil, sq)
+-- Text layer over a square for its short name and keystone level, above the
+-- square's border; built on first use.
+function XF.SquareOverlay(sq)
+    local f = sq.overlay
+    if not f then
+        f = CreateFrame("Frame", nil, sq)
         f:SetAllPoints(sq)
         f:SetFrameLevel(sq:GetFrameLevel() + 3)
         f:EnableMouse(false)
-        sq.abbr = f:CreateFontString(nil, "OVERLAY")
-        -- Anchor both sides so it centres properly.
-        sq.abbr:SetPoint("LEFT", sq, "LEFT", -4, 0)
-        sq.abbr:SetPoint("RIGHT", sq, "RIGHT", 4, 0)
+        sq.overlay = f
+    end
+    return f
+end
+
+-- Short name on a square (Dungeon Names setting): at the top when Dungeon
+-- Keystone Level is also on (the level sits under it), else centred.
+function XF.SquareAbbr(sq, d, size)
+    local on = Cfg().dungeonAbbr == true and d ~= nil
+    if on and not sq.abbr then
+        sq.abbr = XF.SquareOverlay(sq):CreateFontString(nil, "OVERLAY")
         sq.abbr:SetJustifyH("CENTER")
-        sq.abbr:SetJustifyV("MIDDLE")
         sq.abbr:SetWordWrap(false)
     end
     if not sq.abbr then return end
     if on then
+        sq.abbr:ClearAllPoints()
+        if Cfg().dungeonScore == true then
+            sq.abbr:SetPoint("TOPLEFT", sq, "TOPLEFT", -4, -2)
+            sq.abbr:SetPoint("TOPRIGHT", sq, "TOPRIGHT", 4, -2)
+            sq.abbr:SetJustifyV("TOP")
+        else
+            -- Anchor both sides so it centres properly.
+            sq.abbr:SetPoint("LEFT", sq, "LEFT", -4, 0)
+            sq.abbr:SetPoint("RIGHT", sq, "RIGHT", 4, 0)
+            sq.abbr:SetJustifyV("MIDDLE")
+        end
         -- Shrink until it fits.
         local fs = math.max(8, math.floor(size * 0.36))
         XF.Font(sq.abbr, fs, "OUTLINE")
@@ -2946,6 +2982,40 @@ function XF.SquareAbbr(sq, d, size)
         sq.abbr:SetTextColor(1, 1, 1, 1)
     end
     sq.abbr:SetShown(on)
+end
+
+-- Best keystone level on a square (Dungeon Keystone Level setting), as the
+-- Mythic+ tab shows it: the better of the timed and overtime runs by score,
+-- coloured by the dungeon's overall score, nothing for a dungeon not run yet.
+-- Under the short name when Dungeon Names is also on, else centred.
+function XF.SquareScore(sq, d, size)
+    local best
+    if Cfg().dungeonScore == true and d ~= nil then
+        local intime, overtime = C_MythicPlus.GetSeasonBestForMap(d.cmID)
+        best = intime
+        if overtime and (not best or overtime.dungeonScore >= best.dungeonScore) then best = overtime end
+        if best and best.level <= 0 then best = nil end
+    end
+    if best and not sq.score then
+        sq.score = XF.SquareOverlay(sq):CreateFontString(nil, "OVERLAY")
+        sq.score:SetWordWrap(false)
+    end
+    local fs = sq.score
+    if not fs then return end
+    if best then
+        local _, overall = C_MythicPlus.GetSeasonBestAffixScoreInfoForMap(d.cmID)
+        local color = C_ChallengeMode.GetSpecificDungeonOverallScoreRarityColor(overall or best.dungeonScore)
+        XF.Font(fs, math.max(8, math.floor(size * 0.42)), "")
+        fs:ClearAllPoints()
+        if Cfg().dungeonAbbr == true then
+            fs:SetPoint("BOTTOM", sq, "BOTTOM", 0, 2)
+        else
+            fs:SetPoint("CENTER", sq, "CENTER", 0, 0)
+        end
+        fs:SetText(best.level)
+        if color then fs:SetTextColor(color.r, color.g, color.b, 1) else fs:SetTextColor(1, 1, 1, 1) end
+    end
+    fs:SetShown(best ~= nil)
 end
 
 -- Dungeon squares after the reset.
@@ -2962,6 +3032,7 @@ local function LayoutSquares(size, after, show)
             sq:ClearAllPoints()
             sq:SetPoint("LEFT", prev, "RIGHT", SQ_GAP, 0)
             sq.icon:SetTexture(d.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+            XF.SquareScore(sq, d, size)
             XF.SquareAbbr(sq, d, size)
             sq:Show()
             prev = sq

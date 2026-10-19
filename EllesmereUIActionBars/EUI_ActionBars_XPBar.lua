@@ -755,9 +755,9 @@ function EllesmereUI._GetXPBarStyle()
 end
 
 -- A Blizz Default <-> EllesmereUI swap flips that switch live through
--- ns.SetUseBlizzardDataBars; the frame art applies live. Returns true while
--- our bars are wanted but were never built (a reload builds them), so the
--- caller can offer the reload.
+-- ns.SetUseBlizzardDataBars; the frame art applies live. Returns true when the
+-- swap needs a reload (our bars wanted but never built, or Blizzard's bars
+-- back after their events were dropped), so the caller can offer it.
 function EllesmereUI._SetXPBarStyle(style)
     local p = EAB.db and EAB.db.profile
     if not p then return false end

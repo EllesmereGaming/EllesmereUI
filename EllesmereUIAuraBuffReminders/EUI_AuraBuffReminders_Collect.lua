@@ -19,6 +19,7 @@ local _B, DEFAULT_TEXT_COLOR, EABR = I._B, I.DEFAULT_TEXT_COLOR, I.EABR
 local GetPlayerClass, GetTextAnchorPoints = I.GetPlayerClass, I.GetTextAnchorPoints
 local InCombat, InPvPInstance, isSecret = I.InCombat, I.InPvPInstance, I.isSecret
 local Known, NON_SECRET_SPELL_IDS = I.Known, I.NON_SECRET_SPELL_IDS
+local CursorAttachActive = I.CursorAttachActive
 local ResolveFontPath, SetABRFont, ShortLabel = I.ResolveFontPath, I.SetABRFont, I.ShortLabel
 local Tex, _preCombatOwnOnRaidCache = I.Tex, I._preCombatOwnOnRaidCache
 local BuffExistsOnAnyGroupMember = I.BuffExistsOnAnyGroupMember
@@ -93,7 +94,7 @@ local function LayoutIcons()
         allIcons[#allIcons+1] = EABR._providerCastBtn
     end
     for _, btn in ipairs(activeIcons) do allIcons[#allIcons+1] = btn end
-    local beaconsOnCursor = db and db.profile.display.cursorAttach and cursorAnchor
+    local beaconsOnCursor = db and CursorAttachActive(db.profile.display) and cursorAnchor
     if _B.icons and not beaconsOnCursor then
         for _, id in ipairs(_B.ALL or {}) do
             if _B.iconState and _B.iconState[id] and _B.icons[id] then

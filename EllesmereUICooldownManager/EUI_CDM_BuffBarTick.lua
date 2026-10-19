@@ -137,6 +137,37 @@ local function TBBUsesVisCondition(cfg)
     return false
 end
 
+-- Name, icon, auto fill colour and stacks on a mirrored bar change only when
+-- Blizzard refreshes the bound frame's data: on player and target aura events
+-- and target changes (the wake frame counts both), a new binding or slot, and
+-- the active edge. So the tick re-reads them on those edges, once more on the
+-- tick after (Blizzard cleans a dirty frame in its own OnUpdate, which may run
+-- after ours), and at least every TBB_CONTENT_REFRESH seconds for the edges it
+-- does not count (totems, spell overrides, icon updates). Every path that
+-- leaves the active mirror, and every settings apply, clears bar._cChild, so a
+-- return is always an edge. An unreadable cooldownID fails open to every tick.
+local TBB_CONTENT_REFRESH = 0.25
+local function TBBContentDue(bar, blzChild, cfg, wasShown, now)
+    local cd = blzChild.cooldownID
+    local pGen, tGen = _tbbWake._fbPGen, _tbbWake._fbTGen
+    local sticky = _tbbStickyCdID[cfg]
+    if not wasShown or bar._cChild ~= blzChild or bar._cPGen ~= pGen
+       or bar._cTGen ~= tGen or bar._cSticky ~= sticky
+       or issecretvalue(cd) or bar._cCdID ~= cd then
+        bar._cChild, bar._cPGen, bar._cTGen, bar._cSticky = blzChild, pGen, tGen, sticky
+        bar._cCdID = not issecretvalue(cd) and cd or nil
+        bar._cAgain = true
+        bar._cAt = now
+        return true
+    end
+    if bar._cAgain or now - bar._cAt >= TBB_CONTENT_REFRESH then
+        bar._cAgain = nil
+        bar._cAt = now
+        return true
+    end
+    return false
+end
+
 -------------------------------------------------------------------------------
 --  Main Tick: UpdateTrackedBuffBarTimers
 --  Direct reskin of Blizzard's BuffBarCooldownViewer StatusBars: reads
@@ -150,6 +181,7 @@ function ns.UpdateTrackedBuffBarTimers()
 
     -- Liveness for the idle sleeper: set by any branch below that is actually animating or tracking something this tick.
     local tickLive = false
+    local now = GetTime()
 
     -- Resolved once per tick, not per bar: the bind-miss fallback below asks the target
     -- for a debuff the player applied, and there is no point asking with nothing targeted.
@@ -183,11 +215,12 @@ function ns.UpdateTrackedBuffBarTimers()
             if ns.HideTBBPlaceholders then ns.HideTBBPlaceholders() end
             -- Auras may have moved while the preview was up: re-pair on the first real mirror tick.
             SetAssignDirty(true)
-            -- The preview may have written the self-timed bars' timer text: drop
-            -- their bucket stamps so the next live tick rewrites it.
+            -- The preview may have written the self-timed bars' timer text and
+            -- the mirrored bars' name, icon and stacks: drop their stamps so the
+            -- next live tick rewrites them.
             for bi = 1, #tbbFrames do
                 local b = tbbFrames[bi]
-                if b then b._stTxtKey = nil end
+                if b then b._stTxtKey = nil; b._cChild = nil end
             end
         end
     end
@@ -207,7 +240,6 @@ function ns.UpdateTrackedBuffBarTimers()
     -- one found long past its end (the tick was parked) clears silently.
     local lossLatch = ns._tbbPresetLoss
     if next(lossLatch) then
-        local now = GetTime()
         for pk, at in pairs(lossLatch) do
             if now >= at then
                 lossLatch[pk] = nil
@@ -279,17 +311,34 @@ function ns.UpdateTrackedBuffBarTimers()
             if not isActive and not cfg.spellIDs
                and cfg.spellID and cfg.spellID > 0
                and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-                fbAura = C_UnitAuras.GetPlayerAuraBySpellID(cfg.spellID)
-                if not fbAura and cfg.baseSpellID and cfg.baseSpellID > 0 then
-                    fbAura = C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)
+                -- Each half re-queries only after its own aura edge (the wake frame
+                -- counts player aura events in _fbPGen; target aura events and target
+                -- changes in _fbTGen), not on every tick: a refresh or an expiry is
+                -- such an event, so the kept aura data stays current.
+                if bar._fbCfg ~= cfg or bar._fbSpell ~= cfg.spellID or bar._fbBase ~= cfg.baseSpellID then
+                    bar._fbCfg, bar._fbSpell, bar._fbBase = cfg, cfg.spellID, cfg.baseSpellID
+                    bar._fbPGen, bar._fbTGen = nil, nil
                 end
+                if bar._fbPGen ~= _tbbWake._fbPGen then
+                    bar._fbPGen = _tbbWake._fbPGen
+                    local a = C_UnitAuras.GetPlayerAuraBySpellID(cfg.spellID)
+                    if not a and cfg.baseSpellID and cfg.baseSpellID > 0 then
+                        a = C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)
+                    end
+                    bar._fbPAura = a or false
+                end
+                fbAura = bar._fbPAura or nil
                 -- Same net for a debuff the player put on the TARGET, which the queries
                 -- above can never see. Blizzard's viewer stalls exactly there after a
                 -- macro that clears and restores the target inside one frame: its
                 -- OnPlayerTargetChanged compares GUIDs, sees the same one it stored, and
                 -- never refreshes, so the item stays inactive until a real target switch.
                 if not fbAura and hasTarget then
-                    fbAura = _tbbWake.GetTargetAura(cfg)
+                    if bar._fbTGen ~= _tbbWake._fbTGen then
+                        bar._fbTGen = _tbbWake._fbTGen
+                        bar._fbTAura = _tbbWake.GetTargetAura(cfg) or false
+                    end
+                    fbAura = bar._fbTAura or nil
                 end
                 -- Fallback driving means the viewer has not bound this aura yet, and
                 -- Blizzard's late-bind can land WITHOUT a fresh player aura event. Keep
@@ -306,9 +355,11 @@ function ns.UpdateTrackedBuffBarTimers()
                 local wasShown = bar:IsShown()
                 if not wasShown then bar:Show() end
                 local sb = bar._bar
+                -- Name, icon, auto fill colour and stacks: on edges only (TBBContentDue).
+                local content = TBBContentDue(bar, blzChild, cfg, wasShown, now)
 
                 -- Stacks (gated)
-                if _anyStacks then UpdateStacks(bar, blzChild, cfg) end
+                if _anyStacks and content then UpdateStacks(bar, blzChild, cfg) end
 
                 if blizzBar then
                     -- Mirror Blizzard's bar onto ours. Secret values pass natively to widget
@@ -342,7 +393,7 @@ function ns.UpdateTrackedBuffBarTimers()
                     if cfg.showSpark and bar._spark then bar._spark:Show() end
 
                     -- Auto fill color from Blizzard's bar texture
-                    if (cfg.fillColorMode or "auto") == "auto" then
+                    if content and (cfg.fillColorMode or "auto") == "auto" then
                         -- Cache texture refs: GetStatusBarTexture() allocates userdata per call.
                         local blizzFillTex = bar._cachedBlizzFillTex
                         if not blizzFillTex then
@@ -392,7 +443,7 @@ function ns.UpdateTrackedBuffBarTimers()
                     --     family (exact config ids or the bound slot's
                     --     cooldownInfo override/spellID/linkedSpellIDs).
                     --  3. The configured spell's name (deterministic).
-                    if bar._nameText and bar._nameText:IsShown() then
+                    if content and bar._nameText and bar._nameText:IsShown() then
                         local nameStr
                         -- auraInstanceID may itself be SECRET on the active frame
                         -- (probe-confirmed): type() reads the tag without touching
@@ -489,14 +540,14 @@ function ns.UpdateTrackedBuffBarTimers()
                     -- Icon source priority: 1) Blizzard's icon texture on the bound
                     -- frame (SetBarContent already resolved the override/variant form,
                     -- so mirroring the file can never disagree with Blizzard's own CDM;
-                    -- mirrored every tick like the fill color, passes through even when
-                    -- secret since SetTexture accepts secrets); 2) live aura data
+                    -- mirrored on the content edges like the fill color, passes through
+                    -- even when secret since SetTexture accepts secrets); 2) live aura data
                     -- (frames without an icon region), so dynamic buffs (Roll the
                     -- Bones) show the rolled buff; 3) effective config spell
                     -- (override-resolved saved id). Every non-config write clears
                     -- _lastIconSID so the config fallback can't skip its SetTexture
                     -- against a stale cache and strand another source's icon.
-                    if bar._icon and bar._icon:IsShown() then
+                    if content and bar._icon and bar._icon:IsShown() then
                         local gotIcon = false
                         if bar._cachedBlizzIconOwner ~= blzChild then
                             local iconRegion = blzChild.Icon
@@ -581,6 +632,7 @@ function ns.UpdateTrackedBuffBarTimers()
             elseif fbAura then
                 -- Bind-miss fallback: self-drive fill/timer from the live aura until
                 -- Blizzard's frame catches up; isActive then resumes the normal mirror path seamlessly.
+                bar._cChild = nil
                 local wasShown = bar:IsShown()
                 if not wasShown then bar:Show() end
                 local sb = bar._bar
@@ -688,6 +740,7 @@ function ns.UpdateTrackedBuffBarTimers()
                 if bar._pandemicGlowActive then ClearPandemic(bar) end
             else
                 -- Inactive: clear transient state
+                bar._cChild = nil
                 bar._cachedBlizzFillTex = nil
                 bar._cachedOurFillTex = nil
                 bar._cachedBlizzIconTex = nil

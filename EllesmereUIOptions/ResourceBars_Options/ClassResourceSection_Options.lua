@@ -865,7 +865,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                   local c = cfg()
                   return (c and c.resourceColored) and 1 or 0.3
               end },
-    }, { disabled = function() local c = cfg(); return (not c) or (not c.enabled) or c.darkTheme end,
+    }, { size = 20, disabled = function() local c = cfg(); return (not c) or (not c.enabled) or c.darkTheme end,
          disabledTooltip = function()
              local c = cfg()
              if c and c.darkTheme then return "This option requires Class Resource Bar Dark Mode to be off. Dark Mode colors can be adjusted in Global Settings -> Colors." end

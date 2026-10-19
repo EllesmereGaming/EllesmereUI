@@ -362,7 +362,9 @@ local function GetPrimaryPowerType()
     if classFile == "DRUID" then
         local pp = ERB.db and ERB.db.profile and ERB.db.profile.primary
         local ov = pp and pp.powerTypeOverride
-        if ovSpec and ov and ov[ovSpec] then
+        local o = ovSpec and ov and ov[ovSpec]
+        if o == "mana" then return PT.MANA end            -- "Mana (Always)": every form
+        if o then
             if spec == 1 then return PT.LUNAR_POWER end  -- Balance alt: Astral Power
             return PT.MANA                                -- Feral/Guardian alt: Mana
         end

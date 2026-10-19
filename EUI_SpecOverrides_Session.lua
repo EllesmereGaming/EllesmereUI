@@ -117,6 +117,19 @@ local function SampleAttribution()
     end
 end
 
+-- An override entry's crumb from its fields, each localized: module title, element,
+-- the page's tab label, section; nil while the module is not registered. The list
+-- rebuilds it live (BuildListRow); capture stores it for when the module is missing.
+local function BuildEntryCrumb(module, element, page, section)
+    local modTitle = module and EllesmereUI:GetModuleTitle(module)
+    if not modTitle then return nil end
+    local parts = { L(modTitle) }
+    if element then parts[#parts + 1] = L(element) end
+    if page then parts[#parts + 1] = L(EUI_NS.GetTabLabel(module, page)) end
+    if section then parts[#parts + 1] = L(section) end
+    return table.concat(parts, "  >  ")
+end
+
 local function AutoCapture(changes)
     -- Hidden search prebuild: selector setters and lazy page seeding write
     -- db.profile from a pass the user never sees -- never capture them.
@@ -218,16 +231,10 @@ local function AutoCapture(changes)
     local isNew = false
     if not entry then
         isNew = true
-        local crumbParts = {}
-        local modTitle = module and EllesmereUI:GetModuleTitle(module)
-        if modTitle then crumbParts[#crumbParts + 1] = L(modTitle) end
-        if element then crumbParts[#crumbParts + 1] = L(element) end
-        if page then crumbParts[#crumbParts + 1] = L(page) end
-        if section then crumbParts[#crumbParts + 1] = L(section) end
         entry = {
             label = slotLabel,
             slotLabel = slotLabel,
-            crumb = table.concat(crumbParts, "  >  "),
+            crumb = BuildEntryCrumb(module, element, page, section),
             module = module, page = page,
             element = element, section = section,
             group = condSession and condSession.id or (_editGroup and _editGroup.id or nil),
@@ -1104,12 +1111,13 @@ function EllesmereUI.SpecOverrides_CloseEditSessions()
     if _defaultView and ExitDefaultView then ExitDefaultView() end
 end
 
-EnterGroupEdit = function(group)
+EnterGroupEdit = function(group, force)
     if _editGroup == group then return end
     if not group or not group.specs or #group.specs == 0 then return end
     -- BM page lock: while the Buff Manager page is bound to a live fork, only
     -- THAT group's session may open from the cards popup; any other context
-    -- would edit settings the page is not displaying.
+    -- would edit settings the page is not displaying. force: the manager
+    -- sidebar's override list switches directly (the page rebuild rebinds).
     do
         local lockKind, lockGid
         local lockLabel = "Buff Manager"
@@ -1120,7 +1128,7 @@ EnterGroupEdit = function(group)
             lockKind, lockGid = EllesmereUI.SpecOverrides_DmPageLockInfo()
             if lockKind then lockLabel = "Debuff Manager" end
         end
-        if lockKind and not (lockKind == "spec" and lockGid == group.id) then
+        if lockKind and not force and not (lockKind == "spec" and lockGid == group.id) then
             EllesmereUI:ShowConfirmPopup({
                 title = string.format(L("%s Override Active"), L(lockLabel)),
                 message = string.format(L("The active override's custom %s is bound to this page. Leave the %s tab to switch to another override."), L(lockLabel), L(lockLabel)),
@@ -1286,12 +1294,12 @@ Cond.ExitEdit = function(noRestore, noRecheck)
     if Cond.RefreshCards then Cond.RefreshCards() end
 end
 
-Cond.EnterEdit = function(g)
+Cond.EnterEdit = function(g, force)
     if Cond._edit == g then return end
     if not g then return end
     -- BM page lock: while the Buff Manager page is bound to a live fork, only
     -- that fork's own conditional session may open; anything else would edit
-    -- settings the page is not displaying.
+    -- settings the page is not displaying. force: as in EnterGroupEdit.
     do
         local lockKind, lockGid
         local lockLabel = "Buff Manager"
@@ -1302,7 +1310,7 @@ Cond.EnterEdit = function(g)
             lockKind, lockGid = EllesmereUI.SpecOverrides_DmPageLockInfo()
             if lockKind then lockLabel = "Debuff Manager" end
         end
-        if lockKind and not (lockKind == "cond" and lockGid == g.id) then
+        if lockKind and not force and not (lockKind == "cond" and lockGid == g.id) then
             EllesmereUI:ShowConfirmPopup({
                 title = string.format(L("%s Override Active"), L(lockLabel)),
                 message = string.format(L("The active override's custom %s is bound to this page. Leave the %s tab to switch to another override."), L(lockLabel), L(lockLabel)),
@@ -1353,5 +1361,6 @@ Cond.EnterEdit = function(g)
 end
 
 I.EnsurePanelHideHook, I.EnterGroupEdit = EnsurePanelHideHook, EnterGroupEdit
+I.BuildEntryCrumb = BuildEntryCrumb
 I.ExitGroupEdit, I.OnPageRebuilt = ExitGroupEdit, OnPageRebuilt
 I.broken = false

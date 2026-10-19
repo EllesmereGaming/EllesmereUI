@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  RaidFrames_Options\FramesPages_Options.lua
---  Raid Frames options: the raid Frames page (BuildMainPage), the Party page
+--  Raid & Party Frames options: the Frames page (Raid tab, BuildMainPage), the Party page
 --  (BuildPartyPage) and the Sort By control both use. Definitions only; the
 --  shared helpers come from ns._RFO_OptEnv (filled by EUI_RaidFrames_Options.lua).
 -------------------------------------------------------------------------------

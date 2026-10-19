@@ -51,7 +51,7 @@ local GROUPS = {
             { label = "Unit Frames",      addon = "EllesmereUIUnitFrames" },
             { label = "Cooldown Manager", addon = "EllesmereUICooldownManager" },
             { label = "Resource Bars",    addon = "EllesmereUIResourceBars" },
-            { label = "Raid Frames",      addon = "EllesmereUIRaidFrames" },
+            { label = "Raid & Party Frames", addon = "EllesmereUIRaidFrames" },
         },
     },
     {

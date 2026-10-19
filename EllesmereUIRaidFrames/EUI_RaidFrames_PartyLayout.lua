@@ -659,7 +659,7 @@ local function RegisterWithUnlockMode()
         EllesmereUI.MakeUnlockElement({
             key   = "RF_RaidFrames",
             label = "Raid Frames",
-            group = "Raid Frames",
+            group = "Raid & Party Frames",
             order = 500,
             noResize = true,
             -- RF positions its own container via _ApplyTierOffset (base 20-man top-left
@@ -707,7 +707,7 @@ local function RegisterWithUnlockMode()
         EllesmereUI.MakeUnlockElement({
             key   = "RF_PartyFrames",
             label = "Party Frames",
-            group = "Raid Frames",
+            group = "Raid & Party Frames",
             order = 501,
             noResize = true,
 
@@ -743,7 +743,7 @@ local function RegisterWithUnlockMode()
         EllesmereUI.MakeUnlockElement({
             key   = "RF_HealerMana",
             label = "Healer Mana Display",
-            group = "Raid Frames",
+            group = "Raid & Party Frames",
             order = 502,
             noResize = true,
             -- Disabled feature = no mover. Gates on the SETTING (mode none),

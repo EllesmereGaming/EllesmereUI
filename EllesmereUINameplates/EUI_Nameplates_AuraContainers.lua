@@ -153,8 +153,8 @@ local function StackCfg()
     }
 end
 
--- Position -> corner/nudge/justify, mirroring the legacy ApplyTimerPosition /
--- ApplyStackPosition mapping exactly (same baked edge nudges, user X/Y on top).
+-- Position -> corner/nudge/justify: a baked edge nudge per corner, the user's
+-- X/Y on top.
 local TEXT_POS = {
     center      = { point = "CENTER",      nx = 0,  ny = 0,  justify = "CENTER" },
     topright    = { point = "TOPRIGHT",    nx = 3,  ny = 4,  justify = "RIGHT" },
@@ -303,7 +303,8 @@ end
 -- glow's animations while it shows an aura and stops them whenever it has
 -- none, so the hosts on hidden pooled buttons cost nothing. No prewarm:
 -- StartSpecGlow makes the regions of the style it draws, so a default host
--- holds just the static border, and a later style makes its own.
+-- holds just the static border, and a later style makes its own. Made only on
+-- buttons that can ever show an aura (NPGlowable).
 local function NPGlowHost(button, d, key)
     local host = d[key]
     if host then return host end
@@ -322,21 +323,24 @@ local function NPGlowHost(button, d, key)
     return host
 end
 
+-- Whether a button gets a glow at all: only the buttons that can ever show an
+-- aura (AuraKit.ButtonCanShow). Each group builds a 10-button batch but shows
+-- at most its cap (5 debuffs, 1 for a one-icon group), so most pooled buttons
+-- never show; skipping their glow setup keeps it out of the login build. The
+-- others are dressed again when their group's cap grows (AuraKit re-runs the
+-- style on them), the path an unbound host (a client whose buttons cannot run
+-- animations themselves) has always taken.
+local function NPGlowable(button)
+    return EllesmereUI.AuraKit.ButtonCanShow(button)
+end
+
 -- Draws spec on the glow host, sized to the icon (the height follows cropped
--- icons); unchanged, StartSpecGlow returns at once. A bound host always draws:
--- its button decides when the animations play. An unbound one (a client whose
--- buttons cannot run animations themselves) plays on its own, so it draws only
--- on the buttons that can ever show an aura (AuraKit.ButtonCanShow; the others
--- are dressed again when their group's cap grows).
-local function NPStartGlow(button, host, spec, style)
-    local Glows = EllesmereUI.Glows
+-- icons); unchanged, StartSpecGlow returns at once. Callers pass only glowable
+-- buttons; a bound host's button decides when the animations play.
+local function NPStartGlow(host, spec, style)
     host:SetAlpha(1)
-    if Glows.IsEngineHostBound(host) or EllesmereUI.AuraKit.ButtonCanShow(button) then
-        local sz = style.width or 24
-        Glows.StartSpecGlow(host, spec, sz, style.height or sz, "engine")
-    elseif host._euiGlowActive then
-        Glows.StopGlow(host)
-    end
+    local sz = style.width or 24
+    EllesmereUI.Glows.StartSpecGlow(host, spec, sz, style.height or sz, "engine")
 end
 
 -- Dispel Glow on the buff row: every buff in the glow group is dispellable (the
@@ -346,8 +350,8 @@ end
 -- Border and Blizzard Pandemic Border render through the same call.
 local function ApplyNPBuffExtra(button, d, style)
     ApplyNPText(button, d, style)
-    if style.purgeGlow and style.purgeSpec then
-        NPStartGlow(button, NPGlowHost(button, d, "npGlowHost"), style.purgeSpec, style)
+    if style.purgeGlow and style.purgeSpec and NPGlowable(button) then
+        NPStartGlow(NPGlowHost(button, d, "npGlowHost"), style.purgeSpec, style)
     elseif d.npGlowHost then
         local host = d.npGlowHost
         if host._euiGlowActive then EllesmereUI.Glows.StopGlow(host) end
@@ -366,13 +370,13 @@ end
 local function ApplyNPDebuffExtra(button, d, style)
     ApplyNPText(button, d, style)
     local host = d.npPanHost
-    if style.pandemicGlow and style.pandemicSpec and button.AddPandemicRegion then
+    if style.pandemicGlow and style.pandemicSpec and button.AddPandemicRegion and NPGlowable(button) then
         host = NPGlowHost(button, d, "npPanHost")
         if not d.npPanRegion then
             button:AddPandemicRegion(host)
             d.npPanRegion = true
         end
-        NPStartGlow(button, host, style.pandemicSpec, style)
+        NPStartGlow(host, style.pandemicSpec, style)
     elseif host then
         if d.npPanRegion then
             button:ClearPandemicRegions()
@@ -1214,7 +1218,7 @@ local function BindContainer(c, unit, slotVal)
 end
 
 ------------------------------------------------------------------------------
--- Anchoring: mirrors PositionAuraSlot's slot semantics with container flow.
+-- Anchoring: each aura slot's placement, with container flow.
 -- top/bottom center-pin (self-centering rows); left/right chain outward
 -- from the health bar; topleft/topright corner-pin with per-slot growth.
 ------------------------------------------------------------------------------
@@ -1677,9 +1681,8 @@ function NPB.CycleGroup(c, key)
 end
 
 -- A pooled bundle's holder is hidden, and a hidden container runs no aura
--- pass: its unit "none" re-parse waits for the next attach, so every button
--- that showed an aura at detach keeps it, and a bound glow on it keeps
--- playing. Released here instead, after the hide (the group switches then
+-- pass: its next parse waits for the next attach, so every button that
+-- showed an aura at detach keeps it, and a bound glow on it keeps playing. Released here instead, after the hide (the group switches then
 -- register no events), only for the groups whose style draws an animated
 -- glow, and only once a host is bound: default (static) plates pay nothing.
 -- force: the style pass (NPC_ReloadAll), whose restyle may bind the hosts.
@@ -1711,12 +1714,12 @@ function ns.NPC_DetachPlate(plate)
     local b = active[plate]
     if not b then return end
     active[plate] = nil
+    -- Unbound only: the next attach binds its unit afresh (SetUnit +
+    -- UpdateAllAuras). A unit cleared here would change nothing, since the
+    -- holder hides next and a hidden container neither listens nor parses.
     for i = 1, #KINDS do
         local c = b.containers[KINDS[i]]
-        if c and c._npcBoundUnit then
-            c._npcBoundUnit = nil
-            SafeClearUnit(c)
-        end
+        if c then c._npcBoundUnit = nil end
     end
     b.holder:Hide()
     NPB.ReleaseGlowButtons(b)

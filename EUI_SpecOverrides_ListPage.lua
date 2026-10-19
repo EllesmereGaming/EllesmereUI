@@ -27,7 +27,7 @@ local WriteDefaultValues, GetBmStore = I.WriteDefaultValues, I.GetBmStore
 local GetCondBmStore, GetCondDmStore = I.GetCondBmStore, I.GetCondDmStore
 local GetDmStore, IsTBBChildKey, LayerSkipsKey = I.GetDmStore, I.IsTBBChildKey, I.LayerSkipsKey
 local Cond, EXCLUDED_CONTEXTS, RequestGoldWalk = I.Cond, I.EXCLUDED_CONTEXTS, I.RequestGoldWalk
-local EnterGroupEdit = I.EnterGroupEdit
+local EnterGroupEdit, BuildEntryCrumb = I.EnterGroupEdit, I.BuildEntryCrumb
 
 -- This file's copies of shared names; Set<Name> keeps every copy current
 -- (the lists are built at the end of EllesmereUI_SpecOverrides.lua).
@@ -62,7 +62,12 @@ local function BuildListRow(parent, y, entry)
 
     local crumb = EllesmereUI.MakeFont(row, 11, nil, 1, 1, 1, 0.3)
     crumb:SetPoint("LEFT", name, "RIGHT", 10, 0)
-    crumb:SetText(entry.crumb and TitleCase(entry.crumb) or "")
+    -- Built from the entry's fields when it has a page, so a renamed module or
+    -- tab label (or a client language switch) shows current names, not the
+    -- baked crumb.
+    local crumbText = entry.page and BuildEntryCrumb(entry.module, entry.element, entry.page, entry.section)
+        or entry.crumb
+    crumb:SetText(crumbText and TitleCase(crumbText) or "")
 
     local function MakeBtn(text, xOff, w)
         local b = CreateFrame("Button", nil, row)

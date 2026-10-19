@@ -803,6 +803,44 @@ function EllesmereUI.SpecOverrides_IsCaptured(folder, ...)
     return false
 end
 
+--- Which overrides hold any of these settings: keys are top-level keys of
+--- the module's profile root (no table sits above one, so IsCaptured's match
+--- is the key itself). An array of { kind = "spec", id = specID } and
+--- { kind = "cond", id = condition group id }, each once; empty when none
+--- does. One pass over both stores. Read-only, for options pages that tell
+--- apart where an override applies.
+function EllesmereUI.SpecOverrides_CapturedBy(folder, keys)
+    local want = {}
+    for i = 1, #keys do want[folder .. FS .. keys[i]] = true end
+    local C = EllesmereUI._CondOv
+    local out, seen = {}, { spec = {}, cond = {} }
+    for pass = 1, 2 do
+        local store, kind
+        if pass == 1 then store, kind = GetStore(), "spec"
+        elseif C and C.GetStore then store, kind = C.GetStore(), "cond" end
+        if store then
+            local seenKind = seen[kind]
+            for _, e in ipairs(store) do
+                local vals = e.values
+                if type(vals) == "table" then
+                    for id, map in pairs(vals) do
+                        if type(id) == "number" and type(map) == "table" and not seenKind[id] then
+                            for k in pairs(map) do
+                                if want[k] then
+                                    seenKind[id] = true
+                                    out[#out + 1] = { kind = kind, id = id }
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
+
 function EllesmereUI.SpecOverrides_GroupById(gid)
     return GroupById(gid)
 end
@@ -854,6 +892,16 @@ function EllesmereUI.SpecOverrides_EditSessionName()
         local cg = EllesmereUI.Conditions_GroupById(e.id)
         return cg and (cg.name or cg.label)
     end
+    return nil
+end
+
+--- READ-ONLY: the override session being edited as kind ("spec" | "cond")
+--- plus its group id, nil when none (EditSessionName's source).
+function EllesmereUI.SpecOverrides_EditSessionInfo()
+    if _editGroup then return "spec", _editGroup.id end
+    local C = EllesmereUI._CondOv
+    local e = C and C._edit
+    if e and e.id then return "cond", e.id end
     return nil
 end
 

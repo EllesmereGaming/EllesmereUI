@@ -537,7 +537,8 @@ function ns._KitAboveFlush()
         ns._LayoutPartyFrames()
     end
 end
-function ns.RF_KitBmView(inds)
+-- noPublish: the options preview's pass, which must not re-space the live frames.
+function ns.RF_KitBmView(inds, noPublish)
     local out = {}
     local chainMode = ns.RFC_BmChainMode
     local prof = ns.db and ns.db.profile
@@ -575,7 +576,7 @@ function ns.RF_KitBmView(inds)
     end
     -- Publish the lines above the frame (the frame spacing and the Friendly
     -- Boss attach reserve them); a change relays once, above only.
-    if anyIcon ~= ns._kitAboveIcon or maxSq ~= ns._kitAboveSq then
+    if not noPublish and (anyIcon ~= ns._kitAboveIcon or maxSq ~= ns._kitAboveSq) then
         local was = ns.RF_KitAboveUnits(prof)
         ns._kitAboveIcon, ns._kitAboveSq = anyIcon, maxSq
         if mode == "ABOVE" and ns.RF_KitAboveUnits(prof) ~= was and not ns._kitAbovePending then

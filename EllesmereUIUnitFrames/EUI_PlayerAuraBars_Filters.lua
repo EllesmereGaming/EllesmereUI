@@ -364,7 +364,7 @@ local function NameToId(list)
     return m
 end
 
--- "Copy Raid Frames Filters" (our Filter Editor): one-time copy of the Buff
+-- "Copy Raid & Party Filters" (our Filter Editor): one-time copy of the Buff
 -- Manager library into this registry. The library stores curated PRIMARY ids
 -- and expands talent/rank alternates at resolution; this registry flattens
 -- alternates into their own keys (seed convention), so each copied primary

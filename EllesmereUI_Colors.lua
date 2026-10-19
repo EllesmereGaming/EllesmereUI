@@ -644,41 +644,49 @@ function EllesmereUI.ResolveUnitPowerColor(unit)
     return nil
 end
 
+-- The unit-frame engine's shared color objects (class and power) from the current
+-- palette. ApplyColorsToOUF runs it first; Unit Frames runs it alone at login, before
+-- its frames spawn, where repainting every module would change nothing (each paints
+-- the current palette as it builds).
+function EllesmereUI.SyncUFColors()
+    -- Drop the effective-colour cache; the GetClassColor/GetPowerColor reads below
+    -- rebuild it from the palette + darken.
+    EllesmereUI.InvalidateColorCache()
+    -- NEVER modify _G.RAID_CLASS_COLORS: taint.
+    local colors = EllesmereUI._UFColors
+    if not colors then return end
+    if colors.class then
+        for classToken, _ in pairs(CLASS_COLOR_MAP) do
+            local cc = EllesmereUI.GetClassColor(classToken)
+            local entry = colors.class[classToken]
+            if entry and entry.SetRGBA then
+                entry:SetRGBA(cc.r, cc.g, cc.b, 1)
+            else
+                colors.class[classToken] = CreateColor(cc.r, cc.g, cc.b, 1)
+            end
+        end
+    end
+    if colors.power then
+        for powerKey, enumVal in pairs(EllesmereUI.POWER_KEY_TO_ENUM) do
+            local pc = EllesmereUI.GetPowerColor(powerKey)
+            local entry = colors.power[enumVal]
+            if entry and entry.SetRGBA then
+                entry:SetRGBA(pc.r, pc.g, pc.b, 1)
+            else
+                colors.power[enumVal] = CreateColor(pc.r, pc.g, pc.b, 1)
+            end
+        end
+    end
+end
+
 -- Apply custom class colors to oUF (call after settings change)
 function EllesmereUI.ApplyColorsToOUF()
     -- Universal "colours changed" entry point (swatch edits, resets, global-mode toggle,
-    -- Pull Colors From, profile switches), so drop the effective-colour cache here; the
-    -- GetClassColor/GetPowerColor reads below rebuild it from the new palette + darken.
-    EllesmereUI.InvalidateColorCache()
-    -- 1. Update the unit-frame engine's shared color objects. NEVER modify
-    -- _G.RAID_CLASS_COLORS: taint.
-    local colors = EllesmereUI._UFColors
-    if colors then
-        if colors.class then
-            for classToken, _ in pairs(CLASS_COLOR_MAP) do
-                local cc = EllesmereUI.GetClassColor(classToken)
-                local entry = colors.class[classToken]
-                if entry and entry.SetRGBA then
-                    entry:SetRGBA(cc.r, cc.g, cc.b, 1)
-                else
-                    colors.class[classToken] = CreateColor(cc.r, cc.g, cc.b, 1)
-                end
-            end
-        end
-        if colors.power then
-            for powerKey, enumVal in pairs(EllesmereUI.POWER_KEY_TO_ENUM) do
-                local pc = EllesmereUI.GetPowerColor(powerKey)
-                local entry = colors.power[enumVal]
-                if entry and entry.SetRGBA then
-                    entry:SetRGBA(pc.r, pc.g, pc.b, 1)
-                else
-                    colors.power[enumVal] = CreateColor(pc.r, pc.g, pc.b, 1)
-                end
-            end
-        end
-        if EllesmereUI._UFEngineForceAll then
-            EllesmereUI._UFEngineForceAll("ForceUpdate")
-        end
+    -- Pull Colors From, profile switches).
+    -- 1. The unit-frame engine's shared color objects, then a repaint of its frames.
+    EllesmereUI.SyncUFColors()
+    if EllesmereUI._UFColors and EllesmereUI._UFEngineForceAll then
+        EllesmereUI._UFEngineForceAll("ForceUpdate")
     end
     -- 3. Refresh nameplates (enemy + friendly)
     local ns_NP = _G.EllesmereNameplates_NS

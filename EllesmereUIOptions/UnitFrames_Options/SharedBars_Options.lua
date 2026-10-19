@@ -2321,13 +2321,16 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     do
         local _, playerClass = UnitClass("player")
         -- Specs that offer an alternative power type on the player power bar.
-        -- { defaultLabel, altLabel, altPowerType (Enum.PowerType value to force) }
+        -- { defaultLabel, altLabel, altPowerType (Enum.PowerType value to force) },
+        -- plus astral = Balance's third choice (Astral Power outside Cat and Bear
+        -- Form), listed between the two; tip = the row's tooltip for the class.
         -- For Shadow Priest the alt is "no override" (nil) so UnitPowerType returns Insanity.
         local SPEC_POWER_ALTS = {
             DRUID  = {
-                [1] = { "Astral Power", "Mana",     0 },   -- Balance
+                [1] = { "Match Form",   "Mana",     0, astral = "Astral Power (Except Cat & Bear)" },   -- Balance
                 [2] = { "Energy",       "Mana",     0 },   -- Feral
                 [3] = { "Rage",         "Mana",     0 },   -- Guardian
+                tip = "The first choice follows your form, with Energy in Cat Form and Rage in Bear Form. Mana stays on Mana in every form, and Astral Power (Except Cat & Bear) shows Astral Power in every form but those two.",
             },
             PRIEST = {
                 [3] = { "Mana",         "Insanity", nil },  -- Shadow (default is our Mana override)
@@ -2350,13 +2353,19 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                 local data = s and classAlts[s]
                 ptValues["default"] = data and data[1] or nil
                 ptValues["alt"]     = data and data[2] or nil
+                ptValues["astral"]  = data and data.astral or nil
+                if ptValues["astral"] then
+                    ptOrder[2], ptOrder[3] = "astral", "alt"
+                else
+                    ptOrder[2], ptOrder[3] = "alt", nil
+                end
             end
             local labelSpec = GetSpec()
             FillPowerTypeValues(labelSpec)
 
             local sharedPowerRow5
             sharedPowerRow5, h = W:DualRow(parent, y,
-                { type="dropdown", text="Power Type",
+                { type="dropdown", text="Power Type", tooltip = classAlts.tip,
                   values = ptValues, order = ptOrder,
                   -- Stored by SPEC ID, not the GetSpecialization() index: one
                   -- profile holds one set, so an index key collides across
@@ -2369,6 +2378,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                           and C_SpecializationInfo.GetSpecializationInfo(s)
                       if not sid then return "default" end
                       local ov = UNIT_DB_MAP["player"]().powerTypeOverride
+                      if ov and ov[sid] == "astral" then return "astral" end
                       if ov and ov[sid] then return "alt" end
                       return "default"
                   end,
@@ -2382,6 +2392,9 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                       if v == "alt" then
                           if not pdb.powerTypeOverride then pdb.powerTypeOverride = {} end
                           pdb.powerTypeOverride[sid] = true
+                      elseif v == "astral" then
+                          if not pdb.powerTypeOverride then pdb.powerTypeOverride = {} end
+                          pdb.powerTypeOverride[sid] = "astral"
                       else
                           if pdb.powerTypeOverride then pdb.powerTypeOverride[sid] = nil end
                       end

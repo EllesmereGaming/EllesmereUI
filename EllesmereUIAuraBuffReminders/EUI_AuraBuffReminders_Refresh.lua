@@ -32,7 +32,7 @@ local ResetEntryPool, ShowCombatIcon = I.ResetEntryPool, I.ShowCombatIcon
 local ShowCursorIcon, CollectAuras = I.ShowCursorIcon, I.CollectAuras
 local CollectConsumables, CollectRaidBuffs = I.CollectConsumables, I.CollectRaidBuffs
 local HideAllIcons, LayoutIcons, ShowIcon = I.HideAllIcons, I.LayoutIcons, I.ShowIcon
-local SetCachedOutline = I.SetCachedOutline
+local SetCachedOutline, CursorAttachActive = I.SetCachedOutline, I.CursorAttachActive
 
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
@@ -71,9 +71,14 @@ function EABR.BuildForeverFamilies()
     EABR._fvFamDirty = false
     local fams = EABR._fvFams
     if fams then wipe(fams) else fams = {}; EABR._fvFams = fams end
+    -- The families with a rank in this character's spellbook (spell groups:
+    -- EABR.CollectForeverGroups), from the same pass.
+    local known = EABR._fvKnownFams
+    if known then wipe(known) else known = {}; EABR._fvKnownFams = known end
     local fo = db.profile.forever
     local custom = fo and fo.customIDs
-    if not (custom and custom[1]) then return end
+    local groups = fo and fo.customGroups
+    if not ((custom and custom[1]) or (groups and groups[1])) then return end
     local familyOf = EABR._fvFamilyOf
     if not familyOf then
         familyOf = {}
@@ -84,22 +89,32 @@ function EABR.BuildForeverFamilies()
     end
     -- name -> the families its spellbook entries join
     local byName = {}
-    for i = 1, #custom do
-        local id = custom[i]
-        if not fams[id] then
-            local list = { id }
-            local shared = familyOf[id]
-            if shared then
-                for _, sid in ipairs(shared.ids) do
-                    if sid ~= id then list[#list + 1] = sid end
-                end
+    local function buildFamilyFor(spellID)
+        if type(spellID) ~= "number" or fams[spellID] then return end
+        local list = { spellID }
+        local shared = familyOf[spellID]
+        if shared then
+            for _, sid in ipairs(shared.ids) do
+                if sid ~= spellID then list[#list + 1] = sid end
             end
-            fams[id] = list
-            local name = SpellName(id)
-            if name then
-                local into = byName[name]
-                if not into then into = {}; byName[name] = into end
-                into[#into + 1] = list
+        end
+        fams[spellID] = list
+        local name = SpellName(spellID)
+        if name then
+            local into = byName[name]
+            if not into then into = {}; byName[name] = into end
+            into[#into + 1] = list
+        end
+    end
+    if custom then
+        for _, spellID in ipairs(custom) do buildFamilyFor(spellID) end
+    end
+    -- Group members get the same rank expansion, from the same spellbook pass.
+    if groups then
+        for _, group in ipairs(groups) do
+            local groupSpellIDs = type(group) == "table" and group.ids
+            if type(groupSpellIDs) == "table" then
+                for _, spellID in ipairs(groupSpellIDs) do buildFamilyFor(spellID) end
             end
         end
     end
@@ -119,15 +134,70 @@ function EABR.BuildForeverFamilies()
                         if list[k] == sid then listed = true; break end
                     end
                     if not listed then list[#list + 1] = sid end
+                    known[list] = true
                 end
             end
         end
     end
 end
 
+-- WoW Forever spell groups: one reminder per group while no aura from its
+-- spells (or their ranks, EABR.ForeverFamily) is active, out of combat only.
+-- While the client hides aura data from addons (AuraKit.AurasRestricted), a
+-- group counts as having no active aura only if none of its spells is flagged
+-- secret, so a hidden aura is not read as absent. A group shows only for a
+-- character that knows one of its spells (a rank in the spellbook): groups are
+-- profile settings, so one made on another class shows nothing here. The icon
+-- is the first such spell's; the tooltip names the group (no spell on the
+-- entry). Dismiss keys are per group table (weak), so removing or renaming a
+-- group never hands its dismissal to another.
+function EABR.CollectForeverGroups(missing, groups)
+    local dismissKeys = EABR._fvGroupKeys
+    if not dismissKeys then
+        dismissKeys = setmetatable({}, { __mode = "k" })
+        EABR._fvGroupKeys = dismissKeys
+        EABR._fvGroupN = 0
+    end
+    local aurasRestricted = EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted()
+    for _, group in ipairs(groups) do
+        local spellIDs = type(group) == "table" and group.ids
+        if type(spellIDs) == "table" then
+            local iconSpellID, hasActiveAura
+            local allAurasReadable = true
+            for _, spellID in ipairs(spellIDs) do
+                local rankSpellIDs = type(spellID) == "number" and SpellName(spellID)
+                    and EABR.ForeverFamily(spellID)
+                if rankSpellIDs then
+                    if not iconSpellID and EABR._fvKnownFams[rankSpellIDs] then iconSpellID = spellID end
+                    if PlayerHasAuraByID(rankSpellIDs) then hasActiveAura = true; break end
+                    if aurasRestricted and not EABR.FvRanksReadable(rankSpellIDs) then
+                        allAurasReadable = false
+                    end
+                end
+            end
+            if iconSpellID and allAurasReadable and not hasActiveAura then
+                local dismissKey = dismissKeys[group]
+                if not dismissKey then
+                    EABR._fvGroupN = EABR._fvGroupN + 1
+                    dismissKey = "forever:g" .. EABR._fvGroupN
+                    dismissKeys[group] = dismissKey
+                end
+                local entry = AcquireEntry()
+                entry.mode = "texture"
+                entry.texture = Tex(iconSpellID)
+                entry.label = type(group.name) == "string" and group.name
+                    or ShortLabel(SpellName(iconSpellID))
+                entry.cat = "forever"; entry.dismissKey = dismissKey
+                missing[#missing+1] = entry
+            end
+        end
+    end
+end
+
 -- WoW Forever collector: the Camp Benefits campfire buff, Well Fed (any food
--- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS) and the user's
--- custom spell IDs, absence only (no expiry thresholds). A custom ID counts as
+-- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS), the user's spell
+-- groups (EABR.CollectForeverGroups) and custom spell IDs, absence only (no
+-- expiry thresholds). A custom ID counts as
 -- up while any spell of its rank family is (EABR.ForeverFamily). Entries are
 -- display-only textures carrying the spell for the tooltip; presence goes
 -- through PlayerHasAuraByID, so combat falls back to the pre-pull snapshot
@@ -162,13 +232,22 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
             missing[#missing+1] = e
         end
     end
+    local groups = fo.customGroups
+    if groups and groups[1] and not restricted then
+        EABR.CollectForeverGroups(missing, groups)
+    end
     local custom = fo.customIDs
     if not custom then return end
     local keys = EABR._foreverKeys
     if not keys then keys = {}; EABR._foreverKeys = keys end
+    -- Out of combat under the aura lock a secret aura reads absent, so a custom
+    -- spell shows only while none of its ranks is secret (combat reads the
+    -- pre-pull snapshot instead).
+    local auraLock = not restricted and EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted()
     for i = 1, #custom do
         local id = custom[i]
-        if not PlayerHasAuraByID(EABR.ForeverFamily(id)) then
+        local fam = EABR.ForeverFamily(id)
+        if not PlayerHasAuraByID(fam) and not (auraLock and fam and not EABR.FvRanksReadable(fam)) then
             local dk = keys[id]
             if not dk then dk = "forever:" .. id; keys[id] = dk end
             local e = AcquireEntry()
@@ -602,7 +681,7 @@ local function Refresh()
         HideCursorIcons()
         local providerEntry
         if #missing > 0 then
-            local useCursor = db.profile.display.cursorAttach and cursorAnchor
+            local useCursor = CursorAttachActive(db.profile.display) and cursorAnchor
             local combatIdx, cursorIdx = 0, 0
             for _, m in ipairs(missing) do
                 -- Skip middle-click dismissed reminders. The collectors are
@@ -683,8 +762,9 @@ local function Refresh()
         -- chasing the cursor can never be clicked anyway. With cursor attach
         -- ON the player's own raid buff is the main case: it rides the
         -- cursor and the provider secure button parks; with it OFF the
-        -- provider button keeps sole ownership as before.
-        local useCursor = db.profile.display.cursorAttach and cursorAnchor
+        -- provider button keeps sole ownership as before. Only on Cursor
+        -- in Combat keeps everything at its normal spot out here.
+        local useCursor = CursorAttachActive(db.profile.display) and cursorAnchor
         local iconIdx, cursorIdx = 0, 0
         local providerEntry
         for _, m in ipairs(missing) do

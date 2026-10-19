@@ -350,6 +350,8 @@ local DEFAULTS = {
             gcdBoundaryR = 1.0, gcdBoundaryG = 0.82, gcdBoundaryB = 0.0, gcdBoundaryA = 0.95,
             coloredEmpowerStages = false,  -- Color empowered spells from red to green per stage
             outOfRangeGray = false,  -- Gray fill while the target is out of the cast's range
+            uninterruptibleOverride = false,  -- Own fill color for casts that cannot be interrupted
+            uninterruptibleR = 0.5, uninterruptibleG = 0.5, uninterruptibleB = 0.5,
             showTotalDuration = false,
             latencyEnabled    = false,
             latencyShowText   = false,

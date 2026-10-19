@@ -56,12 +56,10 @@ function ns.ERB_ClassicBorderSizeCfg(cfgFn, offFn, offTip, rebuild, matchKey)
                 for i = 1, #CLASSIC_SYNC_KEYS do p[CLASSIC_SYNC_KEYS[i]].stockBorderScale = v end
             end
             rebuild()
-            if EllesmereUI.ReapplyMatchPads then
-                if all then
-                    for i = 1, #CLASSIC_MATCH_KEYS do EllesmereUI.ReapplyMatchPads(CLASSIC_MATCH_KEYS[i]) end
-                else
-                    EllesmereUI.ReapplyMatchPads(matchKey)
-                end
+            if all then
+                for i = 1, #CLASSIC_MATCH_KEYS do EllesmereUI.ReapplyMatchPads(CLASSIC_MATCH_KEYS[i]) end
+            else
+                EllesmereUI.ReapplyMatchPads(matchKey)
             end
             EllesmereUI:RefreshPage()
         end,
@@ -116,9 +114,7 @@ function ns.ERB_ClassicBorderSync(region, dbFn, key, refresh, flashFn)
             local v = p[key].stockBorderScale
             for i = 1, #CLASSIC_SYNC_KEYS do p[CLASSIC_SYNC_KEYS[i]].stockBorderScale = v end
             refresh()
-            if EllesmereUI.ReapplyMatchPads then
-                for i = 1, #CLASSIC_MATCH_KEYS do EllesmereUI.ReapplyMatchPads(CLASSIC_MATCH_KEYS[i]) end
-            end
+            for i = 1, #CLASSIC_MATCH_KEYS do EllesmereUI.ReapplyMatchPads(CLASSIC_MATCH_KEYS[i]) end
             EllesmereUI:RefreshPage()
         end,
         isSynced = function()
@@ -318,6 +314,263 @@ initFrame:SetScript("OnEvent", function(self)
     local _previewBarFillPct = 65 -- randomized each page visit (30-80)
     local _headerBaseH = 0  -- preview area height without the hint line (set by every preview build)
 
+    -- Power and Health Bar previews: the live bar's shape (an outer frame with
+    -- the border and text over a StatusBar holding the fill and background),
+    -- built through the options pool and styled from the same settings the
+    -- live build reads. Always horizontal: the stack shows size and look, not
+    -- the on-screen placement or orientation.
+    local PreviewBar = {}
+    function PreviewBar.Build(parent)
+        local bar = CreateFrame("Frame", nil, parent)
+        local sb = CreateFrame("StatusBar", nil, bar)
+        sb:SetAllPoints()
+        sb:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+        sb:SetMinMaxValues(0, 100)
+        bar._sb = sb
+        -- ns.ERB_SeatBlizzMask reads the fill through the host, as on a live bar.
+        bar.GetStatusBarTexture = function() return sb:GetStatusBarTexture() end
+        local bg = sb:CreateTexture(nil, "BACKGROUND")
+        UnsnapTex(bg)
+        bar._bg = bg
+        bar._border = { _frame = CreateFrame("Frame", nil, bar) }
+        -- Hash lines sit above the fill, as the live tick overlay does.
+        local th = CreateFrame("Frame", nil, bar)
+        th:SetAllPoints(sb)
+        th:SetFrameLevel(sb:GetFrameLevel() + 1)
+        bar._tickHost, bar._ticks = th, {}
+        local tf = CreateFrame("Frame", nil, bar)
+        tf:SetAllPoints(bar)
+        tf:SetFrameLevel(bar:GetFrameLevel() + 10)
+        bar._text = tf:CreateFontString(nil, "OVERLAY")
+        return bar
+    end
+
+    -- nil while the bar can show in the preview, else the eye's tooltip
+    -- (the house "This option requires X to be enabled" sentence).
+    function PreviewBar.Avail(p, key)
+        local sp = p.secondary
+        if key == "classResource" then
+            if not sp.enabled then return EllesmereUI.DisabledTooltip("Class Resource") end
+            if not HasClassResource() then return EllesmereUI.L("This option needs a specialization with a class resource") end
+        elseif key == "power" then
+            if p.primary.enabled == false then return EllesmereUI.DisabledTooltip("Power Bar") end
+            if not HasPrimaryPower() then return EllesmereUI.L("This option needs a specialization with a power bar") end
+            -- Druid per-form disable, as the live IsPowerBarHidden.
+            if _G._ERB_BarHiddenByForm and _G._ERB_BarHiddenByForm(p.primary) then
+                return EllesmereUI.L("This option is turned off for the current form")
+            end
+            -- Power hides while the class resource replaces it, as live.
+            if sp.hidePowerIfResource and sp.enabled ~= false and HasClassResource() then
+                return EllesmereUI.DisabledTooltip("Hide Power Bar if Resource", "disabled")
+            end
+        elseif key == "health" then
+            if not p.health.enabled then return EllesmereUI.DisabledTooltip("Health Bar") end
+        end
+        return nil
+    end
+
+    -- kind: "power" or "health"; c: p.primary or p.health.
+    function PreviewBar.Style(bar, p, c, kind)
+        local g = p.general
+        local isHealth = kind == "health"
+        local w = _previewSnap(c.width or 214)
+        local h = _previewSnap(c.height or (isHealth and 16 or 14))
+        bar:SetSize(w, h)
+
+        local bf = bar._border._frame
+        if ns.ERB_BarsBlizz() then
+            bf:Hide()
+            ns.ERB_ApplyBlizzBarChrome(bar, bar._sb, w, h, false, ns.ERB_BarFrameK(c))
+        else
+            bf:SetFrameLevel(c.borderBehind and math.max(0, bar:GetFrameLevel() - 1) or (bar:GetFrameLevel() + 1))
+            -- Extend Top / Extend Bottom are power bar only, as live.
+            if isHealth then ns.ERB_AnchorBorderHost(bf, bar) else ns.ERB_AnchorBorderHost(bf, bar, ns.ERB_BorderExtents(c)) end
+            EllesmereUI.ApplyBorderStyle(bf, c.borderSize or 0,
+                c.borderR or 0, c.borderG or 0, c.borderB or 0, c.borderA or 1,
+                c.borderTexture or "solid", c.borderTextureOffset, c.borderTextureOffsetY,
+                c.borderTextureShiftX, c.borderTextureShiftY, "resourcebars", c.borderSize or 0,
+                nil, EllesmereUI.BorderPx(c.borderSizePx, c.borderSize or 0, c.borderTexture or "solid"))
+            bf:Show()
+        end
+
+        -- The bar's own texture counts only while splitTex is on, as live.
+        local texKey = (p.splitTex == true and c.barTexture) or g.barTexture
+        local sb = bar._sb
+        sb:SetStatusBarTexture(EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, texKey or "none", "Interface\\Buttons\\WHITE8x8"))
+        if bar._blizzBarMask then ns.ERB_SeatBlizzMask(bar) end
+        local ft = sb:GetStatusBarTexture()
+        UnsnapTex(ft)
+
+        -- Fill colour: custom > class colour (health) or power type colour (power).
+        local ptype = (not isHealth) and _G._ERB_GetPrimaryPowerType and _G._ERB_GetPrimaryPowerType()
+        local typeCol
+        if isHealth then
+            local _, cf = UnitClass("player")
+            typeCol = CLASS_COLORS[cf]
+        else
+            typeCol = ptype and _G._ERB_PowerColors and _G._ERB_PowerColors[ptype]
+        end
+        local fR, fG, fB
+        if c.customColored then
+            fR, fG, fB = c.fillR, c.fillG, c.fillB
+        elseif typeCol then
+            fR, fG, fB = typeCol[1], typeCol[2], typeCol[3]
+        elseif isHealth then
+            fR, fG, fB = 0.15, 0.75, 0.30
+        else
+            fR, fG, fB = 1, 1, 1
+        end
+
+        -- Threshold, bands and hash lines from the same per-spec entry the live
+        -- update resolves, against the player's real maximum (value-mode hash
+        -- lines and bands); 500K health / 100 power when it reads secret or 0.
+        local mx = isHealth and UnitHealthMax("player") or (ptype and UnitPowerMax("player", ptype))
+        if not mx or (issecretvalue and issecretvalue(mx)) or mx <= 0 then mx = isHealth and 500000 or 100 end
+        local tsEntry = _G._ERB_ResolveThresholdSpecEntry and _G._ERB_ResolveThresholdSpecEntry(c) or nil
+        local bandOn, bands, bandMode, bandRev
+        if _G._ERB_ResolveBandConfig then bandOn, bands, bandMode, bandRev = _G._ERB_ResolveBandConfig(c, tsEntry) end
+        local thEntry = (tsEntry and tsEntry.thresholdEnabled ~= false) and tsEntry or nil
+        -- Health colours at or below the threshold; power above it, or below with Partial Only.
+        local below = isHealth
+        if not isHealth and thEntry then
+            below = thEntry.thresholdPartialOnly
+            if below == nil then below = c.thresholdPartialOnly end
+        end
+        local tPct = thEntry and (thEntry.thresholdPct or c.thresholdPct or 30)
+
+        -- The random fill only: a threshold or band colours it when the value reaches it, as live.
+        local pct = isHealth and (100 - math.floor(_previewBarFillPct / 3)) or _previewBarFillPct
+
+        local aR, aG, aB, aA  -- threshold or band colour in force, nil = base colour
+        if bandOn and _G._ERB_FindCountBand then
+            local band = _G._ERB_FindCountBand(bands, (bandMode == "value") and (mx * pct / 100) or pct, bandRev)
+            if band then aR, aG, aB, aA = band.r or 1, band.g or 1, band.b or 1, band.a or 1 end
+        elseif thEntry then
+            if (below and pct <= tPct) or (not below and pct > tPct) then
+                aR, aG, aB, aA = thEntry.thresholdR or c.thresholdR or 1, thEntry.thresholdG or c.thresholdG or 0.2,
+                    thEntry.thresholdB or c.thresholdB or 0.2, 1
+            end
+        end
+        local fmt = c.textFormat or "none"
+        local textInstead = thEntry and thEntry.thresholdTextInstead and fmt ~= "none"
+
+        -- Plain texture calls, not the live change-gated helpers: their memo
+        -- would outlive a pool reset of this texture.
+        if aR and not textInstead then
+            ft:SetVertexColor(aR, aG, aB, aA)
+        elseif c.gradientEnabled then
+            ft:SetVertexColor(1, 1, 1, 1)
+            ft:SetGradient(c.gradientDir or "HORIZONTAL", CreateColor(fR, fG, fB, 1),
+                CreateColor(c.gradientR or 1, c.gradientG or 1, c.gradientB or 1, c.gradientA or 1))
+        else
+            ft:SetVertexColor(fR, fG, fB, 1)
+        end
+
+        local bg = bar._bg
+        bg:SetColorTexture(c.bgR or 0, c.bgG or 0, c.bgB or 0, c.bgA or 0.75)
+        UnsnapTex(bg)
+        if g.barTextureBg or bg._erbBgTex then
+            ns.ERB_BgTexture(bg, g.barTextureBg and (c.fillOpacity or 100) >= 100
+                and EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, texKey, nil), c.bgR, c.bgG, c.bgB, c.bgA)
+        end
+
+        sb:SetValue(pct)
+        -- Fill Opacity: translucent fill, background over the empty part only (as the class resource preview).
+        local op = (c.fillOpacity or 100) / 100
+        ft:SetAlpha(op)
+        bg:ClearAllPoints()
+        if op < 1 then
+            bg:SetPoint("TOPLEFT", ft, "TOPRIGHT", 0, 0)
+            bg:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0)
+        else
+            bg:SetAllPoints(sb)
+        end
+
+        -- Hash lines: the entry's own, else the bar-wide ones (ns.ApplyHashLines' source rule).
+        do
+            local ticks = bar._ticks
+            for i = 1, #ticks do ticks[i]:Hide() end
+            local hEnt = (tsEntry and tsEntry.hashValues and tsEntry.hashValues ~= "") and tsEntry
+                or (c.hashEnabled and c) or nil
+            local hashStr = hEnt and hEnt.hashValues or ""
+            local isPercent = hEnt and (hEnt.hashMode or "percent") == "percent"
+            local P = EllesmereUI.PP
+            local pxW = (hEnt and hEnt.hashWidth or 1) * P.mult  -- physical pixels, as live
+            -- Inside the border, as live: a solid border's exact size is the inset.
+            local hbs = c.borderSize or 0
+            local htex = c.borderTexture
+            if not htex or htex == "" or htex == "solid" then
+                hbs = EllesmereUI.BorderPx(c.borderSizePx, hbs, htex) or hbs
+            end
+            local vI = math.min(hbs * P.mult, math.max(0, (h - 1) / 2))
+            local n = 0
+            for s in hashStr:gmatch("[^,]+") do
+                local v = tonumber(s:match("^%s*(.-)%s*$"))
+                local frac = v and v > 0 and v / (isPercent and 100 or mx)
+                if frac and frac <= 1 then
+                    n = n + 1
+                    local t = ticks[n]
+                    if not t then
+                        t = bar._tickHost:CreateTexture(nil, "OVERLAY", nil, 7)
+                        UnsnapTex(t)
+                        ticks[n] = t
+                    end
+                    t:SetColorTexture(hEnt.hashColorR or 1, hEnt.hashColorG or 1, hEnt.hashColorB or 1, hEnt.hashColorA or 0.7)
+                    t:ClearAllPoints()
+                    t:SetSize(pxW, h - vI * 2)
+                    t:SetPoint("TOPLEFT", sb, "TOPLEFT", math.min(P.Scale(w * frac), w - pxW), -vI)
+                    t:Show()
+                end
+            end
+        end
+
+        ns.ERB_RoundBar(bar, c)
+
+        -- Text in the live formats, from the made-up values.
+        local text = bar._text
+        if fmt == "none" then
+            text:Hide()
+            return
+        end
+        local txt
+        if isHealth then
+            local curStr = ns.AbbreviateNumbers(math.floor(mx * pct / 100))
+            local pctStr = tostring(pct)
+            if fmt == "both" then txt = curStr .. " | " .. pctStr .. "%"
+            elseif fmt == "curhpshort" then txt = curStr
+            elseif fmt == "curmaxhp" then txt = curStr .. " / " .. ns.AbbreviateNumbers(mx)
+            elseif fmt == "perhpnosign" then txt = pctStr
+            elseif fmt == "perhpnum" then txt = pctStr .. "% | " .. curStr
+            else txt = pctStr .. "%" end
+        else
+            local percentText = tostring(pct) .. ((c.showPercent == false) and "" or "%")
+            local curStr = ns.AbbreviateNumbers(math.floor(mx * pct / 100))
+            if fmt == "smart" then
+                local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(ptype)
+                txt = isPercent and percentText or curStr
+            elseif fmt == "both" then txt = curStr .. " | " .. percentText
+            elseif fmt == "curpp" then txt = curStr
+            elseif fmt == "curmaxpp" then txt = curStr .. " / " .. ns.AbbreviateNumbers(mx)
+            elseif fmt == "perpp" then txt = percentText
+            else txt = curStr end
+        end
+        SetPVFont(text, FONT_PATH, c.textSize or 11)
+        text:ClearAllPoints()
+        local ta = c.textAnchor or "CENTER"
+        text:SetPoint(ta, bar, ta, c.textXOffset or 0, c.textYOffset or 0)
+        if aR and textInstead then
+            text:SetTextColor(aR, aG, aB, aA)
+        elseif c.textCustomColored == false and typeCol then
+            text:SetTextColor(typeCol[1], typeCol[2], typeCol[3], 1)
+        elseif c.textCustomColored == false then
+            text:SetTextColor(1, 1, 1, 1)
+        else
+            text:SetTextColor(c.textFillR or 1, c.textFillG or 1, c.textFillB or 1, c.textFillA or 1)
+        end
+        text:SetText(txt)
+        text:Show()
+    end
+
     -- Discrete pip count for the current spec: the real resource max (Fury
     -- Whirlwind 4, Arms Sweeping Strikes 18, DK runes 6, Maelstrom Weapon
     -- 5/10, ...) so the preview matches the live bar; 5 when none exists.
@@ -342,19 +595,16 @@ initFrame:SetScript("OnEvent", function(self)
         local p = DB()
         if not p then return end
 
-        if not HasClassResource() then
-            local pc = _previewFrames.pipContainer
-            if pc then pc:Hide() end
-            if _previewHintFS then _previewHintFS:Hide() end
-            EllesmereUI:UpdateContentHeaderHeight(0)
-            return
-        end
+        -- Session-only eye state of the section headers (BarDisplayPage_Options.lua), shown by default.
+        local pvHidden = ns._erbPvHidden or {}
+        local hasCR = HasClassResource()
+        if not hasCR and _previewFrames.pipContainer then _previewFrames.pipContainer:Hide() end
 
-        local container = _previewFrames.pipContainer and _previewFrames.pipContainer:GetParent()
+        local container = _previewFrames.container
         local sp = p.secondary
         local isBar = ns.IsBarTypeSecondary()
 
-        local pc = _previewFrames.pipContainer
+        local pc = hasCR and _previewFrames.pipContainer
         if pc then
             local pipH = sp.pipHeight
 
@@ -386,7 +636,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local s = pc["_anim_scale"] or pScale
                 pc:SetScale(s)
                 pc:ClearAllPoints()
-                pc:SetPoint("CENTER", container, "CENTER", 0, 0)
+                pc:SetPoint("CENTER", container, "CENTER", 0, pc._pvY or 0)  -- _pvY: its slot in the stack below
             end
             SmoothAnimate(pc, "scale", pScale, function() ApplyPipTransform() end)
 
@@ -546,29 +796,55 @@ initFrame:SetScript("OnEvent", function(self)
                     pc:SetSize(totalW, snappedPipH)
                 end
 
+                -- Threshold and bands as the live pips resolve them (Update.lua):
+                -- "From" (>=) or "Up to" (<=, thresholdReverse), Partial Only
+                -- ("From" only), multi-band, and Recolor Text Instead.
                 local _pvTsEntry2 = _G._ERB_ResolveThresholdSpecEntry and _G._ERB_ResolveThresholdSpecEntry(sp) or nil
-                local _pvThreshCount = _pvTsEntry2 and _pvTsEntry2.thresholdCount or sp.thresholdCount
-                local _pvPartialOnly = _pvTsEntry2 and _pvTsEntry2.thresholdPartialOnly or sp.thresholdPartialOnly
-                local filledCount
+                local FindCountBand = _G._ERB_FindCountBand
+                local _pvBandOn, _pvBands, _pvBandRev
+                if _G._ERB_ResolveBandConfig and FindCountBand then
+                    local on, bands, _, rev = _G._ERB_ResolveBandConfig(sp, _pvTsEntry2)
+                    _pvBandOn, _pvBands, _pvBandRev = on, bands, rev
+                end
                 local _pvTsEnabled = _pvTsEntry2 and (_pvTsEntry2.thresholdEnabled ~= false) or false
-                if _pvTsEnabled then
-                    filledCount = _pvThreshCount
-                else
-                    filledCount = _previewPipCount
-                    -- _previewPipCount is randomized against a generic 5-pip preview; rescale for other counts (e.g. 18 Sweeping Strikes)
-                    if numPips ~= 5 then
-                        filledCount = math.max(1, math.min(numPips,
-                            math.floor(_previewPipCount / 5 * numPips + 0.5)))
-                    end
+                local _pvThreshCount = _pvTsEntry2 and _pvTsEntry2.thresholdCount or sp.thresholdCount or 3
+                -- Enhance Five Bar needs at least 7 (5 pips + overflow), as live clamps it.
+                if _pvTsEnabled and sp.enhanceFiveBar and _pvThreshCount < 7 then
+                    local info = _G._ERB_GetSecondaryResource and _G._ERB_GetSecondaryResource()
+                    if info and info.power == "MAELSTROM_WEAPON" then _pvThreshCount = 7 end
+                end
+                local _pvPartialOnly = _pvTsEntry2 and _pvTsEntry2.thresholdPartialOnly
+                if _pvPartialOnly == nil then _pvPartialOnly = sp.thresholdPartialOnly end
+                local _pvReverse = _pvTsEntry2 and _pvTsEntry2.thresholdReverse
+                if _pvReverse == nil then _pvReverse = sp.thresholdReverse end
+                if _pvReverse then _pvPartialOnly = false end
+                -- The random fill only: a threshold or band colours it when the value reaches it, as live.
+                local filledCount = _previewPipCount
+                -- _previewPipCount is randomized against a generic 5-pip preview; rescale for other counts (e.g. 18 Sweeping Strikes)
+                if numPips ~= 5 then
+                    filledCount = math.max(1, math.min(numPips,
+                        math.floor(_previewPipCount / 5 * numPips + 0.5)))
                 end
                 -- Read by the count-text block so the number matches the lit segments
                 pc._pvShownCount = filledCount
-                local useThresh = _pvTsEnabled
                 local pvPipBg = ns.ERB_PipBgOn(sp, false)  -- Background on individual pips, as live
-				-- current spec threshold color if configured
-				local tr = _pvTsEntry2 and _pvTsEntry2.thresholdR or sp.thresholdR
-				local tg = _pvTsEntry2 and _pvTsEntry2.thresholdG or sp.thresholdG
-				local tb = _pvTsEntry2 and _pvTsEntry2.thresholdB or sp.thresholdB
+                -- current spec threshold color if configured
+                local tr = _pvTsEntry2 and _pvTsEntry2.thresholdR or sp.thresholdR
+                local tg = _pvTsEntry2 and _pvTsEntry2.thresholdG or sp.thresholdG
+                local tb = _pvTsEntry2 and _pvTsEntry2.thresholdB or sp.thresholdB
+                local useThresh = _pvTsEnabled and ((_pvReverse and filledCount <= _pvThreshCount)
+                    or ((not _pvReverse) and filledCount >= _pvThreshCount))
+                if _pvBandOn then
+                    local band = FindCountBand(_pvBands, filledCount, _pvBandRev)
+                    useThresh = band ~= nil
+                    if band then tr, tg, tb = band.r or 1, band.g or 1, band.b or 1 end
+                end
+                -- Recolor Text Instead: the count text takes the colour, the pips stay at base.
+                pc._pvTextCol = nil
+                if _pvTsEntry2 and _pvTsEntry2.thresholdTextInstead and sp.showText then
+                    if useThresh then pc._pvTextCol = { tr, tg, tb } end
+                    useThresh = false
+                end
 
                 -- Top up pip frames when this spec needs more than were built (counts run 3-18); the loop below styles them, so bare bg+fill suffice here.
                 for i = #_previewFrames.pips + 1, numPips do
@@ -650,7 +926,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     local active = i <= filledCount
                     if active and useThresh then
-                        if _pvPartialOnly and i < _pvThreshCount then
+                        if not _pvBandOn and _pvPartialOnly and i < _pvThreshCount then
                             pip._fill:SetVertexColor(pr, pg, pb, 1)
                         else
                             pip._fill:SetVertexColor(tr, tg, tb, 1)
@@ -885,26 +1161,88 @@ initFrame:SetScript("OnEvent", function(self)
                     local shown = pc._pvShownCount or _previewPipCount
                     pc._countText:SetText(tostring(shown))
                 end
+                local tc = (not isBar) and pc._pvTextCol
+                if tc then
+                    pc._countText:SetTextColor(tc[1], tc[2], tc[3], 1)
+                else
+                    pc._countText:SetTextColor(sp.textR or 1, sp.textG or 1, sp.textB or 1, 0.9)  -- live base text colour
+                end
                 pc._countText:Show()
             elseif pc._countText then
                 pc._countText:Hide()
             end
 
-            if sp.enabled then
-                pc:Show()
-            else
-                pc:Hide()
-            end
+            pc:SetShown((not pvHidden.classResource and not PreviewBar.Avail(p, "classResource")) and true or false)
         end
 
+        -- The stack, top to bottom: Class Resource, Power, Health (the live
+        -- default order), each shown while its bar is on and its eye is open.
         do
-            local TOTAL_H = 80
+            local pb, hb = _previewFrames.powerBar, _previewFrames.healthBar
+            local showPower = pb and not pvHidden.power and not PreviewBar.Avail(p, "power")
+            local showHealth = hb and not pvHidden.health and not PreviewBar.Avail(p, "health")
+            if showPower then PreviewBar.Style(pb, p, p.primary, "power") end
+            if showHealth then PreviewBar.Style(hb, p, p.health, "health") end
+            if pb then pb:SetShown(showPower and true or false) end
+            if hb then hb:SetShown(showHealth and true or false) end
+
+            local labels = _previewFrames.labels or {}
+            local stack, stackLbl = {}, {}
+            if pc and pc:IsShown() then stack[#stack + 1] = pc; stackLbl[#stack] = labels.classResource end
+            if showPower then stack[#stack + 1] = pb; stackLbl[#stack] = labels.power end
+            if showHealth then stack[#stack + 1] = hb; stackLbl[#stack] = labels.health end
+            for _, fs in pairs(labels) do fs:Hide() end
+
+            -- Each element: its title (a header-scale font string, so its
+            -- line and gap convert into the bars' units), then the bar.
+            local snap = _previewSnap or function(v) return v end
+            local scale = (_previewScale and _previewScale > 0) and _previewScale or 1
+            local titleH = (12 + 3) / scale
+            local gap = snap(8)
+            local total = 0
+            for i = 1, #stack do total = total + titleH + stack[i]:GetHeight() end
+            total = total + gap * math.max(0, #stack - 1)
+            -- Offsets from the container centre, bar edges on the preview's pixel grid.
+            local top = snap(total / 2)
+            for i = 1, #stack do
+                local f = stack[i]
+                local fh = f:GetHeight()
+                local barTop = snap(top - titleH)
+                f._pvY = barTop - fh / 2
+                f:ClearAllPoints()
+                f:SetPoint("CENTER", container, "CENTER", 0, f._pvY)
+                local fs = stackLbl[i]
+                if fs then
+                    fs:ClearAllPoints()
+                    fs:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 3)
+                    fs:Show()
+                end
+                top = barTop - fh - gap
+            end
+
+            -- At least the former fixed 80px; 20px above and below a taller stack.
+            local TOTAL_H = 0
+            if #stack > 0 then
+                TOTAL_H = math.max(80, math.ceil((total + 40) * _previewScale))
+            end
             _headerBaseH = TOTAL_H
-            if container then container:SetHeight(80) end
+            if container then container:SetHeight(math.max(1, TOTAL_H) / _previewScale) end
+            if _previewHintFS then
+                if TOTAL_H == 0 then
+                    _previewHintFS:Hide()
+                elseif not _previewBuilding and not IsPreviewHintDismissed() and not _previewHintFS:IsShown()
+                    and _previewHintFS:GetParent() and _previewHintFS:GetParent():GetParent() == _hintHdr[PAGE_DISPLAY] then
+                    _previewHintFS:Show()
+                end
+            end
             if not _previewBuilding then
-                local hintH = (_previewHintFS and _previewHintFS:IsShown()) and 35 or 0
+                local hintH = (TOTAL_H > 0 and _previewHintFS and _previewHintFS:IsShown()) and 35 or 0
                 EllesmereUI:UpdateContentHeaderHeight(TOTAL_H + hintH)
             end
+        end
+        -- The section eyes follow (BarDisplayPage_Options.lua).
+        if ns._erbPvEyes then
+            for _, refresh in pairs(ns._erbPvEyes) do refresh() end
         end
     end
 
@@ -918,14 +1256,13 @@ initFrame:SetScript("OnEvent", function(self)
         _classHdrEmpty = PoolGen(hdr) ~= nil
         local p = DB()
         if not p then return 0 end
-        if not HasClassResource() then return 0 end
-        _classHdrEmpty = nil
         _previewBuilding = true
         local _, classFile = UnitClass("player")
 
         local container = CreateFrame("Frame", nil, hdr)
         container:SetSize(hdrW, 100)
         container:SetPoint("CENTER", hdr, "CENTER", 0, 0)
+        _previewFrames.container = container
 
         -- Scale the preview so pixel sizes match real bars on screen: compensate the panel's effective scale against UIParent's.
         local previewScale = UIParent:GetEffectiveScale() / hdr:GetEffectiveScale()
@@ -1034,12 +1371,37 @@ initFrame:SetScript("OnEvent", function(self)
         do local _pvTA = sp.textAnchor or "CENTER"; countText:SetPoint(_pvTA, pipC, _pvTA, sp.textXOffset or 0, sp.textYOffset or 0) end
         pipC._countText = countText
 
+        -- Built for every spec (cheap, pooled); UpdatePreviewHeader shows what applies.
+        _previewFrames.powerBar = PreviewBar.Build(container)
+        _previewFrames.healthBar = PreviewBar.Build(container)
+        -- Element titles at header scale (the hint's size), on a child frame so
+        -- the header cache stashes them with the rest.
+        do
+            local lblHost = CreateFrame("Frame", nil, hdr)
+            lblHost:SetAllPoints(hdr)
+            lblHost:SetFrameLevel(container:GetFrameLevel() + 1)
+            local function Title(text)
+                local fs = EllesmereUI.MakeFont(lblHost, 11, nil, 1, 1, 1)
+                fs:SetAlpha(0.6)
+                fs:SetText(text)
+                fs:Hide()
+                return fs
+            end
+            _previewFrames.labels = {
+                classResource = Title(EllesmereUI.L("Class Resource")),
+                power = Title(EllesmereUI.L("Power Bar")),
+                health = Title(EllesmereUI.L("Health Bar")),
+            }
+        end
+
         UpdatePreviewHeader()
 
-        -- Hit overlays for preview click-to-scroll (pips only)
+        -- Hit overlays for preview click-to-scroll
         wipe(_hitOverlays)
         local overlayLevel = container:GetFrameLevel() + 20
         if pipC then CreateHitOverlay(pipC, "classResource", overlayLevel) end
+        CreateHitOverlay(_previewFrames.powerBar, "power", overlayLevel)
+        CreateHitOverlay(_previewFrames.healthBar, "health", overlayLevel)
         if pipC and pipC._countText then
             -- Padded frame around the text for easier clicking
             local ctHit = CreateFrame("Frame", nil, pipC)
@@ -1051,11 +1413,13 @@ initFrame:SetScript("OnEvent", function(self)
         if _previewHintFS and not _previewHintFS:GetParent() then
             _previewHintFS = nil
         end
-        local hintShown = not IsPreviewHintDismissed()
 
-        -- Fixed 80px preview area
-        local TOTAL_H = 80
-        _headerBaseH = TOTAL_H
+        -- Preview area height from the stack UpdatePreviewHeader laid out (0: nothing to show)
+        local TOTAL_H = _headerBaseH
+        local hintShown = TOTAL_H > 0 and not IsPreviewHintDismissed()
+        -- Built with nothing to show, or without a class resource (its row was
+        -- built for none, so a later spec or form with one needs a new build).
+        _classHdrEmpty = ((TOTAL_H == 0 or not HasClassResource()) and PoolGen(hdr) ~= nil) or nil
         if hintShown then
             if not _previewHintFS then
                 -- Thin non-clipping child frame so the cache system stashes/restores it properly on page switch.
@@ -1079,7 +1443,6 @@ initFrame:SetScript("OnEvent", function(self)
             _previewHintFS:Hide()
         end
 
-        container:SetHeight(80)
         _previewBuilding = false
         return TOTAL_H
     end
@@ -4155,7 +4518,7 @@ initFrame:SetScript("OnEvent", function(self)
         BAND_REPLACES_TIP = BAND_REPLACES_TIP, STAGGER_PCT_TIP = STAGGER_PCT_TIP, CLASS_COLORS = CLASS_COLORS,
         _clickMappings = _clickMappings, _previewHeaderBuilder = _previewHeaderBuilder, CLASSIC_SYNC_KEYS = CLASSIC_SYNC_KEYS,
         CLASSIC_MATCH_KEYS = CLASSIC_MATCH_KEYS, ShuffleCastBarIcons = ShuffleCastBarIcons, UpdateCastBarPreview = UpdateCastBarPreview,
-        _castBarPreviewBuilder = _castBarPreviewBuilder,
+        _castBarPreviewBuilder = _castBarPreviewBuilder, UpdatePreviewHeader = UpdatePreviewHeader, PreviewAvail = PreviewBar.Avail,
         SetDisplayPreviewValues = function(pipCount, fillPct)
             _previewPipCount = pipCount
             _previewBarFillPct = fillPct

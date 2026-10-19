@@ -206,6 +206,30 @@ function EllesmereUI.SpecOverrides_BmSeedSources(kind, gid)
     return values, order
 end
 
+--- READ-ONLY: the override groups with their own Buff Manager (kind "bm") or
+--- Debuff Manager ("dm"): spec group ids, then condition group ids, each list
+--- in creation order.
+function EllesmereUI.SpecOverrides_ManagerForkOwners(kind)
+    local s, cs
+    if kind == "dm" then
+        s, cs = GetDmStore(), GetCondDmStore()
+    else
+        s, cs = GetBmStore(), GetCondBmStore()
+    end
+    local spec, cond = {}, {}
+    if s and s.layouts then
+        for _, g in ipairs(GetGroups() or {}) do
+            if s.layouts[g.id] ~= nil then spec[#spec + 1] = g.id end
+        end
+    end
+    if cs and cs.layouts then
+        for _, g in ipairs(EllesmereUI.Conditions_GetGroups() or {}) do
+            if cs.layouts[g.id] ~= nil then cond[#cond + 1] = g.id end
+        end
+    end
+    return spec, cond
+end
+
 
 --- Page-build entry point for the RF Buff Manager page: call FIRST, before any
 --- content builds. Heals a stale live layer (so the page renders the edited

@@ -30,6 +30,14 @@ local _B = {}  -- beacon state table, populated later
 local Known = function(id) return id and (IsPlayerSpell(id) or IsSpellKnown(id)) end
 local _eabrInCombat = false
 local InCombat = function() return _eabrInCombat or (InCombatLockdown and InCombatLockdown()) end
+-- Whether important buffs ride the cursor right now: Attach Important Buffs to
+-- Cursor, and with its Only on Cursor in Combat option only while in combat.
+-- p = the profile's display table. Every combat edge refreshes the reminders,
+-- so their placement follows the moment combat starts or ends.
+local CursorAttachActive = function(p)
+    if not (p and p.cursorAttach) then return false end
+    return not p.cursorAttachCombatOnly or InCombat()
+end
 local isSecret = issecretvalue or function() return false end
 local AURA_SCAN_LIMIT = 255  -- Midnight supports more than the legacy 40 buff limit
 local DEFAULT_GLOW_COLOR = {r=1, g=0.776, b=0.376}
@@ -418,7 +426,7 @@ local NON_SECRET_SPELL_IDS = {
 local ns = select(2, ...)
 ns._abrInternals = {
     _B = _B, AURA_SCAN_LIMIT = AURA_SCAN_LIMIT, CacheInstanceInfo = CacheInstanceInfo,
-    DEFAULT_TEXT_COLOR = DEFAULT_TEXT_COLOR, EABR = EABR,
+    CursorAttachActive = CursorAttachActive, DEFAULT_TEXT_COLOR = DEFAULT_TEXT_COLOR, EABR = EABR,
     EnsureGlowModeMigrated = EnsureGlowModeMigrated, GetPlayerClass = GetPlayerClass,
     GetSpecID = GetSpecID, GetTextAnchorPoints = GetTextAnchorPoints, InCombat = InCombat,
     InMythicPlusKey = InMythicPlusKey, InPvPInstance = InPvPInstance,

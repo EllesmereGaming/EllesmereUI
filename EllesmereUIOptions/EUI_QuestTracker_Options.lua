@@ -677,7 +677,9 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return Cfg("autoTrackZone") or false end,
                   setValue=function(v) Set("autoTrackZone", v); ApplyWatches() end })
             EllesmereUI.BuildInlineCog(row._leftRegion, {
-                disabled = function() return not Cfg("filterEnabled") end,
+                -- Open while the header button shows too: it turns Filter Quests
+                -- off, and its own row is in here.
+                disabled = function() return not Cfg("filterEnabled") and not Cfg("filterHeaderToggle") end,
                 disabledTooltip = "Filter Quests",
                 title = "Filter Settings",
                 rows = {

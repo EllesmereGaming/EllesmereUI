@@ -95,10 +95,23 @@ local TALENT_REMINDER_ZONES = {
 
 local ZONE_BY_MAPID = {}
 local ZONE_BY_INSTANCEID = {}
+local ZONE_BY_NAME = {}
 for _, z in ipairs(TALENT_REMINDER_ZONES) do
     if z.mapID then ZONE_BY_MAPID[z.mapID] = z end
     if z.instanceID then ZONE_BY_INSTANCEID[z.instanceID] = z end
+    ZONE_BY_NAME[z.name] = z
 end
+
+-- How far a reminder's 'Not Needed' reminder reaches: "never", "season" (only in a
+-- zone of the picker list above, this season's instances) or "all" (any instance).
+-- Reminders saved before the choice existed hold only the old checkbox: on reads
+-- as "season" and off as "never" (read here, never written back).
+local function NotNeededMode(reminder)
+    local m = reminder.notNeededMode
+    if m == "never" or m == "season" or m == "all" then return m end
+    return reminder.showNotNeeded and "season" or "never"
+end
+_G._EABR_TR_NotNeededMode = NotNeededMode
 
 -- Expose for options page
 _G._EABR_TALENT_REMINDER_ZONES = TALENT_REMINDER_ZONES
@@ -218,6 +231,14 @@ local function Collect()
     local _, playerClass = UnitClass("player")
     local playerSpecID = GetSpecializationInfo(GetSpecialization() or 1)
     if not currentInstance then return end
+    -- The picker zone of this instance, by its ID or map first (locale-proof),
+    -- names the zone the reminders match below. Any picker zone is the reach of
+    -- "Current Season Instances", the instance's own name counting too.
+    local idZone = currentInstanceID and ZONE_BY_INSTANCEID[currentInstanceID]
+    local mapZone = currentMapID and ZONE_BY_MAPID[currentMapID]
+    local idName = idZone and idZone.name
+    local mapName = mapZone and mapZone.name
+    local inSeasonZone = idZone or mapZone or ZONE_BY_NAME[currentInstance]
 
     for _, reminder in ipairs(reminders) do
         -- One-time migration: stamp class/spec on old reminders
@@ -262,29 +283,22 @@ local function Collect()
             and reminder.specID ~= playerSpecID then
             -- not this spec
         else
-            -- Build name set cache once per reminder
-            if not reminder._nameSet and reminder.zoneNames then
-                local s = {}
-                for _, zn in ipairs(reminder.zoneNames) do s[zn] = true end
-                reminder._nameSet = s
-            end
-
+            -- The reminder's zones as saved, read on every pass so an edit on the
+            -- options page applies at once. One saved with the single zone of an
+            -- older version holds it in zoneName while it has no list.
             local zoneMatch = false
-            -- Locale-proof primary: current instanceID -> zone -> stored name.
-            if currentInstanceID and reminder._nameSet then
-                local idZone = ZONE_BY_INSTANCEID[currentInstanceID]
-                if idZone then
-                    zoneMatch = reminder._nameSet[idZone.name] or false
+            local zns = reminder.zoneNames
+            if zns and #zns > 0 then
+                for i = 1, #zns do
+                    local zn = zns[i]
+                    if zn == idName or zn == mapName or zn == currentInstance then
+                        zoneMatch = true
+                        break
+                    end
                 end
-            end
-            if not zoneMatch and currentMapID then
-                local mapZone = ZONE_BY_MAPID[currentMapID]
-                if mapZone and reminder._nameSet then
-                    zoneMatch = reminder._nameSet[mapZone.name] or false
-                end
-            end
-            if not zoneMatch and reminder._nameSet then
-                zoneMatch = reminder._nameSet[currentInstance] or false
+            else
+                local zn = reminder.zoneName
+                zoneMatch = zn ~= nil and (zn == idName or zn == mapName or zn == currentInstance)
             end
 
             local hasTalent = IsPlayerSpell(reminder.spellID) or IsSpellKnown(reminder.spellID)
@@ -295,12 +309,15 @@ local function Collect()
                     spellID = reminder.spellID,
                     label = reminder.spellName or "Unknown",
                 }
-            elseif not zoneMatch and reminder.showNotNeeded and hasTalent then
-                _missing[#_missing + 1] = {
-                    texture = Tex(reminder.spellID) or 134400,
-                    spellID = reminder.spellID,
-                    label = (reminder.spellName or "Unknown") .. " (N/N)",
-                }
+            elseif not zoneMatch and hasTalent then
+                local mode = NotNeededMode(reminder)
+                if mode == "all" or (mode == "season" and inSeasonZone) then
+                    _missing[#_missing + 1] = {
+                        texture = Tex(reminder.spellID) or 134400,
+                        spellID = reminder.spellID,
+                        label = (reminder.spellName or "Unknown") .. " (N/N)",
+                    }
+                end
             end
         end
     end

@@ -185,7 +185,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
         -- condition); the class resource bar never does.
         local DM_ITEMS = {
             { key = "unitFrames",   label = "Unit Frames" },
-            { key = "raidFrames",   label = "Raid Frames" },
+            { key = "raidFrames",   label = "Raid & Party Frames" },
             { key = "resourceBars", label = "Class Resource Bar" },
         }
         local function DMProvider(id)

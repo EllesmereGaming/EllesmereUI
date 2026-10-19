@@ -280,7 +280,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                 function(v)
                     local p = DB(); if not p then return end
                     p.castBar.stockBorderScale = v; RefreshCast()
-                    if EllesmereUI.ReapplyMatchPads then EllesmereUI.ReapplyMatchPads("ERB_CastBar") end
+                    EllesmereUI.ReapplyMatchPads("ERB_CastBar")
                 end,
                 { disabled = castOff, disabledTooltip = "Player Cast Bar" }) or
             EllesmereUI.BlizzStyle.Gate("castbar", EllesmereUI.BorderPxSliderCfg({ text = "Border Size",
@@ -542,7 +542,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                     local p = DB()
                     return (not p or p.castBar.classColored == true) and 1 or 0.3
                 end },
-    }, { disabled = function() return castFillBlizz or castOff() end,
+    }, { size = 20, disabled = function() return castFillBlizz or castOff() end,
          disabledTooltip = function()
              if castFillBlizz then return "This option requires Blizzard Style to be disabled" end
              return "Player Cast Bar"
@@ -580,6 +580,29 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                   set = function(v)
                       local p = DB(); if not p then return end
                       p.castBar.outOfRangeGray = v; RefreshCast()
+                  end },
+                -- Its color row shows only while the override is on.
+                { type = "toggle", label = "Uninterruptible Color Override",
+                  tooltip = "Casts that cannot be interrupted fill in their own color.",
+                  disabled = gradientOff, disabledTooltip = "Blizzard Style", requireState = "disabled",
+                  get = function() local p = DB(); return p and p.castBar.uninterruptibleOverride == true end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.castBar.uninterruptibleOverride = v; RefreshCast()
+                  end },
+                { type = "colorpicker", label = "Uninterruptible Color",
+                  hidden = function() local p = DB(); return not (p and p.castBar.uninterruptibleOverride) end,
+                  disabled = gradientOff, disabledTooltip = "Blizzard Style", requireState = "disabled",
+                  get = function()
+                      local p = DB(); local c = p and p.castBar
+                      return c and c.uninterruptibleR or 0.5, c and c.uninterruptibleG or 0.5,
+                          c and c.uninterruptibleB or 0.5
+                  end,
+                  set = function(r, g, b)
+                      local p = DB(); if not p then return end
+                      local c = p.castBar
+                      c.uninterruptibleR, c.uninterruptibleG, c.uninterruptibleB = r, g, b
+                      RefreshCast()
                   end },
             },
         })

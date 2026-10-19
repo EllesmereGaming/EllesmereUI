@@ -340,7 +340,7 @@ Register("chat",         "EllesmereUIChat",            "Chat",
 -- fill, or Classic's Blizzard Raid Bar), flush spacing, the stock role icons
 -- and absorb looks (the module's own seed; it also runs at enable for a
 -- profile that arrives already switched).
-Register("raidframes",   "EllesmereUIRaidFrames",      "Raid Frames",
+Register("raidframes",   "EllesmereUIRaidFrames",      "Raid & Party Frames",
     RFProfile, "useBlizzardStyle", "useClassicStyle", "RF_Style",
     function(p, styleKey)
         local rf = NS("EllesmereUIRaidFrames")
@@ -413,6 +413,7 @@ local SLOT_KEYS = {
                               "general.classicBorderAllSepSize", "general.classicBorderAllSepR",
                               "general.classicBorderAllSepG", "general.classicBorderAllSepB" },
                      seededBy = function(key)
+                         if key == "swingTimer.texture" then return "swingTimer.classicTextureSeeded" end
                          if key == "splitTex" or key:find("barTexture", 1, true) then
                              return "general.classicTextureSeeded"
                          end
@@ -457,6 +458,11 @@ if EllesmereUI.IS_FOREVER then
             if key == "appearance.colors.bgAlpha" then return "blizzBgAlphaSeeded" end
             return "classicSeeded"
         end }
+    -- The Swing Timer follows the Resource Bars row: its texture (the Classic
+    -- seed's, under a stamp of its own) rides that row's slots.
+    local rb = SLOT_KEYS.resourcebars
+    rb.keys[#rb.keys + 1] = "swingTimer.texture"
+    rb.stamps[#rb.stamps + 1] = "swingTimer.classicTextureSeeded"
 end
 -- WoW Forever's own seeds (the Nameplates Left Text its level box stands in
 -- for and the Elite/Rare Indicator box it starts unchecked, the Unit Frames

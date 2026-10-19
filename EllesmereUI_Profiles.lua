@@ -42,7 +42,7 @@ local ADDON_DB_MAP = {
     { folder = "EllesmereUIUnitFrames",        display = "Unit Frames",         svName = "EllesmereUIUnitFramesDB",        suffix = "UnitFrames"        },
     { folder = "EllesmereUICooldownManager",   display = "Cooldown Manager",    svName = "EllesmereUICooldownManagerDB",   suffix = "CooldownManager"   },
     { folder = "EllesmereUIResourceBars",      display = "Resource Bars",       svName = "EllesmereUIResourceBarsDB",      suffix = "ResourceBars"      },
-    { folder = "EllesmereUIRaidFrames",       display = "Raid Frames",         svName = "EllesmereUIRaidFramesDB",        suffix = "RaidFrames"        },
+    { folder = "EllesmereUIRaidFrames",       display = "Raid & Party Frames", svName = "EllesmereUIRaidFramesDB",        suffix = "RaidFrames"        },
     { folder = "EllesmereUIAuraBuffReminders", display = "AuraBuff Reminders",  svName = "EllesmereUIAuraBuffRemindersDB", suffix = "AuraBuffReminders" },
     -- v6.6 split-out addons (were previously bundled under the retired
     -- EllesmereUIBasics, removed from the suite v8.7.x).

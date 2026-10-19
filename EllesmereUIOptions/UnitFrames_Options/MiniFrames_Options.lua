@@ -39,6 +39,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
     local AddDarkModeBlock, BuildBarTexDropdown, BuildInactiveNotice, PP = env.AddDarkModeBlock, env.BuildBarTexDropdown, env.BuildInactiveNotice, env.PP
     local RegisterWidgetRefresh, ReloadAndUpdate, db, healthTextOrder = env.RegisterWidgetRefresh, env.ReloadAndUpdate, env.db, env.healthTextOrder
     local healthTextOrderBoss, healthTextValues = env.healthTextOrderBoss, env.healthTextValues
+    local TexBgRowCfg = env.TexBgRowCfg
     local _, h
     opts = opts or {}
 
@@ -134,6 +135,14 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                   ReloadAndUpdate()
               end },
             rightSlot);  y = y - h
+        -- Textured Background cog: while Bar Texture is Inherit the toggle
+        -- follows the main frame and shows its value, greyed.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(barTexRow._leftRegion, {
+                title = "Texture Settings",
+                rows = { TexBgRowCfg(function() return settingsTable end, ReloadAndUpdate, unitKey) },
+            })
+        end
 
         -- Boss Hover Borders: checkbox dropdown (Hover Border / Target Border,
         -- both default off) with inline color swatches. Enabling one recolors

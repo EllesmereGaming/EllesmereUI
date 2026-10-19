@@ -71,7 +71,7 @@ local function NameFormatSources()
     local rf = MNS("EllesmereUIRaidFrames")
     if rf and rf.db then
         local function partyOwn() return rf._IsPartySectionCustom("textDisplay") end
-        list[#list + 1] = { text = "Raid Frames", tooltip = "Raid and party frame names.",
+        list[#list + 1] = { text = "Raid & Party Frames", tooltip = "Raid and party frame names.",
             get = function()
                 local p = rf.db.profile
                 local m = ModeOf(p.nameFormat)

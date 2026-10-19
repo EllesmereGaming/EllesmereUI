@@ -475,7 +475,15 @@ function EllesmereUI.GetPlayerPowerOverride()
         or (C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo(spec))
         or nil
     local ov = db.profile.player and db.profile.player.powerTypeOverride
-    if sid and ov and ov[sid] and classAlt then
+    local choice = sid and ov and ov[sid]
+    if choice == "astral" then
+        -- Balance "Astral Power (Except Cat & Bear)", saved only under its spec
+        -- ID: Cat and Bear Form (form IDs 1 and 5) keep their own power, every
+        -- other form shows Astral Power.
+        local f = GetShapeshiftFormID()
+        if f ~= 1 and f ~= 5 then return Enum.PowerType.LunarPower end
+        return nil
+    elseif choice and classAlt then
         return classAlt[spec]
     elseif classDef and classDef[spec] ~= nil then
         return classDef[spec]

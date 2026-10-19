@@ -280,6 +280,15 @@ local function GetOrCreateCursorIcon(index)
     return f
 end
 
+-- Hides the cursor anchor once nothing rides it: no cursor icon and no beacon
+-- placed on it (_B.onCursor). Hidden, it stops following the cursor (OnHide
+-- unsubscribes); every placement shows it again.
+local function ReleaseCursorAnchor()
+    if cursorAnchor and #cursorActiveIcons == 0 and not _B.onCursor then
+        cursorAnchor:Hide()
+    end
+end
+
 local function HideCursorIcons()
     for i = 1, #cursorActiveIcons do
         local f = cursorActiveIcons[i]
@@ -291,6 +300,7 @@ local function HideCursorIcons()
     end
     wipe(cursorActiveIcons)
     if cursorAnchor then EllesmereUI.SetElementVisibility(cursorAnchor, false) end
+    ReleaseCursorAnchor()
 end
 
 local function ShowCursorIcon(iconIdx, m)
@@ -1074,5 +1084,5 @@ I.GetStrata, I.HideCombatIcons, I.HideCursorIcons = GetStrata, HideCombatIcons, 
 I.ICON_SIZE, I.iconPool, I.IsImportantBuff = ICON_SIZE, iconPool, IsImportantBuff
 I.LayoutCombatIcons, I.LayoutCursorIcons = LayoutCombatIcons, LayoutCursorIcons
 I.RemoveGlow, I.ResetEntryPool, I.ShowCombatIcon = RemoveGlow, ResetEntryPool, ShowCombatIcon
-I.ShowCursorIcon = ShowCursorIcon
+I.ShowCursorIcon, I.ReleaseCursorAnchor = ShowCursorIcon, ReleaseCursorAnchor
 I.broken = false

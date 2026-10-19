@@ -426,6 +426,22 @@ local activeSlotCount = 0
 local readyAlertShown = {}
 local readyAlertScratch = {} -- swapped with readyAlertShown each check: no per-check table
 
+-- The end of a countdown the engine times (a secret remaining Lua cannot read)
+-- comes from the Cooldown frame itself, the edge Blizzard's cooldown viewer
+-- refreshes on, and runs a full check at once. A done in its bind's own frame
+-- is the bind of an already-finished cooldown, and a frame reports at most four
+-- a second, so an engine that also reports expired binds cannot spin the check;
+-- the repaint's backstop check covers an end left unreported. The parent's
+-- visibility, not the frame's (a finished cooldown hides itself), drops the
+-- Clear of a display that is coming down.
+local RequestMovementCheck
+local function OnSlotCooldownDone(cd)
+    local now = GetTime()
+    if now == cd._maBoundAt or now - (cd._maDoneAt or 0) < 0.25 or not cd:GetParent():IsVisible() then return end
+    cd._maDoneAt = now
+    RequestMovementCheck()
+end
+
 local function CreateDisplaySlot()
     local slot = CreateFrame("Frame", nil, movementFrame)
     slot:SetSize(200, 40)
@@ -446,6 +462,7 @@ local function CreateDisplaySlot()
     slot.icon.cooldown = CreateFrame("Cooldown", nil, slot.icon, "CooldownFrameTemplate")
     slot.icon.cooldown:SetAllPoints(slot.icon.tex)
     slot.icon.cooldown:SetDrawEdge(false)
+    slot.icon.cooldown:SetScript("OnCooldownDone", OnSlotCooldownDone)
     if slot.icon.cooldown.SetCountdownFont then
         slot.icon.cooldown:SetCountdownFont("EUI_MovementAlertCdFont")
     end
@@ -463,6 +480,7 @@ local function CreateDisplaySlot()
     slot.cdNum = CreateFrame("Cooldown", nil, slot, "CooldownFrameTemplate")
     slot.cdNum:SetDrawSwipe(false)
     slot.cdNum:SetDrawEdge(false)
+    slot.cdNum:SetScript("OnCooldownDone", OnSlotCooldownDone)
     if slot.cdNum.SetDrawBling then slot.cdNum:SetDrawBling(false) end
     slot.cdNum:SetHideCountdownNumbers(false)
     if slot.cdNum.SetCountdownFont then
@@ -529,12 +547,11 @@ local function StyleSlot(slot)
     local frameH, frameW = movementFrame:GetHeight(), movementFrame:GetWidth()
     local fontSize = math.max(8, math.min(72, ma.textSize or 24))
     local tR, tG, tB = ResolveAlertColor("textColor", "textColorUseClass")
+    local showIcon = ma.barShowIcon ~= false
+    local texPath = (EllesmereUI.ResolveTexturePath(BAR_TEXTURES, ma.barTexture or "none", "Interface\\Buttons\\WHITE8x8"))
+        or "Interface\\Buttons\\WHITE8x8"
+    local iconSz = math.max(16, math.min(128, ma.iconSize or 40))
 
-    if not slot.text:SetFont(fontPath, fontSize, outline) then
-        slot.text:SetFont(FALLBACK_FONT, fontSize, outline)
-    end
-    slot.text:SetTextColor(tR, tG, tB)
-    slot.icon.timeText:SetTextColor(tR, tG, tB)
     -- Pin the engine's countdown FontString to the same font object and colour
     -- every pass: left alone it sizes itself against its host frame rather than
     -- the user's Text Size.
@@ -543,8 +560,26 @@ local function StyleSlot(slot)
         slot.cdNumText:SetTextColor(tR, tG, tB)
     end
 
+    -- The rest only when one of its inputs moved: every poll tick (10 per second
+    -- while an alert shows) re-shows each slot.
+    local st = slot._style
+    if not st then st = {}; slot._style = st end
+    if st.font == fontPath and st.outline == outline and st.size == fontSize
+       and st.r == tR and st.g == tG and st.b == tB and st.w == frameW and st.h == frameH
+       and st.icon == showIcon and st.tex == texPath and st.iconSz == iconSz then
+        return
+    end
+    st.font, st.outline, st.size, st.r, st.g, st.b = fontPath, outline, fontSize, tR, tG, tB
+    st.w, st.h, st.icon, st.tex, st.iconSz = frameW, frameH, showIcon, texPath, iconSz
+
+    if not slot.text:SetFont(fontPath, fontSize, outline) then
+        slot.text:SetFont(FALLBACK_FONT, fontSize, outline)
+    end
+    slot.text:SetTextColor(tR, tG, tB)
+    slot.icon.timeText:SetTextColor(tR, tG, tB)
+
     local barH = math.max(12, math.floor(frameH * 0.5))
-    local barW = frameW - (ma.barShowIcon ~= false and (barH + 8) or 0) - 10
+    local barW = frameW - (showIcon and (barH + 8) or 0) - 10
     slot.bar:SetSize(math.max(50, barW), barH)
     slot.bar.icon:SetSize(barH, barH)
     -- Text Size drives every mode's text: the free text, the bar's number,
@@ -562,15 +597,11 @@ local function StyleSlot(slot)
     -- user's Text Colour.
     movementCdFont:SetTextColor(tR, tG, tB)
 
-    -- Bar texture (change-guarded: StyleSlot runs on every poll tick)
-    local texPath = (EllesmereUI.ResolveTexturePath(BAR_TEXTURES, ma.barTexture or "none", "Interface\\Buttons\\WHITE8x8"))
-        or "Interface\\Buttons\\WHITE8x8"
     if slot.bar._lastTexPath ~= texPath then
         slot.bar:SetStatusBarTexture(texPath)
         slot.bar._lastTexPath = texPath
     end
 
-    local iconSz = math.max(16, math.min(128, ma.iconSize or 40))
     slot.icon:SetSize(iconSz, iconSz)
 end
 
@@ -598,6 +629,7 @@ end
 local function BindEngineCountdown(cd, duration)
     if duration and cd.SetCooldownFromDurationObject then
         cd:SetCooldownFromDurationObject(duration)
+        cd._maBoundAt = GetTime()
         return true
     end
     return false
@@ -800,7 +832,16 @@ local spellWasCast = {}
 local spellCastTime = {}
 local trackedSpellSet = {}
 local cacheResetTime = 0
-local movementCountdownTimer = nil
+-- The countdown repaint after a full check (ArmMovementRepaint): deadlines on a
+-- frame shown only while an alert is up, so no timer object is made per tick.
+-- movementRepaintAt: the next 100 ms repaint of the numbers Lua times;
+-- movementBackstopAt: the next full check while a slot's end is timed by the
+-- engine alone (math.huge otherwise). Its OnUpdate is set beside the check funnel.
+local movementRepaintAt = 0
+local movementBackstopAt = math.huge
+local MOVEMENT_BACKSTOP = 0.5
+local movementRepaintFrame = CreateFrame("Frame")
+movementRepaintFrame:Hide()
 local movementPreviewTicker = nil -- options-panel preview loop (nil = off)
 local CheckMovementCooldown
 local CancelAllRechargeTimers
@@ -1020,6 +1061,26 @@ local function CacheMovementSpells(fullReset)
         end
     end
 
+    -- The "ready" callout compares the spells shown on cooldown before and after
+    -- each check by spell ID. Carry each one over to its entry in the new list (a
+    -- form can swap a spell for its override) and drop the ones the list no
+    -- longer tracks, so a form or spec change never announces a spell that is
+    -- still on cooldown. The scratch table is wiped by the next check anyway.
+    if next(readyAlertShown) then
+        local carried = readyAlertScratch
+        wipe(carried)
+        for _, newEntry in ipairs(cachedMovementSpells) do
+            local newBase = newEntry.baseSpellId or newEntry.spellId
+            for _, oldEntry in pairs(readyAlertShown) do
+                if (oldEntry.baseSpellId or oldEntry.spellId) == newBase then
+                    carried[newEntry.spellId] = newEntry
+                    break
+                end
+            end
+        end
+        readyAlertShown, readyAlertScratch = carried, readyAlertShown
+    end
+
     wipe(trackedSpellSet)
     for _, entry in ipairs(cachedMovementSpells) do
         trackedSpellSet[entry.spellId] = entry.spellId
@@ -1116,7 +1177,7 @@ end
 --  Movement bar rendering
 -------------------------------------------------------------------------------
 local function CancelMovementCountdown()
-    if movementCountdownTimer then movementCountdownTimer:Cancel(); movementCountdownTimer = nil end
+    movementRepaintFrame:Hide()
 end
 
 -- buffActive engine-lane handles (declared here so HideMovementDisplay -- the
@@ -1138,6 +1199,9 @@ local function HideMovementDisplay(keepBuffLane)
     CancelMovementCountdown()
 end
 
+-- The countdown number's format per precision (0 or 1 decimal).
+local PREC_FMT = { [0] = "%.0f", [1] = "%.1f" }
+
 local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
     local ma = MA()
     local slot = GetDisplaySlot(index)
@@ -1145,30 +1209,42 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
     local displayMode = ma.displayMode or "text"
     -- Clamp to a clean 0/1 (matches the binary Show Decimal toggle). A legacy
     -- numeric-input value could be a string ("1") or a stored -0; feeding -0 to
-    -- the format below builds an invalid "%.-0f". This local drives all three
-    -- format sites (precFmt and the two bar-text SetFormattedText calls).
+    -- the format below builds an invalid "%.-0f". This local drives every
+    -- format site (PREC_FMT).
     local precision   = ((tonumber(ma.precision) or 1) > 0) and 1 or 0
     local spellName   = spellEntry.customText or spellEntry.spellName or "Movement"
     local spellIcon   = spellEntry.spellIcon
-    local precFmt     = "%." .. precision .. "f"
-    -- spellName is free-form user text (per-spell Custom Text); escape
-    -- literal "%" so SetFormattedText cannot misread it as a format
-    -- directive expecting arguments it never gets.
-    local escapedName = (spellName:gsub("%%", "%%%%"))
-    -- Three fixed text arrangements: two read as "No <ability>" (the alert
-    -- shows while the spell is unavailable), text_d is the bare number; the
-    -- legacy "text" value keeps the old default's duration-first order.
-    local fmtStr
-    if displayMode == "text_nd" then
-        fmtStr = "No " .. escapedName .. " " .. precFmt
-    elseif displayMode == "text_d" then
-        fmtStr = precFmt
-    else
-        fmtStr = precFmt .. " No " .. escapedName
+    -- The text format follows the mode, the precision and the name only, so it
+    -- is built when one of them changes, not on every poll tick.
+    local fmtStr = spellEntry._maFmt
+    if spellEntry._maFmtMode ~= displayMode or spellEntry._maFmtPrec ~= precision
+       or spellEntry._maFmtName ~= spellName then
+        local precFmt = PREC_FMT[precision]
+        -- spellName is free-form user text (per-spell Custom Text); escape
+        -- literal "%" so SetFormattedText cannot misread it as a format
+        -- directive expecting arguments it never gets.
+        local escapedName = (spellName:gsub("%%", "%%%%"))
+        -- Three fixed text arrangements: two read as "No <ability>" (the alert
+        -- shows while the spell is unavailable), text_d is the bare number; the
+        -- legacy "text" value keeps the old default's duration-first order.
+        if displayMode == "text_nd" then
+            fmtStr = "No " .. escapedName .. " " .. precFmt
+        elseif displayMode == "text_d" then
+            fmtStr = precFmt
+        else
+            fmtStr = precFmt .. " No " .. escapedName
+        end
+        spellEntry._maFmt, spellEntry._maFmtMode = fmtStr, displayMode
+        spellEntry._maFmtPrec, spellEntry._maFmtName = precision, spellName
     end
 
     slot.text:Hide(); slot.icon:Hide(); slot.bar:Hide()
     HideEngineCountdown(slot)
+    -- How the repaint keeps this slot current until the next full check (see
+    -- RepaintMovementSlots): "num" = a countdown Lua paints, "fill" = a bar
+    -- filled from a secret duration object, "engine" = a number the engine
+    -- draws, "static" = nothing that moves. Each branch below sets its own.
+    slot._maKind = "static"
 
     -- Start-recovery branch. GetSpellCooldown's timeUntilEndOfStartRecovery
     -- is ALWAYS present as a number on this client (0 outside an actual
@@ -1180,6 +1256,11 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
     local recov = cdInfo and cdInfo.timeUntilEndOfStartRecovery
     if issecretvalue and issecretvalue(recov) then recov = nil end
     if type(recov) == "number" and recov > 0 and not IsLockoutWindow(spellEntry, recov) then
+        -- Repainted until the window ends or drops under MIN_REAL_COOLDOWN, where
+        -- IsLockoutWindow reclassifies it (IsLockoutWindow(entry, 0) asks whether
+        -- this entry has that threshold at all).
+        slot._maKind, slot._maEnd = "num", GetTime() + recov
+        slot._maFloor = IsLockoutWindow(spellEntry, 0) and MIN_REAL_COOLDOWN or 0
         if displayMode == "icon" and spellIcon then
             slot.icon.tex:SetTexture(spellIcon)
             -- Recharge swipe: derived from the entry's recharge duration
@@ -1187,11 +1268,13 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
             local rechDur = spellEntry.rechargeDuration or 0
             if rechDur > 0 then
                 slot.icon.cooldown:SetCooldown(GetTime() - (rechDur - recov), rechDur)
+                slot.icon.cooldown._maBoundAt = GetTime()
             else
                 slot.icon.cooldown:Clear()
             end
             slot.icon.cooldown:SetHideCountdownNumbers(true)
-            slot.icon.timeText:SetFormattedText("%." .. precision .. "f", recov)
+            slot.icon.timeText:SetFormattedText(PREC_FMT[precision], recov)
+            slot._maOut, slot._maFmt = "icon", PREC_FMT[precision]
             slot.icon:Show()
         elseif displayMode == "bar" then
             local rechDur = spellEntry.rechargeDuration or 0
@@ -1201,12 +1284,14 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
             slot.bar:SetStatusBarColor(r, g, b)
             slot.bar.text:SetShown(ma.barShowDuration ~= false)
             if ma.barShowDuration ~= false then
-                slot.bar.text:SetFormattedText("%." .. precision .. "f", recov)
+                slot.bar.text:SetFormattedText(PREC_FMT[precision], recov)
             end
+            slot._maOut, slot._maFmt, slot._maBarText = "bar", PREC_FMT[precision], ma.barShowDuration ~= false
             if ma.barShowIcon ~= false and spellIcon then slot.bar.icon:SetTexture(spellIcon); slot.bar.icon:Show() else slot.bar.icon:Hide() end
             slot.bar:Show()
         else
             slot.text:SetFormattedText(fmtStr, recov)
+            slot._maOut, slot._maFmt = "text", fmtStr
             slot.text:Show()
         end
         slot:Show()
@@ -1280,16 +1365,20 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
             else
                 slot.icon.cooldown:SetCooldown(cdStart, cdDuration, cdModRate)
             end
+            slot.icon.cooldown._maBoundAt = GetTime()
             if hasSecretDuration then
                 -- Secret timing: only the engine can render the number.
                 slot.icon.cooldown:SetHideCountdownNumbers(false)
                 slot.icon.timeText:SetText("")
+                slot._maKind = "engine"
             else
                 -- Our own countdown text for readable durations, refreshed by
-                -- the poll every tick; the engine numbers are suppressed here
+                -- the repaint every tick; the engine numbers are suppressed here
                 -- and serve only the secret branch.
                 slot.icon.cooldown:SetHideCountdownNumbers(true)
-                slot.icon.timeText:SetFormattedText("%." .. precision .. "f", cdRemaining)
+                slot.icon.timeText:SetFormattedText(PREC_FMT[precision], cdRemaining)
+                slot._maKind, slot._maEnd, slot._maFloor = "num", GetTime() + cdRemaining, 0
+                slot._maOut, slot._maFmt = "icon", PREC_FMT[precision]
             end
             slot.icon:Show()
         else
@@ -1297,9 +1386,13 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
             -- guard as the text branch below.
             if not showRemaining then
                 slot.text:SetText("No " .. spellName)
-                if fromDuration then ShowEngineCountdown(slot, displayMode, duration) end
+                if fromDuration and ShowEngineCountdown(slot, displayMode, duration) then
+                    slot._maKind = "engine"
+                end
             else
                 slot.text:SetFormattedText(fmtStr, cdRemaining)
+                slot._maKind, slot._maEnd, slot._maFloor = "num", GetTime() + cdRemaining, 0
+                slot._maOut, slot._maFmt = "text", fmtStr
             end
             slot.text:Show()
         end
@@ -1319,6 +1412,14 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
             -- hasSecretDuration would freeze the bar at 100% for no reason.
             slot.bar:SetMinMaxValues(0, cdDuration)
             slot.bar:SetValue(cdRemaining)
+            -- The repaint moves the fill: from our own remaining when readable,
+            -- from the duration object (secret values allowed) when not.
+            if showRemaining then
+                slot._maKind, slot._maEnd, slot._maFloor = "num", GetTime() + cdRemaining, 0
+                slot._maOut, slot._maFmt, slot._maBarText = "bar", PREC_FMT[precision], ma.barShowDuration ~= false
+            elseif fromDuration then
+                slot._maKind, slot._maDur = "fill", duration
+            end
         end
         -- The NUMBER is the part Lua cannot produce, so it comes from our own
         -- formatter when readable and from the engine when not.
@@ -1326,7 +1427,7 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
             slot.bar.text:SetShown(false)
         elseif showRemaining then
             slot.bar.text:SetShown(true)
-            slot.bar.text:SetFormattedText("%." .. precision .. "f", cdRemaining)
+            slot.bar.text:SetFormattedText(PREC_FMT[precision], cdRemaining)
         else
             slot.bar.text:SetShown(false)
             if fromDuration then ShowEngineCountdownCentred(slot, slot.bar, duration) end
@@ -1356,9 +1457,13 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
             -- engine countdown is centred on the slot instead of beside it.
             slot.text:SetText(displayMode == "text_d" and "" or ("No " .. spellName))
             -- The number Lua cannot format, drawn by the engine.
-            if fromDuration then ShowEngineCountdown(slot, displayMode, duration) end
+            if fromDuration and ShowEngineCountdown(slot, displayMode, duration) then
+                slot._maKind = "engine"
+            end
         else
             slot.text:SetFormattedText(fmtStr, cdRemaining)
+            slot._maKind, slot._maEnd, slot._maFloor = "num", GetTime() + cdRemaining, 0
+            slot._maOut, slot._maFmt = "text", fmtStr
         end
         slot.text:Show()
     end
@@ -1631,8 +1736,8 @@ end
 -- Same-frame coalescer for the check: cooldown/usable/charge storms and player
 -- aura batches fire several times per frame, and every check re-queries each
 -- tracked spell, so duplicates collapse into ONE check on the next OnUpdate.
--- The frame is shown only while a check is pending (zero cost idle); the
--- 100 ms countdown repaint rides the same funnel so it can never double up
+-- The frame is shown only while a check is pending (zero cost idle); the full
+-- checks the repaint asks for ride the same funnel so they can never double up
 -- with an event-driven check in the same frame.
 local movementCheckCharges = false
 local movementCheckFrame = CreateFrame("Frame")
@@ -1645,13 +1750,70 @@ movementCheckFrame:SetScript("OnUpdate", function(self)
     end
     CheckMovementCooldown()
 end)
-local function RequestMovementCheck()
+RequestMovementCheck = function()
     movementCheckFrame:Show()
 end
 local function RequestMovementCheckWithCharges()
     movementCheckCharges = true
     movementCheckFrame:Show()
 end
+
+-- One repaint over the shown slots between full checks: a countdown Lua times
+-- gets its new number (and bar fill), a bar timed by a secret duration object
+-- its new fill; the engine draws every other number and swipe itself, and the
+-- visibility curves read the cooldown's total, which only an event changes.
+-- False once a countdown has run out or a start-recovery window has dropped
+-- under its lockout threshold: the caller runs a full check instead.
+local function RepaintMovementSlots(now)
+    for i = 1, activeSlotCount do
+        local slot = displayPool[i]
+        local kind = slot._maKind
+        if kind == "num" then
+            local rem = slot._maEnd - now
+            if rem <= 0 or rem < slot._maFloor then return false end
+            local out = slot._maOut
+            if out == "text" then
+                slot.text:SetFormattedText(slot._maFmt, rem)
+            elseif out == "icon" then
+                slot.icon.timeText:SetFormattedText(slot._maFmt, rem)
+            else
+                slot.bar:SetValue(rem)
+                if slot._maBarText then slot.bar.text:SetFormattedText(slot._maFmt, rem) end
+            end
+        elseif kind == "fill" then
+            slot.bar:SetValue(slot._maDur:GetRemainingDuration())
+        end
+    end
+    return true
+end
+
+-- After a full check with slots up: repaint every 100 ms while a slot shows a
+-- countdown Lua paints, and run the next full check by MOVEMENT_BACKSTOP while
+-- a slot's end is timed by the engine alone (its OnCooldownDone normally runs
+-- that check first; the backstop only bounds an end the engine leaves unreported).
+local function ArmMovementRepaint(count)
+    local now = GetTime()
+    local tick, untimed = false, false
+    for i = 1, count do
+        local kind = displayPool[i]._maKind
+        if kind == "num" or kind == "fill" then tick = true end
+        if kind ~= "num" then untimed = true end
+    end
+    movementBackstopAt = untimed and (now + MOVEMENT_BACKSTOP) or math.huge
+    movementRepaintAt = tick and (now + 0.1) or movementBackstopAt
+    movementRepaintFrame:Show()
+end
+
+movementRepaintFrame:SetScript("OnUpdate", function(self)
+    local now = GetTime()
+    if now < movementRepaintAt then return end
+    if now >= movementBackstopAt or not RepaintMovementSlots(now) then
+        self:Hide()
+        RequestMovementCheck()
+        return
+    end
+    movementRepaintAt = math.min(now + 0.1, movementBackstopAt)
+end)
 
 CheckMovementCooldown = function()
     -- The options-panel preview owns the display while it runs; the real
@@ -1717,10 +1879,11 @@ CheckMovementCooldown = function()
     EnsureBuffAlertLane()
     RepositionBuffAlertHost(count)
 
-    -- "Ready" TTS callout: fires once per spell exactly when it drops out of
-    -- the on-cooldown set above (not while it sits ready, and not on the
-    -- first poll after the feature/spec/class gates just opened up).
-    if ma.maTtsEnabled then
+    -- "Ready" callout (text to speech, else the picked sound): fires once per
+    -- spell exactly when it drops out of the on-cooldown set above (not while
+    -- it sits ready, and not on the first poll after the feature/spec/class
+    -- gates just opened up).
+    if ma.maTtsEnabled or (ma.maSoundKey and ma.maSoundKey ~= "none") then
         for spellId, entry in pairs(readyAlertShown) do
             if not nowShownReady[spellId] then
                 FireTrackerAlert("ma", entry.customText or entry.spellName)
@@ -1738,9 +1901,9 @@ CheckMovementCooldown = function()
         activeSlotCount = count
         LayoutDisplaySlots(count)
         movementFrame:Show()
-        CancelMovementCountdown()
-        -- Fixed 100ms display refresh (smooth 1-decimal countdown).
-        movementCountdownTimer = C_Timer.NewTimer(0.1, RequestMovementCheck)
+        -- Smooth countdown repaint (and the backstop check) from here; every
+        -- check moves both deadlines.
+        ArmMovementRepaint(count)
     else
         activeSlotCount = 0
         -- EnsureBuffAlertLane just showed/parked the host for this pass; leave

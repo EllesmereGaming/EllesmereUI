@@ -367,6 +367,11 @@ end
 -- buttonless until the next reload. Returns true when anything was built. The
 -- CALLER owns the binding rebuild: one caller is UpdateKeybinds itself. On ns:
 -- not a file local.
+-- Never status is asked of ns.IsNeverBar, the predicate the load-time skip
+-- used, not the ns._eabBarNever map: the map fills on the first
+-- RefreshRuntimeVisibility, and the login keybind build runs before it, so
+-- reading the empty map there built every skipped bar one frame after load
+-- (plus a second full apply).
 ns._eabBuildSkippedBars = function()
     if not next(ns._eabBarNoButtons) or InCombatLockdown() then return false end
     local built = false
@@ -374,7 +379,7 @@ ns._eabBuildSkippedBars = function()
         local key = info.key
         local frame = barFrames[key]
         if frame and ns._eabBarNoButtons[key]
-           and (not ns._eabBarNever[key] or ns.BarHasBoundKeys(info)) then
+           and (not ns.IsNeverBar(info) or ns.BarHasBoundKeys(info)) then
             ns.BuildBarButtons(info, frame, false)
             LayoutBar(key)
             -- Still hidden (keybind case, or a reveal whose driver has not

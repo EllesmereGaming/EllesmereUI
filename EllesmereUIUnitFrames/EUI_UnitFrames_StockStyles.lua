@@ -862,6 +862,7 @@ function ns.UF_ApplyBlizzBarArt(frame)
             ns.UF_SeatBarMask(mask, health, HB)
             ns.UF_SetMask(fill, mask)
             if health.bg then ns.UF_SetMask(health.bg, mask) end
+            if health._euiBgTex then ns.UF_SetMask(health._euiBgTex, mask) end  -- Textured Background layer
             ns.UF_BlizzBarShadow(health, mask, HB.h)
             -- Absorb fills ride the same rounded ends.
             for i = 1, 5 do
@@ -874,6 +875,7 @@ function ns.UF_ApplyBlizzBarArt(frame)
             if mask then
                 if fill then pcall(fill.RemoveMaskTexture, fill, mask) end
                 if health.bg then pcall(health.bg.RemoveMaskTexture, health.bg, mask) end
+                if health._euiBgTex then pcall(health._euiBgTex.RemoveMaskTexture, health._euiBgTex, mask) end
                 for i = 1, #bars do
                     local sb = bars[i]
                     local t = sb and sb.GetStatusBarTexture and sb:GetStatusBarTexture()

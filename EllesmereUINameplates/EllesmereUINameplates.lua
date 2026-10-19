@@ -556,6 +556,8 @@ local defaults = {
     textSlotBottomLeftClassColor = false, textSlotBottomRightClassColor = false,
     healthBarTexture = "none",  -- bar texture overlay
     castBarTexture = "none",
+    healthTextureBg = false,  -- Textured Background (Bar Texture cog)
+    castTextureBg = false,    -- Textured Background (Cast Bar Texture cog)
 }
 local BAR_W = 150
 ns.defaults = defaults

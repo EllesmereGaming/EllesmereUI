@@ -1748,9 +1748,10 @@ function AK.EnsureKickIcon(button, d, held)
 end
 
 -- Which of a group's buttons can ever show an aura: the fallback for buttons
--- that cannot run animations themselves (AK.CanRunAnimations false; on a
--- client with the API the glow engine registers its groups instead and never
--- asks this). The engine hands a group's buttons out from the top of a stack:
+-- that cannot run animations themselves (AK.CanRunAnimations false), and the
+-- gate Nameplates puts on its glow setup on every client (a bound host on a
+-- button that never shows would only cost build time and memory). The engine
+-- hands a group's buttons out from the top of a stack:
 -- AddAuraGroup builds one batch of GROUP_BATCH up front, an acquire pops the
 -- last free button and a release pushes it back on top
 -- (Blizzard_AuraContainerFrameProviders). While the
