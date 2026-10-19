@@ -703,6 +703,53 @@ function OnLineClick(self, button)
     end
 end
 
+-- One icon line per reward; Blizzard's tooltip helper shows one item, no choices.
+-- Uncached items redraw the tooltip once loaded, if owner still holds it.
+local function AddRewardLine(name, texture, count, quality, itemID, owner)
+    if not name then
+        local item = itemID and Item:CreateFromItemID(itemID)
+        if item and not item:IsItemEmpty() and not item:IsItemDataCached() then
+            item:ContinueOnItemLoad(function()
+                if GameTooltip:IsOwned(owner) then OnLineEnter(owner) end
+            end)
+        end
+        return
+    end
+    local text = count and count > 1
+        and BONUS_OBJECTIVE_REWARD_WITH_COUNT_FORMAT:format(texture, HIGHLIGHT_FONT_COLOR:WrapTextInColorCode(count), name)
+        or BONUS_OBJECTIVE_REWARD_FORMAT:format(texture, name)
+    local c = quality and ColorManager.GetColorDataForItemQuality(quality)
+    if c then GameTooltip:AddLine(text, c.r, c.g, c.b) else GameTooltip:AddLine(text, 1, 1, 1) end
+end
+
+local function AddRewards(questID, owner)
+    if not C_QuestLog.ShouldShowQuestRewards(questID) then return end
+    local xp = GetQuestLogRewardXP(questID)
+    local money = GetQuestLogRewardMoney(questID)
+    local currencies = C_QuestLog.GetQuestRewardCurrencies(questID)
+    local numItems = GetNumQuestLogRewards(questID)
+    local numChoices = GetNumQuestLogChoices(questID)
+    if xp <= 0 and money <= 0 and #currencies == 0 and numItems == 0 and numChoices == 0 then return end
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine(QUEST_REWARDS, NORMAL_FONT_COLOR:GetRGB())
+    if xp > 0 then GameTooltip:AddLine(BONUS_OBJECTIVE_EXPERIENCE_FORMAT:format(xp), 1, 1, 1) end
+    if money > 0 then GameTooltip:AddLine(GetMoneyString(money), 1, 1, 1) end
+    for _, cur in ipairs(currencies) do
+        AddRewardLine(cur.name, cur.texture, cur.totalRewardAmount, cur.quality)
+    end
+    for i = 1, numItems do
+        local name, texture, count, quality, _, itemID = GetQuestLogRewardInfo(i, questID)
+        AddRewardLine(name, texture, count, quality, itemID, owner)
+    end
+    if numChoices > 0 then
+        GameTooltip:AddLine(REWARD_CHOICES, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, true)
+        for i = 1, numChoices do
+            local name, texture, count, quality, _, itemID = GetQuestLogChoiceInfo(i, questID)
+            AddRewardLine(name, texture, count, quality, itemID, owner)
+        end
+    end
+end
+
 function OnLineEnter(self)
     UpdateHover()
     if self.kind ~= "quest" then return end
@@ -712,6 +759,7 @@ function OnLineEnter(self)
     else
         GameTooltip:SetHyperlink(GetQuestLink(self.id))
     end
+    AddRewards(self.id, self)
     GameTooltip:Show()
 end
 
