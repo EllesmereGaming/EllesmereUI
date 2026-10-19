@@ -8386,3 +8386,5 @@ L["Only use food IDs entered under Preferred Food IDs. If none of those items ar
 
 L["Preview screen warning"] = "Bildschirmwarnung in der Vorschau anzeigen"
 L["Cannot preview in combat"] = "Im Kampf ist keine Vorschau möglich"
+
+L["Shift-left-click: select next food."] = "Umschalt-Linksklick: nächstes Futter auswählen."

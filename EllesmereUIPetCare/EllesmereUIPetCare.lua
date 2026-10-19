@@ -110,6 +110,8 @@ local function Tooltip(self)
         lines[#lines + 1] = ItemName(chosen.id) .. " x" .. chosen.count
         if clicksActive then
             lines[#lines + 1] = EllesmereUI.L("Left-click: feed selected food. Shift-left-click: select next food.")
+        else
+            lines[#lines + 1] = EllesmereUI.L("Shift-left-click: select next food.")
         end
     end
     EllesmereUI.ShowWidgetTooltip(self, table.concat(lines, "\n"))
@@ -195,8 +197,9 @@ function ns.Refresh(advance)
     local alive = hunterPet and UnitExists("pet") and not UnitIsDead("pet")
     candidates = alive and Scan(cfg) or {}
     local previous = chosen and chosen.id
-    chosen = M.Select(candidates, cfg.selectedFood, false)
-    if cfg.selectedFood and (not chosen or chosen.id ~= cfg.selectedFood) then cfg.selectedFood = nil end
+    chosen = M.Select(candidates, cfg.selectedFood or (advance and previous), advance)
+    if advance then cfg.selectedFood = chosen and chosen.id or nil
+    elseif cfg.selectedFood and (not chosen or chosen.id ~= cfg.selectedFood) then cfg.selectedFood = nil end
     local effect, restricted = FeedingEffect()
     feeding = effect
     local usable = known and C_Spell.IsSpellUsable(FEED_SPELL)
@@ -205,10 +208,6 @@ function ns.Refresh(advance)
     local glowSpec = ready and mood and mood <= cfg.glowAt
         and G.SpecFromPrefix(spec, cfg, "feedGlow", 1, 0.7, 0.15)
     if glowSpec then
-        if advance then
-            chosen = M.Select(candidates, cfg.selectedFood or previous, true)
-            cfg.selectedFood = chosen.id
-        end
         G.StartSpecGlow(glow, glowSpec, h:GetWidth(), h:GetHeight(), "icon")
         clicksActive = true
     else StopGlow() end

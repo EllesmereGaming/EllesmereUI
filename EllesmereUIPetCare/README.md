@@ -4,8 +4,8 @@ A separate hunter QoL addon for WoW Forever, integrated into EllesmereUI's QoL A
 
 Enable **Pet Care → Pet Feeding → Enable Pet Feeding**. The pet happiness icon must also be enabled under **Unit Frames → Pet**. `/epet` opens this module.
 
-- Left-click the pet happiness icon to feed the selected suitable food only while its feeding glow is active. With no glow, both normal and Shift-left-click do nothing.
-- While glowing, Shift-left-click selects the next available food without feeding it.
+- Left-click the pet happiness icon to feed the selected suitable food only while its feeding glow is active. With no glow, normal left-click does nothing; Shift-left-click can still cycle suitable food.
+- Out of combat, Shift-left-click selects the next available food without feeding it, including while happy, eating or with the glow disabled.
 - Hover for the selected food, total carried quantity, pet mood and diet.
 - A happiness-icon preview in settings demonstrates the selected glow. The eye icon beside the warning cog/toggle toggles a warning even when the pet is happy; the warning cog adjusts position and font size live. Test warnings stop on combat, module/page changes, closing, or collapsing settings.
 - A shared Ellesmere glow highlights feeding opportunities; its style, color and pixel-glow settings use the normal glow picker.
