@@ -1,0 +1,15 @@
+## Interface: 16001
+## AllowLoadGameType: camelot
+## Title: |cff0cd29fEllesmereUI|r Pet Care
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Hunter pet feeding on the happiness icon, with food preferences and glow reminders.
+## Author: EllesmereUI community
+## Version: 0.1.0
+## Dependencies: EllesmereUI, EllesmereUIUnitFrames
+## SavedVariables: EllesmereUIPetCareDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+EllesmereUIPetCare_Foods.lua
+EllesmereUIPetCare_Model.lua
+EllesmereUIPetCare.lua
