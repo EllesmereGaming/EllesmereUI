@@ -34,6 +34,7 @@ do
     qt.customBgFade            = true      -- fade it in and out
     qt.customItemButtons       = false     -- quest item buttons beside titles
     qt.customFlashUpdates      = false     -- flash objectives that just changed
+    qt.customClickAction       = "collapse"  -- collapse / map / details
 end
 
 local PAD      = 8
@@ -149,7 +150,7 @@ end
 -------------------------------------------------------------------------------
 -- Lines: one pooled Button per row (zone header, quest title, objective).
 -------------------------------------------------------------------------------
-local OnLineClick, OnLineEnter, OnLineLeave, ToggleFocus, SyncItems  -- defined below
+local OnLineClick, OnLineEnter, OnLineLeave, ToggleFocus, SyncItems, HideOverlay  -- defined below
 
 -- Outline and shadow follow the Fonts page's Module Outline.
 local function StyleText(fs, size)
@@ -333,6 +334,7 @@ end
 
 local function ScrollTo(v)
     scroll:SetVerticalScroll(math.max(0, math.min(v, MaxScroll())))
+    HideOverlay()
     UpdateThumb()
     SyncItems()
 end
@@ -528,6 +530,7 @@ local function Render()
     if not frame then return end
     if not frame:IsShown() then stale = true; return end
     stale = false
+    HideOverlay()
     frame:SetMouseMotionEnabled(HoverWanted() and true or false)
     if not Cfg("customFlashUpdates") then wipe(prevObj) end
     wipe(itemWant)
@@ -659,6 +662,9 @@ function ToggleFocus(questID)
     C_SuperTrack.SetSuperTrackedQuestID(cur == questID and 0 or questID)
 end
 
+-- For the details window (Details.lua).
+EQT.CustomQuestActions = { Focus = ToggleFocus, Untrack = Untrack, Abandon = Abandon }
+
 local function ShowMenu(owner, questID)
     MenuUtil.CreateContextMenu(owner, function(_, root)
         root:CreateTitle(C_QuestLog.GetTitleForQuestID(questID) or "")
@@ -693,6 +699,12 @@ function OnLineClick(self, button)
         if button == "RightButton" then ShowMenu(self, id); return end
         if IsModifiedClick("CHATLINK") and ChatFrameUtil.TryInsertQuestLinkForQuestID(id) then return end
         if IsModifiedClick("QUESTWATCHTOGGLE") then Untrack(id); return end
+        local action = Cfg("customClickAction") or "collapse"
+        if action ~= "collapse" and not IsModifierKeyDown() then
+            if action == "details" then EQT.ShowQuestDetails(id) end
+            -- map: the overlay's job; reached only in combat, where it is off.
+            return
+        end
         if Cfg("customCollapseCompleted") and C_QuestLog.IsComplete(id) then
             local open = CharDB().ctDoneOpen
             open[id] = not open[id] or nil
@@ -703,56 +715,101 @@ function OnLineClick(self, button)
     end
 end
 
+-------------------------------------------------------------------------------
+-- Open Quest Log overlay (customClickAction "map"). Opening the map from
+-- addon code taints its pins (SetPassThroughButtons blocked in combat), and a
+-- macro /run carries ForceTaint_Strong into them, so one secure button clicks
+-- the quest's block in Blizzard's muted tracker, whose own header click opens
+-- the map. Placed over the hovered quest line by screen position like the
+-- item buttons. Out of combat only: it hides when combat starts, and a click
+-- then does nothing. Open Quest Details uses our own window (Details.lua).
+-------------------------------------------------------------------------------
+local QUEST_MODULES = { "QuestObjectiveTracker", "CampaignQuestObjectiveTracker" }
+local overlay
+
+-- The header button of Blizzard's block for the quest, if it has one.
+local function BlizzardHeader(questID)
+    for _, name in ipairs(QUEST_MODULES) do
+        local module = _G[name]
+        local block = module and module.GetExistingBlock and module:GetExistingBlock(questID)
+        if block and block.HeaderButton then return block.HeaderButton end
+    end
+end
+
+local function Overlay()
+    if overlay then return overlay end
+    overlay = CreateFrame("Button", nil, itemLayer, "SecureActionButtonTemplate")
+    overlay:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    -- Unmodified left click only (type1 set per quest); the rest goes to PostClick.
+    overlay:SetAttribute("useOnKeyDown", false)
+    overlay:SetScript("PostClick", function(self, button)
+        if button == "LeftButton" and not IsModifierKeyDown() then return end
+        OnLineClick(self.line, button)
+    end)
+    overlay:SetScript("OnEnter", function(self) OnLineEnter(self.line) end)
+    overlay:SetScript("OnLeave", function()
+        OnLineLeave()
+        HideOverlay()
+    end)
+    return overlay
+end
+
+function HideOverlay()
+    if overlay and not InCombatLockdown() then overlay:Hide() end
+end
+
+-- Covers the part of the line inside the scroll view.
+local function ShowOverlay(l)
+    if InCombatLockdown() or Cfg("customClickAction") ~= "map" then return end
+    local header = BlizzardHeader(l.id)
+    if not header then return end
+    local top, bottom = math.min(l:GetTop(), scroll:GetTop()), math.max(l:GetBottom(), scroll:GetBottom())
+    if top <= bottom then return end
+    local o = Overlay()
+    local s = l:GetEffectiveScale() / o:GetEffectiveScale()
+    o:ClearAllPoints()
+    o:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l:GetLeft() * s, top * s)
+    o:SetSize(l:GetWidth() * s, (top - bottom) * s)
+    o:SetAttribute("type1", "click")
+    o:SetAttribute("clickbutton1", header)
+    o.line = l
+    o:Show()
+end
+
 -- One icon line per reward; Blizzard's tooltip helper shows one item, no choices.
 -- Uncached items redraw the tooltip once loaded, if owner still holds it.
-local function AddRewardLine(name, texture, count, quality, itemID, owner)
-    if not name then
-        local item = itemID and Item:CreateFromItemID(itemID)
-        if item and not item:IsItemEmpty() and not item:IsItemDataCached() then
-            item:ContinueOnItemLoad(function()
-                if GameTooltip:IsOwned(owner) then OnLineEnter(owner) end
-            end)
-        end
+local function AddRewardLine(e, owner)
+    if not e.name then
+        EQT.OnRewardLoad(e, function()
+            if GameTooltip:IsOwned(owner) then OnLineEnter(owner) end
+        end)
         return
     end
-    local text = count and count > 1
-        and BONUS_OBJECTIVE_REWARD_WITH_COUNT_FORMAT:format(texture, HIGHLIGHT_FONT_COLOR:WrapTextInColorCode(count), name)
-        or BONUS_OBJECTIVE_REWARD_FORMAT:format(texture, name)
-    local c = quality and ColorManager.GetColorDataForItemQuality(quality)
+    local text = e.count and e.count > 1
+        and BONUS_OBJECTIVE_REWARD_WITH_COUNT_FORMAT:format(e.texture, HIGHLIGHT_FONT_COLOR:WrapTextInColorCode(e.count), e.name)
+        or BONUS_OBJECTIVE_REWARD_FORMAT:format(e.texture, e.name)
+    local c = e.quality and ColorManager.GetColorDataForItemQuality(e.quality)
     if c then GameTooltip:AddLine(text, c.r, c.g, c.b) else GameTooltip:AddLine(text, 1, 1, 1) end
 end
 
 local function AddRewards(questID, owner)
-    if not C_QuestLog.ShouldShowQuestRewards(questID) then return end
-    local xp = GetQuestLogRewardXP(questID)
-    local money = GetQuestLogRewardMoney(questID)
-    local currencies = C_QuestLog.GetQuestRewardCurrencies(questID)
-    local numItems = GetNumQuestLogRewards(questID)
-    local numChoices = GetNumQuestLogChoices(questID)
-    if xp <= 0 and money <= 0 and #currencies == 0 and numItems == 0 and numChoices == 0 then return end
+    local r = EQT.QuestRewards(questID)
+    if not r then return end
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine(QUEST_REWARDS, NORMAL_FONT_COLOR:GetRGB())
-    if xp > 0 then GameTooltip:AddLine(BONUS_OBJECTIVE_EXPERIENCE_FORMAT:format(xp), 1, 1, 1) end
-    if money > 0 then GameTooltip:AddLine(GetMoneyString(money), 1, 1, 1) end
-    for _, cur in ipairs(currencies) do
-        AddRewardLine(cur.name, cur.texture, cur.totalRewardAmount, cur.quality)
-    end
-    for i = 1, numItems do
-        local name, texture, count, quality, _, itemID = GetQuestLogRewardInfo(i, questID)
-        AddRewardLine(name, texture, count, quality, itemID, owner)
-    end
-    if numChoices > 0 then
+    if r.xp > 0 then GameTooltip:AddLine(BONUS_OBJECTIVE_EXPERIENCE_FORMAT:format(r.xp), 1, 1, 1) end
+    if r.money > 0 then GameTooltip:AddLine(GetMoneyString(r.money), 1, 1, 1) end
+    for _, e in ipairs(r.rewards) do AddRewardLine(e, owner) end
+    if #r.choices > 0 then
         GameTooltip:AddLine(REWARD_CHOICES, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, true)
-        for i = 1, numChoices do
-            local name, texture, count, quality, _, itemID = GetQuestLogChoiceInfo(i, questID)
-            AddRewardLine(name, texture, count, quality, itemID, owner)
-        end
+        for _, e in ipairs(r.choices) do AddRewardLine(e, owner) end
     end
 end
 
 function OnLineEnter(self)
     UpdateHover()
     if self.kind ~= "quest" then return end
+    ShowOverlay(self)
     GameTooltip:SetOwner(self, TooltipSide())
     if IsInGroup() then
         GameTooltip:SetQuestPartyProgress(self.id)
@@ -834,7 +891,7 @@ local function BuildFrame()
         if stale then Render() else SyncItems() end
     end)
     -- Alpha first: in combat the hide itself waits for combat to end.
-    frame:SetScript("OnHide", function() itemLayer:SetAlpha(0); SyncItems() end)
+    frame:SetScript("OnHide", function() itemLayer:SetAlpha(0); SyncItems(); HideOverlay() end)
     -- Item buttons sit outside our frame: they follow its alpha (mouseover fade).
     itemLayer = CreateFrame("Frame", nil, UIParent)
     itemLayer:SetFrameStrata("LOW")
@@ -951,10 +1008,15 @@ local EVENTS = {
     "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "QUEST_ACCEPTED", "QUEST_REMOVED",
     "SUPER_TRACKING_CHANGED", "ZONE_CHANGED", "ZONE_CHANGED_NEW_AREA",
     "PLAYER_ENTERING_WORLD", "PLAYER_LEVEL_UP", "ENCOUNTER_START", "ENCOUNTER_END",
+    "PLAYER_REGEN_DISABLED",
 }
 
 evt:SetScript("OnEvent", function(_, event, questID, added)
-    if event == "BAG_UPDATE_COOLDOWN" then
+    if event == "PLAYER_REGEN_DISABLED" then
+        -- Lockdown starts after this event: last chance to hide the overlay.
+        HideOverlay()
+        return
+    elseif event == "BAG_UPDATE_COOLDOWN" then
         for _, b in ipairs(items) do
             if b:IsShown() then UpdateItemCooldown(b) end
         end

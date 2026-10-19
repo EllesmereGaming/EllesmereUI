@@ -214,7 +214,13 @@ initFrame:SetScript("OnEvent", function(self)
                   disabled=Off, disabledTooltip="Custom Quest Tracker",
                   getValue=function() return Cfg("customFlashUpdates") or false end,
                   setValue=function(v) Set("customFlashUpdates", v); RefreshAll() end },
-                EllesmereUI.BlankRowCfg())
+                { type="dropdown", text="Quest Click",
+                  tooltip="What left-clicking a quest does. Open Quest Details shows EllesmereUI's own details window and works in combat. Open Quest Log works out of combat only, for quests tracked in the quest log. Ctrl-click still collapses.",
+                  values = { collapse = "Collapse", map = "Open Quest Log", details = "Open Quest Details" },
+                  order  = { "collapse", "map", "details" },
+                  disabled=Off, disabledTooltip="Custom Quest Tracker",
+                  getValue=function() return Cfg("customClickAction") or "collapse" end,
+                  setValue=function(v) Set("customClickAction", v); RefreshAll() end })
             y = y - h
 
             y = y - 10

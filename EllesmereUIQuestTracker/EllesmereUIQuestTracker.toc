@@ -18,5 +18,6 @@ EllesmereUIQuestTracker_Visibility.lua
 EllesmereUIQuestTracker_QoL.lua
 EllesmereUIQuestTracker_Forever.lua
 EllesmereUIQuestTracker_Custom.lua
+EllesmereUIQuestTracker_Details.lua
 
 # Options
