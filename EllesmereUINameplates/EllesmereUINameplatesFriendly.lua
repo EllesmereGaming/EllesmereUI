@@ -784,20 +784,28 @@ end
 local nameFSUnits  = setmetatable({}, { __mode = "k" })   -- nameFS -> unit token
 local nameFSPlates = setmetatable({}, { __mode = "k" })   -- nameFS -> nameplate
 local nameFSText   = setmetatable({}, { __mode = "k" })   -- nameFS -> { name=, guild= }
-local playerSubtitles = setmetatable({}, { __mode = "k" })  -- nameFS -> { frame=, fs= }
+-- Keyed by the nameplate, not the name FontString: Blizzard's UnitFrame is
+-- pooled and can be rebound to another plate, so a nameFS keyed entry is left
+-- behind (and still rendered) when the plate's current nameFS changes.
+local playerSubtitles = setmetatable({}, { __mode = "k" })  -- nameplate -> { fs=, nameFS= }
 local hookedNameText = {}   -- nameFS -> true (permanent hooks, applied once)
 local _titledNameGuard = false
 
 -- Installed lazily by the TRP3 section below, the first time a guild line is built.
 local InstallTRP3NamePlateHook
 
--- Build the guild FontString for a name-only player plate: a container on the
--- nameplate (built on UIParent, then reparented) holding one string under the name.
-local function GetPlayerSubtitle(nameFS)
-    local entry = playerSubtitles[nameFS]
-    if entry then return entry.fs end
-    local nameplate = nameFSPlates[nameFS]
-    if not nameplate then return nil end
+-- Build (or re-anchor) the guild FontString for a name-only player plate: a
+-- container on the nameplate holding one string under the current name.
+local function GetPlayerSubtitle(nameplate, nameFS)
+    local entry = playerSubtitles[nameplate]
+    if entry then
+        if entry.nameFS ~= nameFS then
+            entry.nameFS = nameFS
+            entry.fs:ClearAllPoints()
+            entry.fs:SetPoint("TOP", nameFS, "BOTTOM", 0, -1)
+        end
+        return entry.fs
+    end
     if InstallTRP3NamePlateHook then InstallTRP3NamePlateHook() end
     local frame = CreateFrame("Frame", nil, UIParent)
     frame:SetParent(nameplate)
@@ -813,12 +821,12 @@ local function GetPlayerSubtitle(nameFS)
     if fs.SetSnapToPixelGrid then fs:SetSnapToPixelGrid(false) end
     if fs.SetTexelSnappingBias then fs:SetTexelSnappingBias(0) end
     fs:Hide()
-    playerSubtitles[nameFS] = { frame = frame, fs = fs }
+    playerSubtitles[nameplate] = { fs = fs, nameFS = nameFS }
     return fs
 end
 
-local function HidePlayerSubtitle(nameFS)
-    local entry = playerSubtitles[nameFS]
+local function HidePlayerSubtitle(nameplate)
+    local entry = nameplate and playerSubtitles[nameplate]
     if entry and entry.fs:IsShown() then entry.fs:Hide() end
 end
 
@@ -844,10 +852,10 @@ local function TRP3SubtitleShown(nameplate)
 end
 
 -- Re-apply the TRP3 yield for one plate after TRP3 restyles it.
-local function RefreshPlayerSubtitleAlpha(nameFS, nameplate)
-    local entry = playerSubtitles[nameFS]
+local function RefreshPlayerSubtitleAlpha(nameplate)
+    local entry = nameplate and playerSubtitles[nameplate]
     if not entry or not entry.fs:IsShown() then return end
-    entry.fs:SetAlpha(TRP3SubtitleShown(nameplate or nameFSPlates[nameFS]) and 0 or 1)
+    entry.fs:SetAlpha(TRP3SubtitleShown(nameplate) and 0 or 1)
 end
 
 local trp3HookInstalled = false
@@ -859,9 +867,7 @@ InstallTRP3NamePlateHook = function()
     -- Post-hook sees TRP3's final title/guild shown state.
     hooksecurefunc(mod, "UpdateNamePlate", function(_, nameplate)
         if not IsNameOnlyMode() or not ModeHasGuild(GetBelowNameMode()) then return end
-        local uf = nameplate and nameplate.UnitFrame
-        local nameFS = uf and uf.name
-        if nameFS then RefreshPlayerSubtitleAlpha(nameFS, nameplate) end
+        RefreshPlayerSubtitleAlpha(nameplate)
     end)
 end
 
@@ -875,12 +881,12 @@ end
 -- Write the name-only name on Blizzard's FontString and the guild on ours.
 -- With Subtitle Text off this resolves to the plain single-line name.
 local function UpdateNameOnlyText(nameFS)
-    local nameplate = nameFSPlates[nameFS]
     local unit = nameFSUnits[nameFS]
+    local nameplate = nameFSPlates[nameFS] or (unit and C_NamePlate.GetNamePlateForUnit(unit))
     -- The plate may have been recycled: only draw when the stored token still
     -- resolves to a friendly, non-hostile player; hide our guild line otherwise.
     if not unit or not UnitExists(unit) or not UnitIsPlayer(unit) or UnitCanAttack("player", unit) then
-        HidePlayerSubtitle(nameFS)
+        HidePlayerSubtitle(nameplate)
         return
     end
     local mode = GetBelowNameMode()
@@ -922,7 +928,7 @@ local function UpdateNameOnlyText(nameFS)
     -- Guild line: our FontString under the name. Guild is only ever a
     -- SetFormattedText argument (secret-safe); brackets are our own literals.
     if guild then
-        local fs = GetPlayerSubtitle(nameFS)
+        local fs = nameplate and GetPlayerSubtitle(nameplate, nameFS)
         if fs then
             local r, g, b = GetSubTextColor(unit)
             local fp = FP()
@@ -934,7 +940,7 @@ local function UpdateNameOnlyText(nameFS)
             fs:SetAlpha(TRP3SubtitleShown(nameplate) and 0 or 1)
         end
     else
-        HidePlayerSubtitle(nameFS)
+        HidePlayerSubtitle(nameplate)
     end
 end
 
@@ -1025,6 +1031,9 @@ local function SuppressBlizzardUF(unit, nameplate)
     if modifiedUFs[unit] then return end  -- already suppressed
     local uf = nameplate and nameplate.UnitFrame
     if not uf then return end
+
+    -- This plate is not a friendly player's: drop any guild line left on it.
+    HidePlayerSubtitle(nameplate)
 
     -- Hand back what an enemy plate parked on this pooled UnitFrame first: the
     -- enemy reclaim hook runs after this one and would otherwise pull the
@@ -1120,6 +1129,9 @@ end
 -- over suppression independently in the enemy plate's SetUnit.
 function ns.RemoveFriendlyNPCOverlayForUnit(unit, nameplate)
     nameplate = nameplate or (unit and C_NamePlate.GetNamePlateForUnit(unit))
+    -- In-place promotion to an enemy fires no NAME_PLATE_UNIT_ADDED, so the
+    -- guild line has to be dropped here.
+    if nameplate then HidePlayerSubtitle(nameplate) end
     if not nameplate or not nameOnlyNPCSuppressed[nameplate] then return end
     nameOnlyNPCSuppressed[nameplate] = nil
     HideNPCOverlay(nameplate)
@@ -1140,8 +1152,7 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
     if next(playerSubtitles)
         and not (UnitIsPlayer(unit) and not UnitCanAttack("player", unit) and GuildLineAllowed()) then
         local np = C_NamePlate.GetNamePlateForUnit(unit)
-        local npuf = np and np.UnitFrame
-        if npuf and npuf.name then HidePlayerSubtitle(npuf.name) end
+        if np then HidePlayerSubtitle(np) end
     end
 
     if UnitCanAttack("player", unit) then return end
@@ -1217,8 +1228,7 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateRemoved", function(_, unit)
     if nameplate then
         HideNPCOverlay(nameplate)
         nameOnlyNPCSuppressed[nameplate] = nil
-        local uf = nameplate.UnitFrame
-        if uf and uf.name then HidePlayerSubtitle(uf.name) end
+        HidePlayerSubtitle(nameplate)
     end
     if modifiedUFs[unit] then
         RestoreBlizzardUF(unit)
