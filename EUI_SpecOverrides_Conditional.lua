@@ -58,6 +58,7 @@ local EXCLUDED_CONTEXTS = {
     [PROFILES_MODULE] = true,                  -- Profiles & Presets (incl. list tab)
     ["_EUIPatchNotes"] = true,                 -- Patch Notes
     ["_EUILegends"] = true,                    -- EUI Legends
+    ["EllesmereUIAddonManager"] = true,      -- Addon Manager
     ["_EUIGlobal"] = true,                     -- Global Settings (whole module)
     -- (Global Settings -> Colors stays eligible)
     -- Blacklisted modules (see FOLDER_BLACKLIST): their pages are fully

@@ -700,6 +700,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIQuickdraw",         display = "Quickdraw",            search_name = "EllesmereUI Quickdraw"               },
     { folder = "EllesmereUILoadoutManager",    display = "Loadout Manager",      search_name = "EllesmereUI Loadout Manager"         },
     { folder = "EllesmereUIGroupFinder",       display = "Group Finder",         search_name = "EllesmereUI Group Finder Premade Groups" },
+    { folder = "EllesmereUIAddonManager",      display = "Addon Manager",        search_name = "EllesmereUI Addon Manager",          alwaysLoaded = true },
     { folder = "EllesmereUIPartyMode",         display = "Party Mode",           search_name = "EllesmereUI Party Mode",             alwaysLoaded = true },
     { folder = "EllesmereUISimpleLootCouncil", display = "Simple Loot Council",  search_name = "EllesmereUI Simple Loot Council Loot Council" },
 }
@@ -720,6 +721,7 @@ EllesmereUI.ADDON_GROUPS = {
             "EllesmereUICooldownManager",
             "EllesmereUIResourceBars",
             "EllesmereUIRaidFrames",
+            "EllesmereUIAddonManager",
         },
     },
     {
