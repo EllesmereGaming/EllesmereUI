@@ -11,6 +11,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --        defaults = { [addon] = true|false },   -- every character; absent = not managed
 --        chars    = { ["Name - Realm"] = { class = classFile,
 --                                          overrides = { [addon] = true|false } } },
+--        enabled  = true,                       -- the manager is on (off: nothing runs)
 --        menu     = true,                       -- the game menu's AddOns button opens it
 --        quiet    = true,                       -- no offer to apply at login
 --        usage    = true,                       -- the page shows CPU and memory
@@ -30,8 +31,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  logs in: one offer per login, and only while something differs.
 --  EllesmereUI itself is never switched off from here.
 --
---  Nothing runs until the manager has been opened once: the profile has no
---  addonManager table before that, and the login check then has nothing to do.
+--  Off by default, as the Shifter: the page is always listed, but nothing is
+--  read, hooked or offered until "Enable Addon Manager" is on.
 -------------------------------------------------------------------------------
 local AM = {}
 EllesmereUI.AddonManager = AM
@@ -410,7 +411,7 @@ function AM.HookMenu()
     EventUtil.ContinueOnAddOnLoaded("Blizzard_AddOnList", function()
         _G.AddonList:HookScript("OnShow", function(self)
             local s = Store()
-            if not (s and s.menu) then return end
+            if not (s and s.enabled and s.menu) then return end
             if bypass then
                 bypass = false
                 return
@@ -439,7 +440,7 @@ end
 -------------------------------------------------------------------------------
 local function Offer()
     local s = Store()
-    if not s or s.quiet or InCombatLockdown() then return end
+    if not (s and s.enabled) or s.quiet or InCombatLockdown() then return end
     local n = #AM.Pending()
     if n == 0 then return end
     EllesmereUI:ShowConfirmPopup({
@@ -457,7 +458,7 @@ boot:RegisterEvent("PLAYER_LOGIN")
 boot:SetScript("OnEvent", function(self)
     self:UnregisterAllEvents()
     local s = Store()
-    if not s then return end
+    if not (s and s.enabled) then return end
     Remember(s)
     if s.menu then AM.HookMenu() end
     -- The profile may change at login (a spec's profile): look once it has settled.
@@ -472,8 +473,20 @@ end)
 AM.KEY = "EllesmereUIAddonManager"
 AM.Store, AM.CharKey = Store, CharKey
 
+-- Turns the manager on or off. What was chosen stays in the profile.
+function AM.SetEnabled(on)
+    if on then
+        local s = Store(true)
+        s.enabled = true
+        Remember(s)
+        if s.menu then AM.HookMenu() end
+    else
+        local s = Store()
+        if s then s.enabled = nil end
+    end
+end
+
 function AM.Open()
-    Remember(Store(true))
     EllesmereUI:Show()
     -- The very first open of the session builds the options a frame later.
     if EllesmereUI._openPending then
