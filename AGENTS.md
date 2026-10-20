@@ -24,6 +24,7 @@ If you change `.tools/guardrails.py`, run its tests as well: `python3 .tools/tes
 | After you add, change or remove a string literal passed to `EllesmereUI.L("...")` or `EllesmereUI.Lf("...")`, run `bash .tools/extract-locale-keys.sh` and commit `EllesmereUILocales/_keys.txt`. | `locale-check.yml` (PRs and pushes to main) |
 | Do not compare, index, or do arithmetic on secret values (12.x combat aura and unit data). Pass them straight to the widget API that accepts them. | Judgment only. No reliable mechanical check. |
 | Do not write to protected Blizzard frames or call protected functions from insecure code, and do not do it in combat. Hook with `hooksecurefunc` and keep the work cosmetic. | Judgment only. No reliable mechanical check. |
+| Group Finder client-side filters only dim rows with `SetAlpha`; do not hide/reorder results, replace data providers, rebuild Blizzard search rows/lists, or change selection. Skip filtering when required result/member data is nil, secret or unreadable. Combat deferral, `IsProtected` and `hooksecurefunc` do not make feeding data back into Blizzard's list taint-safe. | `guardrails.py` `check_group_finder_presentation` rejects new direct provider/rebuild/sort/selection API calls in `EllesmereUIGroupFinder/`. Indirect mutations and secrecy guards still require review. |
 
 ## Exceptions
 
