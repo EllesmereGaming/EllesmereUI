@@ -26,6 +26,8 @@ local DEFAULTS = {
     cancelOldest     = false,
     dungeonAbbr      = false,
     dungeonScore     = false,
+    hideMyClass      = false,
+    sortListings     = "default",
 }
 ns.DEFAULTS = DEFAULTS
 
@@ -92,7 +94,10 @@ function ns.AppCountsStore()
 end
 
 function ns.ResetSettings()
-    if db then db:ResetProfile() end
+    if db then
+        db:ResetProfile()
+        if ns.Search_RefreshListings then ns.Search_RefreshListings() end
+    end
 end
 
 function GF:OnInitialize()

@@ -894,6 +894,117 @@ local function Refilter()
 end
 
 -------------------------------------------------------------------------------
+-- Opt-in listing presentation; Blizzard's results and application state stay intact.
+-------------------------------------------------------------------------------
+function XF.ListOptionsActive()
+    local c = Cfg()
+    return c.hideMyClass or c.sortListings == "score" or c.sortListings == "time"
+end
+
+function XF.HasPlayerClass(id, info, class)
+    local n = info and XF.Num(info, "numMembers")
+    if not n or not class then return false end
+    for i = 1, n do
+        local member = C_LFGList.GetSearchResultPlayerInfo(id, i)
+        if not IsSecret(member) and type(member) == "table" and (not canaccesstable or canaccesstable(member)) then
+            local memberClass = member.classFilename
+            if not IsSecret(memberClass) and memberClass == class then return true end
+        end
+    end
+    return false
+end
+
+function XF.UpdateListings(panel)
+    if panel ~= SP or not XF.ListOptionsActive() or panel.searching or not panel:IsVisible() then return end
+    if InCombatLockdown() then XF.Defer("listings", XF.RefreshListings); return end
+    -- Blizzard's row initializer reads secret fields during chat lockdown.
+    if C_ChatInfo.InChatMessagingLockdown() then return end
+    local scroll = panel.ScrollBox
+    if panel:IsProtected() or not scroll or scroll:IsProtected() then return end
+    local source = scroll:GetDataProvider()
+    if not source then return end
+    local c = Cfg()
+    local sortKey = c.sortListings == "score" and "leaderOverallDungeonScore" or c.sortListings == "time" and "age"
+    local class
+    if c.hideMyClass then
+        local _, playerClass = UnitClass("player")
+        if not IsSecret(playerClass) then class = playerClass end
+    end
+    local rows, hidden, visible = {}, 0, 0
+    for index, data in source:EnumerateEntireRange() do
+        if IsSecret(data) or (canaccesstable and not canaccesstable(data)) then return end
+        local id = data.resultID
+        if IsSecret(id) then return end
+        if id then
+            local _, status, pendingStatus = C_LFGList.GetApplicationInfo(id)
+            if IsSecret(status) or IsSecret(pendingStatus) then return end
+            local applied = status == "applied" or status == "invited" or (pendingStatus and true or false)
+            local info = ResultInfo(id)
+            if c.hideMyClass and not applied and XF.HasPlayerClass(id, info, class) then
+                -- Clear a hidden selection through Blizzard's normal selection path.
+                if not IsSecret(panel.selectedResult) and panel.selectedResult == id then
+                    LFGListSearchPanel_SelectResult(panel, nil)
+                    return
+                end
+                hidden = hidden + 1
+            else
+                local key = sortKey and info and XF.Num(info, sortKey) or nil
+                rows[#rows + 1] = { data = data, index = index, rank = applied and 0 or 1, key = key }
+                visible = visible + 1
+            end
+        else
+            rows[#rows + 1] = { data = data, index = index, rank = 2 }
+        end
+    end
+    if not sortKey and hidden == 0 then return end
+    if sortKey then
+        table.sort(rows, function(a, b)
+            if a.rank ~= b.rank then return a.rank < b.rank end
+            if a.rank == 1 and a.key ~= b.key then
+                if a.key == nil then return false end
+                if b.key == nil then return true end
+                if c.sortListings == "score" then return a.key > b.key end
+                return a.key < b.key
+            end
+            return a.index < b.index
+        end)
+    end
+    local provider = CreateDataProvider()
+    if visible > 0 or hidden == 0 then
+        for _, rowData in ipairs(rows) do provider:Insert(rowData.data) end
+    end
+    scroll:SetDataProvider(provider, ScrollBoxConstants.RetainScrollPosition)
+    if hidden > 0 and visible == 0 then
+        scroll.NoResultsFound:SetPoint("TOP", scroll, "TOP", 0, -27)
+        scroll.NoResultsFound:SetText(EllesmereUI.L("No groups match your filters."))
+        scroll.NoResultsFound:Show()
+        scroll.StartGroupButton:SetShown(not panel.searchFailed)
+    end
+end
+
+function XF.EnsureListingHooks()
+    if XF.listingHooks or not XF.ListOptionsActive() then return end
+    XF.listingHooks = true
+    hooksecurefunc("LFGListSearchPanel_UpdateResults", XF.UpdateListings)
+    SP:HookScript("OnEvent", function(panel, event)
+        if panel == SP and event == "LFG_LIST_SEARCH_RESULT_UPDATED" and XF.ListOptionsActive() then
+            XF.RefreshListings()
+        end
+    end)
+end
+
+function XF.RefreshListings()
+    if not XF.listingHooks and not XF.ListOptionsActive() then return end
+    XF.EnsureListingHooks()
+    if not (SP and SP:IsVisible()) then return end
+    if InCombatLockdown() then XF.Defer("listings", XF.RefreshListings); return end
+    if SP:IsProtected() or SP.ScrollBox:IsProtected() then return end
+    if C_ChatInfo.InChatMessagingLockdown() then return end
+    LFGListSearchPanel_UpdateResults(SP)
+end
+ns.Search_RefreshListings = XF.RefreshListings
+
+-------------------------------------------------------------------------------
 -- Result rows and tooltip
 -------------------------------------------------------------------------------
 local function Opt(key)
@@ -2028,6 +2139,9 @@ end
 -- Group Settings menu (person button): list look and sign-up options.
 XF.GROUP_MENU = {
     { title = EllesmereUI.L("Listing") },
+    { key = "hideMyClass", label = EllesmereUI.L("Hide My Class"),
+      tip = EllesmereUI.L("Hides groups with a member of your class. Pending applications stay visible. Unavailable class data is not filtered."),
+      onToggle = function() XF.RefreshListings(); Paint() end },
     { key = "nameColors",     label = EllesmereUI.L("Colored Group Names"),
       tip = EllesmereUI.L("Green name when a group is new, Red name when you were declined or instance locked. Uses Raider.IO colors when loaded.") },
     { key = "leaderRating",   label = EllesmereUI.L("Leader Rating"),
@@ -2040,6 +2154,13 @@ XF.GROUP_MENU = {
       tip = EllesmereUI.L("Puts a small crown above the group leader's icon.") },
     { key = "classTooltip",   label = EllesmereUI.L("Members in Tooltip"),
       tip = EllesmereUI.L("Group tooltips add each member's name (dungeons and arenas, where Blizzard already lists the roles and classes), or a line per member with role, specialization, class and name (other groups).") },
+    { title = EllesmereUI.L("Sort Listings") },
+    { sort = "default", label = EllesmereUI.L("Default Order"),
+      tip = EllesmereUI.L("Use Blizzard's listing order.") },
+    { sort = "score", label = EllesmereUI.L("Score (Highest First)"),
+      tip = EllesmereUI.L("Sort by the leader's overall Mythic+ score, highest first. Applications stay at the top.") },
+    { sort = "time", label = EllesmereUI.L("Time (Newest First)"),
+      tip = EllesmereUI.L("Sort by listing age, newest first. Applications stay at the top.") },
     { title = EllesmereUI.L("Sign Up") },
     { key = "cancelOldest",   label = EllesmereUI.L("Cancel Oldest Application"),
       tip = EllesmereUI.L("At the application limit, clicking a group cancels your oldest pending application so you can sign up.") },
@@ -2207,6 +2328,18 @@ function XF.StepperItem(m, y, spec)
     return item
 end
 
+function XF.SortItem(m, y, spec)
+    local item = MenuItem(m, y, spec.label, function()
+        Cfg().sortListings = spec.sort
+        XF.RefreshListings()
+        for _, it in ipairs(m.items) do it:Paint() end
+    end)
+    function item:Paint() self:SetChecked((Cfg().sortListings or "default") == spec.sort) end
+    item:HookScript("OnEnter", function(self) XF.Tip(self, spec.label, spec.tip) end)
+    item:HookScript("OnLeave", XF.Untip)
+    return item
+end
+
 function XF.BuildGroupMenu()
     local m = CreateFrame("Frame", nil, SP)
     XF.groupMenu = m
@@ -2227,7 +2360,8 @@ function XF.BuildGroupMenu()
         if spec.title then
             y = AddSection(m, y, spec.title)
         else
-            m.items[#m.items + 1] = spec.stepper and XF.StepperItem(m, y, spec) or XF.SwitchItem(m, y, spec)
+            m.items[#m.items + 1] = spec.sort and XF.SortItem(m, y, spec)
+                or spec.stepper and XF.StepperItem(m, y, spec) or XF.SwitchItem(m, y, spec)
             y = y + ITEM_H
         end
     end
@@ -2783,7 +2917,7 @@ Paint = function()
             local ok, v = pcall(cb)
             isDefault = (not ok) or (v and true or false)
         end
-        if RegionFilterActive() or DelveFilterActive() or BossFilterActive() or (ChosenRaidDiffs() or ChosenRaidPlaystyles() or ChosenRaidRoles()) and SP.categoryID == RAIDS or XF.ExtraFilterActive() then isDefault = false end
+        if Cfg().hideMyClass or RegionFilterActive() or DelveFilterActive() or BossFilterActive() or (ChosenRaidDiffs() or ChosenRaidPlaystyles() or ChosenRaidRoles()) and SP.categoryID == RAIDS or XF.ExtraFilterActive() then isDefault = false end
         if resetBtn then
             resetBtn.active = not isDefault
             resetBtn.Glyph:SetAlpha(isDefault and 0.35 or 0.9)
@@ -2895,11 +3029,12 @@ local function CogFilterButton(btn)
         if type(c.raidDiffs) == "table" then wipe(c.raidDiffs) end
         if type(c.raidPlaystyles) == "table" then wipe(c.raidPlaystyles) end
         if type(c.raidRoles) == "table" then wipe(c.raidRoles) end
-        c.partyFit, c.notDeclined, c.hasLust, c.hasBrez = nil, nil, nil, nil
+        c.partyFit, c.notDeclined, c.hasLust, c.hasBrez, c.hideMyClass = nil, nil, nil, nil, false
         if type(c.roleCounts) == "table" then wipe(c.roleCounts) end
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
         Apply(f)
         Refilter()
+        if XF.listingHooks then XF.RefreshListings() end
     end)
     resetBtn:SetScript("OnEnter", function(self)
         self.Glyph:SetAlpha(1)
@@ -3263,6 +3398,7 @@ XF.SEARCH_LEFT = { "BackButton", "BackToGroupButton" }
 -- First show asks the server for this season's Mythic+ maps (their update
 -- rebuilds the dungeon squares); every show lays the panel out.
 function XF.PanelShown()
+    XF.RefreshListings()
     if not XF.mapInfoAsked then
         XF.mapInfoAsked = true
         if C_MythicPlus and C_MythicPlus.RequestMapInfo then C_MythicPlus.RequestMapInfo() end
@@ -3684,6 +3820,7 @@ local function Init()
     SP = LFGListFrame and LFGListFrame.SearchPanel
     if not SP then return end
     SP:HookScript("OnShow", XF.PanelShown)
+    XF.EnsureListingHooks()
     local CS = LFGListFrame.CategorySelection
     if CS then
         CS:HookScript("OnShow", LayoutCategoryButtons)
