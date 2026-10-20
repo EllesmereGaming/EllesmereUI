@@ -794,15 +794,21 @@ local _titledNameGuard = false
 -- Installed lazily by the TRP3 section below, the first time a guild line is built.
 local InstallTRP3NamePlateHook
 
--- Build (or re-anchor) the guild FontString for a name-only player plate: a
--- container on the nameplate holding one string under the current name.
+-- Build (or re-anchor) the guild FontString for a name-only player plate. The
+-- anchor always comes from the plate's CURRENT UnitFrame: the name FontString
+-- that triggered an update may already have been rebound to another plate.
 local function GetPlayerSubtitle(nameplate, nameFS)
+    -- Prefer the plate's current UnitFrame name; fall back to the triggering
+    -- FontString when the UnitFrame is momentarily unavailable.
+    local uf = nameplate and nameplate.UnitFrame
+    local anchor = (uf and uf.name) or nameFS
+    if not anchor then return nil end
     local entry = playerSubtitles[nameplate]
     if entry then
-        if entry.nameFS ~= nameFS then
-            entry.nameFS = nameFS
+        if entry.nameFS ~= anchor then
+            entry.nameFS = anchor
             entry.fs:ClearAllPoints()
-            entry.fs:SetPoint("TOP", nameFS, "BOTTOM", 0, -1)
+            entry.fs:SetPoint("TOP", anchor, "BOTTOM", 0, -1)
         end
         return entry.fs
     end
@@ -814,25 +820,32 @@ local function GetPlayerSubtitle(nameplate, nameFS)
     frame:Show()
     local fs = frame:CreateFontString(nil, "OVERLAY")
     fs:SetFontObject(subtitleFont)
-    fs:SetPoint("TOP", nameFS, "BOTTOM", 0, -1)
+    fs:SetPoint("TOP", anchor, "BOTTOM", 0, -1)
     fs:SetJustifyH("CENTER")
     fs:SetWordWrap(false)
     fs:SetMaxLines(1)
     if fs.SetSnapToPixelGrid then fs:SetSnapToPixelGrid(false) end
     if fs.SetTexelSnappingBias then fs:SetTexelSnappingBias(0) end
     fs:Hide()
-    playerSubtitles[nameplate] = { fs = fs, nameFS = nameFS }
+    playerSubtitles[nameplate] = { fs = fs, nameFS = anchor }
     return fs
 end
 
 local function HidePlayerSubtitle(nameplate)
     local entry = nameplate and playerSubtitles[nameplate]
-    if entry and entry.fs:IsShown() then entry.fs:Hide() end
+    if not entry then return end
+    if entry.fs:IsShown() then entry.fs:Hide() end
+    -- Drop the cached compose so the next update can re-show, and blank the text
+    -- so a stray Show cannot surface the old guild.
+    if entry.nameFS then nameFSText[entry.nameFS] = nil end
+    entry.fs:SetText("")
 end
 
 local function HideAllPlayerSubtitles()
     for _, entry in pairs(playerSubtitles) do
         if entry.fs:IsShown() then entry.fs:Hide() end
+        if entry.nameFS then nameFSText[entry.nameFS] = nil end
+        entry.fs:SetText("")
     end
 end
 
@@ -880,30 +893,37 @@ end
 
 -- Write the name-only name on Blizzard's FontString and the guild on ours.
 -- With Subtitle Text off this resolves to the plain single-line name.
-local function UpdateNameOnlyText(nameFS)
-    local unit = nameFSUnits[nameFS]
-    local nameplate = nameFSPlates[nameFS] or (unit and C_NamePlate.GetNamePlateForUnit(unit))
-    -- The plate may have been recycled: only draw when the stored token still
-    -- resolves to a friendly, non-hostile player; hide our guild line otherwise.
+local function UpdateNameOnlyText(nameFS, nameplate)
+    local storedUnit = nameFSUnits[nameFS]
+    nameplate = nameplate or nameFSPlates[nameFS] or (storedUnit and C_NamePlate.GetNamePlateForUnit(storedUnit))
+    -- Only a positive mismatch is stale: the FontString that triggered this
+    -- call belongs to another plate's current UnitFrame. A missing UnitFrame is
+    -- a transition, not a reason to stop drawing.
+    local uf = nameplate and nameplate.UnitFrame
+    if uf and uf.name and uf.name ~= nameFS then
+        nameFSPlates[nameFS] = nil
+        nameFSUnits[nameFS] = nil
+        nameFSText[nameFS] = nil
+        return
+    end
+    local unit = (nameplate and nameplate.namePlateUnitToken) or (uf and uf.unit) or storedUnit
     if not unit or not UnitExists(unit) or not UnitIsPlayer(unit) or UnitCanAttack("player", unit) then
         HidePlayerSubtitle(nameplate)
         return
     end
     local mode = GetBelowNameMode()
-    local isPlayer = UnitIsPlayer(unit)
-
     local want
-    if ModeHasTitle(mode) and isPlayer then want = GetTitledName(unit) end
+    if ModeHasTitle(mode) then want = GetTitledName(unit) end
     if not want then want = EllesmereUI.WithSurname(UnitName(unit)) end
     if not want or (issecretvalue and issecretvalue(want)) then return end
     -- WoW Forever: the friendly Name Format, while one is saved (players only;
     -- FriendlyNameFormat is nil elsewhere).
-    if isPlayer and FriendlyNameFormat and FriendlyNameFormat() then
+    if FriendlyNameFormat and FriendlyNameFormat() then
         want = FormatFriendlyName(unit, want, ModeHasTitle(mode))
     end
 
     local guild
-    if ModeHasGuild(mode) and isPlayer and GuildLineAllowed() then
+    if ModeHasGuild(mode) and GuildLineAllowed() then
         guild = GetGuildInfo and GetGuildInfo(unit)
     end
 
@@ -914,7 +934,11 @@ local function UpdateNameOnlyText(nameFS)
     local guildKey = guild
     if guildKey ~= nil and issecretvalue and issecretvalue(guildKey) then guildKey = true end
     local st = nameFSText[nameFS]
-    if st and st.name == want and st.guild == guildKey then return end
+    if st and st.name == want and st.guild == guildKey then
+        -- Never let the cache keep a hidden line hidden.
+        local entry = nameplate and playerSubtitles[nameplate]
+        if not entry or entry.fs:IsShown() then return end
+    end
     if not st then st = {}; nameFSText[nameFS] = st end
     st.name, st.guild = want, guildKey
 
@@ -938,9 +962,121 @@ local function UpdateNameOnlyText(nameFS)
             fs:Show()
             -- Yield to TRP3's own guild/title line when it is showing.
             fs:SetAlpha(TRP3SubtitleShown(nameplate) and 0 or 1)
+        else
+            HidePlayerSubtitle(nameplate)
         end
     else
         HidePlayerSubtitle(nameplate)
+    end
+end
+
+-- A reused plate keeps its base frame but is handed a new unit; SetUnit and
+-- ClearUnit are the assignment choke points. Re-check the occupant there so a
+-- pooled plate can neither keep a stale guild line nor lose a valid one.
+local hookedPlateSubtitle = setmetatable({}, { __mode = "k" })  -- nameplate -> true
+local function OnPlateUnitChanged(nameplate)
+    local uf = nameplate and nameplate.UnitFrame
+    local unit = (nameplate and nameplate.namePlateUnitToken)
+        or (uf and uf.unit)
+        or (uf and uf.name and nameFSUnits[uf.name])
+    if uf and uf.name and unit and UnitIsPlayer(unit)
+        and not UnitCanAttack("player", unit) and not UnitIsUnit(unit, "player") then
+        UpdateNameOnlyText(uf.name, nameplate)
+    else
+        HidePlayerSubtitle(nameplate)
+    end
+end
+local function HookPlateForSubtitle(nameplate)
+    if not nameplate or hookedPlateSubtitle[nameplate] then return end
+    hookedPlateSubtitle[nameplate] = true
+    if nameplate.SetUnit then hooksecurefunc(nameplate, "SetUnit", OnPlateUnitChanged) end
+    if nameplate.ClearUnit then hooksecurefunc(nameplate, "ClearUnit", OnPlateUnitChanged) end
+end
+if NamePlateDriverFrame and NamePlateDriverFrame.OnNamePlateCreated then
+    hooksecurefunc(NamePlateDriverFrame, "OnNamePlateCreated", function(_, nameplate)
+        HookPlateForSubtitle(nameplate)
+    end)
+end
+
+-- The full-plate path owns its UNIT_NAME_UPDATE handler; ours only rode
+-- Blizzard's name FontString SetText hook. Drive the guild line from the unit's
+-- own event too, so it appears/refreshes even when Blizzard does not rewrite
+-- the name text.
+local nameOnlyWatchers = {}  -- unit -> frame
+local function UpdateNameOnlyForUnit(unit)
+    if not IsNameOnlyMode() then return end
+    local nameplate = (ns.pendingUnits and ns.pendingUnits[unit]) or C_NamePlate.GetNamePlateForUnit(unit)
+    local uf = nameplate and nameplate.UnitFrame
+    local nameFS = uf and uf.name
+    if not nameFS then return end
+    UpdateNameOnlyText(nameFS, nameplate)
+end
+-- A player entering view can be guildless for a moment until the client
+-- receives their guild. One or two delayed passes pick it up without polling.
+local guildRetryScheduled = setmetatable({}, { __mode = "k" })  -- nameplate -> true
+local function ScheduleGuildLineRetry(nameplate)
+    if not nameplate or guildRetryScheduled[nameplate] then return end
+    guildRetryScheduled[nameplate] = true
+    local function retry()
+        if not IsNameOnlyMode() then guildRetryScheduled[nameplate] = nil; return end
+        local unit = nameplate.namePlateUnitToken
+        if not unit or not UnitExists(unit) or not UnitIsPlayer(unit) then
+            guildRetryScheduled[nameplate] = nil
+            return
+        end
+        UpdateNameOnlyForUnit(unit)
+    end
+    C_Timer.After(1, retry)
+    C_Timer.After(2.5, function() retry(); guildRetryScheduled[nameplate] = nil end)
+end
+
+-- TRP3 also refreshes on PLAYER_TARGET_CHANGED, which is how the guild shows up
+-- once the client has fetched it; ours had no target-driven pass at all.
+local nameOnlyTargetWatcher
+local function EnsureTargetWatcher()
+    if not nameOnlyTargetWatcher then
+        nameOnlyTargetWatcher = CreateFrame("Frame")
+        nameOnlyTargetWatcher:SetScript("OnEvent", function(self)
+            if not IsNameOnlyMode() then self:UnregisterEvent("PLAYER_TARGET_CHANGED"); return end
+            UpdateNameOnlyForUnit("target")
+        end)
+    end
+    nameOnlyTargetWatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
+end
+local function WatchNameOnlyUnit(unit)
+    local f = nameOnlyWatchers[unit]
+    if not f then
+        f = CreateFrame("Frame")
+        f.unit = unit
+        f:SetScript("OnEvent", function(self)
+            if not IsNameOnlyMode() then self:UnregisterAllEvents(); return end
+            UpdateNameOnlyForUnit(self.unit)
+        end)
+        nameOnlyWatchers[unit] = f
+    end
+    f:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
+    EnsureTargetWatcher()
+end
+
+-- The full-plate path is driven by NAME_PLATE_UNIT_ADDED; ours rode only the
+-- driver hook. Compose from the event too so a spawn cannot be skipped.
+local nameOnlyAddFrame = CreateFrame("Frame")
+nameOnlyAddFrame:SetScript("OnEvent", function(_, _, unit)
+    if not unit then return end
+    if UnitCanAttack("player", unit) or UnitIsUnit(unit, "player") or not UnitIsPlayer(unit) then return end
+    WatchNameOnlyUnit(unit)
+    UpdateNameOnlyForUnit(unit)
+    -- The guild often arrives a moment after the unit: re-check if it is nil.
+    local nameplate = (ns.pendingUnits and ns.pendingUnits[unit]) or C_NamePlate.GetNamePlateForUnit(unit)
+    if nameplate and not (GetGuildInfo and GetGuildInfo(unit)) then
+        ScheduleGuildLineRetry(nameplate)
+    end
+end)
+local function SetNameOnlyAddListener(on)
+    if on then
+        nameOnlyAddFrame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+    else
+        nameOnlyAddFrame:UnregisterEvent("NAME_PLATE_UNIT_ADDED")
     end
 end
 
@@ -952,7 +1088,11 @@ local function AttachNameOnlyText(nameFS, unit, nameplate)
     -- never hit a leftover constraint and ellipsize.
     EnsureNameUnconstrained(nameFS)
     nameFSUnits[nameFS] = unit
-    if nameplate then nameFSPlates[nameFS] = nameplate end
+    if nameplate then
+        nameFSPlates[nameFS] = nameplate
+        HookPlateForSubtitle(nameplate)
+        WatchNameOnlyUnit(unit)
+    end
     -- Drop the dedupe: a pooled plate can return with its guild string hidden
     -- but the same text cached, and UpdateNameOnlyText would skip the re-show.
     nameFSText[nameFS] = nil
@@ -967,7 +1107,10 @@ local function AttachNameOnlyText(nameFS, unit, nameplate)
             UpdateNameOnlyText(self)
         end)
     end
-    UpdateNameOnlyText(nameFS)
+    UpdateNameOnlyText(nameFS, nameplate)
+    if nameplate and not (GetGuildInfo and GetGuildInfo(unit)) then
+        ScheduleGuildLineRetry(nameplate)
+    end
 end
 
 -- Sweep all visible friendly player plates and recompose their name text per the
@@ -2154,6 +2297,8 @@ function ns.UpdateFriendlyNameplateSystem()
     -- Name-only font override: apply when name-only AND friendly plates are shown
     local _fp = FP()
     local showFriendly = _fp and _fp.showFriendlyPlayers ~= false
+    -- Event-driven add pass, live only while name-only mode is showing.
+    SetNameOnlyAddListener(nameOnly and showFriendly)
     -- Class-colour CVar for the friendly player names Blizzard draws: every name
     -- in name-only mode, the protected instance plates in full-plate mode. A
     -- combat skip is caught by the visibility retry above.
