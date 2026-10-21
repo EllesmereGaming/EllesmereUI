@@ -1658,17 +1658,18 @@ do
     end
 end
 
--- Upgrade track color data (shared by BlizzardSkin character/inspect sheets + Bags); only
--- initialized when a consumer feature is enabled.
+-- Upgrade track color data (shared by BlizzardSkin character/inspect sheets, Bags and QoL
+-- Item Icons); only initialized when a consumer module is enabled.
 do
     local en = C_AddOns and C_AddOns.GetAddOnEnableState
-    local need = en and (
+    local sheetsOrBags = en and (
         (en("EllesmereUIBags") or 0) > 0
         or ((en("EllesmereUIBlizzardSkin") or 0) > 0
             and (not EllesmereUIDB
                  or EllesmereUIDB.themedCharacterSheet ~= false
                  or EllesmereUIDB.themedInspectSheet ~= false))
     )
+    local need = sheetsOrBags or (en and (en("EllesmereUIQoL") or 0) > 0)
     if need then
         local W  = { r = 1.00, g = 1.00, b = 1.00 }
         local CH = { r = 0.00, g = 0.44, b = 0.87 }
@@ -1689,6 +1690,8 @@ do
             Hero       = HE,
             Myth       = MY,
         }
+        -- Read-only: _TRACK_RANK keys on these exact tables.
+        EllesmereUI.UPGRADE_TRACK_COLORS = map
 
         function EllesmereUI.GetUpgradeTrack(itemLink)
             local key, cur, maxL = EllesmereUI.GetUpgradeTrackKey(itemLink)
@@ -1736,24 +1739,27 @@ do
         -- Item-level text color: custom override > upgrade-track hue > crafted-crest hue >
         -- item rarity > white. Shared by character sheet, inspect sheet, equipment flyout and
         -- merchant. upgradeText/upgradeColor: a GetUpgradeTrack result the caller already has.
-        function EllesmereUI.GetItemLevelColor(itemLink, itemQuality, upgradeText, upgradeColor)
-            if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor
-                and EllesmereUIDB.charSheetItemLevelColor then
-                return EllesmereUIDB.charSheetItemLevelColor
+        -- Not built for QoL alone: without it the QoL equipment flyout keeps rarity colors.
+        if sheetsOrBags then
+            function EllesmereUI.GetItemLevelColor(itemLink, itemQuality, upgradeText, upgradeColor)
+                if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor
+                    and EllesmereUIDB.charSheetItemLevelColor then
+                    return EllesmereUIDB.charSheetItemLevelColor
+                end
+                if upgradeText == nil then
+                    upgradeText, upgradeColor = EllesmereUI.GetUpgradeTrack(itemLink)
+                end
+                if upgradeText and upgradeText ~= "" and upgradeColor then
+                    return upgradeColor
+                end
+                local crafted = EllesmereUI.GetCraftedTrackColor(itemLink)
+                if crafted then return crafted end
+                if (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) and itemQuality then
+                    local r, g, b = C_Item.GetItemQualityColor(itemQuality)
+                    return { r = r, g = g, b = b }
+                end
+                return { r = 1, g = 1, b = 1 }
             end
-            if upgradeText == nil then
-                upgradeText, upgradeColor = EllesmereUI.GetUpgradeTrack(itemLink)
-            end
-            if upgradeText and upgradeText ~= "" and upgradeColor then
-                return upgradeColor
-            end
-            local crafted = EllesmereUI.GetCraftedTrackColor(itemLink)
-            if crafted then return crafted end
-            if (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) and itemQuality then
-                local r, g, b = C_Item.GetItemQualityColor(itemQuality)
-                return { r = r, g = g, b = b }
-            end
-            return { r = 1, g = 1, b = 1 }
         end
     end
 end
