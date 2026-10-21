@@ -3,8 +3,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUIQoL_ItemIcons_FramesBrowse.lua
 --  Item Icons adapters for the load-on-demand browsing windows: auction house,
 --  black market, Adventure Guide loot, Great Vault, profession crafting and
---  customer orders. Their items have no bag location (the auction house sell
---  slot aside), so the marks come from the item link alone. A frame's hooks
+--  customer orders. Most of their items have no bag location, so the marks
+--  come from the item link; the bag items (the auction house sell slot,
+--  crafting slots and choices) pass their location too. A frame's hooks
 --  install once, the first time it is managed with its Blizzard addon loaded,
 --  and stay inert while it is released. List rows paint as their ScrollBox
 --  initializes them, so only visible rows do work. The adapter contract:
@@ -48,6 +49,7 @@ end
 --  item displays of the buy, sell and auctions panels
 -------------------------------------------------------------------------------
 local AH = "auctionhouse"
+local BUTTON_SIZE = 37                               -- the item button the mark sizes are set for
 local ahCells = setmetatable({}, { __mode = "k" })  -- item-name cells already hooked
 local ahLists, ahDisplays                            -- set on install
 local awaiting = {}                                  -- item IDs whose link is loading
@@ -67,18 +69,30 @@ local function KeyLink(itemID)
     return link
 end
 
--- Fills ctx for an item key; link is the auction's own link when it has one.
--- False for a battle pet (no item link) or while the key's data loads.
-local function SetKeyCtx(itemKey, link)
+-- The source an appearance link names: transmogappearance:<sourceID>
+-- (WardrobeCollectionFrameMixin:OpenTransmogLink)
+local function AppearanceSource(appearanceLink)
+    if type(appearanceLink) == "string" then
+        return tonumber(appearanceLink:match("transmogappearance:(%d+)"))
+    end
+end
+
+-- Fills ctx for an item key. link: the auction's own link when it has one;
+-- appearanceLink: its browse result's. False for a battle pet (no item link)
+-- or while the key's data loads.
+local function SetKeyCtx(itemKey, link, appearanceLink)
     local info = C_AuctionHouse.GetItemKeyInfo(itemKey)
     if not info or info.isPet then return false end
     if not link then
         link = KeyLink(itemKey.itemID)
         if not link then return false end
-        -- The item ID's link lacks the auction's bonuses; the key has its item level
-        if info.isEquipment and itemKey.itemLevel > 0 then
+        -- The item ID's link lacks the auction's bonuses: the key has its item
+        -- level, the appearance link its look (none: no transmog mark)
+        if info.isEquipment then
             wipe(facts)
-            facts.itemLevel = itemKey.itemLevel
+            if itemKey.itemLevel > 0 then facts.itemLevel = itemKey.itemLevel end
+            facts.transmogSourceID = AppearanceSource(appearanceLink) or AppearanceSource(info.appearanceLink)
+                or false
             ctx.facts = facts
         end
     end
@@ -86,19 +100,20 @@ local function SetKeyCtx(itemKey, link)
     return true
 end
 
--- A results row's item-name cell, the pooled unit that carries the 14 px icon.
--- A cell reused for a row whose data is not loaded yet is cleared. Blizzard dims
--- the icon of sold-out and sold auctions; the marks follow.
+-- A results row's item-name cell, the pooled unit that carries the 14 px icon:
+-- the marks shrink to it. A cell reused for a row whose data is not loaded yet
+-- is cleared. Blizzard dims the icon of sold-out and sold auctions; the marks
+-- follow.
 local function PaintCell(cell)
     if not IsManaged(AH) then return end
     local row = cell.rowData
     wipe(ctx)
-    if not (row and row.itemKey and SetKeyCtx(row.itemKey, row.itemLink)) then
+    if not (row and row.itemKey and SetKeyCtx(row.itemKey, row.itemLink, row.appearanceLink)) then
         Clear(cell)
         return
     end
     local icon = cell.Icon
-    ctx.anchor, ctx.alpha = icon, icon:GetAlpha()
+    ctx.anchor, ctx.alpha, ctx.scale = icon, icon:GetAlpha(), icon:GetHeight() / BUTTON_SIZE
     Paint(cell, ctx, AH)
 end
 
@@ -229,9 +244,6 @@ local function InstallBM()
     ScrollUtil.AddInitializedFrameCallback(scrollBox, function(_, row, elementData)
         if IsManaged(BM) then PaintMarketRow(row, elementData) end
     end, OWNER)
-    ScrollUtil.AddReleasedFrameCallback(scrollBox, function(_, row)
-        if IsManaged(BM) then Clear(row.Item) end
-    end, OWNER)
     hooksecurefunc("BlackMarketFrame_UpdateHotItem", function()
         if IsManaged(BM) then PaintHotDeal() end
     end)
@@ -297,9 +309,6 @@ local function InstallEJ()
     local scrollBox = LootScrollBox()
     ScrollUtil.AddAcquiredFrameCallback(scrollBox, function(_, row, elementData)
         if IsManaged(EJ) then HookLootRow(row, elementData) end
-    end, OWNER)
-    ScrollUtil.AddReleasedFrameCallback(scrollBox, function(_, row)
-        if IsManaged(EJ) then Clear(row) end
     end, OWNER)
     scrollBox:HookScript("OnShow", function()
         if IsManaged(EJ) then RepaintEJ() end
@@ -385,15 +394,23 @@ end
 Adapter(GV, "Blizzard_WeeklyRewards", InstallVault, RepaintVault)
 
 -------------------------------------------------------------------------------
---  Profession crafting and customer orders: recipe output icons and reagent
---  slots. Both windows build them from Blizzard_ProfessionsTemplates, so one
---  set of hooks serves both; a button's window picks its frame key.
+--  Profession crafting and customer orders: recipe outputs, reagent, salvage,
+--  enchant and recraft slots, the item flyout and the crafting output log.
+--  Both windows build them from Blizzard_ProfessionsTemplates, so one set of
+--  hooks serves both; a button's window picks its frame key. Starting on an
+--  open window reads every shown button from Blizzard's own state.
 -------------------------------------------------------------------------------
 local PROF, ORDERS = "professions", "customerorders"
 local windows = {}                                     -- window -> frame key
-local outputs = setmetatable({}, { __mode = "k" })     -- output icon -> its item link, ID or false
-local slots = setmetatable({}, { __mode = "k" })       -- reagent slots already hooked
+local slots = setmetatable({}, { __mode = "k" })       -- reagent, salvage and enchant slots already hooked
+local recrafts = setmetatable({}, { __mode = "k" })    -- recraft slots already hooked
+local flyouts = setmetatable({}, { __mode = "k" })     -- item flyouts already hooked
+local orderView                                        -- the crafter's order view; nil on WoW Forever
 local templatesHooked = false
+
+local function AnyManaged()
+    return IsManaged(PROF) or IsManaged(ORDERS)
+end
 
 local function WindowKey(region)
     local f = region:GetParent()
@@ -406,17 +423,39 @@ end
 
 -- The frame key of region's window while that window is managed
 local function ManagedKey(region)
-    if not (IsManaged(PROF) or IsManaged(ORDERS)) then return end
+    if not AnyManaged() then return end
     local key = WindowKey(region)
     if key and IsManaged(key) then return key end
 end
 
+-- Fills ctx from an Item (ItemMixin): a bag item by its GUID, with its location;
+-- else by its own link. False when it has none.
+local function SetItemCtx(item)
+    local guid = item:GetItemGUID()
+    if guid then
+        if issecretvalue(guid) then return false end
+        local link = C_Item.GetItemLinkByGUID(guid)
+        if not link then return false end
+        ctx.link = link
+        local location = C_Item.GetItemLocation(guid)
+        if location and location:IsBagAndSlot() then
+            ctx.bag, ctx.slot = location:GetBagAndSlot()
+        else
+            ctx.location = location
+        end
+        return true
+    end
+    local link = item:GetItemLink()
+    if not link then return false end
+    ctx.link = link
+    return true
+end
+
 -- The item a craft or an order makes. Its count is the craft's yield range,
 -- not a stack, so it stays Blizzard's.
-local function PaintOutput(icon)
+local function PaintOutput(icon, link)
     local key = ManagedKey(icon)
     if not key then return end
-    local link = outputs[icon]
     if type(link) == "number" then
         local _
         _, link = GetItemInfo(link)
@@ -431,35 +470,132 @@ local function PaintOutput(icon)
     HideNative(icon.ProfessionQualityOverlay, key)
 end
 
--- A slot's item link, or nil while it is empty, loading or holds a currency. A
--- quality slot stands for every quality of its reagent; Blizzard's own overlay
--- shows what is allocated (ProfessionsReagentSlotMixin:UpdateQualityOverlay).
-local function SlotLink(slot)
-    if slot:IsLoading() then return end
-    if slot.GetReagentSlotSchematic then
-        local reagent = slot:GetReagent()
-        if not (reagent and reagent.itemID) then return end
-        local mode = Professions.GetReagentInputMode(slot:GetReagentSlotSchematic())
-        if mode == Professions.ReagentInputMode.Quality then return end
-    end
-    return slot.Button:GetItemLink()
+-- Paints an item button from ctx; Count shows the stack (count, else the
+-- button's own), which an element replaces
+local function PaintItemButton(button, key, count)
+    ctx.count = count or button:GetItemButtonCount()
+    Paint(button, ctx, key)
+    HideNative(button.Count, key)
+    HideNative(button.ProfessionQualityOverlay, key)
 end
 
--- Reagent, salvage and enchant slots; Update ends every change of their item
+-- A slot's item into ctx; false while it is empty, loading or holds a
+-- currency. A quality slot stands for every quality of its reagent: Blizzard's
+-- own overlay shows what is allocated (ProfessionsReagentSlotMixin:
+-- UpdateQualityOverlay). Salvage and enchant slots show their bag item by item
+-- ID only (ProfessionsSalvageSlotMixin:SetItem); its GUID tells the real one.
+local function SetSlotCtx(slot)
+    if slot:IsLoading() then return false end
+    if slot.GetReagentSlotSchematic then
+        local reagent = slot:GetReagent()
+        if not (reagent and reagent.itemID) then return false end
+        local mode = Professions.GetReagentInputMode(slot:GetReagentSlotSchematic())
+        if mode == Professions.ReagentInputMode.Quality then return false end
+        ctx.link = slot.Button:GetItemLink()
+        return ctx.link ~= nil
+    end
+    local item = slot.allocationItem
+    return item ~= nil and SetItemCtx(item)
+end
+
+-- Update ends every change of a slot's item
 local function PaintSlot(slot)
     local key = ManagedKey(slot)
     if not key then return end
     local button = slot.Button
-    local link = SlotLink(slot)
     wipe(ctx)
-    if not link then
+    if SetSlotCtx(slot) then
+        PaintItemButton(button, key)
+    else
+        Clear(button)
+    end
+end
+
+local function HookSlot(slot)
+    if slots[slot] then return end
+    slots[slot] = true
+    hooksecurefunc(slot, "Update", PaintSlot)
+end
+
+-- A recraft slot's input, or a finished order's crafted output. Known by link
+-- alone (a crafting order's), the item may be bound.
+local function PaintRecraft(button, item)
+    local key = ManagedKey(button)
+    if not key then return end
+    wipe(ctx)
+    if not (item and SetItemCtx(item)) then
         Clear(button)
         return
     end
-    ctx.link, ctx.count = link, button:GetItemButtonCount()
+    if not (ctx.bag or ctx.location) then
+        wipe(facts)
+        facts.isBound = true
+        ctx.facts = facts
+    end
     Paint(button, ctx, key)
-    HideNative(button.Count, key)
     HideNative(button.ProfessionQualityOverlay, key)
+end
+
+-- crafted: the output slot holds the real crafted item (a finished order,
+-- ProfessionsCrafterOrderViewMixin:SetOrder)
+local function HookRecraft(recraftSlot, crafted)
+    if recrafts[recraftSlot] then return end
+    recrafts[recraftSlot] = true
+    hooksecurefunc(recraftSlot.InputSlot, "Init", PaintRecraft)
+    -- Elsewhere the output shows the input item under Blizzard's predicted quality
+    -- pip (SetItemCraftingQualityOverlayOverride): it stays Blizzard's
+    if crafted then hooksecurefunc(recraftSlot.OutputSlot, "Init", PaintRecraft) end
+end
+
+-- A flyout choice: an owned item by its GUID, else by item ID
+local function PaintFlyoutButton(button, elementData)
+    local key = ManagedKey(button)
+    if not key then return end
+    local item = elementData.item
+    wipe(ctx)
+    if item and SetItemCtx(item) then
+        PaintItemButton(button, key)
+    else
+        Clear(button)
+    end
+end
+
+-- The flyout is one frame, built when its file loads; a behavior keeps it
+-- (FlyoutBehaviorMixin:SetFlyout)
+local function HookFlyout(flyout)
+    if not flyout or flyouts[flyout] then return end
+    flyouts[flyout] = true
+    ScrollUtil.AddInitializedFrameCallback(flyout.ScrollBox, function(_, button, elementData)
+        PaintFlyoutButton(button, elementData)
+    end, OWNER)
+    -- The choices it already built (ProfessionsFlyoutMixin:InitializeContents)
+    flyout.ScrollBox:ForEachFrame(PaintFlyoutButton)
+end
+
+local function PaintLogButton(button, key, link, count)
+    wipe(ctx)
+    if link then
+        ctx.link = link
+        PaintItemButton(button, key, count)
+    else
+        Clear(button)
+    end
+end
+
+-- A crafting result: its item and, after a multicraft, the bonus row's icon
+-- (ProfessionsCraftingOutputLogElementMixin:Init)
+local function PaintLogElement(element, resultData)
+    local key = ManagedKey(element)
+    if not key then return end
+    local link = resultData.hyperlink
+    PaintLogButton(element.ItemContainer.Item, key, link, resultData.quantity)
+    PaintLogButton(element.Multicraft.Item, key, resultData.multicraft > 0 and link or nil)
+end
+
+local function HookLog(log)
+    ScrollUtil.AddInitializedFrameCallback(log.ScrollBox, function(_, element, resultData)
+        PaintLogElement(element, resultData)
+    end, OWNER)
 end
 
 local function HookTemplates()
@@ -467,34 +603,139 @@ local function HookTemplates()
     templatesHooked = true
     -- Professions.SetupOutputIcon and the crafter's fulfillment icon end here
     hooksecurefunc(Professions, "SetupOutputIconCommon", function(icon, _, _, _, item)
-        outputs[icon] = item or false
-        PaintOutput(icon)
+        PaintOutput(icon, item)
     end)
     -- Every slot type's Init calls the base Init through the mixin table
     hooksecurefunc(ProfessionsRecipeSlotBaseMixin, "Init", function(slot)
-        if slots[slot] then return end
-        slots[slot] = true
-        hooksecurefunc(slot, "Update", PaintSlot)
+        if AnyManaged() then HookSlot(slot) end
+    end)
+    hooksecurefunc("OpenProfessionsItemFlyout", function(_, _, behavior)
+        if AnyManaged() then HookFlyout(behavior.flyout) end
     end)
 end
 
-local function Repainter(frameKey)
-    return function()
-        for icon in pairs(outputs) do
-            if icon:IsVisible() and WindowKey(icon) == frameKey then PaintOutput(icon) end
+-------------------------------------------------------------------------------
+--  Repaint: every shown button, read the way its form sets it
+-------------------------------------------------------------------------------
+-- The item a recraft slot shows: an order's link, else the transaction's bag item
+-- (ProfessionsRecraftSlotMixin:Init)
+local function RecraftItem(link, transaction)
+    if link then return Item:CreateFromItemLink(link) end
+    local guid = transaction and transaction:GetRecraftAllocation()
+    if guid then return Item:CreateFromItemGUID(guid) end
+end
+
+-- The input only: the output stays Blizzard's (HookRecraft)
+local function RepaintRecraft(recraftSlot, item)
+    if recraftSlot:IsVisible() then PaintRecraft(recraftSlot.InputSlot, item) end
+end
+
+local function RepaintSlot(slot)
+    HookSlot(slot)
+    if slot:IsVisible() then PaintSlot(slot) end
+end
+
+local function RepaintSlots(form)
+    for slot in form.reagentSlotPool:EnumerateActive() do RepaintSlot(slot) end
+    if form.salvageSlot then RepaintSlot(form.salvageSlot) end
+    if form.enchantSlot then RepaintSlot(form.enchantSlot) end
+end
+
+-- A recipe schematic: crafting page, crafter order or linked recipe.
+-- recraftLink is the crafter order's item (ProfessionsCrafterOrderViewMixin).
+local function RepaintSchematic(form, recraftLink)
+    if not form:IsVisible() then return end
+    local transaction = form:GetTransaction()
+    if transaction then
+        if form.OutputIcon:IsVisible() then
+            -- ProfessionsRecipeSchematicFormMixin:UpdateOutputItem
+            local info = C_TradeSkillUI.GetRecipeOutputItemData(transaction:GetRecipeID(),
+                transaction:CreateCraftingReagentInfoTbl(), transaction:GetAllocationItemGUID())
+            PaintOutput(form.OutputIcon, info and info.hyperlink)
         end
-        for slot in pairs(slots) do
-            if slot:IsVisible() and WindowKey(slot) == frameKey then PaintSlot(slot) end
+        RepaintRecraft(form.recraftSlot, RecraftItem(recraftLink, transaction))
+    end
+    RepaintSlots(form)
+end
+
+-- A finished crafter order's item (ProfessionsCrafterOrderViewMixin:SetOrder)
+local function RepaintFulfillment(view)
+    local form, order = view.OrderDetails.FulfillmentForm, view.order
+    if not (form:IsVisible() and order and order.outputItemHyperlink) then return end
+    if order.isRecraft then
+        local recraftSlot = form.RecraftSlot
+        if recraftSlot:IsVisible() then
+            PaintRecraft(recraftSlot.InputSlot, RecraftItem(order.recraftItemHyperlink))
+            PaintRecraft(recraftSlot.OutputSlot, RecraftItem(order.outputItemHyperlink))
+        end
+    elseif form.ItemIcon:IsVisible() then
+        PaintOutput(form.ItemIcon, order.outputItemHyperlink)
+    end
+end
+
+local function RepaintLog(log)
+    if log:IsVisible() then log.ScrollBox:ForEachFrame(PaintLogElement) end
+end
+
+local function RepaintFlyouts(frameKey)
+    for flyout in pairs(flyouts) do
+        if flyout:IsVisible() and WindowKey(flyout) == frameKey then
+            flyout.ScrollBox:ForEachFrame(PaintFlyoutButton)
         end
     end
 end
 
+local function RepaintProfessions()
+    local page = ProfessionsFrame.CraftingPage
+    RepaintSchematic(page.SchematicForm)
+    RepaintSchematic(InspectRecipeFrame.SchematicForm)
+    RepaintLog(page.CraftingOutputLog)
+    if orderView then
+        local order = orderView.order
+        RepaintSchematic(orderView.OrderDetails.SchematicForm,
+            order and (order.outputItemHyperlink or order.recraftItemHyperlink))
+        RepaintFulfillment(orderView)
+        RepaintLog(orderView.CraftingOutputLog)
+    end
+    RepaintFlyouts(PROF)
+end
+
+local function RepaintOrders()
+    local form = ProfessionsCustomerOrdersFrame.Form
+    if not form:IsVisible() then return end
+    local transaction, order = form.transaction, form.order
+    if transaction then
+        if form.OutputIcon:IsVisible() then
+            -- ProfessionsCustomerOrderFormMixin:InitSchematic
+            local info = C_TradeSkillUI.GetRecipeOutputItemData(transaction:GetRecipeID())
+            PaintOutput(form.OutputIcon, info and info.hyperlink)
+        end
+        RepaintRecraft(form.RecraftSlot, RecraftItem(order and order.recraftItemHyperlink, transaction))
+    end
+    RepaintSlots(form)
+    RepaintFlyouts(ORDERS)
+end
+
 Adapter(PROF, "Blizzard_Professions", function()
     windows[ProfessionsFrame] = PROF
+    windows[InspectRecipeFrame] = PROF
     HookTemplates()
-end, Repainter(PROF))
+    local page = ProfessionsFrame.CraftingPage
+    HookRecraft(page.SchematicForm.recraftSlot)
+    HookRecraft(InspectRecipeFrame.SchematicForm.recraftSlot)
+    HookLog(page.CraftingOutputLog)
+    -- WoW Forever's (Camelot) ProfessionsFrame has no OrdersPage
+    local orders = ProfessionsFrame.OrdersPage
+    orderView = orders and orders.OrderView
+    if orderView then
+        HookRecraft(orderView.OrderDetails.SchematicForm.recraftSlot)
+        HookRecraft(orderView.OrderDetails.FulfillmentForm.RecraftSlot, true)
+        HookLog(orderView.CraftingOutputLog)
+    end
+end, RepaintProfessions)
 
 Adapter(ORDERS, "Blizzard_ProfessionsCustomerOrders", function()
     windows[ProfessionsCustomerOrdersFrame] = ORDERS
     HookTemplates()
-end, Repainter(ORDERS))
+    HookRecraft(ProfessionsCustomerOrdersFrame.Form.RecraftSlot)
+end, RepaintOrders)
