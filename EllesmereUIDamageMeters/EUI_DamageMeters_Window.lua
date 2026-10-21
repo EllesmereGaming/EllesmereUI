@@ -1184,6 +1184,8 @@ local function CreateDMWindow(winIdx)
 
     header:SetScript("OnMouseDown", function(_, button)
         if button ~= "LeftButton" or W.windowLocked then return end
+        local bars = EUI._ModuleNS.EllesmereUIDataBars
+        if bars and bars.MeterDockState and bars.MeterDockState(W.idx) then return end
         if EUI.InProtectedInstance() then return end
         local cx, cy = GetCursorPosition(); local es = frame:GetEffectiveScale()
         dragStartCX = cx/es; dragStartCY = cy/es
@@ -1431,6 +1433,8 @@ local function CreateDMWindow(winIdx)
 
     W.resizeGrip:SetScript("OnMouseDown", function(_, button)
         if button ~= "LeftButton" or W.windowLocked then return end
+        local bars = EUI._ModuleNS.EllesmereUIDataBars
+        if bars and bars.MeterDockState and bars.MeterDockState(W.idx) then return end
         if EUI.InProtectedInstance() then return end
         local left, top = frame:GetLeft(), frame:GetTop()
         if left and top then
@@ -2736,6 +2740,19 @@ local function CreateDMWindow(winIdx)
     -- Visibility
     function W.UpdateVisibility()
         if not frame then return end
+        local bars = EUI._ModuleNS.EllesmereUIDataBars
+        local docked, shown
+        if bars and bars.MeterDockState then docked, shown = bars.MeterDockState(W.idx) end
+        if docked then
+            bars.PlaceDockMeter(frame, W.idx)
+            if not shown then frame:Hide(); return end
+            if bars.MeterDockOverridesVisibility and bars.MeterDockOverridesVisibility() then
+                frame:SetAlpha(1)
+                frame:EnableMouse(true)
+                frame:Show()
+                return
+            end
+        end
         local c = DB()
         if EUI._unlockActive or ns._optionsOpen then frame:SetAlpha(1); frame:EnableMouse(true); frame:Show(); return end
         -- Hotkey toggle outranks every configured rule but yields to the two modes above
@@ -2753,6 +2770,11 @@ local function CreateDMWindow(winIdx)
     local function MouseoverActive()
         -- The mouseover scanner shows the frame without going through UpdateVisibility,
         -- so the toggle and the window's instance rules have to be refused here as well
+        local bars = EUI._ModuleNS.EllesmereUIDataBars
+        if bars and bars.MeterDockState then
+            local docked, shown = bars.MeterDockState(W.idx)
+            if docked and not shown then return false end
+        end
         if ns._toggleHidden or InstanceHidden() then return false end
         local c = DB()
         return c ~= nil and EUI.VisWantsMouseover(c, "visibility")

@@ -2190,6 +2190,8 @@ ApplyLayout = function(id)
     -- The options page's preview strip solves from these measurements.
     local onLaidOut = ns.OnBarLaidOut
     if onLaidOut then onLaidOut(id) end
+    local dockProfile = ns.GetProfile()
+    if dockProfile and dockProfile.meterDockBar and ns.RefreshMeterDock then ns.RefreshMeterDock() end
 end
 
 --- "Never" is this module's only disable channel, so every gate that asks it has to ask
