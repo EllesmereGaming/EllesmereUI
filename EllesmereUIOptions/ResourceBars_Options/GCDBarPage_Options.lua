@@ -292,7 +292,7 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
                     { type = "toggle", label = "Show Behind",
                       get = function() local p = DB(); return p and p.gcdBar.borderBehind or false end,
                       set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderBehind = v == false and nil or v; RefreshGCD(); EllesmereUI:RefreshPage() end },
-                    -- Extend Top / Extend Bottom (0 = off); the cog has no bar-off block.
+                    -- Border extensions (0 = off); the cog has no bar-off block.
                     { type = "slider", label = "Extend Top", min = 0, max = 50, step = 1,
                       tooltip = "Grows the border past the bar's top edge on screen without resizing the bar.",
                       disabled = gcdOff, disabledTooltip = "GCD Bar",
@@ -303,6 +303,16 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
                       disabled = gcdOff, disabledTooltip = "GCD Bar",
                       get = function() local p = DB(); return p and p.gcdBar.borderExtendBottom or 0 end,
                       set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderExtendBottom = v; RefreshGCD(); EllesmereUI:RefreshPage() end },
+                    { type = "slider", label = "Extend Left", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's left edge on screen without resizing the bar.",
+                      disabled = gcdOff, disabledTooltip = "GCD Bar",
+                      get = function() local p = DB(); return p and p.gcdBar.borderExtendLeft or 0 end,
+                      set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderExtendLeft = v; RefreshGCD(); EllesmereUI:RefreshPage() end },
+                    { type = "slider", label = "Extend Right", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's right edge on screen without resizing the bar.",
+                      disabled = gcdOff, disabledTooltip = "GCD Bar",
+                      get = function() local p = DB(); return p and p.gcdBar.borderExtendRight or 0 end,
+                      set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderExtendRight = v; RefreshGCD(); EllesmereUI:RefreshPage() end },
                     -- Bottom Separator: None = off (edgeSep false); an art entry turns it
                     -- on with that art.
                     { type = "dropdown", label = "Bottom Separator", values = sepValues, order = sepOrder,

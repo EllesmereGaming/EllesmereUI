@@ -183,6 +183,38 @@ Snapshot.Key = Key
 
 
 
+local function PackedParts(value)
+    if type(value) ~= "string" then return nil end
+    local epoch, blob = value:match("^z(%d+):(.+)$")
+    return tonumber(epoch), blob
+end
+
+
+local function PackSnapshot(snapshot)
+    local epoch = type(snapshot) == "table" and Num(snapshot.epoch)
+    if not epoch or epoch < 0 or epoch ~= math.floor(epoch) then return nil end
+    local blob = addon.History and addon.History.PackValue and addon.History.PackValue(snapshot)
+    return blob and ("z%d:%s"):format(epoch, blob) or nil
+end
+Snapshot.PackSnapshot = PackSnapshot
+
+
+local cachedValue, cachedSnapshot
+
+
+local function Stored(value)
+    if type(value) == "table" then return value end
+    if type(value) ~= "string" then return nil end
+    if value ~= cachedValue then
+        local _, blob = PackedParts(value)
+        local snapshot = blob and addon.History.UnpackValue and addon.History.UnpackValue(blob)
+        cachedValue, cachedSnapshot = value, type(snapshot) == "table" and snapshot or nil
+    end
+    return cachedSnapshot
+end
+
+
+
 function Snapshot:Capture(session, winner, item)
     if not addon.db then return end
 
@@ -200,7 +232,7 @@ function Snapshot:Capture(session, winner, item)
     built.epoch = GetServerTime()
 
     addon.db.historySnapshots = addon.db.historySnapshots or {}
-    addon.db.historySnapshots[key] = built
+    addon.db.historySnapshots[key] = PackSnapshot(built) or built
     addon.Log:D("Snapshot", "captured", item.link, "session", session,
         "run", runId, built.count, "candidate(s)")
 end
@@ -210,7 +242,7 @@ function Snapshot:For(entry)
     if not entry or not entry.runId or not entry.session then return nil end
     local key = Key(entry.runId, entry.session)
     return key and addon.db and addon.db.historySnapshots
-        and addon.db.historySnapshots[key]
+        and Stored(addon.db.historySnapshots[key]) or nil
 end
 
 
@@ -228,7 +260,7 @@ Snapshot.KEEP_DAYS = KEEP_DAYS
 
 
 local function AgeEpoch(snapshot, rowEpoch)
-    local epoch = type(snapshot) == "table" and snapshot.epoch
+    local epoch = type(snapshot) == "table" and snapshot.epoch or PackedParts(snapshot)
     if type(epoch) == "number" then return epoch end
     if type(rowEpoch) == "number" and rowEpoch > 0 then return rowEpoch end
     return nil
@@ -242,17 +274,15 @@ function Snapshot:Prune(live, login)
 
     if not live then
         live = {}
-        addon.History.EachEntry(function(entry)
-            local key = Key(entry.runId, entry.session)
-            if key then
-                local epoch = type(entry.epoch) == "number" and entry.epoch or 0
-                live[key] = math.max(live[key] or 0, epoch)
-            end
+
+        addon.History.EachSnapKey(function(key, epoch)
+            live[key] = math.max(live[key] or 0, epoch)
         end)
     end
 
     local cutoff = GetServerTime() - KEEP_DAYS * 24 * 60 * 60
     local orphans, aged, compacted = 0, 0, 0
+    local unpacked = {}
     for key, snapshot in pairs(addon.db.historySnapshots) do
         if not live[key] then
             addon.db.historySnapshots[key] = nil
@@ -262,9 +292,10 @@ function Snapshot:Prune(live, login)
             if epoch and epoch < cutoff then
                 addon.db.historySnapshots[key] = nil
                 aged = aged + 1
-            elseif login and Snapshot.Compact(snapshot) then
+            elseif login and type(snapshot) == "table" then
 
-                compacted = compacted + 1
+                if Snapshot.Compact(snapshot) then compacted = compacted + 1 end
+                unpacked[#unpacked + 1] = key
             end
         end
     end
@@ -275,8 +306,50 @@ function Snapshot:Prune(live, login)
     if compacted > 0 then
         addon.Log:I("Snapshot", "compacted", compacted, "older snapshot(s)")
     end
-    if login then Snapshot:LogReady() end
+    if login then
+        Snapshot:LogReady()
+        if #unpacked > 0 then Snapshot:StartPacking(unpacked) end
+    end
     return orphans + aged
+end
+
+
+local PACK_BUDGET = 20
+Snapshot.PACK_BUDGET = PACK_BUDGET
+local packQueue, packAt, packDone = nil, 1, 0
+
+
+function Snapshot:PackStep(budget)
+    local store = addon.db and addon.db.historySnapshots
+    if not packQueue or type(store) ~= "table" then
+        packQueue = nil
+        return false
+    end
+    local stop = math.min(#packQueue, packAt + budget - 1)
+    for i = packAt, stop do
+        local key = packQueue[i]
+        local packed = type(store[key]) == "table" and PackSnapshot(store[key])
+        if packed then
+            store[key] = packed
+            packDone = packDone + 1
+        end
+    end
+    packAt = stop + 1
+    if packAt <= #packQueue then return true end
+    addon.Log:I("Snapshot", "packed", packDone, "of", #packQueue, "council snapshot(s)")
+    packQueue = nil
+    return false
+end
+
+
+function Snapshot:StartPacking(keys)
+    packQueue, packAt, packDone = keys, 1, 0
+    if not CreateFrame then return end
+    local driver = CreateFrame("Frame")
+    driver:SetScript("OnUpdate", function(self)
+        if not Snapshot:PackStep(PACK_BUDGET) then self:SetScript("OnUpdate", nil) end
+    end)
+    Snapshot.packDriver = driver
 end
 
 
@@ -391,12 +464,16 @@ end
 
 
 function Snapshot:LogReady()
-    local n, candidates, bytes = 0, 0, 0
+    local n, packed, candidates, bytes = 0, 0, 0, 0
     for _, snapshot in pairs(addon.db.historySnapshots or {}) do
         n = n + 1
-        candidates = candidates + (Num(type(snapshot) == "table" and snapshot.count) or 0)
-        bytes = bytes + EstimateSnapshotBytes(snapshot)
+        if type(snapshot) == "string" then
+            packed, bytes = packed + 1, bytes + #snapshot
+        else
+            candidates = candidates + (Num(type(snapshot) == "table" and snapshot.count) or 0)
+            bytes = bytes + EstimateSnapshotBytes(snapshot)
+        end
     end
-    addon.Log:I("Snapshot", "ready,", n, "council snapshot(s),", candidates,
-        "candidate record(s), ~", math.floor(bytes / 1024 + 0.5) .. "KB")
+    addon.Log:I("Snapshot", "ready,", n, "council snapshot(s),", packed, "packed,", candidates,
+        "candidate record(s) unpacked, ~", math.floor(bytes / 1024 + 0.5) .. "KB")
 end

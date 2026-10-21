@@ -91,8 +91,9 @@ every other module that can't be overridden.
 
 ## Reference
 
-`EllesmereUI.PLUGIN_API_VERSION` is `1`. The API only ever grows; existing
-functions and fields will not change.
+`EllesmereUI.PLUGIN_API_VERSION` is `2`. The API only ever grows; existing
+functions and fields will not change. Version 2 added
+`EllesmereUI.GetCDMIconsForSpell`.
 
 ### `EllesmereUI.RegisterPlugin(id, spec)` -> `boolean`
 
@@ -152,6 +153,33 @@ EllesmereUI:InvalidateModulePageCache(key)  -- drop your cached pages
 
 `true` while the global search's hidden pre-build pass is running one of your
 page builders (see [Search](#search)).
+
+### `EllesmereUI.GetCDMIconsForSpell(spellID [, out])` -> `table`
+
+The Cooldown Manager icons currently showing `spellID`, on every CDM bar,
+including spells the player added that Blizzard's Cooldown Manager doesn't
+track. An icon matches when it holds the spell, its base spell or one of its
+overrides, the same way the rotation helper highlight finds its icon. Hidden
+icons are left out.
+
+`out` is optional: pass a table of your own to have it wiped and filled
+instead of getting a new one (no allocation when you call it often). The
+function exists only while the Cooldown Manager module is loaded, so test for
+it first:
+
+```lua
+local icons = {}
+if EllesmereUI.GetCDMIconsForSpell then
+    for _, icon in ipairs(EllesmereUI.GetCDMIconsForSpell(spellID, icons)) do
+        -- anchor your own overlay to icon
+    end
+end
+```
+
+The icons belong to EUI: anchor your own frames to them (an overlay, a glow
+from `EllesmereUI.Glows`), but don't reparent, hide, resize or hook them, and
+look them up again rather than keeping them, since bars reuse their icons
+when they rebuild.
 
 ## Building pages
 

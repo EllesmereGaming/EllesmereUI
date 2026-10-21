@@ -210,7 +210,7 @@ initFrame:SetScript("OnEvent", function(self)
                 rows={
                     { type="toggle", label="Include Headerbar",
                       get=function() return Cfg("windowBorderIncludeHeader") ~= false end,
-                      set=function(v) Set("windowBorderIncludeHeader", v); ApplyWindowBrd() end },
+                      set=function(v) Set("windowBorderIncludeHeader", v); ApplyWindowBrd(); EllesmereUI:RefreshPage() end },
                     { type="toggle", label="Show Behind",
                       get=function() return Cfg("windowBorderBehind") or false end,
                       set=function(v) Set("windowBorderBehind", v); ApplyWindowBrd() end },
@@ -265,39 +265,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Background Opacity (+ inline color swatch) | Always Show Player
-        local bgRow
-        bgRow, h = W:DualRow(parent, y,
-            { type="slider", text="Background Opacity",
-              min = 0, max = 1, step = 0.01,
-              getValue = function() return Cfg("bgAlpha") or 0.75 end,
-              setValue = function(v) Set("bgAlpha", v); if ns.ApplyBackground then ns.ApplyBackground() end end },
-            { type="toggle", text="Always Show Player",
-              tooltip = "This will pin your bar to the window when it is not within the visible area",
-              getValue = function() return Cfg("showPinnedSelf") ~= false end,
-              setValue = function(v) Set("showPinnedSelf", v); Refresh() end })
-        -- Inline color swatch on Background Opacity
-        do
-            local rgn = bgRow._leftRegion
-            local ctrl = rgn._control
-            local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
-                rgn, bgRow:GetFrameLevel() + 3,
-                function()
-                    return (Cfg("bgR") or 0), (Cfg("bgG") or 0), (Cfg("bgB") or 0)
-                end,
-                function(r, g, b)
-                    Set("bgR", r); Set("bgG", g); Set("bgB", b)
-                    if ns.ApplyBackground then ns.ApplyBackground() end
-                end,
-                false, 20)
-            PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
-            if DMBlizzArt() then EllesmereUI.BlizzStyle.BlockInline("damagemeters", bgSwatch) end
-        end
-        y = y - h
-
-        -- Reset Data Keybind (+ inline cog: hide reset button) | (free; on the WoW
-        -- Forever look its window Border Style). Refresh Rate and its "(seconds)"
+        -- Background Texture (or the WoW Forever border style) | Background Opacity.
+        -- Refresh Rate and its "(seconds)"
         -- suffix moved up to the Visibility row. The Border Style is latched with
         -- the look (the windows are built with its insets), so picking another kind
         -- than the latched one asks for a reload; Slim Textured (Blizzard's live
@@ -324,10 +293,54 @@ initFrame:SetScript("OnEvent", function(self)
                       reload      = true,
                   })
               end }
+        local bgRow
+        bgRow, h = W:DualRow(parent, y,
+            fvBorderCfg or EllesmereUI.BlizzStyle.Gate("damagemeters", {
+                type = "dropdown", text = "Background Texture", values = dmTexValues, order = dmTexOrder,
+                getValue = function() return Cfg("bgTexture") or "none" end,
+                setValue = function(v) Set("bgTexture", v); ns.ApplyBackground() end }),
+            { type="slider", text="Background Opacity",
+              min = 0, max = 1, step = 0.01,
+              getValue = function() return Cfg("bgAlpha") or 0.75 end,
+              setValue = function(v) Set("bgAlpha", v); if ns.ApplyBackground then ns.ApplyBackground() end end })
+        -- Inline color swatch on Background Opacity
+        do
+            local rgn = bgRow._rightRegion
+            local ctrl = rgn._control
+            local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
+                rgn, bgRow:GetFrameLevel() + 3,
+                function()
+                    return (Cfg("bgR") or 0), (Cfg("bgG") or 0), (Cfg("bgB") or 0)
+                end,
+                function(r, g, b)
+                    Set("bgR", r); Set("bgG", g); Set("bgB", b)
+                    if ns.ApplyBackground then ns.ApplyBackground() end
+                end,
+                false, 20)
+            PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
+            if DMBlizzArt() then EllesmereUI.BlizzStyle.BlockInline("damagemeters", bgSwatch) end
+        end
+        y = y - h
+
+        -- Always Show Player | Reset Data Keybind
         local rrRow
         rrRow, h = W:DualRow(parent, y,
-            { type="label", text="Reset Data Keybind" },
-            fvBorderCfg or { type="label", text="" })
+            { type="toggle", text="Always Show Player",
+              tooltip = "This will pin your bar to the window when it is not within the visible area",
+              getValue = function() return Cfg("showPinnedSelf") ~= false end,
+              setValue = function(v) Set("showPinnedSelf", v); Refresh() end },
+            { type="label", text="Reset Data Keybind" })
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(rrRow._leftRegion, {
+                title = "Player Bar Settings", rows = {
+                    { type = "toggle", label = "Show Player Marker",
+                      tooltip = "Shows a white stripe on your own bar, including the pinned player bar.",
+                      get = function() return Cfg("showPlayerMarker") == true end,
+                      set = function(v) Set("showPlayerMarker", v); Refresh() end },
+                },
+            })
+        end
         -- "(seconds)" suffix for Refresh Rate, which lives in the Visibility row's right
         -- slot -- not this row.
         do
@@ -355,7 +368,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         if not EllesmereUI._prebuilding then
-            local rgn = rrRow._leftRegion
+            local rgn = rrRow._rightRegion
             local kbBtn = MakeKeybindButton(rgn, "resetDataKey",
                 "Left-click to set a keybind.\nRight-click to unbind.")
 
@@ -436,6 +449,20 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
             EllesmereUI.BlizzStyle.BlockInline("damagemeters", swatch)
+            rgn._lastInline = swatch
+        end
+        if not EllesmereUI._prebuilding and EllesmereUI.GetBorderCompanion(Cfg("windowBorderTexture"), "sepH") then
+            EllesmereUI.BuildInlineCog(hdrBorderRow._leftRegion, EllesmereUI.BlizzStyle.Gate("damagemeters", {
+                title = "Header Settings",
+                rows = {
+                    { type = "toggle", label = "Bottom Separator",
+                      tooltip = "Uses the window border's style, size and color.",
+                      disabled = function() return Cfg("windowBorderIncludeHeader") == false or (Cfg("windowBorderSize") or 0) <= 0 end,
+                      disabledTooltip = "Include Headerbar and a Window Border Size above 0",
+                      get = function() return Cfg("hdrBottomSeparator") == true end,
+                      set = function(v) Set("hdrBottomSeparator", v); ApplyHdr() end },
+                },
+            }))
         end
         -- Inline dual swatches on Icon Size: right = Custom, left = Accent
         if not EllesmereUI._prebuilding then
@@ -706,25 +733,32 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) Set("iconStyle", v); ApplyIconBrd(); Refresh(); EllesmereUI:RefreshPage() end })
         y = y - h
 
-        -- Inline cog: Icon Zoom (right region, next to "Icon Style")
+        -- Icon crop and the optional seam use the existing Icon Style cog.
         if not EllesmereUI._prebuilding then
             local rgn = iconRow._rightRegion
-            -- Icon Zoom only affects the Spec + Blizzard icon styles; the sprite
-            -- presets are pre-framed art, so grey + block the cog for those (and
-            -- for "None", where there is no icon).
-            local function zoomOff()
-                local s = Cfg("iconStyle") or "spec"
-                return s ~= "spec" and s ~= "blizzard"
+            local function ZoomKey()
+                local style = Cfg("iconStyle") or "spec"
+                return (style == "spec" or style == "blizzard") and "classIconZoom" or "spriteIconZoom"
+            end
+            local rows = {
+                { type = "slider", label = "Zoom", min = 0, max = 0.20, step = 0.01,
+                  get = function() local key = ZoomKey(); return Cfg(key) or (key == "classIconZoom" and 0.06 or 0) end,
+                  set = function(v) Set(ZoomKey(), v); Refresh() end },
+            }
+            if EllesmereUI.GetBorderCompanion(Cfg("borderTexture"), "sepV") then
+                rows[#rows + 1] = EllesmereUI.BlizzStyle.Gate("damagemeters", {
+                    type = "toggle", label = "Separator",
+                    tooltip = "Adds a vertical separator between each class icon and its bar.",
+                    disabled = function() return (Cfg("borderSize") or 0) <= 0 end,
+                    disabledTooltip = "Border Size",
+                    get = function() return Cfg("iconSeparator") == true end,
+                    set = function(v) Set("iconSeparator", v); Refresh() end,
+                })
             end
             EllesmereUI.BuildInlineCog(rgn, {
-                title = "Icon Zoom",
-                rows = {
-                    { type = "slider", label = "Zoom", min = 0, max = 0.20, step = 0.01,
-                    get = function() return Cfg("classIconZoom") or 0.06 end,
-                    set = function(v) Set("classIconZoom", v); Refresh() end },
-                },
-                chain = false, disabled = zoomOff, rawTooltip = true,
-                disabledTooltip = "Icon Zoom only applies to the Spec and Blizzard icon styles.",
+                title = "Icon Settings", rows = rows, chain = false,
+                disabled = function() return Cfg("iconStyle") == "none" end,
+                disabledTooltip = "Icon Style",
             })
         end
 
@@ -838,7 +872,17 @@ initFrame:SetScript("OnEvent", function(self)
                       set = function(v)
                           Set("borderFollowFill", v)
                           ApplyBrd()
+                          EllesmereUI:RefreshPage()
                       end },
+                    EllesmereUI.BlizzStyle.Gate("damagemeters", {
+                        type = "toggle", label = "Separators",
+                        tooltip = "Replaces full bar borders with bottom separators using the Pixels border artwork.",
+                        disabled = function() return Cfg("borderFollowFill") or (Cfg("borderSize") or 0) <= 0
+                            or not EllesmereUI.GetBorderCompanion(Cfg("borderTexture"), "sepH") end,
+                        disabledTooltip = "Pixels or Pixels Textured border above size 0, with Border Follows Bar off",
+                        get = function() return Cfg("barSeparators") == true end,
+                        set = function(v) Set("barSeparators", v); ApplyBrd() end,
+                    }),
                     { type = "toggle", label = "Include Icon in Bar Border",
                       tooltip = "Extends the follow-bar border to include the class icon.",
                       disabled = function() return not Cfg("borderFollowFill") end,
@@ -1261,6 +1305,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
                 function(r, g, b)
                     Set("rightTextUseClassColor", false)
+                    Set("rightTextUseThreatGradient", false)
                     Set("rightTextColor", { r = r, g = g, b = b })
                     Refresh(); EllesmereUI:RefreshPage()
                 end,
@@ -1268,8 +1313,9 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             local origClick = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self, ...)
-                if Cfg("rightTextUseClassColor") then
+                if Cfg("rightTextUseClassColor") or Cfg("rightTextUseThreatGradient") then
                     Set("rightTextUseClassColor", false)
+                    Set("rightTextUseThreatGradient", false)
                     Refresh(); EllesmereUI:RefreshPage()
                     return
                 end
@@ -1289,12 +1335,14 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
                 function()
                     Set("rightTextUseClassColor", true)
+                    Set("rightTextUseThreatGradient", false)
                     Refresh(); EllesmereUI:RefreshPage()
                 end,
                 false, 20)
             PP.Point(classSwatch, "RIGHT", customSwatch, "LEFT", -8, 0)
             classSwatch:SetScript("OnClick", function()
                 Set("rightTextUseClassColor", true)
+                Set("rightTextUseThreatGradient", false)
                 Refresh(); EllesmereUI:RefreshPage()
             end)
             classSwatch:SetScript("OnEnter", function()
@@ -1305,11 +1353,37 @@ initFrame:SetScript("OnEvent", function(self)
             local function refreshRight()
                 updateCustom(); updateClass()
                 local useClass = Cfg("rightTextUseClassColor")
-                customSwatch:SetAlpha(useClass and 0.3 or 1)
-                classSwatch:SetAlpha(useClass and 1 or 0.3)
+                local gradient = Cfg("rightTextUseThreatGradient")
+                customSwatch:SetAlpha((useClass or gradient) and 0.3 or 1)
+                classSwatch:SetAlpha((useClass and not gradient) and 1 or 0.3)
             end
             EllesmereUI.RegisterWidgetRefresh(refreshRight)
             refreshRight()
+
+            local valueAnchor
+            do
+                rgn._lastInline = classSwatch
+                EllesmereUI.BuildInlineSwatches(rgn, {
+                    { tooltip = "Value Gradient: highest damage, healing or other tracked value is green; lowest is red. Threat windows use green for low threat and red for high threat.",
+                      getValue = function() return 1, 1, 1 end, setValue = function() end,
+                      refreshAlpha = function() return Cfg("rightTextUseThreatGradient") and 1 or 0.3 end,
+                      onClick = function()
+                          Set("rightTextUseThreatGradient", not Cfg("rightTextUseThreatGradient"))
+                          Refresh(); EllesmereUI:RefreshPage()
+                      end },
+                }, { size = 20 })
+                valueAnchor = rgn._lastInline
+                local low = valueAnchor:CreateTexture(nil, "ARTWORK", nil, 1)
+                low:SetPoint("TOPLEFT")
+                low:SetPoint("BOTTOMRIGHT", valueAnchor, "BOTTOM", 0, 0)
+                low:SetColorTexture(1, 1, 1, 1)
+                low:SetGradient("HORIZONTAL", CreateColor(0, 1, 0, 1), CreateColor(1, 1, 0, 1))
+                local high = valueAnchor:CreateTexture(nil, "ARTWORK", nil, 1)
+                high:SetPoint("TOPLEFT", valueAnchor, "TOP", 0, 0)
+                high:SetPoint("BOTTOMRIGHT")
+                high:SetColorTexture(1, 1, 1, 1)
+                high:SetGradient("HORIZONTAL", CreateColor(1, 1, 0, 1), CreateColor(1, 0, 0, 1))
+            end
 
             -- Inline cog: right text X/Y offsets (live via ns.ApplyBarTextOffsets)
             EllesmereUI.BuildInlineCog(rgn, {
@@ -1328,7 +1402,7 @@ initFrame:SetScript("OnEvent", function(self)
                           if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
                       end },
                 },
-                anchorTo = classSwatch, chain = false,
+                anchorTo = valueAnchor, chain = false,
             })
         end
         y = y - h

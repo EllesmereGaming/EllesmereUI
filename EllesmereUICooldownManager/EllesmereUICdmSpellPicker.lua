@@ -143,6 +143,31 @@ do
     }
 end
 
+-- True when Blizzard's Cooldown Manager offers spellID (or a variant of it) as
+-- a cooldown/utility icon for this spec, learned or not. Such a spell belongs
+-- in the picker's spell list: added by Spell ID it is drawn from Blizzard's own
+-- frame, which never reads the custom-spell settings its menu writes. Built per
+-- call (the Add by Spell ID button only).
+function ns.IsCDMTrackedCooldown(spellID)
+    local gcs = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    if not (gcs and gci) or not _IsUsableSID(spellID) then return false end
+    local set = {}
+    for cat in pairs(ns.CDM_ICON_CD_CATS) do
+        local cdIDs = gcs(cat, true)
+        if cdIDs then
+            for _, cdID in ipairs(cdIDs) do
+                local info = gci(cdID)
+                if info then
+                    if _IsUsableSID(info.spellID) then set[info.spellID] = true end
+                    if _IsUsableSID(info.overrideSpellID) then set[info.overrideSpellID] = true end
+                end
+            end
+        end
+    end
+    return ResolveVariantValue(set, spellID) == true
+end
+
 -- Normalize a spell ID to its base (undo talent overrides), e.g. Voltaic
 -- Blaze (470057) -> Flame Shock (188389). Resident home for what used to be
 -- an options-file-local pair so every consumer (the keep/drop reconcile

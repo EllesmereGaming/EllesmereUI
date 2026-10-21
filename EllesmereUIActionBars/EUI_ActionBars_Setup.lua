@@ -633,7 +633,7 @@ function EAB:FinishSetup()
                         -- same reason), which would fix a clamped spot in place.
                         local s = bars[key]
                         local gd = (s and s.growDirection or "up"):upper()
-                        if key == "StanceBar" or gd == "CENTER" or ai.refFor == gd then
+                        if ai.mode == "POINT" or key == "StanceBar" or gd == "CENTER" or ai.refFor == gd then
                             reapply(key)
                         end
                     end

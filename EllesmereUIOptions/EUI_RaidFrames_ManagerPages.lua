@@ -1,4 +1,4 @@
-﻿if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -- EUI_RaidFrames_ManagerPages.lua
 -- 12.1 redesigned manager options: the Debuff Manager page (sidebar of
 -- tiles with the undeletable Base Icons tile first) plus the Buff Manager v2
@@ -74,6 +74,83 @@ local dmSpecSel = "allspecs"
 local dmInhSel = nil
 
 local function L(s) return EllesmereUI.L(s) or s end
+
+-- The managers share the unit-frame aura border controls and size/offset helpers.
+function ns.RFO_AuraBorderSettings(parent, y, W, get, set, apply, disabled, dispel)
+    local function Val(k, fallback)
+        local v = get(k); if v ~= nil then return v end; return fallback
+    end
+    local values, order = EllesmereUI.GetBorderTextureDropdown()
+    local row, h = W:DualRow(parent, y,
+        { type="dropdown", text="Border Style", values=values, order=order,
+          disabled=disabled, disabledTooltip="Hide Icons", requireState="disabled",
+          getValue=function() return Val("Texture", "solid") end,
+          setValue=function(v)
+              local color = EllesmereUI.GetBorderStyleSelectDefaults(v)
+              set("Texture", v)
+              set("TextureOffset", nil); set("TextureOffsetY", nil)
+              set("TextureShiftX", nil); set("TextureShiftY", nil)
+              set("Color", color)
+              local size = EllesmereUI.GetBorderDefaultSize("unitframes", v)
+              if size then set("Size", size) end
+              set("SizePx", false)
+              apply(); EllesmereUI:RefreshPage(true)
+          end },
+        EllesmereUI.BorderPxSliderCfg({ trackWidth=120,
+          disabled=disabled, disabledTooltip="Hide Icons", requireState="disabled",
+          getStep=function() return Val("Size", 1) end,
+          setStep=function(v) set("Size", v) end,
+          getTex=function() return Val("Texture", "solid") end,
+          getPx=function() return get("SizePx") end,
+          setPx=function(v) set("SizePx", v) end, apply=apply })); y = y - h
+    if not EllesmereUI._prebuilding then
+        local rgn = row._rightRegion
+        local swatch, refresh = EllesmereUI.BuildColorSwatch(rgn, row:GetFrameLevel() + 3,
+            function()
+                local c = Val("Color", {})
+                return c.r or 0, c.g or 0, c.b or 0, c.a or 1
+            end,
+            function(r, g, b, a) set("Color", { r=r, g=g, b=b, a=a }); apply() end, true, 20)
+        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = swatch
+        EllesmereUI.RegisterWidgetRefresh(refresh)
+    end
+    local tex = Val("Texture", "solid")
+    if tex ~= "solid" and tex ~= "" and not EllesmereUI._prebuilding then
+        local rows = {}
+        for i, axis in ipairs({ "X", "Y" }) do
+            rows[#rows + 1] = { type="slider", label="Shift " .. axis, min=-10, max=10, step=1,
+                get=function()
+                    local v = get("TextureShift" .. axis); if v ~= nil then return v end
+                    local _, _, sx, sy = EllesmereUI.GetBorderDefaults("unitframes", Val("Texture", "solid"), Val("Size", 1))
+                    return i == 1 and sx or sy
+                end,
+                set=function(v) set("TextureShift" .. axis, v); apply() end }
+        end
+        local left, right = EllesmereUI.BorderOffsetRowCfgs({ addonKey="unitframes",
+            getTex=function() return Val("Texture", "solid") end,
+            getStep=function() return Val("Size", 1) end,
+            getSizeKey=function() return Val("Size", 1) end,
+            getPx=function() return get("SizePx") end,
+            getX=function() return get("TextureOffset") end,
+            setX=function(v) set("TextureOffset", v) end,
+            getY=function() return get("TextureOffsetY") end,
+            setY=function(v) set("TextureOffsetY", v) end, apply=apply })
+        for _, cfg in ipairs({ left, right }) do
+            rows[#rows + 1] = { type=cfg.type, label=cfg.text, min=cfg.min, max=cfg.max,
+                step=cfg.step, get=cfg.getValue, set=cfg.setValue }
+        end
+        if dispel then
+            rows[#rows + 1] = { type="toggle", label="Textured Dispel Ring",
+                get=function() return Val("DispelTextured", false) end,
+                set=function(v) set("DispelTextured", v); apply() end }
+        end
+        EllesmereUI.BuildInlineCog(row._leftRegion, { icon=EllesmereUI.DIRECTIONS_ICON,
+            title="Border Options", rows=rows, disabled=disabled,
+            disabledTooltip="Hide Icons", requireState="disabled" })
+    end
+    return y
+end
 
 -- Stable random preview swipe seeds (fraction remaining, 0.2-0.9), keyed by preview
 -- slot index -- generated once and reused so refreshes never reshuffle the frozen swipe
@@ -902,7 +979,7 @@ local function BuildBaseDetailDM(frame, fontPath)
         })
     end
 
-    -- Row: Icons Per Row (end of CORE). The key predates this UI (its row
+    -- Row: Icons Per Row | Spacing. The key predates this UI (its row
     -- died with the Auras tab): >= 2 wraps -- rows for horizontal growth,
     -- COLUMNS for vertical (12.1 flow axis) -- with the stored
     -- debuffWrapDirection convention deciding the stack side.
@@ -911,7 +988,9 @@ local function BuildBaseDetailDM(frame, fontPath)
           tooltip = "Wraps into a new row (or column for vertical growth) after this many icons; below 2 keeps one continuous run.",
           getValue = function() return p.debuffPerRow or 5 end,
           setValue = function(v) p.debuffPerRow = v; DmApply() end },
-        { type = "label", text = "" }); sy = sy - hh
+        { type = "slider", pixel = true, text = "Spacing", min = -1, max = 10, step = 1, trackWidth = 120,
+          getValue = function() return p.debuffSpacing or 1 end,
+          setValue = function(v) p.debuffSpacing = v; DmApply() end }); sy = sy - hh
 
     -- Display: the legacy debuff style keys (retired Auras tab), which the
     -- base grid and icon tiles read directly. CC glow settings are
@@ -919,29 +998,9 @@ local function BuildBaseDetailDM(frame, fontPath)
     -- sync from these keys unless an old party override exists.
     _, hh = W:SectionHeader(frame, "DISPLAY", sy); sy = sy - hh
 
-    -- Row: Border (+ swatch) | Spacing
-    local bRow
-    bRow, hh = W:DualRow(frame, sy,
-        { type = "slider", text = "Border", min = 0, max = 4, step = 1, trackWidth = 120,
-          getValue = function() return p.debuffBorderSize or 1 end,
-          setValue = function(v) p.debuffBorderSize = v; DmApply() end },
-        { type = "slider", pixel = true, text = "Spacing", min = -1, max = 10, step = 1, trackWidth = 120,
-          getValue = function() return p.debuffSpacing or 1 end,
-          setValue = function(v) p.debuffSpacing = v; DmApply() end }); sy = sy - hh
-    do
-        local rgn = bRow._leftRegion
-        local swatch = EllesmereUI.BuildColorSwatch(rgn, bRow:GetFrameLevel() + 3,
-            function()
-                local c = p.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                return c.r or 0, c.g or 0, c.b or 0, 1
-            end,
-            function(r, g, b)
-                p.debuffBorderColor = { r = r, g = g, b = b }
-                DmApply()
-            end, false, 20)
-        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-    end
+    sy = ns.RFO_AuraBorderSettings(frame, sy, W,
+        function(k) return p["debuffBorder" .. k] end,
+        function(k, v) p["debuffBorder" .. k] = v end, DmApply, nil, true)
 
     -- Row: Show Duration Text (+ swatch + cog) | Show Stacks (+ swatch + cog)
     local dtRow
@@ -1092,9 +1151,9 @@ local function BuildTileDetail(frame, fontPath, t)
         -- (nil = inherit; getters show the effective value).
         local p = DmProfile() or {}
         local dm = DmTable() or {}
-        local PP = EllesmereUI.PP or EllesmereUI.PanelPP
         local function TEff(key, baseKey, default)
             local v = t[key]
+            if key == "borderSizePx" and v == nil and (t.borderSize ~= nil or t.borderTexture ~= nil) then return false end
             if v == nil then v = p[baseKey] end
             if v == nil then v = default end
             return v
@@ -1174,7 +1233,7 @@ local function BuildTileDetail(frame, fontPath, t)
             })
         end
 
-        -- Row: Icons Per Row (end of CORE). Tile-local key, no base
+        -- Row: Icons Per Row | Spacing. Tile-local key, no base
         -- inheritance: >= 2 wraps the tile's run -- rows for horizontal
         -- growth, COLUMNS for vertical -- stacking away from the anchored
         -- edge (position rule).
@@ -1183,33 +1242,15 @@ local function BuildTileDetail(frame, fontPath, t)
               tooltip = "Wraps into a new row (or column for vertical growth) after this many icons; below 2 keeps one continuous run.",
               getValue = function() return t.iconsPerRow or 0 end,
               setValue = function(v) TSet("iconsPerRow", v) end },
-            { type = "label", text = "" }); sy = sy - hh
-
-        _, hh = W:SectionHeader(frame, "DISPLAY", sy); sy = sy - hh
-
-        -- Row: Border (+ swatch) | Spacing
-        local bRow
-        bRow, hh = W:DualRow(frame, sy,
-            { type = "slider", text = "Border", min = 0, max = 4, step = 1, trackWidth = 120,
-              getValue = function() return TEff("borderSize", "debuffBorderSize", 1) end,
-              setValue = function(v) TSet("borderSize", v) end },
             { type = "slider", pixel = true, text = "Spacing", min = -1, max = 10, step = 1, trackWidth = 120,
               getValue = function() return t.spacing or 1 end,
               setValue = function(v) TSet("spacing", v) end }); sy = sy - hh
-        do
-            local rgn = bRow._leftRegion
-            local swatch = EllesmereUI.BuildColorSwatch(rgn, bRow:GetFrameLevel() + 3,
-                function()
-                    local c = t.borderColor or p.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                    return c.r or 0, c.g or 0, c.b or 0, 1
-                end,
-                function(r, g, b)
-                    t.borderColor = { r = r, g = g, b = b }
-                    DmApply()
-                end, false, 20)
-            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = swatch
-        end
+
+        _, hh = W:SectionHeader(frame, "DISPLAY", sy); sy = sy - hh
+
+        sy = ns.RFO_AuraBorderSettings(frame, sy, W,
+            function(k) return TEff("border" .. k, "debuffBorder" .. k) end,
+            function(k, v) t["border" .. k] = v end, DmApply, nil, true)
 
         -- Row: Show Duration Text (+ swatch + cog) | Show Stacks (+ swatch + cog)
         local dtRow
@@ -1772,16 +1813,7 @@ function ns.DMP_RefreshPreview()
                 fr._tex:SetTexCoord(z, 1 - z, z, 1 - z)
             end
             fr:SetAlpha(cfg.alpha)
-            if fr._borderFrame and PP then
-                local bsz = sv.debuffBorderSize or 1
-                if bsz > 0 then
-                    local bc = sv.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                    PP.UpdateBorder(fr._borderFrame, bsz, bc.r or 0, bc.g or 0, bc.b or 0, 1)
-                    fr._borderFrame:Show()
-                else
-                    fr._borderFrame:Hide()
-                end
-            end
+            ns.RFC_PreviewAuraBorder(fr, fr._borderFrame, sv, "debuffBorder")
             local cd = fr._cooldown
             if cd then
                 local wantSwipe = sv.debuffShowSwipe ~= false

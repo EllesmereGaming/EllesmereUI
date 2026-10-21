@@ -543,12 +543,32 @@ end
 
 local UpdateWatch = function() end
 
-function BagShare:OnRosterChanged(_, gained)
+
+
+local MOST_WHISPERED = 2
+
+local function WhisperTo(names)
+    if InCombatLockdown() then
+        BagShare:PushSoon(true)
+        return
+    end
+    local wire = BagShare.WirePayload(BuildPayload())
+    for _, name in ipairs(names) do
+        addon.Log:D("BagShare", "sharing", #wire.items, "items with", tostring(name))
+        addon.Comms:Send("bags", wire, name)
+    end
+end
+
+function BagShare:OnRosterChanged(_, gained, newly, joiners)
     UpdateWatch()
 
 
     local joined = Joined()
     if not (gained or joined) or not BagShare:IsSharing() then return end
+    if not newly and joiners and #joiners > 0 and #joiners <= MOST_WHISPERED then
+        WhisperTo(joiners)
+        return
+    end
     lastDigest = nil
     BagShare:PushSoon()
 end

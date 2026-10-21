@@ -40,6 +40,10 @@ local ShowChannelTicks, HideChannelTicks
 
 BuildCastBar = function()
     local cb = ERB.db.profile.castBar
+    local uf = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
+    if uf then
+        uf.UF_ResourceCastPortraitChanged = cb.enabled and cb.iconOnPortrait and ns.ERB_RefreshCastPortrait or nil
+    end
     -- blizz = a stock style dictates the geometry (both stock styles);
     -- blizzKit = the 12.1 kit (atlas fill, background, pip and text box);
     -- classic keeps the user's fill under the vanilla frame and spark.
@@ -252,10 +256,18 @@ BuildCastBar = function()
 
     -- Icon: left or right side (iconOnRight), full height, no inset
     local iconFrame = castBarFrame._iconFrame
+    local portrait, portraitSettings = ns.ERB_CastIconPortrait(cb)
+    if uf and (portrait or iconFrame._pbd) then
+        uf.UF_CastIconPortraitLayout(iconFrame, castBarFrame._icon, portrait, portraitSettings)
+        if not portrait then
+            castBarFrame._icon:ClearAllPoints()
+            castBarFrame._icon:SetAllPoints(iconFrame)
+        end
+    end
     local iconOnRight = hasIcon and cb.iconOnRight
     local iconFree = ns.ERB_CastIconFree(cb)
     ns.ERB_LayoutFreeCastIcon(iconFrame, castBarFrame, cb, iconFree)
-    if iconFree then
+    if portrait or iconFree then
         iconFrame:Show()
     elseif hasIcon then
         -- A square of the bar height; under the style it also spans the stock
@@ -287,7 +299,7 @@ BuildCastBar = function()
     local iconDivider = castBarFrame._iconDivider
     -- Border Art Divider: the border style's vertical companion art in place of
     -- the solid line below (ns.ERB_CastDividerArt; inert unless it was ever on).
-    local showDivider = hasIcon and not iconFree and cb.showIconDivider
+    local showDivider = hasIcon and not portrait and not iconFree and cb.showIconDivider
     if ns.ERB_CastDividerArt(iconDivider, showDivider, iconFrame, iconOnRight, cb, blizz) then
         iconDivider:Show()
     elseif showDivider then
@@ -605,6 +617,11 @@ end
     else
         ns.ActivateCastBar()
     end
+end
+
+function ns.ERB_RefreshCastPortrait()
+    BuildCastBar()
+    if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_CastBar") end
 end
 
 -- Some set bonuses never register via IsPlayerSpell or a player aura.

@@ -421,17 +421,71 @@ function S.Button(parent, text, opts)
     b.Label = label
 
 
+    local basePad, squeeze = pad, nil
     local function fitLabel()
         if fixedWidth then return end
         local current = label:GetText()
         if not current or current == "" then return end
         local textWidth = label:GetUnboundedStringWidth()
         if type(textWidth) ~= "number" or textWidth <= 0 then return end
-        P.Size(b, math.max(h, Snap(math.ceil(textWidth)) + 2 * Snap(pad)), nil)
+        b.slcNatural = math.max(h, Snap(math.ceil(textWidth)) + 2 * Snap(basePad))
+        if squeeze then
+            P.Size(b, squeeze.w, squeeze.h)
+        else
+            P.Size(b, b.slcNatural, nil)
+        end
     end
     fitLabel()
     P.AfterLayout(fitLabel)
     P.OnRescale(fitLabel)
+
+
+    if opts.share and not fixedWidth then
+        b.slcShare = true
+        local probe = S.Label(b, opts.font or S.fontBody, "LEFT")
+        probe:Hide()
+        local function lines(words, inner)
+            local count, line = 1, nil
+            for _, word in ipairs(words) do
+                local try = line and (line .. " " .. word) or word
+                probe:SetText(try)
+                if not line or probe:GetUnboundedStringWidth() <= inner then
+                    line = try
+                else
+                    count, line = count + 1, word
+                end
+            end
+            return count
+        end
+        function b:MinSqueezeWidth()
+            local current = label:GetText() or ""
+            if b.slcMinFor == current then return b.slcMin end
+            local words = {}
+            for word in current:gmatch("%S+") do words[#words + 1] = word end
+            local longest = 0
+            for _, word in ipairs(words) do
+                probe:SetText(word)
+                longest = math.max(longest, math.ceil(probe:GetUnboundedStringWidth() or 0))
+            end
+            probe:SetText(current)
+            local inner = math.max(longest, math.ceil((probe:GetUnboundedStringWidth() or 0) / 2))
+            local limit = inner + math.ceil((probe:GetUnboundedStringWidth() or 0))
+            while #words > 1 and inner < limit and lines(words, inner) > 2 do inner = inner + 2 end
+            b.slcMinFor = current
+            b.slcMin = math.min(b.slcNatural or inner, inner + 2 * 8 + 2)
+            return b.slcMin
+        end
+        function b:SetSqueeze(width)
+            local same = (width == nil and squeeze == nil) or (squeeze and squeeze.w == width)
+            if same then return end
+            squeeze = width and { w = width, h = math.ceil(fontHeight * 2.5) + 8 } or nil
+            pad = squeeze and 8 or basePad
+            placeLabel(0)
+            label:SetWordWrap(squeeze ~= nil)
+            label:SetMaxLines(squeeze and 2 or 1)
+            if squeeze then P.Size(b, squeeze.w, squeeze.h) else P.Size(b, b.slcNatural or w, h) end
+        end
+    end
 
     local glyph
     if opts.glyph == "close" then
@@ -923,9 +977,73 @@ function S.FooterBar(window)
         return offset
     end
 
+    local function RunWidth(run)
+        local total, n = 0, 0
+        for _, button in ipairs(run) do
+            if button:IsShown() then
+                n = n + 1
+                total = total + (button.slcNatural or button:GetWidth())
+            end
+        end
+        return total + math.max(n - 1, 0) * size.GAP, n
+    end
+
+    local function Share(run, avail)
+        local pool, budget = {}, avail
+        for _, button in ipairs(run) do
+            if button:IsShown() then
+                budget = budget - size.GAP
+                if button.SetSqueeze then
+                    pool[#pool + 1] = button
+                else
+                    budget = budget - button:GetWidth()
+                end
+            end
+        end
+        budget = budget + size.GAP
+        local natural = 0
+        for _, button in ipairs(pool) do natural = natural + (button.slcNatural or 0) end
+        if natural <= budget then
+            for _, button in ipairs(pool) do button:SetSqueeze(nil) end
+            return
+        end
+        local width, minTotal, wants = {}, 0, {}
+        for _, button in ipairs(pool) do
+            width[button] = button:MinSqueezeWidth()
+            minTotal = minTotal + width[button]
+            wants[button] = button.slcNatural or width[button]
+        end
+        if minTotal > budget then
+            local scale = budget / minTotal
+            for _, button in ipairs(pool) do width[button] = math.floor(width[button] * scale) end
+        else
+            local extra = budget - minTotal
+            table.sort(pool, function(a, c)
+                return (wants[a] - width[a]) < (wants[c] - width[c])
+            end)
+            for i, button in ipairs(pool) do
+                local give = math.min(wants[button] - width[button],
+                    math.floor(extra / (#pool - i + 1)))
+                width[button] = width[button] + give
+                extra = extra - give
+            end
+        end
+        for _, button in ipairs(pool) do button:SetSqueeze(width[button]) end
+    end
+
+    local reflowing
     function bar:Reflow()
+        if reflowing then return end
+        reflowing = true
+        local windowW = window:GetWidth()
+        if type(windowW) == "number" and windowW > 0 then
+            local avail = windowW - 2 * size.PAD
+            Share(leftRun, avail - RunWidth(rightRun) - size.GAP)
+            Share(rightRun, avail - RunWidth(leftRun) - size.GAP)
+        end
         bar.slcLeft = Place(leftRun, "LEFT", 1, size.PAD)
         bar.slcRight = Place(rightRun, "RIGHT", -1, size.PAD)
+        reflowing = false
         if leftText then
             leftText:ClearAllPoints()
             P.Point(leftText, "LEFT", bar, "LEFT", bar.slcLeft, 0)

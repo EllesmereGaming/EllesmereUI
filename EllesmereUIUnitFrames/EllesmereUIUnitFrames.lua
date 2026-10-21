@@ -1521,9 +1521,15 @@ do
         return s.textureBg == true
     end
 
+    -- Unset per-frame choices keep the profile's existing Dark Mode setting.
+    function ns.UF_DarkThemeOn(s)
+        if s and s.darkTheme ~= nil then return s.darkTheme end
+        return (db and db.profile and db.profile.darkTheme) or false
+    end
+
     -- The health fill is opaque: Dark Mode Fill in Dark Mode, else Fill Opacity.
     function ns.UF_HealthOpaque(s)
-        if db.profile.darkTheme then
+        if ns.UF_DarkThemeOn(s) then
             local _, _, _, fa = EllesmereUI.GetDarkModeFill()
             return fa >= 1
         end
@@ -2163,7 +2169,7 @@ local function ApplyDarkTheme(health, unit)
     -- TEMPORARY (see UF_SecretSafeHealthColor). Idempotent: this function
     -- re-runs on settings changes and re-assigning is harmless.
         health.UpdateColor = UF_SecretSafeHealthColor
-    local isDark = db and db.profile and db.profile.darkTheme
+    local isDark = ns.UF_DarkThemeOn(health._euiUnitKey and db.profile[health._euiUnitKey])
     if isDark then
         health.colorClass = false
         health.colorClassPet = false

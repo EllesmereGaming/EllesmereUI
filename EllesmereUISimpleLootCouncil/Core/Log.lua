@@ -15,15 +15,29 @@ local debugstack = debugstack
 
 
 
-local entries = {}
-local head, count = 1, 0
 local maxEntries = 10000
+
+
+local CHUNK, SEP = 64, "\31"
+local chunks, sizes, first, last, chunkTotal, tail = {}, {}, 1, 0, 0, {}
+local packed = {}
 local echoToChat = false
 
 
 local chatWarnings = true
 local repeats = {}
 local clockSecond, clockText
+
+
+
+local DETAIL = { quiet = 3, normal = 2, verbose = 1 }
+local RANK = { DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4 }
+local TRAILER = 30
+local detail, floor = "verbose", 1
+local recent = {}
+
+local SAME_LINE_MAX = 3
+local sameCount = {}
 
 local function Clock()
     local second = time()
@@ -33,15 +47,63 @@ local function Clock()
     return clockText
 end
 
+
+local function Pack(text)
+    local api = C_EncodingUtil
+    if not (api and api.CompressString and Enum and Enum.CompressionMethod) then return text, false end
+    local ok, out = pcall(api.CompressString, text, Enum.CompressionMethod.Deflate)
+    if ok and type(out) == "string" and #out < #text then return out, true end
+    return text, false
+end
+
+local function Text(index)
+    local text = chunks[index]
+    if not packed[index] then return text end
+    local ok, out = pcall(function()
+        return C_EncodingUtil.DecompressString(text, Enum.CompressionMethod.Deflate)
+    end)
+    return ok and type(out) == "string" and out or ""
+end
+
+local function Seal()
+    local n = #tail
+    last = last + 1
+    chunks[last], packed[last] = Pack(table.concat(tail, SEP))
+    sizes[last] = n
+    chunkTotal = chunkTotal + n
+    for i = n, 1, -1 do tail[i] = nil end
+end
+
+local function Total() return chunkTotal + #tail end
+
+
+local QUIET_MAX = 3000
+
 local function Append(line)
     if maxEntries < 1 then return end
-    if count < maxEntries then
-        entries[(head + count - 1) % maxEntries + 1] = line
-        count = count + 1
-    else
-        entries[head] = line
-        head = head % maxEntries + 1
+    if line:find(SEP, 1, true) then line = line:gsub(SEP, " ") end
+    tail[#tail + 1] = line
+    if #tail >= CHUNK then Seal() end
+    while first <= last and Total() - sizes[first] >= maxEntries do
+        chunkTotal = chunkTotal - sizes[first]
+        chunks[first], sizes[first], packed[first] = nil, nil, nil
+        first = first + 1
     end
+    if first > last and #tail > maxEntries then table.remove(tail, 1) end
+end
+
+
+local function Split(text, out, skip)
+    local pos = 1
+    while true do
+        local at = text:find(SEP, pos, true)
+        local piece = text:sub(pos, (at or 0) - 1)
+        if not at then piece = text:sub(pos) end
+        if skip > 0 then skip = skip - 1 else out[#out + 1] = piece end
+        if not at then break end
+        pos = at + 1
+    end
+    return skip
 end
 
 
@@ -162,11 +224,33 @@ Log.CHAT_PREFIX = {
 
 
 
-local function Write(level, prefix, message, detail, logOnly)
+local function Write(level, prefix, message, stack, logOnly)
+    local rank = RANK[level]
+    local recording = rank >= floor or echoToChat
+
+    if not recording and rank < RANK.INFO then return end
     if #message > MAX_MESSAGE then message = Cap(message, MAX_MESSAGE) end
     local line = ("%s %-5s [%s] %s"):format(Clock(), level, tostring(prefix), message)
-    if not Fold(level, prefix, message, line, detail) then
-        Append(detail and (line .. detail) or line)
+    if not recording then
+        if #recent >= TRAILER then table.remove(recent, 1) end
+        recent[#recent + 1] = line
+        return
+    end
+    local stored = true
+    if rank >= RANK.WARN and floor >= 3 and not stack then
+        local key = level .. "|" .. tostring(prefix) .. "|" .. message
+        local n = (sameCount[key] or 0) + 1
+        sameCount[key] = n
+        stored = n <= SAME_LINE_MAX
+    end
+    if stored then
+        if rank >= RANK.WARN and recent[1] then
+            for i = 1, #recent do Append(recent[i]) end
+            recent = {}
+        end
+        if not Fold(level, prefix, message, line, stack) then
+            Append(stack and (line .. stack) or line)
+        end
     end
 
     if not echoToChat then
@@ -186,7 +270,10 @@ end
 
 
 
-function Log:D(prefix, ...) Write("DEBUG", prefix, Join(...)) end
+function Log:D(prefix, ...)
+    if floor > 1 and not echoToChat then return end
+    Write("DEBUG", prefix, Join(...))
+end
 function Log:I(prefix, ...) Write("INFO", prefix, Join(...)) end
 function Log:W(prefix, ...) Write("WARN", prefix, Join(...)) end
 function Log:E(prefix, ...) Write("ERROR", prefix, Join(...)) end
@@ -222,9 +309,12 @@ end
 function Log:GetEntries()
     DropStaleHold()
     local ordered = {}
-    for i = 0, count - 1 do
-        ordered[#ordered + 1] = entries[(head + i - 1) % maxEntries + 1]
+    local skip = math.max(Total() - maxEntries, 0)
+    for c = first, last do skip = Split(Text(c), ordered, skip) end
+    for i = 1, #tail do
+        if skip > 0 then skip = skip - 1 else ordered[#ordered + 1] = tail[i] end
     end
+    for i = 1, #recent do ordered[#ordered + 1] = recent[i] end
     return ordered
 end
 
@@ -235,21 +325,47 @@ local SESSION_MARKER = "session start ---"
 
 function Log:GetSessionEntries()
     DropStaleHold()
-    local start = 0
-    for i = count - 1, 0, -1 do
-        local line = entries[(head + i - 1) % maxEntries + 1]
-        if type(line) == "string" and line:find(SESSION_MARKER, 1, true) then
-            start = i
-            break
+    local out = {}
+    for i = #tail, 1, -1 do
+        if tail[i]:find(SESSION_MARKER, 1, true) then
+            for j = i, #tail do out[#out + 1] = tail[j] end
+            for j = 1, #recent do out[#out + 1] = recent[j] end
+            return out
         end
     end
-
-    local out = {}
-    for i = start, count - 1 do
-        out[#out + 1] = entries[(head + i - 1) % maxEntries + 1]
+    for c = last, first, -1 do
+        local text, found, pos = Text(c), nil, 1
+        while true do
+            local at = text:find(SESSION_MARKER, pos, true)
+            if not at then break end
+            found, pos = at, at + 1
+        end
+        if found then
+            local lineStart = found
+            while lineStart > 1 and text:byte(lineStart - 1) ~= 31 do lineStart = lineStart - 1 end
+            Split(text:sub(lineStart), out, 0)
+            for later = c + 1, last do Split(Text(later), out, 0) end
+            for j = 1, #tail do out[#out + 1] = tail[j] end
+            for j = 1, #recent do out[#out + 1] = recent[j] end
+            return out
+        end
     end
-    return out
+    return self:GetEntries()
 end
+
+
+local configuredMax = maxEntries
+
+
+function Log:SetDetail(mode)
+    if not DETAIL[mode] then mode = "quiet" end
+    detail, floor = mode, DETAIL[mode]
+    maxEntries = floor > 1 and math.min(configuredMax, QUIET_MAX) or configuredMax
+    recent = {}
+    return mode
+end
+
+function Log:GetDetail() return detail end
 
 function Log:SetEcho(enabled)
     echoToChat = not not enabled
@@ -295,18 +411,53 @@ end
 
 
 
+local function IsProblem(line)
+    return line:find(" WARN ", 1, true) or line:find(" ERROR ", 1, true)
+end
+
+
+local function Keeps(line)
+    return floor < 3 or IsProblem(line)
+        or line:find("SUMMARY", 1, true) or line:find(SESSION_MARKER, 1, true)
+end
+
 
 function Log:Init(db)
     db.log = db.log or {}
-    maxEntries = db.logMaxEntries or maxEntries
+    configuredMax = db.logMaxEntries or configuredMax
+    self:SetDetail(db.logDetail)
     echoToChat = not not db.debug
     chatWarnings = db.chatWarnings ~= false
 
     local pending = self:GetEntries()
-    entries, head, count = {}, 1, 0
-    for _, line in ipairs(db.log) do Append(line) end
+    chunks, sizes, first, last, chunkTotal, tail = {}, {}, 1, 0, 0, {}
+    packed = {}
+    local lastStart, run = nil, {}
+    for _, line in ipairs(db.log) do
+        if type(line) == "string" then
+
+
+            if Keeps(line) then
+                if IsProblem(line) then
+                    for i = 1, #run do Append(run[i]) end
+                end
+                run = {}
+                Append(line)
+            elseif line:find(" INFO ", 1, true) then
+                if #run >= TRAILER then table.remove(run, 1) end
+                run[#run + 1] = line
+            else
+                run = {}
+            end
+            if line:find(SESSION_MARKER, 1, true) then lastStart = line end
+        end
+    end
+
+
+    db.log = { lastStart }
+
     for _, line in ipairs(pending) do
-        Append(line)
+        if Keeps(line) or not line:find(" DEBUG ", 1, true) then Append(line) end
     end
 
     Append(("--- %s session start ---"):format(date("%Y-%m-%d %H:%M:%S")))
@@ -326,6 +477,11 @@ function Log:Init(db)
                     Append(("%s SUMMARY blocked x%d %s"):format(Clock(), count, key))
                 end
             end
+            for key, count in pairs(sameCount) do
+                if count > SAME_LINE_MAX then
+                    Append(("%s SUMMARY stored %d of %d %s"):format(Clock(), SAME_LINE_MAX, count, key))
+                end
+            end
             for key, count in pairs(repeats) do
                 if count > 0 then
                     Append(("%s SUMMARY kept from chat x%d %s"):format(Clock(), count, key))
@@ -337,5 +493,5 @@ function Log:Init(db)
         end
     end)
 
-    Log:I("Log", "initialised", ("%d entries, cap %d"):format(count, maxEntries))
+    Log:I("Log", "initialised", ("%d entries, cap %d"):format(Total(), maxEntries))
 end

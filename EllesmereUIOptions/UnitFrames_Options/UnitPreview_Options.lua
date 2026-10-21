@@ -323,7 +323,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
 
     -- Health bar color
     local hR, hG, hB, hA, bgR, bgG, bgB, bgA
-    local isDarkTheme = db.profile.darkTheme
+    local isDarkTheme = ns.UF_DarkThemeOn(settings)
     if isDarkTheme then
         hR, hG, hB, hA = EllesmereUI.GetDarkModeFill()
         bgR, bgG, bgB, bgA = EllesmereUI.GetDarkModeBg()
@@ -2365,7 +2365,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
 
         -- Live-update dark mode colors
         do
-            local isDark = db.profile.darkTheme
+            local isDark = ns.UF_DarkThemeOn(s)
             local uHR, uHG, uHB, uBgR, uBgG, uBgB
             if isDark then
                 uHR, uHG, uHB = EllesmereUI.GetDarkModeFill()

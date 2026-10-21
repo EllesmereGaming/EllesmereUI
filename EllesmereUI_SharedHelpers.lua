@@ -81,8 +81,9 @@ function EllesmereUI.SetElementVisibility(frame, visible)
         frame:SetAlpha(EllesmereUI._GetFFD(frame).restoreAlpha or 1)
         frame:EnableMouse(EllesmereUI._GetFFD(frame).restoreMouse or false)
     else
-        if frame:GetAlpha() > 0 then
-            EllesmereUI._GetFFD(frame).restoreAlpha = frame:GetAlpha()
+        local a = frame:GetAlpha()
+        if not issecretvalue(a) and a > 0 then
+            EllesmereUI._GetFFD(frame).restoreAlpha = a
         end
         EllesmereUI._GetFFD(frame).restoreMouse = frame:IsMouseEnabled()
         frame:SetAlpha(0)

@@ -661,7 +661,7 @@ do
         end
         if not gid then return nil end
         local grow = (ns.TBBGroupGrow(gid) or "DOWN"):upper()
-        if GROW_TO_SIDE[grow] ~= side then return nil end
+        if side ~= "POINT" and GROW_TO_SIDE[grow] ~= side then return nil end
         return gid
     end
 
@@ -711,7 +711,7 @@ do
         if anchors then
             for _, info in pairs(anchors) do
                 if info.target then
-                    local gid = ns.TBBExtentGidForTarget(info.target, info.side)
+                    local gid = ns.TBBExtentGidForTarget(info.target, info.mode == "POINT" and "POINT" or info.side)
                     if gid then w[gid] = info.target end
                 end
                 local fb = info.fallback

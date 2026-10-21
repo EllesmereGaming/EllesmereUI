@@ -604,7 +604,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     glowColorR = true, glowColorG = true, glowColorB = true,
                     cdStateEffect = true, cdStateLowerAlpha = true, cdStateGlow = true,
                     cdStateGlowStyle = true, cdStateGlowAlpha = true,
-                    reverseSwipe = true, hideCDSwipe = true,
+                    reverseSwipe = true, hideCDSwipe = true, stanceBarHide = true,
                     thresholdSeconds = true, thresholdDecimals = true,
                     thresholdColorEnabled = true, thresholdColorR = true,
                     thresholdColorG = true, thresholdColorB = true,
@@ -1795,6 +1795,36 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     { val = "reverse", label = "Reverse Swipe" },
                     { val = "hide",    label = "Hide CD Swipe" },
                 }
+                -- Stance Bar single-select, shared by the regular-spell (ss) and
+                -- preset/custom (cas) menus: hidden in / outside each of the class's
+                -- stance bar pages (EllesmereUI.CLASS_PAGING_STATES), stored as
+                -- "<mode>:<state id>". nil for a class with no stance bar.
+                local stanceStates = EllesmereUI.CLASS_PAGING_STATES[select(2, UnitClass("player"))]
+                if stanceStates then
+                    local STANCE_LABELS = {
+                        inShift  = { "Hidden in %s (Shift Icons)", function(s) return EllesmereUI.Lf("Hidden in %1$s (Shift Icons)", s) end },
+                        outShift = { "Hidden outside %s (Shift Icons)", function(s) return EllesmereUI.Lf("Hidden outside %1$s (Shift Icons)", s) end },
+                        ["in"]   = { "Hidden in %s", function(s) return EllesmereUI.Lf("Hidden in %1$s", s) end },
+                        out      = { "Hidden outside %s", function(s) return EllesmereUI.Lf("Hidden outside %1$s", s) end },
+                    }
+                    local items = { { val = nil, label = "None" } }
+                    local function AddStanceItem(mode, st)
+                        local fmt = STANCE_LABELS[mode]
+                        items[#items + 1] = { val = mode .. ":" .. st.id,
+                            label = fmt[1]:format(st.label),
+                            dynamicLabel = function() return fmt[2](EllesmereUI.L(st.label)) end }
+                    end
+                    -- Shift Icons variants first, like the Cooldown State Effect list.
+                    for _, st in ipairs(stanceStates) do
+                        AddStanceItem("inShift", st)
+                        AddStanceItem("outShift", st)
+                    end
+                    for _, st in ipairs(stanceStates) do
+                        AddStanceItem("in", st)
+                        AddStanceItem("out", st)
+                    end
+                    AB.STANCE_BAR_ITEMS = items
+                end
 
                 -- Track open subnavs on the menu frame so OnUpdate can see them
 
@@ -3528,6 +3558,26 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                         t.hideCDSwipe = (v == "hide") or false
                                     end } })
 
+                    -- Stance Bar (preset/custom): as on the regular-spell menu, stored in
+                    -- customActiveStates; the Fake-Active engine runs it.
+                    if AB.STANCE_BAR_ITEMS then
+                        MakeSubnavRow("Stance Bar", AB.STANCE_BAR_ITEMS,
+                            function() return cas.stanceBarHide or nil end,
+                            function(v)
+                                SetCasOwn("stanceBarHide", v)
+                                if v then ns._cdmAnyStanceBar = true end
+                                if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                                if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
+                            end,
+                            function() return not cas.stanceBarHide end,
+                            nil,
+                            { apply = { keys = { "stanceBarHide" },
+                                        write = function(t, v)
+                                            t.stanceBarHide = v or false
+                                            if v then ns._cdmAnyStanceBar = true end
+                                        end } })
+                    end
+
                     -- Out of Range Coloring (spells added by Spell ID only): they have no
                     -- Blizzard viewer frame, so nothing tinted them out of range. Default off;
                     -- stored in customActiveStates so it travels with the spell. Racials and
@@ -4190,6 +4240,28 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                     t.hideCDSwipe = (v == "hide") or false
                                 end } })
 
+                -- 4b2. Stance Bar (per-spell, classes with stance bar pages): hidden in or
+                -- outside one of the class's paging stances, for keys that cast something
+                -- else on that page. Runtime in EllesmereUICdmStanceBar.lua, gated by
+                -- ns._cdmAnyStanceBar.
+                if AB.STANCE_BAR_ITEMS then
+                    MakeSubnavRow("Stance Bar", AB.STANCE_BAR_ITEMS,
+                        function() return ss.stanceBarHide or nil end,
+                        function(v)
+                            EnsureSS()
+                            SetOwn("stanceBarHide", v)
+                            if v then ns._cdmAnyStanceBar = true end
+                            if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                        end,
+                        function() return not ss.stanceBarHide end,
+                        nil,
+                        { apply = { keys = { "stanceBarHide" },
+                                    write = function(t, v)
+                                        t.stanceBarHide = v or false
+                                        if v then ns._cdmAnyStanceBar = true end
+                                    end } })
+                end
+
                 -- 4c. Audio Effect on CD Ready (cd/utility per-icon): play a sound the moment
                 -- the spell's real cooldown finishes. Same sound list + speaker preview as the
                 -- buff Audio rows/Focus Cast Sound (shared ns.FOCUSKICK_SOUND_* tables); stored
@@ -4684,7 +4756,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 do
                     local wrap = CreateFrame("Button", nil, popup)
                     wrap:SetSize(16, 16)
-                    wrap:SetPoint("BOTTOM", popup, "BOTTOM", -46, 60)
+                    -- Below the status line (6px under the input), clear of Add/Cancel (top at +44).
+                    wrap:SetPoint("BOTTOM", popup, "BOTTOM", -46, 50)
                     wrap:Hide()
                     local bg = wrap:CreateTexture(nil, "BACKGROUND")
                     bg:SetAllPoints(); bg:SetColorTexture(0.060, 0.049, 0.037, 1)
@@ -4803,6 +4876,12 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         SetStatus("Already tracked")
                         return
                     end
+                end
+                -- A cooldown Blizzard's Cooldown Manager offers goes through the spell
+                -- list: as a custom spell its menu would write settings its icon never reads.
+                if not isCustomBuffPopup and ns.IsCDMTrackedCooldown and ns.IsCDMTrackedCooldown(sid) then
+                    SetStatus("Already in the spell list")
+                    return
                 end
                 popup._dimmer:Hide()
                 -- Tag as custom spell so ghost bar routing can skip it

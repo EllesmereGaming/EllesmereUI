@@ -598,7 +598,27 @@ initFrame:SetScript("OnEvent", function(self)
         local kbRow
         kbRow, h = W:DualRow(parent, y,
             { type="label", text="" },
-            { type="label", text="" })
+            { type="toggle", text="Wowhead Quest Links",
+                tooltip="Adds a copyable Wowhead link to quest log right-click menus.",
+                getValue=function() return Cfg("wowheadQuestLinks") == true end,
+                setValue=function(v)
+                    Set("wowheadQuestLinks", v)
+                    EQT.ApplyQuestLinks()
+                    EllesmereUI:RefreshPage()
+                end })
+        EllesmereUI.BuildInlineCog(kbRow._rightRegion, {
+            title = "Wowhead Link Settings",
+            disabled = function() return not Cfg("wowheadQuestLinks") end,
+            disabledTooltip = "Wowhead Quest Links",
+            rows = {
+                { type="toggle", label="Use Client Language",
+                  get=function() return Cfg("wowheadQuestClientLanguage") == true end,
+                  set=function(v) Set("wowheadQuestClientLanguage", v) end },
+                { type="toggle", label="Jump to Comments",
+                  get=function() return Cfg("wowheadQuestComments") == true end,
+                  set=function(v) Set("wowheadQuestComments", v) end },
+            },
+        })
         if not EllesmereUI._prebuilding then
             local rgn = kbRow._leftRegion
             local SIDE_PAD = 20

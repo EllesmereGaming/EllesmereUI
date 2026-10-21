@@ -23,7 +23,12 @@ local PhysicalPixels, SetDMFont = I.PhysicalPixels, I.SetDMFont
 
 -- ns exports (loop over all windows)
 ns.RefreshMeter = function()
-    for _, w in ipairs(_windows) do w.Refresh() end
+    ns.DMInvalidateAppearance()
+    local cfg = DB()
+    for _, w in ipairs(_windows) do
+        if cfg.barSeparators or cfg.iconSeparator or w._decorSync then ns.DMSetWindowBorderLayer(w, cfg) end
+        w.Refresh()
+    end
 end
 
 -- Re-lay out every row after a UI scale change. The row stride is derived from
@@ -34,6 +39,7 @@ end
 -- not _EDM_Apply (a full re-apply of every window): the core scale slider calls
 -- this on every drag step.
 ns.Rescale = function()
+    ns.DMInvalidateAppearance()
     for _, w in ipairs(_windows) do
         w._barCacheKey = nil
         w.Refresh()
@@ -75,6 +81,7 @@ if ForeverShortName then
 end
 
 ns.ApplyBorder = function()
+    ns.DMInvalidateAppearance()
     for _, w in ipairs(_windows) do
         if w.rowPool then
             for _, bar in ipairs(w.rowPool) do
@@ -84,6 +91,7 @@ ns.ApplyBorder = function()
         if w.stickyPlayer and w.stickyPlayer.ApplyBorder then
             w.stickyPlayer.ApplyBorder()
         end
+        ns.DMRefreshRowDecor(w)
     end
 end
 
@@ -125,6 +133,7 @@ ns.ApplyBackground = function()
 end
 
 ns.ApplyWindowBorder = function()
+    ns.DMInvalidateAppearance()
     local cfg = DB()
     -- Stock-style windows carry their own frame art (the stock panel, the
     -- classic tooltip edge), no EUI border.
@@ -141,8 +150,7 @@ ns.ApplyWindowBorder = function()
     for _, w in ipairs(_windows) do
         local target = w.windowBorderTarget
         if target and w.frame and w.header then
-            local frameLevel = w.frame:GetFrameLevel()
-            target:SetFrameLevel(cfg.windowBorderBehind and math.max(0, frameLevel - 1) or (w.header:GetFrameLevel() + 4))
+            ns.DMSetWindowBorderLayer(w, cfg)
             target:ClearAllPoints()
             if includeHeader then
                 target:SetPoint("TOPLEFT", w.frame, "TOPLEFT", -offsetX, offsetY)
@@ -152,6 +160,8 @@ ns.ApplyWindowBorder = function()
             target:SetPoint("BOTTOMRIGHT", w.frame, "BOTTOMRIGHT", offsetX, -offsetY)
             -- Offsets are represented by the target geometry itself, which also makes them work for the solid four-strip border implementation
             EUI.ApplyBorderStyle(target, size, r, g, b, a, texture, nil, nil, nil, nil, nil, nil, nil, px)
+            if cfg.hdrBottomSeparator or w._headerSeparator then ns.DMApplyHeaderSeparator(w) end
+            ns.DMRefreshRowDecor(w)
         end
     end
     -- Border reach counts in size matching (each window's getMatchPad reads

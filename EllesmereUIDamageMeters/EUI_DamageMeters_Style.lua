@@ -419,7 +419,19 @@ ns._dmBgHi = CreateColor(0, 0, 0, 0.5)
 function ns.DMPaintWindowBg(tex, r, g, b, a, edged)
     local style = ns.DMStyle()
     if style == "eui" then
-        tex:SetColorTexture(r, g, b, a)
+        local key = ns.EDM.DB().bgTexture or "none"
+        local path = key ~= "none" and EUI.ResolveTexturePath(_G._EDM_BarTextures, key, nil)
+        if path then
+            tex:SetTexture(path)
+            tex:SetVertexColor(r, g, b, a)
+            tex._dmTexturedBg = true
+        else
+            if tex._dmTexturedBg then
+                tex:SetVertexColor(1, 1, 1, 1)
+                tex._dmTexturedBg = nil
+            end
+            tex:SetColorTexture(r, g, b, a)
+        end
         return
     elseif style == "classic" then
         ns.DMPaintClassicBg(tex, r, g, b, a, edged)

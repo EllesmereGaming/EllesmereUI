@@ -105,7 +105,7 @@ end
 
 
 function Import:Count()
-    local n = 0
+    local n = tonumber(addon.History:ArchivedCount("i")) or 0
     for _ in pairs(addon.db.imported or {}) do n = n + 1 end
     return n
 end
@@ -118,6 +118,7 @@ function Import:Clear()
             addon.SharedSaved.Forget(addon.db, "imported", id)
         end
     end
+    addon.History:ClearArchived("imported")
     addon.db.imported = {}
     addon.History:Reindex()
     addon.Log:I("Import", "cleared", removed, "imported entries")
@@ -138,7 +139,8 @@ local function Store(entry, cutoff, stats, commit)
         return false
     end
 
-    if (addon.db.imported or {})[entry.id] then
+
+    if (addon.db.imported or {})[entry.id] or addon.History:IsArchived("imported", entry.id) then
         stats.duplicate = stats.duplicate + 1
         return false
     end
@@ -446,7 +448,10 @@ function Import:FromSource(key)
     end
 
     local stats = Scan(source, true)
-    if stats.imported > 0 then addon.History:Reindex() end
+    if stats.imported > 0 then
+        addon.History:Reindex()
+        addon.History:ScheduleSweep()
+    end
     addon.Log:I("Import", source.label, "saved variables:", stats.imported, "imported,",
         stats.duplicate, "already held,", stats.tooOld, "outside the window")
     return stats
@@ -473,7 +478,10 @@ function Import:FromSources(keys)
             key = key, label = Import:Label(key), stats = stats, error = err,
         }
     end
-    if any then addon.History:Reindex() end
+    if any then
+        addon.History:Reindex()
+        addon.History:ScheduleSweep()
+    end
     return results
 end
 
@@ -825,7 +833,8 @@ function Import:StepCSV(job, budget)
                     entry = NormaliseSLC(get)
 
                     if entry and entry.nativeID
-                        and (addon.db.history or {})[entry.nativeID] then
+                        and ((addon.db.history or {})[entry.nativeID]
+                            or addon.History:IsArchived("history", entry.nativeID)) then
                         entry, counted = nil, true
                         job.stats.duplicate = job.stats.duplicate + 1
                     end
@@ -847,7 +856,10 @@ function Import:StepCSV(job, budget)
 end
 
 function Import:FinishCSV(job)
-    if job.stats.imported > 0 then addon.History:Reindex() end
+    if job.stats.imported > 0 then
+        addon.History:Reindex()
+        addon.History:ScheduleSweep()
+    end
     addon.Log:I("Import", "CSV:", job.format, job.stats.imported, "imported,",
         job.stats.duplicate, "already held,", job.stats.tooOld,
         "outside the window,", job.stats.badRows, "unreadable")

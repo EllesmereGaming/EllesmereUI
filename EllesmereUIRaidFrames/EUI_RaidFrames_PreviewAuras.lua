@@ -23,13 +23,9 @@ local PixelSnap = RF.PixelSnap
 
 local previewClassTokens, previewFrames = I.previewClassTokens, I.previewFrames
 
--- Shared state: one copy per file. A write goes through the Set<Name>
--- function of the table that holds its list, which hands the value to
--- every copy: db, PP and containerFrame are the Raid Frames chain's.
+-- Shared state from the raid-frame and preview chains.
 local db
 RF.dbSetters[#RF.dbSetters + 1] = function(v) db = v end
-local PP
-RF.PPSetters[#RF.PPSetters + 1] = function(v) PP = v end
 local previewActive = false
 I.previewActiveSetters[#I.previewActiveSetters + 1] = function(v) previewActive = v end
 
@@ -355,19 +351,10 @@ local function PvAuraApply(frameIndex, auraType, slotIndex)
     end
 
     -- Border
-    local bdrSz, bdrC
     if auraType == "def" then
-        bdrSz = s2.defBorderSize or 1
-        bdrC = s2.defBorderColor or { r = 0, g = 0, b = 0 }
+        ns.RFC_PreviewAuraBorder(icon, icon._borderFrame, s2, "defBorder")
     else
-        bdrSz = s2.debuffBorderSize or 1
-        bdrC = s2.debuffBorderColor or { r = 0, g = 0, b = 0 }
-    end
-    if icon._borderFrame and PP and bdrSz > 0 then
-        PP.UpdateBorder(icon._borderFrame, bdrSz, bdrC.r, bdrC.g, bdrC.b, 1)
-        icon._borderFrame:Show()
-    elseif icon._borderFrame then
-        icon._borderFrame:Hide()
+        ns.RFC_PreviewAuraBorder(icon, icon._borderFrame, s2, "debuffBorder")
     end
 
     -- Stacks text (debuffs only: show "2" on exactly one random debuff)
@@ -546,14 +533,7 @@ local function PvAuraTick()
                             end
                         end
                     end
-                    local bdrSz = s2.debuffBorderSize or 1
-                    local bdrC = s2.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                    if icon._borderFrame and PP and bdrSz > 0 then
-                        PP.UpdateBorder(icon._borderFrame, bdrSz, bdrC.r, bdrC.g, bdrC.b, 1)
-                        icon._borderFrame:Show()
-                    elseif icon._borderFrame then
-                        icon._borderFrame:Hide()
-                    end
+                    ns.RFC_PreviewAuraBorder(icon, icon._borderFrame, s2, "debuffBorder")
                     icon:Show()
                     -- Re-pack all shown debuffs so slot 1 takes the first position
                     -- and any random slot-2+ debuff shifts right, rather than the

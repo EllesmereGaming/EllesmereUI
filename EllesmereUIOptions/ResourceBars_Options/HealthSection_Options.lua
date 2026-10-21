@@ -643,13 +643,13 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         })
     end
 
-    -- Out of Combat Opacity cog: dims the Health bar to this alpha out of combat (100 = no fade); applied by ns.ResolveBarAlpha in UpdateVisibility, which reacts to combat.
+    -- Out of Combat Opacity & Visibility cog: Fade Out of Combat dims the Health bar to this alpha out of combat (100 = no fade; ns.ResolveBarAlpha in UpdateVisibility, which reacts to combat). Show When Health Missing reveals a rule-hidden bar while health is below full (ns.ERB_MissingWanted, same pass).
     if not EllesmereUI._prebuilding then
         local rgn = healthBorderRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local c = cfg(); return c and not c.enabled end,
             disabledTooltip = "Health Bar",
-            title = "Out of Combat Opacity",
+            title = "Out of Combat Opacity & Visibility",
             rows = {
                 { type = "toggle", label = "Fade Out of Combat",
                   get = function() local c = cfg(); return c and c.oocFadeEnabled == true end,
@@ -664,6 +664,13 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                   set = function(v)
                       local c = cfg(); if not c then return end
                       c.oocAlpha = v / 100; RefreshHealth()
+                  end },
+                { type = "toggle", label = "Show When Health Missing",
+                  tooltip = "Shows the Health bar while your health is below full, even when its Visibility setting hides it.",
+                  get = function() local c = cfg(); return c and c.showWhenMissing == true end,
+                  set = function(v)
+                      local c = cfg(); if not c then return end
+                      c.showWhenMissing = v; RefreshHealth()
                   end },
             },
         })

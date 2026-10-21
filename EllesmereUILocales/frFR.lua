@@ -5848,6 +5848,8 @@ L["Among a quest's reward choices, a money bag marks the one that sells for most
 -- Show Zone Levels (EllesmereUIForeverEssentials_ZoneLevels.lua)
 L["Show Zone Levels"] = "Afficher les niveaux des zones"
 L["Shows the level range of the zone you hover on a continent of the world map, under its name, colored by difficulty."] = "Affiche la tranche de niveaux de la zone survolée sur un continent de la carte du monde, sous son nom, colorée selon la difficulté."
+L["Show Fishing Skill"] = "Afficher la compétence de pêche"
+L["Shows the fishing skill a zone needs under its name on the world map: red, too low; yellow, fish still get away; green, none do."] = "Affiche sous son nom, sur la carte du monde, la compétence de pêche qu'une zone demande : rouge, trop basse ; jaune, des poissons s'échappent encore ; vert, plus aucun."
 -- Auto Summon Pet (EllesmereUIForeverEssentials_PetSummon.lua)
 L["COMPANION PETS"] = "MASCOTTES"
 L["Auto Summon Pet"] = "Invocation auto de mascotte"

@@ -565,6 +565,22 @@ local function TrackerOnEvent(self, event, unitToken, ...)
     if not frame or not frame:IsShown() then return end
     local chans = self._euiChannelsByEvent[event]
     if not chans then return end
+    -- Boss slots re-sort mid-encounter (a new add takes boss2, the old one
+    -- moves to boss3) and no event promises to name the move: the unit
+    -- events of the new occupant kept painting health and casts under the
+    -- old occupant's name. A GUID change on any event is the repaint edge.
+    -- An unreadable GUID skips the probe (the engage repaint still runs).
+    if self._euiGuidGuard then
+        local guid = UnitGUID(frame._euiUnit)
+        if guid ~= nil and not issecretvalue(guid) then
+            local old = self._euiGuid
+            self._euiGuid = guid
+            if old ~= nil and old ~= guid then
+                Engine.RepaintAll(frame, "UnitChanged")
+                return
+            end
+        end
+    end
     for i = 1, #chans do
         local ch = chans[i]
         if ch == "castbar" then
@@ -620,6 +636,7 @@ function Engine.Attach(frame, unit, channels)
     t._euiFrame = frame
     attached[frame] = { unit = unit, channels = channels }
     unitFrames[unit] = frame
+    t._euiGuidGuard = unit:match("^boss%d$") and true or nil
     -- Unit-watch shows happen while events were being dropped (hidden frames
     -- skip dispatch), so a freshly shown frame repaints in full.
     if not frame._euiEngineShowHook then
@@ -972,6 +989,19 @@ globalFrame:SetScript("OnEvent", function(self, event)
         for i = 1, 5 do
             local f = unitFrames["boss" .. i]
             if f and f:IsShown() then Engine.RepaintAll(f, event) end
+        end
+        -- The slots can still be settling when the event lands (one occupant
+        -- moves down while the new one moves in): one next-frame pass reads
+        -- the final order.
+        if not self._euiBossSettle then
+            self._euiBossSettle = true
+            C_Timer.After(0, function()
+                self._euiBossSettle = nil
+                for i = 1, 5 do
+                    local f = unitFrames["boss" .. i]
+                    if f and f:IsShown() then Engine.RepaintAll(f, "UnitChanged") end
+                end
+            end)
         end
     elseif event == "RAID_TARGET_UPDATE" then
         local fn = painters.raidicon

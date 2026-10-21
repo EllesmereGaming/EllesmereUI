@@ -3144,7 +3144,8 @@ end
 local function HistoryHandover(session, winner, sender, runId)
     if not (winner and runId and addon.History and addon.History.GetForWinner) then return nil end
     local found
-    for _, entry in ipairs(addon.History:GetForWinner(winner)) do
+
+    for _, entry in ipairs(addon.History:GetLiveForWinner(winner)) do
         if entry.runId == runId and entry.session == session and entry.owner then
             if addon.Player:IsSame(sender, entry.owner) then return entry, true end
             found = entry

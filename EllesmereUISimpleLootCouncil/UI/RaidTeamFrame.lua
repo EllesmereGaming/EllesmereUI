@@ -940,6 +940,16 @@ local function Build()
 
     frame:SetHeight(P.Snap(640))
 
+
+
+    frame:HookScript("OnHide", function()
+        snapshot = nil
+        Tbl.Release(table_)
+        addon.History:DropArchive("team")
+    end)
+
+    frame:HookScript("OnShow", function() addon.History:HoldArchive("team") end)
+
     addon.Log:D("UI", "raid team frame built")
 end
 

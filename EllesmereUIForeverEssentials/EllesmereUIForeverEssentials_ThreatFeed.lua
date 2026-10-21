@@ -90,6 +90,7 @@ local function FillRow(r, e, rank, c)
     r.threatPet = e.isPet == true
     r.isLocalPlayer = e.own == true
     r.totalAmount = e.raw
+    r.threatScaled = e.scaled
     local raw = c.showValue and e.raw or nil
     local pct
     if c.showPercent and not (e.pull and raw) then

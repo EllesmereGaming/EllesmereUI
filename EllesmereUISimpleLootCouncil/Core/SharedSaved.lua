@@ -33,6 +33,96 @@ end
 SharedSaved.MemberKey = MemberKey
 
 
+local PACK_MIN, PACK_SEGS = 500, 6
+local PACKABLE = { "history", "imported" }
+local sinceCompact, compactQueued = 0, false
+
+local function Codec()
+    local history = addon.History
+    return history and history.PackValue, history and history.UnpackValue
+end
+
+
+function SharedSaved.Unpack(db)
+    local packed = type(db) == "table" and db.deletedPacked
+    if type(packed) ~= "table" then return true end
+    local _, Unpack = Codec()
+    if not Unpack then return false end
+    if type(db.deleted) ~= "table" then db.deleted = {} end
+    local ok = true
+    for kind, segs in pairs(packed) do
+        if not KINDS[kind] or type(segs) ~= "table" then
+            packed[kind] = nil
+        else
+            local kept = {}
+            for _, seg in ipairs(segs) do
+                local map = type(seg) == "table" and Unpack(seg.blob)
+                if map then
+                    local into = db.deleted[kind]
+                    if type(into) ~= "table" then
+                        into = {}
+                        db.deleted[kind] = into
+                    end
+                    for key, at in pairs(map) do
+                        if not Valid(into[key]) or (Valid(at) and at > into[key]) then into[key] = at end
+                    end
+                else
+                    kept[#kept + 1] = seg
+                    ok = false
+                end
+            end
+            packed[kind] = #kept > 0 and kept or nil
+        end
+    end
+    if next(packed) == nil then db.deletedPacked = nil end
+    return ok
+end
+
+
+function SharedSaved.Compact(db)
+    local Pack = Codec()
+    local deleted = type(db) == "table" and db.deleted
+    if not Pack or type(deleted) ~= "table" then return 0 end
+    sinceCompact = 0
+    local total = 0
+    for _, kind in ipairs(PACKABLE) do
+        local list = deleted[kind]
+        local n, oldest = 0, math.huge
+        if type(list) == "table" then
+            for _, at in pairs(list) do
+                n = n + 1
+                if Valid(at) and at < oldest then oldest = at end
+            end
+        end
+        if n >= PACK_MIN then
+            local blob = Pack(list)
+            if blob then
+                if type(db.deletedPacked) ~= "table" then db.deletedPacked = {} end
+                local segs = db.deletedPacked[kind] or {}
+                segs[#segs + 1] = { blob = blob, n = n, oldest = oldest == math.huge and 0 or oldest }
+                db.deletedPacked[kind] = segs
+                deleted[kind] = nil
+                total = total + n
+                if #segs > PACK_SEGS and SharedSaved.Unpack(db) then
+                    local all, count, first = deleted[kind], 0, math.huge
+                    for _, at in pairs(all or {}) do
+                        count = count + 1
+                        if Valid(at) and at < first then first = at end
+                    end
+                    local merged = all and Pack(all)
+                    if merged then
+                        db.deletedPacked = { [kind] = { { blob = merged, n = count, oldest = first == math.huge and 0 or first } } }
+                        deleted[kind] = nil
+                    end
+                end
+            end
+        end
+    end
+    if total > 0 and addon.Log then addon.Log:D("Saved", "packed", total, "deletion record(s)") end
+    return total
+end
+
+
 function SharedSaved.Forget(db, kind, key, now)
     if type(db) ~= "table" or not KINDS[kind] or key == nil then return end
     if type(db.deleted) ~= "table" then db.deleted = {} end
@@ -42,13 +132,30 @@ function SharedSaved.Forget(db, kind, key, now)
         db.deleted[kind] = list
     end
     list[key] = now or GetServerTime()
+    sinceCompact = sinceCompact + 1
+    if sinceCompact >= PACK_MIN and not compactQueued and C_Timer and C_Timer.After then
+        compactQueued = true
+        C_Timer.After(5, function()
+            compactQueued = false
+            SharedSaved.Compact(db)
+        end)
+    end
 end
 
 
 function SharedSaved.Expire(db, now)
-    local deleted = type(db) == "table" and db.deleted
-    if type(deleted) ~= "table" then return end
+    if type(db) ~= "table" then return end
     local cutoff = (now or GetServerTime()) - FORGET_AFTER
+
+    local open = false
+    for _, segs in pairs(type(db.deletedPacked) == "table" and db.deletedPacked or {}) do
+        for _, seg in ipairs(type(segs) == "table" and segs or {}) do
+            if not (type(seg) == "table" and Valid(seg.oldest) and seg.oldest >= cutoff) then open = true end
+        end
+    end
+    if open then SharedSaved.Unpack(db) end
+    local deleted = db.deleted
+    if type(deleted) ~= "table" then return end
     for kind, list in pairs(deleted) do
         if not KINDS[kind] or type(list) ~= "table" then
             deleted[kind] = nil
@@ -75,6 +182,11 @@ local function LastActivity(db)
             local epoch = type(row) == "table" and row.epoch
             if Valid(epoch) and epoch > newest then newest = epoch end
         end
+    end
+    local archive = type(db.historyArchive) == "table" and db.historyArchive
+    for _, seg in pairs(archive and type(archive.segs) == "table" and archive.segs or {}) do
+        local epoch = type(seg) == "table" and seg.newest
+        if Valid(epoch) and epoch > newest then newest = epoch end
     end
     if type(db.log) == "table" then
         for i = #db.log, 1, -1 do
@@ -119,7 +231,7 @@ end
 
 
 
-local function MergeKeyed(winner, loser, field)
+local function MergeKeyed(winner, loser, field, added)
     local from = loser[field]
     if type(from) ~= "table" then return 0 end
     local into = winner[field]
@@ -127,14 +239,15 @@ local function MergeKeyed(winner, loser, field)
         into = {}
         winner[field] = into
     end
-    local added = 0
+    local count = 0
     for key, value in pairs(from) do
         if into[key] == nil or (STAMPED[field] and EditedLater(value, into[key])) then
             into[key] = value
-            added = added + 1
+            count = count + 1
+            if STAMPED[field] then added[#added + 1] = { store = field, key = key } end
         end
     end
-    return added
+    return count
 end
 
 
@@ -247,6 +360,8 @@ end
 function SharedSaved.Reconcile(own, mirror)
     if type(own) ~= "table" then own = {} end
     if type(mirror) ~= "table" or mirror == own then return own end
+    SharedSaved.Unpack(own)
+    SharedSaved.Unpack(mirror)
 
     local mirrorNewer = MirrorIsNewer(own, mirror)
     local winner, loser = own, mirror
@@ -254,10 +369,14 @@ function SharedSaved.Reconcile(own, mirror)
 
     if addon.RunMigrations then addon.RunMigrations(loser) end
 
-    local merged = 0
-    for _, field in ipairs(KEYED) do merged = merged + MergeKeyed(winner, loser, field) end
+    local merged, added = 0, {}
+    for _, field in ipairs(KEYED) do merged = merged + MergeKeyed(winner, loser, field, added) end
     merged = merged + MergeNights(winner, loser)
     MergeDeleted(winner, loser)
+
+    if addon.History and addon.History.MergeArchive then
+        merged = merged + (tonumber(addon.History.MergeArchive(winner, loser, added)) or 0)
+    end
     local removed = ApplyDeleted(winner)
 
     winner.deleted = nil

@@ -319,6 +319,54 @@ local function CK(c)
     return string.format("%.3f,%.3f,%.3f", r, g, b)
 end
 
+-- Shared by buff icons, debuff grids and their previews. Unset styles keep the
+-- original PP border path; explicit styles use AuraKit's unit-frame border inputs.
+function ns.RFC_AuraBorder(s, prefix)
+    local size = s[prefix .. "Size"] or 1
+    if size <= 0 then return nil end
+    local color = s[prefix .. "Color"]
+    local r, g, b = ColorParts(color, 0, 0, 0)
+    local tex = s[prefix .. "Texture"]
+    return { r, g, b, color and color.a or 1, size = size, texture = tex,
+        edgePx = EllesmereUI.BorderPx(s[prefix .. "SizePx"], size, tex or "solid"),
+        offsetX = s[prefix .. "TextureOffset"], offsetY = s[prefix .. "TextureOffsetY"],
+        shiftX = s[prefix .. "TextureShiftX"], shiftY = s[prefix .. "TextureShiftY"],
+    }
+end
+
+function ns.RFC_AuraBorderFP(s, prefix)
+    if not s[prefix .. "Texture"] and not s[prefix .. "SizePx"]
+        and not (s[prefix .. "Color"] and s[prefix .. "Color"].a) then return false end
+    return FP(s[prefix .. "Texture"], s[prefix .. "SizePx"],
+        s[prefix .. "TextureOffset"], s[prefix .. "TextureOffsetY"],
+        s[prefix .. "TextureShiftX"], s[prefix .. "TextureShiftY"],
+        s[prefix .. "DispelTextured"],
+        s[prefix .. "Color"] and s[prefix .. "Color"].a)
+end
+
+-- Owned hosts only (bare buff squares and previews); normal icons use AuraKit.
+function ns.RFC_ApplyAuraBorder(host, state, border, cooldownLevel)
+    if not host then return end
+    if not border then
+        EllesmereUI.ApplySecretSafeBorderStyle(host, state, 0, 0, 0, 0, 0, "solid")
+        host:Hide()
+        return
+    end
+    if border.texture or border.edgePx then
+        host:SetFrameLevel(cooldownLevel + 1)
+    end
+    EllesmereUI.ApplySecretSafeBorderStyle(host, state, border.size,
+        border[1], border[2], border[3], border[4], border.texture or "solid",
+        border.offsetX, border.offsetY, border.shiftX, border.shiftY,
+        "unitframes", border.size, nil, border.edgePx)
+    host:Show()
+end
+
+function ns.RFC_PreviewAuraBorder(icon, host, s, prefix)
+    ns.RFC_ApplyAuraBorder(host, host, ns.RFC_AuraBorder(s, prefix),
+        (icon._cooldown or icon):GetFrameLevel())
+end
+
 -- A Class-mode glow draws the palette's class colour, so that colour is an
 -- input of every glow print (a Colors page edit must restyle); "" for every
 -- other mode. The colour last printed feeds the colours-changed hook below
@@ -355,13 +403,13 @@ end
 -- sizeOverride: the dispellable-location styles reuse the whole debuff
 -- style with only the physical size swapped (see DispLocSize).
 local function BuildDebuffStyle(s, sizeOverride)
-    local br, bg, bb = ColorParts(s.debuffBorderColor, 0, 0, 0)
+    local border = ns.RFC_AuraBorder(s, "debuffBorder")
     local size = sizeOverride and ns.RFC_SnapSize(sizeOverride) or ns.RFC_DebuffSize(s)
     -- Engine dispel-border extras: ring thickness in PHYSICAL pixels + the user
     -- palette as the engine tint map (AuraKit registers both; helper resolved at
     -- call time, declared below). -1 = follow icon's own Border thickness, 0 = recolor off.
     local dpx = s.dispelIconBorderSize or 2
-    if dpx == -1 then dpx = s.debuffBorderSize or 1 end
+    if dpx == -1 then dpx = border and (border.edgePx or border.size) or 0 end
     local dcMap, dcFP
     if ns.RFC_DispelBorderColorMap then dcMap, dcFP = ns.RFC_DispelBorderColorMap(s) end
     return {
@@ -369,10 +417,12 @@ local function BuildDebuffStyle(s, sizeOverride)
         height = size,
         iconCrop = true,
         iconZoom = s.debuffIconZoom or 0.08,
-        border = (s.debuffBorderSize or 1) > 0 and { br, bg, bb, 1, size = s.debuffBorderSize or 1 } or nil,
+        border = border,
         -- Dispellable debuffs get the engine dispel-type border over the
         -- static one (dispelName is secret in 12.1; see AuraKit).
         dispelBorder = true,
+        dispelBorderTexture = s.debuffBorderDispelTextured == true and border
+            and border.texture ~= "solid" and border.texture ~= "" and border.texture or nil,
         dispelBorderPx = dpx,
         dispelColorMap = dcMap,
         dispelColorFP = dcFP,
@@ -837,6 +887,7 @@ local classFP = {}
 
 local function DebuffStyleFP(s, font)
     return FP(font, s.debuffSize, ns.RFC_DebuffSize(s), s.debuffIconZoom, s.debuffBorderSize, CK(s.debuffBorderColor),
+        ns.RFC_AuraBorderFP(s, "debuffBorder"),
         s.debuffShowSwipe, s.debuffShowDurText, s.debuffDurTextSize, CK(s.debuffDurTextColor),
         s.debuffDurTextOffsetX, s.debuffDurTextOffsetY, s.debuffShowStacks, s.debuffStacksTextSize,
         CK(s.debuffStacksTextColor), s.debuffStacksOffsetX, s.debuffStacksOffsetY, s.debuffHideTooltips,
@@ -1387,9 +1438,34 @@ local function ApplyBmPandemicBorder(button, dd, style)
     local width = style.bmPandemicWidth or 2
     local r, g, b = BmColor(style.bmPandemicColor, 1, 0.2, 0.2)
     local alpha = style.bmPandemicEnabled and not style.hideIcon and 1 or 0
+    local border = style.bmPandemicEnabled and style.bmPandemicTextured and style.border
+    if border and (not border.texture or border.texture == "solid" or border.texture == ""
+        or not EllesmereUI.ResolveBorderTexture(border.texture)) then border = nil end
+    if border then
+        local ring = dd.bmPandemicRing
+        if not ring then
+            ring = CreateFrame("Frame", nil, holder)
+            ring:SetPoint("CENTER", holder, "CENTER")
+            ring:EnableMouse(false)
+            dd.bmPandemicRing = ring
+        end
+        ring:SetFrameLevel(holder:GetFrameLevel())
+        if dd.bmPandemicW ~= style.width or dd.bmPandemicH ~= style.height then
+            ring:SetSize(style.width, style.height)
+            dd.bmPandemicW, dd.bmPandemicH = style.width, style.height
+        end
+        -- The engine owns the holder's visibility; only draw on its child.
+        EllesmereUI.ApplySecretSafeBorderStyle(ring, ring, border.size, r, g, b, alpha,
+            border.texture, border.offsetX, border.offsetY, border.shiftX, border.shiftY,
+            "unitframes", border.size, nil, border.edgePx)
+    elseif dd.bmPandemicRing then
+        EllesmereUI.ApplySecretSafeBorderStyle(dd.bmPandemicRing, dd.bmPandemicRing,
+            0, 0, 0, 0, 0, "solid")
+        dd.bmPandemicRing:Hide()
+    end
     for i, edge in ipairs(dd.bmPandemicEdges) do
         if i <= 2 then edge:SetHeight(width) else edge:SetWidth(width) end
-        edge:SetColorTexture(r, g, b, alpha)
+        edge:SetColorTexture(r, g, b, border and 0 or alpha)
     end
     if not dd.bmPandemicBound then
         button:AddPandemicRegion(holder)
@@ -1469,7 +1545,6 @@ local function BmTipsOff()
 end
 
 local function BuildBmIconStyle(ind, iscale, size)
-    local br, bg, bb = BmColor(ind.indBorderColor, 0, 0, 0)
     local hideIcon = ind.hideIcon == true
     return {
         width = size,
@@ -1477,8 +1552,7 @@ local function BuildBmIconStyle(ind, iscale, size)
         iconCrop = true,
         iconZoom = (ns.db and ns.db.profile and ns.db.profile.bmIconZoom) or 0.08,
         hideIcon = hideIcon,
-        border = (not hideIcon and (ind.indBorderSize or 1) > 0)
-            and { br, bg, bb, 1, size = ind.indBorderSize or 1 } or nil,
+        border = not hideIcon and ns.RFC_AuraBorder(ind, "indBorder") or nil,
         cooldownReverse = true,
         hideSwipe = hideIcon or (ind.showDuration == false),
         noDefaultFonts = true,
@@ -1500,6 +1574,7 @@ local function BuildBmIconStyle(ind, iscale, size)
         tooltipAnchor = (BmTipMode() == "cursor") and "cursor" or nil,
         bmGlowInd = ind,
         bmPandemicEnabled = BmPandemicOn(ind),
+        bmPandemicTextured = ind.pandemicBorderTextured == true,
         bmPandemicColor = ind.pandemicBorderColor,
         bmPandemicWidth = ind.pandemicBorderWidth or 2,
         applyExtra = ApplyBmIconExtra,
@@ -1545,8 +1620,6 @@ local function BmApplySquare(button, dd, style)
             if dd.cooldown.SetDrawSwipe then dd.cooldown:SetDrawSwipe(not hideSwipe) end
         end
     end
-    local br, bg2, bb = BmColor(ind.indBorderColor, 0, 0, 0)
-    BmUpdateBorder(dd, dd.borderHost, ind.indBorderSize or 1, br, bg2, bb, 1)
     ApplyRFDebuffText(button, dd, style)
     -- Cached base + change-guarded level: see ApplyBmIconExtra.
     local base = dd.bmBase
@@ -1558,6 +1631,21 @@ local function BmApplySquare(button, dd, style)
     if dd.bmLvl ~= lvl then
         button:SetFrameLevel(lvl)
         dd.bmLvl = lvl
+    end
+    if ind.indBorderTexture or ind.indBorderSizePx or dd._secretBorderEdges then
+        if dd.rfBorderSize ~= style.width then
+            if not dd.rfBorderSize then
+                dd.borderHost:ClearAllPoints()
+                dd.borderHost:SetPoint("CENTER", button, "CENTER")
+            end
+            dd.borderHost:SetSize(style.width, style.height)
+            dd.rfBorderSize = style.width
+        end
+        ns.RFC_ApplyAuraBorder(dd.borderHost, dd, style.bmBorder, dd.cooldown:GetFrameLevel())
+    else
+        local br, bg2, bb = BmColor(ind.indBorderColor, 0, 0, 0)
+        BmUpdateBorder(dd, dd.borderHost, ind.indBorderSize or 1, br, bg2, bb,
+            ind.indBorderColor and ind.indBorderColor.a or 1)
     end
     if dd.stackCarrier then dd.stackCarrier:SetFrameLevel(base + BM_FRAMELVL_TEXT) end
     BmRebindDurationCurve(button, dd, style)
@@ -1765,6 +1853,7 @@ local function BuildBmStyleFor(kind, ind, iscale, size, spellID)
             height = size,
             noRegions = true,
             ind = ind,
+            bmBorder = ns.RFC_AuraBorder(ind, "indBorder"),
             sqColor = BmSquareColor(ind, spellID),
             noDefaultFonts = true,
             bmGlowInd = ind,
@@ -2157,7 +2246,9 @@ local function BmVisualKey(kind, ind, size, font, spellID)
     if kind == "icon" then
         return FP(font, size, (ns.db and ns.db.profile and ns.db.profile.bmIconZoom) or 0.08,
             ind.iconOpacity, ind.hideIcon, ind.indBorderSize, CK(ind.indBorderColor),
+            ns.RFC_AuraBorderFP(ind, "indBorder"),
             ind.pandemicBorderEnabled, CK(ind.pandemicBorderColor), ind.pandemicBorderWidth,
+            ind.pandemicBorderTextured,
             ind.showDuration, ind.showDurationText, ind.durationTextSize, CK(ind.durationTextColor),
             ind.durationTextOffsetX, ind.durationTextOffsetY, ind.thresholdEnabled, ind.threshold,
             CK(ind.thresholdColor), ind.showStacks, ind.stacksTextSize, CK(ind.stacksTextColor),
@@ -2171,6 +2262,7 @@ local function BmVisualKey(kind, ind, size, font, spellID)
     end
     if kind == "square" then
         return FP(font, size, CK(BmSquareColor(ind, spellID)), ind.showDuration, ind.indBorderSize,
+            ns.RFC_AuraBorderFP(ind, "indBorder"),
             CK(ind.indBorderColor), ind.frameLevel, ind.showDurationText, ind.durationTextSize,
             CK(ind.durationTextColor), ind.durationTextOffsetX, ind.durationTextOffsetY,
             ind.thresholdEnabled, ind.threshold, CK(ind.thresholdColor), ind.showStacks,

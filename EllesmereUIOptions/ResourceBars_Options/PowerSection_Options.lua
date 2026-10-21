@@ -307,7 +307,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                           local c = cfg(); if not c then return end
                           c.borderAboveGCD = v and true or false; RebuildPower(); EllesmereUI:RefreshPage()
                       end },
-                    -- Extend Top / Extend Bottom: 0 = off, stored explicitly (mirror sync
+                    -- Border extensions: 0 = off, stored explicitly (mirror sync
                     -- never carries a nil). Screen axes, so a vertical bar too.
                     { type = "slider", label = "Extend Top", min = 0, max = 50, step = 1,
                       tooltip = "Grows the border past the bar's top edge on screen without resizing the bar.",
@@ -324,6 +324,22 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                       set = function(v)
                           local c = cfg(); if not c then return end
                           c.borderExtendBottom = v; RebuildPower(); EllesmereUI:RefreshPage()
+                      end },
+                    { type = "slider", label = "Extend Left", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's left edge on screen without resizing the bar.",
+                      disabled = powerOff, disabledTooltip = powerDisTip,
+                      get = function() local c = cfg(); return c and c.borderExtendLeft or 0 end,
+                      set = function(v)
+                          local c = cfg(); if not c then return end
+                          c.borderExtendLeft = v; RebuildPower(); EllesmereUI:RefreshPage()
+                      end },
+                    { type = "slider", label = "Extend Right", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's right edge on screen without resizing the bar.",
+                      disabled = powerOff, disabledTooltip = powerDisTip,
+                      get = function() local c = cfg(); return c and c.borderExtendRight or 0 end,
+                      set = function(v)
+                          local c = cfg(); if not c then return end
+                          c.borderExtendRight = v; RebuildPower(); EllesmereUI:RefreshPage()
                       end },
                     -- Bottom Separator: None = off (edgeSep false); an art entry turns it
                     -- on with that art (edgeSepArt). Out of the Border Style syncs.
@@ -583,13 +599,13 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
         })
     end
 
-    -- Out of Combat Opacity cog: dims the Power bar to this alpha out of combat (100 = no fade); applied by ns.ResolveBarAlpha in UpdateVisibility, which reacts to combat.
+    -- Out of Combat Opacity & Visibility cog: Fade Out of Combat dims the Power bar to this alpha out of combat (100 = no fade; ns.ResolveBarAlpha in UpdateVisibility, which reacts to combat). Show When Energy / Mana Missing reveal a rule-hidden bar while that resource is below full (ns.ERB_MissingWanted, same pass); Mana also covers a shapeshifted druid's attached mana bar.
     if not EllesmereUI._prebuilding then
         local rgn = powerBorderRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local c = cfg(); return c and not c.enabled end,
             disabledTooltip = powerDisTip,
-            title = "Out of Combat Opacity",
+            title = "Out of Combat Opacity & Visibility",
             rows = {
                 { type = "toggle", label = "Fade Out of Combat",
                   get = function() local c = cfg(); return c and c.oocFadeEnabled == true end,
@@ -604,6 +620,20 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                   set = function(v)
                       local c = cfg(); if not c then return end
                       c.oocAlpha = v / 100; RefreshPower()
+                  end },
+                { type = "toggle", label = "Show When Energy Missing",
+                  tooltip = "Shows the Power bar while its energy is below full, even when its Visibility setting hides it. Resources that rest at empty, such as rage, are not affected.",
+                  get = function() local c = cfg(); return c and c.showWhenMissing == true end,
+                  set = function(v)
+                      local c = cfg(); if not c then return end
+                      c.showWhenMissing = v; RefreshPower()
+                  end },
+                { type = "toggle", label = "Show When Mana Missing",
+                  tooltip = "Shows the Power bar while it shows mana, or a shapeshifted druid's mana bar, while mana is below full, even when its Visibility setting hides it.",
+                  get = function() local c = cfg(); return c and c.showManaWhenMissing == true end,
+                  set = function(v)
+                      local c = cfg(); if not c then return end
+                      c.showManaWhenMissing = v; RefreshPower()
                   end },
             },
         })

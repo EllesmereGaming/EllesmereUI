@@ -153,10 +153,18 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
         local rgn = iconRow._leftRegion
         local FREE_TIP = "This option requires the icon at bar size with no offset."
         local function IconFree() local p = DB(); return p and ns.ERB_CastIconFree(p.castBar) end
+        local function IconOnPortrait() local p = DB(); return p and ns.ERB_CastIconPortrait(p.castBar) ~= nil end
+        local function PlayerPortraitOff()
+            local uf = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
+            return not (uf and uf.UF_GetPlayerCastPortrait and uf.UF_GetPlayerCastPortrait())
+        end
         local function IconSlider(key, label, lo, hi, tooltip)
             return { type = "slider", label = label, min = lo, max = hi, step = 1, tooltip = tooltip,
-                disabled = function() return EllesmereUI.BlizzStyle.Get("castbar") end,
-                disabledTooltip = function() return EllesmereUI.BlizzStyle.Label("castbar") end,
+                disabled = function() return IconOnPortrait() or EllesmereUI.BlizzStyle.Get("castbar") end,
+                disabledTooltip = function()
+                    if IconOnPortrait() then return "Embed in Player Portrait" end
+                    return EllesmereUI.BlizzStyle.Label("castbar")
+                end,
                 requireState = "disabled",
                 get = function() local p = DB(); return p and p.castBar[key] or 0 end,
                 set = function(v)
@@ -173,8 +181,19 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
             end,
             title = "Spell Icon Settings",
             rows = {
+                { type = "toggle", label = "Embed in Player Portrait",
+                  tooltip = "Show the spell icon over the player portrait while casting.",
+                  disabled = PlayerPortraitOff,
+                  disabledTooltip = "This option requires an enabled player portrait in Unit Frames.",
+                  rawTooltip = true,
+                  get = function() local p = DB(); return p and p.castBar.iconOnPortrait == true end,
+                  set = function(v)
+                      local p = DB(); if not p or (v and PlayerPortraitOff()) then return end
+                      p.castBar.iconOnPortrait = v; RefreshCast()
+                  end },
                 { type = "toggle", label = "Icon on Right",
                   tooltip = "Attach the spell icon to the right of the cast bar instead of the left.",
+                  disabled = IconOnPortrait, disabledTooltip = "Embed in Player Portrait", requireState = "disabled",
                   get = function() local p = DB(); return p and p.castBar.iconOnRight end,
                   set = function(v)
                       local p = DB(); if not p then return end
@@ -182,7 +201,8 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                   end },
                 { type = "toggle", label = "Show Icon Divider",
                   tooltip = "Draw a 1px divider between the spell icon and the cast bar, matching the border color.",
-                  disabled = IconFree, disabledTooltip = FREE_TIP, rawTooltip = true,
+                  disabled = function() return IconOnPortrait() or IconFree() end,
+                  disabledTooltip = FREE_TIP, rawTooltip = true,
                   get = function() local p = DB(); return p and p.castBar.showIconDivider end,
                   set = function(v)
                       local p = DB(); if not p then return end
@@ -195,10 +215,11 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                   disabled = function()
                       local p = DB(); if not p then return true end
                       local cb = p.castBar
-                      return (not cb.showIconDivider) or EllesmereUI.BlizzStyle.Get("castbar")
+                      return IconOnPortrait() or (not cb.showIconDivider) or EllesmereUI.BlizzStyle.Get("castbar")
                           or not EllesmereUI.GetBorderCompanion(cb.borderTexture, "sepV")
                   end,
                   disabledTooltip = function()
+                      if IconOnPortrait() then return "Embed in Player Portrait" end
                       if EllesmereUI.BlizzStyle.Get("castbar") then
                           return EllesmereUI.DisabledTooltip(EllesmereUI.BlizzStyle.Label("castbar"), "disabled")
                       end
@@ -394,7 +415,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                           local p = DB(); if not p then return end
                           p.castBar.borderBehind = v == false and nil or v; RefreshCast(); EllesmereUI:RefreshPage()
                       end },
-                    -- Extend Top / Extend Bottom: the whole border host (bar + icon). This cog
+                    -- Border extensions: the whole border host (bar + icon). This cog
                     -- has no bar-off block, so the rows carry their own.
                     { type = "slider", label = "Extend Top", min = 0, max = 50, step = 1,
                       tooltip = "Grows the border past the bar's top edge on screen without resizing the bar.",
@@ -411,6 +432,22 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                       set = function(v)
                           local p = DB(); if not p then return end
                           p.castBar.borderExtendBottom = v; RefreshCast(); EllesmereUI:RefreshPage()
+                      end },
+                    { type = "slider", label = "Extend Left", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's left edge on screen without resizing the bar.",
+                      disabled = castOff, disabledTooltip = "Player Cast Bar",
+                      get = function() local p = DB(); return p and p.castBar.borderExtendLeft or 0 end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.castBar.borderExtendLeft = v; RefreshCast(); EllesmereUI:RefreshPage()
+                      end },
+                    { type = "slider", label = "Extend Right", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's right edge on screen without resizing the bar.",
+                      disabled = castOff, disabledTooltip = "Player Cast Bar",
+                      get = function() local p = DB(); return p and p.castBar.borderExtendRight or 0 end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.castBar.borderExtendRight = v; RefreshCast(); EllesmereUI:RefreshPage()
                       end },
                     -- Bottom Separator: None = off (edgeSep false); an art entry turns it
                     -- on with that art. Across the whole bar, icon included.

@@ -243,10 +243,9 @@ function Schema.ClassFileFor(text)
         local member = addon.RaidTeam:FindMember(text)
         if member and member.classFile then return member.classFile end
     end
-    if addon.History and addon.History.GetForWinner and addon.Player:NameKey(text) then
-        for _, entry in ipairs(addon.History:GetForWinner(addon.Player:Qualify(text))) do
-            if type(entry.class) == "string" then return entry.class:upper() end
-        end
+    if addon.History and addon.History.ClassesFor and addon.Player:NameKey(text) then
+        local class = (addon.History:ClassesFor(addon.Player:Qualify(text)) or {})[1]
+        if class then return class:upper() end
     end
     return nil
 end
@@ -262,13 +261,10 @@ function Schema.QualifiedName(fullName, colourOf)
     local colour = record and record.classFile and colourOf(record.classFile)
 
 
-    if not colour and addon.History and addon.History.GetForWinner then
-        for _, entry in ipairs(addon.History:GetForWinner(fullName)) do
-            local historicalClass = entry and entry.class
-            if type(historicalClass) == "string" then
-                colour = colourOf(historicalClass:upper())
-                if colour then break end
-            end
+    if not colour and addon.History and addon.History.ClassesFor then
+        for _, historicalClass in ipairs(addon.History:ClassesFor(fullName) or {}) do
+            colour = colourOf(historicalClass:upper())
+            if colour then break end
         end
     end
     return character, realm or "", colour
@@ -1011,6 +1007,13 @@ local function Build()
                 T["Echoes the diagnostic log while reproducing a problem."],
                 function() return db().debug end,
                 function(v) db().debug = v addon.Log:SetEcho(v) end),
+            Setting({ id = "logDetail", type = "dropdown",
+                text = T["Detail level of logging"],
+                help = T["Quiet records warnings and errors; Normal adds main events; Verbose records everything."],
+                values = { quiet = T["Quiet"], normal = T["Normal"], verbose = T["Verbose"] },
+                order = { "quiet", "normal", "verbose" },
+                getValue = function() return addon.Log:GetDetail() end,
+                setValue = function(value) db().logDetail = addon.Log:SetDetail(value) end }),
         } },
 
         { id = "alts", title = T["Alts"], rows = { Alts() } },

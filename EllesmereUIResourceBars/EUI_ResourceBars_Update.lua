@@ -2638,6 +2638,107 @@ end
 -- Visibility checklist as the class/power/health bars.
 ns.ShouldShowBar = ShouldShowBar
 
+-- Show When Missing: a step curve on the engine-side percent reveals a rule-hidden
+-- bar below full. The curve result is secret, so it drives a wrapper the bar is
+-- parented to (the bar's own alpha stays plain for its other readers, and the
+-- Fade Out of Combat alpha still applies). Built on first use. Only resources
+-- that rest at full count; rage and the like rest at empty.
+local MISSING_POWERS = { [PT.MANA] = true, [PT.ENERGY] = true }
+
+function ns.ERB_MissingWanted(cfg, flag, powerType)
+    if not (cfg and flag) then return false end
+    if powerType then
+        if not MISSING_POWERS[powerType] then return false end
+        if powerType == PT.MANA then
+            local mx = UnitPowerMax("player", PT.MANA)
+            if not mx or issecretvalue(mx) or mx <= 0 then return false end
+        end
+    end
+    return (EllesmereUI.VisOverrideValue(cfg) or cfg.visibility) ~= "never"
+end
+
+function ns.ERB_MissingPaint(bar)
+    local curve = ns.ERB_MissingCurve
+    local pt = bar._missPower
+    local a
+    if pt then
+        a = UnitPowerPercent("player", pt, false, curve)
+    else
+        a = UnitHealthPercent("player", false, curve)
+    end
+    bar._missWrap:SetAlpha(a)
+end
+
+-- SetParent resets the frame level; the strata follows the new parent (the
+-- wrapper takes the bar's own on entry, so an inherited strata is never pinned).
+local function MissingRehome(bar, parent)
+    local level = bar:GetFrameLevel()
+    bar:SetParent(parent)
+    bar:SetFrameLevel(level)
+end
+
+-- live: reveal active for this bar; powerType nil means the health bar. home:
+-- the parent to return to when the reveal ends (nil keeps the wrapper). park:
+-- held in the wrapper at alpha 0 instead (the druid strip while the Power Bar
+-- is revealed on energy with Show When Mana Missing off).
+function ns.ERB_MissingApply(bar, live, powerType, home, park)
+    local w = bar._missWrap
+    if not live and not park then
+        bar._missLive, bar._missParked = nil, nil
+        if w then w:SetAlpha(1) end
+        local h = bar._missHome
+        if h and bar:GetParent() ~= h then MissingRehome(bar, h) end
+        return
+    end
+    if not w then
+        w = CreateFrame("Frame", nil, mainFrame)
+        w:SetAllPoints(mainFrame)
+        bar._missWrap = w
+    end
+    bar._missHome = home
+    if bar:GetParent() ~= w then
+        w:SetFrameStrata(bar:GetFrameStrata())
+        MissingRehome(bar, w)
+    end
+    if park then
+        bar._missLive, bar._missParked = nil, true
+        w:SetAlpha(0)
+        return
+    end
+    bar._missParked = nil
+    if not ns.ERB_MissingCurve then
+        local c = C_CurveUtil.CreateCurve()
+        c:SetType(Enum.LuaCurveType.Step)
+        c:AddPoint(0, 1)
+        c:AddPoint(1, 0)
+        ns.ERB_MissingCurve = c
+    end
+    bar._missLive = true
+    bar._missPower = powerType
+    ns.ERB_MissingPaint(bar)
+end
+
+-- The druid mana strip (a child of the Power Bar) while the visibility rules hide
+-- the Power Bar. mode "mana": revealed on its own mana curve; "park": held out of
+-- sight while an energy reveal shows the Power Bar (its anchor edge handed back);
+-- nil: back under the Power Bar. Out of its wrapper it no longer inherits the
+-- Power Bar's alpha, so the plain bar alpha is applied to it directly.
+function ns.ERB_MissingHost(pb, pp, mode)
+    local h = mode and ns.FDM_Host() or pb._missHost
+    if not h then return end
+    pb._missHost = h
+    if mode == "mana" then
+        ns.ERB_MissingApply(h, true, PT.MANA, pb)
+        h:SetAlpha(ns.ResolveBarAlpha(pp))
+    elseif mode == "park" then
+        ns.ERB_MissingApply(h, false, nil, pb, true)
+    elseif h._missLive or h._missParked then
+        ns.ERB_MissingApply(h, false)
+        h:SetAlpha(1)
+    end
+    ns.FDM_Parked(mode == "park")
+end
+
 -- WoW Forever Spell Cost Prediction host (EllesmereUI_SpellCostPrediction.lua,
 -- nil off Forever): the power type the Power Bar shows, the segment's color at
 -- the bar's Fill Opacity, and the Blizzard Style bar-shape mask for the
@@ -2686,9 +2787,13 @@ local function UpdateVisibility()
     -- Health bar visibility
     if healthBar then
         local hp = _G._ERB_ResolveHealthCfg()
-        local vis = hp and hp.enabled and not IsSpecDisabled(hp) and not _G._ERB_BarHiddenByForm(hp) and not inVehicle and ShouldShowBar(hp)
+        local avail = hp and hp.enabled and not IsSpecDisabled(hp) and not _G._ERB_BarHiddenByForm(hp) and not inVehicle
+        local vis = avail and ShouldShowBar(hp)
         ERB._moEligible.health = (vis == "mouseover")
         if grp then ns._erbGrpH = (vis == true) and not healthBar._erbMouseTrack end
+        local missing = avail and vis == false and hp.showWhenMissing and ns.ERB_MissingWanted(hp, true)
+        if missing or healthBar._missLive then ns.ERB_MissingApply(healthBar, missing) end
+        if missing then vis = true end
         if vis == true then
             healthBar:Show()
             EllesmereUI.SetElementVisibility(healthBar, true)
@@ -2707,9 +2812,26 @@ local function UpdateVisibility()
         -- Resource" applies only while the Class Resource is on: its toggle is greyed
         -- out otherwise, and a WoW Forever druid has combo points in Cat Form alone.
         local hidePower = sp and sp.hidePowerIfResource and sp.enabled ~= false and cachedSecondary
-        local vis = not hidePower and pp and pp.enabled ~= false and not IsSpecDisabled(pp) and not _G._ERB_BarHiddenByForm(pp) and cachedPrimary and not inVehicle and ShouldShowBar(pp)
+        local avail = not hidePower and pp and pp.enabled ~= false and not IsSpecDisabled(pp) and not _G._ERB_BarHiddenByForm(pp) and cachedPrimary and not inVehicle
+        local vis = avail and ShouldShowBar(pp)
         ERB._moEligible.primary = (vis == "mouseover")
         if grp then ns._erbGrpP = (vis == true) and not primaryBar._erbMouseTrack end
+        local pt = avail and cachedPrimary
+        local ruleHidden = avail and vis == false
+        -- One toggle per resource the bar can show; Mana also covers the druid strip below.
+        local barFlag
+        if pt == PT.MANA then barFlag = pp.showManaWhenMissing else barFlag = pp and pp.showWhenMissing end
+        local missing = ruleHidden and barFlag and type(pt) == "number" and ns.ERB_MissingWanted(pp, true, pt)
+        if missing or primaryBar._missLive then ns.ERB_MissingApply(primaryBar, missing, pt) end
+        if missing then vis = true end
+        local strip = ruleHidden and (pp.showManaWhenMissing or missing) and ns.FDM_Host and ns.FDM_Host()
+        local hostMode
+        if strip and pp.showManaWhenMissing and ns.ERB_MissingWanted(pp, true, PT.MANA) then
+            hostMode = "mana"
+        elseif strip and missing then
+            hostMode = "park"
+        end
+        if hostMode or primaryBar._missHost then ns.ERB_MissingHost(primaryBar, pp, hostMode) end
         if vis == true then
             primaryBar:Show()
             EllesmereUI.SetElementVisibility(primaryBar, true)
@@ -2741,7 +2863,11 @@ local function UpdateVisibility()
             end
         end
         -- WoW Forever druid mana bar: its mana events follow this verdict.
-        if ns.FDM_Visibility then ns.FDM_Visibility(vis) end
+        if ns.FDM_Visibility then
+            local fdmVis = vis
+            if hostMode == "mana" then fdmVis = true elseif hostMode == "park" then fdmVis = false end
+            ns.FDM_Visibility(fdmVis)
+        end
     end
 
     -- Secondary resource visibility + ooc alpha

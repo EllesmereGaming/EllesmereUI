@@ -535,6 +535,10 @@ end
 local TILE_STYLE_KEYS = {
     iconZoom = "debuffIconZoom",
     borderSize = "debuffBorderSize", borderColor = "debuffBorderColor",
+    borderTexture = "debuffBorderTexture", borderSizePx = "debuffBorderSizePx",
+    borderTextureOffset = "debuffBorderTextureOffset", borderTextureOffsetY = "debuffBorderTextureOffsetY",
+    borderTextureShiftX = "debuffBorderTextureShiftX", borderTextureShiftY = "debuffBorderTextureShiftY",
+    borderDispelTextured = "debuffBorderDispelTextured",
     showSwipe = "debuffShowSwipe", showDurText = "debuffShowDurText",
     durTextColor = "debuffDurTextColor", durTextSize = "debuffDurTextSize",
     durTextOffsetX = "debuffDurTextOffsetX", durTextOffsetY = "debuffDurTextOffsetY",
@@ -552,6 +556,9 @@ local function TileStyleView(s, t)
         end
     end
     if not o then return s end
+    if t.borderSize ~= nil or t.borderTexture ~= nil then
+        o.debuffBorderSizePx = t.borderSizePx or false
+    end
     return setmetatable(o, { __index = s })
 end
 -- The options preview renders tile runs through this same view, so what the
@@ -564,8 +571,8 @@ local function TileStyleFP(t)
         local tv = t[tk]
         if tv ~= nil then
             if type(tv) == "table" then
-                o[#o + 1] = tk .. "=" .. string.format("%.2f,%.2f,%.2f",
-                    tv.r or 0, tv.g or 0, tv.b or 0)
+                o[#o + 1] = tk .. "=" .. string.format("%.2f,%.2f,%.2f,%.2f",
+                    tv.r or 0, tv.g or 0, tv.b or 0, tv.a or 1)
             else
                 o[#o + 1] = tk .. "=" .. tostring(tv)
             end

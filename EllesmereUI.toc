@@ -69,12 +69,16 @@ EllesmereUI_Presets.lua
 EllesmereUI_Profiles.lua
 EllesmereUI_PartyMode.lua
 EUI_MacroFactory.lua
+EUI_UnlockMode_PointAnchors.lua
 EUI_UnlockMode.lua
 EUI_UnlockMode_Anchors.lua
 EUI_UnlockMode_Positions.lua
 EUI_UnlockMode_Tools.lua
+EUI_UnlockMode_PointVisuals.lua
+EUI_UnlockMode_PointPicker.lua
 EUI_UnlockMode_Movers.lua
 EUI_UnlockMode_Session.lua
+EUI_UnlockMode_Filter.lua
 EllesmereUI_Glows.lua
 EllesmereUI_RoundedCorners.lua
 EllesmereUI_ClassicArt.lua

@@ -4092,7 +4092,7 @@ initFrame:SetScript("OnEvent", function(self)
         local bs = cb.borderSize
 
         -- Container size: icon (hxh) + bar (only when icon shown)
-        local hasIcon = cb.showIcon ~= false
+        local hasIcon = cb.showIcon ~= false and not ns.ERB_CastIconPortrait(cb)
         local iconFree = ns.ERB_CastIconFree(cb)
         local iconW = (hasIcon and not iconFree) and Snap(blizz and ns.ERB_CastIconW(cb) or h) or 0
         pf.container:SetSize(w + iconW, h)
@@ -4394,7 +4394,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         local w, h = Snap(cb.width), Snap(cb.height)
-        local hasIcon = cb.showIcon ~= false
+        local hasIcon = cb.showIcon ~= false and not ns.ERB_CastIconPortrait(cb)
         local iconW = hasIcon and Snap(h) or 0
 
         -- Scale down to fit when the cast bar is wider than the panel

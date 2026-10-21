@@ -125,6 +125,7 @@ end
 -- Defined here, after its dependencies, so the closure captures the right upvalues.
 function EllesmereUI.RecenterBarAnchor(barKey)
     if not UM.isUnlocked then return end
+    if ns.PointAnchors.Recenter(barKey, UM) then return end
     local elem = registeredElements[barKey]
     if elem and elem.isAnchored and elem.isAnchored() then return end
     local b = UM.GetBarFrame(barKey)
@@ -945,7 +946,7 @@ local function ScheduleAnchorBatch()
                     -- Skip AB growth bars: LayoutBar/applyPos owns their position;
                     -- reapplying from a stale offset yields the wrong edge and visible drift.
                     local isAB = EllesmereUI._abBarKeys and EllesmereUI._abBarKeys[k]
-                    if not isAB then
+                    if not isAB or ownInfo.mode == "POINT" then
                         UM.ApplyAnchorPosition(k, ownInfo.target, ownInfo.side, true)
                     end
                 end
@@ -1019,7 +1020,7 @@ do
         local adb = GetAnchorDB()
         if not adb then return end
         for childKey, info in pairs(adb) do
-            if info.target and (childKey:sub(1, 4) == "CDM_"
+            if info.target and info.mode ~= "POINT" and (childKey:sub(1, 4) == "CDM_"
                or (EllesmereUI._abBarKeys and EllesmereUI._abBarKeys[childKey])) then
                 pcall(MigrateOne, childKey, info)
             end
@@ -1624,6 +1625,7 @@ end
 -- Cancel any active pick mode (width/height match, anchor to, snap select) and
 -- restore overlay text and screen brightness.
 local function CancelPickMode()
+    if UM.PointPicker then UM.PointPicker.Cancel() end
     if UM.pickModeMover then
         local m = UM.pickModeMover
         -- Restore overlay text visibility only if still hovered

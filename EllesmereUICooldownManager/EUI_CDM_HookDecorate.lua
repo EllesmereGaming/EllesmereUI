@@ -1276,6 +1276,13 @@ local function DecorateFrame(frame, barData)
                 local m = cse and ns.CD_STATE_HIDE[cse]
                 local cseShift, cseUsable, cseForm
                 if m then cse, cseShift, cseUsable, cseForm = m.base, m.shift, m.usable, m.form end
+                -- Stance Bar (EllesmereUICdmStanceBar.lua): one more hide reason. Alone,
+                -- it runs as Hidden (On CD) with the cooldown never read.
+                local stance = ns.CdmStanceBarOf(ss2)
+                local stanceOnly = false
+                if stance and cse ~= "hiddenOnCD" and cse ~= "hiddenReady" and cse ~= "lowerAlphaOnCD" then
+                    cse, stanceOnly = "hiddenOnCD", true
+                end
                 if not cse and not glow then
                     if fd._cdStateGlowOn then
                         ns.StopCdGlow(fd)
@@ -1315,10 +1322,13 @@ local function DecorateFrame(frame, barData)
                 if cse == "hiddenOnCD" or cse == "hiddenReady" or cse == "lowerAlphaOnCD" then
                     ArmCdStateEval(frame, fd, cse, cseShift,
                         (ss2 and ss2.cdStateLowerAlpha) or 0.5,
-                        ss2 and ss2.chargeHideUntilSpent, cseUsable, cseForm)
-                    -- Proc and form edges never fire this hook: the usability /
-                    -- form watch re-arms on SPELL_UPDATE_USABLE / UPDATE_SHAPESHIFT_FORM.
-                    if cseUsable or cseForm then ns.WatchCdUsable(frame, cseForm) end
+                        ss2 and ss2.chargeHideUntilSpent, cseUsable, cseForm, stance, stanceOnly)
+                    -- Proc, form and stance bar edges never fire this hook: the watch
+                    -- re-arms on SPELL_UPDATE_USABLE / UPDATE_SHAPESHIFT_FORM /
+                    -- UPDATE_BONUS_ACTIONBAR.
+                    if cseUsable or cseForm or stance then
+                        ns.WatchCdUsable(frame, cseForm, stance ~= nil, cseUsable)
+                    end
                     -- Hidden (CD Ready) on a charge spell also needs the refill-to-max
                     -- edge, which this hook never fires. Registered once per spell
                     -- binding (a pooled frame can be handed a different spell), so

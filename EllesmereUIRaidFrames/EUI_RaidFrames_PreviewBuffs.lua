@@ -17,19 +17,13 @@ local ipairs       = ipairs
 local wipe         = wipe
 local C_Timer               = C_Timer
 
-local RF = ns._internals -- the table of the Raid Frames chain
-local PixelSnap = RF.PixelSnap
+local PixelSnap = ns._internals.PixelSnap
 
 local previewFrames, PvActive = I.previewFrames, I.PvActive
 local PvAuraReanchorFrame, PvFrames = I.PvAuraReanchorFrame, I.PvFrames
 local PvSettings, StartPvAuraTicker = I.PvSettings, I.StartPvAuraTicker
 local StopPvAuraTicker = I.StopPvAuraTicker
 
--- Shared state: one copy per file. A write goes through the Set<Name>
--- function of the table that holds its list, which hands the value to
--- every copy: db, PP and containerFrame are the Raid Frames chain's.
-local PP
-RF.PPSetters[#RF.PPSetters + 1] = function(v) PP = v end
 local previewActive = false
 I.previewActiveSetters[#I.previewActiveSetters + 1] = function(v) previewActive = v end
 
@@ -68,8 +62,7 @@ local function GetConfiguredBuffSpells()
                         offsetY = ind.offsetY or 0,
                         growDirection = ind.growDirection or "RIGHT",
                         spacing = ind.spacing or 0,
-                        borderSize = ind.indBorderSize or 1,
-                        borderColor = ind.indBorderColor or { r = 0, g = 0, b = 0 },
+                        indicator = ind,
                         permanent = ns.BM_PREVIEW_NO_DURATION and ns.BM_PREVIEW_NO_DURATION[sid],
                     }
                 end
@@ -118,13 +111,7 @@ ns.PvBuffApply = function(spellInfo, frameIndex, slot)
     ns.PvBuffAnchor(icon, f, spellInfo)
 
     -- Border
-    if icon._borderFrame and PP and spellInfo.borderSize > 0 then
-        PP.UpdateBorder(icon._borderFrame, spellInfo.borderSize,
-            spellInfo.borderColor.r, spellInfo.borderColor.g, spellInfo.borderColor.b, 1)
-        icon._borderFrame:Show()
-    elseif icon._borderFrame then
-        icon._borderFrame:Hide()
-    end
+    ns.RFC_PreviewAuraBorder(icon, icon._borderFrame, spellInfo.indicator, "indBorder")
 
     -- Cooldown
     if icon._cooldown then
@@ -271,23 +258,18 @@ ns._PvAuraReanchorFrame = PvAuraReanchorFrame
 ns.RefreshPvAuraVisuals = function()
     local s2 = PvSettings()
     if not s2 then return end
-    local _PP = EllesmereUI.PanelPP or EllesmereUI.PP
     local _pvFrames = PvFrames()
     local _reanchor = ns._PvAuraReanchorFrame
     local fp = (EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
 
     local dbZ = s2.debuffIconZoom or 0.08
     local defZ = s2.defIconZoom or 0.08
-    local dbBdrSz = s2.debuffBorderSize or 1
-    local dbBdrC = s2.debuffBorderColor or { r = 0, g = 0, b = 0 }
     local dbShowSwipe = s2.debuffShowSwipe ~= false
     local dbShowDurText = s2.debuffShowDurText
     local dbDtC = s2.debuffDurTextColor or { r = 1, g = 1, b = 1 }
     local dbDtSz = s2.debuffDurTextSize or 8
     local dbDtOX = s2.debuffDurTextOffsetX or 0
     local dbDtOY = s2.debuffDurTextOffsetY or 0
-    local defBdrSz = s2.defBorderSize or 1
-    local defBdrC = s2.defBorderColor or { r = 0, g = 0, b = 0 }
     local defShowSwipe = s2.defShowSwipe ~= false
     local defShowDurText = s2.defShowDurText
     local defDtC = s2.defDurTextColor or { r = 1, g = 1, b = 1 }
@@ -305,14 +287,7 @@ ns.RefreshPvAuraVisuals = function()
                 if ic:IsShown() then
                     ic:SetSize(ns.RFC_DebuffSize(s2), ns.RFC_DebuffSize(s2))
                     ic._tex:SetTexCoord(dbZ, 1 - dbZ, dbZ, 1 - dbZ)
-                    if ic._borderFrame and _PP then
-                        if dbBdrSz > 0 then
-                            _PP.UpdateBorder(ic._borderFrame, dbBdrSz, dbBdrC.r, dbBdrC.g, dbBdrC.b, 1)
-                            ic._borderFrame:Show()
-                        else
-                            ic._borderFrame:Hide()
-                        end
-                    end
+                    ns.RFC_PreviewAuraBorder(ic, ic._borderFrame, s2, "debuffBorder")
                     if ic._cooldown then
                         ic._cooldown:SetDrawSwipe(dbShowSwipe)
                         ic._cooldown:SetHideCountdownNumbers(not dbShowDurText)
@@ -341,14 +316,7 @@ ns.RefreshPvAuraVisuals = function()
                 if ic:IsShown() then
                     ic:SetSize(s2.defSize or 22, s2.defSize or 22)
                     ic._tex:SetTexCoord(defZ, 1 - defZ, defZ, 1 - defZ)
-                    if ic._borderFrame and _PP then
-                        if defBdrSz > 0 then
-                            _PP.UpdateBorder(ic._borderFrame, defBdrSz, defBdrC.r, defBdrC.g, defBdrC.b, 1)
-                            ic._borderFrame:Show()
-                        else
-                            ic._borderFrame:Hide()
-                        end
-                    end
+                    ns.RFC_PreviewAuraBorder(ic, ic._borderFrame, s2, "defBorder")
                     if ic._cooldown then
                         ic._cooldown:SetDrawSwipe(defShowSwipe)
                         ic._cooldown:SetHideCountdownNumbers(not defShowDurText)

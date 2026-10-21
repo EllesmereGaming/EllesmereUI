@@ -14,6 +14,7 @@ EllesmereUIDamageMeters.lua
 EUI_DamageMeters_Style.lua
 EUI_DamageMeters_State.lua
 EUI_DamageMeters_Format.lua
+EUI_DamageMeters_Appearance.lua
 EUI_DamageMeters_Tooltip.lua
 EUI_DamageMeters_Window.lua
 EUI_DamageMeters_Apply.lua

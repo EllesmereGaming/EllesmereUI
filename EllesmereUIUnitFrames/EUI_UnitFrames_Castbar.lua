@@ -540,6 +540,17 @@ function ns.UF_CastIconPortraitLayout(ico, tex, bd, s)
     end
 end
 
+-- Resource Bars uses the same portrait geometry without changing UF cast settings.
+function ns.UF_GetPlayerCastPortrait()
+    local p = db and db.profile
+    if not p or ns.GetUnitFrameSource("player") ~= "eui" then return nil end
+    local s = GetSettingsForUnit("player")
+    if s.showPortrait == false or (s.portraitStyle or p.portraitStyle or "attached") == "none"
+        or (s.portraitMode or p.portraitMode or "2d") == "none" then return nil end
+    local pt = frames.player and frames.player.Portrait
+    return pt and pt.backdrop, s
+end
+
 -- The live cast bar's side of Show Icon on Portrait, run as LayoutCastbarIcon's
 -- portraitBd argument: returns the backdrop the icon now sits on, or nil. One
 -- settings test while off; the layout runs only while on or on the pass that
