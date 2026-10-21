@@ -672,6 +672,9 @@ end
 local function RefreshPawnArrows()
     if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
     if EUI_BagsReagent:IsVisible() then EUI_BagsReagent:RefreshInventory() end
+    -- The Item Icons takeover draws Pawn's arrow on the bank's slots too
+    -- (RefreshBank returns while the bank is closed)
+    if ns.ItemIconsOn() then ns.RefreshOpenBank() end
 end
 
 local function RegisterPawnIntegration()

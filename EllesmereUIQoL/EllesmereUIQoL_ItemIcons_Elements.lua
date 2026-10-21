@@ -16,6 +16,8 @@ local IsLinkWuE = C_Item.IsItemBindToAccountUntilEquip
 -- Built by the EllesmereUI.lua gate; an older parent may lack them: no track or
 -- crafted color then
 local GetUpgradeTrack, GetCraftedTrackColor = EllesmereUI.GetUpgradeTrack, EllesmereUI.GetCraftedTrackColor
+-- Dungeon initials as EUI Bags shows them; an older parent lacks it: no dungeon then
+local AbbrevDungeon = EllesmereUI.AbbrevDungeon
 local WEAPON, ARMOR = Enum.ItemClass.Weapon, Enum.ItemClass.Armor
 local POOR, BIND_ON_EQUIP = Enum.ItemQuality.Poor, Enum.ItemBind.OnEquip
 -- WoW Forever: no number under 10,000 abbreviates (EllesmereUI_NumberFormat.lua)
@@ -144,34 +146,6 @@ local function Keystone(item)
         item._ksLevel = level
     end
     return level
-end
-
--- Dungeon initials, connector words skipped and the locale's overrides
--- applied, as EUI Bags abbreviates them
-local abbrevs = {}
-local SKIP_WORDS = {
-    ["of"] = true, ["the"] = true, ["a"] = true, ["an"] = true,
-    -- ruRU: iz, za, v, na, i, pod, s
-    ["\208\184\208\183"] = true, ["\208\183\208\176"] = true, ["\208\178"] = true,
-    ["\208\189\208\176"] = true, ["\208\184"] = true, ["\208\191\208\190\208\180"] = true,
-    ["\209\129"] = true,
-}
-local function DungeonAbbrev(mapID)
-    local abbr = abbrevs[mapID]
-    if abbr then return abbr end
-    local name = C_ChallengeMode.GetMapUIInfo(mapID)
-    if not name or name == "" then return "" end
-    abbr = ""
-    for word in name:gmatch("[^%s%-]+") do
-        if not SKIP_WORDS[word:lower()] then
-            -- The first whole UTF-8 character
-            abbr = abbr .. (word:upper():match("^[%z\1-\127\194-\244][\128-\191]*") or "")
-        end
-    end
-    local override = EllesmereUI._dungeonAbbrevOverride
-    if override and override[abbr] then abbr = override[abbr] end
-    abbrevs[mapID] = abbr
-    return abbr
 end
 
 -------------------------------------------------------------------------------
@@ -343,8 +317,8 @@ Register("keystoneLevel", {
 Register("keystoneDungeon", {
     kind = "text", insetX = 1, insetY = 2,
     Apply = function(item, _, out)
-        if not Keystone(item) or not item._ksMap then return false end
-        local abbr = DungeonAbbrev(item._ksMap)
+        if not AbbrevDungeon or not Keystone(item) or not item._ksMap then return false end
+        local abbr = AbbrevDungeon(item._ksMap)
         if abbr == "" then return false end
         out.text = abbr
         return true

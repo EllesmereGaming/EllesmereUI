@@ -2525,6 +2525,9 @@ function EUI_Bank:RefreshBank()
     -- as on the bank's list rows (read once per refresh)
     local junkOn = _G.EUI_CategoryManager:IsJunkMarkerEnabled()
     local desatJunk = BP().bagDesaturateJunkItems == true
+    -- Item Icons takeover: its marks replace the item level, bind type and
+    -- crafting quality overlays (read once per refresh)
+    local iiOn = ns.ItemIconsOn()
     local function RenderSlotContent(btn, bagID, slot, cachedInfo)
         if btn.ProfessionQualityOverlay then btn.ProfessionQualityOverlay:SetAlpha(0) end
         if btn.IconOverlay then btn.IconOverlay:SetAlpha(0); btn.IconOverlay:Hide() end
@@ -2543,6 +2546,7 @@ function EUI_Bank:RefreshBank()
             if btn.BindTypeText then btn.BindTypeText:SetText("") end
             if btn.IconBorder then btn.IconBorder:Hide() end
             if btn.NormalTexture then btn.NormalTexture:SetAlpha(0) end
+            if iiOn then ns.ItemIconsPaint(btn) end
         else
             btn:EnableMouse(true)
             btn._emptyBg:Hide()
@@ -2554,7 +2558,7 @@ function EUI_Bank:RefreshBank()
                 or (junkOn and _G.EUI_CategoryManager:IsJunk(info.itemID, quality)))) or false)
             local itemLink = C_Container.GetContainerItemLink(bagID, slot)
             if itemLink then btn:SetItemButtonQuality(quality, itemLink, false, false) end
-            if btn.ProfessionQualityOverlay and btn.ProfessionQualityOverlay:IsShown() and btn._textOverlay then
+            if btn.ProfessionQualityOverlay and btn.ProfessionQualityOverlay:IsShown() and btn._textOverlay and not iiOn then
                 btn.ProfessionQualityOverlay:SetAlpha(1)
                 btn.ProfessionQualityOverlay:SetParent(btn._textOverlay)
             end
@@ -2583,8 +2587,8 @@ function EUI_Bank:RefreshBank()
             -- One gear check + one GetItemInfo fetch shared by the bind-type
             -- and item-level texts
             local isGear = itemLink and IsGearItem(itemLink)
-            local showBindType = isGear and not info.isBound and BP().bagDisplayBindType
-            local showIlvl = isGear and BP().showItemlevelInBags ~= false
+            local showBindType = isGear and not info.isBound and BP().bagDisplayBindType and not iiOn
+            local showIlvl = isGear and BP().showItemlevelInBags ~= false and not iiOn
             local giIlvl, giBindType
             local loc
             if showBindType or showIlvl then
@@ -2638,6 +2642,14 @@ function EUI_Bank:RefreshBank()
                 if cdE and cdE ~= 0 and cdS > 0 and cdD > 0 then
                     btn.Cooldown:SetDrawEdge(true); btn.Cooldown:SetCooldown(cdS, cdD)
                 else btn.Cooldown:Clear() end
+            end
+            if iiOn then
+                local f = ns.ItemIconsFacts(btn)
+                f.isGear, f.isBound = isGear, info.isBound
+                -- The Junk Marker's verdict only while it is on
+                if junkOn then f.isJunk = _G.EUI_CategoryManager:IsJunk(info.itemID, quality) end
+                -- The bank leaves search misses out instead of dimming them
+                ns.ItemIconsPaint(btn, bagID, slot, itemLink, info.stackCount, info.quality, info.itemID, false)
             end
         end
         if next(EUI_Bags.itemOverlayIcons) ~= nil then

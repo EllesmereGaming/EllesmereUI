@@ -1764,6 +1764,38 @@ do
     end
 end
 
+-- Mythic Keystone dungeon initials (EUI Bags and QoL Item Icons): connector
+-- words skipped, words split on whitespace and hyphens ("Nexus-Point Xenas" is
+-- NPX). Locale files may register EllesmereUI._dungeonAbbrevOverride (plain
+-- data: initials -> short name), applied here. "" while the map has no name.
+do
+    local cache = {}
+    local SKIP_WORDS = {
+        ["of"] = true, ["the"] = true, ["a"] = true, ["an"] = true,
+        -- ruRU (GetMapUIInfo names follow the client locale): iz, za, v, na, i, pod, s
+        ["\208\184\208\183"] = true, ["\208\183\208\176"] = true, ["\208\178"] = true,
+        ["\208\189\208\176"] = true, ["\208\184"] = true, ["\208\191\208\190\208\180"] = true,
+        ["\209\129"] = true,
+    }
+    function EllesmereUI.AbbrevDungeon(mapID)
+        local abbr = cache[mapID]
+        if abbr then return abbr end
+        local name = C_ChallengeMode.GetMapUIInfo(mapID)
+        if not name or name == "" then return "" end
+        abbr = ""
+        for word in name:gmatch("[^%s%-]+") do
+            if not SKIP_WORDS[word:lower()] then
+                -- The first whole UTF-8 character (sub(1, 1) would split Cyrillic)
+                abbr = abbr .. (word:upper():match("^[%z\1-\127\194-\244][\128-\191]*") or "")
+            end
+        end
+        local override = EllesmereUI._dungeonAbbrevOverride
+        if override and override[abbr] then abbr = override[abbr] end
+        cache[mapID] = abbr
+        return abbr
+    end
+end
+
 -- Stat letters for an item: its secondaries by amount, largest first ("MH"),
 -- and its tertiaries the same way ("L"), returned apart so callers can show
 -- the tertiaries smaller. Ties keep the list order. The letters stay English

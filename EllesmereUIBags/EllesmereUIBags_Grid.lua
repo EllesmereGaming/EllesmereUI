@@ -41,6 +41,8 @@ local MergeDuplicates = ns.MergeDuplicates
 local ApplySavedOrder = ns.ApplySavedOrder
 -- Junk Marker state, read once per RenderGridView pass for every RenderButton
 local junkOn = false
+-- Item Icons takeover (ns.ItemIconsOn), read once per RenderGridView pass
+local iiOn = false
 -- Compact display state, read once per RenderGridView pass
 local compactOn = false
 local BuildExpansionBuckets = ns.BuildExpansionBuckets
@@ -131,12 +133,13 @@ ns.GetOrCreateSlot = GetOrCreateSlot
 -- A slot's desaturation (locked; grey items and Junk Marker junk while Junk
 -- Item Visuals' Desaturate is on) and its Junk Marker coin badge (its Show Coin
 -- Icon): the game's coin, cropped round, lifted past the bottom-left corner.
+-- Under the Item Icons takeover its junkCoin element is the badge.
 local function PaintJunkState(btn, info, markerJunk)
     local p = BP()
     local quality = info.quality or 1
     SetItemButtonDesaturated(btn, info.isLocked
         or (p.bagDesaturateJunkItems == true and (quality == 0 or markerJunk)) or false)
-    if markerJunk and p.bagShowJunkCoin == true then
+    if markerJunk and p.bagShowJunkCoin == true and not iiOn then
         local coin = btn._junkCoin
         if not coin then
             coin = btn:CreateTexture(nil, "OVERLAY", nil, 6)
@@ -156,9 +159,36 @@ local function PaintJunkState(btn, info, markerJunk)
     end
 end
 
+-- Item Icons takeover: a slot's marks from the facts RefreshInventory read
+-- (nil where it read none). isJunk: the Junk Marker's verdict while it is on.
+local function PaintItemIcons(btn, data, isJunk)
+    local info = data.info
+    if not (info and data.itemLink) then
+        ns.ItemIconsPaint(btn)
+        return
+    end
+    local f = ns.ItemIconsFacts(btn)
+    local isGear = data._isGear == true
+    f.isGear, f.isBound = isGear, info.isBound
+    f.questStarter = data._isQuestStarter == true
+    if junkOn then f.isJunk = isJunk end
+    if isGear then
+        f.itemLevel, f.isWuE, f.bindType = data._giIlvl, data._isWuE, data._giBindType
+        f.trackColor = data._giTrackColor
+        local rank = data._giTrackRank
+        if rank ~= nil then f.upgradeLevel = rank and tonumber(rank:match("^(%d+)/")) or false end
+    end
+    -- Stamped only while Show Set Name on Gear is on
+    if BP().bagShowSetGearName == true then f.setName = data._setName or false end
+    ns.ItemIconsPaint(btn, data.bag, data.slot, data.itemLink, data._mergedCount or info.stackCount,
+        info.quality, info.itemID, info.isFiltered)
+end
+
 -- Mark mode repaints the one slot it toggled
 function ns.GridPaintJunk(btn, info)
-    PaintJunkState(btn, info, EUI_CategoryManager:IsJunk(info.itemID, info.quality or 1))
+    local junk = EUI_CategoryManager:IsJunk(info.itemID, info.quality or 1)
+    PaintJunkState(btn, info, junk)
+    if iiOn then ns.ItemIconsSetJunk(btn, junk) end
 end
 
 -------------------------------------------------------------------------------
@@ -188,6 +218,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         btn._emptyBg:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\icon-bg.png")
     end
 
+    local markerJunk = false
     if not data.info then
         btn:SetItemButtonTexture(nil)
         btn:SetItemButtonCount(0)
@@ -227,7 +258,8 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         btn._isMerged = data._mergedCount and true or nil
 
         local quality = data.info.quality or 1
-        PaintJunkState(btn, data.info, junkOn and EUI_CategoryManager:IsJunk(data.info.itemID, quality))
+        markerJunk = junkOn and EUI_CategoryManager:IsJunk(data.info.itemID, quality)
+        PaintJunkState(btn, data.info, markerJunk)
 
         local filtered = data.info.isFiltered
         btn:SetAlpha(filtered and 0.2 or 1)
@@ -235,9 +267,10 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
 
         local iType = data._giType
 
-        -- Item Level + Upgrade Rank (gear only)
+        -- Item Level + Upgrade Rank (gear only). Under the Item Icons takeover
+        -- this and the texts and marks below stay empty (PaintItemIcons).
         if btn.ItemLevelText then
-            if data._isGear then
+            if data._isGear and not iiOn then
                 local showIlvl = BP().showItemlevelInBags ~= false
                 if showIlvl then
                     btn.ItemLevelText:SetText(data._giIlvl or "")
@@ -269,7 +302,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
 
         -- Keystone: level top-left, abbreviated dungeon name bottom-right
         if btn.KeystoneText then
-            if data._ksLevel then
+            if data._ksLevel and not iiOn then
                 btn.KeystoneText:SetText(data._ksLevel)
                 btn.KeystoneText:SetTextColor(data._ksR or 1, data._ksG or 1, data._ksB or 1, 1)
                 if btn.KeystoneDungeonText then
@@ -285,7 +318,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         -- BoE/WuE bottom-left (gear only); skipped for quest starters, which use that corner for the quest marker.
         if btn.BindTypeText then
             if data._isGear and not data.info.isBound and not data._isQuestStarter
-               and BP().bagDisplayBindType then
+               and BP().bagDisplayBindType and not iiOn then
                 EUI_Bags.SetBindTypeText(btn.BindTypeText, data._isWuE, data._giBindType, quality)
             else
                 btn.BindTypeText:SetText("")
@@ -296,7 +329,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         -- stamping is gated on the toggle, so _setName is nil while it's off).
         -- FontString is lazy: never built while off; once built it is cleared on
         -- every render because buttons are pooled.
-        if data._setName then
+        if data._setName and not iiOn then
             -- Yields when the upgrade-track rank occupies Count in the same row
             -- (mirrors the rank-display condition in the ItemLevelText block above)
             local rankShown = data._isGear and BP().bagShowTrackRank
@@ -328,7 +361,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         end
         -- Visibility via alpha 0/1 only (immune to parent inheritance), even though SetItemButtonQuality may have called Show() internally.
         if btn.ProfessionQualityOverlay then
-            if btn.ProfessionQualityOverlay:IsShown() then
+            if btn.ProfessionQualityOverlay:IsShown() and not iiOn then
                 btn.ProfessionQualityOverlay:SetAlpha(1)
                 if btn._textOverlay then
                     btn.ProfessionQualityOverlay:SetParent(btn._textOverlay)
@@ -377,7 +410,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         end
         -- Quest marker atlas (lazy, reused). Only for items that START a quest you
         -- have not accepted; active-quest objective items get the border, no marker.
-        if data._isQuestStarter then
+        if data._isQuestStarter and not iiOn then
             if not btn._questMarker then
                 local qm = (btn._textOverlay or btn):CreateTexture(nil, "OVERLAY", nil, 6)
                 qm:SetAtlas("Crosshair_Quest_64")
@@ -421,7 +454,9 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         end
 
     end
-    UpdatePawnArrow(btn, data.itemLink)
+    -- No link: Pawn's arrow stays hidden (Item Icons has its own)
+    UpdatePawnArrow(btn, not iiOn and data.itemLink or nil)
+    if iiOn then PaintItemIcons(btn, data, markerJunk) end
     EUI_Bags.RunItemOverlays(btn, data)
 
     -- Same requery the native container update does after re-assigning a slot: the
@@ -471,6 +506,7 @@ end
 function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, gridW, gridPadX, showPinned, pinnedSet)
     local selectedCategoryIndex, selectedGroupName = ns.GetSelection()
     junkOn = EUI_CategoryManager:IsJunkMarkerEnabled()
+    iiOn = ns.ItemIconsOn()
     compactOn = EUI_Bags.IsCompactMode() == true
 
     -- 5. Render grid into scroll child
