@@ -2,8 +2,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_QoL_Options.lua
 --  Registers the Quality of Life sidebar addon and its tabs. This file builds
---  the Quality of Life page; the other tabs come from their own
---  EUI_QoL_*_Options.lua files (Cursor, Shifter, Item Icons and more).
+--  the Quality of Life page; the other tabs come from their own option files
+--  (Cursor, Shifter, Upgrader, Item Icons and more).
 -------------------------------------------------------------------------------
 -- Page names are DEEP-LINK IDENTIFIERS, not just tab labels: every
 -- NavigateToElementSettings tuple (_ELEMENT_SETTINGS_MAP, What's New nav)

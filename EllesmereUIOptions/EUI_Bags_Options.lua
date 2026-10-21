@@ -20,11 +20,8 @@ local CreateFrame = EllesmereUI._Pool.CreateFrame
 -- Quality of Life's Item Icons page: a link tab while QoL is loaded. While it
 -- manages these bags it draws their overlays, so their rows below grey out.
 local PAGE_ITEMICONS = "Item Icons"
-local ITEM_ICONS_TIP = "Managed by Quality of Life > Item Icons"
-local function ItemIconsManaged()
-    local II = EllesmereUI.ItemIcons  -- absent while QoL is disabled
-    return II ~= nil and II.IsFrameEnabled("eui_bags")
-end
+local ITEM_ICONS_TIP = EllesmereUI.ITEM_ICONS_MANAGED_TIP
+local function ItemIconsManaged() return EllesmereUI.ItemIconsManages("eui_bags") end
 -- A row's disabled tooltip: the Item Icons note while managed, else its own
 -- requirement (why)
 local function ManagedOr(why)

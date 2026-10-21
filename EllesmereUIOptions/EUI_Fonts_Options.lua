@@ -890,12 +890,9 @@ local function TileBags(parent, y, W, tile)
     end
     -- An overlay text size: greyed while Quality of Life's Item Icons draws the
     -- bag overlays, as on the Bags page
-    local function ItemIconsManaged()
-        local II = EllesmereUI.ItemIcons  -- absent while QoL is disabled
-        return II ~= nil and II.IsFrameEnabled("eui_bags")
-    end
+    local function ItemIconsManaged() return EllesmereUI.ItemIconsManages("eui_bags") end
     local function overlay(cfg)
-        cfg.disabled, cfg.disabledTooltip, cfg.rawTooltip = ItemIconsManaged, "Managed by Quality of Life > Item Icons", true
+        cfg.disabled, cfg.disabledTooltip, cfg.rawTooltip = ItemIconsManaged, EllesmereUI.ITEM_ICONS_MANAGED_TIP, true
         return cfg
     end
     _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display),

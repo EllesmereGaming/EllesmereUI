@@ -2,9 +2,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUI_Widgets_PageParts.lua
 --  Shared page parts: unlock placeholder, max duration and sound dropdown
---  data, the Global Settings rows and module card, and the manager-page
---  parts. Read at load by the Fonts and Textures options files, so it
---  loads before them.
+--  data, the Global Settings rows and module card, the manager-page parts
+--  and the state of rows Quality of Life > Item Icons takes over. Read at
+--  load by the Fonts and Textures options files, so it loads before them.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 -- Page reuse: the frames this file builds go through the options frame pool
@@ -175,6 +175,17 @@ end
 function EllesmereUI.BlankRowCfg() return { type = "label", text = "" } end
 
 function EllesmereUI.ModuleNS(folder) return EllesmereUI._ModuleNS and EllesmereUI._ModuleNS[folder] end
+
+-- Rows whose drawing Quality of Life > Item Icons takes over (Bags overlays,
+-- vendor and gear flyout item levels) grey out while it manages their frame,
+-- with this disabled tooltip (rawTooltip)
+EllesmereUI.ITEM_ICONS_MANAGED_TIP = "Managed by Quality of Life > Item Icons"
+
+-- True while Item Icons manages frameKey (an EllesmereUI.ItemIcons frame key)
+function EllesmereUI.ItemIconsManages(frameKey)
+    local II = EllesmereUI.ItemIcons  -- absent while QoL is disabled
+    return II ~= nil and II.IsFrameEnabled(frameKey)
+end
 
 -- Custom link row: label on the left, an Open Settings button on the right,
 -- jumping to the module page that owns a selection-bound settings family.

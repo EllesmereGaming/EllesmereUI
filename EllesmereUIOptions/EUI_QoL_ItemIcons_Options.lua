@@ -161,8 +161,8 @@ local function BuildShowOn(rgn)
     local bagsLoaded = EllesmereUI._ModuleNS["EllesmereUIBags"] ~= nil
     local items = {}
     for _, key in ipairs(II.FRAME_ORDER) do
-        -- No Great Vault on WoW Forever
-        if not (EllesmereUI.IS_FOREVER and key == "greatvault") then
+        -- A window the client lacks is not listed (no Great Vault on WoW Forever)
+        if II.IsFrameAvailable(key) then
             local item = { key = key, label = FRAME_LABELS[key] }
             if key == "eui_bags" and not bagsLoaded then
                 item.locked, item.lockedTooltip = true, "Requires the EllesmereUI Bags module"
