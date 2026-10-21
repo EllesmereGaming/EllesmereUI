@@ -107,9 +107,7 @@ function ns.UF_ClassicCastBorderRow(W, parent, y, getS, key, onChange, sync, mat
                 if t then t[ns.UF_CastClassicKey(units[i])] = v end
             end
             sync.reload()
-            if EllesmereUI.ReapplyMatchPads then
-                for i = 1, #units do EllesmereUI.ReapplyMatchPads(units[i] .. "Castbar") end
-            end
+            for i = 1, #units do EllesmereUI.ReapplyMatchPads(units[i] .. "Castbar") end
             EllesmereUI:RefreshPage()
         end
         EllesmereUI.BuildSyncIcon({
@@ -1840,7 +1838,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- color settings do nothing: grey out and block the whole DualRow region (every
     -- swatch/slider/cog/sync in it). A widget-refresh callback tracks the toggle live
     -- (RefreshPage's fast path re-runs these without a full rebuild).
-    local function AddDarkModeBlock(rgn)
+    local function AddDarkModeBlock(rgn, unitFn)
         if not rgn then return end
         local block = CreateFrame("Frame", nil, rgn)
         block:SetAllPoints()
@@ -1849,7 +1847,7 @@ initFrame:SetScript("OnEvent", function(self)
         block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(block, "Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Colors.") end)
         block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         local function Update()
-            if db and db.profile and db.profile.darkTheme then
+            if ns.UF_DarkThemeOn(unitFn()) then
                 rgn:SetAlpha(0.3); block:Show()
             else
                 rgn:SetAlpha(1); block:Hide()
@@ -2925,10 +2923,58 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end
     end)
+    -- Textured Background: the Texture Settings cog row, shared by the Main and
+    -- Mini Frames pages and Global Settings > Textures. unitFn returns the
+    -- frame's settings (nil unitFn: the cast bar row); mini: a mini frame's key,
+    -- which follows its main frame while its Bar Texture is Inherit; apply: the
+    -- page's own refresh after a write.
+    local function TexBgRowCfg(unitFn, apply, mini)
+        if not unitFn then
+            return { type = "toggle", label = "Textured Background",
+                tooltip = "Draws the bar texture on the cast bar backgrounds too.",
+                disabled = function() return db.profile.castBarTexture == "blizzard" end,
+                disabledTooltip = "This option requires a Cast Bar Texture other than Blizzard.",
+                get = function() return db.profile.castTextureBg == true end,
+                set = function(v) db.profile.castTextureBg = v and true or false; apply() end }
+        end
+        local function Inheriting(s)
+            local v = mini and s.healthBarTexture
+            return mini and (v == nil or v == "inherit")
+        end
+        local function Tex(s) return s.healthBarTexture or db.profile.healthBarTexture or "none" end
+        return { type = "toggle", label = "Textured Background",
+            tooltip = "Draws the bar texture on the health and power backgrounds too.",
+            disabled = function()
+                local s = unitFn()
+                if not s or Inheriting(s) then return true end
+                return Tex(s) == "none" or not ns.UF_HealthOpaque(s)
+            end,
+            disabledTooltip = function()
+                local s = unitFn()
+                if not s then return nil end
+                if Inheriting(s) then return "This option requires a Bar Texture other than Inherit (Main Frames)." end
+                if Tex(s) == "none" then return "This option requires a Bar Texture other than None." end
+                if ns.UF_DarkThemeOn(s) then return "This option requires a Dark Mode Fill of 100 (Global Settings > Colors)." end
+                if mini == "boss" then return "This option requires a health Fill Color of 100." end
+                return "This option requires a health Fill Opacity of 100."
+            end,
+            get = function()
+                local s = unitFn()
+                if not s then return false end
+                if Inheriting(s) then return ns.UF_TexBgOn(mini) end
+                return s.textureBg == true
+            end,
+            set = function(v)
+                local s = unitFn(); if not s then return end
+                s.textureBg = v and true or false
+                apply()
+            end }
+    end
 
     -- Shared helpers and state for the builders under UnitFrames_Options\
     -- (loaded before this file, read when a page builds).
     ns._UFO_OptEnv = {
+        TexBgRowCfg = TexBgRowCfg,
         _previewBuffIcons = _previewBuffIcons, _previewCreatureNames = _previewCreatureNames, abs = abs,
         AddDarkModeBlock = AddDarkModeBlock, allPreviews = allPreviews, ApplyClassIconTexture_Preview = ApplyClassIconTexture_Preview,
         ApplyPreviewPortraitShape = ApplyPreviewPortraitShape, AttachDebuffModeWarn = AttachDebuffModeWarn, AttachFrameSourceCog = AttachFrameSourceCog,

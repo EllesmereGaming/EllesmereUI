@@ -353,9 +353,8 @@ ns.BuildBarButtons = function(info, frame, skipProtected)
                     -- OnEvent->UpdateAction calls per tick -- screen blink).
                     -- Taint-safe refresh; avoids passing secret cooldown values through a tainted call.
                     EAB_VTABLE.ForceButtonRefresh(btn, slot)
-                    -- Two channels ForceButtonRefresh doesn't own (same pairing
-                    -- as the bar-reveal path): checked state + equipped border.
-                    btn:SetChecked((IsCurrentAction(slot) or IsAutoRepeatAction(slot)) and true or false)
+                    -- Reconcile attack visuals and the equipped border on rebuild.
+                    ns.AB_SyncAttackState(btn, slot)
                     ns.AB_SyncEquippedBorder(btn, slot)
                 end
                 if bindPrefix then

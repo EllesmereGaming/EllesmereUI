@@ -491,8 +491,8 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
     -- Dark Mode: disable all Bar Color + Bar Background controls (the flat dark
     -- health bar ignores fill/background colors).
     if not EllesmereUI._prebuilding then
-    AddDarkModeBlock(sharedHealthColorRow._leftRegion)
-    AddDarkModeBlock(sharedHealthColorRow._rightRegion)
+    AddDarkModeBlock(sharedHealthColorRow._leftRegion, SDB)
+    AddDarkModeBlock(sharedHealthColorRow._rightRegion, SDB)
     end
 
     -- Row 3: Smooth Health Bars + Bar Opacity
@@ -502,7 +502,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
           getValue=function() return SVal("smoothBars", false) end,
           setValue=function(v) SSet("smoothBars", v) end },
         { type="slider", text="Fill Opacity", min=0, max=100, step=1,
-          disabled=function() return db.profile.darkTheme end,
+          disabled=function() return ns.UF_DarkThemeOn(SDB()) end,
           disabledTooltip="Dark Mode", requireState="disabled",
           getValue=function() return SVal("healthBarOpacity", 90) end,
           setValue=function(v)
@@ -1956,26 +1956,6 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
               get=function() return SVal("powerPercentY", 0) end,
               set=function(v) SSet("powerPercentY", v); UpdatePreview() end },
         }
-        -- WoW Forever druids: the Mana + Form Power bar's text has its own
-        -- offsets (EUI_UnitFrames_ForeverFormBar.lua); unset, they follow
-        -- the power text's.
-        local _, cpClass = UnitClass("player")
-        if EllesmereUI.IS_FOREVER == true and optState.selectedUnit == "player" and cpClass == "DRUID" then
-            local function NoFormBar() return not SVal("foreverFormBar", false) end
-            local function FormOffset(key, base)
-                local v = SVal(key, nil)
-                if v == nil then v = SVal(base, 0) end
-                return v
-            end
-            ppRows[#ppRows + 1] = { type="slider", label="Form Text X Offset", min=-50, max=50, step=1,
-                disabled = NoFormBar, disabledTooltip = "Requires Power Type: Mana + Form Power.", rawTooltip = true,
-                get=function() return FormOffset("foreverFormTextX", "powerPercentX") end,
-                set=function(v) SSet("foreverFormTextX", v) end }
-            ppRows[#ppRows + 1] = { type="slider", label="Form Text Y Offset", min=-50, max=50, step=1,
-                disabled = NoFormBar, disabledTooltip = "Requires Power Type: Mana + Form Power.", rawTooltip = true,
-                get=function() return FormOffset("foreverFormTextY", "powerPercentY") end,
-                set=function(v) SSet("foreverFormTextY", v) end }
-        end
         EllesmereUI.BuildInlineCog(ppRgn, {
             icon = EllesmereUI.RESIZE_ICON,
             disabled = function() return SVal("powerPercentText", "none") == "none" end,
@@ -2287,7 +2267,8 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
               end }
         local _, playerClass = UnitClass("player")
         if playerClass == "DRUID" then
-            _, h = W:DualRow(parent, y,
+            local powerTypeRow
+            powerTypeRow, h = W:DualRow(parent, y,
                 -- Mana + Form Power: Mana plus foreverFormBar (a second bar
                 -- with the form's power, EUI_UnitFrames_ForeverFormBar.lua).
                 { type="dropdown", text="Power Type",
@@ -2310,8 +2291,143 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                       end
                       pdb.foreverFormBar = (v == "both") or nil
                       ReloadAndUpdate()
+                      EllesmereUI:RefreshPage()
                   end },
                 sparkCfg);  y = y - h
+            -- The Form Power bar's own settings re-apply only that bar
+            -- (EUI_UnitFrames_ForeverFormBar.lua), not the whole frame.
+            local function NoFormBar() return not SVal("foreverFormBar", false) end
+            local function SetForm(key, v)
+                SDB()[key] = v
+                ns.UF_ForeverFormBarRelayout()
+            end
+            -- A Form Power Text setting; unset follows the power bar's.
+            local function FormVal(key, base, def)
+                local v = SVal(key, nil)
+                if v == nil then v = SVal(base, def) end
+                return v
+            end
+            local FORM_TIP = "Requires Power Type: Mana + Form Power."
+            -- Cog: the Form Power bar's offsets.
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(powerTypeRow._leftRegion, {
+                    icon = EllesmereUI.RESIZE_ICON,
+                    disabled = NoFormBar,
+                    disabledTooltip = FORM_TIP,
+                    title = "Form Power Bar",
+                    rows = {
+                        { type="slider", label="X Offset", min=-50, max=50, step=1,
+                          get=function() return SVal("foreverFormBarX", 0) end,
+                          set=function(v) SetForm("foreverFormBarX", v) end },
+                        { type="slider", label="Y Offset", min=-50, max=50, step=1,
+                          get=function() return SVal("foreverFormBarY", 0) end,
+                          set=function(v) SetForm("foreverFormBarY", v) end },
+                    },
+                })
+            end
+            -- Form Power Text + Form Text Position: the form bar's text, apart
+            -- from the power bar's (Mana) text.
+            local formTextRow
+            formTextRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Form Power Text", values=ppFmtValues, order=ppFmtOrder,
+                  disabled=NoFormBar, disabledTooltip=FORM_TIP,
+                  getValue=function() return FormVal("foreverFormTextFormat", "powerTextFormat", "perpp") end,
+                  setValue=function(v)
+                      local pos = FormVal("foreverFormTextPos", "powerPercentText", "none")
+                      if v ~= "none" and pos == "none" then SDB().foreverFormTextPos = "center" end
+                      if v == "none" then SDB().foreverFormTextPos = "none" end
+                      SetForm("foreverFormTextFormat", v)
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="dropdown", text="Form Text Position", values=ppTextValues, order=ppTextOrder,
+                  disabled=NoFormBar, disabledTooltip=FORM_TIP,
+                  getValue=function() return FormVal("foreverFormTextPos", "powerPercentText", "none") end,
+                  setValue=function(v) SetForm("foreverFormTextPos", v) end });  y = y - h
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(formTextRow._leftRegion, {
+                    disabled = function()
+                        if NoFormBar() then return true end
+                        local fmt = FormVal("foreverFormTextFormat", "powerTextFormat", "perpp")
+                        return fmt == "none" or fmt == "curpp" or fmt == "curmaxpp"
+                    end,
+                    disabledTooltip = "This option is only available for formats that display a percentage.",
+                    title = "Form Power Text",
+                    rows = {
+                        { type="toggle", label="Show %",
+                          get=function() return FormVal("foreverFormShowPercent", "powerShowPercent", true) ~= false end,
+                          set=function(v) SetForm("foreverFormShowPercent", v) end },
+                    },
+                })
+                EllesmereUI.BuildInlineCog(formTextRow._rightRegion, {
+                    icon = EllesmereUI.RESIZE_ICON,
+                    disabled = function()
+                        return NoFormBar() or FormVal("foreverFormTextPos", "powerPercentText", "none") == "none"
+                    end,
+                    disabledTooltip = "This option requires a text position other than none.",
+                    title = "Form Text Position",
+                    rows = {
+                        { type="slider", label="Size", min=6, max=100, step=1,
+                          get=function() return FormVal("foreverFormTextSize", "powerPercentSize", 9) end,
+                          set=function(v) SetForm("foreverFormTextSize", v) end },
+                        { type="slider", label="X Offset", min=-50, max=50, step=1,
+                          get=function() return FormVal("foreverFormTextX", "powerPercentX", 0) end,
+                          set=function(v) SetForm("foreverFormTextX", v) end },
+                        { type="slider", label="Y Offset", min=-50, max=50, step=1,
+                          get=function() return FormVal("foreverFormTextY", "powerPercentY", 0) end,
+                          set=function(v) SetForm("foreverFormTextY", v) end },
+                    },
+                })
+            end
+            -- Form Text Color: custom, or the form power's colour. Neither set
+            -- follows the power bar's Text Color.
+            local function FormPowerColored()
+                local pc = SVal("foreverFormTextPowerColor", nil)
+                if pc == nil and SVal("foreverFormTextColor", nil) == nil then
+                    pc = SVal("powerPercentTextPowerColor", false)
+                end
+                return pc and true or false
+            end
+            _, h = W:DualRow(parent, y,
+                { type="multiSwatch", text="Form Text Color",
+                  disabled=NoFormBar, disabledTooltip=FORM_TIP,
+                  swatches = {
+                    { tooltip = "Custom Text Color",
+                      hasAlpha = false,
+                      getValue = function()
+                          local c = SVal("foreverFormTextColor", nil)
+                          if c == nil and SVal("foreverFormTextPowerColor", nil) == nil then c = SGet("powerTextColor") end
+                          if c then return c.r, c.g, c.b end
+                          return 1, 1, 1
+                      end,
+                      setValue = function(r, g, b)
+                          SDB().foreverFormTextPowerColor = false
+                          SetForm("foreverFormTextColor", { r=r, g=g, b=b })
+                      end,
+                      onClick = function(self)
+                          if FormPowerColored() then
+                              SDB().foreverFormTextColor = nil
+                              SetForm("foreverFormTextPowerColor", false)
+                              EllesmereUI:RefreshPage()
+                              return
+                          end
+                          if self._eabOrigClick then self._eabOrigClick(self) end
+                      end,
+                      refreshAlpha = function() return FormPowerColored() and 0.3 or 1 end },
+                    { tooltip = "Power Colored Text",
+                      hasAlpha = false,
+                      getValue = function()
+                          local info = EllesmereUI.GetPowerColor("ENERGY")
+                          return info.r, info.g, info.b
+                      end,
+                      setValue = function() end,
+                      onClick = function()
+                          SDB().foreverFormTextColor = nil
+                          SetForm("foreverFormTextPowerColor", true)
+                          EllesmereUI:RefreshPage()
+                      end,
+                      refreshAlpha = function() return FormPowerColored() and 1 or 0.3 end },
+                  } },
+                EllesmereUI.BlankRowCfg());  y = y - h
         elseif EllesmereUI.ManaRegenSpark then
             _, h = W:DualRow(parent, y, sparkCfg, EllesmereUI.BlankRowCfg());  y = y - h
         end
@@ -2321,13 +2437,16 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     do
         local _, playerClass = UnitClass("player")
         -- Specs that offer an alternative power type on the player power bar.
-        -- { defaultLabel, altLabel, altPowerType (Enum.PowerType value to force) }
+        -- { defaultLabel, altLabel, altPowerType (Enum.PowerType value to force) },
+        -- plus astral = Balance's third choice (Astral Power outside Cat and Bear
+        -- Form), listed between the two; tip = the row's tooltip for the class.
         -- For Shadow Priest the alt is "no override" (nil) so UnitPowerType returns Insanity.
         local SPEC_POWER_ALTS = {
             DRUID  = {
-                [1] = { "Astral Power", "Mana",     0 },   -- Balance
+                [1] = { "Match Form",   "Mana",     0, astral = "Astral Power (Except Cat & Bear)" },   -- Balance
                 [2] = { "Energy",       "Mana",     0 },   -- Feral
                 [3] = { "Rage",         "Mana",     0 },   -- Guardian
+                tip = "The first choice follows your form, with Energy in Cat Form and Rage in Bear Form. Mana stays on Mana in every form, and Astral Power (Except Cat & Bear) shows Astral Power in every form but those two.",
             },
             PRIEST = {
                 [3] = { "Mana",         "Insanity", nil },  -- Shadow (default is our Mana override)
@@ -2350,13 +2469,19 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                 local data = s and classAlts[s]
                 ptValues["default"] = data and data[1] or nil
                 ptValues["alt"]     = data and data[2] or nil
+                ptValues["astral"]  = data and data.astral or nil
+                if ptValues["astral"] then
+                    ptOrder[2], ptOrder[3] = "astral", "alt"
+                else
+                    ptOrder[2], ptOrder[3] = "alt", nil
+                end
             end
             local labelSpec = GetSpec()
             FillPowerTypeValues(labelSpec)
 
             local sharedPowerRow5
             sharedPowerRow5, h = W:DualRow(parent, y,
-                { type="dropdown", text="Power Type",
+                { type="dropdown", text="Power Type", tooltip = classAlts.tip,
                   values = ptValues, order = ptOrder,
                   -- Stored by SPEC ID, not the GetSpecialization() index: one
                   -- profile holds one set, so an index key collides across
@@ -2369,6 +2494,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                           and C_SpecializationInfo.GetSpecializationInfo(s)
                       if not sid then return "default" end
                       local ov = UNIT_DB_MAP["player"]().powerTypeOverride
+                      if ov and ov[sid] == "astral" then return "astral" end
                       if ov and ov[sid] then return "alt" end
                       return "default"
                   end,
@@ -2382,6 +2508,9 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                       if v == "alt" then
                           if not pdb.powerTypeOverride then pdb.powerTypeOverride = {} end
                           pdb.powerTypeOverride[sid] = true
+                      elseif v == "astral" then
+                          if not pdb.powerTypeOverride then pdb.powerTypeOverride = {} end
+                          pdb.powerTypeOverride[sid] = "astral"
                       else
                           if pdb.powerTypeOverride then pdb.powerTypeOverride[sid] = nil end
                       end

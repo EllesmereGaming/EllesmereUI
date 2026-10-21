@@ -37,7 +37,6 @@ RF.containerFrameSetters[#RF.containerFrameSetters + 1] = function(v) containerF
 local previewGroupLabels = {}  -- [1..4] FontStrings showing group numbers
 local previewContainer = nil   -- standalone anchor frame for preview (doesn't move with containerFrame)
 I.previewContainerSetters[#I.previewContainerSetters + 1] = function(v) previewContainer = v end
-local previewHiddenParent = nil -- hidden frame to reparent containerFrame into during preview
 
 local function CreatePreviewFrame(index, party)
     local s = db.profile
@@ -283,10 +282,11 @@ local function CreatePreviewFrame(index, party)
         absorbBar._healTopBar = thb
     end
 
-    -- Power bar (anchored to frame bottom for pixel alignment; the Party
-    -- Frames kit always has its mana bar)
+    -- Power bar (anchored to frame bottom for pixel alignment). Always built:
+    -- frames are reused for the session and the party preview reads its own
+    -- role flags, so ApplyPreviewData shows or hides it per unit.
     local power
-    if powerH > 0 or kit then
+    do
         power = CreateFrame("StatusBar", nil, f)
         power:SetFrameLevel(f:GetFrameLevel() + 3)
         power:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)

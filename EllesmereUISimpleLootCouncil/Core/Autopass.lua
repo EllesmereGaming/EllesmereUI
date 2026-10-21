@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -373,7 +374,7 @@ local function Finish(work)
     if passed > 0 then
         addon.Log:I("Autopass", "passed on", passed, "unusable items")
         if not addon.db.silentAutopass then
-            print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(addon.Locale.Plural{
+            addon.Chat.Print(addon.Locale.Format(addon.Locale.Plural{
                 one = "automatically passed on %d item your class cannot use.",
                 other = "automatically passed on %d items your class cannot use.",
             }, passed, passed))

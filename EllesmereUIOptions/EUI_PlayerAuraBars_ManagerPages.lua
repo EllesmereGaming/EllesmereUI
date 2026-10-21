@@ -8,8 +8,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  model-specific) / CORE / DISPLAY sections (RaidFrames layout pattern) --
 --  default and custom bars share the same field-building helpers since both
 --  are just cfg tables with the same shape (see
---  EllesmereUIUnitFrames_PlayerAuraBars.lua's DefaultBuffsCfg/
---  DefaultDebuffsCfg and the custom-bar CRUD section).
+--  EUI_PlayerAuraBars_Config.lua's DefaultBuffsCfg/DefaultDebuffsCfg and
+--  the custom-bar CRUD in EUI_PlayerAuraBars_Filters.lua).
 --
 -- redesign: default Buffs bar unified onto the same BM2/filters
 --  model custom buff bars already used (Filters dropdown + Extra Spells
@@ -259,7 +259,7 @@ end
 -- applied to both the Filters assignment dropdown (via DedupedFilterItems below) and
 -- the Filter Editor's own sidebar (ns.PABMP_ShowFilterEditor). Always returns a FRESH
 -- copy -- ns.PAB_Filters() hands back the live persisted list
--- (EllesmereUIUnitFrames_PlayerAuraBars.lua's ns.PAB_Filters, `store.list` directly),
+-- (EUI_PlayerAuraBars_Filters.lua's ns.PAB_Filters, `store.list` directly),
 -- so sorting in place would silently reorder SavedVariables every time the editor is
 -- opened. Rank is matched by NAME, not the preset flag, so filters copied from the
 -- Buff Manager order identically on both sides.
@@ -313,7 +313,7 @@ local function TruncateFilterName(name)
     return (name or ""):sub(1, 3) .. "..."
 end
 
--- Defined in EllesmereUIUnitFrames_PlayerAuraBars.lua next to the cfg it
+-- Defined in EUI_PlayerAuraBars_Config.lua next to the cfg it
 -- reads, so this page and the unlock-mode mover label cannot drift apart. The
 -- module returns the raw English key; only the options page translates it.
 local function DefaultBuffBarName(cfg)
@@ -400,7 +400,7 @@ end
 --  cfg is whatever table the caller wants read/written: DefaultBuffsCfg(s),
 --  DefaultDebuffsCfg(s), or a custom bar object itself (custom bar objects
 --  carry the same field names directly on themselves, see the CRUD comment
---  in EllesmereUIUnitFrames_PlayerAuraBars.lua). apply() is called after
+--  in EUI_PlayerAuraBars_Filters.lua). apply() is called after
 --  every field edit; callers decide what that means for them (Restyle()+
 --  ApplyLiveConfig() for default bars, PAB_ReloadCustomBuffBar/DebuffBar
 --  for custom bars).
@@ -414,7 +414,7 @@ end
 -- anything never warns.
 
 -- "Assigned Buffs": Filters checkbox dropdown (references the shared PAB Filters
--- registry, EllesmereUIUnitFrames_PlayerAuraBars.lua) + Extra Spells checkbox
+-- registry, EUI_PlayerAuraBars_Filters.lua) + Extra Spells checkbox
 -- dropdown (direct SpellIDs, cfg.spells). Mirrors ns.BMP_BuildAssignedFilters
 -- (EUI_RaidFrames_ManagerPages.lua) 1:1 in widget structure. Deliberately NOT a full
 -- port: PAB has no curated preset-spell universe (see PAB_Filters' doc comment), so
@@ -2383,10 +2383,10 @@ function ns.PABMP_ShowFilterEditor()
     -- registry (same-named filters replaced, missing ones created; see
     -- PAB_CopyBM2FiltersIn). Hidden while that module is disabled.
     if EllesmereUI._BM2FilterBridge then
-        local copyBtn = EllesmereUI.BuildPopupButton(sideChild, SIDE_W - 16, 26, L("Copy Raid Frames Filters"), function()
+        local copyBtn = EllesmereUI.BuildPopupButton(sideChild, SIDE_W - 16, 26, L("Copy Raid & Party Filters"), function()
             EllesmereUI:ShowConfirmPopup({
-                title = L("Copy Raid Frames Filters"),
-                message = L("One-time copy of the Raid Frames Buff Manager filters into these filters. Same-named filters are OVERWRITTEN; the two lists stay separate afterwards."),
+                title = L("Copy Raid & Party Filters"),
+                message = L("One-time copy of the Raid & Party Frames Buff Manager filters into these filters. Same-named filters are OVERWRITTEN; the two lists stay separate afterwards."),
                 confirmText = L("Copy"),
                 cancelText = L("Cancel"),
                 typeToConfirm = "Confirm",

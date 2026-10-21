@@ -1090,12 +1090,14 @@ local function BuildNameplatePreview(parent, parentW)
         cast:SetValue(optState._previewCastFill or 0.60)
         castParts.icon:SetTexture(displayCastIcons[optState._previewCastIconIdx or 1])
         do
+            -- Backgrounds and Textured Background as live (the Blizzard Style
+            -- pass below wins).
             local hbgC = (DB() and DB().bgColor) or defaults.bgColor
-            local hbgA = DBVal("bgAlpha") or defaults.bgAlpha
-            healthBG:SetColorTexture(hbgC.r, hbgC.g, hbgC.b, hbgA)
             local cbgC = (DB() and DB().castBgColor) or defaults.castBgColor
-            local cbgA = DBVal("castBgAlpha") or defaults.castBgAlpha
-            castParts.bg:SetColorTexture(cbgC.r, cbgC.g, cbgC.b, cbgA)
+            ns.NP_TexBgPaint(healthBG, ns.NP_TexBgPath(DB(), false),
+                hbgC.r, hbgC.g, hbgC.b, DBVal("bgAlpha") or defaults.bgAlpha)
+            ns.NP_TexBgPaint(castParts.bg, ns.NP_TexBgPath(DB(), true),
+                cbgC.r, cbgC.g, cbgC.b, DBVal("castBgAlpha") or defaults.castBgAlpha)
         end
 
         -- Cast bar border (pixel-perfect, mirrors the real nameplates)
@@ -1450,6 +1452,7 @@ local function BuildNameplatePreview(parent, parentW)
         -- other faction's badge (what Opposite Faction Only would show).
         local fcCombined = DBVal("classificationIncludeFaction") == true
         local fcPos = fcCombined and clPos or (DBVal("factionSlot") or defaults.factionSlot or "none")
+        local factionTopExtent = 0 -- height above the health bar, read by the height calculation
         factionIcon:ClearAllPoints()
         if fcPos == "none" then
             factionIcon:Hide()
@@ -1467,8 +1470,14 @@ local function BuildNameplatePreview(parent, parentW)
             end
             local mine = UnitFactionGroup("player")
             local fac = (mine == "Horde") and "Alliance" or "Horde"
-            EllesmereUI.SetFactionArt(factionIcon, DBVal("factionStyle") or defaults.factionStyle, fac)
+            local fStyle = DBVal("factionStyle") or defaults.factionStyle
+            EllesmereUI.SetFactionArt(factionIcon, fStyle, fac, EllesmereUI.FactionBadgeFor(fStyle, "player"))
             factionIcon:SetSize(fcSz, fcSz)
+            if fcPos == "top" then
+                factionTopExtent = debuffY + fcSz + fcY
+            elseif fcPos == "topleft" or fcPos == "topright" then
+                factionTopExtent = 2 + fcSz + fcY
+            end
             if fcPos == "top" then
                 factionIcon:SetPoint("BOTTOM", health, "TOP", fcX, debuffY + cpPush + fcY)
             elseif fcPos == "left" then
@@ -2229,25 +2238,45 @@ local function BuildNameplatePreview(parent, parentW)
             if pf._arrowOverlay then pf._arrowOverlay:Hide() end
         end
 
-        -- Height calculation: the "top" slot determines the area above the name. Find which aura type occupies it, including per-slot Y offsets that push elements further up.
-        local topExtent = 0
-        local function isTopSlot(s) return s == "top" or s == "topleft" or s == "topright" end
-        if isTopSlot(debuffSlotVal) then topExtent = math.max(topExtent, debuffSz + debuffYOff) end
-        if isTopSlot(buffSlotVal) then topExtent = math.max(topExtent, buffSz + buffYOff) end
-        if isTopSlot(ccSlotVal) then topExtent = math.max(topExtent, ccSz + ccYOff) end
-        if isTopSlot(rmPos) and showRM then topExtent = math.max(topExtent, rmSize + rmYOff) end
-        if isTopSlot(clPos) and showCL then topExtent = math.max(topExtent, reIconSz + clYOff) end
-        -- Only include name text height when something is actually in the top slot
-        local topTextH = (slotTop ~= "none") and (topFontSz + 4 + nameYOff + topYOff) or 0
-        -- Only add debuffY gap when something occupies the center "top" position or top text slot
-        local hasTopCenter = false
-        if debuffSlotVal == "top" then hasTopCenter = true end
-        if buffSlotVal == "top" then hasTopCenter = true end
-        if ccSlotVal == "top" then hasTopCenter = true end
-        if rmPos == "top" and showRM then hasTopCenter = true end
-        if clPos == "top" and showCL then hasTopCenter = true end
-        local effectiveDebuffY = (hasTopCenter or slotTop ~= "none") and debuffY or 0
-        local healthFromTop = Snap(15 + 4 + topExtent + effectiveDebuffY + topTextH + cpPush)
+        -- Height calculation: "top" slot auras stack above the top text; corner items (and a "top" raid marker or classification icon) anchor to the health bar beside it, so the two count as max, not sum.
+        -- Its working locals live in a block: this function is near Lua 5.1's 200-local cap.
+        local healthFromTop
+        do
+            local stackExtent, cornerExtent = 0, 0
+            local function isCorner(s) return s == "topleft" or s == "topright" end
+            local function addAura(slotVal, count, sz, iconH, spacing, yOff)
+                if slotVal == "top" then
+                    stackExtent = math.max(stackExtent, sz + yOff)
+                elseif isCorner(slotVal) then
+                    -- "up" growth stacks the icons, as PlaceInSlot does
+                    local stackH = 0
+                    if (DBVal(slotVal .. "SlotGrowth") or defaults[slotVal .. "SlotGrowth"]) == "up" then
+                        stackH = (count - 1) * (spacing - sz + iconH)
+                    end
+                    cornerExtent = math.max(cornerExtent, debuffY + sz + stackH + yOff)
+                end
+            end
+            addAura(debuffSlotVal, PV_CONST.DEBUFF_COUNT, debuffSz, debuffH, debuffSpacing, debuffYOff)
+            addAura(buffSlotVal, PV_CONST.BUFF_COUNT, buffSz, buffH, buffSpacing, buffYOff)
+            addAura(ccSlotVal, PV_CONST.CC_COUNT, ccSz, ccH, ccSpacing, ccYOff)
+            if showRM then
+                if rmPos == "top" then cornerExtent = math.max(cornerExtent, debuffY + rmSize + rmYOff)
+                elseif isCorner(rmPos) then cornerExtent = math.max(cornerExtent, rmSize + rmYOff) end
+            end
+            if showCL then
+                if clPos == "top" then cornerExtent = math.max(cornerExtent, debuffY + reIconSz + clYOff)
+                elseif isCorner(clPos) then cornerExtent = math.max(cornerExtent, 2 + reIconSz + clYOff) end
+            end
+            cornerExtent = math.max(cornerExtent, factionTopExtent)
+            -- Only include name text height when something is actually in the top slot
+            local topTextH = (slotTop ~= "none") and (topFontSz + 4 + nameYOff + topYOff) or 0
+            -- Only add debuffY gap when an aura occupies the center "top" position or the top text slot is used
+            local hasTopAura = (debuffSlotVal == "top") or (buffSlotVal == "top") or (ccSlotVal == "top")
+            local effectiveDebuffY = (hasTopAura or slotTop ~= "none") and debuffY or 0
+            local topStackH = topTextH + effectiveDebuffY + stackExtent
+            -- 15 matches the bottom margin below the cast bar in totalH
+            healthFromTop = Snap(15 + math.max(topStackH, cornerExtent) + cpPush)
+        end
         health:ClearAllPoints()
         health:SetSize(barW, barH)
 

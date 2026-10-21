@@ -29,9 +29,9 @@ local function ModuleLabel(config, folder)
     return title, title
 end
 
--- A page's name as its tab shows it (EllesmereUI.TAB_LABEL_OVERRIDES), localized.
-local function PageLabel(page)
-    return EllesmereUI.L(EllesmereUI.TAB_LABEL_OVERRIDES[page] or page)
+-- A page's name as its tab shows it (EUI_NS.GetTabLabel), localized.
+local function PageLabel(folder, page)
+    return EllesmereUI.L(ns.GetTabLabel(folder, page))
 end
 
 -------------------------------------------------------------------------------
@@ -180,10 +180,10 @@ local function BuildCoarseCandidates()
             -- moduleText is the plain-text form used in the haystack.
             local moduleLabel, moduleText = ModuleLabel(config, folder)
             for _, page in ipairs(config.pages) do
-                local pageLabel = PageLabel(page)
+                local pageLabel = PageLabel(folder, page)
                 -- A relabeled tab stays findable by its page identity too.
                 local pageText = pageLabel
-                if EllesmereUI.TAB_LABEL_OVERRIDES[page] then
+                if ns.GetTabLabel(folder, page) ~= page then
                     pageText = pageLabel .. " " .. EllesmereUI.L(page)
                 end
                 _coarseCandidates[#_coarseCandidates + 1] = {
@@ -245,6 +245,8 @@ local function BuildModuleAliases()
         EllesmereUIBlizzardSkin    = { "blizzard skins", "blizz ui enhanced" },
         EllesmereUIQuickdraw       = { "radial", "wheel", "ring menu", "palette", "grid", "arc", "fan", "action wheel", "action palette", "action menu" },
         EllesmereUILoadoutManager  = { "gear swap", "talent swap", "equipment manager", "loadouts" },
+        -- The module's former name.
+        EllesmereUIRaidFrames      = { "raid frames" },
     }
     for folder, list in pairs(EXTRA_ALIASES) do
         if ns.modules and ns.modules[folder] then
@@ -1052,10 +1054,10 @@ local function EnsureSearchUI()
                         name = name .. "  (" .. TitleCaseSection(entry.labelLoc) .. ")"
                     end
                     row._label:SetText(accentHex .. EllesmereUI.L("Section") .. ":|r " .. name)
-                    row._sub:SetText(JoinBreadcrumb(GetModuleDisplayName(entry.module), PageLabel(entry.page)))
+                    row._sub:SetText(JoinBreadcrumb(GetModuleDisplayName(entry.module), PageLabel(entry.module, entry.page)))
                 else
                     row._label:SetText(entry.labelLoc and (entry.label .. "  (" .. entry.labelLoc .. ")") or entry.label)
-                    row._sub:SetText(JoinBreadcrumb(GetModuleDisplayName(entry.module), PageLabel(entry.page)))
+                    row._sub:SetText(JoinBreadcrumb(GetModuleDisplayName(entry.module), PageLabel(entry.module, entry.page)))
                 end
                 row:SetScript("OnClick", function() JumpToResult(entry, sidebarSearchBox) end)
                 row:Show()

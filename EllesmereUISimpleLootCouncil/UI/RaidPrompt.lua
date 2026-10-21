@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -36,6 +37,15 @@ local open = false
 local function Retire()
     open, showing = false, nil
     if frame and frame:IsShown() then frame:Hide() end
+end
+
+
+local function InDelve()
+    if C_DelvesUI and C_DelvesUI.HasActiveDelve and C_DelvesUI.HasActiveDelve() then
+        return true
+    end
+    return C_PartyInfo and C_PartyInfo.IsDelveInProgress
+        and C_PartyInfo.IsDelveInProgress() or false
 end
 
 
@@ -206,7 +216,7 @@ end
 
 
 local function DeclinedMessage()
-    print(addon.Log.CHAT_PREFIX.accent .. ByScope(IsInRaid(),
+    addon.Chat.Print(ByScope(IsInRaid(),
         T["you declined to take part in Simple Loot Council for this raid."],
         T["you declined to take part in Simple Loot Council for this group."]))
 end
@@ -242,7 +252,7 @@ end
 
 local function AnnounceJoined()
     local passing = not addon.Loot:GuardReason()
-    print(addon.Log.CHAT_PREFIX.accent .. ByScope(IsInRaid(),
+    addon.Chat.Print(ByScope(IsInRaid(),
         passing and T["Simple Loot Council is active for this raid - %s is collecting the loot, and this addon passes your group-loot rolls for the council to distribute."]
             or T["Simple Loot Council is active for this raid - %s is collecting the loot for the council."],
         passing and T["Simple Loot Council is active for this group - %s is collecting the loot, and this addon passes your group-loot rolls for the council to distribute."]
@@ -294,12 +304,12 @@ local function AskGuard()
             addon.db.funnel.guildGroupOnly = false
             addon.Log:I("Loot", "guild loot funnel guard disabled from the prompt -", tostring(reason))
             if addon.UI.Options then addon.UI.Options:Refresh() end
-            print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+            addon.Chat.Print(addon.Locale.Format(
                 T["guild loot funnel guard disabled - this addon now passes your group-loot rolls to %s for the council."], name))
         end,
         function()
             addon.Loot:KeepGuard()
-            print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+            addon.Chat.Print(addon.Locale.Format(
                 T["guild loot funnel guard kept - you roll on group loot yourself while %s collects for the council."], name))
         end)
 end
@@ -351,7 +361,7 @@ function RaidPrompt:Activate(skipChat)
     if not IsInGroup() or not addon.PlayerIsMasterLooter() then return false end
     Retire()
     if not skipChat then
-        print(addon.Log.CHAT_PREFIX.accent .. T["SLC is now active for this group"])
+        addon.Chat.Print(T["SLC is now active for this group"])
     end
     addon.Loot:SetHandling(true)
     return true
@@ -362,7 +372,7 @@ function RaidPrompt:Deactivate(skipChat)
     if not IsInGroup() or not addon.PlayerIsMasterLooter() then return false end
     Retire()
     if not skipChat then
-        print(addon.Log.CHAT_PREFIX.accent .. T["SLC has been deactivated for this group"])
+        addon.Chat.Print(T["SLC has been deactivated for this group"])
     end
     addon.Loot:SetHandling(false, addon.Session:GetRunId())
     return true
@@ -410,9 +420,9 @@ function RaidPrompt:Evaluate()
             Retire()
             askedFor = asked
             if decision and not addon.Loot.handling then
-                print(ByScope(IsInRaid(),
-                    addon.Log.CHAT_PREFIX.accent .. T["still active for this raid - you said yes earlier."],
-                    addon.Log.CHAT_PREFIX.accent .. T["still active for this group - you said yes earlier."]))
+                addon.Chat.Print(ByScope(IsInRaid(),
+                    T["still active for this raid - you said yes earlier."],
+                    T["still active for this group - you said yes earlier."]))
                 addon.Loot:SetHandling(true)
             end
             return
@@ -421,9 +431,9 @@ function RaidPrompt:Evaluate()
 
         if addon.db.raidPrompt.autoHandover and addon.Loot:HandedOverActive() then
             askedFor = asked
-            print(ByScope(IsInRaid(),
-                addon.Log.CHAT_PREFIX.accent .. T["SLC stays active for this raid - you were handed loot while it was in use."],
-                addon.Log.CHAT_PREFIX.accent .. T["SLC stays active for this group - you were handed loot while it was in use."]))
+            addon.Chat.Print(ByScope(IsInRaid(),
+                T["SLC stays active for this raid - you were handed loot while it was in use."],
+                T["SLC stays active for this group - you were handed loot while it was in use."]))
             RaidPrompt:Activate(true)
             return
         end
@@ -433,6 +443,16 @@ function RaidPrompt:Evaluate()
 
         if not IsInRaid() and not addon.db.raidPrompt.inGroups
             and not addon.Loot:HandedOverActive() then
+            return
+        end
+
+
+        if not IsInRaid() and not addon.Loot:HandedOverActive() and InDelve() then
+            if showing == "lootMaster" then Retire() end
+            if askedFor ~= asked then
+                addon.Log:D("UI", "raid prompt not asked - the party is in a delve")
+            end
+            askedFor = asked
             return
         end
 

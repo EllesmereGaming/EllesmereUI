@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -208,27 +209,27 @@ end
 
 local UNDELIVERABLE_TEXT = addon.Locale.Texts{
     equipped = {
-        master = addon.Log.CHAT_PREFIX.error .. T["%s was equipped, so it can no longer be traded to %s. Re-award or strike it."],
-        other = addon.Log.CHAT_PREFIX.error .. T["%s was equipped, so it can no longer be traded to %s. The Loot Master has been told."],
+        master = T["%s was equipped, so it can no longer be traded to %s. Re-award or strike it."],
+        other = T["%s was equipped, so it can no longer be traded to %s. The Loot Master has been told."],
     },
 
 
     bound = {
-        master = addon.Log.CHAT_PREFIX.error .. T["%s can no longer be traded to %s - its trade window has ended. Re-award or strike it."],
-        other = addon.Log.CHAT_PREFIX.error .. T["%s can no longer be traded to %s - its trade window has ended. The Loot Master has been told."],
+        master = T["%s can no longer be traded to %s - its trade window has ended. Re-award or strike it."],
+        other = T["%s can no longer be traded to %s - its trade window has ended. The Loot Master has been told."],
     },
     left = {
-        master = addon.Log.CHAT_PREFIX.error .. T["%s left your bags without a trade to %s. Re-award or strike it."],
-        other = addon.Log.CHAT_PREFIX.error .. T["%s left your bags without a trade to %s. The Loot Master has been told."],
+        master = T["%s left your bags without a trade to %s. Re-award or strike it."],
+        other = T["%s left your bags without a trade to %s. The Loot Master has been told."],
     },
 
     missing = {
-        master = addon.Log.CHAT_PREFIX.error .. T["%s was awarded to %s, but it is not in your bags - there is nothing to trade. Re-award or strike it."],
-        other = addon.Log.CHAT_PREFIX.error .. T["%s was awarded to %s, but it is not in your bags - there is nothing to trade. The Loot Master has been told."],
+        master = T["%s was awarded to %s, but it is not in your bags - there is nothing to trade. Re-award or strike it."],
+        other = T["%s was awarded to %s, but it is not in your bags - there is nothing to trade. The Loot Master has been told."],
     },
     wrong = {
-        master = addon.Log.CHAT_PREFIX.error .. T["%s was awarded to %s, but the trade handed it to %s. Re-award it to %s if they may keep it, or strike it."],
-        other = addon.Log.CHAT_PREFIX.error .. T["%s was awarded to %s, but the trade handed it to %s. The Loot Master has been told."],
+        master = T["%s was awarded to %s, but the trade handed it to %s. Re-award it to %s if they may keep it, or strike it."],
+        other = T["%s was awarded to %s, but the trade handed it to %s. The Loot Master has been told."],
     },
 }
 
@@ -242,7 +243,7 @@ local function ReportUndeliverable(entry)
     local forms = UNDELIVERABLE_TEXT[why] or UNDELIVERABLE_TEXT.left
     local sentence = addon.PlayerIsMasterLooter() and forms.master or forms.other
     local given = Ambiguate(to or "?", "short")
-    print(addon.Locale.Format(sentence, entry.link,
+    addon.Chat.Error(addon.Locale.Format(sentence, entry.link,
         Ambiguate(winner or "?", "short"), given, given))
     addon.Comms:Send("undelivered", {
         s = entry.args.session, w = winner, l = entry.link,
@@ -396,9 +397,7 @@ end
 local WARN_BELOW = 20 * 60
 local lastWarned = 0
 
-local function IsSecret(value)
-    return issecretvalue and issecretvalue(value)
-end
+local IsSecret = addon.IsSecret
 
 local function CheckExpiring()
 
@@ -418,7 +417,7 @@ local function CheckExpiring()
         if remaining and remaining > 0 and remaining < WARN_BELOW then
             local who = entry.args and entry.args.recipient
             local minutes = math.floor(remaining / 60)
-            print(addon.Log.CHAT_PREFIX.warn .. addon.Locale.Format(addon.Locale.Plural{
+            addon.Chat.Warn(addon.Locale.Format(addon.Locale.Plural{
                 one = "%s owed to %s - %d minute left",
                 other = "%s owed to %s - %d minutes left",
             }, minutes, entry.link, who and Ambiguate(who, "short") or "?", minutes))
@@ -644,7 +643,7 @@ function Trade:Initiate(recipient)
 
     local unit = addon.Player:UnitFor(recipient)
     if not unit then
-        print(addon.Locale.Format(addon.Log.CHAT_PREFIX.warn .. T["%s is not in your group."],
+        addon.Chat.Warn(addon.Locale.Format(T["%s is not in your group."],
             Ambiguate(recipient, "short")))
         return false
     end
@@ -686,7 +685,7 @@ function Trade:Init()
             for _, entry in ipairs(owed) do entry.tradeSeen = time() end
             seenEntries = owed
 
-            print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(addon.Locale.Plural{
+            addon.Chat.Print(addon.Locale.Format(addon.Locale.Plural{
                 one = "%d item is owed to %s - adding it to the trade. Press Trade to send it.",
                 other = "%d items are owed to %s - adding them to the trade. Press Trade to send them.",
             }, #owed, #owed, Ambiguate(recipient, "short")))
@@ -863,7 +862,7 @@ function Trade:Init()
         local announced = addon.db.announce and addon.db.announce.awards
             and addon.PlayerIsMasterLooter()
         if not announced then
-            print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(T["trade %s to %s."],
+            addon.Chat.Print(addon.Locale.Format(T["trade %s to %s."],
                 item.link, Ambiguate(winner, "short")))
         end
     end)

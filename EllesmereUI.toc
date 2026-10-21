@@ -2,7 +2,7 @@
 ## Title: |cff0cd29fEllesmereUI|r
 ## Notes: Shared framework for the EllesmereUI addon suite
 ## Author: Ellesmere
-## Version: 9.6
+## Version: 9.6.2
 ## SavedVariables: EllesmereUIDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 ## X-Curse-Project-ID: 1477613
@@ -69,12 +69,16 @@ EllesmereUI_Presets.lua
 EllesmereUI_Profiles.lua
 EllesmereUI_PartyMode.lua
 EUI_MacroFactory.lua
+EUI_UnlockMode_PointAnchors.lua
 EUI_UnlockMode.lua
 EUI_UnlockMode_Anchors.lua
 EUI_UnlockMode_Positions.lua
 EUI_UnlockMode_Tools.lua
+EUI_UnlockMode_PointVisuals.lua
+EUI_UnlockMode_PointPicker.lua
 EUI_UnlockMode_Movers.lua
 EUI_UnlockMode_Session.lua
+EUI_UnlockMode_Filter.lua
 EllesmereUI_Glows.lua
 EllesmereUI_RoundedCorners.lua
 EllesmereUI_ClassicArt.lua
@@ -99,7 +103,15 @@ EllesmereUI_VideoGuides.lua
 
 # Spec Overrides (per-spec setting overrides within a profile)
 EllesmereUI_SpecOverrides.lua
+EUI_SpecOverrides_Harvest.lua
+EUI_SpecOverrides_Layers.lua
+EUI_SpecOverrides_Conditional.lua
+EUI_SpecOverrides_Borders.lua
+EUI_SpecOverrides_Session.lua
+EUI_SpecOverrides_Popups.lua
+EUI_SpecOverrides_ListPage.lua
+EUI_SpecOverrides_Hooks.lua
 
 # Conditional Overrides engine (Dungeon/Raid/Arena/BG/Solo/Keybind conditions;
-# override integration lives in EllesmereUI_SpecOverrides.lua)
+# override integration lives in EUI_SpecOverrides_Conditional.lua)
 EllesmereUI_Conditions.lua

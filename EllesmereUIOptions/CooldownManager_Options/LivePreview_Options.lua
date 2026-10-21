@@ -179,14 +179,21 @@ local function BuildCDMLivePreview(parent, yOff)
         return g
     end
 
-    -- Insertion line indicator (vertical accent line between icons)
+    -- Insertion line indicator (accent line between icons; horizontal on a vertical bar)
     local insertLine = pf:CreateTexture(nil, "OVERLAY", nil, 7)
     local eg = EllesmereUI.ELLESMERE_GREEN
     insertLine:SetColorTexture(eg.r, eg.g, eg.b, 0.9)
     insertLine:SetWidth(2)
     insertLine:Hide()
 
-    -- Animation: each slot has _targetOffX, _currentOffX; lerped inside drag OnUpdate
+    -- Two preview slots stacked in one column (a vertical bar: same X, one per row)
+    local function StackedSlots(a, b)
+        return a and b and a._baseX and b._baseX and a._baseY and b._baseY
+            and math.abs(a._baseX - b._baseX) < 1 and math.abs(a._baseY - b._baseY) >= 1
+    end
+
+    -- Animation: each slot has _targetOffX, _currentOffX (and _targetOffY, _currentOffY on a
+    -- vertical bar); lerped inside drag OnUpdate
     local ANIM_SPEED = 48
     local animRunning = false
 
@@ -211,9 +218,18 @@ local function BuildCDMLivePreview(parent, yOff)
                     s._currentOffX = s._currentOffX + diff * math.min(ANIM_SPEED * dt, 1)
                     allDone = false
                 end
+                local curY = s._currentOffY or 0
+                local diffY = (s._targetOffY or 0) - curY
+                if math.abs(diffY) < 0.3 then
+                    curY = s._targetOffY or 0
+                else
+                    curY = curY + diffY * math.min(ANIM_SPEED * dt, 1)
+                    allDone = false
+                end
+                s._currentOffY = curY
                 if s._baseX then
                     s:ClearAllPoints()
-                    PP.Point(s, "TOPLEFT", pf, "TOPLEFT", s._baseX + s._currentOffX, s._baseY)
+                    PP.Point(s, "TOPLEFT", pf, "TOPLEFT", s._baseX + s._currentOffX, s._baseY + curY)
                 end
             end
         end
@@ -240,6 +256,8 @@ local function BuildCDMLivePreview(parent, yOff)
             if s and s._baseX then
                 s._targetOffX = 0
                 s._currentOffX = 0
+                s._targetOffY = nil
+                s._currentOffY = nil
                 s:ClearAllPoints()
                 PP.Point(s, "TOPLEFT", pf, "TOPLEFT", s._baseX, s._baseY)
             end
@@ -379,6 +397,7 @@ local function BuildCDMLivePreview(parent, yOff)
                     if s and s._baseX then
                         s._targetOffX = 0
                         if not s._currentOffX then s._currentOffX = 0 end
+                        s._targetOffY = 0
                         if i ~= fromIdx then s:SetAlpha(1) end
                     end
                 end
@@ -464,6 +483,40 @@ local function BuildCDMLivePreview(parent, yOff)
                 end
             end
         end
+        -- A vertical bar stacks its icons (same X, one per row, so the row shift above
+        -- moves only the target): the gap opens up and down within its column instead.
+        local first, second = previewSlots[1], previewSlots[2]
+        if StackedSlots(first, second) then
+            -- Later slots sit further along the column (down, or up on a bar growing up).
+            local towardEndY = (second._baseY < first._baseY) and -nudge or nudge
+            local ts = previewSlots[targetIdx] or previewSlots[targetIdx - 1]
+            local colX = ts and ts._baseX
+            local virtualInsert = targetIdx
+            if targetIdx > fromIdx then virtualInsert = targetIdx - 1 end
+            for i = 1, slotCount do
+                local s = previewSlots[i]
+                if s and s._baseX then
+                    s._targetOffX = 0
+                    if not s._currentOffX then s._currentOffX = 0 end
+                    if i == fromIdx then
+                        s:SetAlpha(0.3)
+                        s._targetOffY = 0
+                    else
+                        s:SetAlpha(1)
+                        if colX and math.abs(s._baseX - colX) < 1 then
+                            local virtualPos = i
+                            if i > fromIdx then virtualPos = i - 1 end
+                            s._targetOffY = (virtualPos >= virtualInsert) and towardEndY or -towardEndY
+                        else
+                            s._targetOffY = 0
+                        end
+                    end
+                elseif s then
+                    s:SetAlpha(i == fromIdx and 0.3 or 1)
+                end
+            end
+        end
+
         StartAnimTicker()
 
         -- Position the insertion line between the two logical neighbors
@@ -501,8 +554,36 @@ local function BuildCDMLivePreview(parent, yOff)
                 end
             end
 
+            -- A vertical bar stacks its icons (same X, one per row): there the line runs
+            -- across the gap between the neighbors instead of down through an icon.
+            -- Decided by the two neighbors, or at either end by the first two icons.
+            local stacked
+            if leftSlot and rightSlot then
+                stacked = StackedSlots(leftSlot, rightSlot)
+            else
+                stacked = StackedSlots(previewSlots[1], previewSlots[2])
+            end
+
             local lineX, lineY
-            if leftSlot and leftSlot:IsShown() and leftSlot._baseX
+            if stacked then
+                local gap = math.floor(spacing / 2) + 1
+                if leftSlot and leftSlot:IsShown() and leftSlot._baseX
+                   and rightSlot and rightSlot:IsShown() and rightSlot._baseX then
+                    local upper, lower = leftSlot, rightSlot
+                    if lower._baseY > upper._baseY then upper, lower = lower, upper end
+                    -- Centered in the gap the icons are opening (their shifted positions; the
+                    -- drawn height, which a cropped icon shape makes shorter than the size).
+                    lineX = upper._baseX
+                    lineY = ((upper._baseY + (upper._targetOffY or 0) - upper:GetHeight())
+                        + (lower._baseY + (lower._targetOffY or 0))) / 2
+                elseif rightSlot and rightSlot:IsShown() and rightSlot._baseX then
+                    lineX = rightSlot._baseX
+                    lineY = rightSlot._baseY + (rightSlot._targetOffY or 0) + gap
+                elseif leftSlot and leftSlot:IsShown() and leftSlot._baseX then
+                    lineX = leftSlot._baseX
+                    lineY = leftSlot._baseY + (leftSlot._targetOffY or 0) - leftSlot:GetHeight() - gap
+                end
+            elseif leftSlot and leftSlot:IsShown() and leftSlot._baseX
                and rightSlot and rightSlot:IsShown() and rightSlot._baseX then
                 local leftRight = leftSlot._baseX + iconSz2 - nudge
                 local rightLeft = rightSlot._baseX + nudge
@@ -518,8 +599,18 @@ local function BuildCDMLivePreview(parent, yOff)
 
             if lineX and lineY then
                 insertLine:ClearAllPoints()
-                PP.Point(insertLine, "TOP", pf, "TOPLEFT", lineX, lineY)
-                PP.Point(insertLine, "BOTTOM", pf, "TOPLEFT", lineX, lineY - iconSz2)
+                if stacked then
+                    insertLine:SetHeight(2)
+                    PP.Point(insertLine, "LEFT", pf, "TOPLEFT", lineX, lineY)
+                    PP.Point(insertLine, "RIGHT", pf, "TOPLEFT", lineX + iconSz2, lineY)
+                else
+                    -- As tall as the icons are drawn (a cropped shape is shorter than the size).
+                    local ref = rightSlot or leftSlot
+                    local lineH = (ref and ref:GetHeight()) or iconSz2
+                    insertLine:SetWidth(2)
+                    PP.Point(insertLine, "TOP", pf, "TOPLEFT", lineX, lineY)
+                    PP.Point(insertLine, "BOTTOM", pf, "TOPLEFT", lineX, lineY - lineH)
+                end
                 insertLine:Show()
             else
                 insertLine:Hide()
@@ -897,7 +988,10 @@ local function BuildCDMLivePreview(parent, yOff)
 
                     for i = 1, MAX_PREVIEW_ICONS do
                         local s = previewSlots[i]
-                        if s then s._targetOffX = nil; s._currentOffX = nil end
+                        if s then
+                            s._targetOffX = nil; s._currentOffX = nil
+                            s._targetOffY = nil; s._currentOffY = nil
+                        end
                     end
                     animRunning = false
 

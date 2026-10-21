@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -29,13 +30,12 @@ local filter = {
 }
 
 
-local SORT_ORDER = { "rank", "name", "recent", "loot", "attendance" }
+local SORT_ORDER = { "rank", "name", "recent", "loot" }
 local SORT_LABEL = addon.Locale.Texts{
     rank       = T["Sort: guild rank"],
     name       = T["Sort: name"],
     recent     = T["Sort: most recent win"],
     loot       = T["Sort: most loot"],
-    attendance = T["Sort: attendance"],
 }
 local sortMode = "rank"
 
@@ -106,9 +106,9 @@ end
 
 local function ShortDate(entry)
     if entry.date and entry.date ~= "" then
-        return (entry.date:gsub("^20", ""))
+        return addon.StoredDateText(entry.date, true)
     end
-    if entry.epoch then return date("!%y/%m/%d", entry.epoch) end
+    if entry.epoch then return addon.DateText(entry.epoch, true, true) end
     return "?"
 end
 
@@ -164,14 +164,16 @@ local function Flatten(reuse)
 
 
 
-                local kept = {}
-                for _, entry in ipairs(loot) do
-                    if (not cutoff or (entry.epoch or 0) >= cutoff)
-                        and addon.History.PassesOrigin(entry) then
-                        kept[#kept + 1] = entry
+                if #loot > 0 then
+                    local kept = {}
+                    for _, entry in ipairs(loot) do
+                        if (not cutoff or (entry.epoch or 0) >= cutoff)
+                            and addon.History.PassesOrigin(entry) then
+                            kept[#kept + 1] = entry
+                        end
                     end
+                    loot = kept
                 end
-                loot = kept
 
 
                 local count, latest, reasons = 0, 0, 0
@@ -188,16 +190,13 @@ local function Flatten(reuse)
                 end
 
 
-                local attendance = addon.Attendance
-                    and addon.Attendance:For(member.fullName, cutoff)
-
                 prepared[#prepared + 1] = {
+                    kind = "player",
                     member = member,
                     loot = loot,
                     count = count,
                     reasons = reasons,
                     latest = latest,
-                    attendance = attendance,
                 }
             end
         end
@@ -210,10 +209,6 @@ local function Flatten(reuse)
             if a.latest ~= b.latest then return a.latest > b.latest end
         elseif sortMode == "loot" then
             if a.count ~= b.count then return a.count > b.count end
-        elseif sortMode == "attendance" then
-            local aa = a.attendance and a.attendance.attended or 0
-            local ab = b.attendance and b.attendance.attended or 0
-            if aa ~= ab then return aa > ab end
         else
             local ra, rb = a.member.rankOrder or 99, b.member.rankOrder or 99
             if ra ~= rb then return ra < rb end
@@ -241,15 +236,7 @@ local function Flatten(reuse)
             }
             lastRank = rank
         end
-        rows[#rows + 1] = {
-            kind = "player",
-            member = member,
-            loot = record.loot,
-            count = record.count,
-            reasons = record.reasons,
-            latest = record.latest,
-            attendance = record.attendance,
-        }
+        rows[#rows + 1] = record
 
         if expanded[member.fullName] then
 
@@ -410,18 +397,6 @@ local function BuildColumns()
             end,
         },
         {
-            key = "attendance", title = T["Att."], width = 70,
-            text = function(row)
-                if row.kind ~= "player" then return "" end
-                local att = row.attendance
-                if not att or att.nights == 0 then
-                    return S.Colorize(S.color.textFaint, "-")
-                end
-                return S.Colorize(S.color.textMuted,
-                    addon.Locale.Format(T["%d/%d"], att.attended, att.nights))
-            end,
-        },
-        {
             key = "detail", title = T["Guild Rank"], width = 148,
             text = function(row)
                 if row.kind == "player" then
@@ -462,7 +437,7 @@ local function BuildColumns()
             end,
         },
         {
-            key = "response", title = T["Response"], width = 100,
+            key = "response", title = T["Response"], width = 170,
             text = function(row)
                 if row.kind ~= "item" then return "" end
 
@@ -489,7 +464,7 @@ local function BuildColumns()
                     return S.Colorize(S.color.textMuted, ShortDate(row.entry))
                 elseif row.kind == "player" and row.latest > 0 then
                     return S.Colorize(S.color.textFaint, addon.Locale.Format(
-                        T["last %s"], date("!%y/%m/%d", row.latest)))
+                        T["last %s"], addon.DateText(row.latest, true, true)))
                 end
                 return ""
             end,
@@ -523,37 +498,13 @@ local function ShowRowTooltip(row, data)
             data.member.online and (data.member.mobile and T["mobile"] or T["online"]) or T["offline"],
             0.64, 0.63, 0.60, 1, 1, 1)
 
-        S.TooltipSection(GameTooltip, T["Loot history"])
-        GameTooltip:AddDoubleLine(T["Items won"], tostring(data.count),
-            0.64, 0.63, 0.60, 1, 1, 1)
-
-        if (data.reasons or 0) > 0 then
-            GameTooltip:AddDoubleLine(T["Bank / disenchant"], tostring(data.reasons),
-                0.64, 0.63, 0.60, 0.45, 0.44, 0.42)
-        end
-        S.TooltipSection(GameTooltip, T["Attendance"])
-        local att = data.attendance
-        if att and att.nights > 0 then
-            GameTooltip:AddDoubleLine(T["Nights"],
-                addon.Locale.Format(T["%d of %d"], att.attended, att.nights),
-                0.64, 0.63, 0.60, 1, 1, 1)
-            GameTooltip:AddLine(addon.Locale.Format(T["  since first seen %s - %d of %d pulls"],
-                date("!%Y/%m/%d", att.firstSeen or 0), att.pullsAttended, att.pulls),
-                0.45, 0.44, 0.42)
-        else
-            GameTooltip:AddLine(T["No raids recorded"], 0.45, 0.44, 0.42)
-        end
 
 
-        if data.member.note or data.member.officerNote then
+        if data.member.note then
             S.TooltipSection(GameTooltip, T["Guild Notes"])
         end
         if data.member.note then
             GameTooltip:AddDoubleLine(T["Note"], data.member.note,
-                0.64, 0.63, 0.60, 1, 1, 1)
-        end
-        if data.member.officerNote then
-            GameTooltip:AddDoubleLine(T["Officer note"], data.member.officerNote,
                 0.64, 0.63, 0.60, 1, 1, 1)
         end
         S.TooltipSection(GameTooltip, T["Actions"])
@@ -564,27 +515,6 @@ local function ShowRowTooltip(row, data)
     elseif data.kind == "item" then
         local entry = data.entry
         S.SetTooltipItem(entry.link, entry.name)
-        S.TooltipSection(GameTooltip, T["Loot history"])
-        GameTooltip:AddDoubleLine(T["Won by"], entry.winner or "?", 0.64, 0.63, 0.60, 1, 1, 1)
-        if entry.owner then
-            GameTooltip:AddDoubleLine(T["Held by"], entry.owner, 0.64, 0.63, 0.60, 1, 1, 1)
-        end
-        if entry.instance then
-            GameTooltip:AddDoubleLine(T["Instance"], entry.instance, 0.64, 0.63, 0.60, 1, 1, 1)
-        end
-        if entry.note and entry.note ~= "" then
-
-
-            GameTooltip:AddDoubleLine(T["Note"], addon.Autopass
-                and addon.Autopass.NoteText(entry.note) or entry.note,
-                0.64, 0.63, 0.60, 1, 1, 1)
-        end
-
-        if entry.source then
-            GameTooltip:AddLine(addon.Locale.Format(T["Imported from %s"],
-                addon.HistoryImport:Label(entry.source)), 0.45, 0.44, 0.42)
-        end
-
 
         if entry.winner then
             local qualified = addon.Player:Qualify(entry.winner)
@@ -673,7 +603,7 @@ local function UpdateSummary(shown)
         local start = addon.RaidTeam:GetSeasonStart()
         if start then
             summaryText:SetText(S.Colorize(S.color.textMuted,
-                SummarySentence("season", shown, ranks, date("!%Y/%m/%d", start))))
+                SummarySentence("season", shown, ranks, addon.DateText(start, true))))
         else
 
             summaryText:SetText(S.Colorize(S.color.accent,
@@ -900,7 +830,7 @@ local function Build()
 
         local start = addon.RaidTeam:GetSeasonStart()
         if start then
-            GameTooltip:AddDoubleLine(T["Season started"], date("!%Y/%m/%d", start),
+            GameTooltip:AddDoubleLine(T["Season started"], addon.DateText(start, true),
                 0.64, 0.63, 0.60, 1, 1, 1)
         else
 
@@ -1010,6 +940,16 @@ local function Build()
 
     frame:SetHeight(P.Snap(640))
 
+
+
+    frame:HookScript("OnHide", function()
+        snapshot = nil
+        Tbl.Release(table_)
+        addon.History:DropArchive("team")
+    end)
+
+    frame:HookScript("OnShow", function() addon.History:HoldArchive("team") end)
+
     addon.Log:D("UI", "raid team frame built")
 end
 
@@ -1043,7 +983,6 @@ function RaidTeamFrame:Init()
     addon.Callbacks:Register("HistoryFilterChanged", function()
         if frame and frame:IsShown() then RaidTeamFrame:Refresh() end
     end)
-    addon.Callbacks:Register("AttendanceChanged", RepaintIfShown)
     addon.Callbacks:Register("RaidTeamChanged", function()
         if rankFrame and rankFrame:IsShown() then RefreshRankFrame() end
         RepaintIfShown()

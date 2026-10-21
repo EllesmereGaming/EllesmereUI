@@ -13,14 +13,21 @@ if not ns then return end  -- module disabled: no options page
 -- elsewhere this is CreateFrame.
 local CreateFrame = EllesmereUI._Pool.CreateFrame
 
+-- WoW Forever shamans get the Call Totem Bar section (and its preview group);
+-- the runtime file loads for no other class.
+function ns.ERB_HasCallTotemSection()
+    return (EllesmereUI.IS_FOREVER and select(2, UnitClass("player")) == "SHAMAN") and true or false
+end
+
 -- One totem bar section. S: title, key (the profile table), unlockKey, off()
 -- (the section's controls grey while it returns true) with its disabled
 -- tooltip (req, raw), and enableRow(y, sizeCfg, RefreshTotem) -> row, h: the
 -- first row, whose left slot turns the bar on and whose right slot is sizeCfg
--- (Icon Size).
+-- (Icon Size). mapIcon / mapTimer: the preview's click mapping keys.
 local function BuildTotemSection(parent, y, S)
     local env = ns._ERB_OptEnv
     local DB = env.DB
+    local _clickMappings = env._clickMappings
     local W = EllesmereUI.Widgets
     local _, h
 
@@ -34,6 +41,7 @@ local function BuildTotemSection(parent, y, S)
         if EllesmereUI.NotifyElementResized then
             EllesmereUI.NotifyElementResized(S.unlockKey)
         end
+        env.UpdateTotemPreview()
     end
 
     local totemOff = S.off
@@ -43,7 +51,8 @@ local function BuildTotemSection(parent, y, S)
     end
     local req, raw = S.req, S.raw
 
-    _, h = W:SectionHeader(parent, S.title, y);  y = y - h
+    local section
+    section, h = W:SectionHeader(parent, S.title, y);  y = y - h
 
     -- Row 1: the section's on switch | Icon Size (+ spacing cog)
     local row1
@@ -73,7 +82,8 @@ local function BuildTotemSection(parent, y, S)
     end
 
     -- Row 2: Timer Size | Show Timer
-    _, h = W:DualRow(parent, y,
+    local timerRow
+    timerRow, h = W:DualRow(parent, y,
         { type = "slider", text = "Timer Size",
           min = 6, max = 24, step = 1,
           disabled = timerOff,
@@ -268,6 +278,12 @@ local function BuildTotemSection(parent, y, S)
           end }
     );  y = y - h
 
+    -- Click mappings for the preview's hit overlays (never from a hidden pre-build)
+    if not EllesmereUI._prebuilding then
+        _clickMappings[S.mapIcon] = { section = section, target = row1, slotSide = "right" }
+        _clickMappings[S.mapTimer] = { section = section, target = timerRow, slotSide = "left" }
+    end
+
     return y
 end
 
@@ -282,13 +298,20 @@ function ns.ERB_BuildTotemBarPage(pageName, parent, yOffset)
 
     parent._showRowDivider = true
 
-    EllesmereUI:HideContentHeader()
+    EllesmereUI:SetContentHeader(env._totemPreviewBuilder)
+
+    -- Clear this page's own click mappings (shared table; never from a hidden pre-build)
+    if not EllesmereUI._prebuilding then
+        local m = env._clickMappings
+        m.totemIcon, m.totemTimer, m.callTotemIcon, m.callTotemTimer = nil, nil, nil, nil
+    end
 
     -- Blizzard's active totems (every class list). On WoW Forever it is the first
     -- of two totem bar sections.
     y = BuildTotemSection(parent, y, {
         title = forever and "ACTIVE TOTEM BAR" or "LAYOUT",
         key = "totemBar", unlockKey = "ERB_TotemBar",
+        mapIcon = "totemIcon", mapTimer = "totemTimer",
         off = function()
             local p = DB()
             return p and not p.totemBar.enabledClasses
@@ -366,11 +389,12 @@ function ns.ERB_BuildTotemBarPage(pageName, parent, yOffset)
     -- WoW Forever: Blizzard's call totem bar (Call of the Elements, the four
     -- element slots, Totemic Recall), reskinned and owned by Unlock Mode.
     -- Shamans only (the runtime file loads for no other class).
-    if forever and select(2, UnitClass("player")) == "SHAMAN" then
+    if ns.ERB_HasCallTotemSection() then
         _, h = W:Spacer(parent, y, 16);  y = y - h
         y = BuildTotemSection(parent, y, {
             title = "CALL TOTEM BAR",
             key = "callTotemBar", unlockKey = "ERB_CallTotemBar",
+            mapIcon = "callTotemIcon", mapTimer = "callTotemTimer",
             off = function()
                 local p = DB()
                 local c = p and p.callTotemBar

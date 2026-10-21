@@ -1966,6 +1966,7 @@ ReloadFramesBody = function()
     -- Reload-all also SWEEPS stale bar ids (a previous profile's bars must
     -- park on swap -- field report).
     if ns.PAB_ReloadAllCustomBars then ns.PAB_ReloadAllCustomBars() end
+    if ns.UF_ResourceCastPortraitChanged then ns.UF_ResourceCastPortraitChanged() end
     -- Size matching: the unified borders were just applied, so report each
     -- frame's border pad; only a pad that really changed re-pushes its matches.
     if EllesmereUI.MatchPadChanged then

@@ -1754,7 +1754,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
               -- Seed all buttons so the slider takes effect now.
               if ns._RangeSeedAll then ns._RangeSeedAll() end
           end },
-        { type="dropdown", text="Show Raid Frames Tooltip",
+        { type="dropdown", text="Show Raid & Party Frames Tooltip",
           tooltip="Controls when the tooltip appears as you hover a raid or party frame",
           values={ always="Always", outOfCombat="Out of Combat", outOfBossCombat="Out of Boss Combat", never="Never" },
           order={ "always", "outOfCombat", "outOfBossCombat", "never" },
@@ -1966,7 +1966,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     -- Right-click + drag over a raid/party frame turns the camera (mouselook).
     _, h = W:DualRow(parent, y,
         { type="toggle", text="Right Mouse Camera Unlock",
-          tooltip="Allows free camera movement while holding and dragging right mouse button over raid frames. Right-click tap still opens the unit menu.",
+          tooltip="Allows free camera movement while holding and dragging right mouse button over raid and party frames. Right-click tap still opens the unit menu.",
           getValue=function() return SVal("freeRightClickCamera", false) end,
           setValue=function(v) SSet("freeRightClickCamera", v); if ns.FRCM_Refresh then ns.FRCM_Refresh() end end },
         { type="dropdown", text="Frame Strata",

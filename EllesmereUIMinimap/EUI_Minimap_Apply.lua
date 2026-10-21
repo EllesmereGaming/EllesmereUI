@@ -803,7 +803,7 @@ local function ApplyMinimap()
             locationBg:RegisterEvent("ZONE_CHANGED")
             locationBg:RegisterEvent("ZONE_CHANGED_INDOORS")
             locationBg:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-            locationBg:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral by JuJuFX-dev: moved unchanged by the file split; multi-event zone text listener, kept as is in the combat queue migration
+            locationBg:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral by Ellesmere: moved unchanged by the file split; multi-event zone text listener, kept as is in the combat queue migration
             locationBg:SetScript("OnEvent", function() UpdateLocation() end)
         end
         if not locationFrame then

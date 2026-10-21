@@ -68,7 +68,7 @@ function EllesmereUI.ERB_PlayerStackBars()
     if not IsPowerBarHidden() then add(primaryBar) end
     local sp = p.secondary
     if sp and sp.enabled ~= false and not IsSpecDisabled(sp)
-        and not _G._ERB_BarHiddenByForm(sp, true) and cachedSecondary then
+        and not _G._ERB_BarHiddenByForm(sp) and cachedSecondary then
         add(secondaryFrame)
         add(secondaryBar)
     end
@@ -143,6 +143,15 @@ local function RegisterUnlockElements()
     end
 
     local function Rebuild() ERB:ApplyAll() end
+    -- A size from a width/height match or the mover: the unlock system's settle
+    -- pass hands every matched bar its size again after each resize burst (CDM
+    -- bars resize all through combat), and a rebuild is a full ApplyAll, so an
+    -- unchanged size rebuilds nothing.
+    local function SetDim(t, key, v)
+        if t[key] == v then return end
+        t[key] = v
+        Rebuild()
+    end
     local function LiveMove(key)
         if RefreshAnchoredBarsForUnlockTarget then RefreshAnchoredBarsForUnlockTarget(key) end
         -- A bar moved on its own: the "Border Around All" group re-judges.
@@ -191,20 +200,18 @@ local function RegisterUnlockElements()
             setWidth = function(_, w)
                 local s, g = SS(), ERB.db.profile.general
                 if IsVerticalOrientation(s.orientation or (g and g.orientation)) then
-                    s.height = PP.Snap(w)
+                    SetDim(s, "height", PP.Snap(w))
                 else
-                    s.width = PP.Snap(w)
+                    SetDim(s, "width", PP.Snap(w))
                 end
-                Rebuild()
             end,
             setHeight = function(_, h)
                 local s, g = SS(), ERB.db.profile.general
                 if IsVerticalOrientation(s.orientation or (g and g.orientation)) then
-                    s.width = PP.Snap(h)
+                    SetDim(s, "width", PP.Snap(h))
                 else
-                    s.height = PP.Snap(h)
+                    SetDim(s, "height", PP.Snap(h))
                 end
-                Rebuild()
             end,
             isAnchored = function() local s = S(); return s.anchorTo and s.anchorTo ~= "none" end,
             keepMoverWhenAnchored = true,
@@ -249,20 +256,18 @@ local function RegisterUnlockElements()
             setWidth = function(_, w)
                 local s, g = SS(), ERB.db.profile.general
                 if IsVerticalOrientation(s.orientation or (g and g.orientation)) then
-                    s.height = PP.Snap(w)
+                    SetDim(s, "height", PP.Snap(w))
                 else
-                    s.width = PP.Snap(w)
+                    SetDim(s, "width", PP.Snap(w))
                 end
-                Rebuild()
             end,
             setHeight = function(_, h)
                 local s, g = SS(), ERB.db.profile.general
                 if IsVerticalOrientation(s.orientation or (g and g.orientation)) then
-                    s.width = PP.Snap(h)
+                    SetDim(s, "width", PP.Snap(h))
                 else
-                    s.height = PP.Snap(h)
+                    SetDim(s, "height", PP.Snap(h))
                 end
-                Rebuild()
             end,
             isAnchored = function() local s = S(); return s.anchorTo and s.anchorTo ~= "none" end,
             keepMoverWhenAnchored = true,
@@ -304,20 +309,18 @@ local function RegisterUnlockElements()
             setWidth = function(_, w)
                 local s = SS()
                 if (s.pipOrientation or "HORIZONTAL") ~= "HORIZONTAL" then
-                    s.pipHeight = PP.Snap(w)
+                    SetDim(s, "pipHeight", PP.Snap(w))
                 else
-                    s.pipWidth = PP.Snap(w)
+                    SetDim(s, "pipWidth", PP.Snap(w))
                 end
-                Rebuild()
             end,
             setHeight = function(_, h)
                 local s = SS()
                 if (s.pipOrientation or "HORIZONTAL") ~= "HORIZONTAL" then
-                    s.pipWidth = PP.Snap(h)
+                    SetDim(s, "pipWidth", PP.Snap(h))
                 else
-                    s.pipHeight = PP.Snap(h)
+                    SetDim(s, "pipHeight", PP.Snap(h))
                 end
-                Rebuild()
             end,
             isHidden = function() local s = S(); return s.enabled == false or IsSpecDisabled(s) end,
             isAnchored = function() local s = S(); return s.anchorTo and s.anchorTo ~= "none" end,
@@ -395,10 +398,9 @@ local function RegisterUnlockElements()
             end,
             setWidth = function(_, w)
                 local cb = S()
-                cb.width = PP.Snap(math.max(w - ns.ERB_CastIconW(cb), 10))
-                Rebuild()
+                SetDim(cb, "width", PP.Snap(math.max(w - ns.ERB_CastIconW(cb), 10)))
             end,
-            setHeight = function(_, h) S().height = PP.Snap(h); Rebuild() end,
+            setHeight = function(_, h) SetDim(S(), "height", PP.Snap(h)) end,
             savePos = castSave, loadPos = castLoad, clearPos = castClear, applyPos = castApply,
         })
     end
@@ -449,20 +451,18 @@ local function RegisterUnlockElements()
             setWidth = function(_, w)
                 local g = S()
                 if IsVerticalOrientation(g.orientation) then
-                    g.height = PP.Snap(math.max(w, 4))
+                    SetDim(g, "height", PP.Snap(math.max(w, 4)))
                 else
-                    g.width = PP.Snap(math.max(w, 10))
+                    SetDim(g, "width", PP.Snap(math.max(w, 10)))
                 end
-                Rebuild()
             end,
             setHeight = function(_, h)
                 local g = S()
                 if IsVerticalOrientation(g.orientation) then
-                    g.width = PP.Snap(math.max(h, 10))
+                    SetDim(g, "width", PP.Snap(math.max(h, 10)))
                 else
-                    g.height = PP.Snap(math.max(h, 4))
+                    SetDim(g, "height", PP.Snap(math.max(h, 4)))
                 end
-                Rebuild()
             end,
             savePos = gcdSave, loadPos = gcdLoad, clearPos = gcdClear, applyPos = gcdApply,
         })

@@ -1024,6 +1024,9 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     ApplyTBBTickMarks(sb, cfg, bar._threshTicks, isVert, bar._tickOverlay)
     ApplyTBBChargeHashLines(bar, cfg, GetTBBMaxCharges(cfg))
     bar._ticksDirty = true
+    -- The settings may change what the name, icon, fill colour and stacks show:
+    -- the next live tick re-reads them (TBBContentDue in EUI_CDM_BuffBarTick.lua).
+    bar._cChild = nil
 end
 
 -- Exposed for the options popout preview: preview bars are built and skinned by the SAME code as live bars, so the preview cannot drift from rendering.

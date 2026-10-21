@@ -1749,11 +1749,13 @@ end
 -- unbound button gets inert type1/type2="none" instead (non-nil, unrecognized
 -- -> does nothing, suppresses the fallback). Bound buttons keep their own
 -- type<N> from SetClickAttr. Own secure frame, OOC only -> no taint risk.
-local function NeutralizeDefaultClicks(frame, bindings)
+-- plan is the bindings' ResolvePlan (keys already parsed).
+local function NeutralizeDefaultClicks(frame, plan)
     local b1, b2 = false, false
-    for _, b in ipairs(bindings) do
-        if IsFrameBinding(b) and b.key then
-            local parsed = ParseKeyString(b.key)
+    for i = 1, #plan do
+        local r = plan[i]
+        if r.frame then
+            local parsed = r.parsed
             if parsed.isMouseButton and parsed.modifiers == "" then
                 if parsed.buttonNum == 1 then b1 = true
                 elseif parsed.buttonNum == 2 then b2 = true end
@@ -1766,6 +1768,65 @@ local function NeutralizeDefaultClicks(frame, bindings)
     if not b1 then frame:SetAttribute("type1", "none") end
     if not b2 then frame:SetAttribute("type2", "none") end
 end
+
+-- A binding list parsed and resolved once: what a binding writes is the same on
+-- every frame, so the per-frame loops read it from here. Per binding: its parsed
+-- key, whether that key is a direct mouse-button click, its cast paths, the
+-- resolved action and, for HoverCast, the global button's macro.
+local function ResolvePlan(bindings)
+    local plan = {}
+    for i, b in ipairs(bindings) do
+        local parsed = ParseKeyString(b.key)
+        local aType, spellName, macrotext = ResolveBinding(b)
+        local hover = IsHoverBinding(b)
+        local hoverMT
+        if hover then
+            if aType == "spell" then
+                hoverMT = BuildMacroText(b)
+                if not hoverMT then
+                    hoverMT = AddTargetingClears(SpellCastLine(b, "[@mouseover" .. MOUNT_GUARD .. "]"))
+                        or ("/cast [@mouseover" .. MOUNT_GUARD .. "] ")
+                end
+            elseif aType == "macro" then
+                hoverMT = macrotext or ""
+            end
+        end
+        plan[i] = {
+            b = b, parsed = parsed, direct = UsesDirectClickAttributes(parsed),
+            frame = IsFrameBinding(b), hover = hover,
+            aType = aType, spellName = spellName, macrotext = macrotext, hoverMT = hoverMT,
+        }
+    end
+    return plan
+end
+
+-- Everything an apply writes from a plan as one string: each binding's key,
+-- cast paths, combat gate and resolved action in list order (a keyboard
+-- binding's virtual button is its position), and the HoverCast macro. Two plans
+-- that write the same attributes give the same string.
+local planParts = {}
+local function PlanSignature(plan)
+    wipe(planParts)
+    for i = 1, #plan do
+        local r = plan[i]
+        local b = r.b
+        planParts[#planParts + 1] = b.key or ""
+        planParts[#planParts + 1] = tostring(b.hovercast)
+        planParts[#planParts + 1] = b.oocOnly and "1" or "0"
+        planParts[#planParts + 1] = r.aType or ""
+        planParts[#planParts + 1] = r.spellName or ""
+        planParts[#planParts + 1] = r.macrotext or ""
+        planParts[#planParts + 1] = r.hoverMT or ""
+    end
+    return table.concat(planParts, "\31")
+end
+
+-- The last apply's PlanSignature and binding list, which every registered frame
+-- carries. A registration that paints a frame from a list resolving to anything
+-- else sets regDrift: that frame then holds bindings the others lack, so the
+-- next apply repaints every frame.
+local appliedSig, appliedList
+local regDrift = false
 
 -- Active-binding list shared across one synchronous registration burst (the
 -- CompactUnitFrame hook firing per frame inside one Blizzard rebuild, the
@@ -1781,6 +1842,16 @@ burst.Get = function()
         burst.list = GetActiveBindings()
     end
     return burst.list
+end
+-- The burst list's plan and signature, resolved once per list.
+burst.Plan = function()
+    local list = burst.Get()
+    if burst.planList ~= list then
+        burst.planList = list
+        burst.plan = ResolvePlan(list)
+        burst.sig = PlanSignature(burst.plan)
+    end
+    return burst.plan, list
 end
 
 local function DoRegisterFrame(frame)
@@ -1830,17 +1901,14 @@ local function DoRegisterFrame(frame)
         ]])
     end
 
-    local bindings = burst.Get()
-    for i, b in ipairs(bindings) do
-        if IsFrameBinding(b) and b.key then
-            local parsed = ParseKeyString(b.key)
-            local aType, spellName, macrotext = ResolveBinding(b)
-            if aType then
-                if UsesDirectClickAttributes(parsed) then
-                    SetClickAttr(frame, parsed, aType, spellName, macrotext, b.oocOnly)
-                else
-                    SetKeyAttr(frame, i, aType, spellName, macrotext, b.oocOnly)
-                end
+    local plan, bindings = burst.Plan()
+    for i = 1, #plan do
+        local r = plan[i]
+        if r.frame and r.b.key and r.aType then
+            if r.direct then
+                SetClickAttr(frame, r.parsed, r.aType, r.spellName, r.macrotext, r.b.oocOnly)
+            else
+                SetKeyAttr(frame, i, r.aType, r.spellName, r.macrotext, r.b.oocOnly)
             end
         end
     end
@@ -1849,8 +1917,9 @@ local function DoRegisterFrame(frame)
 
     -- Neutralize unbound left-click target / right-click menu defaults (see
     -- NeutralizeDefaultClicks); restored in DoUnregisterFrame on disable.
-    NeutralizeDefaultClicks(frame, bindings)
+    NeutralizeDefaultClicks(frame, plan)
 
+    if bindings ~= appliedList and burst.sig ~= appliedSig then regDrift = true end
 end
 
 local function DoUnregisterFrame(frame)
@@ -2110,6 +2179,53 @@ end
 -------------------------------------------------------------------------------
 local prevBindings = {}
 
+-- Writes a plan on every registered frame and the bind proxy: the previous
+-- apply's keys come off first, then each frame binding, the Command-click
+-- routes and the unbound-click defaults go on.
+local function RepaintFrames(plan, bindings)
+    -- The previous apply's mouse-button keys, parsed once for every frame.
+    local prevClicks = {}
+    for _, pb in ipairs(prevBindings) do
+        if IsFrameBinding(pb.b) then
+            local parsed = ParseKeyString(pb.b.key)
+            if UsesDirectClickAttributes(parsed) then
+                prevClicks[#prevClicks + 1] = parsed
+            end
+        end
+    end
+    for frame in pairs(registeredFrames) do
+        for i = 1, #prevClicks do
+            ClearClickAttr(frame, prevClicks[i])
+        end
+        ClearKeyAttrs(frame, lastBindingCount)
+    end
+    ClearKeyAttrs(bindProxy, lastBindingCount)
+
+    for frame in pairs(registeredFrames) do
+        for i = 1, #plan do
+            local r = plan[i]
+            if r.frame and r.aType then
+                if r.direct then
+                    SetClickAttr(frame, r.parsed, r.aType, r.spellName, r.macrotext, r.b.oocOnly)
+                else
+                    SetKeyAttr(frame, i, r.aType, r.spellName, r.macrotext, r.b.oocOnly)
+                end
+            end
+        end
+        ConfigureCommandClicks(frame, bindings)
+        -- Re-neutralize unbound left/right defaults (the clear pass above may
+        -- have stripped a previous binding's type<N>).
+        NeutralizeDefaultClicks(frame, plan)
+    end
+    -- Bind proxy gets keyboard attrs too (unnamed frame fallback)
+    for i = 1, #plan do
+        local r = plan[i]
+        if r.frame and r.aType and not r.direct then
+            SetKeyAttr(bindProxy, i, r.aType, r.spellName, r.macrotext, r.b.oocOnly)
+        end
+    end
+end
+
 function ns.CC_ApplyBindings()
     if not ccInitialized then pendingApply = true; return end
     if InCombatLockdown() then pendingApply = true; return end
@@ -2150,61 +2266,19 @@ function ns.CC_ApplyBindings()
         ccEventFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
     end
 
-    local frameBindings = {}
-    local hoverBindings = {}
-    -- A "both" binding lands in BOTH lists: frame attributes for clicks on the
-    -- frames, plus the hover override for nameplates / world units.
-    for i, b in ipairs(bindings) do
-        if IsHoverBinding(b) then
-            hoverBindings[#hoverBindings + 1] = { b = b, idx = i }
-        end
-        if IsFrameBinding(b) then
-            frameBindings[#frameBindings + 1] = { b = b, idx = i }
-        end
-    end
-
-    ---------------------------------------------------------------
-    -- Frame-based bindings
-    ---------------------------------------------------------------
-    for frame in pairs(registeredFrames) do
-        for _, pb in ipairs(prevBindings) do
-            if IsFrameBinding(pb.b) then
-                local parsed = ParseKeyString(pb.b.key)
-                if UsesDirectClickAttributes(parsed) then
-                    ClearClickAttr(frame, parsed)
-                end
-            end
-        end
-        ClearKeyAttrs(frame, lastBindingCount)
-    end
-    ClearKeyAttrs(bindProxy, lastBindingCount)
-
-    for frame in pairs(registeredFrames) do
-        for _, fb in ipairs(frameBindings) do
-            local parsed = ParseKeyString(fb.b.key)
-            local aType, spellName, macrotext = ResolveBinding(fb.b)
-            if aType then
-                if UsesDirectClickAttributes(parsed) then
-                    SetClickAttr(frame, parsed, aType, spellName, macrotext, fb.b.oocOnly)
-                else
-                    SetKeyAttr(frame, fb.idx, aType, spellName, macrotext, fb.b.oocOnly)
-                end
-            else
-            end
-        end
-        ConfigureCommandClicks(frame, bindings)
-        -- Re-neutralize unbound left/right defaults (the clear pass above may
-        -- have stripped a previous binding's type<N>).
-        NeutralizeDefaultClicks(frame, bindings)
-    end
-    -- Bind proxy gets keyboard attrs too (unnamed frame fallback)
-    for _, fb in ipairs(frameBindings) do
-        local parsed = ParseKeyString(fb.b.key)
-        local aType, spellName, macrotext = ResolveBinding(fb.b)
-        if aType and (not UsesDirectClickAttributes(parsed)) then
-            SetKeyAttr(bindProxy, fb.idx, aType, spellName, macrotext, fb.b.oocOnly)
-        end
-    end
+    -- A "both" binding is a frame binding AND a hover binding: frame attributes
+    -- for clicks on the frames, plus the hover override for nameplates / world
+    -- units.
+    local plan = ResolvePlan(bindings)
+    local sig = PlanSignature(plan)
+    burst.planList, burst.plan, burst.sig = bindings, plan, sig
+    -- The frames already carry this plan unless it differs from the last apply's
+    -- or a registration painted another: a spell swap that hands a key to a
+    -- binding casting the same base spell (Holy Armaments flips which of its
+    -- pair is known) repaints no frame. The header part below always runs: its
+    -- teardown also clears override bindings a loading screen left set (the
+    -- PLAYER_ENTERING_WORLD re-apply).
+    if sig ~= appliedSig or regDrift then RepaintFrames(plan, bindings) end
 
     local enterScript, leaveScript, kbClearLines = GenerateKeyBindSnippets(bindings)
     header:SetAttribute("eui_setup_onenter", enterScript)
@@ -2236,40 +2310,35 @@ function ns.CC_ApplyBindings()
     local hoverClearLines = {}
     local gbName = globalBtn:GetName()
 
-    for hi, hb in ipairs(hoverBindings) do
-        local suffix = "eui_hc_" .. hi
-        local aType, spellName, macrotext = ResolveBinding(hb.b)
-        if aType then
-            local mt
-            if aType == "spell" then
-                mt = BuildMacroText(hb.b)
-                if not mt then
-                    mt = AddTargetingClears(SpellCastLine(hb.b, "[@mouseover" .. MOUNT_GUARD .. "]"))
-                        or ("/cast [@mouseover" .. MOUNT_GUARD .. "] ")
+    local hi = 0
+    for i = 1, #plan do
+        local r = plan[i]
+        if r.hover then
+            hi = hi + 1
+            local suffix = "eui_hc_" .. hi
+            local aType = r.aType
+            if aType then
+                local mt = r.hoverMT
+                if mt then
+                    globalBtn:SetAttribute("type-" .. suffix, "macro")
+                    globalBtn:SetAttribute("macrotext-" .. suffix, mt)
+                else
+                    -- menu/target carry no macro conditional, so honor oocOnly via
+                    -- the combat driver (present out of combat, cleared in combat).
+                    SetGatedType(globalBtn, "type-" .. suffix, aType,
+                        r.b.oocOnly and (aType == "togglemenu" or aType == "target"))
                 end
-            elseif aType == "macro" then
-                mt = macrotext or ""
+                globalBtn:SetAttribute("unit-" .. suffix, "mouseover")
+                -- Routes the key/button to the global button for EVERY action type
+                -- (not just spell/macro): the global button is a SecureActionButton,
+                -- which the 12.0.7 SecureUnitButton menu gate does NOT touch, so
+                -- togglemenu/target work here once the click is routed to it.
+                hoverSetLines[#hoverSetLines + 1] = string.format(
+                    [[self:SetBindingClick(true, %q, %q, %q)]],
+                    r.b.key, gbName, suffix)
+                hoverClearLines[#hoverClearLines + 1] = string.format(
+                    [[self:ClearBinding(%q)]], r.b.key)
             end
-
-            if mt then
-                globalBtn:SetAttribute("type-" .. suffix, "macro")
-                globalBtn:SetAttribute("macrotext-" .. suffix, mt)
-            else
-                -- menu/target carry no macro conditional, so honor oocOnly via
-                -- the combat driver (present out of combat, cleared in combat).
-                SetGatedType(globalBtn, "type-" .. suffix, aType,
-                    hb.b.oocOnly and (aType == "togglemenu" or aType == "target"))
-            end
-            globalBtn:SetAttribute("unit-" .. suffix, "mouseover")
-            -- Routes the key/button to the global button for EVERY action type
-            -- (not just spell/macro): the global button is a SecureActionButton,
-            -- which the 12.0.7 SecureUnitButton menu gate does NOT touch, so
-            -- togglemenu/target work here once the click is routed to it.
-            hoverSetLines[#hoverSetLines + 1] = string.format(
-                [[self:SetBindingClick(true, %q, %q, %q)]],
-                hb.b.key, gbName, suffix)
-            hoverClearLines[#hoverClearLines + 1] = string.format(
-                [[self:ClearBinding(%q)]], hb.b.key)
         end
     end
 
@@ -2309,11 +2378,12 @@ function ns.CC_ApplyBindings()
     end
 
     lastBindingCount = #bindings
-    lastHoverCount = #hoverBindings
+    lastHoverCount = hi
     prevBindings = {}
     for i, b in ipairs(bindings) do
         prevBindings[i] = { b = b, idx = i }
     end
+    appliedSig, appliedList, regDrift = sig, bindings, false
 end
 
 -------------------------------------------------------------------------------
@@ -4412,10 +4482,10 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     do
         local row = MakeRow(centerY)
         RowLabel(row, "Mouseover Frames")
-        local mfValues = { all = "All Unit Frames", rf = "EUI Raid Frames" }
+        local mfValues = { all = "All Unit Frames", rf = "EUI Raid & Party Frames" }
         local mfOrder = { "all", "rf" }
         local ddCtrl = EllesmereUI.BuildDropdownControl(
-            row, 160, row:GetFrameLevel() + 2,
+            row, 190, row:GetFrameLevel() + 2,
             mfValues, mfOrder,
             function() return cc.allFrames and "all" or "rf" end,
             function(v) ns.CC_SetAllFrames(v == "all") end)

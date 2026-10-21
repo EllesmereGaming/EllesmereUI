@@ -161,9 +161,6 @@ function EAB:OnInitialize()
                     tex:Hide()
                     return
                 end
-                if EllesmereUI._RANKDEBUG then
-                    print("|cff33ff99[Rank]|r atlas", atlas)
-                end
             end
             -- Mirror Blizzard's overlay anchor: its template centers an
             -- atlas-sized texture 14,-14 from the button's TOPLEFT (designed for
@@ -208,12 +205,6 @@ function EAB:OnInitialize()
                                 rankAtlas = RankAtlasFor(q)
                             end
                         end
-                    end
-                    if EllesmereUI._RANKDEBUG and rankAtlas ~= nil then
-                        pcall(function()
-                            print("|cff33ff99[Rank]|r action", action,
-                                "atlas", tostring(rankAtlas))
-                        end)
                     end
                 end
             end

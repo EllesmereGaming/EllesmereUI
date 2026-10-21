@@ -174,13 +174,15 @@ function EBS._ShowAddonBtnBox(btn)
     ubg:Show()
 end
 
--- Raise popups an addon parents to its button after layout above the grid.
+-- Raise popups an addon parents to its button after layout above the grid. The
+-- button's own black box stays below it, where the layout pinned it.
 function EBS._RaiseLateFlyoutChildren(btn)
     if not flyoutPanel or btn:GetParent() ~= flyoutPanel then return end
     local combat = InCombatLockdown()
+    local box = GetFFD(btn).ungroupBg
     local function raise(frame, level)
         for _, child in ipairs({ frame:GetChildren() }) do
-            if not (combat and child:IsProtected()) then
+            if child ~= box and not (combat and child:IsProtected()) then
                 child:SetFrameStrata("DIALOG")
                 child:SetFrameLevel(level)
                 raise(child, level + 1)

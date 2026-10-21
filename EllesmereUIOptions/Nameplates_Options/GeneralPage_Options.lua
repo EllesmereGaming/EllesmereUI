@@ -617,11 +617,13 @@ local function BuildGeneralPage(pageName, parent, yOffset)
     end
 
     -- Stacking Speed | Top Screen Inset: CVars Blizzard restored in 12.1.5,
-    -- so each slider exists only on a client that has its CVar. Pure CVar
-    -- passthrough like Line of Sight Opacity: nothing stored, nothing written
-    -- until a slider moves. Speed reads as a percent of the client's own
-    -- default; the inset as a percent of the screen's height (raw values if
-    -- the client's default is not a fraction).
+    -- so each slider exists only on a client that has its CVar. The client
+    -- does not save either one across a game restart, so a slider keeps its
+    -- value account-wide and the module writes it again at login
+    -- (ns.KeepNameplateCVar); nothing is written until a slider moves. Speed
+    -- reads as a percent of the client's own default; the inset as a percent
+    -- of the screen's height (raw values if the client's default is not a
+    -- fraction).
     do
         local function CVarDefault(name) return tonumber(C_CVar.GetCVarDefault(name)) end
         local cvarRows = {}
@@ -637,7 +639,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                     if InCombatLockdown() then return end
                     local def = CVarDefault("nameplateMotionSpeed")
                     if not (def and def > 0) then return end
-                    EllesmereUI.SetCVar("nameplateMotionSpeed", def * v / 100, "EllesmereUINameplates")
+                    ns.KeepNameplateCVar("nameplateMotionSpeed", def * v / 100)
                 end,
                 tooltip="How fast stacked nameplates slide into place. 100% is Blizzard's default." }
         end
@@ -653,7 +655,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                 end,
                 setValue=function(v)
                     if InCombatLockdown() then return end
-                    EllesmereUI.SetCVar("nameplateTopInset", frac and v / 100 or v, "EllesmereUINameplates")
+                    ns.KeepNameplateCVar("nameplateTopInset", frac and v / 100 or v)
                 end,
                 tooltip="How far from the top of the screen nameplates stop. 0 lets them reach the edge." }
         end

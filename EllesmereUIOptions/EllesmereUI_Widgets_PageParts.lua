@@ -654,7 +654,9 @@ end
 --  Manager-page parts (Buff Manager, Debuff Manager, Player Aura Bars)
 -------------------------------------------------------------------------------
 -- Sidebar tile. opts: width, fontPath, title, subtitle | subtitleFn, icon | iconFn
--- (the Fn forms re-read on every page widget refresh), posText, selected,
+-- (the Fn forms re-read on every page widget refresh) | iconApply(tex) (paints
+-- the icon itself, no crop), statusDot ({ r, g, b }: 8px dot, top right, left of
+-- the toggle pill when shown), posText, selected,
 -- enabled, showToggle, dimmed, inheritedTooltip,
 -- onSelect(), onToggle(newState), onDelete(), onEdit(), onContext(tile),
 -- height (66), textRight (-52), titleUnclamped, editSize (16), editTooltip,
@@ -692,9 +694,10 @@ function EllesmereUI.BuildManagerTile(parentFrame, y, opts)
 
     local textX = 12
     local titleY = -10
-    local textRight = opts.textRight or -52
+    -- A status dot beside the toggle pill pushes the text further in.
+    local textRight = opts.textRight or ((opts.showToggle and opts.statusDot) and -60 or -52)
 
-    if opts.icon or opts.iconFn then
+    if opts.icon or opts.iconFn or opts.iconApply then
         local ICON_SZ = 36
         local iconFrame = CreateFrame("Frame", nil, tile)
         iconFrame:SetSize(ICON_SZ, ICON_SZ)
@@ -702,8 +705,12 @@ function EllesmereUI.BuildManagerTile(parentFrame, y, opts)
         iconFrame:SetFrameLevel(tile:GetFrameLevel() + 1)
         local iconTex = iconFrame:CreateTexture(nil, "ARTWORK")
         iconTex:SetAllPoints()
-        iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        iconTex:SetTexture(opts.iconFn and opts.iconFn() or opts.icon)
+        if opts.iconApply then
+            opts.iconApply(iconTex)
+        else
+            iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            iconTex:SetTexture(opts.iconFn and opts.iconFn() or opts.icon)
+        end
         if opts.iconFn then
             EllesmereUI.RegisterWidgetRefresh(function() iconTex:SetTexture(opts.iconFn()) end)
         end
@@ -864,6 +871,15 @@ function EllesmereUI.BuildManagerTile(parentFrame, y, opts)
     sep:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 0, 0)
     sep:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", 0, 0)
     sep:SetColorTexture(1, 1, 1, 0.04)
+
+    if opts.statusDot then
+        local dot = tile:CreateTexture(nil, "ARTWORK")
+        PP.Size(dot, 8, 8)
+        -- Left of the toggle pill when the tile has one.
+        PP.Point(dot, "TOPRIGHT", tile, "TOPRIGHT", opts.showToggle and -46 or -12, -14)
+        dot:SetTexture("Interface\\Common\\CommonMaskCircle")
+        dot:SetVertexColor(opts.statusDot[1], opts.statusDot[2], opts.statusDot[3], 1)
+    end
 
     if opts.dimmed then tile:SetAlpha(0.55) end
 

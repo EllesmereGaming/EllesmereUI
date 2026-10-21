@@ -1665,10 +1665,12 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     EllesmereUI:RegisterModule("EllesmereUIRaidFrames", {
-        title       = "Raid Frames",
-        description = "Configure raid frame appearance and behavior.",
+        title       = "Raid & Party Frames",
+        description = "Configure raid and party frame appearance and behavior.",
         -- No Auras page: debuffs and defensives/externals live in the managers.
         pages       = { PAGE_MAIN, PAGE_PARTY, PAGE_BUFFS, PAGE_DM, PAGE_CLICKCAST },
+        -- Module-scoped: "Frames" is a generic page name another module could use.
+        tabLabels   = { [PAGE_MAIN] = "Raid" },
         -- The managers draw over the scroll frame: no inline search there.
         noSearchPages = { [PAGE_BUFFS] = true, [PAGE_DM] = true, [PAGE_CLICKCAST] = true },
         searchTerms = rfSearchTerms,

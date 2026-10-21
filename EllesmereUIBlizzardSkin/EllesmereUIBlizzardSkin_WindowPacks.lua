@@ -9792,12 +9792,11 @@ local function DimSlot(btn) DimSlotArt(btn, btn:GetRegions()) end
 
 -- Name-and-icon picker popup (IconSelectorPopupFrameTemplate): house panel,
 -- themed name input + buttons + type dropdown, white texts, icon grid slot art
--- at 50% (matching the main selector grid).
-local _macroPopupHooked = false
-local function Skin_MacroPopup()
-    local p = _G.MacroPopupFrame
-    if not p then return end
-    WSkin.Panel(p)
+-- at 50% (matching the main selector grid). Used by the Macro popup and the
+-- Equipment Manager popup: backdrop(p) lays the frame's own backdrop, reskin
+-- is the caller's entry point, re-run on every show (HookShow is once per frame).
+local function Skin_IconSelectorPopup(p, backdrop, reskin)
+    backdrop(p)
     if p.NineSlice then WSkin.FadeNineSlice(p.NineSlice) end
     if p.Bg and p.Bg.SetAlpha then p.Bg:SetAlpha(0) end
     local bb = p.BorderBox
@@ -9847,12 +9846,19 @@ local function Skin_MacroPopup()
         end
         if gBox.GetView and gBox:GetView() then pcall(gd.iconDim) end
     end
-    if not _macroPopupHooked then
-        _macroPopupHooked = true
+    -- Built only while the frame has no show hook (HookShow keeps the first).
+    if not GetFFD(p).showHook then
         WSkin.HookShow(p, WSkin.Debounce(function()
-            if p:IsVisible() then Skin_MacroPopup() end
+            if p:IsVisible() then reskin() end
         end))
     end
+end
+
+-- Macro popup (MacroPopupFrame): uses the shared icon selector popup skin.
+local function Skin_MacroPopup()
+    local p = _G.MacroPopupFrame
+    if not p then return end
+    Skin_IconSelectorPopup(p, WSkin.Panel, Skin_MacroPopup)
 end
 
 local _macroHooked = false
@@ -10002,6 +10008,25 @@ WSkin.RegisterWindow({
     key = "macros",
     addons = { Blizzard_MacroUI = true },
     apply = Skin_Macros,
+})
+
+-- Equipment Manager popup (GearManagerPopupFrame, built with PaperDollFrame at load)
+-- wears the sheet's own shell under the sheet's "charsheet" key, so it follows that
+-- card's on/off, style and Modern swap. Blizzard Default keeps the stock popup, like
+-- the sheet itself, and so does WoW Forever. The sheet skin raises the popup's icon
+-- grid a strata above the shell (PreSkinCharacterSheet).
+local GEAR_SHELL_OPTS = { noTopBar = true }
+local function GearPopupBackdrop(f) WSkin.Shell("charsheet", f, GEAR_SHELL_OPTS) end
+local function Skin_GearPopup()
+    if EllesmereUI.IS_FOREVER or ns.CharSheetStock() then return end
+    local p = _G.GearManagerPopupFrame
+    if not p then return end
+    Skin_IconSelectorPopup(p, GearPopupBackdrop, Skin_GearPopup)
+end
+
+WSkin.RegisterWindow({
+    key = "charsheet",
+    apply = Skin_GearPopup,
 })
 end
 
@@ -12253,7 +12278,7 @@ end
 --  application: group title, activity, your role, Accept/Decline) and
 --  LFGInvitePopup (invited to a group finder party, with role checks).
 --
---  EllesmereUIBlizzardSkin.lua also skins LFGListInviteDialog, gated on
+--  EUI_BlizzardSkin_Dialogs.lua also skins LFGListInviteDialog, gated on
 --  EllesmereUIDB.reskinQueuePopup (a plain truthiness test, unlike the Queue
 --  Popup's `~= false`, so it only runs for users who toggled the option ON).
 --  When it does, it lays a flat BACKGROUND texture at sublevel 0 over this

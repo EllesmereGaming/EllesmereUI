@@ -25,6 +25,7 @@ local DEFAULTS = {
     iconSize         = 125,
     cancelOldest     = false,
     dungeonAbbr      = false,
+    dungeonScore     = false,
 }
 ns.DEFAULTS = DEFAULTS
 

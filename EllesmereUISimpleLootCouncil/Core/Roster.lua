@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -6,11 +7,7 @@ SimpleLootCouncil = SimpleLootCouncil or {}
 local addon = SimpleLootCouncil
 local T = addon.Locale.Text
 
-local issecretvalue = issecretvalue
-
-local function IsSecret(value)
-    return issecretvalue and issecretvalue(value) or false
-end
+local IsSecret = addon.IsSecret
 
 local Roster = {}
 addon.Roster = Roster
@@ -19,31 +16,51 @@ local epoch, members, inGroup = 0, {}, false
 
 local memberKeys, aliases, selfKey = {}, {}, nil
 local unitByGUID = {}
+
+
+
+local slotName, slotFull, slotUnit = {}, {}, {}
+local slotCount, slotMode = 0, nil
+local unitOfName = {}
 local leaderCached, leaderValue = false, nil
 local snapshotLeader
 local pending, initialised = false, false
 local cachedML, cachedAt = nil, 0
 
+local membersGen, buildGen = nil, 0
+
 function Roster:Epoch() return epoch end
 
 
 
+
+local guidOfUnit, unitStamp, stamp = {}, {}, 0
+
+local function NoteUnit(unit)
+    local guid = UnitGUID and UnitGUID(unit)
+    if not guid or IsSecret(guid) then guid = nil end
+    unitStamp[unit] = stamp
+    local old = guidOfUnit[unit]
+    if old == guid then return end
+    if old and unitByGUID[old] == unit then unitByGUID[old] = nil end
+    guidOfUnit[unit] = guid
+    if guid then unitByGUID[guid] = unit end
+end
+
 function Roster:RebuildUnitCache()
-    for guid in pairs(unitByGUID) do unitByGUID[guid] = nil end
+    stamp = stamp + 1
     local count = GetNumGroupMembers and GetNumGroupMembers() or 0
     if IsInRaid and IsInRaid() then
-        for i = 1, count do
-            local unit = "raid" .. i
-            local guid = UnitGUID and UnitGUID(unit)
-            if guid and not IsSecret(guid) then unitByGUID[guid] = unit end
-        end
+        for i = 1, count do NoteUnit("raid" .. i) end
     else
-        local guid = UnitGUID and UnitGUID("player")
-        if guid and not IsSecret(guid) then unitByGUID[guid] = "player" end
-        for i = 1, math.max(0, count - 1) do
-            local unit = "party" .. i
-            guid = UnitGUID and UnitGUID(unit)
-            if guid and not IsSecret(guid) then unitByGUID[guid] = unit end
+        NoteUnit("player")
+        for i = 1, math.max(0, count - 1) do NoteUnit("party" .. i) end
+    end
+    for unit, seen in pairs(unitStamp) do
+        if seen ~= stamp then
+            local old = guidOfUnit[unit]
+            if old and unitByGUID[old] == unit then unitByGUID[old] = nil end
+            guidOfUnit[unit], unitStamp[unit] = nil, nil
         end
     end
 end
@@ -71,6 +88,9 @@ local function FindLeader()
             local name, rank = GetRaidRosterInfo(i)
             if not IsSecret(name) and not IsSecret(rank) and rank == 2 and name
                 and name ~= "" and name ~= UNKNOWNOBJECT then
+                if slotMode == "raid" and slotName[i] == name and slotFull[i] then
+                    return slotFull[i]
+                end
                 local record = addon.Player:Get(name)
                 return record.guid and record.fullName or nil
             end
@@ -143,11 +163,14 @@ local function Rebuild(immediate)
     local nowInGroup = IsInGroup() and true or false
     local current = nowInGroup and addon.GetCandidates() or {}
     local joined, left = {}, {}
-    for name in pairs(current) do
-        if not members[name] then joined[name] = true end
-    end
-    for name in pairs(members) do
-        if not current[name] then left[name] = true end
+
+    if not (nowInGroup and inGroup and membersGen == buildGen) then
+        for name in pairs(current) do
+            if not members[name] then joined[name] = true end
+        end
+        for name in pairs(members) do
+            if not current[name] then left[name] = true end
+        end
     end
     local oldLeader = snapshotLeader
     leaderCached = false
@@ -156,6 +179,7 @@ local function Rebuild(immediate)
     snapshotLeader = newLeader
     local wasInGroup = inGroup
     members, inGroup = current, nowInGroup
+    membersGen = nowInGroup and buildGen or nil
     if next(joined) or next(left) or leaderChanged or wasInGroup ~= nowInGroup then
         addon.Callbacks:Fire("RosterChanged", {
             joined = joined, left = left, leaderChanged = leaderChanged,
@@ -170,6 +194,7 @@ function Roster:Init()
     self:RebuildUnitCache()
     inGroup = IsInGroup() and true or false
     members = inGroup and addon.GetCandidates() or {}
+    membersGen = inGroup and buildGen or nil
     selfKey = addon.Player:NameKey(addon.Player:GetFullName("player"))
     leaderCached = false
     snapshotLeader = addon.GetGroupLeader()
@@ -338,42 +363,84 @@ function addon.PlayerIsMasterLooter()
 end
 
 
+local function SettleBuild(mode, count, changed, complete)
+    if mode ~= slotMode or count ~= slotCount then changed = true end
+    for i = count + 1, slotCount do slotName[i], slotFull[i], slotUnit[i] = nil, nil, nil end
+    slotMode, slotCount = mode, count
+    if changed or not complete then
+        buildGen = buildGen + 1
+        for name in pairs(unitOfName) do unitOfName[name] = nil end
+        for i = 1, count do
+            if slotFull[i] then unitOfName[slotFull[i]] = slotUnit[i] end
+        end
+    end
+end
+
+
+local function PartySlot(k, unit)
+    local full = addon.Player:GetFullName(unit)
+    local moved = slotFull[k] ~= full or slotUnit[k] ~= unit
+    slotFull[k], slotUnit[k] = full, unit
+    return full, moved
+end
+
+
 local function BuildCandidates()
-    local candidates, complete = {}, true
+    local candidates, complete, changed = {}, true, false
 
     if not IsInGroup() then
-        local self_ = addon.Player:GetFullName("player")
-        if self_ then candidates[self_] = true else complete = false end
+        local full, moved = PartySlot(1, "player")
+        if full then candidates[full] = true else complete = false end
+        SettleBuild("solo", 1, moved, complete)
         return candidates, complete
     end
 
     if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do
+        local count = GetNumGroupMembers()
+        local reuse = slotMode == "raid"
+        for i = 1, count do
             local name = GetRaidRosterInfo(i)
             if not IsSecret(name) and name and name ~= "" and name ~= UNKNOWNOBJECT then
-                local record = addon.Player:Get(name)
-                if record.fullName and not record.unresolved then
-                    candidates[record.fullName] = true
+                local full = reuse and slotName[i] == name and slotFull[i]
+                if full then
+                    candidates[full] = true
                 else
+                    changed = true
+                    local record = addon.Player:Get(name)
+                    if record.fullName and not record.unresolved then
+                        slotName[i], slotFull[i], slotUnit[i] = name, record.fullName, "raid" .. i
+                    else
+                        slotName[i], slotFull[i], slotUnit[i] = nil, nil, nil
+                        complete = false
+                    end
                     if record.fullName then candidates[record.fullName] = true end
-                    complete = false
                 end
             else
+                changed = changed or slotFull[i] ~= nil
+                slotName[i], slotFull[i], slotUnit[i] = nil, nil, nil
                 complete = false
             end
         end
+        SettleBuild("raid", count, changed, complete)
         return candidates, complete
     end
 
-    local self_ = addon.Player:GetFullName("player")
-    if self_ then candidates[self_] = true else complete = false end
-    for i = 1, GetNumGroupMembers() - 1 do
+    local full, moved = PartySlot(1, "player")
+    changed = moved
+    if full then candidates[full] = true else complete = false end
+    local count = GetNumGroupMembers()
+    for i = 1, count - 1 do
         local unit = "party" .. i
         if UnitExists(unit) then
-            local full = addon.Player:GetFullName(unit)
+            full, moved = PartySlot(i + 1, unit)
+            changed = changed or moved
             if full then candidates[full] = true else complete = false end
+        else
+            changed = changed or slotFull[i + 1] ~= nil
+            slotName[i + 1], slotFull[i + 1], slotUnit[i + 1] = nil, nil, nil
         end
     end
+    SettleBuild("party", math.max(count, 1), changed, complete)
     return candidates, complete
 end
 
@@ -392,4 +459,11 @@ function addon.GetCandidates()
         candidateSet = nil
     end
     return candidates
+end
+
+
+function Roster:UnitForName(fullName)
+    addon.GetCandidates()
+    if not (candidateSet and candidateEpoch == epoch) then return nil end
+    return unitOfName[fullName]
 end

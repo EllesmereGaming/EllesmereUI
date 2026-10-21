@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -9,15 +10,7 @@ local T = addon.Locale.Text
 local Whisper = {}
 addon.Whisper = Whisper
 
-local issecretvalue = issecretvalue
-
-local function IsSecret(...)
-    if not issecretvalue then return false end
-    for i = 1, select("#", ...) do
-        if issecretvalue((select(i, ...))) then return true end
-    end
-    return false
-end
+local IsSecret = addon.IsSecret
 
 
 
@@ -503,7 +496,8 @@ local function Handle(text, sender)
     end
 
 
-    if not addon.PlayerIsMasterLooter() then return end
+
+    if not IsInGroup() or not addon.PlayerIsMasterLooter() then return end
 
 
     if IsSecret(text, sender) then

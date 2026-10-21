@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
@@ -285,7 +286,7 @@ function MLFrame:ConfirmRetract(entryId)
                 return
             end
             if not addon.Session:RetractAward(args.runId, args.session, args.recipient) then
-                print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+                addon.Chat.Print(addon.Locale.Format(
                     T["could not undo the award of %s - see /slc log."], entry.link or "?"))
             end
         end,
@@ -324,7 +325,7 @@ function MLFrame:ConfirmRetractOthers(key)
                 return
             end
             if not addon.Session:RetractAward(record.runId, record.session, record.winner) then
-                print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+                addon.Chat.Print(addon.Locale.Format(
                     T["could not undo the award of %s - see /slc log."], record.link or "?"))
             end
         end,
@@ -731,13 +732,13 @@ local function BuildColumns(forCompact)
                 local coinText = ""
                 if item and addon.BonusRoll then
                     local coin, spent = addon.BonusRoll:StatusFor(row.name, item)
-                    if coin then
-                        coinText = S.Colorize(S.color.accent, T["coined"])
-                    elseif spent > 0 then
-                        coinText = S.Colorize(S.color.accent,
-                            addon.Locale.Format(addon.Locale.Plural{
-                                one = "spent %d coin", other = "spent %d coins",
-                            }, spent, spent))
+                    spent = spent + (coin and 1 or 0)
+                    if spent > 0 then
+
+                        local possible = addon.BonusRoll:PossibleFor(row.name, item)
+                        coinText = S.Colorize(S.color.accent, possible
+                            and addon.Locale.Format(T["Bonus rolls: %d of %d"], spent, possible)
+                            or addon.Locale.Format(T["Bonus rolls: %d"], spent))
                     end
                 end
 
@@ -1250,6 +1251,12 @@ end
 
 
 
+local function RoleName(role)
+    if role == "TANK" then return T["Tank"] end
+    if role == "HEALER" then return T["Healer"] end
+    if role == "DAMAGER" then return T["DPS"] end
+end
+
 local function ShowMoreInfo(anchor, name)
     if not addon.db.showMoreInfo then return end
 
@@ -1260,10 +1267,9 @@ local function ShowMoreInfo(anchor, name)
     local stats = addon.History:GetStats(isAlt and main or name)
     local item = addon.Session:GetItem(selectedSession)
     local previous = item and addon.History:GetWinnersOfItem(item.link) or {}
-    local attendance = addon.Attendance
-        and addon.Attendance:For(name, addon.RaidTeam and addon.RaidTeam:GetSeasonStart())
     local notes = addon.RaidTeam and addon.RaidTeam:NoteFor(name)
-    local hasNotes = notes and (notes.note or notes.officerNote)
+    local shift = IsShiftKeyDown()
+    local hasNotes = notes and (notes.note or (shift and notes.officerNote))
 
 
 
@@ -1272,7 +1278,8 @@ local function ShowMoreInfo(anchor, name)
         coin, spentAtBoss = addon.BonusRoll:StatusFor(name, item)
     end
 
-    if not stats and #previous == 0 and not (attendance and attendance.nights > 0)
+
+    if not stats and #previous == 0 and not (notes and notes.officerNote)
         and not hasNotes and not coin and spentAtBoss == 0 then
         return
     end
@@ -1287,7 +1294,7 @@ local function ShowMoreInfo(anchor, name)
         local info = addon.Specs:Info(addon.Specs:Get(record.guid))
         if info and info.name then
             GameTooltip:AddLine(
-                info.role and addon.Locale.Format(T["%s - %s"], info.name, info.role)
+                RoleName(info.role) and addon.Locale.Format(T["%s - %s"], info.name, RoleName(info.role))
                     or info.name,
                 0.55, 0.55, 0.55)
         end
@@ -1307,72 +1314,13 @@ local function ShowMoreInfo(anchor, name)
             GameTooltip:AddLine(addon.Locale.Format(T["Note: %s"], notes.note),
                 0.55, 0.55, 0.55, true)
         end
-        if notes.officerNote then
+        if shift and notes.officerNote then
             GameTooltip:AddLine(addon.Locale.Format(T["Officer: %s"], notes.officerNote),
                 0.55, 0.55, 0.55, true)
         end
     end
 
-
-    if attendance then
-        S.TooltipSection(GameTooltip, T["Attendance"])
-        local seasonal = addon.RaidTeam and addon.RaidTeam:GetSeasonStart()
-        if attendance.nights > 0 then
-            GameTooltip:AddLine(addon.Locale.Format(seasonal
-                and T["%d/%d nights this season"] or T["%d/%d nights"],
-                attendance.attended, attendance.nights), 0.64, 0.63, 0.60)
-        else
-            GameTooltip:AddLine(T["No raids recorded"], 0.45, 0.44, 0.42)
-        end
-    end
-
     if stats then
-        S.TooltipSection(GameTooltip, T["Loot history"])
-        GameTooltip:AddLine(addon.Locale.Format(addon.Locale.Plural{
-            one = "Received %d item", other = "Received %d items",
-        }, stats.total, stats.total), 1, 1, 1)
-
-
-        if (stats.imported or 0) > 0 then
-            local sources = {}
-            for source, count in pairs(stats.importedBySource or {}) do
-                sources[#sources + 1] = {
-                    label = addon.HistoryImport:Label(source), count = count,
-                }
-            end
-            table.sort(sources, function(a, b) return a.label < b.label end)
-            for _, source in ipairs(sources) do
-                GameTooltip:AddLine(addon.Locale.Format(T["  %d imported from %s"],
-                    source.count, source.label), 0.45, 0.44, 0.42)
-            end
-        end
-
-
-        if (stats.fromAlts or 0) > 0 then
-            GameTooltip:AddLine(addon.Locale.Format(addon.Locale.Plural{
-                one = "  incl. %d on alt", other = "  incl. %d on alts",
-            }, stats.fromAlts, stats.fromAlts),
-                0.45, 0.44, 0.42)
-        end
-
-
-        if (stats.reasons or 0) > 0 then
-            GameTooltip:AddLine(addon.Locale.Format(T["  plus %d held for the guild (not counted)"],
-                stats.reasons), 0.45, 0.44, 0.42)
-        end
-
-
-
-        local ordered = {}
-        for text, count in pairs(stats.counts) do
-            ordered[#ordered + 1] = { text = text, count = count }
-        end
-        table.sort(ordered, function(a, b) return a.count > b.count end)
-        for _, row in ipairs(ordered) do
-            GameTooltip:AddDoubleLine(addon.Locale.Format(T["  %s"], row.text), row.count,
-                0.8, 0.8, 0.8, 1, 1, 1)
-        end
-
         S.TooltipSection(GameTooltip, T["Most Recent Loot"])
         for i = 1, math.min(5, #stats.recent) do
             local entry = stats.recent[i]
@@ -1424,9 +1372,19 @@ local function ShowMoreInfo(anchor, name)
         }, spentAtBoss, spentAtBoss,
             addon.Encounter:DisplayName(item.boss, item.encounterID) or T["this boss"]),
             0.8, 0.8, 0.8)
+        local possible, bySpec = addon.BonusRoll:PossibleFor(name, item)
+        if possible then
+            GameTooltip:AddLine(addon.Locale.Format(bySpec and addon.Locale.Plural{
+                one = "  %d item there for their spec", other = "  %d items there for their spec",
+            } or addon.Locale.Plural{
+                one = "  %d item there for their class", other = "  %d items there for their class",
+            }, possible, possible), 0.8, 0.8, 0.8)
+        end
     end
 
     GameTooltip:Show()
+
+    S.WatchTooltipModifiers(anchor)
 end
 
 

@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -35,10 +36,7 @@ local function Refuse(reason, sender, ...)
 end
 
 
-local issecretvalue = issecretvalue
-local function IsSecret(value)
-    return issecretvalue ~= nil and issecretvalue(value)
-end
+local IsSecret = addon.IsSecret
 
 
 
@@ -328,7 +326,7 @@ function Roll:ApplyRoll(session, name, value, round, sender, selfReport)
 
 
     if selfReport and asked == 0 then
-        Refuse("unasked_roll", sender, tostring(name))
+        Refuse("unasked_roll", sender, "session", tostring(session))
         return
     end
 
@@ -696,7 +694,7 @@ function Roll:Init()
 
     if not systemPattern then
         addon.Log:E("Roll", "cannot read roll results from chat on this client - RANDOM_ROLL_RESULT did not round-trip")
-        print(addon.Log.CHAT_PREFIX.accent .. T["this client's roll message could not be parsed, so typed rolls will not be recorded. The Loot Master can still generate rolls."])
+        addon.Chat.Print(T["this client's roll message could not be parsed, so typed rolls will not be recorded. The Loot Master can still generate rolls."])
     end
 
 

@@ -298,7 +298,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                     local amtStr = isHeal and ("+" .. AbbrevNumber(math.abs(amt))) or ("-" .. AbbrevNumber(amt))
                     local overkill = ev.overkill
                     if isFatal and overkill and not IsSecret(overkill) and type(overkill) == "number" and overkill > 0 then
-                        b.amount:SetText(amtStr .. " |cffff3333(" .. AbbrevNumber(overkill) .. " overkill)|r" .. pctStr)
+                        b.amount:SetText(amtStr .. " |cffff3333(" .. EllesmereUI.Lf("%1$s overkill", AbbrevNumber(overkill)) .. ")|r" .. pctStr)
                     else
                         b.amount:SetText(amtStr .. pctStr)
                     end
@@ -456,7 +456,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                 -- SetText displays it, where the old nil-out fell to "Unknown".
                 spellName = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spell.spellID)
             end
-            b.label:SetText(spellName or spell.creatureName or "Unknown")
+            b.label:SetText(spellName or spell.creatureName or L("Unknown"))
             if canPercent and totalDmg > 0 then
                 b.amount:SetText(format("%s  %.1f%%", AbbrevNumber(entry.amount), (entry.amount / totalDmg) * 100))
             else

@@ -2,9 +2,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_RaidFrames_Preview.lua
 --
---  Options preview for the raid and party frames: fake members, the preview
---  aura ticker, the real-frame overlay and the size preview. Loads behind
---  the EUI_RaidFrames_*.lua chain and reads it through ns and ns._internals.
+--  The options preview's shared data: the sample rosters and icon tables,
+--  and ns._previewInternals for the EUI_RaidFrames_Preview*.lua files behind
+--  it, which hold the preview itself (fake members, the tickers, the
+--  real-frame overlay, the size preview). Loads behind the EUI_RaidFrames_*.lua
+--  chain and reads it through ns and ns._internals.
 -------------------------------------------------------------------------------
 local _, ns = ...
 

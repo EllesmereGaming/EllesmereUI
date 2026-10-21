@@ -53,6 +53,37 @@ EllesmereUI.VIS_VALUES_CDM = {
 }
 EllesmereUI.VIS_ORDER_CDM = { "never", "always", "in_combat", "out_of_combat", "---", "in_raid", "in_party", "solo" }
 
+-- Each class's stance bar pages, as macro conditions: the action bars' paging
+-- states and the CDM's Stance Bar hide. A form pages only where the client
+-- gives it a bonus bar: on WoW Forever Berserker Stance has one (3) and
+-- Moonkin Form none, on retail the other way round. Tree of Life has none on
+-- either client, so it is not listed.
+EllesmereUI.CLASS_PAGING_STATES = {
+    DRUID = {
+        { id = "prowl",   macro = "[bonusbar:1,stealth]", label = "Prowl" },
+        { id = "cat",     macro = "[bonusbar:1]",         label = "Cat Form" },
+        { id = "bear",    macro = "[bonusbar:3]",         label = "Bear Form" },
+        { id = "moonkin", macro = "[bonusbar:4]",         label = "Moonkin Form" },
+    },
+    ROGUE = {
+        { id = "stealth", macro = "[bonusbar:1]", label = "Stealth" },
+    },
+    WARRIOR = {
+        { id = "battle",    macro = "[bonusbar:1]", label = "Battle Stance" },
+        { id = "defensive", macro = "[bonusbar:2]", label = "Defensive Stance" },
+    },
+    EVOKER = {
+        { id = "soar", macro = "[bonusbar:1]", label = "Soar" },
+    },
+}
+if EllesmereUI.IS_FOREVER == true then
+    local states = EllesmereUI.CLASS_PAGING_STATES
+    table.insert(states.WARRIOR, { id = "berserker", macro = "[bonusbar:3]", label = "Berserker Stance" })
+    for i = #states.DRUID, 1, -1 do
+        if states.DRUID[i].id == "moonkin" then table.remove(states.DRUID, i) end
+    end
+end
+
 -- Checkbox dropdown 2: Visibility Options (keys match DB fields). Every entry is
 -- evaluated by CheckVisibilityOptions below, so any module using that evaluator
 -- may offer the whole list; the skyriding edge (PLAYER_CAN_GLIDE_CHANGED /

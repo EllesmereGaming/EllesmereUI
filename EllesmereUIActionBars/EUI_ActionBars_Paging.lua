@@ -39,35 +39,9 @@ EAB_VTABLE.PAGING_STATES = {
         { id = "help",  macro = "[help]",      label = "Friendly Target" },
         { id = "harm",  macro = "[harm]",      label = "Hostile Target" },
     },
-    class = {
-        DRUID = {
-            { id = "prowl",   macro = "[bonusbar:1,stealth]", label = "Prowl" },
-            { id = "cat",     macro = "[bonusbar:1]",         label = "Cat Form" },
-            { id = "bear",    macro = "[bonusbar:3]",         label = "Bear Form" },
-            { id = "moonkin", macro = "[bonusbar:4]",         label = "Moonkin Form" },
-        },
-        ROGUE = {
-            { id = "stealth", macro = "[bonusbar:1]", label = "Stealth" },
-        },
-        WARRIOR = {
-            { id = "battle",    macro = "[bonusbar:1]", label = "Battle Stance" },
-            { id = "defensive", macro = "[bonusbar:2]", label = "Defensive Stance" },
-        },
-        EVOKER = {
-            { id = "soar", macro = "[bonusbar:1]", label = "Soar" },
-        },
-    },
+    -- Shared with the CDM's Stance Bar hide (EllesmereUI_VisibilityRules.lua).
+    class = EllesmereUI.CLASS_PAGING_STATES,
 }
--- A form pages only where the client gives it a bonus bar: on WoW Forever
--- Berserker Stance has one (3) and Moonkin Form none, on retail the other way
--- round. Tree of Life has none on either client, so it is not listed.
-if EllesmereUI.IS_FOREVER == true then
-    local states = EAB_VTABLE.PAGING_STATES.class
-    table.insert(states.WARRIOR, { id = "berserker", macro = "[bonusbar:3]", label = "Berserker Stance" })
-    for i = #states.DRUID, 1, -1 do
-        if states.DRUID[i].id == "moonkin" then table.remove(states.DRUID, i) end
-    end
-end
 
 -- Modifier/Target Paging (the bar's modTargetPaging): false switches the five
 -- modifier and target states off without clearing them; never set, they apply

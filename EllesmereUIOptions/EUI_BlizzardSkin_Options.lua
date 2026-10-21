@@ -32,7 +32,7 @@ initFrame:SetScript("OnEvent", function(self)
         local W = EllesmereUI.Widgets
         local y = yOffset
         local _, h
-        -- The step the skin renders with (_applyConfiguredBorder in EllesmereUIBlizzardSkin.lua):
+        -- The step the skin renders with (_applyConfiguredBorder in EUI_BlizzardSkin_TooltipSkin.lua):
         -- the stored label (an unknown one = thin); unset = the legacy numeric tooltipBorderSize for the tooltip, 1 otherwise.
         local function BorderStep(prefix)
             local key = EllesmereUIDB[prefix.."BorderThickness"]
@@ -330,7 +330,7 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()  -- update the position cog + Growth Direction disabled states
               end },
             -- Default screen-anchored tooltip only (see ApplyGrowthDirection in
-            -- EllesmereUIBlizzardSkin.lua): Blizzard picks the anchored corner
+            -- EUI_BlizzardSkin_TooltipAnchor.lua): Blizzard picks the anchored corner
             -- dynamically from the tooltip's screen position; "Expand Up"/"Expand Down"
             -- force the vertical component of that corner. The cursor anchor re-points
             -- the tooltip itself, so this grays out while Anchor to Cursor is on.

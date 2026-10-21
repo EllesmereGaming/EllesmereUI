@@ -730,7 +730,8 @@ local function BuildDisplayLayout(parent, y, ctx)
     end
 
     -- Row 3: Bar Texture | Cast Bar Texture -- share the same texture set (EUI built-ins + SharedMedia) and resolve identically; Bar Texture drives the health bar, Cast Bar Texture drives the cast bar.
-    _, h = W:DualRow(parent, y,
+    local texRow
+    texRow, h = W:DualRow(parent, y,
         -- Bar Texture stays live under Blizzard Style: the health fill is the
         -- user's own texture under the stock background art.
         { type="dropdown", text="Bar Texture", values=hbtValues, order=hbtOrder,
@@ -747,6 +748,21 @@ local function BuildDisplayLayout(parent, y, ctx)
             RefreshAllTextures()
             UpdatePreview()
           end }));  y = y - h
+    -- Textured Background cogs on the two texture dropdowns, greyed while
+    -- Blizzard Style draws its stock backgrounds (as Global Settings > Textures).
+    if not EllesmereUI._prebuilding then
+        local function TexBgApply() RefreshAllTextures(); UpdatePreview() end
+        local blizz = ns.NP_BlizzOnly()
+        local function TexBgCog(rgn, kind)
+            EllesmereUI.BuildInlineCog(rgn, {
+                disabled = blizz and function() return true end or nil,
+                disabledTooltip = blizz and EllesmereUI.BlizzStyle.Label("nameplates") or nil,
+                requireState = blizz and "disabled" or nil,
+                title = "Texture Settings", rows = { env.TexBgRowCfg(kind, TexBgApply) } })
+        end
+        TexBgCog(texRow._leftRegion, "health")
+        TexBgCog(texRow._rightRegion, "cast")
+    end
 
     -- WoW Forever variant only (the Forever client): Show Level Box, the
     -- opt-out for the level box right of the health bar (nil = shown),

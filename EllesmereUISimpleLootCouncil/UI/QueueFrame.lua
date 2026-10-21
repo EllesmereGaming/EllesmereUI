@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 SimpleLootCouncil = SimpleLootCouncil or {}
 local addon = SimpleLootCouncil
@@ -20,6 +21,9 @@ local bagPanel, bagHost, bagEmpty, bagTitle, bagHint
 local bagScroll, bagContent
 local bagRows, bagHeaders = {}, {}
 local bagCache, bagCacheAt
+
+
+local ownScan
 local autoOpenPanel, autoOpenBox, autoPopulateBox
 
 local ROW_HEIGHT = 32
@@ -175,11 +179,28 @@ local function PlayerLabel(fullName)
     return S.Colorize(S.color.text, short)
 end
 
+
+local function OwnItems()
+    if not ownScan then
+        ownScan = { items = addon.Storage:GetTradeableItems(), at = GetTime() }
+    end
+    local elapsed = GetTime() - ownScan.at
+    local items = {}
+    for _, entry in ipairs(ownScan.items) do
+        local remaining = entry.secondsLeft and entry.secondsLeft - elapsed
+        if not remaining or remaining > 0 then
+            items[#items + 1] = { link = entry.link, secondsLeft = remaining,
+                eligible = entry.eligible, owed = entry.owed, owedTo = entry.owedTo }
+        end
+    end
+    return items
+end
+
 function QueueFrame:RefreshBags()
     if not bagPanel or not bagPanel:IsShown() then return end
 
     if not bagCache then
-        bagCache = addon.BagShare:Holders()
+        bagCache = addon.BagShare:Holders(OwnItems)
         bagCacheAt = GetTime()
     end
     local elapsed = GetTime() - bagCacheAt
@@ -285,7 +306,7 @@ function QueueFrame:RefreshBags()
                 if index and addon.Session:IsRunning() then
 
 
-                    print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+                    addon.Chat.Print(addon.Locale.Format(
                         T["added %s to the running run as session %d."], link, index))
                 elseif not index then
 
@@ -294,7 +315,7 @@ function QueueFrame:RefreshBags()
                         and T["could not queue %s - a run is in progress, and only the Loot Master can add to it."]
                         or why == "queued" and T["could not queue %s - every copy is already queued."]
                         or T["could not queue %s - it is no longer in the holder's bags with an active trade timer."]
-                    print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(sentence, link))
+                    addon.Chat.Print(addon.Locale.Format(sentence, link))
                 end
                 QueueFrame:Refresh()
             end)
@@ -486,13 +507,13 @@ function QueueFrame:AddAllFromBags(auto)
 
     local added = #addon.Session:AddItems(links, me, bosses, encounterIDs)
     if not auto or added > 0 then
-        print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(addon.Locale.Plural{
+        addon.Chat.Print(addon.Locale.Format(addon.Locale.Plural{
             one = "added %d item from bags",
             other = "added %d items from bags",
         }, added, added))
     end
     if skipped > 0 and not auto then
-        print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(addon.Locale.Plural{
+        addon.Chat.Print(addon.Locale.Format(addon.Locale.Plural{
             one = "skipped %d copy already owed to a winner in Loot to Trade - click it in the bags panel to queue it anyway.",
             other = "skipped %d copies already owed to winners in Loot to Trade - click one in the bags panel to queue it anyway.",
         }, skipped, skipped))
@@ -594,7 +615,7 @@ local function Build()
             end
         end
         addon.Comms:Send("start_request", { items = proposal })
-        print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(addon.Locale.Plural{
+        addon.Chat.Print(addon.Locale.Format(addon.Locale.Plural{
             one = "asking the Loot Master to start the run with %d proposed item...",
             other = "asking the Loot Master to start the run with %d proposed items...",
         }, #proposal, #proposal))
@@ -607,8 +628,7 @@ local function Build()
 
 
         if addon.Session:IsRunning() and not addon.PlayerIsMasterLooter() then
-            print(addon.Log.CHAT_PREFIX.accent
-                .. T["nothing added from bags - a run is in progress, and only the Loot Master can add to it."])
+            addon.Chat.Print(T["nothing added from bags - a run is in progress, and only the Loot Master can add to it."])
             return
         end
         QueueFrame:AddAllFromBags(false)
@@ -720,7 +740,7 @@ local function Build()
 
     bagWatcher = CreateFrame("Frame")
     bagWatcher:SetScript("OnEvent", function()
-        bagCache, bagCacheAt = nil, nil
+        bagCache, bagCacheAt, ownScan = nil, nil, nil
         addon.Callbacks:Invalidate("queueBags")
         if killOpened and frame:IsShown() then AutoAddFromBags() end
     end)
@@ -769,6 +789,11 @@ function QueueFrame:Init()
         addon.Callbacks:Invalidate("queueBags")
     end
     local function BagsChanged()
+        bagCache, bagCacheAt, ownScan = nil, nil, nil
+        addon.Callbacks:Invalidate("queueBags")
+    end
+
+    local function SharedChanged()
         bagCache, bagCacheAt = nil, nil
         addon.Callbacks:Invalidate("queueBags")
     end
@@ -786,12 +811,17 @@ function QueueFrame:Init()
         BagsChanged()
         QueueChanged()
     end)
-    addon.Callbacks:Register("BagShareChanged", BagsChanged)
+    addon.Callbacks:Register("BagShareChanged", SharedChanged)
     addon.Callbacks:Register("StorageChanged", BagsChanged)
 
     local function HeaderChanged() addon.Callbacks:Invalidate("queue") end
-    addon.Callbacks:Register("CouncilChanged", HeaderChanged)
-    addon.Callbacks:Register("LootMasterChanged", HeaderChanged)
+
+    local function HoldersChanged()
+        HeaderChanged()
+        if frame and frame:IsShown() then addon.BagShare:AskMissing() end
+    end
+    addon.Callbacks:Register("CouncilChanged", HoldersChanged)
+    addon.Callbacks:Register("LootMasterChanged", HoldersChanged)
     addon.Callbacks:Register("RosterChanged", HeaderChanged)
 
 
@@ -819,11 +849,12 @@ function QueueFrame:Toggle()
         frame:Hide()
         return
     end
-    WhenBuilt(function()
+
+    WhenBuilt(function() addon.Storage:ShareLiveScan(function()
 
         autoOpenPanel:Hide()
         killOpened = false
-        bagCache, bagCacheAt = nil, nil
+        bagCache, bagCacheAt, ownScan = nil, nil, nil
 
         if not addon.PlayerIsMasterLooter() or addon.Config:CouncilBagsShared() then
             addon.BagShare:Request()
@@ -833,5 +864,5 @@ function QueueFrame:Toggle()
         addon.Callbacks:Invalidate("queueBags")
         frame:Show()
         AutoAddFromBags()
-    end)
+    end) end)
 end

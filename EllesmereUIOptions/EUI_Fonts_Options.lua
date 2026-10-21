@@ -1410,7 +1410,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
             { key = "actionBars", label = "Action Bars Icons" },
             { key = "unitFrames", label = "Unit Frames Icons" },
             { key = "cdm",        label = "CDM Icons" },
-            { key = "raidFrames", label = "Raid Frames Icons" },
+            { key = "raidFrames", label = "Raid & Party Frames Icons" },
             { key = "bags",       label = "Bags Icons" },
         }
         local rgn = oitRow._leftRegion

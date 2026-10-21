@@ -38,14 +38,17 @@ local REACTIVE_PREVIEW = {
 
 -- After a change to Use Blizzard's Rep Bars or the XP Bar Style: the page
 -- re-reads its values, and a change that leaves our bars wanted but never
--- built (they are built at login only while Blizzard's are off) asks for the
--- reload that creates them.
+-- built (they are built at login only while Blizzard's are off), or brings
+-- Blizzard's bars back after their events were dropped, asks for the reload
+-- that applies it.
 local function AfterDataBarSwitch(needsReload)
     EllesmereUI:RefreshPage()
     if needsReload then
         EllesmereUI:ShowConfirmPopup({
             title       = "Reload Required",
-            message     = "Your own XP and reputation bars are created on reload.",
+            message     = ns.EAB.db.profile.useBlizzardDataBars
+                and "Blizzard's XP and reputation bars return after a UI reload."
+                or "Your own XP and reputation bars are created on reload.",
             confirmText = "Reload Now",
             cancelText  = "Later",
             reload      = true,
@@ -284,6 +287,7 @@ local function DataBarKit(parent)
     local function RefreshDataBar(bk)
         local f = ns.dataBarFrames and ns.dataBarFrames[bk]
         if f and f._updateFunc then f._updateFunc() end
+        ns.RefreshDataBarPreview(bk, true)
     end
 
     -- Custom Border (each data-bar section's opt-in). Its two sync links copy

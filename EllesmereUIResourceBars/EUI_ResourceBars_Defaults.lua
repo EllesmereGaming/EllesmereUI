@@ -17,26 +17,24 @@ local UnitClass, GetShapeshiftFormID = UnitClass, GetShapeshiftFormID
 -------------------------------------------------------------------------------
 local _, playerClassFile = UnitClass("player")
 
--- Druid "hide bar text per form". isClassResource: Moonkin (31/35) is exempt on
--- the class resource bar (shows Astral there); power/health get their own
--- "Moonkin" bucket, separate from "Caster" (no form).
-_G._ERB_TextHiddenByForm = function(cfg, isClassResource)
+-- Druid "hide bar text per form", the same buckets on every bar: Cat (1),
+-- Bear (5) and Moonkin (31/35) each have their own; any other form, or none,
+-- is "Caster" ("mana").
+_G._ERB_TextHiddenByForm = function(cfg)
     if playerClassFile ~= "DRUID" then return false end
     local df = cfg and cfg.textDisabledForms
     if not df then return false end
     local f = GetShapeshiftFormID()
-    if isClassResource and (f == 31 or f == 35) then return false end
     local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
     return df[key] and true or false
 end
--- Druid "hide whole bar per form": same buckets/isClassResource rule as above,
--- driven by cfg.barDisabledForms. Alpha-based hide, safe to flip mid-combat.
-_G._ERB_BarHiddenByForm = function(cfg, isClassResource)
+-- Druid "hide whole bar per form": the same buckets as above, driven by
+-- cfg.barDisabledForms. Alpha-based hide, safe to flip mid-combat.
+_G._ERB_BarHiddenByForm = function(cfg)
     if playerClassFile ~= "DRUID" then return false end
     local df = cfg and cfg.barDisabledForms
     if not df then return false end
     local f = GetShapeshiftFormID()
-    if isClassResource and (f == 31 or f == 35) then return false end
     local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
     return df[key] and true or false
 end
@@ -85,6 +83,7 @@ local DEFAULTS = {
             barAlpha    = 1.0,
             oocFadeEnabled = false,  -- "Fade Out of Combat" toggle (off by default)
             oocAlpha    = 0.5,       -- alpha the bar fades to while out of combat
+            showWhenMissing = false,  -- reveal a hidden bar while below full (off by default)
             visibility  = "always",  -- "always","combat","target","mouseover","never","in_combat","in_raid","in_party","solo"
             visHideHousing = false,
             visOnlyInstances = false,
@@ -118,10 +117,9 @@ local DEFAULTS = {
             borderSize  = 1,
             borderR     = 0, borderG = 0, borderB = 0, borderA = 1,
             borderTexture = "solid",
-            -- Extend Top / Extend Bottom (Border Options cog, textured styles
-            -- only): UI units the border reaches past the bar's top / bottom
-            -- edge on screen. 0 = off (ns.ERB_BorderExtents).
-            borderExtendTop = 0, borderExtendBottom = 0,
+            -- Border extensions (textured styles only): UI units past each
+            -- screen edge. 0 = off (ns.ERB_BorderExtents).
+            borderExtendTop = 0, borderExtendBottom = 0, borderExtendLeft = 0, borderExtendRight = 0,
             -- Bottom Separator (Border Options cog, textured styles only): edgeSep
             -- off = None; on = the companion strip along the bottom edge, art
             -- edgeSepArt ("match" = the bar's own style, else a border key),
@@ -151,6 +149,8 @@ local DEFAULTS = {
             barAlpha    = 1.0,
             oocFadeEnabled = false,  -- "Fade Out of Combat" toggle (off by default)
             oocAlpha    = 0.5,       -- alpha the bar fades to while out of combat
+            showWhenMissing = false,  -- reveal a hidden bar while below full (off by default)
+            showManaWhenMissing = false,
             visibility  = "always",  -- "always","combat","target","mouseover","never","in_combat","in_raid","in_party","solo"
             visHideHousing = false,
             visOnlyInstances = false,
@@ -217,7 +217,7 @@ local DEFAULTS = {
             borderSize  = 1,
             borderR     = 0, borderG = 0, borderB = 0, borderA = 1,
             borderTexture = "solid",
-            borderExtendTop = 0, borderExtendBottom = 0,  -- full-bar border only, never per-pip
+            borderExtendTop = 0, borderExtendBottom = 0, borderExtendLeft = 0, borderExtendRight = 0,  -- full-bar border only, never per-pip
             -- Separators (Border Options cog): edgeSep = the dropdown's on/off (None
             -- = false), edgeSepH = the bottom-edge line, edgeSepV = one line per gap
             -- between pips and runes; edgeSepArt / edgeSepY as on the power bar.
@@ -304,6 +304,7 @@ local DEFAULTS = {
             useClassicStyle = false,
             alwaysShow    = false,  -- keep the bar on screen (sitting empty) while nothing is being cast
             showIcon      = true,
+            iconOnPortrait = false,
             iconOnRight   = false,  -- attach the spell icon to the right of the bar instead of the left
             showIconDivider = false,  -- draw a 1px divider at the icon/bar seam (interior seam has no border otherwise)
             iconSize      = 0,  -- 0 = the bar height
@@ -325,7 +326,7 @@ local DEFAULTS = {
             borderSize    = 1,
             borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
             borderTexture = "solid",
-            borderExtendTop = 0, borderExtendBottom = 0,  -- border host is bar + icon
+            borderExtendTop = 0, borderExtendBottom = 0, borderExtendLeft = 0, borderExtendRight = 0,  -- border host is bar + icon
             edgeSep = false, edgeSepY = 0, edgeSepArt = "match",  -- Bottom Separator (Border Options cog)
             iconDividerArt = false,  -- Border Art Divider (Spell Icon Settings cog)
             bgR           = 0, bgG = 0, bgB = 0, bgA = 0.7,
@@ -352,6 +353,8 @@ local DEFAULTS = {
             gcdBoundaryR = 1.0, gcdBoundaryG = 0.82, gcdBoundaryB = 0.0, gcdBoundaryA = 0.95,
             coloredEmpowerStages = false,  -- Color empowered spells from red to green per stage
             outOfRangeGray = false,  -- Gray fill while the target is out of the cast's range
+            uninterruptibleOverride = false,  -- Own fill color for casts that cannot be interrupted
+            uninterruptibleR = 0.5, uninterruptibleG = 0.5, uninterruptibleB = 0.5,
             showTotalDuration = false,
             latencyEnabled    = false,
             latencyShowText   = false,
@@ -376,7 +379,7 @@ local DEFAULTS = {
             borderSize    = 1,
             borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
             borderTexture = "solid",
-            borderExtendTop = 0, borderExtendBottom = 0,
+            borderExtendTop = 0, borderExtendBottom = 0, borderExtendLeft = 0, borderExtendRight = 0,
             edgeSep = false, edgeSepY = 0, edgeSepArt = "match",  -- Bottom Separator (Border Options cog)
             bgR           = 0, bgG = 0, bgB = 0, bgA = 0.7,
             frameStrata   = "MEDIUM",

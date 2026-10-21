@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -117,10 +118,7 @@ end
 
 
 
-local issecretvalue = issecretvalue
-local function IsSecret(value)
-    return issecretvalue ~= nil and issecretvalue(value) or false
-end
+local IsSecret = addon.IsSecret
 
 
 
@@ -480,8 +478,10 @@ function Encounter:KnownBossNames()
         end
     end
     for _, entry in ipairs(Log()) do add(entry.name) end
-    if addon.History and addon.History.EachEntry then
-        addon.History.EachEntry(function(entry) add(entry.boss) end)
+
+    if addon.History and addon.History.EachLive then
+        addon.History.EachLive(function(entry) add(entry.boss) end)
+        for boss in pairs(addon.History:ArchivedBosses()) do add(boss) end
     end
     table.sort(names)
     return names
@@ -496,12 +496,13 @@ function Encounter:EncounterIDFor(name)
         if log[i].name == name and log[i].id then return log[i].id end
     end
     local found
-    if addon.History and addon.History.EachEntry then
-        addon.History.EachEntry(function(entry)
+    if addon.History and addon.History.EachLive then
+        addon.History.EachLive(function(entry)
             if not found and entry.boss == name and entry.encounterID then
                 found = entry.encounterID
             end
         end)
+        found = found or addon.History:ArchivedBosses()[name] or nil
     end
     return found
 end
@@ -600,7 +601,7 @@ local function ScanSearchResults(itemID)
                 local name, _, _, _, _, _, dungeonEncounterID =
                     EJ_GetEncounterInfo(journalEncounter)
                 if type(name) == "string" and name ~= "" then
-                    return name, journalEncounter, tonumber(dungeonEncounterID)
+                    return name, journalEncounter, tonumber(dungeonEncounterID), difficultyID
                 end
             end
         end
@@ -617,13 +618,13 @@ RunNextSearch = function()
 
 
     local done = false
-    local function finish(boss, detail, encounterID)
+    local function finish(boss, detail, encounterID, difficultyID)
         done = true
         if EJ_ClearSearch then pcall(EJ_ClearSearch) end
         searching = false
         addon.Log:D("Encounter", "journal search for", job.link, "->",
             tostring(boss), tostring(detail), "encounter", tostring(encounterID))
-        local ok, err = pcall(job.callback, boss, detail, encounterID)
+        local ok, err = pcall(job.callback, boss, detail, encounterID, difficultyID)
         if not ok then
             addon.Log:Bug("Encounter", ("journal lookup callback for %s failed: %s")
                 :format(tostring(job.link), tostring(err)))
@@ -636,9 +637,10 @@ RunNextSearch = function()
     local function poll(ticker, ticks)
         if EJ_IsSearchFinished() then
             ticker:Cancel()
-            local boss, journalID, encounterID = ScanSearchResults(job.itemID)
+            local boss, journalID, encounterID, difficultyID = ScanSearchResults(job.itemID)
             if boss then
-                finish(boss, addon.Locale.Format(T["journal encounter %d"], journalID), encounterID)
+                finish(boss, addon.Locale.Format(T["journal encounter %d"], journalID),
+                    encounterID, difficultyID)
             else
                 finish(nil, addon.Locale.Format(T["%d result(s), none for item %d (search size %d)"],
                     EJ_GetNumSearchResults(), job.itemID, EJ_GetSearchSize()))
@@ -689,6 +691,312 @@ function Encounter:JournalBossForLink(itemLink, callback)
         itemID = itemID, name = name, link = itemLink, callback = callback,
     }
     RunNextSearch()
+end
+
+
+
+
+
+
+
+
+function Encounter.CountCoinLoot(infos, currentSeason, journalID)
+    local count, seen = 0, {}
+    for _, info in ipairs(infos or {}) do
+        local repeated = info.itemID and seen[info.itemID]
+        local otherBoss = journalID and info.encounterID and info.encounterID ~= journalID
+        if info.itemID then seen[info.itemID] = true end
+        if repeated or otherBoss or info.handError or info.weaponTypeError
+                or info.notGear then
+
+        elseif info.displaySeasonID then
+            if info.displaySeasonID == currentSeason then count = count + 1 end
+        elseif not (info.displayAsPerPlayerLoot or info.displayAsVeryRare
+                or info.displayAsExtremelyRare) then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+
+
+
+function Encounter.IsCoinGear(itemID)
+    local _, _, _, _, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
+    if not classID then return true end
+    return classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor
+        or (classID == Enum.ItemClass.Reagent
+            and subClassID == Enum.ItemReagentSubclass.ContextToken)
+        or addon.Loot:IsTierToken(itemID)
+end
+
+
+local JOURNAL_TIERS = 2
+local journalByDungeon, journalByName = nil, nil
+
+
+
+local function BuildJournalMap()
+    journalByDungeon, journalByName = {}, {}
+    local tiers = EJ_GetNumTiers()
+    for tier = tiers, math.max(1, tiers - JOURNAL_TIERS + 1), -1 do
+        EJ_SelectTier(tier)
+        local i = 1
+        local instanceID = EJ_GetInstanceByIndex(i, true)
+        while instanceID do
+            EJ_SelectInstance(instanceID)
+            local j = 1
+            local name, _, journalID = EJ_GetEncounterInfoByIndex(j)
+            while journalID do
+                local _, _, _, _, _, _, dungeonID = EJ_GetEncounterInfo(journalID)
+                local entry = { journal = journalID, instance = instanceID, tier = tier }
+                if dungeonID then journalByDungeon[dungeonID] = entry end
+                if name then journalByName[name] = journalByName[name] or entry end
+                j = j + 1
+                name, _, journalID = EJ_GetEncounterInfoByIndex(j)
+            end
+            i = i + 1
+            instanceID = EJ_GetInstanceByIndex(i, true)
+        end
+    end
+
+    if next(journalByDungeon) == nil and next(journalByName) == nil then
+        journalByDungeon, journalByName = nil, nil
+    end
+end
+
+
+
+local function SaveJournal()
+    local classID, specID = EJ_GetLootFilter()
+    return { tier = EJ_GetCurrentTier(), difficulty = EJ_GetDifficulty(),
+        classID = classID, specID = specID, slot = C_EncounterJournal.GetSlotFilter() }
+end
+
+local function RestoreJournal(saved)
+    local ok, err = pcall(function()
+        EJ_SelectTier(saved.tier)
+        local ej = EncounterJournal
+        if ej and ej.instanceID then
+            EJ_SelectInstance(ej.instanceID)
+            if ej.encounterID then EJ_SelectEncounter(ej.encounterID) end
+        end
+        if saved.difficulty then EJ_SetDifficulty(saved.difficulty) end
+        EJ_SetLootFilter(saved.classID or 0, saved.specID or 0)
+        if saved.slot then C_EncounterJournal.SetSlotFilter(saved.slot) end
+    end)
+    if not ok then addon.Log:Bug("Encounter", "journal restore raised: " .. tostring(err)) end
+end
+
+local function GuideShown()
+    return EncounterJournal and EncounterJournal:IsShown() or false
+end
+
+
+
+local LOOKUP_TICK, SETTLE_TICKS, LOOKUP_TICKS = 0.1, 5, 20
+local coinAnswers, coinJobs, coinQueue = {}, {}, {}
+local coinJob, coinSaved, coinStarting = nil, nil, false
+local lootWatcher, guideHooked = nil, false
+local StartNextCoinJob
+
+local function FinishCoinJob(job, count, reason, infos)
+    local ids, seen, parts = {}, {}, {}
+    for _, info in ipairs(infos or {}) do
+        local id = tostring(info.encounterID)
+        if not seen[id] then seen[id] = true; ids[#ids + 1] = id end
+        parts[#parts + 1] = ("%s/%s%s%s%s/%s"):format(tostring(info.itemID),
+            info.handError and "H" or "-", info.weaponTypeError and "W" or "-",
+            info.displayAsPerPlayerLoot and "P" or "-",
+            (info.displayAsVeryRare or info.displayAsExtremelyRare) and "R" or "-",
+            tostring(info.displaySeasonID))
+    end
+    addon.Log:D("Encounter", "journal coin loot", tostring(job.boss), "asked",
+        tostring(job.entry and job.entry.journal), "list", table.concat(ids, "/"),
+        "difficulty", tostring(job.difficultyID), "class", job.classID, "spec", job.specID,
+        "events", job.events or 0, "ticks", job.ticks or 0, "reselects", job.reselects or 0,
+        "outOfDate", tostring(job.outOfDate), "->", tostring(count),
+        "of", #(infos or {}), reason or "", table.concat(parts, ", "))
+    if count then coinAnswers[job.key] = count end
+    coinJobs[job.key] = nil
+    for _, callback in ipairs(job.callbacks) do
+        local ok, err = pcall(callback, count, reason)
+        if not ok then
+            addon.Log:Bug("Encounter", "journal coin callback raised: " .. tostring(err))
+        end
+    end
+end
+
+
+local function AbortCoinLookups()
+    if coinJob and coinJob.ticker then coinJob.ticker:Cancel() end
+    local jobs = coinQueue
+    if coinJob then table.insert(jobs, 1, coinJob) end
+    coinJob, coinQueue = nil, {}
+    if coinSaved then RestoreJournal(coinSaved); coinSaved = nil end
+    for _, job in ipairs(jobs) do FinishCoinJob(job, nil, "guide") end
+end
+
+local function WatchJournal()
+    if not lootWatcher then
+        lootWatcher = CreateFrame("Frame")
+        lootWatcher:RegisterEvent("EJ_LOOT_DATA_RECIEVED")
+        lootWatcher:SetScript("OnEvent", function()
+            if coinJob then coinJob.sawEvent, coinJob.events = true, (coinJob.events or 0) + 1 end
+        end)
+    end
+    if not guideHooked and EncounterJournal and EncounterJournal.HookScript then
+        guideHooked = true
+        EncounterJournal:HookScript("OnShow", function()
+            if coinJob or #coinQueue > 0 then AbortCoinLookups() end
+        end)
+    end
+end
+
+local function SelectBoss(entry)
+    EJ_SelectTier(entry.tier)
+    EJ_SelectInstance(entry.instance)
+    EJ_SelectEncounter(entry.journal)
+end
+
+
+
+local function SelectCoinJob(job)
+    if not journalByDungeon then BuildJournalMap() end
+    if not journalByDungeon then return nil end
+    local entry = (job.encounterID and journalByDungeon[job.encounterID])
+        or (job.boss and journalByName[job.boss])
+    if not entry then return nil end
+    SelectBoss(entry)
+    if job.difficultyID and job.difficultyID ~= EJ_GetDifficulty()
+            and EJ_IsValidInstanceDifficulty(job.difficultyID) then
+        EJ_SetDifficulty(job.difficultyID)
+    end
+    EJ_SetLootFilter(job.classID, job.specID)
+    C_EncounterJournal.ResetSlotFilter()
+    return entry
+end
+
+
+
+local function ReadCoinList(job)
+    local infos, foreign = {}, false
+    for i = 1, EJ_GetNumLoot() do
+        local info = C_EncounterJournal.GetLootInfoByIndex(i) or {}
+        info.notGear = info.itemID and not Encounter.IsCoinGear(info.itemID) or nil
+        infos[#infos + 1] = info
+        if info.encounterID and info.encounterID ~= job.entry.journal then foreign = true end
+    end
+    local classID, specID = EJ_GetLootFilter()
+    local outOfDate = EJ_IsLootListOutOfDate and EJ_IsLootListOutOfDate()
+    local own = not foreign and #infos > 0 and not outOfDate
+        and classID == job.classID and (specID or 0) == job.specID
+    return infos, own, outOfDate, foreign
+end
+
+local function TickCoinJob(job)
+    job.ticks = job.ticks + 1
+    if GuideShown() then AbortCoinLookups() return end
+    local last = job.ticks >= LOOKUP_TICKS
+    if not (last or job.sawEvent or job.ticks >= SETTLE_TICKS) then return end
+    local infos, own, outOfDate, foreign = ReadCoinList(job)
+    if not own and not last then
+        job.sawEvent = false
+
+        if foreign and not outOfDate then
+            job.reselects = (job.reselects or 0) + 1
+            SelectBoss(job.entry)
+        end
+        return
+    end
+    job.ticker:Cancel()
+    coinJob, job.outOfDate = nil, outOfDate
+    if own then
+        local season = C_SeasonInfo and C_SeasonInfo.GetCurrentDisplaySeasonID
+            and C_SeasonInfo.GetCurrentDisplaySeasonID()
+        local count = Encounter.CountCoinLoot(infos, season, job.entry.journal)
+        FinishCoinJob(job, count > 0 and count or nil, nil, infos)
+    else
+        FinishCoinJob(job, nil, "pending", infos)
+    end
+    StartNextCoinJob()
+end
+
+StartNextCoinJob = function()
+    if coinJob then return end
+    local job = table.remove(coinQueue, 1)
+    if not job then
+        if coinSaved then RestoreJournal(coinSaved); coinSaved = nil end
+        return
+    end
+    if GuideShown() then
+        table.insert(coinQueue, 1, job)
+        AbortCoinLookups()
+        return
+    end
+    WatchJournal()
+    local ok, entry = pcall(function()
+        coinSaved = coinSaved or SaveJournal()
+        return SelectCoinJob(job)
+    end)
+    if not ok or not entry then
+        if not ok then addon.Log:Bug("Encounter", "journal coin lookup raised: " .. tostring(entry)) end
+        FinishCoinJob(job, nil, nil)
+        return StartNextCoinJob()
+    end
+    job.entry, job.ticks, job.sawEvent = entry, 0, false
+    coinJob = job
+    job.ticker = C_Timer.NewTicker(LOOKUP_TICK, function()
+        if coinJob ~= job then return end
+        local tickOk, err = pcall(TickCoinJob, job)
+        if not tickOk then
+            addon.Log:Bug("Encounter", "journal coin lookup raised: " .. tostring(err))
+            job.ticker:Cancel()
+            coinJob = nil
+            FinishCoinJob(job, nil, nil)
+            StartNextCoinJob()
+        end
+    end, LOOKUP_TICKS)
+end
+
+
+
+
+function Encounter:JournalCoinLoot(bossName, encounterID, difficultyID, classID, specID,
+        callback)
+    if addon.IsForever or not EJ_GetNumTiers or not classID then return nil end
+    encounterID, specID = tonumber(encounterID), specID or 0
+    local key = table.concat({ tostring(encounterID or bossName), tostring(difficultyID),
+        classID, specID }, "|")
+    if coinAnswers[key] then return coinAnswers[key] end
+    if GuideShown() then return nil, "guide" end
+    if journalByDungeon and not ((encounterID and journalByDungeon[encounterID])
+            or (bossName and journalByName[bossName])) then
+        return nil
+    end
+    local job = coinJobs[key]
+    if not job then
+        job = { key = key, boss = bossName, encounterID = encounterID,
+            difficultyID = difficultyID, classID = classID, specID = specID, callbacks = {} }
+        coinJobs[key] = job
+        coinQueue[#coinQueue + 1] = job
+    end
+    if callback then job.callbacks[#job.callbacks + 1] = callback end
+
+    if not coinJob and not coinStarting then
+        coinStarting = true
+        C_Timer.After(0, function()
+            coinStarting = false
+            StartNextCoinJob()
+        end)
+    end
+    return nil, "pending"
+end
+
+
+function Encounter:JournalLookupBusy()
+    return coinJob ~= nil or #coinQueue > 0 or coinStarting
 end
 
 

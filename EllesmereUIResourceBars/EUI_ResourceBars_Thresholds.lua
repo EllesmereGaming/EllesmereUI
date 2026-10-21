@@ -483,4 +483,6 @@ end
 I.BuildBarTypeSpecMap, I.FindCountBand = BuildBarTypeSpecMap, FindCountBand
 I.GetBarBandCurve, I.GetBarThresholdCurve = GetBarBandCurve, GetBarThresholdCurve
 I.ResolveBandConfig, I.ResolveThresholdSpecEntry = ResolveBandConfig, ResolveThresholdSpecEntry
+-- Expose for the options panel preview, beside _ERB_ResolveThresholdSpecEntry
+_G._ERB_ResolveBandConfig, _G._ERB_FindCountBand = ResolveBandConfig, FindCountBand
 I.broken = false

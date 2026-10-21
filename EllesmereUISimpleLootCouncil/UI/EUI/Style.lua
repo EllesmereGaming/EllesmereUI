@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end 
 
 
 
@@ -173,7 +173,6 @@ S.size = size
 
 S.radius = { CHIP = 0, SM = 0, CTRL = 0, MD = 0, LG = 0, WINDOW = 0 }
 S.rounded = false
-S.usesArt = false
 
 
 
@@ -228,8 +227,9 @@ local function MakeFont(name, fontSize, fontColor)
 end
 
 
-S.fontsLoaded       = true
-S.fontTitle         = MakeFont("EllesmereUISimpleLootCouncilFontTitle",         14,   color.text)
+
+
+S.fontTitle        = MakeFont("EllesmereUISimpleLootCouncilFontTitle",         20.6, color.text)
 S.fontHeading       = MakeFont("EllesmereUISimpleLootCouncilFontHeading",       11,   color.textFaint)
 S.fontMicro         = MakeFont("EllesmereUISimpleLootCouncilFontMicro",         10,   color.textFaint)
 S.fontRaidTeamHeader = MakeFont("EllesmereUISimpleLootCouncilFontRaidTeamHeader", 14, color.textFaint)
@@ -239,35 +239,26 @@ S.fontInput         = MakeFont("EllesmereUISimpleLootCouncilFontInput",         
 S.fontButton        = MakeFont("EllesmereUISimpleLootCouncilFontButton",        12,   color.text)
 S.fontSmall         = MakeFont("EllesmereUISimpleLootCouncilFontSmall",         11,   color.textMuted)
 S.fontBadge         = MakeFont("EllesmereUISimpleLootCouncilFontBadge",         14,   color.textMuted)
-S.fontTag           = MakeFont("EllesmereUISimpleLootCouncilFontTag",           11,   color.textFaint)
+S.fontTag           = MakeFont("EllesmereUISimpleLootCouncilFontTag",           15,   color.textFaint)
 S.fontHint          = MakeFont("EllesmereUISimpleLootCouncilFontHint",          11,   color.textFaint)
 
 S.fontNotice        = MakeFont("EllesmereUISimpleLootCouncilFontNotice",        16,   color.bad)
-S.fontConfirm       = MakeFont("EllesmereUISimpleLootCouncilFontConfirm",       12,   color.text)
-S.fontConfirmDetail = MakeFont("EllesmereUISimpleLootCouncilFontConfirmDetail", 11,   color.textFaint)
-S.fontNum           = MakeFont("EllesmereUISimpleLootCouncilFontNum",           12,   color.text)
+S.fontNum          = MakeFont("EllesmereUISimpleLootCouncilFontNum",           12,   color.text)
 S.fontNumSmall      = MakeFont("EllesmereUISimpleLootCouncilFontNumSmall",      11,   color.textMuted)
 S.fontNumLarge      = MakeFont("EllesmereUISimpleLootCouncilFontNumLarge",      14,   color.text)
-S.fontCode          = MakeFont("EllesmereUISimpleLootCouncilFontCode",          11,   color.textFaint)
 S.fontNumHint       = MakeFont("EllesmereUISimpleLootCouncilFontNumHint",       11,   color.textMuted)
 S.fontNumHuge       = MakeFont("EllesmereUISimpleLootCouncilFontNumHuge",       18,   color.text)
 
 
 
 
-local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-
-S.CIRCLE         = DISC
-S.CIRCLE_OUTLINE = DISC
-function S.DiscFor() return DISC end
-
-S.TRIANGLE       = ICONS .. "eui-arrow-right.png"
 
 
 S.logo      = { loaded = true }
 S.logoPride = { loaded = true }
-function S.ActiveLogo() return nil, nil end
-function S.LogoLoaded() return true end
+
+
+function S.GamepadUI() return EUI.PadGamepadUI() end
 
 
 
@@ -285,17 +276,11 @@ function S.CanvasFill(frame, c, alpha, layer)
     return S.Fill(frame, c, alpha, layer), nil
 end
 
-function S.GradientFill(frame, topColor, _, alpha, layer)
-    return S.Fill(frame, topColor, alpha, layer), nil
-end
-
 function S.RoundFill(frame, c, _, layer, subLayer)
     local t = S.Fill(frame, c, nil, layer)
     if subLayer then t:SetDrawLayer(layer or "BACKGROUND", subLayer) end
     return t
 end
-
-function S.RoundMask() return nil end
 
 
 local borders = setmetatable({}, { __mode = "k" })
@@ -436,17 +421,71 @@ function S.Button(parent, text, opts)
     b.Label = label
 
 
+    local basePad, squeeze = pad, nil
     local function fitLabel()
         if fixedWidth then return end
         local current = label:GetText()
         if not current or current == "" then return end
         local textWidth = label:GetUnboundedStringWidth()
         if type(textWidth) ~= "number" or textWidth <= 0 then return end
-        P.Size(b, math.max(h, Snap(math.ceil(textWidth)) + 2 * Snap(pad)), nil)
+        b.slcNatural = math.max(h, Snap(math.ceil(textWidth)) + 2 * Snap(basePad))
+        if squeeze then
+            P.Size(b, squeeze.w, squeeze.h)
+        else
+            P.Size(b, b.slcNatural, nil)
+        end
     end
     fitLabel()
     P.AfterLayout(fitLabel)
     P.OnRescale(fitLabel)
+
+
+    if opts.share and not fixedWidth then
+        b.slcShare = true
+        local probe = S.Label(b, opts.font or S.fontBody, "LEFT")
+        probe:Hide()
+        local function lines(words, inner)
+            local count, line = 1, nil
+            for _, word in ipairs(words) do
+                local try = line and (line .. " " .. word) or word
+                probe:SetText(try)
+                if not line or probe:GetUnboundedStringWidth() <= inner then
+                    line = try
+                else
+                    count, line = count + 1, word
+                end
+            end
+            return count
+        end
+        function b:MinSqueezeWidth()
+            local current = label:GetText() or ""
+            if b.slcMinFor == current then return b.slcMin end
+            local words = {}
+            for word in current:gmatch("%S+") do words[#words + 1] = word end
+            local longest = 0
+            for _, word in ipairs(words) do
+                probe:SetText(word)
+                longest = math.max(longest, math.ceil(probe:GetUnboundedStringWidth() or 0))
+            end
+            probe:SetText(current)
+            local inner = math.max(longest, math.ceil((probe:GetUnboundedStringWidth() or 0) / 2))
+            local limit = inner + math.ceil((probe:GetUnboundedStringWidth() or 0))
+            while #words > 1 and inner < limit and lines(words, inner) > 2 do inner = inner + 2 end
+            b.slcMinFor = current
+            b.slcMin = math.min(b.slcNatural or inner, inner + 2 * 8 + 2)
+            return b.slcMin
+        end
+        function b:SetSqueeze(width)
+            local same = (width == nil and squeeze == nil) or (squeeze and squeeze.w == width)
+            if same then return end
+            squeeze = width and { w = width, h = math.ceil(fontHeight * 2.5) + 8 } or nil
+            pad = squeeze and 8 or basePad
+            placeLabel(0)
+            label:SetWordWrap(squeeze ~= nil)
+            label:SetMaxLines(squeeze and 2 or 1)
+            if squeeze then P.Size(b, squeeze.w, squeeze.h) else P.Size(b, b.slcNatural or w, h) end
+        end
+    end
 
     local glyph
     if opts.glyph == "close" then
@@ -605,32 +644,6 @@ function S.EditBox(parent, width, height)
 
     holder.EditBox = e
     return holder, e
-end
-
-
-function S.Mark(parent, asset, markSize, c, layer)
-    local tex = parent:CreateTexture(nil, layer or "OVERLAY")
-    P.Size(tex, markSize, markSize)
-    tex:SetTexture(asset)
-    P.Crisp(tex)
-    tex:SetVertexColor(Unpack(c or color.textMuted))
-
-    return {
-        Texture   = tex,
-        SetColor  = function(_, nc) tex:SetVertexColor(Unpack(nc)) end,
-        SetShown  = function(_, on) tex:SetShown(on and true or false) end,
-        SetRotation = function(_, radians) tex:SetRotation(radians or 0) end,
-        SetPoint  = function(_, ...) P.Point(tex, ...) end,
-    }
-end
-
-function S.Dot(parent, dotSize, c, layer)
-    local tex = parent:CreateTexture(nil, layer or "ARTWORK")
-    P.Size(tex, dotSize, dotSize)
-    tex:SetTexture(DISC)
-    P.Crisp(tex)
-    tex:SetVertexColor(Unpack(c or color.textMuted))
-    return tex
 end
 
 
@@ -964,9 +977,73 @@ function S.FooterBar(window)
         return offset
     end
 
+    local function RunWidth(run)
+        local total, n = 0, 0
+        for _, button in ipairs(run) do
+            if button:IsShown() then
+                n = n + 1
+                total = total + (button.slcNatural or button:GetWidth())
+            end
+        end
+        return total + math.max(n - 1, 0) * size.GAP, n
+    end
+
+    local function Share(run, avail)
+        local pool, budget = {}, avail
+        for _, button in ipairs(run) do
+            if button:IsShown() then
+                budget = budget - size.GAP
+                if button.SetSqueeze then
+                    pool[#pool + 1] = button
+                else
+                    budget = budget - button:GetWidth()
+                end
+            end
+        end
+        budget = budget + size.GAP
+        local natural = 0
+        for _, button in ipairs(pool) do natural = natural + (button.slcNatural or 0) end
+        if natural <= budget then
+            for _, button in ipairs(pool) do button:SetSqueeze(nil) end
+            return
+        end
+        local width, minTotal, wants = {}, 0, {}
+        for _, button in ipairs(pool) do
+            width[button] = button:MinSqueezeWidth()
+            minTotal = minTotal + width[button]
+            wants[button] = button.slcNatural or width[button]
+        end
+        if minTotal > budget then
+            local scale = budget / minTotal
+            for _, button in ipairs(pool) do width[button] = math.floor(width[button] * scale) end
+        else
+            local extra = budget - minTotal
+            table.sort(pool, function(a, c)
+                return (wants[a] - width[a]) < (wants[c] - width[c])
+            end)
+            for i, button in ipairs(pool) do
+                local give = math.min(wants[button] - width[button],
+                    math.floor(extra / (#pool - i + 1)))
+                width[button] = width[button] + give
+                extra = extra - give
+            end
+        end
+        for _, button in ipairs(pool) do button:SetSqueeze(width[button]) end
+    end
+
+    local reflowing
     function bar:Reflow()
+        if reflowing then return end
+        reflowing = true
+        local windowW = window:GetWidth()
+        if type(windowW) == "number" and windowW > 0 then
+            local avail = windowW - 2 * size.PAD
+            Share(leftRun, avail - RunWidth(rightRun) - size.GAP)
+            Share(rightRun, avail - RunWidth(leftRun) - size.GAP)
+        end
         bar.slcLeft = Place(leftRun, "LEFT", 1, size.PAD)
         bar.slcRight = Place(rightRun, "RIGHT", -1, size.PAD)
+        reflowing = false
         if leftText then
             leftText:ClearAllPoints()
             P.Point(leftText, "LEFT", bar, "LEFT", bar.slcLeft, 0)
@@ -989,32 +1066,6 @@ function S.FooterBar(window)
     end
 
     return bar
-end
-
-
-function S.InfoBlock(parent, text, width)
-    local block = CreateFrame("Frame", nil, parent)
-    S.Fill(block, color.cardLift)
-
-    local icon = block:CreateTexture(nil, "ARTWORK")
-    P.Size(icon, 16, 16)
-    P.Point(icon, "TOPLEFT", block, "TOPLEFT", 10, -9)
-    icon:SetTexture(ICONS .. "eui-info.png")
-    icon:SetVertexColor(Unpack(color.textMuted))
-
-    local body = S.Label(block, S.fontSmall, "LEFT", "wrap")
-    body:SetText(text or "")
-    P.Point(body, "TOPLEFT", block, "TOPLEFT", 10 + 16 + 8, -9)
-    P.Point(body, "TOPRIGHT", block, "TOPRIGHT", -10, -9)
-
-
-    P.Size(block, width, 40)
-    P.AfterLayout(function()
-        P.Size(block, nil, math.max(34, math.ceil(body:GetStringHeight()) + 18))
-    end)
-
-    block.Text = body
-    return block
 end
 
 
@@ -1262,12 +1313,13 @@ local function MenuItems(items)
         if item == "-" then
             out[#out + 1] = "---"
         elseif item.title then
-            out[#out + 1] = { text = item.title, isDisabled = function() return true end }
+            out[#out + 1] = { text = item.title, noLoc = true, isDisabled = function() return true end }
         else
             local checked, disabled = item.checked, item.disabled
             if type(checked) == "function" then checked = checked() end
             out[#out + 1] = {
                 text = item.text,
+                noLoc = true,
                 onClick = item.onClick,
                 isActive = checked and true or nil,
                 isDisabled = disabled and (type(disabled) == "function" and disabled
@@ -1279,8 +1331,15 @@ local function MenuItems(items)
     return out
 end
 
+
+local function MenuOpts(opts)
+    local out = { fontKey = FONT_KEY }
+    for key, value in pairs(opts or {}) do out[key] = value end
+    return out
+end
+
 function S.ContextMenu(anchor, items, opts)
-    EUI.ShowContextMenu(anchor, MenuItems(items), opts)
+    EUI.ShowContextMenu(anchor, MenuItems(items), MenuOpts(opts))
 end
 
 
@@ -1324,11 +1383,11 @@ function S.ShowSelectMenu(owner, choices, current, onPick)
     local items = {}
     for i, o in ipairs(choices) do
         local value = o.value
-        items[i] = { text = o.text, isActive = value == current or nil,
+        items[i] = { text = o.text, noLoc = true, isActive = value == current or nil,
             onClick = function() onPick(value) end }
     end
     selectOwner = owner
-    EUI.ShowContextMenu(owner, items, { below = true, minWidth = owner:GetWidth() })
+    EUI.ShowContextMenu(owner, items, { below = true, minWidth = owner:GetWidth(), fontKey = FONT_KEY })
 end
 
 function S.HideSelectMenu()
@@ -1396,7 +1455,7 @@ end
 
 
 
-local TAG_H = 20
+local TAG_H = 27
 local TAG_SQUARE_H = 18
 local TAG_INSET = 5
 local TITLE_BAND_RATIO = 1.7
@@ -1409,44 +1468,8 @@ function S.HeaderHeight(options)
     local tagH = options.squareTag and TAG_SQUARE_H or TAG_H
     local _, titleFontH = S.fontTitle:GetFont()
     return math.max(size.HEADER_H,
-                    math.ceil((titleFontH or 14) * TITLE_BAND_RATIO),
+                    math.ceil((titleFontH or 20.6) * TITLE_BAND_RATIO),
                     tagH + TAG_INSET * 2)
-end
-
-
-
-local pendingEscape = {}
-
-local function RegisterEscape(f)
-    if EUI.RegisterEscapeClose then
-        EUI.RegisterEscapeClose(f)
-    else
-        pendingEscape[#pendingEscape + 1] = f
-    end
-end
-
-local function FlushEscape(final)
-    if not EUI.RegisterEscapeClose and not final then return false end
-    for i = 1, #pendingEscape do
-        local f = pendingEscape[i]
-        if EUI.RegisterEscapeClose then
-            EUI.RegisterEscapeClose(f)
-        elseif f:GetName() then
-            tinsert(UISpecialFrames, f:GetName())
-        end
-        pendingEscape[i] = nil
-    end
-    return true
-end
-
-do
-    local login = CreateFrame("Frame")
-    login:RegisterEvent("PLAYER_LOGIN")
-    login:SetScript("OnEvent", function(self)
-        self:UnregisterEvent("PLAYER_LOGIN")
-
-        if not FlushEscape(false) then C_Timer.After(0, function() FlushEscape(true) end) end
-    end)
 end
 
 local WINDOW_ALPHA = EUI.RESKIN.CTX_ALPHA
@@ -1557,7 +1580,9 @@ function S.Window(globalName, key, width, height, title, options)
 
     S.InstallWindowGeometry(f, key, header, close)
 
-    if globalName then RegisterEscape(f) end
+
+
+    if globalName then EUI.RegisterEscapeClose(f) end
     return f
 end
 

@@ -200,6 +200,7 @@ _G._EQT_RefreshAll = function()
     -- WoW Forever's quest tools (nil on retail).
     if EQT.ApplyQuestWatches then EQT.ApplyQuestWatches() end
     if EQT.ApplyQuestProgress then EQT.ApplyQuestProgress() end
+    if EQT.ApplyQuestLinks then EQT.ApplyQuestLinks() end
 end
 
 -------------------------------------------------------------------------------

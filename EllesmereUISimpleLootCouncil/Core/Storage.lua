@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -106,6 +107,15 @@ Storage.ItemID = ItemID
 
 
 
+local function LinkIfId(bag, slot, wanted)
+    if C_Container.GetContainerItemID(bag, slot) ~= wanted then return nil end
+    local link = C_Container.GetContainerItemLink(bag, slot)
+    if ItemID(link) == wanted then return link end
+    return nil
+end
+
+
+
 function Storage:FindInBags(link, skip)
     local function Skipped(bag, slot)
         if not skip then return false end
@@ -115,19 +125,45 @@ function Storage:FindInBags(link, skip)
         return false
     end
 
-    local function Scan(matches)
-        local best
+    local wanted = ItemID(link)
+
+
+
+    local candidates
+    if wanted then
+        candidates = {}
         for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
             local slots = C_Container.GetContainerNumSlots(bag) or 0
             for slot = 1, slots do
-                local present = C_Container.GetContainerItemLink(bag, slot)
-                if not Skipped(bag, slot) and matches(present) then
-                    local secondsLeft = Storage:GetSlotTradeInfo(bag, slot)
+                local present = LinkIfId(bag, slot, wanted)
+                if present then candidates[#candidates + 1] = { bag, slot, present } end
+            end
+        end
+        if #candidates == 0 then return nil end
+    end
 
-                    if secondsLeft and secondsLeft > 0 then
-                        return bag, slot, secondsLeft, present
-                    end
-                    best = best or { bag = bag, slot = slot, link = present }
+    local function Scan(matches)
+        local best
+        local function Consider(bag, slot, present)
+            if Skipped(bag, slot) or not matches(present) then return nil end
+            local secondsLeft = Storage:GetSlotTradeInfo(bag, slot)
+
+            if secondsLeft and secondsLeft > 0 then return secondsLeft end
+            best = best or { bag = bag, slot = slot, link = present }
+            return nil
+        end
+        if candidates then
+            for _, c in ipairs(candidates) do
+                local secondsLeft = Consider(c[1], c[2], c[3])
+                if secondsLeft then return c[1], c[2], secondsLeft, c[3] end
+            end
+        else
+            for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+                local slots = C_Container.GetContainerNumSlots(bag) or 0
+                for slot = 1, slots do
+                    local present = C_Container.GetContainerItemLink(bag, slot)
+                    local secondsLeft = Consider(bag, slot, present)
+                    if secondsLeft then return bag, slot, secondsLeft, present end
                 end
             end
         end
@@ -140,7 +176,6 @@ function Storage:FindInBags(link, skip)
     end)
     if bag then return bag, slot, secondsLeft end
 
-    local wanted = ItemID(link)
     if not wanted then return nil end
 
     local found, foundSlot, foundSeconds, foundLink = Scan(function(present)
@@ -166,9 +201,7 @@ function Storage:CountInBags(link)
     for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
         local slots = C_Container.GetContainerNumSlots(bag) or 0
         for slot = 1, slots do
-            if ItemID(C_Container.GetContainerItemLink(bag, slot)) == wanted then
-                count = count + 1
-            end
+            if LinkIfId(bag, slot, wanted) then count = count + 1 end
         end
     end
     return count
@@ -186,7 +219,7 @@ function Storage:CountTradeable(link)
     for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
         local slots = C_Container.GetContainerNumSlots(bag) or 0
         for slot = 1, slots do
-            if ItemID(C_Container.GetContainerItemLink(bag, slot)) == wanted then
+            if LinkIfId(bag, slot, wanted) then
                 local secondsLeft, bonding = Storage:GetSlotTradeInfo(bag, slot)
                 if not (secondsLeft and secondsLeft > 0)
                     and bonding == Enum.TooltipDataItemBinding.Soulbound then
@@ -253,10 +286,110 @@ local function Pair(entries, copies)
 end
 
 
+
+local slotLocation
+local function SlotFacts(bag, slot)
+    if ItemLocation and C_Item and C_Item.IsBound then
+        slotLocation = slotLocation or ItemLocation:CreateEmpty()
+        slotLocation:SetBagAndSlot(bag, slot)
+        if not C_Item.DoesItemExist(slotLocation) then return nil end
+        return C_Item.IsBound(slotLocation), C_Item.GetItemQuality(slotLocation), slotLocation
+    end
+    local info = C_Container.GetContainerItemInfo(bag, slot)
+    if info then return info.isBound, info.quality end
+end
+
+
 local function IsEpicBoE(bag, slot, bonding)
     if bonding ~= Enum.TooltipDataItemBinding.BindOnEquip then return false end
-    local info = C_Container.GetContainerItemInfo(bag, slot)
-    return info ~= nil and not info.isBound and info.quality == Enum.ItemQuality.Epic
+    local bound, quality = SlotFacts(bag, slot)
+    return quality == Enum.ItemQuality.Epic and not bound
+end
+
+
+
+
+local timeless = {}
+local TIMELESS_TTL, TIMELESS_SPREAD = 300, 60
+local SOULBOUND_TTL, SOULBOUND_SPREAD = 3600, 600
+
+
+local function PruneTimeless()
+    local now = GetTime()
+    for guid, reading in pairs(timeless) do
+        if now > reading.expires then timeless[guid] = nil end
+    end
+end
+
+
+
+local KEPT_TTL, KEPT_MAX = 7 * 86400, 600
+
+
+local function Settled(bonding)
+    local bind = Enum.TooltipDataItemBinding
+    return bonding ~= nil and (bonding == bind.Soulbound or bonding == bind.Account
+        or bonding == bind.BnetAccount)
+end
+
+function Storage:KeepReading(guid, reading)
+    local db = addon.db
+    if not db then return end
+    if type(db.bagReadings) ~= "table" then db.bagReadings = {} end
+    local store, n = db.bagReadings, 0
+    for _ in pairs(store) do n = n + 1 end
+    if n >= KEPT_MAX then wipe(store) end
+    store[guid] = { link = reading.link, bound = reading.bound, bonding = reading.bonding,
+        at = GetServerTime() }
+end
+
+
+function Storage:ResumeReading(guid, link, bound)
+    local store = addon.db and addon.db.bagReadings
+    local saved = type(store) == "table" and store[guid]
+    if type(saved) ~= "table" then return nil end
+    if type(saved.at) ~= "number" or GetServerTime() - saved.at > KEPT_TTL then
+        store[guid] = nil
+        return nil
+    end
+    if saved.link ~= link or saved.bound ~= bound
+        or not Settled(saved.bonding) then
+        return nil
+    end
+    local reading = { link = link, bound = bound, bonding = saved.bonding,
+        expires = GetTime() + SOULBOUND_TTL - math.random() * SOULBOUND_SPREAD }
+    timeless[guid] = reading
+    return reading
+end
+
+
+
+local function ReadSlot(bag, slot, link)
+    local bound, quality, location = SlotFacts(bag, slot)
+    if bound == false and quality and quality < Enum.ItemQuality.Epic then
+        return nil, nil
+    end
+    local guid = location and C_Item.GetItemGUID(location)
+    local kept = guid and timeless[guid]
+    if guid and (not kept or GetTime() > kept.expires) then
+        kept = Storage:ResumeReading(guid, link, bound) or kept
+    end
+    local same = kept and kept.link == link and kept.bound == bound
+    if same and GetTime() <= kept.expires then
+        return nil, kept.bonding
+    end
+    local secondsLeft, bonding = Storage:GetSlotTradeInfo(bag, slot)
+    if guid and secondsLeft == nil and bonding ~= nil then
+
+
+        local soulbound = Settled(bonding)
+            and same and kept.bonding == bonding
+        timeless[guid] = { link = link, bound = bound, bonding = bonding,
+            expires = GetTime() + (soulbound and SOULBOUND_TTL or TIMELESS_TTL)
+                - math.random() * (soulbound and SOULBOUND_SPREAD or TIMELESS_SPREAD) }
+        if soulbound then Storage:KeepReading(guid, timeless[guid]) end
+    end
+    return secondsLeft, bonding
 end
 
 
@@ -284,7 +417,7 @@ local function RefreshBag(bag)
             if old and old.link == link then
                 fresh[slot] = old
             else
-                local seconds, bonding = Storage:GetSlotTradeInfo(bag, slot)
+                local seconds, bonding = ReadSlot(bag, slot, link)
                 fresh[slot] = { link = link, seconds = seconds, bonding = bonding,
                     at = GetTime() }
             end
@@ -295,12 +428,30 @@ local function RefreshBag(bag)
 end
 
 
+local sharedScan, sharing = nil, false
+
+local function CopyReadings(list)
+    local out = {}
+    for i, item in ipairs(list) do
+        out[i] = { link = item.link, bag = item.bag, slot = item.slot,
+            secondsLeft = item.secondsLeft, eligible = item.eligible, boe = item.boe }
+    end
+    return out
+end
 
 
 
-function Storage:GetTradeableItems(cached)
+function Storage:ShareLiveScan(fn)
+    if sharing then return fn() end
+    sharing = true
+    local ok, err = pcall(fn)
+    sharing, sharedScan = false, nil
+    if not ok then error(err, 0) end
+end
+
+
+local function Scan(cached)
     local found = {}
-
     for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
         local readings
         if cached then
@@ -316,7 +467,7 @@ function Storage:GetTradeableItems(cached)
                 end
             else
                 link = C_Container.GetContainerItemLink(bag, slot)
-                if link then secondsLeft, bonding = Storage:GetSlotTradeInfo(bag, slot) end
+                if link then secondsLeft, bonding = ReadSlot(bag, slot, link) end
             end
             if link and secondsLeft and secondsLeft > 0 then
                 found[#found + 1] = {
@@ -335,7 +486,24 @@ function Storage:GetTradeableItems(cached)
             end
         end
     end
-    if cached then dirtyBags = {} end
+    if cached then dirtyBags = {} else PruneTimeless() end
+    return found
+end
+
+
+
+
+
+function Storage:GetTradeableItems(cached)
+    local found
+    if cached then
+        found = Scan(true)
+    elseif sharedScan then
+        found = CopyReadings(sharedScan)
+    else
+        found = Scan(false)
+        if sharing then sharedScan = CopyReadings(found) end
+    end
 
     table.sort(found, function(a, b)
         if (a.boe or false) ~= (b.boe or false) then return b.boe or false end
@@ -524,9 +692,9 @@ function Storage:Clocks(entries)
     for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
         local slots = C_Container.GetContainerNumSlots(bag) or 0
         for slot = 1, slots do
-            local link = C_Container.GetContainerItemLink(bag, slot)
-            local id = ItemID(link)
-            if id and byId[id] then
+            local id = C_Container.GetContainerItemID(bag, slot)
+            local link = id and byId[id] and C_Container.GetContainerItemLink(bag, slot)
+            if link and ItemID(link) == id then
                 local secondsLeft = Storage:GetSlotTradeInfo(bag, slot)
                 if secondsLeft and secondsLeft > 0 then
                     copies[id] = copies[id] or {}

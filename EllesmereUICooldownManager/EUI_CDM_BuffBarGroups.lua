@@ -48,6 +48,10 @@ local function _MarkTBBReflowDirty() SetReflowDirty(true) end
 -- OnActiveStateChanged hook in EUI_CDM_HookViewers.lua).
 local _tbbWake = CreateFrame("Frame")
 _tbbWake._idleTicks = 0
+-- Aura edge counts for the tick's fallback reads (a bar the viewer has not bound
+-- reads the player's aura, else the target's): player aura events, and target
+-- aura events plus target changes. A bar re-queries a half only after its count moved.
+_tbbWake._fbPGen, _tbbWake._fbTGen = 0, 0
 function _tbbWake.Sleep()
     if tbbTickFrame then tbbTickFrame:Hide() end
     -- NEVER register SPELL_UPDATE_COOLDOWN here: it fires steadily at idle and would defeat
@@ -67,7 +71,10 @@ function _tbbWake.Wake()
     _tbbWake:UnregisterAllEvents()
     -- Stay subscribed to the aura edge while AWAKE: pool composition changes only on a
     -- player aura event or a pool Acquire (hooked separately), retiring the assignment memo.
-    _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
+    -- The target's aura events only retire the fallback reads (OnEvent); Sleep's
+    -- player-only registration drops them again.
+    _tbbWake:RegisterUnitEvent("UNIT_AURA", "player", "target")
+    _tbbWake._fbPGen, _tbbWake._fbTGen = _tbbWake._fbPGen + 1, _tbbWake._fbTGen + 1
     -- Target changes rebind which auras the viewer's frames carry, so the awake branch
     -- of OnEvent retires the assignment memo on this the same as any other non-aura edge.
     _tbbWake:RegisterEvent("PLAYER_TARGET_CHANGED")
@@ -134,7 +141,7 @@ function _tbbWake.Probe()
     end
     return false
 end
-function _tbbWake.OnEvent(_, event, _, updateInfo)
+function _tbbWake.OnEvent(_, event, unit, updateInfo)
     -- Awake: this is the composition edge that retires the assignment memo. Mark and
     -- let the next tick re-pair; no probe, no state change. Pairing keys on frame
     -- identity only (pool membership, cooldown slot, aura spell variant), and an
@@ -144,6 +151,17 @@ function _tbbWake.OnEvent(_, event, _, updateInfo)
     -- the table and each field can arrive secret in instanced content, and a secret
     -- can never be boolean-tested, so unreadable means assume churn.
     if tbbTickFrame and tbbTickFrame:IsShown() then
+        if event == "UNIT_AURA" then
+            if unit == "target" then
+                -- No viewer frame moves on a target aura event (no target aura
+                -- subscription retired the memo before): the fallback reads only.
+                _tbbWake._fbTGen = _tbbWake._fbTGen + 1
+                return
+            end
+            _tbbWake._fbPGen = _tbbWake._fbPGen + 1
+        else
+            _tbbWake._fbTGen = _tbbWake._fbTGen + 1
+        end
         if event ~= "UNIT_AURA" or not updateInfo or issecretvalue(updateInfo) then
             SetAssignDirty(true)
         else
@@ -643,7 +661,7 @@ do
         end
         if not gid then return nil end
         local grow = (ns.TBBGroupGrow(gid) or "DOWN"):upper()
-        if GROW_TO_SIDE[grow] ~= side then return nil end
+        if side ~= "POINT" and GROW_TO_SIDE[grow] ~= side then return nil end
         return gid
     end
 
@@ -693,7 +711,7 @@ do
         if anchors then
             for _, info in pairs(anchors) do
                 if info.target then
-                    local gid = ns.TBBExtentGidForTarget(info.target, info.side)
+                    local gid = ns.TBBExtentGidForTarget(info.target, info.mode == "POINT" and "POINT" or info.side)
                     if gid then w[gid] = info.target end
                 end
                 local fb = info.fallback

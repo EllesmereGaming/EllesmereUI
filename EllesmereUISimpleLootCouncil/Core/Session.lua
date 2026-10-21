@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -277,7 +278,7 @@ end
 
 
 local RECOVERY_REFUSED_TEXT = addon.Locale.Texts{
-    roster = addon.Log.CHAT_PREFIX.accent .. T["could not restore the saved loot run because the group roster changed during the reload; asking the group for a current copy."],
+    roster = T["could not restore the saved loot run because the group roster changed during the reload; asking the group for a current copy."],
 }
 local RECOVERY_REFUSED_LOG = {
     roster = "the group roster changed during reload",
@@ -308,7 +309,7 @@ function Session:RecoverPersisted()
             recoveryRefusalKey = key
             addon.Log:WLogOnly("Session", "saved run not restored -", RECOVERY_REFUSED_LOG[reason],
                 "- asking the group for a current copy")
-            print(addon.Locale.Format(RECOVERY_REFUSED_TEXT[reason]))
+            addon.Chat.Print(addon.Locale.Format(RECOVERY_REFUSED_TEXT[reason]))
         end
 
         Refused.copy = saved
@@ -457,9 +458,7 @@ local OWNED_SET = {}
 for _, key in ipairs(OWNED) do OWNED_SET[key] = true end
 local ANSWERS = { RESPONDED = true, PASS = true }
 
-local function IsSecret(value)
-    return issecretvalue ~= nil and issecretvalue(value) or false
-end
+local IsSecret = addon.IsSecret
 
 
 local ROW_STATUS = { ANNOUNCED = true, RESPONDED = true, PASS = true, NOTHING = true,
@@ -1834,9 +1833,12 @@ local function ScheduleSweep(runId, indices, delay)
     C_Timer.After(wait, function()
         if run.active and run.id == runId and addon.PlayerIsMasterLooter() then
             local verdict, list = SweepVerdict(scheduled)
+
+            addon.Log:Hold()
             addon.Comms:Send("sweep", { s = scheduled, j = 1, na = #list > 0 and list or nil },
                 nil, true)
             Session:ApplySweep(scheduled, verdict)
+            addon.Log:Release()
         else
             addon.Log:D("Session", "sweep skipped, run moved on", tostring(runId))
         end
@@ -2195,7 +2197,7 @@ function Session:Start()
             "queued item(s) that can no longer be traded from your bags")
 
 
-        print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(addon.Locale.Plural{
+        addon.Chat.Print(addon.Locale.Format(addon.Locale.Plural{
             one = "dropped %d queued item you can no longer trade.",
             other = "dropped %d queued items you can no longer trade.",
         }, dropped, dropped))
@@ -2204,7 +2206,7 @@ function Session:Start()
     if #run.items == 0 then
         addon.Log:I("Session", "nothing to start")
         if dropped > 0 then
-            print(addon.Log.CHAT_PREFIX.accent .. T["nothing left to start a run with."])
+            addon.Chat.Print(T["nothing left to start a run with."])
             return false, "emptied"
         end
         return false, "empty"
@@ -2614,7 +2616,7 @@ function Session:ApplyResponseSet(session, candidateName, response, sender)
 
 
     if awarded and addon.PlayerIsMasterLooter() then
-        print(addon.Log.CHAT_PREFIX.accent .. T["response changed, but this item is already awarded - history keeps what was recorded. Undo the award first if the record matters."])
+        addon.Chat.Print(T["response changed, but this item is already awarded - history keeps what was recorded. Undo the award first if the record matters."])
     end
 
     if addon.Callbacks then
@@ -2701,9 +2703,18 @@ function Session:ApplySweep(indices, verdict)
             if #swept.NOTHING + #swept.NO_ADDON > 0 then
                 table.sort(swept.NOTHING)
                 table.sort(swept.NO_ADDON)
-                addon.Log:D("Session", "swept", item.session,
-                    "NOTHING", table.concat(swept.NOTHING, ", "),
-                    "NO_ADDON", table.concat(swept.NO_ADDON, ", "))
+
+                if #swept.NO_ADDON == 0 then
+                    addon.Log:D("Session", "swept", item.session,
+                        "NOTHING", table.concat(swept.NOTHING, ", "))
+                elseif #swept.NOTHING == 0 then
+                    addon.Log:D("Session", "swept", item.session,
+                        "NO_ADDON", table.concat(swept.NO_ADDON, ", "))
+                else
+                    addon.Log:D("Session", "swept", item.session,
+                        "NOTHING", table.concat(swept.NOTHING, ", "),
+                        "NO_ADDON", table.concat(swept.NO_ADDON, ", "))
+                end
             end
         end
     end
@@ -2977,9 +2988,9 @@ end
 
 
 local GONE_TEXT = addon.Locale.Texts{
-    equipped = addon.Log.CHAT_PREFIX.error .. T["%s was equipped by %s, so it cannot be awarded. Right-click it in the council list to remove it from the run."],
-    bound = addon.Log.CHAT_PREFIX.error .. T["%s is still in %s's bags, but its trade window has ended, so it cannot be awarded. Right-click it in the council list to remove it from the run."],
-    left = addon.Log.CHAT_PREFIX.error .. T["%s is no longer in %s's bags, so it cannot be awarded. Right-click it in the council list to remove it from the run."],
+    equipped = T["%s was equipped by %s, so it cannot be awarded. Right-click it in the council list to remove it from the run."],
+    bound = T["%s is still in %s's bags, but its trade window has ended, so it cannot be awarded. Right-click it in the council list to remove it from the run."],
+    left = T["%s is no longer in %s's bags, so it cannot be awarded. Right-click it in the council list to remove it from the run."],
 }
 
 
@@ -3015,7 +3026,7 @@ function Session:ApplyGone(session, runId, reason, sender, owed)
 
     if reason and not was and not item.removed and addon.PlayerIsMasterLooter()
         and not addon.Player:IsSelf(sender) then
-        print(addon.Locale.Format(GONE_TEXT[reason] or GONE_TEXT.left,
+        addon.Chat.Error(addon.Locale.Format(GONE_TEXT[reason] or GONE_TEXT.left,
             item.link or "?", Ambiguate(sender or "?", "short")))
     end
     if addon.Callbacks then addon.Callbacks:Fire("SessionChanged", session, "item") end
@@ -3133,7 +3144,8 @@ end
 local function HistoryHandover(session, winner, sender, runId)
     if not (winner and runId and addon.History and addon.History.GetForWinner) then return nil end
     local found
-    for _, entry in ipairs(addon.History:GetForWinner(winner)) do
+
+    for _, entry in ipairs(addon.History:GetLiveForWinner(winner)) do
         if entry.runId == runId and entry.session == session and entry.owner then
             if addon.Player:IsSame(sender, entry.owner) then return entry, true end
             found = entry
@@ -3214,23 +3226,23 @@ function Session:ApplyUndelivered(session, winner, sender, link, runId, why, to)
     local holder = Ambiguate(sender or "?", "short")
     local short = Ambiguate(owed, "short")
     if why == "missing" then
-        print(Format(addon.Log.CHAT_PREFIX.error .. T["%s was awarded to %s, but it is not in %s's bags. Re-award or strike it."],
+        addon.Chat.Error(Format(T["%s was awarded to %s, but it is not in %s's bags. Re-award or strike it."],
             link, short, holder))
     elseif why == "equipped" then
-        print(Format(addon.Log.CHAT_PREFIX.error .. T["%s was equipped by %s, so it can no longer be traded to %s - it was NOT delivered. Re-award or strike it."],
+        addon.Chat.Error(Format(T["%s was equipped by %s, so it can no longer be traded to %s - it was NOT delivered. Re-award or strike it."],
             link, holder, short))
     elseif why == "bound" then
-        print(Format(addon.Log.CHAT_PREFIX.error .. T["%s is still in %s's bags, but its trade window has ended, so it can no longer be traded to %s - it was NOT delivered. Re-award or strike it."],
+        addon.Chat.Error(Format(T["%s is still in %s's bags, but its trade window has ended, so it can no longer be traded to %s - it was NOT delivered. Re-award or strike it."],
             link, holder, short))
     elseif why == "wrong" and given then
         given = Ambiguate(given, "short")
-        print(Format(addon.Log.CHAT_PREFIX.error .. T["%s was awarded to %s, but %s traded it to %s - it was NOT delivered. Re-award it to %s if they may keep it, or strike it."],
+        addon.Chat.Error(Format(T["%s was awarded to %s, but %s traded it to %s - it was NOT delivered. Re-award it to %s if they may keep it, or strike it."],
             link, short, holder, given, given))
     elseif why == "wrong" then
-        print(Format(addon.Log.CHAT_PREFIX.error .. T["%s was awarded to %s, but %s traded it to someone outside the group - it was NOT delivered. Re-award or strike it."],
+        addon.Chat.Error(Format(T["%s was awarded to %s, but %s traded it to someone outside the group - it was NOT delivered. Re-award or strike it."],
             link, short, holder))
     else
-        print(Format(addon.Log.CHAT_PREFIX.error .. T["%s left %s's bags without a trade to %s - it was NOT delivered. Re-award or strike it."],
+        addon.Chat.Error(Format(T["%s left %s's bags without a trade to %s - it was NOT delivered. Re-award or strike it."],
             link, holder, short))
     end
 end
@@ -4172,10 +4184,9 @@ function Session:Init()
     addon.Comms:Register("start_ack", "ml", function(args, _)
         if not args then return end
         if args.ok then
-            print(addon.Log.CHAT_PREFIX.accent .. T["the Loot Master started the run."])
+            addon.Chat.Print(T["the Loot Master started the run."])
         else
-            print(addon.Log.CHAT_PREFIX.accent
-                .. addon.StartRequest.DeclineText(args.why))
+            addon.Chat.Print(addon.StartRequest.DeclineText(args.why))
         end
     end)
 

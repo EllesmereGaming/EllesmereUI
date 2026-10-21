@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
@@ -50,6 +51,603 @@ local function ItemKey(link)
     return link:match("|H(item:%d+)") or link:match("(item:%d+)") or link
 end
 
+
+local function Forget(kind, key)
+    if addon.SharedSaved then addon.SharedSaved.Forget(addon.db, kind, key) end
+end
+
+
+
+
+
+
+local DAY = 24 * 60 * 60
+local ARCHIVE_DAYS = 30
+
+local SWEEP_MIN, SWEEP_EVERY, SWEEP_DELAY = 200, 7 * DAY, 20
+
+local SEG_MAX = 1000
+
+local RELEASE_DELAY = 30
+local CLOSE_DELAY = 8
+
+local KEEP_RECENT, KEEP_ITEM = 5, 5
+local SUM_VERSION = 1
+History.ARCHIVE_DAYS, History.SEG_MAX, History.SWEEP_MIN = ARCHIVE_DAYS, SEG_MAX, SWEEP_MIN
+
+
+local STORES = { { store = "history", tag = "h" }, { store = "imported", tag = "i" } }
+local STORE_OF = { h = "history", i = "imported" }
+
+
+local loaded = {}
+local loadedAll = false
+local holds = {}
+local lastUse = 0
+local releaseQueued = false
+
+local archivedByWinner
+local unreadableLogged = {}
+
+local summaryOk, summaryFor = false, nil
+local sweepState, sweepScheduled
+
+local function Archive()
+    local archive = addon.db and addon.db.historyArchive
+    return type(archive) == "table" and archive or nil
+end
+
+local function Segs()
+    local archive = Archive()
+    local segs = archive and archive.segs
+    return type(segs) == "table" and next(segs) ~= nil and segs or nil
+end
+
+local function Codec()
+    local api = C_EncodingUtil
+    if not (api and api.SerializeCBOR and api.DeserializeCBOR and api.CompressString
+            and api.DecompressString and api.EncodeBase64 and api.DecodeBase64
+            and Enum and Enum.CompressionMethod and Enum.Base64Variant) then
+        return nil
+    end
+    return api
+end
+
+
+local function Pack(rows)
+    local api = Codec()
+    if not api then return nil end
+    local ok, blob = pcall(function()
+        local deflated = api.CompressString(api.SerializeCBOR(rows), Enum.CompressionMethod.Deflate,
+            Enum.CompressionLevel and Enum.CompressionLevel.OptimizeForSize)
+        return api.EncodeBase64(deflated, Enum.Base64Variant.StandardUrlSafe)
+    end)
+    if ok and type(blob) == "string" then return blob end
+    return nil, tostring(blob)
+end
+History.PackValue = Pack
+
+
+local function UnpackValue(blob)
+    local api = Codec()
+    if not api or type(blob) ~= "string" then return nil end
+    local ok, value = pcall(function()
+        local raw = api.DecodeBase64(blob, Enum.Base64Variant.StandardUrlSafe)
+        local cbor = raw and api.DecompressString(raw, Enum.CompressionMethod.Deflate)
+        return type(cbor) == "string" and api.DeserializeCBOR(cbor) or nil
+    end)
+    if not ok or type(value) ~= "table" then return nil end
+    return value
+end
+History.UnpackValue = UnpackValue
+
+
+local function Unpack(blob)
+    local rows = UnpackValue(blob)
+    if not rows then return nil end
+    local out = { h = {}, i = {} }
+    for tag in pairs(out) do
+        if type(rows[tag]) == "table" then
+            for key, row in pairs(rows[tag]) do
+                if type(row) == "table" then out[tag][key] = row end
+            end
+        end
+    end
+    return out
+end
+
+local function MonthKey(epoch)
+    return date("!%Y-%m", epoch)
+end
+
+
+local function SplitSegKey(key)
+    local month, part = tostring(key):match("^(.-)%.(%d+)$")
+    return month or tostring(key), tonumber(part) or 0
+end
+
+local function LastPart(segs, month)
+    local high = 0
+    for key in pairs(segs) do
+        local m, p = SplitSegKey(key)
+        if m == month and p > high then high = p end
+    end
+    return high
+end
+
+
+local function LiveHas(tag, key)
+    local store = addon.db[STORE_OF[tag]]
+    return type(store) == "table" and store[key] ~= nil
+end
+
+
+local function WriteSeg(segs, key, rows)
+    local n, nh, ni, oldest, newest, oh = 0, 0, 0, nil, nil, nil
+    for tag, list in pairs(rows) do
+        for _, row in pairs(list) do
+            local epoch = EpochOf(row)
+            n = n + 1
+            if tag == "h" then
+                nh = nh + 1
+                if not oh or epoch < oh then oh = epoch end
+            else
+                ni = ni + 1
+            end
+            if not oldest or epoch < oldest then oldest = epoch end
+            if not newest or epoch > newest then newest = epoch end
+        end
+    end
+    if n == 0 then
+        segs[key], loaded[key] = nil, nil
+        return true
+    end
+    local blob, err = Pack(rows)
+    if not blob then
+        addon.Log:W("History", "could not pack archive segment", key, err)
+        return false
+    end
+    segs[key] = { n = n, nh = nh, ni = ni, oldest = oldest, newest = newest, oh = oh, blob = blob }
+    if loaded[key] then loaded[key] = rows end
+    return true
+end
+
+local function LoadSeg(key, seg)
+    if loaded[key] then return loaded[key] end
+    local rows = type(seg) == "table" and Unpack(seg.blob)
+    if not rows then
+        if not unreadableLogged[key] then
+            unreadableLogged[key] = true
+            addon.Log:W("History", "archive segment unreadable - kept as it is", tostring(key))
+        end
+        return nil
+    end
+    loaded[key] = rows
+    return rows
+end
+
+local releaseGen = 0
+
+
+
+
+local function QueueRelease(again)
+    if (releaseQueued and not again) or not (C_Timer and C_Timer.After) then return end
+    releaseQueued = true
+    releaseGen = releaseGen + 1
+    local gen = releaseGen
+    local wait = RELEASE_DELAY - ((GetTime and GetTime() or 0) - lastUse)
+    C_Timer.After(math.max(1, wait), function()
+        if gen ~= releaseGen then return end
+        releaseQueued = false
+        if next(loaded) == nil then return end
+        if next(holds) or GetTime() - lastUse < RELEASE_DELAY then
+            QueueRelease()
+            return
+        end
+        History:ReleaseArchive()
+    end)
+end
+
+
+function History:EnsureArchive()
+    local segs = Segs()
+    if not segs then return false end
+    lastUse = GetTime and GetTime() or 0
+    if not loadedAll then
+        for key, seg in pairs(segs) do LoadSeg(key, seg) end
+        loadedAll, archivedByWinner = true, nil
+    end
+    QueueRelease()
+    return true
+end
+
+
+function History:ReleaseArchive()
+    if next(holds) then return false end
+    local freed = next(loaded) ~= nil
+    loaded, loadedAll, archivedByWinner = {}, false, nil
+    if freed and addon.SettleGC then addon.SettleGC() end
+    return true
+end
+
+function History:IsArchiveLoaded()
+    return next(loaded) ~= nil
+end
+
+
+function History:HoldArchive(who)
+    holds[who] = true
+end
+
+function History:DropArchive(who)
+    holds[who] = nil
+
+    lastUse = (GetTime and GetTime() or 0) - (RELEASE_DELAY - CLOSE_DELAY)
+    QueueRelease(true)
+end
+
+
+local function EachArchived(fn, onlyTag)
+    if not History:EnsureArchive() then return end
+    for segKey, rows in pairs(loaded) do
+        for tag, list in pairs(rows) do
+            if not onlyTag or tag == onlyTag then
+                for key, row in pairs(list) do
+                    if not LiveHas(tag, key) then fn(row, tag, key, segKey) end
+                end
+            end
+        end
+    end
+end
+
+
+function History:ArchivedCount(tag)
+    local n = 0
+    for _, seg in pairs(Segs() or {}) do
+        if type(seg) == "table" then
+            n = n + (tonumber(tag == "i" and seg.ni or seg.nh) or 0)
+        end
+    end
+    return n
+end
+
+local function ArchiveNewest()
+    local newest
+    for _, seg in pairs(Segs() or {}) do
+        local epoch = type(seg) == "table" and tonumber(seg.newest)
+        if epoch and (not newest or epoch > newest) then newest = epoch end
+    end
+    return newest
+end
+History.ArchiveNewest = ArchiveNewest
+
+
+function History:IsArchived(store, key)
+    local segs = Segs()
+    if not segs or key == nil then return false end
+    local tag = store == "imported" and "i" or "h"
+    local epoch = tag == "h" and tonumber(tostring(key):match("^(%d+)%-"))
+    if epoch then
+        lastUse = GetTime and GetTime() or 0
+        for segKey, seg in pairs(segs) do
+            if type(seg) == "table" and (tonumber(seg.oldest) or 0) - DAY <= epoch
+                and epoch <= (tonumber(seg.newest) or 0) + DAY then
+                local rows = LoadSeg(segKey, seg)
+                if rows and rows[tag][key] ~= nil then QueueRelease() return true end
+            end
+        end
+        QueueRelease()
+        return false
+    end
+    History:EnsureArchive()
+    for _, rows in pairs(loaded) do
+        if rows[tag][key] ~= nil then return true end
+    end
+    return false
+end
+
+
+
+
+local function ResponseKey(entry)
+    if entry.responseCode then return "c" .. tostring(entry.responseCode) end
+    if entry.coin == true and not entry.responseID then return "cCOIN" end
+    if entry.responseText == nil then return "n" end
+    return "t" .. tostring(entry.responseText)
+end
+History.ResponseKey = ResponseKey
+
+function History.ResponseTextForKey(rk)
+    local tag, value = rk:sub(1, 1), rk:sub(2)
+    if tag == "c" then return History.CodeText(value) end
+    if tag ~= "t" then return nil end
+    local status = addon.Session and addon.Session.STATUS and addon.Session.STATUS[value]
+    return (status and status.text) or value
+end
+
+
+local RECENT_FIELDS = { "id", "link", "winner", "epoch", "source", "r", "g", "b",
+    "responseCode", "responseText", "responseID", "coin", "reason" }
+
+local function Compact(row)
+    local out = {}
+    for _, field in ipairs(RECENT_FIELDS) do out[field] = row[field] end
+    return out
+end
+
+
+local function KeepNewest(list, item, epoch, epochOf, max)
+    local at = #list + 1
+    for i = 1, #list do
+        if epoch > epochOf(list[i]) then at = i break end
+    end
+    if at > max then return end
+    table.insert(list, at, item)
+    if #list > max then list[#list] = nil end
+end
+
+
+local function Sample(row)
+    local winner = row.winner
+    return (winner ~= nil and ("s" .. tostring(winner)) or "n") .. "\31" .. ResponseKey(row)
+end
+
+local function SampleEntry(sample)
+    local winner, rk = sample:match("^([^\31]*)\31(.*)$")
+    local entry = {}
+    if winner and winner:sub(1, 1) == "s" then entry.winner = winner:sub(2) end
+    local tag, value = (rk or "n"):sub(1, 1), (rk or "n"):sub(2)
+    if tag == "c" then entry.responseCode = value elseif tag == "t" then entry.responseText = value end
+    return entry
+end
+
+
+local function ItemSlot(link)
+    local key = ItemKey(link)
+    return key and (tonumber(key:match("^item:(%d+)$")) or key)
+end
+
+
+local PACK = 1024
+local function Unpacked(value)
+    local list = {}
+    if type(value) == "number" then
+        while value > 0 do
+            list[#list + 1] = value % PACK
+            value = math.floor(value / PACK)
+        end
+    elseif type(value) == "string" then
+        for index in value:gmatch("%d+") do list[#list + 1] = tonumber(index) end
+    end
+    return list
+end
+
+local function Packed(list)
+    local number, scale = 0, 1
+    for _, index in ipairs(list) do
+        if index >= PACK then return table.concat(list, ",") end
+        number, scale = number + index * scale, scale * PACK
+    end
+    return number
+end
+
+
+local pairIndexOf = setmetatable({}, { __mode = "k" })
+local function PairIndex(sum, sample)
+    local index = pairIndexOf[sum]
+    if not index then
+        index = {}
+        for i, known in ipairs(sum.pairs) do index[known] = i end
+        pairIndexOf[sum] = index
+    end
+    local at = index[sample]
+    if not at then
+        at = #sum.pairs + 1
+        sum.pairs[at], index[sample] = sample, at
+    end
+    return at
+end
+
+local function Tagged(value)
+    return type(value):sub(1, 1) .. tostring(value)
+end
+
+local function NewSummary()
+    return { w = {}, items = {}, pairs = {}, bosses = {}, snaps = {} }
+end
+local EMPTY_SUMMARY = NewSummary()
+
+local function CompactEpoch(row) return EpochOf(row) end
+
+local function AddRow(sum, row)
+    local key = WinnerKey(row.winner)
+    if key then
+        local rec = sum.w[key]
+        if not rec then
+            rec = { n = 0, recent = {} }
+            sum.w[key] = rec
+        end
+        rec.n = rec.n + 1
+        if History.IsReasonAward(row) then
+            rec.r = (rec.r or 0) + 1
+        else
+            local rk = ResponseKey(row)
+            rec.c = rec.c or {}
+            rec.c[rk] = (rec.c[rk] or 0) + 1
+            if row.source then
+                rec.s = rec.s or {}
+                rec.s[row.source] = (rec.s[row.source] or 0) + 1
+            end
+        end
+        KeepNewest(rec.recent, Compact(row), EpochOf(row), CompactEpoch, KEEP_RECENT)
+        if type(row.class) == "string" then
+            rec.cls = rec.cls or {}
+            local seen = false
+            for _, class in ipairs(rec.cls) do if class == row.class then seen = true end end
+            if not seen then rec.cls[#rec.cls + 1] = row.class end
+        end
+        if row.coin then
+            local id = addon.Storage and addon.Storage.ItemID(row.link)
+            local tuple = table.concat({ Tagged(row.winner), Tagged(row.boss),
+                Tagged(row.encounterID), Tagged(row.difficultyID), Tagged(id) }, "\31")
+            rec.coins = rec.coins or {}
+            local coin = rec.coins[tuple]
+            if not coin then
+                coin = { w = row.winner, b = row.boss, e = row.encounterID, d = row.difficultyID,
+                    i = id, n = 0 }
+                rec.coins[tuple] = coin
+            end
+            coin.n = coin.n + 1
+        end
+    end
+
+    local item = ItemSlot(row.link)
+    if item then
+        local list = Unpacked(sum.items[item])
+        if #list < KEEP_ITEM then
+            list[#list + 1] = PairIndex(sum, Sample(row))
+            sum.items[item] = Packed(list)
+        end
+    end
+    if type(row.boss) == "string" and row.boss ~= "" and not sum.bosses[row.boss] then
+        sum.bosses[row.boss] = row.encounterID or false
+    end
+    if row.runId and row.session then
+        local snap = tostring(row.runId) .. ":" .. tostring(row.session)
+        sum.snaps[snap] = math.max(sum.snaps[snap] or 0, EpochOf(row))
+    end
+end
+
+
+local function TrimSnaps(sum)
+    local days = addon.Snapshot and addon.Snapshot.KEEP_DAYS or 60
+    local cutoff = GetServerTime() - (days + 1) * DAY
+    for key, epoch in pairs(sum.snaps) do
+        if epoch < cutoff then sum.snaps[key] = nil end
+    end
+end
+
+local function Token(segs)
+    local keys = {}
+    for key in pairs(segs) do keys[#keys + 1] = tostring(key) end
+    table.sort(keys)
+    for i, key in ipairs(keys) do
+        local seg = segs[key]
+        keys[i] = key .. ":" .. tostring(type(seg) == "table" and seg.n) .. ":"
+            .. tostring(type(seg) == "table" and type(seg.blob) == "string" and #seg.blob)
+    end
+    return table.concat(keys, ",")
+end
+
+
+local function RebuildSummary()
+    local archive, segs = Archive(), Segs()
+    summaryOk, summaryFor = true, addon.db
+    if not segs then
+        if archive then archive.sum, archive.sumV, archive.token = nil, nil, nil end
+        return
+    end
+    local sum = NewSummary()
+    for segKey, seg in pairs(segs) do
+        local rows = loaded[segKey] or Unpack(type(seg) == "table" and seg.blob)
+        if rows then
+            for tag, list in pairs(rows) do
+                for key, row in pairs(list) do
+                    if not LiveHas(tag, key) then AddRow(sum, row) end
+                end
+            end
+        elseif not unreadableLogged[segKey] then
+            unreadableLogged[segKey] = true
+            addon.Log:W("History", "archive segment unreadable - kept as it is", tostring(segKey))
+        end
+    end
+    TrimSnaps(sum)
+    archive.sum, archive.sumV, archive.token = sum, SUM_VERSION, Token(segs)
+    addon.Log:D("History", "archive summary rebuilt")
+end
+
+local function SummaryValid(archive, segs)
+    local sum = archive.sum
+    return archive.sumV == SUM_VERSION and type(sum) == "table" and type(sum.w) == "table"
+        and type(sum.items) == "table" and type(sum.pairs) == "table" and type(sum.bosses) == "table"
+        and type(sum.snaps) == "table" and archive.token == Token(segs)
+end
+
+
+local function Summary()
+    local segs = Segs()
+    if not segs then return EMPTY_SUMMARY end
+    local archive = Archive()
+    if not summaryOk or summaryFor ~= addon.db then
+        if SummaryValid(archive, segs) then
+            summaryOk, summaryFor = true, addon.db
+        else
+            RebuildSummary()
+        end
+    end
+    return archive.sum or EMPTY_SUMMARY
+end
+
+
+
+local function CommitSegs(dirty, later)
+    local segs = Archive() and Archive().segs
+    if type(segs) ~= "table" then return end
+    for segKey in pairs(dirty) do
+        if loaded[segKey] then WriteSeg(segs, segKey, loaded[segKey]) end
+    end
+    archivedByWinner = nil
+    if later or not Segs() then summaryOk = false else RebuildSummary() end
+end
+
+
+function History:ClearArchived(store)
+    local tag = store == "imported" and "i" or "h"
+    local segs = Archive() and Archive().segs
+    if not Segs() then return 0 end
+    History:EnsureArchive()
+    local removed, dirty = 0, {}
+    for segKey, rows in pairs(loaded) do
+        for key in pairs(rows[tag]) do
+            Forget(store, key)
+            removed = removed + 1
+        end
+        if next(rows[tag]) then
+            rows[tag] = {}
+            dirty[segKey] = true
+        end
+    end
+    CommitSegs(dirty)
+    if not next(segs) then summaryOk = false end
+    return removed
+end
+
+
+local function PruneArchived(cutoff)
+    local segs = Segs()
+    if not segs then return 0 end
+    local removed, dirty = 0, {}
+    for segKey, seg in pairs(segs) do
+        if type(seg) == "table" and (tonumber(seg.nh) or 0) > 0
+            and (tonumber(seg.oh) or 0) < cutoff then
+            local rows = LoadSeg(segKey, seg)
+            if rows then
+                for key, row in pairs(rows.h) do
+                    if EpochOf(row) < cutoff then
+                        rows.h[key] = nil
+                        removed = removed + 1
+                        dirty[segKey] = true
+                    end
+                end
+            end
+        end
+    end
+    if removed > 0 then CommitSegs(dirty, true) end
+    QueueRelease()
+    return removed
+end
+
 local function Index(entry)
     if type(entry) ~= "table" then return end
     local winnerKey = WinnerKey(entry.winner)
@@ -69,11 +667,23 @@ local function Index(entry)
 end
 
 
-
-
-local function EachEntry(fn)
+local function EachLive(fn)
     for _, entry in pairs(addon.db.history or {}) do fn(entry) end
     for _, entry in pairs(addon.db.imported or {}) do fn(entry) end
+end
+History.EachLive = EachLive
+
+
+
+local function EachEntry(fn, store)
+    if store ~= "imported" then
+        for _, entry in pairs(addon.db.history or {}) do fn(entry) end
+    end
+    if store ~= "history" then
+        for _, entry in pairs(addon.db.imported or {}) do fn(entry) end
+    end
+    EachArchived(function(row) fn(row) end,
+        store == "history" and "h" or store == "imported" and "i" or nil)
 end
 History.EachEntry = EachEntry
 
@@ -93,8 +703,9 @@ function History:Reindex()
     byWinner, byItem = {}, {}
     pending, pendingAt = nil, nil
     if liveKeys then liveKeys = {} end
-    EachEntry(Index)
+    EachLive(Index)
     indexState = "ready"
+    archivedByWinner = nil
 end
 
 local function Reindex()
@@ -207,7 +818,6 @@ local function BuildEntry(session, winner, item)
         boss = item.boss,
         encounterID = item.encounterID,
         note = candidate and candidate.note,
-        votes = addon.Session:GetVoteCount(session, winner),
         groupSize = GetNumGroupMembers(),
         delivered = item.delivered and true or false,
 
@@ -279,6 +889,7 @@ local ROW_FIELDS = {
     difficultyName = "string", boss = "string", encounterID = "number",
     note = "string", votes = "number", groupSize = "number", delivered = "boolean",
     awardSeq = "number", reason = "string", coin = "boolean", quantity = "number",
+    editedAt = "number",
 }
 local MAX_TEXT, MAX_LONG = 255, 1024
 local LONG_FIELDS = { link = true, note = true, reason = true, responseText = true }
@@ -327,6 +938,8 @@ end
 
 
 local function Stamp(row)
+
+    row.editedAt = GetServerTime()
     local player, raidTeam = addon.Player, addon.RaidTeam
     row.recorder = player and player.GetFullName and player:GetFullName("player") or nil
     row.guild = raidTeam and raidTeam.GetGuildName and raidTeam:GetGuildName() or nil
@@ -346,7 +959,7 @@ function History:Record(entry, sender)
     entry = clean
     addon.db.history = addon.db.history or {}
 
-    if addon.db.history[entry.id] then
+    if addon.db.history[entry.id] or History:IsArchived("history", entry.id) then
 
 
         return
@@ -389,7 +1002,7 @@ function History:RecordCoin(name, link, epoch, boss, encounterID, quantity)
     encounterID = tonumber(encounterID)
     local difficultyID = addon.Encounter:DifficultyFor(boss, encounterID)
 
-    if addon.BonusRoll and addon.BonusRoll.AlreadyRecorded(History:GetForWinner(name), name, link, boss,
+    if addon.BonusRoll and addon.BonusRoll.AlreadyRecorded(History:ForReplayCheck(name, epoch), name, link, boss,
             encounterID, difficultyID, epoch) then
         addon.Log:D("History", "coin already recorded", link, "for", name)
         return
@@ -446,6 +1059,7 @@ function History:RemoveForSession(session, winner, runId, seq)
             and (not winner or entry.winner == winner) then
             addon.db.history[id] = nil
             struck[id] = true
+            Forget("history", id)
             struckNow[#struckNow + 1] = entry
             addon.Log:I("History", "struck", entry.link, "from", tostring(entry.winner))
         end
@@ -474,6 +1088,8 @@ function History:MarkDelivered(session, winner, runId)
             matched = matched + 1
             if not entry.delivered then
                 entry.delivered = true
+
+                entry.editedAt = GetServerTime()
                 changed = changed + 1
                 addon.Log:D("History", "delivered", entry.link, "to",
                     tostring(entry.winner))
@@ -504,18 +1120,122 @@ function History.IsCoinLoot(entry)
     return entry ~= nil and entry.coin == true
 end
 
-function History:GetForWinner(winner)
+
+function History:GetLiveForWinner(winner)
     local key = WinnerKey(winner)
     if not key then return {} end
     EnsureIndex()
     return byWinner[key] or {}
 end
 
+
+function History:GetForWinner(winner)
+    local key = WinnerKey(winner)
+    if not key then return {} end
+    EnsureIndex()
+    local live = byWinner[key] or {}
+    if not Summary().w[key] then return live end
+    History:EnsureArchive()
+    if not archivedByWinner then
+        archivedByWinner = {}
+        EachArchived(function(row)
+            local rowKey = WinnerKey(row.winner)
+            if rowKey then
+                archivedByWinner[rowKey] = archivedByWinner[rowKey] or {}
+                table.insert(archivedByWinner[rowKey], row)
+            end
+        end)
+    end
+    local archived = archivedByWinner[key]
+    if not archived then return live end
+    local out = {}
+    for i, entry in ipairs(live) do out[i] = entry end
+    for _, entry in ipairs(archived) do out[#out + 1] = entry end
+    return out
+end
+
+
+function History:CountForWinner(winner)
+    local key = WinnerKey(winner)
+    if not key then return 0 end
+    EnsureIndex()
+    local rec = Summary().w[key]
+    return #(byWinner[key] or {}) + (rec and rec.n or 0)
+end
+
+
+function History:CoinRowsFor(winner)
+    local key = WinnerKey(winner)
+    if not key then return {} end
+    EnsureIndex()
+    local live = byWinner[key] or {}
+    local rec = Summary().w[key]
+    if not (rec and rec.coins) then return live end
+    local out = {}
+    for i, entry in ipairs(live) do out[i] = entry end
+    for _, coin in pairs(rec.coins) do
+        local row = { coin = true, winner = coin.w, boss = coin.b, encounterID = coin.e,
+            difficultyID = coin.d, link = coin.i and ("item:" .. coin.i) or nil }
+        for _ = 1, coin.n do out[#out + 1] = row end
+    end
+    return out
+end
+
+
+function History:ForReplayCheck(winner, epoch)
+    local window = addon.BonusRoll and addon.BonusRoll.REPLAY_WINDOW or DAY
+    local newest = ArchiveNewest()
+    if newest and (type(epoch) ~= "number" or epoch - window <= newest) then
+        return History:GetForWinner(winner)
+    end
+    return History:GetLiveForWinner(winner)
+end
+
+
+function History:ClassesFor(winner)
+    local key = WinnerKey(winner)
+    if not key then return {} end
+    EnsureIndex()
+    local out = {}
+    for _, entry in ipairs(byWinner[key] or {}) do
+        if type(entry.class) == "string" then out[#out + 1] = entry.class end
+    end
+    local rec = Summary().w[key]
+    for _, class in ipairs(rec and rec.cls or {}) do out[#out + 1] = class end
+    return out
+end
+
+
+function History:ArchivedBosses()
+    return Summary().bosses
+end
+
+
+function History.EachSnapKey(fn)
+    EachLive(function(entry)
+        if entry.runId and entry.session then
+            fn(tostring(entry.runId) .. ":" .. tostring(entry.session), EpochOf(entry))
+        end
+    end)
+    for key, epoch in pairs(Summary().snaps) do fn(key, epoch) end
+end
+
+
 function History:GetWinnersOfItem(link)
     local key = ItemKey(link)
     if not key then return {} end
     EnsureIndex()
-    return byItem[key] or {}
+    local live = byItem[key] or {}
+    local sum = Summary()
+    local packed = sum.items[ItemSlot(link)]
+    if not packed then return live end
+    local out = {}
+    for i, entry in ipairs(live) do out[i] = entry end
+    for _, index in ipairs(Unpacked(packed)) do
+        local sample = sum.pairs[index]
+        if sample then out[#out + 1] = SampleEntry(sample) end
+    end
+    return out
 end
 
 
@@ -539,10 +1259,28 @@ function History:GetStats(winner)
     local importedBySource = {}
     local recent = {}
     local any = false
+    local sum = Summary()
 
     for _, name in ipairs(names) do
         local nameKey = WinnerKey(name)
-        local entries = byWinner[nameKey]
+        local entries = nameKey and byWinner[nameKey]
+
+        local rec = nameKey and sum.w[nameKey]
+        if rec then
+            any = true
+            reasons = reasons + (rec.r or 0)
+            for rk, n in pairs(rec.c or {}) do
+                local key = History.ResponseTextForKey(rk) or T["Unknown"]
+                counts[key] = (counts[key] or 0) + n
+                total = total + n
+                if nameKey ~= winnerKey then fromAlts = fromAlts + n end
+            end
+            for source, n in pairs(rec.s or {}) do
+                imported = imported + n
+                importedBySource[source] = (importedBySource[source] or 0) + n
+            end
+            for _, copy in ipairs(rec.recent) do recent[#recent + 1] = copy end
+        end
         if entries then
             any = true
             for _, entry in ipairs(entries) do
@@ -581,16 +1319,24 @@ end
 
 
 function History:Count()
-    local n = 0
+    local n = History:ArchivedCount("h")
     for _ in pairs(addon.db.history or {}) do n = n + 1 end
     return n
 end
 
 
-function History:GetAll()
+
+function History:GetAll(unsorted)
     local all = {}
     EachEntry(function(entry) all[#all + 1] = entry end)
-    table.sort(all, function(a, b) return EpochOf(a) > EpochOf(b) end)
+    if unsorted then return all end
+
+    table.sort(all, function(a, b)
+        local x, y = a.epoch, b.epoch
+        if type(x) ~= "number" then x = 0 end
+        if type(y) ~= "number" then y = 0 end
+        return x > y
+    end)
     return all
 end
 
@@ -649,8 +1395,16 @@ function History:OriginChoices()
     local guilds, recorders, byGuild, byRecorder = {}, {}, {}, {}
     local hidden = { total = 0 }
     local kind, selected = Selection()
+
+    local recorderKeys = {}
     EachEntry(function(entry)
-        local guildKey, recorderKey = History.GuildKey(entry), History.RecorderKey(entry)
+        local guildKey = History.GuildKey(entry)
+        local recorder = type(entry.recorder) == "string" and entry.recorder or false
+        local recorderKey = recorderKeys[recorder]
+        if not recorderKey then
+            recorderKey = History.RecorderKey(entry)
+            recorderKeys[recorder] = recorderKey
+        end
         local g = byGuild[guildKey]
         if not g then
             g = { key = guildKey, label = entry.guild, count = 0 }
@@ -663,7 +1417,11 @@ function History:OriginChoices()
             byRecorder[recorderKey], recorders[#recorders + 1] = r, r
         end
         r.count = r.count + 1
-        if not History.PassesOrigin(entry) then hidden.total = hidden.total + 1 end
+
+        if (kind == "guild" and guildKey ~= selected)
+            or (kind == "recorder" and recorderKey ~= selected) then
+            hidden.total = hidden.total + 1
+        end
     end)
     local Fold = addon.Locale.Fold
     local function order(a, b)
@@ -684,6 +1442,7 @@ end
 
 
 
+
 local function FindStoredEntry(id)
     if not id then return nil end
 
@@ -693,15 +1452,31 @@ local function FindStoredEntry(id)
             if entry.id == id then return store, key, entry end
         end
     end
+    if not History:EnsureArchive() then return nil end
+    for segKey, rows in pairs(loaded) do
+        for tag, list in pairs(rows) do
+            if list[id] and not LiveHas(tag, id) then return list, id, list[id], segKey, tag end
+        end
+    end
+    for segKey, rows in pairs(loaded) do
+        for tag, list in pairs(rows) do
+            for key, entry in pairs(list) do
+                if entry.id == id and not LiveHas(tag, key) then return list, key, entry, segKey, tag end
+            end
+        end
+    end
 end
+
 
 local function MarkEdited(entry)
     entry.editedAt = GetServerTime()
     entry.editedBy = addon.Player and addon.Player:GetFullName("player") or nil
 end
 
-local function FinishEdit(action, entry)
+local function FinishEdit(action, entry, segKey)
     MarkEdited(entry)
+
+    if segKey then CommitSegs({ [segKey] = true }) end
     Reindex()
     addon.Log:I("History", action, tostring(entry.id))
     addon.Callbacks:Fire("HistoryChanged", action, entry)
@@ -725,18 +1500,18 @@ end
 
 function History:SetWinner(id, winner)
     if type(winner) ~= "string" or winner == "" then return false end
-    local _, _, entry = FindStoredEntry(id)
+    local _, _, entry, segKey = FindStoredEntry(id)
     if not entry then return false end
     if entry.winner == winner then return true end
 
     entry.winner = winner
-    return FinishEdit("changed winner for", entry)
+    return FinishEdit("changed winner for", entry, segKey)
 end
 
 function History:SetResponse(id, responseID)
     local response = addon.Config:Responses()[responseID]
     if not response then return false end
-    local _, _, entry = FindStoredEntry(id)
+    local _, _, entry, segKey = FindStoredEntry(id)
     if not entry then return false end
 
     entry.responseID = responseID
@@ -747,7 +1522,7 @@ function History:SetResponse(id, responseID)
     entry.r, entry.g, entry.b = response.r, response.g, response.b
 
     entry.reason = nil
-    return FinishEdit("changed response for", entry)
+    return FinishEdit("changed response for", entry, segKey)
 end
 
 function History:SetReason(id, reasonIndex)
@@ -755,26 +1530,46 @@ function History:SetReason(id, reasonIndex)
 
 
     if not reason or not reason.log then return false end
-    local _, _, entry = FindStoredEntry(id)
+    local _, _, entry, segKey = FindStoredEntry(id)
     if not entry then return false end
 
     entry.reason = reason.text
-    return FinishEdit("changed award reason for", entry)
+    return FinishEdit("changed award reason for", entry, segKey)
+end
+
+
+
+function History:DeleteEntries(ids)
+    local removed, last, dirty = 0, nil, {}
+    for _, id in ipairs(ids or {}) do
+        local store, key, entry, segKey, tag = FindStoredEntry(id)
+        if store then
+            store[key] = nil
+            local native = store == addon.db.history or tag == "h"
+
+            if native then struck[key] = true end
+            Forget(native and "history" or "imported", key)
+            if segKey then dirty[segKey] = true end
+            removed = removed + 1
+            last = entry
+        end
+    end
+    if removed == 0 then return 0 end
+
+    if next(dirty) then CommitSegs(dirty) end
+    Reindex()
+    if addon.Snapshot then addon.Snapshot:Prune() end
+    if removed == 1 then
+        addon.Log:I("History", "deleted", tostring(last.id), "from", last.source or "slc")
+    else
+        addon.Log:I("History", "deleted", removed, "entries")
+    end
+    addon.Callbacks:Fire("HistoryChanged", "deleted", removed == 1 and last or nil)
+    return removed
 end
 
 function History:DeleteEntry(id)
-    local store, key, entry = FindStoredEntry(id)
-    if not store then return false end
-
-    store[key] = nil
-
-    if store == addon.db.history then struck[key] = true end
-    Reindex()
-    if addon.Snapshot then addon.Snapshot:Prune() end
-    addon.Log:I("History", "deleted", tostring(id), "from",
-        entry.source or "slc")
-    addon.Callbacks:Fire("HistoryChanged", "deleted", entry)
-    return true
+    return History:DeleteEntries({ id }) > 0
 end
 
 
@@ -782,15 +1577,17 @@ end
 
 
 
-function History:PruneOlderThan(days)
+function History:PruneOlderThan(days, login)
     local cutoff = GetServerTime() - (days * 24 * 60 * 60)
-    local removed = 0
+    local removed = PruneArchived(cutoff)
     for id, entry in pairs(addon.db.history or {}) do
         if EpochOf(entry) < cutoff then
             addon.db.history[id] = nil
             removed = removed + 1
         end
     end
+
+    if login then return removed end
     if removed > 0 then Reindex() end
 
     if addon.Snapshot then addon.Snapshot:Prune() end
@@ -799,10 +1596,10 @@ end
 
 
 
-function History:PruneBySetting()
+function History:PruneBySetting(login)
     local days = tonumber(addon.db.historyPruneDays) or 0
     if days <= 0 then return 0, 0 end
-    local removed = History:PruneOlderThan(days)
+    local removed = History:PruneOlderThan(days, login)
     if removed > 0 then
         addon.Log:I("History", "pruned", removed, "entries older than", days, "days")
     end
@@ -813,6 +1610,8 @@ end
 
 function History:Clear()
     local removed = History:Count()
+    for id in pairs(addon.db.history or {}) do Forget("history", id) end
+    History:ClearArchived("history")
     addon.db.history = {}
     Reindex()
     if addon.Snapshot then addon.Snapshot:Prune() end
@@ -936,6 +1735,300 @@ end
 
 
 
+local function PlanSweep(now)
+    local cutoff = now - ARCHIVE_DAYS * DAY
+    local byMonth, count = {}, 0
+    for _, s in ipairs(STORES) do
+        for key, row in pairs(addon.db[s.store] or {}) do
+            if type(row) == "table" and EpochOf(row) < cutoff then
+                local month = MonthKey(EpochOf(row))
+                byMonth[month] = byMonth[month] or {}
+                table.insert(byMonth[month], { store = s.store, tag = s.tag, key = key, row = row })
+                count = count + 1
+            end
+        end
+    end
+    local months = {}
+    for month, list in pairs(byMonth) do
+        table.sort(list, function(a, b)
+            local x, y = EpochOf(a.row), EpochOf(b.row)
+            if x ~= y then return x < y end
+            return tostring(a.key) < tostring(b.key)
+        end)
+        months[#months + 1] = { month = month, list = list, at = 1 }
+    end
+    table.sort(months, function(a, b) return a.month < b.month end)
+    return months, count
+end
+
+
+
+local function SweepStep(state)
+    local job = state.months[state.at]
+    if not job then return true end
+    local archive = Archive()
+    archive.segs = type(archive.segs) == "table" and archive.segs or {}
+    local segs = archive.segs
+    local sum = Summary()
+
+    local high = LastPart(segs, job.month)
+    local key, rows = nil, nil
+    local last = high > 0 and segs[job.month .. "." .. high]
+    if type(last) == "table" and (tonumber(last.n) or SEG_MAX) < SEG_MAX then
+        rows = Unpack(last.blob)
+        if rows then key = job.month .. "." .. high end
+    end
+    if not key then key, rows = job.month .. "." .. (high + 1), { h = {}, i = {} } end
+
+    local room = SEG_MAX
+    for _, list in pairs(rows) do for _ in pairs(list) do room = room - 1 end end
+    local moved = {}
+    while job.at <= #job.list and room > 0 do
+        local item = job.list[job.at]
+        job.at = job.at + 1
+        local store = addon.db[item.store]
+        if type(store) == "table" and store[item.key] == item.row then
+            rows[item.tag][item.key] = item.row
+            moved[#moved + 1] = item
+            room = room - 1
+        end
+    end
+    if #moved > 0 then
+        if not WriteSeg(segs, key, rows) then return true, false end
+        if sum == EMPTY_SUMMARY then
+            sum = NewSummary()
+            archive.sum, archive.sumV = sum, SUM_VERSION
+            summaryOk, summaryFor = true, addon.db
+        end
+        for _, item in ipairs(moved) do
+            addon.db[item.store][item.key] = nil
+            AddRow(sum, item.row)
+        end
+        archive.token = Token(segs)
+        state.moved = state.moved + #moved
+        state.segments = state.segments + 1
+        Reindex()
+    end
+    if job.at > #job.list then state.at = state.at + 1 end
+    return state.at > #state.months, true
+end
+
+
+local function SweepDue(count, now)
+    if count == 0 then return false end
+    local archive = Archive()
+    local swept = archive and tonumber(archive.sweptAt) or 0
+    return count >= SWEEP_MIN or now - swept >= SWEEP_EVERY
+end
+
+local function FinishSweep(state, ok)
+    sweepState = nil
+    local archive = Archive()
+    if ok and archive then
+        archive.sweptAt = GetServerTime()
+        TrimSnaps(Summary())
+    end
+    if state.moved > 0 then
+        addon.Log:I("History", "archived", state.moved, "row(s) into", state.segments,
+            "segment(s) in", ("%.1f"):format(state.ms), "ms")
+    end
+end
+
+
+function History:SweepNow(force)
+    if not Codec() or next(loaded) or sweepState then return 0 end
+    local now = GetServerTime()
+    local months, count = PlanSweep(now)
+    if not force and not SweepDue(count, now) then return 0 end
+    if type(addon.db.historyArchive) ~= "table" then addon.db.historyArchive = {} end
+    local state = { months = months, at = 1, moved = 0, segments = 0, ms = 0 }
+    local done, ok = false, true
+    while not done and ok do done, ok = SweepStep(state) end
+    FinishSweep(state, ok)
+    return state.moved
+end
+
+
+
+function History:ScheduleSweep(delay)
+    if sweepState or sweepScheduled or not Codec() or not (C_Timer and C_Timer.After) then return end
+    sweepScheduled = true
+    C_Timer.After(delay or SWEEP_DELAY, function()
+        sweepScheduled = false
+        if sweepState then return end
+        if next(loaded) or (InCombatLockdown and InCombatLockdown()) then
+            History:ScheduleSweep(RELEASE_DELAY)
+            return
+        end
+        local now = GetServerTime()
+        local months, count = PlanSweep(now)
+        if not SweepDue(count, now) then return end
+        if type(addon.db.historyArchive) ~= "table" then addon.db.historyArchive = {} end
+        local state = { months = months, at = 1, moved = 0, segments = 0, ms = 0 }
+        sweepState = state
+        local driver = CreateFrame("Frame")
+        driver:SetScript("OnUpdate", function(self)
+            if next(loaded) or (InCombatLockdown and InCombatLockdown()) then
+                self:SetScript("OnUpdate", nil)
+                FinishSweep(state, false)
+                History:ScheduleSweep(RELEASE_DELAY)
+                return
+            end
+            local started = debugprofilestop and debugprofilestop()
+            local done, ok = SweepStep(state)
+            if started then state.ms = state.ms + debugprofilestop() - started end
+            if done or not ok then
+                self:SetScript("OnUpdate", nil)
+                FinishSweep(state, ok)
+            end
+        end)
+    end)
+end
+
+
+
+
+
+
+local function EditedLater(a, b)
+    local x = type(a) == "table" and type(a.editedAt) == "number" and a.editedAt or nil
+    local y = type(b) == "table" and type(b.editedAt) == "number" and b.editedAt or nil
+    if x and y then return x > y end
+    return x ~= nil
+end
+
+
+local function MergeMonth(winner, wsegs, lsegs, month)
+    local union = { h = {}, i = {} }
+    local keys = {}
+    for _, segs in ipairs({ wsegs, lsegs }) do
+        for key, seg in pairs(segs) do
+            if SplitSegKey(key) == month then
+                local rows = Unpack(type(seg) == "table" and seg.blob)
+                if not rows then return false end
+                keys[key] = true
+                for tag, list in pairs(rows) do
+                    for id, row in pairs(list) do
+                        if union[tag][id] == nil or EditedLater(row, union[tag][id]) then
+                            union[tag][id] = row
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local deleted = type(winner.deleted) == "table" and winner.deleted or {}
+    for tag, list in pairs(union) do
+        local store = STORE_OF[tag]
+        local gone = type(deleted[store]) == "table" and deleted[store] or {}
+        local live = type(winner[store]) == "table" and winner[store] or nil
+        for id, row in pairs(list) do
+            if gone[id] then
+                list[id] = nil
+            elseif live and live[id] ~= nil then
+                if EditedLater(row, live[id]) then live[id] = row end
+                list[id] = nil
+            end
+        end
+    end
+    local ordered = {}
+    for tag, list in pairs(union) do
+        for id, row in pairs(list) do ordered[#ordered + 1] = { tag = tag, id = id, row = row } end
+    end
+    table.sort(ordered, function(a, b)
+        local x, y = EpochOf(a.row), EpochOf(b.row)
+        if x ~= y then return x < y end
+        return tostring(a.id) < tostring(b.id)
+    end)
+    local parts, written = {}, {}
+    for i, item in ipairs(ordered) do
+        local part = math.floor((i - 1) / SEG_MAX) + 1
+        parts[part] = parts[part] or { h = {}, i = {} }
+        parts[part][item.tag][item.id] = item.row
+    end
+    for part, rows in ipairs(parts) do
+        local probe = {}
+        if not WriteSeg(probe, month .. "." .. part, rows) then return false end
+        written[month .. "." .. part] = probe[month .. "." .. part]
+    end
+    for key in pairs(keys) do wsegs[key] = nil end
+    for key, seg in pairs(written) do wsegs[key] = seg end
+    return true
+end
+
+
+
+
+function History.MergeArchive(winner, loser, added)
+    local wa = type(winner.historyArchive) == "table" and winner.historyArchive or nil
+    local la = type(loser.historyArchive) == "table" and loser.historyArchive or nil
+    local wsegs = wa and type(wa.segs) == "table" and wa.segs or {}
+    local lsegs = la and type(la.segs) == "table" and la.segs or {}
+    if next(wsegs) == nil and next(lsegs) == nil then return 0 end
+    if not wa then
+        wa = {}
+        winner.historyArchive = wa
+    end
+    wa.segs = wsegs
+
+    local months = {}
+    for key, seg in pairs(lsegs) do
+        local mine = wsegs[key]
+        if type(mine) ~= "table" or type(seg) ~= "table" or mine.blob ~= seg.blob then
+            months[SplitSegKey(key)] = true
+        end
+    end
+    for _, item in ipairs(added or {}) do
+        local row = winner[item.store] and winner[item.store][item.key]
+        if type(row) == "table" then
+            local month = MonthKey(EpochOf(row))
+            if LastPart(wsegs, month) > 0 then months[month] = true end
+        end
+    end
+    if next(months) == nil then return 0 end
+
+
+
+    local deleted = type(winner.deleted) == "table" and winner.deleted or {}
+    local anyDeleted = (type(deleted.history) == "table" and next(deleted.history) ~= nil)
+        or (type(deleted.imported) == "table" and next(deleted.imported) ~= nil)
+    local touched = {}
+    for _, s in ipairs(STORES) do
+        for _, row in pairs(type(winner[s.store]) == "table" and winner[s.store] or {}) do
+            if type(row) == "table" then touched[MonthKey(EpochOf(row))] = true end
+        end
+    end
+    for month in pairs(months) do
+        if not anyDeleted and not touched[month] and LastPart(wsegs, month) == 0 then
+            for key, seg in pairs(lsegs) do
+                if SplitSegKey(key) == month then wsegs[key] = seg end
+            end
+            months[month] = nil
+        end
+    end
+
+    local merged = 0
+    for month in pairs(months) do
+        if MergeMonth(winner, wsegs, lsegs, month) then
+            merged = merged + 1
+        else
+
+            for key, seg in pairs(lsegs) do
+                if SplitSegKey(key) == month and wsegs[key] == nil then wsegs[key] = seg end
+            end
+            if addon.Log then addon.Log:W("History", "archive month unreadable in a saved file", month) end
+        end
+    end
+    wa.sum, wa.sumV, wa.token = nil, nil, nil
+    if (la and tonumber(la.sweptAt) or 0) > (tonumber(wa.sweptAt) or 0) then wa.sweptAt = la.sweptAt end
+    return merged
+end
+
+
+
+
+
+
 local LOGIN_BUDGET = 250
 History.LOGIN_BUDGET = LOGIN_BUDGET
 
@@ -944,7 +2037,7 @@ History.LOGIN_BUDGET = LOGIN_BUDGET
 local function StartLoginPass()
     byWinner, byItem, liveKeys = {}, {}, {}
     pending, pendingAt = {}, 1
-    EachEntry(function(entry) pending[#pending + 1] = entry end)
+    EachLive(function(entry) pending[#pending + 1] = entry end)
     indexState = "building"
     local driver = CreateFrame("Frame")
     driver:SetScript("OnUpdate", function(self)
@@ -955,7 +2048,12 @@ local function StartLoginPass()
         self:SetScript("OnUpdate", nil)
         local live = liveKeys
         liveKeys = nil
+
+        if live then
+            for key, epoch in pairs(Summary().snaps) do live[key] = math.max(live[key] or 0, epoch) end
+        end
         if addon.Snapshot then addon.Snapshot:Prune(live, true) end
+        History:ScheduleSweep()
     end)
     return driver
 end
@@ -963,12 +2061,13 @@ end
 function History:Init()
     addon.db.history = addon.db.history or {}
     addon.db.imported = addon.db.imported or {}
+    summaryOk, loaded, loadedAll, archivedByWinner = false, {}, false, nil
 
-    local removed, days = History:PruneBySetting()
+    local removed, days = History:PruneBySetting(true)
     History.loginDriver = StartLoginPass()
     if removed > 0 then
 
-        print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(addon.Locale.Plural{
+        addon.Chat.Print(addon.Locale.Format(addon.Locale.Plural{
             one = "removed %d award history entry older than %d days - \"Keep award history for\" in /slc, Data & history.",
             other = "removed %d award history entries older than %d days - \"Keep award history for\" in /slc, Data & history.",
         }, removed, removed, days))
@@ -1034,5 +2133,6 @@ function History:Init()
     end)
 
     addon.Log:I("History", "ready", History:Count(), "entries,",
-        addon.HistoryImport:Count(), "imported")
+        addon.HistoryImport:Count(), "imported,", History:ArchivedCount("h")
+            + History:ArchivedCount("i"), "of them archived")
 end

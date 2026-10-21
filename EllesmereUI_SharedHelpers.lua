@@ -81,8 +81,9 @@ function EllesmereUI.SetElementVisibility(frame, visible)
         frame:SetAlpha(EllesmereUI._GetFFD(frame).restoreAlpha or 1)
         frame:EnableMouse(EllesmereUI._GetFFD(frame).restoreMouse or false)
     else
-        if frame:GetAlpha() > 0 then
-            EllesmereUI._GetFFD(frame).restoreAlpha = frame:GetAlpha()
+        local a = frame:GetAlpha()
+        if not issecretvalue(a) and a > 0 then
+            EllesmereUI._GetFFD(frame).restoreAlpha = a
         end
         EllesmereUI._GetFFD(frame).restoreMouse = frame:IsMouseEnabled()
         frame:SetAlpha(0)
@@ -780,7 +781,7 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI.FACTION_ART = {
     pvp       = { atlas = "UI-HUD-UnitFrame-Player-PVP-%sIcon" },
-    honor     = { atlas = "honorsystem-portrait-%s", lower = true },
+    honor     = { atlas = "honorsystem-portrait-%s", lower = true, badge = true },
     poi       = { atlas = "poi-%s", lower = true },
     classic   = { file = "Interface\\TargetingFrame\\UI-PVP-%s", coords = { 0, 0.65625, 0, 0.65625 } },
     banner    = { file = "Interface\\Icons\\INV_BannerPVP_0%s", num = true },
@@ -792,7 +793,70 @@ EllesmereUI.FACTION_ART_LABELS = {
     pvp = "PvP Emblem", honor = "Honor Portrait", poi = "Map Flag", classic = "Classic Banner",
     banner = "Banner Icon", honoricon = "Honor Icon", friends = "Friends Crest",
 }
-function EllesmereUI.SetFactionArt(tex, style, faction)
+-- Honor Portrait is an empty hexagon; the unit's honor badge is drawn on top (30 on 50).
+-- Returns that badge's file id, or nil. Callers pass it to SetFactionArt and memoize it.
+local HONOR_BADGE_RATIO = 30 / 50
+local honorBadgeFiles = {}
+function EllesmereUI.FactionBadgeFor(style, unit)
+    local art = EllesmereUI.FACTION_ART[style]
+    if not (art and art.badge and unit) then return nil end
+    local level = UnitHonorLevel and UnitHonorLevel(unit)
+    if issecretvalue(level) or not level or level <= 0 then return nil end
+    local file = honorBadgeFiles[level]
+    if file == nil then
+        local info = C_PvP and C_PvP.GetHonorRewardInfo and C_PvP.GetHonorRewardInfo(level)
+        file = (info and info.badgeFileDataID) or false
+        honorBadgeFiles[level] = file
+    end
+    return file or nil
+end
+
+-- The badge sits on a frame that follows the faction texture (textures cannot be parents);
+-- the texture's Show/Hide/alpha/desaturation are mirrored onto it.
+local function GetBadgeHost(tex)
+    local host = tex._honorBadgeHost
+    if host then return host end
+    local par = tex:GetParent()
+    host = CreateFrame("Frame", nil, par)
+    host:SetAllPoints(tex)
+    host:SetFrameLevel(par:GetFrameLevel() + 1)
+    host:Hide()
+    host:SetAlpha(tex:GetAlpha())
+    local icon = host:CreateTexture(nil, "OVERLAY")
+    icon:SetPoint("CENTER")
+    icon:SetDesaturated(tex:IsDesaturated())
+    host.icon = icon
+    host:SetScript("OnSizeChanged", function(_, w)
+        local s = w * HONOR_BADGE_RATIO
+        icon:SetSize(s, s)
+    end)
+    hooksecurefunc(tex, "Hide", function() host:Hide() end)
+    hooksecurefunc(tex, "Show", function() if host.wanted then host:Show() end end)
+    hooksecurefunc(tex, "SetAlpha", function(_, a) host:SetAlpha(a) end)
+    hooksecurefunc(tex, "SetDesaturated", function(_, d) icon:SetDesaturated(d) end)
+    tex._honorBadgeHost = host
+    return host
+end
+
+local function SetBadge(tex, file)
+    local host = tex._honorBadgeHost
+    if not file then
+        if host then host.wanted = false; host:Hide() end
+        return
+    end
+    host = host or GetBadgeHost(tex)
+    host.icon:SetTexture(file)
+    local w = tex:GetWidth()
+    if w and w > 0 then
+        local s = w * HONOR_BADGE_RATIO
+        host.icon:SetSize(s, s)
+    end
+    host.wanted = true
+    if tex:IsShown() then host:Show() end
+end
+
+function EllesmereUI.SetFactionArt(tex, style, faction, badgeFile)
+    SetBadge(tex, badgeFile)
     local art = EllesmereUI.FACTION_ART[style] or EllesmereUI.FACTION_ART.pvp
     -- The resolved atlas or file name is built once per style and faction and kept
     -- on the style's entry (art.Horde / art.Alliance).

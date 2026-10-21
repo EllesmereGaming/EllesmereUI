@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -13,7 +14,7 @@ local Perf = {}
 addon.Perf = Perf
 
 local function Print(msg)
-    print(addon.Log.CHAT_PREFIX.accent .. msg)
+    addon.Chat.Print(msg)
 end
 
 
@@ -331,6 +332,15 @@ function Perf:CommsCommand(rest)
         report.dropped.failed or 0, report.dropped.blocked or 0))
     Print(("  send delay over the last %d frames: p50=%s p95=%s max=%s"):format(
         latency.n, Seconds(latency.p50), Seconds(latency.p95), Seconds(latency.max)))
+
+    local refused = {}
+    for reason, count in pairs(report.refused or {}) do
+        refused[#refused + 1] = reason .. "=" .. count
+    end
+    if #refused > 0 then
+        table.sort(refused)
+        Print("  refused: " .. table.concat(refused, "  "))
+    end
     for _, line in ipairs(Perf.LaneLines(report)) do Print(line) end
     for _, row in ipairs(rows) do
         Print(("  %-16s sent %4d f %7d B   recv %4d f %7d B   handled %4d"):format(

@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -149,7 +150,8 @@ end
 
 
 
-function Attendance.Clear(store, nights, match)
+
+function Attendance.Clear(store, nights, match, removed)
     if type(store) ~= "table" or type(store.nights) ~= "table" then return 0, 0 end
 
     local chosen
@@ -164,6 +166,7 @@ function Attendance.Clear(store, nights, match)
         local inScope = not chosen or chosen[night]
         if inScope and not match then
             removedNights = removedNights + 1
+            if removed then removed(night) end
         else
             if inScope then
                 for name in pairs(night.members or {}) do
@@ -171,6 +174,7 @@ function Attendance.Clear(store, nights, match)
                         night.members[name] = nil
                         if night.memberKills then night.memberKills[name] = nil end
                         removedEntries = removedEntries + 1
+                        if removed then removed(night, name) end
                     end
                 end
             end
@@ -271,9 +275,21 @@ function Attendance.Matcher(roster, ranks, players)
 end
 
 
+local function Forget(night, name)
+    local shared = addon.SharedSaved
+    local key = shared and shared.NightKey(night)
+    if not key then return end
+    if name then
+        shared.Forget(addon.db, "members", shared.MemberKey(key, name))
+    else
+        shared.Forget(addon.db, "nights", key)
+    end
+end
+
+
 function Attendance:ClearNights(nights, match)
     local store = addon.db.attendance
-    local removedNights, removedEntries = Attendance.Clear(store, nights, match)
+    local removedNights, removedEntries = Attendance.Clear(store, nights, match, Forget)
     addon.Log:I("Attendance", "cleared", removedNights, "night(s),",
         removedEntries, "player entr(ies)")
     if removedNights + removedEntries > 0 then
@@ -285,6 +301,7 @@ end
 function Attendance:ClearAll()
     local store = addon.db.attendance
     local count = store and store.nights and #store.nights or 0
+    for _, night in ipairs(store and store.nights or {}) do Forget(night) end
     addon.db.attendance = { nights = {} }
     addon.Log:I("Attendance", "cleared all,", count, "night(s)")
     if count > 0 then addon.Callbacks:Fire("AttendanceChanged") end

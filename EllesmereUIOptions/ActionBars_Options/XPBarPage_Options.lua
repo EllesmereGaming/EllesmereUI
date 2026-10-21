@@ -84,6 +84,196 @@ local addedKey
 --  While the bar's visibility is Never only the first row is built.
 ---------------------------------------------------------------------------
 
+---------------------------------------------------------------------------
+--  Header preview: the XP bar as the live bar draws it (ns.StyleDataBarFrame,
+--  ns.PaintXPFill and ns.PaintXPText on a frame of its own, never the live
+--  bar) at sample values: 62% XP, 20% rested, and for the Quest XP Overlay 5%
+--  completed and 10% incomplete. Shown while the bar is ours and not Never;
+--  ns.ApplyDataBarLayout repaints it. Built once and hung into each new
+--  header (a header rebuild drops frames the page pool does not own).
+---------------------------------------------------------------------------
+local PV_MAX = 125000
+local PV_CUR, PV_RESTED = PV_MAX * 0.62, PV_MAX * 0.2
+local PV_QDONE, PV_QINC = PV_MAX * 0.05, PV_MAX * 0.1
+local PV_PAD = 15     -- header margin above and below the drawn bar and texts
+local PV_BAR_H = 120  -- the tallest bar drawn (a vertical bar shrinks to it)
+local PV_MAX_H = 200  -- the tallest bar and texts drawn together
+-- frame, hdrW, h; pageWanted: the page on screen was built with a preview;
+-- retry: a repaint queued for a rect not resolved yet
+local pv = {}
+local XPPreviewRepaint  -- forward: the queued retry calls it
+
+-- As the page's Never gating (K.BarIsNever, after GetVisibilityKey
+-- normalizes legacy settings) and the live bar's XPBarCanShow switches.
+local function XPPreviewWanted()
+    local env = ns._ABO_OptEnv
+    local p = env.EAB.db.profile
+    local s = p.bars[XP]
+    if not s or p.useBlizzardDataBars or s.enabled == false then return false end
+    return env.GetVisibilityKey(s) ~= "never" and not s.alwaysHidden
+end
+
+-- One text's reach past each of the bar's edges (l r t b), its Text
+-- Background box when that shows (it encloses the text), folded into the
+-- running maxima.
+local function XPPreviewReach(fs, bg, l, r, t, b, oL, oR, oT, oB)
+    if not (fs:IsShown() and (fs:GetText() or "") ~= "") then return oL, oR, oT, oB end
+    local rgn = (bg and bg:IsShown()) and bg or fs
+    local rl = rgn:GetLeft()
+    if not rl then return oL, oR, oT, oB end
+    return math.max(oL, l - rl), math.max(oR, rgn:GetRight() - r),
+        math.max(oT, rgn:GetTop() - t), math.max(oB, b - rgn:GetBottom())
+end
+
+-- How far the shown texts reach past the bar's left, right, top and bottom
+-- edges (frame units): texts can sit outside the bar. A rotated Center text
+-- is placed inside the bar, and its region is the unrotated string's, so it
+-- is left out. nil while the frame's rect is not resolved yet.
+local function XPPreviewOverhang(f)
+    local l, r, t, b = f:GetLeft(), f:GetRight(), f:GetTop(), f:GetBottom()
+    if not l then return nil end
+    local oL, oR, oT, oB = 0, 0, 0, 0
+    if not f._textRotated then
+        oL, oR, oT, oB = XPPreviewReach(f._text, f._textBg, l, r, t, b, oL, oR, oT, oB)
+    end
+    local recs = f._xpAny and f._xpRecs
+    if recs then
+        for i = 1, #recs do
+            oL, oR, oT, oB = XPPreviewReach(recs[i].fs, recs[i].bg, l, r, t, b, oL, oR, oT, oB)
+        end
+    end
+    return oL, oR, oT, oB
+end
+
+-- The queued measurement (pv.retry while queued). Its own paint does not
+-- queue again when the rect is still unresolved; every other paint may.
+local function XPPreviewRetry()
+    pv.retry = nil
+    XPPreviewRepaint(false, false, true)
+end
+
+-- Scales the preview to UIParent's scale (shrunk so the bar and its texts
+-- fit the header's width and PV_MAX_H), centres bar and texts together,
+-- paints it and returns the header height. The scale is taken from the
+-- frame's parent: a cache restore moves the header's frames to another root.
+-- A rect not resolved yet (a header just built) is measured again on the
+-- next frame.
+-- Styles and paints the preview at its current scale (the PP snapping in
+-- the style pass reads it).
+local function XPPreviewStyle(f, s)
+    ns.StyleDataBarFrame(f, s)
+    f._xpQuestXP, f._xpQuestDone, f._xpQuestInc = PV_QDONE, PV_QDONE, PV_QINC
+    ns.PaintXPFill(f, s, PV_CUR, PV_MAX, PV_RESTED)
+    ns.PaintXPText(f, s, nil, PV_CUR, PV_MAX, PV_RESTED, UnitLevel("player"))
+end
+
+-- The scale factor that fits the bar (w x h) and an overhang (frame units)
+-- into availW across, PV_BAR_H for the bar and PV_MAX_H with its texts.
+local function XPPreviewFit(availW, w, h, scale, oL, oR, oT, oB)
+    return math.min(1, availW / ((w + oL + oR) * scale), PV_BAR_H / (h * scale),
+        PV_MAX_H / ((h + oT + oB) * scale))
+end
+
+local function XPPreviewPaint(noRetry)
+    local s = ns._ABO_OptEnv.EAB.db.profile.bars[XP]
+    local f = pv.frame
+    local parent = f:GetParent()
+    local w, h = s.width or 400, s.height or 18
+    local scale = UIParent:GetEffectiveScale() / parent:GetEffectiveScale()
+    -- The header's width now (a resized panel), else the one it was built at.
+    local hdrW = parent:GetWidth()
+    if not hdrW or hdrW <= 0 then hdrW = pv.hdrW end
+    local availW = hdrW - (EllesmereUI.CONTENT_PAD or 10) * 2
+    -- Started from the last paint's overhang, so an unchanged layout styles
+    -- once; a different one is styled again at its own scale, so its 1px
+    -- lines snap to it (texts keep their frame-unit places across a rescale).
+    local fit = XPPreviewFit(availW, w, h, scale, pv.oL or 0, pv.oR or 0, pv.oT or 0, pv.oB or 0)
+    f:SetScale(scale * fit)
+    XPPreviewStyle(f, s)
+    local oL, oR, oT, oB = XPPreviewOverhang(f)
+    if oL then
+        pv.oL, pv.oR, pv.oT, pv.oB = oL, oR, oT, oB
+    else
+        oL, oR, oT, oB = 0, 0, 0, 0
+        if not (pv.retry or noRetry) then
+            pv.retry = true
+            C_Timer.After(0, XPPreviewRetry)
+        end
+    end
+    local fit2 = XPPreviewFit(availW, w, h, scale, oL, oR, oT, oB)
+    if math.abs(fit2 - fit) > 0.001 then
+        fit = fit2
+        f:SetScale(scale * fit)
+        XPPreviewStyle(f, s)
+    end
+    local fullH = h + oT + oB
+    f:ClearAllPoints()
+    ns._ABO_OptEnv.PP.Point(f, "CENTER", parent, "CENTER", (oL - oR) / 2, (oB - oT) / 2)
+    return math.floor(fullH * scale * fit + PV_PAD * 2 + 0.5)
+end
+
+-- Repaints a shown preview and fits the header to it. valueOnly: only the
+-- fill changed (a colour), so the layout and texts are left as they are.
+-- force: the header height is written even when unchanged (a restored
+-- header comes back at its cached height). noRetry: the queued measurement.
+XPPreviewRepaint = function(valueOnly, force, noRetry)
+    local f = pv.frame
+    if not (f and f:IsVisible()) then return end
+    if valueOnly then
+        ns.PaintXPFill(f, ns._ABO_OptEnv.EAB.db.profile.bars[XP], PV_CUR, PV_MAX, PV_RESTED)
+        return
+    end
+    local h = XPPreviewPaint(noRetry)
+    if force or h ~= pv.h then
+        pv.h = h
+        EllesmereUI:SetContentHeaderHeightSilent(h)
+    end
+end
+
+local function XPHeaderBuilder(hdr, hdrW)
+    -- Every header root sits at the content header's own level
+    -- (SetContentHeader), so the levels the frame set up when built (text
+    -- host, border) hold in each header it moves into.
+    local f = pv.frame
+    if not f then
+        f = ns.CreateXPBarFrame(nil, hdr)
+        pv.frame = f
+    else
+        f:SetParent(hdr)
+    end
+    f:ClearAllPoints()
+    ns._ABO_OptEnv.PP.Point(f, "CENTER", hdr, "CENTER", 0, 0)
+    f:Show()
+    pv.hdrW = hdrW
+    pv.h = XPPreviewPaint()
+    return pv.h
+end
+
+-- The header for the XP Bar page (nil: none), also for getHeaderBuilder.
+function ns.ABO_XPHeaderBuilder()
+    return XPPreviewWanted() and XPHeaderBuilder or nil
+end
+
+-- A cached page shown again: its header comes back as it was cached. A page
+-- built with the other answer (its rows gated by Never too) is built again
+-- with its header (the panel has no hook before its own restore, and the
+-- answer changes only with Blizzard's bars or Never set elsewhere);
+-- otherwise the preview is repainted.
+function ns.ABO_XPPreviewRefresh()
+    -- nil: no shown build recorded one (only a shown build runs the header
+    -- builder), so there is no preview to compare against: repaint only.
+    if pv.pageWanted ~= nil and XPPreviewWanted() ~= pv.pageWanted then
+        EllesmereUI:RefreshPage(true)
+    else
+        XPPreviewRepaint(false, true)
+    end
+end
+
+-- ns.RefreshDataBarPreview calls this after the live bar's layout or value
+-- update (valueOnly).
+ns._dataBarPreview = ns._dataBarPreview or {}
+ns._dataBarPreview[XP] = XPPreviewRepaint
+
 local function BuildXPBarPage(pageName, parent, yOffset)
     local EAB = ns._ABO_OptEnv.EAB
     local W = EllesmereUI.Widgets
@@ -96,8 +286,15 @@ local function BuildXPBarPage(pageName, parent, yOffset)
     local y = yOffset
     local _, h
 
-    -- Global settings page, no bar selector header
-    EllesmereUI:ClearContentHeader()
+    -- The preview header while the bar is ours and not Never (a style or
+    -- Never flip rebuilds the page); no bar selector.
+    local hb = ns.ABO_XPHeaderBuilder()
+    if not EllesmereUI._prebuilding then pv.pageWanted = hb ~= nil end
+    if hb then
+        EllesmereUI:SetContentHeader(hb)
+    else
+        EllesmereUI:ClearContentHeader()
+    end
     parent._showRowDivider = true
 
     -------------------------------------------------------------------

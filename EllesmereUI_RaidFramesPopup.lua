@@ -105,14 +105,14 @@ local function ShowRaidFramesPopup()
     eyebrow:SetFont(FONT, 13, "")
     eyebrow:SetTextColor(EG.r, EG.g, EG.b, 0.9)
     PP.Point(eyebrow, "TOP", popup, "TOP", 0, -64)
-    eyebrow:SetText("NEW FEATURE")
+    eyebrow:SetText(EllesmereUI.L("NEW FEATURE"))
 
     -- Title
     local title = popup:CreateFontString(nil, "OVERLAY")
     title:SetFont(FONT, 26, "")
     title:SetTextColor(1, 1, 1, 1)
     PP.Point(title, "TOP", eyebrow, "BOTTOM", 0, -6)
-    title:SetText("Raid Frames")
+    title:SetText(EllesmereUI.L("Raid & Party Frames"))
 
     -- Description
     local desc = popup:CreateFontString(nil, "OVERLAY")
@@ -122,14 +122,14 @@ local function ShowRaidFramesPopup()
     desc:SetJustifyH("CENTER")
     desc:SetWordWrap(true)
     PP.Point(desc, "TOP", title, "BOTTOM", 0, -12)
-    desc:SetText("EllesmereUI Raid Frames are here! Clean, fully customizable, and built for performance.")
+    desc:SetText(EllesmereUI.L("EllesmereUI Raid & Party Frames are here! Clean, fully customizable, and built for performance."))
 
     -- Feature bullets
     local BULLETS = {
-        "Custom buff tracking, layouts, colors and borders",
-        "Dispel, defensive and private aura tracking",
-        "Full mouseover cast binding suite",
-        "Top of the line performance metrics",
+        EllesmereUI.L("Custom buff tracking, layouts, colors and borders"),
+        EllesmereUI.L("Dispel, defensive and private aura tracking"),
+        EllesmereUI.L("Full mouseover cast binding suite"),
+        EllesmereUI.L("Top of the line performance metrics"),
     }
     local prev
     for i, text in ipairs(BULLETS) do
@@ -169,12 +169,12 @@ local function ShowRaidFramesPopup()
 
     -- Primary "Keep" on the left, secondary "Disable" (warms to the power-button
     -- red on hover) on the right, centered as a pair around the bottom center.
-    local BTN_W, BTN_GAP = 184, 14
-    local keepBtn = EllesmereUI.MakeActionButton(popup, FONT, "Keep Raid Frames", EG.r, EG.g, EG.b, { w = BTN_W })
+    local BTN_W, BTN_GAP = 212, 14
+    local keepBtn = EllesmereUI.MakeActionButton(popup, FONT, EllesmereUI.L("Keep Raid & Party Frames"), EG.r, EG.g, EG.b, { w = BTN_W })
     PP.Point(keepBtn, "BOTTOMRIGHT", popup, "BOTTOM", -BTN_GAP / 2, 40)
     keepBtn:SetScript("OnClick", function() Finish(false) end)
 
-    local disBtn = EllesmereUI.MakeActionButton(popup, FONT, "Disable Raid Frames", 1, 1, 1,
+    local disBtn = EllesmereUI.MakeActionButton(popup, FONT, EllesmereUI.L("Disable Raid & Party Frames"), 1, 1, 1,
         { w = BTN_W, secondary = true, hoverRGB = { DISABLE_R, DISABLE_G, DISABLE_B } })
     PP.Point(disBtn, "BOTTOMLEFT", popup, "BOTTOM", BTN_GAP / 2, 40)
     disBtn:SetScript("OnClick", function() Finish(true) end)
@@ -186,7 +186,7 @@ local function ShowRaidFramesPopup()
     footnote:SetWidth(POPUP_W - 80)
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)
-    footnote:SetText("Enable/disable any time via the options panel sidebar.")
+    footnote:SetText(EllesmereUI.L("Enable/disable any time via the options panel sidebar."))
 
     dimmer:Show()
 end

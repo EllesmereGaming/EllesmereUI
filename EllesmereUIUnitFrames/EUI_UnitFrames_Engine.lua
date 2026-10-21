@@ -154,26 +154,50 @@ do
         end
     end
 
+    -- The time text shows tenths, so it repaints only when the shown tenth
+    -- can have changed, not every frame. A readable remaining time waits
+    -- exactly until its shown value rounds down to the next tenth; a secret
+    -- one (another unit's cast in instanced combat) cannot be read, so it
+    -- repaints on a fixed 0.05 s grid, two passes per tenth, so no tenth is
+    -- skipped. _euiTimeWait is the time left until the next repaint;
+    -- StartCast and UpdateCast zero it so a new or changed cast paints on
+    -- its next frame.
+    local floor = math.floor
+    local SECRET_TIME_STEP = 0.05
+
     local function CastOnUpdate(self, elapsed)
         if self.casting or self.channeling or self.empowering then
+            local wait = (self._euiTimeWait or 0) - elapsed
+            if wait > 0 then
+                self._euiTimeWait = wait
+                return
+            end
+            -- Stay on the grid (a late frame shortens the next wait); start
+            -- over after a hitch longer than one step.
+            wait = wait + SECRET_TIME_STEP
+            if wait <= 0 then wait = SECRET_TIME_STEP end
             if self.Time then
                 local durationObject = self:GetTimerDuration()
                 if durationObject then
+                    local rem = durationObject:GetRemainingDuration()
                     if (self.delay or 0) ~= 0 then
                         if self.CustomDelayText then
                             self:CustomDelayText(durationObject)
                         else
                             self.Time:SetFormattedText("%.1f|cffff0000%s%.2f|r",
-                                durationObject:GetRemainingDuration(),
-                                self.channeling and "-" or "+", self.delay)
+                                rem, self.channeling and "-" or "+", self.delay)
                         end
                     elseif self.CustomTimeText then
                         self:CustomTimeText(durationObject)
                     else
-                        self.Time:SetFormattedText("%.1f", durationObject:GetRemainingDuration())
+                        self.Time:SetFormattedText("%.1f", rem)
+                    end
+                    if not issecretvalue(rem) then
+                        wait = rem - (floor(rem * 10 + 0.5) - 0.5) / 10
                     end
                 end
             end
+            self._euiTimeWait = wait
         elseif (self.holdTime or 0) > 0 then
             self.holdTime = self.holdTime - elapsed
         else
@@ -222,6 +246,7 @@ do
 
         element.delay = 0
         element.holdTime = 0
+        element._euiTimeWait = 0
         element.notInterruptible = notInterruptible
         element.castID = castID
         element.spellID = spellID
@@ -301,7 +326,11 @@ do
             end
             if delta < 0 then delta = 0 end
             element.delay = (element.delay or 0) + delta
+            -- The next pushback is measured from this one's start, so each
+            -- adds only its own delay.
+            element.startTime = startTime
         end
+        element._euiTimeWait = 0
         element:SetTimerDuration(duration, element.smoothing, direction)
         if element.PostCastUpdate then element:PostCastUpdate(unit) end
     end
@@ -536,6 +565,22 @@ local function TrackerOnEvent(self, event, unitToken, ...)
     if not frame or not frame:IsShown() then return end
     local chans = self._euiChannelsByEvent[event]
     if not chans then return end
+    -- Boss slots re-sort mid-encounter (a new add takes boss2, the old one
+    -- moves to boss3) and no event promises to name the move: the unit
+    -- events of the new occupant kept painting health and casts under the
+    -- old occupant's name. A GUID change on any event is the repaint edge.
+    -- An unreadable GUID skips the probe (the engage repaint still runs).
+    if self._euiGuidGuard then
+        local guid = UnitGUID(frame._euiUnit)
+        if guid ~= nil and not issecretvalue(guid) then
+            local old = self._euiGuid
+            self._euiGuid = guid
+            if old ~= nil and old ~= guid then
+                Engine.RepaintAll(frame, "UnitChanged")
+                return
+            end
+        end
+    end
     for i = 1, #chans do
         local ch = chans[i]
         if ch == "castbar" then
@@ -591,6 +636,7 @@ function Engine.Attach(frame, unit, channels)
     t._euiFrame = frame
     attached[frame] = { unit = unit, channels = channels }
     unitFrames[unit] = frame
+    t._euiGuidGuard = unit:match("^boss%d$") and true or nil
     -- Unit-watch shows happen while events were being dropped (hidden frames
     -- skip dispatch), so a freshly shown frame repaints in full.
     if not frame._euiEngineShowHook then
@@ -943,6 +989,19 @@ globalFrame:SetScript("OnEvent", function(self, event)
         for i = 1, 5 do
             local f = unitFrames["boss" .. i]
             if f and f:IsShown() then Engine.RepaintAll(f, event) end
+        end
+        -- The slots can still be settling when the event lands (one occupant
+        -- moves down while the new one moves in): one next-frame pass reads
+        -- the final order.
+        if not self._euiBossSettle then
+            self._euiBossSettle = true
+            C_Timer.After(0, function()
+                self._euiBossSettle = nil
+                for i = 1, 5 do
+                    local f = unitFrames["boss" .. i]
+                    if f and f:IsShown() then Engine.RepaintAll(f, "UnitChanged") end
+                end
+            end)
         end
     elseif event == "RAID_TARGET_UPDATE" then
         local fn = painters.raidicon

@@ -39,6 +39,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
     local AddDarkModeBlock, BuildBarTexDropdown, BuildInactiveNotice, PP = env.AddDarkModeBlock, env.BuildBarTexDropdown, env.BuildInactiveNotice, env.PP
     local RegisterWidgetRefresh, ReloadAndUpdate, db, healthTextOrder = env.RegisterWidgetRefresh, env.ReloadAndUpdate, env.db, env.healthTextOrder
     local healthTextOrderBoss, healthTextValues = env.healthTextOrderBoss, env.healthTextValues
+    local TexBgRowCfg = env.TexBgRowCfg
     local _, h
     opts = opts or {}
 
@@ -134,6 +135,14 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                   ReloadAndUpdate()
               end },
             rightSlot);  y = y - h
+        -- Textured Background cog: while Bar Texture is Inherit the toggle
+        -- follows the main frame and shows its value, greyed.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(barTexRow._leftRegion, {
+                title = "Texture Settings",
+                rows = { TexBgRowCfg(function() return settingsTable end, ReloadAndUpdate, unitKey) },
+            })
+        end
 
         -- Boss Hover Borders: checkbox dropdown (Hover Border / Target Border,
         -- both default off) with inline color swatches. Enabling one recolors
@@ -300,7 +309,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
             -- Fill Color = the health fill opacity (formerly "Fill Opacity")
             -- with the fill color swatches moved inline below.
             leftSlot2 = { type="slider", text="Fill Color", min=0, max=100, step=1,
-              disabled=function() return db.profile.darkTheme end,
+              disabled=function() return ns.UF_DarkThemeOn(settingsTable) end,
               disabledTooltip="Dark Mode", requireState="disabled",
               getValue=function() return MVal("healthBarOpacity", 90) end,
               setValue=function(v) MSet("healthBarOpacity", v) end }
@@ -356,7 +365,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
             }
             leftSlot2 = { type="multiSwatch", text="Fill Color", swatches = fillSwatches }
             rightSlot2 = { type="slider", text="Fill Opacity", min=0, max=100, step=1,
-              disabled=function() return db.profile.darkTheme end,
+              disabled=function() return ns.UF_DarkThemeOn(settingsTable) end,
               disabledTooltip="Dark Mode", requireState="disabled",
               getValue=function() return MVal("healthBarOpacity", 90) end,
               setValue=function(v) MSet("healthBarOpacity", v) end }
@@ -486,8 +495,8 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
         -- fill/background colors). Boss also blocks Bar Background so its swatches
         -- gray out like Main Frames; other mini units' Bar Opacity has its own disable handler.
         if not EllesmereUI._prebuilding then
-        AddDarkModeBlock(colorRow._leftRegion)
-        if isBoss then AddDarkModeBlock(colorRow._rightRegion) end
+        AddDarkModeBlock(colorRow._leftRegion, function() return settingsTable end)
+        if isBoss then AddDarkModeBlock(colorRow._rightRegion, function() return settingsTable end) end
         end
     end
 

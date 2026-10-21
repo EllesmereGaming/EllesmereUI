@@ -190,8 +190,8 @@ local defaults = {
             maxDebuffs = 16,
         },
         -- No playerAuras/externalDefensives defaults: those keys are one-time migration
-        -- SOURCES read from a saved profile (EllesmereUIUnitFrames_PlayerAuraBars.lua
-        -- MigratePlayerAuraStyle/MigrateExternalDefensives), independent of this table --
+        -- SOURCES read from a saved profile (EUI_PlayerAuraBars_Config.lua: MigratePlayerAuraStyle
+        -- and the External Defensives seed), independent of this table --
         -- a new profile has nothing to migrate and starts at PAB's fallbacks.
         castbarOpacity = 1.0,
         castbarColor = { r = 0.114, g = 0.655, b = 0.514 },
@@ -1473,6 +1473,8 @@ local function ApplyHealthBarTexture(health, unitKey, texKeyOverride)
         local pFill = power:GetStatusBarTexture()
         if pFill then UnsnapTex(pFill) end
     end
+    -- Textured Background (does nothing for a frame that never turned it on).
+    ns.UF_TexBgApply(health, unitKey, texKey, power)
     -- Blizzard Style: the swaps above replaced the fill objects, so the stock
     -- masks are seated again on the new fills. The textures themselves stay
     -- the user's choice, so every colour renders exactly as picked.
@@ -1493,11 +1495,177 @@ ns.ResolveHealthBarTextureKey = function(ownSettings, donorSettings)
     return db.profile.healthBarTexture or "none"
 end
 
+-------------------------------------------------------------------------------
+--  Textured Background (per-frame textureBg, profile castTextureBg; unset = off).
+--  While on, our own background textures swap SetColorTexture (and on health
+--  SetAlpha) for versions that draw the bar texture tinted by the colour each
+--  paint passes, so these backgrounds are painted ONLY through those two methods
+--  (SetTexture / SetAtlas would go around it). Health's bg hugs the fill edge,
+--  where a texture would stretch, so a fixed full-size layer over it carries the
+--  texture, shown only while the fill is opaque. Colours are forwarded, never
+--  read: the class background can be secret.
+-------------------------------------------------------------------------------
+do
+    local TexM  -- the stock methods, captured from the first background swapped
+    local MINI = { targettarget = true, focustarget = true, pet = true, boss = true }
+
+    -- A mini frame follows its donor while its Bar Texture is Inherit.
+    function ns.UF_TexBgOn(unitKey)
+        local s = unitKey and db.profile[unitKey]
+        if not s then return false end
+        local own = s.healthBarTexture
+        if MINI[unitKey] and (own == nil or own == "inherit") then
+            local d = ns.GetMiniDonorSettings(unitKey)
+            return (d and d.textureBg) == true
+        end
+        return s.textureBg == true
+    end
+
+    -- Unset per-frame choices keep the profile's existing Dark Mode setting.
+    function ns.UF_DarkThemeOn(s)
+        if s and s.darkTheme ~= nil then return s.darkTheme end
+        return (db and db.profile and db.profile.darkTheme) or false
+    end
+
+    -- The health fill is opaque: Dark Mode Fill in Dark Mode, else Fill Opacity.
+    function ns.UF_HealthOpaque(s)
+        if ns.UF_DarkThemeOn(s) then
+            local _, _, _, fa = EllesmereUI.GetDarkModeFill()
+            return fa >= 1
+        end
+        return ((s and s.healthBarOpacity) or 90) >= 100
+    end
+
+    -- The health and power backgrounds' texture paths (nil = flat), shared with the
+    -- options preview: health while its fill is opaque, power while its fill is 100.
+    function ns.UF_TexBgPaths(unitKey, s, texKey)
+        local path = s and ns.UF_TexBgOn(unitKey)
+            and EllesmereUI.ResolveTexturePath(healthBarTextures, texKey or "none", nil)
+        if not path then return nil, nil end
+        return ns.UF_HealthOpaque(s) and path or nil, ((s.powerBarOpacity or 100) >= 100) and path or nil
+    end
+
+    -- The cast bar background's path (nil = flat): never over Blizzard's cast art.
+    function ns.UF_TexBgCastPath(s, texKey, blizz)
+        local p = db.profile
+        if blizz or not (s and p.castTextureBg) then return nil end
+        local own = p.castBarTexture
+        if own and own ~= "inherit" then texKey = own end
+        if texKey == "blizzard" or (s.castFillOpacity or 100) < 100 then return nil end
+        return EllesmereUI.ResolveTexturePath(healthBarTextures, texKey or "none", nil)
+    end
+
+    local function PaintTinted(self, r, g, b, a) self:SetVertexColor(r, g, b, a) end
+    local function PaintHealth(self, r, g, b, a)
+        TexM.SetColorTexture(self, r, g, b, a)
+        self._euiBgTex:SetVertexColor(r, g, b, a)
+    end
+    local function AlphaHealth(self, a)
+        TexM.SetAlpha(self, a)
+        self._euiBgTex:SetAlpha(a)
+    end
+
+    -- Swap a background to the texture at path, tinted by its paints; nil puts the
+    -- flat colour back at the next paint. Also the Forever form bar's.
+    function ns.UF_TexBgTint(bg, path)
+        if path then
+            TexM = TexM or { SetColorTexture = bg.SetColorTexture, SetAlpha = bg.SetAlpha }
+            if bg._euiTexPath ~= path then
+                bg:SetTexture(path)
+                bg._euiTexPath = path
+            end
+            bg.SetColorTexture = PaintTinted
+        elseif bg._euiTexPath then
+            bg._euiTexPath = nil
+            bg.SetColorTexture = nil
+            bg:SetVertexColor(1, 1, 1, 1)
+        end
+    end
+
+    -- One paint of a background that is never swapped (the options preview).
+    function ns.UF_TexBgPaint(tex, path, r, g, b, a)
+        if path then
+            tex:SetTexture(path)
+            tex:SetVertexColor(r, g, b, a)
+            tex._euiTexPath = path
+        else
+            if tex._euiTexPath then
+                tex._euiTexPath = nil
+                tex:SetVertexColor(1, 1, 1, 1)
+            end
+            tex:SetColorTexture(r, g, b, a)
+        end
+    end
+
+    -- The full-size health layer (built once), turned with a vertical fill as the
+    -- fill is (ns.ApplyFillRotation); also the options preview's.
+    function ns.UF_TexBgLayer(health, path, vertical)
+        local layer = health._euiBgTex
+        if not layer then
+            layer = health:CreateTexture(nil, "BACKGROUND", nil, 2)
+            layer:SetAllPoints(health)
+            health._euiBgTex = layer
+        end
+        if layer._euiPath ~= path then
+            layer:SetTexture(path)
+            layer._euiPath = path
+        end
+        if vertical then layer:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1) else layer:SetTexCoord(0, 1, 0, 1) end
+        layer:Show()
+        return layer
+    end
+
+    local function SetHealthLayer(health, s, path)
+        local bg = health.bg
+        if not bg then return end
+        if path then
+            TexM = TexM or { SetColorTexture = bg.SetColorTexture, SetAlpha = bg.SetAlpha }
+            local fill = health:GetStatusBarTexture()
+            local tiled = fill and (fill:GetHorizTile() or fill:GetVertTile())
+            local layer = ns.UF_TexBgLayer(health, path, s.healthVerticalFill and not ns.UF_Blizz() and not tiled)
+            bg._euiBgTex = layer
+            bg.SetColorTexture, bg.SetAlpha = PaintHealth, AlphaHealth
+            layer:SetAlpha(bg:GetAlpha())
+        elseif bg.SetAlpha == AlphaHealth then
+            bg.SetColorTexture, bg.SetAlpha = nil, nil
+            health._euiBgTex:Hide()
+        end
+    end
+
+    -- From ApplyHealthBarTexture (health and power share the frame's texture) and
+    -- the Dark Mode refresher below (Dark Mode Fill decides the health rule there).
+    function ns.UF_TexBgApply(health, unitKey, texKey, power)
+        if not ns.UF_TexBgOn(unitKey) and not health._euiTexBgSeen then return end
+        health._euiTexBgSeen, health._euiTexBgUnit, health._euiTexBgKey = true, unitKey, texKey
+        local s = db.profile[unitKey]
+        local hPath, pPath = ns.UF_TexBgPaths(unitKey, s, texKey)
+        SetHealthLayer(health, s, hPath)
+        if power and power.bg then ns.UF_TexBgTint(power.bg, pPath) end
+    end
+
+    -- From ns.ApplyCastBarTexture, before it applies the fill.
+    function ns.UF_TexBgCast(castbar, texKey)
+        local host = castbar:GetParent()
+        local bg = host and host._bgTex
+        if not bg or (not db.profile.castTextureBg and not bg._euiTexPath) then return end
+        local owner = castbar.__owner
+        local key = owner and UnitToSettingsKey(owner._euiUnit)
+        local s = key and db.profile[key]
+        ns.UF_TexBgTint(bg, ns.UF_TexBgCastPath(s, texKey, castbar._blizzCast))
+        -- Repaint now: the reload paints this bg before the textures are applied.
+        if s and not castbar._blizzCast then
+            local c = s.castBgColor
+            bg:SetColorTexture(c and c.r or 0, c and c.g or 0, c and c.b or 0, s.castBgAlpha or 0.5)
+        end
+    end
+end
+
 -- Cast bars reuse the unit's health bar texture. The cast bar stacks three textures
 -- over the fill bounds (base fill + cast tint + shielded tint, all WHITE8X8 by
 -- default), so apply to each. On ns to avoid the Lua 200-local cap.
 ns.ApplyCastBarTexture = function(castbar, texKey)
     if not castbar then return end
+    ns.UF_TexBgCast(castbar, texKey)
     -- Blizzard Style: the stock cast fill art stays (set by the post-pass).
     if castbar._blizzCast then
         ns.UF_SetBlizzCastFill(castbar, castbar.channeling and "channel" or "cast")
@@ -2001,7 +2169,7 @@ local function ApplyDarkTheme(health, unit)
     -- TEMPORARY (see UF_SecretSafeHealthColor). Idempotent: this function
     -- re-runs on settings changes and re-assigning is harmless.
         health.UpdateColor = UF_SecretSafeHealthColor
-    local isDark = db and db.profile and db.profile.darkTheme
+    local isDark = ns.UF_DarkThemeOn(health._euiUnitKey and db.profile[health._euiUnitKey])
     if isDark then
         health.colorClass = false
         health.colorClassPet = false
@@ -2199,7 +2367,13 @@ ns.ApplyDarkTheme = ApplyDarkTheme
 if EllesmereUI.RegisterDarkModeRefresh then
     EllesmereUI.RegisterDarkModeRefresh(function()
         for _, obj in pairs(frames) do
-            if type(obj) == "table" and obj.Health then ApplyDarkTheme(obj.Health, obj._euiUnit) end
+            local h = type(obj) == "table" and obj.Health
+            if h then
+                -- Textured Background: Dark Mode Fill decides the health layer; the
+                -- dark repaint after it tints the layer.
+                if h._euiTexBgSeen then ns.UF_TexBgApply(h, h._euiTexBgUnit, h._euiTexBgKey, obj.Power) end
+                ApplyDarkTheme(h, obj._euiUnit)
+            end
         end
         -- Boss "Activate Preview" fake frames need their red class-color
         -- substitute re-applied after the dark repaint above.

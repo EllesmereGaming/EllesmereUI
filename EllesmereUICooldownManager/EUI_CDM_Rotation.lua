@@ -15,6 +15,49 @@ local ECME, FC, SnapForScale, _ecmeFC = I.ECME, I.FC, I.SnapForScale, I._ecmeFC
 local _getFD, StartNativeGlow, StopNativeGlow = I._getFD, I.StartNativeGlow, I.StopNativeGlow
 local cdmBarIcons = I.cdmBarIcons
 
+-- Shown CDM bar icons for spellID, filled into out (wiped first). A CDM icon
+-- and a suggested spell can each hold EITHER the base or an override spell id
+-- (e.g. Maul <-> Raze), and which side is which varies by spec, so base ids
+-- are compared in BOTH directions.
+local function CDMIconsForSpell(spellID, out)
+    wipe(out)
+    local GetBaseSpell = C_Spell and C_Spell.GetBaseSpell
+    local spellBase = (GetBaseSpell and GetBaseSpell(spellID)) or spellID
+    if type(spellBase) ~= "number"
+        or (issecretvalue and issecretvalue(spellBase)) then spellBase = spellID end
+    for _, icons in pairs(cdmBarIcons) do
+        for _, icon in ipairs(icons) do
+            local ifc = _ecmeFC[icon]
+            local sid = ifc and ifc.spellID
+            if type(sid) ~= "number" or (issecretvalue and issecretvalue(sid)) then sid = nil end
+            if sid and icon:IsShown() then
+                -- Direct/base match first (cheap); only resolve the icon's own base if those
+                -- miss, to keep the common path light. sid > 0: item/trinket icons store -itemID/-13/-14, which must not be fed to GetBaseSpell.
+                local match = (sid == spellID) or (sid == spellBase)
+                if not match and GetBaseSpell and sid > 0 then
+                    local sidBase = GetBaseSpell(sid)
+                    if type(sidBase) == "number"
+                        and not (issecretvalue and issecretvalue(sidBase)) then
+                        match = sidBase == spellBase
+                    end
+                end
+                if match then out[#out + 1] = icon end
+            end
+        end
+    end
+    return out
+end
+
+-- Plugin API (PLUGINS_API.md): the CDM icons currently showing spellID.
+function EllesmereUI.GetCDMIconsForSpell(spellID, out)
+    out = out or {}
+    if type(spellID) ~= "number" or (issecretvalue and issecretvalue(spellID)) or spellID <= 0 then
+        wipe(out)
+        return out
+    end
+    return CDMIconsForSpell(spellID, out)
+end
+
 -------------------------------------------------------------------------------
 --  Rotation Helper Integration (Blizzard C_AssistedCombat)
 --  Highlights the currently suggested spell on its CDM icon. The default is
@@ -23,6 +66,7 @@ local cdmBarIcons = I.cdmBarIcons
 -------------------------------------------------------------------------------
 do
 ns._rotationGlowedIcons = {}
+local _rotMatched = {}  -- scratch for CDMIconsForSpell
 ns._rotationHookInstalled = false
 ns._rotationInCombat = false
 
@@ -233,35 +277,9 @@ local function UpdateRotationHighlightsNow()
 
     local newSet = {}
     if suggestedSpell then
-        -- A CDM icon and GetNextCastSpell can each hold EITHER the base or an override spell id
-        -- (e.g. Maul <-> Raze), and which side is which varies by spec. Compare on base ids in BOTH
-        -- directions so "icon=base, suggested=override" and "icon=override, suggested=base" both match. Strictly a superset of exact-id match, so anything that highlighted before still does.
-        local GetBaseSpell = C_Spell and C_Spell.GetBaseSpell
-        local suggestedBase = (GetBaseSpell and GetBaseSpell(suggestedSpell)) or suggestedSpell
-        if type(suggestedBase) ~= "number"
-            or (issecretvalue and issecretvalue(suggestedBase)) then suggestedBase = suggestedSpell end
-        for _, icons in pairs(cdmBarIcons) do
-            for _, icon in ipairs(icons) do
-                local ifc = _ecmeFC[icon]
-                local sid = ifc and ifc.spellID
-                if type(sid) ~= "number" or (issecretvalue and issecretvalue(sid)) then sid = nil end
-                if sid and icon:IsShown() then
-                    -- Direct/base match first (cheap); only resolve the icon's own base if those
-                    -- miss, to keep the common path light. sid > 0: item/trinket icons store -itemID/-13/-14, which must not be fed to GetBaseSpell.
-                    local match = (sid == suggestedSpell) or (sid == suggestedBase)
-                    if not match and GetBaseSpell and sid > 0 then
-                        local sidBase = GetBaseSpell(sid)
-                        if type(sidBase) == "number"
-                            and not (issecretvalue and issecretvalue(sidBase)) then
-                            match = sidBase == suggestedBase
-                        end
-                    end
-                    if match then
-                        _rotShow(icon)
-                        newSet[icon] = true
-                    end
-                end
-            end
+        for _, icon in ipairs(CDMIconsForSpell(suggestedSpell, _rotMatched)) do
+            _rotShow(icon)
+            newSet[icon] = true
         end
     end
 

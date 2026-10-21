@@ -995,7 +995,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
     local bR, bG, bB = borderColor.r, borderColor.g, borderColor.b
     if useClassColor then
         -- Unit Color in Dark Mode keeps the unit path below under Dark Mode.
-        local isDark = db and db.profile and db.profile.darkTheme
+        local isDark = ns.UF_DarkThemeOn(uSettings)
             and not (uSettings and uSettings.detachedPortraitUnitColorDark)
         if isDark then
             -- Dark mode: always the player's own class color.

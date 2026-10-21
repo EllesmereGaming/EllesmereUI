@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -426,7 +427,7 @@ end
 
 
 
-function BagShare:Holders()
+function BagShare:Holders(readOwn)
     local me = addon.Player:GetFullName("player")
     local ml = addon.PlayerIsMasterLooter() and me
         or (addon.GetMasterLooter and addon.GetMasterLooter())
@@ -434,7 +435,8 @@ function BagShare:Holders()
 
     local function Add(owner, isML)
         if addon.Player:IsSame(owner, me) then
-            out[#out + 1] = { owner = me, items = addon.Storage:GetTradeableItems(),
+            out[#out + 1] = { owner = me,
+                items = readOwn and readOwn() or addon.Storage:GetTradeableItems(),
                 mine = true, lootMaster = isML }
         else
             local shared = BagShare:Get(owner)
@@ -480,6 +482,45 @@ end
 
 
 
+local MISSING_SETTLE = 5
+local MISSING_COOLDOWN = 30
+local missingDue, missingAskedAt = nil, {}
+
+local function NoOwnScan() return {} end
+
+local function AskMissingNow()
+    if not IsInGroup() then return end
+    local now = GetTime()
+    for _, holder in ipairs(BagShare:Holders(NoOwnScan)) do
+        local owner = holder.owner
+        local at = missingAskedAt[owner]
+        if not holder.mine and not holder.known and (not at or now - at >= MISSING_COOLDOWN) then
+            missingAskedAt[owner] = now
+            addon.Log:D("BagShare", "no list from", tostring(owner), "- asking for it")
+            addon.Comms:Send("bags_request", {}, owner)
+        end
+    end
+end
+
+function BagShare:AskMissing()
+    local armed = missingDue ~= nil
+    missingDue = GetTime() + MISSING_SETTLE
+    if armed then return end
+    local function Due()
+        local wait = missingDue - GetTime()
+        if wait > 0 then
+            C_Timer.After(wait, Due)
+            return
+        end
+        missingDue = nil
+        AskMissingNow()
+    end
+    C_Timer.After(MISSING_SETTLE, Due)
+end
+
+
+
+
 local seenMembers = nil
 
 local function Joined()
@@ -502,12 +543,32 @@ end
 
 local UpdateWatch = function() end
 
-function BagShare:OnRosterChanged(_, gained)
+
+
+local MOST_WHISPERED = 2
+
+local function WhisperTo(names)
+    if InCombatLockdown() then
+        BagShare:PushSoon(true)
+        return
+    end
+    local wire = BagShare.WirePayload(BuildPayload())
+    for _, name in ipairs(names) do
+        addon.Log:D("BagShare", "sharing", #wire.items, "items with", tostring(name))
+        addon.Comms:Send("bags", wire, name)
+    end
+end
+
+function BagShare:OnRosterChanged(_, gained, newly, joiners)
     UpdateWatch()
 
 
     local joined = Joined()
     if not (gained or joined) or not BagShare:IsSharing() then return end
+    if not newly and joiners and #joiners > 0 and #joiners <= MOST_WHISPERED then
+        WhisperTo(joiners)
+        return
+    end
     lastDigest = nil
     BagShare:PushSoon()
 end
@@ -548,6 +609,8 @@ function BagShare:Init()
 
 
     addon.Comms:Register("bags", "council", function(args, sender)
+
+        if addon.Player:IsSame(sender, addon.Player:GetFullName("player")) then return end
         local record = addon.Player:Get(sender)
         local owner = record.fullName or sender
         if not MayShow(owner) then

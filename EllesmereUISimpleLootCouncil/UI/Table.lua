@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -252,6 +253,15 @@ function Table.SetData(t, data, keepScroll)
     Table.Refresh(t)
 end
 
+
+
+function Table.Release(t)
+    t.data, t.filtered = {}, {}
+    t.ordered, t.orderedData, t.orderedBy = nil, nil, nil
+    t.sortKeys, t.sortKeysData = nil, nil
+    for _, row in ipairs(t.rows) do row.rowData = nil end
+end
+
 function Table.SetFilter(t, predicate)
     t.filter = predicate
     Table.Refresh(t)
@@ -278,7 +288,11 @@ local function CompareChain(t, columnIndex, a, b, depth)
     if column.compare then
         result = column.compare(a, b)
     elseif column.value then
-        local va, vb = column.value(a), column.value(b)
+
+        local keys = t.sortKeys and t.sortKeys[depth]
+        local va, vb = keys and keys[a], keys and keys[b]
+        if va == nil then va = column.value(a) end
+        if vb == nil then vb = column.value(b) end
         if va == vb then
             result = 0
         elseif va == nil then
@@ -310,14 +324,32 @@ local function Less(t, a, b)
     return result > 0
 end
 
+local function Wipe(keys) for row in pairs(keys) do keys[row] = nil end end
+
+
 
 
 local function PrepareSort(t, rows)
+    t.sortKeys = t.sortKeys or {}
+    if t.sortKeysData ~= t.data then
+
+        for _, keys in pairs(t.sortKeys) do Wipe(keys) end
+        t.sortKeysData = t.data
+    end
     local index, depth = t.sortColumn, 1
     while index and depth <= 4 do
         local column = t.columns[index]
         if not column then return end
         if column.prepare then column.prepare(rows) end
+        if column.value and not column.compare then
+            local keys = t.sortKeys[depth] or {}
+            t.sortKeys[depth] = keys
+            local value = column.value
+            for i = 1, #rows do
+                local row = rows[i]
+                keys[row] = value(row)
+            end
+        end
         index, depth = column.sortNext, depth + 1
     end
 end
@@ -330,8 +362,31 @@ local function SortFiltered(t)
     t.sorts = (t.sorts or 0) + 1
 end
 
+
+
+local function Ordered(t)
+    local order = t.sortColumn and (tostring(t.sortColumn) .. (t.sortAscending and "+" or "-"))
+    if t.ordered and t.orderedData == t.data and t.orderedBy == order then return t.ordered end
+    local list = {}
+    for i, row in ipairs(t.data) do list[i] = row end
+    if order then
+        PrepareSort(t, list)
+        table.sort(list, function(a, b) return Less(t, a, b) end)
+        t.sorts = (t.sorts or 0) + 1
+    end
+    t.ordered, t.orderedData, t.orderedBy = list, t.data, order
+    return list
+end
+
 Rebuild = function(t)
     t.filtered = {}
+    if t.fixedRows then
+        local filtered = t.filtered
+        for _, row in ipairs(Ordered(t)) do
+            if not t.filter or t.filter(row) then filtered[#filtered + 1] = row end
+        end
+        return
+    end
     for _, row in ipairs(t.data) do
         if not t.filter or t.filter(row) then
             t.filtered[#t.filtered + 1] = row
@@ -467,6 +522,7 @@ function Table.UpdateRows(t, rows)
     if not rows or #rows == 0 then return end
     local versions = t.versions
     for _, row in ipairs(rows) do versions[row] = (versions[row] or 0) + 1 end
+    t.ordered = nil
 
     local filtered = t.filtered
     local position = {}

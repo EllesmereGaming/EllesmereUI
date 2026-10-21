@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -36,13 +37,13 @@ end
 
 local function WeekLabel(week)
     return addon.Locale.Format(T["%s - %s"],
-        date("%Y/%m/%d", week.start), date("%Y/%m/%d", week.finish - 1))
+        addon.DateText(week.start), addon.DateText(week.finish - 1))
 end
 
 local function NightLabel(night)
     local started, ended = night.startedAt or 0, night.endedAt or night.startedAt or 0
     return addon.Locale.Format(T["%s %s  %s-%s"], Weekday(started),
-        date("%Y/%m/%d", started), date("%H:%M", started), date("%H:%M", ended))
+        addon.DateText(started), date("%H:%M", started), date("%H:%M", ended))
 end
 
 local function CountMembers(night)
@@ -327,7 +328,7 @@ local function DeleteEntry(data)
         accept = T["Delete"],
         onAccept = function()
             local removedNights, removedEntries = addon.Attendance:ClearNights(nights, match)
-            print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+            addon.Chat.Print(addon.Locale.Format(
                 T["attendance cleared: %d night(s), %d player entries."],
                 removedNights, removedEntries))
         end,
@@ -716,7 +717,7 @@ local function DoClear()
         accept = T["Clear"],
         onAccept = function()
             local removedNights, removedEntries = addon.Attendance:ClearNights(nights, match)
-            print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+            addon.Chat.Print(addon.Locale.Format(
                 T["attendance cleared: %d night(s), %d player entries."],
                 removedNights, removedEntries))
             choice.week, choice.night = nil, nil
@@ -737,7 +738,7 @@ local function DoClearAll()
         accept = T["Clear all"],
         onAccept = function()
             local removed = addon.Attendance:ClearAll()
-            print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+            addon.Chat.Print(addon.Locale.Format(
                 T["attendance cleared: all %d night(s)."], removed))
             choice.week, choice.night, choice.ranks, choice.players = nil, nil, {}, {}
             RefreshClear()

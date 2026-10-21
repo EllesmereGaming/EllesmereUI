@@ -198,7 +198,7 @@ end
 
 -- The clock and zone Edge Box fill: the border colour above, or black under
 -- a square frame on the Forever client (its bronze frame takes no colour, and
--- the border colour rows are hidden there). EBS field: main-chunk local cap.
+-- the border colour rows are hidden there). An EBS field.
 function EBS._EdgeBoxColor(cfg)
     if EBS._fvSquare then return 0, 0, 0 end
     return GetBorderStyleColor(cfg)

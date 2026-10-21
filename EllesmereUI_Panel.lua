@@ -3227,6 +3227,17 @@ end
 -- files. Page IDENTITY stays the original string everywhere else (SelectPage, nav targets, unlock elements, spec overrides, saved state); only the tab text changes.
 EllesmereUI.TAB_LABEL_OVERRIDES = EllesmereUI.TAB_LABEL_OVERRIDES or {}
 
+-- A page's tab label (not localized): a suite module's own config.tabLabels[page] first,
+-- so a label never lands on another module's page of the same name, then the shared
+-- TAB_LABEL_OVERRIDES, else the page identity itself. tabLabels is suite-only (plugin
+-- configs are ignored), and on EUI_NS, not EllesmereUI: a public slot would let any
+-- addon relabel the suite's tabs.
+function EUI_NS.GetTabLabel(folderName, page)
+    local m = folderName and EUI_NS.IsSuiteKey(folderName) and modules[folderName]
+    local own = m and type(m.tabLabels) == "table" and m.tabLabels[page]
+    return own or EllesmereUI.TAB_LABEL_OVERRIDES[page] or page
+end
+
 -- Tab buttons are pooled by position (tabBar._tabPool) and re-labelled for each
 -- module; tabBar._tabButtons lists the ones in use, in order.
 ClearTabs = function()
@@ -3279,7 +3290,7 @@ CreateTabButton = function(index, name)
     btn._disabled = nil
     btn._tip      = nil
     local label = btn._label
-    label:SetText(EllesmereUI.L(EllesmereUI.TAB_LABEL_OVERRIDES[name] or name))
+    label:SetText(EllesmereUI.L(EUI_NS.GetTabLabel(activeModule, name)))
     label:SetTextColor(TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
     label:SetAlpha(1)
 
@@ -3415,7 +3426,7 @@ BuildTabs = function(pageNames, disabledPages, disabledTooltips)
         tabBar._searchFrame = searchFrame
 
         -- Spec Override capture toggle (left of the search box). All look
-        -- and behavior live in EllesmereUI_SpecOverrides.lua.
+        -- and behavior live in EUI_SpecOverrides_Popups.lua (SpecOverrides_SetupButton).
         if EllesmereUI.SpecOverrides_SetupButton then
             local soBtn = CreateFrame("Button", nil, tabBar)
             soBtn:SetSize(26, 26)
@@ -5498,7 +5509,7 @@ end
 --  (a module can opt out of the latter with searchPrebuild = false).
 --  Developer guide: PLUGINS_API.md.
 -------------------------------------------------------------------------------
-EllesmereUI.PLUGIN_API_VERSION = 1
+EllesmereUI.PLUGIN_API_VERSION = 2
 
 do
     local PREFIX          = EUI_NS.PLUGIN_PREFIX

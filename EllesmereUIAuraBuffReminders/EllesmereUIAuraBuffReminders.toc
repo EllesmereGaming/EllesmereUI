@@ -4,13 +4,23 @@
 ## Group: EllesmereUI
 ## Notes: Simple raid buff, auras, consumables and talent reminders.
 ## Author: Ellesmere
-## Version: 9.6
+## Version: 9.6.2
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIAuraBuffRemindersDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Lua
 EllesmereUIAuraBuffReminders.lua
+EUI_AuraBuffReminders_Auras.lua
+EUI_AuraBuffReminders_Data.lua
+EUI_AuraBuffReminders_Defaults.lua
+EUI_AuraBuffReminders_Icons.lua
+EUI_AuraBuffReminders_Collect.lua
+EUI_AuraBuffReminders_Refresh.lua
+EUI_AuraBuffReminders_Unlock.lua
+EUI_AuraBuffReminders_Beacon.lua
+EUI_AuraBuffReminders_Lifecycle.lua
+EUI_AuraBuffReminders_ReadyCheck.lua
 
 # Beacon M+ Reminders (retail, Holy Paladin)
 EllesmereUIABR_BeaconMPlus.lua

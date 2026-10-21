@@ -3,8 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUI_Conditions.lua
 --  Conditional Overrides engine: condition definitions, the active-group
 --  resolver, event wiring, and the keybind toggle. The value/unlock override
---  integration lives in EllesmereUI_SpecOverrides.lua (it shares that file's
---  fkey helpers); this file only decides WHICH conditional group is active
+--  integration lives in EUI_SpecOverrides_Conditional.lua (it shares
+--  EllesmereUI_SpecOverrides.lua's fkey helpers); this file only decides WHICH conditional group is active
 --  and notifies the override system when that changes.
 --
 --  Resolution ladder (user-approved):
@@ -17,7 +17,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    3. instance -- dungeon / raid / arena / battleground. Naturally mutually
 --                   exclusive (the client reports one instance type). First
 --                   group in creation order that checks the current type.
---    4. solo     -- not in any group. Lowest priority.
+--    4. party    -- in a group that is not a raid, inside an instance or out.
+--                   Below instance, so a group for the current instance type
+--                   outranks it there. Only groups that check it can match.
+--    5. solo     -- not in any group. Lowest priority.
 --  Exactly one conditional group is active at a time, or none.
 --
 --  Condition flips NEVER happen in combat: flips are recomputed fresh at
@@ -28,7 +31,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = function(s) return EllesmereUI.L(s) or s end
 
 -------------------------------------------------------------------------------
---  Condition definitions (ordered display list for the picker UI).
+--  Condition definitions (ordered display list for the picker UI; the
+--  resolver's ladder below keeps its own order).
 --  comingSoon entries render disabled in the picker and never match.
 -------------------------------------------------------------------------------
 -- The Dark Mode condition holds while every per-module Dark Mode is on
@@ -42,6 +46,12 @@ end
 
 EllesmereUI.CONDITIONS = {
     { id = "keybind",      label = "Keybind (out of combat)" },
+    { id = "party",        label = "Party (in a group, not a raid)" },
+    { id = "dungeon",      label = "Dungeon" },
+    { id = "raid",         label = "Raid" },
+    { id = "arena",        label = "Arena" },
+    { id = "battleground", label = "Battleground" },
+    { id = "solo",         label = "Solo (not in a group)" },
     -- requires: pickable in the condition picker only while it returns true
     -- (newly checking is refused and the row renders dimmed with the hint;
     -- UNchecking is always allowed so an existing group can never be
@@ -52,12 +62,6 @@ EllesmereUI.CONDITIONS = {
       requires = DarkModeMasterOn,
       tooltip = "Active while Dark Mode is on.",
       requiresHint = "Check every Dark Mode in Global Settings > Colors, except Class Resource Bar, to use this condition." },
-    { id = "dungeon",      label = "Dungeon" },
-    { id = "raid",         label = "Raid" },
-    { id = "arena",        label = "Arena" },
-    { id = "battleground", label = "Battleground" },
-    { id = "solo",         label = "Solo (not in a group)" },
-    { id = "druid_form",   label = "Druid Form (out of combat)", comingSoon = true },
 }
 
 local INSTANCE_COND = {
@@ -122,6 +126,18 @@ end
 --  Resolver
 -------------------------------------------------------------------------------
 
+-- Tier 4: the first group (creation order) that checks Party, while the player
+-- is in a party (a group that is not a raid, as the visibility rules' In Party).
+-- nil for every profile with no such group, so the other tiers resolve as if
+-- this one were not there.
+local function PartyGroup(groups)
+    if not IsInGroup() or IsInRaid() then return nil end
+    for _, g in ipairs(groups) do
+        if g.conds and g.conds.party then return g end
+    end
+    return nil
+end
+
 --- The currently-ACTIVE conditional group per the ladder, or nil.
 function EllesmereUI.Conditions_ActiveGroup()
     local groups = EllesmereUI.Conditions_GetGroups()
@@ -145,9 +161,13 @@ function EllesmereUI.Conditions_ActiveGroup()
         for _, g in ipairs(groups) do
             if g.conds and g.conds[cond] then return g end
         end
-        return nil  -- in an instance: solo never applies
+        -- In an instance: party can still apply, solo never does.
+        return PartyGroup(groups)
     end
-    -- Tier 4: solo.
+    -- Tier 4: party.
+    local pg = PartyGroup(groups)
+    if pg then return pg end
+    -- Tier 5: solo.
     if not IsInGroup() then
         for _, g in ipairs(groups) do
             if g.conds and g.conds.solo then return g end
@@ -333,7 +353,7 @@ function EllesmereUI.Conditions_RebuildKeyBindings()
 end
 
 -------------------------------------------------------------------------------
---  Events. GROUP_ROSTER_UPDATE drives solo; PEW/zone drive instance flips;
+--  Events. GROUP_ROSTER_UPDATE drives party and solo; PEW/zone drive instance flips;
 --  regen drains combat-deferred rechecks. Registration order matters for the
 --  regen drain: this file loads after EllesmereUI_Profiles.lua, so the spec
 --  pipeline's regen branch runs first and our recompute sees settled state.

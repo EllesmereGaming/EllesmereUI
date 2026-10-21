@@ -429,10 +429,76 @@ do
     -- each refresh, and CreateFromBagAndSlot builds a new mixin table per call.
     local loc = ItemLocation:CreateEmpty()
 
+    -- The game applies a search after SetItemSearch returns and reports the
+    -- result with INVENTORY_SEARCH_UPDATE, the event Blizzard's own bags repaint
+    -- on, so the open windows repaint there, never at once (they would still
+    -- show the previous search). Listened to from a search change until the
+    -- search is clear again or no window shows (the next open reads the
+    -- settled result).
+    local searchWatch
+    local function OnSearchUpdate(self)
+        local bank = _G.EUI_BankFrame
+        if EUI_Bags._appliedSearch == "" or not (EUI_Bags:IsVisible() or (bank and bank:IsVisible())) then
+            self:UnregisterEvent("INVENTORY_SEARCH_UPDATE")
+        end
+        if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
+        if BP().detachReagentBag and EUI_BagsReagent:IsVisible() then EUI_BagsReagent:RefreshInventory() end
+        ns.RefreshOpenBank()
+    end
+
+    -- The game's item search is client-wide and has no getter, so this is its
+    -- one writer and keeps the text it last applied: a search box asking for
+    -- that same text has nothing to change or repaint.
     function EUI_Bags.SetSearchText(text)
         local k = strtrim(text or ""):lower()
         EUI_Bags._bindKeyword = BIND_KEYWORDS[k] and k or nil
+        EUI_Bags._appliedSearch = text
+        if not searchWatch then
+            searchWatch = CreateFrame("Frame")
+            searchWatch:SetScript("OnEvent", OnSearchUpdate)
+        end
+        searchWatch:RegisterEvent("INVENTORY_SEARCH_UPDATE")
         C_Container.SetItemSearch(text)
+    end
+
+    -- Text changes of a search box (the bags and the bank each have one):
+    -- typing applies SEARCH_DEBOUNCE seconds after the last keystroke, so a
+    -- burst of keystrokes repaints once; any other change (the clear button,
+    -- Escape, a window opening or closing) applies at once. A text the game's
+    -- search already holds does nothing. apply(text) writes the search (the
+    -- windows repaint when the game reports it, see SetSearchText). Returns
+    -- the box's change handler.
+    local SEARCH_DEBOUNCE = 0.1
+    function EUI_Bags.WatchSearchBox(box, apply)
+        local armed, lastKeyAt = false, 0
+        local function flush()
+            local wait = lastKeyAt + SEARCH_DEBOUNCE - GetTime()
+            if wait > 0 then
+                C_Timer.After(wait, flush)
+                return
+            end
+            armed = false
+            local text = box:GetText()
+            if text ~= EUI_Bags._appliedSearch then apply(text) end
+        end
+        return function(userInput)
+            if userInput then
+                lastKeyAt = GetTime()
+                if not armed then
+                    armed = true
+                    C_Timer.After(SEARCH_DEBOUNCE, flush)
+                end
+                return
+            end
+            local text = box:GetText()
+            if text ~= EUI_Bags._appliedSearch then apply(text) end
+        end
+    end
+
+    -- Clears the game's search unless it is already clear (the clear buttons,
+    -- Escape and the bank's open and close, after emptying their box).
+    function EUI_Bags.ClearSearch()
+        if EUI_Bags._appliedSearch ~= "" then EUI_Bags.SetSearchText("") end
     end
 
     -- Overrides info.isFiltered for the active keyword; no-op when none is active.

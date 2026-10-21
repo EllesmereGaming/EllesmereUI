@@ -85,8 +85,7 @@ end
 -- range-enabled and each fire walks all bars).
 
 -- Release whatever the bar snapshot holds (no slot resolution: the snapshot
--- IS what was acquired, immune to page drift). On ns, not a local: kept from
--- the main file, which sits near the 200-local cap.
+-- IS what was acquired, immune to page drift). On ns, not a local.
 ns._eabReleaseRangeSlots = function(barKey)
     local held = _range.barSlots[barKey]
     if not held then return end
@@ -110,8 +109,7 @@ end
 -- until the next transition, so a slot whose refcount just went 0->1 has
 -- nothing to paint from and the release-wiped cache entry stays wiped. The
 -- flip handler's "no change, return" gate then swallows the next report,
--- stranding the last painted tint. On ns, not a local: kept from the main
--- file, which sits near the 200-local cap.
+-- stranding the last painted tint. On ns, not a local.
 ns._eabRangeSweepBar = function(barKey)
     local buttons = barButtons[barKey]
     local s = EAB.db.profile.bars[barKey]

@@ -134,8 +134,8 @@ local function GatherOnlineFriends()
 end
 
 -- Custom two-column friends tooltip (same pattern as the M+ death tooltip). FTT_FONT
--- stays file-scope (shared with the calendar/vault tooltips below); everything else
--- lives in the do-block so locals release instead of eating main-chunk slots.
+-- stays file-scope (shared with the calendar tooltip below); everything else lives
+-- in the do-block.
 -- Only ShowFriendsTooltip/HideFriendsTooltip are used outside, hence the forward declarations.
 local function FTT_FONT()
     return (EllesmereUI.GetFontPath("minimap")) or EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
@@ -250,8 +250,8 @@ local function GetFTTMenu()
     end
 
     -- Whisper(charName, bnetName); Invite always uses the character name.
-    MakeItem("Whisper", -PAD, FTTOpenWhisper)
-    MakeItem("Invite", -PAD - RH, function(target)
+    MakeItem(EllesmereUI.L("Whisper"), -PAD, FTTOpenWhisper)
+    MakeItem(EllesmereUI.L("Invite"), -PAD - RH, function(target)
         if target and target ~= "" and C_PartyInfo and C_PartyInfo.InviteUnit then
             C_PartyInfo.InviteUnit(EllesmereUI.BuildFullName(target) or target)
         end
@@ -439,7 +439,7 @@ function ShowFriendsTooltip(anchor)
     if total == 0 then
         local row = EnsureFTTRow(1)
         row.name:SetFont(font, 10, "")
-        row.name:SetText("|cff888888No friends online|r")
+        row.name:SetText(EllesmereUI.L("|cff888888No friends online|r"))
         row.zone:SetText("")
         tt:SetSize(FTT_PAD * 2 + 140, FTT_PAD + FTT_ROW_H + FTT_PAD)
         row.button:ClearAllPoints()
@@ -556,7 +556,7 @@ function ShowFriendsTooltip(anchor)
             rowIdx = rowIdx + 1
             local row = EnsureFTTRow(rowIdx)
             row.name:SetFont(font, 10, "")
-            row.name:SetText("|cff888888...and " .. (#sec.list - maxRows) .. " more|r")
+            row.name:SetText("|cff888888" .. EllesmereUI.Lf("...and %1$d more", #sec.list - maxRows) .. "|r")
             row.zone:SetText("")
             row.button._entry = nil
             FTTSetRowTarget(row.button, nil)

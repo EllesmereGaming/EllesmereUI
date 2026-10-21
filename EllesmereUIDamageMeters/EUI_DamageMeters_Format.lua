@@ -463,7 +463,7 @@ local ICON_STYLE_VALUES = {
     blizzard = "Blizzard",
     modern   = "Modern",
     pixel    = "Pixel",
-    pixelsComic = "Pixels Comic",
+    pixelsComic = "Comic",
     glyph    = "Glyph",
     arcade   = "Arcade",
     legend   = "Legend",
@@ -526,8 +526,9 @@ local function ResolveIcon(src, iconTex, barH)
         local coords = CLASS_SPRITE_COORDS[classFile]
         if coords then
             iconTex:SetTexture(CLASS_ICON_SPRITE_TEX[style] or (CLASS_ICON_SPRITE_BASE .. style .. ".tga"))
-            -- Sprite presets are pre-framed art; Icon Zoom does NOT apply (the options cog is disabled for these styles)
-            iconTex:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+            local zoom = cfg.spriteIconZoom or 0
+            if zoom ~= 0 then iconTex:SetTexCoord(ZoomCoords(coords[1], coords[2], coords[3], coords[4], zoom))
+            else iconTex:SetTexCoord(coords[1], coords[2], coords[3], coords[4]) end
         else
             iconTex:Hide(); return 0
         end

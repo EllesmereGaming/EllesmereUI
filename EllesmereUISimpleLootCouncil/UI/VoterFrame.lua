@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -40,8 +41,14 @@ local ENTRY_HEIGHT
 local RESPONSE_BUTTON_H = 26
 
 
+local WISH_ICON, WISH_ICON_GAP, WISH_ICON_INSET = 12, 4, 1
+
+local BUTTON_INSET
+
+
 
 local VISIBLE_CARDS, COMPACT_CARDS = 8, 2
+local CARDS_PER_PAINT = 4
 
 local SCROLL_CHANNEL
 
@@ -166,6 +173,17 @@ local function CreateEntry(parent, index)
     P.Point(e.detail, "TOPRIGHT", e.name, "BOTTOMRIGHT", 0, -2)
 
 
+    e.wish = S.Label(e, S.fontSmall, "LEFT")
+    P.Point(e.wish, "TOPLEFT", e.detail, "BOTTOMLEFT", 0, -2)
+    P.Point(e.wish, "RIGHT", e.name, "RIGHT", 0, 0)
+
+    e.wishIcon = e:CreateTexture(nil, "ARTWORK")
+    P.Size(e.wishIcon, WISH_ICON, WISH_ICON)
+    P.Point(e.wishIcon, "LEFT", e.wish, "LEFT", -(WISH_ICON + WISH_ICON_GAP), 0)
+    e.wishIcon:Hide()
+    e.wishIconShown = false
+
+
 
 
     e.status = S.Label(e, S.fontSmall, "RIGHT")
@@ -186,8 +204,9 @@ local function CreateEntry(parent, index)
 
 
 
+
     e.buttonRow = CreateFrame("Frame", nil, e)
-    P.Point(e.buttonRow, "BOTTOMRIGHT", -S.size.ROW_PAD, S.size.ROW_PAD)
+    P.Point(e.buttonRow, "BOTTOMRIGHT", -BUTTON_INSET, BUTTON_INSET)
     P.Size(e.buttonRow, nil, RESPONSE_BUTTON_H)
 
 
@@ -200,7 +219,7 @@ local function CreateEntry(parent, index)
     P.Point(e.noteComposer, "BOTTOMLEFT", e.clockBox, "BOTTOMRIGHT",
         S.size.ITEM_GAP, 0)
     P.Point(e.noteComposer, "BOTTOMRIGHT", e, "BOTTOMRIGHT",
-        -S.size.ROW_PAD, S.size.ROW_PAD)
+        -BUTTON_INSET, BUTTON_INSET)
     P.Size(e.noteComposer, nil, S.size.BTN_H_SM)
 
     e.noteDone = S.Button(e.noteComposer, T["Done"],
@@ -336,6 +355,43 @@ end
 
 
 
+
+local function Respond(e, response)
+    e.flushNote()
+    local note = e.noteEdit:GetText()
+    if note == "" then note = nil end
+    for _, session in ipairs(e.noteSessions or {}) do
+        addon.Session:Respond(session, response, note)
+    end
+    VoterFrame:Refresh()
+end
+
+
+local function EnsureResponseButtons(e, responses)
+    local needed = #responses + 1
+    for i = 1, needed do
+        if not e.buttons[i] then
+            local b = S.Button(e.buttonRow, "", { height = RESPONSE_BUTTON_H })
+            b:SetScript("OnClick", function() Respond(e, b.response or nil) end)
+            e.buttons[i] = b
+        end
+    end
+    for i = needed + 1, #e.buttons do e.buttons[i]:Hide() end
+    local labels = { "labels" }
+    for _, response in ipairs(responses) do labels[#labels + 1] = response.text end
+    local sig = table.concat(labels, "\n")
+    if e.labelSig ~= sig then
+        e.labelSig = sig
+        for i, response in ipairs(responses) do e.buttons[i]:SetLabel(response.text) end
+        e.buttons[needed]:SetLabel(T["Pass"])
+        RemeasureAfterLayout()
+    end
+    local strip = { e.noteButton }
+    for i = 1, needed do strip[#strip + 1] = e.buttons[i] end
+    return strip, needed
+end
+
+
 local function LayoutRoll(e, group)
     EnsureNoteButton(e)
     if not e.rollButton then
@@ -346,6 +402,7 @@ local function LayoutRoll(e, group)
         e.rollButton:SetScript("OnClick", function() addon.Roll:Roll() end)
     end
 
+    local responseStrip = EnsureResponseButtons(e, addon.Config:Responses())
     for _, button in ipairs(e.buttons) do button:Hide() end
 
 
@@ -365,7 +422,8 @@ local function LayoutRoll(e, group)
         RemeasureAfterLayout()
     end
 
-    e.buttonRow:SetWidth(StripWidth({ e.noteButton, e.rollButton }))
+    e.buttonRow:SetWidth(math.max(StripWidth({ e.noteButton, e.rollButton }),
+        StripWidth(responseStrip)))
     e.rollButton:Show()
     e.noteButton:Show()
 
@@ -376,18 +434,6 @@ local function LayoutRoll(e, group)
     e.rollButton:SetEnabled(not blocked)
 end
 
-
-
-
-local function Respond(e, response)
-    e.flushNote()
-    local note = e.noteEdit:GetText()
-    if note == "" then note = nil end
-    for _, session in ipairs(e.noteSessions or {}) do
-        addon.Session:Respond(session, response, note)
-    end
-    VoterFrame:Refresh()
-end
 
 local function LayoutButtons(e, group)
     e.noteSessions = group.sessions
@@ -518,25 +564,44 @@ local function DetailText(group, me)
 
 
 
-    if addon.Wishlist then
-        local pick = addon.Wishlist:For(me, group.item)
-        if pick and pick.label then
-            parts[#parts + 1] = S.Colorize(S.color.textMuted,
-                addon.Locale.SectionTitle(T["Wishlist"]) .. " ")
-                .. S.Colorize(pick.colour or S.color.text, pick.label)
-        end
+    return table.concat(parts, S.Colorize(S.color.textFaint, "  -  "))
+end
 
-        local sim = addon.Wishlist:SimFor(me, group.item)
-        local gain = addon.Wishlist.FormatGain(sim)
-        if gain then
-            parts[#parts + 1] =
-                S.Colorize(addon.Wishlist.GainColour(sim.pct), gain)
-        end
+
+
+local function WishText(group, me)
+    if not addon.Wishlist then return "" end
+    local parts = {}
+    local pick = addon.Wishlist:For(me, group.item)
+
+    if pick and pick.label then
+        parts[#parts + 1] = S.Colorize(pick.colour or S.color.text, pick.label)
     end
 
-
-
+    local sim = addon.Wishlist:SimFor(me, group.item)
+    local gain = addon.Wishlist.FormatGain(sim)
+    if gain then
+        parts[#parts + 1] = S.Colorize(addon.Wishlist.GainColour(sim.pct), gain)
+    end
+    if #parts == 0 then return "" end
     return table.concat(parts, S.Colorize(S.color.textFaint, "  -  "))
+end
+
+
+
+local function PlaceWish(e, text)
+    local icon = text ~= "" and addon.Wishlist and addon.Wishlist:SourceIcon() or nil
+    if icon then e.wishIcon:SetTexture(icon) end
+    e.wishIcon:SetShown(icon ~= nil)
+    local shown = icon ~= nil
+    if e.wishIconShown ~= shown then
+        e.wishIconShown = shown
+        e.wish:ClearAllPoints()
+        P.Point(e.wish, "TOPLEFT", e.detail, "BOTTOMLEFT",
+            shown and WISH_ICON_INSET + WISH_ICON + WISH_ICON_GAP or 0, -2)
+        P.Point(e.wish, "RIGHT", e.name, "RIGHT", 0, 0)
+    end
+    e.wish:SetText(text)
 end
 
 
@@ -825,7 +890,11 @@ local function PaintWindow()
     local widestStrip = 0
     local pending = false
 
-    for i = 1, shown do
+
+    local visible = math.min(shown, addon.db.voterCompact and COMPACT_CARDS or VISIBLE_CARDS)
+    local built = math.min(shown, math.max(visible, #entries + CARDS_PER_PAINT))
+
+    for i = 1, built do
         local group = groups[i]
         local e = entries[i] or CreateEntry(scroll.Content, i)
 
@@ -847,6 +916,7 @@ local function PaintWindow()
         end
 
         e.detail:SetText(DetailText(group, me))
+        PlaceWish(e, WishText(group, me))
         if PaintStatus(e, group) then pending = true end
 
 
@@ -880,6 +950,7 @@ local function PaintWindow()
             addon.Callbacks:Invalidate("voter")
         end)
     end
+    if built < shown then addon.Callbacks:Invalidate("voter") end
 
     for i = shown + 1, #entries do
         if entries[i].groupKey then entries[i].flushNote() end
@@ -891,7 +962,6 @@ local function PaintWindow()
 
 
 
-    local visible = math.min(shown, addon.db.voterCompact and COMPACT_CARDS or VISIBLE_CARDS)
     if reopening or shown ~= laidOutCount or widestStrip ~= laidOutWidth
         or visible ~= laidOutVisible then
         laidOutCount, laidOutWidth, laidOutVisible = shown, widestStrip, visible
@@ -903,8 +973,9 @@ local function PaintWindow()
             #groups, #groups))
 
 
+        local entryH, gap = P.Snap(ENTRY_HEIGHT), P.Snap(S.size.ITEM_GAP)
         local function ListHeight(n)
-            return n * (ENTRY_HEIGHT + S.size.ITEM_GAP) - S.size.ITEM_GAP
+            return n * (entryH + gap) - gap
         end
 
         local cardWidth = S.size.ROW_PAD + S.size.ICON + CLOCK_EXTRA / 2 + BUTTON_GAP
@@ -916,7 +987,8 @@ local function PaintWindow()
         P.AfterLayout(PlaceTag)
 
 
-        frame:SetHeightFromTop(frame.HeaderHeight + S.size.PAD + ListHeight(visible) + S.size.PAD)
+        frame:SetHeightFromTop(P.Snap(frame.HeaderHeight + S.size.PAD) + ListHeight(visible)
+            + P.Snap(S.size.PAD))
         scroll:SetContentHeight(ListHeight(shown))
     end
     frame:Show()
@@ -968,6 +1040,7 @@ function VoterFrame:Init()
     P = addon.Pixel
     SCROLL_CHANNEL = S.size.SCROLLBAR_W + S.size.SCROLLBAR_GAP
     TAG_OFFSET = S.size.TAG_GAP
+    BUTTON_INSET = S.size.ROW_PAD - 2
 
 
     ENTRY_HEIGHT = S.size.ROW_PAD

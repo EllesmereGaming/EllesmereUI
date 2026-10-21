@@ -458,7 +458,7 @@ local function RefreshPartyPreview()
         ns._partyOC:SetFrameLevel(10)
         if ns._partyOC._title then
             ApplyFont(ns._partyOC._title, 13)
-            ns._partyOC._title:SetText("Preview")
+            ns._partyOC._title:SetText(EllesmereUI.L("Preview"))
             ns._partyOC._title:SetTextColor(1, 1, 1, 0.9)
             ns._partyOC._title:Show()
         end

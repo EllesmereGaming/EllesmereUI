@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -111,7 +112,7 @@ function Version:WarnIfBehind()
     if warned then return end
     if not Version:IsOlder(OWN, highest) then return end
     warned = true
-    print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(T["you are running %s and someone in your group is on %s. Older builds can silently drop fields from messages - update when you get a chance."], OWN, highest))
+    addon.Chat.Print(addon.Locale.Format(T["you are running %s and someone in your group is on %s. Older builds can silently drop fields from messages - update when you get a chance."], OWN, highest))
     addon.Log:I("Version", "local build", OWN, "is behind", highest)
 end
 

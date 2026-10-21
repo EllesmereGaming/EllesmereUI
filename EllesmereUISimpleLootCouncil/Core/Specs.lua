@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -9,8 +10,6 @@ local addon = SimpleLootCouncil
 
 local Specs = {}
 addon.Specs = Specs
-
-local issecretvalue = issecretvalue
 
 
 
@@ -28,9 +27,7 @@ local count = 0
 
 
 
-local function IsSecret(value)
-    return issecretvalue and issecretvalue(value) or false
-end
+local IsSecret = addon.IsSecret
 
 
 

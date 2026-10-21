@@ -52,6 +52,30 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
         }
     end
 
+    local function BorderOffsets(prefix, disabled)
+        local offsetX, offsetY = EllesmereUI.BorderOffsetRowCfgs{
+            getTex = function() return FT.Get("borderTexture") end,
+            getStep = function() return FT.Get("borderSize") end,
+            getPx = function() return FT.Get("borderSizePx") end,
+            getX = function() return FT.Get(prefix .. "Offset") end,
+            setX = function(v) FT.Cfg()[prefix .. "Offset"] = v end,
+            getY = function() return FT.Get(prefix .. "OffsetY") end,
+            setY = function(v) FT.Cfg()[prefix .. "OffsetY"] = v end,
+            apply = FT.ApplyStyle,
+        }
+        local function CogRow(cfg)
+            return { type = "slider", label = cfg.text, min = cfg.min, max = cfg.max, step = cfg.step,
+                get = cfg.getValue, set = cfg.setValue, disabled = disabled,
+                disabledTooltip = "This option requires an enabled textured border." }
+        end
+        return CogRow(offsetX), CogRow(offsetY)
+    end
+
+    local function SolidBorder()
+        local tex = FT.Get("borderTexture")
+        return tex == "solid" or tex == ""
+    end
+
     ---------------------------------------------------------------------------
     --  GENERAL
     ---------------------------------------------------------------------------
@@ -109,21 +133,58 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
         end
     end
 
+    local borderValues, borderOrder = EllesmereUI.GetBorderTextureDropdown()
     local borderRow
     borderRow, h = W:DualRow(parent, y,
-        { type = "slider", text = "Border Size", min = 0, max = 4, step = 1,
+        { type = "dropdown", text = "Border Style", values = borderValues, order = borderOrder,
           disabled = off, disabledTooltip = "Flight Timer",
-          getValue = function() return FT.Get("borderSize") end,
-          setValue = function(v) Set("borderSize", v); EllesmereUI:RefreshPage() end },
-        { type = "dropdown", text = "Bar Texture", values = texValues, order = texOrder,
+          getValue = function() return FT.Get("borderTexture") end,
+          setValue = function(v)
+              local c = FT.Cfg()
+              c.borderTexture = v
+              c.borderTextureOffset, c.borderTextureOffsetY = nil, nil
+              c.borderTextureShiftX, c.borderTextureShiftY = nil, nil
+              c.exitBorderOffset, c.exitBorderOffsetY = nil, nil
+              local color, behind = EllesmereUI.GetBorderStyleSelectDefaults(v)
+              c.borderR, c.borderG, c.borderB, c.borderBehind = color.r, color.g, color.b, behind
+              local size = EllesmereUI.GetBorderDefaultSize(nil, v)
+              if size then c.borderSize = size end
+              if c.borderSizePx then c.borderSizePx = false end
+              FT.ApplyStyle(); EllesmereUI:RefreshPage(true)
+          end },
+        EllesmereUI.BorderPxSliderCfg{
+          trackWidth = 120,
           disabled = off, disabledTooltip = "Flight Timer",
-          getValue = function() return FT.Get("texture") end,
-          setValue = function(v) Set("texture", v) end }
+          getStep = function() return FT.Get("borderSize") end,
+          setStep = function(v)
+              local c = FT.Cfg()
+              c.borderTexture, c.borderSize = FT.Get("borderTexture"), v
+          end,
+          getTex = function() return FT.Get("borderTexture") end,
+          getPx = function() return FT.Get("borderSizePx") end,
+          setPx = function(v) FT.Cfg().borderSizePx = v end,
+          apply = function() FT.ApplyStyle(); EllesmereUI:RefreshPage() end }
     );  y = y - h
     if not EllesmereUI._prebuilding then
-        EllesmereUI.BuildInlineSwatches(borderRow._leftRegion, {
+        local offsetX, offsetY = BorderOffsets("borderTexture")
+        EllesmereUI.BuildInlineCog(borderRow._leftRegion, { title = "Border Options",
+            icon = EllesmereUI.DIRECTIONS_ICON,
+            disabled = function() return off() or SolidBorder() end,
+            disabledTooltip = "This option requires a textured border.",
+            rows = {
+                { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
+                  get = function() return FT.Get("borderTextureShiftX") or 0 end,
+                  set = function(v) Set("borderTextureShiftX", v) end },
+                { type = "slider", label = "Shift Y", min = -10, max = 10, step = 1,
+                  get = function() return FT.Get("borderTextureShiftY") or 0 end,
+                  set = function(v) Set("borderTextureShiftY", v) end },
+                offsetX, offsetY,
+                { type = "toggle", label = "Show Behind",
+                  get = function() return FT.Get("borderBehind") end,
+                  set = function(v) Set("borderBehind", v) end },
+            } })
+        EllesmereUI.BuildInlineSwatches(borderRow._rightRegion, {
             { tooltip = "Border Color",
-              -- Nothing to colour at size 0 (the slider + inline swatch pattern).
               disabled = function() return off() or FT.Get("borderSize") == 0 end,
               disabledTooltip = function() return off() and "Flight Timer" or "Border Size" end,
               getValue = function() return FT.Get("borderR"), FT.Get("borderG"), FT.Get("borderB"), 1 end,
@@ -135,6 +196,17 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
         }, { disabled = off, disabledTooltip = "Flight Timer" })
     end
 
+    _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "Bar Texture", values = texValues, order = texOrder,
+          disabled = off, disabledTooltip = "Flight Timer",
+          getValue = function() return FT.Get("texture") end,
+          setValue = function(v) Set("texture", v) end },
+        { type = "dropdown", text = "Background Texture", values = texValues, order = texOrder,
+          disabled = off, disabledTooltip = "Flight Timer",
+          getValue = function() return FT.Get("bgTexture") end,
+          setValue = function(v) Set("bgTexture", v) end }
+    );  y = y - h
+
     local colorRow
     colorRow, h = W:DualRow(parent, y,
         { type = "slider", text = "Fill Color", min = 0, max = 100, step = 1, trackWidth = 120,
@@ -142,7 +214,7 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
           disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return FT.Get("fillOpacity") end,
           setValue = function(v) Set("fillOpacity", v) end },
-        { type = "slider", text = "Background", min = 0, max = 100, step = 1,
+        { type = "slider", text = "Background", min = 0, max = 100, step = 1, trackWidth = 120,
           disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return math.floor(FT.Get("bgA") * 100 + 0.5) end,
           setValue = function(v) Set("bgA", v / 100) end }
@@ -183,49 +255,120 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
               end,
               refreshAlpha = function() return FT.Get("classColored") and 1 or 0.3 end },
         }, { disabled = off, disabledTooltip = "Flight Timer" })
+        EllesmereUI.BuildInlineSwatches(colorRow._rightRegion, {
+            { tooltip = "Background Color",
+              getValue = function() return FT.Get("bgR"), FT.Get("bgG"), FT.Get("bgB"), 1 end,
+              setValue = function(r, g, b)
+                  local c = FT.Cfg()
+                  c.bgR, c.bgG, c.bgB = r, g, b
+                  FT.ApplyStyle()
+              end },
+        }, { disabled = off, disabledTooltip = "Flight Timer" })
     end
 
     local textRow
     textRow, h = W:DualRow(parent, y,
-        -- "none" hides; nil falls back to the shown default.
-        { type = "toggle", text = "Show Names",
-          disabled = off, disabledTooltip = "Flight Timer",
-          getValue = function() return FT.Get("destText") ~= "none" end,
-          setValue = function(v) Set("destText", not v and "none" or nil); EllesmereUI:RefreshPage() end },
         { type = "toggle", text = "Show Time",
           disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return FT.Get("timeText") ~= "none" end,
-          setValue = function(v) Set("timeText", not v and "none" or nil); EllesmereUI:RefreshPage() end }
-    );  y = y - h
-    EllesmereUI.BuildInlineCog(textRow._leftRegion, { title = "Name Text Settings", rows = TextCogRows("dest"),
-        icon = EllesmereUI.DIRECTIONS_ICON, gap = 9, disabledTooltip = "Show Names",
-        disabled = function() return off() or FT.Get("destText") == "none" end })
-    EllesmereUI.BuildInlineCog(textRow._rightRegion, { title = "Time Text Settings", rows = TextCogRows("time"),
-        icon = EllesmereUI.DIRECTIONS_ICON, gap = 9, disabledTooltip = "Show Time",
-        disabled = function() return off() or FT.Get("timeText") == "none" end })
-
-    _, h = W:DualRow(parent, y,
+          setValue = function(v) Set("timeText", not v and "none" or nil); EllesmereUI:RefreshPage() end },
         { type = "toggle", text = "Show Total Time",
           tooltip = "Shows the full flight time next to the time left, for example 1:23 / 4:19.",
           disabled = function() return off() or FT.Get("timeText") == "none" end,
           disabledTooltip = "Show Time",
           getValue = function() return FT.Get("showTotal") end,
-          setValue = function(v) FT.Cfg().showTotal = v end },
+          setValue = function(v) FT.Cfg().showTotal = v end }
+    );  y = y - h
+    EllesmereUI.BuildInlineCog(textRow._leftRegion, { title = "Time Text Settings", rows = TextCogRows("time"),
+        icon = EllesmereUI.DIRECTIONS_ICON, gap = 9, disabledTooltip = "Show Time",
+        disabled = function() return off() or FT.Get("timeText") == "none" end })
+
+    local exitRow
+    exitRow, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Show Names",
+          disabled = off, disabledTooltip = "Flight Timer",
+          getValue = function() return FT.Get("destText") ~= "none" end,
+          setValue = function(v) Set("destText", not v and "none" or nil); EllesmereUI:RefreshPage() end },
         { type = "toggle", text = "Early Exit Button",
           tooltip = "Shows a button next to the bar that lands you at the next flight point.",
           disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return FT.Get("earlyExit") end,
-          setValue = function(v) Set("earlyExit", v) end }
+          setValue = function(v) Set("earlyExit", v); EllesmereUI:RefreshPage() end }
     );  y = y - h
+    EllesmereUI.BuildInlineCog(exitRow._leftRegion, { title = "Name Text Settings", rows = TextCogRows("dest"),
+        icon = EllesmereUI.DIRECTIONS_ICON, gap = 9, disabledTooltip = "Show Names",
+        disabled = function() return off() or FT.Get("destText") == "none" end })
+    local offsetX, offsetY = BorderOffsets("exitBorder", function()
+        return not FT.Get("exitBorder") or not FT.Get("exitBorderCustom") or FT.Get("borderSize") == 0 or SolidBorder()
+    end)
+    EllesmereUI.BuildInlineCog(exitRow._rightRegion, { title = "Early Exit Border Options",
+        disabled = function() return off() or not FT.Get("earlyExit") end,
+        disabledTooltip = "Early Exit Button",
+        rows = {
+            { type = "toggle", label = "Enable Border",
+              get = function() return FT.Get("exitBorder") end,
+              set = function(v) Set("exitBorder", v) end },
+            { type = "toggle", label = "Use Bar Border",
+              tooltip = "Inherits the travel bar's border style, size and color instead of the plain button border.",
+              disabled = function() return not FT.Get("exitBorder") end,
+              disabledTooltip = "Enable Border",
+              get = function() return FT.Get("exitBorderCustom") end,
+              set = function(v) Set("exitBorderCustom", v) end },
+            offsetX, offsetY,
+        } })
 
-    _, h = W:DualRow(parent, y,
+    local separatorRow
+    separatorRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Show End Caps",
           tooltip = "The dots at the two ends of the track.",
           disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return FT.Get("showEndCaps") end,
           setValue = function(v) Set("showEndCaps", v) end },
+        { type = "toggle", text = "Show Separator",
+          tooltip = "The white line at the middle of the track on flights with multiple stops.",
+          disabled = off, disabledTooltip = "Flight Timer",
+          getValue = function() return FT.Get("showSeparator") end,
+          setValue = function(v) Set("showSeparator", v); EllesmereUI:RefreshPage() end }
+    );  y = y - h
+    EllesmereUI.BuildInlineCog(separatorRow._rightRegion, { title = "Separator Settings",
+        disabled = function() return off() or not FT.Get("showSeparator") end,
+        disabledTooltip = "Show Separator",
+        rows = {
+            { type = "slider", label = "Height", min = 1, max = 60, step = 1,
+              get = function() return FT.Get("separatorHeight") end,
+              set = function(v) Set("separatorHeight", v) end },
+            { type = "toggle", label = "Custom Separator",
+              tooltip = "Uses the separator artwork from the Pixels or Pixels Textured border.",
+              disabled = function()
+                  return FT.Get("borderSize") == 0 or not EllesmereUI.GetBorderCompanion(FT.Get("borderTexture"), "sepV")
+              end,
+              disabledTooltip = "This option requires a Pixels or Pixels Textured border above size 0.",
+              get = function() return FT.Get("customSeparator") end,
+              set = function(v) Set("customSeparator", v) end },
+        } })
+
+    local sparkRow
+    sparkRow, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Show Spark",
+          tooltip = "Shows a Pixels glow line at the moving end of the bar fill.",
+          disabled = off, disabledTooltip = "Flight Timer",
+          getValue = function() return FT.Get("showSpark") end,
+          setValue = function(v) Set("showSpark", v); EllesmereUI:RefreshPage() end },
         EllesmereUI.BlankRowCfg()
     );  y = y - h
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineSwatches(sparkRow._leftRegion, {
+            { tooltip = "Spark Color",
+              disabled = function() return off() or not FT.Get("showSpark") end,
+              disabledTooltip = "Show Spark",
+              getValue = function() return FT.Get("sparkR"), FT.Get("sparkG"), FT.Get("sparkB"), 1 end,
+              setValue = function(r, g, b)
+                  local c = FT.Cfg()
+                  c.sparkR, c.sparkG, c.sparkB = r, g, b
+                  FT.ApplyStyle()
+              end },
+        }, { disabled = off, disabledTooltip = "Flight Timer" })
+    end
 
     return math.abs(y)
 end

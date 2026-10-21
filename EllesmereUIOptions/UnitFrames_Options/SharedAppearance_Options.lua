@@ -21,6 +21,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
     local CLASS_FULL_SPRITE_BASE, GROUP_UNIT_ORDER, PP, PromptReloadIfUnspawned = env.CLASS_FULL_SPRITE_BASE, env.GROUP_UNIT_ORDER, env.PP, env.PromptReloadIfUnspawned
     local ReloadAndUpdate, SHORT_LABELS, UNIT_DB_MAP, UpdatePreview = env.ReloadAndUpdate, env.SHORT_LABELS, env.UNIT_DB_MAP, env.UpdatePreview
     local db, frames, optState, portraitArtValues = env.db, env.frames, env.optState, env.portraitArtValues
+    local TexBgRowCfg = env.TexBgRowCfg
     local W, SDB, SGet, SSet = ctx.W, ctx.SDB, ctx.SGet, ctx.SSet
     local SVal = ctx.SVal
     local _, h
@@ -275,10 +276,10 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                   UpdatePreview(); EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Dark Mode",
-              getValue=function() return db.profile.darkTheme end,
+              getValue=function() return ns.UF_DarkThemeOn(SDB()) end,
               setValue=function(v)
-                  db.profile.darkTheme = v
-                  ReloadAndUpdate(); UpdatePreview()
+                  SSet("darkTheme", v)
+                  UpdatePreview()
                   -- Dark Mode feeds the conditional-override condition.
                   EllesmereUI.Conditions_Recheck()
                   EllesmereUI:RefreshPage()
@@ -322,6 +323,11 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 getCurrentKey = function() return optState.selectedUnit end,
                 onApply       = function(checkedKeys) ApplyTexTo(checkedKeys) end,
             },
+        })
+        -- Textured Background cog (same region, after the sync icon).
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Texture Settings",
+            rows = { TexBgRowCfg(function() return UNIT_DB_MAP[optState.selectedUnit]() end, ReloadAndUpdate) },
         })
     end
 
@@ -1620,7 +1626,7 @@ function ns.UFO_BuildPortraitSection(parent, y, ctx)
                 { type="toggle", label="Unit Color in Dark Mode",
                   tooltip="Keeps the unit's class or reaction color on the ring in Dark Mode instead of your own class color.",
                   disabled=function()
-                      return not (SVal("detachedPortraitClassColor", true) and db.profile.darkTheme)
+                      return not (SVal("detachedPortraitClassColor", true) and ns.UF_DarkThemeOn(SDB()))
                   end,
                   disabledTooltip="This option requires the Class Colored Shape Border and Dark Mode.",
                   rawTooltip=true,

@@ -840,6 +840,12 @@ local function UpdateAbsorb(button, unit, now)
         if ha then RFHide(ha) end
         if topBar then RFHide(topBar) end
         if healTopBar then RFHide(healTopBar) end
+        -- Nothing here paints absorbs: release a button an absorb event armed,
+        -- or the belt keeps re-marking it for the session.
+        if d._absActive then
+            d._absActive = false
+            ns._abArmed[button] = nil
+        end
         return
     end
 

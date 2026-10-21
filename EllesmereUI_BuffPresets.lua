@@ -9,7 +9,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    * Player Aura Bars derives its filter seed + class hints at load,
 --      flattening alts into their own rows (PAB has no primary/alt tiers).
 --  Also the WoW Forever buff families (EllesmereUI.FOREVER_BUFF_FAMILIES, at
---  the end): every spell that gives each group buff there.
+--  the end): every spell that gives each group buff there; and the combat
+--  consumables (EllesmereUI.CONSUMABLES, last): healthstones and potions.
 --  ADD OR EDIT CURATED IDS HERE ONLY -- never in the consumer files.
 --------------------------------------------------------------------------------
 
@@ -616,5 +617,77 @@ if EllesmereUI.IS_FOREVER == true then
         WARRIOR = { 78, 845 },  -- Heroic Strike, Cleave
         DRUID   = { 6807 },     -- Maul
         HUNTER  = { 2973 },     -- Raptor Strike
+    }
+end
+
+-- Combat consumables: healthstones and potions, one family per Cooldown
+-- Manager preset key, in that module's preset fields. itemID: the family's
+-- identity id (saved preset frames key on it). displayOrder: the dynamic
+-- display, newest tier first (rank 2 before rank 1, Fleeting first at equal
+-- rank). spellIDs: the cast ids known ahead (a buff potion casts its buff's
+-- id); every other potion's cast id comes from its items (C_Item.GetItemSpell).
+-- Read by the Cooldown Manager presets and Damage Meters' spell history. Built
+-- on both clients; WoW Forever offers only the Healthstone family, whose items
+-- there are FOREVER_HEALTHSTONES.
+EllesmereUI.CONSUMABLES = {
+    lights_potential = {
+        itemID = 241308, altItemIDs = { 245898, 245897, 241309 },
+        displayOrder = {
+            245898,  -- Fleeting Light's Potential r2
+            241308,  -- Light's Potential r2
+            245897,  -- Fleeting Light's Potential r1
+            241309,  -- Light's Potential r1
+        },
+        spellIDs = { 1236616 },
+    },
+    potion_recklessness = {
+        itemID = 241288, altItemIDs = { 241289, 245902, 245903 },
+        displayOrder = {
+            245902,  -- Fleeting Potion of Recklessness r2
+            241288,  -- Potion of Recklessness r2
+            245903,  -- Fleeting Potion of Recklessness r1
+            241289,  -- Potion of Recklessness r1
+        },
+        spellIDs = { 1236994 },
+    },
+    liquid_luster = {
+        itemID = 271887, altItemIDs = { 274764, 274763, 271886 },
+        displayOrder = {
+            274764,  -- Fleeting Liquid Luster r2
+            271887,  -- Liquid Luster r2
+            274763,  -- Fleeting Liquid Luster r1
+            271886,  -- Liquid Luster r1
+        },
+        spellIDs = { 1295132 },
+    },
+    -- The identity stays 241304 while the newer tier leads the display.
+    silvermoon_health = {
+        itemID = 241304, altItemIDs = { 241305, 271884, 271883 },
+        displayOrder = {
+            271884,  -- Concentrated Silvermoon Health Potion r2
+            271883,  -- Concentrated Silvermoon Health Potion r1
+            241304,  -- Silvermoon Health Potion r2
+            241305,  -- Silvermoon Health Potion r1
+        },
+    },
+    lightfused_mana = { itemID = 241300, altItemIDs = { 245917, 245916, 241301 } },
+    invis_potion = {
+        itemID = 241302, altItemIDs = { 241303 },
+        spellIDs = { 371125, 431424, 371133, 371134, 1236551 },
+    },
+    -- Pact of Gluttony turns self-conjured stones into Demonic Healthstones.
+    healthstone = { itemID = 5512, altItemIDs = { 224464 }, spellIDs = { 6262 } },
+    demonic_healthstone = { itemID = 224464, spellIDs = { 452930 } },
+}
+-- WoW Forever's healthstones after the Minor stone (5512, still the family's
+-- identity): the Major, Greater, Healthstone and Lesser tiers, each a base
+-- stone and two improved-talent stones, then the improved Minor stones.
+if EllesmereUI.IS_FOREVER == true then
+    EllesmereUI.FOREVER_HEALTHSTONES = {
+        9421, 19012, 19013,
+        5510, 19010, 19011,
+        5509, 19008, 19009,
+        5511, 19006, 19007,
+        19004, 19005,
     }
 end

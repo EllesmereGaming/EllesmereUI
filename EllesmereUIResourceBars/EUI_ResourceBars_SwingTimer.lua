@@ -147,6 +147,31 @@ local function P()
     return p and p.swingTimer or nil
 end
 
+-- The look the rows wear: the Resource Bars row of Global Settings > Style
+-- (ns.ERB_BarsStyle, latched for the session; WoW Forever draws Blizzard Style).
+function ns.ST_Style()
+    return ns.ERB_BarsStyle()
+end
+
+-- Under a stock style every row wears its own frame, whose rim reaches past
+-- the row: the stack adds the rims of two neighbours to Row Spacing, so the
+-- setting stays the gap between frames.
+local function StockGap(cfg)
+    local style = ns.ST_Style()
+    if style == "blizzard" then
+        local _, ph = ns.ERB_BlizzMatchPad(false)
+        return ph or 0
+    elseif style == "classic" then
+        local _, ph = ns.ERB_ClassicMatchPad(0, 0, false, ns.ERB_ClassicFrameK(cfg))
+        return math.ceil(ph)
+    end
+    return 0
+end
+
+local function RowGap(cfg)
+    return (cfg.rowSpacing or 0) + StockGap(cfg)
+end
+
 -- Secret values throw on comparison and on truth tests: every read from the
 -- swing API and from UnitAttackSpeed passes here before it is looked at, and a
 -- restricted answer is treated as "no information" (no swing, no range
@@ -207,7 +232,7 @@ local function Size(cfg)
     if not cfg then return 220, 12 end
     local n = ShownCount()
     local h = cfg.height or 12
-    local sp = cfg.rowSpacing or 0
+    local sp = RowGap(cfg)
     return cfg.width or 220, n * h + (n - 1) * sp
 end
 
@@ -321,6 +346,7 @@ local function BuildRow(def)
     local textFrame = CreateFrame("Frame", nil, row)
     textFrame:SetAllPoints(row)
     textFrame:SetFrameLevel(bar:GetFrameLevel() + 3)
+    row._textFrame = textFrame
     -- Font before any SetText: a FontString with no font errors on SetText
     -- ("Font not set", seen on the Forever client). ApplyRowLook re-sizes it.
     local tag = textFrame:CreateFontString(nil, "OVERLAY")
@@ -358,8 +384,9 @@ end
 
 -- Out-of-range look: Blizzard dims the whole row to 0.4 and paints the text
 -- red. Unlock mode suppresses the dimming without touching the state. A
--- combined off-hand row keeps no bg or border (alpha, not Hide: a border
--- re-apply shows its frame again); its range dims the clip, i.e. its spark.
+-- combined off-hand row keeps no bg, border or stock frame (alpha, not Hide: a
+-- border re-apply shows its frame again); its range dims the clip, i.e. its
+-- spark.
 local function ApplyRangeLook(row, cfg)
     cfg = cfg or P()
     local oor = row._outOfRange and not S.sample
@@ -367,6 +394,8 @@ local function ApplyRangeLook(row, cfg)
     local frameAlpha = row._merged and 0 or alpha
     row._bg:SetAlpha(frameAlpha)
     row._border:SetAlpha(frameAlpha)
+    if row._blizzBarBg then row._blizzBarBg:SetAlpha(frameAlpha) end
+    if row._classicArt then row._classicArt:SetAlpha(frameAlpha) end
     row._clip:SetAlpha(alpha)
     if oor then
         row._tag:SetTextColor(1, 0.1, 0.1, 1)
@@ -1021,7 +1050,7 @@ end
 -- when the frame height changed (anchored neighbours need a nudge).
 local function Layout(cfg)
     local h = cfg.height or 12
-    local sp = cfg.rowSpacing or 0
+    local sp = RowGap(cfg)
     local w = cfg.width or 220
     local idx = 0
     for i = 1, #S.rows do
@@ -1046,20 +1075,54 @@ local function Layout(cfg)
     return changed
 end
 
+-- Stock styles: the row's stock frame round its bar (the Blizzard Style panel
+-- or the Classic WoW UI frame, ns.ERB_ApplyBlizzBarChrome), built on first
+-- use. Under Blizzard Style the bar-shape mask also takes the fill and the
+-- GO / STILL zones. A combined off-hand row is only a spark over the Main
+-- Hand row: its frame takes alpha 0 (ApplyRangeLook) and its bevel hides.
+local function StockChrome(row, cfg, w, h)
+    local bar = row._bar
+    if row._merged then
+        local sh = bar._blizzShadow
+        if sh then for i = 1, 4 do sh[i]:Hide() end end
+        return
+    end
+    ns.ERB_ApplyBlizzBarChrome(row, bar, w, h, false, ns.ERB_ClassicFrameK(cfg))
+    local mask = row._blizzBarMask
+    if mask then
+        ns.ERB_SeatBlizzMask(row, bar)
+        local zones = row._zones
+        if zones then
+            for _, z in pairs(zones) do
+                ns.ERB_MaskTex(z.back, mask)
+                ns.ERB_MaskTex(z.front, mask)
+            end
+        end
+    end
+    -- The vanilla frame art sits at the row's level + 9, over the bar's ends.
+    if ns.ERB_BarsClassic() then row._textFrame:SetFrameLevel(row:GetFrameLevel() + 10) end
+end
+
 local function ApplyRowLook(row, cfg, w, h)
     row._restyle = nil
     local PP = EllesmereUI.PP
-    local bs = cfg.borderSize or 0
+    -- A stock style's frame (StockChrome) replaces the EUI border.
+    local stock = ns.ST_Style() ~= "eui"
+    local bs = (not stock and cfg.borderSize) or 0
     local bdr = row._border
     local pl = row:GetFrameLevel()
     bdr:SetFrameLevel(cfg.borderBehind and math.max(0, pl - 1) or (pl + 5))
     -- Lost-rect recovery, see the cast bar border in the main file.
     if not bdr:GetLeft() then bdr:SetAllPoints(row) end
-    EllesmereUI.ApplyBorderStyle(bdr, bs,
-        cfg.borderR or 0, cfg.borderG or 0, cfg.borderB or 0, cfg.borderA or 1,
-        cfg.borderTexture or "solid", cfg.borderTextureOffset, cfg.borderTextureOffsetY,
-        cfg.borderTextureShiftX, cfg.borderTextureShiftY, "resourcebars", bs,
-        nil, EllesmereUI.BorderPx(cfg.borderSizePx, bs, cfg.borderTexture or "solid"))
+    if stock then
+        EllesmereUI.ApplyBorderStyle(bdr, 0, 0, 0, 0, 0, "solid")
+    else
+        EllesmereUI.ApplyBorderStyle(bdr, bs,
+            cfg.borderR or 0, cfg.borderG or 0, cfg.borderB or 0, cfg.borderA or 1,
+            cfg.borderTexture or "solid", cfg.borderTextureOffset, cfg.borderTextureOffsetY,
+            cfg.borderTextureShiftX, cfg.borderTextureShiftY, "resourcebars", bs,
+            nil, EllesmereUI.BorderPx(cfg.borderSizePx, bs, cfg.borderTexture or "solid"))
+    end
 
     -- Clip + bar layout. The 1px inset keeps the fill from bleeding past the
     -- border; with no border there is nothing to clip to, so skip it.
@@ -1080,6 +1143,7 @@ local function ApplyRowLook(row, cfg, w, h)
     row._bg:SetTexture(nil)
     row._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgA or 0.7)
     StyleZones(row, cfg, texPath)
+    if stock then StockChrome(row, cfg, w, h) end
 
     ApplyRowFill(row, cfg)
 
@@ -1128,7 +1192,8 @@ local function ApplyRowLook(row, cfg, w, h)
     ApplyRangeLook(row, cfg)
     -- Rounded corners (EllesmereUI_RoundedCorners.lua; nothing at radius 0).
     -- A combined off-hand row is only a spark over the Main Hand row: no fill.
-    local radius = cfg.cornerRadius or 0
+    -- The stock frames are square.
+    local radius = (not stock and cfg.cornerRadius) or 0
     if radius > 0 then
         EllesmereUI.RoundCorners(row, radius, {
             roots = { clip }, textures = { row._bg },
@@ -1615,20 +1680,35 @@ function ns.ST_MakeUnlockElement(MK, Rebuild)
         getFrame = function() return S.built and shell or nil end,
         isHidden = function() local cfg = P(); return not (cfg and cfg.enabled) end,
         getSize  = function() return Size(P()) end,
-        -- The rows' textured border outside the stack: every row spans the full
-        -- width and the outer rows' edges are the stack's, so one row's reach.
-        getMatchPad = function() return ns.ERB_EuiBorderPad(P()) end,
+        -- What a row draws outside itself: every row spans the full width and
+        -- the outer rows' edges are the stack's, so one row's reach. A stock
+        -- style's frame rim, else the textured border (ns.ERB_EuiBorderPad).
+        getMatchPad = function()
+            local cfg = P()
+            local style = ns.ST_Style()
+            if style == "blizzard" then return ns.ERB_BlizzMatchPad(false) end
+            if style == "classic" then
+                return ns.ERB_ClassicMatchPad(0, 0, false, ns.ERB_ClassicFrameK(cfg))
+            end
+            return ns.ERB_EuiBorderPad(cfg)
+        end,
+        -- Rebuild is a full ApplyAll and the settle pass hands the size again
+        -- after every resize burst: an unchanged size rebuilds nothing.
         setWidth = function(_, w)
             local cfg = P(); if not cfg then return end
-            cfg.width = PP.Snap(math.max(w, 10))
+            local v = PP.Snap(math.max(w, 10))
+            if cfg.width == v then return end
+            cfg.width = v
             Rebuild()
         end,
         -- The mover resizes the whole stack; the per-row height is what is stored.
         setHeight = function(_, h)
             local cfg = P(); if not cfg then return end
             local n = ShownCount()
-            local sp = cfg.rowSpacing or 0
-            cfg.height = PP.Snap(math.max((h - (n - 1) * sp) / n, 4))
+            local sp = RowGap(cfg)
+            local v = PP.Snap(math.max((h - (n - 1) * sp) / n, 4))
+            if cfg.height == v then return end
+            cfg.height = v
             Rebuild()
         end,
         savePos = save, loadPos = load, clearPos = clear, applyPos = apply,

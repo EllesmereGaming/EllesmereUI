@@ -331,7 +331,7 @@ local function CreateDMWindow(winIdx)
             local sz = c.borderSize or 0
             -- Stock-style rows carry no EUI border: Blizzard Style draws the
             -- stock shadow edge, Classic WoW UI a plain bar.
-            if sz <= 0 or ns.DMBlizz() then
+            if sz <= 0 or ns.DMBlizz() or (c.barSeparators and ns.DMUseBarSeparators(c)) then
                 if bar._borderFrame then bar._borderFrame:Hide() end
                 if bar._fillBorder then bar._fillBorder:Hide() end
                 return
@@ -645,8 +645,8 @@ local function CreateDMWindow(winIdx)
     -- Independent overlay target so the frame border can start at the window top or below the header without affecting window layout
     local windowBorderTarget = CreateFrame("Frame", nil, frame)
     windowBorderTarget:EnableMouse(false)
-    windowBorderTarget:SetFrameLevel(header:GetFrameLevel() + 4)
     W.windowBorderTarget = windowBorderTarget
+    ns.DMSetWindowBorderLayer(W, cfg)
 
     do local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
     header._hdrBg = header:CreateTexture(nil, "BACKGROUND"); header._hdrBg:SetAllPoints(); ns.DMPaintHeaderBg(header._hdrBg, hR, hG, hB, cfg.hdrBgAlpha or 1) end
@@ -1242,6 +1242,7 @@ local function CreateDMWindow(winIdx)
         if W.stickyGuard then return end
         if w and w > 0 then content:SetWidth(w) end
         W.UpdateSticky(nil, W.visibleCount)
+        if W._decorSync then ns.DMSyncRowDecor(W) end
         -- A taller viewport reveals rows the last pass skipped; the grip drag queues once on release.
         -- In combat the running ticker fills them (a pin/unpin resize would otherwise double its pass).
         -- (A Threat window, WoW Forever, has no ticker: it fills them in combat too.)
@@ -1264,11 +1265,14 @@ local function CreateDMWindow(winIdx)
     end
     viewport:EnableMouseWheel(true)
     viewport:SetScript("OnMouseWheel", function(_, delta)
-        local c = DB(); local _, _, step = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale()); step = step * 2
+        local c = DB(); local _, _, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
         local cur = viewport:GetVerticalScroll() or 0
-        local newVal = math.max(0, math.min(_scrollMax, cur - delta * step))
+        -- Return to the row grid after the bottom clamp splits a row.
+        local target = (math.floor(cur / stride + 0.5) - delta * 2) * stride
+        local newVal = math.max(0, math.min(_scrollMax, target))
         viewport:SetVerticalScroll(newVal)
         W.UpdateSticky(nil, W.visibleCount)
+        if W._decorSync then ns.DMSyncRowDecor(W) end
         W.QueueRepopulate()
     end)
 
@@ -1461,6 +1465,7 @@ local function CreateDMWindow(winIdx)
             if left and top then wdb.position = { x = left, y = top } end
         end
         W.UpdateSticky(nil, W.visibleCount)
+        if W._decorSync then ns.DMSyncRowDecor(W) end
         W.QueueRepopulate()
         -- Refresh home screen card widths one frame after resize
         if homeFrame and homeFrame:IsShown() then
@@ -1619,6 +1624,7 @@ local function CreateDMWindow(winIdx)
         local texPath, texKey = GetBarTexturePath()
         -- Layout cache: only rebuild on settings change (iconStyle, as the row key: a style switch re-resolves the icon)
         local stickyCacheKey = leftFS .. "|" .. rightFS .. "|" .. texPath .. "|" .. iconStyle .. "|" .. tostring(showClassColor) .. "|" .. barH .. "|" .. tostring(c.classIconZoom) .. "|" .. tostring(c.barFillAlpha)
+        if (c.spriteIconZoom or 0) ~= 0 then stickyCacheKey = stickyCacheKey .. "|" .. c.spriteIconZoom end
         if stickyCacheKey ~= W._stickyCacheKey then
             W._stickyCacheKey = stickyCacheKey
             bar.row:SetHeight(barH)
@@ -1692,8 +1698,20 @@ local function CreateDMWindow(winIdx)
         else
             bar.amount:SetText(FormatBarValue(src.totalAmount, src.amountPerSecond, c.numberFormat or 2))
         end
+        if c.rightTextUseThreatGradient then
+            if not W._valueGradientRange then ns.DMPrepareValueGradient(W, sources, #sources) end
+            ns.DMPaintValueGradient(bar, W, src, playerIdx)
+            bar._valueGradientActive = true
+        elseif bar._valueGradientActive then
+            bar._valueGradientActive = nil
+            local color = c.rightTextUseClassColor and classFile and EUI.GetClassColor(classFile) or c.rightTextColor
+            bar.amount:SetTextColor(color and color.r or 1, color and color.g or 1, color and color.b or 1)
+        end
         bar._src = src; bar._srcGUID = src.sourceGUID; bar._class = classFile
         W.stickySep:Show()
+        if c.barSeparators or c.iconSeparator or c.showPlayerMarker or W._decorSync then
+            ns.DMApplyRowDecor(bar, W, src, pinTop and 0 or -1)
+        end
 
     end
 
@@ -1711,6 +1729,7 @@ local function CreateDMWindow(winIdx)
 
             local sources = session.combatSources
             local c = DB(); local barH, barSp, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
+            local rowDecor = c.barSeparators or c.iconSeparator or c.showPlayerMarker or W._decorSync
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local fontSize = leftFS -- compat for cacheKey
             local showIcon = (c.iconStyle or "spec") ~= "none"
@@ -1742,12 +1761,16 @@ local function CreateDMWindow(winIdx)
             end
             local maxAmt = isDeaths and 1 or (sources[1] and sources[1].totalAmount or 1)
             count = math.min(#sources, BAR_POOL_SIZE)
+            if c.rightTextUseThreatGradient then ns.DMPrepareValueGradient(W, sources, #sources) end
             -- Before the visible range below: it must read this segment's clamped scroll and pinned viewport.
             RecalcViewport(count)
             W.UpdateSticky(sources, count)
             -- Cache key: detects settings changes that require full bar rebuild
             local iconStyle = c.iconStyle or "spec"
             local cacheKey = leftFS .. "|" .. rightFS .. "|" .. texPath .. "|" .. iconStyle .. "|" .. tostring(showClassColor) .. "|" .. tostring(c.barColorUseAccent) .. "|" .. barH .. "|" .. barSp .. "|" .. tostring(c.hideNumbers) .. "|" .. tostring(c.leftTextUseClassColor) .. "|" .. tostring(c.rightTextUseClassColor) .. "|" .. tostring(c.barFillAlpha) .. "|" .. tostring(c.classIconZoom)
+            if (c.spriteIconZoom or 0) ~= 0 or c.rightTextUseThreatGradient then
+                cacheKey = cacheKey .. "|" .. tostring(c.spriteIconZoom) .. "|" .. tostring(c.rightTextUseThreatGradient)
+            end
             local fullRebuild = (cacheKey ~= W._barCacheKey)
             if fullRebuild then W._barCacheKey = cacheKey end
 
@@ -1870,7 +1893,9 @@ local function CreateDMWindow(winIdx)
                             bar.pos:SetTextColor(lr, lg, lb)
                         end
                         -- Right text color (amount)
-                        if c.rightTextUseClassColor then
+                        if c.rightTextUseThreatGradient then
+                            ns.DMPaintValueGradient(bar, W, src, i)
+                        elseif c.rightTextUseClassColor then
                             local cc = classFile and RAID_CLASS_COLORS[classFile] and EUI.GetClassColor(classFile)
                             local rr, rg, rb = cc and cc.r or 1, cc and cc.g or 1, cc and cc.b or 1
                             bar.amount:SetTextColor(rr, rg, rb)
@@ -1912,6 +1937,7 @@ local function CreateDMWindow(winIdx)
                             bar.amount:SetText(fmtVal)
                         end
                         bar._src = src; bar._srcGUID = src.sourceGUID; bar._class = classFile
+                        if rowDecor then ns.DMApplyRowDecor(bar, W, src, i) end
                     end
                 else
                     if bar.row:IsShown() then bar.row:Hide() end
@@ -1929,6 +1955,7 @@ local function CreateDMWindow(winIdx)
             W.UpdateSticky(nil, 0)
         end
         W.visibleCount = count
+        if W._decorSync then ns.DMSyncRowDecor(W) end
 
         W.UpdateTimerText()
         local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
@@ -2146,7 +2173,7 @@ local function CreateDMWindow(winIdx)
                         end
                         local overkill = ev.overkill
                         if isFatal and overkill and not IsSecret(overkill) and type(overkill) == "number" and overkill > 0 then
-                            bar.amount:SetText(amtStr .. " |cffff3333(" .. AbbrevNumber(overkill) .. " overkill)|r" .. pctStr)
+                            bar.amount:SetText(amtStr .. " |cffff3333(" .. EllesmereUI.Lf("%1$s overkill", AbbrevNumber(overkill)) .. ")|r" .. pctStr)
                         else
                             bar.amount:SetText(amtStr .. pctStr)
                         end
@@ -2277,7 +2304,7 @@ local function CreateDMWindow(winIdx)
                 SetDMFont(bar.label, leftFS); SetDMFont(bar.amount, rightFS)
                 local spellName
                 if spell.spellID then local okS, sn = pcall(function() return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spell.spellID) end); spellName = (okS and sn) or nil end
-                bar.label:SetText(spellName or spell.creatureName or "Unknown")
+                bar.label:SetText(spellName or spell.creatureName or L("Unknown"))
                 if canPercent and totalDmg > 0 then
                     bar.amount:SetText(format("%s  %.1f%%", AbbrevNumber(entry.amount), (entry.amount / totalDmg) * 100))
                 else
@@ -2366,6 +2393,7 @@ local function CreateDMWindow(winIdx)
         if viewport then viewport:Hide() end
         if W.stickyPlayer then W.stickyPlayer.row:Hide() end
         if W.stickySep then W.stickySep:Hide() end
+        if W._decorSync then ns.DMSyncRowDecor(W) end
         if frame._bg then frame._bg:Hide() end
         W.sourceFrame:Show(); W.RefreshBreakdown()
     end
@@ -2378,6 +2406,7 @@ local function CreateDMWindow(winIdx)
         if viewport then viewport:Show() end
         if frame._bg then frame._bg:Show() end
         W.UpdateSticky(nil, W.visibleCount)
+        if W._decorSync then ns.DMSyncRowDecor(W) end
         -- The last pass skipped the pin state while the source was up: rows it reveals need a fill.
         if wasOpen then W.QueueRepopulate() end
     end
@@ -2672,6 +2701,7 @@ local function CreateDMWindow(winIdx)
         if frame._bg then frame._bg:Hide() end
         homeFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -ci, ci)
         homeFrame:Show()
+        if W._decorSync then ns.DMSyncRowDecor(W) end
         RefreshHome()
     end
 
@@ -2679,6 +2709,7 @@ local function CreateDMWindow(winIdx)
         local wasUp = homeFrame and homeFrame:IsShown()
         if homeFrame then homeFrame:Hide() end
         if viewport then viewport:Show() end
+        if W._decorSync then ns.DMSyncRowDecor(W) end
         if frame._bg then frame._bg:Show() end
         -- ShowHome hid the pinned row on its pinned anchors: re-run the pin pass (OpenSource sets sourceOpen first).
         if wasUp and not W.sourceOpen then W.QueueRepopulate() end
@@ -2855,6 +2886,7 @@ local function CreateDMWindow(winIdx)
         end
         local sp = W.stickyPlayer
         sp.row:Hide(); sp.classIcon:Hide(); W.stickySep:Hide()
+        if W._decorSync then ns.DMSyncRowDecor(W) end
         sp._src = nil; sp._srcGUID = nil; sp._class = nil
         viewport:SetVerticalScroll(0)
         RecalcViewport(0)
@@ -2931,6 +2963,7 @@ local function CreateDMWindow(winIdx)
     W._firstPaintPending = true
     C_Timer.After(0, FirstPaint)
 
+    if cfg.hdrBottomSeparator then ns.DMApplyHeaderSeparator(W) end
     return W
 end
 

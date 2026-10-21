@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -9,8 +10,6 @@ local T = addon.Locale.Text
 
 local Player = {}
 addon.Player = Player
-
-local issecretvalue = issecretvalue
 
 
 
@@ -35,13 +34,7 @@ local SEED_RETRY = 30
 
 
 
-local function IsSecret(...)
-    if not issecretvalue then return false end
-    for i = 1, select("#", ...) do
-        if issecretvalue((select(i, ...))) then return true end
-    end
-    return false
-end
+local IsSecret = addon.IsSecret
 
 
 
@@ -301,6 +294,26 @@ function Player:Get(input)
         addon.Log:D("Player", "could not resolve", input)
     end
     return NilPlayer(input)
+end
+
+
+
+function Player:Peek(input)
+    if type(input) ~= "string" or input == "" or IsSecret(input) then return nil end
+    if LooksLikeGUID(input) then return cache[NormaliseGUID(input)] end
+
+    local short = Player.IS_FOREVER and self:WhisperTarget(input) or Ambiguate(input, "none")
+    if UnitExists(short) then
+        local guid = UnitGUID(short)
+        if guid and not IsSecret(guid) then
+            local record = self:Get(guid)
+            if record.guid then return record end
+        end
+    end
+
+    local wantedKey = NameKey(input)
+    local guid = wantedKey and byName[wantedKey] or byBare[addon.Locale.Fold(input)]
+    return guid and cache[guid] or nil
 end
 
 

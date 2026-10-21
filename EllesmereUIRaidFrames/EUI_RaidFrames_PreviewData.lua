@@ -1030,19 +1030,11 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             end
 
             -- Border (dispel-type colored)
-            local dbBdrSz = s.debuffBorderSize or 1
-            if ddi._borderFrame and PP and dbBdrSz > 0 then
-                local dc = GetDispelColor(dispelType, s)
-                if dc then
-                    PP.UpdateBorder(ddi._borderFrame, dbBdrSz, dc.r, dc.g, dc.b, 1)
-                else
-                    local bc = s.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                    PP.UpdateBorder(ddi._borderFrame, dbBdrSz, bc.r, bc.g, bc.b, 1)
-                end
-                ddi._borderFrame:Show()
-            elseif ddi._borderFrame then
-                ddi._borderFrame:Hide()
-            end
+            local border = ns.RFC_AuraBorder(s, "debuffBorder")
+            local dc = GetDispelColor(dispelType, s)
+            if border and dc then border[1], border[2], border[3] = dc.r, dc.g, dc.b end
+            ns.RFC_ApplyAuraBorder(ddi._borderFrame, ddi._borderFrame, border,
+                (ddi._cooldown or ddi):GetFrameLevel())
 
             if ddi._cooldown then ddi._cooldown:Hide() end
             if ddi._count then ddi._count:SetText("") end

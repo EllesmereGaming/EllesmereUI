@@ -29,37 +29,46 @@ local ApplyOnlyNumbers, ArmCdStateEval = I.ApplyOnlyNumbers, I.ArmCdStateEval
 local TryHookSwiftmend, ApplyResourceTint = I.TryHookSwiftmend, I.ApplyResourceTint
 
 -------------------------------------------------------------------------------
---  Buff viewer re-anchoring
---  A buff viewer sizes itself from where its icons sit (its Layout places them,
---  then measures them), so an icon pulled onto our bar the moment Blizzard
---  places it makes the viewer measure the gap to our bar as its own height,
---  which pushes everything above it in Blizzard's bottom stack. The SetPoint
---  hook below only marks such an icon; RestoreBuffAnchors puts every marked
---  icon back once the measuring is over: from the buff viewers' RefreshLayout
---  post-hook (EUI_CDM_HookViewers.lua; their Layout itself is never hooked),
---  or from this one-shot frame later in the same frame when no RefreshLayout
---  follows, so an icon never draws a frame at the viewer's spot.
+--  Viewer re-anchoring
+--  All viewers measure their children after placing them. An icon moved to our
+--  bar (or parked) mid-Layout makes the viewer measure that gap as its own size,
+--  which pushes everything above it in Blizzard's bottom stack. Restore our
+--  anchors (or park unclaimed icons) only after that measurement, from
+--  RefreshLayout's post-hook (Blizzard's one Layout call) or this one-shot
+--  callback when an icon moves outside a layout.
 -------------------------------------------------------------------------------
-local buffPending = setmetatable({}, { __mode = "k" })
-local buffRestore = ns.TakeShell()
-buffRestore:Hide()
+local viewerPending = setmetatable({}, { __mode = "k" })
+local viewerRestore = ns.TakeShell()
+viewerRestore:Hide()
 
-local function RestoreBuffAnchors()
-    buffRestore:Hide()
-    if next(buffPending) == nil then return end
-    for frame in pairs(buffPending) do
-        buffPending[frame] = nil
-        -- The pool may have released or reassigned the icon since it was
-        -- marked: its current anchor decides, none leaves it to the next claim.
-        local fd = hookFrameData[frame]
-        local a = fd and fd._cdmAnchor
-        if a then
-            frame:ClearAllPoints()
-            frame:SetPoint(a[1], a[2], a[3], a[4], a[5])
+local function QueueViewerAnchor(frame)
+    viewerPending[frame] = true
+    viewerRestore:Show()
+end
+
+local function RestoreViewerAnchors(viewer)
+    for frame in pairs(viewerPending) do
+        -- A nested refresh must not restore another viewer's unfinished grid.
+        if not viewer or frame.viewerFrame == viewer then
+            viewerPending[frame] = nil
+            -- Read the current claim: the pool may have released or reassigned it.
+            local fd = hookFrameData[frame]
+            local a = fd and fd._cdmAnchor
+            if a then
+                frame:ClearAllPoints()
+                frame:SetPoint(a[1], a[2], a[3], a[4], a[5])
+            elseif fd and fd.decorated and not fd._isBuffViewerFrame then
+                -- Match LayoutCDMBar's anchor keyword so a later claim replaces it.
+                fd._parkGuard = true
+                frame:ClearAllPoints()
+                frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10000, 10000)
+                fd._parkGuard = nil
+            end
         end
     end
+    if next(viewerPending) == nil then viewerRestore:Hide() end
 end
-buffRestore:SetScript("OnUpdate", RestoreBuffAnchors)
+viewerRestore:SetScript("OnUpdate", function() RestoreViewerAnchors() end)
 
 -------------------------------------------------------------------------------
 --  DecorateFrame
@@ -228,47 +237,28 @@ local function DecorateFrame(frame, barData)
     end
 
     -- Hook SetPoint: restore our anchor after Blizzard repositions the icon.
-    -- Buff viewers must finish measuring their native grid first; redirecting
+    -- Viewers must finish measuring their native grid first; redirecting
     -- one child during Layout makes ResizeLayout measure the distance between
     -- our bar and the viewer's remaining children as the viewer's own size.
     if not fd._setPointHooked then
         fd._setPointHooked = true
         hooksecurefunc(frame, "SetPoint", function(_, point, relativeTo)
+            if fd._parkGuard then return end
             local anchor = fd._cdmAnchor
             if not anchor then
                 -- Not yet claimed by our bar system: re-blank so it does not flash at
                 -- the viewer's position before CollectAndReanchor claims it.
                 if fd.decorated then
                     frame:SetAlpha(0)
-                    -- Re-park CD/utility frames offscreen (buff pools stay hands-off):
-                    -- alpha alone cannot keep an unclaimed frame invisible -- the
-                    -- engine re-raises item alpha through paths no SetAlpha hook can
-                    -- see (SetAlphaFromBoolean, alpha animations) on cooldown/aura
-                    -- changes (druid form swaps). Position enforcement is immune to
-                    -- every alpha path, and a later re-claim SetPoints absolutely. The
-                    -- TOPLEFT keyword MUST match LayoutCDMBar's claim SetPoint (which
-                    -- does not ClearAllPoints): same-keyword SetPoint REPLACES the park
-                    -- point, a different one accumulates a conflicting anchor.
-                    if not fd._isBuffViewerFrame and not fd._parkGuard then
-                        fd._parkGuard = true
-                        frame:ClearAllPoints()
-                        frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10000, 10000)
-                        fd._parkGuard = nil
-                    end
+                    -- Alpha can be raised by the engine; park CD/utility icons
+                    -- after measurement. Unclaimed buff pools stay hands-off.
+                    if not fd._isBuffViewerFrame then QueueViewerAnchor(frame) end
                 end
                 return
             end
             -- relativeTo == our bar container: our own LayoutCDMBar SetPoint.
             if relativeTo == anchor[2] then return end
-            if fd._isBuffViewerFrame then
-                -- Back once the viewer has measured itself (RestoreBuffAnchors).
-                buffPending[frame] = true
-                buffRestore:Show()
-                return
-            end
-            -- Blizzard is trying to move us. Force back to CDM position.
-            frame:ClearAllPoints()
-            frame:SetPoint(anchor[1], anchor[2], anchor[3], anchor[4], anchor[5])
+            QueueViewerAnchor(frame)
         end)
     end
 
@@ -1286,6 +1276,13 @@ local function DecorateFrame(frame, barData)
                 local m = cse and ns.CD_STATE_HIDE[cse]
                 local cseShift, cseUsable, cseForm
                 if m then cse, cseShift, cseUsable, cseForm = m.base, m.shift, m.usable, m.form end
+                -- Stance Bar (EllesmereUICdmStanceBar.lua): one more hide reason. Alone,
+                -- it runs as Hidden (On CD) with the cooldown never read.
+                local stance = ns.CdmStanceBarOf(ss2)
+                local stanceOnly = false
+                if stance and cse ~= "hiddenOnCD" and cse ~= "hiddenReady" and cse ~= "lowerAlphaOnCD" then
+                    cse, stanceOnly = "hiddenOnCD", true
+                end
                 if not cse and not glow then
                     if fd._cdStateGlowOn then
                         ns.StopCdGlow(fd)
@@ -1325,10 +1322,13 @@ local function DecorateFrame(frame, barData)
                 if cse == "hiddenOnCD" or cse == "hiddenReady" or cse == "lowerAlphaOnCD" then
                     ArmCdStateEval(frame, fd, cse, cseShift,
                         (ss2 and ss2.cdStateLowerAlpha) or 0.5,
-                        ss2 and ss2.chargeHideUntilSpent, cseUsable, cseForm)
-                    -- Proc and form edges never fire this hook: the usability /
-                    -- form watch re-arms on SPELL_UPDATE_USABLE / UPDATE_SHAPESHIFT_FORM.
-                    if cseUsable or cseForm then ns.WatchCdUsable(frame, cseForm) end
+                        ss2 and ss2.chargeHideUntilSpent, cseUsable, cseForm, stance, stanceOnly)
+                    -- Proc, form and stance bar edges never fire this hook: the watch
+                    -- re-arms on SPELL_UPDATE_USABLE / UPDATE_SHAPESHIFT_FORM /
+                    -- UPDATE_BONUS_ACTIONBAR.
+                    if cseUsable or cseForm or stance then
+                        ns.WatchCdUsable(frame, cseForm, stance ~= nil, cseUsable)
+                    end
                     -- Hidden (CD Ready) on a charge spell also needs the refill-to-max
                     -- edge, which this hook never fires. Registered once per spell
                     -- binding (a pooled frame can be handed a different spell), so
@@ -1602,5 +1602,5 @@ local function CategorizeFrame(frame, viewerBarKey)
 end
 
 I.CategorizeFrame, I.DecorateFrame = CategorizeFrame, DecorateFrame
-I.RestoreBuffAnchors = RestoreBuffAnchors
+I.QueueViewerAnchor, I.RestoreViewerAnchors = QueueViewerAnchor, RestoreViewerAnchors
 I.broken = false

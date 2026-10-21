@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+
 
 
 
@@ -86,13 +87,28 @@ local function DateNeedle(needle)
 end
 
 
+
+local dateKeys = setmetatable({}, { __mode = "k" })
+
 local function DateKey(entry)
-    if entry.date and entry.date ~= "" then
-        local key = entry.date:gsub("%D", "")
-        if #key >= 6 then return key end
+    if dateKeys[entry] then return dateKeys[entry] end
+    local keys = {}
+    local stored = type(entry.date) == "string" and entry.date or ""
+    local y, m, d = stored:match("^(%d%d%d%d)/(%d%d)/(%d%d)$")
+    if not y then
+        local digits = stored:gsub("%D", "")
+        if #digits >= 6 then keys[#keys + 1] = digits end
+        if type(entry.epoch) == "number" then
+            y, m, d = date("!%Y", entry.epoch), date("!%m", entry.epoch), date("!%d", entry.epoch)
+        end
     end
-    if entry.epoch then return date("!%Y%m%d", entry.epoch) end
-    return ""
+    if y then
+        keys[#keys + 1] = y .. m .. d
+        keys[#keys + 1] = d .. m .. y
+        keys[#keys + 1] = d .. m .. y:sub(3)
+    end
+    dateKeys[entry] = table.concat(keys, " ")
+    return dateKeys[entry]
 end
 
 
@@ -173,10 +189,9 @@ end
 local function ShortDate(entry)
     if entry.date and entry.date ~= "" then
 
-
-        return (entry.date:gsub("^20", "")) .. " " .. tostring(entry.time or ""):sub(1, 5)
+        return addon.StoredDateText(entry.date, true) .. " " .. tostring(entry.time or ""):sub(1, 5)
     end
-    if entry.epoch then return date("!%y/%m/%d %H:%M", entry.epoch) end
+    if entry.epoch then return addon.DateText(entry.epoch, true, true) .. date("! %H:%M", entry.epoch) end
     return "?"
 end
 
@@ -245,20 +260,12 @@ local function BuildColumns()
             end,
         },
         {
-            key = "votes", title = T["Votes"], width = 66, justify = "LEFT",
-            value = function(e) return e.votes or -1 end,
-            text = function(e)
-                if not e.votes then return S.Colorize(S.color.textFaint, "-") end
-                return tostring(e.votes)
-            end,
-        },
-        {
-            key = "boss", title = T["Boss"], width = 178,
+            key = "boss", title = T["Boss"], width = 211,
             value = function(e) return tostring(e.boss or "") end,
             text = function(e) return S.Colorize(S.color.textMuted, e.boss or "-") end,
         },
         {
-            key = "instance", title = T["Instance"], width = 282,
+            key = "instance", title = T["Instance"], width = 315,
             value = function(e) return tostring(e.instance or "") end,
             text = function(e) return S.Colorize(S.color.textMuted, e.instance or "-") end,
         },
@@ -274,48 +281,6 @@ local function ShowRowTooltip(row, entry)
     S.SideTooltip(row)
 
     S.SetTooltipItem(entry.link, entry.name)
-
-    S.TooltipSection(GameTooltip, T["Loot history"])
-    GameTooltip:AddDoubleLine(T["Winner"], entry.winner or "?", 0.64, 0.63, 0.60, 1, 1, 1)
-    if entry.owner then
-
-
-        GameTooltip:AddDoubleLine(T["Held by"], entry.owner, 0.64, 0.63, 0.60, 1, 1, 1)
-    end
-    if entry.note and entry.note ~= "" then
-        GameTooltip:AddDoubleLine(T["Note"], NoteText(entry.note), 0.64, 0.63, 0.60, 1, 1, 1)
-    end
-    if entry.groupSize then
-        GameTooltip:AddDoubleLine(T["Group size"], tostring(entry.groupSize),
-            0.64, 0.63, 0.60, 1, 1, 1)
-    end
-
-    if entry.guild then
-        GameTooltip:AddDoubleLine(T["Guild"], entry.guild, 0.64, 0.63, 0.60, 1, 1, 1)
-    end
-    if entry.recorder then
-        GameTooltip:AddDoubleLine(T["Recorded by"], entry.recorder, 0.64, 0.63, 0.60, 1, 1, 1)
-    end
-
-    if entry.delivered == nil then
-        GameTooltip:AddDoubleLine(T["Delivered"], T["not recorded"], 0.64, 0.63, 0.60,
-            0.45, 0.44, 0.42)
-    else
-        GameTooltip:AddDoubleLine(T["Delivered"], entry.delivered and T["yes"] or T["no"],
-            0.64, 0.63, 0.60, 1, 1, 1)
-    end
-
-    if SourceFilterKey(entry) == "other" then
-        GameTooltip:AddLine(addon.Locale.Format(T["Imported from %s"],
-            addon.HistoryImport:Label(EntrySource(entry))),
-            0.45, 0.44, 0.42)
-    end
-
-    if entry.editedAt then
-        GameTooltip:AddLine(entry.editedBy
-            and addon.Locale.Format(T["Edited locally by %s"], entry.editedBy)
-            or addon.Locale.Format(T["Edited locally"]), 0.45, 0.44, 0.42)
-    end
 
 
     if entry.winner then
@@ -446,7 +411,8 @@ function HistoryFrame:Reload()
     if not frame then return end
     ResetFolds()
     ResolveFilter()
-    Tbl.SetData(table_, addon.History:GetAll(), not refilter)
+
+    Tbl.SetData(table_, addon.History:GetAll(true), not refilter)
     refilter = false
     UpdateSummary()
     if originButton then originButton:Sync() end
@@ -463,7 +429,7 @@ function HistoryFrame.DeleteButton(parent)
         local recorded = addon.History:Count()
         local imported = addon.HistoryImport:Count()
         if recorded + imported == 0 then
-            print(addon.Log.CHAT_PREFIX.accent .. T["there is no history to delete."])
+            addon.Chat.Print(T["there is no history to delete."])
             return
         end
         local awards = addon.Locale.Format(addon.Locale.Plural{
@@ -481,8 +447,7 @@ function HistoryFrame.DeleteButton(parent)
             accept = T["Delete all"],
             onAccept = function()
                 local r, i = addon.History:Clear(), addon.HistoryImport:Clear()
-                print(addon.Log.CHAT_PREFIX.accent ..
-                    addon.Locale.Format(T["deleted %d recorded and %d imported entries."], r, i))
+                addon.Chat.Print(addon.Locale.Format(T["deleted %d recorded and %d imported entries."], r, i))
                 HistoryFrame:Reload()
             end,
             alternate = imported > 0 and T["Imports only"] or nil,
@@ -1367,6 +1332,8 @@ local function Build()
 
     table_ = cursor:Add(function(parent, x, width, y)
         local t = Tbl.Create(parent, BuildColumns(), 15)
+
+        t.fixedRows = true
         P.Point(t, "TOPLEFT", parent, "TOPLEFT", x, y)
         return t, t:GetHeight()
     end)
@@ -1511,6 +1478,15 @@ local function Build()
         GameTooltip:Show()
     end)
     importButton:HookScript("OnLeave", function() GameTooltip:Hide() end)
+
+
+
+    frame:HookScript("OnHide", function()
+        Tbl.Release(table_)
+        addon.Callbacks:Invalidate("history")
+        addon.History:DropArchive("history")    end)
+
+    frame:HookScript("OnShow", function() addon.History:HoldArchive("history") end)
 
 
     addon.Callbacks:RegisterView("history", {

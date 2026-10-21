@@ -160,24 +160,28 @@ function ns.RefreshHoverEffect()
 end
 
 local kickWatcher = CreateFrame("Frame")
+kickWatcher:Hide()
 local activeCastCount = 0
 -- PERF: set of plates currently casting, so kick/color updates iterate only the
 -- 1-3 casting plates instead of all 20+ in the scene. On ns (200-local pressure).
 ns._castingPlates = {}
-kickWatcher:SetScript("OnEvent", function(self, event)
-    if event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
-        -- No per-event cast-info re-reads or geometry: cast identity (protection/channel
-        -- flags) is cached by UpdateKickTick at setup and by INTERRUPTIBLE handlers on
-        -- mid-cast flips, so cooldown events only refresh marker value + alpha. A hidden tick
-        -- means re-setup from cache (kick learned mid-cast, late CD info, toggle on).
-        for plate in pairs(ns._castingPlates) do
-            if plate.isCasting and plate.unit and type(plate._kickProtected) ~= "nil" then
-                plate:ApplyCastColor(plate._kickProtected)
-                if not plate.kickPositioner:IsShown() then
-                    plate:UpdateKickTick(plate._kickProtected, plate._kickIsChannel, plate._kickIsEmpowered)
-                else
-                    plate:RefreshKickTick()
-                end
+-- SPELL_UPDATE_COOLDOWN and SPELL_UPDATE_USABLE (the only events this frame
+-- holds) usually arrive together, and again for every spell the GCD touches:
+-- each only shows the frame, and its next OnUpdate makes ONE pass for them all.
+kickWatcher:SetScript("OnEvent", function(self) self:Show() end)
+kickWatcher:SetScript("OnUpdate", function(self)
+    self:Hide()
+    -- No per-event cast-info re-reads or geometry: cast identity (protection/channel
+    -- flags) is cached by UpdateKickTick at setup and by INTERRUPTIBLE handlers on
+    -- mid-cast flips, so cooldown events only refresh marker value + alpha. A hidden tick
+    -- means re-setup from cache (kick learned mid-cast, late CD info, toggle on).
+    for plate in pairs(ns._castingPlates) do
+        if plate.isCasting and plate.unit and type(plate._kickProtected) ~= "nil" then
+            plate:ApplyCastColor(plate._kickProtected)
+            if not plate.kickPositioner:IsShown() then
+                plate:UpdateKickTick(plate._kickProtected, plate._kickIsChannel, plate._kickIsEmpowered)
+            else
+                plate:RefreshKickTick()
             end
         end
     end
@@ -218,6 +222,7 @@ local function NotifyCastEnded(plate)
         wipe(ns._castingPlates)
         kickWatcher:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
         kickWatcher:UnregisterEvent("SPELL_UPDATE_USABLE")
+        kickWatcher:Hide()
         if _castColorTicker then
             _castColorTicker:Cancel()
             _castColorTicker = nil
