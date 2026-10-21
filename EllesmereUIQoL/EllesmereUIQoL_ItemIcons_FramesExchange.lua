@@ -14,7 +14,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 local II = EllesmereUI.ItemIcons
-local Paint, Clear, HideNative, RestoreNative = II.Paint, II.Clear, II.HideNative, II.RestoreNative
+local Paint, Clear, HideNatives, RestoreNatives = II.Paint, II.Clear, II.HideNatives, II.RestoreNatives
 local IsManaged, WaitForItem = II.IsFrameEnabled, II.WaitForItem
 
 local ctx = {}
@@ -26,18 +26,16 @@ local function SetItem(link, count)
     ctx.anchor, ctx.alpha, ctx.facts = nil, nil, nil
 end
 
--- Draws the layout from ctx and hides Blizzard's count and crafting pip under
--- it; a button without an item gets them back
-local function Show(button, frameKey, count)
-    local pip = button.ProfessionQualityOverlay
+-- Draws the layout from ctx and hides the Blizzard marks it replaces (count:
+-- the stack count region; questMark, starter: as II.HideNatives); a button
+-- without an item gets them back
+local function Show(button, frameKey, count, questMark, starter)
     if ctx.link then
         Paint(button, ctx, frameKey)
-        HideNative(count, frameKey)
-        HideNative(pip, frameKey)
+        HideNatives(button, frameKey, count, questMark, starter)
     else
         Clear(button)
-        RestoreNative(count)
-        RestoreNative(pip)
+        RestoreNatives(button, count, questMark)
     end
 end
 
@@ -82,20 +80,17 @@ local function PaintLootRow(row)
     local link
     if GetLootSlotType(slot) == Enum.LootSlotType.Item then link = GetLootSlotLink(slot) end
     SetItem(link)
-    -- Blizzard's bang marks a quest starter (the questMarker element), its
-    -- border any other quest item
-    local mark = row.IconQuestTexture
+    -- The row's quest texture: Blizzard's bang on a quest starter (the
+    -- questMarker element), its border on any other quest item
+    local starter = false
     if link then
         local _, _, quantity, _, _, _, _, questID, isActive = GetLootSlotInfo(slot)
-        local starter = questID ~= nil and not isActive
+        starter = questID ~= nil and not isActive
         ctx.count = quantity
         lootFacts.questStarter = starter
         ctx.facts = lootFacts
-        if starter then HideNative(mark, "loot") else RestoreNative(mark) end
-    else
-        RestoreNative(mark)
     end
-    Show(button, "loot", button.Count)
+    Show(button, "loot", button.Count, row.IconQuestTexture, starter)
 end
 
 local function PaintLoot()
@@ -193,13 +188,10 @@ local function PaintOpenMail()
 end
 
 -- An outgoing attachment's link. Blizzard's UI reads none, so it comes from
--- the item's tooltip data, resolved as TooltipUtil.GetDisplayedItem does
+-- the item's tooltip data
 local function SendMailLink(i)
     local data = C_TooltipInfo.GetSendMailItem(i)
-    if not data then return nil end
-    local guid = data.guid
-    if guid and not issecretvalue(guid) then return C_Item.GetItemLinkByGUID(guid) end
-    return data.hyperlink
+    return data and II.TooltipItemLink(data)
 end
 
 local function PaintSendMail()

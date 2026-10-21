@@ -14,15 +14,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local EllesmereUI = _G.EllesmereUI
 local II = EllesmereUI.ItemIcons
 
--- Not proven on WoW Forever: without the whole collection API the element
--- never registers
 local TC = C_TransmogCollection
-local GetItemAppearance = TC and TC.GetItemInfo
-local GetAppearanceInfo = TC and TC.GetAppearanceInfoBySource
-local PlayerCanCollect = TC and TC.PlayerCanCollectSource
-local AccountCanCollect = TC and TC.AccountCanCollectSource
-if not (GetItemAppearance and GetAppearanceInfo and PlayerCanCollect and AccountCanCollect) then return end
-
+local GetItemAppearance, GetAppearanceInfo = TC.GetItemInfo, TC.GetAppearanceInfoBySource
+local PlayerCanCollect, AccountCanCollect = TC.PlayerCanCollectSource, TC.AccountCanCollectSource
 local GetItemInfo = C_Item.GetItemInfo
 
 -- Blizzard's "appearance known" check (DressUpFrames) and its transmog roll
@@ -54,19 +48,12 @@ local function Forget()
     memoN = 0
 end
 
--- WoW Forever is not proven in game: an event the client does not know is
--- never registered, so it cannot raise an error
-local function Watch(event, on)
-    if not C_EventUtils.IsEventValid(event) then return end
-    if on then ev:RegisterEvent(event) else ev:UnregisterEvent(event) end
-end
-
 ev:SetScript("OnEvent", function(_, event, sourceID)
     if event == ITEM_UPDATE or event == COLLECTABILITY_UPDATE then
         if next(waiting) then
-            Watch(ITEM_UPDATE, false)
+            ev:UnregisterEvent(ITEM_UPDATE)
             -- Kept while active: it also updates memoized states
-            if not active then Watch(COLLECTABILITY_UPDATE, false) end
+            if not active then ev:UnregisterEvent(COLLECTABILITY_UPDATE) end
             for frameKey in pairs(waiting) do II.RequestRefresh(frameKey) end
             wipe(waiting)
         end
@@ -105,8 +92,8 @@ end
 -- The item's transmog data is loading: its frame repaints once it arrives
 local function Wait(frameKey)
     if not next(waiting) then
-        Watch(ITEM_UPDATE, true)
-        Watch(COLLECTABILITY_UPDATE, true)
+        ev:RegisterEvent(ITEM_UPDATE)
+        ev:RegisterEvent(COLLECTABILITY_UPDATE)
     end
     waiting[frameKey] = true
 end
@@ -183,7 +170,7 @@ II.Subscribe(function()
     if want == active then return end
     active = want
     if want then
-        for i = 1, #ACTIVE_EVENTS do Watch(ACTIVE_EVENTS[i], true) end
+        for i = 1, #ACTIVE_EVENTS do ev:RegisterEvent(ACTIVE_EVENTS[i]) end
     else
         ev:UnregisterAllEvents()
         Forget()

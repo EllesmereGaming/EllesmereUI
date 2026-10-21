@@ -11,20 +11,15 @@ local EllesmereUI = _G.EllesmereUI
 local Register = EllesmereUI.ItemIcons.RegisterElement
 
 local GetItemInfo, GetItemInfoInstant = C_Item.GetItemInfo, C_Item.GetItemInfoInstant
--- Not proven on WoW Forever: without it a link-only item is never WuE
-local IsLinkWuE = C_Item.IsItemBindToAccountUntilEquip
--- Built by the EllesmereUI.lua gate; an older parent may lack them: no track or
--- crafted color then
 local GetUpgradeTrack, GetCraftedTrackColor = EllesmereUI.GetUpgradeTrack, EllesmereUI.GetCraftedTrackColor
--- Dungeon initials as EUI Bags shows them; an older parent lacks it: no dungeon then
-local AbbrevDungeon = EllesmereUI.AbbrevDungeon
+-- The overlay rules EUI Bags draws by (EllesmereUI.lua)
+local AbbrevDungeon, BindLabel = EllesmereUI.AbbrevDungeon, EllesmereUI.BindLabel
+local ParseKeystoneLink, ItemLevelRGB = EllesmereUI.ParseKeystoneLink, EllesmereUI.ItemLevelRGB
+local PawnBagUpgrade, JUNK_BADGE = EllesmereUI.PawnBagUpgrade, EllesmereUI.JUNK_BADGE
 local WEAPON, ARMOR = Enum.ItemClass.Weapon, Enum.ItemClass.Armor
 local POOR, BIND_ON_EQUIP = Enum.ItemQuality.Poor, Enum.ItemBind.OnEquip
 -- WoW Forever: no number under 10,000 abbreviates (EllesmereUI_NumberFormat.lua)
 local AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
--- The game's coin icon, cropped round: EUI Bags' junk badge
-local JUNK_COIN = 133784
-local ROUND_MASK = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
 
 -------------------------------------------------------------------------------
 --  Item facts, memoized on the item for one paint
@@ -102,12 +97,11 @@ local function TrackColor(item)
     if c ~= nil then return c or nil end
     c = item._trackColor
     if c == nil then
-        local text, color
-        if GetUpgradeTrack then text, color = GetUpgradeTrack(item.link) end
-        if text and text ~= "" then
+        local text, color = GetUpgradeTrack(item.link)
+        if text ~= "" then
             c = color or false
         else
-            c = GetCraftedTrackColor and GetCraftedTrackColor(item.link) or false
+            c = GetCraftedTrackColor(item.link) or false
         end
         item._trackColor = c
     end
@@ -115,21 +109,14 @@ local function TrackColor(item)
 end
 
 -- Item level and upgrade rank color: Custom Colored, else Default Colors (track,
--- crafted crest, then quality)
+-- crafted crest, then quality), as EUI Bags colors item levels
 local function SetLevelColor(item, out)
     local style = item.styles.itemLevel
-    local c
-    if style.colorMode == "custom" then
-        c = style.customColor
-    else
-        c = TrackColor(item)
-        if not c then
-            local q = Quality(item)
-            if q then out.r, out.g, out.b = C_Item.GetItemQualityColor(q) end
-            return
-        end
-    end
-    out.r, out.g, out.b = c.r, c.g, c.b
+    local custom = style.colorMode == "custom" and style.customColor
+    local track = not custom and TrackColor(item)
+    -- Read only when it decides the color: an uncached item would wait for its data
+    local quality = not (custom or track) and Quality(item) or nil
+    out.r, out.g, out.b = ItemLevelRGB(custom, track, quality)
 end
 
 -- Mythic Keystone level (and _ksMap, its challenge map) from the link; false
@@ -137,12 +124,8 @@ end
 local function Keystone(item)
     local level = item._ksLevel
     if level == nil then
-        level = false
-        local link = item.link
-        if link:find("keystone:", 1, true) then
-            local map, lvl = link:match("keystone:[^:]*:(%d+):(%d+)")
-            if lvl then level, item._ksMap = tonumber(lvl), tonumber(map) end
-        end
+        level, item._ksMap = ParseKeystoneLink(item.link)
+        level = level or false
         item._ksLevel = level
     end
     return level
@@ -198,8 +181,8 @@ Register("stackCount", {
     end,
 })
 
--- Unbound Binds when Equipped or Warbound until Equipped gear, as EUI Bags shows
--- it. WuE items report OnEquip as their bind type, so WuE is checked first.
+-- Unbound Binds when Equipped or Warbound until Equipped gear, labelled as EUI
+-- Bags labels it (EllesmereUI.BindLabel)
 Register("bindType", {
     kind = "text", insetX = 1, insetY = 2,
     Apply = function(item, _, out)
@@ -216,22 +199,19 @@ Register("bindType", {
             local loc = Location(item)
             if loc then
                 wue = C_Item.IsBoundToAccountUntilEquip(loc)
-            elseif IsLinkWuE then
-                wue = IsLinkWuE(item.link)
+            else
+                wue = C_Item.IsItemBindToAccountUntilEquip(item.link)
             end
         end
-        local c
-        if wue then
-            out.text = EllesmereUI.L("WuE")
-            c = ITEM_QUALITY_COLORS[7]  -- Heirloom: WuE has no quality of its own
-        else
-            local bind = f and f.bindType
+        local bind
+        if not wue then
+            bind = f and f.bindType
             if bind == nil then bind = Info(item) and item._bind end
-            if bind ~= BIND_ON_EQUIP then return false end
-            out.text = EllesmereUI.L("BoE")
-            local q = Quality(item)
-            c = q and ITEM_QUALITY_COLORS[q]
         end
+        -- The quality only colors a BoE label: an uncached item would wait for its data
+        local text, c = BindLabel(wue, bind, not wue and bind == BIND_ON_EQUIP and Quality(item) or nil)
+        if not text then return false end
+        out.text = text
         if c then out.r, out.g, out.b = c.r, c.g, c.b end
         return true
     end,
@@ -268,10 +248,11 @@ Register("craftingQuality", {
     end,
 })
 
--- Poor quality with a sell price, or the Junk Marker's verdict when EUI Bags passes it
+-- EUI Bags' junk badge for Poor quality with a sell price, or for the Junk
+-- Marker's verdict when EUI Bags passes it
 Register("junkCoin", {
     kind = "icon", insetX = -3, insetY = -3,
-    texCoord = { 0.12, 0.88, 0.12, 0.88 }, mask = ROUND_MASK,
+    texCoord = JUNK_BADGE.texCoord, mask = JUNK_BADGE.mask,
     Apply = function(item, _, out)
         local f = item.facts
         local junk = f and f.isJunk
@@ -279,7 +260,7 @@ Register("junkCoin", {
             junk = Quality(item) == POOR and Info(item) and (item._sell or 0) > 0
         end
         if not junk then return false end
-        out.texture = JUNK_COIN
+        out.texture = JUNK_BADGE.texture
         return true
     end,
 })
@@ -317,7 +298,7 @@ Register("keystoneLevel", {
 Register("keystoneDungeon", {
     kind = "text", insetX = 1, insetY = 2,
     Apply = function(item, _, out)
-        if not AbbrevDungeon or not Keystone(item) or not item._ksMap then return false end
+        if not Keystone(item) or not item._ksMap then return false end
         local abbr = AbbrevDungeon(item._ksMap)
         if abbr == "" then return false end
         out.text = abbr
@@ -332,9 +313,7 @@ Register("pawnArrow", {
         local f = item.facts
         local upgrade = f and f.pawnUpgrade
         if upgrade == nil then
-            local check, pawn = _G.PawnShouldItemLinkHaveUpgradeArrow, _G.PawnCommon
-            if type(check) ~= "function" or not (pawn and pawn.ShowBagUpgradeAdvisor) then return false end
-            upgrade = check(item.link, true)
+            upgrade = PawnBagUpgrade(item.link)
             -- nil while Pawn lacks the item's data: repaint when it arrives
             if upgrade == nil then
                 item.pending = true

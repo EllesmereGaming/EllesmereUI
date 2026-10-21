@@ -154,19 +154,23 @@ local function BuildSlotDropdown(rgn, slotKey)
     EllesmereUI.RegisterWidgetRefresh(SyncDisabled)
 end
 
--- Show On: one checkbox per managed window. Blizzard's bags and bank only
--- show while EUI Bags is not loaded, and EUI Bags only while it is.
+-- Show On: one checkbox per managed window. Only the bags that show are
+-- open to it: Blizzard's bags and bank, or EUI Bags (II.BlizzardBagsInUse).
 local function BuildShowOn(rgn)
     if rgn._control then rgn._control:Hide() end
-    local bagsLoaded = EllesmereUI._ModuleNS["EllesmereUIBags"] ~= nil
+    local blizzBags = II.BlizzardBagsInUse()
+    -- With EUI Bags running, Blizzard's bags show only while it stands down for
+    -- WoW Forever's Gamepad interface style
+    local euiBagsTip = "Requires the EllesmereUI Bags module"
+    if EllesmereUI._BagsStandDown then euiBagsTip = "This option does not work with the Gamepad interface style." end
     local items = {}
     for _, key in ipairs(II.FRAME_ORDER) do
         -- A window the client lacks is not listed (no Great Vault on WoW Forever)
         if II.IsFrameAvailable(key) then
             local item = { key = key, label = FRAME_LABELS[key] }
-            if key == "eui_bags" and not bagsLoaded then
-                item.locked, item.lockedTooltip = true, "Requires the EllesmereUI Bags module"
-            elseif (key == "blizz_bags" or key == "blizz_bank") and bagsLoaded then
+            if key == "eui_bags" and blizzBags then
+                item.locked, item.lockedTooltip = true, euiBagsTip
+            elseif (key == "blizz_bags" or key == "blizz_bank") and not blizzBags then
                 item.locked, item.lockedTooltip = true, "EllesmereUI Bags shows your bags and bank in place of Blizzard's"
             end
             if item.locked then item.excludeFromSummaryFn = Always end

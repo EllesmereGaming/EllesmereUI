@@ -14,8 +14,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
 local II = EllesmereUI.ItemIcons
-local Paint, Clear, IsManaged = II.Paint, II.Clear, II.IsFrameEnabled
-local HideNative, RestoreNative = II.HideNative, II.RestoreNative
+local Paint, Clear, IsManaged, HideNatives = II.Paint, II.Clear, II.IsFrameEnabled, II.HideNatives
 local FlyoutButtonItem = ns.FlyoutButtonItem   -- EllesmereUIQoL.lua
 
 local BAGS, BANK, MERCHANT = "blizz_bags", "blizz_bank", "merchant"
@@ -42,42 +41,10 @@ local function NewCtx(link)
     return ctx
 end
 
--- While a frame is managed its layout decides every mark: Blizzard's count,
--- crafting pip and junk coin stay hidden whether their element is placed or not
-local function HideMarks(button, frameKey)
-    HideNative(button.Count, frameKey)
-    HideNative(button.ProfessionQualityOverlay, frameKey)
-    HideNative(button.JunkIcon, frameKey)
-end
-
--- Blizzard's quest starter mark gives way too; the border it puts on other
--- quest items stays
-local function SyncQuestMark(button, starter, frameKey)
-    if starter then
-        HideNative(button.IconQuestTexture, frameKey)
-    else
-        RestoreNative(button.IconQuestTexture)
-    end
-end
-
 -- Blizzard dims a button with its black ItemContextOverlay for the search
 -- filter and for item contexts (scrapping, socketing and the like)
 local function Dimmed(button)
     return button:GetItemContextOverlayMode() == ItemButtonConstants.ContextMatch.Standard
-end
-
--- The WoW Forever UI is unverified: a hook target it lacks leaves that frame
--- unpainted instead of raising an error. True once hooked
-local function HookGlobal(name, fn)
-    if type(_G[name]) ~= "function" then return false end
-    hooksecurefunc(name, fn)
-    return true
-end
-
-local function HookMethod(object, name, fn)
-    if not (object and type(object[name]) == "function") then return false end
-    hooksecurefunc(object, name, fn)
-    return true
 end
 
 -- A bag or bank tab slot
@@ -95,8 +62,7 @@ local function PaintContainerItem(button, bag, slot, frameKey)
     if Dimmed(button) then c.alpha = II.DIM_ALPHA end
     facts.isBound, facts.questStarter = info.isBound, starter
     Paint(button, c, frameKey)
-    HideMarks(button, frameKey)
-    SyncQuestMark(button, starter, frameKey)
+    HideNatives(button, frameKey, button.Count, button.IconQuestTexture, starter)
 end
 
 -- One of the player's items, in a container slot (bag, slot) or equipped
@@ -144,16 +110,9 @@ end
 
 -------------------------------------------------------------------------------
 --  Blizzard bags (ContainerFrame1-6, ContainerFrameCombinedBags) and bank
---  (BankPanel: character and warband tabs)
+--  (BankPanel: character and warband tabs). The core manages them only while
+--  EUI Bags does not replace them (II.BlizzardBagsInUse)
 -------------------------------------------------------------------------------
--- EUI Bags replaces both (its own frame key: eui_bags) unless it stood down
--- for the session (WoW Forever's Gamepad interface style). Its own decision,
--- EllesmereUI._BagsStandDown (EUI_Bags_Shared.lua), is absent without EUI Bags
-local function BlizzardBagsInUse()
-    local standDown = EllesmereUI._BagsStandDown
-    return not standDown or standDown()
-end
-
 -- An item context (scrapper, socketing and the like) dims buttons without a
 -- refill: a managed frame repaints once every button has followed it
 local contextOwners = {}   -- frame key -> registry owner while watched
@@ -207,23 +166,20 @@ end
 local function RequestBagsRefresh() II.RequestRefresh(BAGS) end
 
 local function HookBagFrame(frame)
-    if HookMethod(frame, "UpdateItems", PaintBagFrame) then
-        bagFrames[#bagFrames + 1] = frame
-        HookMethod(frame, "UpdateSearchResults", RequestBagsRefresh)
-    end
+    bagFrames[#bagFrames + 1] = frame
+    hooksecurefunc(frame, "UpdateItems", PaintBagFrame)
+    hooksecurefunc(frame, "UpdateSearchResults", RequestBagsRefresh)
 end
 
 II.RegisterFrame(BAGS, {
     Enable = function()
-        if not BlizzardBagsInUse() then return end
         if not bagFrames then
             bagFrames = {}
             for i = 1, NUM_CONTAINER_FRAMES do HookBagFrame(_G["ContainerFrame" .. i]) end
             HookBagFrame(ContainerFrameCombinedBags)
         end
-        local hooked = bagFrames[1] ~= nil
-        WatchContext(BAGS, hooked)
-        WatchSets(BAGS, hooked)
+        WatchContext(BAGS, true)
+        WatchSets(BAGS, true)
         RefreshBags()
     end,
     Refresh = RefreshBags,
@@ -249,14 +205,14 @@ local function RequestBankRefresh() II.RequestRefresh(BANK) end
 
 II.RegisterFrame(BANK, {
     Enable = function()
-        if not BlizzardBagsInUse() then return end
-        if not bankHooked and HookMethod(BankPanel, "GenerateItemSlotsForSelectedTab", PaintBank) then
+        if not bankHooked then
             bankHooked = true
-            HookMethod(BankPanel, "RefreshAllItemsForSelectedTab", PaintBank)
-            HookMethod(BankPanel, "UpdateSearchResults", RequestBankRefresh)
+            hooksecurefunc(BankPanel, "GenerateItemSlotsForSelectedTab", PaintBank)
+            hooksecurefunc(BankPanel, "RefreshAllItemsForSelectedTab", PaintBank)
+            hooksecurefunc(BankPanel, "UpdateSearchResults", RequestBankRefresh)
         end
-        WatchContext(BANK, bankHooked)
-        WatchSets(BANK, bankHooked)
+        WatchContext(BANK, true)
+        WatchSets(BANK, true)
         RefreshBank()
     end,
     Refresh = RefreshBank,
@@ -302,8 +258,7 @@ local function PaintMerchantItem(button, index, isBuyback, anchor)
         facts.questStarter = starter
     end
     Paint(button, c, MERCHANT)
-    HideMarks(button, MERCHANT)
-    SyncQuestMark(button, starter, MERCHANT)
+    HideNatives(button, MERCHANT, button.Count, button.IconQuestTexture, starter)
 end
 
 -- After MerchantFrame_UpdateMerchantInfo / _UpdateBuybackInfo, which set each
@@ -366,13 +321,14 @@ end
 
 II.RegisterFrame(MERCHANT, {
     Enable = function()
-        if not merchantHooked and HookGlobal("MerchantFrame_UpdateMerchantInfo", OnMerchantInfo) then
+        if not merchantHooked then
             merchantHooked = true
             for i = 1, BUYBACK_ITEMS_PER_PAGE do
                 gridTiles[i], gridButtons[i] = _G["MerchantItem" .. i], _G["MerchantItem" .. i .. "ItemButton"]
             end
-            HookGlobal("MerchantFrame_UpdateBuybackInfo", OnBuybackInfo)
-            HookGlobal("MerchantFrameItem_UpdateQuality", OnUpdateQuality)
+            hooksecurefunc("MerchantFrame_UpdateMerchantInfo", OnMerchantInfo)
+            hooksecurefunc("MerchantFrame_UpdateBuybackInfo", OnBuybackInfo)
+            hooksecurefunc("MerchantFrameItem_UpdateQuality", OnUpdateQuality)
         end
         RefreshVendorItemLevels()
         RefreshMerchant()
@@ -390,7 +346,7 @@ local flyoutHooked = false
 local function PaintFlyoutButton(button, useItemLocation)
     local link, bag, slot = FlyoutButtonItem(button, useItemLocation)
     if not Unchanged(button, FLYOUT, link, bag, slot) then PaintOwnItem(button, link, bag, slot, FLYOUT) end
-    HideMarks(button, FLYOUT)
+    HideNatives(button, FLYOUT, button.Count)
 end
 
 -- After EquipmentFlyout_UpdateItems: every fill, and every frame while a
@@ -416,9 +372,12 @@ end
 
 II.RegisterFrame(FLYOUT, {
     Enable = function()
-        flyoutHooked = flyoutHooked or HookGlobal("EquipmentFlyout_UpdateItems", PaintFlyout)
+        if not flyoutHooked then
+            flyoutHooked = true
+            hooksecurefunc("EquipmentFlyout_UpdateItems", PaintFlyout)
+        end
         -- A set change also moves the set names the memo keeps
-        WatchSets(FLYOUT, flyoutHooked)
+        WatchSets(FLYOUT, true)
         -- The QoL flyout item level (EllesmereUIQoL.lua) steps aside
         ns.RefreshFlyoutItemLevels()
         RefreshFlyout()
@@ -446,7 +405,7 @@ local function PaintCharSlot(button)
     if not Unchanged(button, CHARSHEET, link, nil, slot, alpha) then
         PaintOwnItem(button, link, nil, slot, CHARSHEET, alpha)
     end
-    HideMarks(button, CHARSHEET)
+    HideNatives(button, CHARSHEET, button.Count)
 end
 
 local function RefreshCharSheet()
@@ -458,14 +417,15 @@ end
 
 II.RegisterFrame(CHARSHEET, {
     Enable = function()
-        if not charHooked and HookGlobal("PaperDollItemSlotButton_Update", PaintCharSlot) then
+        if not charHooked then
             charHooked = true
+            hooksecurefunc("PaperDollItemSlotButton_Update", PaintCharSlot)
             for i = 1, #SLOT_NAMES do
                 local button = _G["Character" .. SLOT_NAMES[i] .. "Slot"]
                 if button then charSlots[button] = true end
             end
         end
-        WatchContext(CHARSHEET, charHooked)
+        WatchContext(CHARSHEET, true)
         RefreshCharSheet()
     end,
     Refresh = RefreshCharSheet,
@@ -476,7 +436,6 @@ II.RegisterFrame(CHARSHEET, {
 --  Inspect sheet slots (Inspect<name>Slot, Blizzard_InspectUI)
 -------------------------------------------------------------------------------
 local inspectSlots = {}  -- slot button -> true
-local inspectHooked = false
 
 -- After InspectPaperDollItemSlotButton_Update. Another player's gear has no
 -- location the client can ask about; equipped, it is bound
@@ -492,19 +451,18 @@ local function PaintInspectSlot(button)
     else
         Clear(button)
     end
-    HideMarks(button, INSPECT)
+    HideNatives(button, INSPECT, button.Count)
 end
 
 local function RefreshInspect()
-    if not inspectHooked or not InspectFrame:IsShown() then return end
+    if not InspectFrame:IsShown() then return end
     for button in pairs(inspectSlots) do
         if button:IsVisible() then PaintInspectSlot(button) end
     end
 end
 
 II.RegisterLazyFrame(INSPECT, "Blizzard_InspectUI", function()
-    inspectHooked = HookGlobal("InspectPaperDollItemSlotButton_Update", PaintInspectSlot)
-    if not inspectHooked then return end
+    hooksecurefunc("InspectPaperDollItemSlotButton_Update", PaintInspectSlot)
     for i = 1, #SLOT_NAMES do
         local button = _G["Inspect" .. SLOT_NAMES[i] .. "Slot"]
         if button then inspectSlots[button] = true end

@@ -16,9 +16,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    IsFrameEnabled(frameKey)      true while that frame is managed (taken over)
 --    IsFrameAvailable(frameKey)    false for a frame the client lacks (no Great
 --                                  Vault on WoW Forever): it is never managed
---    IsElementAvailable(key)       false when no provider registered for the key
---                                  (transmog without the collection API) and for
---                                  a retail-only element on WoW Forever
+--    BlizzardBagsInUse()           true while Blizzard's bags and bank show, not
+--                                  EUI Bags': blizz_bags and blizz_bank are
+--                                  managed only then, eui_bags only otherwise
+--    IsElementAvailable(key)       false for a retail-only element on WoW Forever
 --    GetSettings()                 the validated settings; write through setters
 --    GetElementSlot(key)           slot key holding the element, or nil
 --    Subscribe(fn)                 fn(reason) after every change. reason:
@@ -36,7 +37,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --                          changed, or combat ended for buttons whose overlay
 --                          waited for it: repaint the shown buttons
 --      Disable(frameKey)   optional, on release. The core then clears every
---                          button painted for the frame and restores HideNative
+--                          button painted for the frame and restores the
+--                          marks HideNatives hid
 --    RegisterLazyFrame(frameKey, addonName, Install, Repaint) -> bool,
 --      RegisterFrame for a frame a Blizzard addon owns: Install() runs once, on
 --      the frame's first Enable, as soon as addonName has loaded (at once or
@@ -71,12 +73,20 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    WaitForItem(itemID, frameKey) an item whose ID is known but whose link is
 --                                  not yet (its data is not cached): asks for
 --                                  its data and refreshes frameKey when it comes
---    HideNative(region, frameKey)  alpha-hides a Blizzard region an element
---                                  replaces, while the frame is managed. Call it
---                                  on every paint, after Blizzard's own update:
---                                  ItemButtonMixin:SetAlpha sets the alpha of
---                                  Count, IconOverlay and icon again
---    RestoreNative(region)         gives back the alpha saved at its first hide
+--    HideNatives(button, frameKey, countRegion, questMark, starter)
+--      alpha-hides the Blizzard marks of button that elements replace, while
+--      the frame is managed, whether their element is placed or not: the stack
+--      count (countRegion, nil when the frame shows none), the crafting pip and
+--      the junk coin. questMark (optional): Blizzard's quest texture, hidden
+--      while starter (the item starts a quest; the questMarker element) and
+--      shown otherwise (the border of other quest items). Call it on every
+--      paint, after Blizzard's own update: ItemButtonMixin:SetAlpha sets the
+--      alpha of Count, IconOverlay and icon again
+--    RestoreNatives(button, countRegion, questMark)  gives them back, e.g. for
+--      a button showing no item (a currency keeps Blizzard's count)
+--    TooltipItemLink(data)         the item link of tooltip data (C_TooltipInfo),
+--                                  read as TooltipUtil.GetDisplayedItem reads it;
+--                                  nil when its GUID or hyperlink is secret
 --
 --    RegisterElement(key, def) -> bool, for a key of ELEMENTS. def:
 --      kind        "text" | "icon"
@@ -145,6 +155,23 @@ local function FrameAvailable(frameKey)
     return FRAME_SET[frameKey] == true and not (IS_FOREVER and RETAIL_FRAMES[frameKey])
 end
 
+-- Blizzard's bags and bank show unless EUI Bags replaces them: it is loaded
+-- and did not stand down for the session (WoW Forever's Gamepad interface
+-- style: EllesmereUI._BagsStandDown, EUI_Bags_Shared.lua)
+local function BlizzardBagsInUse()
+    local standDown = EllesmereUI._BagsStandDown
+    return not standDown or standDown()
+end
+
+-- The frames that show the player's bags, true for Blizzard's: one of them is
+-- managed only while it is the one showing them
+local BAG_FRAMES = { eui_bags = false, blizz_bags = true, blizz_bank = true }
+
+local function FrameInUse(frameKey)
+    local blizz = BAG_FRAMES[frameKey]
+    return blizz == nil or blizz == BlizzardBagsInUse()
+end
+
 -- Canonical track keys (EllesmereUI.GetUpgradeTrackKey)
 local TRACK_ORDER = { "Explorer", "Adventurer", "Veteran", "Champion", "Hero", "Myth" }
 
@@ -156,12 +183,9 @@ local function Element(sizes, style, retailOnly)
 end
 
 local trackStyle = { size = 14 }
-do
-    local colors = EllesmereUI.UPGRADE_TRACK_COLORS
-    for i = 1, #TRACK_ORDER do
-        local c = colors and colors[TRACK_ORDER[i]]
-        trackStyle[TRACK_ORDER[i]] = c and RGB(c.r, c.g, c.b) or RGB(1, 1, 1)
-    end
+for i = 1, #TRACK_ORDER do
+    local c = EllesmereUI.UPGRADE_TRACK_COLORS[TRACK_ORDER[i]]
+    trackStyle[TRACK_ORDER[i]] = RGB(c.r, c.g, c.b)
 end
 
 -- Style defaults; sizes follow the EUI Bags overlays. upgradeTrack keeps a color
@@ -293,10 +317,12 @@ end
 
 -- Once, before the first stored write (or on enable, for a profile stored
 -- unseeded): the layout follows the profile's Bags overlays and the vendor and
--- flyout item levels. Those settings are only read.
+-- flyout item levels, and the bags that show (EUI Bags or Blizzard's) are
+-- managed. Those settings are only read.
 local function Seed(s)
     local bags = EllesmereUI._bagsDB
     local p = bags and bags.profile or {}
+    local blizzBags = BlizzardBagsInUse()
     local slots = s.slots
     for i = 1, NUM_SLOTS do slots[SLOT_ORDER[i]] = {} end
     local ilvl = p.showItemlevelInBags ~= false
@@ -311,13 +337,17 @@ local function Seed(s)
     br[#br + 1] = "keystoneDungeon"
     bl[#bl + 1] = "questMarker"
     if p.bagDisplayBindType then bl[#bl + 1] = "bindType" end
-    -- The coin is a Junk Marker visual: off with the marker's switch
-    if p.bagShowJunkIcon ~= false and p.bagShowJunkCoin == true then bl[#bl + 1] = "junkCoin" end
+    -- Blizzard's bags have a junk coin (shown while a vendor is open): seeded for
+    -- them, the coin shows on every Poor item with a sell price. In EUI Bags it is
+    -- a Junk Marker visual, off with the marker's switch
+    if blizzBags or (p.bagShowJunkIcon ~= false and p.bagShowJunkCoin == true) then bl[#bl + 1] = "junkCoin" end
     if p.bagShowSetGearName == true then slots.bottom[1] = "setName" end
 
     local frames = s.frames
     for i = 1, #FRAME_ORDER do frames[FRAME_ORDER[i]] = false end
-    frames.eui_bags = true
+    -- EUI Bags covers the bank too
+    frames.eui_bags = not blizzBags
+    frames.blizz_bags, frames.blizz_bank = blizzBags, blizzBags
     frames.merchant = EllesmereUIDB.merchantShowItemLevel == true
     frames.flyout = EllesmereUIDB.flyoutItemLevels and true or false
 
@@ -376,10 +406,10 @@ local layout = {}        -- slot index -> defs in priority order
 local elementSlot = {}   -- element key -> slot key
 for i = 1, NUM_SLOTS do layout[i] = {} end
 
--- A provider registered for the key, and the client has what it shows
+-- The client has what the element shows
 local function Available(key)
     local e = ELEMENTS[key]
-    return e ~= nil and registry[key] ~= nil and not (IS_FOREVER and e.retailOnly)
+    return e ~= nil and not (IS_FOREVER and e.retailOnly)
 end
 
 local function RebuildLayout()
@@ -532,7 +562,7 @@ local function Apply(reason)
     local repaint = REPAINT[reason]
     for i = 1, #FRAME_ORDER do
         local key = FRAME_ORDER[i]
-        local want = s.enabled and s.frames[key] and FrameAvailable(key) or false
+        local want = s.enabled and s.frames[key] and FrameAvailable(key) and FrameInUse(key) or false
         local a = adapters[key]
         if want ~= (managed[key] or false) then
             managed[key] = want or nil
@@ -749,8 +779,8 @@ function II.WaitForItem(itemID, frameKey)
     Wait(itemID, frameKey)
 end
 
-function II.HideNative(region, frameKey)
-    if not region or not managed[frameKey] then return end
+local function HideNative(region, frameKey)
+    if not region then return end
     if nativeAlpha[region] == nil then
         local a = region:GetAlpha()
         nativeAlpha[region] = issecretvalue(a) and 1 or a
@@ -759,11 +789,35 @@ function II.HideNative(region, frameKey)
     region:SetAlpha(0)
 end
 
-function II.RestoreNative(region)
+local function RestoreNative(region)
     local a = region and nativeAlpha[region]
     if a == nil then return end
     nativeAlpha[region], nativeOwner[region] = nil, nil
     region:SetAlpha(a)
+end
+
+-- The one list of Blizzard marks the elements replace (stackCount, craftingQuality,
+-- junkCoin, questMarker)
+function II.HideNatives(button, frameKey, countRegion, questMark, starter)
+    if not managed[frameKey] then return end
+    HideNative(countRegion, frameKey)
+    HideNative(button.ProfessionQualityOverlay, frameKey)
+    HideNative(button.JunkIcon, frameKey)
+    if starter then HideNative(questMark, frameKey) else RestoreNative(questMark) end
+end
+
+function II.RestoreNatives(button, countRegion, questMark)
+    RestoreNative(countRegion)
+    RestoreNative(button.ProfessionQualityOverlay)
+    RestoreNative(button.JunkIcon)
+    RestoreNative(questMark)
+end
+
+function II.TooltipItemLink(data)
+    local guid, link = data.guid, data.hyperlink
+    if issecretvalue(guid) or issecretvalue(link) then return nil end
+    if guid then return C_Item.GetItemLinkByGUID(guid) end
+    return link
 end
 
 -------------------------------------------------------------------------------
@@ -821,6 +875,7 @@ function II.IsFrameEnabled(frameKey)
 end
 
 II.IsFrameAvailable = FrameAvailable
+II.BlizzardBagsInUse = BlizzardBagsInUse
 II.IsElementAvailable = Available
 
 II.GetSettings = GetSettings

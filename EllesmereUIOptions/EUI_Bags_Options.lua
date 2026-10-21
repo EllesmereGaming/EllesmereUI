@@ -17,8 +17,8 @@ local db = EllesmereUI._bagsDB
 -- parent it is the plain CreateFrame.
 local CreateFrame = EllesmereUI._Pool.CreateFrame
 
--- Quality of Life's Item Icons page: a link tab while QoL is loaded. While it
--- manages these bags it draws their overlays, so their rows below grey out.
+-- Quality of Life's Item Icons page: a link tab while Item Icons is on. While
+-- it manages these bags it draws their overlays, so their rows below grey out.
 local PAGE_ITEMICONS = "Item Icons"
 local ITEM_ICONS_TIP = EllesmereUI.ITEM_ICONS_MANAGED_TIP
 local function ItemIconsManaged() return EllesmereUI.ItemIconsManages("eui_bags") end
@@ -35,8 +35,15 @@ initFrame:SetScript("OnEvent", function(self)
 
     if not EllesmereUI or not EllesmereUI.RegisterModule then return end
 
+    -- The module's tabs are rebuilt from this list on every open, so the link
+    -- tab follows the Item Icons switch
     local pages = { "Bags", "Bank" }
-    if EllesmereUI._ModuleNS["EllesmereUIQoL"] then pages[#pages + 1] = PAGE_ITEMICONS end
+    local II = EllesmereUI.ItemIcons  -- absent while QoL is disabled
+    if II then
+        local function SyncLinkTab() pages[3] = II.IsEnabled() and PAGE_ITEMICONS or nil end
+        SyncLinkTab()
+        II.Subscribe(SyncLinkTab)
+    end
     EllesmereUI:RegisterModule("EllesmereUIBags", {
         title = "Bags",
         description = "Enhanced inventory system with sidebar categories, item levels, and quality borders.",

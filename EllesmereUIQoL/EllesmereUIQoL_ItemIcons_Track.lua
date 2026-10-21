@@ -46,14 +46,6 @@ local function PipOn() return II.IsEnabled() and II.GetSettings().tooltipTrackPi
 
 local function Byte(v) return math.floor(v * 255 + 0.5) end
 
--- The tooltip's item link, found as TooltipUtil.GetDisplayedItem finds it
-local function DisplayedLink(data)
-    local guid, link = data.guid, data.hyperlink
-    if issecretvalue(guid) or issecretvalue(link) then return nil end
-    if guid then return C_Item.GetItemLinkByGUID(guid) end
-    return link
-end
-
 -- Item post-call: rebuilds the "Upgrade Level" line from the item's upgrade
 -- info with the pip in front; the tooltip's own text is never read.
 -- lineData.lineIndex is the tooltip line the processor added for that data line.
@@ -76,7 +68,7 @@ local function AddTooltipPip(tooltip, data)
     local ok, width = pcall(tooltip.GetWidth, tooltip)
     if not ok or issecretvalue(width) or index > tooltip:NumLines() then return end
 
-    local link = DisplayedLink(data)
+    local link = II.TooltipItemLink(data)
     if type(link) ~= "string" or link == "" then return end
     local info = C_Item.GetItemUpgradeInfo(link)
     local key = info and EllesmereUI.UPGRADE_TRACK_KEYS[info.trackString or ""]

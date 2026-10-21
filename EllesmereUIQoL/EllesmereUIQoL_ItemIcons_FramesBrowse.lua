@@ -13,7 +13,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 local II = EllesmereUI.ItemIcons
-local Paint, Clear, HideNative, IsManaged = II.Paint, II.Clear, II.HideNative, II.IsFrameEnabled
+local Paint, Clear, HideNatives, IsManaged = II.Paint, II.Clear, II.HideNatives, II.IsFrameEnabled
 local GetItemInfo = C_Item.GetItemInfo
 
 local ctx, facts = {}, {}   -- reused for every paint; the core reads them during Paint only
@@ -132,8 +132,7 @@ local function PaintDisplay(display)
     end
     ctx.count = display:GetItemCount()
     Paint(button, ctx, AH)
-    HideNative(button.Count, AH)
-    HideNative(button.ProfessionQualityOverlay, AH)
+    HideNatives(button, AH, button.Count)
 end
 
 local function InstallAH()
@@ -185,8 +184,7 @@ local function PaintMarketItem(button, link, quantity, quality)
     end
     ctx.link, ctx.count, ctx.quality = link, quantity, quality
     Paint(button, ctx, BM)
-    HideNative(button.Count, BM)
-    HideNative(button.ProfessionQualityOverlay, BM)
+    HideNatives(button, BM, button.Count)
 end
 
 -- The returns BlackMarketItemMixin:Init reads
@@ -246,7 +244,7 @@ local function PaintLootRow(row, elementData)
     end
     ctx.link, ctx.itemID, ctx.anchor = link, info.itemID, row.icon
     Paint(row, ctx, EJ)
-    HideNative(row.ProfessionQualityOverlay, EJ)
+    HideNatives(row, EJ)
 end
 
 -- Init runs from the list's initializer and again when an item's data arrives
@@ -303,7 +301,7 @@ local function PaintVaultItem(itemFrame)
     end
     ctx.link, ctx.anchor = link, itemFrame.Icon
     Paint(itemFrame, ctx, GV)
-    HideNative(itemFrame.ProfessionQualityOverlay, GV)
+    HideNatives(itemFrame, GV)
 end
 
 -- The reward chosen in the confirmation popup (WeeklyRewardConfirmSelectionMixin)
@@ -319,8 +317,7 @@ local function PaintVaultConfirm(confirm)
     end
     ctx.link, ctx.anchor, ctx.count = link, button.Icon, GetItemButtonCount(button)
     Paint(button, ctx, GV)
-    HideNative(button.Count, GV)
-    HideNative(button.ProfessionQualityOverlay, GV)
+    HideNatives(button, GV, button.Count)
 end
 
 -- The popup is built by the first SelectReward; true when newly hooked
@@ -435,7 +432,7 @@ local function PaintOutput(icon, link)
     end
     ctx.link = link
     Paint(icon, ctx, key)
-    HideNative(icon.ProfessionQualityOverlay, key)
+    HideNatives(icon, key)
 end
 
 -- Paints an item button from ctx; Count shows the stack (count, else the
@@ -443,8 +440,7 @@ end
 local function PaintItemButton(button, key, count)
     ctx.count = count or button:GetItemButtonCount()
     Paint(button, ctx, key)
-    HideNative(button.Count, key)
-    HideNative(button.ProfessionQualityOverlay, key)
+    HideNatives(button, key, button.Count)
 end
 
 -- A slot's item into ctx; false while it is empty, loading or holds a
@@ -501,7 +497,7 @@ local function PaintRecraft(button, item)
         ctx.facts = facts
     end
     Paint(button, ctx, key)
-    HideNative(button.ProfessionQualityOverlay, key)
+    HideNatives(button, key)
 end
 
 -- crafted: the output slot holds the real crafted item (a finished order,
