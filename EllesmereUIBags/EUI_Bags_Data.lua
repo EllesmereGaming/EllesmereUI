@@ -651,12 +651,12 @@ UpdatePawnArrow = function(btn, itemLink)
     end
     btn.UpgradeIcon:Hide()
 
-    if not itemLink or not PawnCommon or not PawnCommon.ShowBagUpgradeAdvisor then
+    if not itemLink then
         pawnPending[btn] = nil
         return
     end
 
-    local isUpgrade = PawnShouldItemLinkHaveUpgradeArrow(itemLink, true)
+    local isUpgrade = EUI.PawnBagUpgrade(itemLink)
     if isUpgrade == nil then
         pawnPending[btn] = itemLink
         if not pawnRetryScheduled then

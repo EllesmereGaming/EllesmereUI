@@ -8,7 +8,6 @@ local EUI = EllesmereUI
 local ns = select(2, ...)  -- helpers shared with EllesmereUIBags.lua and the EUI_Bags_*.lua files (loaded first)
 local GetItemInfo = C_Item.GetItemInfo
 local GetItemInfoInstant = C_Item.GetItemInfoInstant
-local GetItemQualityColor = C_Item.GetItemQualityColor
 -- Profile access helper (DB created in EUI_Bags_Options.lua, loaded first per TOC)
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
@@ -2615,23 +2614,15 @@ function EUI_Bank:RefreshBank()
             if btn.ItemLevelText then
                 if showIlvl then
                     btn.ItemLevelText:SetText(giIlvl or "")
-                    local r, g, b
+                    local custom, track
                     if GetUpgradeTrack then
-                        local rankText, trackColor = GetUpgradeTrack(itemLink)
-                        if BP().itemlevelUseCustomColor and BP().itemlevelCustomColor then
-                            r, g, b = BP().itemlevelCustomColor.r, BP().itemlevelCustomColor.g, BP().itemlevelCustomColor.b
-                        elseif rankText and rankText ~= "" and trackColor then
-                            r, g, b = trackColor.r, trackColor.g, trackColor.b
-                        else
-                            local craftedColor = EUI.GetCraftedTrackColor(itemLink)
-                            if craftedColor then
-                                r, g, b = craftedColor.r, craftedColor.g, craftedColor.b
-                            end
+                        custom = BP().itemlevelUseCustomColor and BP().itemlevelCustomColor
+                        if not custom then
+                            local rankText, trackColor = GetUpgradeTrack(itemLink)
+                            track = rankText and rankText ~= "" and trackColor or EUI.GetCraftedTrackColor(itemLink)
                         end
                     end
-                    if not r then
-                        r, g, b = GetItemQualityColor(quality)
-                    end
+                    local r, g, b = EUI.ItemLevelRGB(custom, track, quality)
                     btn.ItemLevelText:SetTextColor(r, g, b, 1)
                 else
                     btn.ItemLevelText:SetText("")

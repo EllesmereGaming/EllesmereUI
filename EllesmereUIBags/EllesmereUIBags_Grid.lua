@@ -15,7 +15,6 @@ local EUI = EllesmereUI
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
 local GetItemInfo = C_Item.GetItemInfo
-local GetItemQualityColor = C_Item.GetItemQualityColor
 
 local SLOT_SIZE, SPACING = ns.SLOT_SIZE, ns.SPACING
 local itemSlots = ns.itemSlots
@@ -142,11 +141,13 @@ local function PaintJunkState(btn, info, markerJunk)
     if markerJunk and p.bagShowJunkCoin == true and not iiOn then
         local coin = btn._junkCoin
         if not coin then
+            local badge = EUI.JUNK_BADGE
+            local c = badge.texCoord
             coin = btn:CreateTexture(nil, "OVERLAY", nil, 6)
-            coin:SetTexture(ns.JUNK_COIN)
-            coin:SetTexCoord(0.12, 0.88, 0.12, 0.88)
+            coin:SetTexture(badge.texture)
+            coin:SetTexCoord(c[1], c[2], c[3], c[4])
             local mask = btn:CreateMaskTexture()
-            mask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            mask:SetTexture(badge.mask, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
             mask:SetAllPoints(coin)
             coin:AddMaskTexture(mask)
             coin:SetSize(12, 12)
@@ -275,16 +276,9 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
                 if showIlvl then
                     btn.ItemLevelText:SetText(data._giIlvl or "")
                     -- Track color + rank (pre-cached on data table)
-                    local r, g, b
                     local rankText = data._giTrackRank or ""
-                    local trackColor = data._giTrackColor
-                    if BP().itemlevelUseCustomColor and BP().itemlevelCustomColor then
-                        r, g, b = BP().itemlevelCustomColor.r, BP().itemlevelCustomColor.g, BP().itemlevelCustomColor.b
-                    elseif trackColor then
-                        r, g, b = trackColor.r, trackColor.g, trackColor.b
-                    else
-                        r, g, b = GetItemQualityColor(data._giQuality or 1)
-                    end
+                    local r, g, b = EUI.ItemLevelRGB(BP().itemlevelUseCustomColor and BP().itemlevelCustomColor,
+                        data._giTrackColor, data._giQuality or 1)
                     btn.ItemLevelText:SetTextColor(r, g, b, 1)
                     local countFS = btn.Count
                     if countFS and BP().bagShowTrackRank and rankText ~= "" then

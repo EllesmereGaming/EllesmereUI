@@ -403,19 +403,14 @@ EUI_Bags.RefreshIconZoom = RefreshIconZoom
 -------------------------------------------------------------------------------
 --  Bind type text (shared by bags and bank render paths)
 -------------------------------------------------------------------------------
--- WuE items report bindType == OnEquip (no dedicated enum): check WuE first.
+-- The label and color of EllesmereUI.BindLabel; empty for any other bind type
 function EUI_Bags.SetBindTypeText(fs, isWuE, bindType, quality)
-    local c
-    if isWuE then
-        c = ITEM_QUALITY_COLORS[7] -- Heirloom color (no quality enum for WuE)
-        fs:SetText(EllesmereUI.L("WuE"))
-    elseif bindType == Enum.ItemBind.OnEquip then
-        c = ITEM_QUALITY_COLORS[quality]
-        fs:SetText(EllesmereUI.L("BoE"))
-    else
+    local text, c = EUI.BindLabel(isWuE, bindType, quality)
+    if not text then
         fs:SetText("")
         return
     end
+    fs:SetText(text)
     if c then fs:SetTextColor(c.r, c.g, c.b) else fs:SetTextColor(1, 1, 1) end
 end
 

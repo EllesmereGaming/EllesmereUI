@@ -13,7 +13,6 @@ if not I or I.broken then return end
 I.broken = true
 
 local GetItemInfo = C_Item.GetItemInfo
-local GetItemQualityColor = C_Item.GetItemQualityColor
 local EUI = EllesmereUI
 local GetUpgradeTrack = EUI.GetUpgradeTrack
 local AbbrevDungeon = EUI.AbbrevDungeon
@@ -621,15 +620,13 @@ function EUI_Bags:RefreshInventory()
                         end
                     end
                     -- Keystone data (rare, fast string match gates the API calls)
-                    if info.itemID == 180653 or itemLink:find("keystone:", 1, true) then
-                        local ksMap, ksLvl = itemLink:match("keystone:[^:]*:(%d+):(%d+)")
-                        if ksLvl then
-                            d._ksLevel = ksLvl
-                            d._ksAbbrev = AbbrevDungeon(tonumber(ksMap))
-                            local ok, color = pcall(C_ChallengeMode.GetKeystoneLevelRarityColor, tonumber(ksLvl))
-                            if ok and color then
-                                d._ksR = color.r; d._ksG = color.g; d._ksB = color.b
-                            end
+                    local ksLvl, ksMap = EUI.ParseKeystoneLink(itemLink)
+                    if ksLvl then
+                        d._ksLevel = ksLvl
+                        d._ksAbbrev = AbbrevDungeon(ksMap)
+                        local ok, color = pcall(C_ChallengeMode.GetKeystoneLevelRarityColor, ksLvl)
+                        if ok and color then
+                            d._ksR = color.r; d._ksG = color.g; d._ksB = color.b
                         end
                     end
                     -- Cooldown (any item can have a cooldown: trinkets, consumables, toys, etc.)
@@ -1034,12 +1031,8 @@ function EUI_BagsReagent:RefreshInventory()
                             local fs = BP().itemlevelFontSize or 12
                             btn.ItemLevelText:SetFont(STANDARD_TEXT_FONT, fs, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
                             btn.ItemLevelText:SetText(level or "")
-                            local r, g, b
-                            if BP().itemlevelUseCustomColor and BP().itemlevelCustomColor then
-                                r, g, b = BP().itemlevelCustomColor.r, BP().itemlevelCustomColor.g, BP().itemlevelCustomColor.b
-                            else
-                                r, g, b = GetItemQualityColor(quality or 1)
-                            end
+                            local r, g, b = EUI.ItemLevelRGB(BP().itemlevelUseCustomColor and BP().itemlevelCustomColor,
+                                nil, quality or 1)
                             btn.ItemLevelText:SetTextColor(r, g, b, 1)
                         else btn.ItemLevelText:SetText("") end
                     else btn.ItemLevelText:SetText("") end
