@@ -5073,10 +5073,12 @@ end
 --  live, so the toggle applies to the next flyout with no reload. Toggle: EllesmereUIDB.flyoutItemLevels (Quality of Life -> UI).
 --  EllesmereUIDB.flyoutItemStats adds the stat letters (EllesmereUI.GetItemStatLetters)
 --  centred along the bottom edge; flyoutItemStatsTertiary == true adds Leech/Avoidance/Speed.
+--  The item level steps aside while Item Icons manages the flyout, which then draws it.
 -------------------------------------------------------------------------------
 do
     local function FlyoutEnabled()
         return EllesmereUIDB and EllesmereUIDB.flyoutItemLevels
+            and not EllesmereUI.ItemIcons.IsFrameEnabled("flyout")
     end
 
     -- Item level + quality + link from a decoded bag/slot pair. Prefers the ItemLocation API (exact, no caching); falls back to the item link.
@@ -5194,16 +5196,21 @@ do
         if fs then return EllesmereUI.PaintStatLetters(fs, ter, link, withTertiary, button) end
     end
 
-    -- The item link at a flyout button, read with no tables built: the
-    -- button's ItemLocation, else its numeric location decoded with the bit
-    -- layout EquipmentManager_GetLocationData uses. Nil for an empty or special
-    -- location.
+    -- The item at a flyout button, read with no tables built: its link and
+    -- where it is, a container slot (bag, slot) or an equipment slot (nil,
+    -- slot). The button's ItemLocation, else its numeric location decoded with
+    -- the bit layout EquipmentManager_GetLocationData uses. Nil for an empty or
+    -- special location. Item Icons reads it too (ns.FlyoutButtonItem).
     local band, rshift, lshift = bit.band, bit.rshift, bit.lshift
-    local function ButtonLink(button, useItemLocation)
+    local function FlyoutButtonItem(button, useItemLocation)
         if useItemLocation and button.GetItemLocation then
             local ok, loc = pcall(button.GetItemLocation, button)
             if ok and loc and loc.IsValid and loc:IsValid() and C_Item.DoesItemExist(loc) then
-                return C_Item.GetItemLink(loc)
+                if loc:IsBagAndSlot() then
+                    local bag, slot = loc:GetBagAndSlot()
+                    return C_Item.GetItemLink(loc), bag, slot
+                end
+                return C_Item.GetItemLink(loc), nil, loc:GetEquipmentSlot()
             end
         end
         local location = button.location
@@ -5224,10 +5231,11 @@ do
             local bag = rshift(slot, ITEM_INVENTORY_BAG_BIT_OFFSET)
             slot = slot - lshift(bag, ITEM_INVENTORY_BAG_BIT_OFFSET)
             if isBank then bag = bag + ITEM_INVENTORY_BANK_BAG_OFFSET end
-            return C_Container.GetContainerItemLink(bag, slot)
+            return C_Container.GetContainerItemLink(bag, slot), bag, slot
         end
-        return GetInventoryItemLink("player", slot)
+        return GetInventoryItemLink("player", slot), nil, slot
     end
+    ns.FlyoutButtonItem = FlyoutButtonItem
 
     -- What each button shows (weak-keyed, off the button like its texts): the
     -- link and the settings it was painted for. Blizzard runs the whole flyout
@@ -5244,7 +5252,7 @@ do
         local withTertiary = EllesmereUIDB and EllesmereUIDB.flyoutItemStatsTertiary == true or false
         local link
         if (showIlvl or showStats) and button:IsShown() then
-            link = ButtonLink(button, useItemLocation)
+            link = FlyoutButtonItem(button, useItemLocation)
         end
         local m = _flyoutPaint[button]
         if m and not m.pending and m.link == link and m.ilvl == showIlvl
@@ -5300,6 +5308,8 @@ do
             PaintButton(button, useItemLocation)
         end
     end
+    -- Item Icons' flyout adapter repaints with it as it takes over and lets go
+    ns.RefreshFlyoutItemLevels = RefreshFlyoutItemLevels
 
     local function InstallHook()
         if not EquipmentFlyout_UpdateItems then return end
