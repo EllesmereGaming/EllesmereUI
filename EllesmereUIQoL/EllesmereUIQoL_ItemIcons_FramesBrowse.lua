@@ -46,10 +46,11 @@ local function AppearanceSource(appearanceLink)
 end
 
 -- Fills ctx for an item key. link: the auction's own link when it has one;
--- appearanceLink: its browse result's. False for a battle pet (no item link)
--- or while the key's data loads.
-local function SetKeyCtx(itemKey, link, appearanceLink)
-    local info = C_AuctionHouse.GetItemKeyInfo(itemKey)
+-- appearanceLink: its browse result's; restrictQuality: the results cell's
+-- quality filter, so the quality is the one the row shows. False for a battle
+-- pet (no item link) or while the key's data loads.
+local function SetKeyCtx(itemKey, link, appearanceLink, restrictQuality)
+    local info = C_AuctionHouse.GetItemKeyInfo(itemKey, restrictQuality)
     if not info or info.isPet then return false end
     if not link then
         link = KeyLink(itemKey.itemID)
@@ -76,7 +77,8 @@ local function PaintCell(cell)
     if not IsManaged(AH) then return end
     local row = cell.rowData
     wipe(ctx)
-    if not (row and row.itemKey and SetKeyCtx(row.itemKey, row.itemLink, row.appearanceLink)) then
+    if not (row and row.itemKey
+        and SetKeyCtx(row.itemKey, row.itemLink, row.appearanceLink, cell.restrictQualityToFilter)) then
         Clear(cell)
         return
     end
