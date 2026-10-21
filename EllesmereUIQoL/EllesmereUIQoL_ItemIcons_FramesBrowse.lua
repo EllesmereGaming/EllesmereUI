@@ -6,10 +6,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  customer orders. Most of their items have no bag location, so the marks
 --  come from the item link; the bag items (the auction house sell slot,
 --  crafting slots and choices) pass their location too. A frame's hooks
---  install once, the first time it is managed with its Blizzard addon loaded,
---  and stay inert while it is released. List rows paint as their ScrollBox
---  initializes them, so only visible rows do work. The adapter contract:
---  EllesmereUIQoL_ItemIcons.lua.
+--  install once, the first time it is managed with its Blizzard addon loaded
+--  (II.RegisterLazyFrame), and stay inert while it is released. List rows
+--  paint as their ScrollBox initializes them, so only visible rows do work.
+--  The adapter contract: EllesmereUIQoL_ItemIcons.lua.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 local II = EllesmereUI.ItemIcons
@@ -19,31 +19,6 @@ local GetItemInfo = C_Item.GetItemInfo
 local ctx, facts = {}, {}   -- reused for every paint; the core reads them during Paint only
 local OWNER = {}            -- owner of the ScrollBox callbacks
 
--- Registers frameKey's adapter. Install runs once, when the frame is first
--- managed and addon has loaded (at once, or when it loads); Repaint paints the
--- frame's shown buttons.
-local function Adapter(frameKey, addon, Install, Repaint)
-    local installed, waiting = false, false
-    local function Ready()
-        Install()
-        installed = true
-        if IsManaged(frameKey) then Repaint() end
-    end
-    II.RegisterFrame(frameKey, {
-        Enable = function()
-            if installed then
-                Repaint()
-            elseif not waiting then
-                waiting = true
-                EventUtil.ContinueOnAddOnLoaded(addon, Ready)
-            end
-        end,
-        Refresh = function()
-            if installed then Repaint() end
-        end,
-    })
-end
-
 -------------------------------------------------------------------------------
 --  Auction house: results rows (browse, your auctions, your bids) and the
 --  item displays of the buy, sell and auctions panels
@@ -52,20 +27,13 @@ local AH = "auctionhouse"
 local BUTTON_SIZE = 37                               -- the item button the mark sizes are set for
 local ahCells = setmetatable({}, { __mode = "k" })  -- item-name cells already hooked
 local ahLists, ahDisplays                            -- set on install
-local awaiting = {}                                  -- item IDs whose link is loading
 
 -- An item key's link: Blizzard links one by its item ID
 -- (AuctionHouseBrowseResultsFrameMixin:OnBrowseResultSelected). Until the item's
 -- data has loaded there is none; the frame repaints when it arrives.
 local function KeyLink(itemID)
     local _, link = GetItemInfo(itemID)
-    if not link and not awaiting[itemID] then
-        awaiting[itemID] = true
-        Item:CreateFromItemID(itemID):ContinueOnItemLoad(function()
-            awaiting[itemID] = nil
-            II.RequestRefresh(AH)
-        end)
-    end
+    if not link then II.WaitForItem(itemID, AH) end
     return link
 end
 
@@ -202,7 +170,7 @@ local function RepaintAH()
     end
 end
 
-Adapter(AH, "Blizzard_AuctionHouseUI", InstallAH, RepaintAH)
+II.RegisterLazyFrame(AH, "Blizzard_AuctionHouseUI", InstallAH, RepaintAH)
 
 -------------------------------------------------------------------------------
 --  Black market: list rows and the hot deal
@@ -258,7 +226,7 @@ local function RepaintBM()
     if f.HotDeal:IsShown() then PaintHotDeal() end
 end
 
-Adapter(BM, "Blizzard_BlackMarketUI", InstallBM, RepaintBM)
+II.RegisterLazyFrame(BM, "Blizzard_BlackMarketUI", InstallBM, RepaintBM)
 
 -------------------------------------------------------------------------------
 --  Adventure Guide: the encounter loot list
@@ -315,7 +283,7 @@ local function InstallEJ()
     end)
 end
 
-Adapter(EJ, "Blizzard_EncounterJournal", InstallEJ, RepaintEJ)
+II.RegisterLazyFrame(EJ, "Blizzard_EncounterJournal", InstallEJ, RepaintEJ)
 
 -------------------------------------------------------------------------------
 --  Great Vault: each activity's reward and the claim confirmation
@@ -391,7 +359,7 @@ local function RepaintVault()
     end
 end
 
-Adapter(GV, "Blizzard_WeeklyRewards", InstallVault, RepaintVault)
+II.RegisterLazyFrame(GV, "Blizzard_WeeklyRewards", InstallVault, RepaintVault)
 
 -------------------------------------------------------------------------------
 --  Profession crafting and customer orders: recipe outputs, reagent, salvage,
@@ -716,7 +684,7 @@ local function RepaintOrders()
     RepaintFlyouts(ORDERS)
 end
 
-Adapter(PROF, "Blizzard_Professions", function()
+II.RegisterLazyFrame(PROF, "Blizzard_Professions", function()
     windows[ProfessionsFrame] = PROF
     windows[InspectRecipeFrame] = PROF
     HookTemplates()
@@ -734,7 +702,7 @@ Adapter(PROF, "Blizzard_Professions", function()
     end
 end, RepaintProfessions)
 
-Adapter(ORDERS, "Blizzard_ProfessionsCustomerOrders", function()
+II.RegisterLazyFrame(ORDERS, "Blizzard_ProfessionsCustomerOrders", function()
     windows[ProfessionsCustomerOrdersFrame] = ORDERS
     HookTemplates()
     HookRecraft(ProfessionsCustomerOrdersFrame.Form.RecraftSlot)

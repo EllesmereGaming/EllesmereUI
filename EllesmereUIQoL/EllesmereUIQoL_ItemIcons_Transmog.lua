@@ -54,12 +54,19 @@ local function Forget()
     memoN = 0
 end
 
-ev:SetScript("OnEvent", function(self, event, sourceID)
+-- WoW Forever is not proven in game: an event the client does not know is
+-- never registered, so it cannot raise an error
+local function Watch(event, on)
+    if not C_EventUtils.IsEventValid(event) then return end
+    if on then ev:RegisterEvent(event) else ev:UnregisterEvent(event) end
+end
+
+ev:SetScript("OnEvent", function(_, event, sourceID)
     if event == ITEM_UPDATE or event == COLLECTABILITY_UPDATE then
         if next(waiting) then
-            self:UnregisterEvent(ITEM_UPDATE)
+            Watch(ITEM_UPDATE, false)
             -- Kept while active: it also updates memoized states
-            if not active then self:UnregisterEvent(COLLECTABILITY_UPDATE) end
+            if not active then Watch(COLLECTABILITY_UPDATE, false) end
             for frameKey in pairs(waiting) do II.RequestRefresh(frameKey) end
             wipe(waiting)
         end
@@ -98,8 +105,8 @@ end
 -- The item's transmog data is loading: its frame repaints once it arrives
 local function Wait(frameKey)
     if not next(waiting) then
-        ev:RegisterEvent(ITEM_UPDATE)
-        ev:RegisterEvent(COLLECTABILITY_UPDATE)
+        Watch(ITEM_UPDATE, true)
+        Watch(COLLECTABILITY_UPDATE, true)
     end
     waiting[frameKey] = true
 end
@@ -176,7 +183,7 @@ II.Subscribe(function()
     if want == active then return end
     active = want
     if want then
-        for i = 1, #ACTIVE_EVENTS do ev:RegisterEvent(ACTIVE_EVENTS[i]) end
+        for i = 1, #ACTIVE_EVENTS do Watch(ACTIVE_EVENTS[i], true) end
     else
         ev:UnregisterAllEvents()
         Forget()

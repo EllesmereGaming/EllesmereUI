@@ -7,17 +7,15 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  after Blizzard's own update of its buttons, from the item link and the
 --  window's count, and hides the Blizzard count and crafting pip the layout
 --  replaces. Hooks go in on a frame's first Enable, once the Blizzard addon
---  that owns it has loaded, and return at once while the frame is released.
---  Contracts: EllesmereUIQoL_ItemIcons.lua.
+--  that owns it has loaded (II.RegisterLazyFrame), and return at once while
+--  the frame is released. An item whose ID is known before its link fills in
+--  when its data arrives (II.WaitForItem). Contracts:
+--  EllesmereUIQoL_ItemIcons.lua.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 local II = EllesmereUI.ItemIcons
 local Paint, Clear, HideNative, RestoreNative = II.Paint, II.Clear, II.HideNative, II.RestoreNative
-local IsManaged = II.IsFrameEnabled
-
--- Blizzard's search filter lays black at 0.8 alpha over the items it dims
--- (ItemButtonMixin:UpdateItemContextOverlayTextures): the marks dim to match
-local FILTERED_ALPHA = 0.2
+local IsManaged, WaitForItem = II.IsFrameEnabled, II.WaitForItem
 
 local ctx = {}
 local lootFacts, tradeFacts = {}, {}
@@ -43,32 +41,6 @@ local function Show(button, frameKey, count)
     end
 end
 
--- Install runs once, on the frame's first Enable, when the Blizzard addon
--- that owns the frame has loaded. Repaint draws the shown buttons; Release
--- (optional) runs when the frame is released
-local function Adapter(frameKey, addon, Install, Repaint, Release)
-    local requested, ready = false, false
-    local function Refresh()
-        if ready then Repaint() end
-    end
-    II.RegisterFrame(frameKey, {
-        Enable = function()
-            if requested then
-                Refresh()
-                return
-            end
-            requested = true
-            EventUtil.ContinueOnAddOnLoaded(addon, function()
-                Install()
-                ready = true
-                Refresh()
-            end)
-        end,
-        Refresh = Refresh,
-        Disable = Release,
-    })
-end
-
 -------------------------------------------------------------------------------
 --  Guild bank (load on demand). GuildBankFrame:Update fills the shown tab,
 --  UpdateFiltered redoes the search dimming
@@ -85,12 +57,12 @@ local function PaintGuildBank()
         local slot = button:GetID()
         local _, count, _, filtered = GetGuildBankItemInfo(tab, slot)
         SetItem(GetGuildBankItemLink(tab, slot), count)
-        if filtered then ctx.alpha = FILTERED_ALPHA end
+        if filtered then ctx.alpha = II.DIM_ALPHA end
         Show(button, "guildbank", button.Count)
     end
 end
 
-Adapter("guildbank", "Blizzard_GuildBankUI", function()
+II.RegisterLazyFrame("guildbank", "Blizzard_GuildBankUI", function()
     local f = GuildBankFrame
     for _, column in ipairs(f.Columns) do
         for _, button in ipairs(column.Buttons) do bankButtons[#bankButtons + 1] = button end
@@ -130,7 +102,7 @@ local function PaintLoot()
     if IsManaged("loot") and LootFrame:IsShown() then LootFrame.ScrollBox:ForEachFrame(PaintLootRow) end
 end
 
-Adapter("loot", "Blizzard_UIPanels_Game", function()
+II.RegisterLazyFrame("loot", "Blizzard_UIPanels_Game", function()
     ScrollUtil.AddInitializedFrameCallback(LootFrame.ScrollBox, function(_, row)
         if IsManaged("loot") then PaintLootRow(row) end
     end)
@@ -167,7 +139,7 @@ local function PaintRolls()
     if gamepadRolls and gamepadRolls:IsShown() then gamepadRolls.ScrollBox:ForEachFrame(PaintRoll) end
 end
 
-Adapter("grouploot", "Blizzard_UIPanels_Game", function()
+II.RegisterLazyFrame("grouploot", "Blizzard_UIPanels_Game", function()
     local i, frame = 1, _G.GroupLootFrame1
     while frame do
         rollFrames[i] = frame
@@ -208,8 +180,11 @@ local function PaintOpenMail()
     for i = 1, ATTACHMENTS_MAX_RECEIVE do
         local link, count
         if mail and mail > 0 and HasInboxItem(mail, i) then
-            local _, _, _, n, _, _, isCurrency = GetInboxItem(mail, i)
-            if not isCurrency then link, count = GetInboxItemLink(mail, i), n end
+            local _, id, _, n, _, _, isCurrency = GetInboxItem(mail, i)
+            if not isCurrency then
+                link, count = GetInboxItemLink(mail, i), n
+                if not link then WaitForItem(id, "mail") end
+            end
         end
         SetItem(link, count)
         local button = buttons[i]
@@ -245,7 +220,7 @@ local function PaintMail()
     if SendMailFrame:IsVisible() then PaintSendMail() end
 end
 
-Adapter("mail", "Blizzard_MailFrame", function()
+II.RegisterLazyFrame("mail", "Blizzard_MailFrame", function()
     for i = 1, INBOXITEMS_TO_DISPLAY do
         inboxButtons[i] = _G["MailItem" .. i .. "Button"]
         inboxCounts[i] = _G["MailItem" .. i .. "ButtonCount"]
@@ -271,8 +246,10 @@ local playerTrade, targetTrade = {}, {}
 
 local function PaintTradePlayer(id)
     if not IsManaged("trade") then return end
-    local _, _, count, _, _, _, isBound = GetTradePlayerItemInfo(id)
-    SetItem(GetTradePlayerItemLink(id), count)
+    local _, _, count, _, _, _, isBound, itemID = GetTradePlayerItemInfo(id)
+    local link = GetTradePlayerItemLink(id)
+    if not link then WaitForItem(itemID, "trade") end
+    SetItem(link, count)
     tradeFacts.isBound = isBound
     ctx.facts = tradeFacts
     local button = playerTrade[id]
@@ -281,8 +258,10 @@ end
 
 local function PaintTradeTarget(id)
     if not IsManaged("trade") then return end
-    local _, _, count = GetTradeTargetItemInfo(id)
-    SetItem(GetTradeTargetItemLink(id), count)
+    local _, _, count, _, _, _, itemID = GetTradeTargetItemInfo(id)
+    local link = GetTradeTargetItemLink(id)
+    if not link then WaitForItem(itemID, "trade") end
+    SetItem(link, count)
     -- The API has no bound state for the other side: an offered item counts
     -- as unbound, as Blizzard draws it; the slot that is not traded may hold
     -- a bound one
@@ -302,7 +281,7 @@ local function PaintTrade()
     end
 end
 
-Adapter("trade", "Blizzard_UIPanels_Game", function()
+II.RegisterLazyFrame("trade", "Blizzard_UIPanels_Game", function()
     for i = 1, MAX_TRADE_ITEMS do
         playerTrade[i] = _G["TradePlayerItem" .. i .. "ItemButton"]
         targetTrade[i] = _G["TradeRecipientItem" .. i .. "ItemButton"]
@@ -316,12 +295,13 @@ end, PaintTrade)
 --  QuestInfo_Display hold their own reference to QuestInfo_ShowRewards, so
 --  Display is hooked as well as the global (QUEST_ITEM_UPDATE calls that)
 -------------------------------------------------------------------------------
--- Inert until a shown reward has no link yet (its item data is not cached)
-local waiter = CreateFrame("Frame")
-waiter:SetScript("OnEvent", function(self)
-    self:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
-    II.RequestRefresh("questrewards")
-end)
+-- A reward item's ID, read as QuestInfo_ShowRewardAsItemCommon reads it
+local function RewardItemID(button, questLog)
+    local id = button:GetID()
+    if not questLog then return (select(6, GetQuestItemInfo(button.type, id))) end
+    if button.type == "choice" then return (select(6, GetQuestLogChoiceInfo(id))) end
+    return (select(6, GetQuestLogRewardInfo(id)))
+end
 
 local function PaintRewards()
     if not IsManaged("questrewards") then return end
@@ -338,7 +318,9 @@ local function PaintRewards()
                 else
                     link = GetQuestItemLink(button.type, button:GetID())
                 end
-                if not link then waiter:RegisterEvent("GET_ITEM_INFO_RECEIVED") end
+                -- Not cached yet: Blizzard sets the button again once it loads,
+                -- without a call the hooks see
+                if not link then WaitForItem(RewardItemID(button, questLog), "questrewards") end
             end
             -- The count Blizzard set once the item's data loaded
             SetItem(link, GetItemButtonCount(button))
@@ -360,9 +342,7 @@ local function RefreshRewards()
     if rewards and rewards:IsVisible() then PaintRewards() end
 end
 
-Adapter("questrewards", "Blizzard_UIPanels_Game", function()
+II.RegisterLazyFrame("questrewards", "Blizzard_UIPanels_Game", function()
     hooksecurefunc("QuestInfo_Display", OnQuestInfoDisplay)
     hooksecurefunc("QuestInfo_ShowRewards", PaintRewards)
-end, RefreshRewards, function()
-    waiter:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
-end)
+end, RefreshRewards)

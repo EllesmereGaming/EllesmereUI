@@ -10,10 +10,15 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  API: EllesmereUI.ItemIcons. Every table it hands out is read-only.
 --    SLOT_ORDER, ELEMENT_ORDER, FRAME_ORDER, TRACK_ORDER   keys in menu order
 --    ELEMENTS[key] = { sizeMin, sizeMax, retailOnly, style = defaults }
+--    DIM_ALPHA     ctx.alpha for the marks of an item Blizzard dims
 --
 --    IsEnabled()                   master switch, as applied
 --    IsFrameEnabled(frameKey)      true while that frame is managed (taken over)
---    IsElementAvailable(key)       false for a retail-only element on WoW Forever
+--    IsFrameAvailable(frameKey)    false for a frame the client lacks (no Great
+--                                  Vault on WoW Forever): it is never managed
+--    IsElementAvailable(key)       false when no provider registered for the key
+--                                  (transmog without the collection API) and for
+--                                  a retail-only element on WoW Forever
 --    GetSettings()                 the validated settings; write through setters
 --    GetElementSlot(key)           slot key holding the element, or nil
 --    Subscribe(fn)                 fn(reason) after every change. reason:
@@ -32,14 +37,19 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --                          waited for it: repaint the shown buttons
 --      Disable(frameKey)   optional, on release. The core then clears every
 --                          button painted for the frame and restores HideNative
+--    RegisterLazyFrame(frameKey, addonName, Install, Repaint) -> bool,
+--      RegisterFrame for a frame a Blizzard addon owns: Install() runs once, on
+--      the frame's first Enable, as soon as addonName has loaded (at once or
+--      when it loads); from then on Enable and Refresh call Repaint(), which
+--      paints the frame's shown buttons
 --    Paint(button, ctx, frameKey)  draws the layout on button; no-op unless the
 --      frame is managed. ctx is read during the call only (reuse one table):
 --        link        item hyperlink; nothing is drawn without one
 --        bag, slot   container location, or location: an ItemLocation
 --        count       the frame's stack count; quality, itemID when known
 --        anchor      region to cover instead of button (optional)
---        alpha       overlay opacity 0..1 (optional, 1), e.g. to dim the marks
---                    on items Blizzard's search filter dims (searchOverlay)
+--        alpha       overlay opacity 0..1 (optional, 1); DIM_ALPHA for an item
+--                    Blizzard dims (search filter, item context)
 --        scale       mark size factor (optional, 1) for an anchor smaller than
 --                    an item button, e.g. a list-row icon: every element size
 --                    is multiplied by it, and a text element it shrinks below
@@ -58,6 +68,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --                    auction item key); false = none, so no transmog mark
 --    Clear(button)                 hides everything painted on button
 --    RequestRefresh(frameKey)      coalesced Refresh of a managed frame (nil: all)
+--    WaitForItem(itemID, frameKey) an item whose ID is known but whose link is
+--                                  not yet (its data is not cached): asks for
+--                                  its data and refreshes frameKey when it comes
 --    HideNative(region, frameKey)  alpha-hides a Blizzard region an element
 --                                  replaces, while the frame is managed. Call it
 --                                  on every paint, after Blizzard's own update:
@@ -71,7 +84,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --        item: link, itemID, quality, count, bag, slot, location (ItemLocation
 --          or nil), facts, frameKey, styles (every element's style). Memoize
 --          on "_"-prefixed fields (wiped each paint); set pending = true while
---          item data loads (the frame repaints when it arrives)
+--          item data loads (the frame repaints when it arrives). An error is
+--          reported and counts as not applying
 --        out: text (text kind) or atlas / texture (icon kind); r, g, b (text
 --          color or icon tint, white by default); desaturate
 --      insetX, insetY  px in from the slot's corner, mirrored per slot (1)
@@ -124,6 +138,12 @@ local FRAME_ORDER = {
 }
 local FRAME_SET = {}
 for i = 1, #FRAME_ORDER do FRAME_SET[FRAME_ORDER[i]] = true end
+-- No Great Vault on WoW Forever
+local RETAIL_FRAMES = { greatvault = true }
+
+local function FrameAvailable(frameKey)
+    return FRAME_SET[frameKey] == true and not (IS_FOREVER and RETAIL_FRAMES[frameKey])
+end
 
 -- Canonical track keys (EllesmereUI.GetUpgradeTrackKey)
 local TRACK_ORDER = { "Explorer", "Adventurer", "Veteran", "Champion", "Hero", "Myth" }
@@ -173,6 +193,9 @@ local ENUMS = { colorMode = { default = true, custom = true } }
 
 II.SLOT_ORDER, II.ELEMENT_ORDER, II.FRAME_ORDER, II.TRACK_ORDER = SLOT_ORDER, ELEMENT_ORDER, FRAME_ORDER, TRACK_ORDER
 II.ELEMENTS = ELEMENTS
+-- Blizzard's search filter lays black at 0.8 alpha over the items it dims
+-- (ItemButtonMixin:UpdateItemContextOverlayTextures): the marks dim to match
+II.DIM_ALPHA = 0.2
 
 -------------------------------------------------------------------------------
 --  Settings
@@ -353,6 +376,12 @@ local layout = {}        -- slot index -> defs in priority order
 local elementSlot = {}   -- element key -> slot key
 for i = 1, NUM_SLOTS do layout[i] = {} end
 
+-- A provider registered for the key, and the client has what it shows
+local function Available(key)
+    local e = ELEMENTS[key]
+    return e ~= nil and registry[key] ~= nil and not (IS_FOREVER and e.retailOnly)
+end
+
 local function RebuildLayout()
     layoutDirty = false
     wipe(elementSlot)
@@ -362,8 +391,7 @@ local function RebuildLayout()
         for j = 1, #list do
             local key = list[j]
             elementSlot[key] = SLOT_ORDER[i]
-            local def = registry[key]
-            if def and not (IS_FOREVER and ELEMENTS[key].retailOnly) then defs[#defs + 1] = def end
+            if Available(key) then defs[#defs + 1] = registry[key] end
         end
     end
 end
@@ -440,6 +468,15 @@ ev:SetScript("OnEvent", function(self, _, itemID, success)
     ScheduleFlush()
 end)
 
+-- frameKey repaints once the data of item id arrives; an item whose data
+-- failed to load is not waited for again
+local function Wait(id, frameKey)
+    if failedIDs[id] then return end
+    if not next(waiting) then ev:RegisterEvent("GET_ITEM_INFO_RECEIVED") end
+    waiting[frameKey] = true
+    waitingIDs[id] = true
+end
+
 -- Combat ended: the frames whose buttons still lack an overlay repaint
 local function FlushDeferred()
     for button, key in pairs(deferred) do
@@ -495,7 +532,7 @@ local function Apply(reason)
     local repaint = REPAINT[reason]
     for i = 1, #FRAME_ORDER do
         local key = FRAME_ORDER[i]
-        local want = s.enabled and s.frames[key] or false
+        local want = s.enabled and s.frames[key] and FrameAvailable(key) or false
         local a = adapters[key]
         if want ~= (managed[key] or false) then
             managed[key] = want or nil
@@ -670,7 +707,9 @@ function II.Paint(button, ctx, frameKey)
                 and (def.kind == "icon" or scale >= 1 or style.size * scale >= MIN_TEXT_SIZE) then
                 out.text, out.atlas, out.texture = nil, nil, nil
                 out.r, out.g, out.b, out.desaturate = 1, 1, 1, false
-                if def.Apply(item, style, out) then
+                -- An element's error reaches the error handler and never stops
+                -- the caller's render (as EUI_Bags.RunItemOverlays)
+                if securecallfunction(def.Apply, item, style, out) then
                     if def.kind == "text" then DrawText(st, si, def, style) else DrawIcon(st, si, def, style) end
                     shown = true
                     break
@@ -682,11 +721,7 @@ function II.Paint(button, ctx, frameKey)
 
     if item.pending then
         local id = item.itemID or C_Item.GetItemInfoInstant(link)
-        if id and not failedIDs[id] then
-            if not next(waiting) then ev:RegisterEvent("GET_ITEM_INFO_RECEIVED") end
-            waiting[frameKey] = true
-            waitingIDs[id] = true
-        end
+        if id then Wait(id, frameKey) end
     end
 end
 
@@ -706,6 +741,12 @@ function II.RequestRefresh(frameKey)
         for k in pairs(managed) do queued[k] = true end
     end
     ScheduleFlush()
+end
+
+function II.WaitForItem(itemID, frameKey)
+    -- Asking for the item's info requests its data while it is not cached
+    if type(itemID) ~= "number" or not managed[frameKey] or C_Item.GetItemInfo(itemID) then return end
+    Wait(itemID, frameKey)
 end
 
 function II.HideNative(region, frameKey)
@@ -749,6 +790,28 @@ function II.RegisterFrame(frameKey, adapter)
     return true
 end
 
+function II.RegisterLazyFrame(frameKey, addonName, Install, Repaint)
+    local state  -- nil, then "waiting" for addonName, then "ready"
+    local function Refresh()
+        if state == "ready" then Repaint() end
+    end
+    return II.RegisterFrame(frameKey, {
+        Enable = function()
+            if state then
+                Refresh()
+                return
+            end
+            state = "waiting"
+            EventUtil.ContinueOnAddOnLoaded(addonName, function()
+                Install()
+                state = "ready"
+                if managed[frameKey] then Repaint() end
+            end)
+        end,
+        Refresh = Refresh,
+    })
+end
+
 function II.IsEnabled()
     return cur ~= nil and cur.enabled
 end
@@ -757,10 +820,8 @@ function II.IsFrameEnabled(frameKey)
     return managed[frameKey] == true
 end
 
-function II.IsElementAvailable(key)
-    local e = ELEMENTS[key]
-    return e ~= nil and not (IS_FOREVER and e.retailOnly)
-end
+II.IsFrameAvailable = FrameAvailable
+II.IsElementAvailable = Available
 
 II.GetSettings = GetSettings
 

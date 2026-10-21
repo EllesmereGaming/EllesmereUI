@@ -20,8 +20,6 @@ local FlyoutButtonItem = ns.FlyoutButtonItem   -- EllesmereUIQoL.lua
 
 local BAGS, BANK, MERCHANT = "blizz_bags", "blizz_bank", "merchant"
 local FLYOUT, CHARSHEET, INSPECT = "flyout", "charsheet", "inspect"
--- Marks on items Blizzard dims (search filter, item context), as EUI Bags dims them
-local DIM_ALPHA = 0.2
 -- Equipment slot buttons: Character<name>Slot and Inspect<name>Slot. Ranged
 -- and Ammo exist on WoW Forever only
 local SLOT_NAMES = {
@@ -94,7 +92,7 @@ local function PaintContainerItem(button, bag, slot, frameKey)
     local starter = quest.questID ~= nil and not quest.isActive
     local c = NewCtx(link)
     c.bag, c.slot, c.count, c.quality, c.itemID = bag, slot, info.stackCount, info.quality, info.itemID
-    if Dimmed(button) then c.alpha = DIM_ALPHA end
+    if Dimmed(button) then c.alpha = II.DIM_ALPHA end
     facts.isBound, facts.questStarter = info.isBound, starter
     Paint(button, c, frameKey)
     HideMarks(button, frameKey)
@@ -446,7 +444,7 @@ II.RegisterFrame(CHARSHEET, {
 --  Inspect sheet slots (Inspect<name>Slot, Blizzard_InspectUI)
 -------------------------------------------------------------------------------
 local inspectSlots = {}  -- slot button -> true
-local inspectState       -- nil, then "waiting" for Blizzard_InspectUI, then "hooked"
+local inspectHooked = false
 
 -- After InspectPaperDollItemSlotButton_Update. Another player's gear has no
 -- location the client can ask about; equipped, it is bound
@@ -466,30 +464,17 @@ local function PaintInspectSlot(button)
 end
 
 local function RefreshInspect()
-    if inspectState ~= "hooked" or not InspectFrame:IsShown() then return end
+    if not inspectHooked or not InspectFrame:IsShown() then return end
     for button in pairs(inspectSlots) do
         if button:IsVisible() then PaintInspectSlot(button) end
     end
 end
 
-local function InstallInspect()
-    if not HookGlobal("InspectPaperDollItemSlotButton_Update", PaintInspectSlot) then return end
-    inspectState = "hooked"
+II.RegisterLazyFrame(INSPECT, "Blizzard_InspectUI", function()
+    inspectHooked = HookGlobal("InspectPaperDollItemSlotButton_Update", PaintInspectSlot)
+    if not inspectHooked then return end
     for i = 1, #SLOT_NAMES do
         local button = _G["Inspect" .. SLOT_NAMES[i] .. "Slot"]
         if button then inspectSlots[button] = true end
     end
-    RefreshInspect()
-end
-
-II.RegisterFrame(INSPECT, {
-    Enable = function()
-        if inspectState then
-            RefreshInspect()
-        else
-            inspectState = "waiting"
-            EventUtil.ContinueOnAddOnLoaded("Blizzard_InspectUI", InstallInspect)
-        end
-    end,
-    Refresh = RefreshInspect,
-})
+end, RefreshInspect)
