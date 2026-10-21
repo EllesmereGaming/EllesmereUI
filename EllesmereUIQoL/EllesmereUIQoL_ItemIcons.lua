@@ -40,14 +40,22 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --        anchor      region to cover instead of button (optional)
 --        alpha       overlay opacity 0..1 (optional, 1), e.g. to dim the marks
 --                    on items Blizzard's search filter dims (searchOverlay)
+--        scale       mark size factor (optional, 1) for an anchor smaller than
+--                    an item button, e.g. a list-row icon: every element size
+--                    is multiplied by it, and a text element it shrinks below
+--                    MIN_TEXT_SIZE (8 pt) does not apply, so the next element
+--                    in its slot can show
 --        facts       precomputed values (optional): isGear, itemLevel,
 --                    trackColor, upgradeLevel, isBound, isWuE, bindType,
---                    setName, isJunk, questStarter, pawnUpgrade.
+--                    setName, isJunk, questStarter, pawnUpgrade,
+--                    transmogSourceID.
 --                    nil = unknown (worked out), false = known absent.
 --                    An item without a location counts as unbound: an adapter
 --                    whose items may be bound but have no location (inspect)
 --                    passes isBound = true. pawnUpgrade: pass Pawn's answer
---                    only once it is a boolean
+--                    only once it is a boolean. transmogSourceID: the item's
+--                    appearance source when its link cannot tell it (an
+--                    auction item key); false = none, so no transmog mark
 --    Clear(button)                 hides everything painted on button
 --    RequestRefresh(frameKey)      coalesced Refresh of a managed frame (nil: all)
 --    HideNative(region, frameKey)  alpha-hides a Blizzard region an element
@@ -71,7 +79,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --      fitWidth    text: one line clipped to the button width
 --      texCoord    icon file texture { l, r, t, b }; mask: a mask file
 --    An icon is style.size tall, an atlas as wide as its aspect; text is
---    style.size pt in the QoL font (on eui_bags, the Bags font).
+--    style.size pt in the QoL font (on eui_bags, the Bags font); both times
+--    ctx.scale.
 -------------------------------------------------------------------------------
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
@@ -87,6 +96,7 @@ local FRAME_FONT = { eui_bags = "bags" }
 local DEFER_KEY = "EUI_ItemIcons"
 local REFRESH_DELAY = 0.1      -- a burst of item data or settings writes repaints once
 local FAILED_CAP = 200         -- item IDs whose data failed to load, kept per session
+local MIN_TEXT_SIZE = 8        -- pt: a text that ctx.scale shrinks below this does not apply
 
 -------------------------------------------------------------------------------
 --  Catalog
@@ -515,6 +525,7 @@ EllesmereUI._applyItemIcons = ns.ItemIcons_Apply
 --  Painter
 -------------------------------------------------------------------------------
 local item, out = {}, {}
+local scale = 1          -- the ctx.scale of the paint in progress
 local bagLoc = ItemLocation:CreateEmpty()
 local aspects = {}       -- atlas -> width / height
 
@@ -536,14 +547,15 @@ local function DrawText(st, si, def, style)
         st.fs[si] = fs
     end
     local fontKey = FRAME_FONT[st.frameKey] or FONT_KEY
-    if fs._key ~= def.key or fs._ver ~= styleVer or fs._anchor ~= st.anchor or fs._font ~= fontKey then
+    if fs._key ~= def.key or fs._ver ~= styleVer or fs._anchor ~= st.anchor or fs._font ~= fontKey
+        or fs._scale ~= scale then
         local g = SLOT_GEOM[si]
         fs:ClearAllPoints()
         fs:SetPoint(g[1], st.overlay, g[1], g[2] * (def.insetX or 1), g[3] * (def.insetY or 1))
         fs:SetJustifyH(g[4])
-        EllesmereUI.ApplyIconTextFont(fs, EllesmereUI.GetFontPath(fontKey), style.size, fontKey)
+        EllesmereUI.ApplyIconTextFont(fs, EllesmereUI.GetFontPath(fontKey), style.size * scale, fontKey)
         fs:SetWidth(def.fitWidth and math.max(st.anchor:GetWidth() - 4, 0) or 0)
-        fs._key, fs._ver, fs._anchor, fs._font = def.key, styleVer, st.anchor, fontKey
+        fs._key, fs._ver, fs._anchor, fs._font, fs._scale = def.key, styleVer, st.anchor, fontKey, scale
     end
     fs:SetText(out.text)
     fs:SetTextColor(out.r, out.g, out.b, 1)
@@ -560,8 +572,8 @@ local function DrawIcon(st, si, def, style)
     end
     local atlas = out.atlas
     local asset = atlas or out.texture
-    if tx._asset ~= asset or tx._key ~= def.key or tx._ver ~= styleVer then
-        local h = style.size
+    if tx._asset ~= asset or tx._key ~= def.key or tx._ver ~= styleVer or tx._scale ~= scale then
+        local h = style.size * scale
         if atlas then
             tx:SetAtlas(atlas)
             tx:SetSize(h * Aspect(atlas), h)
@@ -589,7 +601,7 @@ local function DrawIcon(st, si, def, style)
             end
             tx._mask = maskFile
         end
-        tx._asset, tx._key, tx._ver = asset, def.key, styleVer
+        tx._asset, tx._key, tx._ver, tx._scale = asset, def.key, styleVer, scale
     end
     tx:SetDesaturated(out.desaturate)
     tx:SetVertexColor(out.r, out.g, out.b)
@@ -645,15 +657,19 @@ function II.Paint(button, ctx, frameKey)
     else
         item.location = ctx.location
     end
+    local s = ctx.scale
+    scale = (type(s) == "number" and s > 0) and s or 1
 
     for si = 1, NUM_SLOTS do
         local defs, shown = layout[si], false
         for i = 1, #defs do
             local def = defs[i]
-            if not def.frames or def.frames[frameKey] then
+            local style = styles[def.key]
+            -- A text the scale shrinks out of reading size leaves the slot to the next element
+            if (not def.frames or def.frames[frameKey])
+                and (def.kind == "icon" or scale >= 1 or style.size * scale >= MIN_TEXT_SIZE) then
                 out.text, out.atlas, out.texture = nil, nil, nil
                 out.r, out.g, out.b, out.desaturate = 1, 1, 1, false
-                local style = styles[def.key]
                 if def.Apply(item, style, out) then
                     if def.kind == "text" then DrawText(st, si, def, style) else DrawIcon(st, si, def, style) end
                     shown = true

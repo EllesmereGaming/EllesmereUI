@@ -5,7 +5,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  (from any source), else a transmog glyph when this character can learn it
 --  or when only another character of the account can. Each state has its own
 --  color; the learned and other-character states can be switched off. States
---  are memoized per link: wiped when the collection changes, dropped per
+--  are memoized per link (per source ID when the frame passes it in
+--  facts.transmogSourceID): wiped when the collection changes, dropped per
 --  source when its collectability changes. The events register only while the
 --  element is placed and Item Icons is on. The element contract:
 --  EllesmereUIQoL_ItemIcons.lua.
@@ -40,8 +41,8 @@ local ACTIVE_EVENTS = {
     COLLECTABILITY_UPDATE,
 }
 
-local memo, memoN = {}, 0   -- link -> state; false when no state shows
-local bySource = {}         -- source ID -> set of the memoized links that have it
+local memo, memoN = {}, 0   -- link (or passed source ID) -> state; false when no state shows
+local bySource = {}         -- source ID -> set of the memo keys that have it
 local waiting = {}          -- frame keys holding items whose transmog data loads
 local active = false
 -- Inert until the element is placed while Item Icons is on
@@ -103,17 +104,27 @@ local function Wait(frameKey)
     waiting[frameKey] = true
 end
 
--- The item's state, false for none; nil while its data loads (not memoized)
+-- The item's state, false for none; nil while its data loads (not memoized).
+-- A frame whose link cannot tell the appearance passes its source in
+-- facts.transmogSourceID; the memo keys such items by that source ID.
 local function State(item)
     local link = item.link
-    local state = memo[link]
+    local f = item.facts
+    local known = f and f.transmogSourceID
+    if known == false then return false end
+    local key = known or link
+    local state = memo[key]
     if state ~= nil then return state end
-    -- Battle pets, keystones and other non-item links have no appearance
-    if not link:find("|Hitem:", 1, true) then
-        Remember(link, false)
-        return false
+    local sourceID = known
+    if not sourceID then
+        -- Battle pets, keystones and other non-item links have no appearance
+        if not link:find("|Hitem:", 1, true) then
+            Remember(link, false)
+            return false
+        end
+        local _
+        _, sourceID = GetItemAppearance(link)
     end
-    local _, sourceID = GetItemAppearance(link)
     if sourceID then
         local info = GetAppearanceInfo(sourceID)
         if info and info.appearanceIsCollected then
@@ -143,7 +154,7 @@ local function State(item)
         item.pending = true
         return nil
     end
-    Remember(link, state, sourceID)
+    Remember(key, state, sourceID)
     return state
 end
 
