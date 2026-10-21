@@ -1368,9 +1368,9 @@ local REFRESH_ADDON_STEPS = {
             if _G._ECME_Apply then _G._ECME_Apply() end
         end
     end,
-    -- Cursor (style + position), Crosshair, Self Combat Text, and the QoL
-    -- extras (FPS counter + Secondary Stats -- one call for both: the FPS
-    -- readout may be drawn by the Secondary Stats block, so the two owners
+    -- Cursor (style + position), Crosshair, Self Combat Text, Item Icons, and
+    -- the QoL extras (FPS counter + Secondary Stats -- one call for both: the
+    -- FPS readout may be drawn by the Secondary Stats block, so the two owners
     -- re-evaluate together).
     function()
         if _G._ECL_Apply then _G._ECL_Apply() end
@@ -1379,6 +1379,7 @@ local REFRESH_ADDON_STEPS = {
         if _G._ECL_ApplyCastCircle then _G._ECL_ApplyCastCircle() end
         if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
         if EllesmereUI._applySelfCombatText then EllesmereUI._applySelfCombatText() end
+        if EllesmereUI._applyItemIcons then EllesmereUI._applyItemIcons() end
         if EllesmereUI._applyFPSDisplay then
             EllesmereUI._applyFPSDisplay()
         elseif EllesmereUI._applySecondaryStats then

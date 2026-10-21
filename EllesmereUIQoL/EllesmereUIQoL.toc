@@ -25,5 +25,12 @@ EllesmereUIQoL_RaidTools.lua
 EllesmereUIQoL_SelfCombatText.lua
 EllesmereUIQoL_Alerts.lua
 EUI_UpgradeCalc.lua
+EllesmereUIQoL_ItemIcons.lua
+EllesmereUIQoL_ItemIcons_Elements.lua
+EllesmereUIQoL_ItemIcons_Transmog.lua
+EllesmereUIQoL_ItemIcons_Track.lua
+EllesmereUIQoL_ItemIcons_FramesInventory.lua
+EllesmereUIQoL_ItemIcons_FramesExchange.lua
+EllesmereUIQoL_ItemIcons_FramesBrowse.lua
 
 # Options
