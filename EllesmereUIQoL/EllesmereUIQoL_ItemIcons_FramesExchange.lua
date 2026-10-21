@@ -287,12 +287,20 @@ end, PaintTrade)
 --  QuestInfo_Display hold their own reference to QuestInfo_ShowRewards, so
 --  Display is hooked as well as the global (QUEST_ITEM_UPDATE calls that)
 -------------------------------------------------------------------------------
--- A reward item's ID, read as QuestInfo_ShowRewardAsItemCommon reads it
+-- A reward item's ID, read as QuestInfo_ShowRewardAsItemCommon reads it. A
+-- quest log choice's button ID counts item choices only (QuestInfo_ShowRewards),
+-- while GetQuestLogChoiceInfo counts currency choices too
 local function RewardItemID(button, questLog)
     local id = button:GetID()
     if not questLog then return (select(6, GetQuestItemInfo(button.type, id))) end
-    if button.type == "choice" then return (select(6, GetQuestLogChoiceInfo(id))) end
-    return (select(6, GetQuestLogRewardInfo(id)))
+    if button.type ~= "choice" then return (select(6, GetQuestLogRewardInfo(id))) end
+    local items = 0
+    for i = 1, GetNumQuestLogChoices(button.questID, true) do
+        if GetQuestLogChoiceInfoLootType(i) == 0 then  -- LOOT_LIST_ITEM
+            items = items + 1
+            if items == id then return (select(6, GetQuestLogChoiceInfo(i))) end
+        end
+    end
 end
 
 local function PaintRewards()
