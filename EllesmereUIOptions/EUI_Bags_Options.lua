@@ -17,6 +17,20 @@ local db = EllesmereUI._bagsDB
 -- parent it is the plain CreateFrame.
 local CreateFrame = EllesmereUI._Pool.CreateFrame
 
+-- Quality of Life's Item Icons page: a link tab while QoL is loaded. While it
+-- manages these bags it draws their overlays, so their rows below grey out.
+local PAGE_ITEMICONS = "Item Icons"
+local ITEM_ICONS_TIP = "Managed by Quality of Life > Item Icons"
+local function ItemIconsManaged()
+    local II = EllesmereUI.ItemIcons  -- absent while QoL is disabled
+    return II ~= nil and II.IsFrameEnabled("eui_bags")
+end
+-- A row's disabled tooltip: the Item Icons note while managed, else its own
+-- requirement (why)
+local function ManagedOr(why)
+    return function() return ItemIconsManaged() and ITEM_ICONS_TIP or why end
+end
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -24,11 +38,14 @@ initFrame:SetScript("OnEvent", function(self)
 
     if not EllesmereUI or not EllesmereUI.RegisterModule then return end
 
+    local pages = { "Bags", "Bank" }
+    if EllesmereUI._ModuleNS["EllesmereUIQoL"] then pages[#pages + 1] = PAGE_ITEMICONS end
     EllesmereUI:RegisterModule("EllesmereUIBags", {
         title = "Bags",
         description = "Enhanced inventory system with sidebar categories, item levels, and quality borders.",
         searchTerms = "bags inventory items slots reagent categories columns sidebar",
-        pages = { "Bags", "Bank" },
+        pages = pages,
+        pageLinks = { [PAGE_ITEMICONS] = { module = "EllesmereUIQoL", page = PAGE_ITEMICONS } },
         buildPage = function(pageName, parent, yOffset)
             if pageName == "Bank" then
                 local okB, resB = pcall(function()
@@ -465,7 +482,8 @@ initFrame:SetScript("OnEvent", function(self)
                 -- swatch, live only under Custom Colored, and the Gear Track Rank cog
                 -- left of it) | Item Level Text Size. A view over the saved keys:
                 -- showItemlevelInBags (false = Never) and itemlevelUseCustomColor
-                -- (Custom Colored); viewing the page writes nothing.
+                -- (Custom Colored); viewing the page writes nothing. The overlay
+                -- rows of this section grey out while Item Icons draws the overlays.
                 local function IlvlMode()
                     if db.profile.showItemlevelInBags == false then return "never" end
                     return db.profile.itemlevelUseCustomColor and "custom" or "default"
@@ -476,6 +494,7 @@ initFrame:SetScript("OnEvent", function(self)
                       tooltip="Display item levels on equipment items in the inventory, in their usual colors or in one color of your choice.",
                       values={ never = "Never", default = "Default Colors", custom = "Custom Colored" },
                       order={ "never", "default", "custom" },
+                      disabled=ItemIconsManaged, disabledTooltip=ITEM_ICONS_TIP, rawTooltip=true,
                       getValue=IlvlMode,
                       setValue=function(v)
                           local p = db.profile
@@ -490,6 +509,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type="slider", text="Item Level Text Size", min=8, max=16, step=1,
                       tooltip="Font size for item level numbers on equipment items.",
+                      disabled=ItemIconsManaged, disabledTooltip=ITEM_ICONS_TIP, rawTooltip=true,
                       getValue=function() return db.profile.itemlevelFontSize or 12 end,
                       setValue=function(v)
                           db.profile.itemlevelFontSize = v
@@ -521,11 +541,12 @@ initFrame:SetScript("OnEvent", function(self)
                     swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
                     swatchBlock:EnableMouse(true)
                     swatchBlock:SetScript("OnEnter", function()
-                        EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("This option requires Show Item Level to be set to Custom Colored"))
+                        EllesmereUI.ShowWidgetTooltip(swatch, ItemIconsManaged() and ITEM_ICONS_TIP
+                            or EllesmereUI.DisabledTooltip("This option requires Show Item Level to be set to Custom Colored"))
                     end)
                     swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                     local function UpdateIlvlSwatch()
-                        local off = IlvlMode() ~= "custom"
+                        local off = ItemIconsManaged() or IlvlMode() ~= "custom"
                         swatch:SetAlpha(off and 0.3 or 1)
                         swatchBlock:SetShown(off)
                     end
@@ -534,8 +555,8 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI.RegisterWidgetRefresh(updateSwatch)
 
                     EllesmereUI.BuildInlineCog(rgn, {
-                        disabled = function() return db.profile.showItemlevelInBags == false end,
-                        disabledTooltip = "Show Item Level",
+                        disabled = function() return ItemIconsManaged() or db.profile.showItemlevelInBags == false end,
+                        disabledTooltip = ManagedOr("Show Item Level"), rawTooltip = ItemIconsManaged,
                         title = "Item Level Options",
                         rows = {
                             { type="toggle", label="Show Gear Track Rank",
@@ -553,6 +574,7 @@ initFrame:SetScript("OnEvent", function(self)
                 bindRow, h = W:DualRow(parent, y,
                     { type="toggle", text="Show BoE / Warbound Text",
                       tooltip="Display Binds on Equipped / Warbound until Equipped on equipment items in your bags and bank.",
+                      disabled=ItemIconsManaged, disabledTooltip=ITEM_ICONS_TIP, rawTooltip=true,
                       getValue=function() return db.profile.bagDisplayBindType end,
                       setValue=function(v)
                           db.profile.bagDisplayBindType = v
@@ -563,6 +585,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type="slider", text="Item Count Text Size", min=8, max=16, step=1,
                       tooltip="Font size for stack counts, keystone levels, and dungeon abbreviations.",
+                      disabled=ItemIconsManaged, disabledTooltip=ITEM_ICONS_TIP, rawTooltip=true,
                       getValue=function() return db.profile.bagCountFontSize or 11 end,
                       setValue=function(v)
                           db.profile.bagCountFontSize = v
@@ -582,8 +605,8 @@ initFrame:SetScript("OnEvent", function(self)
                 if not EllesmereUI._prebuilding then
                     EllesmereUI.BuildInlineCog(bindRow._leftRegion, {
                         icon = EllesmereUI.RESIZE_ICON, chain = false,
-                        disabled = function() return not db.profile.bagDisplayBindType end,
-                        disabledTooltip = "Show BoE / Warbound Text",
+                        disabled = function() return ItemIconsManaged() or not db.profile.bagDisplayBindType end,
+                        disabledTooltip = ManagedOr("Show BoE / Warbound Text"), rawTooltip = ItemIconsManaged,
                         title = "BoE / Warbound Text Options",
                         rows = {
                             { type="slider", label="Text Size", min=8, max=16, step=1,
@@ -605,6 +628,7 @@ initFrame:SetScript("OnEvent", function(self)
                     setNameRow, h = W:DualRow(parent, y,
                         { type="toggle", text="Show Set Name on Gear",
                           tooltip="Display the equipment set's name at the bottom of bag items that belong to one of your equipment sets.",
+                          disabled=ItemIconsManaged, disabledTooltip=ITEM_ICONS_TIP, rawTooltip=true,
                           getValue=function() return db.profile.bagShowSetGearName == true end,
                           setValue=function(v)
                               db.profile.bagShowSetGearName = v
@@ -625,8 +649,8 @@ initFrame:SetScript("OnEvent", function(self)
                     if not EllesmereUI._prebuilding then
                         EllesmereUI.BuildInlineCog(setNameRow._leftRegion, {
                             icon = EllesmereUI.RESIZE_ICON, chain = false,
-                            disabled = function() return db.profile.bagShowSetGearName ~= true end,
-                            disabledTooltip = "Show Set Name on Gear",
+                            disabled = function() return ItemIconsManaged() or db.profile.bagShowSetGearName ~= true end,
+                            disabledTooltip = ManagedOr("Show Set Name on Gear"), rawTooltip = ItemIconsManaged,
                             title = "Set Name Text Options",
                             rows = {
                                 { type="slider", label="Text Size", min=7, max=14, step=1,
@@ -829,7 +853,8 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Junk Item Visuals dropdown (left side). The coin badge is drawn
             -- only by the bag window's Grid and Compact displays, so the List
-            -- display lists Desaturate alone.
+            -- display lists Desaturate alone; Item Icons draws it while it
+            -- manages these bags.
             if not EllesmereUI._prebuilding then
                 local JUNK_VISUALS = {
                     { key = "bagDesaturateJunkItems", label = "Desaturate",
@@ -837,7 +862,8 @@ initFrame:SetScript("OnEvent", function(self)
                 }
                 if not bagList then
                     JUNK_VISUALS[2] = { key = "bagShowJunkCoin", label = "Show Coin Icon",
-                      tooltip = "Show a coin on the corner of each junk item's icon." }
+                      tooltip = "Show a coin on the corner of each junk item's icon.",
+                      lockedFn = ItemIconsManaged, lockedTooltip = ITEM_ICONS_TIP }
                 end
                 local junkRgn = junkRow._leftRegion
                 local junkDD, junkDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(

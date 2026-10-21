@@ -17,6 +17,14 @@ EllesmereUI.TAB_LABEL_OVERRIDES[PAGE_TOOLTIPS] = "Tooltips & Menus"
 EllesmereUI.TAB_LABEL_OVERRIDES[PAGE_DRAGONRIDING] = "Skyriding"
 EllesmereUI.TAB_LABEL_OVERRIDES[PAGE_WINDOWMOVER] = "Window Mover"
 
+-- Quality of Life's Item Icons draws the vendor and gear flyout item levels
+-- while it manages that frame ("merchant", "flyout"): their rows grey out.
+local ITEM_ICONS_TIP = "Managed by Quality of Life > Item Icons"
+local function ItemIconsManages(frameKey)
+    local II = EllesmereUI.ItemIcons  -- absent while QoL is disabled
+    return II ~= nil and II.IsFrameEnabled(frameKey)
+end
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -1319,6 +1327,8 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Show Item Levels",
               tooltip="Shows the item level on each item in the character sheet gear flyout (the popup of same-slot bag items that appears when hovering an equipped slot), coloured by quality.",
+              disabled=function() return ItemIconsManages("flyout") end,
+              disabledTooltip=ITEM_ICONS_TIP, rawTooltip=true,
               getValue=function() return EllesmereUIDB and EllesmereUIDB.flyoutItemLevels or false end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1830,6 +1840,8 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Show Item Level",
               tooltip="Shows the item level on weapons and armor a vendor sells.",
+              disabled=function() return ItemIconsManages("merchant") end,
+              disabledTooltip=ITEM_ICONS_TIP, rawTooltip=true,
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.merchantShowItemLevel == true
               end,
