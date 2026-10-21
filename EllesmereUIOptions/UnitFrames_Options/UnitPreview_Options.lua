@@ -580,6 +580,31 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             return _pvAbbrev(math.floor(maxHP * 0.08))
         elseif content == "group" then
             return "3"
+        elseif content == "custom" then
+            -- Live twin: ns.ContentToZone's custom branch. Each known tag takes
+            -- the sample of the content key that draws the same value.
+            local str = prefix and s and s[prefix .. "CustomFormat"]
+            if type(str) ~= "string" or str == "" then return "" end
+            local maxHP = UnitHealthMax("player") or 1
+            local pct = optState._previewHealthPct or 0.70
+            local maxPP = UnitPowerMax("player") or 100
+            local sample = {
+                name = _pvName(), level = PreviewTextForContent("level", s, prefix),
+                tgtname = "Target", group = "3",
+                curhpshort = _pvAbbrev(math.floor(maxHP * pct)), maxhpshort = _pvAbbrev(maxHP),
+                perhp = _pvPct(pct), curpp = PreviewTextForContent("curpp", s, prefix),
+                maxpp = ns.AbbreviateNumbers(maxPP),
+                perpp = tostring(math.floor((optState._previewPowerPct or 0.85) * 100)),
+                absorbshort = PreviewTextForContent("absorbshort", s, prefix),
+                healabsorbshort = PreviewTextForContent("healabsorbshort", s, prefix),
+            }
+            local tags = {}
+            for _, t in ipairs(ns.UF_CUSTOM_TAG_LIST or {}) do tags[t[1]] = t[2] end
+            -- Pipes doubled first, so only the tag values may carry escapes.
+            return (str:gsub("|", "||"):gsub("%[(%w+)%]", function(tag)
+                local key = tags[string.lower(tag)]
+                if key then return sample[key] end
+            end))
         else
             return ""
         end
@@ -680,7 +705,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             local barW = s.frameWidth or 181
             if rc ~= "none" then
                 local UF_TEXT_PADDING = 10
-                local ufTW = { both = 75, curhpshort = 38, healthshort = 38, curmaxhp = 75, curmaxpp = 75, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
+                local ufTW = { both = 75, curhpshort = 38, healthshort = 38, curmaxhp = 75, curmaxpp = 75, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24, custom = 75 }
                 local rightUsed = (ufTW[rc] or 0) + UF_TEXT_PADDING
                 PP.Width(leftFS, math.max(barW - rightUsed - 10, 20))
             else

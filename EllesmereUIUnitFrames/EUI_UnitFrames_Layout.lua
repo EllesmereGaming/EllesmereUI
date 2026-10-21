@@ -174,6 +174,7 @@ local ufTextWidths = {
     perhp_perpp = 75,  -- "86% | 86%"
     absorb      = 38,  -- "12.3 K"
     level       = 24,  -- "80" / "??"
+    custom      = 75,  -- user format; Width % adjusts the rest
 }
 local function EstimateUFTextWidth(content)
     return (ufTextWidths[content] or 0) + UF_TEXT_PADDING

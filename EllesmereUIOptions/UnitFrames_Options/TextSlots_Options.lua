@@ -3,12 +3,38 @@ local ns = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
 if not ns then return end
 
 local MOVE_KEYS = { "X", "Y", "WidthPct", "ClassColor", "ColorR", "ColorG", "ColorB",
-    "NameFormat", "TargetSep", "TargetPrefix", "TargetSepColor", "TargetSepClassColor" }
+    "NameFormat", "TargetSep", "TargetPrefix", "TargetSepColor", "TargetSepClassColor", "CustomFormat" }
+
+-- Hover text for the Custom Format row, built once from the engine's tag list.
+local customTagTip
+local function CustomTagTooltip()
+    if customTagTip then return customTagTip end
+    local lines = { "Text with tags in brackets, e.g. [hp] | [hppct]%", "" }
+    local list = ns.UF_CUSTOM_TAG_LIST or {}
+    for i = 1, #list do
+        lines[#lines + 1] = "[" .. list[i][1] .. "]  " .. list[i][3]
+    end
+    customTagTip = table.concat(lines, "\n")
+    return customTagTip
+end
 
 -- Level coloring is shared by the unit, and edited from its level-text cogs.
 function ns.UF_CoreTextRows(prefix, contentDefault, get, set, rows)
     rows = ns.UF_NameFormatRows(prefix, contentDefault, get, set, rows)
     local content = get(prefix .. "Content", contentDefault)
+    if content == "custom" then
+        local key = prefix .. "CustomFormat"
+        table.insert(rows, 1, { type="input", label="Custom Format", inputWidth=130,
+            tooltip=CustomTagTooltip(),
+            get=function() return get(key, "") end,
+            set=function(v)
+                -- Stored with single pipes; the engine escapes them for display.
+                v = tostring(v or ""):gsub("||", "|"):gsub("^%s+", ""):gsub("%s+$", "")
+                set(key, v:sub(1, 120))
+                ns._UFO_OptEnv.UpdatePreview()
+            end })
+        return rows
+    end
     if content ~= "level" and content ~= "levelname" and content ~= "namelevel" then return rows end
     rows[#rows + 1] = { type="toggle", label="Level Text: Difficulty Color",
         tooltip="Colors level text by difficulty, from grey (trivial) through green, yellow and orange to red (5+ levels above you).",
@@ -57,7 +83,7 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
     local function Candidate()
         for i = 1, #opts.contentOrder do
             local v = opts.contentOrder[i]
-            if v ~= "none" and v ~= "---" then
+            if v ~= "none" and v ~= "---" and v ~= "custom" then
                 local used = false
                 for j = 1, #slots do
                     if slots[j].cfg.getValue() == v then used = true; break end

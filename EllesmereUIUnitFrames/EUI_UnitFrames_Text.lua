@@ -1029,9 +1029,72 @@ do
         [P.name] = "id", [P.level] = "id", [P.levelcol] = "id", [P.levelcolall] = "id",
     }
 
+    -- Custom content: the slot's own format string (<prefix>CustomFormat), where
+    -- "[tag]" draws a piece and everything else is literal text. The list is
+    -- ordered for the options tooltip; tags match case-insensitively.
+    local CUSTOM_TAG_LIST = {
+        { "name", "name", "Unit name" },
+        { "level", "level", "Unit level" },
+        { "target", "tgtname", "Name of the unit's target" },
+        { "hp", "curhpshort", "Current health, abbreviated (DEAD / OFFLINE)" },
+        { "maxhp", "maxhpshort", "Maximum health, abbreviated" },
+        { "hppct", "perhp", "Health percent, number only" },
+        { "pp", "curpp", "Current power, abbreviated" },
+        { "maxpp", "maxpp", "Maximum power, abbreviated" },
+        { "pppct", "perpp", "Power percent, number only" },
+        { "absorb", "absorbshort", "Absorb shield, abbreviated" },
+        { "healabsorb", "healabsorbshort", "Heal absorb, abbreviated" },
+        { "group", "group", "Raid group number" },
+    }
+    ns.UF_CUSTOM_TAG_LIST = CUSTOM_TAG_LIST
+    local CUSTOM_TAGS = {}
+    for i = 1, #CUSTOM_TAG_LIST do CUSTOM_TAGS[CUSTOM_TAG_LIST[i][1]] = CUSTOM_TAG_LIST[i][2] end
+    -- Parsed once per distinct string: { fmt, pieceKeys, static }. Literal "%"
+    -- is escaped for the format, "|" doubled so no escape sequence can form,
+    -- and an unknown tag stays as typed.
+    local customCache = {}
+    local function ParseCustom(str)
+        local hit = customCache[str]
+        if hit then return hit end
+        local out, keys, pos, static = {}, {}, 1, true
+        while true do
+            local s, e, tag = string.find(str, "%[(%w+)%]", pos)
+            out[#out + 1] = string.sub(str, pos, (s or 0) - 1)
+            if not s then break end
+            local key = CUSTOM_TAGS[string.lower(tag)]
+            if key then
+                out[#out + 1] = "\0"
+                keys[#keys + 1] = key
+                if key ~= "name" and key ~= "level" then static = false end
+            else
+                out[#out + 1] = string.sub(str, s, e)
+            end
+            pos = e + 1
+        end
+        local fmt = table.concat(out):gsub("%%", "%%%%"):gsub("|", "||"):gsub("%z", "%%s")
+        hit = { fmt, keys, static or nil }
+        customCache[str] = hit
+        return hit
+    end
+
     --- Resolves a content key to (fmt, piecesArray, static) for a zone, or nil
     --- for "none"/unknown. nametotarget builds its settings-closure separator.
     function ns.ContentToZone(content, prefix, settings)
+        if content == "custom" then
+            local str = settings and settings[prefix .. "CustomFormat"]
+            if type(str) ~= "string" or str == "" then return nil end
+            local def = ParseCustom(str)
+            local keys, pieces = def[2], {}
+            local lvlCol = settings.levelDifficultyColor
+            for i = 1, #keys do
+                local key = keys[i]
+                if key == "level" and lvlCol then
+                    key = settings.levelDifficultyColorFriendly and "levelcolall" or "levelcol"
+                end
+                pieces[i] = P[key]
+            end
+            return def[1], pieces, def[3]
+        end
         if content == "nametotarget" then
             return "%s%s%s%s", { P.name, ns.MakeTgtSepPiece(prefix, settings), P.tgtcol, P.tgtname }
         end
