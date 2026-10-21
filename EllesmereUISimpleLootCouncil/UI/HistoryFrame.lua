@@ -33,7 +33,7 @@ local filter = {
 local SOURCE_ORDER = { "all", "slc", "other" }
 local SOURCE_LABEL = addon.Locale.Texts{
     all = T["All sources"],
-    slc = "SimpleLootCouncil",
+    slc = T["SimpleLootCouncil"],
     other = T["Others"],
 }
 
@@ -203,7 +203,7 @@ local function BuildColumns()
             text = function(e) return S.Colorize(S.color.textMuted, ShortDate(e)) end,
         },
         {
-            key = "source", title = T["Src"], width = 42,
+            key = "source", title = T["Src"], width = 52,
             value = function(e) return EntrySource(e) end,
             text = function(e)
                 return S.Colorize(SourceColor(EntrySource(e)), SourceAbbrev(e))
@@ -238,7 +238,7 @@ local function BuildColumns()
             end,
         },
         {
-            key = "response", title = T["Response"], width = 100,
+            key = "response", title = T["Response"], width = 112,
 
             value = function(e)
                 return tostring(e.reason or addon.History.ResponseText(e) or "")
@@ -260,7 +260,7 @@ local function BuildColumns()
             end,
         },
         {
-            key = "boss", title = T["Boss"], width = 211,
+            key = "boss", title = T["Boss"], width = 189,
             value = function(e) return tostring(e.boss or "") end,
             text = function(e) return S.Colorize(S.color.textMuted, e.boss or "-") end,
         },

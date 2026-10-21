@@ -25,6 +25,7 @@ local bagCache, bagCacheAt
 
 local ownScan
 local autoOpenPanel, autoOpenBox, autoPopulateBox
+local warnedInactive = false
 
 local ROW_HEIGHT = 32
 local BAG_ROW_HEIGHT = 28
@@ -777,6 +778,7 @@ function QueueFrame:Init()
     addon.Callbacks:Register("AutoOpenQueueChanged", function()
         if autoOpenPanel and not addon.db.autoOpenQueue then autoOpenPanel:Hide() end
     end)
+    addon.Callbacks:Register("HandlingChanged", function() warnedInactive = false end)
     addon.Callbacks:Register("AutoAddBagsChanged", function()
         if autoPopulateBox then
             autoPopulateBox:SetChecked(addon.db.autoAddBags and true or false)
@@ -827,12 +829,28 @@ function QueueFrame:Init()
 
     addon.Callbacks:Register("EncounterEnded", function(entry)
         if not (entry and entry.success and addon.db.autoOpenQueue) then return end
-        if not IsInGroup() or not addon.PlayerIsMasterLooter() or not addon.Loot.handling then return end
+
+        local grouped, master = IsInGroup(), addon.PlayerIsMasterLooter()
+        if not (grouped and master and addon.Loot.handling) then
+            addon.Log:I("UI", "boss kill - loot queue not opened; grouped", tostring(grouped),
+                "master", tostring(master), "active", tostring(addon.Loot.handling), tostring(entry.name))
+
+
+            if grouped and master and not warnedInactive and addon.Loot:GetDecision() == true then
+                warnedInactive = true
+                addon.Log:W("UI", "boss kill - loot queue not opened although SLC was turned on for this group; /slc on re-arms it")
+            end
+            return
+        end
         if frame and frame:IsShown() then return end
         addon.Log:I("UI", "boss kill - opening the loot queue", tostring(entry.name))
         WhenBuilt(function()
             if frame:IsShown() then return end
             QueueFrame:Toggle()
+            if not frame:IsShown() then
+                addon.Log:W("UI", "boss kill - the loot queue did not open", tostring(entry.name))
+                return
+            end
             autoOpenBox:SetChecked(false)
             autoPopulateBox:SetChecked(addon.db.autoAddBags and true or false)
             autoOpenPanel:Show()

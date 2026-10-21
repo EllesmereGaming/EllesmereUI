@@ -285,7 +285,93 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
-    local bannerTitle, bannerTexture, bannerVersion, bannerActive, bannerLive
+    local bannerTitle, bannerTexture, bannerVersion, bannerActive, bannerLive, bannerOpacity
+
+
+
+    local OPACITY_W, OPACITY_TRACK_H, OPACITY_THUMB_W, OPACITY_GAP = 220, 4, 10, 3
+
+    local function BuildOpacityPanel(slc, button, parent)
+        local S, T = slc.Style, slc.Locale.Text
+        local panel = _G.CreateFrame("Frame", nil, parent)
+        panel:SetFrameLevel(button:GetFrameLevel() + 10)
+        panel:EnableMouse(true)
+        S.Panel(panel, S.color.rail, 0.98, S.radius.CTRL, S.color.edgeBright)
+        panel:SetPoint("TOP", button, "BOTTOM", 0, -OPACITY_GAP)
+        panel:Hide()
+
+        local title = S.Label(panel, S.fontBody, "LEFT")
+        title:SetPoint("TOPLEFT", panel, "TOPLEFT", S.size.ROW_PAD, -S.size.ROW_PAD)
+        title:SetText(T["Window opacity"])
+        local value = S.Label(panel, S.fontNumHint, "RIGHT")
+        value:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -S.size.ROW_PAD, -S.size.ROW_PAD)
+
+        local trackW = OPACITY_W - S.size.ROW_PAD * 2
+        local slider = _G.CreateFrame("Slider", nil, panel)
+        slider:SetOrientation("HORIZONTAL")
+        slider:SetSize(trackW, S.size.BTN_H_SM)
+        slider:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -S.size.ITEM_GAP)
+        local track = slider:CreateTexture(nil, "BACKGROUND")
+        track:SetSize(trackW, OPACITY_TRACK_H)
+        track:SetPoint("LEFT", slider, "LEFT", 0, 0)
+        track:SetColorTexture(S.Unpack(S.color.inset))
+        local fill = slider:CreateTexture(nil, "ARTWORK")
+        fill:SetSize(trackW, OPACITY_TRACK_H)
+        fill:SetPoint("LEFT", slider, "LEFT", 0, 0)
+        fill:SetColorTexture(S.Unpack(S.color.accentDim))
+        local thumb = slider:CreateTexture(nil, "OVERLAY")
+        thumb:SetSize(OPACITY_THUMB_W, OPACITY_TRACK_H * 4)
+        thumb:SetColorTexture(S.Unpack(S.color.accent))
+        slider:SetThumbTexture(thumb)
+        slider:SetMinMaxValues(S.WINDOW_ALPHA_MIN, 1)
+        slider:SetValueStep(0.05)
+        slider:SetObeyStepOnDrag(true)
+
+        local function Show(alpha)
+            value:SetText(slc.Locale.Format(T["%d%%"], math.floor(alpha * 100 + 0.5)))
+            local share = (alpha - S.WINDOW_ALPHA_MIN) / (1 - S.WINDOW_ALPHA_MIN)
+            fill:SetWidth(math.max(1, trackW * share))
+        end
+        slider:SetScript("OnValueChanged", function(_, alpha)
+            S.SetWindowAlpha(alpha)
+            Show(S.WindowAlpha())
+        end)
+        slider:EnableMouseWheel(true)
+        slider:SetScript("OnMouseWheel", function(self, delta)
+            self:SetValue(self:GetValue() + delta * 0.05)
+        end)
+
+        local _, titleH = S.fontBody:GetFont()
+        panel:SetSize(OPACITY_W, S.size.ROW_PAD + math.ceil((titleH or 12) * 1.35)
+            + S.size.ITEM_GAP + S.size.BTN_H_SM + S.size.ROW_PAD)
+
+
+        panel:SetScript("OnShow", function(self) self:RegisterEvent("GLOBAL_MOUSE_DOWN") end)
+        panel:SetScript("OnHide", function(self) self:UnregisterEvent("GLOBAL_MOUSE_DOWN") end)
+        panel:SetScript("OnEvent", function(self)
+            if not self:IsMouseOver() and not button:IsMouseOver() then self:Hide() end
+        end)
+        panel.Sync = function()
+            local alpha = S.WindowAlpha()
+            slider:SetValue(alpha)
+            Show(alpha)
+        end
+        return panel
+    end
+
+
+
+    local function AlignOpacity()
+        local ca = EllesmereUI._clickArea
+        if not (bannerOpacity and bannerActive and ca) then return end
+        local cx, cy = bannerActive:GetCenter()
+        local top = ca:GetTop()
+        if not (cx and cy and top) then return end
+        local k = ca:GetEffectiveScale() / bannerOpacity:GetEffectiveScale()
+        local dy = (top - 31) * k - cy
+        bannerOpacity:ClearAllPoints()
+        bannerOpacity:SetPoint("CENTER", bannerActive, "CENTER", 0, dy)
+    end
 
 
 
@@ -350,13 +436,29 @@ initFrame:SetScript("OnEvent", function(self)
                 if tags and tags.clickLive(button) then Invalidate() end
             end, _G.CreateFrame)
             EllesmereUI.PanelPP.Point(bannerLive, "LEFT", bannerActive, "RIGHT", 8, 0)
+            local panel
+            bannerOpacity = StyledTag(bannerTitle:GetParent(), 86, function(button)
+                if button ~= "LeftButton" then return end
+                if panel and panel:IsShown() then panel:Hide() return end
+                panel = panel or BuildOpacityPanel(SLC(), bannerOpacity, bannerTitle:GetParent())
+                panel.Sync()
+                panel:Show()
+            end, _G.CreateFrame)
+            bannerOpacity.Label:SetText(slc.Locale.Text["Opacity"])
+            bannerOpacity.tip = slc.Locale.Text["How see-through every Simple Loot Council window is."]
+            bannerOpacity.panel = function() return panel end
+            bannerOpacity:SetPoint("BOTTOM", bannerActive, "TOP", 0, 8)
         end
         ApplyBanner(slc)
         bannerTexture:Show()
         bannerVersion:Show()
         bannerActive:Show()
+        bannerOpacity:Show()
         bannerTitle:SetAlpha(0)
         RefreshHeaderTags()
+
+        AlignOpacity()
+        C_Timer.After(0, AlignOpacity)
     end
 
     local function HideBanner()
@@ -364,6 +466,11 @@ initFrame:SetScript("OnEvent", function(self)
         if bannerVersion then bannerVersion:Hide() end
         if bannerActive then bannerActive:Hide() end
         if bannerLive then bannerLive:Hide() end
+        if bannerOpacity then
+            bannerOpacity:Hide()
+            local panel = bannerOpacity.panel()
+            if panel then panel:Hide() end
+        end
         if bannerTitle then bannerTitle:SetAlpha(1) end
     end
 
@@ -497,6 +604,51 @@ initFrame:SetScript("OnEvent", function(self)
                 if not prebuild and pending.decorate then pending.decorate(frame._leftRegion) end
             end
             pending, lastRightId = nil, nil
+        end
+
+
+
+        local function LeftAlign(box)
+            box:SetJustifyH("LEFT")
+            box:SetTextInsets(10, 10, 0, 0)
+        end
+        local function AttachSuggest(box, row, commit)
+            LeftAlign(box)
+
+            local function Tint(b)
+                local r, g, b2 = S.ClassColor(row.classFile and row.classFile(b:GetText()))
+                if r then b:SetTextColor(r, g, b2) else b:SetTextColor(1, 1, 1, 0.9) end
+            end
+            box:HookScript("OnHide", CloseSuggestions)
+            box:HookScript("OnEscapePressed", CloseSuggestions)
+            box:HookScript("OnTextChanged", Tint)
+            Tint(box)
+            box:HookScript("OnTextChanged", function(b, userInput)
+                if not userInput then return end
+                CloseSuggestions(b)
+                local text = (b:GetText() or ""):trim()
+                if select(2, text:gsub("[^\128-\191]", "")) < SUGGEST_MIN_CHARS then return end
+                local items = {}
+                for _, entry in ipairs(row.suggest(text, SUGGEST_MAX)) do
+                    local name = (tostring(entry.name):gsub("|", "||"))
+                    local rank = (tostring(entry.rank or ""):gsub("|", "||"))
+                    items[#items + 1] = { noLoc = true,
+                        text = ClassText(entry.classFile, name, entry.online and S.color.text or S.color.textFaint)
+                            .. "  " .. faint .. rank .. "|r",
+                        onClick = function()
+
+                            local fill = row.suggestionText(entry)
+                            CloseSuggestions(b)
+                            b:SetText(fill)
+                            b:ClearFocus()
+                            commit(fill)
+                        end }
+                end
+                if #items > 0 then
+                    EllesmereUI.ShowContextMenu(b, items, { below = true, minWidth = b:GetWidth(),
+                        pickOnDown = true, scaleToAnchor = true })
+                end
+            end)
         end
 
 
@@ -1037,7 +1189,10 @@ initFrame:SetScript("OnEvent", function(self)
                 elseif row.id == "boeReason" then
                     local cfg = BoECfg(row)
                     Place(cfg, function(region)
-                        if region._control then region._control:SetMaxLetters(row.maxLetters) end
+                        if region._control then
+                            region._control:SetMaxLetters(row.maxLetters)
+                            LeftAlign(region._control)
+                        end
                         EllesmereUI.BuildInlineSwatches(region, { {
                             getValue = function()
                                 local r, g, b = row.colour()
@@ -1055,6 +1210,22 @@ initFrame:SetScript("OnEvent", function(self)
                 elseif row.custom then
                     Flush()
                     custom[row.id](row)
+                elseif row.suggest then
+                    local cfg = Cfg(row)
+                    cfg.inputStyle = "popup"
+
+
+                    local box, commit = nil, cfg.setValue
+                    cfg.setValue = function(value)
+                        if box and EllesmereUI.ContextMenuOwner() == box and IsMouseButtonDown("LeftButton") then
+                            return
+                        end
+                        commit(value)
+                    end
+                    Place(cfg, function(region)
+                        box = region._control
+                        if box then AttachSuggest(box, row, cfg.setValue) end
+                    end, row.id, row.dependsOn)
                 else
                     local cfg = Cfg(row)
                     Place(cfg, Decorator(row, cfg), row.id, row.dependsOn)

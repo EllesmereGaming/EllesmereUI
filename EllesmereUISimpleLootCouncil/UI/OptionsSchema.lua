@@ -226,6 +226,16 @@ function Schema.SuggestionRows(found, members, limit)
 end
 
 
+
+function Schema.CapitaliseName(fullName)
+    if type(fullName) ~= "string" or addon.IsForever then return fullName end
+    local name, realm = fullName:match("^([^-]+)(.*)$")
+    local first = name and name:match("^[\1-\127\194-\244][\128-\191]*")
+    if not first then return fullName end
+    return addon.Locale.Upper(first) .. name:sub(#first + 1) .. realm
+end
+
+
 function Schema.SuggestionText(entry)
     if addon.IsForever then return entry.name end
     return entry.fullName or entry.name
@@ -787,11 +797,23 @@ local function Build()
                     end
                     local record = addon.Player:Get(text)
                     local nameKey = addon.Player:NameKey(text)
-                    if not record.guid and not nameKey then
+
+                    local member
+                    if not record.guid and addon.RaidTeam and addon.RaidTeam.FindMember then
+                        local why
+                        member, why = addon.RaidTeam:FindMember(text)
+                        if why == "ambiguous" then
+                            Chat("warn", T["more than one guild member has that name - add their realm, for example Name-Area 52"])
+                            return
+                        end
+                    end
+                    if not (record.guid or nameKey or member) then
                         Chat("warn", addon.Player:NameHint())
                         return
                     end
-                    db().boeRoute.winner = addon.Player:Qualify(text)
+
+                    db().boeRoute.winner = Schema.CapitaliseName((member and member.fullName)
+                        or (record.guid and record.fullName) or addon.Player:Qualify(text))
                 end }),
             BoEReason(),
 

@@ -493,8 +493,8 @@ function MLFrame:FitTextWidths()
         return math.max(floor, math.ceil(width) + (pad or 0))
     end
 
-    probe:SetFontObject(S.fontMicro)
-    NAME_W     = Widest(addon.Locale.Upper(T["Name"]),     NAME_W,     10)
+    probe:SetFontObject(S.fontColumnHeader or S.fontMicro)
+    NAME_W    = Widest(addon.Locale.Upper(T["Name"]),     NAME_W,     10)
     RESPONSE_W = Widest(addon.Locale.Upper(T["Response"]), RESPONSE_W, 10)
     UPGRADE_W  = Widest(addon.Locale.Upper(T["Upgrade"]),  UPGRADE_W,  10)
     VOTES_W    = Widest(addon.Locale.Upper(T["Votes"]),    VOTES_W,    10)
@@ -536,8 +536,8 @@ end
 
 
 function CM.HeaderLift()
-    local _, microH = S.fontMicro:GetFont()
-    return math.max(0, math.floor((S.size.ROW_H_SM - (microH or 0)) / 2))
+    local _, headerH = (S.fontColumnHeader or S.fontMicro):GetFont()
+    return math.max(0, math.floor((S.size.ROW_H_SM - (headerH or 0)) / 2))
 end
 
 
@@ -747,7 +747,7 @@ local function BuildColumns(forCompact)
             end,
         },
         {
-            key = "response", title = T["Response"], width = RESPONSE_W,
+            key = "response", title = T["Response"], width = RESPONSE_W, justify = "CENTER",
 
 
             font = S.fontHint,
@@ -778,8 +778,7 @@ local function BuildColumns(forCompact)
                             square = true,
                         })
 
-
-                        P.Point(cell.Chip, "LEFT", cell, "LEFT", 4, 0)
+                        P.Point(cell.Chip, "CENTER", cell, "CENTER", 0, 0)
                     end
                     cell.Text:SetText("")
 
@@ -1587,6 +1586,17 @@ function CM.HasWork()
         end
     end
     return false
+end
+
+
+
+local warnedRun
+function CM.CheckOpened()
+    if frame and frame:IsShown() then return end
+    local runId = addon.Session:GetRunId()
+    if warnedRun == runId then return end
+    warnedRun = runId
+    addon.Log:W("UI", "run started - the council window did not open; /slc vote opens it")
 end
 
 
@@ -2617,8 +2627,14 @@ function MLFrame:Init()
 
 
         local me = addon.Player:GetFullName("player")
-        if (addon.PlayerIsMasterLooter() or addon.Council:Contains(me)) and CM.HasWork() then
+        local seated = addon.PlayerIsMasterLooter() or addon.Council:Contains(me)
+        if seated and CM.HasWork() then
             MLFrame:Present()
+            CM.CheckOpened()
+        else
+
+            addon.Log:I("UI", "run started - council window not opened:",
+                seated and "nothing left to vote on" or "not on the council here")
         end
     end)
 
@@ -2634,6 +2650,7 @@ function MLFrame:Init()
         local me = addon.Player:GetFullName("player")
         if (addon.PlayerIsMasterLooter() or addon.Council:Contains(me)) and CM.HasWork() then
             MLFrame:Open()
+            CM.CheckOpened()
         end
     end)
     addon.Restrictions:OnChange(function() addon.Callbacks:Invalidate("council") end)

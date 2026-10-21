@@ -402,6 +402,11 @@ local function GuildStateChanged()
 end
 
 
+local function AskGuildParty()
+    if type(RequestGuildPartyState) == "function" then RequestGuildPartyState() end
+end
+
+
 local function RefreshGuildParty()
     local isGuildGroup, present, required = ReadGuildParty()
     if isGuildGroup == nil then return end
@@ -499,6 +504,50 @@ local function FunnelRole()
 
     if Loot:GuardReason() then return nil end
     return "pass"
+end
+
+
+
+local function RollFrameState(rollID)
+    local container = GroupLootContainer
+    if not container then return "nogui" end
+    if type(container.rollFrames) == "table" then
+        for _, rollFrame in pairs(container.rollFrames) do
+            if type(rollFrame) == "table" and rollFrame.rollID == rollID
+                and rollFrame.IsShown and rollFrame:IsShown() then
+                return "shown"
+            end
+        end
+    end
+    if type(container.waitingRolls) == "table" then
+        for _, waiting in ipairs(container.waitingRolls) do
+            if waiting.rollID == rollID then return "waiting" end
+        end
+    end
+    return "none"
+end
+
+local FRAME_POLL, FRAME_GRACE, FRAME_MAX_WAIT = 0.1, 0.5, 20
+
+
+
+local function RollWhenFrameReady(rollID, rollType, role, link, waited)
+    if GetLootRollItemLink(rollID) ~= link then
+        addon.Log:D("Loot", "funnel: roll", rollID, "gone before it was rolled")
+        return
+    end
+    local state = RollFrameState(rollID)
+    local giveUp = state == "waiting" and waited >= FRAME_MAX_WAIT
+        or state == "none" and waited >= FRAME_GRACE
+    if state == "shown" or state == "nogui" or giveUp then
+        addon.Log:I("Loot", "funnel roll", role, rollType, link,
+            "frame", state, "waited", string.format("%.2f", waited))
+        RollOnLoot(rollID, rollType)
+        return
+    end
+    C_Timer.After(FRAME_POLL, function()
+        RollWhenFrameReady(rollID, rollType, role, link, waited + FRAME_POLL)
+    end)
 end
 
 
@@ -602,10 +651,7 @@ local function OnStartLootRoll(rollID, resumed)
 
 
 
-    C_Timer.After(0.05, function()
-        addon.Log:I("Loot", "funnel roll", role, rollType, link)
-        RollOnLoot(rollID, rollType)
-    end)
+    C_Timer.After(0.05, function() RollWhenFrameReady(rollID, rollType, role, link, 0.05) end)
 end
 
 
@@ -1007,7 +1053,7 @@ function Loot:Init()
         seenGroupThisLoad = true
 
         if IsInGuild() then
-            RequestGuildPartyState()
+            AskGuildParty()
             RefreshGuildParty()
         end
     end
@@ -1025,6 +1071,8 @@ function Loot:Init()
     f:RegisterEvent("INSTANCE_GROUP_SIZE_CHANGED")
     f:RegisterEvent("UPDATE_INSTANCE_INFO")
 
+    f:RegisterEvent("PLAYER_DIFFICULTY_CHANGED")
+
     f:RegisterEvent("PLAYER_GUILD_UPDATE")
     f:RegisterEvent("PLAYER_ENTERING_WORLD")
     f:SetScript("OnEvent", function(_, event, arg1)
@@ -1040,8 +1088,9 @@ function Loot:Init()
             local _, present, required = ReadGuildParty()
             guildPresent, guildRequired = present, required
             return
-        elseif event == "INSTANCE_GROUP_SIZE_CHANGED" or event == "UPDATE_INSTANCE_INFO" then
-            if IsInGroup() and IsInGuild() then RequestGuildPartyState() end
+        elseif event == "INSTANCE_GROUP_SIZE_CHANGED" or event == "UPDATE_INSTANCE_INFO"
+            or event == "PLAYER_DIFFICULTY_CHANGED" then
+            if IsInGroup() and IsInGuild() then AskGuildParty() end
             return
         elseif event == "PLAYER_ENTERING_WORLD" then
             GroupChanged(true)
@@ -1051,6 +1100,16 @@ function Loot:Init()
             wasInInstance = inside
             return
         elseif event == "PLAYER_GUILD_UPDATE" then
+
+            if IsInGroup() then
+                if IsInGuild() then
+                    AskGuildParty()
+                elseif inGuildParty then
+                    inGuildParty, guildPresent, guildRequired = false, nil, nil
+                    addon.Log:I("Loot", "guild group is now false (left the guild)")
+                    GuildStateChanged()
+                end
+            end
             if Loot.handling and addon.db.funnel and addon.db.funnel.guildGroupOnly then
                 GuildStateChanged()
             end

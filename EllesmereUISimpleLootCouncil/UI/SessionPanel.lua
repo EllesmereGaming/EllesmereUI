@@ -52,9 +52,6 @@ local HEADER_SIZE
 
 local SCROLL_CHANNEL
 
-
-local HEADER_SCALE = 1.6
-
 local ROW_H = 34
 
 
@@ -242,8 +239,8 @@ end
 
 local function FitColumns(parent)
     SCROLL_CHANNEL = S.size.SCROLLBAR_W + S.size.SCROLLBAR_GAP
-    local face, microSize, flags = S.fontMicro:GetFont()
-    HEADER_SIZE = math.floor((microSize or 10.5) * HEADER_SCALE + 0.5)
+    local face, headerSize, flags = (S.fontColumnHeader or S.fontMicro):GetFont()
+    HEADER_SIZE = headerSize or 14.75
 
     local probe = parent:CreateFontString(nil, "ARTWORK")
     probe:SetFontObject(S.fontMicro)
@@ -498,7 +495,7 @@ local function Build()
         local function Head(justify)
             local fs = S.Label(h, S.fontMicro, justify)
             if face then fs:SetFont(face, headerSize, flags) end
-            fs:SetTextColor(S.Unpack(S.color.text))
+            fs:SetTextColor(S.Unpack(S.color.textFaint))
             return fs
         end
 

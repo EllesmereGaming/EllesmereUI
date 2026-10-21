@@ -9,7 +9,7 @@ local T = addon.Locale.Text
 
 
 
-addon.SCHEMA_VERSION = 11
+addon.SCHEMA_VERSION = 12
 
 
 local interface = GetBuildInfo and select(4, GetBuildInfo())
@@ -50,10 +50,10 @@ addon.defaults = {
 
 
     responses = {
-        { id = "MAINSPEC", text = "Mainspec",  r = 0.20, g = 0.80, b = 0.20, sort = 1 },
-        { id = "OFFSPEC",  text = "Offspec",   r = 1.00, g = 0.60, b = 0.10, sort = 2 },
+        { id = "MAINSPEC", text = T["Mainspec"], r = 0.20, g = 0.80, b = 0.20, sort = 1 },
+        { id = "OFFSPEC",  text = T["Offspec"],  r = 1.00, g = 0.60, b = 0.10, sort = 2 },
         not forever and
-            { id = "TRANSMOG", text = "Transmog",  r = 0.30, g = 0.75, b = 0.85, sort = 3 }
+            { id = "TRANSMOG", text = T["Transmog"], r = 0.30, g = 0.75, b = 0.85, sort = 3 }
             or nil,
     },
 
@@ -448,6 +448,24 @@ addon.migrations = addon.Locale.Texts{
                 "autoAddBags", "mlCompact", "voterCompact", "windowAlpha",
             }
             for _, key in ipairs(settings) do db[key] = nil end
+        end,
+    },
+    {
+        version = 12,
+        name = "shipped response names translated",
+        func = function(db)
+
+            if type(db.responses) ~= "table" then return false end
+            local changed = false
+            for _, r in ipairs(db.responses) do
+                local text
+                if type(r) ~= "table" then text = nil
+                elseif r.id == "MAINSPEC" and r.text == "Mainspec" then text = T["Mainspec"]
+                elseif r.id == "OFFSPEC" and r.text == "Offspec" then text = T["Offspec"]
+                elseif r.id == "TRANSMOG" and r.text == "Transmog" then text = T["Transmog"] end
+                if text and text ~= r.text then r.text, changed = text, true end
+            end
+            if not changed then return false end
         end,
     },
 }

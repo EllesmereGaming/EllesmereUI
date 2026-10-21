@@ -232,7 +232,9 @@ end
 S.fontTitle        = MakeFont("EllesmereUISimpleLootCouncilFontTitle",         20.6, color.text)
 S.fontHeading       = MakeFont("EllesmereUISimpleLootCouncilFontHeading",       11,   color.textFaint)
 S.fontMicro         = MakeFont("EllesmereUISimpleLootCouncilFontMicro",         10,   color.textFaint)
-S.fontRaidTeamHeader = MakeFont("EllesmereUISimpleLootCouncilFontRaidTeamHeader", 14, color.textFaint)
+S.fontRaidTeamHeader = MakeFont("EllesmereUISimpleLootCouncilFontRaidTeamHeader", 13, color.textFaint)
+
+S.fontColumnHeader  = S.fontRaidTeamHeader
 S.fontBody          = MakeFont("EllesmereUISimpleLootCouncilFontBody",          12,   color.text)
 S.fontSetting       = MakeFont("EllesmereUISimpleLootCouncilFontSetting",       13,   color.text)
 S.fontInput         = MakeFont("EllesmereUISimpleLootCouncilFontInput",         12,   color.text)

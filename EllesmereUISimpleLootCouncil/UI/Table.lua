@@ -94,7 +94,7 @@ function Table.Create(parent, columns, visibleRows, rowHeight, headerFont)
         P.Point(button, "LEFT", x, 0)
 
 
-        local label = S.Label(button, headerFont or S.fontMicro,
+        local label = S.Label(button, headerFont or S.fontColumnHeader or S.fontMicro,
             column.justify or "LEFT")
         P.Point(label, "LEFT", 4 + (column.headerOffset or 0), 0)
         P.Point(label, "RIGHT", -4 + (column.headerOffset or 0), 0)
@@ -114,7 +114,8 @@ function Table.Create(parent, columns, visibleRows, rowHeight, headerFont)
                 Table.Refresh(t)
             end)
             button:SetScript("OnEnter", function() label:SetTextColor(S.Unpack(S.color.text)) end)
-            button:SetScript("OnLeave", function() label:SetTextColor(S.Unpack(S.color.textMuted)) end)
+
+            button:SetScript("OnLeave", function() label:SetTextColor(S.Unpack(S.color.textFaint)) end)
         end
 
         x = x + column.width
