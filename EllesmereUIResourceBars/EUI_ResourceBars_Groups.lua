@@ -166,7 +166,7 @@ function ns.ERB_BarsAnchoredTight(p)
                 if j ~= i and members[j] and keys[j] == target then inGroup = true end
             end
             if inGroup then
-                local side = info.side
+                local side = EllesmereUI.GetUnlockAnchorSide(info)
                 local onAxis
                 if vert then onAxis = (side == "LEFT" or side == "RIGHT")
                 else onAxis = (side == "TOP" or side == "BOTTOM") end

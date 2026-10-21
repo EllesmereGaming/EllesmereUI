@@ -253,6 +253,15 @@ function Table.SetData(t, data, keepScroll)
     Table.Refresh(t)
 end
 
+
+
+function Table.Release(t)
+    t.data, t.filtered = {}, {}
+    t.ordered, t.orderedData, t.orderedBy = nil, nil, nil
+    t.sortKeys, t.sortKeysData = nil, nil
+    for _, row in ipairs(t.rows) do row.rowData = nil end
+end
+
 function Table.SetFilter(t, predicate)
     t.filter = predicate
     Table.Refresh(t)

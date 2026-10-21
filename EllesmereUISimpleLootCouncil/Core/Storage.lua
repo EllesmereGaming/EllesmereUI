@@ -323,6 +323,47 @@ end
 
 
 
+local KEPT_TTL, KEPT_MAX = 7 * 86400, 600
+
+
+local function Settled(bonding)
+    local bind = Enum.TooltipDataItemBinding
+    return bonding ~= nil and (bonding == bind.Soulbound or bonding == bind.Account
+        or bonding == bind.BnetAccount)
+end
+
+function Storage:KeepReading(guid, reading)
+    local db = addon.db
+    if not db then return end
+    if type(db.bagReadings) ~= "table" then db.bagReadings = {} end
+    local store, n = db.bagReadings, 0
+    for _ in pairs(store) do n = n + 1 end
+    if n >= KEPT_MAX then wipe(store) end
+    store[guid] = { link = reading.link, bound = reading.bound, bonding = reading.bonding,
+        at = GetServerTime() }
+end
+
+
+function Storage:ResumeReading(guid, link, bound)
+    local store = addon.db and addon.db.bagReadings
+    local saved = type(store) == "table" and store[guid]
+    if type(saved) ~= "table" then return nil end
+    if type(saved.at) ~= "number" or GetServerTime() - saved.at > KEPT_TTL then
+        store[guid] = nil
+        return nil
+    end
+    if saved.link ~= link or saved.bound ~= bound
+        or not Settled(saved.bonding) then
+        return nil
+    end
+    local reading = { link = link, bound = bound, bonding = saved.bonding,
+        expires = GetTime() + SOULBOUND_TTL - math.random() * SOULBOUND_SPREAD }
+    timeless[guid] = reading
+    return reading
+end
+
+
+
 local function ReadSlot(bag, slot, link)
     local bound, quality, location = SlotFacts(bag, slot)
     if bound == false and quality and quality < Enum.ItemQuality.Epic then
@@ -330,6 +371,9 @@ local function ReadSlot(bag, slot, link)
     end
     local guid = location and C_Item.GetItemGUID(location)
     local kept = guid and timeless[guid]
+    if guid and (not kept or GetTime() > kept.expires) then
+        kept = Storage:ResumeReading(guid, link, bound) or kept
+    end
     local same = kept and kept.link == link and kept.bound == bound
     if same and GetTime() <= kept.expires then
         return nil, kept.bonding
@@ -338,11 +382,12 @@ local function ReadSlot(bag, slot, link)
     if guid and secondsLeft == nil and bonding ~= nil then
 
 
-        local soulbound = bonding == Enum.TooltipDataItemBinding.Soulbound
+        local soulbound = Settled(bonding)
             and same and kept.bonding == bonding
         timeless[guid] = { link = link, bound = bound, bonding = bonding,
             expires = GetTime() + (soulbound and SOULBOUND_TTL or TIMELESS_TTL)
                 - math.random() * (soulbound and SOULBOUND_SPREAD or TIMELESS_SPREAD) }
+        if soulbound then Storage:KeepReading(guid, timeless[guid]) end
     end
     return secondsLeft, bonding
 end

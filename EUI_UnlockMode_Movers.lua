@@ -571,6 +571,7 @@ local function CreateMover(barKey)
             end
             -- Anchor mover to bar TOPLEFT for pixel-perfect overlay
             EllesmereUI._unlockAttachMover(self2, b, bk, il, it)
+            UM.PointPicker.Refresh(self2)
         end)
     end
 
@@ -1079,6 +1080,7 @@ local function CreateMover(barKey)
         UM.pickModeMover = mover
         ShowPickText("Click any element\nto anchor to it")
         FadeOverlayForSelectElement(true)
+        UM.PointPicker.Begin(mover)
     end)
 
     gdBtn:SetScript("OnClick", function()
@@ -1567,6 +1569,8 @@ local function CreateMover(barKey)
     -- Drag handlers: manual cursor-based positioning for live snap + live bar movement
     mover:SetScript("OnDragStart", function(self)
         if InCombatLockdown() then return end
+        if UM.pickMode == "pointAnchor" then return end
+        if UM.PointPicker.Active() then CancelPickMode() end
         -- Position-locked: the module's anchor option owns this bar's position
         if ns.IsMoverPosLocked(self._barKey) then SelectMover(self); return end
         -- Anchored bars can be dragged -- the offset from parent is updated on drop
@@ -1875,7 +1879,13 @@ local function CreateMover(barKey)
         -- moves don't snap this child back. Read actual child edges directly
         -- instead of computing from center+half to avoid float dust from (top+bottom)/2 - height/2 != bottom.
         local ai = GetAnchorInfo(self._barKey)
-        if ai then
+        if ai and ai.mode == "POINT" then
+            local ox, oy = ns.PointAnchors.Capture(self._barKey, ai)
+            if ox then
+                ai.offsetX, ai.offsetY = ox, oy
+                UM.ApplyAnchorPosition(self._barKey, ai.target, nil, true)
+            end
+        elseif ai then
             local targetBar = UM.GetBarFrame(ai.target)
             if targetBar then
                 local tS = targetBar:GetEffectiveScale()
@@ -2006,6 +2016,7 @@ local function CreateMover(barKey)
             -- Raise above all other movers
             self:SetFrameLevel(self._raisedLevel + 100)
             if self._cogBtn then self._cogBtn:SetFrameLevel(self:GetFrameLevel() + 10) end
+            UM.PointPicker.Enter(self)
             -- Select Element mode: white border highlight on hover targets
             if UM.selectElementPicker and UM.selectElementPicker ~= self then
                 self._brd:SetColor(1, 1, 1, 0.9)
@@ -2062,11 +2073,12 @@ local function CreateMover(barKey)
         end
     end)
     mover:SetScript("OnLeave", function(self)
+        UM.PointPicker.Leave(self)
         if not self._dragging then
             -- Delay so hovering child buttons (cog, link buttons) doesn't flicker
             C_Timer.After(0.12, function()
                 if self._dragging then return end
-                if self:IsMouseOver() then
+                if self:IsMouseOver() or self._pointHandleHovered then
                     self:SetFrameLevel(self._raisedLevel + 100)
                     self._brd:SetColor(1, 1, 1, 0.9)
                     if not UM.darkOverlaysEnabled then self:SetAlpha(MOVER_HOVER) end
@@ -2104,6 +2116,7 @@ local function CreateMover(barKey)
 
     -- Left-click to select
     mover:SetScript("OnClick", function(self, button)
+        if UM.PointPicker.BodyClick(self, button) then return end
         if button == "LeftButton" then
             -- Width Match / Height Match / Anchor To pick mode handling
             -- Clicking the source mover itself cancels the pick mode
@@ -2652,6 +2665,7 @@ local function CreateMover(barKey)
             -- mode is next entered, so the overlay reappears then. Purely a visual
             -- toggle on the overlay -- it never touches the underlying element.
             if IsShiftKeyDown() then
+                if UM.pickModeMover == self and UM.PointPicker.Active() then CancelPickMode() end
                 self._tempHidden = true
                 self._hoverPending = false
                 if UM.selectedMover == self then DeselectMover() end
@@ -3577,6 +3591,10 @@ local function CreateMover(barKey)
                 do
                     local _, lbl = MakeAnchorRow(EllesmereUI.Lf("Anchored to: %1$s", tgtName))
                     lbl:SetTextColor(0.55, 0.55, 0.55, 0.9)
+                end
+                if aiM.mode == "POINT" then
+                    local _, lbl = MakeAnchorRow(ns.PointAnchors.Description(aiM))
+                    lbl:SetTextColor(1, 0.35, 0.35, 0.9)
                 end
                 -- Offset X / Offset Y: typed values, Enter applies, Escape reverts.
                 -- Physical pixels in the box, units in the record, like the X/Y

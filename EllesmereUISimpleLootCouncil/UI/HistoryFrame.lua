@@ -1480,6 +1480,15 @@ local function Build()
     importButton:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
 
+
+    frame:HookScript("OnHide", function()
+        Tbl.Release(table_)
+        addon.Callbacks:Invalidate("history")
+        addon.History:DropArchive("history")    end)
+
+    frame:HookScript("OnShow", function() addon.History:HoldArchive("history") end)
+
+
     addon.Callbacks:RegisterView("history", {
         paint = function() HistoryFrame:Reload() end,
         frame = frame,

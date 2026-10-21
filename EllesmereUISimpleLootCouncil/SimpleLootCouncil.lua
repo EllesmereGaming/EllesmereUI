@@ -76,6 +76,7 @@ function OnAddOnLoaded()
         if mirror or standalone then _G[STANDALONE_SV] = db end
     end
     addon.SharedSaved.Expire(db)
+    addon.SharedSaved.Compact(db)
     _G[svName] = db
 
 
@@ -242,6 +243,8 @@ function OnPlayerLogin()
     Init(addon.UI.SessionPanel)
     Init(addon.UI.Options)
     LogLoginCost()
+
+    C_Timer.After(5, function() addon.SettleGC(1500) end)
 
 
 
@@ -556,8 +559,7 @@ local function HelpSections(dev)
                 { T["ftest [<count>]"], addon.Locale.Format(
                     T["simulated run of 1-%d items from %d rare dungeon boss drops that WoW: Forever serves; no argument gives 3"],
                     addon.TestLoot.MAX, addon.TestLoot:DungeonCount()) },
-                { T["testcoin [Name-Realm] [session]"], T["fake a coin result"], retailOnly = true },
-                { T["fakecoins [<count>] [Name-Realm] / clear"], T["fake coin history at each queued item's boss"], retailOnly = true },
+                { T["fakecoins [<count>] [Name-Realm] [#item] / clear"], T["fake coin history at each queued item's boss, and a live coin on #item"], retailOnly = true },
                 { T["stress [<raiders> [<items> [<seconds>]] / stop]"], T["replay a raid's answers"] },
                 { T["pseudo [on / off]"], T["localisation test mode"] },
             },
@@ -578,6 +580,7 @@ local function HelpSections(dev)
                 { T["snapshotsize <candidates> <items>"], T["recovery sizes"], devTools = true },
                 { T["perf [start [label] / stop / all]"], T["CPU profiler"] },
                 { T["log history"], T["the log across sessions"] },
+                { T["log level [quiet / normal / verbose]"], T["how much the log records"] },
                 { "dump", T["saved variables as Lua"] },
                 { "debug", T["toggle log echo to chat"] },
             },
@@ -652,7 +655,16 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         return
     end
 
-    if cmd == "log" then
+    if cmd == "log" and input:lower():match("^log%s+level") then
+        local mode = input:lower():match("^log%s+level%s+(%S+)")
+        if mode == "quiet" or mode == "normal" or mode == "verbose" then
+            addon.db.logDetail = addon.Log:SetDetail(mode)
+            if addon.UI and addon.UI.Options and addon.UI.Options.Refresh then addon.UI.Options:Refresh() end
+        end
+        Print(addon.Locale.Format(T["log detail is %s - /slc log level quiet||normal||verbose changes it"],
+            addon.Log:GetDetail()))
+
+    elseif cmd == "log" then
 
         local wantAll = input:lower():find("history") or input:lower():find("all")
         local entries = wantAll and addon.Log:GetEntries()
@@ -1478,8 +1490,8 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             local imported = addon.HistoryImport:Count()
             Print(addon.Locale.Format(T["%d entries recorded, %d imported"], count, imported))
             if count + imported == 0 then return end
-            local mine = addon.History:GetForWinner(addon.Player:GetFullName("player"))
-            Print(addon.Locale.Format(T["%d awarded to you"], #mine))
+            local mine = addon.History:CountForWinner(addon.Player:GetFullName("player"))
+            Print(addon.Locale.Format(T["%d awarded to you"], mine))
             Print(T["/slc csv for the full log"])
         else
             addon.UI.HistoryFrame:Toggle()
@@ -1708,73 +1720,41 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         }, countOrWhy, countOrWhy))
 
 
-    elseif cmd == "testcoin" then
-        if addon.IsForever then
-            Print(T["WoW: Forever has no bonus rolls."])
-            return
-        end
-
-
-        local args = (input:match("^%S+%s*(.*)$") or ""):trim()
-        local who, session = addon.BonusRoll:ParseTestCoinArgs(args)
-
-        local item = addon.Session:GetItems()[session]
-        if not item then
-            Print(addon.Locale.Format(T["no item at session %d - /slc test first, or pass a session number: /slc testcoin [Name-Realm] [session]"], session))
-            return
-        end
-
-        local name = who or addon.Player:GetFullName("player")
-        if not name then
-            Print(addon.Locale.Format(T["could not resolve %s"], tostring(who)))
-            return
-        end
-
-
-
-        local ok, boss, candidate = addon.BonusRoll:TestCoin(name, session)
-        if not ok then
-            if boss == "candidate" then
-                Print(addon.Locale.Format(T["could not match %s to a candidate on item %d; use the Name-Realm shown in the council table."],
-                    tostring(name), session))
-            else
-                Print(T["only the Loot Master can simulate a coin in an active run."])
-            end
-            return
-        end
-        Print(addon.Locale.Format(T["simulated: %s coined %s from %s (not recorded to history)"],
-            Ambiguate(candidate, "short"), item.link, tostring(boss)))
-
 
     elseif cmd == "fakecoins" then
         if addon.IsForever then
             Print(T["WoW: Forever has no bonus rolls."])
             return
         end
-        local perBoss, who
-        for word in (input:match("^%S+%s*(.*)$") or ""):gmatch("%S+") do
-            if word:lower() == "clear" then
-                local removed = addon.BonusRoll:ClearTestHistory()
-                Print(addon.Locale.Format(addon.Locale.Plural{
-                    one = "removed %d fake coin row", other = "removed %d fake coin rows",
-                }, removed, removed))
-                return
-            elseif tonumber(word) then
-                perBoss = math.max(1, math.min(20, math.floor(tonumber(word))))
-            else
-                who = word
-            end
+        local parsed = addon.BonusRoll:ParseFakeCoinArgs(input:match("^%S+%s*(.*)$"))
+        if parsed.clear then
+            local removed = addon.BonusRoll:ClearTestHistory()
+            Print(addon.Locale.Format(addon.Locale.Plural{
+                one = "removed %d fake coin row", other = "removed %d fake coin rows",
+            }, removed, removed))
+            return
         end
         if #addon.Session:GetItems() == 0 then
-            Print(T["no items in the run - /slc test first, then /slc fakecoins [count] [Name-Realm]"])
+            Print(T["no items in the run - /slc test first, then /slc fakecoins [count] [Name-Realm] [#item]"])
             return
         end
-        local name = who or addon.Player:GetFullName("player")
+        local session = parsed.session
+        local item = session and addon.Session:GetItem(session)
+        if session and not item then
+            Print(addon.Locale.Format(T["no item at session %d - /slc fakecoins [count] [Name-Realm] [#item]"], session))
+            return
+        end
+
+
+        local name = parsed.name
+            and (addon.BonusRoll:FindCandidate(parsed.name, session)
+                or addon.Player:Qualify(parsed.name) or parsed.name)
+            or addon.Player:GetFullName("player")
         if not name then
-            Print(addon.Locale.Format(T["could not resolve %s"], tostring(who)))
+            Print(addon.Locale.Format(T["could not resolve %s"], tostring(parsed.name)))
             return
         end
-        local seeded, skipped = addon.BonusRoll:SeedTestHistory(name, perBoss)
+        local seeded, skipped = addon.BonusRoll:SeedTestHistory(name, parsed.count, session)
         local rows = 0
         for _, line in ipairs(seeded) do
             rows = rows + line.count
@@ -1792,6 +1772,22 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         Print(addon.Locale.Format(
             T["fake coin history added - rows: %d, bosses: %d. /slc fakecoins clear removes it."],
             rows, #seeded))
+
+        if not session then return end
+
+
+        local ok, boss, candidate = addon.BonusRoll:TestCoin(name, session)
+        if not ok then
+            if boss == "candidate" then
+                Print(addon.Locale.Format(T["could not match %s to a candidate on item %d; use the Name-Realm shown in the council table."],
+                    tostring(name), session))
+            else
+                Print(T["only the Loot Master can simulate a coin in an active run."])
+            end
+            return
+        end
+        Print(addon.Locale.Format(T["simulated: %s coined %s from %s (not recorded to history)"],
+            Ambiguate(candidate, "short"), item.link, tostring(boss)))
 
     elseif cmd == "guild" then
 

@@ -732,9 +732,8 @@ local function BuildColumns(forCompact)
                 local coinText = ""
                 if item and addon.BonusRoll then
                     local coin, spent = addon.BonusRoll:StatusFor(row.name, item)
-                    if coin then
-                        coinText = S.Colorize(S.color.accent, T["coined"])
-                    elseif spent > 0 then
+                    spent = spent + (coin and 1 or 0)
+                    if spent > 0 then
 
                         local possible = addon.BonusRoll:PossibleFor(row.name, item)
                         coinText = S.Colorize(S.color.accent, possible
@@ -1279,7 +1278,8 @@ local function ShowMoreInfo(anchor, name)
         coin, spentAtBoss = addon.BonusRoll:StatusFor(name, item)
     end
 
-    if not stats and #previous == 0
+
+    if not stats and #previous == 0 and not (notes and notes.officerNote)
         and not hasNotes and not coin and spentAtBoss == 0 then
         return
     end

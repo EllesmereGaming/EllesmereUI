@@ -478,8 +478,10 @@ function Encounter:KnownBossNames()
         end
     end
     for _, entry in ipairs(Log()) do add(entry.name) end
-    if addon.History and addon.History.EachEntry then
-        addon.History.EachEntry(function(entry) add(entry.boss) end)
+
+    if addon.History and addon.History.EachLive then
+        addon.History.EachLive(function(entry) add(entry.boss) end)
+        for boss in pairs(addon.History:ArchivedBosses()) do add(boss) end
     end
     table.sort(names)
     return names
@@ -494,12 +496,13 @@ function Encounter:EncounterIDFor(name)
         if log[i].name == name and log[i].id then return log[i].id end
     end
     local found
-    if addon.History and addon.History.EachEntry then
-        addon.History.EachEntry(function(entry)
+    if addon.History and addon.History.EachLive then
+        addon.History.EachLive(function(entry)
             if not found and entry.boss == name and entry.encounterID then
                 found = entry.encounterID
             end
         end)
+        found = found or addon.History:ArchivedBosses()[name] or nil
     end
     return found
 end

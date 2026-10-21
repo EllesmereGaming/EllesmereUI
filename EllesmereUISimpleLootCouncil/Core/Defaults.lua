@@ -9,7 +9,7 @@ local T = addon.Locale.Text
 
 
 
-addon.SCHEMA_VERSION = 9
+addon.SCHEMA_VERSION = 11
 
 
 local interface = GetBuildInfo and select(4, GetBuildInfo())
@@ -31,6 +31,7 @@ addon.defaults = {
 
 
     logMaxEntries = 10000,
+    logDetail = "quiet",
 
 
 
@@ -102,6 +103,9 @@ addon.defaults = {
 
 
     itemStorage = {},
+
+
+    bagReadings = {},
 
 
 
@@ -190,6 +194,9 @@ addon.defaults = {
 
 
     imported = {},
+
+
+    historyArchive = {},
 
 
     importMaxDays = 365,
@@ -411,6 +418,36 @@ addon.migrations = addon.Locale.Texts{
 
             if type(db.funnel) ~= "table" or db.funnel.guildGroupOnly == true then return false end
             db.funnel.guildGroupOnly = true
+        end,
+    },
+    {
+        version = 10,
+        name = "history archive",
+        func = function(db)
+
+            if db.historyArchive ~= nil and type(db.historyArchive) ~= "table" then
+                db.historyArchive = nil
+            end
+            return false
+        end,
+    },
+    {
+        version = 11,
+        name = "settings back to defaults",
+        notify = T["Your Simple Loot Council settings were reset to their new defaults. Your councils, alts, response buttons, raid team and history were kept."],
+        func = function(db)
+
+            local settings = {
+                "debug", "chatWarnings", "logMaxEntries", "logDetail", "noteMaxLength",
+                "whispers", "awardReasons", "boeRoute", "timer", "vote", "allowStartRequests",
+                "councilMayStartRuns", "shareCouncilBags", "funnel", "raidPrompt", "ignoredItems",
+                "suppressTradeWarnings", "announce", "recordAttendance", "recordHistory",
+                "shareHistory", "historyPruneDays", "csvDelimiter", "historyFilter", "importMaxDays",
+                "showMoreInfo", "teamShowAlts", "sessionFrame", "wishlistEnabled", "wishlistSource",
+                "autopass", "silentAutopass", "autopassTransmog", "masterAutoLoot", "autoOpenQueue",
+                "autoAddBags", "mlCompact", "voterCompact", "windowAlpha",
+            }
+            for _, key in ipairs(settings) do db[key] = nil end
         end,
     },
 }

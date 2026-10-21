@@ -170,6 +170,7 @@ end
 
 
 local REPLAY_WINDOW = 24 * 60 * 60
+BonusRoll.REPLAY_WINDOW = REPLAY_WINDOW
 function BonusRoll.AlreadyRecorded(entries, winner, link, boss, encounterID,
         difficultyID, epoch)
     local id = addon.Storage.ItemID(link)
@@ -192,7 +193,8 @@ end
 
 function BonusRoll:CoinsSpentAtBoss(winner, boss, encounterID, difficultyID,
         excludeItemLink)
-    return BonusRoll.CountAtBoss(addon.History:GetForWinner(winner), winner, boss,
+
+    return BonusRoll.CountAtBoss(addon.History:CoinRowsFor(winner), winner, boss,
         encounterID, difficultyID, excludeItemLink)
 end
 
@@ -202,10 +204,9 @@ end
 function BonusRoll:StatusFor(name, item)
     if not item or not item.link then return nil, 0 end
     local coin = BonusRoll.For(addon.Session:GetCoins(), name, item.link)
-    if coin then return coin, 0 end
     local difficultyID = item.difficultyID
         or addon.Encounter:DifficultyFor(item.boss, item.encounterID)
-    return nil, BonusRoll:CoinsSpentAtBoss(name, item.boss, item.encounterID,
+    return coin, BonusRoll:CoinsSpentAtBoss(name, item.boss, item.encounterID,
         difficultyID, item.link)
 end
 
@@ -228,8 +229,9 @@ local function ClassID(classFile)
 end
 
 
+
 local function Answered(key, count)
-    if not count or not asking[key] then return end
+    if not count or possible[key] then return end
     asking[key], possible[key] = nil, count
     addon.Callbacks:Invalidate("council")
 end
@@ -392,24 +394,35 @@ end
 
 
 
-function BonusRoll:ParseTestCoinArgs(args)
+
+function BonusRoll:ParseFakeCoinArgs(args)
     args = (args or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    if args:match("^%d+$") then return nil, tonumber(args) end
-    if args == "" then return nil, 1 end
+    if args:lower() == "clear" then return { clear = true } end
 
-    local first = addon.Session:GetItem(1)
-    if first and CandidateName(args, first) then return args, 1 end
+    local session
+    local rest, number = args:match("^(.-)%s*#(%d+)$")
+    if not rest then rest, number = args:match("^(.-)%s*[Ii][Tt][Ee][Mm]%s+(%d+)$") end
+    if rest then args, session = rest, tonumber(number) end
 
-    local name, number = args:match("^(.-)%s+(%d+)$")
-    if name then
-        local session = tonumber(number)
+    local count, name = args:match("^(%d+)%s+(.+)$")
+    if not count and args:match("^%d+$") then count = args end
+    if not count then name = args end
+    if count then count = math.max(1, math.min(20, math.floor(tonumber(count)))) end
+    if name == "" then name = nil end
+    return { count = count, name = name, session = session }
+end
 
-        if not first or CandidateName(name, first)
-            or addon.Session:GetItem(session) or not args:find("-", 1, true) then
-            return name, session
-        end
+
+
+function BonusRoll:FindCandidate(input, session)
+    if session then
+        local item = addon.Session:GetItem(session)
+        return item and CandidateName(input, item)
     end
-    return args, 1
+    for _, item in ipairs(addon.Session:GetItems()) do
+        local found = CandidateName(input, item)
+        if found then return found end
+    end
 end
 
 function BonusRoll:TestCoin(name, session)
@@ -463,12 +476,12 @@ end
 
 function BonusRoll:ClearTestHistory(name)
     local ids = {}
-    for id, entry in pairs(addon.db.history or {}) do
+    addon.History.EachEntry(function(entry)
         if BonusRoll.IsFakeCoin(entry) and (not name or entry.winner == name
                 or addon.Player:IsSame(entry.winner, name)) then
-            ids[#ids + 1] = id
+            ids[#ids + 1] = entry.id
         end
-    end
+    end, "history")
     addon.History:DeleteEntries(ids)
     return #ids
 end
@@ -476,7 +489,8 @@ end
 
 
 
-function BonusRoll:SeedTestHistory(name, perBoss)
+
+function BonusRoll:SeedTestHistory(name, perBoss, onlySession)
     BonusRoll:ClearTestHistory(name)
     local seeded, skipped, done = {}, {}, {}
     local now = GetServerTime()
@@ -485,7 +499,9 @@ function BonusRoll:SeedTestHistory(name, perBoss)
         if boss == "Simulated Loot" then boss = nil end
         local difficultyID = item.difficultyID
             or addon.Encounter:DifficultyFor(item.boss, item.encounterID)
-        if not (boss or encounterID) then
+        if onlySession and session ~= onlySession then
+
+        elseif not (boss or encounterID) then
             skipped[#skipped + 1] = { session = session, why = "boss" }
         elseif not difficultyID then
             skipped[#skipped + 1] = { session = session, why = "difficulty" }

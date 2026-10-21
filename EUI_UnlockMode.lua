@@ -108,6 +108,10 @@ if not EllesmereUI.ReapplyOwnAnchor then
         local childBar = childElem and childElem.getFrame and childElem.getFrame(key)
         local targetBar = targetElem and targetElem.getFrame and targetElem.getFrame(info.target)
         if not childBar or not targetBar then return end
+        if info.mode == "POINT" then
+            ns.PointAnchors.EarlyApply(key, info, childBar, targetBar)
+            return
+        end
         if not targetBar:GetLeft() then return end
 
         local side = info.side
@@ -412,6 +416,10 @@ end
 -- On EllesmereUI to avoid an upvalue in CreateMover (Lua 5.1 limit: 60).
 function EllesmereUI.RepositionBarToMover(barKey)
     if not UM.isUnlocked then return end
+    if EllesmereUI.IsPointAnchored(barKey) then
+        EllesmereUI.ReapplyOwnAnchor(barKey)
+        return
+    end
     local m = UM.movers[barKey]
     if not m then return end
     local bar = UM.GetBarFrame(barKey)
@@ -719,6 +727,7 @@ UM.SELECT_ELEMENT_FADE = SELECT_ELEMENT_FADE
 ns.unlockParts.Anchors(UM)
 ns.unlockParts.Positions(UM)
 ns.unlockParts.Tools(UM)
+ns.unlockParts.PointPicker(UM)
 ns.unlockParts.Movers(UM)
 ns.unlockParts.Session(UM)
 ns.unlockParts.Filter(UM)
@@ -784,6 +793,7 @@ end
 -------------------------------------------------------------------------------
 local function SuspendForCombat()
     if not UM.isUnlocked then return end
+    if UM.PointPicker.Active() then UM.CancelPickMode() end
     combatSuspended = true
     preCombatChanges = UM.hasChanges and true or false
     if EllesmereUI._HideFallbackGhosts then EllesmereUI._HideFallbackGhosts() end

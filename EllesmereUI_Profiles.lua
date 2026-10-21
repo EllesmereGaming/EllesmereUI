@@ -2342,7 +2342,7 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
     -- Normalize local db.folder keys -> canonical (suite) keys so the string
     -- imports correctly into any build. No-op in the suite (canon == folder).
     exportData.addons = AddonsToCanon(exportData.addons)
-    local payload = { version = 3, type = "full", data = exportData }
+    local payload = { version = EllesmereUI.LayoutExportVersion(exportData), type = "full", data = exportData }
     EllesmereUI.StampPayloadClient(payload)
     local serialized = Serializer.Serialize(payload)
     if not LibDeflate then return nil end
@@ -2354,6 +2354,7 @@ end
 -- Public: re-encode a decoded payload back to an import string.
 function EllesmereUI.EncodePayload(payload)
     if not payload then return nil end
+    if EllesmereUI.LayoutExportVersion(payload.data) == 4 then payload.version = 4 end
     local serialized = Serializer.Serialize(payload)
     if not LibDeflate then return nil end
     local compressed = LibDeflate:CompressDeflate(serialized)
@@ -2456,7 +2457,7 @@ function EllesmereUI.ExportFullAccountData()
     out.activeProfile = activeName
     out.profileOrder  = { activeName }
     local payload = {
-        version     = 3,
+        version     = EllesmereUI.LayoutExportVersion(out),
         type        = FULL_EXPORT_TYPE,
         fullExport  = true,     -- the routing stamp the import flow reads
         profileName = activeName,
@@ -2810,7 +2811,7 @@ function EllesmereUI.ExportCurrentProfile(includeLayout, includeCDM, cdmSpecs)
     }
     -- Normalize local db.folder keys -> canonical (suite) keys (no-op in suite).
     profileData.addons = AddonsToCanon(profileData.addons)
-    local payload = { version = 3, type = "full", data = profileData, meta = meta }
+    local payload = { version = EllesmereUI.LayoutExportVersion(profileData), type = "full", data = profileData, meta = meta }
     EllesmereUI.StampPayloadClient(payload)
     local serialized = Serializer.Serialize(payload)
     if not LibDeflate then return nil end
@@ -2841,7 +2842,7 @@ function EllesmereUI.DecodeImportString(importStr)
     if not payload.version or payload.version < 3 then
         return nil, "This profile was created before the beta wipe and is no longer compatible. Please create a new export."
     end
-    if payload.version > 3 then
+    if payload.version > 4 then
         return nil, "This profile was created with a newer version of EllesmereUI. Please update your addon."
     end
     -- Drop account data an older exporter left in the string, before any
@@ -2978,7 +2979,7 @@ do
             if not payload.version or payload.version < 3 then
                 return nil, "This profile was created before the beta wipe and is no longer compatible. Please create a new export."
             end
-            if payload.version > 3 then
+            if payload.version > 4 then
                 return nil, "This profile was created with a newer version of EllesmereUI. Please update your addon."
             end
             -- Same strip as the sync path: account data never reaches a profile.

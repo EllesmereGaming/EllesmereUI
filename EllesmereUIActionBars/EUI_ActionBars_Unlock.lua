@@ -315,6 +315,10 @@ local function RegisterWithUnlockMode()
             end,
             applyPos = function()
                 EAB:RecalcFlyoutDirection(info.key)
+                if EllesmereUI.IsPointAnchored(info.key) then
+                    EllesmereUI.ReapplyOwnAnchor(info.key)
+                    return
+                end
                 -- Anchored bars: position owned by anchor system. But bars
                 -- with growth direction need edge bounds applied first so the
                 -- live-edge reading in ApplyAnchorPosition has correct data.

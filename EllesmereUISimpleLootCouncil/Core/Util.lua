@@ -21,6 +21,43 @@ end
 
 
 
+local settle = { running = false, cycles = 0 }
+local driver
+
+local function Settle(self)
+    local started = debugprofilestop()
+    repeat
+        settle.steps = settle.steps + 1
+        if collectgarbage("step", 100) then
+            settle.cycles = settle.cycles + 1
+
+            if settle.cycles >= 2 or settle.from - collectgarbage("count") >= settle.expect then
+                settle.running = false
+                self:Hide()
+                if addon.Log then
+                    addon.Log:D("Util", "settled", settle.cycles, "cycle(s)", settle.steps, "steps, freed",
+                        math.floor(settle.from - collectgarbage("count")), "KB in", math.floor(debugprofilestop() - settle.began), "ms")
+                end
+                return
+            end
+        end
+    until debugprofilestop() - started >= 1
+end
+
+function addon.SettleGC(expectKB)
+    if settle.running or not (CreateFrame and collectgarbage and debugprofilestop) then return end
+    if not driver then
+        driver = CreateFrame("Frame")
+        driver:SetScript("OnUpdate", Settle)
+    end
+    settle.running, settle.cycles, settle.steps, settle.expect = true, 0, 0, expectKB or 1000
+    settle.from, settle.began = collectgarbage("count"), debugprofilestop()
+    if addon.Log then addon.Log:D("Util", "settling the collector from", math.floor(settle.from), "KB") end
+    driver:Show()
+end
+
+
+
 function addon.DateText(epoch, utc, short)
     if utc then return short and date("!%d/%m/%y", epoch) or date("!%d/%m/%Y", epoch) end
     return short and date("%d/%m/%y", epoch) or date("%d/%m/%Y", epoch)

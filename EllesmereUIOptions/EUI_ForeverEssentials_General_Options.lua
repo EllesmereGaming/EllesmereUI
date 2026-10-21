@@ -174,7 +174,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     --  WORLD MAP (Fade Map While Moving | Show the Game Behind the Map, then
     --  Reveal Unexplored Areas with its color in the cog | Show Zone Levels,
     --  then Show Map Markers with its sets in the cog:
-    --  EllesmereUIForeverEssentials_MapTravel.lua)
+    --  EllesmereUIForeverEssentials_MapTravel.lua | Show Fishing Skill:
+    --  EllesmereUIForeverEssentials_ZoneLevels.lua)
     ---------------------------------------------------------------------------
     local MR = EllesmereUI._MapReveal
     local ZL = EllesmereUI._ZoneLevels
@@ -231,7 +232,13 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               MT.Apply()
               EllesmereUI:RefreshPage()  -- the cog's disabled state
           end },
-        BLANK()
+        { type = "toggle", text = "Show Fishing Skill",
+          tooltip = "Shows the fishing skill a zone needs under its name on the world map: red, too low; yellow, fish still get away; green, none do.",
+          getValue = function() return ZL.Get("fishing") end,
+          setValue = function(v)
+              ZL.Cfg().fishing = v
+              ZL.Apply()
+          end }
     );  y = y - h
     if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(revealRow._leftRegion, {
