@@ -100,13 +100,14 @@ local function PaintContainerItem(button, bag, slot, frameKey)
 end
 
 -- One of the player's items, in a container slot (bag, slot) or equipped
--- (slot alone, and then bound)
-local function PaintOwnItem(button, link, bag, slot, frameKey)
+-- (slot alone, and then bound). alpha: ctx.alpha (optional)
+local function PaintOwnItem(button, link, bag, slot, frameKey, alpha)
     if not link then
         Clear(button)
         return
     end
     local c = NewCtx(link)
+    c.alpha = alpha
     if bag then
         c.bag, c.slot = bag, slot
         local info = C_Container.GetContainerItemInfo(bag, slot)
@@ -122,20 +123,22 @@ end
 
 -- Frames Blizzard refills far more often than their items change (the pinned
 -- flyout every frame, the character sheet on every item cooldown) repaint a
--- button only when its item, its location or the frame's generation changes.
--- Enable and Refresh start a new generation
+-- button only when its item, its location, its alpha or the frame's generation
+-- changes. Enable and Refresh start a new generation
 local generation = { [FLYOUT] = 0, [CHARSHEET] = 0 }
-local memo = setmetatable({}, { __mode = "k" })  -- button -> { gen, link, bag, slot } last painted
+local memo = setmetatable({}, { __mode = "k" })  -- button -> { gen, link, bag, slot, alpha } last painted
 
-local function Unchanged(button, frameKey, link, bag, slot)
+local function Unchanged(button, frameKey, link, bag, slot, alpha)
     local m = memo[button]
     if not m then
         m = {}
         memo[button] = m
     end
     local gen = generation[frameKey]
-    if m.gen == gen and m.link == link and m.bag == bag and m.slot == slot then return true end
-    m.gen, m.link, m.bag, m.slot = gen, link, bag, slot
+    if m.gen == gen and m.link == link and m.bag == bag and m.slot == slot and m.alpha == alpha then
+        return true
+    end
+    m.gen, m.link, m.bag, m.slot, m.alpha = gen, link, bag, slot, alpha
     return false
 end
 
@@ -143,12 +146,12 @@ end
 --  Blizzard bags (ContainerFrame1-6, ContainerFrameCombinedBags) and bank
 --  (BankPanel: character and warband tabs)
 -------------------------------------------------------------------------------
--- EUI Bags replaces both (its own frame key: eui_bags), unless it stood down
--- for WoW Forever's Gamepad interface style (EUI_Bags_Start.lua,
--- EllesmereUIBags_Bank.lua)
+-- EUI Bags replaces both (its own frame key: eui_bags) unless it stood down
+-- for the session (WoW Forever's Gamepad interface style). Its own decision,
+-- EllesmereUI._BagsStandDown (EUI_Bags_Shared.lua), is absent without EUI Bags
 local function BlizzardBagsInUse()
-    return not C_AddOns.IsAddOnLoaded("EllesmereUIBags")
-        or (EllesmereUI.IS_FOREVER and EllesmereUI.PadGamepadUI())
+    local standDown = EllesmereUI._BagsStandDown
+    return not standDown or standDown()
 end
 
 -- An item context (scrapper, socketing and the like) dims buttons without a
@@ -164,6 +167,23 @@ local function WatchContext(frameKey, on)
     else
         ItemButtonUtil.UnregisterCallback(event, contextOwners[frameKey])
         contextOwners[frameKey] = nil
+    end
+end
+
+-- An equipment set change moves the set names of bag items without a refill:
+-- every watching frame repaints. The event is registered while one watches
+local setsWatchers = {}    -- frame key -> true while watched
+local setsEvents = CreateFrame("Frame")
+setsEvents:SetScript("OnEvent", function()
+    for frameKey in pairs(setsWatchers) do II.RequestRefresh(frameKey) end
+end)
+
+local function WatchSets(frameKey, on)
+    setsWatchers[frameKey] = on or nil
+    if next(setsWatchers) then
+        setsEvents:RegisterEvent("EQUIPMENT_SETS_CHANGED")
+    else
+        setsEvents:UnregisterEvent("EQUIPMENT_SETS_CHANGED")
     end
 end
 
@@ -201,11 +221,16 @@ II.RegisterFrame(BAGS, {
             for i = 1, NUM_CONTAINER_FRAMES do HookBagFrame(_G["ContainerFrame" .. i]) end
             HookBagFrame(ContainerFrameCombinedBags)
         end
-        WatchContext(BAGS, bagFrames[1] ~= nil)
+        local hooked = bagFrames[1] ~= nil
+        WatchContext(BAGS, hooked)
+        WatchSets(BAGS, hooked)
         RefreshBags()
     end,
     Refresh = RefreshBags,
-    Disable = function() WatchContext(BAGS, false) end,
+    Disable = function()
+        WatchContext(BAGS, false)
+        WatchSets(BAGS, false)
+    end,
 })
 
 -- After BankPanelMixin builds the selected tab's slots or refills them
@@ -231,10 +256,14 @@ II.RegisterFrame(BANK, {
             HookMethod(BankPanel, "UpdateSearchResults", RequestBankRefresh)
         end
         WatchContext(BANK, bankHooked)
+        WatchSets(BANK, bankHooked)
         RefreshBank()
     end,
     Refresh = RefreshBank,
-    Disable = function() WatchContext(BANK, false) end,
+    Disable = function()
+        WatchContext(BANK, false)
+        WatchSets(BANK, false)
+    end,
 })
 
 -------------------------------------------------------------------------------
@@ -357,10 +386,6 @@ II.RegisterFrame(MERCHANT, {
 --  item-location flyouts (item upgrade and the like)
 -------------------------------------------------------------------------------
 local flyoutHooked = false
--- Inert until the flyout is managed: an equipment set change moves the set
--- names the memo keeps
-local flyoutEvents = CreateFrame("Frame")
-flyoutEvents:SetScript("OnEvent", function() II.RequestRefresh(FLYOUT) end)
 
 local function PaintFlyoutButton(button, useItemLocation)
     local link, bag, slot = FlyoutButtonItem(button, useItemLocation)
@@ -392,14 +417,15 @@ end
 II.RegisterFrame(FLYOUT, {
     Enable = function()
         flyoutHooked = flyoutHooked or HookGlobal("EquipmentFlyout_UpdateItems", PaintFlyout)
-        if flyoutHooked then flyoutEvents:RegisterEvent("EQUIPMENT_SETS_CHANGED") end
+        -- A set change also moves the set names the memo keeps
+        WatchSets(FLYOUT, flyoutHooked)
         -- The QoL flyout item level (EllesmereUIQoL.lua) steps aside
         ns.RefreshFlyoutItemLevels()
         RefreshFlyout()
     end,
     Refresh = RefreshFlyout,
     Disable = function()
-        flyoutEvents:UnregisterEvent("EQUIPMENT_SETS_CHANGED")
+        WatchSets(FLYOUT, false)
         ns.RefreshFlyoutItemLevels()
     end,
 })
@@ -410,12 +436,16 @@ II.RegisterFrame(FLYOUT, {
 local charSlots = {}     -- slot button -> true
 local charHooked = false
 
--- After PaperDollItemSlotButton_Update, which other slot buttons also pass
+-- After PaperDollItemSlotButton_Update, which other slot buttons also pass.
+-- The marks follow the slot's item-context dim (PaperDollItemSlotButtonMixin)
 local function PaintCharSlot(button)
     if not IsManaged(CHARSHEET) or not charSlots[button] then return end
     local slot = button:GetID()
     local link = GetInventoryItemLink("player", slot)
-    if not Unchanged(button, CHARSHEET, link, nil, slot) then PaintOwnItem(button, link, nil, slot, CHARSHEET) end
+    local alpha = Dimmed(button) and II.DIM_ALPHA or nil
+    if not Unchanged(button, CHARSHEET, link, nil, slot, alpha) then
+        PaintOwnItem(button, link, nil, slot, CHARSHEET, alpha)
+    end
     HideMarks(button, CHARSHEET)
 end
 
@@ -435,9 +465,11 @@ II.RegisterFrame(CHARSHEET, {
                 if button then charSlots[button] = true end
             end
         end
+        WatchContext(CHARSHEET, charHooked)
         RefreshCharSheet()
     end,
     Refresh = RefreshCharSheet,
+    Disable = function() WatchContext(CHARSHEET, false) end,
 })
 
 -------------------------------------------------------------------------------

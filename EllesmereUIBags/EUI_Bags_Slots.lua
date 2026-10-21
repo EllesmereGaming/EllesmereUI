@@ -620,7 +620,7 @@ do
         local rec = Record(btn)
         rec.link, rec.bag, rec.slot, rec.count = link, bag, slot, count
         rec.quality, rec.itemID = quality, itemID
-        rec.alpha = filtered and 0.2 or 1
+        rec.alpha = filtered and II.DIM_ALPHA or 1
         II.Paint(btn, rec, FRAME_KEY)
     end
 
