@@ -138,6 +138,7 @@ Account
 Account Macros
 Account gold tracking is disabled
 Action bar buttons with this macro have to be placed again.
+Actions
 Activate Boss Preview
 Activate Custom Buff Manager
 Activate Custom Debuff Manager
