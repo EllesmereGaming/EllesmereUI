@@ -5970,3 +5970,9 @@ L["Shift + Scroll"] = "Maj + Molette"
 L["Ctrl + Scroll"] = "Ctrl + Molette"
 L["Alt + Scroll"] = "Alt + Molette"
 L["Scroll with the chosen modifier to cycle overlapping frames in Unlock Mode."] = "Faites défiler avec le modificateur choisi pour passer d'un cadre superposé à l'autre en mode Déverrouillage."
+
+-- Unspent Legacy Points alert (EllesmereUIQoL_Alerts.lua, WoW Forever)
+L["Unspent Legacy points"] = "Points Legacy non dépensés"
+L["Unspent Legacy Points Alert"] = "Alerte de points Legacy non dépensés"
+L["Unspent Legacy Points Alert Settings"] = "Réglages de l'alerte de points Legacy"
+L["Shows on-screen text while you have Legacy points to spend. It stays up until you spend them or open the Legacy window, and returns when you earn more. Use the cog to set the text, size and color; use Unlock Mode to reposition the alerts."] = "Affiche un texte à l'écran tant qu'il vous reste des points Legacy à dépenser. Il reste affiché jusqu'à ce que vous les dépensiez ou ouvriez la fenêtre Legacy, et revient quand vous en gagnez d'autres. Le rouage règle le texte, la taille et la couleur ; le mode déverrouillage permet de déplacer les alertes."
