@@ -448,7 +448,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         end
 
     end
-    -- No link: Pawn's arrow stays hidden (Item Icons has its own)
+    -- No link: Pawn's arrow stays hidden (Item Icons draws its own upgrade arrow)
     UpdatePawnArrow(btn, not iiOn and data.itemLink or nil)
     if iiOn then PaintItemIcons(btn, data, markerJunk) end
     EUI_Bags.RunItemOverlays(btn, data)

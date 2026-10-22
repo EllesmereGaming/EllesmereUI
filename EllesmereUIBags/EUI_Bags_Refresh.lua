@@ -1042,7 +1042,7 @@ function EUI_BagsReagent:RefreshInventory()
             local r, g, b = ns.QualityBorderColor(data.info.quality or 1)
             SetInsetBorderColor(btn, r, g, b, 1)
         end
-        -- No link: Pawn's arrow stays hidden (Item Icons has its own)
+        -- No link: Pawn's arrow stays hidden (Item Icons draws its own upgrade arrow)
         UpdatePawnArrow(btn, not iiOn and itemLink or nil)
         if iiOn and itemLink then
             local info, f = data.info, ns.ItemIconsFacts(btn)

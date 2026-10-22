@@ -1829,14 +1829,6 @@ do
         texCoord = { 0.12, 0.88, 0.12, 0.88 },
         mask = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask",
     }
-
-    -- Pawn's bag upgrade arrow for an item: true or false; false while Pawn or
-    -- its bag upgrade advisor is off; nil while Pawn lacks the item's data
-    function EllesmereUI.PawnBagUpgrade(link)
-        local check, pawn = _G.PawnShouldItemLinkHaveUpgradeArrow, _G.PawnCommon
-        if type(check) ~= "function" or not (pawn and pawn.ShowBagUpgradeAdvisor) then return false end
-        return check(link, true)
-    end
 end
 
 -- Stat letters for an item: its secondaries by amount, largest first ("MH"),
