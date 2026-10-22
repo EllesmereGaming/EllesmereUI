@@ -4259,6 +4259,7 @@ do
         EllesmereUICooldownManager = true,
         EllesmereUINameplates = true,
         EllesmereUIPartyMode = true,
+        EllesmereUIAddonManager = true,
         EllesmereUIRaidFrames = true,
         EllesmereUIResourceBars = true,
         EllesmereUIUnitFrames = true,

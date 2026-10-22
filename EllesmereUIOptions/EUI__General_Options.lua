@@ -28,11 +28,13 @@ local PAGE_PROFILES    = "Profiles"
 local PAGE_PRESETS     = "Presets"   -- navigation tab over the presets subpage of the profiles page
 local PAGE_WHATSNEW    = "Patch Notes"
 local PAGE_LEGENDS     = "EUI Legends"
+local PAGE_ADDONS      = "Addon Manager"
 
 -- Profiles/Patch Notes/EUI Legends are their own sidebar pages, not tabs under Global Settings. Keys match the sidebar buttons in EllesmereUI_Panel.lua.
 local PROFILES_KEY     = "_EUIProfiles"
 local PATCHNOTES_KEY   = "_EUIPatchNotes"
 local LEGENDS_KEY      = "_EUILegends"
+local ADDONS_KEY       = "EllesmereUIAddonManager"
 
 -- Standalone single-module builds rename the host addon to contain "Standalone". The What's New tab is suite-only, so it is never added to the page list there.
 local IS_STANDALONE = type(ADDON_NAME) == "string" and ADDON_NAME:find("Standalone") ~= nil
@@ -3415,6 +3417,14 @@ initFrame:SetScript("OnEvent", function(self)
             pages       = { PAGE_LEGENDS },
             buildPage   = function(pageName, parent, yOffset)
                 return EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
+            end,
+        })
+        EllesmereUI:RegisterModule(ADDONS_KEY, {
+            title       = "Addon Manager",
+            description = EllesmereUI.L("Choose which addons are on, by default and per character."),
+            pages       = { PAGE_ADDONS },
+            buildPage   = function(pageName, parent, yOffset)
+                return EllesmereUI._BuildAddonManagerPage(pageName, parent, yOffset)
             end,
         })
 
