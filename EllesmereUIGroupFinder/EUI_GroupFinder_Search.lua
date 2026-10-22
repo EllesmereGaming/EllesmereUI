@@ -277,10 +277,14 @@ local function RegionFilterActive()
     return n > 0 and n < #REGIONS
 end
 
+function XF.Readable(value)
+    return not IsSecret(value) and type(value) == "table" and (not canaccesstable or canaccesstable(value))
+end
+
 local function ResultInfo(resultID)
+    if IsSecret(resultID) or type(resultID) ~= "number" then return nil end
     local info = C_LFGList.GetSearchResultInfo(resultID)
-    if not info or IsSecret(info) or (canaccesstable and not canaccesstable(info)) then return nil end
-    return info
+    return XF.Readable(info) and info or nil
 end
 
 -- A readable number from a member-count table, else nil.
@@ -780,6 +784,14 @@ function XF.PartyNeeds(need)
     return need
 end
 
+function XF.MemberClass(id, index)
+    local member = C_LFGList.GetSearchResultPlayerInfo(id, index)
+    if not XF.Readable(member) then return nil end
+    local class = member.classFilename
+    if IsSecret(class) or type(class) ~= "string" or class == "" then return nil end
+    return class
+end
+
 function XF.ExtraKeep(id, info, need)
     local c = Cfg()
     if c.notDeclined and XF.IsDeclinedResult(id, info) then return false end
@@ -807,12 +819,10 @@ function XF.ExtraKeep(id, info, need)
         if type(n) == "number" and not IsSecret(n) then
             local lust, brez = false, false
             for i = 1, n do
-                local p = C_LFGList.GetSearchResultPlayerInfo(id, i)
-                local cls = p and p.classFilename
-                if cls and not IsSecret(cls) then
-                    if XF.LUST_CLASSES[cls] then lust = true end
-                    if XF.BREZ_CLASSES[cls] then brez = true end
-                end
+                local cls = XF.MemberClass(id, i)
+                if not cls then return true end
+                if XF.LUST_CLASSES[cls] then lust = true end
+                if XF.BREZ_CLASSES[cls] then brez = true end
             end
             if c.hasLust and not lust then return false end
             if c.hasBrez and not brez then return false end
@@ -821,16 +831,29 @@ function XF.ExtraKeep(id, info, need)
     return true
 end
 
+-- nil means incomplete member data: leave this result unfiltered.
+function XF.HasPlayerClass(id, info)
+    local n = XF.Num(info, "numMembers")
+    local _, class = UnitClass("player")
+    if not n or n < 1 or IsSecret(class) or type(class) ~= "string" or class == "" then return nil end
+    local same = false
+    for i = 1, n do
+        local memberClass = XF.MemberClass(id, i)
+        if not memberClass then return nil end
+        if memberClass == class then same = true end
+    end
+    return same
+end
+
 -- Results are secret in restricted content: filters stay out of it.
 function XF.ResultsSecret()
     local res = SP and SP.results
-    local first = type(res) == "table" and res[1]
-    if not first then return false end
+    if not XF.Readable(res) then return true end
+    local first = res[1]
     if IsSecret(first) then return true end
-    local info = C_LFGList.GetSearchResultInfo(first)
-    if not info then return false end
-    if IsSecret(info) or (canaccesstable and not canaccesstable(info)) then return true end
-    return IsSecret(info.activityIDs) and true or false
+    if first == nil then return false end
+    local info = ResultInfo(first)
+    return not info or not XF.Readable(info.activityIDs)
 end
 
 -- One pass over the rows shares this: result secrecy, which filters are on and
@@ -842,15 +865,18 @@ function XF.Pass()
     local P = XF.pass
     local now = GetTime()
     local res = SP and SP.results
+    if not XF.Readable(res) then P.secret = true; P.at, P.res = nil, nil; return P end
     if P.at == now and P.res == res then return P end
     P.at, P.res = now, res
     P.secret = XF.ResultsSecret()
+    if P.secret then return P end
     P.regions = RegionFilterActive()
     P.delveOn = DelveFilterActive()
     P.bossOn = BossFilterActive()
     P.raidOn = RaidListFilterActive()
     P.extraOn = XF.ExtraFilterActive()
-    P.any = P.regions or P.delveOn or P.bossOn or P.raidOn or P.extraOn
+    P.myClassOn = Cfg().dimMyClass == true
+    P.any = P.regions or P.delveOn or P.bossOn or P.raidOn or P.extraOn or P.myClassOn
     P.need = (P.extraOn and Cfg().partyFit) and XF.PartyNeeds(P.needT) or nil
     return P
 end
@@ -860,15 +886,23 @@ function XF.NewPass() XF.pass.at = nil end
 -- groups that fail just get faded. info: the result's readable info, false
 -- when it has none, nil to fetch it here.
 function XF.PassesFilters(id, info)
+    if IsSecret(id) or type(id) ~= "number" then return true end
     local P = XF.Pass()
     if not SP or P.secret or not P.any then return true end
+    if IsSecret(info) then return true end
+    if info == nil then info = ResultInfo(id) end
+    if not XF.Readable(info) or not XF.Readable(info.activityIDs) then return true end
     local c = Cfg()
     local _, appStatus = C_LFGList.GetApplicationInfo(id)
     if IsSecret(appStatus) then return true end
-    if info == nil then info = ResultInfo(id) or false end
     if appStatus and appStatus ~= "none" then
         -- Applied groups stay lit, unless declined with Not Declined on.
         return not (P.extraOn and c.notDeclined and XF.IsDeclinedResult(id, info))
+    end
+    if P.myClassOn then
+        local same = XF.HasPlayerClass(id, info)
+        if same == nil then return true end
+        if same then return false end
     end
     if P.regions then
         local region = LeaderRegion(info)
@@ -884,6 +918,7 @@ end
 -- Filters changed: re-fade the visible rows, no search.
 function XF.RefilterEntry(entry)
     local id = entry.resultID
+    if IsSecret(id) then entry:SetAlpha(1); return end
     if id then entry:SetAlpha(XF.PassesFilters(id) and 1 or XF.DIM_ALPHA) end
 end
 local function Refilter()
@@ -892,6 +927,7 @@ local function Refilter()
     local box = SP.ScrollBox
     if box and box.ForEachFrame then box:ForEachFrame(XF.RefilterEntry) end
 end
+ns.Search_Refilter = Refilter
 
 -------------------------------------------------------------------------------
 -- Result rows and tooltip
@@ -1231,7 +1267,7 @@ end
 -- row, which catches them up.
 local function DecorateEntry(entry)
     local resultID = entry and entry.resultID
-    if not resultID or not SP or not SP:IsVisible() then return end
+    if IsSecret(resultID) or not resultID or not SP or not SP:IsVisible() then return end
     local fd = FFD[entry]
     if not fd then
         fd = {}
@@ -2028,6 +2064,9 @@ end
 -- Group Settings menu (person button): list look and sign-up options.
 XF.GROUP_MENU = {
     { title = EllesmereUI.L("Listing") },
+    { key = "dimMyClass", label = EllesmereUI.L("Dim Groups With My Class"),
+      tip = EllesmereUI.L("Dims groups that already contain your class without hiding or reordering listings. Applied groups and groups with unavailable class data stay undimmed."),
+      onToggle = function() Refilter(); Paint() end },
     { key = "nameColors",     label = EllesmereUI.L("Colored Group Names"),
       tip = EllesmereUI.L("Green name when a group is new, Red name when you were declined or instance locked. Uses Raider.IO colors when loaded.") },
     { key = "leaderRating",   label = EllesmereUI.L("Leader Rating"),
@@ -2783,7 +2822,7 @@ Paint = function()
             local ok, v = pcall(cb)
             isDefault = (not ok) or (v and true or false)
         end
-        if RegionFilterActive() or DelveFilterActive() or BossFilterActive() or (ChosenRaidDiffs() or ChosenRaidPlaystyles() or ChosenRaidRoles()) and SP.categoryID == RAIDS or XF.ExtraFilterActive() then isDefault = false end
+        if Cfg().dimMyClass or RegionFilterActive() or DelveFilterActive() or BossFilterActive() or (ChosenRaidDiffs() or ChosenRaidPlaystyles() or ChosenRaidRoles()) and SP.categoryID == RAIDS or XF.ExtraFilterActive() then isDefault = false end
         if resetBtn then
             resetBtn.active = not isDefault
             resetBtn.Glyph:SetAlpha(isDefault and 0.35 or 0.9)
@@ -2895,7 +2934,7 @@ local function CogFilterButton(btn)
         if type(c.raidDiffs) == "table" then wipe(c.raidDiffs) end
         if type(c.raidPlaystyles) == "table" then wipe(c.raidPlaystyles) end
         if type(c.raidRoles) == "table" then wipe(c.raidRoles) end
-        c.partyFit, c.notDeclined, c.hasLust, c.hasBrez = nil, nil, nil, nil
+        c.partyFit, c.notDeclined, c.hasLust, c.hasBrez, c.dimMyClass = nil, nil, nil, nil, false
         if type(c.roleCounts) == "table" then wipe(c.roleCounts) end
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
         Apply(f)

@@ -2187,6 +2187,33 @@ def check_deprecated_globals(change, errors):
             errors.append(Error(path, line, deprecated_message(name, how)))
 
 
+GROUP_FINDER_REBUILD_APIS = frozenset({
+    "CreateDataProvider", "SetDataProvider", "RemoveDataProvider",
+    "LFGListSearchPanel_UpdateResults", "LFGListSearchPanel_UpdateResultList",
+    "LFGListSearchPanel_SelectResult", "LFGListSearchPanel_InitButton",
+    "LFGListSearchEntry_Update", "LFGListUtil_SortSearchResults",
+    "LFGListUtil_SortSearchResultsCB",
+})
+
+
+def check_group_finder_presentation(change, errors):
+    """Filters may dim rows, never feed an addon-built list back to Blizzard.
+
+    Checks direct calls only; indirect mutations and secrecy guards need review.
+    """
+    for path, added in change.added_by_path.items():
+        if not path.startswith("EllesmereUIGroupFinder/"):
+            continue
+        tokens = change.tokens(path)
+        for token, following in zip(tokens, tokens[1:]):
+            kind, name, line = token
+            if (kind == "name" and name in GROUP_FINDER_REBUILD_APIS
+                    and sym(following) == "(" and line in added):
+                errors.append(Error(path, line, f"{name} can taint Blizzard's Group Finder "
+                                    "list; use readable result/member data and SetAlpha "
+                                    "only, without hiding or reordering rows"))
+
+
 def check_ascii(change, errors):
     """CONTRIBUTING.md: ASCII only in code; multi-byte text corrupts in packaging."""
     for path, lineno, text in change.added_lines:
@@ -2237,7 +2264,8 @@ def check_paths(change, errors):
 
 
 CHECKS = [check_paths, check_compile, check_client_gate, check_combat_deferral,
-          check_deprecated_globals, check_ascii, check_exception_tags]
+          check_deprecated_globals, check_group_finder_presentation, check_ascii,
+          check_exception_tags]
 
 
 def main():

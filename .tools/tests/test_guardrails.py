@@ -327,6 +327,48 @@ class CombatDeferral(RepoCase):
                      'local e = "PLAYER_REGEN_ENABLED"\n'), [])
 
 
+class GroupFinderPresentation(RepoCase):
+    PATH = "EllesmereUIGroupFinder/EUI_GroupFinder_Search.lua"
+
+    def test_rebuild_calls_are_rejected(self):
+        for name in sorted(g.GROUP_FINDER_REBUILD_APIS):
+            with self.subTest(name=name):
+                errors = self.errors_for(self.PATH, f"{name}(panel)\n",
+                                         [g.check_group_finder_presentation])
+                self.assertEqual(len(errors), 1)
+                self.assertIn(f"{name} can taint", errors[0])
+
+    def test_method_and_global_calls_are_rejected(self):
+        errors = self.errors_for(self.PATH,
+                                 "scroll:SetDataProvider(provider)\n"
+                                 "scroll.SetDataProvider(scroll, provider)\n"
+                                 "_G.LFGListSearchPanel_SelectResult(panel, nil)\n",
+                                 [g.check_group_finder_presentation])
+        self.assertEqual(len(errors), 3)
+
+    def test_reads_hooks_and_cosmetic_updates_are_allowed(self):
+        self.assertEqual(self.errors_for(self.PATH,
+            'local member = C_LFGList.GetSearchResultPlayerInfo(id, 1)\n'
+            'entry:SetAlpha(0.35)\n'
+            'if LFGListSearchEntry_Update then\n'
+            '    hooksecurefunc("LFGListSearchEntry_Update", DecorateEntry)\n'
+            'end\n'
+            '-- scroll:SetDataProvider(provider)\n'
+            'local text = "LFGListSearchPanel_UpdateResults(panel)"\n',
+            [g.check_group_finder_presentation]), [])
+
+    def test_other_modules_are_not_restricted(self):
+        self.assertEqual(self.errors_for("OtherAddon/List.lua",
+                         "scroll:SetDataProvider(CreateDataProvider())\n",
+                         [g.check_group_finder_presentation]), [])
+
+    def test_untouched_old_calls_are_not_rejudged(self):
+        self.repo.write(self.PATH, GATE + "scroll:SetDataProvider(provider)\n")
+        base = self.repo.commit()
+        self.repo.write(self.PATH, GATE + "scroll:SetDataProvider(provider)\nentry:SetAlpha(1)\n")
+        self.assertEqual(self.repo.check(base, checks=[g.check_group_finder_presentation]), [])
+
+
 class Exceptions(RepoCase):
     LINE = 'f:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: '
 
