@@ -492,6 +492,8 @@ do
         if standDown == nil then standDown = EUI.PadGamepadUI() end
         return standDown
     end
+    -- Item Icons (EllesmereUIQoL) follows it for Blizzard's bags and bank
+    EUI._BagsStandDown = ns.PadUIStandDown
 
     function ns.PadStyleChanged()
         if styleAsked then return end

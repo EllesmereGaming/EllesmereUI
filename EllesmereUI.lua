@@ -1658,84 +1658,89 @@ do
     end
 end
 
--- Upgrade track color data (shared by BlizzardSkin character/inspect sheets + Bags); only
--- initialized when a consumer feature is enabled.
+-- Upgrade track colors and lookups, shared by the BlizzardSkin character/inspect
+-- sheets, Bags and QoL Item Icons. Plain tables and functions, always defined; the
+-- crafted-crest memo fills only when it is asked.
 do
+    local W  = { r = 1.00, g = 1.00, b = 1.00 }
+    local CH = { r = 0.00, g = 0.44, b = 0.87 }
+    local MY = { r = 1.00, g = 0.50, b = 0.00 }
+    local HE = { r = 1.00, g = 0.30, b = 1.00 }
+    local VE = { r = 0.12, g = 1.00, b = 0.00 }
+    local GR = { r = 0.62, g = 0.62, b = 0.62 }
+
+    EllesmereUI._TRACK_WHITE = W
+    EllesmereUI._TRACK_RANK = { [GR] = 1, [W] = 2, [VE] = 3, [CH] = 4, [HE] = 5, [MY] = 6 }
+
+    -- Canonical track key -> hue (localized translation lives ONLY in UPGRADE_TRACK_KEYS).
+    local map = {
+        Explorer   = GR,
+        Adventurer = W,
+        Veteran    = VE,
+        Champion   = CH,
+        Hero       = HE,
+        Myth       = MY,
+    }
+    -- Read-only: _TRACK_RANK keys on these exact tables.
+    EllesmereUI.UPGRADE_TRACK_COLORS = map
+
+    function EllesmereUI.GetUpgradeTrack(itemLink)
+        local key, cur, maxL = EllesmereUI.GetUpgradeTrackKey(itemLink)
+        local text = (cur and maxL and maxL > 0) and (cur .. "/" .. maxL) or ""
+        return text, map[key or ""] or W
+    end
+
+    -- Crest bonuses identify the crafting tier independently of quality and
+    -- overlapping item levels. Midnight S2 Hero/Myth: 13835/13836.
+    -- Source: https://www.raidbots.com/static/data/live/bonuses.json
+    local craftedColors = { [13835] = HE, [13836] = MY }
+    local function ParseCraftedTrackColor(itemLink)
+        local payload = itemLink:match("item:([^|]+)")
+        if not payload then return nil end
+        local index, lastBonus = 0, 13
+        for field in (payload .. ":"):gmatch("([^:]*):") do
+            index = index + 1
+            if index == 13 then
+                lastBonus = 13 + (tonumber(field) or 0)
+            elseif index > 13 then
+                if index > lastBonus then break end
+                local color = craftedColors[tonumber(field)]
+                if color then return color end
+            end
+        end
+        return nil
+    end
+    -- Memoized per link: the Bags inventory/bank refresh asks for every
+    -- untracked gear item on every pass (bag-update bursts), and the parse
+    -- above concatenates and splits the link each time. Links are
+    -- per-instance, so the memo is bounded and wiped like Bags' sort cache;
+    -- `false` records a miss so the parse never repeats for one link.
+    local craftedCache, craftedCacheN = {}, 0
+    function EllesmereUI.GetCraftedTrackColor(itemLink)
+        if type(itemLink) ~= "string" then return nil end
+        local hit = craftedCache[itemLink]
+        if hit ~= nil then return hit or nil end
+        local color = ParseCraftedTrackColor(itemLink)
+        if craftedCacheN >= 4000 then wipe(craftedCache); craftedCacheN = 0 end
+        craftedCache[itemLink] = color or false
+        craftedCacheN = craftedCacheN + 1
+        return color
+    end
+
+    -- Item-level text color: custom override > upgrade-track hue > crafted-crest hue >
+    -- item rarity > white. Shared by character sheet, inspect sheet, equipment flyout and
+    -- merchant. upgradeText/upgradeColor: a GetUpgradeTrack result the caller already has.
+    -- Built only while Bags or the character / inspect sheet skin is enabled: without it
+    -- the QoL equipment flyout keeps rarity colors.
     local en = C_AddOns and C_AddOns.GetAddOnEnableState
-    local need = en and (
+    local sheetsOrBags = en and (
         (en("EllesmereUIBags") or 0) > 0
         or ((en("EllesmereUIBlizzardSkin") or 0) > 0
             and (not EllesmereUIDB
                  or EllesmereUIDB.themedCharacterSheet ~= false
                  or EllesmereUIDB.themedInspectSheet ~= false))
     )
-    if need then
-        local W  = { r = 1.00, g = 1.00, b = 1.00 }
-        local CH = { r = 0.00, g = 0.44, b = 0.87 }
-        local MY = { r = 1.00, g = 0.50, b = 0.00 }
-        local HE = { r = 1.00, g = 0.30, b = 1.00 }
-        local VE = { r = 0.12, g = 1.00, b = 0.00 }
-        local GR = { r = 0.62, g = 0.62, b = 0.62 }
-
-        EllesmereUI._TRACK_WHITE = W
-        EllesmereUI._TRACK_RANK = { [GR] = 1, [W] = 2, [VE] = 3, [CH] = 4, [HE] = 5, [MY] = 6 }
-
-        -- Canonical track key -> hue (localized translation lives ONLY in UPGRADE_TRACK_KEYS).
-        local map = {
-            Explorer   = GR,
-            Adventurer = W,
-            Veteran    = VE,
-            Champion   = CH,
-            Hero       = HE,
-            Myth       = MY,
-        }
-
-        function EllesmereUI.GetUpgradeTrack(itemLink)
-            local key, cur, maxL = EllesmereUI.GetUpgradeTrackKey(itemLink)
-            local text = (cur and maxL and maxL > 0) and (cur .. "/" .. maxL) or ""
-            return text, map[key or ""] or W
-        end
-
-        -- Crest bonuses identify the crafting tier independently of quality and
-        -- overlapping item levels. Midnight S2 Hero/Myth: 13835/13836.
-        -- Source: https://www.raidbots.com/static/data/live/bonuses.json
-        local craftedColors = { [13835] = HE, [13836] = MY }
-        local function ParseCraftedTrackColor(itemLink)
-            local payload = itemLink:match("item:([^|]+)")
-            if not payload then return nil end
-            local index, lastBonus = 0, 13
-            for field in (payload .. ":"):gmatch("([^:]*):") do
-                index = index + 1
-                if index == 13 then
-                    lastBonus = 13 + (tonumber(field) or 0)
-                elseif index > 13 then
-                    if index > lastBonus then break end
-                    local color = craftedColors[tonumber(field)]
-                    if color then return color end
-                end
-            end
-            return nil
-        end
-        -- Memoized per link: the Bags inventory/bank refresh asks for every
-        -- untracked gear item on every pass (bag-update bursts), and the parse
-        -- above concatenates and splits the link each time. Links are
-        -- per-instance, so the memo is bounded and wiped like Bags' sort cache;
-        -- `false` records a miss so the parse never repeats for one link.
-        local craftedCache, craftedCacheN = {}, 0
-        function EllesmereUI.GetCraftedTrackColor(itemLink)
-            if type(itemLink) ~= "string" then return nil end
-            local hit = craftedCache[itemLink]
-            if hit ~= nil then return hit or nil end
-            local color = ParseCraftedTrackColor(itemLink)
-            if craftedCacheN >= 4000 then wipe(craftedCache); craftedCacheN = 0 end
-            craftedCache[itemLink] = color or false
-            craftedCacheN = craftedCacheN + 1
-            return color
-        end
-
-        -- Item-level text color: custom override > upgrade-track hue > crafted-crest hue >
-        -- item rarity > white. Shared by character sheet, inspect sheet, equipment flyout and
-        -- merchant. upgradeText/upgradeColor: a GetUpgradeTrack result the caller already has.
+    if sheetsOrBags then
         function EllesmereUI.GetItemLevelColor(itemLink, itemQuality, upgradeText, upgradeColor)
             if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor
                 and EllesmereUIDB.charSheetItemLevelColor then
@@ -1756,6 +1761,74 @@ do
             return { r = 1, g = 1, b = 1 }
         end
     end
+end
+
+-- Mythic Keystone dungeon initials (EUI Bags and QoL Item Icons): connector
+-- words skipped, words split on whitespace and hyphens ("Nexus-Point Xenas" is
+-- NPX). Locale files may register EllesmereUI._dungeonAbbrevOverride (plain
+-- data: initials -> short name), applied here. "" while the map has no name.
+do
+    local cache = {}
+    local SKIP_WORDS = {
+        ["of"] = true, ["the"] = true, ["a"] = true, ["an"] = true,
+        -- ruRU (GetMapUIInfo names follow the client locale): iz, za, v, na, i, pod, s
+        ["\208\184\208\183"] = true, ["\208\183\208\176"] = true, ["\208\178"] = true,
+        ["\208\189\208\176"] = true, ["\208\184"] = true, ["\208\191\208\190\208\180"] = true,
+        ["\209\129"] = true,
+    }
+    function EllesmereUI.AbbrevDungeon(mapID)
+        local abbr = cache[mapID]
+        if abbr then return abbr end
+        local name = C_ChallengeMode.GetMapUIInfo(mapID)
+        if not name or name == "" then return "" end
+        abbr = ""
+        for word in name:gmatch("[^%s%-]+") do
+            if not SKIP_WORDS[word:lower()] then
+                -- The first whole UTF-8 character (sub(1, 1) would split Cyrillic)
+                abbr = abbr .. (word:upper():match("^[%z\1-\127\194-\244][\128-\191]*") or "")
+            end
+        end
+        local override = EllesmereUI._dungeonAbbrevOverride
+        if override and override[abbr] then abbr = override[abbr] end
+        cache[mapID] = abbr
+        return abbr
+    end
+end
+
+-- Item button overlay rules of EUI Bags and QoL Item Icons
+do
+    -- An unbound item's bind label and its color (nil: white): "WuE" in the
+    -- Heirloom color for Warbound until Equipped, checked first (those items
+    -- report OnEquip), "BoE" in the item's quality color. Nil for any other
+    -- bind type.
+    function EllesmereUI.BindLabel(isWuE, bindType, quality)
+        if isWuE then return EllesmereUI.L("WuE"), ITEM_QUALITY_COLORS[7] end
+        if bindType == Enum.ItemBind.OnEquip then return EllesmereUI.L("BoE"), ITEM_QUALITY_COLORS[quality] end
+    end
+
+    -- A Mythic Keystone link's level and challenge map ID; nil for any other link
+    function EllesmereUI.ParseKeystoneLink(link)
+        if not link:find("keystone:", 1, true) then return nil end
+        local map, level = link:match("keystone:[^:]*:(%d+):(%d+)")
+        if level then return tonumber(level), tonumber(map) end
+    end
+
+    -- An item level's color: customColor when one is chosen, else trackColor
+    -- (its upgrade track's or crafted crest's hue), else its quality's color,
+    -- else white. Returns r, g, b.
+    function EllesmereUI.ItemLevelRGB(customColor, trackColor, quality)
+        local c = customColor or trackColor
+        if c then return c.r, c.g, c.b end
+        if quality then return C_Item.GetItemQualityColor(quality) end
+        return 1, 1, 1
+    end
+
+    -- The junk badge: the game's coin icon, cropped round
+    EllesmereUI.JUNK_BADGE = {
+        texture = 133784,
+        texCoord = { 0.12, 0.88, 0.12, 0.88 },
+        mask = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask",
+    }
 end
 
 -- Stat letters for an item: its secondaries by amount, largest first ("MH"),

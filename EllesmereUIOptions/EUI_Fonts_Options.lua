@@ -888,16 +888,23 @@ local function TileBags(parent, y, W, tile)
                 applyFn()
             end }
     end
+    -- An overlay text size: greyed while Quality of Life's Item Icons draws the
+    -- bag overlays, as on the Bags page
+    local function ItemIconsManaged() return EllesmereUI.ItemIconsManages("eui_bags") end
+    local function overlay(cfg)
+        cfg.disabled, cfg.disabledTooltip, cfg.rawTooltip = ItemIconsManaged, EllesmereUI.ITEM_ICONS_MANAGED_TIP, true
+        return cfg
+    end
     _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display),
         size("Category Title Size", "bagCatTitleSize", 8, 16, 11, function()
             if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
         end));  y = y - h
     _, h = W:DualRow(parent, y,
-        size("Item Count Text Size", "bagCountFontSize", 8, 16, 11, TextSizes),
-        size("Item Level Text Size", "itemlevelFontSize", 8, 16, 12, TextSizes));  y = y - h
+        overlay(size("Item Count Text Size", "bagCountFontSize", 8, 16, 11, TextSizes)),
+        overlay(size("Item Level Text Size", "itemlevelFontSize", 8, 16, 12, TextSizes)));  y = y - h
     _, h = W:DualRow(parent, y,
-        size("Set Name Text Size", "bagSetNameFontSize", 7, 14, 9, TextSizes),
-        size("BoE / Warbound Text Size", "bagBindTypeFontSize", 8, 16, 11, TextSizes));  y = y - h
+        overlay(size("Set Name Text Size", "bagSetNameFontSize", 7, 14, 9, TextSizes)),
+        overlay(size("BoE / Warbound Text Size", "bagBindTypeFontSize", 8, 16, 11, TextSizes)));  y = y - h
     _, h = W:DualRow(parent, y,
         size("List Text Size", "bagListFontSize", 8, 16, 11, function()
             if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end

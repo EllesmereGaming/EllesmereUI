@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUIBags.lua -- Enhanced Bags System for EllesmereUI (Midnight): sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog and EllesmereUI.AbbrevDungeon and EllesmereUI.BindLabel and EllesmereUI.ParseKeystoneLink and EllesmereUI.ItemLevelRGB and EllesmereUI.JUNK_BADGE) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window, keystone initials its AbbrevDungeon, the item overlay rules its shared helpers)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS["EllesmereUIBags"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -354,35 +354,6 @@ local function GetCatTitleSize()
     return BP().bagCatTitleSize or 11
 end
 
--- Abbreviate a dungeon name to initials (skipping connector words); Cyrillic entries cover clients where GetMapUIInfo returns translated names.
-local _dungeonAbbrCache = {}
-local _skipWords = {
-    ["of"] = true, ["the"] = true, ["a"] = true, ["an"] = true,
-    ["из"] = true, ["за"] = true, ["в"] = true, ["на"] = true,
-    ["и"] = true, ["под"] = true, ["с"] = true,
-}
-local function AbbrevDungeon(mapID)
-    local cached = _dungeonAbbrCache[mapID]
-    if cached then return cached end
-    local name = C_ChallengeMode and C_ChallengeMode.GetMapUIInfo and C_ChallengeMode.GetMapUIInfo(mapID)
-    if not name or name == "" then return "" end
-    local abbr = ""
-    -- Split on whitespace AND hyphens so "Nexus-Point Xenas" abbreviates to NPX.
-    for word in name:gmatch("[^%s%-]+") do
-        if not _skipWords[word:lower()] then
-            -- First whole UTF-8 char (sub(1,1) would split Cyrillic; same for ASCII)
-            local wordUpper = word:upper()
-            local firstChar = wordUpper:match("^[%z\1-\127\194-\244][\128-\191]*")
-            abbr = abbr .. (firstChar or "")
-        end
-    end
-    -- Locale files may register EllesmereUI._dungeonAbbrevOverride (plain data) for locale-specific cuts; applied here at the single render source, not via hook.
-    local ov = EllesmereUI and EllesmereUI._dungeonAbbrevOverride
-    if ov and ov[abbr] then abbr = ov[abbr] end
-    _dungeonAbbrCache[mapID] = abbr
-    return abbr
-end
-
 -- Main-chunk locals of this file the EUI_Bags_*.lua files re-import by name;
 -- each of them adds what the files behind it need.
 -- categoryIndexSetters and the lists beside it: every file that reads one of
@@ -392,7 +363,7 @@ end
 -- broken: true while an EUI_Bags_*.lua file loads; a file that fails leaves
 -- it set, and the files behind it return at their first lines.
 ns._bagsInternals = {
-    _bankRouted = _bankRouted, AbbrevDungeon = AbbrevDungeon, ApplyBagScale = ApplyBagScale,
+    _bankRouted = _bankRouted, ApplyBagScale = ApplyBagScale,
     BagsItemUnusable = BagsItemUnusable, BP = BP, CurrencyOrder = CurrencyOrder,
     GetAccentRGB = GetAccentRGB, GetCatTitleSize = GetCatTitleSize, GetColumns = GetColumns,
     GetDefaultBagType = GetDefaultBagType, GetFont = GetFont,
