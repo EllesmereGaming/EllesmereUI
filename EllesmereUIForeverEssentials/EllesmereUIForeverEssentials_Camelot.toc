@@ -45,6 +45,11 @@ EllesmereUIForeverEssentials_PetSummon.lua
 
 # Loot (loot feed)
 EllesmereUIForeverEssentials_LootFeed.lua
+EllesmereUIForeverEssentials_LevelUp.lua
+
+# Training (training book)
+EllesmereUIForeverEssentials_TrainerData.lua
+EllesmereUIForeverEssentials_Training.lua
 
 # Macros (macro manager)
 EllesmereUIForeverEssentials_MacroManager.lua
