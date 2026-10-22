@@ -2,14 +2,15 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 -------------------------------------------------------------------------------
 --  EllesmereUIForeverEssentials_JunkItems.lua  (WoW Forever only)
---  Small window listing the cheapest junk stacks in your bags: gray items,
---  white ones with Include White Items on, and anything marked with the Bags
---  Junk Marker.
---    Ctrl + Left Click  : delete the stack (white and better: a second Ctrl +
---                         Left Click confirms; Rare and better type DELETE first)
+--  Small window listing the cheapest junk stacks in your bags: every stack up
+--  to Maximum Quality (gray only by default), and anything marked with the
+--  Bags Junk Marker.
+--    Ctrl + Left Click  : delete the stack (above One-Click Delete Up To: a second
+--                         Ctrl + Left Click confirms; Rare and better type DELETE first)
 --    Middle Click       : never show this item again (account-wide)
---  Each icon shows its stack's vendor value underneath, cut to whole silver
---  (1g 15s 12c -> 1g 15s). Copper only appears while the value is under 1g.
+--  Each icon shows its stack's value underneath (vendor, or Auctionator's with
+--  Use Auctionator Prices on), cut to whole silver (1g 15s 12c -> 1g 15s).
+--  Copper only appears while the value is under 1g.
 -------------------------------------------------------------------------------
 local _, module = ...
 local PP = EllesmereUI.PP
@@ -29,11 +30,12 @@ local DEFAULTS = {
     iconSize         = 32,
     iconSpacing      = 20,        -- gap between icons, px
     priceSide        = "bottom",  -- bottom | top
+    auctionPrices    = false,     -- value stacks at Auctionator's price when it has one
     showFreeSlots    = false,     -- title reads "Bag Slots - free/total"; off hides the title
     onlyLowBagSpace  = false,     -- also hidden until fewer bag slots are free than the threshold
     freeSlotThreshold = 5,        -- free regular bag slots, 1..100
-    includeWhite     = false,     -- list white (Common) stacks too
-    skipWhiteConfirm = false,     -- white stacks delete without asking first
+    maxQuality       = 0,         -- Enum.ItemQuality: stacks up to this quality list
+    oneClickQuality  = 0,         -- stacks up to this quality (Uncommon at most) delete without asking
 }
 -- The screen's centre until unlock mode moves it.
 local F = module.Feature("junkList", DEFAULTS, { point = "CENTER", relPoint = "CENTER", x = 0, y = 0 })
@@ -44,7 +46,7 @@ local MAX_CELLS = 6
 local PRICE_H   = 12
 local TITLE_H   = 24
 
-local POOR, COMMON, RARE = Enum.ItemQuality.Poor, Enum.ItemQuality.Common, Enum.ItemQuality.Rare
+local RARE = Enum.ItemQuality.Rare
 local QUEST_CLASS     = Enum.ItemClass.Questitem
 local BATTLEPET_CLASS = Enum.ItemClass.Battlepet
 
@@ -68,6 +70,8 @@ local armedCell              -- the cell whose stack the next Ctrl + Left Click 
 local swapCount = 0          -- cells holding a double-click guard
 local priceFitW = 0          -- widest price a cell shows in full (its icon plus the spacing, less 2 px)
 local lastFree, lastTotal    -- the title's counts as last drawn
+local auctionOn = false      -- Use Auctionator Prices, as the remembered values were priced
+local dbHooked = false       -- Auctionator's price-update callback registered
 
 -- Per-slot facts for the scanned bags. A pass re-reads only the bags marked
 -- dirty (by BAG_UPDATE, or all of them when the window comes back or a bag is
@@ -159,11 +163,11 @@ local function InEquipmentSet(bag, slot)
     return C_Container.GetContainerItemEquipmentSetInfo(bag, slot) and true or false
 end
 
--- Gray always, white with Include White Items on, and anything marked with the
--- Bags Junk Marker: above Poor, IsJunk reports exactly the marks. cm is nil
--- while Bags is not loaded, and then nothing counts as marked.
-local function Listable(q, id, includeWhite, cm)
-    if q == POOR or (q == COMMON and includeWhite) then return true end
+-- Anything up to Maximum Quality, and anything marked with the Bags Junk
+-- Marker: above Poor, IsJunk reports exactly the marks. cm is nil while Bags
+-- is not loaded, and then nothing counts as marked.
+local function Listable(q, id, maxQuality, cm)
+    if q <= maxQuality then return true end
     return cm ~= nil and cm:IsJunk(id, q) == true
 end
 
@@ -171,7 +175,7 @@ end
 --  Bag reads and the list
 -------------------------------------------------------------------------------
 local function ReadSlot(r)
-    r.quality, r.pending, r.quest, r.inSet = nil, false, nil, nil
+    r.quality, r.pending, r.quest, r.inSet, r.total = nil, false, nil, nil, nil
     local info = GetContainerItemInfo(r.bag, r.slot)
     local id = info and info.itemID
     r.id = id or false
@@ -179,7 +183,7 @@ local function ReadSlot(r)
     r.count, r.icon, r.link = info.stackCount or 1, info.iconFileID, info.hyperlink
     local q, total = Classify(info)
     if q then
-        r.quality, r.total = q, total
+        r.quality, r.vendor, r.bound = q, total, info.isBound
     elseif q == nil then
         r.pending = true  -- its GET_ITEM_INFO_RECEIVED re-reads the bag
     end
@@ -226,12 +230,18 @@ local function DirtyHolders(id)
     end
 end
 
--- A set edit fires no bag update: drop the remembered set membership instead.
-local function ForgetSets()
+-- A set edit or new prices fire no bag update: drop that remembered fact instead.
+local function Forget(key)
     for bag = 0, NUM_BAG_SLOTS do
         local list = recs[bag]
-        for slot = 1, scanSlots[bag] or 0 do list[slot].inSet = nil end
+        for slot = 1, scanSlots[bag] or 0 do list[slot][key] = nil end
     end
+end
+
+-- Soulbound stacks cannot be auctioned: they keep their vendor value.
+local function StackValue(r)
+    local each = auctionOn and not r.bound and r.link and module.AuctionPrice(r.link)
+    return each and each * r.count or r.vendor
 end
 
 -- Cheapest first; ties keep bag order.
@@ -258,10 +268,10 @@ local function Offer(r, n, limit)
 end
 
 -- Picks the cheapest listable stacks from the read facts. The quest and set
--- checks run only for items that would otherwise list, once per read (set
--- membership again after a set edit).
+-- checks and the value run only for items that would otherwise list, once per
+-- read (set membership again after a set edit, the value after new prices).
 local function Select(limit)
-    local includeWhite = Get("includeWhite") == true
+    local maxQuality = Get("maxQuality")
     local cm = _G.EUI_CategoryManager
     local ex = EllesmereUIDB.junkListExcluded
     wipe(pending)
@@ -273,11 +283,14 @@ local function Select(limit)
             local id, q = r.id, r.quality
             if r.pending then
                 if not failed[id] then pending[id] = true end
-            elseif q and not (ex and ex[id]) and Listable(q, id, includeWhite, cm) then
+            elseif q and not (ex and ex[id]) and Listable(q, id, maxQuality, cm) then
                 if r.quest == nil then r.quest = IsQuestSlot(bag, slot) end
                 if not r.quest then
                     if r.inSet == nil then r.inSet = InEquipmentSet(bag, slot) end
-                    if not r.inSet then n = Offer(r, n, limit) end
+                    if not r.inSet then
+                        if r.total == nil then r.total = StackValue(r) end
+                        n = Offer(r, n, limit)
+                    end
                 end
             end
         end
@@ -377,10 +390,11 @@ local function CloseConfirm()
     if not armedCell then eventFrame:UnregisterEvent("PLAYER_REGEN_DISABLED") end
 end
 
--- A stack that must be confirmed is armed first (white and green stacks by
--- their first Ctrl + Left Click, Rare and better by the typed confirmation);
--- the next Ctrl + Left Click on it deletes. Arming holds for ARM_SECS and for
--- that stack only: a change to the cell, combat or the time running out ends it.
+-- A stack that must be confirmed is armed first (white and green stacks above
+-- One-Click Delete Up To by their first Ctrl + Left Click, Rare and better by
+-- the typed confirmation); the next Ctrl + Left Click on it deletes. Arming
+-- holds for ARM_SECS and for that stack only: a change to the cell, combat or
+-- the time running out ends it.
 local ARM_SECS = 6
 
 local function Disarm()
@@ -475,7 +489,8 @@ local function OnCellClick(self, button)
     if button ~= "LeftButton" or not IsControlKeyDown() then return end
     if self.swapped or InCombatLockdown() or GetCursorInfo() then return end
     local q = self.quality
-    if q == POOR or (q == COMMON and Get("skipWhiteConfirm"))
+    -- Rare and better always need the typed confirmation, whatever the setting says.
+    if (q < RARE and q <= Get("oneClickQuality"))
        or (armedCell == self and GetTime() <= (self.armedUntil or 0)) then
         Disarm()
         DeleteStack(self.bag, self.slot, id, self.count, q)
@@ -678,7 +693,7 @@ local function OnEvent(_, event, arg1, arg2)
     elseif event == "BAG_CONTAINER_UPDATE" then
         DirtyAll()
     elseif event == "EQUIPMENT_SETS_CHANGED" then
-        ForgetSets()
+        Forget("inSet")
     end
     RequestRefresh()
 end
@@ -715,10 +730,33 @@ local function BuildFrame()
 end
 
 -------------------------------------------------------------------------------
+--  Auctionator prices: a scan that updates them re-prices the list. The API
+--  has no unregister, so the callback is registered once and checks the option.
+-------------------------------------------------------------------------------
+local function OnPricesUpdated()
+    if not (auctionOn and active) then return end
+    Forget("total")
+    RequestRefresh()
+end
+
+local function HookPriceUpdates()
+    local api = module.AuctionAPI()
+    if not (api and api.RegisterForDBUpdate) then return end
+    dbHooked = true
+    pcall(api.RegisterForDBUpdate, "EllesmereUI", OnPricesUpdated)
+end
+
+-------------------------------------------------------------------------------
 --  Refresh: re-read the dirty bags, pick the list, repaint what changed
 -------------------------------------------------------------------------------
 Refresh = function()
     if not active then return end
+    local ah = Get("auctionPrices") == true
+    if ah ~= auctionOn then
+        auctionOn = ah
+        Forget("total")
+    end
+    if ah and not dbHooked then HookPriceUpdates() end
     for bag = 0, NUM_BAG_SLOTS do
         if dirty[bag] then ReadBag(bag) end
     end
