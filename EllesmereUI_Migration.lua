@@ -4428,12 +4428,12 @@ EllesmereUI.RegisterMigration({
 })
 
 -- WoW Forever Junk Items: Include White Items became Maximum Quality and Skip
--- Confirmation for White Items became One-Click Delete Up To. An account with
--- either on keeps it as Common; both old keys go.
+-- Confirmation for White Items became Delete Without Confirming. An account
+-- with either on keeps it as Common; both old keys go.
 EllesmereUI.RegisterMigration({
     id          = "junk_items_quality_settings_v1",
     scope       = "global",
-    description = "Move the Junk Items white-item toggles into Maximum Quality and One-Click Delete Up To.",
+    description = "Move the Junk Items white-item toggles into Maximum Quality and Delete Without Confirming.",
     body = function(ctx)
         local c = ctx.db.junkList
         if type(c) ~= "table" then return end

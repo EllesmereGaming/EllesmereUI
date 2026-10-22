@@ -174,8 +174,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     --  WORLD MAP (Fade Map While Moving | Show the Game Behind the Map, then
     --  Reveal Unexplored Areas with its color in the cog | Show Zone Levels,
     --  then Show Map Markers with its sets in the cog:
-    --  EllesmereUIForeverEssentials_MapTravel.lua | Show Fishing Skill:
-    --  EllesmereUIForeverEssentials_ZoneLevels.lua)
+    --  EllesmereUIForeverEssentials_MapTravel.lua)
     ---------------------------------------------------------------------------
     local MR = EllesmereUI._MapReveal
     local ZL = EllesmereUI._ZoneLevels
@@ -232,13 +231,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               MT.Apply()
               EllesmereUI:RefreshPage()  -- the cog's disabled state
           end },
-        { type = "toggle", text = "Show Fishing Skill",
-          tooltip = "Shows the fishing skill a zone needs under its name on the world map: red, too low; yellow, fish still get away; green, none do.",
-          getValue = function() return ZL.Get("fishing") end,
-          setValue = function(v)
-              ZL.Cfg().fishing = v
-              ZL.Apply()
-          end }
+        BLANK()
     );  y = y - h
     if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(revealRow._leftRegion, {
@@ -678,9 +671,9 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         );  y = y - h
 
         _, h = W:DualRow(parent, y,
-            { type = "dropdown", text = "One-Click Delete Up To",
+            { type = "dropdown", text = "Delete Without Confirming",
               values = oneClickValues, order = oneClickOrder,
-              tooltip = "Stacks up to this quality delete on the first Ctrl + Left Click; better ones need a second. Rare and better also need DELETE typed first.",
+              tooltip = "Items of this quality and below delete on the first Ctrl + Left Click. Higher-quality items need a second click, and Rare and above also need DELETE typed.",
               getValue = function() return tostring(JI.Get("oneClickQuality")) end,
               setValue = function(v) JunkSet("oneClickQuality", tonumber(v)) end },
             { type = "labeledButton", text = "Excluded Items", buttonText = "Clear", width = 90,

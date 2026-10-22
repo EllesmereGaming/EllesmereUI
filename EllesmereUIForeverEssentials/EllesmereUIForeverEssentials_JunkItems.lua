@@ -5,8 +5,8 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  Small window listing the cheapest junk stacks in your bags: every stack up
 --  to Maximum Quality (gray only by default), and anything marked with the
 --  Bags Junk Marker.
---    Ctrl + Left Click  : delete the stack (above One-Click Delete Up To: a second
---                         Ctrl + Left Click confirms; Rare and better type DELETE first)
+--    Ctrl + Left Click  : delete the stack (above Delete Without Confirming: a
+--                         second Ctrl + Left Click confirms; Rare and better type DELETE first)
 --    Middle Click       : never show this item again (account-wide)
 --  Each icon shows its stack's value underneath (vendor, or Auctionator's with
 --  Use Auctionator Prices on), cut to whole silver (1g 15s 12c -> 1g 15s).
@@ -391,7 +391,7 @@ local function CloseConfirm()
 end
 
 -- A stack that must be confirmed is armed first (white and green stacks above
--- One-Click Delete Up To by their first Ctrl + Left Click, Rare and better by
+-- Delete Without Confirming by their first Ctrl + Left Click, Rare and better by
 -- the typed confirmation); the next Ctrl + Left Click on it deletes. Arming
 -- holds for ARM_SECS and for that stack only: a change to the cell, combat or
 -- the time running out ends it.
