@@ -9,6 +9,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    Combat Alert     (EllesmereUIQoL.lua)   short
 --    Potion Ready     (below)                short
 --    Unspent Talents  (below)                persistent
+--    Unspent Legacy   (below, WoW Forever)   persistent
 --  Nothing is built or registered for an alert until it is enabled.
 -------------------------------------------------------------------------------
 
@@ -29,6 +30,7 @@ EUI.Alerts = Alerts
 -- Stack order, top first. sizeKey/enabledKey are the alert's own settings.
 local DEFS = {
     { id = "talent", sizeKey = "talentAlertTextSize", enabledKey = "talentAlertEnabled", persistent = true },
+    { id = "legacy", sizeKey = "legacyAlertTextSize", enabledKey = "legacyAlertEnabled", persistent = true },
     { id = "combat", sizeKey = "combatAlertTextSize", enabledKey = "combatAlertEnabled", hold = 1.2 },
     { id = "potion", sizeKey = "potionAlertTextSize", enabledKey = "potionAlertEnabled", hold = 3 },
 }
@@ -39,6 +41,7 @@ local anchor
 Alerts.DEFAULTS = {
     potionAlert = { text = "Potion Ready",          color = { r = 0.1, g = 1,    b = 0.1 } },
     talentAlert = { text = "Unspent talent points", color = { r = 1,   g = 0.82, b = 0   } },
+    legacyAlert = { text = "Unspent Legacy points", color = { r = 0.4, g = 0.8,  b = 1   } },
 }
 
 local function SizeOf(def) return DB(def.sizeKey) or DEFAULT_SIZE end
@@ -538,6 +541,126 @@ do
     EUI._talentAlertPreview = function()
         -- A live alert gets its text/color refreshed; otherwise a short sample.
         ShowAlert(not Line().persistentShown)
+    end
+
+    local boot = CreateFrame("Frame")
+    boot:RegisterEvent("PLAYER_LOGIN")
+    boot:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        Apply()
+    end)
+end
+
+-------------------------------------------------------------------------------
+--  Unspent Legacy Points (persistent, WoW Forever only)
+--  Same reading as Blizzard's Legacy window (Blizzard_LegacySystemUtil.lua):
+--  the points available on the Legacy trees' currency, once the system is
+--  unlocked (Legacy reward track renown above 0, the micro button's test).
+--  The line stays up while points are available, until the Legacy window
+--  opens; it comes back when more points come in, and waits for combat to end.
+-------------------------------------------------------------------------------
+if EUI.IS_FOREVER then
+    local EVENTS = { "PLAYER_ENTERING_WORLD", "TRAIT_TREE_CURRENCY_INFO_UPDATED",
+        "TRAIT_CONFIG_UPDATED", "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "ACHIEVEMENT_EARNED" }
+
+    local watcher
+    local installed = false
+    local lastQty = 0
+    local dismissed = false
+    local dirty = false
+
+    -- Points available to spend, or 0 while the system is locked or unread.
+    local function Available()
+        local LC = Constants and Constants.LegacyConsts
+        if not (LC and C_Traits and C_MajorFactions) then return 0 end
+        local renown = C_MajorFactions.GetCurrentRenownLevel(LC.LEGACY_REWARD_TRACK_FACTION_ID)
+        if type(renown) ~= "number" or renown <= 0 then return 0 end
+        local treeID = LC.LEGACY_TREE_PROFESSIONS_ID
+        local configID = C_Traits.GetConfigIDByTreeID(treeID)
+        if not configID then return 0 end
+        local infos = C_Traits.GetTreeCurrencyInfo(configID, treeID, false)
+        local info = infos and infos[1]
+        local qty = info and info.quantity
+        return type(qty) == "number" and qty or 0
+    end
+
+    local function Line()
+        local line = Alerts.Line("legacy")
+        line.onDismiss = function() dismissed = true end
+        return line
+    end
+
+    local function ShowAlert(qty, preview)
+        local D = Alerts.DEFAULTS.legacyAlert
+        local r, g, b = Alerts.Color("legacyAlert", D.color.r, D.color.g, D.color.b)
+        local text = DB("legacyAlertText") or EllesmereUI.L("Unspent Legacy points")
+        if qty and qty > 0 then text = text .. " (" .. qty .. ")" end
+        Line().Show(text, r, g, b, preview)
+    end
+
+    local function Evaluate()
+        dirty = false
+        if not installed then return end
+        if InCombatLockdown() then ns.CombatQueue.Defer("LegacyAlert", Evaluate); return end
+        local qty = Available()
+        if qty > 0 then
+            if qty > lastQty then dismissed = false end      -- new points: show again
+            if not dismissed then ShowAlert(qty) end
+        else
+            dismissed = false
+            Alerts.Hide("legacy")
+        end
+        lastQty = qty
+    end
+
+    local function MarkDirty()
+        if dirty then return end
+        dirty = true
+        C_Timer.After(0, Evaluate)   -- next frame: one pass per burst of events
+    end
+
+    local listening = false
+    local function Apply()
+        local on = DB("legacyAlertEnabled")
+        if on and not installed then
+            for _, e in ipairs(EVENTS) do watcher:RegisterEvent(e) end
+            installed = true
+            lastQty, dismissed = 0, false
+            if not listening then
+                listening = true
+                EUI:RegisterUnlockModeListener("EUI_LegacyAlert", function(active)
+                    if not active and installed then MarkDirty() end
+                end)
+                -- Opening the Legacy window counts as seeing the alert. It is
+                -- load-on-demand: hook it once it exists.
+                if EventUtil and EventUtil.ContinueOnAddOnLoaded then
+                    EventUtil.ContinueOnAddOnLoaded("Blizzard_LegacySystem", function()
+                        if LegacySystemFrame then
+                            LegacySystemFrame:HookScript("OnShow", function()
+                                if installed then Line().Dismiss() end
+                            end)
+                        end
+                    end)
+                end
+            end
+            MarkDirty()
+        elseif not on and installed then
+            watcher:UnregisterAllEvents()
+            installed = false
+            Alerts.Hide("legacy")
+        end
+        Alerts.Refresh()
+    end
+
+    watcher = CreateFrame("Frame")
+    watcher:SetScript("OnEvent", MarkDirty)
+
+    EUI._applyLegacyAlert = Apply
+    EUI._legacyAlertFrame = Alerts.Refresh
+    EUI._legacyAlertPreview = function()
+        -- A live alert gets its text/color refreshed; otherwise a short sample.
+        local line = Line()
+        ShowAlert(line.persistentShown and Available() or nil, not line.persistentShown)
     end
 
     local boot = CreateFrame("Frame")
