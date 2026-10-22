@@ -495,8 +495,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local ilvlRow
                 ilvlRow, h = W:DualRow(parent, y,
                     { type="dropdown", text="Show Item Level",
-                      tooltip="Display item levels on equipment items in the inventory, in their usual colors or in one color of your choice.",
-                      values={ never = "Never", default = "Default Colors", custom = "Custom Colored" },
+                      tooltip="Display item levels on equipment items in the inventory, colored by their upgrade track (crafted gear: its crest), else by item quality, or in one color of your choice.",
+                      values={ never = "Never", default = "Track Colored", custom = "Custom Colored" },
                       order={ "never", "default", "custom" },
                       disabled=ItemIconsManaged, disabledTooltip=ITEM_ICONS_TIP, rawTooltip=true,
                       getValue=IlvlMode,
