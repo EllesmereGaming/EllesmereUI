@@ -50,6 +50,7 @@ EUI_CDM_BuffBarCooldown.lua
 EUI_CDM_BuffBarTick.lua
 EUI_CDM_BuffBarBuild.lua
 EUI_CDM_BuffBarUnlock.lua
+EUI_CDM_Seals.lua
 EllesmereUICdmTbbDecimals.lua
 EllesmereUICdmFakeActive.lua
 EllesmereUICdmRPTSync.lua
