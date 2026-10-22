@@ -7035,3 +7035,8 @@ L["Select a Talent"] = "Sélectionner un talent"
 L["Picked"] = "Choisi"
 L["Click: pick this talent"] = "Clic : choisir ce talent"
 L["Click the talent this reminder is for."] = "Cliquez sur le talent concerné par ce rappel."
+-- Unspent Legacy Points alert (EllesmereUIQoL_Alerts.lua, WoW Forever)
+L["Unspent Legacy points"] = "Points Legacy non dépensés"
+L["Unspent Legacy Points Alert"] = "Alerte de points Legacy non dépensés"
+L["Unspent Legacy Points Alert Settings"] = "Réglages de l'alerte de points Legacy"
+L["Shows on-screen text while you have Legacy points to spend. It stays up until you spend them or open the Legacy window, and returns when you earn more. Use the cog to set the text, size and color; use Unlock Mode to reposition the alerts."] = "Affiche un texte à l'écran tant qu'il vous reste des points Legacy à dépenser. Il reste affiché jusqu'à ce que vous les dépensiez ou ouvriez la fenêtre Legacy, et revient quand vous en gagnez d'autres. Le rouage règle le texte, la taille et la couleur ; le mode déverrouillage permet de déplacer les alertes."
