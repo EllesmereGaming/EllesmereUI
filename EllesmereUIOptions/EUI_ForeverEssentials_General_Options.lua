@@ -171,6 +171,24 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     );  y = y - h
 
     ---------------------------------------------------------------------------
+    --  TALENTS (EllesmereUIForeverEssentials_TalentPlanner.lua)
+    ---------------------------------------------------------------------------
+    local TP = EllesmereUI._TalentPlanner
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "TALENTS", y);  y = y - h
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Talent Planner",
+          tooltip = "Plan your talents to come on the talent page (Plan Talents, under it): each level up then learns the next planned points by itself. The plan is kept per character and talent group.",
+          getValue = function() return TP.Get("enabled") end,
+          setValue = function(v)
+              TP.Cfg().enabled = v
+              TP.Apply()
+          end },
+        BLANK()
+    );  y = y - h
+
+    ---------------------------------------------------------------------------
     --  WORLD MAP (Fade Map While Moving | Show the Game Behind the Map, then
     --  Reveal Unexplored Areas with its color in the cog | Show Zone Levels,
     --  then Show Map Markers with its sets in the cog:

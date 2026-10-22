@@ -51,3 +51,6 @@ EllesmereUIForeverEssentials_MacroManager.lua
 
 # Fishing (key, double-click, bobber indicator, sounds)
 EllesmereUIForeverEssentials_Fishing.lua
+
+# Talents (talent planner)
+EllesmereUIForeverEssentials_TalentPlanner.lua
