@@ -3,19 +3,20 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUIQoL_ItemIcons_Elements.lua
 --  Item Icons providers for the overlays EUI drew before Item Icons: item
 --  level, upgrade rank, stack count, BoE / WuE, equipment set name, crafting
---  quality, junk coin, quest starter, keystone level and dungeon, Pawn arrow.
---  Insets match the EUI Bags overlays. The element contract and the item and
---  out fields: EllesmereUIQoL_ItemIcons.lua.
+--  quality, junk coin, quest starter, keystone level and dungeon; and the
+--  upgrade arrow. Insets match the EUI Bags overlays. The element contract and
+--  the item and out fields: EllesmereUIQoL_ItemIcons.lua.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
-local Register = EllesmereUI.ItemIcons.RegisterElement
+local II = EllesmereUI.ItemIcons
+local Register = II.RegisterElement
 
 local GetItemInfo, GetItemInfoInstant = C_Item.GetItemInfo, C_Item.GetItemInfoInstant
 local GetUpgradeTrack, GetCraftedTrackColor = EllesmereUI.GetUpgradeTrack, EllesmereUI.GetCraftedTrackColor
 -- The overlay rules EUI Bags draws by (EllesmereUI.lua)
 local AbbrevDungeon, BindLabel = EllesmereUI.AbbrevDungeon, EllesmereUI.BindLabel
 local ParseKeystoneLink, ItemLevelRGB = EllesmereUI.ParseKeystoneLink, EllesmereUI.ItemLevelRGB
-local PawnBagUpgrade, JUNK_BADGE = EllesmereUI.PawnBagUpgrade, EllesmereUI.JUNK_BADGE
+local JUNK_BADGE = EllesmereUI.JUNK_BADGE
 local WEAPON, ARMOR = Enum.ItemClass.Weapon, Enum.ItemClass.Armor
 local POOR, BIND_ON_EQUIP = Enum.ItemQuality.Poor, Enum.ItemBind.OnEquip
 -- WoW Forever: no number under 10,000 abbreviates (EllesmereUI_NumberFormat.lua)
@@ -78,6 +79,26 @@ local function IsGear(item)
     return v
 end
 
+-- The item's level, else nil (pending while its data loads)
+local function ItemLevel(item)
+    local v = item._ilvl
+    if v == nil then
+        local f = item.facts
+        v = f and f.itemLevel
+        if v == nil then
+            local loc = Location(item)
+            if loc then v = C_Item.GetCurrentItemLevel(loc) end
+            if not v or v <= 0 then v = C_Item.GetDetailedItemLevelInfo(item.link) end
+            if not v or v <= 0 then
+                Info(item)
+                v = false
+            end
+        end
+        item._ilvl = v
+    end
+    return v or nil
+end
+
 -- The item's upgrade level while it is on an upgrade track, else false
 local function UpgradeLevel(item)
     local v = item._upgradeLevel
@@ -138,19 +159,8 @@ Register("itemLevel", {
     kind = "text",
     Apply = function(item, _, out)
         if not IsGear(item) then return false end
-        local f = item.facts
-        local level = f and f.itemLevel
-        if level == nil then
-            local loc = Location(item)
-            if loc then level = C_Item.GetCurrentItemLevel(loc) end
-            if not level or level <= 0 then level = C_Item.GetDetailedItemLevelInfo(item.link) end
-            if not level or level <= 0 then
-                Info(item)
-                return false
-            end
-        elseif not level then
-            return false
-        end
+        local level = ItemLevel(item)
+        if not level then return false end
         out.text = level
         SetLevelColor(item, out)
         return true
@@ -306,22 +316,83 @@ Register("keystoneDungeon", {
     end,
 })
 
--- Pawn's bag upgrade advisor (EUI Bags only, while Pawn shows it)
-Register("pawnArrow", {
-    kind = "icon", frames = { eui_bags = true },
-    Apply = function(item, _, out)
-        local f = item.facts
-        local upgrade = f and f.pawnUpgrade
-        if upgrade == nil then
-            upgrade = PawnBagUpgrade(item.link)
-            -- nil while Pawn lacks the item's data: repaint when it arrives
-            if upgrade == nil then
-                item.pending = true
-                return false
+-------------------------------------------------------------------------------
+--  Upgrade arrow: gear the current spec can use whose item level beats the
+--  lowest level equipped in the slots it fills (an empty slot counts as 0)
+-------------------------------------------------------------------------------
+local MH, OH = INVSLOT_MAINHAND, INVSLOT_OFFHAND
+-- WoW Forever keeps ranged weapons in their own slot; retail in the main hand
+local RANGED = EllesmereUI.IS_FOREVER and INVSLOT_RANGED or MH
+local EQUIP_SLOTS = {
+    INVTYPE_HEAD = { INVSLOT_HEAD }, INVTYPE_NECK = { INVSLOT_NECK }, INVTYPE_SHOULDER = { INVSLOT_SHOULDER },
+    INVTYPE_CLOAK = { INVSLOT_BACK }, INVTYPE_CHEST = { INVSLOT_CHEST }, INVTYPE_ROBE = { INVSLOT_CHEST },
+    INVTYPE_WRIST = { INVSLOT_WRIST }, INVTYPE_HAND = { INVSLOT_HAND }, INVTYPE_WAIST = { INVSLOT_WAIST },
+    INVTYPE_LEGS = { INVSLOT_LEGS }, INVTYPE_FEET = { INVSLOT_FEET },
+    INVTYPE_FINGER = { INVSLOT_FINGER1, INVSLOT_FINGER2 }, INVTYPE_TRINKET = { INVSLOT_TRINKET1, INVSLOT_TRINKET2 },
+    INVTYPE_WEAPON = { MH, OH }, INVTYPE_2HWEAPON = { MH }, INVTYPE_WEAPONMAINHAND = { MH },
+    INVTYPE_WEAPONOFFHAND = { OH }, INVTYPE_SHIELD = { OH }, INVTYPE_HOLDABLE = { OH },
+    INVTYPE_RANGED = { RANGED }, INVTYPE_RANGEDRIGHT = { RANGED }, INVTYPE_THROWN = { RANGED },
+    INVTYPE_RELIC = { RANGED },
+}
+-- Main-hand items that leave the off hand empty
+local BOTH_HANDS = { INVTYPE_2HWEAPON = true, INVTYPE_RANGED = RANGED == MH, INVTYPE_RANGEDRIGHT = RANGED == MH }
+local equippedLoc = ItemLocation:CreateEmpty()
+local classID
+
+-- The level of the item equipped in slot; 0 for an empty slot
+local function EquippedLevel(slot)
+    equippedLoc:SetEquipmentSlot(slot)
+    if not C_Item.DoesItemExist(equippedLoc) then return 0 end
+    return C_Item.GetCurrentItemLevel(equippedLoc) or 0
+end
+
+-- The lowest level among the slots the item fills. A one-hander fills the off
+-- hand only for a class that dual wields; an off-hand item replaces the
+-- two-hander that leaves the off hand empty.
+local function ReplacedLevel(equipLoc, slots)
+    local lowest
+    for i = 1, #slots do
+        local slot = slots[i]
+        if slot ~= OH or equipLoc ~= "INVTYPE_WEAPON" or CanDualWield() then
+            local level = EquippedLevel(slot)
+            if slot == OH and level == 0 then
+                local mainID = GetInventoryItemID("player", MH)
+                if mainID and BOTH_HANDS[select(4, GetItemInfoInstant(mainID))] then level = EquippedLevel(MH) end
             end
+            if not lowest or level < lowest then lowest = level end
         end
-        if not upgrade then return false end
+    end
+    return lowest
+end
+
+Register("upgradeArrow", {
+    kind = "icon",
+    Apply = function(item, _, out)
+        -- Gear already equipped, or another player's, is no upgrade for you
+        local frameKey = item.frameKey
+        if frameKey == "charsheet" or frameKey == "inspect" or not IsGear(item) then return false end
+        local itemID, _, _, equipLoc = GetItemInfoInstant(item.link)
+        local slots = EQUIP_SLOTS[equipLoc]
+        if not slots then return false end
+        local level = ItemLevel(item)
+        if not level or not C_PlayerInfo.CanUseItem(itemID) then return false end
+        if not classID then classID = select(3, UnitClass("player")) end
+        if not C_Item.DoesItemContainSpec(item.link, classID, EllesmereUI._specID or 0) then return false end
+        if level <= ReplacedLevel(equipLoc, slots) then return false end
         out.atlas = "bags-greenarrow"
         return true
     end,
 })
+
+-- Equipping gear or changing spec moves the arrows: every managed frame
+-- repaints. Registered only while the arrow is placed and Item Icons is on
+local arrowEvents = CreateFrame("Frame")
+arrowEvents:SetScript("OnEvent", function() II.RequestRefresh(nil) end)
+II.Subscribe(function()
+    if II.IsEnabled() and II.IsElementPlaced("upgradeArrow") then
+        arrowEvents:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+        arrowEvents:RegisterUnitEvent("PLAYER_SPECIALIZATION_CHANGED", "player")
+    else
+        arrowEvents:UnregisterAllEvents()
+    end
+end)

@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_QoL_ItemIcons_Options.lua
 --  Builds the "Item Icons" page inside the Quality of Life module: the master
---  switch, the windows it manages (Show On), the eight slot lists and each
+--  switch, the windows it manages (Show On), the nine slot lists and each
 --  element's style. Reads and writes only through EllesmereUI.ItemIcons
 --  (EllesmereUIQoL/EllesmereUIQoL_ItemIcons.lua).
 -------------------------------------------------------------------------------
@@ -13,17 +13,19 @@ local II = EllesmereUI.ItemIcons
 local SLOT_LABELS = {
     topleft = "Top Left", top = "Top", topright = "Top Right", right = "Right",
     bottomright = "Bottom Right", bottom = "Bottom", bottomleft = "Bottom Left", left = "Left",
+    center = "Center",
 }
 -- Two slots per row: the top corners, the top and bottom edges, the sides,
--- then the bottom corners
+-- the bottom corners, then the center alone
 local SLOT_ROWS = {
     { "topleft", "topright" }, { "top", "bottom" }, { "left", "right" }, { "bottomleft", "bottomright" },
+    { "center" },
 }
 local ELEMENT_LABELS = {
     itemLevel = "Item Level", upgradeRank = "Upgrade Rank", upgradeTrack = "Upgrade Track",
     transmog = "Transmog", stackCount = "Stack Count", bindType = "BoE / Warbound", setName = "Set Name",
     craftingQuality = "Crafting Quality", junkCoin = "Junk Coin", questMarker = "Quest Marker",
-    keystoneLevel = "Keystone Level", keystoneDungeon = "Keystone Dungeon", pawnArrow = "Pawn Upgrade Arrow",
+    keystoneLevel = "Keystone Level", keystoneDungeon = "Keystone Dungeon", upgradeArrow = "Upgrade Arrow",
 }
 -- Whole strings, so each translates on its own
 local SIZE_LABELS = {
@@ -31,7 +33,15 @@ local SIZE_LABELS = {
     transmog = "Transmog Size", stackCount = "Stack Count Size", bindType = "BoE / Warbound Size",
     setName = "Set Name Size", craftingQuality = "Crafting Quality Size", junkCoin = "Junk Coin Size",
     questMarker = "Quest Marker Size", keystoneLevel = "Keystone Level Size",
-    keystoneDungeon = "Keystone Dungeon Size", pawnArrow = "Pawn Upgrade Arrow Size",
+    keystoneDungeon = "Keystone Dungeon Size", upgradeArrow = "Upgrade Arrow Size",
+}
+local POSITION_LABELS = {
+    itemLevel = "Item Level Position", upgradeRank = "Upgrade Rank Position",
+    upgradeTrack = "Upgrade Track Position", transmog = "Transmog Position", stackCount = "Stack Count Position",
+    bindType = "BoE / Warbound Position", setName = "Set Name Position",
+    craftingQuality = "Crafting Quality Position", junkCoin = "Junk Coin Position",
+    questMarker = "Quest Marker Position", keystoneLevel = "Keystone Level Position",
+    keystoneDungeon = "Keystone Dungeon Position", upgradeArrow = "Upgrade Arrow Position",
 }
 local FRAME_LABELS = {
     eui_bags = "EllesmereUI Bags", blizz_bags = "Blizzard Bags", blizz_bank = "Blizzard Bank",
@@ -65,6 +75,15 @@ local function SameList(a, b)
     return true
 end
 
+-- True while slotKey lists key (another slot may list it too)
+local function InSlot(slotKey, key)
+    local list = II.GetSettings().slots[slotKey]
+    for i = 1, #list do
+        if list[i] == key then return true end
+    end
+    return false
+end
+
 -- The elements slotKey holds, in the menu's row order (order), with key added
 -- (on) or removed. Hidden elements it holds (retail-only ones on WoW Forever)
 -- stay, at its end.
@@ -74,7 +93,7 @@ local function SlotList(slotKey, order, key, on)
         local k = order[i]
         if k == key then
             if on then list[#list + 1] = k end
-        elseif II.GetElementSlot(k) == slotKey then
+        elseif InSlot(slotKey, k) then
             list[#list + 1] = k
         end
     end
@@ -89,45 +108,27 @@ local function WriteSlot(slotKey, list)
     if not SameList(list, II.GetSettings().slots[slotKey]) then II.SetSlotList(slotKey, list) end
 end
 
--- One slot's reorder checkbox list in place of the row half's placeholder. An
--- element placed in another slot is locked here, its slot named on hover.
+-- One slot's reorder checkbox list in place of the row half's placeholder. Any
+-- element can be checked here, also one another slot shows.
 local function BuildSlotDropdown(rgn, slotKey)
     if rgn._control then rgn._control:Hide() end
-    -- The other slot holding key, or nil
-    local function UsedIn(key)
-        local where = II.GetElementSlot(key)
-        if where ~= slotKey then return where end
-    end
     local items = {}
     for _, key in ipairs(II.ELEMENT_ORDER) do
-        if II.IsElementAvailable(key) then
-            items[#items + 1] = { key = key, label = ELEMENT_LABELS[key],
-                lockedFn = function() return UsedIn(key) ~= nil end,
-                lockedTooltip = function()
-                    return EllesmereUI.Lf("In %s", EllesmereUI.L(SLOT_LABELS[UsedIn(key)]))
-                end }
-        end
+        if II.IsElementAvailable(key) then items[#items + 1] = { key = key, label = ELEMENT_LABELS[key] } end
     end
     local cbDD, cbRefresh = EllesmereUI.BuildReorderCBDropdown(rgn, SLOT_DD_W, rgn:GetFrameLevel() + 2, items,
-        function(key) return II.GetElementSlot(key) == slotKey end,
+        function(key) return InSlot(slotKey, key) end,
         function(key, on, order) WriteSlot(slotKey, SlotList(slotKey, order, key, on)) end,
         {
             hint2 = "Each item shows the first checked element that applies",
-            -- This slot's elements first, in priority order, then the free ones,
-            -- then the ones another slot holds
+            -- This slot's elements first, in priority order, then the others
             openOrder = function()
-                local keys, used = {}, {}
+                local keys = {}
                 local saved = II.GetSettings().slots[slotKey]
                 for i = 1, #saved do keys[i] = saved[i] end
                 for _, it in ipairs(items) do
-                    local where = II.GetElementSlot(it.key)
-                    if where == nil then
-                        keys[#keys + 1] = it.key
-                    elseif where ~= slotKey then
-                        used[#used + 1] = it.key
-                    end
+                    if not InSlot(slotKey, it.key) then keys[#keys + 1] = it.key end
                 end
-                for i = 1, #used do keys[#keys + 1] = used[i] end
                 return keys
             end,
             setOrder = function(order) WriteSlot(slotKey, SlotList(slotKey, order)) end,
@@ -210,35 +211,36 @@ local function SizeCfg(key)
       setValue=function(v) II.SetStyle(key, "size", v) end }
 end
 
--- The style controls beside an element's size slider
+-- An element's offset slider: px from its slot's spot along one axis
+local function OffsetRow(key, label, field)
+    local max = II.OFFSET_MAX
+    return { type="slider", label=label, min=-max, max=max, step=1,
+      get=function() return Style(key)[field] end,
+      set=function(v) II.SetStyle(key, field, v) end }
+end
+
+-- The style controls beside an element's size slider: its position, then its
+-- own options
 local function BuildStyleExtras(rgn, key)
+    EllesmereUI.BuildInlineCog(rgn, {
+        icon = EllesmereUI.DIRECTIONS_ICON,
+        disabled = Off, disabledTooltip = REQUIRES,
+        title = POSITION_LABELS[key],
+        rows = { OffsetRow(key, "X Offset", "offsetX"), OffsetRow(key, "Y Offset", "offsetY") },
+    })
     if key == "transmog" then
-        local function NoLearned() return not Style("transmog").showLearned end
-        local function NoOtherChar() return not Style("transmog").showOtherChar end
-        EllesmereUI.BuildInlineSwatches(rgn, {
-            Swatch("transmog", "learnedColor", "Learned", NoLearned, "Show Learned Appearances"),
-            Swatch("transmog", "thisCharColor", "Learnable on This Character"),
-            Swatch("transmog", "otherCharColor", "Learnable on Another Character", NoOtherChar,
-                "Show Learnable on Other Characters"),
-        })
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = Off, disabledTooltip = REQUIRES,
             title = "Transmog Options",
             rows = {
                 { type="toggle", label="Show Learned Appearances",
-                  tooltip="Marks items whose appearance you have already collected.",
+                  tooltip="Marks items whose appearance you have already collected with a green check.",
                   get=function() return Style("transmog").showLearned end,
-                  set=function(v)
-                      II.SetStyle("transmog", "showLearned", v)
-                      EllesmereUI:RefreshPage()  -- the Learned swatch's disabled state
-                  end },
+                  set=function(v) II.SetStyle("transmog", "showLearned", v) end },
                 { type="toggle", label="Show Learnable on Other Characters",
-                  tooltip="Marks items whose appearance only another of your characters can learn.",
+                  tooltip="Marks items whose appearance only another of your characters can learn with a yellow question mark. Items this character can learn get a red cross.",
                   get=function() return Style("transmog").showOtherChar end,
-                  set=function(v)
-                      II.SetStyle("transmog", "showOtherChar", v)
-                      EllesmereUI:RefreshPage()  -- the swatch's disabled state
-                  end },
+                  set=function(v) II.SetStyle("transmog", "showOtherChar", v) end },
             },
         })
     elseif key == "upgradeTrack" then
@@ -307,16 +309,17 @@ _G._EUI_BuildItemIconsPage = function(pageName, parent, yOffset)
     for _, pair in ipairs(SLOT_ROWS) do
         local cfgs = {}
         for i = 1, 2 do
-            cfgs[i] = { type="dropdown", text=SLOT_LABELS[pair[i]], tooltip=SLOT_TIP,
+            local slotKey = pair[i]
+            cfgs[i] = slotKey and { type="dropdown", text=SLOT_LABELS[slotKey], tooltip=SLOT_TIP,
               dropdownWidth=SLOT_DD_W, disabled=Off, disabledTooltip=REQUIRES,
               values=PLACEHOLDER, order=PLACEHOLDER_ORDER,
-              getValue=Placeholder, setValue=Nothing }
+              getValue=Placeholder, setValue=Nothing } or EllesmereUI.BlankRowCfg()
         end
         local row
         row, h = W:DualRow(parent, y, cfgs[1], cfgs[2]);  y = y - h
         if not prebuilding then
             BuildSlotDropdown(row._leftRegion, pair[1])
-            BuildSlotDropdown(row._rightRegion, pair[2])
+            if pair[2] then BuildSlotDropdown(row._rightRegion, pair[2]) end
         end
     end
 
@@ -328,8 +331,8 @@ _G._EUI_BuildItemIconsPage = function(pageName, parent, yOffset)
     local ilvlRow
     ilvlRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Item Level Color",
-          tooltip="Colors item levels and upgrade ranks by their upgrade track and quality, or in one color of your choice.",
-          values={ default = "Default Colors", custom = "Custom Colored" }, order={ "default", "custom" },
+          tooltip="Colors item levels and upgrade ranks by their upgrade track (crafted gear: its crest), else by item quality, or in one color of your choice.",
+          values={ default = "Track Colored", custom = "Custom Colored" }, order={ "default", "custom" },
           disabled=Off, disabledTooltip=REQUIRES,
           getValue=function() return Style("itemLevel").colorMode end,
           setValue=function(v)
@@ -343,6 +346,7 @@ _G._EUI_BuildItemIconsPage = function(pageName, parent, yOffset)
                 function() return Style("itemLevel").colorMode ~= "custom" end,
                 "This option requires Item Level Color to be set to Custom Colored"),
         })
+        BuildStyleExtras(ilvlRow._rightRegion, "itemLevel")
     end
 
     -- Every other element's size, two per row in the elements' order

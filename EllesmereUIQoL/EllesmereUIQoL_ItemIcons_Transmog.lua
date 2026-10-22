@@ -1,15 +1,16 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_ItemIcons_Transmog.lua
---  Item Icons transmog element: a check when the item's appearance is learned
---  (from any source), else a transmog glyph when this character can learn it
---  or when only another character of the account can. Each state has its own
---  color; the learned and other-character states can be switched off. States
---  are memoized per link (per source ID when the frame passes it in
+--  Item Icons transmog element: a check when the item's look is known (this
+--  very look, or its appearance from any source), else a red cross when this
+--  character can learn it, a yellow question mark when only another character
+--  of the account can. Blizzard's icons in their own colors; the learned and
+--  other-character states can be switched off. States are
+--  memoized per link (per source ID when the frame passes it in
 --  facts.transmogSourceID): wiped when the collection changes, dropped per
---  source when its collectability changes. The events register only while the
---  element is placed and Item Icons is on. The element contract:
---  EllesmereUIQoL_ItemIcons.lua.
+--  source when its collectability changes. A state whose data is still loading
+--  is never memoized. The events register only while the element is placed and
+--  Item Icons is on. The element contract: EllesmereUIQoL_ItemIcons.lua.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 local II = EllesmereUI.ItemIcons
@@ -17,15 +18,14 @@ local II = EllesmereUI.ItemIcons
 local TC = C_TransmogCollection
 local GetItemAppearance, GetAppearanceInfo = TC.GetItemInfo, TC.GetAppearanceInfoBySource
 local PlayerCanCollect, AccountCanCollect = TC.PlayerCanCollectSource, TC.AccountCanCollectSource
-local GetItemInfo = C_Item.GetItemInfo
+local HasSource, HasItemLook = TC.PlayerHasTransmogItemModifiedAppearance, TC.PlayerHasTransmogByItemInfo
+local GetItemInfo, IsDressable = C_Item.GetItemInfo, C_Item.IsDressableItemByID
 
--- Blizzard's "appearance known" check (DressUpFrames) and its transmog roll
--- glyph (LootHistory), desaturated and tinted with the state's color
-local CHECK_ATLAS, GLYPH_ATLAS = "common-icon-checkmark", "lootroll-icon-transmog"
--- Per state: its style color, the style switch that hides it, its atlas
-local LEARNED    = { color = "learnedColor", toggle = "showLearned", atlas = CHECK_ATLAS }
-local THIS_CHAR  = { color = "thisCharColor", atlas = GLYPH_ATLAS }
-local OTHER_CHAR = { color = "otherCharColor", toggle = "showOtherChar", atlas = GLYPH_ATLAS }
+-- Per state: the style switch that hides it, its icon: Blizzard's ready check
+-- icons, as the EUI tooltip skin marks an owned mount
+local LEARNED    = { toggle = "showLearned", texture = "Interface\\RaidFrame\\ReadyCheck-Ready" }
+local THIS_CHAR  = { texture = "Interface\\RaidFrame\\ReadyCheck-NotReady" }
+local OTHER_CHAR = { toggle = "showOtherChar", texture = "Interface\\RaidFrame\\ReadyCheck-Waiting" }
 
 local MEMO_CAP = 4000
 local ITEM_UPDATE = "TRANSMOG_COLLECTION_ITEM_UPDATE"
@@ -120,8 +120,10 @@ local function State(item)
         _, sourceID = GetItemAppearance(link)
     end
     if sourceID then
+        -- This very look known (an item you wear or wore), or the appearance
+        -- from any source
         local info = GetAppearanceInfo(sourceID)
-        if info and info.appearanceIsCollected then
+        if HasSource(sourceID) or (info and info.appearanceIsCollected) then
             state = LEARNED
         else
             local hasData, canCollect = PlayerCanCollect(sourceID)
@@ -140,13 +142,20 @@ local function State(item)
                 return nil
             end
         end
-    elseif GetItemInfo(link) then
-        state = false
-    else
+    elseif not GetItemInfo(link) then
         -- Not proven to answer before the item's data loads (GetItemInfo
         -- requests it): ask again once it arrives
         item.pending = true
         return nil
+    elseif HasItemLook(link) then
+        state = LEARNED
+    elseif IsDressable(link) then
+        -- Gear with a look whose appearance has not loaded yet: ask again
+        -- once transmog data arrives
+        Wait(item.frameKey)
+        return nil
+    else
+        state = false
     end
     Remember(key, state, sourceID)
     return state
@@ -157,16 +166,14 @@ II.RegisterElement("transmog", {
     Apply = function(item, style, out)
         local state = State(item)
         if not state or (state.toggle and not style[state.toggle]) then return false end
-        local c = style[state.color]
-        out.atlas, out.desaturate = state.atlas, true
-        out.r, out.g, out.b = c.r, c.g, c.b
+        out.texture = state.texture
         return true
     end,
 })
 
 -- Off, the memo goes: the collection may change unseen
 II.Subscribe(function()
-    local want = II.IsEnabled() and II.GetElementSlot("transmog") ~= nil
+    local want = II.IsEnabled() and II.IsElementPlaced("transmog")
     if want == active then return end
     active = want
     if want then

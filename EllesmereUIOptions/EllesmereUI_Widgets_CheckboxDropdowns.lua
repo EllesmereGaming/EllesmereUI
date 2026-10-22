@@ -1342,11 +1342,8 @@ end
 --  Checkbox dropdown whose rows can also be drag-reordered vertically. Row visuals match BuildVisOptsCBDropdown;
 --  the drag behavior matches the Macro Factory per-macro menus (3px threshold, floating row, insertion line, contents shuffle on drop).
 --  items: array in initial display order:
---      { key = "...", label = "...", fixed = true|nil, lockedFn = fn|nil, lockedTooltip = string|fn|nil }
+--      { key = "...", label = "...", fixed = true|nil }
 --  fixed rows are checkbox-only and pinned below the movable rows.
---  Opt-in locked rows (item.lockedFn, as BuildVisOptsCBDropdown): while it answers true the
---  row is grey without hover highlight, refuses clicks and drags, and hovering it shows
---  item.lockedTooltip. Read live, so the lock follows the item through reorders.
 --  getFn(key) -> checked; setFn(key, checked, orderedMovableKeys) fires on row click.
 --  opts = {
 --      setOrder = function(orderedMovableKeys),  -- fired on every drop
@@ -1366,10 +1363,6 @@ end
 --  A plain row calls its callback, then closes the menu (onClose sees the pick).
 --  Returns ddBtn, RefreshAll (same contract as BuildVisOptsCBDropdown).
 -------------------------------------------------------------------------------
-local function ItemLocked(item)
-    return (item.lockedFn and item.lockedFn()) and true or false
-end
-
 function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, getFn, setFn, opts)
     -- Search prebuild on an absorber row: the dropdown indexes nothing, so none is built.
     local standIn = StandIn(parentFrame)
@@ -1587,27 +1580,13 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
                     bar:SetColorTexture(1, 1, 1, 0.35)
                 end
             end
-            -- Check visuals, and the lock paint of the item the row shows now (drops
-            -- shuffle row contents): grey while locked; a row that was grey rests
-            -- again. A row never locked keeps its color.
             local function UpdateCheck()
-                local it = row._item
-                if getFn(it.key) then
+                if getFn(row._item.key) then
                     chk:Show()
                     boxBrd:SetColor(EG.r, EG.g, EG.b, 0.8)
                 else
                     chk:Hide()
                     boxBrd:SetColor(0.4, 0.4, 0.4, 0.6)
-                end
-                if ItemLocked(it) then
-                    lbl:SetTextColor(0.4, 0.4, 0.4, 0.5)
-                    hl:SetColorTexture(1, 1, 1, 0)
-                    row._greyed = true
-                elseif row._greyed then
-                    row._greyed = nil
-                    local lit = not isDragging and row:IsMouseOver()
-                    lbl:SetTextColor(lit and 1 or 0.75, lit and 1 or 0.75, lit and 1 or 0.75, 1)
-                    hl:SetColorTexture(1, 1, 1, lit and 0.04 or 0)
                 end
             end
             UpdateCheck()
@@ -1615,26 +1594,17 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             row._lbl = lbl
             row:SetScript("OnEnter", function()
                 if isDragging then return end
-                if ItemLocked(row._item) then
-                    local lt = row._item.lockedTooltip
-                    if type(lt) == "function" then lt = lt() end
-                    if lt then EllesmereUI.ShowWidgetTooltip(row, lt) end
-                    return
-                end
                 lbl:SetTextColor(1, 1, 1, 1)
                 hl:SetColorTexture(1, 1, 1, 0.04)
             end)
             row:SetScript("OnLeave", function()
                 if isDragging then return end
-                if row._item.lockedTooltip then EllesmereUI.HideWidgetTooltip() end
-                if ItemLocked(row._item) then return end
                 lbl:SetTextColor(0.75, 0.75, 0.75, 1)
                 hl:SetColorTexture(1, 1, 1, 0)
             end)
             row:SetScript("OnClick", function()
                 if row._suppressClick then row._suppressClick = nil; return end
                 if isDragging then return end
-                if ItemLocked(row._item) then return end
                 setFn(row._item.key, not getFn(row._item.key), MovableKeys())
                 UpdateLabel()
                 for _, r in ipairs(allRows) do
@@ -1680,7 +1650,6 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             row:SetScript("OnMouseDown", function(self, b)
                 if b ~= "LeftButton" then return end
                 row._suppressClick = nil
-                if ItemLocked(row._item) then return end
                 if opts.canReorder and not opts.canReorder() then return end
                 local _, cy = GetCursorPosition()
                 dsY = cy
@@ -1742,7 +1711,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
                     self:SetFrameLevel(menu:GetFrameLevel() + 10)
                     self:SetAlpha(0.8)
                     for _, rf in ipairs(movableRows) do
-                        if rf._lbl and not ItemLocked(rf._item) then rf._lbl:SetTextColor(0.75, 0.75, 0.75, 1) end
+                        if rf._lbl then rf._lbl:SetTextColor(0.75, 0.75, 0.75, 1) end
                     end
                 end
                 local sc = menu:GetEffectiveScale()

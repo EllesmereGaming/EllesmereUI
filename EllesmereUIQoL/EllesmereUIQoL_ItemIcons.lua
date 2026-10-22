@@ -9,7 +9,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  API: EllesmereUI.ItemIcons. Every table it hands out is read-only.
 --    SLOT_ORDER, ELEMENT_ORDER, FRAME_ORDER, TRACK_ORDER   keys in menu order
---    ELEMENTS[key] = { sizeMin, sizeMax, retailOnly, style = defaults }
+--    ELEMENTS[key] = { sizeMin, sizeMax, retailOnly, style = defaults }; every
+--                  style has offsetX and offsetY, px within +-OFFSET_MAX
 --    DIM_ALPHA     ctx.alpha for the marks of an item Blizzard dims
 --
 --    IsEnabled()                   master switch, as applied
@@ -21,12 +22,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --                                  managed only then, eui_bags only otherwise
 --    IsElementAvailable(key)       false for a retail-only element on WoW Forever
 --    GetSettings()                 the validated settings; write through setters
---    GetElementSlot(key)           slot key holding the element, or nil
+--    IsElementPlaced(key)          true while at least one slot lists the element
 --    Subscribe(fn)                 fn(reason) after every change. reason:
 --                                  "profile" (login, swap, import, reset),
 --                                  "enabled", "frames", "layout", "styles", "tooltip"
 --    SetEnabled(on), SetFrameEnabled(frameKey, on), SetTooltipPip(on)
---    SetSlotList(slotKey, keys)    keys in priority order; they leave other slots
+--    SetSlotList(slotKey, keys)    keys in priority order; another slot may list
+--                                  them too
 --    SetStyle(key, field, value)   false when value is invalid for the field
 --    Reset()                       drops itemIcons (the QoL module reset)
 --
@@ -59,13 +61,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --                    in its slot can show
 --        facts       precomputed values (optional): isGear, itemLevel,
 --                    trackColor, upgradeLevel, isBound, isWuE, bindType,
---                    setName, isJunk, questStarter, pawnUpgrade,
---                    transmogSourceID.
+--                    setName, isJunk, questStarter, transmogSourceID.
 --                    nil = unknown (worked out), false = known absent.
 --                    An item without a location counts as unbound: an adapter
 --                    whose items may be bound but have no location (inspect)
---                    passes isBound = true. pawnUpgrade: pass Pawn's answer
---                    only once it is a boolean. transmogSourceID: the item's
+--                    passes isBound = true. transmogSourceID: the item's
 --                    appearance source when its link cannot tell it (an
 --                    auction item key); false = none, so no transmog mark
 --    Clear(button)                 hides everything painted on button
@@ -98,8 +98,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --          reported and counts as not applying
 --        out: text (text kind) or atlas / texture (icon kind); r, g, b (text
 --          color or icon tint, white by default); desaturate
---      insetX, insetY  px in from the slot's corner, mirrored per slot (1)
---      frames      set of the only frame keys the element shows on (optional)
+--      insetX, insetY  px in from the slot's corner, mirrored per slot (1); the
+--                  style's offsetX, offsetY (times ctx.scale) move it from there
 --      fitWidth    text: one line clipped to the button width
 --      texCoord    icon file texture { l, r, t, b }; mask: a mask file
 --    An icon is style.size tall, an atlas as wide as its aspect; text is
@@ -121,11 +121,12 @@ local DEFER_KEY = "EUI_ItemIcons"
 local REFRESH_DELAY = 0.1      -- a burst of item data or settings writes repaints once
 local FAILED_CAP = 200         -- item IDs whose data failed to load, kept per session
 local MIN_TEXT_SIZE = 8        -- pt: a text that ctx.scale shrinks below this does not apply
+local OFFSET_MAX = 20          -- px an element may move from its slot's spot, per axis
 
 -------------------------------------------------------------------------------
 --  Catalog
 -------------------------------------------------------------------------------
-local SLOT_ORDER = { "topleft", "top", "topright", "right", "bottomright", "bottom", "bottomleft", "left" }
+local SLOT_ORDER = { "topleft", "top", "topright", "right", "bottomright", "bottom", "bottomleft", "left", "center" }
 local NUM_SLOTS = #SLOT_ORDER
 -- Per slot: anchor point, x and y signs applied to an element's insets, text justification
 local SLOT_GEOM = {
@@ -137,6 +138,7 @@ local SLOT_GEOM = {
     { "BOTTOM", 0, 1, "CENTER" },
     { "BOTTOMLEFT", 1, 1, "LEFT" },
     { "LEFT", 1, 0, "LEFT" },
+    { "CENTER", 0, 0, "CENTER" },
 }
 local SLOT_INDEX = {}
 for i = 1, NUM_SLOTS do SLOT_INDEX[SLOT_ORDER[i]] = i end
@@ -178,7 +180,9 @@ local TRACK_ORDER = { "Explorer", "Adventurer", "Veteran", "Champion", "Hero", "
 local function RGB(r, g, b) return { r = r, g = g, b = b } end
 
 local TEXT_SIZES, ICON_SIZES = { 6, 24 }, { 8, 48 }
+-- Every element also starts at its slot's spot (offsets 0)
 local function Element(sizes, style, retailOnly)
+    style.offsetX, style.offsetY = 0, 0
     return { sizeMin = sizes[1], sizeMax = sizes[2], style = style, retailOnly = retailOnly or false }
 end
 
@@ -189,15 +193,12 @@ for i = 1, #TRACK_ORDER do
 end
 
 -- Style defaults; sizes follow the EUI Bags overlays. upgradeTrack keeps a color
--- per TRACK_ORDER key; transmog a color per state and two state switches.
+-- per TRACK_ORDER key; transmog two state switches.
 local ELEMENTS = {
     itemLevel       = Element(TEXT_SIZES, { size = 12, colorMode = "default", customColor = RGB(1, 1, 1) }),
     upgradeRank     = Element(TEXT_SIZES, { size = 11 }),
     upgradeTrack    = Element(ICON_SIZES, trackStyle, true),
-    transmog        = Element(ICON_SIZES, {
-        size = 14, showLearned = true, showOtherChar = true,
-        learnedColor = RGB(0.25, 0.85, 0.25), thisCharColor = RGB(1, 0.82, 0), otherCharColor = RGB(0.3, 0.6, 1),
-    }),
+    transmog        = Element(ICON_SIZES, { size = 14, showLearned = true, showOtherChar = true }),
     stackCount      = Element(TEXT_SIZES, { size = 11 }),
     bindType        = Element(TEXT_SIZES, { size = 11 }),
     setName         = Element(TEXT_SIZES, { size = 9 }),
@@ -206,17 +207,18 @@ local ELEMENTS = {
     questMarker     = Element(ICON_SIZES, { size = 22 }),
     keystoneLevel   = Element(TEXT_SIZES, { size = 11 }),
     keystoneDungeon = Element(TEXT_SIZES, { size = 9 }),
-    pawnArrow       = Element(ICON_SIZES, { size = 16 }),
+    upgradeArrow    = Element(ICON_SIZES, { size = 16 }),
 }
 local ELEMENT_ORDER = {
     "itemLevel", "upgradeRank", "upgradeTrack", "transmog", "stackCount", "bindType", "setName",
-    "craftingQuality", "junkCoin", "questMarker", "keystoneLevel", "keystoneDungeon", "pawnArrow",
+    "craftingQuality", "junkCoin", "questMarker", "keystoneLevel", "keystoneDungeon", "upgradeArrow",
 }
 -- The values of each string style field
 local ENUMS = { colorMode = { default = true, custom = true } }
 
 II.SLOT_ORDER, II.ELEMENT_ORDER, II.FRAME_ORDER, II.TRACK_ORDER = SLOT_ORDER, ELEMENT_ORDER, FRAME_ORDER, TRACK_ORDER
 II.ELEMENTS = ELEMENTS
+II.OFFSET_MAX = OFFSET_MAX
 -- Blizzard's search filter lays black at 0.8 alpha over the items it dims
 -- (ItemButtonMixin:UpdateItemContextOverlayTextures): the marks dim to match
 II.DIM_ALPHA = 0.2
@@ -253,23 +255,25 @@ local function ValidStyle(key, field, v)
     if field == "size" then
         return type(v) == "number" and v >= spec.sizeMin and v <= spec.sizeMax
     end
+    if field == "offsetX" or field == "offsetY" then
+        return type(v) == "number" and v >= -OFFSET_MAX and v <= OFFSET_MAX
+    end
     local t = type(d)
     if t == "table" then return IsColor(v) end
     if t == "string" then return ENUMS[field][v] == true end
     return type(v) == t
 end
 
--- Keeps known element keys, each in the first slot (SLOT_ORDER) that lists it
+-- Keeps known element keys, once per slot; several slots may list one element
 local function ValidateSlots(s)
     local slots = s.slots
     if type(slots) ~= "table" then slots = {}; s.slots = slots end
     for k in pairs(slots) do
         if not SLOT_INDEX[k] then slots[k] = nil end
     end
-    local seen = {}
     for i = 1, NUM_SLOTS do
         local key = SLOT_ORDER[i]
-        local list, clean = slots[key], {}
+        local list, clean, seen = slots[key], {}, {}
         if type(list) == "table" then
             for _, e in ipairs(list) do
                 if ELEMENTS[e] and not seen[e] then
@@ -282,8 +286,8 @@ local function ValidateSlots(s)
     end
 end
 
--- Repairs each invalid field on its own: unknown frame, slot or element keys
--- go, anything else falls back to its default.
+-- Repairs each invalid field on its own: unknown frame, slot, element and
+-- style keys go, anything else falls back to its default.
 local function ValidateSettings(s)
     if type(s.enabled) ~= "boolean" then s.enabled = false end
     if type(s.seeded) ~= "boolean" then s.seeded = false end
@@ -309,6 +313,9 @@ local function ValidateSettings(s)
     for key, spec in pairs(ELEMENTS) do
         local st = styles[key]
         if type(st) ~= "table" then st = {}; styles[key] = st end
+        for field in pairs(st) do
+            if spec.style[field] == nil then st[field] = nil end
+        end
         for field, d in pairs(spec.style) do
             if not ValidStyle(key, field, st[field]) then st[field] = Copy(d) end
         end
@@ -330,7 +337,7 @@ local function Seed(s)
     if ilvl then tl[#tl + 1] = "itemLevel" end
     tl[#tl + 1] = "keystoneLevel"
     tl[#tl + 1] = "craftingQuality"
-    br[#br + 1] = "pawnArrow"
+    br[#br + 1] = "upgradeArrow"
     -- EUI Bags draws the rank only beside item levels
     if ilvl and p.bagShowTrackRank then br[#br + 1] = "upgradeRank" end
     br[#br + 1] = "stackCount"
@@ -403,7 +410,7 @@ end
 -------------------------------------------------------------------------------
 local registry = {}      -- element key -> def
 local layout = {}        -- slot index -> defs in priority order
-local elementSlot = {}   -- element key -> slot key
+local placed = {}        -- element key -> true while a slot lists it
 for i = 1, NUM_SLOTS do layout[i] = {} end
 
 -- The client has what the element shows
@@ -414,13 +421,13 @@ end
 
 local function RebuildLayout()
     layoutDirty = false
-    wipe(elementSlot)
+    wipe(placed)
     for i = 1, NUM_SLOTS do
         local defs, list = layout[i], cur.slots[SLOT_ORDER[i]]
         wipe(defs)
         for j = 1, #list do
             local key = list[j]
-            elementSlot[key] = SLOT_ORDER[i]
+            placed[key] = true
             if Available(key) then defs[#defs + 1] = registry[key] end
         end
     end
@@ -618,7 +625,8 @@ local function DrawText(st, si, def, style)
         or fs._scale ~= scale then
         local g = SLOT_GEOM[si]
         fs:ClearAllPoints()
-        fs:SetPoint(g[1], st.overlay, g[1], g[2] * (def.insetX or 1), g[3] * (def.insetY or 1))
+        fs:SetPoint(g[1], st.overlay, g[1], g[2] * (def.insetX or 1) + style.offsetX * scale,
+            g[3] * (def.insetY or 1) + style.offsetY * scale)
         fs:SetJustifyH(g[4])
         EllesmereUI.ApplyIconTextFont(fs, EllesmereUI.GetFontPath(fontKey), style.size * scale, fontKey)
         fs:SetWidth(def.fitWidth and math.max(st.anchor:GetWidth() - 4, 0) or 0)
@@ -652,7 +660,8 @@ local function DrawIcon(st, si, def, style)
         end
         local g = SLOT_GEOM[si]
         tx:ClearAllPoints()
-        tx:SetPoint(g[1], st.overlay, g[1], g[2] * (def.insetX or 1), g[3] * (def.insetY or 1))
+        tx:SetPoint(g[1], st.overlay, g[1], g[2] * (def.insetX or 1) + style.offsetX * scale,
+            g[3] * (def.insetY or 1) + style.offsetY * scale)
         local maskFile = def.mask
         if tx._mask ~= maskFile then
             local mask = st.mask[si]
@@ -733,8 +742,7 @@ function II.Paint(button, ctx, frameKey)
             local def = defs[i]
             local style = styles[def.key]
             -- A text the scale shrinks out of reading size leaves the slot to the next element
-            if (not def.frames or def.frames[frameKey])
-                and (def.kind == "icon" or scale >= 1 or style.size * scale >= MIN_TEXT_SIZE) then
+            if def.kind == "icon" or scale >= 1 or style.size * scale >= MIN_TEXT_SIZE then
                 out.text, out.atlas, out.texture = nil, nil, nil
                 out.r, out.g, out.b, out.desaturate = 1, 1, 1, false
                 -- An element's error reaches the error handler and never stops
@@ -880,10 +888,10 @@ II.IsElementAvailable = Available
 
 II.GetSettings = GetSettings
 
-function II.GetElementSlot(key)
+function II.IsElementPlaced(key)
     GetSettings()
     if layoutDirty then RebuildLayout() end
-    return elementSlot[key]
+    return placed[key] == true
 end
 
 function II.Subscribe(fn)
@@ -909,18 +917,12 @@ end
 function II.SetSlotList(slotKey, keys)
     if not SLOT_INDEX[slotKey] or type(keys) ~= "table" then return end
     local s = Writable()
-    local list, placed = {}, {}
+    local list, seen = {}, {}
     for i = 1, #keys do
         local k = keys[i]
-        if ELEMENTS[k] and not placed[k] then
-            placed[k] = true
+        if ELEMENTS[k] and not seen[k] then
+            seen[k] = true
             list[#list + 1] = k
-        end
-    end
-    for i = 1, NUM_SLOTS do
-        local other = s.slots[SLOT_ORDER[i]]
-        for j = #other, 1, -1 do
-            if placed[other[j]] then table.remove(other, j) end
         end
     end
     s.slots[slotKey] = list
