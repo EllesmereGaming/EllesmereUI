@@ -79,6 +79,13 @@ initFrame:SetScript("OnEvent", function(self)
         local mode = ShowAsVal()
         return Disabled() or mode == "compact" or mode == "markers"
     end
+    -- Raid Buff Check is retail only: its file publishes ns.ToggleBuffCheck there.
+    local function BuffCheckUnavailable()
+        return ns.ToggleBuffCheck == nil
+    end
+    local function BuffCheckOff()
+        return BuffCheckUnavailable() or Cfg("buffCheck") ~= true
+    end
     local function PullDisabled()
         return Disabled() or ShowAsVal() == "markers"
     end
@@ -306,7 +313,39 @@ initFrame:SetScript("OnEvent", function(self)
             ButtonToggle("showDisband", "Show Disband",
                 "Shows the Disband button. It always asks before disbanding, but hiding it puts it out of misclick range for good.",
                 FullPanelButtonDisabled),
-            { type = "spacer" }
+            { type = "toggle", text = "Show Buff Check",
+              tooltip = "Shows the Buff Check button, which opens the Raid Buff Check window (needs Raid Buff Check below). On Compact Band it is Shift + Left Click on the ready check button.",
+              disabled = function()
+                  return RoleCheckDisabled() or BuffCheckOff()
+              end,
+              getValue = function() return Cfg("showBuffCheck") == true end,
+              setValue = function(v)
+                  Set("showBuffCheck", v)
+                  Refresh()
+              end }
+        );  y = y - h
+
+        -- RAID BUFF CHECK
+        _, h = W:SectionHeader(parent, "RAID BUFF CHECK", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Raid Buff Check",
+              tooltip = "A window listing every group member's flask, food, augment rune, vantus rune and missing raid buffs, opened with the Buff Check button or on ready checks. Out of combat only; in restricted content food and runes may show as unknown.",
+              disabled = BuffCheckUnavailable,
+              getValue = function() return Cfg("buffCheck") == true end,
+              setValue = function(v)
+                  Set("buffCheck", v)
+                  Refresh()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type = "toggle", text = "Open on Ready Check",
+              tooltip = "Opens the Raid Buff Check window on every ready check while you are the group leader or a raid assistant.",
+              disabled = BuffCheckOff,
+              getValue = function() return Cfg("buffCheckOnReady") ~= false end,
+              setValue = function(v)
+                  Set("buffCheckOnReady", v)
+                  Refresh()
+              end }
         );  y = y - h
 
         -- PULL TIMER
