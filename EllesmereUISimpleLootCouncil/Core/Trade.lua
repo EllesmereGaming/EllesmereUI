@@ -79,6 +79,7 @@ local function HandedStore()
     return addon.db.tradeHanded
 end
 
+
 local function NoteHanded(session, winner, link, runId)
     if not runId or not session or not winner then return end
     local store = HandedStore()
@@ -167,6 +168,7 @@ end
 
 
 
+
 local function PlaceOne(entry, index)
 
 
@@ -200,7 +202,6 @@ local function PlaceOne(entry, index)
 end
 
 
-
 local function Placeable(owed)
     local taken, out = {}, {}
     for _, entry in ipairs(owed) do
@@ -214,14 +215,17 @@ local function Placeable(owed)
 end
 
 
+
 local FILL_PACE = 0.2
 local FILL_SETTLE = 1
 local FILL_TRIES = 3
 local FillStep
 
+
 local function EndFill(state)
     if fill == state then fill = nil end
 end
+
 
 local function FillSoon(state, delay, fn)
     C_Timer.After(delay, function()
@@ -229,12 +233,14 @@ local function FillSoon(state, delay, fn)
     end)
 end
 
+
 local function FreeTradeSlot(state)
     for index = 1, UsableTradeSlots() do
         if not state.reserved[index] and not GetTradePlayerItemLink(index) then return index end
     end
     return nil
 end
+
 
 local function Holds(index, entry)
     local link = index and GetTradePlayerItemLink(index)
@@ -244,11 +250,13 @@ local function Holds(index, entry)
     return id ~= nil and id == addon.Storage.ItemID(entry.link)
 end
 
+
 local function Unstage(entry)
     for i = #staged, 1, -1 do
         if staged[i].entry == entry then table.remove(staged, i) end
     end
 end
+
 
 local function FinishFill(state)
     EndFill(state)
@@ -268,6 +276,7 @@ local function FinishFill(state)
         }, missing, missing))
     end
 end
+
 
 local function FillCheck(state)
     if not inTrade or state.session ~= tradeSession then
@@ -323,6 +332,7 @@ FillStep = function(state)
     end
     FillSoon(state, state.pace, FillStep)
 end
+
 
 function Trade:FillWindow(recipient, owed)
     owed = owed or Placeable(Trade:GetOwedTo(recipient))
@@ -418,7 +428,6 @@ local function ReportUndeliverable(entry)
         i = entry.args.runId, r = why, t = to,
     }, nil, true)
 end
-
 
 
 local function ClaimOwed(link, recipient, claimed)
@@ -873,6 +882,7 @@ end
 
 local handedTo = {}
 
+
 local function ForgetSession(runId, session, why)
     for _, entry in ipairs(addon.Storage:GetAll(addon.Storage.TO_TRADE)) do
         if entry.untradeable == "wrong" and entry.untradeableTo
@@ -883,8 +893,9 @@ local function ForgetSession(runId, session, why)
     RemoveObligation(runId, session, why)
 end
 
-
 local NONE = {}
+
+
 
 local function ReconcileRun()
     if not addon.Session:IsRunning() then return end
@@ -916,7 +927,6 @@ local function ReconcileRun()
             if type(given) ~= "table" then given = nil end
 
             if not winner then
-
 
                 if #entries > 0 and (tonumber(item.awardSeq) or 0) > 0 then
                     ForgetSession(runId, session, "award struck while away")
@@ -993,6 +1003,7 @@ end
 
 local runCheckQueued = false
 
+
 local function ReconcileRunSoon()
     if runCheckQueued then return end
     runCheckQueued = true
@@ -1003,9 +1014,9 @@ local function ReconcileRunSoon()
 end
 
 
-
 local RESYNC_COOLDOWN = 10
 local resyncedAt = {}
+
 
 local function ResendHandovers(runId)
     if not runId then return end

@@ -214,16 +214,16 @@ end
 local function BuildColumns()
     return {
 
-        { key = "who", title = T["Week / Night / Player"], width = 421, render = RenderWho },
+        { key = "who", title = T["Week / Night / Player"], width = 351, render = RenderWho },
         {
-            key = "pulls", title = T["Pulls"], width = 80, justify = "RIGHT",
+            key = "pulls", title = T["Pulls"], width = 50, justify = "CENTER",
             text = function(row)
                 if row.kind == "empty" then return "" end
                 return Count(Pulls(row), row.kind == "player" and S.color.textMuted or S.color.text)
             end,
         },
         {
-            key = "kills", title = T["Kills"], width = 80, justify = "RIGHT",
+            key = "kills", title = T["Kills"], width = 50, justify = "CENTER",
             text = function(row)
                 if row.kind == "empty" then return "" end
                 return Count(Kills(row), S.color.accent)
@@ -808,7 +808,7 @@ end
 
 
 local function Build()
-    frame = S.Window("SimpleLootCouncilAttendanceFrame", "attendance", 620, 560,
+    frame = S.Window("SimpleLootCouncilAttendanceFrame", "attendance", 490, 560,
         T["Attendance"])
     frame:RestorePosition()
 

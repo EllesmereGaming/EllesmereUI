@@ -159,6 +159,7 @@ end
 local function ShortDate(entry)
     if type(entry.epoch) == "number" and entry.epoch > 0 then return addon.WhenText(entry.epoch) end
     if entry.date and entry.date ~= "" then
+
         return addon.StoredDateText(entry.date, true) .. " " .. tostring(entry.time or ""):sub(1, 5)
     end
     return "?"

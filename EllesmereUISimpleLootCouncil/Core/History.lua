@@ -2293,8 +2293,6 @@ function History:Init()
         }, removed, removed, days))
     end
 
-
-
     addon.Callbacks:Register("EncounterEnded", function(logged)
         if type(logged) ~= "table" or logged.instance then return end
         local name, instanceType = GetInstanceInfo()
@@ -2302,6 +2300,8 @@ function History:Init()
             logged.instance, logged.instanceType = name, instanceType
         end
     end)
+
+
 
     addon.Callbacks:Register("ItemAwarded", function(session, winner, item)
         if not addon.PlayerIsMasterLooter() then return end

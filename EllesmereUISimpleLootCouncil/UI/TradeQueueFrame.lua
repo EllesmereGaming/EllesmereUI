@@ -98,11 +98,14 @@ local function TooltipText(row)
             .. (isML and T["Right-click: undo award"] or T["Right-click: stop tracking"])
     elseif row.kind == "othersItem" then
         if not row.untradeable or not row.record then return nil end
-        return Section(T["Loot no longer tradeable"]) .. "\n"
-            .. OthersWhy(row.record) .. "\n"
-            .. T["Re-award it, or undo the award, to clear it."]
-            .. "\n\n" .. Section(T["Actions"]) .. "\n"
-            .. T["Right-click: undo award"]
+        return table.concat({
+            Section(T["Loot no longer tradeable"]),
+            OthersWhy(row.record),
+            T["Re-award it, or undo the award, to clear it."],
+            "",
+            Section(T["Actions"]),
+            T["Right-click: undo award"],
+        }, "\n")
     end
     return nil
 end
@@ -151,7 +154,6 @@ local function RowClick(self, button)
         end
     elseif kind == "othersItem" then
         if button == "RightButton" then
-
 
             if addon.PlayerIsMasterLooter() then
                 addon.UI.MLFrame:ConfirmRetractOthers(self.key)
@@ -397,6 +399,8 @@ local function PaintItem(item, link, holder)
     item.label:SetText(label)
 
 
+
+
     if quality then
         local r, g, b = C_Item.GetItemQualityColor(quality)
         if r then item.label:SetTextColor(r, g, b) end
@@ -442,6 +446,7 @@ function TradeQueueFrame:Refresh()
         row.label:SetTextColor(S.Unpack(NameColour(group.recipient)))
         group.row = row
         PaintRange(group)
+
 
 
         local canTrade = group.tradeable > 0

@@ -195,6 +195,7 @@ local function Flatten(reuse)
                         end
                     end
 
+
                     prepared[#prepared + 1] = {
                         kind = "player",
                         member = member,

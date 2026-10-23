@@ -106,10 +106,12 @@ end
 
 
 
+
 function BagShare:AddToQueue(link, owner)
     if addon.Session:IsRunning() and not addon.PlayerIsMasterLooter() then
         return nil, "active"
     end
+    if not addon.Session:MayStage() then return nil, "council" end
 
     local me = addon.Player:GetFullName("player")
     if not owner then
@@ -148,6 +150,7 @@ function BagShare:AddToQueue(link, owner)
 
                 local link = BagShare.LinkFromItemString(entry.link) or entry.link
                 local index = addon.Session:AddItem(link, owner, boss, encounterID)
+                if not index then return nil, "council" end
                 local item = addon.Session:GetItems()[index]
                 item.bagItem = true
                 addon.Callbacks:Fire("SessionChanged", index, "item")
@@ -178,10 +181,10 @@ end
 function BagShare.Unstaged(items, owner)
     local staged = StagedCounts(owner)
     local hidden = {}
-    for _, owedPass in ipairs({ false, true }) do
+    for _, markedPass in ipairs({ false, true }) do
         for _, entry in ipairs(items) do
             local key = StageKey(entry.link)
-            if key and (entry.owed and true or false) == owedPass
+            if key and ((entry.owed or entry.won) and true or false) == markedPass
                 and (staged[key] or 0) > 0 then
                 staged[key] = staged[key] - 1
                 hidden[entry] = true
@@ -198,17 +201,19 @@ end
 
 
 function BagShare.FreeToStage(items, owner)
-    local picks, skipped = {}, 0
+    local picks, skipped, won = {}, 0, 0
     for _, entry in ipairs(BagShare.Unstaged(items, owner)) do
         if entry.eligible and not entry.kept then
             if entry.owed then
                 skipped = skipped + 1
+            elseif entry.won then
+                won = won + 1
             else
                 picks[#picks + 1] = entry
             end
         end
     end
-    return picks, skipped
+    return picks, skipped, won
 end
 
 
