@@ -67,7 +67,19 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
     local slots, order, values = opts.slots, {}, {}
     local byKey, cells, targets = {}, {}, {}
     local textValues = CopyTable(opts.values)
+    -- Remove in the house BAD red with the close X at the row's right edge: 12px,
+    -- at the list delete buttons' 0.75 alpha; both brighten on hover.
     textValues.none = "Remove"
+    textValues._menuOpts = {
+        icon = function(key)
+            if key == "none" then return "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png" end
+        end,
+        iconSize = function() return 12 end,
+        iconColor = function() return 1, 0.35, 0.35, 0.75 end,
+        labelColor = function(key)
+            if key == "none" then return 1, 0.35, 0.35, 0.8 end
+        end,
+    }
     local function Notify(key)
         ns._ufTextNotify = { unit = opts.unit, key = key }
     end
