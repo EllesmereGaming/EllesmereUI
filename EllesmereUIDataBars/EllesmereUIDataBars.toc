@@ -11,6 +11,7 @@
 
 # Runtime
 EllesmereUIDataBars.lua
+EllesmereUIDataBars_MeterDock.lua
 Blocks\Shared.lua
 Blocks\Clock.lua
 Blocks\Stats.lua
