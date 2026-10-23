@@ -582,17 +582,17 @@ ns.IsComboHealthText = IsComboHealthText
 
 local function SetCombinedHealthText(fs, element, pctText, numText, maxText)
     if element == "healthNumMax" then
-        fs:SetFormattedText("%s / %s", numText, maxText or "")
+        EllesmereUI.FormattedText:Write(fs, "%s / %s", numText, maxText or "")
     elseif element == "healthPctNum" then
-        fs:SetFormattedText("%s | %s", pctText, numText)
+        EllesmereUI.FormattedText:Write(fs, "%s | %s", pctText, numText)
     elseif element == "healthNumPct" then
-        fs:SetFormattedText("%s | %s", numText, pctText)
+        EllesmereUI.FormattedText:Write(fs, "%s | %s", numText, pctText)
     elseif element == "healthPctNumDash" then
-        fs:SetFormattedText("%s - %s", pctText, numText)
+        EllesmereUI.FormattedText:Write(fs, "%s - %s", pctText, numText)
     elseif element == "healthNumPctDash" then
-        fs:SetFormattedText("%s - %s", numText, pctText)
+        EllesmereUI.FormattedText:Write(fs, "%s - %s", numText, pctText)
     else
-        fs:SetText("")
+        EllesmereUI.FormattedText:WriteText(fs, "")
     end
 end
 ns.SetCombinedHealthText = SetCombinedHealthText
@@ -733,14 +733,14 @@ do
             local f = PARTS[slotKey or ns.FindNameSlot()] or PLAIN
             local lvl = ns.GetUnitLevelText(unit, f.diff and "diff")
             if element == "levelName" then
-                fs:SetFormattedText(f.ln, lvl, name)
+                EllesmereUI.FormattedText:Write(fs, f.ln, lvl, name)
             else
-                fs:SetFormattedText(f.nl, name, lvl)
+                EllesmereUI.FormattedText:Write(fs, f.nl, name, lvl)
             end
         elseif element == "level" then
-            fs:SetFormattedText("%s", ns.GetUnitLevelText(unit))
+            EllesmereUI.FormattedText:Write(fs, "%s", ns.GetUnitLevelText(unit))
         else
-            fs:SetText(name)
+            EllesmereUI.FormattedText:WriteText(fs, name)
         end
     end
     -- WoW Forever: the name slot's Name Format (text-slot cog), the first or last word
@@ -779,7 +779,11 @@ local healthTextWidths = {
     level = 24,   -- standalone level: "70" / "??"
     targetOfTarget = 60,
 }
-local function EstimateHealthTextWidth(element)
+local function EstimateHealthTextWidth(element, slotKey)
+    if element == "custom" and slotKey then
+        return EllesmereUI.FormattedText:EstimateWidth((p and p[slotKey .. "CustomFormat"]) or "[:name:]", "unit", true)
+            + HEALTH_TEXT_PADDING
+    end
     return (healthTextWidths[element] or 0) + HEALTH_TEXT_PADDING
 end
 ns.EstimateHealthTextWidth = EstimateHealthTextWidth

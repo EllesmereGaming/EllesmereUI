@@ -759,6 +759,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             ApplyDisabledState()
         end
         region._control = controlAnchor or controlFrame
+        if cfg._formattedText then EllesmereUI.FormattedText:CaptureEditor(region, cfg) end
         -- Truncation is deferred (QueueLabelClamp) and the right bound applies ONLY on actual overflow: a bound stretches the label's rect, so anything anchored to its RIGHT edge (e.g. "(Applies to ...)" subtitles) would slide to the far side of the slot on short labels.
         QueueLabelClamp(region)
     end
@@ -1102,6 +1103,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
             ApplyDisabledState()
         end
         region._control = controlAnchor or controlFrame
+        if cfg._formattedText then EllesmereUI.FormattedText:CaptureEditor(region, cfg) end
         -- Truncation is deferred (QueueLabelClamp) and the right bound applies ONLY on actual overflow: a bound stretches the label's rect, so anything anchored to its RIGHT edge (e.g. "(Applies to ...)" subtitles) would slide to the far side of the slot on short labels.
         QueueLabelClamp(region)
     end

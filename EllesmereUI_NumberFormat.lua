@@ -113,6 +113,13 @@ local function NewConfig(rows)
     return { config = CreateAbbreviateConfig(rows) }
 end
 
+-- Fresh metadata for display formatters that need the same locale and tiers.
+function EllesmereUI.GetNumberAbbreviationData(forceEnglish)
+    local builder = not forceEnglish and localeBuilders[EllesmereUI.LOCALE]
+    local rows = builder and builder() or EnglishBreakpoints()
+    return ForeverTiers and ForeverTiers(rows) or rows
+end
+
 local function BuildConfig(forceEnglish)
     if forceEnglish then
         cfgEnglish = cfgEnglish or NewConfig(EnglishBreakpoints())
@@ -131,6 +138,11 @@ end
 --   K/M/B (e.g. DamageMeters' "force English units" setting).
 function EllesmereUI.AbbreviateNumber(n, forceEnglish)
     return AbbreviateNumbers(tonumber(n) or 0, BuildConfig(forceEnglish))
+end
+
+-- A display lane for values that may be secret: no coercion or inspection.
+function EllesmereUI.AbbreviateDisplayNumber(value, forceEnglish)
+    return AbbreviateNumbers(value, BuildConfig(forceEnglish))
 end
 
 --------------------------------------------------------------------------------

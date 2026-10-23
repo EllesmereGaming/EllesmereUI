@@ -259,7 +259,8 @@ local function IsPanelFamilyAnchor(region)
     return false
 end
 
--- opts (optional): { color = {r,g,b}, width = number } overrides text colour / forces width
+-- opts.layout may populate customContent and return its height inside this shell.
+-- The shell retains suppression, scale, anchoring, clamping, and fade ownership.
 local function ShowWidgetTooltip(label, text, opts)
     -- Suppress in M+/raid/PvP combat: frame APIs return secret values in tainted execution; opts.force bypasses.
     if not (opts and opts.force) then
@@ -272,9 +273,29 @@ local function ShowWidgetTooltip(label, text, opts)
     -- text may be a function for dynamic text; resolved after suppression checks so it isn't called when nothing will show.
     if type(text) == "function" then text = text() end
     local tt = GetTooltipFrame()
+    if tt.customContent then tt.customContent:Hide() end
     tooltipOwner[1] = label
     local MAX_W = 250
-    local PAD = 8  -- horizontal padding each side (matches text anchor insets)
+    local PAD = opts and opts.padding or 8
+    local font, _, flags = tt.text:GetFont()
+    tt.text:SetFont(font, opts and opts.fontSize or 10, flags)
+    tt.text:SetSpacing(opts and opts.spacing or 3)
+    local top = PAD
+    if opts and opts.title then
+        if not tt.title then tt.title = MakeFont(tt, 15, nil, 1, 1, 1, 1) end
+        tt.title:ClearAllPoints()
+        tt.title:SetPoint("TOPLEFT", tt, "TOPLEFT", PAD, -PAD)
+        tt.title:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -PAD, -PAD)
+        tt.title:SetJustifyH("LEFT")
+        tt.title:SetText(EllesmereUI.L(opts.title))
+        tt.title:Show()
+        top = PAD + 25
+    elseif tt.title then
+        tt.title:Hide()
+    end
+    tt.text:ClearAllPoints()
+    tt.text:SetPoint("TOPLEFT", tt, "TOPLEFT", PAD, -top)
+    tt.text:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -PAD, -top)
     if opts and opts.width then
         tt:SetWidth(opts.width)
     else
@@ -291,7 +312,8 @@ local function ShowWidgetTooltip(label, text, opts)
     else
         tt.text:SetJustifyH("CENTER")
     end
-    tt.text:SetText(EllesmereUI.L(text))
+    if opts and opts.layout then tt.text:Hide(); if tt.title then tt.title:Hide() end
+    else tt.text:Show(); tt.text:SetText(EllesmereUI.L(text)) end
     -- Scale must be set before anchoring: the cursor branch divides by the tooltip's effective scale (reset to 1 in HideWidgetTooltip).
     local ttScaleMult = opts and opts.scale
     if not ttScaleMult then
@@ -323,7 +345,7 @@ local function ShowWidgetTooltip(label, text, opts)
     tt:SetAlpha(0)
     tt:Show()
     -- Auto-size: natural text width + padding, capped at MAX_W
-    if not (opts and opts.width) then
+    if not (opts and (opts.width or opts.layout)) then
         local sw = tt.text:GetStringWidth()
         if issecretvalue and issecretvalue(sw) then
             tt:SetWidth(MAX_W)
@@ -333,11 +355,20 @@ local function ShowWidgetTooltip(label, text, opts)
         end
     end
     tt:SetHeight(10)
-    local textH = tt.text:GetStringHeight()
+    local textH = opts and opts.layout and opts.layout(tt, text, opts.width or MAX_W) or tt.text:GetStringHeight()
     if issecretvalue and issecretvalue(textH) then
         tt:SetHeight(26)
     else
-        tt:SetHeight(textH + 16)
+        tt:SetHeight(opts and opts.layout and textH or textH + top + PAD)
+    end
+    if opts and opts.fitScreen then
+        local effective = tt:GetEffectiveScale()
+        if not (issecretvalue and issecretvalue(effective)) then
+            local screenScale = UIParent:GetEffectiveScale()
+            local fit = math.min(1, (GetScreenHeight() * screenScale - 32) / (textH * effective),
+                (GetScreenWidth() * screenScale - 32) / ((opts.width or MAX_W) * effective))
+            tt:SetScale(ttScaleMult * fit)
+        end
     end
     -- Clamp to screen edges; skipped when frame metrics are secret (tainted M+)
     local ttScale = tt:GetEffectiveScale()

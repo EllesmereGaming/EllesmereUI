@@ -58,13 +58,13 @@ local function Paint()
     bar:SetValue(UnitPower("player", pt))
     local mode = S.text
     if mode == "cur" then
-        bar.text:SetFormattedText("%d", UnitPower("player", pt))
+        EllesmereUI.FormattedText:WriteUnit(bar.text, "player", S.customTextFormat, nil, pt, "%d", UnitPower("player", pt))
     elseif mode == "pct" then
-        bar.text:SetFormattedText(S.fmtPct, UnitPowerPercent("player", pt, true, CurveConstants.ScaleTo100))
+        EllesmereUI.FormattedText:WriteUnit(bar.text, "player", S.customTextFormat, nil, pt, S.fmtPct, UnitPowerPercent("player", pt, true, CurveConstants.ScaleTo100))
     elseif mode == "curmax" then
-        bar.text:SetFormattedText("%d / %d", UnitPower("player", pt), UnitPowerMax("player", pt))
+        EllesmereUI.FormattedText:WriteUnit(bar.text, "player", S.customTextFormat, nil, pt, "%d / %d", UnitPower("player", pt), UnitPowerMax("player", pt))
     elseif mode == "both" then
-        bar.text:SetFormattedText(S.fmtBoth, UnitPower("player", pt),
+        EllesmereUI.FormattedText:WriteUnit(bar.text, "player", S.customTextFormat, nil, pt, S.fmtBoth, UnitPower("player", pt),
             UnitPowerPercent("player", pt, true, CurveConstants.ScaleTo100))
     end
 end
@@ -169,9 +169,10 @@ local function StyleText(s)
     local fmt = FormVal(s, "foreverFormTextFormat", "powerTextFormat", "perpp")
     if pos == "none" or fmt == "none" then
         S.text = nil
-        fs:Hide()
+        EllesmereUI.FormattedText:SetShown(fs, false)
         return
     end
+    S.customTextFormat = fmt == "custom" and (s.foreverFormTextCustomFormat or s.powerTextCustomFormat)
     S.text = (fmt == "curpp" or fmt == "smart") and "cur" or (fmt == "curmaxpp" and "curmax")
         or (fmt == "both" and "both") or "pct"
     local sign = (FormVal(s, "foreverFormShowPercent", "powerShowPercent", true) ~= false) and "%%" or ""
@@ -190,7 +191,7 @@ local function StyleText(s)
         fs:SetJustifyH("CENTER")
         fs:SetPoint("CENTER", S.bar, "CENTER", ox, oy)
     end
-    fs:Show()
+    EllesmereUI.FormattedText:SetShown(fs, true)
 end
 
 -- Under the bars, every stock art ends at the power track's edge (vis.b is

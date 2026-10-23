@@ -20,7 +20,7 @@ local PoolGen = EllesmereUI._Pool.Gen
 -- Core Text Positions. KNOWN: the elements a text position draws; any other
 -- saved value (None, unset, one this build does not know) shows nothing and
 -- leaves the position free.
-local KNOWN = { enemyName = true, levelName = true, nameLevel = true, level = true, targetOfTarget = true,
+local KNOWN = { custom = true, enemyName = true, levelName = true, nameLevel = true, level = true, targetOfTarget = true,
     healthPercent = true, healthPercentNoSign = true, healthNumber = true, healthPctNum = true,
     healthNumPct = true, healthPctNumDash = true, healthNumPctDash = true, healthNumMax = true }
 -- Add Text Slot's text: the first of these whose font string no shown text
@@ -31,7 +31,7 @@ local ADD_ORDER = { "enemyName", "healthPercent", "level", "healthNumber", "targ
 -- from each position's default (MOVE_OFFSETS). Its Size and colour mode go
 -- along through MoveText too.
 local MOVE_RAW = { "Strata", "Color", "NameColorOn", "NameColor", "LevelColorOn", "LevelColor", "LevelDiffOn",
-                   "WidthPct", "Wrap", "PctDecimal", "NameFormat" }
+                   "WidthPct", "Wrap", "PctDecimal", "NameFormat", "CustomFormat" }
 local MOVE_OFFSETS = { "XOffset", "YOffset" }
 
 -- The six text positions in ns.textSlotKeys order: the order of the Core Text
@@ -3029,10 +3029,13 @@ local function BuildDisplayLayout(parent, y, ctx)
     end
 
     local function TextCellCfg(s)
-        return { type="dropdown", text=s.label, values=textElementValues, order=textElementOrder,
+        return EllesmereUI.FormattedText:ConfigureContent({ type="dropdown", text=s.label, values=textElementValues, order=textElementOrder,
           getValue=function() return DBVal(s.key) end,
           setValue=function(v) TextSlotSetValue(s.key, v) end,
-          disabledValues = (s.key == "textSlotLeft" or s.key == "textSlotRight") and COMBO_VS_CENTER_NAME or nil }
+          disabledValues = (s.key == "textSlotLeft" or s.key == "textSlotRight") and COMBO_VS_CENTER_NAME or nil },
+            { get = function() return DBVal(s.key .. "CustomFormat") end,
+              set = function(v) DB()[s.key .. "CustomFormat"] = v end,
+              apply = function() ns.RefreshAllSettings(); UpdatePreview() end })
     end
     local addOpen   -- the Add Text Slot menu's toggle, once its row is built
     local addCfg = { type="button", text="+ Add Text Slot", width=220,

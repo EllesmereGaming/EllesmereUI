@@ -183,7 +183,7 @@ local function Paint(force)
     else
         txt = ns.AbbreviateNumbers(cur)
     end
-    S.text:SetText(txt)
+    EllesmereUI.FormattedText:WriteUnit(S.text, "player", S.customTextFormat, nil, MANA, "%s", txt)
 end
 
 -- Mana events only while this bar is shown and the Power Bar can show; the
@@ -429,9 +429,10 @@ local function ApplyText(c, r, g, b)
     end
     local fmt = c.textFormat or "none"
     S.fmt = fmt
+    S.customTextFormat = fmt == "custom" and c.customTextFormat
     S.suffix = (c.showPercent == false) and "" or "%"
     S.textOn = fmt ~= "none"
-    fs:SetShown(S.textOn)
+    EllesmereUI.FormattedText:SetShown(fs, S.textOn)
 end
 
 -- Off: every event dropped, the bar hidden and its anchor extent handed back.

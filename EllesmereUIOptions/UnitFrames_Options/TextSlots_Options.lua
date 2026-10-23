@@ -3,13 +3,21 @@ local ns = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
 if not ns then return end
 
 local MOVE_KEYS = { "X", "Y", "WidthPct", "ClassColor", "ColorR", "ColorG", "ColorB",
-    "NameFormat", "TargetSep", "TargetPrefix", "TargetSepColor", "TargetSepClassColor" }
+    "NameFormat", "TargetSep", "TargetPrefix", "TargetSepColor", "TargetSepClassColor", "CustomFormat" }
+
+-- False for content a slot keeps to itself: "none", and "custom", whose format
+-- is stored per slot, so several slots may use it and none is picked for them.
+function ns.UF_IsUniqueContent(v)
+    return v ~= "none" and v ~= "custom"
+end
 
 -- Level coloring is shared by the unit, and edited from its level-text cogs.
 function ns.UF_CoreTextRows(prefix, contentDefault, get, set, rows)
     rows = ns.UF_NameFormatRows(prefix, contentDefault, get, set, rows)
     local content = get(prefix .. "Content", contentDefault)
-    if content ~= "level" and content ~= "levelname" and content ~= "namelevel" then return rows end
+    local hasLevel = content == "level" or content == "levelname" or content == "namelevel"
+        or (content == "custom" and EllesmereUI.FormattedText:HasTag(get(prefix .. "CustomFormat"), "unit", "level"))
+    if not hasLevel then return rows end
     rows[#rows + 1] = { type="toggle", label="Level Text: Difficulty Color",
         tooltip="Colors level text by difficulty, from grey (trivial) through green, yellow and orange to red (5+ levels above you).",
         get=function() return get("levelDifficultyColor", false) == true end,
@@ -37,11 +45,35 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
     local slots, order, values = opts.slots, {}, {}
     local byKey, cells, targets = {}, {}, {}
     local textValues = CopyTable(opts.values)
+    -- Remove in the house BAD red with the close X at the row's right edge: 12px,
+    -- at the list delete buttons' 0.75 alpha; both brighten on hover.
     textValues.none = "Remove"
+    textValues._menuOpts = {
+        icon = function(key)
+            if key == "none" then return "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png" end
+        end,
+        iconSize = function() return 12 end,
+        iconColor = function() return 1, 0.35, 0.35, 0.75 end,
+        labelColor = function(key)
+            if key == "none" then return 1, 0.35, 0.35, 0.8 end
+        end,
+    }
+    local function Notify(key)
+        ns._ufTextNotify = { unit = opts.unit, key = key }
+    end
+    -- Custom is an action entry: it opens the format popup, and a saved
+    -- format selects it for the slot.
     for i = 1, #slots do
         local s = slots[i]
         order[i], values[s.key], byKey[s.key] = s.key, s.position, s
         s.cfg.values = textValues
+        local key = s.key .. "CustomFormat"
+        EllesmereUI.FormattedText:ConfigureContent(s.cfg, {
+            context = "unit",
+            get = function() return opts.db()[key] end,
+            set = function(template) opts.db()[key] = template; Notify(s.key) end,
+            apply = opts.apply,
+        })
         if s.cfg.getValue() ~= "none" then cells[#cells + 1] = s end
     end
     local function Assigned(key)
@@ -57,7 +89,7 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
     local function Candidate()
         for i = 1, #opts.contentOrder do
             local v = opts.contentOrder[i]
-            if v ~= "none" and v ~= "---" then
+            if v ~= "---" and ns.UF_IsUniqueContent(v) then
                 local used = false
                 for j = 1, #slots do
                     if slots[j].cfg.getValue() == v then used = true; break end
@@ -65,9 +97,6 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
                 if not used then return v end
             end
         end
-    end
-    local function Notify(key)
-        ns._ufTextNotify = { unit = opts.unit, key = key }
     end
     local function Add(key)
         local v = Candidate()

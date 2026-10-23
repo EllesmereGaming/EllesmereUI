@@ -553,6 +553,7 @@ local function CreatePowerBar(frame, unit, settings)
         else
             ppFS:SetTextColor(1, 1, 1)
         end
+        EllesmereUI.FormattedText:Restyle(ppFS)
     end
     power._applyPowerTextColor = ApplyPowerTextColor
 
@@ -617,7 +618,9 @@ local function CreatePowerBar(frame, unit, settings)
         local pctSuffix = showPct and "%%" or ""
         local fmt = s.powerTextFormat or "perpp"
         local TP = ns.TextPieces
-        if fmt == "curpp" then
+        if fmt == "custom" then
+            ns.SetTextZone(frame, ppFS, "custom", "powerText", s)
+        elseif fmt == "curpp" then
             ns.SetTextZoneRaw(frame, ppFS, "%s", { TP.curpp })
         elseif fmt == "curmaxpp" then
             ns.SetTextZoneRaw(frame, ppFS, "%s / %s", { TP.curpp, TP.maxpp })
@@ -641,7 +644,7 @@ local function CreatePowerBar(frame, unit, settings)
 
         -- Priority: power-colored (per-unit) > custom color > white.
         ApplyPowerTextColor(s)
-        ppFS:Show()
+        EllesmereUI.FormattedText:SetShown(ppFS, true)
     end
 
     ApplyPowerPercentText(settings)

@@ -159,7 +159,7 @@ local function ReloadFrames(skipButtons)
         -- Power text (exists once a mode has needed it): hidden with the bar above until
         -- UpdateAllButtons below shows it again, and restyled.
         if d.powerText then
-            d.powerText:Hide(); d._pwtMode = nil
+            EllesmereUI.FormattedText:SetShown(d.powerText, false); d._pwtMode = nil
             ApplyFont(d.powerText, s.powerTextSize or 8)
             ns._RFAnchorPowerText(d)
         end

@@ -53,6 +53,13 @@ EllesmereUI_SharedHelpers.lua
 EllesmereUI_Popups.lua
 EllesmereUI_Colors.lua
 EllesmereUI_Fonts.lua
+EllesmereUI_FormattedText.lua
+EllesmereUI_FormattedText_Number.lua
+EllesmereUI_FormattedText_Display.lua
+EllesmereUI_FormattedText_Unit.lua
+EllesmereUI_FormattedText_Guide.lua
+EllesmereUI_FormattedText_EditorPreview.lua
+EllesmereUI_FormattedText_Editor.lua
 EllesmereUI_ProfileSync.lua
 EllesmereUI_RetailAtlas.lua
 EllesmereUI_BuffPresets.lua

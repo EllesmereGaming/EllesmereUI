@@ -43,18 +43,24 @@ end
 if EllesmereUI.IS_FOREVER then
     local HAS_NAME = { name = true, levelname = true, namelevel = true, nametotarget = true, targetname = true }
     local FORMATS, FORMAT_ORDER = EllesmereUI.NAME_FORMAT_VALUES, EllesmereUI.NAME_FORMAT_ORDER
+    -- A custom format shows a name when its parse holds a name piece.
+    function ns.UF_ContentShowsName(content, customFmt)
+        if content ~= "custom" then return HAS_NAME[content] or false end
+        local FT = EllesmereUI.FormattedText
+        return FT:HasTag(customFmt, "unit", "name") or FT:HasTag(customFmt, "unit", "target")
+    end
     function ns.UF_NameFormatRows(prefix, contentDefault, get, set, rows)
         local contentKey, formatKey = prefix .. "Content", prefix .. "NameFormat"
         table.insert(rows, 1, { type="dropdown", label="Name Format", values=FORMATS, order=FORMAT_ORDER,
             get=function() return get(formatKey, "full") end,
             -- First and Last is the unset default.
             set=function(v) set(formatKey, (v ~= "full") and v or nil) end,
-            disabled=function() return not HAS_NAME[get(contentKey, contentDefault)] end,
+            disabled=function() return not ns.UF_ContentShowsName(get(contentKey, contentDefault), get(prefix .. "CustomFormat")) end,
             disabledTooltip="This option only applies when the text shows a name." })
         return rows
     end
     -- The same slots for the Forever Essentials NAME FORMAT section, which
-    -- reads and sets every name text at once: { unit settings key, content key,
+    -- reads and sets every name text at once: { unit settings key, content key, custom format key,
     -- format key, text bar slot }, keys prebuilt so its reads build no strings.
     -- Boss frames have no text bar; the other mini frames no extra text either.
     do
@@ -65,11 +71,11 @@ if EllesmereUI.IS_FOREVER then
         for _, set in ipairs({ { "player", MAIN }, { "target", MAIN }, { "focus", MAIN }, { "boss", BOSS },
                 { "targettarget", MINI }, { "focustarget", MINI }, { "pet", MINI } }) do
             for _, pre in ipairs(set[2]) do
-                slots[#slots + 1] = { unit = set[1], content = pre .. "Content", format = pre .. "NameFormat",
+                slots[#slots + 1] = { unit = set[1], content = pre .. "Content", custom = pre .. "CustomFormat", format = pre .. "NameFormat",
                     btb = pre:sub(1, 3) == "btb" }
             end
         end
-        ns.UF_NAME_FORMAT_SLOTS, ns.UF_HAS_NAME = slots, HAS_NAME
+        ns.UF_NAME_FORMAT_SLOTS = slots
     end
 else
     function ns.UF_NameFormatRows(_, _, _, _, rows) return rows end
