@@ -16,6 +16,10 @@ local frames = I.frames
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
+function ns.GetPetHappinessIcon()
+    return frames.pet and frames.pet._petHappy
+end
+
 -- Pet happiness (WoW Forever): the stock pet frame's mood icon, carried
 -- beside our pet frame under Blizzard's own rule -- shown only for a hunter
 -- pet whose happiness reads 1..3, with that state's atlas. The icon frame is
@@ -37,6 +41,7 @@ function ns.UF_RefreshPetHappiness(h)
     else
         h:Hide()
     end
+    if ns.PetCareRefresh then ns.PetCareRefresh(h) end
 end
 
 -- Hover text, read fresh: state, damage share, loyalty trend and diet.
@@ -84,6 +89,7 @@ function ns.UF_ApplyPetHappiness()
             h:UnregisterAllEvents()
             h:Hide()
         end
+        if ns.PetCareRefresh then ns.PetCareRefresh(h) end
         return
     end
     if not h then

@@ -1438,6 +1438,7 @@ local REFRESH_ADDON_STEPS = {
     -- Dragon Riding HUD, Minimap (flyout button state)
     function()
         if _G._EQD_Apply then _G._EQD_Apply() end
+        if _G._EPC_Apply then _G._EPC_Apply() end
         if _G._EDR_Rebuild then _G._EDR_Rebuild() end
         if _G._EMIN_RefreshFlyout then _G._EMIN_RefreshFlyout() end
     end,
