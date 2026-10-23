@@ -903,6 +903,7 @@ end
 --  Custom Input Popup  (matches EllesmereUI aesthetic, with EditBox)
 --  Usage:  EllesmereUI:ShowInputPopup({ title, message, placeholder, confirmText, cancelText, onConfirm, onCancel })
 --          onConfirm receives the entered text as its first argument.
+--          infoTooltip (string or function) adds a hover info badge beside the title.
 -------------------------------------------------------------------------------
 function EllesmereUI:ShowInputPopup(opts)
     if not self._inputPopup then
@@ -945,6 +946,36 @@ function EllesmereUI:ShowInputPopup(opts)
         local title = MakeFont(popup, 16, "", 1, 1, 1)
         title:SetPoint("TOP", popup, "TOP", 0, -20)
         popup._title = title
+
+        -- Optional info badge beside the title (opts.infoTooltip): hover text only.
+        local info = CreateFrame("Frame", nil, popup)
+        PanelPP.Size(info, 14, 14)
+        PanelPP.Point(info, "LEFT", title, "RIGHT", 6, 0)
+        info:SetFrameLevel(popup:GetFrameLevel() + 3)
+        info:EnableMouse(true)
+        local infoIco = info:CreateTexture(nil, "OVERLAY")
+        infoIco:SetAllPoints()
+        infoIco:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-info.png")
+        infoIco:SetVertexColor(1, 1, 1, 0.6)
+        info:SetScript("OnEnter", function(self)
+            infoIco:SetVertexColor(1, 1, 1, 1)
+            if self._tip then
+                self._tipShown = true
+                EllesmereUI.ShowWidgetTooltip(self, self._tip)
+            end
+        end)
+        local function InfoLeave(self)
+            infoIco:SetVertexColor(1, 1, 1, 0.6)
+            if self._tipShown then
+                self._tipShown = nil
+                EllesmereUI.HideWidgetTooltip()
+            end
+        end
+        info:SetScript("OnLeave", InfoLeave)
+        -- Closing the popup under the cursor: drop the tooltip without relying on OnLeave.
+        info:SetScript("OnHide", InfoLeave)
+        info:Hide()
+        popup._info = info
 
         local msg = MakeFont(popup, 12, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
         msg:SetPoint("TOP", title, "BOTTOM", 0, -8)
@@ -1135,6 +1166,8 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._popBgOverlay:SetShown(modern == true)
 
     popup._title:SetText(EllesmereUI.L(opts.title or "Enter Name"))
+    popup._info._tip = opts.infoTooltip
+    popup._info:SetShown(opts.infoTooltip ~= nil)
     popup._msg:SetText(EllesmereUI.L(opts.message or ""))
     popup._placeholder:SetText(EllesmereUI.L(opts.placeholder or "Enter name..."))
     popup._cancelBtn._lbl:SetText(EllesmereUI.L(opts.cancelText or "Cancel"))

@@ -1029,9 +1029,85 @@ do
         [P.name] = "id", [P.level] = "id", [P.levelcol] = "id", [P.levelcolall] = "id",
     }
 
+    -- Custom content: the slot's own format string (<prefix>CustomFormat), where
+    -- "[tag]" draws a piece and everything else is literal text. The list is
+    -- { tag, piece key }, ordered for the options tooltip, which owns the
+    -- descriptions; tags match case-insensitively.
+    local CUSTOM_TAG_LIST = {
+        { "name", "name" }, { "level", "level" }, { "target", "tgtname" },
+        { "hp", "curhpshort" }, { "maxhp", "maxhpshort" }, { "hppct", "perhp" },
+        { "pp", "curpp" }, { "maxpp", "maxpp" }, { "pppct", "perpp" },
+        { "absorb", "absorbshort" }, { "healabsorb", "healabsorbshort" }, { "group", "group" },
+    }
+    ns.UF_CUSTOM_TAG_LIST = CUSTOM_TAG_LIST
+    local CUSTOM_TAGS = {}
+    for i = 1, #CUSTOM_TAG_LIST do CUSTOM_TAGS[CUSTOM_TAG_LIST[i][1]] = CUSTOM_TAG_LIST[i][2] end
+    -- Parsed once per distinct string: { fmt, pieceKeys, static, literalChars, keySet }.
+    -- Literal "%" is escaped for the format, "|" doubled so no escape sequence
+    -- can form, and an unknown tag stays as typed. Shared with the width
+    -- estimate and the options, so every reader agrees on the syntax.
+    -- Bounded: past 64 strings it starts over. Zones keep their own fmt and
+    -- pieces, so a cleared entry is only parsed again on the next apply.
+    local customCache, customCount = {}, 0
+    local function ParseCustom(str)
+        local hit = customCache[str]
+        if hit then return hit end
+        local out, keys, has, pos, static = {}, {}, {}, 1, true
+        while true do
+            local s, e, tag = string.find(str, "%[(%w+)%]", pos)
+            out[#out + 1] = string.sub(str, pos, (s or 0) - 1)
+            if not s then break end
+            local key = CUSTOM_TAGS[string.lower(tag)]
+            if key then
+                out[#out + 1] = "\0"
+                keys[#keys + 1] = key
+                has[key] = true
+                if PIECE_READS[P[key]] ~= "id" then static = false end
+            else
+                out[#out + 1] = string.sub(str, s, e)
+            end
+            pos = e + 1
+        end
+        local plain = table.concat(out)
+        local fmt = plain:gsub("%%", "%%%%"):gsub("|", "||"):gsub("%z", "%%s")
+        local literal = plain:gsub("%z", "")
+        hit = { fmt, keys, static or nil, strlenutf8 and strlenutf8(literal) or #literal, has }
+        if customCount >= 64 then customCache, customCount = {}, 0 end
+        customCache[str] = hit
+        customCount = customCount + 1
+        return hit
+    end
+    -- Engine files read the cached parse through I (read-only by contract).
+    -- Outside readers get (fmt, keys, static, literalChars) with their own keys
+    -- table, so nothing outside can alter what the zones paint from.
+    I.ParseCustomFormat = ParseCustom
+    function ns.UF_ParseCustomFormat(str)
+        local def = ParseCustom(str)
+        return def[1], { unpack(def[2]) }, def[3], def[4]
+    end
+    -- Whether a format draws the given piece key, without copying anything.
+    function ns.UF_CustomFormatHas(str, key)
+        return type(str) == "string" and ParseCustom(str)[5][key] == true
+    end
+
     --- Resolves a content key to (fmt, piecesArray, static) for a zone, or nil
     --- for "none"/unknown. nametotarget builds its settings-closure separator.
     function ns.ContentToZone(content, prefix, settings)
+        if content == "custom" then
+            local str = settings and settings[prefix .. "CustomFormat"]
+            if type(str) ~= "string" or str == "" then return nil end
+            local def = ParseCustom(str)
+            local keys, pieces = def[2], {}
+            local lvlCol = settings.levelDifficultyColor
+            for i = 1, #keys do
+                local key = keys[i]
+                if key == "level" and lvlCol then
+                    key = settings.levelDifficultyColorFriendly and "levelcolall" or "levelcol"
+                end
+                pieces[i] = P[key]
+            end
+            return def[1], pieces, def[3]
+        end
         if content == "nametotarget" then
             return "%s%s%s%s", { P.name, ns.MakeTgtSepPiece(prefix, settings), P.tgtcol, P.tgtname }
         end

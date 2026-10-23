@@ -618,7 +618,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
           getValue=function() return MVal("leftTextContent", "name") end,
           setValue=function(v)
             settingsTable.leftTextContent = v
-            if v ~= "none" then
+            if ns.UF_IsUniqueContent(v) then
                 if settingsTable.rightTextContent == v then settingsTable.rightTextContent = "none" end
                 if settingsTable.centerTextContent == v then settingsTable.centerTextContent = "none" end
             end
@@ -745,7 +745,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
           getValue=function() return MVal("rightTextContent", "none") end,
           setValue=function(v)
             settingsTable.rightTextContent = v
-            if v ~= "none" then
+            if ns.UF_IsUniqueContent(v) then
                 if settingsTable.leftTextContent == v then settingsTable.leftTextContent = "none" end
                 if settingsTable.centerTextContent == v then settingsTable.centerTextContent = "none" end
             end

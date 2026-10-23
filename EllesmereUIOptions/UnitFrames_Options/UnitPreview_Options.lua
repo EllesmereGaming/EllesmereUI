@@ -580,6 +580,31 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             return _pvAbbrev(math.floor(maxHP * 0.08))
         elseif content == "group" then
             return "3"
+        elseif content == "custom" then
+            -- Live twin: ns.ContentToZone's custom branch. Each known tag takes
+            -- the sample of the content key that draws the same value.
+            local str = prefix and s and s[prefix .. "CustomFormat"]
+            if type(str) ~= "string" or str == "" or not ns.UF_ParseCustomFormat then return "" end
+            -- The engine's parsed format, filled with one sample per piece key.
+            local fmt, keys = ns.UF_ParseCustomFormat(str)
+            local vals = {}
+            local maxHP = UnitHealthMax("player") or 1
+            local pct = optState._previewHealthPct or 0.70
+            for i = 1, #keys do
+                local key, v = keys[i]
+                if key == "name" then v = _pvName()
+                elseif key == "tgtname" then v = "Target"
+                elseif key == "group" then v = "3"
+                elseif key == "level" or key == "curpp" or key == "absorbshort" or key == "healabsorbshort" then
+                    v = PreviewTextForContent(key, s, prefix)
+                elseif key == "maxpp" then v = ns.AbbreviateNumbers(UnitPowerMax("player") or 100)
+                elseif key == "perpp" then v = tostring(math.floor((optState._previewPowerPct or 0.85) * 100))
+                elseif key == "maxhpshort" then v = _pvAbbrev(maxHP)
+                elseif key == "perhp" then v = _pvPct(pct)
+                else v = _pvAbbrev(math.floor(maxHP * pct)) end
+                vals[i] = v
+            end
+            return string.format(fmt, unpack(vals, 1, #keys))
         else
             return ""
         end
@@ -682,6 +707,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local UF_TEXT_PADDING = 10
                 local ufTW = { both = 75, curhpshort = 38, healthshort = 38, curmaxhp = 75, curmaxpp = 75, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
                 local rightUsed = (ufTW[rc] or 0) + UF_TEXT_PADDING
+                if rc == "custom" and ns.UF_EstimateTextWidth then
+                    rightUsed = ns.UF_EstimateTextWidth(rc, s.rightTextCustomFormat, true)
+                end
                 PP.Width(leftFS, math.max(barW - rightUsed - 10, 20))
             else
                 leftFS:SetWidth(0)
