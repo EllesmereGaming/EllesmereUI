@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -9,7 +9,7 @@ local T = addon.Locale.Text
 
 
 
-addon.SCHEMA_VERSION = 11
+addon.SCHEMA_VERSION = 12
 
 
 local interface = GetBuildInfo and select(4, GetBuildInfo())
@@ -77,14 +77,13 @@ addon.defaults = {
     },
 
 
-
-    boeRoute = {},
-
-
     timer = {
         enabled = false,
         duration = 120,
     },
+
+
+    autoStart = true,
 
 
     vote = {
@@ -94,11 +93,6 @@ addon.defaults = {
     },
 
 
-
-    allowStartRequests = false,
-    councilMayStartRuns = false,
-
-
     shareCouncilBags = true,
 
 
@@ -106,6 +100,9 @@ addon.defaults = {
 
 
     bagReadings = {},
+
+
+    wonCopies = {},
 
 
 
@@ -128,6 +125,9 @@ addon.defaults = {
         guildGroupOnly = true,
 
 
+        never = false,
+
+
 
         ignore = {},
     },
@@ -137,7 +137,6 @@ addon.defaults = {
 
     raidPrompt = {
         silence = false,
-        inGroups = false,
 
 
         neverLead = false,
@@ -202,14 +201,7 @@ addon.defaults = {
     importMaxDays = 365,
 
 
-
-    showMoreInfo = true,
-
-
     teamShowAlts = true,
-
-
-    sessionFrame = true,
 
 
     wishlistEnabled = true,
@@ -229,11 +221,6 @@ addon.defaults = {
     masterAutoLoot = true,
 
 
-    autoOpenQueue = true,
-
-    autoAddBags = false,
-
-
     specs = {},
 
 
@@ -251,7 +238,14 @@ addon.defaults = {
     mlCompact = false,
 
 
+    councilHiddenColumns = {},
+
+
     voterCompact = false,
+
+
+
+    responseTab = true,
 
 
     windowAlpha = 1,
@@ -395,22 +389,6 @@ addon.migrations = addon.Locale.Texts{
         end,
     },
     {
-        version = 8,
-        name = "BoE route reason as text",
-        func = function(db)
-
-            local rule = db.boeRoute
-            if type(rule) ~= "table" then return end
-            local index = rule.reason
-            rule.reason = nil
-            if type(index) ~= "number" or rule.reasonText ~= nil then return end
-            local entry = type(db.awardReasons) == "table" and db.awardReasons[index]
-            if type(entry) ~= "table" or type(entry.text) ~= "string" then return end
-            if entry.id == "BANK" or entry.text:lower() == "guild bank" then return end
-            rule.reasonText = entry.text
-        end,
-    },
-    {
         version = 9,
         name = "guild loot funnel guard on",
         notify = T["The loot funnel now runs in guild groups only by default: you are asked before your loot is passed outside your guild. Set \"Loot funnel in which groups?\" to All Groups in Settings if you would rather not be asked."],
@@ -448,6 +426,15 @@ addon.migrations = addon.Locale.Texts{
                 "autoAddBags", "mlCompact", "voterCompact", "windowAlpha",
             }
             for _, key in ipairs(settings) do db[key] = nil end
+        end,
+    },
+    {
+        version = 12,
+        name = "shipped response names translated (retired)",
+        func = function()
+
+
+            return false
         end,
     },
 }

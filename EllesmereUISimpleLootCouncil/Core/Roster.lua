@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -149,6 +149,9 @@ function Roster:IsMember(name)
     end
     if not (IsInGroup and IsInGroup()) or not Ambiguate then return false end
     local unit = Ambiguate(name, "none")
+    if addon.Player.IsUnitToken and addon.Player.IsUnitToken(unit) then
+        return addon.Player.GroupUnitNamed(unit) ~= nil
+    end
     local index = UnitInRaid and UnitInRaid(unit)
     if IsSecret(index) then return false end
     if index then return true end
@@ -354,6 +357,17 @@ function addon.CanAssignMasterLooter()
     return UnitIsGroupLeader("player") and true or false
 end
 
+
+
+
+local groupTest = false
+function addon.GroupTestActive()
+    if groupTest and (not IsInGroup() or IsInRaid()) then groupTest = false end
+    return groupTest
+end
+function addon.SetGroupTest(on)
+    groupTest = on and true or false
+end
 
 function addon.PlayerIsMasterLooter()
     if not IsInGroup() then return true end

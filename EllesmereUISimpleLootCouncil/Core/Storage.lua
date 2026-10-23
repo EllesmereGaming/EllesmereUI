@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -13,6 +13,10 @@ addon.Storage = Storage
 
 Storage.TO_TRADE = "to_trade"
 Storage.AWARD_LATER = "award_later"
+Storage.KEPT = "kept"
+
+Storage.UNTRADEABLE_KEEP = 24 * 60 * 60
+Storage.TRADE_WINDOW = 2 * 60 * 60
 
 
 
@@ -523,13 +527,61 @@ function Storage:GetTradeableItems(cached)
                 item = item })
         end
     end
-    local ledger = addon.db and addon.db.itemStorage and Storage:GetAll(Storage.TO_TRADE)
+    local ledger = addon.db and addon.db.itemStorage and Storage:GetHeld()
     for entry, copy in pairs(Pair(ledger, copies)) do
         copy.item.owed = true
         copy.item.owedTo = entry.args and entry.args.recipient
+        if entry.category == Storage.KEPT then copy.item.kept = true end
+    end
+
+
+    local unowed = {}
+    for id, list in pairs(copies) do
+        for _, copy in ipairs(list) do
+            if not copy.item.owed then
+                unowed[id] = unowed[id] or {}
+                table.insert(unowed[id], copy)
+            end
+        end
+    end
+    for _, copy in pairs(Pair(Storage:GetWon(), unowed)) do
+        copy.item.won = true
     end
 
     return found
+end
+
+
+
+
+
+
+
+local WON_TTL = 2 * 60 * 60
+local WON_MAX = 64
+local wonListening = false
+
+function Storage:GetWon()
+    local store = addon.db and addon.db.wonCopies
+    if type(store) ~= "table" then return {} end
+    local now = GetServerTime()
+    for i = #store, 1, -1 do
+        local entry = store[i]
+        if type(entry) ~= "table" or type(entry.link) ~= "string"
+            or type(entry.addedAt) ~= "number" or now - entry.addedAt > WON_TTL then
+            table.remove(store, i)
+        end
+    end
+    return store
+end
+
+function Storage:RecordWon(link)
+    if type(link) ~= "string" or not addon.db then return end
+    if type(addon.db.wonCopies) ~= "table" then addon.db.wonCopies = {} end
+    local store = addon.db.wonCopies
+    if #store >= WON_MAX then table.remove(store, 1) end
+    store[#store + 1] = { link = link, addedAt = GetServerTime() }
+    addon.Log:D("Storage", "won copy recorded", link)
 end
 
 
@@ -546,6 +598,7 @@ local function Settle(watch, bag, slot, secondsLeft)
     for i, other in ipairs(watches) do
         if other == watch then table.remove(watches, i) break end
     end
+    if #watches == 0 and watchFrame then watchFrame:UnregisterEvent("BAG_UPDATE_DELAYED") end
     watch.onFound(bag, slot, secondsLeft)
 end
 
@@ -566,10 +619,10 @@ function Storage:WatchForItem(link, onFound, attempts, interval)
     end
     if not watchFrame then
         watchFrame = CreateFrame("Frame")
-        watchFrame:RegisterEvent("BAG_UPDATE_DELAYED")
         watchFrame:SetScript("OnEvent", function() if #watches > 0 then CheckWatches() end end)
     end
     watches[#watches + 1] = watch
+    watchFrame:RegisterEvent("BAG_UPDATE_DELAYED")
     C_Timer.After((attempts or 5) * (interval or 1), function()
         if watch.done then return end
         local found, foundSlot, foundSeconds = Storage:FindInBags(link)
@@ -582,9 +635,30 @@ end
 
 
 
+local function NextEntryId()
+    local db = addon.db
+    local seq = (type(db.storageSeq) == "number" and db.storageSeq or 0) + 1
+    local stamp = GetServerTime()
+    local id = ("%d-%d"):format(stamp, seq)
+    local taken = true
+    while taken do
+        taken = false
+        for _, other in ipairs(db.itemStorage) do
+            if other.id == id then
+                taken = true
+                seq = seq + 1
+                id = ("%d-%d"):format(stamp, seq)
+                break
+            end
+        end
+    end
+    db.storageSeq = seq
+    return id
+end
+
 function Storage:Add(link, category, args)
     local entry = {
-        id = ("%d-%d"):format(GetServerTime(), math.random(1000, 9999)),
+        id = NextEntryId(),
         link = link,
         category = category,
         addedAt = time(),
@@ -655,6 +729,17 @@ function Storage:GetAll(category)
     local out = {}
     for _, entry in ipairs(addon.db.itemStorage) do
         if not category or entry.category == category then
+            out[#out + 1] = entry
+        end
+    end
+    return out
+end
+
+
+function Storage:GetHeld()
+    local out = {}
+    for _, entry in ipairs(addon.db.itemStorage) do
+        if entry.category == Storage.TO_TRADE or entry.category == Storage.KEPT then
             out[#out + 1] = entry
         end
     end
@@ -748,100 +833,194 @@ local function HandedToOther(id, recipient)
     return handed.to
 end
 
-function Storage:Reconcile(reason, timeOnly)
-
-
-    local totalSlots = 0
-    for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-        totalSlots = totalSlots + (C_Container.GetContainerNumSlots(bag) or 0)
+local function RecordedClock(entry, now)
+    if entry.secondsLeft and entry.updatedAt then
+        return math.max(0, entry.secondsLeft - ((now or time()) - entry.updatedAt))
     end
-    if totalSlots == 0 and not timeOnly then
+    return nil
+end
+
+
+local function Aged(entry, now)
+    local since = entry.untradeableAt or entry.addedAt
+    return type(since) == "number" and now - since > Storage.UNTRADEABLE_KEEP
+end
+
+
+local function InTradeWindow(entry, now)
+    local left = RecordedClock(entry, now)
+    if left then return left > 0 end
+    return type(entry.addedAt) == "number" and now - entry.addedAt < Storage.TRADE_WINDOW
+end
+
+
+
+local function ScanHeld(entries)
+    local wanted = {}
+    for _, entry in ipairs(entries) do
+        local id = entry.link and ItemID(entry.link)
+        if id then wanted[id] = true end
+    end
+    local soulbound = Enum.TooltipDataItemBinding.Soulbound
+    local copies, counts, totalSlots = {}, {}, 0
+    for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+        local slots = C_Container.GetContainerNumSlots(bag) or 0
+        totalSlots = totalSlots + slots
+        for slot = 1, slots do
+            local id = C_Container.GetContainerItemID(bag, slot)
+            local link = id and wanted[id] and C_Container.GetContainerItemLink(bag, slot)
+            if link and ItemID(link) == id then
+                local secondsLeft, bonding = Storage:GetSlotTradeInfo(bag, slot)
+                local count = counts[id]
+                if not count then
+                    count = { tradeable = 0, bound = 0 }
+                    counts[id] = count
+                end
+                if not (secondsLeft and secondsLeft > 0) and bonding == soulbound then
+                    count.bound = count.bound + 1
+                else
+                    count.tradeable = count.tradeable + 1
+                end
+                if secondsLeft and secondsLeft > 0 then
+                    copies[id] = copies[id] or {}
+                    table.insert(copies[id], { link = link, seconds = secondsLeft })
+                end
+            end
+        end
+    end
+    return copies, counts, totalSlots
+end
+
+function Storage:Reconcile(reason)
+    local list = addon.db.itemStorage
+    local copies, counts, totalSlots = ScanHeld(list)
+    if totalSlots == 0 then
         addon.Log:WLogOnly("Storage", "bags not readable - skipping reconcile,",
-            #addon.db.itemStorage, "entries kept")
+            #list, "entries kept")
         return {}, {}
     end
 
-    local budget = {}
-    local boundCopies = {}
+    local budget, boundCopies = {}, {}
+    for id, count in pairs(counts) do
+        budget[id], boundCopies[id] = count.tradeable, count.bound
+    end
+    local paired = Pair(list, copies)
+    local now = time()
+    local function Remaining(entry)
+        local copy = paired[entry]
+        if copy then return copy.seconds end
+        return RecordedClock(entry, now)
+    end
+
     local drop = {}
     local marked = {}
     local changed = false
 
-    for i = 1, #addon.db.itemStorage do
-        local entry = addon.db.itemStorage[i]
+    for i = 1, #list do
+        local entry = list[i]
         local id = entry.link and ItemID(entry.link)
 
         if entry.untradeable then
 
 
+            if Aged(entry, now) then drop[i] = "aged" end
         elseif not entry.link or not id then
             drop[i] = "unusable"
-        else
-            local remaining = Storage:TimeRemaining(entry)
-            if remaining and remaining <= 0 then
+        elseif entry.category == Storage.TO_TRADE then
+            local remaining = Remaining(entry)
+            local expired = remaining ~= nil and remaining <= 0
+            local handedTo = not expired and not entry.missingAtAdd
+                and HandedToOther(id, entry.args and entry.args.recipient)
+            if not expired and (budget[id] or 0) > 0 then
+                budget[id] = budget[id] - 1
+                if entry.missingAtAdd then
 
 
-                drop[i] = "expired"
-            elseif not timeOnly then
-                if budget[id] == nil then
-                    budget[id], boundCopies[id] = Storage:CountTradeable(entry.link)
+                    entry.missingAtAdd = nil
+                    changed = true
+                    addon.Log:I("Storage", "owed item turned up", entry.link)
                 end
-                local handedTo = not entry.missingAtAdd
-                    and HandedToOther(id, entry.args and entry.args.recipient)
-                if budget[id] > 0 then
-                    budget[id] = budget[id] - 1
-                    if entry.missingAtAdd then
+            elseif not expired and entry.tradeSeen and not entry.missingAtAdd and not handedTo
+                and now - entry.tradeSeen <= Storage.TRADE_EVIDENCE_SECONDS then
 
 
-                        entry.missingAtAdd = nil
-                        changed = true
-                        addon.Log:I("Storage", "owed item turned up", entry.link)
-                    end
-                elseif entry.tradeSeen and not entry.missingAtAdd and not handedTo
-                    and time() - entry.tradeSeen <= Storage.TRADE_EVIDENCE_SECONDS then
+                drop[i] = "gone"
+            else
 
 
-                    drop[i] = "gone"
+
+                if expired then
+                    entry.untradeable = Storage:IsEquipped(entry.link) and "equipped"
+                        or entry.missingAtAdd and "missing"
+                        or (boundCopies[id] or 0) > 0 and "bound" or "left"
+                elseif entry.missingAtAdd then
+                    entry.untradeable = "missing"
+                elseif handedTo then
+                    entry.untradeable = "wrong"
+                    entry.untradeableTo = handedTo
+                elseif Storage:IsEquipped(entry.link) then
+                    entry.untradeable = "equipped"
+                elseif (boundCopies[id] or 0) > 0 then
+                    entry.untradeable = "bound"
                 else
-
-
-                    if entry.missingAtAdd then
-                        entry.untradeable = "missing"
-                    elseif handedTo then
-                        entry.untradeable = "wrong"
-                        entry.untradeableTo = handedTo
-                    elseif Storage:IsEquipped(entry.link) then
-                        entry.untradeable = "equipped"
-                    elseif boundCopies[id] > 0 then
-                        entry.untradeable = "bound"
-                    else
-                        entry.untradeable = "left"
-                    end
-                    entry.untradeableAt = time()
-                    marked[#marked + 1] = entry
-                    addon.Log:I("Storage", "no longer tradeable -", entry.untradeable,
-                        entry.link, "owed to", tostring(entry.args and entry.args.recipient))
+                    entry.untradeable = "left"
                 end
+                entry.untradeableAt = now
+                marked[#marked + 1] = entry
+                addon.Log:I("Storage", "no longer tradeable -", entry.untradeable,
+                    entry.link, "owed to", tostring(entry.args and entry.args.recipient))
             end
-
-
+        end
+    end
+    for i = 1, #list do
+        local entry = list[i]
+        if not drop[i] and not entry.untradeable and entry.category ~= Storage.TO_TRADE then
+            local id = ItemID(entry.link)
+            local remaining = Remaining(entry)
+            if remaining and remaining <= 0 then
+                drop[i] = "expired"
+            elseif (budget[id] or 0) > 0 then
+                budget[id] = budget[id] - 1
+                if entry.missingAtAdd then
+                    entry.missingAtAdd = nil
+                    changed = true
+                end
+            else
+                drop[i] = "gone"
+            end
+        end
+    end
+    for i = 1, #list do
+        local entry = list[i]
+        local why = entry.untradeable
+        if not drop[i] and (why == "missing" or why == "left")
+            and entry.category == Storage.TO_TRADE then
+            local id = ItemID(entry.link)
+            if id and (budget[id] or 0) > 0 and InTradeWindow(entry, now) then
+                budget[id] = budget[id] - 1
+                entry.untradeable, entry.untradeableTo, entry.untradeableAt = nil, nil, nil
+                entry.missingAtAdd = nil
+                changed = true
+                addon.Log:I("Storage", "owed item is back in the bags -", why, entry.link,
+                    "owed to", tostring(entry.args and entry.args.recipient))
+            end
         end
     end
 
     local removed = {}
-    for i = #addon.db.itemStorage, 1, -1 do
+    for i = #list, 1, -1 do
         if drop[i] then
-            local entry = addon.db.itemStorage[i]
+            local entry = list[i]
 
             entry.dropped = drop[i]
             removed[#removed + 1] = entry
-            table.remove(addon.db.itemStorage, i)
+            table.remove(list, i)
         end
     end
 
     if #removed > 0 then
         addon.Log:I("Storage", "reconciled", tostring(reason), "-", #removed,
-            "entries dropped,", #addon.db.itemStorage, "kept")
+            "entries dropped,", #list, "kept")
         for _, entry in ipairs(removed) do
             addon.Log:D("Storage", "dropped", entry.dropped, entry.link,
                 "owed to", tostring(entry.args and entry.args.recipient))
@@ -856,53 +1035,51 @@ end
 
 
 
-local LOGIN_SLICE = 2
-
 local function LoginPrune()
-    local pending = {}
-    for i, entry in ipairs(addon.db.itemStorage) do pending[i] = entry end
-    local expired, index = 0, 1
-
-    local function Step()
-        local stop = math.min(index + LOGIN_SLICE - 1, #pending)
-        for i = index, stop do
-            local entry = pending[i]
-            local id = entry.link and ItemID(entry.link)
-            local why
-            if entry.untradeable then
-                why = nil
-            elseif not id then
-                why = "unusable"
-            else
-                local remaining = Storage:TimeRemaining(entry)
-                if remaining and remaining <= 0 then why = "expired" end
-            end
-
-            for at, current in ipairs(why and addon.db.itemStorage or {}) do
-                if current == entry then
-                    table.remove(addon.db.itemStorage, at)
-                    entry.dropped = why
-                    expired = expired + 1
-                    addon.Log:D("Storage", "dropped", why, entry.link, "owed to",
-                        tostring(entry.args and entry.args.recipient))
-                    break
-                end
+    local list = addon.db.itemStorage
+    local now = time()
+    local expired = 0
+    for i = #list, 1, -1 do
+        local entry = list[i]
+        local id = type(entry) == "table" and entry.link and ItemID(entry.link)
+        local why
+        if type(entry) ~= "table" then
+            why = "unusable"
+        elseif entry.untradeable then
+            if Aged(entry, now) then why = "aged" end
+        elseif not id then
+            why = "unusable"
+        elseif entry.category ~= Storage.TO_TRADE then
+            local remaining = RecordedClock(entry, now)
+            if remaining and remaining <= 0 then why = "expired" end
+        end
+        if why then
+            table.remove(list, i)
+            expired = expired + 1
+            if type(entry) == "table" then
+                entry.dropped = why
+                addon.Log:D("Storage", "dropped", why, entry.link, "owed to",
+                    tostring(entry.args and entry.args.recipient))
             end
         end
-        index = stop + 1
-        if index <= #pending then
-            C_Timer.After(0, Step)
-            return
-        end
-        addon.Log:I("Storage", "ready", #addon.db.itemStorage, "held,", expired, "expired")
-        if expired > 0 and addon.Callbacks then addon.Callbacks:Fire("StorageChanged") end
     end
-    C_Timer.After(0, Step)
+    addon.Log:I("Storage", "ready", #list, "held,", expired, "dropped")
+    if expired > 0 and addon.Callbacks then addon.Callbacks:Fire("StorageChanged") end
 end
 
 function Storage:Init()
     addon.db.itemStorage = addon.db.itemStorage or {}
 
 
-    LoginPrune()
+    C_Timer.After(0, LoginPrune)
+
+
+    if wonListening then return end
+    wonListening = true
+    addon.Callbacks:Register("ItemDelivered", function(_, winner, item)
+        if type(item) == "table" and not item.simulated and winner
+            and addon.Player:IsSelf(winner) then
+            Storage:RecordWon(item.link)
+        end
+    end)
 end

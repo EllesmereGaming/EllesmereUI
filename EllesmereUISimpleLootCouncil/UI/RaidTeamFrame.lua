@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -15,7 +15,7 @@ local RaidTeamFrame = {}
 UI.RaidTeamFrame = RaidTeamFrame
 
 local S, Tbl, L, P
-local frame, table_, summaryText, searchBox, sortButton, offlineCheck, ranksButton
+local frame, pane, table_, summaryText, searchBox, sortButton, offlineCheck, ranksButton
 local seasonButton, originButton
 local rankFrame
 
@@ -32,10 +32,10 @@ local filter = {
 
 local SORT_ORDER = { "rank", "name", "recent", "loot" }
 local SORT_LABEL = addon.Locale.Texts{
-    rank       = T["Sort: guild rank"],
-    name       = T["Sort: name"],
-    recent     = T["Sort: most recent win"],
-    loot       = T["Sort: most loot"],
+    rank       = T["Guild Rank"],
+    name       = T["Name"],
+    recent     = T["Most Recent Win"],
+    loot       = T["Most Loot"],
 }
 local sortMode = "rank"
 
@@ -104,11 +104,15 @@ local function DifficultyName(entry)
     return nil
 end
 
+local function ColourPart(value)
+    return type(value) == "number" and value >= 0 and value <= 1
+end
+
 local function ShortDate(entry)
+    if type(entry.epoch) == "number" and entry.epoch > 0 then return addon.DayText(entry.epoch) end
     if entry.date and entry.date ~= "" then
         return addon.StoredDateText(entry.date, true)
     end
-    if entry.epoch then return addon.DateText(entry.epoch, true, true) end
     return "?"
 end
 
@@ -129,6 +133,7 @@ end
 
 
 local snapshot
+local stale = { full = false, members = false, origin = true }
 local memberFolds = setmetatable({}, { __mode = "k" })
 
 local function Folded(member)
@@ -176,28 +181,30 @@ local function Flatten(reuse)
                 end
 
 
-                local count, latest, reasons = 0, 0, 0
-                for _, entry in ipairs(loot) do
+                if #loot > 0 then
+                    local count, latest, reasons = 0, 0, 0
+                    for _, entry in ipairs(loot) do
 
-                    if addon.History.IsReasonAward(entry) then
-                        reasons = reasons + 1
-                    else
-                        count = count + 1
+                        if addon.History.IsReasonAward(entry) then
+                            reasons = reasons + 1
+                        else
+                            count = count + 1
 
 
-                        if latest == 0 then latest = entry.epoch or 0 end
+                            if latest == 0 then latest = entry.epoch or 0 end
+                        end
                     end
+
+
+                    prepared[#prepared + 1] = {
+                        kind = "player",
+                        member = member,
+                        loot = loot,
+                        count = count,
+                        reasons = reasons,
+                        latest = latest,
+                    }
                 end
-
-
-                prepared[#prepared + 1] = {
-                    kind = "player",
-                    member = member,
-                    loot = loot,
-                    count = count,
-                    reasons = reasons,
-                    latest = latest,
-                }
             end
         end
     end
@@ -239,14 +246,8 @@ local function Flatten(reuse)
         rows[#rows + 1] = record
 
         if expanded[member.fullName] then
-
-
-            if #record.loot == 0 then
-                rows[#rows + 1] = { kind = "empty", member = member }
-            else
-                for _, entry in ipairs(record.loot) do
-                    rows[#rows + 1] = { kind = "item", member = member, entry = entry }
-                end
+            for _, entry in ipairs(record.loot) do
+                rows[#rows + 1] = { kind = "item", member = member, entry = entry }
             end
         end
     end
@@ -263,7 +264,7 @@ end
 local function BuildColumns()
     return {
         {
-            key = "who", title = T["Raider / Item"], width = 409,
+            key = "who", title = T["Raider / Item"], width = 303,
             render = function(cell, row)
 
                 if not cell.Chevron then
@@ -373,20 +374,11 @@ local function BuildColumns()
                     cell.Text:SetText(itemName)
                     cell.Text:SetTextColor(S.Unpack(S.color.text))
                     cell.Text:SetAlpha(1)
-
-                else
-                    cell.Text:SetPoint("LEFT", 40, 0)
-                    cell.Chevron:Hide()
-                    cell.Marker:Hide()
-                    cell.Icon:Hide()
-                    cell.Text:SetText(S.Colorize(S.color.textFaint, T["no loot recorded"]))
-                    cell.Text:SetTextColor(S.Unpack(S.color.textFaint))
-                    cell.Text:SetAlpha(1)
                 end
             end,
         },
         {
-            key = "count", title = T["Items"], width = 82,
+            key = "count", title = T["Items"], width = 70,
             text = function(row)
                 if row.kind == "rank" then
                     return S.Colorize(S.color.textMuted, tostring(row.count))
@@ -397,7 +389,7 @@ local function BuildColumns()
             end,
         },
         {
-            key = "detail", title = T["Guild Rank"], width = 148,
+            key = "detail", title = T["Guild Rank"], width = 140,
             text = function(row)
                 if row.kind == "player" then
                     return S.Colorize(S.color.textMuted, row.member.rank or "-")
@@ -425,7 +417,7 @@ local function BuildColumns()
         },
         {
 
-            key = "difficulty", title = T["Difficulty"], width = 130,
+            key = "difficulty", title = T["Difficulty"], width = 120,
             text = function(row)
                 if row.kind ~= "item" then return "" end
                 local name = DifficultyName(row.entry)
@@ -450,7 +442,8 @@ local function BuildColumns()
                 if addon.History.IsCoinLoot(row.entry) then
                     return S.Colorize(S.color.accent, text)
                 end
-                if row.entry.r then
+                if ColourPart(row.entry.r) and ColourPart(row.entry.g)
+                    and ColourPart(row.entry.b) then
                     return ("|cff%02x%02x%02x%s|r"):format(
                         row.entry.r * 255, row.entry.g * 255, row.entry.b * 255, text)
                 end
@@ -464,7 +457,7 @@ local function BuildColumns()
                     return S.Colorize(S.color.textMuted, ShortDate(row.entry))
                 elseif row.kind == "player" and row.latest > 0 then
                     return S.Colorize(S.color.textFaint, addon.Locale.Format(
-                        T["last %s"], addon.DateText(row.latest, true, true)))
+                        T["last %s"], addon.DayText(row.latest)))
                 end
                 return ""
             end,
@@ -543,43 +536,19 @@ end
 
 
 local SUMMARY_SENTENCES = addon.Locale.Texts{
-    season = {
-        one = {
-            one = T["%d raider from %d rank  -  this season, from %s"],
-            other = T["%d raider from %d ranks  -  this season, from %s"],
-        },
-        other = {
-            one = T["%d raiders from %d rank  -  this season, from %s"],
-            other = T["%d raiders from %d ranks  -  this season, from %s"],
-        },
+    one = {
+        one = T["%d raider from %d rank"],
+        other = T["%d raider from %d ranks"],
     },
-    unknown = {
-        one = {
-            one = T["%d raider from %d rank  -  season start unknown, so everything is counted  (/slc team season <date>)"],
-            other = T["%d raider from %d ranks  -  season start unknown, so everything is counted  (/slc team season <date>)"],
-        },
-        other = {
-            one = T["%d raiders from %d rank  -  season start unknown, so everything is counted  (/slc team season <date>)"],
-            other = T["%d raiders from %d ranks  -  season start unknown, so everything is counted  (/slc team season <date>)"],
-        },
-    },
-    all = {
-        one = {
-            one = T["%d raider from %d rank  -  all time"],
-            other = T["%d raider from %d ranks  -  all time"],
-        },
-        other = {
-            one = T["%d raiders from %d rank  -  all time"],
-            other = T["%d raiders from %d ranks  -  all time"],
-        },
+    other = {
+        one = T["%d raiders from %d rank"],
+        other = T["%d raiders from %d ranks"],
     },
 }
 
-local function SummarySentence(kind, shown, ranks, start)
-    local sentences = SUMMARY_SENTENCES[kind]
-    local raiderForms = sentences[addon.Locale.PluralForm(shown)] or sentences.other
+local function SummarySentence(shown, ranks)
+    local raiderForms = SUMMARY_SENTENCES[addon.Locale.PluralForm(shown)] or SUMMARY_SENTENCES.other
     local sentence = raiderForms[addon.Locale.PluralForm(ranks)] or raiderForms.other
-    if start then return addon.Locale.Format(sentence, shown, ranks, start) end
     return addon.Locale.Format(sentence, shown, ranks)
 end
 
@@ -597,22 +566,8 @@ local function UpdateSummary(shown)
         return
     end
 
-    local ranks = addon.RaidTeam:CountSelectedRanks()
-
-    if filter.seasonOnly then
-        local start = addon.RaidTeam:GetSeasonStart()
-        if start then
-            summaryText:SetText(S.Colorize(S.color.textMuted,
-                SummarySentence("season", shown, ranks, addon.DateText(start, true))))
-        else
-
-            summaryText:SetText(S.Colorize(S.color.accent,
-                SummarySentence("unknown", shown, ranks)))
-        end
-    else
-        summaryText:SetText(S.Colorize(S.color.textMuted,
-            SummarySentence("all", shown, ranks)))
-    end
+    summaryText:SetText(S.Colorize(S.color.textMuted,
+        SummarySentence(shown, addon.RaidTeam:CountSelectedRanks())))
 end
 
 
@@ -621,19 +576,38 @@ local function Paint(keepScroll, reuse)
     local rows, shown = Flatten(reuse)
     Tbl.SetData(table_, rows, keepScroll)
     UpdateSummary(shown)
-    if originButton then originButton:Sync() end
+    if originButton and stale.origin then
+        stale.origin = false
+        originButton:Sync()
+    end
 end
 
 
 function RaidTeamFrame:Refresh(keepScroll)
-    if not frame then return end
+    if not pane then return end
+    stale.full, stale.members = false, false
     Paint(keepScroll, false)
 end
 
 
+local function Visible()
+    return pane ~= nil and pane:IsVisible()
+end
+
 local function Repaint(keepScroll)
-    if not frame then return end
+    if not Visible() then return end
     Paint(keepScroll, true)
+end
+
+
+local function PaintStale()
+    if stale.full or (stale.members and not snapshot) then
+        RaidTeamFrame:Refresh(true)
+    elseif stale.members then
+        stale.members = false
+        snapshot.members = addon.RaidTeam:GetMembers()
+        Paint(true, true)
+    end
 end
 
 
@@ -758,14 +732,11 @@ end
 local SEARCH_DELAY = 0.2
 
 
-local function Build()
+local function Build(window, host)
+    frame, pane = window, host
+    pane.slcWidth = L.WidthOf(window.Content)
 
-
-    frame = S.Window("SimpleLootCouncilRaidTeamFrame", "raidteam", 1263, 640,
-        T["Raid team loot"])
-    frame:RestorePosition()
-
-    local content = frame.Content
+    local content = pane
     local cursor = L.Cursor(content)
 
     local filterRow = cursor:Add(L.Row, S.size.BTN_H)
@@ -795,7 +766,7 @@ local function Build()
 
     local searchHint = S.Label(edit, S.fontHint, "LEFT")
     P.Point(searchHint, "LEFT", 0, 0)
-    searchHint:SetText(T["name, rank, or class"])
+    searchHint:SetText(T["Name, rank, or class"])
     edit:HookScript("OnTextChanged", function(self)
         searchHint:SetShown((self:GetText() or "") == "")
     end)
@@ -804,46 +775,34 @@ local function Build()
         searchHint:SetShown((self:GetText() or "") == "")
     end)
 
-    sortButton = S.Button(filterRow, SORT_LABEL[sortMode])
+    local sortOptions = {}
+    for i, key in ipairs(SORT_ORDER) do
+        sortOptions[i] = { value = key, text = SORT_LABEL[key] }
+    end
+    sortButton = L.SelectControl(filterRow, {
+        options = sortOptions, height = S.size.BTN_H,
+        get = function() return sortMode end,
+        set = function(mode)
+            sortMode = mode
+            Repaint()
+        end,
+    })
     P.Point(sortButton, "LEFT", searchHolder, "RIGHT", S.size.GAP, 0)
-    sortButton:SetScript("OnClick", function(self)
-        local index = 1
-        for i, key in ipairs(SORT_ORDER) do
-            if key == sortMode then index = i end
-        end
-        sortMode = SORT_ORDER[(index % #SORT_ORDER) + 1]
-        self:SetLabel(SORT_LABEL[sortMode])
-        Repaint()
-    end)
 
 
-    seasonButton = S.Button(filterRow, T["This season"], { width = 145 })
+    seasonButton = L.SelectControl(filterRow, {
+        options = {
+            { value = "season", text = T["This season"] },
+            { value = "all", text = T["All time"] },
+        },
+        height = S.size.BTN_H,
+        get = function() return filter.seasonOnly and "season" or "all" end,
+        set = function(value)
+            filter.seasonOnly = value == "season"
+            Repaint()
+        end,
+    })
     P.Point(seasonButton, "LEFT", sortButton, "RIGHT", S.size.GAP, 0)
-    seasonButton:SetScript("OnClick", function(self)
-        filter.seasonOnly = not filter.seasonOnly
-        self:SetLabel(filter.seasonOnly and T["This season"] or T["All time"])
-        Repaint()
-    end)
-    seasonButton:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        S.TooltipSection(GameTooltip, T["Timescale"])
-
-        local start = addon.RaidTeam:GetSeasonStart()
-        if start then
-            GameTooltip:AddDoubleLine(T["Season started"], addon.DateText(start, true),
-                0.64, 0.63, 0.60, 1, 1, 1)
-        else
-
-            GameTooltip:AddLine(T["The season start date is not known yet."],
-                0.90, 0.45, 0.45, true)
-            GameTooltip:AddLine(T["Nothing reports when a season began, so it is recorded at the next rollover - or set it now with /slc team season 2026-08-01."], 0.64, 0.63, 0.60, true)
-        end
-
-        S.TooltipSection(GameTooltip, T["What Is Counted"])
-        GameTooltip:AddLine(T["Bank and disenchant awards are listed but never counted, whichever timescale is chosen."], 0.45, 0.44, 0.42, true)
-        GameTooltip:Show()
-    end)
-    seasonButton:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
     ranksButton = S.Button(filterRow, T["Ranks"], { width = 120 })
     P.Point(ranksButton, "LEFT", seasonButton, "RIGHT", S.size.GAP, 0)
@@ -874,8 +833,7 @@ local function Build()
     cursor:Gap(S.size.SECTION)
 
     table_ = cursor:Add(function(parent, x, width, y)
-        local t = Tbl.Create(parent, BuildColumns(), 14, S.size.ROW_H,
-            S.fontRaidTeamHeader)
+        local t = Tbl.Create(parent, BuildColumns(), UI.HistoryFrame.TABLE_ROWS)
         P.Point(t, "TOPLEFT", parent, "TOPLEFT", x, y)
         return t, t:GetHeight()
     end)
@@ -908,11 +866,19 @@ local function Build()
         end
     end
 
-    local footer = S.FooterBar(frame)
-    footer:Add(addon.UI.HistoryFrame.DeleteButton(footer))
-    summaryText = footer:AddText(S.fontSmall)
+    cursor:Gap(S.size.SECTION)
 
-    local exportButton = S.Button(footer, T["Export CSV"], { width = 150 })
+    local footer = cursor:Add(L.Row, S.size.BTN_H)
+    footer:EnableMouse(false)
+
+    local wipeButton = addon.UI.HistoryFrame.DeleteButton(footer)
+    P.Point(wipeButton, "LEFT", footer, "LEFT", 0, 0)
+
+    summaryText = S.Label(footer, S.fontSmall, "LEFT")
+    P.Point(summaryText, "LEFT", wipeButton, "RIGHT", S.size.GAP, 0)
+
+    local exportButton = S.Button(footer, T["Export CSV"])
+    P.Point(exportButton, "RIGHT", footer, "RIGHT", 0, 0)
     exportButton:SetScript("OnClick", function()
         addon.ShowHistoryCSV()
     end)
@@ -926,46 +892,45 @@ local function Build()
     end)
     exportButton:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local refreshButton = S.Button(footer, T["Refresh roster"], {
-        width = 165, primary = true,
-    })
+    local refreshButton = S.Button(footer, T["Refresh roster"])
+    P.Point(refreshButton, "RIGHT", exportButton, "LEFT", -S.size.GAP, 0)
     refreshButton:SetScript("OnClick", function()
         addon.RaidTeam:Request()
         addon.RaidTeam:Invalidate()
         RaidTeamFrame:Refresh(true)
     end)
-
-    footer:Add(refreshButton, true)
-    footer:Add(exportButton, true)
-
-    frame:SetHeight(P.Snap(640))
+    P.Point(summaryText, "RIGHT", refreshButton, "LEFT", -S.size.GAP, 0)
 
 
 
-    frame:HookScript("OnHide", function()
+    pane:HookScript("OnHide", function()
+        typed = typed + 1
+        filter.search = addon.Locale.Fold(searchBox:GetText() or "")
         snapshot = nil
         Tbl.Release(table_)
         addon.History:DropArchive("team")
+        addon.RaidTeam:Watch("team", false)
     end)
 
-    frame:HookScript("OnShow", function() addon.History:HoldArchive("team") end)
+    pane:HookScript("OnShow", function()
+        addon.History:HoldArchive("team")
+        addon.RaidTeam:Watch("team", true)
+        addon.RaidTeam:Request()
+        stale.origin = true
+        RaidTeamFrame:Refresh()
+    end)
+
+    addon.Callbacks:RegisterView("raidteam", {
+        paint = PaintStale,
+        shown = Visible,
+    })
 
     addon.Log:D("UI", "raid team frame built")
 end
 
 
-local building
-local function WhenBuilt(fn)
-    if frame then
-        fn()
-    elseif not building then
-        building = true
-        S.BuildOnDriver(function()
-            building = false
-            Build()
-            fn()
-        end)
-    end
+function RaidTeamFrame:Attach(window, host)
+    if not pane then Build(window, host) end
 end
 
 function RaidTeamFrame:Init()
@@ -975,17 +940,29 @@ function RaidTeamFrame:Init()
 
 
     local function RepaintIfShown()
-        if frame and frame:IsShown() then RaidTeamFrame:Refresh(true) end
+        if not Visible() then return end
+        stale.full = true
+        addon.Callbacks:Invalidate("raidteam")
     end
     addon.Callbacks:Register("ItemAwarded", RepaintIfShown)
-    addon.Callbacks:Register("HistoryChanged", RepaintIfShown)
+    addon.Callbacks:Register("HistoryChanged", function()
+        stale.origin = true
+        RepaintIfShown()
+    end)
 
     addon.Callbacks:Register("HistoryFilterChanged", function()
-        if frame and frame:IsShown() then RaidTeamFrame:Refresh() end
+        stale.origin = true
+        if Visible() then RaidTeamFrame:Refresh() end
     end)
     addon.Callbacks:Register("RaidTeamChanged", function()
         if rankFrame and rankFrame:IsShown() then RefreshRankFrame() end
         RepaintIfShown()
+    end)
+
+    addon.Callbacks:Register("GuildPresenceChanged", function()
+        if not Visible() then return end
+        stale.members = true
+        addon.Callbacks:Invalidate("raidteam")
     end)
 
     addon.Callbacks:Register("MainsChanged", RepaintIfShown)
@@ -995,15 +972,7 @@ function RaidTeamFrame:Init()
     addon.Log:I("UI", "raid team frame ready")
 end
 
-function RaidTeamFrame:Toggle()
-    if frame and frame:IsShown() then
-        frame:Hide()
-        return
-    end
-    WhenBuilt(function()
 
-        addon.RaidTeam:Request()
-        frame:Show()
-        RaidTeamFrame:Refresh()
-    end)
+function RaidTeamFrame:Toggle()
+    UI.HistoryFrame:ToggleTeam()
 end

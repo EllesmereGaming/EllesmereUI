@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -17,6 +17,7 @@ UI.TradeQueueFrame = TradeQueueFrame
 local S, L, P
 local frame, host, heading, othersHeading, empty
 local rows = {}
+local rowSet = {}
 local rangeTicker, clockTicker
 local visibleGroups
 
@@ -74,6 +75,106 @@ end
 
 
 
+local SESSION_START = time()
+
+
+local function Section(title)
+    return S.Colorize(S.color.accent, addon.Locale.SectionTitle(title))
+end
+
+local function TooltipText(row)
+    if row.kind == "item" then
+        local entry = row.entry
+        local why = entry and entry.untradeable
+        if not why then return nil end
+        local isML = addon.PlayerIsMasterLooter()
+        return Section(T["Loot no longer tradeable"]) .. "\n"
+            .. addon.Locale.Format(UNTRADEABLE_WHY[why] or UNTRADEABLE_WHY.left,
+                Ambiguate(row.recipient or "?", "short"),
+                Ambiguate(entry.untradeableTo or "?", "short")) .. "\n"
+            .. (isML and T["Re-award it, or undo the award, to clear it."]
+                or T["The Loot Master has been told. This clears when they re-award or undo it."])
+            .. "\n\n" .. Section(T["Actions"]) .. "\n"
+            .. (isML and T["Right-click: undo award"] or T["Right-click: stop tracking"])
+    elseif row.kind == "othersItem" then
+        if not row.untradeable or not row.record then return nil end
+        return table.concat({
+            Section(T["Loot no longer tradeable"]),
+            OthersWhy(row.record),
+            T["Re-award it, or undo the award, to clear it."],
+            "",
+            Section(T["Actions"]),
+            T["Right-click: undo award"],
+        }, "\n")
+    end
+    return nil
+end
+
+local function RowEnter(self)
+    self.Hover:Show()
+    local text = TooltipText(self)
+    if text then
+        self.tipShown = true
+        S.TextTooltip(self, text)
+    end
+end
+
+local function RowLeave(self)
+    self.Hover:Hide()
+    if self.tipShown then
+        self.tipShown = nil
+        S.HideTextTooltip()
+    end
+end
+
+local function RowClick(self, button)
+    local kind = self.kind
+    if kind == "group" then
+        if button == "LeftButton" and self.canTrade and self.recipient then
+            addon.Trade:Initiate(self.recipient)
+        end
+    elseif kind == "item" then
+        local MLFrame = addon.UI.MLFrame
+        if button == "RightButton" then
+
+
+
+            if addon.PlayerIsMasterLooter() and self.session and self.runId
+                and MLFrame:ConfirmUnaward(self.session, self.runId, self.link,
+                    self.untradeable)
+            then
+                return
+            end
+
+
+            if MLFrame:ConfirmRetract(self.entryId) then return end
+            MLFrame:ConfirmDropObligation(self.entryId)
+        elseif self.session and self.runId == addon.Session:GetRunId() then
+            MLFrame:SelectSession(self.session)
+        end
+    elseif kind == "othersItem" then
+        if button == "RightButton" then
+
+            if addon.PlayerIsMasterLooter() then
+                addon.UI.MLFrame:ConfirmRetractOthers(self.key)
+            end
+        elseif self.session and self.runId == addon.Session:GetRunId() then
+            addon.UI.MLFrame:SelectSession(self.session)
+        end
+    end
+end
+
+
+local function ResetRow(row)
+    if row.tipShown then
+        row.tipShown = nil
+        S.HideTextTooltip()
+    end
+    row.Hover:Hide()
+    row.kind, row.recipient, row.canTrade = nil, nil, nil
+    row.entry, row.record, row.key, row.link = nil, nil, nil, nil
+    row.session, row.runId, row.entryId, row.untradeable = nil, nil, nil, nil
+end
 
 
 
@@ -84,6 +185,10 @@ local function GetRow(index)
 
 
     row = CreateFrame("Button", nil, host)
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    row:SetScript("OnClick", RowClick)
+    row:SetScript("OnEnter", RowEnter)
+    row:SetScript("OnLeave", RowLeave)
 
     row.Stripe = S.RoundFill(row, S.color.rowStripe, S.radius.CTRL,
         "BACKGROUND", -1)
@@ -117,11 +222,15 @@ local function GetRow(index)
 
     row.trade = S.Button(row, T["Trade"],
         { height = S.size.BTN_H_SM, primary = true, font = S.fontSmall })
+    row.trade:SetScript("OnClick", function()
+        if row.kind == "group" and row.recipient then addon.Trade:Initiate(row.recipient) end
+    end)
 
 
     row.label = S.Label(row, S.fontBody, "LEFT")
 
     rows[index] = row
+    rowSet[row] = true
     return row
 end
 
@@ -278,6 +387,28 @@ local function NameColour(fullName)
     return S.color.text
 end
 
+
+local function PaintItem(item, link, holder)
+    item.icon:Show()
+    item.icon:SetItem(link)
+    local name, _, quality = C_Item.GetItemInfo(link)
+    item.icon:SetQualityBorder(quality)
+
+    local label = name or link or "?"
+    if holder then label = addon.Locale.Format(T["%s (%s)"], label, holder) end
+    item.label:SetText(label)
+
+
+
+
+    if quality then
+        local r, g, b = C_Item.GetItemQualityColor(quality)
+        if r then item.label:SetTextColor(r, g, b) end
+    else
+        item.label:SetTextColor(S.Unpack(S.color.text))
+    end
+end
+
 function TradeQueueFrame:Refresh()
     if not frame or not frame:IsShown() then return end
 
@@ -292,32 +423,13 @@ function TradeQueueFrame:Refresh()
     local function NextRow(kind)
         index = index + 1
         local row = GetRow(index)
+        ResetRow(row)
         ShapeRow(row, kind)
         P.Point(row, "TOPLEFT", host, "TOPLEFT", 0, -y)
         P.Point(row, "TOPRIGHT", host, "TOPRIGHT", 0, -y)
         y = y + (kind == "group" and S.size.GROUP_ROW or S.size.LIST_ROW) + S.size.ITEM_GAP
         return row
     end
-
-
-    local function PaintItem(item, link, Text)
-        item.icon:Show()
-        item.icon:SetItem(link)
-        local name, _, quality = C_Item.GetItemInfo(link)
-        item.icon:SetQualityBorder(quality)
-
-        item.label:SetText(Text(name or link or "?"))
-
-
-        if quality then
-            local r, g, b = C_Item.GetItemQualityColor(quality)
-            if r then item.label:SetTextColor(r, g, b) end
-        else
-            item.label:SetTextColor(S.Unpack(S.color.text))
-        end
-    end
-
-    local function Same(text) return text end
 
     for _, group in ipairs(groups) do
         local groupUrgent = group.soonest < URGENT_BELOW
@@ -335,20 +447,11 @@ function TradeQueueFrame:Refresh()
         group.row = row
         PaintRange(group)
 
-        local recipient = group.recipient
-        local function Trade()
-
-            addon.Trade:Initiate(recipient)
-        end
 
 
         local canTrade = group.tradeable > 0
+        row.kind, row.recipient, row.canTrade = "group", group.recipient, canTrade
         row.trade:SetShown(canTrade)
-        row.trade:SetScript("OnClick", Trade)
-        row:RegisterForClicks("LeftButtonUp")
-        row:SetScript("OnClick", canTrade and Trade or nil)
-        row:SetScript("OnEnter", function(self) self.Hover:Show() end)
-        row:SetScript("OnLeave", function(self) self.Hover:Hide() end)
         row:EnableMouse(true)
         row:Show()
 
@@ -362,7 +465,7 @@ function TradeQueueFrame:Refresh()
             item.Stripe:SetShown(not untradeable and i % 2 == 0)
 
             local link = record.entry.link
-            PaintItem(item, link, Same)
+            PaintItem(item, link)
 
             if untradeable then
                 item.right:SetText(T["Loot no longer tradeable"])
@@ -376,58 +479,11 @@ function TradeQueueFrame:Refresh()
             end
 
 
-            local session = record.entry and record.entry.args
-                and record.entry.args.session
-            local runId = record.entry and record.entry.args
-                and record.entry.args.runId
-            local entryId = record.entry and record.entry.id
-
-            item:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-            item:SetScript("OnClick", function(_, button)
-                if button == "RightButton" then
-
-
-
-                    if addon.PlayerIsMasterLooter() and session and runId
-                        and addon.UI.MLFrame:ConfirmUnaward(session, runId, link,
-                            untradeable)
-                    then
-                        return
-                    end
-
-
-                    if addon.UI.MLFrame:ConfirmRetract(entryId) then return end
-                    addon.UI.MLFrame:ConfirmDropObligation(entryId)
-                else
-                    if session and runId == addon.Session:GetRunId() then
-                        addon.UI.MLFrame:SelectSession(session)
-                    end
-                end
-            end)
-            local why = record.entry.untradeable
-            item:SetScript("OnEnter", function(self)
-                self.Hover:Show()
-                if not why then return end
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                S.TooltipSection(GameTooltip, T["Loot no longer tradeable"])
-                GameTooltip:AddLine(addon.Locale.Format(
-                    UNTRADEABLE_WHY[why] or UNTRADEABLE_WHY.left,
-                    Ambiguate(group.recipient, "short"),
-                    Ambiguate(record.entry.untradeableTo or "?", "short")),
-                    1, 1, 1, true)
-                local isML = addon.PlayerIsMasterLooter()
-                GameTooltip:AddLine(isML
-                    and T["Re-award it, or undo the award, to clear it."]
-                    or T["The Loot Master has been told. This clears when they re-award or undo it."], 1, 1, 1, true)
-                S.TooltipSection(GameTooltip, T["Actions"])
-                GameTooltip:AddLine(isML and T["Right-click: undo award"]
-                    or T["Right-click: stop tracking"], 1, 1, 1)
-                GameTooltip:Show()
-            end)
-            item:SetScript("OnLeave", function(self)
-                self.Hover:Hide()
-                if why then GameTooltip:Hide() end
-            end)
+            local args = record.entry.args
+            item.kind, item.recipient, item.entry = "item", group.recipient, record.entry
+            item.link, item.untradeable, item.entryId = link, untradeable, record.entry.id
+            item.session = args and args.session
+            item.runId = args and args.runId
             item:EnableMouse(true)
             item:Show()
         end
@@ -457,9 +513,7 @@ function TradeQueueFrame:Refresh()
         row.count:SetText(addon.Locale.Format(addon.Locale.Plural{
             one = "%d item", other = "%d items" }, #group.items, #group.items))
         row.count:SetTextColor(S.Unpack(S.color.textMuted))
-        row:SetScript("OnClick", nil)
-        row:SetScript("OnEnter", function(self) self.Hover:Show() end)
-        row:SetScript("OnLeave", function(self) self.Hover:Hide() end)
+        row.kind, row.recipient = "othersGroup", group.recipient
         row:EnableMouse(true)
         row:Show()
 
@@ -474,9 +528,7 @@ function TradeQueueFrame:Refresh()
 
             local holder = S.Colorize(NameColour(record.holder),
                 Ambiguate(record.holder or "?", "short"))
-            PaintItem(item, record.link, function(name)
-                return addon.Locale.Format(T["%s (%s)"], name, holder)
-            end)
+            PaintItem(item, record.link, holder)
 
             if untradeable then
                 item.right:SetText(T["Loot no longer tradeable"])
@@ -495,34 +547,9 @@ function TradeQueueFrame:Refresh()
                 item.right:SetText("")
             end
 
-            local key, session, runId = record.key, record.session, record.runId
-            item:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-            item:SetScript("OnClick", function(_, button)
-                if button == "RightButton" then
-
-
-                    if addon.PlayerIsMasterLooter() then
-                        addon.UI.MLFrame:ConfirmRetractOthers(key)
-                    end
-                elseif session and runId == addon.Session:GetRunId() then
-                    addon.UI.MLFrame:SelectSession(session)
-                end
-            end)
-            item:SetScript("OnEnter", function(self)
-                self.Hover:Show()
-                if not untradeable then return end
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                S.TooltipSection(GameTooltip, T["Loot no longer tradeable"])
-                GameTooltip:AddLine(OthersWhy(record), 1, 1, 1, true)
-                GameTooltip:AddLine(T["Re-award it, or undo the award, to clear it."], 1, 1, 1, true)
-                S.TooltipSection(GameTooltip, T["Actions"])
-                GameTooltip:AddLine(T["Right-click: undo award"], 1, 1, 1)
-                GameTooltip:Show()
-            end)
-            item:SetScript("OnLeave", function(self)
-                self.Hover:Hide()
-                if untradeable then GameTooltip:Hide() end
-            end)
+            item.kind, item.recipient, item.record = "othersItem", group.recipient, record
+            item.key, item.session, item.runId = record.key, record.session, record.runId
+            item.link, item.untradeable = record.link, untradeable
             item:EnableMouse(true)
             item:Show()
         end
@@ -530,7 +557,10 @@ function TradeQueueFrame:Refresh()
         y = y - S.size.ITEM_GAP + GROUP_GAP
     end
 
-    for i = index + 1, #rows do rows[i]:Hide() end
+    for i = index + 1, #rows do
+        ResetRow(rows[i])
+        rows[i]:Hide()
+    end
     if #groups == 0 then visibleGroups = nil end
 
 
@@ -567,6 +597,12 @@ function TradeQueueFrame:Refresh()
     P.Size(host, nil, y)
     P.Size(frame, nil, frame.HeaderHeight + S.size.PAD + heading:GetHeight()
         + S.size.SECTION + y + S.size.PAD)
+
+
+    local foci = GetMouseFoci and GetMouseFoci()
+    for _, focus in ipairs(foci or {}) do
+        if rowSet[focus] and focus:IsShown() then RowEnter(focus) end
+    end
 end
 
 
@@ -585,6 +621,7 @@ local function UpdateClocks()
         else
             if clock.record.untradeable ~= nil then return TradeQueueFrame:Refresh() end
             remaining = math.max(0, clock.record.expiresAt - now)
+            if remaining <= 0 then return TradeQueueFrame:Refresh() end
         end
         local was = clock.remaining and clock.remaining < URGENT_BELOW
         local urgent = remaining and remaining < URGENT_BELOW
@@ -661,7 +698,12 @@ local function Build()
 
         clockTicker = C_Timer.NewTicker(30, UpdateClocks)
     end)
-    frame:HookScript("OnHide", StopTickers)
+    frame:HookScript("OnHide", function()
+        StopTickers()
+        for _, row in ipairs(rows) do
+            if row.tipShown then RowLeave(row) end
+        end
+    end)
 
 
 
@@ -695,16 +737,34 @@ local function OwedCount()
     return #addon.Storage:GetAll(addon.Storage.TO_TRADE) + #addon.Trade:OwedByOthers()
 end
 
+
+
+local function MarkedThisSession(at)
+    return type(at) == "number" and at >= SESSION_START
+end
+
+local function WorthShowing()
+    for _, entry in ipairs(addon.Storage:GetAll(addon.Storage.TO_TRADE)) do
+        if not entry.untradeable or MarkedThisSession(entry.untradeableAt) then return true end
+    end
+    for _, record in ipairs(addon.Trade:OwedByOthers()) do
+        if not record.untradeable or MarkedThisSession(record.untradeableAt) then return true end
+    end
+    return false
+end
+
 function TradeQueueFrame:SyncVisibility()
-    if OwedCount() > 0 then
+    if WorthShowing() then
         WhenBuilt(function()
 
             if OwedCount() == 0 then return end
             if not frame:IsShown() then frame:Show() end
             TradeQueueFrame:Refresh()
         end)
+    elseif OwedCount() == 0 then
+        if frame and frame:IsShown() then frame:Hide() end
     elseif frame and frame:IsShown() then
-        frame:Hide()
+        TradeQueueFrame:Refresh()
     end
 end
 

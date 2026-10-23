@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
@@ -75,13 +75,23 @@ end
 
 
 
+local function Recycle(view, scope)
+    wipe(scope.sessions)
+    wipe(scope.candidates)
+    wipe(scope.kinds)
+    scope.allCandidates, scope.allKinds = nil, nil
+    view.spare = scope
+end
+
 local function Paint(view, now)
-    local scope = not view.all and view.scope or nil
+    local held = view.scope
+    local scope = not view.all and held or nil
     view.dirty, view.all, view.scope = false, false, nil
     view.lastPaint = now
     view.painting = true
     local ok, err = pcall(view.paint, scope)
     view.painting = false
+    if held then Recycle(view, held) end
     view.paints = view.paints + 1
     if not ok then
         stats.errors = stats.errors + 1
@@ -117,11 +127,18 @@ function Callbacks:Invalidate(name, session, kind, candidate)
     if not view then return false end
     if not view.all then
         if session == nil then
+            local scope = view.scope
             view.all, view.scope = true, nil
+            if scope then Recycle(view, scope) end
         else
             local scope = view.scope
             if not scope then
-                scope = { sessions = {}, candidates = {}, kinds = {} }
+                scope = view.spare
+                if scope then
+                    view.spare = nil
+                else
+                    scope = { sessions = {}, candidates = {}, kinds = {} }
+                end
                 view.scope = scope
             end
             scope.sessions[session] = true

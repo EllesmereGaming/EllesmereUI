@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -454,9 +454,41 @@ end
 local stress
 
 
-local driver = CreateFrame("Frame")
-driver:Hide()
-driver:SetScript("OnUpdate", function() Perf:StressStep(GetTime()) end)
+local driver
+local function Driver()
+    if not driver then
+        driver = CreateFrame("Frame")
+        driver:Hide()
+        driver:SetScript("OnUpdate", function() Perf:StressStep(GetTime()) end)
+    end
+    return driver
+end
+
+local armed = false
+local function Arm()
+    if armed then return end
+    armed = true
+
+
+
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_LOGOUT")
+    f:SetScript("OnEvent", function()
+        local saved = addon.db and addon.db.activeRun
+        if Perf.seededRun and type(saved) == "table" then
+            Perf.ScrubSynthetic(saved.items)
+        end
+    end)
+
+
+    addon.Callbacks:Register("RunEnded", function()
+        if stress then Perf:StressStop("the run ended") end
+        if Perf.seededRun and addon.Session.run then
+            Perf.ScrubSynthetic(addon.Session.run.completed)
+            Perf.seededRun = nil
+        end
+    end)
+end
 
 
 function Perf.StressTimingLine(t)
@@ -530,7 +562,7 @@ end
 
 
 local function StopDriver()
-    driver:Hide()
+    if driver then driver:Hide() end
     local s = stress
     stress = nil
     if not s then return end
@@ -631,6 +663,7 @@ end
 
 function Perf:StressStart(raiders, items, seconds)
     if stress then return false, "a stress is already running - /slc stress stop" end
+    Arm()
     local Session = addon.Session
     local started = false
 
@@ -680,7 +713,7 @@ function Perf:StressStart(raiders, items, seconds)
         C.ResetPaintStats()
         C.SetPaintObserver(OnPaint)
     end
-    driver:Show()
+    Driver():Show()
     return true, counts, #runItems, started
 end
 
@@ -727,23 +760,4 @@ end
 
 
 function Perf:Init()
-
-
-    local f = CreateFrame("Frame")
-    f:RegisterEvent("PLAYER_LOGOUT")
-    f:SetScript("OnEvent", function()
-        local saved = addon.db and addon.db.activeRun
-        if Perf.seededRun and type(saved) == "table" then
-            Perf.ScrubSynthetic(saved.items)
-        end
-    end)
-
-
-    addon.Callbacks:Register("RunEnded", function()
-        if stress then Perf:StressStop("the run ended") end
-        if Perf.seededRun and addon.Session.run then
-            Perf.ScrubSynthetic(addon.Session.run.completed)
-            Perf.seededRun = nil
-        end
-    end)
 end

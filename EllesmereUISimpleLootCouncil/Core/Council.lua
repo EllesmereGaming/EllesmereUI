@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -486,8 +486,6 @@ local function BuildSharedConfig()
             t = response.text,
             r = response.r, g = response.g, b = response.b,
             s = response.sort,
-
-            w = response.whisper,
         }
     end
     local vote = addon.Config:Vote()
@@ -499,9 +497,6 @@ local function BuildSharedConfig()
             hideVotes = vote.hideVotes,
         },
         noteMax = addon.Config:NoteMax(),
-
-        startRequests = addon.Config:StartRequestsAllowed(),
-        councilMayStartRuns = addon.Config:CouncilMayStartRuns(),
 
 
         councilBags = addon.Config:CouncilBagsShared(),
@@ -583,8 +578,7 @@ local function Digest(payload, config, ranks, rankPayload, rankOf)
         tostring(config.noteMax), tostring(config.lootMaster))
 
 
-    parts[#parts + 1] = ("%s~%s~%s"):format(tostring(config.startRequests),
-        tostring(config.councilMayStartRuns), tostring(config.councilBags))
+    parts[#parts + 1] = tostring(config.councilBags)
 
     return table.concat(parts, ";")
 end
@@ -658,6 +652,7 @@ function Council:Broadcast(force, target)
     if not addon.PlayerIsMasterLooter() and not addon.IsMasterLooter(me) then
         return false
     end
+    if IsInGroup() and not addon.Comms.InHomeGroup() then return false end
 
     local payload, rankNames, rankPayload, rankOf
     local relaying = not IsAuthor()
@@ -797,7 +792,7 @@ end
 
 
 function Council:EnsureShared(why)
-    if not IsInGroup() then return end
+    if not IsInGroup() or not addon.Comms.InHomeGroup() then return end
     if addon.Player:IsSame(addon.Player:GetFullName("player"),
         addon.GetGroupLeader()) then
         return
@@ -1023,7 +1018,7 @@ local function OnSyncRequest(_, sender)
     addon.Log:D("Council", "council requested by", sender)
 
 
-    if not MayBroadcast() then return end
+    if not MayBroadcast() or not addon.Comms.InHomeGroup() then return end
     Collect(sender)
 end
 
@@ -1041,6 +1036,21 @@ end
 
 
 
+
+local LEADER_SILENT_ASKS = 2
+
+local function MayApplyCouncil(sender, args)
+    if addon.IsMasterLooter(sender) then return true end
+    if type(args) ~= "table" or type(args.config) ~= "table" then return false end
+    local named = args.config.lootMaster
+    if type(named) ~= "string" or IsSecret(named) then return false end
+    if not IsInGroup() or IsAuthor() or addon.Config:HasShared() then return false end
+    if syncAsks < LEADER_SILENT_ASKS then return false end
+    if not addon.Player:IsSame(named, sender) then return false end
+    addon.Log:I("Council", "the leader has not answered - taking the council relayed by",
+        tostring(sender))
+    return true
+end
 
 
 
@@ -1094,7 +1104,7 @@ end
 Council.OnCouncil = OnCouncil
 
 function Council:Init()
-    addon.Comms:Register("council", "ml", OnCouncil)
+    addon.Comms:Register("council", MayApplyCouncil, OnCouncil)
 
 
 

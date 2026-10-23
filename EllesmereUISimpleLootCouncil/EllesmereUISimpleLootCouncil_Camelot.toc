@@ -7,9 +7,9 @@
 ## X-License: All Rights Reserved
 ## Version: 9.6.2
 ## DefaultState: disabled
-## X-SLC-Version: 0.44.3
-## X-SLC-Commit: 4da62ba013dc
-## X-SLC-Port-Commit: 10202af4ab11
+## X-SLC-Version: 0.44.39
+## X-SLC-Commit: 66502da64952
+## X-SLC-Port-Commit: 083b360901d5
 ## Dependencies: EllesmereUI
 # Held back (EllesmereUI.HELD_BACK_ADDONS): load on demand, and nothing loads
 # it, so it never loads and its saved data stays untouched. Drop this to ship.
@@ -40,17 +40,16 @@ Core\TestLoot.lua
 Core\Session.lua
 Core\BonusRoll.lua
 Core\SimC.lua
-Core\StartRequest.lua
 Core\Roll.lua
 Core\Storage.lua
 Core\Encounter.lua
 Core\Attendance.lua
 Core\WowauditFileOpen.lua
-..\SimpleLootCouncil_SimulationImport\SLC_WoWAuditSimData.lua
 Core\WowauditFileClose.lua
 Core\Wishlist.lua
 Core\Loot.lua
 Core\MasterLoot.lua
+Core\AutoStart.lua
 Core\Trade.lua
 Core\BagShare.lua
 Core\Announce.lua
@@ -59,7 +58,6 @@ Core\History.lua
 Core\HistorySnapshot.lua
 Core\HistoryImport.lua
 Core\Autopass.lua
-Core\BoERoute.lua
 Core\Specs.lua
 Core\RaidTeam.lua
 Core\Perf.lua
@@ -71,7 +69,6 @@ UI\Table.lua
 UI\VoterFrame.lua
 UI\MLFrame.lua
 UI\QueueFrame.lua
-UI\StartRequestFrame.lua
 UI\TradeQueueFrame.lua
 UI\HistoryFrame.lua
 UI\RaidTeamFrame.lua
