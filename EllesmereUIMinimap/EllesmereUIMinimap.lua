@@ -58,11 +58,10 @@ local defaults = {
             -- Coords: mode (never/hover/always) + anchor; migrated from coordsBelow (minimap_coords_mode_position_v1, see GetCoordsModePos).
             coordsMode     = "always",
             coordsPosition = "topLeft",
-            coordsScale    = 1.0,
+            coordsSize     = 12,
             -- FPS/MS readout (Text section); options mirror the QoL FPS counter
             showFPS           = false,
             fpsTextSize       = 12,
-            fpsScale          = 1.0,
             fpsShowLocalMS    = true,
             fpsShowWorldMS    = false,
             fpsUseAccent      = false,  -- description text: accent vs custom fpsColor
@@ -150,10 +149,10 @@ local defaults = {
             clockMode     = "inside",
             clockPosition = "top",
             clockFormat   = "12h",
-            clockScale    = 1.15,
+            clockSize     = 12,
             clockOffsetX  = 0,
             clockOffsetY  = 0,
-            locationScale = 1.15,
+            locationSize  = 12,
             locationOffsetX = 0,
             locationOffsetY = 0,
             lock          = false,
