@@ -5,37 +5,41 @@ if not ns then return end
 local MOVE_KEYS = { "X", "Y", "WidthPct", "ClassColor", "ColorR", "ColorG", "ColorB",
     "NameFormat", "TargetSep", "TargetPrefix", "TargetSepColor", "TargetSepClassColor", "CustomFormat" }
 
--- Hover text for the Custom Format row, built once from the engine's tag list.
-local customTagTip
+-- Hover text for the Custom popup, in the engine's tag order. Built on hover so
+-- the active locale applies; literal L() calls keep the keys extractable.
 local function CustomTagTooltip()
-    if customTagTip then return customTagTip end
-    local lines = { "Text with tags in brackets, e.g. [hp] | [hppct]%", "" }
+    local desc = {
+        name = EllesmereUI.L("Unit name"), level = EllesmereUI.L("Unit level"),
+        target = EllesmereUI.L("Name of the unit's target"),
+        hp = EllesmereUI.L("Current health, abbreviated (DEAD / OFFLINE)"),
+        maxhp = EllesmereUI.L("Maximum health, abbreviated"), hppct = EllesmereUI.L("Health percent, number only"),
+        pp = EllesmereUI.L("Current power, abbreviated"), maxpp = EllesmereUI.L("Maximum power, abbreviated"),
+        pppct = EllesmereUI.L("Power percent, number only"), absorb = EllesmereUI.L("Absorb shield, abbreviated"),
+        healabsorb = EllesmereUI.L("Heal absorb, abbreviated"), group = EllesmereUI.L("Raid group number"),
+    }
+    local lines = { EllesmereUI.L("Available tags:"), "" }
     local list = ns.UF_CUSTOM_TAG_LIST or {}
     for i = 1, #list do
-        lines[#lines + 1] = "[" .. list[i][1] .. "]  " .. list[i][3]
+        local tag = list[i][1]
+        -- A tag without a description here is listed bare.
+        lines[#lines + 1] = desc[tag] and ("[" .. tag .. "]  " .. desc[tag]) or ("[" .. tag .. "]")
     end
-    customTagTip = table.concat(lines, "\n")
-    return customTagTip
+    return table.concat(lines, "\n")
+end
+
+-- False for content a slot keeps to itself: "none", and "custom", whose format
+-- is stored per slot, so several slots may use it and none is picked for them.
+function ns.UF_IsUniqueContent(v)
+    return v ~= "none" and v ~= "custom"
 end
 
 -- Level coloring is shared by the unit, and edited from its level-text cogs.
 function ns.UF_CoreTextRows(prefix, contentDefault, get, set, rows)
     rows = ns.UF_NameFormatRows(prefix, contentDefault, get, set, rows)
     local content = get(prefix .. "Content", contentDefault)
-    if content == "custom" then
-        local key = prefix .. "CustomFormat"
-        table.insert(rows, 1, { type="input", label="Custom Format", inputWidth=130,
-            tooltip=CustomTagTooltip(),
-            get=function() return get(key, "") end,
-            set=function(v)
-                -- Stored with single pipes; the engine escapes them for display.
-                v = tostring(v or ""):gsub("||", "|"):gsub("^%s+", ""):gsub("%s+$", "")
-                set(key, v:sub(1, 120))
-                ns._UFO_OptEnv.UpdatePreview()
-            end })
-        return rows
-    end
-    if content ~= "level" and content ~= "levelname" and content ~= "namelevel" then return rows end
+    local hasLevel = content == "level" or content == "levelname" or content == "namelevel"
+        or (content == "custom" and ns.UF_CustomFormatHas and ns.UF_CustomFormatHas(get(prefix .. "CustomFormat"), "level"))
+    if not hasLevel then return rows end
     rows[#rows + 1] = { type="toggle", label="Level Text: Difficulty Color",
         tooltip="Colors level text by difficulty, from grey (trivial) through green, yellow and orange to red (5+ levels above you).",
         get=function() return get("levelDifficultyColor", false) == true end,
@@ -64,10 +68,47 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
     local byKey, cells, targets = {}, {}, {}
     local textValues = CopyTable(opts.values)
     textValues.none = "Remove"
+    local function Notify(key)
+        ns._ufTextNotify = { unit = opts.unit, key = key }
+    end
+    -- Custom is an action entry: it opens the format popup, and a saved
+    -- format selects it for the slot.
+    local EditCustom
+    function EditCustom(s, warning)
+        local key = s.key .. "CustomFormat"
+        local cur = opts.db()[key]
+        if type(cur) ~= "string" then cur = nil end
+        -- 120 letters for new input; a longer stored format (import) keeps its length.
+        local maxLen = math.max(120, cur and (strlenutf8 and strlenutf8(cur) or #cur) or 0)
+        EllesmereUI:ShowInputPopup({
+            title = EllesmereUI.L("Custom Text"),
+            message = EllesmereUI.L("Tags in brackets, the rest is shown as typed. Example: [hp] | [hppct]%"),
+            placeholder = "[name] - [hppct]%",
+            initialText = (not warning and cur) or "",
+            maxLetters = maxLen,
+            infoTooltip = CustomTagTooltip,
+            warning = warning,
+            onConfirm = function(txt)
+                -- Stored with single pipes; the engine escapes them for display.
+                txt = tostring(txt or ""):gsub("||", "|"):gsub("^%s+", ""):gsub("%s+$", "")
+                -- Spaces only: show the popup again instead of closing unsaved.
+                if txt == "" then EditCustom(s, EllesmereUI.L("Enter at least one tag or character.")); return end
+                opts.db()[key] = txt
+                Notify(s.key)
+                s.cfg.setValue("custom")
+            end,
+        })
+    end
     for i = 1, #slots do
         local s = slots[i]
         order[i], values[s.key], byKey[s.key] = s.key, s.position, s
-        s.cfg.values = textValues
+        if textValues.custom then
+            local v = CopyTable(textValues)
+            v.custom = { text = "Custom", action = function() EditCustom(s) end }
+            s.cfg.values = v
+        else
+            s.cfg.values = textValues
+        end
         if s.cfg.getValue() ~= "none" then cells[#cells + 1] = s end
     end
     local function Assigned(key)
@@ -83,7 +124,7 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
     local function Candidate()
         for i = 1, #opts.contentOrder do
             local v = opts.contentOrder[i]
-            if v ~= "none" and v ~= "---" and v ~= "custom" then
+            if v ~= "---" and ns.UF_IsUniqueContent(v) then
                 local used = false
                 for j = 1, #slots do
                     if slots[j].cfg.getValue() == v then used = true; break end
@@ -91,9 +132,6 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
                 if not used then return v end
             end
         end
-    end
-    local function Notify(key)
-        ns._ufTextNotify = { unit = opts.unit, key = key }
     end
     local function Add(key)
         local v = Candidate()
@@ -162,6 +200,20 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
             end,
             tooltip="Choose this text's slot position." })
         cell.decorate(rgn)
+        -- The popup writes the format directly, so Spec Overrides needs an accessor:
+        -- on a Custom slot, or one holding a format an override may switch back to.
+        local fk = cell.key .. "CustomFormat"
+        if EllesmereUI.AddCaptureAccessor and cell.cfg.values and cell.cfg.values.custom
+           and (cell.cfg.getValue() == "custom" or type(opts.db()[fk]) == "string") then
+            EllesmereUI.AddCaptureAccessor(rgn, {
+                type = "input", text = cell.position .. " Custom Format",
+                getValue = function() return opts.db()[fk] or "" end,
+                setValue = function(v)
+                    opts.db()[fk] = (v ~= "" and v) or nil
+                    opts.apply()
+                end,
+            })
+        end
         local pending = ns._ufTextNotify
         if pending and pending.unit == opts.unit and pending.key == cell.key then
             ns._ufTextNotify = nil

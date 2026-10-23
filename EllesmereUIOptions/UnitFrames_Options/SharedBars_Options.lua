@@ -590,7 +590,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
           getValue=function() return SVal("leftTextContent", "name") end,
           setValue=function(v)
               SSet("leftTextContent", v)
-              if v ~= "none" and v ~= "custom" then
+              if ns.UF_IsUniqueContent(v) then
                   if SGet("rightTextContent") == v then SSet("rightTextContent", "none") end
                   if SGet("centerTextContent") == v then SSet("centerTextContent", "none") end
               end
@@ -636,7 +636,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             if (d.leftTextX or 0) ~= (src.leftTextX or 0) then return false end
                             if (d.leftTextY or 0) ~= (src.leftTextY or 0) then return false end
                             if (d.leftTextWidthPct or 100) ~= (src.leftTextWidthPct or 100) then return false end
-                            if (d.leftTextCustomFormat or "") ~= (src.leftTextCustomFormat or "") then return false end
+                            if v == "custom" and (d.leftTextCustomFormat or "") ~= (src.leftTextCustomFormat or "") then return false end
                         end
                         return true
                     end,
@@ -796,7 +796,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
           getValue=function() return SVal("rightTextContent", "both") end,
           setValue=function(v)
               SSet("rightTextContent", v)
-              if v ~= "none" and v ~= "custom" then
+              if ns.UF_IsUniqueContent(v) then
                   if SGet("leftTextContent") == v then SSet("leftTextContent", "none") end
                   if SGet("centerTextContent") == v then SSet("centerTextContent", "none") end
               end
@@ -842,7 +842,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             if (d.rightTextX or 0) ~= (src.rightTextX or 0) then return false end
                             if (d.rightTextY or 0) ~= (src.rightTextY or 0) then return false end
                             if (d.rightTextWidthPct or 100) ~= (src.rightTextWidthPct or 100) then return false end
-                            if (d.rightTextCustomFormat or "") ~= (src.rightTextCustomFormat or "") then return false end
+                            if v == "custom" and (d.rightTextCustomFormat or "") ~= (src.rightTextCustomFormat or "") then return false end
                         end
                         return true
                     end,
@@ -1039,7 +1039,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             if (d.centerTextX or 0) ~= (src.centerTextX or 0) then return false end
                             if (d.centerTextY or 0) ~= (src.centerTextY or 0) then return false end
                             if (d.centerTextWidthPct or 100) ~= (src.centerTextWidthPct or 100) then return false end
-                            if (d.centerTextCustomFormat or "") ~= (src.centerTextCustomFormat or "") then return false end
+                            if v == "custom" and (d.centerTextCustomFormat or "") ~= (src.centerTextCustomFormat or "") then return false end
                         end
                         return true
                     end,
@@ -1221,7 +1221,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             if (d.extraTextY or 0) ~= (src.extraTextY or 0) then return false end
                             if (d.extraTextAlign or "left") ~= (src.extraTextAlign or "left") then return false end
                             if (d.extraTextWidthPct or 100) ~= (src.extraTextWidthPct or 100) then return false end
-                            if (d.extraTextCustomFormat or "") ~= (src.extraTextCustomFormat or "") then return false end
+                            if v == "custom" and (d.extraTextCustomFormat or "") ~= (src.extraTextCustomFormat or "") then return false end
                         end
                         return true
                     end,
