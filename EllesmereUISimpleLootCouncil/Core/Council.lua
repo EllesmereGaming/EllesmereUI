@@ -498,6 +498,7 @@ local function BuildSharedConfig()
         },
         noteMax = addon.Config:NoteMax(),
 
+
         councilBags = addon.Config:CouncilBagsShared(),
 
         lootMaster = addon.Config:LootMaster()
@@ -1036,8 +1037,6 @@ end
 
 
 
-
-
 local LEADER_SILENT_ASKS = 2
 
 local function MayApplyCouncil(sender, args)
@@ -1052,6 +1051,8 @@ local function MayApplyCouncil(sender, args)
         tostring(sender))
     return true
 end
+
+
 
 local function OnCouncil(args, sender)
     if type(args) ~= "table" then return end

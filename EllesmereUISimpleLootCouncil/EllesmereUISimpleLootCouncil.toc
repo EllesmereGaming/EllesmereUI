@@ -6,9 +6,9 @@
 ## Author: Laxx
 ## X-License: All Rights Reserved
 ## Version: 9.6.5
-## X-SLC-Version: 0.44.3
-## X-SLC-Commit: 4da62ba013dc
-## X-SLC-Port-Commit: 10202af4ab11
+## X-SLC-Version: 0.44.39
+## X-SLC-Commit: 66502da64952
+## X-SLC-Port-Commit: 083b360901d5
 ## Dependencies: EllesmereUI
 # Held back (EllesmereUI.HELD_BACK_ADDONS): load on demand, and nothing loads
 # it, so it never loads and its saved data stays untouched. Drop this to ship.
@@ -76,6 +76,7 @@ UI\RaidPrompt.lua
 UI\VersionFrame.lua
 UI\ConfigShareFrame.lua
 UI\EUI\ColorPicker.lua
+UI\SessionPanel.lua
 UI\OptionsSchema.lua
 OptionsBridge.lua
 SimpleLootCouncil.lua

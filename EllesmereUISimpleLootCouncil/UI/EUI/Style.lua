@@ -244,6 +244,9 @@ S.fontTag           = MakeFont("EllesmereUISimpleLootCouncilFontTag",           
 S.fontHint          = MakeFont("EllesmereUISimpleLootCouncilFontHint",          11,   color.textFaint)
 S.fontTab           = MakeFont("EllesmereUISimpleLootCouncilFontTab",           14,   color.textMuted)
 
+S.fontRaidTeamHeader = MakeFont("EllesmereUISimpleLootCouncilFontRaidTeamHeader",   14.25, color.textFaint)
+S.fontColumnHeader  = S.fontRaidTeamHeader
+
 S.fontNotice        = MakeFont("EllesmereUISimpleLootCouncilFontNotice",        16,   color.bad)
 S.fontNum          = MakeFont("EllesmereUISimpleLootCouncilFontNum",           12,   color.text)
 S.fontNumSmall      = MakeFont("EllesmereUISimpleLootCouncilFontNumSmall",      11,   color.textMuted)
@@ -414,6 +417,7 @@ function S.Button(parent, text, opts)
     local pad = opts.labelPad or (w <= 24 and 1 or size.BTN_PAD)
 
     local function placeLabel(dy)
+        dy = dy + (b.slcLabelDy or 0)
         label:SetPoint("LEFT", b, "LEFT", Snap(pad), dy)
         label:SetPoint("RIGHT", b, "RIGHT", Snap(-pad), dy)
     end
@@ -559,6 +563,13 @@ function S.Button(parent, text, opts)
     function b:SetLabel(t)
         label:SetText(t)
         fitLabel()
+    end
+
+
+    function b:SetLabelOffset(dy)
+        b.slcLabelDy = dy
+        label:ClearAllPoints()
+        placeLabel(0)
     end
 
     function b:SetSelected(on)
@@ -771,10 +782,25 @@ function S.Chip(parent, text, c, opts)
     P.Crisp(fill)
     local border = S.Border(chip, c or color.textMuted, "BORDER")
 
+
+    local wash = chip:CreateTexture(nil, "BACKGROUND", nil, 1)
+    wash:SetAllPoints(chip)
+    wash:SetColorTexture(1, 1, 1, 0.06)
+    P.Crisp(wash)
+    wash:Hide()
+    local current, lit = c or color.textMuted, false
+    local function bright(v) return { v[1] + (1 - v[1]) * 0.4, v[2] + (1 - v[2]) * 0.4, v[3] + (1 - v[3]) * 0.4 } end
+    function chip:SetHighlight(on)
+        lit = on and true or false
+        wash:SetShown(lit)
+        border:SetColor(lit and bright(current) or current)
+    end
+
     function chip:SetChipColor(nc)
         nc = nc or color.textMuted
+        current = nc
         fill:SetColorTexture(Unpack(nc, 0.12))
-        border:SetColor(nc)
+        border:SetColor(lit and bright(nc) or nc)
         label:SetTextColor(Unpack(opts.textColor or nc))
     end
 
@@ -786,8 +812,15 @@ function S.Chip(parent, text, c, opts)
 
     function chip:Fit()
         local padding = opts.padding or 7
+        local minWidth = opts.minWidth or 0
+
+
+        if opts.font == S.fontTag then
+            padding = math.max(0, padding - 2)
+            minWidth = math.max(0, minWidth - 4)
+        end
         if opts.maxWidth then label:SetWidth(0) end
-        local desired = math.max(opts.minWidth or 0,
+        local desired = math.max(minWidth,
             label:GetStringWidth() + padding * 2)
         local width = opts.maxWidth and math.min(opts.maxWidth, desired) or desired
         if opts.maxWidth then
@@ -1064,8 +1097,9 @@ function S.FooterBar(window)
         end
     end
 
-    function bar:Add(button, rightAlign)
-        table.insert(rightAlign and rightRun or leftRun, button)
+
+    function bar:Add(button, rightAlign, atEdge)
+        table.insert(rightAlign and rightRun or leftRun, atEdge and 1 or (#(rightAlign and rightRun or leftRun) + 1), button)
         button:HookScript("OnSizeChanged", function() bar:Reflow() end)
         bar:Reflow()
         return button
@@ -1115,6 +1149,7 @@ function S.EmptyState(parent, title, body, width)
 
     f.Title = heading
     f.Body = copy
+    f.Box = box
     return f
 end
 
@@ -1251,6 +1286,11 @@ function S.ScrollRegion(parent, step)
     local child = CreateFrame("Frame", nil, viewport)
     child:SetSize(1, 1)
     viewport:SetScrollChild(child)
+
+
+    viewport:SetScript("OnSizeChanged", function(_, width)
+        if type(width) == "number" and width > 0 then child:SetWidth(width) end
+    end)
 
     local function Maximum()
         return math.max(0, (child:GetHeight() or 0) - (viewport:GetHeight() or 0))
@@ -1504,7 +1544,7 @@ end
 
 
 
-local TAG_H = 27
+local TAG_H = 24
 local TAG_SQUARE_H = 18
 local TAG_INSET = 5
 local TITLE_BAND_RATIO = 1.7
@@ -1694,7 +1734,29 @@ function S.Window(globalName, key, width, height, title, options)
     f.Badge = badge
 
     if tabHeader then
-        function f:SetTag() end
+
+
+
+
+        local titleAnchor = CreateFrame("Frame", nil, strip)
+        P.Size(titleAnchor, 1, 1)
+        P.Point(titleAnchor, "LEFT", strip, "LEFT", TITLE_INSET - 1, 0)
+        f.Title = titleAnchor
+        local tag = S.Chip(strip, "", color.textMuted,
+            { height = TAG_H, font = S.fontTag, padding = 8, square = true })
+        P.Point(tag, "LEFT", titleAnchor, "RIGHT", size.TAG_GAP, 0)
+        tag:Hide()
+        f.Tag = tag
+        function f:SetTag(text, tint)
+            local _, anchor = tag:GetPoint()
+            if not text or text == "" or anchor ~= f.Close then
+                tag:Hide()
+                return
+            end
+            tag:SetChipColor(tint or color.textMuted)
+            tag:SetText(text)
+            tag:Show()
+        end
     else
         local mark = header:CreateTexture(nil, "ARTWORK")
         P.Size(mark, 1, 1)

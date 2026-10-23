@@ -208,6 +208,7 @@ end
 
 
 
+
 local function DeclinedMessage()
     addon.Chat.Print(addon.Locale.Format(
         T["you declined to take part in Simple Loot Council for this raid."]))

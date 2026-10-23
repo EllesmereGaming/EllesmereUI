@@ -34,6 +34,15 @@ end
 P.EffectiveScale = EffectiveScale
 
 
+
+P.WINDOW_BIAS = 1 / 64
+
+
+function P.GridPixel(pixels)
+    return math.floor(pixels - P.WINDOW_BIAS + 0.5) + P.WINDOW_BIAS
+end
+
+
 function P.AlignFrame(frame)
     local point, relativeTo, relativePoint, x, y = frame:GetPoint()
     if Secret(point) or Secret(relativeTo) or Secret(relativePoint) then return end
@@ -59,8 +68,8 @@ function P.AlignFrame(frame)
         + x / step - position(point:match("LEFT") or point:match("RIGHT") or "CENTER", width / step)
     local bottom = position(relative:match("BOTTOM") or relative:match("TOP") or "CENTER", physH)
         + y / step - position(point:match("BOTTOM") or point:match("TOP") or "CENTER", height / step)
-    local dx = (math.floor(left + 0.5) - left) * step
-    local dy = (math.floor(bottom + 0.5) - bottom) * step
+    local dx = (P.GridPixel(left) - left) * step
+    local dy = (P.GridPixel(bottom) - bottom) * step
     if math.abs(dx) > step * 0.0001 or math.abs(dy) > step * 0.0001 then
         frame:SetPoint(point, relativeTo or UIParent, relative, x + dx, y + dy)
     end
@@ -507,7 +516,7 @@ function S.InstallWindowTitle(f, key, titleText, mark, badge, tag, squareTag, te
         local text = rawTitle
         if text ~= "" and S.PrideActive() and PRIDE_TITLED[key] then
             text = key == "sendConfig" and T["Send Gay config"]
-                or key == "raidPrompt" and T["Gay Loot Council"]
+                or (key == "raidPrompt" or text == T["Simple Loot Council"]) and T["Gay Loot Council"]
                 or addon.Locale.Format(T["Gay %s"], (text:gsub("^%l", string.upper)))
         end
         rawSetText(titleText, text)
@@ -540,6 +549,74 @@ end
 
 
 
+local drag = {}
+local dragFrame = CreateFrame("Frame")
+dragFrame:Hide()
+
+local function DragTo(frame)
+    local es = EffectiveScale(frame)
+    if not es then return end
+    local cx, cy = GetCursorPosition()
+    local x = drag.left + (cx - drag.cx) / es
+    local y = drag.bottom + (cy - drag.cy) / es
+
+    local ratio = (EffectiveScale(UIParent) or es) / es
+    local step = P.OnePixel(frame)
+
+    local function Place(v, max)
+        v = P.GridPixel(math.max(0, math.min(max, v)) / step)
+        if v * step > max then v = v - 1 end
+        if v < 0 then v = v + 1 end
+        return v * step
+    end
+    x = Place(x, UIParent:GetWidth() * ratio - frame:GetWidth())
+    y = Place(y, UIParent:GetHeight() * ratio - frame:GetHeight())
+    if x == drag.x and y == drag.y then return end
+
+    drag.x, drag.y = x, y
+    frame:ClearAllPoints()
+    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x, y)
+end
+
+dragFrame:SetScript("OnUpdate", function()
+    local frame = drag.frame
+    if not frame or not frame:IsShown() then
+        drag.frame = nil
+        dragFrame:Hide()
+        return
+    end
+    DragTo(frame)
+end)
+
+function P.StartDrag(frame)
+    local left, bottom = frame:GetLeft(), frame:GetBottom()
+    local cx, cy = GetCursorPosition()
+    if type(left) ~= "number" or type(bottom) ~= "number" or Secret(left) or Secret(bottom)
+        or Secret(cx) or Secret(cy) or not EffectiveScale(frame) then
+
+        drag.native = frame
+        frame:StartMoving()
+        return
+    end
+    drag.frame, drag.left, drag.bottom, drag.cx, drag.cy = frame, left, bottom, cx, cy
+    drag.x, drag.y = nil, nil
+    dragFrame:Show()
+end
+
+function P.StopDrag(frame)
+    if drag.native == frame then
+        drag.native = nil
+        frame:StopMovingOrSizing()
+    elseif drag.frame == frame then
+        DragTo(frame)
+        drag.frame = nil
+        dragFrame:Hide()
+    end
+    P.AlignFrame(frame)
+end
+
+
+
 function S.InstallWindowGeometry(f, key, header, close)
 
 
@@ -548,10 +625,9 @@ function S.InstallWindowGeometry(f, key, header, close)
     grip:SetPoint("BOTTOMRIGHT", close, "BOTTOMLEFT")
     grip:EnableMouse(true)
     grip:RegisterForDrag("LeftButton")
-    grip:SetScript("OnDragStart", function() f:StartMoving() end)
+    grip:SetScript("OnDragStart", function() P.StartDrag(f) end)
     grip:SetScript("OnDragStop", function()
-        f:StopMovingOrSizing()
-        P.AlignFrame(f)
+        P.StopDrag(f)
         f:SavePosition()
     end)
 
@@ -593,6 +669,26 @@ function S.InstallWindowGeometry(f, key, header, close)
             local up = point:find("BOTTOM") and 0 or (point:find("TOP") and 1 or 0.5)
             f:SetPoint(point, relTo, relPoint, x - (width - wasW) * left,
                 y + (height - wasH) * up)
+            f:SetSize(width, height)
+            P.AlignFrame(f)
+            f:SavePosition()
+            return
+        end
+        f:SetSize(width, height)
+        P.AlignFrame(f)
+    end
+
+
+    function f:SetSizeFromTopLeft(width, height)
+        width, height = P.Snap(width), P.Snap(height)
+        local wasW, wasH = f:GetWidth(), f:GetHeight()
+        local point, relTo, relPoint, x, y = f:GetPoint()
+        if point and wasW and wasH and wasW > 0 and wasH > 0 and f:IsShown()
+            and (width ~= wasW or height ~= wasH) then
+            local right = point:find("RIGHT") and 1 or (point:find("LEFT") and 0 or 0.5)
+            local down = point:find("BOTTOM") and 1 or (point:find("TOP") and 0 or 0.5)
+            f:SetPoint(point, relTo, relPoint, x + (width - wasW) * right,
+                y - (height - wasH) * down)
             f:SetSize(width, height)
             P.AlignFrame(f)
             f:SavePosition()

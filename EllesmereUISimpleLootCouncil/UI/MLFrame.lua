@@ -31,6 +31,10 @@ local CM = {
 
     PAINT_INTERVAL = 0.15,
 
+
+    AWARD_GUARD = 0.6,
+    awardedAt = -math.huge,
+
     rowsFor = setmetatable({}, { __mode = "k" }),
 
 
@@ -106,10 +110,28 @@ end
 
 
 
+function CM.AwardClickAllowed(session, runId)
+    if session ~= selectedSession or runId ~= addon.Session:GetRunId() then
+        addon.Log:D("UI", "award click for an item no longer shown ignored", tostring(session))
+        return false
+    end
+    local now = GetTime()
+    if now - CM.awardedAt < CM.AWARD_GUARD then
+        addon.Log:D("UI", "second award click inside the guard ignored", tostring(session))
+        return false
+    end
+    CM.awardedAt = now
+    return true
+end
+
+
+
 function MLFrame:Award(session, winner, reason)
     local runId = addon.Session:GetRunId()
     local item = addon.Session:GetItem(session)
     if not runId or not item or not winner then return false end
+
+
     if not addon.Session:IsAwardable(item) then
         addon.Chat.Print((CannotAwardText(item):gsub("\n\n", " ")))
         return false
@@ -451,6 +473,12 @@ end
 local function WindowWidth(forCompact, allColumns)
     return S.size.PAD + RAIL_W + RAIL_GAP + TableWidth(forCompact, allColumns)
         + CM.BAR_GAP + S.size.SCROLLBAR_W + FRAME_RIGHT_GAP
+end
+
+
+
+local function QueueWindowWidth()
+    return math.max(WindowWidth(CM.active), math.ceil(UI.VoterFrame:MinWidth()))
 end
 
 CM.AnchorTableScrollbar = function(t)
@@ -1041,6 +1069,7 @@ local function BuildColumns(forCompact)
                     cell:EnableMouse(true)
                     cell:SetScript("OnEnter", function(self)
                         Tbl.HoverRow(self:GetParent())
+
                         local text = self.note and addon.Autopass
                             and addon.Autopass.NoteText(self.note) or self.note
                         if not text then return end
@@ -1082,18 +1111,17 @@ local function BuildColumns(forCompact)
                             addon.Session:Vote(selectedSession, cell.row.name, cell.voteIntent)
                         end
                     end)
+
                     cell.awardButton:SetScript("OnClick", function()
                         local row = cell.row
-                        if not row then return end
-
-                        local item = addon.Session:GetItem(selectedSession)
-
-                        if item and item.awarded == row.name then
-                            MLFrame:Unaward(selectedSession)
-                            return
+                        if not row or not CM.AwardClickAllowed(cell.session, cell.runId) then return end
+                        local item = addon.Session:GetItem(cell.session)
+                        if not item then return end
+                        if cell.awardIntent == "undo" then
+                            if item.awarded == row.name then MLFrame:Unaward(cell.session) end
+                        elseif item.awarded ~= row.name then
+                            MLFrame:Award(cell.session, row.name)
                         end
-
-                        MLFrame:Award(selectedSession, row.name)
                     end)
                     cell.voteButton:Show()
                     cell.awardButton:Show()
@@ -1129,6 +1157,8 @@ local function BuildColumns(forCompact)
                 local awardedTo = item and item.awarded
                 local isWinner = awardedTo and awardedTo == row.name
 
+                cell.session, cell.runId = selectedSession, addon.Session:GetRunId()
+                cell.awardIntent = isWinner and "undo" or "award"
                 local awardLabel = isWinner and T["Undo"]
                     or awardedTo and T["Re-award"] or T["Award"]
                 if cell.awardLabel ~= awardLabel then
@@ -1383,8 +1413,11 @@ function ShowRowMenu(row, data)
     if not data or not data.name then return end
     if not addon.PlayerIsMasterLooter() then return end
 
-    local item = addon.Session:GetItem(selectedSession)
+
+    local session, runId = selectedSession, addon.Session:GetRunId()
+    local item = addon.Session:GetItem(session)
     if not item then return end
+    local function Same() return addon.Session:GetRunId() == runId end
 
     local shortName = Ambiguate(data.name, "short")
     local items = { { title = shortName } }
@@ -1392,12 +1425,12 @@ function ShowRowMenu(row, data)
 
     if item.awarded == data.name then
         items[#items + 1] = { text = T["Undo award"], onClick = function()
-            MLFrame:Unaward(selectedSession)
+            if Same() then MLFrame:Unaward(session) end
         end }
     else
         items[#items + 1] = {
             text = item.awarded and T["Re-award to this player"] or T["Award"],
-            onClick = function() MLFrame:Award(selectedSession, data.name) end,
+            onClick = function() if Same() then MLFrame:Award(session, data.name) end end,
         }
     end
 
@@ -1408,7 +1441,7 @@ function ShowRowMenu(row, data)
         for index, reason in ipairs(addon.db.awardReasons) do
             local reasonIndex = index
             reasons[#reasons + 1] = { text = reason.text, onClick = function()
-                MLFrame:Award(selectedSession, data.name, reasonIndex)
+                if Same() then MLFrame:Award(session, data.name, reasonIndex) end
             end }
         end
         items[#items + 1] = { text = T["Award for"], children = reasons }
@@ -1421,25 +1454,25 @@ function ShowRowMenu(row, data)
     for index, response in ipairs(addon.Config:Responses()) do
         local responseIndex = index
         responses[#responses + 1] = { text = response.text, onClick = function()
-            addon.Session:SetResponse(selectedSession, data.name, responseIndex)
+            addon.Session:SetResponse(session, data.name, responseIndex)
         end }
     end
     responses[#responses + 1] = { text = T["Pass"], onClick = function()
-        addon.Session:SetResponse(selectedSession, data.name, nil)
+        addon.Session:SetResponse(session, data.name, nil)
     end }
     items[#items + 1] = { text = T["Set response"], children = responses }
 
     items[#items + 1] = { text = T["Clear rolls"], children = {
         { text = T["Clear roll on this player"], onClick = function()
-            addon.Roll:SetOne(selectedSession, data.name, false)
+            addon.Roll:SetOne(session, data.name, false)
         end },
         { text = T["Clear rolls on this item"], onClick = function()
-            addon.Roll:Clear({ selectedSession })
+            addon.Roll:Clear({ session })
         end },
     } }
 
     items[#items + 1] = { text = T["Generate roll for this player"], onClick = function()
-        addon.Roll:SetOne(selectedSession, data.name, true)
+        addon.Roll:SetOne(session, data.name, true)
     end }
 
     items[#items + 1] = "-"
@@ -2138,7 +2171,7 @@ local function PaintTallies(items, item, full)
     end
     local state = addon.Session:HasEnded() and "ended"
         or addon.Session:IsRunning() and "live" or "idle"
-    if CM.ended ~= state then
+    if CM.ended ~= state and CM.tab ~= "response" then
         CM.ended = state
         if state == "idle" then
             frame:SetTag(nil)
@@ -2218,7 +2251,7 @@ end
 
 
 function MLFrame:Paint(scope)
-    if not frame or not frame:IsShown() or CM.tab == "queue" then return end
+    if not frame or not frame:IsShown() or CM.tab ~= "council" then return end
 
 
     if CM.SyncWishlist() then scope = nil end
@@ -2295,6 +2328,31 @@ function MLFrame:ShowQueue()
 end
 
 
+function MLFrame:ShowResponse()
+    if not CM.ready or not CM.Ensure() or not (CM.responseOn and CM.ResponseSeat()) then
+        return false
+    end
+    CM.ShowTab("response")
+    frame:Show()
+    return true
+end
+
+
+function MLFrame:ResponseHost()
+    if not CM.ResponseSeat() or not CM.Ensure() then return nil end
+    return CM.responseHost
+end
+
+function MLFrame:ResponseSeat()
+    return CM.ResponseSeat()
+end
+
+
+function MLFrame:SetResponseAvailable(on)
+    CM.responseOn = on and true or false
+    CM.SyncResponseTab()
+end
+
 function MLFrame:QueueShown()
     return frame ~= nil and frame:IsShown() and CM.tab == "queue"
 end
@@ -2324,8 +2382,8 @@ function MLFrame:UpdateTimer()
 
         timerLabel:SetText(T["TIME UP"])
         timerLabel:SetTextColor(S.Unpack(S.color.bad))
-        timerText:SetFontObject(S.fontBody)
-        timerText:SetText(T["responses still accepted"])
+        timerText:SetFontObject(S.fontNum)
+        timerText:SetText(Clock(0))
         timerText:SetTextColor(S.Unpack(S.color.bad))
         return
     end
@@ -2617,6 +2675,8 @@ function CM.Build()
         MLFrame:SetCompact(not CM.active)
     end)
 
+
+
     menuHint = footer:AddText(S.fontHint)
     menuHint:SetText(T["Right-click a row to award, set a response, or ask for a roll"])
     menuHint:Hide()
@@ -2652,20 +2712,31 @@ function CM.Build()
         table_:SetShown(not CM.active)
         CM.table:SetShown(CM.active)
 
-        if CM.tab ~= "queue" then CM.FitWindow() end
+        if CM.tab == "council" or CM.tab == "queue" then CM.FitWindow() end
 
         CM.button:SetLabel(CM.active and T["Expand"] or T["Compact"])
+        if CM.responseButton then
+            CM.responseButton:SetLabel(CM.active and T["Expand"] or T["Compact"])
+            if CM.tab == "response" then addon.Callbacks:Invalidate("voter") end
+        end
         MLFrame:Refresh()
     end
 
 
     function CM.FitWindow()
-        local width = WindowWidth(CM.active)
+        local width = CM.tab == "queue" and QueueWindowWidth() or WindowWidth(CM.active)
 
-        frame:SetSizeFromBottomRight(width, CM.Height(CM.active))
+
+        if CM.tabSwitch and frame.SetSizeFromTopLeft then
+            frame:SetSizeFromTopLeft(width, CM.Height(CM.active))
+        else
+            frame:SetSizeFromBottomRight(width, CM.Height(CM.active))
+        end
 
         content.slcWidth = width - S.size.PAD * 2
         if frame.ClampTitle then P.AfterLayout(frame.ClampTitle) end
+
+        if CM.tab == "queue" then footer:Reflow() end
     end
 
 
@@ -2702,19 +2773,23 @@ function CM.Build()
         window = frame, pane = CM.queuePane, footer = footer,
         railWidth = RAIL_W, railGap = RAIL_GAP, railInset = 14,
         railBottom = S.size.FOOTER_H + CM.RAIL_GAP_V,
-        mainWidth = WindowWidth(false, true) - S.size.PAD * 2 - RAIL_W - RAIL_GAP,
-        AddButton = function(button, rightAlign)
-            footer:Add(button, rightAlign)
+        mainWidth = WindowWidth(CM.active) - S.size.PAD * 2 - RAIL_W - RAIL_GAP,
+        AddButton = function(button, rightAlign, atEdge)
+            footer:Add(button, rightAlign, atEdge)
             CM.queueButtons[#CM.queueButtons + 1] = button
             button:SetShown(CM.tab == "queue")
         end,
     }
 
+    CM.BuildResponse(content)
     frame.Tabs:AddTab("council", T["Loot council"])
     frame.Tabs:AddTab("queue", T["Loot queue"])
+    frame.Tabs:AddTab("response", T["Loot response"])
     frame.Tabs:Select("council")
     frame.Tabs.onSelect = function(key)
-        if key == "queue" then MLFrame:ShowQueue() else MLFrame:Present() end
+        if key == "queue" then MLFrame:ShowQueue()
+        elseif key == "response" then MLFrame:ShowResponse()
+        else MLFrame:Present() end
     end
     CM.SyncQueueTab()
 
@@ -2730,7 +2805,7 @@ end
 
 function CM.WatchItemInfo()
     local want = (CM.againstLoading or CM.namesMissing)
-        and frame ~= nil and frame:IsShown() and CM.tab ~= "queue" and true or false
+        and frame ~= nil and frame:IsShown() and CM.tab == "council" and true or false
     if want == CM.itemInfoOn then return end
     CM.itemInfoOn = want
     if want then
@@ -2757,42 +2832,147 @@ function CM.SyncQueueTab()
     local allowed = CM.QueueAllowed()
     frame.Tabs:SetTabShown("queue", allowed)
     if not allowed and CM.tab == "queue" then CM.ShowTab("council") end
+    CM.SyncResponseTab()
+end
+
+
+
+function CM.ResponseSeat()
+    if not CM.ready or addon.db.responseTab == false then return false end
+    return (addon.PlayerIsMasterLooter()
+        or addon.Council:Contains(addon.Player:GetFullName("player"))) and true or false
+end
+
+function CM.SyncResponseTab()
+    if not frame then return end
+    local on = CM.responseOn and CM.ResponseSeat() or false
+    frame.Tabs:SetTabShown("response", on)
+    if not on and CM.tab == "response" then CM.ShowTab("council") end
+end
+
+function CM.PlaceTimer(response)
+    timerLabel:ClearAllPoints()
+    timerText:ClearAllPoints()
+    frame.Tag:ClearAllPoints()
+    if response then
+
+
+        frame.Tag:SetPoint("RIGHT", frame.Close, "LEFT", -S.size.GAP, 0)
+        timerText:SetPoint("RIGHT", frame.Tag, "LEFT", -S.size.GAP, 0)
+    else
+        frame.Tag:SetPoint("LEFT", frame.Title, "RIGHT", S.size.TAG_GAP, 0)
+        timerText:SetPoint("RIGHT", frame.Badge, "LEFT", -S.size.GAP, 0)
+    end
+    timerLabel:SetPoint("RIGHT", timerText, "LEFT", -6, 0)
+end
+
+function CM.BuildResponse(content)
+
+    CM.responsePane = CreateFrame("Frame", nil, content)
+    CM.responsePane:SetPoint("TOPLEFT", content, "TOPLEFT")
+    CM.responsePane:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -S.size.PAD,
+        S.size.FOOTER_H)
+    CM.responsePane:Hide()
+    CM.responseButton = S.Button(footer, CM.active and T["Expand"] or T["Compact"],
+        { width = 100, labelPad = S.size.BTN_PAD_FOOTER })
+    footer:Add(CM.responseButton, true)
+    CM.responseButton:Hide()
+    CM.responseButton:SetScript("OnClick", function()
+        MLFrame:SetCompact(not CM.active)
+    end)
+    CM.responseHost = {
+        pane = CM.responsePane,
+        IsActive = function() return frame:IsShown() and CM.tab == "response" end,
+        IsCompact = function() return CM.active and true or false end,
+        SetCount = function(text) frame:SetTag(text) end,
+
+
+
+        Fit = function(width, listHeight)
+            local inset = S.size.PAD
+            local fitted = frame.HeaderHeight + inset + listHeight + S.size.FOOTER_H
+            local compact = CM.active or fitted <= CM.Height(true)
+
+            local w = math.max(WindowWidth(CM.active), width + S.size.PAD * 2)
+
+            local h = compact and CM.Height(true) or math.min(fitted, CM.FULL_H)
+            local sig = CM.responseHost.Signature()
+            if CM.tabSwitch and frame.SetSizeFromTopLeft then
+                CM.responseSig = sig
+                frame:SetSizeFromTopLeft(w, h)
+            elseif sig ~= CM.responseSig then
+
+
+                CM.responseSig = sig
+                frame:SetSizeFromBottomRight(w, h)
+            else
+                frame:SetSizeFromBottomRight(w, frame:GetHeight())
+                frame:SetHeightFromTop(h)
+            end
+            content.slcWidth = w - S.size.PAD * 2
+            CM.responsePane.slcWidth = w - inset - S.size.PAD
+            if frame.ClampTitle then P.AfterLayout(frame.ClampTitle) end
+
+            return h - frame.HeaderHeight - inset - S.size.FOOTER_H
+        end,
+
+        Signature = function() return WindowWidth(CM.active) .. (CM.active and "c" or "e") end,
+    }
 end
 
 function CM.ShowTab(key)
     if key == "queue" and not CM.QueueAllowed() then key = "council" end
-    local council = key ~= "queue"
-    key = council and "council" or "queue"
+    if key == "response" and not (CM.responseOn and CM.ResponseSeat()) then key = "council" end
+    if key ~= "queue" and key ~= "response" then key = "council" end
+    local council, queue, response = key == "council", key == "queue", key == "response"
     frame.Tabs:Select(key)
     if CM.tab == key then return end
     CM.tab = key
 
-    if not council then UI.QueueFrame:Attach(CM.queueHost) end
+    if queue then
+        CM.queueHost.mainWidth = QueueWindowWidth() - S.size.PAD * 2 - RAIL_W - RAIL_GAP
+        UI.QueueFrame:Attach(CM.queueHost)
+    end
     CM.councilPane:SetShown(council)
-    CM.queuePane:SetShown(not council)
+    CM.queuePane:SetShown(queue)
+    CM.responsePane:SetShown(response)
 
     endButton:SetShown(council)
-    CM.button:SetShown(council)
+    CM.button:SetShown(not response)
     if not council then
         rollButton:Hide()
         menuHint:Hide()
         frame:SetTag(nil)
         CM.ended = nil
     end
-    for _, button in ipairs(CM.queueButtons) do button:SetShown(not council) end
-    timerLabel:SetShown(council)
-    timerText:SetShown(council)
+    for _, button in ipairs(CM.queueButtons) do button:SetShown(queue) end
+    CM.responseButton:SetShown(response)
+
+    footer:Reflow()
+
+
+    CM.PlaceTimer(response)
+    timerLabel:SetShown(not queue)
+    timerText:SetShown(not queue)
     frame.Badge:SetShown(council)
-    CM.ticker:SetShown(council)
+    CM.ticker:SetShown(not queue)
     CM.WatchItemInfo()
     CM.footerKey = nil
 
+
+    CM.tabSwitch = true
     if council then
         CM.apply()
+    elseif queue then
+
+        CM.FitWindow()
     else
-        frame:SetSizeFromBottomRight(WindowWidth(false, true), CM.FULL_H)
-        footer:Reflow()
+        MLFrame:UpdateTimer()
+        UI.VoterFrame:ForgetLayout()
+        addon.Callbacks:Invalidate("voter")
+        addon.Callbacks:PaintNow("voter")
     end
+    CM.tabSwitch = nil
 end
 
 
@@ -2837,6 +3017,7 @@ function CM.ShowColumnMenu(anchor, t)
 end
 
 function CM.ColumnsChanged()
+    addon.Callbacks:Invalidate("voter")
     local hidden = CM.HiddenColumns()
     for _, t in pairs(CM.fullTables) do Tbl.SetHidden(t, hidden) end
     Tbl.SetHidden(CM.table, hidden)
@@ -2869,7 +3050,7 @@ function MLFrame:Init()
     end)
 
 
-    local function Shown() return frame ~= nil and frame:IsShown() and CM.tab ~= "queue" end
+    local function Shown() return frame ~= nil and frame:IsShown() and CM.tab == "council" end
     addon.Callbacks:RegisterView("council", {
         shown = Shown,
         interval = CM.PAINT_INTERVAL,
@@ -2969,6 +3150,23 @@ function MLFrame:SetCompact(on)
     CM.active = on
     addon.db.mlCompact = on
     CM.apply()
+end
+
+
+
+function MLFrame:OpenForKill()
+    if not CM.ready or not CM.Ensure() or not CM.QueueAllowed() then return end
+    if frame:IsShown() then return end
+    if not CM.killOpened then
+        CM.killOpened = true
+        MLFrame:SetCompact(true)
+    end
+    if addon.Session:IsRunning() and not addon.Session:HasEnded() and CM.HasWork() then
+        CM.dismissedRun = nil
+        MLFrame:Present()
+    else
+        MLFrame:ShowQueue()
+    end
 end
 
 

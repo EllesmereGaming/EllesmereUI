@@ -469,6 +469,8 @@ local function Arm()
     if armed then return end
     armed = true
 
+
+
     local f = CreateFrame("Frame")
     f:RegisterEvent("PLAYER_LOGOUT")
     f:SetScript("OnEvent", function()
@@ -477,6 +479,7 @@ local function Arm()
             Perf.ScrubSynthetic(saved.items)
         end
     end)
+
 
     addon.Callbacks:Register("RunEnded", function()
         if stress then Perf:StressStop("the run ended") end

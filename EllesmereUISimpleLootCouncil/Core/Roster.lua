@@ -358,6 +358,17 @@ function addon.CanAssignMasterLooter()
 end
 
 
+
+
+local groupTest = false
+function addon.GroupTestActive()
+    if groupTest and (not IsInGroup() or IsInRaid()) then groupTest = false end
+    return groupTest
+end
+function addon.SetGroupTest(on)
+    groupTest = on and true or false
+end
+
 function addon.PlayerIsMasterLooter()
     if not IsInGroup() then return true end
     local current = addon.GetMasterLooter()
