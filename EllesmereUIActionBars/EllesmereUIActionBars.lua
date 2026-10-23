@@ -567,6 +567,12 @@ for _, info in ipairs(BAR_CONFIG) do
         buttonHeight = 0,
         mouseoverEnabled = false,
         mouseoverAlpha = 1,
+        -- Optional Advanced Fade layer. OFF preserves native upstream alpha behavior.
+        advancedFadeEnabled = false,
+        fadeMaxAlpha = 1,
+        fadeInSpeed = 0.15,
+        fadeOutSpeed = 0.15,
+        fadeConditions = {},
         combatShowEnabled = false,
         combatHideEnabled = false,
         housingHideEnabled = false,
@@ -679,6 +685,12 @@ for _, info in ipairs(EXTRA_BARS) do
     defaults.profile.bars[info.key] = {
         mouseoverEnabled = false,
         mouseoverAlpha = 1,
+        -- Optional Advanced Fade layer. OFF preserves native upstream alpha behavior.
+        advancedFadeEnabled = false,
+        fadeMaxAlpha = 1,
+        fadeInSpeed = 0.15,
+        fadeOutSpeed = 0.15,
+        fadeConditions = {},
         combatShowEnabled = false,
         combatHideEnabled = false,
         housingHideEnabled = false,

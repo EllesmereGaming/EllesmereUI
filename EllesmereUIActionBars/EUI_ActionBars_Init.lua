@@ -34,6 +34,7 @@ function EAB:OnInitialize()
         or (rawDB.profiles and not next(rawDB.profiles))
 
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIActionBarsDB", defaults, true)
+    self:RefreshCustomFadeGate()
     -- Expose for ApplyAnchorPosition's growth-direction edge read.
     EllesmereUI._abBarPositions = self.db.profile.barPositions
 
@@ -63,6 +64,7 @@ function EAB:OnInitialize()
 
     _G._EAB_ApplyKeyDown = function() ApplyKeyDownCVar() end
     _G._EAB_Apply = function()
+        EAB:RefreshCustomFadeGate()
         -- Re-point the exposed barPositions view at the active profile's table.
         -- Profile swaps replace db.profile wholesale and the unlock system reads
         -- saved growth edges / follow baselines through this reference; a stale
