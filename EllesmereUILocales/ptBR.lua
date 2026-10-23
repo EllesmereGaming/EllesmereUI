@@ -9691,3 +9691,17 @@ L["Value Gradient: highest damage, healing or other tracked value is green; lowe
 L["Wowhead Link Settings"] = "Configurações do Link do Wowhead"
 L["Wowhead Link"] = "Link do Wowhead"
 L["Wowhead Quest Links"] = "Links de Missões do Wowhead"
+
+-- == Unlock Mode Point Anchors / Fishing Skill ===============================
+L["Click a point on another element"] = "Clique em um ponto de outro elemento"
+L["Connector Lines"] = "Linhas de Conexão"
+L["Point"] = "Ponto"
+L["Point Anchor Colors"] = "Cores das Âncoras de Ponto"
+L["Point Anchor Handles"] = "Alças das Âncoras de Ponto"
+L["Point: %1$s to %2$s"] = "Ponto: %1$s para %2$s"
+L["Show Fishing Skill"] = "Mostrar Perícia de Pesca"
+L["Show nine source points after clicking Anchor in Unlock Mode. Choose a source point, then a target point. Turning this off hides the handles and preserves saved point anchors."] = "Mostra nove pontos de origem depois de clicar em Âncora no Modo de Desbloqueio. Escolha um ponto de origem e, em seguida, um ponto de destino. Desativar isto oculta as alças e preserva as âncoras de ponto salvas."
+L["Shows the fishing skill a zone needs under its name on the world map: red, too low; yellow, fish still get away; green, none do."] = "Mostra, sob o nome de uma zona no mapa-múndi, a perícia de pesca que ela exige: vermelho, baixa demais; amarelo, ainda escapam peixes; verde, nenhum escapa."
+L["This element's position is not available yet"] = "A posição deste elemento ainda não está disponível"
+L["This point anchor is unavailable or would create a circular anchor"] = "Esta âncora de ponto está indisponível ou criaria uma âncora circular"
+L["UNLOCK MODE"] = "MODO DE DESBLOQUEIO"
