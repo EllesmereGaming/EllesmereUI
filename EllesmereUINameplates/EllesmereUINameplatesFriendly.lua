@@ -503,6 +503,7 @@ local function ApplyOverlayStyle(overlay, unit)
 end
 
 local function ShowNPCOverlay(nameplate, unit)
+    local fp = FP()
     if npcOverlays[nameplate] then return end
     local overlay = AcquireOverlay()
     overlay:SetParent(nameplate)
@@ -511,18 +512,20 @@ local function ShowNPCOverlay(nameplate, unit)
     overlay:SetFrameLevel(nameplate:GetFrameLevel() + 5)
     overlay:Show()
     -- Set name text
+    EllesmereUI.FormattedText:ConfigureUnit(overlay.name, unit, fp and fp.friendlyNameCustomFormat)
     local unitName = UnitName(unit) or ""
-    overlay.name:SetText(unitName)
+    EllesmereUI.FormattedText:WriteText(overlay.name, unitName)
     overlay.name:SetWidth(0)
     overlay.name:SetWordWrap(false)
     overlay.name:SetNonSpaceWrap(false)
     overlay.name:SetMaxLines(1)
     ApplyOverlayStyle(overlay, unit)
+    EllesmereUI.FormattedText:Restyle(overlay.name)
     -- NPC title (e.g. "Innkeeper", "Flight Master")
     if ShowNPCTitles() then
         local titleText = GetNPCTitle(unit)
         if titleText then
-            overlay.title:SetText("<" .. titleText .. ">")
+            EllesmereUI.FormattedText:WriteText(overlay.title, "<" .. titleText .. ">")
             overlay.title:Show()
         else
             overlay.title:Hide()
@@ -536,7 +539,7 @@ local function ShowNPCOverlay(nameplate, unit)
     overlay:SetScript("OnEvent", function(self, event, ...)
         if event == "UNIT_NAME_UPDATE" then
             local updatedName = UnitName(self.unit) or ""
-            self.name:SetText(updatedName)
+            EllesmereUI.FormattedText:WriteText(self.name, updatedName)
         end
     end)
     npcOverlays[nameplate] = overlay
@@ -1381,13 +1384,15 @@ end
 
 function FriendlyFrame:ClearUnit()
     self:UnregisterAllEvents()
-    self.name:SetText("")
+    EllesmereUI.FormattedText:Detach(self.name, true)
+    EllesmereUI.FormattedText:Detach(self.hpText, true)
+    EllesmereUI.FormattedText:WriteText(self.name, "")
     -- Clear sub text only if any was drawn (_subOff 4/nil = already empty).
     -- _subOff itself survives the pool round-trip: the next UpdateSubText
     -- compares against the freshly computed offset, so a stale anchor can
     -- never leak while the feature-off path stays zero-write.
     if self._subOff and self._subOff ~= 4 then
-        self.subText1:SetText("")
+        EllesmereUI.FormattedText:WriteText(self.subText1, "")
     end
     -- Restore Blizzard UF before clearing our reference
     if self.unit then RestoreBlizzardUF(self.unit) end
@@ -1408,6 +1413,9 @@ end
 function FriendlyFrame:UpdateHealth()
     local unit = self.unit
     if not unit then return end
+    local fp = FP()
+    EllesmereUI.FormattedText:ConfigureUnit(self.hpText, unit, fp and fp.friendlyHealthCustomFormat)
+    EllesmereUI.FormattedText:SetShown(self.hpText, not (fp and fp.friendlyHideHealthText))
     if self.hpCalculator and self.hpCalculator.GetMaximumHealth then
         UnitGetDetailedHealPrediction(unit, nil, self.hpCalculator)
         self.hpCalculator:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.Default)
@@ -1419,22 +1427,24 @@ function FriendlyFrame:UpdateHealth()
         self.health:SetValue(UnitHealth(unit))
     end
     if UnitIsDeadOrGhost(unit) then
-        self.hpText:SetText("0%")
+        EllesmereUI.FormattedText:WriteText(self.hpText, "0%")
     elseif UnitHealthPercent then
         local fp = FP()
         if fp and fp.friendlyHideHealthText then
-            self.hpText:SetText("")
+            EllesmereUI.FormattedText:WriteText(self.hpText, "")
         else
-            self.hpText:SetFormattedText("%d%%", UnitHealthPercent(unit, true, CurveConstants.ScaleTo100))
+            EllesmereUI.FormattedText:Write(self.hpText, "%d%%", UnitHealthPercent(unit, true, CurveConstants.ScaleTo100))
         end
     else
-        self.hpText:SetText("")
+        EllesmereUI.FormattedText:WriteText(self.hpText, "")
     end
 end
 
 function FriendlyFrame:UpdateName()
     local unit = self.unit
     if not unit then return end
+    local fp = FP()
+    EllesmereUI.FormattedText:ConfigureUnit(self.name, unit, fp and fp.friendlyNameCustomFormat)
     -- Title (when the Subtitle Text mode includes it) rides the name as ONE
     -- string via UnitPVPName; everything else shows the plain name. WoW
     -- Forever's Name Format then shortens a player's name. The player test
@@ -1451,7 +1461,7 @@ function FriendlyFrame:UpdateName()
     if fmt and isPlayer and unitName then
         unitName = FormatFriendlyName(unit, unitName, hasTitle)
     end
-    self.name:SetText(unitName or "")
+    EllesmereUI.FormattedText:WriteText(self.name, unitName or "")
     self:UpdateSubText()
 end
 
@@ -1476,7 +1486,7 @@ function FriendlyFrame:UpdateSubText()
     elseif self._subOff == 4 then
         return   -- no guild line drawn: nothing to do
     else
-        self.subText1:SetText("")
+        EllesmereUI.FormattedText:WriteText(self.subText1, "")
     end
     local off = 4 + lines * (size + 2)
     if off ~= self._subOff then
@@ -1656,9 +1666,9 @@ function ns.RemoveFriendlyPlateNoRestore(unit)
     if _cachedFriendlyTargetPlate == plate then _cachedFriendlyTargetPlate = nil end
     -- Clean up our plate without restoring Blizzard UF
     plate:UnregisterAllEvents()
-    plate.name:SetText("")
+    EllesmereUI.FormattedText:WriteText(plate.name, "")
     if plate._subOff and plate._subOff ~= 4 then
-        plate.subText1:SetText("")
+        EllesmereUI.FormattedText:WriteText(plate.subText1, "")
     end
     -- Clear modifiedUFs entry so the friendly SetAlpha hook stops interfering
     modifiedUFs[unit] = nil

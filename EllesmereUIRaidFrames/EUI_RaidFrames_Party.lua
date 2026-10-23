@@ -105,6 +105,7 @@ do
             "powerUniformAnchors", "extendHealthBehindPower",
         },
         textDisplay = {
+            "nameCustomFormat", "healthTextCustomFormat", "powerTextCustomFormat", "healAbsorbTextCustomFormat",
             "nameSize", "nameMaxLength", "nameFormat", "nameColorMode", "nameCustomColor",
             "namePosition", "nameOffsetX", "nameOffsetY",
             "levelTextSize", "levelTextPosition", "levelTextOffsetX", "levelTextOffsetY",

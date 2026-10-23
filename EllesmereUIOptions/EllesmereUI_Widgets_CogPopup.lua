@@ -70,6 +70,11 @@ local function BuildCogPopup(opts)
     -- row.noCapture opts a single row out (same flag DualRow honors): a popup can mix capturing rows with rows that must not capture (settings stored per palette rather than under a flat key).
     if opts.captureRegion and EllesmereUI.AddCaptureAccessor and opts.rows then
         for _, row in ipairs(opts.rows) do
+            if row._formattedText then
+                EllesmereUI.FormattedText:CaptureEditor(opts.captureRegion, {
+                    text = row.label, getValue = row.get, _formattedText = row._formattedText,
+                })
+            end
             if row.get and row.set and not row.noCapture
                and row.type ~= "button" and row.type ~= "reorder"
                and row.type ~= "reordercheck" then

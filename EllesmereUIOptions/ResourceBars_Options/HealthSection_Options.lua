@@ -693,7 +693,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
 
     local healthTextSizeRow
     healthTextSizeRow, h = W:DualRow(parent, y,
-        { type = "dropdown", text = "Health Text",
+        EllesmereUI.FormattedText:ConfigureContent({ type = "dropdown", text = "Health Text",
           disabled = healthOff,
           disabledTooltip = "Health Bar",
           values = { none = "None", perhp = "Health %", perhpnosign = "Health % (No Sign)", curhpshort = "Health #", curmaxhp = "Health # / Max #", perhpnum = "Health % | #", both = "Health # | %" },
@@ -702,7 +702,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
           setValue = function(v)
               local c = cfg(); if not c then return end
               c.textFormat = v; RefreshHealth(); EllesmereUI:RefreshPage()
-          end },
+          end }, { get = function() local c = cfg(); return c and c.customTextFormat end, set = function(v) local c = cfg(); if c then c.customTextFormat = v end end, apply = RefreshHealth }),
         { type = "multiSwatch", text = "Text Color",
           disabled = healthTextDis,
           disabledTooltip = healthTextDisTip,

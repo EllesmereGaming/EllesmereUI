@@ -507,7 +507,7 @@ initFrame:SetScript("OnEvent", function(self)
         local textSlotKeys = ns.textSlotKeys
         local function SetTextElementAtSlot(slotKey, element)
             local db = DB()
-            if element ~= "none" then
+            if element ~= "none" and element ~= "custom" then
                 for _, key in ipairs(textSlotKeys) do
                     if key ~= slotKey then
                         local cur = db[key] or defaults[key]

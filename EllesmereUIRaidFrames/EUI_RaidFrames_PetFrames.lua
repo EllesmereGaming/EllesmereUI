@@ -1212,6 +1212,7 @@ PF.PvFrame = function(i, parent, s, w, h, c, grouped)
         d._petGroupedPreview, d._petPreviewParty = true, ns._partyPvActive == true
     elseif d then d._petGroupedPreview = nil end
     FB.StyleVisuals(f, s, w, h, c.texPath, c.bgc)
+    ns.RF_ConfigureFormattedText(f, s, nil, true)
 
     local pet = PF.PV_PETS[i]
     local pct = pet.hp
@@ -1221,7 +1222,7 @@ PF.PvFrame = function(i, parent, s, w, h, c, grouped)
     -- inverted fill (the _euiInv stamp FB.StyleVisuals just left).
     f._health:SetValue(f._health._euiInv and (100 - pct) or pct)
     f._health:SetStatusBarColor(hc and hc.r or 23/255, hc and hc.g or 172/255, hc and hc.b or 49/255, c.opacity)
-    f._nameText:SetText(pet.name)
+    EllesmereUI.FormattedText:WriteText(f._nameText, pet.name)
     f._nameText:SetTextColor(c.nr, c.ng, c.nb)
     -- Made-up health (3000 per percent) and a heal absorb of a quarter of it, in the raid preview's
     -- proportions.
@@ -1229,6 +1230,7 @@ PF.PvFrame = function(i, parent, s, w, h, c, grouped)
     f._healthText:SetTextColor(c.tr, c.tg, c.tb, 0.9)
     ns.FormatHealAbsorbInto(f._healAbsorbText, pct * 750, c.haMode)
     f._healAbsorbText:SetTextColor(c.ar, c.ag, c.ab, 0.9)
+    ns.RF_RefreshFormattedText(f)
     f:Show()
     return f
 end

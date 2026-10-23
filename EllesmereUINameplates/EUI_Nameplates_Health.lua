@@ -269,11 +269,11 @@ function NameplateFrame:UpdateHealthValues()
                 local el = entry.element
                 local fs = entry.fs
                 if el == "healthPercent" then
-                    fs:SetText(entry.pctDecimal and pctTextDec or pctText)
+                    EllesmereUI.FormattedText:WriteText(fs, entry.pctDecimal and pctTextDec or pctText)
                 elseif el == "healthPercentNoSign" then
-                    fs:SetText(entry.pctDecimal and pctNoSignTextDec or pctNoSignText)
+                    EllesmereUI.FormattedText:WriteText(fs, entry.pctDecimal and pctNoSignTextDec or pctNoSignText)
                 elseif el == "healthNumber" then
-                    fs:SetText(numText)
+                    EllesmereUI.FormattedText:WriteText(fs, numText)
                 elseif entry.combo then
                     SetCombinedHealthText(fs, el, entry.pctDecimal and pctTextDec or pctText, numText, numText)
                 end
@@ -297,11 +297,11 @@ function NameplateFrame:UpdateHealthValues()
                 local el = entry.element
                 local fs = entry.fs
                 if el == "healthPercent" then
-                    fs:SetFormattedText(entry.pctDecimal and "%.1f%%" or "%d%%", pctVal)
+                    EllesmereUI.FormattedText:Write(fs, entry.pctDecimal and "%.1f%%" or "%d%%", pctVal)
                 elseif el == "healthPercentNoSign" then
-                    fs:SetFormattedText(entry.pctDecimal and "%.1f" or "%d", pctVal)
+                    EllesmereUI.FormattedText:Write(fs, entry.pctDecimal and "%.1f" or "%d", pctVal)
                 elseif el == "healthNumber" then
-                    fs:SetText(numText)
+                    EllesmereUI.FormattedText:WriteText(fs, numText)
                 elseif entry.combo then
                     SetCombinedHealthText(fs, el, entry.pctDecimal and pctTextDec or pctText, numText, maxText)
                 end

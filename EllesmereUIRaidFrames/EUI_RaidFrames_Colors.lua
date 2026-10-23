@@ -592,7 +592,7 @@ local function LayoutTopNameBar(s, baseH, powerH, healthBar, tnb, tnbBg, tnbText
         tnbText:SetJustifyV("MIDDLE")
         -- Force re-layout on a JustifyH change (WoW doesn't relayout otherwise)
         local cur = tnbText:GetText()
-        if cur then tnbText:SetText(""); tnbText:SetText(cur) end
+        if cur then EllesmereUI.FormattedText:WriteText(tnbText, ""); EllesmereUI.FormattedText:WriteText(tnbText, cur) end
     end
     tnb:Show()
     if s.topNameBarDivider == true or tnb._divider then ns.RF_ApplyTopNameDivider(tnb, s, preview) end
@@ -614,19 +614,21 @@ function ns.RefreshAllNames()
             if attach then
                 ns._RFNameWithLevel(d.nameText, ResolveDisplayName(unit, true, bs), unit, attach)
             else
-                d.nameText:SetText(ResolveDisplayName(unit, true, bs))
+                EllesmereUI.FormattedText:WriteText(d.nameText, ResolveDisplayName(unit, true, bs))
             end
             local nr, ng, nb = GetNameColor(unit, bs)
             d.nameText:SetTextColor(nr, ng, nb)
+            EllesmereUI.FormattedText:Restyle(d.nameText)
         end
         if d and d.topNameBarText and bs.topNameBarEnabled then
             if attach then
                 ns._RFNameWithLevel(d.topNameBarText, ResolveDisplayName(unit, false, bs), unit, attach)
             else
-                d.topNameBarText:SetText(ResolveDisplayName(unit, false, bs))
+                EllesmereUI.FormattedText:WriteText(d.topNameBarText, ResolveDisplayName(unit, false, bs))
             end
             local tr, tg, tb = GetTopNameBarColor(unit, bs)
             d.topNameBarText:SetTextColor(tr, tg, tb)
+            EllesmereUI.FormattedText:Restyle(d.topNameBarText)
         end
     end
     for unit, btn in pairs(unitToButton) do refresh(unit, btn) end
@@ -734,45 +736,81 @@ function ns.AnchorRFText(fs, health, pos, ox, oy, width)
     end
     -- Force re-render after a JustifyH change (mirrors the name/health text fns).
     local txt = fs:GetText()
-    fs:SetText(""); fs:SetText(txt or "")
+    EllesmereUI.FormattedText:WriteText(fs, ""); EllesmereUI.FormattedText:WriteText(fs, txt or "")
 end
 
 -- Health text in one of the health text modes. A unit's values are read only in the modes that
 -- show them; a preview (unit nil) shows made-up ones, perPct per percent. Returns false for None or
 -- an unknown mode, which blank the text.
+do
+    local slots = {
+        { "nameText", "_nameText", "nameCustomFormat" },
+        { "topNameBarText", "_topNameBarText", "nameCustomFormat" },
+        { "healthText", "_healthText", "healthTextCustomFormat", "healthTextMode" },
+        { "powerText", "_powerText", "powerTextCustomFormat", "powerTextMode" },
+        { "healAbsorbText", "_healAbsorbText", "healAbsorbTextCustomFormat", "healAbsorbTextMode" },
+    }
+    function ns.RF_ConfigureFormattedText(data, settings, unit, preview)
+        data._formattedUnit = unit
+        for i = 1, #slots do
+            local slot = slots[i]
+            local fs = data[slot[1]] or data[slot[2]]
+            if fs then
+                local template = settings[slot[3]]
+                if slot[4] and settings[slot[4]] ~= "custom" then template = nil end
+                if preview then EllesmereUI.FormattedText:ConfigurePreview(fs, "unit", template)
+                else EllesmereUI.FormattedText:ConfigureUnit(fs, unit, template, nil, data._pwType) end
+                if i == 1 then
+                    EllesmereUI.FormattedText:SetShown(fs, settings.namePosition ~= "none" and not settings.topNameBarEnabled)
+                elseif i == 2 then EllesmereUI.FormattedText:SetShown(fs, settings.topNameBarEnabled == true) end
+            end
+        end
+    end
+    function ns.RF_RefreshFormattedText(data)
+        for i = 1, #slots do
+            local slot = slots[i]
+            local fs = data[slot[1]] or data[slot[2]]
+            if fs then EllesmereUI.FormattedText:Refresh(fs) end
+        end
+    end
+end
+
 function ns.RF_HealthTextInto(fs, mode, pct, unit, perPct)
+    EllesmereUI.FormattedText:SetShown(fs, mode ~= nil and mode ~= "none")
     local v
-    if mode == "percent" then
-        fs:SetFormattedText("%.0f%%", pct)
+    if mode == "custom" then
+        EllesmereUI.FormattedText:WriteText(fs, "")
+    elseif mode == "percent" then
+        EllesmereUI.FormattedText:Write(fs, "%.0f%%", pct)
     elseif mode == "percentNoSign" then
-        fs:SetFormattedText("%.0f", pct)
+        EllesmereUI.FormattedText:Write(fs, "%.0f", pct)
     elseif mode == "number" then
         if unit then v = UnitHealth(unit, true) else v = pct * perPct end
         if v and AbbreviateNumbers then
-            fs:SetText(AbbreviateNumbers(v))
+            EllesmereUI.FormattedText:WriteText(fs, AbbreviateNumbers(v))
         elseif v then
-            fs:SetFormattedText("%s", v)
+            EllesmereUI.FormattedText:Write(fs, "%s", v)
         end
     elseif mode == "numberPercent" or mode == "percentNumber" then
         if unit then v = UnitHealth(unit, true) else v = pct * perPct end
         local numStr = (v and AbbreviateNumbers) and AbbreviateNumbers(v) or tostring(v or 0)
         if mode == "numberPercent" then
-            fs:SetFormattedText("%s | %.0f%%", numStr, pct)
+            EllesmereUI.FormattedText:Write(fs, "%s | %.0f%%", numStr, pct)
         else
-            fs:SetFormattedText("%.0f%% | %s", pct, numStr)
+            EllesmereUI.FormattedText:Write(fs, "%.0f%% | %s", pct, numStr)
         end
     elseif mode == "missing" then
         if unit then v = UnitHealthMissing(unit, true) else v = (100 - pct) * perPct end
-        fs:SetText(C_StringUtil.TruncateWhenZero(v))
+        EllesmereUI.FormattedText:WriteText(fs, C_StringUtil.TruncateWhenZero(v))
         if fs:GetText() then
             if v and AbbreviateNumbers then
-                fs:SetText(AbbreviateNumbers(v))
+                EllesmereUI.FormattedText:WriteText(fs, AbbreviateNumbers(v))
             elseif v then
-                fs:SetFormattedText("%s", v)
+                EllesmereUI.FormattedText:Write(fs, "%s", v)
             end
         end
     else
-        fs:SetText("")
+        EllesmereUI.FormattedText:WriteText(fs, "")
         return false
     end
     return true
@@ -785,10 +823,12 @@ end
 -- non-zero) before abbreviating.
 function ns.FormatHealAbsorbInto(fs, amt, mode)
     if not fs then return end
-    if not mode or mode == "none" then fs:SetText(""); return end
-    fs:SetText(C_StringUtil.TruncateWhenZero(amt or 0))
+    EllesmereUI.FormattedText:SetShown(fs, mode ~= nil and mode ~= "none")
+    if not mode or mode == "none" then EllesmereUI.FormattedText:WriteText(fs, ""); return end
+    if mode == "custom" then EllesmereUI.FormattedText:WriteText(fs, ""); return end
+    EllesmereUI.FormattedText:WriteText(fs, C_StringUtil.TruncateWhenZero(amt or 0))
     if mode == "short" and AbbreviateNumbers and fs:GetText() then
-        fs:SetText(AbbreviateNumbers(amt or 0))
+        EllesmereUI.FormattedText:WriteText(fs, AbbreviateNumbers(amt or 0))
     end
 end
 
@@ -796,11 +836,13 @@ end
 function ns.SetHealAbsorbText(fs, unit, s)
     if not fs then return end
     local mode = s.healAbsorbTextMode or "none"
-    ns.FormatHealAbsorbInto(fs, (UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(unit)) or 0, mode)
+    EllesmereUI.FormattedText:ConfigureUnit(fs, unit, mode == "custom" and s.healAbsorbTextCustomFormat)
+    EllesmereUI.FormattedText:SetShown(fs, mode ~= "none")
     if mode ~= "none" then
         local r, g, b = ns.GetHealAbsorbTextColor(unit, s)
         fs:SetTextColor(r, g, b, 0.9)
     end
+    ns.FormatHealAbsorbInto(fs, (UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(unit)) or 0, mode)
 end
 
 -- Update one button's heal-absorb text with the correct scaled profile. Called from the
@@ -809,7 +851,7 @@ function ns.UpdateHealAbsorbTextFor(button, unit)
     local d = GetFFD(button)
     if not d.healAbsorbText then return end
     if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then
-        d.healAbsorbText:SetText("")
+        EllesmereUI.FormattedText:SetShown(d.healAbsorbText, false)
         return
     end
     local s = (d._isParty and ns._scaledPartyProxy)
@@ -897,25 +939,28 @@ end
 -- offline, None or an unknown mode).
 function ns.RF_PowerTextInto(fs, mode, pct, unit, pType, perPct)
     if unit and (UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit)) then
-        fs:SetText("")
+        EllesmereUI.FormattedText:SetShown(fs, false)
         return false
     end
-    if mode == "percent" then
-        fs:SetFormattedText("%.0f%%", pct)
+    EllesmereUI.FormattedText:SetShown(fs, mode ~= nil and mode ~= "none")
+    if mode == "custom" then
+        EllesmereUI.FormattedText:WriteText(fs, "")
+    elseif mode == "percent" then
+        EllesmereUI.FormattedText:Write(fs, "%.0f%%", pct)
     elseif mode == "percentNoSign" then
-        fs:SetFormattedText("%.0f", pct)
+        EllesmereUI.FormattedText:Write(fs, "%.0f", pct)
     elseif mode == "number" or mode == "numberPercent" or mode == "percentNumber" then
         local num
         if unit then num = AbbreviateNumbers(UnitPower(unit, pType)) else num = AbbreviateNumbers(pct * perPct) end
         if mode == "number" then
-            fs:SetText(num)
+            EllesmereUI.FormattedText:WriteText(fs, num)
         elseif mode == "numberPercent" then
-            fs:SetFormattedText("%s | %.0f%%", num, pct)
+            EllesmereUI.FormattedText:Write(fs, "%s | %.0f%%", num, pct)
         else
-            fs:SetFormattedText("%.0f%% | %s", pct, num)
+            EllesmereUI.FormattedText:Write(fs, "%.0f%% | %s", pct, num)
         end
     else
-        fs:SetText("")
+        EllesmereUI.FormattedText:WriteText(fs, "")
         return false
     end
     return true
@@ -942,6 +987,7 @@ ns._RFPowerTextColor = function(d, unit, s, pr, pg, pb)
         if c then r, g, b = c.r, c.g, c.b end
     end
     d.powerText:SetTextColor(r, g, b, 0.9)
+    EllesmereUI.FormattedText:Restyle(d.powerText)
 end
 
 -- Anchor on Health Text's host (the health bar, or the Party Frames kit's) with its width and
@@ -960,7 +1006,7 @@ end
 ns._RFPowerTextSetup = function(d, s)
     local mode = s.powerTextMode
     if mode == nil or mode == "none" then
-        if d._pwtMode then d.powerText:Hide(); d._pwtMode = nil end
+        if d._pwtMode then EllesmereUI.FormattedText:SetShown(d.powerText, false); d._pwtMode = nil end
         return
     end
     local fs = d.powerText
@@ -972,7 +1018,8 @@ ns._RFPowerTextSetup = function(d, s)
         d.powerText = fs
         ns._RFAnchorPowerText(d)
     end
-    if not d._pwtMode then fs:Show() end
+    if not d._pwtMode then EllesmereUI.FormattedText:SetShown(fs, true) end
+    EllesmereUI.FormattedText:ConfigureUnit(fs, d._formattedUnit, mode == "custom" and s.powerTextCustomFormat, nil, d._pwType)
     d._pwtMode = mode
 end
 
@@ -983,7 +1030,7 @@ end
 ns._RFPowerTextLife = function(d, unit, gone)
     if d._pwtGone == gone then return end
     d._pwtGone = gone
-    if gone then d.powerText:SetText(""); return end
+    if gone then EllesmereUI.FormattedText:SetShown(d.powerText, false); return end
     local pType = d._pwType or UnitPowerType(unit) or 0
     ns.RF_PowerTextInto(d.powerText, d._pwtMode,
         UnitPowerPercent(unit, pType, true, CurveConstants.ScaleTo100), unit, pType)
@@ -1028,13 +1075,13 @@ end
 ns._RFLevelInto = function(fs, unit)
     local lvl = UnitEffectiveLevel(unit)
     if issecretvalue(lvl) then
-        fs:SetFormattedText("%d", lvl)
+        EllesmereUI.FormattedText:Write(fs, "%d", lvl)
     elseif not lvl or lvl == 0 then
-        fs:SetText("")
+        EllesmereUI.FormattedText:WriteText(fs, "")
     elseif lvl < 0 then
-        fs:SetText("??")
+        EllesmereUI.FormattedText:WriteText(fs, "??")
     else
-        fs:SetFormattedText("%d", lvl)
+        EllesmereUI.FormattedText:Write(fs, "%d", lvl)
     end
 end
 
@@ -1053,15 +1100,15 @@ ns._RFNameWithLevel = function(fs, name, unit, fmt)
     local lvl = UnitEffectiveLevel(unit)
     local nameKnown = issecretvalue(name) or (name ~= nil and name ~= "")
     if not nameKnown then
-        fs:SetText(name)
+        EllesmereUI.FormattedText:WriteText(fs, name)
     elseif issecretvalue(lvl) then
-        fs:SetFormattedText(fmt[1], lvl, name)
+        EllesmereUI.FormattedText:Write(fs, fmt[1], lvl, name)
     elseif not lvl or lvl == 0 then
-        fs:SetText(name)
+        EllesmereUI.FormattedText:WriteText(fs, name)
     elseif lvl < 0 then
-        fs:SetFormattedText(fmt[2], name)
+        EllesmereUI.FormattedText:Write(fs, fmt[2], name)
     else
-        fs:SetFormattedText(fmt[1], lvl, name)
+        EllesmereUI.FormattedText:Write(fs, fmt[1], lvl, name)
     end
 end
 

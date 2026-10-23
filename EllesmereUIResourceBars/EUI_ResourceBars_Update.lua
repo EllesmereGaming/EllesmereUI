@@ -73,6 +73,9 @@ I.UpdateGCDBarSetters[#I.UpdateGCDBarSetters + 1] = function(v) UpdateGCDBar = v
 -- (EllesmereUI_NumberFormat.lua). On ns, not a local:
 -- the druid mana bar file reads it too.
 ns.AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
+local FT = EllesmereUI.FormattedText
+local HEALTH_READS, POWER_READS = { hp = true }, { pp = true }
+
 local function UpdateHealthBar()
     if not healthBar or not healthBar:IsShown() then return end
     local hp = _G._ERB_ResolveHealthCfg()
@@ -181,10 +184,11 @@ local function UpdateHealthBar()
 
     if hp.textFormat ~= "none" and not _G._ERB_TextHiddenByForm(hp) then
         local fmt = hp.textFormat
-        local pctStr = format("%d", pctRaw)
-        local curStr = ns.AbbreviateNumbers(cur)
+        local pctStr = fmt ~= "custom" and format("%d", pctRaw) or ""
+        local curStr = fmt ~= "custom" and ns.AbbreviateNumbers(cur) or ""
         local txt
-        if fmt == "both" then
+        if fmt == "custom" then txt = ""
+        elseif fmt == "both" then
             txt = curStr .. " | " .. pctStr .. "%"
         elseif fmt == "curhpshort" then
             txt = curStr
@@ -199,10 +203,10 @@ local function UpdateHealthBar()
         else
             txt = pctStr .. "%"
         end
-        healthBar._text:SetText(txt)
-        healthBar._text:Show()
+        FT:WriteUnit(healthBar._text, "player", hp.textFormat == "custom" and hp.customTextFormat, HEALTH_READS, nil, "%s", txt)
+        FT:SetShown(healthBar._text, true)
     else
-        healthBar._text:Hide()
+        FT:SetShown(healthBar._text, false)
     end
 end
 
@@ -254,7 +258,7 @@ local function UpdatePrimaryBar()
             primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
             primaryBar:SetValue(0)
             if ns.EMB121_TextOk and ns.EMB121_TextOk() then
-                primaryBar._text:Hide()
+                FT:SetShown(primaryBar._text, false)
                 return
             end
             -- Engine text isn't confirmed live yet (build still queued, or its
@@ -295,10 +299,11 @@ local function UpdatePrimaryBar()
             if fmt == "perpp" then txt = pct .. percentSuffix
             elseif fmt == "both" then txt = timeText .. " | " .. pct .. percentSuffix
             else txt = timeText end
-            primaryBar._text:SetText(txt)
-            primaryBar._text:Show()
+            FT:WriteUnit(primaryBar._text, "player", pp.textFormat == "custom" and pp.customTextFormat, POWER_READS,
+                type(cachedPrimary) == "number" and cachedPrimary or nil, "%s", txt)
+            FT:SetShown(primaryBar._text, true)
         else
-            primaryBar._text:Hide()
+            FT:SetShown(primaryBar._text, false)
         end
         return
     end
@@ -486,9 +491,10 @@ local function UpdatePrimaryBar()
             end
             local fmt = pp.textFormat
             local percentSuffix = (pp.showPercent == false) and "" or "%"
-            local percentText = format("%d", pctRaw) .. percentSuffix
+            local percentText = fmt ~= "custom" and (format("%d", pctRaw) .. percentSuffix) or ""
             local txt
-            if fmt == "smart" then
+            if fmt == "custom" then txt = ""
+            elseif fmt == "smart" then
                 local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)
                 txt = isPercent and percentText or ns.AbbreviateNumbers(cur)
             elseif fmt == "both" then
@@ -502,11 +508,12 @@ local function UpdatePrimaryBar()
             else
                 txt = ns.AbbreviateNumbers(cur)
             end
-            primaryBar._text:SetText(txt)
+            FT:WriteUnit(primaryBar._text, "player", pp.textFormat == "custom" and pp.customTextFormat, POWER_READS,
+                type(cachedPrimary) == "number" and cachedPrimary or nil, "%s", txt)
         end
-        primaryBar._text:Show()
+        FT:SetShown(primaryBar._text, true)
     else
-        primaryBar._text:Hide()
+        FT:SetShown(primaryBar._text, false)
     end
 end
 
@@ -2937,7 +2944,8 @@ ns.EMTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()    i
         if fmt == "perpp" then txt = pct .. percentSuffix
         elseif fmt == "both" then txt = timeText .. " | " .. pct .. percentSuffix
         else txt = timeText end
-        primaryBar._text:SetText(txt)
+        FT:WriteUnit(primaryBar._text, "player", pp.textFormat == "custom" and pp.customTextFormat, POWER_READS,
+                type(cachedPrimary) == "number" and cachedPrimary or nil, "%s", txt)
     end
     return remaining > 0
 end, 0.05)

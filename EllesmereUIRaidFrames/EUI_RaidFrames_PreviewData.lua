@@ -47,6 +47,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
     -- _previewSettingsOverride. The real-preview effective overlay (when active) resolves
     -- captured keys to panel-closed values and is NOT tier-scaled, so this holds.
     local s = ns._previewSettingsOverride or ns._pvOverlayProxy or db.profile
+    ns.RF_ConfigureFormattedText(f, s, nil, true)
     local compact = ns.RF_ButtonCompact(f, s)
     local classToken = previewClassTokens[index] or ns._PV_CLASS_TOKENS[((index - 1) % #ns._PV_CLASS_TOKENS) + 1]
     local playerSlot = previewRoles._playerSlot or 1
@@ -126,9 +127,9 @@ local function ApplyPreviewData(f, index, roles, classTokens)
     if f._topNameBarText and s.topNameBarEnabled then
         local attach = ns.RF_LEVEL_ATTACH[s.levelTextPosition or ns.RF_LEVEL_DEFAULT]
         if attach then
-            f._topNameBarText:SetFormattedText(attach[1], ns._RFPreviewLevel(), name)
+            EllesmereUI.FormattedText:Write(f._topNameBarText, attach[1], ns._RFPreviewLevel(), name)
         else
-            f._topNameBarText:SetText(name)
+            EllesmereUI.FormattedText:WriteText(f._topNameBarText, name)
         end
         if (s.topNameBarTextColorMode or "class") == "custom" then
             local c = s.topNameBarTextColor or { r = 1, g = 1, b = 1 }
@@ -1169,9 +1170,9 @@ local function ApplyPreviewData(f, index, roles, classTokens)
         f._nameText:ClearAllPoints()
         local pos = s.namePosition or "center"
         if pos == "none" or s.topNameBarEnabled then
-            f._nameText:Hide()
+            EllesmereUI.FormattedText:SetShown(f._nameText, false)
         else
-        f._nameText:Show()
+        EllesmereUI.FormattedText:SetShown(f._nameText, true)
         local ox = s.nameOffsetX or 0
         local oy = s.nameOffsetY or 0
         f._nameText:SetWidth((s.frameWidth or 72) * ns.RF_NAME_WIDTH_FRACTION)
@@ -1206,13 +1207,13 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             f._nameText:SetJustifyH("CENTER"); f._nameText:SetJustifyV("MIDDLE")
         end
         -- Force text re-render (WoW doesn't visually re-layout on JustifyH change alone)
-        f._nameText:SetText("")
+        EllesmereUI.FormattedText:WriteText(f._nameText, "")
         local attach = ns.RF_LEVEL_ATTACH[s.levelTextPosition or ns.RF_LEVEL_DEFAULT]
         local pvName = ns.RF_FormatName and ns.RF_FormatName(name, s) or name
         if attach then
-            f._nameText:SetFormattedText(attach[1], ns._RFPreviewLevel(), ns.CapName(pvName, s))
+            EllesmereUI.FormattedText:Write(f._nameText, attach[1], ns._RFPreviewLevel(), ns.CapName(pvName, s))
         else
-            f._nameText:SetText(ns.CapName(pvName, s))
+            EllesmereUI.FormattedText:WriteText(f._nameText, ns.CapName(pvName, s))
         end
         ApplyFont(f._nameText, s.nameSize or 10)
         f._nameText:SetTextColor(ns.RF_PreviewTextColor(s.nameColorMode or "class",
@@ -1289,8 +1290,8 @@ local function ApplyPreviewData(f, index, roles, classTokens)
         end
         -- Force text re-render (WoW doesn't visually re-layout on JustifyH change alone)
         local htTxt = f._healthText:GetText()
-        f._healthText:SetText("")
-        f._healthText:SetText(htTxt or "")
+        EllesmereUI.FormattedText:WriteText(f._healthText, "")
+        EllesmereUI.FormattedText:WriteText(f._healthText, htTxt or "")
         local mode = s.healthTextMode or "none"
         -- Dead and offline sample members keep only the missing amount.
         if (isDead or isOffline) and mode ~= "missing" then mode = "none" end
@@ -1316,7 +1317,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
                 s.healAbsorbTextCustomColor, classToken, 1, 0.3, 0.3)
             f._healAbsorbText:SetTextColor(hr, hg, hb, 0.9)
         else
-            f._healAbsorbText:SetText("")
+            EllesmereUI.FormattedText:WriteText(f._healAbsorbText, "")
         end
     end
 
@@ -1327,7 +1328,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
     if f._powerText then
         local pwtMode = s.powerTextMode or "none"
         if hidePower or pwtMode == "none" or isDead or isOffline then
-            f._powerText:Hide()
+            EllesmereUI.FormattedText:SetShown(f._powerText, false)
             f._pwtMode = nil
         else
             ApplyFont(f._powerText, s.powerTextSize or 8)
@@ -1340,7 +1341,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             local pr, pg, pb = ns.RF_PreviewTextColor(s.powerTextColorMode or "custom",
                 s.powerTextCustomColor, classToken, 1, 1, 1, pwtTok)
             f._powerText:SetTextColor(pr, pg, pb, 0.9)
-            f._powerText:Show()
+            EllesmereUI.FormattedText:SetShown(f._powerText, true)
             f._pwtMode = pwtMode
         end
     end
@@ -1518,6 +1519,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
 
     -- Debuff/defensive preview icons managed by PvAuraTicker (cycling system)
 
+    ns.RF_RefreshFormattedText(f)
     f:Show()
 end
 

@@ -1538,6 +1538,12 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
     do
         local rgn = row._leftRegion
         local nameRows = {
+            EllesmereUI.FormattedText:ConfigureCogContent({ type="dropdown", label="Name Content",
+                values={ default="Unit Name" }, order={ "default" },
+                get=function() return SVal("nameCustomFormat") and "custom" or "default" end,
+                set=function(v) if v ~= "custom" then SSet("nameCustomFormat", false) end end }, {
+                get=function() return SVal("nameCustomFormat") end,
+                set=function(v) SSet("nameCustomFormat", v) end }),
             { type="slider", label="Max Characters (0=off)", min=0, max=30, step=1,
               get=function() return SVal("nameMaxLength", 15) end,
               set=function(v) SSet("nameMaxLength", v) end },
@@ -1571,12 +1577,12 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
         or { type="dropdown", text="Name Position", values=namePositionValuesName, order=namePositionOrderName,
           getValue=function() return SVal("namePosition", "center") end,
           setValue=function(v) SSet("namePosition", v) end },
-        { type="dropdown", text="Health Text", values=healthTextValues, order=healthTextOrder,
+        EllesmereUI.FormattedText:ConfigureContent({ type="dropdown", text="Health Text", values=healthTextValues, order=healthTextOrder,
           getValue=function() return SVal("healthTextMode", "none") end,
           -- Rebuilds the page on the None <-> not-None flip so the Position/Size row below appears/vanishes.
           setValue=EllesmereUI.DependentSetValue(
               function() return SVal("healthTextMode", "none") ~= "none" end,
-              function(v) SSet("healthTextMode", v) end) });  y = y - h
+              function(v) SSet("healthTextMode", v) end) }, { get=function() return SVal("healthTextCustomFormat") end, set=function(v) SSet("healthTextCustomFormat", v) end }));  y = y - h
     do
         local rgn = row._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
@@ -1722,14 +1728,14 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
         local function PTOff() return IsPowerOff() or SVal("powerTextMode", "none") == "none" end
         local function PTReq() return IsPowerOff() and "Show Power Bar For" or "Power Text" end
         row, h = W:DualRow(parent, y,
-            { type="dropdown", text="Power Text",
+            EllesmereUI.FormattedText:ConfigureContent({ type="dropdown", text="Power Text",
               values={ ["none"]="None", ["percent"]="Percent", ["percentNoSign"]="Percent (No Sign)",
                        ["number"]="Number", ["numberPercent"]="Number | Percent", ["percentNumber"]="Percent | Number" },
               order={ "none", "percent", "percentNoSign", "number", "numberPercent", "percentNumber" },
               disabled=IsPowerOff,
               disabledTooltip="Show Power Bar For",
               getValue=function() return SVal("powerTextMode", "none") end,
-              setValue=function(v) SSet("powerTextMode", v); EllesmereUI:RefreshPage() end },
+              setValue=function(v) SSet("powerTextMode", v); EllesmereUI:RefreshPage() end }, { get=function() return SVal("powerTextCustomFormat") end, set=function(v) SSet("powerTextCustomFormat", v) end }),
             { type="slider", text="Power Text Size", min=6, max=26, step=1,
               disabled=PTOff,
               disabledTooltip=PTReq,
@@ -1829,14 +1835,14 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
 
     -- Heal Absorb Text (+swatches) | Heal Absorb Text Position (+offset cog); Heal Absorb Text Size row is 1:1 with Health Text. Shows the heal-absorb shield amount (short/full), hidden at zero.
     row, h = W:DualRow(parent, y,
-        { type="dropdown", text="Heal Absorb Text",
+        EllesmereUI.FormattedText:ConfigureContent({ type="dropdown", text="Heal Absorb Text",
           values={ ["none"]="None", ["short"]="Short (240k)", ["amount"]="Amount" },
           order={ "none", "short", "amount" },
           getValue=function() return SVal("healAbsorbTextMode", "none") end,
           -- Rebuilds the page on the None <-> not-None flip so the Text Size row below appears/vanishes.
           setValue=EllesmereUI.DependentSetValue(
               function() return SVal("healAbsorbTextMode", "none") ~= "none" end,
-              function(v) SSet("healAbsorbTextMode", v); EllesmereUI:RefreshPage() end) },
+              function(v) SSet("healAbsorbTextMode", v); EllesmereUI:RefreshPage() end) }, { get=function() return SVal("healAbsorbTextCustomFormat") end, set=function(v) SSet("healAbsorbTextCustomFormat", v) end }),
         { type="dropdown", text="Heal Absorb Text Position", values=namePositionValues, order=namePositionOrder,
           disabled=function() return SVal("healAbsorbTextMode", "none") == "none" end,
           disabledTooltip="Heal Absorb Text",

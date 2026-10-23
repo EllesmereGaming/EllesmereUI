@@ -162,7 +162,8 @@ local function PT_Paint(frame)
     -- Set again below only for a mob whose colour reads its tap and reaction.
     frame._ptNpc = nil
     if not (u and UnitExists(u)) then return end
-    frame._nameText:SetText(UnitName(u))
+    EUI.FormattedText:ConfigureUnit(frame._nameText, u, PT_Source().nameCustomFormat)
+    EUI.FormattedText:WriteText(frame._nameText, UnitName(u))
     local health, bg, mode = frame._health, frame._bg, PT.mode
     local fillTex = health:GetStatusBarTexture()
     if mode == "dark" then
@@ -190,6 +191,7 @@ local function PT_Paint(frame)
         end
     end
     health:SetValue(GetSafeHealthPercent(u))
+    EUI.FormattedText:Restyle(frame._nameText)
 end
 
 -- Value paint (the ticker and your target's health events), smoothed per Smooth Bars; the Classic
@@ -939,7 +941,8 @@ local function PT_PvFrame(i, parent, s, spec)
     local mock = PT.PV[i]
     health:SetMinMaxValues(0, 100)
     health:SetValue(mock.hp)
-    name:SetText(mock.name)
+    EUI.FormattedText:ConfigurePreview(name, "unit", st.nameCustomFormat)
+    EUI.FormattedText:WriteText(name, mock.name)
     local mode = s.partyTargetHealthColorMode or "class"
     if mode == "dark" then
         local r, g, b, a = EUI.GetDarkModeFill()

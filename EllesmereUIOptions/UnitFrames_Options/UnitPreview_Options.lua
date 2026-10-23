@@ -580,9 +580,22 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             return _pvAbbrev(math.floor(maxHP * 0.08))
         elseif content == "group" then
             return "3"
+        elseif content == "custom" then
+            local FT = EllesmereUI.FormattedText
+            local template = prefix and s and s[prefix .. "CustomFormat"]
+            return FT:Preview(FT:Compile(type(template) == "string" and template or "", "unit"))
         else
             return ""
         end
+    end
+
+    local function ApplyFormattedPreview(fs, content, settings, prefix)
+        local FT = EllesmereUI.FormattedText
+        if content ~= "custom" then FT:Detach(fs, true); return end
+        local display = FT:Attach(fs, { type = "unit", preview = true, managed = true })
+        local template = settings[prefix .. "CustomFormat"]
+        display:SetTemplate(type(template) == "string" and template or "")
+        display:Render()
     end
 
     -- Class color helper for preview
@@ -682,6 +695,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local UF_TEXT_PADDING = 10
                 local ufTW = { both = 75, curhpshort = 38, healthshort = 38, curmaxhp = 75, curmaxpp = 75, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
                 local rightUsed = (ufTW[rc] or 0) + UF_TEXT_PADDING
+                if rc == "custom" and ns.UF_EstimateTextWidth then
+                    rightUsed = ns.UF_EstimateTextWidth(rc, s.rightTextCustomFormat, true)
+                end
                 PP.Width(leftFS, math.max(barW - rightUsed - 10, 20))
             else
                 leftFS:SetWidth(0)
@@ -704,6 +720,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         else
             rightFS:Hide()
         end
+        ApplyFormattedPreview(leftFS, lc, s, "leftText")
+        ApplyFormattedPreview(rightFS, rc, s, "rightText")
+        ApplyFormattedPreview(centerFS, cc, s, "centerText")
+        ApplyFormattedPreview(extraFS, ec, s, "extraText")
     end
     ApplyPreviewTextPositions(settings)
 
@@ -1082,6 +1102,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 PreviewClassColor(btbCenterFS, s.btbCenterClassColor, s.btbCenterColorR, s.btbCenterColorG, s.btbCenterColorB)
                 PreviewPowerColor(btbCenterFS, cc, s.btbCenterPowerColor)
             else btbCenterFS:Hide() end
+
+            ApplyFormattedPreview(btbLeftFS, lc, s, "btbLeft")
+            ApplyFormattedPreview(btbRightFS, rc, s, "btbRight")
+            ApplyFormattedPreview(btbCenterFS, cc, s, "btbCenter")
 
             -- Class icon in BTB preview
             local ciStyle = s.btbClassIcon or "none"
@@ -2695,7 +2719,8 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 else  -- "perpp"
                     ppTxt = ppPctRaw .. ppSuffix
                 end
-                ppPreviewFS:SetText(ppTxt)
+                EllesmereUI.FormattedText:ConfigurePreview(ppPreviewFS, "unit", ppFmt == "custom" and s.powerTextCustomFormat)
+                EllesmereUI.FormattedText:WriteText(ppPreviewFS, ppTxt)
                 if s.powerPercentTextPowerColor then
                     -- EUI global power color (player's current power) as the swatch
                     -- and real frame use, not hardcoded blue.
@@ -2711,9 +2736,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                         ppPreviewFS:SetTextColor(1, 1, 1)
                     end
                 end
-                ppPreviewFS:Show()
+                EllesmereUI.FormattedText:SetShown(ppPreviewFS, true)
+                EllesmereUI.FormattedText:Refresh(ppPreviewFS)
             else
-                ppPreviewFS:Hide()
+                EllesmereUI.FormattedText:SetShown(ppPreviewFS, false)
             end
         end
 

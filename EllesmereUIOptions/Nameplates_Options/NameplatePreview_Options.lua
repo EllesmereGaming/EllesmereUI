@@ -13,6 +13,20 @@ if not ns then return end  -- module disabled: no options page
 -- makes there is handed back to the header's next build.
 local CreateFrame = EllesmereUI._Pool.CreateFrame
 
+local function DrawFormattedPreview(pf, host, health, key, template, font, size, flags, point, anchor, x, y, r, g, b, widthPct)
+    local FT = EllesmereUI.FormattedText
+    pf._formattedSlots = pf._formattedSlots or {}
+    local fs = pf._formattedSlots[key]
+    if not fs then fs = host:CreateFontString(nil, "OVERLAY"); pf._formattedSlots[key] = fs end
+    fs:SetParent(host); fs:SetFont(font, size, flags)
+    fs:ClearAllPoints(); fs:SetPoint(point, health, anchor, x, y)
+    fs:SetJustifyH(point:find("LEFT", 1, true) and "LEFT" or point:find("RIGHT", 1, true) and "RIGHT" or "CENTER")
+    fs:SetTextColor(r, g, b, 1); fs:SetWordWrap(false)
+    fs:SetWidth(widthPct < 100 and health:GetWidth() * widthPct / 100 or 0)
+    FT:ConfigurePreview(fs, "unit", template or "[:name:]")
+    FT:SetShown(fs, true); FT:Refresh(fs)
+end
+
 -- The name slot's Strata, as on the live plate: a slot's text host sits at
 -- level 900 in the slot's strata and the aura icons at 800 in MEDIUM (HIGH with
 -- Raise Strata). MEDIUM keeps the name where the preview's text tier puts it
@@ -1744,6 +1758,9 @@ local function BuildNameplatePreview(parent, parentW)
         local slotBL = DBVal("textSlotBottomLeft") or defaults.textSlotBottomLeft
         local slotBR = DBVal("textSlotBottomRight") or defaults.textSlotBottomRight
 
+        if pf._formattedSlots then
+            for _, fs in pairs(pf._formattedSlots) do EllesmereUI.FormattedText:SetShown(fs, false) end
+        end
         -- Hide all text elements first
         nameFS:Hide()
         hpText:Hide()
@@ -1758,6 +1775,11 @@ local function BuildNameplatePreview(parent, parentW)
 
         -- Helper: position a health-related element in a bar slot
         local function PlaceHealthInBar(element, anchor, point, xOff, yOff, fontSize, cr, cg, cb, slotKey)
+            if element == "custom" then
+                DrawFormattedPreview(pf, healthTextFrame, health, slotKey, DBVal(slotKey .. "CustomFormat"),
+                    fontPath, fontSize, npOutline, point, anchor, xOff, yOff or 0, cr, cg, cb, DBVal(slotKey .. "WidthPct") or 100)
+                return
+            end
             yOff = yOff or 0
             local dec = slotKey and DBVal(slotKey .. "PctDecimal") == true
             if element == "healthPercent" or element == "healthPercentNoSign" then
@@ -1811,6 +1833,12 @@ local function BuildNameplatePreview(parent, parentW)
 
         -- Helper: position a health-related element in the top slot
         local function PlaceHealthOnTop(element, txOff, tyOff, fontSize, cr, cg, cb, slotKey)
+            if element == "custom" then
+                DrawFormattedPreview(pf, topTextFrame, health, slotKey, DBVal(slotKey .. "CustomFormat"),
+                    fontPath, fontSize, npOutline, "BOTTOM", "TOP", txOff, 4 + nameYOff + cpPush + tyOff,
+                    cr, cg, cb, DBVal(slotKey .. "WidthPct") or 100)
+                return
+            end
             txOff = txOff or 0
             tyOff = tyOff or 0
             local dec = slotKey and DBVal(slotKey .. "PctDecimal") == true
@@ -1915,7 +1943,7 @@ local function BuildNameplatePreview(parent, parentW)
                     if info.key ~= nameSlotKey then
                         local el = info.slot
                         if el ~= "none" and not ns.IsNameElement(el) then
-                            usedWidth = usedWidth + ns.EstimateHealthTextWidth(el)
+                            usedWidth = usedWidth + ns.EstimateHealthTextWidth(el, info.key)
                         end
                     end
                 end

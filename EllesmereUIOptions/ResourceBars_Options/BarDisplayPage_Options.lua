@@ -1097,7 +1097,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                           t.enabled = v
                           RefreshFDM(); EllesmereUI:RefreshPage()
                       end },
-                    { type="dropdown", text="Mana Bar Text",
+                    EllesmereUI.FormattedText:ConfigureContent({ type="dropdown", text="Mana Bar Text",
                       disabled = FdmOff,
                       disabledTooltip = FdmOffTip,
                       values = { none = "None", smart = "Smart Text", curpp = "Power Value", curmaxpp = "Power Value / Max", perpp = "Power %", both = "Power Value | Power %" },
@@ -1109,7 +1109,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                           local t = FdmCfg(); if not t then return end
                           t.textFormat = v
                           RefreshFDM(); EllesmereUI:RefreshPage()
-                      end }); y = y - h
+                      end }, { get = function() local c = FdmCfg(); return c and c.customTextFormat end, set = function(v) local c = FdmCfg(); if c then c.customTextFormat = v end end, apply = RefreshFDM })); y = y - h
                 if not EllesmereUI._prebuilding then
                     -- Placement cog: position, gap, height, offsets
                     EllesmereUI.BuildInlineCog(fdmRow._leftRegion, { icon = EllesmereUI.DIRECTIONS_ICON,

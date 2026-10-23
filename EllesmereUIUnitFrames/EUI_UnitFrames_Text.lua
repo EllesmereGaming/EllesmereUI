@@ -1029,6 +1029,44 @@ do
         [P.name] = "id", [P.level] = "id", [P.levelcol] = "id", [P.levelcolall] = "id",
     }
 
+    local FT = EllesmereUI.FormattedText
+    local function FromPiece(piece)
+        return function(ctx) return piece(ctx.unit) end
+    end
+    local CUSTOM_READERS = {
+        levelUncolored = FromPiece(P.level),
+        level = function(ctx)
+            if ctx.settings.levelDifficultyColor then
+                return (ctx.settings.levelDifficultyColorFriendly and P.levelcolall or P.levelcol)(ctx.unit)
+            end
+            return P.level(ctx.unit)
+        end,
+    }
+    local function NameReader(piece)
+        return function(ctx)
+            local value = piece(ctx.unit)
+            if ctx.nameMode and EllesmereUI.IS_FOREVER then
+                return EllesmereUI.ForeverShortName(value, ctx.nameMode)
+            end
+            return value
+        end
+    end
+    CUSTOM_READERS.name, CUSTOM_READERS.target = NameReader(P.name), NameReader(P.tgtname)
+
+    local function CustomZone(frame, fs, prefix, settings)
+        local template = settings[prefix .. "CustomFormat"]
+        if type(template) ~= "string" or template == "" then return end
+        local context = { type = "unit", unit = frame._euiUnit, settings = settings,
+            nameMode = settings[prefix .. "NameFormat"], readers = CUSTOM_READERS, managed = true }
+        local display = FT:Attach(fs, context)
+        local info = display:SetTemplate(template)
+        local z = { fs = fs, formatted = display, static = info.identity, context = context }
+        for key, value in pairs(info.dependencies) do z[key] = value end
+        z.power = z.pp
+        if z.abs or z.habs then z.absany = true end
+        return z
+    end
+
     --- Resolves a content key to (fmt, piecesArray, static) for a zone, or nil
     --- for "none"/unknown. nametotarget builds its settings-closure separator.
     function ns.ContentToZone(content, prefix, settings)
@@ -1093,10 +1131,12 @@ do
     -- a scratch table + unpack (tables carry secrets fine; nothing inspects
     -- them). A value event repaints only the zones that read its value (a
     -- health tick leaves power text and name/level zones alone), each at most
-    -- once per hardware frame: the engine does not collapse this channel, since
+    -- once per value class per hardware frame: the engine does not collapse this channel, since
     -- a health paint must not swallow a power repaint landing in the same frame.
     local scratch = {}
     local GetTime = GetTime
+    local STAMP_KEY = {}
+    for _, valueClass in pairs(VALUE_CLASS) do STAMP_KEY[valueClass] = valueClass .. "At" end
     local function PaintText(frame, unit, event)
         local zones = frame._euiTextZones
         if not zones then return end
@@ -1114,12 +1154,18 @@ do
         local now = GetTime()
         for i = 1, #zones do
             local z = zones[i]
-            if not cls or (not z.static and (z.any or z[cls]) and z.at ~= now) then
-                z.at = now
-                local pieces = z.pieces
-                local n = #pieces
-                for k = 1, n do scratch[k] = pieces[k](unit) end
-                z.fs:SetFormattedText(z.fmt, unpack(scratch, 1, n))
+            if not cls or (not z.static and (z.any or z[cls]) and z[STAMP_KEY[cls]] ~= now) then
+                if cls then z[STAMP_KEY[cls]] = now end
+                if z.formatted then
+                    z.formatted:SetUnit(unit)
+                    z.context.powerType = _G._EUI_ResolvedPowerType[unit]
+                    z.formatted:Render()
+                else
+                    local pieces = z.pieces
+                    local n = #pieces
+                    for k = 1, n do scratch[k] = pieces[k](unit) end
+                    FT:Write(z.fs, z.fmt, unpack(scratch, 1, n))
+                end
             end
         end
     end
@@ -1134,10 +1180,16 @@ do
         for i = 1, #zones do
             local z = zones[i]
             if z.power then
-                local pieces = z.pieces
-                local n = #pieces
-                for k = 1, n do scratch[k] = pieces[k](unit) end
-                z.fs:SetFormattedText(z.fmt, unpack(scratch, 1, n))
+                if z.formatted then
+                    z.formatted:SetUnit(unit)
+                    z.context.powerType = _G._EUI_ResolvedPowerType[unit]
+                    z.formatted:Render()
+                else
+                    local pieces = z.pieces
+                    local n = #pieces
+                    for k = 1, n do scratch[k] = pieces[k](unit) end
+                    FT:Write(z.fs, z.fmt, unpack(scratch, 1, n))
+                end
             end
         end
     end
@@ -1160,6 +1212,19 @@ do
         return z
     end
 
+    local function RemoveTextZone(frame, zones, fs)
+        for i = #zones, 1, -1 do
+            if zones[i].fs == fs then
+                if zones[i].formatted then
+                    zones[i].formatted:Detach()
+                    frame._euiFormattedCount = frame._euiFormattedCount - 1
+                    if frame._euiFormattedCount == 0 then frame._euiFormattedCount = nil end
+                end
+                table.remove(zones, i)
+            end
+        end
+    end
+
     --- Registers/updates one text zone on a frame: resolves the content key
     --- and stores the def the text painter renders. nil/none content removes
     --- the zone (the position code hides the fontstring separately, as
@@ -1169,10 +1234,12 @@ do
         if not zones then zones = {}; frame._euiTextZones = zones end
         local fmt, pieces, static
         if content then fmt, pieces, static = ns.ContentToZone(content, prefix, settings) end
-        for i = #zones, 1, -1 do
-            if zones[i].fs == fs then table.remove(zones, i) end
-        end
-        if fmt then
+        RemoveTextZone(frame, zones, fs)
+        local custom = content == "custom" and CustomZone(frame, fs, prefix, settings)
+        if custom then
+            frame._euiFormattedCount = (frame._euiFormattedCount or 0) + 1
+            zones[#zones + 1] = custom
+        elseif fmt then
             zones[#zones + 1] = MarkReads({ fs = fs, fmt = fmt, pieces = pieces, static = static })
         else
             fs:SetText("")
@@ -1187,9 +1254,7 @@ do
     function ns.SetTextZoneRaw(frame, fs, fmt, pieces)
         local zones = frame._euiTextZones
         if not zones then zones = {}; frame._euiTextZones = zones end
-        for i = #zones, 1, -1 do
-            if zones[i].fs == fs then table.remove(zones, i) end
-        end
+        RemoveTextZone(frame, zones, fs)
         if fmt then
             zones[#zones + 1] = MarkReads({ fs = fs, fmt = fmt, pieces = pieces })
         else

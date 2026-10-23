@@ -2143,32 +2143,39 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
         })
     end
 
-    -- Row 3: Left Text + Right Text
-    sharedBtbTextRow, h = W:DualRow(parent, y,
-        { type="dropdown", text="Left Text", values=btbTextValues, order=btbTextOrder,
-          disabled=function() return not SVal("bottomTextBar", false) end,
-          disabledTooltip="Text Bar",
-          getValue=function() return SVal("btbLeftContent", "none") end,
-          setValue=function(v)
-              SSet("btbLeftContent", v)
-              if v ~= "none" then
-                  if SGet("btbRightContent") == v then SSet("btbRightContent", "none") end
-                  if SGet("btbCenterContent") == v then SSet("btbCenterContent", "none") end
-              end
-              ReloadAndUpdate(); UpdatePreview()
-          end },
-        { type="dropdown", text="Right Text", values=btbTextValues, order=btbTextOrder,
-          disabled=function() return not SVal("bottomTextBar", false) end,
-          disabledTooltip="Text Bar",
-          getValue=function() return SVal("btbRightContent", "none") end,
-          setValue=function(v)
-              SSet("btbRightContent", v)
-              if v ~= "none" then
-                  if SGet("btbLeftContent") == v then SSet("btbLeftContent", "none") end
-                  if SGet("btbCenterContent") == v then SSet("btbCenterContent", "none") end
-              end
-              ReloadAndUpdate(); UpdatePreview()
-          end });  y = y - h
+    local FT = EllesmereUI.FormattedText
+    local function TextContent(cfg, prefix)
+        local key = prefix .. "CustomFormat"
+        return FT:ConfigureContent(cfg, { context = "unit",
+            get = function() return SGet(key) end,
+            set = function(template) SSet(key, template) end,
+            apply = function() ReloadAndUpdate(); UpdatePreview() end })
+    end
+    local btbLeftCfg = TextContent({ type="dropdown", text="Left Text", values=btbTextValues, order=btbTextOrder,
+        disabled=function() return not SVal("bottomTextBar", false) end, disabledTooltip="Text Bar",
+        getValue=function() return SVal("btbLeftContent", "none") end,
+        setValue=function(v)
+            SSet("btbLeftContent", v)
+            if ns.UF_IsUniqueContent(v) then
+                if SGet("btbRightContent") == v then SSet("btbRightContent", "none") end
+                if SGet("btbCenterContent") == v then SSet("btbCenterContent", "none") end
+            end
+            ReloadAndUpdate(); UpdatePreview()
+        end }, "btbLeft")
+    local btbRightCfg = TextContent({ type="dropdown", text="Right Text", values=btbTextValues, order=btbTextOrder,
+        disabled=function() return not SVal("bottomTextBar", false) end, disabledTooltip="Text Bar",
+        getValue=function() return SVal("btbRightContent", "none") end,
+        setValue=function(v)
+            SSet("btbRightContent", v)
+            if ns.UF_IsUniqueContent(v) then
+                if SGet("btbLeftContent") == v then SSet("btbLeftContent", "none") end
+                if SGet("btbCenterContent") == v then SSet("btbCenterContent", "none") end
+            end
+            ReloadAndUpdate(); UpdatePreview()
+        end }, "btbRight")
+    sharedBtbTextRow, h = W:DualRow(parent, y, btbLeftCfg, btbRightCfg); y = y - h
+    FT:CaptureEditor(sharedBtbTextRow._leftRegion, btbLeftCfg)
+    FT:CaptureEditor(sharedBtbTextRow._rightRegion, btbRightCfg)
     -- Inline color swatches on BTB Left Text: Custom + Class (CDM Border Size
     -- pattern). Power Color stays in the cog; the three modes are mutually exclusive.
     if not EllesmereUI._prebuilding then
@@ -2460,7 +2467,11 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
                 getCurrentKey = function() return optState.selectedUnit end,
                 onApply       = function(checkedKeys)
                     local v = UNIT_DB_MAP[optState.selectedUnit]().btbLeftContent or "none"
-                    for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().btbLeftContent = v end
+                    for _, key in ipairs(checkedKeys) do
+                        local dest = UNIT_DB_MAP[key]()
+                        dest.btbLeftContent = v
+                        dest.btbLeftCustomFormat = UNIT_DB_MAP[optState.selectedUnit]().btbLeftCustomFormat
+                    end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end,
             },
@@ -2490,7 +2501,11 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
                 getCurrentKey = function() return optState.selectedUnit end,
                 onApply       = function(checkedKeys)
                     local v = UNIT_DB_MAP[optState.selectedUnit]().btbRightContent or "none"
-                    for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().btbRightContent = v end
+                    for _, key in ipairs(checkedKeys) do
+                        local dest = UNIT_DB_MAP[key]()
+                        dest.btbRightContent = v
+                        dest.btbRightCustomFormat = UNIT_DB_MAP[optState.selectedUnit]().btbRightCustomFormat
+                    end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end,
             },
@@ -2498,24 +2513,24 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
     end
 
     -- Row 4: Center Text + Class Icon
-    sharedBtbCenterRow, h = W:DualRow(parent, y,
-        { type="dropdown", text="Center Text", values=btbTextValues, order=btbTextOrder,
-          disabled=function() return not SVal("bottomTextBar", false) end,
-          disabledTooltip="Text Bar",
-          getValue=function() return SVal("btbCenterContent", "none") end,
-          setValue=function(v)
-              SSet("btbCenterContent", v)
-              if v ~= "none" then
-                  SSet("btbLeftContent", "none")
-                  SSet("btbRightContent", "none")
-              end
-              ReloadAndUpdate(); UpdatePreview()
-          end },
+    local btbCenterCfg = TextContent({ type="dropdown", text="Center Text", values=btbTextValues, order=btbTextOrder,
+        disabled=function() return not SVal("bottomTextBar", false) end, disabledTooltip="Text Bar",
+        getValue=function() return SVal("btbCenterContent", "none") end,
+        setValue=function(v)
+            SSet("btbCenterContent", v)
+            if ns.UF_IsUniqueContent(v) then
+                SSet("btbLeftContent", "none")
+                SSet("btbRightContent", "none")
+            end
+            ReloadAndUpdate(); UpdatePreview()
+        end }, "btbCenter")
+    sharedBtbCenterRow, h = W:DualRow(parent, y, btbCenterCfg,
         { type="dropdown", text="Class Icon", values=classIconValues, order=classIconOrder,
           disabled=function() return not SVal("bottomTextBar", false) end,
           disabledTooltip="Text Bar",
           getValue=function() return SVal("btbClassIcon", "none") end,
           setValue=function(v) SSet("btbClassIcon", v); UpdatePreview() end });  y = y - h
+    FT:CaptureEditor(sharedBtbCenterRow._leftRegion, btbCenterCfg)
     -- Inline color swatches on BTB Center Text: Custom + Class (Power Color stays in
     -- the cog; the three modes are mutually exclusive).
     if not EllesmereUI._prebuilding then
@@ -2697,7 +2712,11 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
                 getCurrentKey = function() return optState.selectedUnit end,
                 onApply       = function(checkedKeys)
                     local v = UNIT_DB_MAP[optState.selectedUnit]().btbCenterContent or "none"
-                    for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().btbCenterContent = v end
+                    for _, key in ipairs(checkedKeys) do
+                        local dest = UNIT_DB_MAP[key]()
+                        dest.btbCenterContent = v
+                        dest.btbCenterCustomFormat = UNIT_DB_MAP[optState.selectedUnit]().btbCenterCustomFormat
+                    end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end,
             },

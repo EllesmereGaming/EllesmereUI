@@ -417,6 +417,7 @@ local function UpdateButton(button)
     if not d.styled then return end
 
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
+    ns.RF_ConfigureFormattedText(d, s, unit)
     -- Restore alpha respecting BM frame alpha + range alpha. nil rangeAlpha = managed by the
     -- secret-safe SetAlphaFromBoolean path; overriding it flashes full alpha until the next
     -- range ticker run (0.2s).
@@ -534,7 +535,7 @@ ns._PaintPower = function(button, d, s, unit)
                     power:Hide()
                     if d.powerBorderFrame and d.powerBorderFrame._powerArtKey then ns.RF_ClearPowerBorderArt(d.powerBorderFrame) end
                     if d.powerBorderFrame then d.powerBorderFrame:Hide() end
-                    if d._pwtMode then d.powerText:Hide(); d._pwtMode = nil end
+                    if d._pwtMode then EllesmereUI.FormattedText:SetShown(d.powerText, false); d._pwtMode = nil end
                     -- Expand health bar to full frame height (minus the Top Name Bar)
                     if d.health then
                         d.health:SetHeight(PixelSnap(frameH - tnbH))
@@ -633,10 +634,11 @@ ns._PaintButtonTail = function(button, d, s, unit)
         if lvlAttach then
             ns._RFNameWithLevel(d.nameText, ResolveDisplayName(unit, true, s), unit, lvlAttach)
         else
-            d.nameText:SetText(ResolveDisplayName(unit, true, s))
+            EllesmereUI.FormattedText:WriteText(d.nameText, ResolveDisplayName(unit, true, s))
         end
         local nr, ng, nb = GetNameColor(unit, s)
         d.nameText:SetTextColor(nr, ng, nb)
+        EllesmereUI.FormattedText:Restyle(d.nameText)
     end
 
     -- Level Text on its own spot, in the name's colour. None or attached, never shown = no call.
@@ -649,91 +651,29 @@ ns._PaintButtonTail = function(button, d, s, unit)
         if lvlAttach then
             ns._RFNameWithLevel(d.topNameBarText, ResolveDisplayName(unit, false, s), unit, lvlAttach)
         else
-            d.topNameBarText:SetText(ResolveDisplayName(unit, false, s))
+            EllesmereUI.FormattedText:WriteText(d.topNameBarText, ResolveDisplayName(unit, false, s))
         end
         local tr, tg, tb = GetTopNameBarColor(unit, s)
         d.topNameBarText:SetTextColor(tr, tg, tb)
+        EllesmereUI.FormattedText:Restyle(d.topNameBarText)
     end
 
     -- Health text
     if d.healthText then
         local mode = s.healthTextMode or "none"
-        -- Hide health %/value while dead/offline (status text shows DEAD/OFFLINE). UnitIsDeadOrGhost
-        -- /UnitIsConnected return clean booleans for group units (only UnitIsAFK can be secret).
-        if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then
-            d.healthText:SetText("")
-        elseif mode == "percent" then
-            local pct = GetSafeHealthPercent(unit)
-            d.healthText:SetFormattedText("%.0f%%", pct)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "percentNoSign" then
-            local pct = GetSafeHealthPercent(unit)
-            d.healthText:SetFormattedText("%.0f", pct)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "number" then
-            local curr = UnitHealth(unit, true)
-            if curr and AbbreviateNumbers then
-                d.healthText:SetText(AbbreviateNumbers(curr))
-            elseif curr then
-                d.healthText:SetFormattedText("%s", curr)
-            end
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "numberPercent" then
-            local curr = UnitHealth(unit, true)
-            local pct = GetSafeHealthPercent(unit)
-            local numStr = (curr and AbbreviateNumbers) and AbbreviateNumbers(curr) or tostring(curr or 0)
-            d.healthText:SetFormattedText("%s | %.0f%%", numStr, pct)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "percentNumber" then
-            local curr = UnitHealth(unit, true)
-            local pct = GetSafeHealthPercent(unit)
-            local numStr = (curr and AbbreviateNumbers) and AbbreviateNumbers(curr) or tostring(curr or 0)
-            d.healthText:SetFormattedText("%.0f%% | %s", pct, numStr)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "missing" then
-            local curr = UnitHealthMissing(unit, true)
-            d.healthText:SetText(C_StringUtil.TruncateWhenZero(curr))
-            if d.healthText:GetText() then
-                if curr and AbbreviateNumbers then
-                    d.healthText:SetText(AbbreviateNumbers(curr))
-                elseif curr then
-                    d.healthText:SetFormattedText("%s", curr)
-                end
-            end
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        else
-            d.healthText:SetText("")
+        local shown = mode ~= "none" and not (UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit))
+        EllesmereUI.FormattedText:SetShown(d.healthText, shown)
+        if shown then
+            local r, g, b = GetHealthTextColor(unit, s)
+            d.healthText:SetTextColor(r, g, b, 0.9)
+            ns.RF_HealthTextInto(d.healthText, mode, GetSafeHealthPercent(unit), unit)
         end
     end
 
     -- Heal absorb text
     if d.healAbsorbText then
         if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then
-            d.healAbsorbText:SetText("")
+            EllesmereUI.FormattedText:SetShown(d.healAbsorbText, false)
         else
             ns.SetHealAbsorbText(d.healAbsorbText, unit, s)
         end
@@ -1336,77 +1276,19 @@ ns._UpdateButtonHealth = function(button, unit)
     -- Health text
     if d.healthText then
         local mode = s.healthTextMode or "none"
-        -- Hide health text while dead/offline (see UpdateButton; matches preview).
-        if deadOrGhost or not connected then
-            d.healthText:SetText("")
-        elseif mode == "percent" then
-            d.healthText:SetFormattedText("%.0f%%", pct)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "percentNoSign" then
-            d.healthText:SetFormattedText("%.0f", pct)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "number" then
-            local curr = UnitHealth(unit, true)
-            if curr and AbbreviateNumbers then
-                d.healthText:SetText(AbbreviateNumbers(curr))
-            elseif curr then
-                d.healthText:SetFormattedText("%s", curr)
-            end
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "numberPercent" then
-            local curr = UnitHealth(unit, true)
-            local numStr = (curr and AbbreviateNumbers) and AbbreviateNumbers(curr) or tostring(curr or 0)
-            d.healthText:SetFormattedText("%s | %.0f%%", numStr, pct)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "percentNumber" then
-            local curr = UnitHealth(unit, true)
-            local numStr = (curr and AbbreviateNumbers) and AbbreviateNumbers(curr) or tostring(curr or 0)
-            d.healthText:SetFormattedText("%.0f%% | %s", pct, numStr)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "missing" then
-            local curr = UnitHealthMissing(unit, true)
-            d.healthText:SetText(C_StringUtil.TruncateWhenZero(curr))
-            if d.healthText:GetText() then
-                if curr and AbbreviateNumbers then
-                    d.healthText:SetText(AbbreviateNumbers(curr))
-                elseif curr then
-                    d.healthText:SetFormattedText("%s", curr)
-                end
-            end
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        else
-            d.healthText:SetText("")
+        local shown = mode ~= "none" and not (deadOrGhost or not connected)
+        EllesmereUI.FormattedText:SetShown(d.healthText, shown)
+        if shown then
+            local r, g, b = GetHealthTextColor(unit, s)
+            d.healthText:SetTextColor(r, g, b, 0.9)
+            ns.RF_HealthTextInto(d.healthText, mode, pct, unit)
         end
     end
 
     -- Heal absorb text
     if d.healAbsorbText then
         if deadOrGhost or not connected then
-            d.healAbsorbText:SetText("")
+            EllesmereUI.FormattedText:SetShown(d.healAbsorbText, false)
         else
             ns.SetHealAbsorbText(d.healAbsorbText, unit, s)
         end

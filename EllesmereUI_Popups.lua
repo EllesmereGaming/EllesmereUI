@@ -912,6 +912,11 @@ end
 --  Usage:  EllesmereUI:ShowInputPopup({ title, message, placeholder, confirmText, cancelText, onConfirm, onCancel })
 --          onConfirm receives the entered text as its first argument. A copy box for
 --          a link: initialText + selectText (starts selected) + hideCancel (one button).
+--          validate(text) returning false keeps the input open without confirming.
+--          infoTooltip (string or function) adds a hover info badge at the top left.
+--          growInput { min, max } adds a wrapping, scrolling text area. content
+--          { height, setup, changed, release } owns a panel below it; resizing
+--          its host keeps a 20-unit gap above the buttons.
 -------------------------------------------------------------------------------
 function EllesmereUI:ShowInputPopup(opts)
     if not self._inputPopup then
@@ -954,6 +959,36 @@ function EllesmereUI:ShowInputPopup(opts)
         local title = MakeFont(popup, 16, "", 1, 1, 1)
         title:SetPoint("TOP", popup, "TOP", 0, -20)
         popup._title = title
+
+        -- Optional header info badge (opts.infoTooltip): hover text only.
+        local info = CreateFrame("Frame", nil, popup)
+        PanelPP.Size(info, 14, 14)
+        PanelPP.Point(info, "TOPLEFT", popup, "TOPLEFT", 20, -20)
+        info:SetFrameLevel(popup:GetFrameLevel() + 3)
+        info:EnableMouse(true)
+        local infoIco = info:CreateTexture(nil, "OVERLAY")
+        infoIco:SetAllPoints()
+        infoIco:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-info.png")
+        infoIco:SetVertexColor(1, 1, 1, 0.6)
+        info:SetScript("OnEnter", function(self)
+            infoIco:SetVertexColor(1, 1, 1, 1)
+            if self._tip then
+                self._tipShown = true
+                EllesmereUI.ShowWidgetTooltip(popup, self._tip, self._tipOptions)
+            end
+        end)
+        local function InfoLeave(self)
+            infoIco:SetVertexColor(1, 1, 1, 0.6)
+            if self._tipShown then
+                self._tipShown = nil
+                EllesmereUI.HideWidgetTooltip()
+            end
+        end
+        info:SetScript("OnLeave", InfoLeave)
+        -- Closing the popup under the cursor: drop the tooltip without relying on OnLeave.
+        info:SetScript("OnHide", InfoLeave)
+        info:Hide()
+        popup._info = info
 
         local msg = MakeFont(popup, 12, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
         msg:SetPoint("TOP", title, "BOTTOM", 0, -8)
@@ -1024,8 +1059,23 @@ function EllesmereUI:ShowInputPopup(opts)
                 local count = strlenutf8 and strlenutf8(text) or #text
                 popup._countLabel:SetText(count .. "/" .. popup._maxCount)
             end
+            if popup._layoutInput then popup._layoutInput() end
+            local content = popup._contentConfig
+            if content and content.changed then content.changed(popup._content, text) end
         end)
         popup._editBox = editBox
+
+        local function ReleaseContent()
+            local content = popup._contentConfig
+            popup._contentConfig = nil
+            if content and content.release then content.release(popup._content) end
+            if popup._content then popup._content:SetScript("OnSizeChanged", nil); popup._content:Hide() end
+        end
+        popup._releaseContent = ReleaseContent
+        dimmer:HookScript("OnHide", function()
+            ReleaseContent()
+            editBox:ClearFocus()
+        end)
 
         -- Optional warning text (shown below the input field)
         local warnLabel = MakeFont(popup, 10, nil, 1, 0.65, 0.2, 0.85)
@@ -1111,9 +1161,10 @@ function EllesmereUI:ShowInputPopup(opts)
         WirePopupEscape(popup, dimmer)
 
         editBox:SetScript("OnEnterPressed", function()
-            if popup._multiline then return end
+            if popup._multiline then editBox:Insert("\n"); return end
             local txt = editBox:GetText()
             if txt and (txt ~= "" or popup._allowEmpty) then
+                if popup._validate and popup._validate(txt) == false then return end
                 -- The callback before the close, as the confirm button runs it.
                 local shown = popup._handle
                 if popup._onConfirmCb then popup._onConfirmCb(txt) end
@@ -1132,6 +1183,15 @@ function EllesmereUI:ShowInputPopup(opts)
     end
 
     local popup = self._inputPopup
+    popup._releaseContent()
+    popup._layoutInput = nil
+    popup._editBox:SetScript("OnSizeChanged", nil)
+    popup._editBox:SetScript("OnCursorChanged", nil)
+    popup:SetWidth(opts.width or 390)
+    popup._msg:SetWidth((opts.width or 390) - 60)
+    popup._inputFrame:SetWidth(opts.inputWidth or 270)
+    popup._warnLabel:SetWidth((opts.width or 390) - 40)
+    popup._scaleWarnLabel:SetWidth((opts.width or 390) - 40)
 
     -- Create-once singleton: its creation-time frame level loses to any FULLSCREEN_DIALOG
     -- frame born later (popup dimmers ~1-11, dropdown menus at 200), which then draws OVER
@@ -1145,6 +1205,9 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._popBgOverlay:SetShown(modern == true)
 
     popup._title:SetText(EllesmereUI.L(opts.title or "Enter Name"))
+    popup._info._tip = opts.infoTooltip
+    popup._info._tipOptions = opts.infoTooltipOptions
+    popup._info:SetShown(opts.infoTooltip ~= nil)
     popup._msg:SetText(EllesmereUI.L(opts.message or ""))
     popup._placeholder:SetText(EllesmereUI.L(opts.placeholder or "Enter name..."))
     popup._cancelBtn._lbl:SetText(EllesmereUI.L(opts.cancelText or "Cancel"))
@@ -1160,6 +1223,7 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._selectText = opts.selectText == true
     popup._onCancel = opts.onDismiss or opts.onCancel or nil
     popup._onConfirmCb = opts.onConfirm or nil
+    popup._validate = opts.validate
     -- This show's request: a confirm closes the popup only while it still shows it.
     local handle = {}
     popup._handle = handle
@@ -1168,6 +1232,14 @@ function EllesmereUI:ShowInputPopup(opts)
 
     popup._editBox:SetMaxLetters(opts.maxLetters or 30)
     popup._editBox:SetMultiLine(popup._multiline)
+    popup._editBox:SetParent(popup._inputFrame)
+    popup._editBox:SetFont(EllesmereUI.EXPRESSWAY, opts.growInput and 13 or 11, "")
+    popup._editBox:SetSpacing(opts.growInput and 4 or 0)
+    if popup._inputScroll then
+        popup._inputScroll:Hide()
+        popup._inputScroll._bar:Hide()
+        popup._inputScroll:SetScrollChild(popup._inputScroll._empty)
+    end
     popup._editBox:SetJustifyV(popup._multiline and "TOP" or "MIDDLE")
     popup._inputFrame:SetHeight(opts.inputHeight or 28)
     popup._editBox:ClearAllPoints()
@@ -1253,6 +1325,102 @@ function EllesmereUI:ShowInputPopup(opts)
 
     popup:SetHeight(194 + math.max(0, (opts.inputHeight or 28) - 28) + extraH + warnH + scaleWarnH)
 
+    local contentH = opts.content and opts.content.height or 0
+    local baseHeight = popup:GetHeight()
+    local function LayoutPopup()
+        if opts.content then
+            local headerH = 20 + popup._title:GetStringHeight() + 8 + popup._msg:GetStringHeight() + 12
+            popup:SetHeight(headerH + popup._inputFrame:GetHeight() + 12 + extraH + warnH + scaleWarnH
+                + popup._content:GetHeight() + 20 + popup._confirmBtn:GetHeight() + popup._btnY)
+        else
+            popup:SetHeight(baseHeight + popup._inputFrame:GetHeight() - (opts.inputHeight or 28))
+        end
+    end
+    if opts.content then
+        if not popup._content then popup._content = CreateFrame("Frame", nil, popup) end
+        local host = popup._content
+        host:ClearAllPoints()
+        host:SetPoint("TOPLEFT", popup._inputFrame, "BOTTOMLEFT", 0, -(12 + extraH + warnH + scaleWarnH))
+        host:SetSize(opts.inputWidth or 270, math.max(1, contentH))
+        host:SetScript("OnSizeChanged", LayoutPopup)
+        popup._contentConfig = opts.content
+        if opts.content.setup then opts.content.setup(host, popup._editBox) end
+        host:Show()
+    end
+    if opts.growInput and popup._multiline then
+        if not popup._inputScroll then
+            local scroll = CreateFrame("ScrollFrame", nil, popup._inputFrame)
+            scroll:SetClipsChildren(true)
+            scroll:EnableMouse(true)
+            scroll:EnableMouseWheel(true)
+            scroll:SetScript("OnMouseWheel", function(self, delta)
+                self:SetVerticalScroll(math.max(0, math.min(self:GetVerticalScrollRange(), self:GetVerticalScroll() - delta * 36)))
+            end)
+            scroll:SetScript("OnMouseDown", function() popup._editBox:SetFocus() end)
+            scroll._empty = CreateFrame("Frame", nil, scroll)
+            scroll._empty:SetSize(1, 1)
+            local bar = CreateFrame("Slider", nil, popup._inputFrame)
+            bar:SetPoint("TOPRIGHT", -5, -12)
+            bar:SetPoint("BOTTOMRIGHT", -5, 22)
+            bar:SetWidth(4)
+            bar:SetOrientation("VERTICAL")
+            bar:SetMinMaxValues(0, 1); bar:SetValueStep(1)
+            bar:SetObeyStepOnDrag(true)
+            bar:SetThumbTexture("Interface\\Buttons\\WHITE8X8")
+            bar:GetThumbTexture():SetColorTexture(1, 1, 1, .35)
+            bar:GetThumbTexture():SetSize(4, 24)
+            bar:SetScript("OnValueChanged", function(_, value) scroll:SetVerticalScroll(value) end)
+            scroll:SetScript("OnVerticalScroll", function(_, value) bar:SetValue(value) end)
+            scroll:SetScript("OnScrollRangeChanged", function(_, _, range)
+                bar:SetMinMaxValues(0, math.max(0, range))
+                bar:SetShown(range > 0)
+            end)
+            scroll._bar = bar
+            popup._inputScroll = scroll
+        end
+        local scroll, box = popup._inputScroll, popup._editBox
+        scroll:ClearAllPoints()
+        scroll:SetPoint("TOPLEFT", popup._inputFrame, "TOPLEFT", 12, -12)
+        scroll:SetPoint("BOTTOMRIGHT", popup._inputFrame, "BOTTOMRIGHT", -18, countInside and 22 or 12)
+        box:SetParent(scroll)
+        box:ClearAllPoints()
+        box:SetPoint("TOPLEFT")
+        box:SetWidth((opts.inputWidth or 270) - 30)
+        scroll:SetScrollChild(box)
+        scroll:SetVerticalScroll(0)
+        scroll:Show()
+        local minHeight = opts.growInput.min or 84
+        local maxHeight = math.max(minHeight, opts.growInput.max or 180)
+        local cursorY, cursorHeight
+        local function RevealCursor()
+            if not cursorY then return end
+            local top = scroll:GetVerticalScroll()
+            if cursorY < top then scroll:SetVerticalScroll(math.max(0, cursorY))
+            elseif cursorY + cursorHeight > top + scroll:GetHeight() then
+                scroll:SetVerticalScroll(math.max(0, cursorY + cursorHeight - scroll:GetHeight()))
+            end
+        end
+        popup._layoutInput = function()
+            local height = math.max(minHeight, math.min(maxHeight, box:GetHeight() + (countInside and 34 or 24)))
+            popup._inputFrame:SetHeight(height)
+            LayoutPopup()
+            scroll:UpdateScrollChildRect()
+            scroll:SetVerticalScroll(math.min(scroll:GetVerticalScroll(), math.max(0, box:GetHeight() - scroll:GetHeight())))
+            RevealCursor()
+        end
+        box:SetScript("OnSizeChanged", popup._layoutInput)
+        box:SetScript("OnCursorChanged", function(_, _, y, _, height)
+            cursorY, cursorHeight = -y, height
+            scroll:UpdateScrollChildRect()
+            RevealCursor()
+        end)
+        popup._layoutInput()
+    else
+        popup._editBox:SetScript("OnSizeChanged", nil)
+        popup._editBox:SetScript("OnCursorChanged", nil)
+        LayoutPopup()
+    end
+
     popup._cancelBtn:SetScript("OnClick", function()
         popup._dimmer:Hide()
         if opts.onCancel then opts.onCancel() end
@@ -1265,6 +1433,7 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._confirmBtn:SetScript("OnClick", function()
         local txt = popup._editBox:GetText()
         if txt and (txt ~= "" or opts.allowEmpty) then
+            if opts.validate and opts.validate(txt) == false then return end
             -- The callback runs before the popup closes, so a reload it asks
             -- for comes first in the click (RequestReload); the popup closes
             -- only while it still shows this request.
@@ -1276,7 +1445,9 @@ function EllesmereUI:ShowInputPopup(opts)
     end)
 
     popup._dimmer:Show()
+    if opts.content and opts.content.changed then opts.content.changed(popup._content, initText, true) end
     C_Timer.After(0.05, function()
+        if popup._handle ~= handle or not popup._dimmer:IsShown() then return end
         popup._editBox:SetFocus()
         if popup._selectText then popup._editBox:HighlightText() end
     end)

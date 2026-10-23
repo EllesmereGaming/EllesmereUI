@@ -666,8 +666,8 @@ local function StyleButton(button)
             healthFS:SetJustifyH("CENTER"); healthFS:SetJustifyV("MIDDLE")
         end
         local txt = healthFS:GetText()
-        healthFS:SetText("")
-        healthFS:SetText(txt or "")
+        EllesmereUI.FormattedText:WriteText(healthFS, "")
+        EllesmereUI.FormattedText:WriteText(healthFS, txt or "")
     end
     AnchorHealthText()
     d.AnchorHealthText = AnchorHealthText
@@ -893,23 +893,23 @@ local function StyleButton(button)
         -- offsets ("None" still hides it; the kit has no Top Name Bar).
         local g = d.kitG
         if g then
-            if pos == "none" then nameFS:Hide(); return end
-            nameFS:Show()
+            if pos == "none" then EllesmereUI.FormattedText:SetShown(nameFS, false); return end
+            EllesmereUI.FormattedText:SetShown(nameFS, true)
             nameFS:SetWidth(g.name.w)
             nameFS:SetHeight(0)
             ns.RF_KitSpot(g.name, nameFS, button, s.nameOffsetX, s.nameOffsetY)
             nameFS:SetJustifyH("LEFT"); nameFS:SetJustifyV(g.name.jv)
             local txt = nameFS:GetText()
-            nameFS:SetText("")
-            nameFS:SetText(txt or "")
+            EllesmereUI.FormattedText:WriteText(nameFS, "")
+            EllesmereUI.FormattedText:WriteText(nameFS, txt or "")
             return
         end
         -- Top Name Bar enabled: it owns the unit name, suppress the in-frame name.
         if pos == "none" or s.topNameBarEnabled then
-            nameFS:Hide()
+            EllesmereUI.FormattedText:SetShown(nameFS, false)
             return
         end
-        nameFS:Show()
+        EllesmereUI.FormattedText:SetShown(nameFS, true)
         local ox = s.nameOffsetX or 0
         local oy = s.nameOffsetY or 0
         nameFS:SetWidth((s.frameWidth or 72) * ns.RF_NAME_WIDTH_FRACTION)
@@ -944,8 +944,8 @@ local function StyleButton(button)
         end
         -- Force text re-render (WoW doesn't visually re-layout on JustifyH change alone)
         local txt = nameFS:GetText()
-        nameFS:SetText("")
-        nameFS:SetText(txt or "")
+        EllesmereUI.FormattedText:WriteText(nameFS, "")
+        EllesmereUI.FormattedText:WriteText(nameFS, txt or "")
     end
     AnchorNameText()
     d.AnchorNameText = AnchorNameText

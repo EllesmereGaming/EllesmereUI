@@ -311,11 +311,11 @@ end
 -- than `t or ""`.
 function ns.ReflowFontString(fs)
     local t = fs:GetText()
-    fs:SetText("")
+    EllesmereUI.FormattedText:WriteText(fs, "")
     if type(t) == "nil" then
-        fs:SetText("")
+        EllesmereUI.FormattedText:WriteText(fs, "")
     else
-        fs:SetText(t)
+        EllesmereUI.FormattedText:WriteText(fs, t)
     end
 end
 
@@ -377,7 +377,7 @@ function NameplateFrame:UpdateCastText(spellName)
         local nameHex = string.format("ff%02x%02x%02x",
             math.floor(nameColor.r * 255 + 0.5), math.floor(nameColor.g * 255 + 0.5),
             math.floor(nameColor.b * 255 + 0.5))
-        self.castName:SetFormattedText("|c" .. nameHex .. "%s - |r%s", spellName, spellTarget)
+        EllesmereUI.FormattedText:Write(self.castName, "|c" .. nameHex .. "%s - |r%s", spellName, spellTarget)
     else
         self.castName:SetText(spellName)
     end
@@ -598,12 +598,12 @@ function NameplateFrame:UpdateToT()
     if not tu then tu = unit .. "target"; ns._npToTUnits[unit] = tu end
     -- No target: a space, so the text keeps its line (top auras and the range
     -- text anchor to it).
-    if not UnitExists(tu) then fs:SetText(" "); return end
+    if not UnitExists(tu) then EllesmereUI.FormattedText:WriteText(fs, " "); return end
     -- WoW Forever joins the surname and applies the slot's Name Format (retail:
     -- the name as is; NP_FormatName is nil there).
     local name = EllesmereUI.WithSurname(UnitName(tu))
     if ns.NP_FormatName then name = ns.NP_FormatName(name, slotKey) end
-    fs:SetText(name)
+    EllesmereUI.FormattedText:WriteText(fs, name)
     if not ns._npToTClass then return end
     local tok
     if UnitIsPlayer(tu) then tok = UnitClassBase(tu) end
@@ -639,6 +639,58 @@ function NameplateFrame:SyncToT(unit)
         self:UnregisterEvent("UNIT_TARGET")
         self._totEv = nil
     end
+end
+
+function NameplateFrame:RefreshFormattedTextUnits()
+    if not self._formattedSlots then return end
+    local FT = EllesmereUI.FormattedText
+    for key, fs in pairs(self._formattedSlots) do
+        if self.unit and GetTextSlot(key) == "custom" then
+            FT:WriteUnit(fs, self.unit, p[key .. "CustomFormat"] or "[:name:]", nil, nil, "%s", "")
+            FT:SetShown(fs, true)
+        else FT:SetShown(fs, false) end
+    end
+end
+
+function NameplateFrame:ApplyFormattedTextSlots()
+    local FT = EllesmereUI.FormattedText
+    for i = 1, #ns.textSlotKeys do
+        local key = ns.textSlotKeys[i]
+        local fs = self._formattedSlots and self._formattedSlots[key]
+        if GetTextSlot(key) == "custom" then
+            if not fs then
+                self._formattedSlots = self._formattedSlots or {}
+                fs = self.healthTextFrame:CreateFontString(nil, "OVERLAY")
+                self._formattedSlots[key] = fs
+                self[key .. "FormattedText"] = fs
+            end
+            fs:SetParent(ns.SlotTextHost(self, key, (p and p[key .. "Strata"]) or "MEDIUM"))
+            SetFSFont(fs, GetTextSlotSize(key), GetNPOutline())
+            local x, y = GetTextSlotOffsets(key)
+            fs:ClearAllPoints()
+            if key == "textSlotTop" then
+                PP.Point(fs, "BOTTOM", self.health, "TOP", x, 4 + GetNameYOffset() + GetClassPowerTopPush(self) + y)
+                fs:SetJustifyH("CENTER")
+            else
+                for j = 1, #HP_BAR_SLOTS do
+                    local slot = HP_BAR_SLOTS[j]
+                    if slot.key == key then
+                        self:PlaceSlotText(fs, slot, x, y)
+                        fs:SetJustifyH(slot.justify or slot.anchor)
+                        break
+                    end
+                end
+            end
+            fs:SetTextColor(GetTextSlotColor(key))
+            local width = (p and p[key .. "WidthPct"]) or 100
+            fs:SetWidth(width < 100 and GetHealthBarWidth() * width / 100 or 0)
+            fs:SetWordWrap(false)
+        elseif fs then
+            FT:Detach(fs, true)
+            FT:SetShown(fs, false)
+        end
+    end
+    self:RefreshFormattedTextUnits()
 end
 
 function NameplateFrame:ApplyHealthTextAppearance()
@@ -718,7 +770,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
             self:PlaceSlotText(fs, slot, txOff, tyOff)
             fs:SetJustifyH(slot.justify or slot.anchor)
             fs:SetTextColor(sr, sg, sb, 1)
-            if isLevel and self.unit then fs:SetText(ns.GetUnitLevelText(self.unit)) end
+            if isLevel and self.unit then EllesmereUI.FormattedText:WriteText(fs, ns.GetUnitLevelText(self.unit)) end
             -- The bottom slots never truncate: no Width % or Wrap there.
             local lwpct = (not slot.bottom and p and p[slot.key .. "WidthPct"]) or 100
             fs:SetWidth(lwpct < 100 and (GetHealthBarWidth() * lwpct / 100) or 0)
@@ -773,7 +825,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
         PP.Point(fs, "BOTTOM", self.health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)
         fs:SetJustifyH("CENTER")
         fs:SetTextColor(tr, tg, tb, 1)
-        if isLevel and self.unit then fs:SetText(ns.GetUnitLevelText(self.unit)) end
+        if isLevel and self.unit then EllesmereUI.FormattedText:WriteText(fs, ns.GetUnitLevelText(self.unit)) end
         local lwpct = (p and p.textSlotTopWidthPct) or 100
         fs:SetWidth(lwpct < 100 and (GetHealthBarWidth() * lwpct / 100) or 0)
         local lwrap = (p and p.textSlotTopWrap) and true or false
@@ -812,6 +864,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
         e.fs:SetMaxLines(wrap and 2 or 1)
     end
     ca._anyDecimal = anyDec
+    self:ApplyFormattedTextSlots()
 end
 
 function NameplateFrame:SetUnit(unit, nameplate)
@@ -821,6 +874,7 @@ function NameplateFrame:SetUnit(unit, nameplate)
     self:ClearAllPoints()
     self:SetPoint("CENTER", nameplate, "CENTER", 0, GetHitboxYShift())
     self:SetFrameLevel(nameplate:GetFrameLevel() + 1)
+    self:RefreshFormattedTextUnits()
     self:Show()
     -- Recycled/fresh plate: forget any prior eased scale so the first ApplyScale snaps instead of growing in from a stale one.
     self._curScale = nil
@@ -936,6 +990,9 @@ function NameplateFrame:SetUnit(unit, nameplate)
     C_Timer.After(0, self._deferredSetupCB)
 end
 function NameplateFrame:ClearUnit()
+    if self._formattedSlots then
+        for _, fs in pairs(self._formattedSlots) do EllesmereUI.FormattedText:SetShown(fs, false) end
+    end
     self:UnregisterAllEvents()
     self._factionEv = nil
     self._totEv = nil
@@ -969,7 +1026,7 @@ function NameplateFrame:ClearUnit()
         NotifyCastEnded(self)
     end
 
-    self.name:SetText("")
+    EllesmereUI.FormattedText:WriteText(self.name, "")
     -- Release this plate's aura-container bundle back to the pool.
     if ns.NPC_DetachPlate then ns.NPC_DetachPlate(self) end
     if ns.DebuffColors_Detach then ns.DebuffColors_Detach(self) end

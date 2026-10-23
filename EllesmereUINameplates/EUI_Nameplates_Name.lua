@@ -63,11 +63,12 @@ function NameplateFrame:UpdateName()
             if ns._npToTSlot or self._totEv then self:SyncToT(actualUnit) end
         end
     end
+    self:RefreshFormattedTextUnits()
     -- Standalone level renders on its own FontString and can share the plate with a
     -- name-family slot. Refreshed here (plate acquire/unit swap) so pooled reuse never stales.
     -- Plain text: its colour is the slot's Text Coloring mode (font string colour).
     if self.levelText and self.levelText:IsShown() then
-        self.levelText:SetText(ns.GetUnitLevelText(unit))
+        EllesmereUI.FormattedText:WriteText(self.levelText, ns.GetUnitLevelText(unit))
     end
     -- Classic WoW UI: the level in the vanilla border's plate.
     if self._classicLevel then ns.NP_UpdateClassicLevel(self) end
@@ -149,7 +150,7 @@ function NameplateFrame:UpdateClassification()
             SetFSFont(self.classText, fsz, GetNPOutline())
             -- SetFormattedText("%s", ...) is the secret-safe text path; the value
             -- was already verified clean (issecretvalue + ^%d+/%d+$) before caching.
-            self.classText:SetFormattedText("%s", objText)
+            EllesmereUI.FormattedText:Write(self.classText, "%s", objText)
             self.classText:Show()
         else
             -- No clean count (quest-giver / percent / secret value) -> icon.
@@ -341,7 +342,7 @@ function NameplateFrame:UpdateNameWidth()
             if key ~= nameSlot then
                 local el = GetTextSlot(key)
                 if el ~= "none" and not ns.IsNameElement(el) then
-                    usedWidth = usedWidth + EstimateHealthTextWidth(el)
+                    usedWidth = usedWidth + EstimateHealthTextWidth(el, key)
                 end
             end
         end

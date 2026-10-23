@@ -121,6 +121,18 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             disabledTooltip = "Requires Name Only setting to be disabled", rawTooltip = true,
             title = "Friendly Nameplate Settings",
             rows = {
+                EllesmereUI.FormattedText:ConfigureCogContent({ type="dropdown", label="Name Content",
+                    values={ default="Unit Name" }, order={ "default" },
+                    get=function() return DBVal("friendlyNameCustomFormat") and "custom" or "default" end,
+                    set=function(v) if v ~= "custom" then DB().friendlyNameCustomFormat=nil; ns.RefreshAllSettings() end end }, {
+                    get=function() return DBVal("friendlyNameCustomFormat") end,
+                    set=function(v) DB().friendlyNameCustomFormat=v; ns.RefreshAllSettings() end }),
+                EllesmereUI.FormattedText:ConfigureCogContent({ type="dropdown", label="Health Content",
+                    values={ default="Percent" }, order={ "default" },
+                    get=function() return DBVal("friendlyHealthCustomFormat") and "custom" or "default" end,
+                    set=function(v) if v ~= "custom" then DB().friendlyHealthCustomFormat=nil; ns.RefreshAllSettings() end end }, {
+                    get=function() return DBVal("friendlyHealthCustomFormat") end,
+                    set=function(v) DB().friendlyHealthCustomFormat=v; ns.RefreshAllSettings() end }),
                 { type = "slider", label = "Distance", min = -50, max = 50, step = 1,
                   get = function() return DBVal("friendlyPlateYOffset") or 0 end,
                   set = function(v) DB().friendlyPlateYOffset = v; if ns.RefreshFriendlyPlateYOffset then ns.RefreshFriendlyPlateYOffset() end end },

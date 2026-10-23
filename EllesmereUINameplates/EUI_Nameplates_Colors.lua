@@ -477,7 +477,8 @@ do
     local COLOR_KEY = {}  -- slot -> its colour key (prebuilt for UpdateToT and the painter)
     for i = 1, #SLOTS do COLOR_KEY[SLOTS[i]] = SLOTS[i] .. "Color" end
     -- The plate font string key an element renders on (nil for None).
-    function ns.NP_ElementFSKey(el)
+    function ns.NP_ElementFSKey(el, slotKey)
+        if el == "custom" and slotKey then return slotKey .. "FormattedText" end
         if ns.IsNameElement(el) then return "name" end
         if el == "level" then return "levelText" end
         if el == "targetOfTarget" then return "totText" end
@@ -502,7 +503,7 @@ do
         local nameSlot = ns.FindNameSlot()
         for i = 1, #SLOTS do
             local s = SLOTS[i]
-            local key = ns.NP_ElementFSKey(GetTextSlot(s))
+            local key = ns.NP_ElementFSKey(GetTextSlot(s), s)
             if key == "totText" then
                 -- Painted by UpdateToT from the target's class, never the plate unit's.
                 ns._npToTSlot = s
@@ -582,6 +583,7 @@ function ns.NP_PaintSlotClassColors(plate, unit, skipName)
                     if e then e[1] = nil end
                     if not (skipName and key == "name") then
                         plate[key]:SetTextColor(sr, sg, sb, 1)
+                        if plate._formattedSlots then EllesmereUI.FormattedText:Restyle(plate[key]) end
                     end
                 end
             end
@@ -606,6 +608,7 @@ function ns.NP_PaintSlotClassColors(plate, unit, skipName)
                 elseif e[1] ~= r or e[2] ~= g or e[3] ~= b then
                     e[1], e[2], e[3] = r, g, b
                     plate[key]:SetTextColor(r, g, b, 1)
+                    if plate._formattedSlots then EllesmereUI.FormattedText:Restyle(plate[key]) end
                 end
             end
         end
@@ -625,10 +628,12 @@ function ns.NP_PaintSlotClassColors(plate, unit, skipName)
                     local ck = ns._npSlotLevelCK[i]
                     local c = (p and p[ck]) or defaults[ck]
                     plate[key]:SetTextColor(c.r, c.g, c.b, 1)
+                    if plate._formattedSlots then EllesmereUI.FormattedText:Restyle(plate[key]) end
                 end
             elseif e[1] ~= r or e[2] ~= g or e[3] ~= b then
                 e[1], e[2], e[3] = r, g, b
                 plate[key]:SetTextColor(r, g, b, 1)
+                if plate._formattedSlots then EllesmereUI.FormattedText:Restyle(plate[key]) end
             end
         end
     end

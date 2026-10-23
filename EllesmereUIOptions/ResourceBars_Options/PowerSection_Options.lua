@@ -676,7 +676,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
 
     local powerTextSizeRow
     powerTextSizeRow, h = W:DualRow(parent, y,
-        { type = "dropdown", text = "Power Text",
+        EllesmereUI.FormattedText:ConfigureContent({ type = "dropdown", text = "Power Text",
           disabled = powerOff,
           disabledTooltip = powerDisTip,
           values = { none = "None", smart = "Smart Text", curpp = "Power Value", curmaxpp = "Power Value / Max", perpp = "Power %", both = "Power Value | Power %" },
@@ -685,7 +685,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
           setValue = function(v)
               local c = cfg(); if not c then return end
               c.textFormat = v; RefreshPower(); EllesmereUI:RefreshPage()
-          end },
+          end }, { get = function() local c = cfg(); return c and c.customTextFormat end, set = function(v) local c = cfg(); if c then c.customTextFormat = v end end, apply = RefreshPower }),
         { type = "multiSwatch", text = "Text Color",
           disabled = powerTextDis,
           disabledTooltip = powerTextDisTip,

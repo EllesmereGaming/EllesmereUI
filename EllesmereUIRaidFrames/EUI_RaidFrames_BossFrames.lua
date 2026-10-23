@@ -328,9 +328,10 @@ end
 FB.PaintName = function(b, unit, s)
     local fs = b._nameText
     if not fs then return end
-    fs:SetText(ResolveDisplayName(unit, true, s))
+    EllesmereUI.FormattedText:WriteText(fs, ResolveDisplayName(unit, true, s))
     local nr, ng, nb = GetNameColor(unit, s)
     fs:SetTextColor(nr, ng, nb)
+    EllesmereUI.FormattedText:Restyle(fs)
 end
 
 -- Health value, health text and heal absorb text. A text set to None is blank: the full paint (full)
@@ -351,11 +352,11 @@ FB.PaintHealth = function(b, unit, s, full)
     local ht, hat = b._healthText, b._healAbsorbText
     local mode = s.healthTextMode or "none"
     if ht and mode == "none" then
-        if full then ht:SetText("") end
+        if full then EllesmereUI.FormattedText:SetShown(ht, false) end
         ht = nil
     end
     if hat and (s.healAbsorbTextMode or "none") == "none" then
-        if full then hat:SetText("") end
+        if full then EllesmereUI.FormattedText:SetShown(hat, false) end
         hat = nil
     end
     if not (ht or hat) then return end
@@ -363,16 +364,17 @@ FB.PaintHealth = function(b, unit, s, full)
 
     if ht then
         if dead then
-            ht:SetText("")
+            EllesmereUI.FormattedText:SetShown(ht, false)
         else
             ns.RF_HealthTextInto(ht, mode, pct, unit)
         end
         local htr, htg, htb = GetHealthTextColor(unit, s)
         ht:SetTextColor(htr, htg, htb, 0.9)
+        EllesmereUI.FormattedText:Restyle(ht)
     end
 
     if hat then
-        if dead then hat:SetText("")
+        if dead then EllesmereUI.FormattedText:SetShown(hat, false)
         else ns.SetHealAbsorbText(hat, unit, s) end
     end
 end
@@ -390,6 +392,7 @@ FB.Update = function(b, owner)
     end
     local s = FB.Source(b)
     FB.PaintBarColor(b, owner or FB, s)
+    ns.RF_ConfigureFormattedText(b, s, unit)
     FB.PaintName(b, unit, s)
     FB.PaintHealth(b, unit, s, true)
     FB.ApplyBorderColor(b)
@@ -670,9 +673,9 @@ FB.StyleVisuals = function(b, s, w, h, texPath, bgc)
     b._healthText:SetHeight(0)
     local namePos = s.namePosition or "center"
     if namePos == "none" then
-        b._nameText:Hide()
+        EllesmereUI.FormattedText:SetShown(b._nameText, false)
     else
-        b._nameText:Show()
+        EllesmereUI.FormattedText:SetShown(b._nameText, true)
         FB.AnchorText(b._nameText, b._health, namePos, s.nameOffsetX or 0, s.nameOffsetY or 0)
     end
     FB.AnchorText(b._healthText, b._health, s.healthTextPosition or "center",

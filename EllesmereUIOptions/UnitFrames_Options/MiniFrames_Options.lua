@@ -659,7 +659,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
           getValue=function() return MVal("leftTextContent", "name") end,
           setValue=function(v)
             settingsTable.leftTextContent = v
-            if v ~= "none" then
+            if ns.UF_IsUniqueContent(v) then
                 if settingsTable.rightTextContent == v then settingsTable.rightTextContent = "none" end
                 if settingsTable.centerTextContent == v then settingsTable.centerTextContent = "none" end
             end
@@ -786,7 +786,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
           getValue=function() return MVal("rightTextContent", "none") end,
           setValue=function(v)
             settingsTable.rightTextContent = v
-            if v ~= "none" then
+            if ns.UF_IsUniqueContent(v) then
                 if settingsTable.leftTextContent == v then settingsTable.leftTextContent = "none" end
                 if settingsTable.centerTextContent == v then settingsTable.centerTextContent = "none" end
             end
@@ -1330,7 +1330,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
         -- the real boss frames AND the preview (runtime already supports boss).
         local pwrTextRow
         pwrTextRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Power Text",
+            EllesmereUI.FormattedText:ConfigureContent({ type="dropdown", text="Power Text",
               values = { ["none"]="None", ["smart"]="Smart Text", ["curpp"]="Power Value", ["perpp"]="Power %", ["both"]="Value | %" },
               order  = { "none", "smart", "curpp", "perpp", "both" },
               getValue=function() return MVal("powerTextFormat", "perpp") end,
@@ -1341,7 +1341,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                   end
                   if v == "none" then settingsTable.powerPercentText = "none" end
                   ReloadAndUpdate(); EllesmereUI:RefreshPage()
-              end },
+              end }, { get = function() return settingsTable.powerTextCustomFormat end, set = function(v) settingsTable.powerTextCustomFormat = v end, apply = ReloadAndUpdate }),
             { type="dropdown", text="Text Position",
               values = { ["none"]="None", ["left"]="Left", ["right"]="Right", ["center"]="Center" },
               order  = { "none", "---", "left", "right", "center" },

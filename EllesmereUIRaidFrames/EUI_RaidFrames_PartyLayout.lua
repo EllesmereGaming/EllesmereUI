@@ -531,7 +531,7 @@ ns.ReloadPartyFrames = function(skipButtons)
         -- Power text: hidden with the bar above (not under the kit, whose mana bar stays shown)
         -- until _UpdateAllPartyButtons below shows it again, and restyled.
         if d.powerText then
-            if not d.kit then d.powerText:Hide(); d._pwtMode = nil end
+            if not d.kit then EllesmereUI.FormattedText:SetShown(d.powerText, false); d._pwtMode = nil end
             ApplyFont(d.powerText, pp.powerTextSize or 8)
             ns._RFAnchorPowerText(d)
         end

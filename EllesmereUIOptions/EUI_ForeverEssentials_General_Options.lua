@@ -39,7 +39,6 @@ local function NameFormatSources()
     local uf = MNS("EllesmereUIUnitFrames")
     local slots = uf and uf.db and uf.UF_NAME_FORMAT_SLOTS
     if slots then
-        local hasName = uf.UF_HAS_NAME
         list[#list + 1] = { text = "Unit Frames", tooltip = "Every unit frame text that shows a name.",
             get = function()
                 local p, shown, all = uf.db.profile, nil, nil
@@ -49,7 +48,7 @@ local function NameFormatSources()
                     if s and uf.GetUnitFrameSource(e.unit) == "eui" then
                         local m = ModeOf(s[e.format])
                         all = Merge(all, m)
-                        if hasName[s[e.content]] and (not e.btb or s.bottomTextBar) then
+                        if uf.UF_ContentShowsName(s[e.content], s[e.custom]) and (not e.btb or s.bottomTextBar) then
                             shown = Merge(shown, m)
                         end
                     end

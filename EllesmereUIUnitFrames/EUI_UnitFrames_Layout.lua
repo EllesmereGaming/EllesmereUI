@@ -175,9 +175,14 @@ local ufTextWidths = {
     absorb      = 38,  -- "12.3 K"
     level       = 24,  -- "80" / "??"
 }
-local function EstimateUFTextWidth(content)
+local function EstimateUFTextWidth(content, customFmt, isRight)
+    if content == "custom" then
+        local FT = EllesmereUI.FormattedText
+        return FT:EstimateWidth(type(customFmt) == "string" and customFmt or "", "unit", isRight) + UF_TEXT_PADDING
+    end
     return (ufTextWidths[content] or 0) + UF_TEXT_PADDING
 end
+ns.UF_EstimateTextWidth = EstimateUFTextWidth
 
 -- Apply class color to a FontString based on the unit.
 local function ApplyClassColor(fs, unit, useClassColor, customR, customG, customB)
@@ -365,6 +370,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         -- Power color: after class color, and re-applied continuously from the
         -- power element's PostUpdateColor (btb._applyBTBPowerColors).
         ApplyBTBPowerColors(s)
+        if frame._euiFormattedCount then ns.UF_PaintText(frame, frame._euiUnit or unit) end
     end
 
     ApplyBTBTextTags(
