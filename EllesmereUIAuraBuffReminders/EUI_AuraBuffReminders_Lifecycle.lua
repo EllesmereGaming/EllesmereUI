@@ -771,6 +771,17 @@ if EABR.FOREVER then
     mainFrame:RegisterEvent("PLAYER_DEAD")
     mainFrame:RegisterEvent("PLAYER_ALIVE")
     mainFrame:RegisterEvent("PLAYER_UNGHOST")
+    -- Class trackers and Find Treasure have no aura edge: their minimap event
+    -- is listened to only while a reminder reads them (EABR.CollectForever).
+    function EABR.FvSyncTrackingEvent(want)
+        if want == (EABR._fvTrackEv or false) then return end
+        EABR._fvTrackEv = want
+        if want then
+            mainFrame:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+        else
+            mainFrame:UnregisterEvent("MINIMAP_UPDATE_TRACKING")
+        end
+    end
 else
 mainFrame:RegisterEvent("ENCOUNTER_START")
 mainFrame:RegisterEvent("ENCOUNTER_END")

@@ -13,13 +13,18 @@ local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 
 -- WoW Forever runs a reduced module: the Raid Buffs section over that client's
 -- four buffs (EABR.CollectForeverRaidBuffs) and one Forever-only section (the
--- Camp Benefits campfire buff plus custom spell IDs) collected by
--- EABR.CollectForever, with every other retail collector, its events and its
--- options sections off. Both values live on EABR, where every split file
--- reads them; retail reads FOREVER as false at each gate and nothing else
--- changes there.
+-- Camp Benefits campfire buff, gathering tracking, Find Treasure and custom
+-- spell IDs) collected by EABR.CollectForever, with every other retail
+-- collector, its events and its options sections off. Both values live on
+-- EABR, where every split file reads them; retail reads FOREVER as false at
+-- each gate and nothing else changes there.
 EABR.FOREVER = EllesmereUI.IS_FOREVER == true
 EABR.CAMP_BENEFITS = 1229741
+-- WoW Forever gathering trackers, in cast preference order: Find Herbs, Find
+-- Minerals. Both are self-buffs there and share one slot with the class
+-- trackers. Find Treasure (Dwarf) is no aura and stacks with any of them.
+EABR.GATHER_TRACKING = { 2383, 2580 }
+EABR.FIND_TREASURE = 2481
 EABR.WELL_FED = 19705
 -- Food buffs not named Well Fed (Grilled Squid, Nightfin Soup, Runn Tum Tuber Surprise,
 -- Dirge's Chops, Blessed Sunfruit and its juice): counted by ID, since their names are

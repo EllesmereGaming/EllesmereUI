@@ -186,6 +186,9 @@ local defaults = {
 if EABR.FOREVER then
     defaults.profile.forever = {
         camp = false,       -- Camp Benefits reminder; opt-in, it shows whenever the buff is missing
+        gather = false,     -- gathering tracking reminder; opt-in, it shows while no tracker is up
+        gatherClassTrack = true,  -- an active class tracking also hides it
+        treasure = false,   -- Find Treasure reminder (Dwarf); opt-in, it shows while it is off
         wellFed = false,    -- Well Fed reminder; opt-in, matched by aura name (every food has its own spell ID)
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added

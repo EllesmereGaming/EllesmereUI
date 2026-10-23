@@ -194,9 +194,35 @@ function EABR.CollectForeverGroups(missing, groups)
     end
 end
 
+-- One pass over the minimap trackers, for those that are no auras there:
+-- whether Find Treasure is up (it stacks with any other tracking) and whether
+-- another spell tracking is (a class one: the gathering ones are already ruled
+-- out by their aura when this runs, and those share one slot with it).
+function EABR.FvTrackingState()
+    local treasure, class = false, false
+    for i = 1, C_Minimap.GetNumTrackingTypes() do
+        local info = C_Minimap.GetTrackingInfo(i)
+        if info and info.active and info.type == "spell" then
+            if info.spellID == EABR.FIND_TREASURE then treasure = true else class = true end
+        end
+    end
+    return treasure, class
+end
+
+-- A cast-on-click reminder for a WoW Forever tracking spell (gathering, Find
+-- Treasure).
+function EABR.FvSpellEntry(missing, id, dismissKey)
+    local e = AcquireEntry()
+    e.mode = "spell"; e.spellID = id
+    e.label = ShortLabel(SpellName(id) or tostring(id))
+    e.cat = "forever"; e.dismissKey = dismissKey
+    missing[#missing+1] = e
+end
+
 -- WoW Forever collector: the Camp Benefits campfire buff, Well Fed (any food
--- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS), the user's spell
--- groups (EABR.CollectForeverGroups) and custom spell IDs, absence only (no
+-- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS), the gathering
+-- and Find Treasure trackers, the user's spell groups
+-- (EABR.CollectForeverGroups) and custom spell IDs, absence only (no
 -- expiry thresholds). A custom ID counts as
 -- up while any spell of its rank family is (EABR.ForeverFamily). Entries are
 -- display-only textures carrying the spell for the tooltip; presence goes
@@ -206,10 +232,13 @@ end
 -- dismiss-key memo keep the pass allocation-free.
 function EABR.CollectForever(missing, inInstance, inPvP, restricted)
     local fo = db.profile.forever
-    if not fo or not EABR.SectionShows(fo.whereToShow, inInstance) then return end
+    if not fo then return end
+    EABR.FvSyncTrackingEvent((fo.gather == true and fo.gatherClassTrack ~= false) or fo.treasure == true)
+    if not EABR.SectionShows(fo.whereToShow, inInstance) then return end
+    local open = not inPvP and not restricted
     local ids = EABR._foreverIDs
     if not ids then ids = {}; EABR._foreverIDs = ids end
-    if fo.camp ~= false and not inPvP and not restricted then
+    if fo.camp ~= false and open then
         ids[1] = EABR.CAMP_BENEFITS
         if not PlayerHasAuraByID(ids) then
             local e = AcquireEntry()
@@ -220,7 +249,32 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
             missing[#missing+1] = e
         end
     end
-    if fo.wellFed and not inPvP and not restricted then
+    -- Gathering tracking: shown while no tracker is up and the player knows
+    -- one; the button casts the first one known. The aura read goes first, so
+    -- the common case (a tracker up) skips the rest; class trackers are no
+    -- auras there, so the minimap is asked only once a tracker is known.
+    local scanned, treasureUp, classUp
+    if fo.gather and open and not PlayerHasAuraByID(EABR.GATHER_TRACKING) then
+        local list, id = EABR.GATHER_TRACKING, nil
+        for i = 1, #list do
+            if Known(list[i]) then id = list[i] break end
+        end
+        if id then
+            if fo.gatherClassTrack ~= false then
+                scanned = true
+                treasureUp, classUp = EABR.FvTrackingState()
+            end
+            if not classUp then EABR.FvSpellEntry(missing, id, "forever:gather") end
+        end
+    end
+    -- Find Treasure (Dwarf racial): no aura there, so read from the same
+    -- minimap pass when the gathering check already ran it.
+    local tid = EABR.FIND_TREASURE
+    if fo.treasure and open and Known(tid) then
+        if not scanned then treasureUp = EABR.FvTrackingState() end
+        if not treasureUp then EABR.FvSpellEntry(missing, tid, "forever:treasure") end
+    end
+    if fo.wellFed and open then
         local name = SpellName(EABR.WELL_FED) or "Well Fed"
         local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
         if ok and not isSecret(aura) and not aura and not PlayerHasAuraByID(EABR.FOOD_BUFFS) then
