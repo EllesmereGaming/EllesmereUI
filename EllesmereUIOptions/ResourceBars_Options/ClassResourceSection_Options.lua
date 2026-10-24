@@ -197,6 +197,129 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                 { type = "label", text = "" }
             );  y = y - h
         end
+        local function _IsBrewmasterMonk()
+            local _, cf = UnitClass("player")
+            if cf ~= "MONK" then return false end
+            local s = C_SpecializationInfo.GetSpecialization()
+            local sid = s and C_SpecializationInfo.GetSpecializationInfo(s)
+            return sid == 268
+        end
+        if _IsBrewmasterMonk() then
+            local ES_LABEL = "Brewmaster Monk Extended Stagger Bar"
+            local ES_MAX = ns.EXT_STAGGER_MAX_SCALE or 6
+            local function esOff() local p = DB(); return not (p and p.secondary.brewExtendedStaggerBar) end
+            local function esScale()
+                local p = DB(); if not p then return 4 end
+                return ns.ExtStaggerScale and ns.ExtStaggerScale(p.secondary) or (p.secondary.brewExtendedStaggerScale or 4)
+            end
+            local esRow
+            esRow, h = W:DualRow(parent, y,
+                { type = "toggle", text = ES_LABEL,
+                  tooltip = "Lets the stagger bar run past 100% of your max health. The bar spans Scale steps of 100%, each with its own fill color and an optional divider line. While on, the step colors replace threshold and multi-band coloring, and Scale replaces \"Stagger Full %\".",
+                  getValue = function() local p = DB(); return p and p.secondary.brewExtendedStaggerBar end,
+                  setValue = function(v)
+                      local p = DB(); if not p then return end
+                      p.secondary.brewExtendedStaggerBar = v; RefreshClass()
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type = "slider", text = "Scale", min = ns.EXT_STAGGER_MIN_SCALE or 2, max = ES_MAX, step = 1,
+                  tooltip = "How many 100% stagger steps the bar spans. Scale 4 fills the bar at 400% and puts divider lines at 100%, 200% and 300%.",
+                  disabled = esOff,
+                  disabledTooltip = ES_LABEL,
+                  getValue = esScale,
+                  setValue = function(v)
+                      local p = DB(); if not p then return end
+                      p.secondary.brewExtendedStaggerScale = v; RefreshClass()
+                      EllesmereUI:RefreshPage()
+                  end }
+            );  y = y - h
+            -- Divider lines sit on Scale: Scale positions them
+            if not EllesmereUI._prebuilding then
+                local function divOff()
+                    local p = DB()
+                    return esOff() or not (p and p.secondary.brewExtendedStaggerDividers ~= false)
+                end
+                EllesmereUI.BuildInlineCog(esRow._rightRegion, {
+                    disabled = esOff,
+                    disabledTooltip = ES_LABEL,
+                    title = "Scale Dividers",
+                    rows = {
+                        { type = "toggle", label = "Show Divider Lines",
+                          get = function() local p = DB(); return p and p.secondary.brewExtendedStaggerDividers ~= false end,
+                          set = function(v)
+                              local p = DB(); if not p then return end
+                              p.secondary.brewExtendedStaggerDividers = v; RefreshClass()
+                          end },
+                        { type = "slider", label = "Line Thickness", min = 1, max = 4, step = 1,
+                          disabled = divOff,
+                          disabledTooltip = "Show Divider Lines",
+                          get = function() local p = DB(); return p and p.secondary.brewExtendedStaggerDividerWidth or 1 end,
+                          set = function(v)
+                              local p = DB(); if not p then return end
+                              p.secondary.brewExtendedStaggerDividerWidth = v; RefreshClass()
+                          end },
+                        { type = "colorpicker", label = "Line Color", hasAlpha = true,
+                          disabled = divOff,
+                          disabledTooltip = "Show Divider Lines",
+                          get = function()
+                              local p = DB(); if not p then return 0, 0, 0, 1 end
+                              local c = p.secondary
+                              return c.brewExtendedStaggerDividerR or 0, c.brewExtendedStaggerDividerG or 0,
+                                     c.brewExtendedStaggerDividerB or 0, c.brewExtendedStaggerDividerA or 1
+                          end,
+                          set = function(r, g, b, a)
+                              local p = DB(); if not p then return end
+                              local c = p.secondary
+                              c.brewExtendedStaggerDividerR, c.brewExtendedStaggerDividerG = r, g
+                              c.brewExtendedStaggerDividerB, c.brewExtendedStaggerDividerA = b, a
+                              RefreshClass()
+                          end },
+                    },
+                })
+            end
+            -- One swatch per fixed 100% step; steps above the current Scale lock
+            local esStepTips = {
+                "Step 1: 0% - 100%", "Step 2: 100% - 200%", "Step 3: 200% - 300%",
+                "Step 4: 300% - 400%", "Step 5: 400% - 500%", "Step 6: 500%+",
+            }
+            local esSwatches = {}
+            for i = 1, ES_MAX do
+                local step = i
+                esSwatches[step] = {
+                    tooltip = esStepTips[step], hasAlpha = false,
+                    disabled = function() return step > esScale() end,
+                    disabledTooltip = function()
+                        if esOff() then return ES_LABEL end
+                        return "This step is above the current Scale."
+                    end,
+                    rawTooltip = function() return not esOff() end,
+                    getValue = function()
+                        local p = DB()
+                        local t = p and p.secondary.brewExtendedStaggerColors
+                        local c = t and t[step]
+                        if c then return c.r or 1, c.g or 1, c.b or 1 end
+                        local d = ns.EXT_STAGGER_COLORS and ns.EXT_STAGGER_COLORS[step]
+                        if d then return d[1], d[2], d[3] end
+                        return 1, 1, 1
+                    end,
+                    setValue = function(r, g, b)
+                        local p = DB(); if not p then return end
+                        local t = p.secondary.brewExtendedStaggerColors
+                        if not t then t = {}; p.secondary.brewExtendedStaggerColors = t end
+                        t[step] = { r = r, g = g, b = b }
+                        RefreshClass()
+                    end,
+                }
+            end
+            _, h = W:DualRow(parent, y,
+                { type = "multiSwatch", text = "Scale Colors",
+                  tooltip = "Fill color per 100% stagger step, lowest step first. Steps above the current Scale are unused.",
+                  disabled = esOff,
+                  disabledTooltip = ES_LABEL,
+                  swatches = esSwatches },
+                EllesmereUI.BlankRowCfg()
+            );  y = y - h
+        end
     end
 
     -- Row 1: Show Class Resource | Orientation
@@ -1119,6 +1242,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
             "Thresholds have their own per-spec system and can't be edited while editing a spec group")
 
         -- Vengeance soul fragments and the Prot Ignore Pain bar are SECRET values, so recoloring text cannot work there
+        local ES_CEILING_TIP = "Brewmaster Monk Extended Stagger Bar is on: its Scale decides how far the bar fills."
         local TI_BLOCK_TIP = "Not available for this spec: Vengeance soul fragments and the Protection Ignore Pain bar use secret values that can't be read into a text color, so recoloring the text would have no effect."
         local function HasSpec(ent, id)
             local ids = ent and ent.specIDs
@@ -1298,6 +1422,8 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                 -- "Recolor text instead" no-ops for secret resources (Vengeance soul fragments, Prot Ignore Pain bar)
                 if isVengeance or (isIgnorePain and c.protIgnorePainBar) then r.textBlock = EllesmereUI.L(TI_BLOCK_TIP) end
                 r.barInput = isStagger
+                -- Extended Stagger's Scale owns the ceiling; the stored value returns when it is off
+                if isStagger and c.brewExtendedStaggerBar then r.barBlock = EllesmereUI.L(ES_CEILING_TIP) end
             end,
         })
     end
