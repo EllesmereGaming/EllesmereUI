@@ -174,8 +174,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     --  WORLD MAP (Fade Map While Moving | Show the Game Behind the Map, then
     --  Reveal Unexplored Areas with its color in the cog | Show Zone Levels,
     --  then Show Map Markers with its sets in the cog:
-    --  EllesmereUIForeverEssentials_MapTravel.lua | Show Fishing Skill:
-    --  EllesmereUIForeverEssentials_ZoneLevels.lua)
+    --  EllesmereUIForeverEssentials_MapTravel.lua)
     ---------------------------------------------------------------------------
     local MR = EllesmereUI._MapReveal
     local ZL = EllesmereUI._ZoneLevels
@@ -232,13 +231,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               MT.Apply()
               EllesmereUI:RefreshPage()  -- the cog's disabled state
           end },
-        { type = "toggle", text = "Show Fishing Skill",
-          tooltip = "Shows the fishing skill a zone needs under its name on the world map: red, too low; yellow, fish still get away; green, none do.",
-          getValue = function() return ZL.Get("fishing") end,
-          setValue = function(v)
-              ZL.Cfg().fishing = v
-              ZL.Apply()
-          end }
+        BLANK()
     );  y = y - h
     if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(revealRow._leftRegion, {
@@ -662,23 +655,29 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     });  y = y - h
 
     if not junkOff() then
+        local qualityValues, qualityOrder = _G._EUI_ItemQualityValues(Enum.ItemQuality.Epic)
+        -- Rare and better always need DELETE typed, so the list stops at Uncommon.
+        local oneClickValues, oneClickOrder = _G._EUI_ItemQualityValues(Enum.ItemQuality.Uncommon)
+
         _, h = W:DualRow(parent, y,
             { type = "slider", text = "Items Shown",
               min = 1, max = 6, step = 1, isPercent = false,
               tooltip = "How many junk stacks the window lists.",
               getValue = function() return JI.Get("itemCount") end,
               setValue = function(v) JunkSet("itemCount", v) end },
-            { type = "toggle", text = "Include White Items",
-              tooltip = "Lists white stacks as well as gray ones.",
-              getValue = function() return JI.Get("includeWhite") == true end,
-              setValue = function(v) JunkSet("includeWhite", v) end }
+            { type = "dropdown", text = "Maximum Quality",
+              values = qualityValues, order = qualityOrder,
+              tooltip = "Items above this quality are not shown, unless marked as junk in Bags.",
+              getValue = function() return tostring(JI.Get("maxQuality")) end,
+              setValue = function(v) JunkSet("maxQuality", tonumber(v)) end }
         );  y = y - h
 
         _, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Skip Confirmation for White Items",
-              tooltip = "White stacks delete on the first Ctrl + Left Click instead of the second.",
-              getValue = function() return JI.Get("skipWhiteConfirm") == true end,
-              setValue = function(v) JunkSet("skipWhiteConfirm", v) end },
+            { type = "dropdown", text = "Delete Without Confirming",
+              values = oneClickValues, order = oneClickOrder,
+              tooltip = "Items of this quality and below delete on the first Ctrl + Left Click. Higher-quality items need a second click, and Rare and above also need DELETE typed.",
+              getValue = function() return tostring(JI.Get("oneClickQuality")) end,
+              setValue = function(v) JunkSet("oneClickQuality", tonumber(v)) end },
             { type = "labeledButton", text = "Excluded Items", buttonText = "Clear", width = 90,
               tooltip = "Brings back items you middle-clicked away.",
               onClick = ClearJunkExclusions }
@@ -708,7 +707,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               setValue = function(v) JunkSet("showFreeSlots", v) end }
         );  y = y - h
 
-        -- Only Show When Bag Space Is Low, its threshold in the cog.
+        -- Only Show When Bag Space Is Low (its threshold in the cog) | Use Auctionator Prices
         local lowRow
         lowRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Only Show When Bag Space Is Low",
@@ -718,7 +717,14 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
                   JunkSet("onlyLowBagSpace", v)
                   EllesmereUI:RefreshPage()  -- the cog's disabled state
               end },
-            BLANK()
+            { type = "toggle", text = "Use Auctionator Prices",
+              tooltip = "Prices items from Auctionator scans.",
+              disabled = function()
+                  return EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"].AuctionAPI() == nil
+              end,
+              disabledTooltip = "This option requires Auctionator to be loaded.",
+              getValue = function() return JI.Get("auctionPrices") == true end,
+              setValue = function(v) JunkSet("auctionPrices", v) end }
         );  y = y - h
         if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineCog(lowRow._leftRegion, {
