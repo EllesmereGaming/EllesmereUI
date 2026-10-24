@@ -215,6 +215,7 @@ function Config:NoteMax()
     return (shared and shared.noteMax) or (addon.db and addon.db.noteMaxLength) or 64
 end
 
+
 function Config:CouncilBagsShared()
 
     if shared then return shared.councilBags == true end

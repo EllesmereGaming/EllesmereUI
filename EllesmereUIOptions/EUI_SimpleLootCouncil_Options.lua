@@ -172,8 +172,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
 
-
-    local CHECKS_W = 170
+    local CHECKS_W = 230
     local function ChecksReason(row)
         if row.locked then
             local _, reason = row.locked()
@@ -194,8 +193,48 @@ initFrame:SetScript("OnEvent", function(self)
             values = { __placeholder = "..." }, order = { "__placeholder" },
             getValue = function() return "__placeholder" end, setValue = function() end }, row)
     end
+
+
+
+
+
+    local function MultiselectTips()
+        return {
+            soundNotifications = {
+                responseFrame = EllesmereUI.L("Add a sound notification when the loot response frame opens"),
+                responseTab = EllesmereUI.L("Add a sound notification when the loot response tab label pulses"),
+            },
+        }
+    end
+    local function ChecksItems(row)
+        if row.type ~= "multiselect" then return row.items end
+        local tips = MultiselectTips()[row.id]
+        local items = {}
+        for i, item in ipairs(row.items) do
+            local tip = item.tooltip or (tips and tips[item.key])
+            items[i] = { key = item.key, label = item.text, tooltip = tip }
+        end
+        return items
+    end
+
+
+    local CHECKS_PAD = 80
+    local measure
+    local function ChecksWidth(items)
+        if not measure then
+            measure = UIParent:CreateFontString(nil, "OVERLAY")
+            measure:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 13, "")
+            measure:Hide()
+        end
+        local widest = 0
+        for _, item in ipairs(items) do
+            measure:SetText(item.label or "")
+            widest = math.max(widest, math.ceil(measure:GetStringWidth() or 0))
+        end
+        return widest + CHECKS_PAD
+    end
     local function ChecksDecorator(row)
-        local function Get(key)
+        local items = ChecksItems(row)        local function Get(key)
             if row.lockedValue and row.locked and select(2, row.locked()) then
                 return row.lockedValue(key)
             end
@@ -204,9 +243,10 @@ initFrame:SetScript("OnEvent", function(self)
         return function(region)
             local width = region._control and region._control:GetWidth() or 0
             if width < 50 then width = CHECKS_W end
+            width = math.max(width, ChecksWidth(items))
             if region._control then region._control:Hide() end
             local dd, refresh = EllesmereUI.BuildVisOptsCBDropdown(region, width,
-                region:GetFrameLevel() + 2, row.items, Get,
+                region:GetFrameLevel() + 2, items, Get,
                 function(key, value)
                     if not ChecksReason(row) then row.setValue(key, value) end
                     Invalidate()
@@ -229,7 +269,17 @@ initFrame:SetScript("OnEvent", function(self)
         local btn = (make or CreateFrame)("Button", nil, parent)
         EllesmereUI.PanelPP.Size(btn, width, 24)
         btn:SetFrameLevel(parent:GetFrameLevel() + 5)
-        local _, _, label = EllesmereUI.MakeStyledButton(btn, "", 11, EllesmereUI.WB_COLOURS)
+        local _, border, label = EllesmereUI.MakeStyledButton(btn, "", 11, EllesmereUI.WB_COLOURS)
+
+
+        local function Edge()
+            local c = btn.tone
+            if c then border:SetColor(c[1], c[2], c[3], 1) end
+        end
+        function btn:SetTone(c)
+            btn.tone = c
+            Edge()
+        end
         btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         btn:SetScript("OnClick", function(_, button)
             EllesmereUI.HideWidgetTooltip()
@@ -238,10 +288,12 @@ initFrame:SetScript("OnEvent", function(self)
         local hoverOn, hoverOff = btn:GetScript("OnEnter"), btn:GetScript("OnLeave")
         btn:SetScript("OnEnter", function(b)
             hoverOn(b)
+            Edge()
             if b.tip then EllesmereUI.ShowWidgetTooltip(b, b.tip) end
         end)
         btn:SetScript("OnLeave", function(b)
             hoverOff(b)
+            Edge()
             EllesmereUI.HideWidgetTooltip()
         end)
         btn.Label = label
@@ -332,6 +384,15 @@ initFrame:SetScript("OnEvent", function(self)
 
 
 
+    local TAG_H, TAG_PAD = 24, 9
+    local function FitTag(tag)
+        local width = tag.Label.GetStringWidth and tag.Label:GetStringWidth()
+        if type(width) ~= "number" or (issecretvalue and issecretvalue(width)) then width = 0 end
+        EllesmereUI.PanelPP.Size(tag, math.ceil(width) + TAG_PAD * 2, TAG_H)
+    end
+
+
+
     local function RefreshHeaderTags()
         local slc = SLC()
         if not (slc and bannerLive) then return end
@@ -342,6 +403,8 @@ initFrame:SetScript("OnEvent", function(self)
             local _, liveTone, liveLines = tags.liveTooltip()
             bannerLive.Label:SetText(S.Colorize(S.color[liveTone], tags.liveText))
             bannerLive.tip = table.concat(liveLines, "\n")
+            bannerLive:SetTone(S.color[liveTone])
+            FitTag(bannerLive)
         end
     end
 
@@ -424,7 +487,8 @@ initFrame:SetScript("OnEvent", function(self)
     local ICON_OPEN, ICON_HISTORY = ICONS .. "play.png", ICONS .. "undo.png"
 
 
-    local RANK_ROW_H, RANK_VISIBLE = 36, 5
+
+    local RANK_ROW_H, RANK_VISIBLE = 36, 7
 
     local COUNCIL_CELL_W, COUNCIL_CELL_H, COUNCIL_MAX_LINES, COUNCIL_BOTTOM = 150, 22, 3, 18
     local ML_LABEL_Y, ML_NAME_Y, DIVIDER_Y, LIST_Y = 18, 36, 80, 106
@@ -655,7 +719,8 @@ initFrame:SetScript("OnEvent", function(self)
             })
             OnRefresh(function()
                 cards[1]:SetCardContent(ICON_OPEN, main.openText, main.openDesc())
-                cards[1]:SetPulse(main.live())
+
+                if cards[1].SetPulse then cards[1]:SetPulse(main.live()) end
             end)
             _, h = W:Spacer(parent, y, 14);  y = y - h
 
@@ -673,16 +738,25 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RowBg(block, parent)
             y = y - height
 
-            local activeBadge = EllesmereUI.BuildStatusBadge(block, lootMaster.activeText, nil, {
-                dot = false, tooltip = lootMaster.deactivateTip,
-                onClick = function()
-                    if lootMaster.canDeactivate() then lootMaster.deactivate() end
-                end,
-            })
-            PP.Point(activeBadge, "TOPLEFT", block, "TOPLEFT", 16, -12)
+
+
+
+            local statusTags = Schema.Row("statusTags")
+            local activeTag = StyledTag(block, 90, function(button)
+                if button == "LeftButton" and statusTags.clickActive() then Invalidate() end
+            end)
+            activeTag:Hide()
+            PP.Point(activeTag, "TOPLEFT", block, "TOPLEFT", 16, -12)
             OnRefresh(function()
-                activeBadge:SetShown(lootMaster.active())
-                activeBadge:EnableMouse(lootMaster.canDeactivate())
+                local title, tone, lines = statusTags.activeTooltip()
+
+                if tone == "accent" and not slc.PlayerIsMasterLooter() then tone = "good" end
+                activeTag.Label:SetText(S.Colorize(S.color[tone], lootMaster.activeText))
+                activeTag.tip = table.concat(lines, "\n")
+                activeTag:SetTone(S.color[tone])
+                FitTag(activeTag)
+
+                activeTag:SetShown(title == statusTags.activeText)
             end)
 
 
@@ -813,13 +887,18 @@ initFrame:SetScript("OnEvent", function(self)
 
                     setValue = function(text) spec.setName(index, text) Invalidate() end },
                     function(region)
-                        if region._control then
 
-                            region._control:SetMaxLetters(spec.maxLetters)
+                        if region._label then region._label:SetText("") end
+                        local box = region._control
+                        if box then
+                            box:ClearAllPoints()
+                            PP.Point(box, "LEFT", region, "LEFT", 20, 0)
+
+                            box:SetMaxLetters(spec.maxLetters)
                             if focusResponse == index then
                                 focusResponse = nil
-                                region._control:SetFocus()
-                                region._control:HighlightText()
+                                box:SetFocus()
+                                box:HighlightText()
                             end
                         end
 
@@ -827,8 +906,14 @@ initFrame:SetScript("OnEvent", function(self)
                             getValue = function() return entry.r or 0.8, entry.g or 0.8, entry.b or 0.8, 1 end,
                             setValue = function(r, g, b) spec.setColour(entry, r, g, b) end,
                         } })
+
+                        local swatch = region._lastInline
+                        if box and swatch and swatch ~= box then
+                            swatch:ClearAllPoints()
+                            PP.Point(swatch, "LEFT", box, "RIGHT", 8, 0)
+                        end
                         local requirement = spec.deleteRequirement
-                        EllesmereUI.BuildInlineButton(region, spec.confirmDelete().accept, function()
+                        local delete = EllesmereUI.BuildInlineButton(region, spec.confirmDelete().accept, function()
                             if requirement() then return end
                             local copy = spec.confirmDelete()
                             S.Confirm({ title = copy.title, body = copy.body, accept = copy.accept,
@@ -837,6 +922,20 @@ initFrame:SetScript("OnEvent", function(self)
                                 end })
                         end, { width = 70, disabled = function() return requirement() ~= nil end,
                             disabledTooltip = requirement, rawTooltip = true })
+                        if delete and swatch and swatch ~= box then
+                            delete:ClearAllPoints()
+                            PP.Point(delete, "LEFT", swatch, "RIGHT", 8, 0)
+                        end
+
+
+                        if box and swatch and delete and swatch ~= box then
+                            local total = box:GetWidth() + 8 + swatch:GetWidth() + 8 + delete:GetWidth()
+                            local room = region:GetWidth()
+                            if type(total) == "number" and type(room) == "number" and room > total then
+                                box:ClearAllPoints()
+                                PP.Point(box, "LEFT", region, "LEFT", math.floor((room - total) / 2), 0)
+                            end
+                        end
                     end)
             end
             if #spec.list() < spec.max then
@@ -1172,7 +1271,7 @@ initFrame:SetScript("OnEvent", function(self)
             for _, row in ipairs(section.rows) do
                 if row.hidden and row.hidden() then
 
-                elseif row.type == "checks" then
+                elseif row.type == "checks" or row.type == "multiselect" then
                     Place(ChecksCfg(row), ChecksDecorator(row), row.id, row.dependsOn)
                 elseif row.id == "council" then
                     Flush()

@@ -47,6 +47,7 @@ function Version:IsOlder(a, b) return Version:Compare(a, b) < 0 end
 
 local MAX_VERSION = 16
 
+
 local function ValidVersion(v)
     if type(v) ~= "string" or addon.IsSecret(v) or #v > MAX_VERSION then return false end
     return v:match("^[0-9]+%.[0-9]+%.[0-9]+$") ~= nil
@@ -144,6 +145,8 @@ end
 
 local ML_POLL_COOLDOWN = 60
 local masterPoll = { at = -math.huge, was = false }
+
+
 
 local function PollAsNewMaster()
     local isML = IsInGroup() and addon.PlayerIsMasterLooter() or false

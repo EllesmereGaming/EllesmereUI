@@ -534,7 +534,54 @@ function Storage:GetTradeableItems(cached)
         if entry.category == Storage.KEPT then copy.item.kept = true end
     end
 
+
+    local unowed = {}
+    for id, list in pairs(copies) do
+        for _, copy in ipairs(list) do
+            if not copy.item.owed then
+                unowed[id] = unowed[id] or {}
+                table.insert(unowed[id], copy)
+            end
+        end
+    end
+    for _, copy in pairs(Pair(Storage:GetWon(), unowed)) do
+        copy.item.won = true
+    end
+
     return found
+end
+
+
+
+
+
+
+
+local WON_TTL = 2 * 60 * 60
+local WON_MAX = 64
+local wonListening = false
+
+function Storage:GetWon()
+    local store = addon.db and addon.db.wonCopies
+    if type(store) ~= "table" then return {} end
+    local now = GetServerTime()
+    for i = #store, 1, -1 do
+        local entry = store[i]
+        if type(entry) ~= "table" or type(entry.link) ~= "string"
+            or type(entry.addedAt) ~= "number" or now - entry.addedAt > WON_TTL then
+            table.remove(store, i)
+        end
+    end
+    return store
+end
+
+function Storage:RecordWon(link)
+    if type(link) ~= "string" or not addon.db then return end
+    if type(addon.db.wonCopies) ~= "table" then addon.db.wonCopies = {} end
+    local store = addon.db.wonCopies
+    if #store >= WON_MAX then table.remove(store, 1) end
+    store[#store + 1] = { link = link, addedAt = GetServerTime() }
+    addon.Log:D("Storage", "won copy recorded", link)
 end
 
 
@@ -874,6 +921,8 @@ function Storage:Reconcile(reason)
         local id = entry.link and ItemID(entry.link)
 
         if entry.untradeable then
+
+
             if Aged(entry, now) then drop[i] = "aged" end
         elseif not entry.link or not id then
             drop[i] = "unusable"
@@ -899,6 +948,7 @@ function Storage:Reconcile(reason)
             else
 
 
+
                 if expired then
                     entry.untradeable = Storage:IsEquipped(entry.link) and "equipped"
                         or entry.missingAtAdd and "missing"
@@ -922,7 +972,6 @@ function Storage:Reconcile(reason)
             end
         end
     end
-
     for i = 1, #list do
         local entry = list[i]
         if not drop[i] and not entry.untradeable and entry.category ~= Storage.TO_TRADE then
@@ -941,7 +990,6 @@ function Storage:Reconcile(reason)
             end
         end
     end
-
     for i = 1, #list do
         local entry = list[i]
         local why = entry.untradeable
@@ -1024,4 +1072,14 @@ function Storage:Init()
 
 
     C_Timer.After(0, LoginPrune)
+
+
+    if wonListening then return end
+    wonListening = true
+    addon.Callbacks:Register("ItemDelivered", function(_, winner, item)
+        if type(item) == "table" and not item.simulated and winner
+            and addon.Player:IsSelf(winner) then
+            Storage:RecordWon(item.link)
+        end
+    end)
 end

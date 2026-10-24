@@ -159,6 +159,7 @@ local function Responses()
             return true
         end,
 
+
         setColour = function(entry, r, g, b)
             entry.r, entry.g, entry.b = r, g, b
             addon.Council:RequestBroadcast()
@@ -479,21 +480,25 @@ local function StatusTags()
             "RunStarted", "RunEnded", "RunRecovered" },
 
         heading = T["Status"],
-        activeText = T["Active"],
+        activeText = T["SLC ACTIVE"],
         liveText = T["LIVE"],
         activeReason = ActiveReason,
         declined = Declined,
         opensCouncil = OpensCouncil,
         live = InSession,
 
+        activeShown = function()
+            return Declined() or (addon.Loot and addon.Loot.handling) and true or false
+        end,
+
         activeTone = function()
             if Declined() then return "warn" end
-            return addon.Loot and addon.Loot.handling and "accent" or "textFaint"
+            return "accent"
         end,
 
         activeTooltip = function()
             if Declined() then
-                return T["Active"], "warn", {
+                return T["SLC ACTIVE"], "warn", {
                     T["You declined to take part in this SLC group, so your group-loot funnel is off."],
                     T["Left click to take part"],
                 }
@@ -507,7 +512,7 @@ local function StatusTags()
 
                 lines[2] = ActiveReason()
             end
-            return on and T["Active"] or T["Inactive"], on and "accent" or "textMuted", lines
+            return on and T["SLC ACTIVE"] or T["Inactive"], on and "accent" or "textMuted", lines
         end,
         liveTooltip = function()
             if addon.PlayerIsMasterLooter() then
@@ -666,7 +671,7 @@ local function MainButtons()
                 or T["no loot session is running."])
             return false
         end,
-        historyText = T["Loot History"],
+        historyText = T["Loot history"],
         historyDesc = T["Every award, and the loot each raider has had."],
         openHistory = function() addon.UI.HistoryFrame:Open() end,
     }
@@ -793,7 +798,7 @@ local function Build()
 
             SwitchRow("autoStart", T["Automatically start session on boss kill"],
                 T["When a boss dies, a loot session starts with its drops. Off: start sessions yourself from the Loot queue tab."],
-                function() return db().autoStart ~= false end,
+                function() return db().autoStart == true end,
                 function(v)
                     db().autoStart = v and true or false
                     if addon.AutoStart then addon.AutoStart:Refresh() end
@@ -815,6 +820,28 @@ local function Build()
                 T["Allow loot responses to be sent to you via whisper during a session."],
                 function() return db().whispers.enabled end,
                 function(v) db().whispers.enabled = v end),
+            SwitchRow("responseTab", T["Add loot response frame as a tab in Loot Council frame?"],
+                T["When you are the Loot Master or on the loot council, your loot response is a tab in the Loot Council window. Off: it keeps its own window."],
+                function() return db().responseTab ~= false end,
+                function(v)
+                    db().responseTab = v and true or false
+                    addon.Callbacks:Invalidate("voter")
+                    addon.Callbacks:Invalidate("council")
+                end),
+            Setting({ id = "soundNotifications", type = "multiselect", text = T["Sound notifications"],
+                help = T["Which events play a sound."],
+                items = {
+                    { key = "responseFrame", text = T["Loot response frame"] },
+                    { key = "responseTab", text = T["Loot response tab pulse"] },
+                },
+                getValue = function(key)
+                    local chosen = db().soundNotifications
+                    return type(chosen) ~= "table" or chosen[key] ~= false
+                end,
+                setValue = function(key, v)
+                    if type(db().soundNotifications) ~= "table" then db().soundNotifications = {} end
+                    db().soundNotifications[key] = v and true or false
+                end }),
             Setting({ id = "windowOpacity", type = "slider", text = T["Window Opacity"],
                 help = T["How see-through every Simple Loot Council window is."],
                 min = math.floor(addon.Style.WINDOW_ALPHA_MIN * 100 + 0.5), max = 100, step = 5,
@@ -825,12 +852,12 @@ local function Build()
         { id = "council", title = T["Loot council"], rows = { Council(), CouncilRanks() } },
 
         { id = "voting", title = T["Voting"], rows = {
-            Setting({ id = "councilMay", type = "checks", text = T["Council Members May:"],
+            Setting({ id = "councilMay", type = "checks", text = T["Council Members May Vote For:"],
                 help = T["How council members may vote."],
                 items = {
-                    { key = "selfVote", label = T["Vote for Themselves"],
+                    { key = "selfVote", label = T["Themselves"],
                         tooltip = T["Off: a member cannot vote on their own row."] },
-                    { key = "multiVote", label = T["Vote for Multiple Candidates"],
+                    { key = "multiVote", label = T["Multiple Candidates"],
                         tooltip = T["Off: one candidate per item, per member."] },
                 },
                 getValue = function(key) return db().vote[key] and true or false end,

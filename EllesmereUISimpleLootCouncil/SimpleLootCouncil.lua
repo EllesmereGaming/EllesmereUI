@@ -258,6 +258,8 @@ function OnPlayerLogin()
     Init(addon.UI.RaidPrompt)
     Init(addon.UI.VersionFrame)
     Init(addon.UI.ConfigShareFrame)
+    Init(addon.UI.SessionPanel)
+    Init(addon.UI.MinimapButton)
     Init(addon.UI.Options)
     LogLoginCost()
 
@@ -494,8 +496,10 @@ function addon.ShowHistoryCSV(scope)
             one = "History CSV - %d row",
             other = "History CSV - %d rows",
         }
-    ShowDump(addon.Locale.Format(title, count, count),
-        addon.History:ToCSV(scope))
+    title = addon.Locale.Format(title, count, count)
+    local S = addon.Style
+    if S.PrideActive() then title = S.PrideText(title) end
+    ShowDump(title, addon.History:ToCSV(scope))
 end
 
 SLASH_SIMPLELOOTCOUNCIL1 = "/slc"
@@ -567,6 +571,11 @@ local HELP_TITLE = "|cff478cebSimpleLootCouncil|r"
 local HELP_HEADER = "|cff96c2fa%s|r"
 local HELP_LINE = "  |cff478ceb%s|r - %s"
 
+local SHORT_COMMANDS = { l = "log", e = "end", s = "start" }
+local LOG_SHORT = { h = "history" }
+local SHORT_OF = {}
+for short, full in pairs(SHORT_COMMANDS) do SHORT_OF[full] = short end
+
 local function HelpSections(dev)
     if dev then
         return {
@@ -578,6 +587,7 @@ local function HelpSections(dev)
                     or addon.Locale.Format(
                         T["simulated run; a count of 1-%d draws at random from %d classic raid items, no argument gives 3; a link is attributed to its boss and difficulty from the Adventure Guide and its upgrade track, 'from' overrides (any case, partial name)"],
                         addon.TestLoot.MAX, addon.TestLoot:Count()) },
+                { T["grouptest [on / off]"], T["allow a session in a party (nothing automatic)"] },
                 { T["ftest [<count>]"], addon.Locale.Format(
                     T["simulated run of 1-%d items from %d rare dungeon boss drops that WoW: Forever serves; no argument gives 3"],
                     addon.TestLoot.MAX, addon.TestLoot:DungeonCount()), devTools = true },
@@ -614,17 +624,18 @@ local function HelpSections(dev)
             { T["on / off"], T["use SLC for this group, or stop"] },
             { T["council [add / remove <name>]"], T["manage the council"] },
             { "resend", T["push the council and settings again"] },
-            { T["lootmaster [<name> / clear]"], T["delegate loot (alt. lm)"] },
+            { T["lootmaster / lm [<name> / clear]"], T["delegate loot"] },
             { T["alt [<alt> <main> / remove <alt>]"], T["link an alt to its main"] },
         },
         { T["Running loot"],
             { T["additem <link>"], T["queue an item"] },
-            { "queue", T["staging window (alt. q)"] },
+            { T["queue / q"], T["staging window"] },
             { "start", T["start a run on the queued items"] },
-            { "vote", T["reopen the council window (alt. v)"] },
-            { "response", T["reopen your response window (alt. r)"] },
+            { T["vote / v"], T["reopen the council window"] },
+            { T["response / r"], T["reopen your response window"] },
+            { T["session / sess"], T["your view of the run"] },
             { T["roll [ask / random / clear]"], T["rolls on unawarded items"] },
-            { T["whisper [text]"], T["the whisper fallback (alt. w)"] },
+            { T["whisper / w [text]"], T["the whisper fallback"] },
             { "end", T["end the run"] },
             { "clear", T["discard the staged items"] },
             { "simc", T["SimC lines for the run's items, to copy"], retailOnly = true },
@@ -635,11 +646,12 @@ local function HelpSections(dev)
             { "held", T["items you owe or hold"] },
             { T["trade [name]"], T["trade someone you owe"] },
             { "trades", T["the Loot to Trade window"] },
-            { "history", T["loot history browser (alt. h)"] },
+            { T["minimap / mm"], T["show or hide the minimap button"] },
+            { T["history / h"], T["loot history browser"] },
             { T["csv [slc] [comma / semicolon]"], T["export history"] },
-            { T["team [season [date / clear]]"], T["raid team loot (alt. t)"] },
-            { T["attendance [name / nights]"], T["attendance (alt. att)"] },
-            { "version", T["the Raid versions window (alt. ver)"] },
+            { T["team / t [season [date / clear]]"], T["raid team loot"] },
+            { T["attendance / att [name / nights]"], T["attendance"] },
+            { T["version / ver"], T["the Raid versions window"] },
             { "log", T["the diagnostic log, copyable"] },
         },
     }
@@ -650,14 +662,20 @@ local function HelpLine(command, text)
 end
 
 local function PrintHelp(dev)
-    addon.Chat.Raw(dev and (HELP_TITLE .. " - " .. T["developer commands"]) or HELP_TITLE)
+    addon.Chat.Raw(dev and addon.Locale.Format(T["%s - developer commands"], HELP_TITLE) or HELP_TITLE)
     for _, section in ipairs(HelpSections(dev)) do
         addon.Chat.Raw(HELP_HEADER:format(section[1]))
         for i = 2, #section do
 
             if not (addon.IsForever and section[i].retailOnly)
                 and (addon.DEV_TOOLS or not section[i].devTools) then
-                HelpLine(section[i][1], section[i][2])
+                local command = section[i][1]
+                if SHORT_OF[command] then
+                    command = command .. " / " .. SHORT_OF[command]
+                elseif command == T["log history"] then
+                    command = command .. " / " .. SHORT_OF.log .. " " .. next(LOG_SHORT)
+                end
+                HelpLine(command, section[i][2])
             end
         end
     end
@@ -674,9 +692,36 @@ local DEV_COMMANDS = {
     item = true, why = true, set = true,
 }
 
+
+
+function SimpleLootCouncil_OnCompartmentClick()
+    local slash = SlashCmdList["SIMPLELOOTCOUNCIL"]
+    if slash then slash("") end
+end
+
+function SimpleLootCouncil_OnCompartmentEnter(_, button)
+    GameTooltip:SetOwner(button, "ANCHOR_LEFT")
+    GameTooltip:AddLine("SimpleLootCouncil")
+    GameTooltip:AddLine(T["Open settings"], 1, 1, 1)
+    GameTooltip:Show()
+end
+
+function SimpleLootCouncil_OnCompartmentLeave()
+    GameTooltip:Hide()
+end
+
 SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
     input = input or ""
     local cmd = input:lower():match("^(%S*)")
+
+    local full = SHORT_COMMANDS[cmd]
+    if full then
+        local rest = input:match("^%S+%s*(.*)$")
+        local word = full == "log" and rest:lower():match("^(%S+)")
+        if word and LOG_SHORT[word] then rest = LOG_SHORT[word] .. rest:sub(#word + 1) end
+        input = rest ~= "" and (full .. " " .. rest) or full
+        cmd = full
+    end
     if not addon.DEV_TOOLS and DEV_COMMANDS[cmd] then
         Print(addon.Locale.Format(T["unknown command '%s' - /slc help for the list"], (cmd:gsub("|", "||"))))
         return
@@ -702,11 +747,14 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             return
         end
 
-        local count = ("%d lines"):format(#entries)
+        local level = addon.Log:GetDetail()
+        local count = ("%d lines - %s"):format(#entries, level:sub(1, 1):upper() .. level:sub(2))
         if wantAll then
-            ShowDump("Log - full history", table.concat(entries, "\n"), count)
+            ShowDump(addon.Style.PrideActive() and "Gay log - full history" or "Log - full history",
+                table.concat(entries, "\n"), count)
         else
-            ShowDump("Log - this session (/slc log history for all)",
+            ShowDump(addon.Style.PrideActive() and "Gay log - this session"
+                or "Log - this session (/slc log history for all)",
                 table.concat(entries, "\n"), count)
         end
 
@@ -1022,6 +1070,12 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
                 link))
             return
         end
+        if not addon.Session:MayStage() then
+            Print(addon.Locale.Format(
+                T["could not queue %s - only the Loot Master and council members can queue items."],
+                link))
+            return
+        end
 
 
 
@@ -1138,7 +1192,7 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
 
         local function StartNow()
             local ok, countOrWhy = addon.Session:StartTest(links, count,
-                anySource and sources or nil)
+                anySource and sources or nil, true)
             if not ok then
                 Print(addon.Locale.Format(T["could not start simulated run - %s"],
                     tostring(countOrWhy)))
@@ -1231,7 +1285,8 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             Print(T["no run is active."])
             return
         end
-        if not addon.UI.VoterFrame:Open() then
+        local shown = addon.UI.VoterFrame:Toggle()
+        if shown ~= "closed" and not shown then
             Print(T["nothing in this run is waiting for your answer."])
         end
 
@@ -1396,12 +1451,14 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         local items = addon.Storage:GetTradeableItems()
 
 
-        local eligible, filtered, owed = {}, {}, {}
+        local eligible, filtered, owed, won = {}, {}, {}, {}
         for _, entry in ipairs(items) do
             if not entry.eligible then
                 filtered[#filtered + 1] = entry
             elseif entry.owed then
                 owed[#owed + 1] = entry
+            elseif entry.won then
+                won[#won + 1] = entry
             else
                 eligible[#eligible + 1] = entry
             end
@@ -1500,6 +1557,10 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
                     entry.link, owedTo)
                 or addon.Locale.Format(T["  -  %s  |cff73716C%dm left, owed to %s|r"],
                     entry.link, math.floor(entry.secondsLeft / 60), owedTo))
+        end
+        for _, entry in ipairs(won) do
+            Print(addon.Locale.Format(T["  -  %s  |cff73716C%dm left,|r |cff96C2FAawarded to you|r"],
+                entry.link, math.floor((entry.secondsLeft or 0) / 60)))
         end
         for _, entry in ipairs(filtered) do
             Print(addon.Locale.Format(T["  -  %s  |cff73716C%dm left, filtered out|r"],
@@ -1719,6 +1780,32 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         end
 
 
+    elseif cmd == "grouptest" then
+        local arg = (input:match("^%S+%s*(.*)$") or ""):lower():match("^%s*(%S*)")
+        if not IsInGroup() or IsInRaid() then
+            if addon.GroupTestActive() then addon.SetGroupTest(false) end
+            Print(T["/slc grouptest needs a party: it is for a group that is not a raid."])
+            return
+        end
+        if not addon.PlayerIsMasterLooter() then
+            Print(T["only the Loot Master can turn the group test on or off."])
+            return
+        end
+        local on
+        if arg == "on" then on = true
+        elseif arg == "off" then on = false
+        else on = not addon.GroupTestActive() end
+        if on then
+            addon.SetGroupTest(true)
+            addon.Loot:SetHandling(true)
+            Print(T["group test is on: sessions work in this party. Nothing starts by itself. /slc grouptest off turns it off."])
+        else
+            addon.Loot:SetHandling(false)
+            addon.SetGroupTest(false)
+            Print(T["group test is off."])
+        end
+
+
     elseif cmd == "ftest" then
         local args = input:match("^%S+%s*(.*)$") or ""
         local count = 3
@@ -1867,6 +1954,17 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         addon.UI.QueueFrame:Toggle()
 
 
+    elseif cmd == "session" or cmd == "sess" then
+        local result = addon.UI.SessionPanel:Toggle()
+        if result == "norun" then
+
+            if addon.Session:IsRunning() then
+                Print(T["you are not in this run - there is nothing to show you."])
+            else
+                Print(T["no run is active."])
+            end
+        end
+
     elseif cmd == "trades" then
 
 
@@ -1874,6 +1972,11 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
 
     elseif cmd == "config" or cmd == "options" then
         addon.UI.Options:Toggle()
+
+    elseif cmd == "minimap" or cmd == "mm" then
+        local button = addon.UI.MinimapButton
+        button:SetShown(not button:IsShown())
+        Print(button:IsShown() and T["minimap button shown."] or T["minimap button hidden."])
 
     elseif cmd == "trade" then
         local who = input:match("^%S+%s+(.+)$")

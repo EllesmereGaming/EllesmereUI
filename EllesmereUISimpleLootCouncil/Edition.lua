@@ -3,6 +3,14 @@ if EUI_CLIENT_BLOCKED then return end
 
 local ADDON_NAME, ns = ...
 
+
+
+local heldBack = EllesmereUI.HELD_BACK_ADDONS
+if heldBack and heldBack[ADDON_NAME] then
+    ns.slcInert = true
+    return
+end
+
 local STANDALONE = "SimpleLootCouncil"
 local FIRST_STAND_DOWN = { 0, 43, 80 }
 

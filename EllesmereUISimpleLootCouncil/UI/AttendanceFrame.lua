@@ -214,16 +214,16 @@ end
 local function BuildColumns()
     return {
 
-        { key = "who", title = T["Week / Night / Player"], width = 421, render = RenderWho },
+        { key = "who", title = T["Week / Night / Player"], width = 351, render = RenderWho },
         {
-            key = "pulls", title = T["Pulls"], width = 80, justify = "RIGHT",
+            key = "pulls", title = T["Pulls"], width = 50, justify = "CENTER",
             text = function(row)
                 if row.kind == "empty" then return "" end
                 return Count(Pulls(row), row.kind == "player" and S.color.textMuted or S.color.text)
             end,
         },
         {
-            key = "kills", title = T["Kills"], width = 80, justify = "RIGHT",
+            key = "kills", title = T["Kills"], width = 50, justify = "CENTER",
             text = function(row)
                 if row.kind == "empty" then return "" end
                 return Count(Kills(row), S.color.accent)
@@ -645,8 +645,9 @@ local function BuildList(parent)
     f:EnableMouse(true)
     f:SetClampedToScreen(true)
     P.Size(f, LIST_W + S.size.SCROLLBAR_W + S.size.SCROLLBAR_GAP + S.size.PAD * 2, 100)
-    S.CanvasFill(f, S.color.canvas, 0.96)
-    S.RoundBorder(f, S.color.border, "OVERLAY")
+
+    S.Fill(f, S.color.card)
+    S.Border(f, S.color.windowEdge)
 
     local scroll = S.ScrollRegion(f, S.size.ROW_H_SM)
     P.Point(scroll, "TOPLEFT", f, "TOPLEFT", S.size.PAD, -S.size.PAD)
@@ -808,7 +809,7 @@ end
 
 
 local function Build()
-    frame = S.Window("SimpleLootCouncilAttendanceFrame", "attendance", 620, 560,
+    frame = S.Window("SimpleLootCouncilAttendanceFrame", "attendance", 490, 560,
         T["Attendance"])
     frame:RestorePosition()
 

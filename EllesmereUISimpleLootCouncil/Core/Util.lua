@@ -4,6 +4,7 @@ if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLo
 
 SimpleLootCouncil = SimpleLootCouncil or {}
 local addon = SimpleLootCouncil
+local T = addon.Locale.Text
 
 
 local issecretvalue = issecretvalue
@@ -71,15 +72,29 @@ function addon.StoredDateText(text, short)
 end
 
 
-function addon.DayText(epoch)
-    return ("%s %d"):format(date("%b", epoch), tonumber(date("%d", epoch)) or 0)
+
+local MONTHS
+local function MonthText(epoch)
+    MONTHS = MONTHS or { T["Jan"], T["Feb"], T["Mar"], T["Apr"], T["May"], T["Jun"],
+        T["Jul"], T["Aug"], T["Sep"], T["Oct"], T["Nov"], T["Dec"] }
+    return MONTHS[tonumber(date("%m", epoch))] or date("%m", epoch)
 end
 
+function addon.DayText(epoch)
+
+    return addon.Locale.Format(T["%s %d"], MonthText(epoch),
+        tonumber(date("%d", epoch)) or 0)
+end
+
+local function ClockText(epoch)
+    local hour, minute = tonumber(date("%H", epoch)) or 0, tonumber(date("%M", epoch)) or 0
+
+
+    if GameTime_GetFormattedTime then return GameTime_GetFormattedTime(hour, minute, true) end
+    return ("%02d:%02d"):format(hour, minute)
+end
 
 function addon.WhenText(epoch)
-    local hour = tonumber(date("%H", epoch)) or 0
-    local twelve = hour % 12
-    if twelve == 0 then twelve = 12 end
-    return ("%s, %d:%s%s"):format(addon.DayText(epoch), twelve, date("%M", epoch),
-        hour < 12 and "am" or "pm")
+
+    return addon.Locale.Format(T["%s, %s"], addon.DayText(epoch), ClockText(epoch))
 end

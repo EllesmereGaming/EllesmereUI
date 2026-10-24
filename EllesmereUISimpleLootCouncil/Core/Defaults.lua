@@ -9,7 +9,7 @@ local T = addon.Locale.Text
 
 
 
-addon.SCHEMA_VERSION = 11
+addon.SCHEMA_VERSION = 12
 
 
 local interface = GetBuildInfo and select(4, GetBuildInfo())
@@ -83,7 +83,7 @@ addon.defaults = {
     },
 
 
-    autoStart = true,
+    autoStart = false,
 
 
     vote = {
@@ -100,6 +100,9 @@ addon.defaults = {
 
 
     bagReadings = {},
+
+
+    wonCopies = {},
 
 
 
@@ -120,6 +123,7 @@ addon.defaults = {
 
 
         guildGroupOnly = true,
+
 
         never = false,
 
@@ -197,7 +201,6 @@ addon.defaults = {
     importMaxDays = 365,
 
 
-
     teamShowAlts = true,
 
 
@@ -241,7 +244,17 @@ addon.defaults = {
     voterCompact = false,
 
 
+
+    responseTab = true,
+
+
+    soundNotifications = { responseFrame = true, responseTab = true },
+
+
     windowAlpha = 1,
+
+
+    minimap = { hide = false, angle = 215 },
 
 
     pride = false,
@@ -419,6 +432,15 @@ addon.migrations = addon.Locale.Texts{
                 "autoAddBags", "mlCompact", "voterCompact", "windowAlpha",
             }
             for _, key in ipairs(settings) do db[key] = nil end
+        end,
+    },
+    {
+        version = 12,
+        name = "shipped response names translated (retired)",
+        func = function()
+
+
+            return false
         end,
     },
 }
