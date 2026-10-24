@@ -69,22 +69,47 @@ FT:RegisterTag("target", { context = "unit", description = EllesmereUI.L("Name o
         return UnitName(unit)
     end, "Target", "tgt", "target", nil, 0),
 } })
-FT:RegisterTag("group", { context = "unit", description = EllesmereUI.L("Raid subgroup, party, or Solo"), variants = {
-    [""] = NumberVariant(function(ctx)
+local function GroupVariant(raidOnly, label, abbreviated)
+    local function Read(ctx)
         if IsInRaid() then
             local index = UnitInRaid(ctx.unit)
             -- Restricted unit identities cannot be used as roster indexes.
             if issecretvalue(index) then return "" end
             if index then
                 local _, _, subgroup = GetRaidRosterInfo(index)
-                return subgroup or ""
+                if issecretvalue(subgroup) or not subgroup then return "" end
+                if abbreviated then return EllesmereUI.L("G%d"):format(subgroup) end
+                if label then return EllesmereUI.L("Group %d"):format(subgroup) end
+                return subgroup
             end
-        elseif IsInGroup() and (ctx.unit == "player" or UnitInParty(ctx.unit)) then
-            return EllesmereUI.L("party")
+        elseif not raidOnly and IsInGroup() and (ctx.unit == "player" or UnitInParty(ctx.unit)) then
+            return abbreviated and EllesmereUI.L("P") or EllesmereUI.L("Party")
         end
-        return EllesmereUI.L("Solo")
-    end, "3", "roster", "group", false, 30),
-} })
+        if raidOnly then return "" end
+        return abbreviated and EllesmereUI.L("S") or EllesmereUI.L("Solo")
+    end
+    local style = abbreviated and "Abbreviated" or label and "Label" or ""
+    local variant = Variant(Read, abbreviated and "G3" or label and "Group 3" or "3", "roster",
+        "group" .. (raidOnly and "Raid" or "") .. style, nil, abbreviated and 18 or label and 48 or 30)
+    variant.numeric = not label and not abbreviated
+    return variant
+end
+local groupAbbreviated, raidAbbreviated = GroupVariant(false, false, true), GroupVariant(true, false, true)
+FT:RegisterTag("group", { context = "unit", description = EllesmereUI.L("Raid subgroup, Party, or Solo"),
+    modifiers = { label = {}, raid = {}, abbreviated = { "abr" } }, modifierDescriptions = {
+        label = EllesmereUI.L("Prefix raid subgroup numbers with Group."),
+        raid = EllesmereUI.L("Show only raid subgroups; hide Party and Solo."),
+        abbreviated = EllesmereUI.L("Use G1-G8, P, or S."),
+    }, variants = {
+        [""] = GroupVariant(false, false, false),
+        label = GroupVariant(false, true, false),
+        raid = GroupVariant(true, false, false),
+        ["label:raid"] = GroupVariant(true, true, false),
+        abbreviated = groupAbbreviated,
+        ["abbreviated:label"] = groupAbbreviated,
+        ["abbreviated:raid"] = raidAbbreviated,
+        ["abbreviated:label:raid"] = raidAbbreviated,
+    } })
 
 local function AbsorbTag(id, description, get, dependency)
     FT:RegisterTag(id, { context = "unit", description = description,
