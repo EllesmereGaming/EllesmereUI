@@ -16,6 +16,7 @@ local EFD = ns.EFD
 
 local EAB, EAB_VTABLE = ns.EAB, ns.EAB_VTABLE
 local I = ns._internals
+local SetActionBarCVar = I.SetActionBarCVar
 local BAR_CONFIG, STOCK_BAR_DISPOSAL = I.BAR_CONFIG, I.STOCK_BAR_DISPOSAL
 local hiddenParent = I.hiddenParent
 local RegisterButtonWithController = I.RegisterButtonWithController
@@ -322,10 +323,10 @@ local function HideBlizzardBars()
     -- owned by Blizzard's ValidateActionBarTransition(). No RegisterAttributeDriver on
     -- Blizzard-owned frames -- risks tainting protected state OverrideActionBar buttons
     -- inherit. Force all Blizzard action bars "enabled" via CVars so buttons work.
-    EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_1", "1", "EllesmereUIActionBars")
-    EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_2", "1", "EllesmereUIActionBars")
-    EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_3", "1", "EllesmereUIActionBars")
-    EllesmereUI.SetCVar("SHOW_MULTI_ACTIONBAR_4", "1", "EllesmereUIActionBars")
+    SetActionBarCVar("SHOW_MULTI_ACTIONBAR_1", "1", "EllesmereUIActionBars")
+    SetActionBarCVar("SHOW_MULTI_ACTIONBAR_2", "1", "EllesmereUIActionBars")
+    SetActionBarCVar("SHOW_MULTI_ACTIONBAR_3", "1", "EllesmereUIActionBars")
+    SetActionBarCVar("SHOW_MULTI_ACTIONBAR_4", "1", "EllesmereUIActionBars")
 
 end
 
@@ -678,6 +679,15 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
         end
     end
 
+    if ns.MasqueOwnsBar(info.key) then
+        -- Masque buttons skip MakeButtonSquare(), so mark them separately to keep the yellow proc glow working.
+        EFD(btn).masqueOwned = true
+        EAB_VTABLE.SetupCastAnimSuppression(btn)
+        EAB_VTABLE.SetupAssistRotationSuppression(btn)
+        if EAB_VTABLE.HookCooldownVisualsForButton then
+            EAB_VTABLE.HookCooldownVisualsForButton(btn)
+        end
+    end
     RegisterButtonWithController(btn)
     allButtons[slot] = btn
     return btn

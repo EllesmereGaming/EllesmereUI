@@ -13,6 +13,27 @@ EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns
 local EAB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.EAB = EAB
 
+function ns.IsMasqueAvailable()
+    return LibStub and LibStub("Masque", true) ~= nil
+end
+
+function ns.InitializeMasque()
+    if ns.MasqueGroup then return true end
+    local masque = LibStub and LibStub("Masque", true)
+    if not masque then return false end
+    ns.MasqueGroup = masque:Group(ADDON_NAME, "Action Bars")
+    return ns.MasqueGroup ~= nil
+end
+
+-- Released core versions may predate the CVar tracking helper.
+-- Prefer tracking when available; otherwise use Blizzard's setter.
+local function SetActionBarCVar(name, value, owner)
+    if EllesmereUI.SetCVar then
+        return EllesmereUI.SetCVar(name, value, owner)
+    end
+    return C_CVar.SetCVar(name, value)
+end
+
 local PP = EllesmereUI.PP
 
 -- CPU-attribution shell pool: the engine bills a handler's whole call tree to the addon
@@ -230,7 +251,8 @@ end
 -- buttons take neither the shape expansion nor the Cropped squash, whatever
 -- the EllesmereUI-style setting holds. Icon Size itself applies in every
 -- style (stock buttons scale their native art to it).
-function ns.AB_LayoutShape(s)
+function ns.AB_LayoutShape(s, barKey)
+    if barKey and ns.MasqueOwnsBar(barKey) then return "none" end
     if ns.AB_Style() ~= "eui" then return "none" end
     return (s and s.buttonShape) or "none"
 end
@@ -305,6 +327,28 @@ for _, info in ipairs(EXTRA_BARS) do ALL_BARS[#ALL_BARS + 1] = info end
 local BAR_LOOKUP = {}
 for _, info in ipairs(BAR_CONFIG) do BAR_LOOKUP[info.key] = info end
 for _, info in ipairs(EXTRA_BARS) do BAR_LOOKUP[info.key] = info end
+
+local function LatchMasqueBarOwnership()
+    local latched = {}
+    local bars = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars
+    if bars then
+        for _, info in ipairs(BAR_CONFIG) do
+            if not info.isStance and not info.isPetBar then
+                local settings = bars[info.key]
+                latched[info.key] = settings and settings.masqueEnabled == true or false
+            end
+        end
+    end
+    ns._masqueBarsLatched = latched
+end
+
+function ns.MasqueOwnsBar(key)
+    local info = BAR_LOOKUP[key]
+    if not (ns.MasqueGroup and info) then return false end
+    if info.isStance or info.isPetBar then return false end
+    local latched = ns._masqueBarsLatched
+    return latched and latched[key] == true or false
+end
 
 -- Expose AB bar keys immediately so unlock mode's ApplyAnchorPosition can gate
 -- edge logic to CDM/AB without waiting for deferred RegisterWithUnlockMode.
@@ -618,6 +662,7 @@ for _, info in ipairs(BAR_CONFIG) do
         bgExpandDirectionY = "up",
         outOfRangeColoring = false,
         outOfRangeColor = { r = 0.8, g = 0.1, b = 0.1 },
+        masqueEnabled = false,
         buttonShape = "none",
         shapeBorderEnabled = true,
         shapeBorderColor = { r = 0, g = 0, b = 0, a = 1 },
@@ -1031,6 +1076,7 @@ EllesmereUI.NewInternals(ns, "_internals", {
     SHAPE_EDGE_SCALES = SHAPE_EDGE_SCALES, STOCK_BAR_DISPOSAL = STOCK_BAR_DISPOSAL, BAR_LOOKUP = BAR_LOOKUP,
     SHAPE_BTN_EXPAND = SHAPE_BTN_EXPAND, ALL_BARS = ALL_BARS, FadeTo = FadeTo, EXTRA_BARS = EXTRA_BARS,
     _dragState = _dragState,
+    SetActionBarCVar = SetActionBarCVar, LatchMasqueBarOwnership = LatchMasqueBarOwnership,
     secureRefsReadySetters = {}, pagingFrameSetters = {}, isApplyingAllSetters = {},
 }, {
     SetSecureRefsReady = "secureRefsReadySetters",
