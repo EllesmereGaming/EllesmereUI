@@ -264,6 +264,14 @@ local DEFAULTS = {
             bandReverse = false,
             bands = {},
             staggerCeilingPercent = 100,   -- % required for bar to fill up
+            -- Brewmaster Extended Stagger (opt-in): the bar spans Scale steps of 100% max
+            -- health, one fill color and divider per step. Off: nothing below is read.
+            brewExtendedStaggerBar = false,
+            brewExtendedStaggerScale = 4,        -- 2-6
+            brewExtendedStaggerColors = {},      -- per-step {r,g,b}; missing steps use ns.EXT_STAGGER_COLORS
+            brewExtendedStaggerDividers = true,
+            brewExtendedStaggerDividerWidth = 1,
+            brewExtendedStaggerDividerR = 0, brewExtendedStaggerDividerG = 0, brewExtendedStaggerDividerB = 0, brewExtendedStaggerDividerA = 1,
             guardianIronfurBar = true,     -- Guardian Druid: Ironfur duration bar (moving hash lines). New-user default; existing profiles pinned off by migration "resourcebars_guardian_ironfur_existing_off_v1".
             guardianShowHashLines = true,  -- Guardian Ironfur: draw the moving per-cast hash lines
             protIgnorePainBar = true,      -- Prot Warrior: Ignore Pain bar (absorbs vs the IP cap = 30% max health; aura stacks are secret). New-user default; existing profiles pinned off by migration "resourcebars_protwar_ignorepain_existing_off_v1".
