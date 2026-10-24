@@ -24,6 +24,7 @@ EllesmereUIQoL_MovementAlert.lua
 EllesmereUIQoL_RaidTools.lua
 EllesmereUIQoL_SelfCombatText.lua
 EllesmereUIQoL_Alerts.lua
+EllesmereUIQoL_UpgradeTooltip.lua
 EUI_UpgradeCalc.lua
 
 # Options
