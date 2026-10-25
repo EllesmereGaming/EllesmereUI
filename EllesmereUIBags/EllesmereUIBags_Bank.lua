@@ -685,6 +685,7 @@ end
 -------------------------------------------------------------------------------
 EUI_Bank:SetScript("OnMouseDown", function(self, button)
     self:Raise()
+    self:RepinIconLevels()
     if button == "LeftButton" and not BP().bankWindowLocked then
         self:StartMoving()
         self._moving = true
@@ -1052,6 +1053,13 @@ function EUI_Bank:ApplyWindowLayering()
     _purchaseBtnWarband:SetFrameStrata(strata)
     _purchaseBtnChar:SetFrameLevel(sidebar:GetFrameLevel() + 20)
     _purchaseBtnWarband:SetFrameLevel(sidebar:GetFrameLevel() + 20)
+    self:RepinIconLevels()
+end
+
+-- As EUI_Bags:RepinIconLevels, for the bank's own buttons
+function EUI_Bank:RepinIconLevels()
+    ns.PinItemPool(self._bankSlots, self, "_slotPinLevel")
+    ns.ResyncListRowLevels()
 end
 
 -- Sidebar header: "Tabs" label + collapse arrow
@@ -1453,6 +1461,7 @@ local function GetOrCreateBankSlot(idx)
     local slotParent = CreateFrame("Frame", nil, EUI_Bank)
     slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
     local btn = CreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
+    ns.PinItemButton(btn, EUI_Bank)
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
@@ -1686,15 +1695,15 @@ local EXP_KEY_EMPTY   = -1000
 local function GetExpansionBucketKeyAndLabel(itemLink)
     local expID = GetItemExpansionIDFromLink(itemLink)
     if expID == nil then
-        return EXP_KEY_UNKNOWN, (UNKNOWN or "Unknown")
+        return EXP_KEY_UNKNOWN, (UNKNOWN or EllesmereUI.L("Unknown"))
     end
     local id = tonumber(expID)
     if id == nil then
-        return EXP_KEY_UNKNOWN, (UNKNOWN or "Unknown")
+        return EXP_KEY_UNKNOWN, (UNKNOWN or EllesmereUI.L("Unknown"))
     end
     -- Classic-era sentinel from some clients / items
     if id == 254 or id == 255 then
-        local name = _G["EXPANSION_NAME0"] or "Classic"
+        local name = _G["EXPANSION_NAME0"] or EllesmereUI.L("Classic")
         return 0, name
     end
     local name = _G["EXPANSION_NAME" .. id]
@@ -1702,7 +1711,7 @@ local function GetExpansionBucketKeyAndLabel(itemLink)
         return id, name
     end
     if id == 11 then return id, "Midnight" end
-    return id, "Expansion " .. tostring(id)
+    return id, EllesmereUI.Lf("Expansion %1$d", id)
 end
 
 -- Sub-bucket by item subclass: Recipe/Profession subclasses are the professions
@@ -3232,6 +3241,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
         EUI_Bank:SetScale(bankScale)
         EUI_Bank:Show()
         EUI_Bank:Raise()
+        EUI_Bank:RepinIconLevels()
         -- Controller cursor: scroll step buttons and a visible scrollbar,
         -- built only once a controller is in use.
         if EUI_Bank._padBuilt or EUI.PadInUse() then

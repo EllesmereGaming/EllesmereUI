@@ -53,6 +53,7 @@ local function BuildTotemSection(parent, y, S)
 
     local section
     section, h = W:SectionHeader(parent, S.title, y);  y = y - h
+    EllesmereUI.BuildSectionUnlockJump(section, { key = S.unlockKey, disabled = totemOff, disabledTooltip = req, rawTooltip = raw })
 
     -- Row 1: the section's on switch | Icon Size (+ spacing cog)
     local row1

@@ -1341,7 +1341,7 @@ initFrame:SetScript("OnEvent", function(self)
     local classIconValues = {
         ["none"]="None", ["modern"]="Modern",
         ["arcade"]="Arcade", ["glyph"]="Glyph", ["legend"]="Legend",
-        ["midnight"]="Midnight", ["pixel"]="Pixel", ["pixelsComic"]="Pixels Comic", ["runic"]="Runic",
+        ["midnight"]="Midnight", ["pixel"]="Pixel", ["pixelsComic"]="Comic", ["runic"]="Runic",
         _menuOpts = { itemHeight = 32, icon = function(key)
             if key == "none" then return nil end
             local _, ct = UnitClass("player")
@@ -1606,7 +1606,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- Portrait art style dropdown values
     local classThemeSubValues = {
         ["modern"]="Modern", ["arcade"]="Arcade", ["glyph"]="Glyph",
-        ["legend"]="Legend", ["midnight"]="Midnight", ["pixel"]="Pixel", ["pixelsComic"]="Pixels Comic",
+        ["legend"]="Legend", ["midnight"]="Midnight", ["pixel"]="Pixel", ["pixelsComic"]="Comic",
         ["runic"]="Runic",
     }
     local classThemeSubOrder = { "modern", "arcade", "glyph", "legend", "midnight", "pixel", "pixelsComic", "runic" }

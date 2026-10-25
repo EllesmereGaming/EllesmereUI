@@ -267,14 +267,21 @@ local confirmPopup
 -- SetPropagateKeyboardInput are protected in combat, so the frame takes the
 -- keyboard now and each time the host shows, only out of combat, passing keys
 -- on by default; its OnKeyDown returns first in combat (keys reach the game,
--- Escape stands aside, the buttons still answer).
+-- Escape stands aside, the buttons still answer). It lets go when the host
+-- hides out of combat, so a popup shown again in combat holds no keyboard
+-- (an Escape that closed it left propagation off).
 function EllesmereUI.PopupTakeKeys(frame, host)
     local function Take()
         if InCombatLockdown() then return end
         frame:EnableKeyboard(true)
         frame:SetPropagateKeyboardInput(true)
     end
-    if host then host:HookScript("OnShow", Take) end
+    if host then
+        host:HookScript("OnShow", Take)
+        host:HookScript("OnHide", function()
+            if not InCombatLockdown() then frame:EnableKeyboard(false) end
+        end)
+    end
     Take()
 end
 
@@ -527,6 +534,7 @@ function EllesmereUI:ShowConfirmPopup(opts)
     -- Force-close any widget tooltip so it doesn't linger behind the popup
     if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
     local popup = CreateConfirmPopup()
+    popup._dimmer:SetFrameLevel(opts.frameLevel or 100)
 
     -- Background style: flat (default) or modern Blizzard stone
     local modern = opts.modernBlizz
@@ -902,7 +910,8 @@ end
 -------------------------------------------------------------------------------
 --  Custom Input Popup  (matches EllesmereUI aesthetic, with EditBox)
 --  Usage:  EllesmereUI:ShowInputPopup({ title, message, placeholder, confirmText, cancelText, onConfirm, onCancel })
---          onConfirm receives the entered text as its first argument.
+--          onConfirm receives the entered text as its first argument. A copy box for
+--          a link: initialText + selectText (starts selected) + hideCancel (one button).
 -------------------------------------------------------------------------------
 function EllesmereUI:ShowInputPopup(opts)
     if not self._inputPopup then
@@ -1089,6 +1098,7 @@ function EllesmereUI:ShowInputPopup(opts)
 
         popup._cancelBtn  = cancelBtn
         popup._confirmBtn = confirmBtn
+        popup._btnGap, popup._btnY = BTN_GAP, BTN_Y
 
         popup:EnableMouse(true)
         dimmer:SetScript("OnMouseDown", function()
@@ -1139,6 +1149,15 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._placeholder:SetText(EllesmereUI.L(opts.placeholder or "Enter name..."))
     popup._cancelBtn._lbl:SetText(EllesmereUI.L(opts.cancelText or "Cancel"))
     popup._confirmBtn._lbl:SetText(EllesmereUI.L(opts.confirmText or "Save"))
+    -- Single-button mode (a copy box): hide Cancel, centre the confirm button.
+    popup._cancelBtn:SetShown(not opts.hideCancel)
+    popup._confirmBtn:ClearAllPoints()
+    if opts.hideCancel then
+        popup._confirmBtn:SetPoint("BOTTOM", popup, "BOTTOM", 0, popup._btnY)
+    else
+        popup._confirmBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", popup._btnGap / 2, popup._btnY)
+    end
+    popup._selectText = opts.selectText == true
     popup._onCancel = opts.onDismiss or opts.onCancel or nil
     popup._onConfirmCb = opts.onConfirm or nil
     -- This show's request: a confirm closes the popup only while it still shows it.
@@ -1153,7 +1172,11 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._inputFrame:SetHeight(opts.inputHeight or 28)
     popup._editBox:ClearAllPoints()
     popup._editBox:SetPoint("TOPLEFT", popup._inputFrame, "TOPLEFT", 12, popup._multiline and -8 or -1)
-    popup._editBox:SetPoint("BOTTOMRIGHT", popup._inputFrame, "BOTTOMRIGHT", -12, opts.showCount and 18 or 1)
+    -- A multi-line box keeps the letter count inside its bottom-right corner,
+    -- under the text; a single-line box has no room under its text, so its
+    -- count sits beside its right edge and the box keeps its full height.
+    local countInside = opts.showCount and popup._multiline
+    popup._editBox:SetPoint("BOTTOMRIGHT", popup._inputFrame, "BOTTOMRIGHT", -12, countInside and 18 or 1)
     popup._placeholder:ClearAllPoints()
     if popup._multiline then
         popup._placeholder:SetPoint("TOPLEFT", popup._editBox, "TOPLEFT", 0, -1)
@@ -1161,13 +1184,17 @@ function EllesmereUI:ShowInputPopup(opts)
         popup._placeholder:SetPoint("LEFT", popup._editBox, "LEFT", 0, 0)
     end
     if opts.showCount and not popup._countLabel then
-        local countLabel = MakeFont(popup._inputFrame, 9, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
-        countLabel:SetPoint("BOTTOMRIGHT", popup._inputFrame, "BOTTOMRIGHT", -8, 5)
-        popup._countLabel = countLabel
+        popup._countLabel = MakeFont(popup._inputFrame, 9, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
     end
     popup._maxCount = opts.showCount and (opts.maxLetters or 0) or nil
     if popup._countLabel then
         popup._countLabel:SetShown(popup._maxCount and popup._maxCount > 0)
+        popup._countLabel:ClearAllPoints()
+        if countInside then
+            popup._countLabel:SetPoint("BOTTOMRIGHT", popup._inputFrame, "BOTTOMRIGHT", -8, 5)
+        else
+            popup._countLabel:SetPoint("LEFT", popup._inputFrame, "RIGHT", 8, 0)
+        end
     end
     local initText = opts.initialText or ""
     popup._editBox:SetText(initText)
@@ -1231,9 +1258,9 @@ function EllesmereUI:ShowInputPopup(opts)
         if opts.onCancel then opts.onCancel() end
     end)
     -- Controller cursor: its cancel press backs out through Cancel only when
-    -- Cancel is what Escape does (onDismiss differs from it).
+    -- Cancel shows and is what Escape does (onDismiss differs from it).
     if EllesmereUI.PadCP() then
-        popup.CloseButton = (not opts.onDismiss) and popup._cancelBtn or nil
+        popup.CloseButton = (not (opts.onDismiss or opts.hideCancel)) and popup._cancelBtn or nil
     end
     popup._confirmBtn:SetScript("OnClick", function()
         local txt = popup._editBox:GetText()
@@ -1249,7 +1276,10 @@ function EllesmereUI:ShowInputPopup(opts)
     end)
 
     popup._dimmer:Show()
-    C_Timer.After(0.05, function() popup._editBox:SetFocus() end)
+    C_Timer.After(0.05, function()
+        popup._editBox:SetFocus()
+        if popup._selectText then popup._editBox:HighlightText() end
+    end)
 end
 
 -------------------------------------------------------------------------------

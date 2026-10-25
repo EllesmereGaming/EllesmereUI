@@ -75,6 +75,32 @@ ns.CreateInsetBorder = CreateInsetBorder
 ns.SetBagFont = SetBagFont
 ns.SetInsetBorderColor = SetInsetBorderColor
 
+-- Item buttons (ContainerFrameItemButtonTemplate) carry frameLevel="10" in
+-- Blizzard's XML, a fixed level that never follows their window: under a window
+-- raised past it (High starts at 100) the window takes the clicks. So each one
+-- sits at its window's level + 9: the template's own 10 over a window at level 1,
+-- under Compact's drop zones (window + 22). The text overlay (+3, above the
+-- cooldown swipe) and the warbank dim (+6) are fixed levels too and move with it.
+local function PinItemButtonLevel(btn, level)
+    btn:SetFrameLevel(level)
+    if btn._textOverlay then btn._textOverlay:SetFrameLevel(level + 3) end
+    if btn._warbankDim then btn._warbankDim:SetFrameLevel(level + 6) end
+end
+
+function ns.PinItemButton(btn, window)
+    PinItemButtonLevel(btn, window:GetFrameLevel() + 9)
+end
+
+-- Re-pins a pool after its window's level moved (a strata change, a raise), once
+-- per level: window[memoKey] holds the level the pool was last pinned at. Nothing
+-- else moves these buttons, and new ones are pinned at creation from the live level.
+function ns.PinItemPool(pool, window, memoKey)
+    local level = window:GetFrameLevel() + 9
+    if window[memoKey] == level then return end
+    window[memoKey] = level
+    for _, btn in pairs(pool) do PinItemButtonLevel(btn, level) end
+end
+
 -- Flat look for a ContainerFrameItemButtonTemplate slot, plus the text overlay
 -- (above the cooldown swipe) with Count, ItemLevelText and BindTypeText.
 -- Methods only: writing properties onto Blizzard template sub-objects taints.
@@ -138,7 +164,7 @@ function ns.SkinItemButton(btn, opts)
 
     local textOverlay = CreateFrame("Frame", nil, btn)
     textOverlay:SetAllPoints()
-    textOverlay:SetFrameLevel((btn.Cooldown and btn.Cooldown:GetFrameLevel() or btn:GetFrameLevel()) + 2)
+    textOverlay:SetFrameLevel(btn:GetFrameLevel() + 3)
     btn._textOverlay = textOverlay
 
     local fontPath = GetFont()

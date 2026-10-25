@@ -31,6 +31,13 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
     -------------------------------------------------------------------
     local sharedDisplayHeader
     sharedDisplayHeader, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
+    -- The Move in Unlock Mode button on the unit's first section: the selected
+    -- unit's own mover, which exists only for the EllesmereUI frame source (a
+    -- Blizzard or hidden frame has none), so the button explains itself otherwise.
+    EllesmereUI.BuildSectionUnlockJump(sharedDisplayHeader, {
+        key = function() return optState.selectedUnit end,
+        disabled = function() return ns.GetUnitFrameSource(optState.selectedUnit) ~= "eui" end,
+        disabledTooltip = "This option requires the EllesmereUI Frame Source." })
     y = EllesmereUI.BlizzStyle.Note(parent, y, "unitframes")
 
     -- Wire class theme subnav callbacks (per-unit context)
@@ -276,6 +283,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                   UpdatePreview(); EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Dark Mode",
+              tooltip="Dark Mode for this frame. Global Settings > Colors switches every frame.",
               getValue=function() return ns.UF_DarkThemeOn(SDB()) end,
               setValue=function(v)
                   SSet("darkTheme", v)

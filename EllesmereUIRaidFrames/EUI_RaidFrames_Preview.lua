@@ -78,25 +78,12 @@ ns._pvActiveAuras = {}
 -- which runs them all.
 -- broken: true while an EUI_RaidFrames_Preview*.lua file loads; a file that
 -- fails leaves it set, and the files behind it return at their first lines.
-ns._previewInternals = {
+EllesmereUI.NewInternals(ns, "_previewInternals", {
     -- Created here: files that load ahead of CreatePreviewFrame and
     -- BuildPreviewRoles read them too.
     previewFrames = {},
     previewClassTokens = {}, -- [1..20] class token per slot
     previewActiveSetters = {}, previewContainerSetters = {},
-    broken = false,
-}
--- Set<Name> hands a new value to every copy registered in <name>Setters.
-for setter, listName in pairs({
+}, {
     SetPreviewActive = "previewActiveSetters", SetPreviewContainer = "previewContainerSetters",
-}) do
-    local list = ns._previewInternals[listName]
-    ns._previewInternals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
-end
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._previewInternals, { __index = function(_, k)
-    error("ns._previewInternals has no entry " .. tostring(k), 2)
-end })
+})

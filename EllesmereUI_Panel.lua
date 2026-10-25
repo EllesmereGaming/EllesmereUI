@@ -2039,7 +2039,7 @@ local function CreateMainFrame()
     -- cannot swap in one that is handed the private button table.
     local pairs = pairs
     -- Lock/unlock excluded modules during an override editing session: their settings cannot be
-    -- captured, so the row grays out and blocks clicks. Called from the session enter/exit paths in EllesmereUI_SpecOverrides.
+    -- captured, so the row grays out and blocks clicks. Called from the session enter/exit paths in EUI_SpecOverrides_Session.lua.
     EllesmereUI.RefreshSidebarOverrideLocks = function()
         local active = EllesmereUI.SpecOverrides_EditSessionActive
             and EllesmereUI.SpecOverrides_EditSessionActive() or false
@@ -3663,6 +3663,13 @@ function EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName
         return nil
     end
 
+    -- Refused in combat like Show (see there), before the page selection below
+    -- runs, which has no combat check of its own.
+    if InCombatLockdown() then
+        EllesmereUI.PrintError("Cannot open options during combat.")
+        return
+    end
+
     -- First-open split (see _SplitFirstOpen): Show() below returns without
     -- building the panel on the session's first open, so run the whole deep
     -- link next frame rather than navigating a panel that does not exist yet.
@@ -5283,8 +5290,17 @@ function EllesmereUI:_SplitFirstOpen(afterFn)
     return true
 end
 
+-- The panel never opens in combat (it closes as combat starts). Callers check
+-- before they ask, but an open can still land after combat began: the
+-- first-open split and the Settings button run it a frame later, and a deep
+-- link (NavigateToElementSettings) can come from a click on a game frame.
+-- Pages built then would call widget methods that are blocked in combat.
 function EllesmereUI:Show()
     if self._openPending then return end
+    if InCombatLockdown() then
+        EllesmereUI.PrintError("Cannot open options during combat.")
+        return
+    end
     if self:_SplitFirstOpen(function() EllesmereUI:Show() end) then return end
     CreateMainFrame()
     RefreshSidebarStates()
@@ -5296,6 +5312,12 @@ end
 function EllesmereUI:Hide()   if mainFrame then mainFrame:Hide() end end
 function EllesmereUI:Toggle()
     if self._openPending then return end
+    -- Closing still works in combat; opening or unfolding the mini window does
+    -- not (see Show).
+    if InCombatLockdown() and not (mainFrame and mainFrame:IsShown() and not self._panelCollapsed) then
+        EllesmereUI.PrintError("Cannot open options during combat.")
+        return
+    end
     if self:_SplitFirstOpen(function() EllesmereUI:Toggle() end) then return end
     CreateMainFrame()
     if self._panelCollapsed then
@@ -5509,7 +5531,7 @@ end
 --  (a module can opt out of the latter with searchPrebuild = false).
 --  Developer guide: PLUGINS_API.md.
 -------------------------------------------------------------------------------
-EllesmereUI.PLUGIN_API_VERSION = 2
+EllesmereUI.PLUGIN_API_VERSION = 3
 
 do
     local PREFIX          = EUI_NS.PLUGIN_PREFIX

@@ -74,6 +74,7 @@ qolFrame:SetScript("OnEvent", function(self)
     if EllesmereUIDB.envPingKey then EllesmereUI._applyEnvPing() end
     -- Self Combat Text (EllesmereUIQoL_SelfCombatText.lua): nothing is built while off.
     ns.SCT_Refresh()
+    if EllesmereUI._applyUpgradeTooltips then EllesmereUI._applyUpgradeTooltips() end
     -- Item Icons (EllesmereUIQoL_ItemIcons.lua): nothing is hooked while off.
     ns.ItemIcons_Apply()
 

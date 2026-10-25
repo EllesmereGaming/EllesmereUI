@@ -540,15 +540,30 @@ function ns.UF_CastIconPortraitLayout(ico, tex, bd, s)
     end
 end
 
--- Resource Bars uses the same portrait geometry without changing UF cast settings.
+-- Resource Bars' Embed in Player Portrait lays its cast icon out with the same geometry:
+-- the player portrait's backdrop and settings, or nil plus why. "uf": the Unit Frames
+-- player cast bar already shows its icon there (two icons would stack); else there is no
+-- EllesmereUI player portrait to embed in (the stock styles own the icon, as for ours).
 function ns.UF_GetPlayerCastPortrait()
     local p = db and db.profile
-    if not p or ns.GetUnitFrameSource("player") ~= "eui" then return nil end
+    if not p or ns.GetUnitFrameSource("player") ~= "eui" or ns.UF_Blizz() then return nil end
     local s = GetSettingsForUnit("player")
     if s.showPortrait == false or (s.portraitStyle or p.portraitStyle or "attached") == "none"
         or (s.portraitMode or p.portraitMode or "2d") == "none" then return nil end
+    if s.showPlayerCastbar and ns.UF_CastIconOnPortrait("player", s) then return nil, nil, "uf" end
     local pt = frames.player and frames.player.Portrait
     return pt and pt.backdrop, s
+end
+
+-- A module that lays something over the player portrait asks to be called back after
+-- each frame reload, which can move, reshape or remove the portrait: one callback per
+-- key, nil drops it. The reload pays one table walk, empty unless a module asked.
+local portraitWatchers = {}
+function ns.UF_WatchPlayerPortrait(key, fn)
+    portraitWatchers[key] = fn
+end
+function ns.UF_PlayerPortraitChanged()
+    for _, fn in pairs(portraitWatchers) do fn() end
 end
 
 -- The live cast bar's side of Show Icon on Portrait, run as LayoutCastbarIcon's

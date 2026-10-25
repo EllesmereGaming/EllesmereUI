@@ -8,7 +8,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  + _childupdate-eab-page with explicit action attrs.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local EAB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.EAB = EAB
@@ -1022,7 +1022,7 @@ local STOCK_BAR_DISPOSAL = {
 -- The three ...Setters lists: a file that keeps one of these values registers
 -- a setter here; the place that assigns it writes through SetSecureRefsReady,
 -- SetPagingFrame or SetIsApplyingAll, built below, which runs them all.
-ns._internals = {
+EllesmereUI.NewInternals(ns, "_internals", {
     BAR_CONFIG = BAR_CONFIG, _fadeAlpha = _fadeAlpha, _quickKeybindState = _quickKeybindState,
     FormatHotkeyText = FormatHotkeyText, StopFade = StopFade, SafeEnableMouse = SafeEnableMouse,
     SafeEnableMouseMotionOnly = SafeEnableMouseMotionOnly,
@@ -1032,19 +1032,8 @@ ns._internals = {
     SHAPE_BTN_EXPAND = SHAPE_BTN_EXPAND, ALL_BARS = ALL_BARS, FadeTo = FadeTo, EXTRA_BARS = EXTRA_BARS,
     _dragState = _dragState,
     secureRefsReadySetters = {}, pagingFrameSetters = {}, isApplyingAllSetters = {},
-}
-for setter, listName in pairs({
+}, {
     SetSecureRefsReady = "secureRefsReadySetters",
     SetPagingFrame = "pagingFrameSetters",
     SetIsApplyingAll = "isApplyingAllSetters",
-}) do
-    local list = ns._internals[listName]
-    ns._internals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
-end
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._internals, { __index = function(_, k)
-    error("ns._internals has no entry " .. tostring(k), 2)
-end })
+})

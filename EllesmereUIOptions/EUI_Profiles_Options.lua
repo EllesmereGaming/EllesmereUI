@@ -480,6 +480,12 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
             popup:SetScript("OnHide", function()
                 if popup._dimmer then popup._dimmer:Hide() end
             end)
+            -- It sits on UIParent, so it closes with the panel, which closes as
+            -- combat starts: a screen-wide dimmer and an armed key capture never
+            -- stay up into combat.
+            EllesmereUI:RegisterOnHide(function()
+                if dimmer:IsShown() then dimmer:Hide() end
+            end)
 
             EllesmereUI.PopupTakeKeys(popup, dimmer)
             popup:SetScript("OnKeyDown", function(self, kkey)

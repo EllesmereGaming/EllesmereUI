@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -14,6 +14,7 @@ addon.History = History
 
 local byWinner = {}
 local byItem = {}
+local winnerKeyOf = setmetatable({}, { __mode = "k" })
 
 local indexState = "none"
 
@@ -57,12 +58,40 @@ local function Forget(kind, key)
 end
 
 
+local revive = { tried = false, unpacked = false }
+
+function History.Revive(kind, key, unpack)
+    local db = addon.db
+    if type(db) ~= "table" or key == nil then return end
+    local shared = addon.SharedSaved
+    local packed = unpack and type(db.deletedPacked) == "table" and db.deletedPacked[kind]
+    if packed and not revive.tried and shared and shared.Unpack then
+        revive.tried = true
+        shared.Unpack(db)
+        revive.unpacked = true
+    end
+    local gone = type(db.deleted) == "table" and db.deleted[kind]
+    if type(gone) == "table" and gone[key] ~= nil then gone[key] = nil end
+end
+
+
+function History.ReviveDone()
+    revive.tried = false
+    if not revive.unpacked then return end
+    revive.unpacked = false
+    local shared = addon.SharedSaved
+    if shared and shared.Compact and type(addon.db) == "table" then shared.Compact(addon.db) end
+end
+
+
 
 
 
 
 local DAY = 24 * 60 * 60
 local ARCHIVE_DAYS = 30
+local COIN_KEEP_DAYS = 90
+History.COIN_KEEP_DAYS = COIN_KEEP_DAYS
 
 local SWEEP_MIN, SWEEP_EVERY, SWEEP_DELAY = 200, 7 * DAY, 20
 
@@ -90,7 +119,7 @@ local archivedByWinner
 local unreadableLogged = {}
 
 local summaryOk, summaryFor = false, nil
-local sweepState, sweepScheduled
+local sweepState, sweepScheduled, sweepDriver
 
 local function Archive()
     local archive = addon.db and addon.db.historyArchive
@@ -183,7 +212,7 @@ end
 
 
 local function WriteSeg(segs, key, rows)
-    local n, nh, ni, oldest, newest, oh = 0, 0, 0, nil, nil, nil
+    local n, nh, ni, oldest, newest, oh, oc = 0, 0, 0, nil, nil, nil, nil
     for tag, list in pairs(rows) do
         for _, row in pairs(list) do
             local epoch = EpochOf(row)
@@ -196,6 +225,7 @@ local function WriteSeg(segs, key, rows)
             end
             if not oldest or epoch < oldest then oldest = epoch end
             if not newest or epoch > newest then newest = epoch end
+            if row.coin == true and (not oc or epoch < oc) then oc = epoch end
         end
     end
     if n == 0 then
@@ -207,7 +237,8 @@ local function WriteSeg(segs, key, rows)
         addon.Log:W("History", "could not pack archive segment", key, err)
         return false
     end
-    segs[key] = { n = n, nh = nh, ni = ni, oldest = oldest, newest = newest, oh = oh, blob = blob }
+    segs[key] = { n = n, nh = nh, ni = ni, oldest = oldest, newest = newest, oh = oh, oc = oc or false,
+        blob = blob }
     if loaded[key] then loaded[key] = rows end
     return true
 end
@@ -454,7 +485,7 @@ local function Tagged(value)
 end
 
 local function NewSummary()
-    return { w = {}, items = {}, pairs = {}, bosses = {}, snaps = {} }
+    return { w = {}, items = {}, itemAt = {}, pairs = {}, bosses = {}, snaps = {} }
 end
 local EMPTY_SUMMARY = NewSummary()
 
@@ -504,10 +535,22 @@ local function AddRow(sum, row)
 
     local item = ItemSlot(row.link)
     if item then
-        local list = Unpacked(sum.items[item])
-        if #list < KEEP_ITEM then
-            list[#list + 1] = PairIndex(sum, Sample(row))
+        sum.itemAt = type(sum.itemAt) == "table" and sum.itemAt or {}
+        local list, at = Unpacked(sum.items[item]), Unpacked(sum.itemAt[item])
+        local epoch = EpochOf(row)
+        epoch = (epoch >= 0 and epoch < 1e12) and math.floor(epoch) or 0
+        local pos = #list + 1
+        for i = 1, #list do
+            if epoch > (at[i] or 0) then pos = i break end
+        end
+        if pos <= KEEP_ITEM then
+            for i = #at + 1, #list do at[i] = 0 end
+            table.insert(list, pos, PairIndex(sum, Sample(row)))
+            table.insert(at, pos, epoch)
+            while #list > KEEP_ITEM do list[#list] = nil end
+            while #at > #list do at[#at] = nil end
             sum.items[item] = Packed(list)
+            sum.itemAt[item] = table.concat(at, ",")
         end
     end
     if type(row.boss) == "string" and row.boss ~= "" and not sum.bosses[row.boss] then
@@ -570,7 +613,8 @@ end
 local function SummaryValid(archive, segs)
     local sum = archive.sum
     return archive.sumV == SUM_VERSION and type(sum) == "table" and type(sum.w) == "table"
-        and type(sum.items) == "table" and type(sum.pairs) == "table" and type(sum.bosses) == "table"
+        and type(sum.items) == "table"
+        and type(sum.pairs) == "table" and type(sum.bosses) == "table"
         and type(sum.snaps) == "table" and archive.token == Token(segs)
 end
 
@@ -648,9 +692,45 @@ local function PruneArchived(cutoff)
     return removed
 end
 
+
+local function PruneArchivedCoins(cutoff)
+    local segs = Segs()
+    if not segs then return 0 end
+    local removed, dirty = 0, {}
+    for segKey, seg in pairs(segs) do
+        local oc = type(seg) == "table" and seg.oc
+        if type(seg) == "table" and (tonumber(seg.oldest) or 0) < cutoff
+            and (oc == nil or (oc and oc < cutoff)) then
+            local rows = LoadSeg(segKey, seg)
+            if rows then
+                local kept
+                for _, list in pairs(rows) do
+                    for key, row in pairs(list) do
+                        if row.coin == true then
+                            local epoch = EpochOf(row)
+                            if epoch < cutoff then
+                                list[key] = nil
+                                removed = removed + 1
+                                dirty[segKey] = true
+                            elseif not kept or epoch < kept then
+                                kept = epoch
+                            end
+                        end
+                    end
+                end
+                if not dirty[segKey] then seg.oc = kept or false end
+            end
+        end
+    end
+    if removed > 0 then CommitSegs(dirty, true) end
+    QueueRelease()
+    return removed
+end
+
 local function Index(entry)
     if type(entry) ~= "table" then return end
     local winnerKey = WinnerKey(entry.winner)
+    winnerKeyOf[entry] = winnerKey
     if winnerKey then
         byWinner[winnerKey] = byWinner[winnerKey] or {}
         table.insert(byWinner[winnerKey], entry)
@@ -720,6 +800,52 @@ local function EnsureIndex()
 end
 
 
+local function DropListed(index, key, gone)
+    local list = index[key]
+    if not list then return end
+    local n = 0
+    for i = 1, #list do
+        local entry = list[i]
+        if not gone[entry] then
+            n = n + 1
+            list[n] = entry
+        end
+    end
+    for i = #list, n + 1, -1 do list[i] = nil end
+    if n == 0 then index[key] = nil end
+end
+
+
+local function Unindex(gone)
+    archivedByWinner = nil
+    if indexState == "none" or next(gone) == nil then return end
+    if indexState ~= "ready" then
+        Reindex()
+        return
+    end
+    local winners, items = {}, {}
+    for entry in pairs(gone) do
+        local winnerKey = winnerKeyOf[entry]
+        if winnerKey then winners[winnerKey] = true end
+        winnerKeyOf[entry] = nil
+        local itemKey = ItemKey(entry.link)
+        if itemKey then items[itemKey] = true end
+    end
+    for key in pairs(winners) do DropListed(byWinner, key, gone) end
+    for key in pairs(items) do DropListed(byItem, key, gone) end
+end
+
+
+local function Reindexed(entry)
+    if indexState ~= "ready" then
+        Reindex()
+        return
+    end
+    Unindex({ [entry] = true })
+    Index(entry)
+end
+
+
 
 
 
@@ -730,11 +856,6 @@ end
 
 
 local function ResolveCandidateResponse(candidate, responseByIndex, awardedWinner)
-
-    local boe = candidate and type(candidate.boe) == "table" and candidate.boe
-    if boe and (candidate.realStatus or candidate.status) == "RESPONDED" then
-        return boe.t, nil, boe.r, boe.g, boe.b, nil
-    end
     local index = candidate and (candidate.realResponse or candidate.response)
     if index then
         local response = responseByIndex(index)
@@ -782,6 +903,53 @@ function History.ResponseText(entry)
     return (status and status.text) or text
 end
 
+local function EncounterRecord(boss, encounterID)
+    local encounter = addon.Encounter
+    if not (boss or encounterID) or not (encounter and encounter.GetLog and encounter.SameBoss) then
+        return nil
+    end
+    local log, fallback = encounter:GetLog(), nil
+    for i = #log, 1, -1 do
+        local logged = log[i]
+        if type(logged) == "table" and encounter.SameBoss(logged.name, logged.id, boss, encounterID) then
+            if logged.success then return logged end
+            fallback = fallback or logged
+        end
+    end
+    return fallback
+end
+
+
+local function SourceOf(item)
+    local here, hereType, hereDifficulty, hereDifficultyName = GetInstanceInfo()
+    local record = EncounterRecord(item.boss, item.encounterID)
+    if not record and not item.difficultyID then
+        return here, hereType, hereDifficulty, hereDifficultyName
+    end
+    local inside = hereType == "raid" or hereType == "party"
+    local difficultyID = item.difficultyID or (record and record.difficultyID)
+        or (inside and hereDifficulty) or nil
+    local instance, instanceType = record and record.instance, record and record.instanceType
+    if not instance and inside then instance, instanceType = here, hereType end
+    local difficultyName
+    if inside and difficultyID == hereDifficulty then
+        difficultyName = hereDifficultyName
+    elseif type(difficultyID) == "number" and GetDifficultyInfo then
+        local ok, name = pcall(GetDifficultyInfo, difficultyID)
+        if ok and type(name) == "string" and name ~= "" then difficultyName = name end
+    end
+    return instance, instanceType, difficultyID, difficultyName
+end
+
+
+local function VoteCount(candidate)
+    local voters = candidate and candidate.voters
+    if type(voters) ~= "table" then return 0 end
+    local n = 0
+    for _ in pairs(voters) do n = n + 1 end
+    return n
+end
+
 local function BuildEntry(session, winner, item)
     counter = counter + 1
 
@@ -791,7 +959,7 @@ local function BuildEntry(session, winner, item)
         ResolveCandidateResponse(candidate,
             function(index) return addon.Config:Responses()[index] end, true)
 
-    local instanceName, instanceType, difficultyID, difficultyName = GetInstanceInfo()
+    local instanceName, instanceType, difficultyID, difficultyName = SourceOf(item)
 
     return {
         id = ("%d-%d"):format(GetServerTime(), counter),
@@ -818,6 +986,7 @@ local function BuildEntry(session, winner, item)
         boss = item.boss,
         encounterID = item.encounterID,
         note = candidate and candidate.note,
+        votes = VoteCount(candidate),
         groupSize = GetNumGroupMembers(),
         delivered = item.delivered and true or false,
 
@@ -923,6 +1092,10 @@ function History.CleanRow(entry)
             row[key] = value
         end
     end
+    local r, g, b = row.r, row.g, row.b
+    if not (r and g and b and r >= 0 and r <= 1 and g >= 0 and g <= 1 and b >= 0 and b <= 1) then
+        row.r, row.g, row.b = nil, nil, nil
+    end
     return row
 end
 
@@ -984,6 +1157,7 @@ function History:Record(entry, sender)
             "to", tostring(entry.winner))
     end
 
+    History.Revive("history", entry.id)
     addon.db.history[entry.id] = row
 
     if indexState ~= "none" then Index(row) end
@@ -1053,7 +1227,7 @@ function History:RemoveForSession(session, winner, runId, seq)
     if not session or not runId then return false end
     addon.db.history = addon.db.history or {}
 
-    local struckNow = {}
+    local struckNow, gone = {}, {}
     for id, entry in pairs(addon.db.history) do
         if entry.runId == runId and entry.session == session
             and (not winner or entry.winner == winner) then
@@ -1061,6 +1235,7 @@ function History:RemoveForSession(session, winner, runId, seq)
             struck[id] = true
             Forget("history", id)
             struckNow[#struckNow + 1] = entry
+            gone[entry] = true
             addon.Log:I("History", "struck", entry.link, "from", tostring(entry.winner))
         end
     end
@@ -1069,7 +1244,7 @@ function History:RemoveForSession(session, winner, runId, seq)
         if winner then RememberEarly("strike", session, winner, runId, seq) end
         return false
     end
-    Reindex()
+    Unindex(gone)
 
     for _, entry in ipairs(struckNow) do
         addon.Callbacks:Fire("HistoryChanged", "struck", entry)
@@ -1221,20 +1396,29 @@ function History.EachSnapKey(fn)
 end
 
 
+local function NewestFirst(a, b) return EpochOf(a) > EpochOf(b) end
+
 function History:GetWinnersOfItem(link)
     local key = ItemKey(link)
     if not key then return {} end
     EnsureIndex()
-    local live = byItem[key] or {}
-    local sum = Summary()
-    local packed = sum.items[ItemSlot(link)]
-    if not packed then return live end
     local out = {}
-    for i, entry in ipairs(live) do out[i] = entry end
-    for _, index in ipairs(Unpacked(packed)) do
-        local sample = sum.pairs[index]
-        if sample then out[#out + 1] = SampleEntry(sample) end
+    for i, entry in ipairs(byItem[key] or {}) do out[i] = entry end
+    local sum = Summary()
+    local slot = ItemSlot(link)
+    local packed = slot and sum.items[slot]
+    if packed then
+        local at = Unpacked(sum.itemAt and sum.itemAt[slot])
+        for i, index in ipairs(Unpacked(packed)) do
+            local sample = sum.pairs[index]
+            if sample then
+                local entry = SampleEntry(sample)
+                entry.epoch = at[i]
+                out[#out + 1] = entry
+            end
+        end
     end
+    table.sort(out, NewestFirst)
     return out
 end
 
@@ -1473,11 +1657,15 @@ local function MarkEdited(entry)
     entry.editedBy = addon.Player and addon.Player:GetFullName("player") or nil
 end
 
-local function FinishEdit(action, entry, segKey)
+local function FinishEdit(action, entry, segKey, rekeyed)
     MarkEdited(entry)
 
-    if segKey then CommitSegs({ [segKey] = true }) end
-    Reindex()
+    if segKey then
+        CommitSegs({ [segKey] = true })
+    elseif rekeyed then
+        Reindexed(entry)
+    end
+    archivedByWinner = nil
     addon.Log:I("History", action, tostring(entry.id))
     addon.Callbacks:Fire("HistoryChanged", action, entry)
     return true
@@ -1505,7 +1693,7 @@ function History:SetWinner(id, winner)
     if entry.winner == winner then return true end
 
     entry.winner = winner
-    return FinishEdit("changed winner for", entry, segKey)
+    return FinishEdit("changed winner for", entry, segKey, true)
 end
 
 function History:SetResponse(id, responseID)
@@ -1540,7 +1728,7 @@ end
 
 
 function History:DeleteEntries(ids)
-    local removed, last, dirty = 0, nil, {}
+    local removed, last, dirty, gone = 0, nil, {}, {}
     for _, id in ipairs(ids or {}) do
         local store, key, entry, segKey, tag = FindStoredEntry(id)
         if store then
@@ -1549,7 +1737,7 @@ function History:DeleteEntries(ids)
 
             if native then struck[key] = true end
             Forget(native and "history" or "imported", key)
-            if segKey then dirty[segKey] = true end
+            if segKey then dirty[segKey] = true else gone[entry] = true end
             removed = removed + 1
             last = entry
         end
@@ -1557,7 +1745,7 @@ function History:DeleteEntries(ids)
     if removed == 0 then return 0 end
 
     if next(dirty) then CommitSegs(dirty) end
-    Reindex()
+    Unindex(gone)
     if addon.Snapshot then addon.Snapshot:Prune() end
     if removed == 1 then
         addon.Log:I("History", "deleted", tostring(last.id), "from", last.source or "slc")
@@ -1604,6 +1792,28 @@ function History:PruneBySetting(login)
         addon.Log:I("History", "pruned", removed, "entries older than", days, "days")
     end
     return removed, days
+end
+
+
+
+function History:PruneCoins(login)
+    local cutoff = GetServerTime() - COIN_KEEP_DAYS * DAY
+    local removed = PruneArchivedCoins(cutoff)
+    for _, store in ipairs({ addon.db.history or {}, addon.db.imported or {} }) do
+        for id, entry in pairs(store) do
+            if entry.coin == true and EpochOf(entry) < cutoff then
+                store[id] = nil
+                removed = removed + 1
+            end
+        end
+    end
+    if removed > 0 then
+        addon.Log:I("History", "removed", removed, "bonus roll entries older than", COIN_KEEP_DAYS, "days")
+    end
+    if login or removed == 0 then return removed end
+    Reindex()
+    if addon.Snapshot then addon.Snapshot:Prune() end
+    return removed
 end
 
 
@@ -1800,14 +2010,16 @@ local function SweepStep(state)
             archive.sum, archive.sumV = sum, SUM_VERSION
             summaryOk, summaryFor = true, addon.db
         end
+        local gone = {}
         for _, item in ipairs(moved) do
             addon.db[item.store][item.key] = nil
             AddRow(sum, item.row)
+            gone[item.row] = true
         end
         archive.token = Token(segs)
         state.moved = state.moved + #moved
         state.segments = state.segments + 1
-        Reindex()
+        Unindex(gone)
     end
     if job.at > #job.list then state.at = state.at + 1 end
     return state.at > #state.months, true
@@ -1850,6 +2062,28 @@ end
 
 
 
+local function SweepTick(self)
+    local state = sweepState
+    if not state then
+        self:SetScript("OnUpdate", nil)
+        return
+    end
+    if next(loaded) or (InCombatLockdown and InCombatLockdown()) then
+        self:SetScript("OnUpdate", nil)
+        FinishSweep(state, false)
+        History:ScheduleSweep(RELEASE_DELAY)
+        return
+    end
+    local started = debugprofilestop and debugprofilestop()
+    local done, ok = SweepStep(state)
+    if started then state.ms = state.ms + debugprofilestop() - started end
+    if done or not ok then
+        self:SetScript("OnUpdate", nil)
+        FinishSweep(state, ok)
+    end
+end
+
+
 function History:ScheduleSweep(delay)
     if sweepState or sweepScheduled or not Codec() or not (C_Timer and C_Timer.After) then return end
     sweepScheduled = true
@@ -1864,24 +2098,9 @@ function History:ScheduleSweep(delay)
         local months, count = PlanSweep(now)
         if not SweepDue(count, now) then return end
         if type(addon.db.historyArchive) ~= "table" then addon.db.historyArchive = {} end
-        local state = { months = months, at = 1, moved = 0, segments = 0, ms = 0 }
-        sweepState = state
-        local driver = CreateFrame("Frame")
-        driver:SetScript("OnUpdate", function(self)
-            if next(loaded) or (InCombatLockdown and InCombatLockdown()) then
-                self:SetScript("OnUpdate", nil)
-                FinishSweep(state, false)
-                History:ScheduleSweep(RELEASE_DELAY)
-                return
-            end
-            local started = debugprofilestop and debugprofilestop()
-            local done, ok = SweepStep(state)
-            if started then state.ms = state.ms + debugprofilestop() - started end
-            if done or not ok then
-                self:SetScript("OnUpdate", nil)
-                FinishSweep(state, ok)
-            end
-        end)
+        sweepState = { months = months, at = 1, moved = 0, segments = 0, ms = 0 }
+        sweepDriver = sweepDriver or CreateFrame("Frame")
+        sweepDriver:SetScript("OnUpdate", SweepTick)
     end)
 end
 
@@ -2064,6 +2283,7 @@ function History:Init()
     summaryOk, loaded, loadedAll, archivedByWinner = false, {}, false, nil
 
     local removed, days = History:PruneBySetting(true)
+    History:PruneCoins(true)
     History.loginDriver = StartLoginPass()
     if removed > 0 then
 
@@ -2074,6 +2294,14 @@ function History:Init()
     end
 
 
+
+    addon.Callbacks:Register("EncounterEnded", function(logged)
+        if type(logged) ~= "table" or logged.instance then return end
+        local name, instanceType = GetInstanceInfo()
+        if (instanceType == "raid" or instanceType == "party") and type(name) == "string" and name ~= "" then
+            logged.instance, logged.instanceType = name, instanceType
+        end
+    end)
 
     addon.Callbacks:Register("ItemAwarded", function(session, winner, item)
         if not addon.PlayerIsMasterLooter() then return end

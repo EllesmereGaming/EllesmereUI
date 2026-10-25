@@ -1107,11 +1107,11 @@ local function DecorateIcons(entry, resultID, info, ai)
             if ri then ri:SetAlpha(a) end
             if bg then bg:SetAlpha(a) end
         elseif live then
-            -- Hide Blizzard's art, ours draws the icon.
-            if cc then cc:SetAlpha(0) end
-            if ri then ri:SetAlpha(0) end
-            if bg then bg:SetAlpha(0) end
             if bgAtlas == "groupfinder-icon-emptyslot" then
+                -- Hide Blizzard's art, ours draws the slot.
+                if cc then cc:SetAlpha(0) end
+                if ri then ri:SetAlpha(0) end
+                if bg then bg:SetAlpha(0) end
                 mi = mi + 1
                 local role = missing and missing[mi]
                 if role then
@@ -1146,55 +1146,70 @@ local function DecorateIcons(entry, resultID, info, ai)
                     end
                     if m then break end
                 end
-                local spec = m and specOn and m.specName and not IsSecret(m.specName) and SpecIcon(m.classFilename, m.specName)
-                if ccAtlas then
-                    d.circle:SetAtlas(ccAtlas, false)
-                    d.circle:SetDesaturated(disabled)
-                    d.circle:SetAlpha(disabled and 0.5 or 1)
-                    d.circle:Show()
-                    if spec then
-                        d.circle:Hide()
-                        local r, g, b = ThemeBorder()
-                        d.ring:SetColorTexture(r, g, b, disabled and 0.5 or 1)
-                        d.ring:Show()
-                        d.spec:SetTexture(spec)
-                        d.spec:SetDesaturated(disabled)
-                        d.spec:SetAlpha(disabled and 0.5 or 1)
-                        d.spec:Show()
-                    elseif riAtlas then
-                        d.role:SetAtlas(riAtlas, false)
-                        d.role:SetDesaturated(disabled)
-                        d.role:SetAlpha(disabled and 0.5 or 1)
-                        d.role:Show()
+                if not specOn then
+                    -- Spec icons off: a filled slot keeps the game's own class
+                    -- and role icons, at the game's alpha; only the leader's
+                    -- crown is ours (the game's own leaver mark shows).
+                    local a = disabled and 0.5 or 1
+                    if cc then cc:SetAlpha(a) end
+                    if ri then ri:SetAlpha(a) end
+                    if bg then bg:SetAlpha(a) end
+                else
+                    -- Hide Blizzard's art, ours draws the icon.
+                    if cc then cc:SetAlpha(0) end
+                    if ri then ri:SetAlpha(0) end
+                    if bg then bg:SetAlpha(0) end
+                    local spec = m and m.specName and not IsSecret(m.specName) and SpecIcon(m.classFilename, m.specName)
+                    if ccAtlas then
+                        d.circle:SetAtlas(ccAtlas, false)
+                        d.circle:SetDesaturated(disabled)
+                        d.circle:SetAlpha(disabled and 0.5 or 1)
+                        d.circle:Show()
+                        if spec then
+                            d.circle:Hide()
+                            local r, g, b = ThemeBorder()
+                            d.ring:SetColorTexture(r, g, b, disabled and 0.5 or 1)
+                            d.ring:Show()
+                            d.spec:SetTexture(spec)
+                            d.spec:SetDesaturated(disabled)
+                            d.spec:SetAlpha(disabled and 0.5 or 1)
+                            d.spec:Show()
+                        elseif riAtlas then
+                            d.role:SetAtlas(riAtlas, false)
+                            d.role:SetDesaturated(disabled)
+                            d.role:SetAlpha(disabled and 0.5 or 1)
+                            d.role:Show()
+                        end
+                    elseif bgAtlas then
+                        -- Role-only icons: Blizzard's art or the spec icon.
+                        if spec then
+                            d.circle:Hide()
+                            local r, g, b = ThemeBorder()
+                            d.ring:SetColorTexture(r, g, b, disabled and 0.5 or 1)
+                            d.ring:Show()
+                            d.spec:SetTexture(spec)
+                            d.spec:SetDesaturated(disabled)
+                            d.spec:SetAlpha(disabled and 0.5 or 1)
+                            d.spec:Show()
+                        else
+                            d.full:SetAtlas(bgAtlas, false)
+                            d.full:SetDesaturated(disabled)
+                            d.full:SetAlpha(disabled and 0.5 or 1)
+                            d.full:Show()
+                        end
                     end
-                elseif bgAtlas then
-                    -- Role-only icons: Blizzard's art or the spec icon.
-                    if spec then
-                        d.circle:Hide()
-                        local r, g, b = ThemeBorder()
-                        d.ring:SetColorTexture(r, g, b, disabled and 0.5 or 1)
-                        d.ring:Show()
-                        d.spec:SetTexture(spec)
-                        d.spec:SetDesaturated(disabled)
-                        d.spec:SetAlpha(disabled and 0.5 or 1)
-                        d.spec:Show()
-                    else
-                        d.full:SetAtlas(bgAtlas, false)
-                        d.full:SetDesaturated(disabled)
-                        d.full:SetAlpha(disabled and 0.5 or 1)
-                        d.full:Show()
+                    -- Blizzard's leaver mark sits under our layer: drawn again above it.
+                    local lv = icon.LeaverIcon
+                    local leaver = lv and lv:IsShown()
+                    if not IsSecret(leaver) and leaver then
+                        d.leaver:SetDesaturated(disabled)
+                        d.leaver:SetAlpha(disabled and 0.5 or 1)
+                        d.leaver:Show()
                     end
                 end
                 if m and crownOn and not IsSecret(m.isLeader) and m.isLeader then
                     d.crown:SetDesaturated(disabled)
                     d.crown:Show()
-                end
-                local lv = icon.LeaverIcon
-                local leaver = lv and lv:IsShown()
-                if not IsSecret(leaver) and leaver then
-                    d.leaver:SetDesaturated(disabled)
-                    d.leaver:SetAlpha(disabled and 0.5 or 1)
-                    d.leaver:Show()
                 end
             end
         end
@@ -2025,6 +2040,24 @@ local function BuildRaidDiffMenu()
     m:Hide()
 end
 
+-- Show Specialization / Show Spec Icons changed: off also puts Role Icon Size
+-- to 100%, the game's own icons at their own size, and on back to its default
+-- (owner request). The open menu repaints its rows (the stepper shows the new
+-- size), then the list redecorates.
+function XF.SpecIconsChanged(menu)
+    Cfg().iconSize = (Cfg().specIcons == false) and 100 or ns.DEFAULTS.iconSize
+    if menu and menu.items then
+        for _, it in ipairs(menu.items) do it:Paint() end
+    end
+    XF.Redecorate()
+end
+
+-- The options page's Show Spec Icons: the same key as the menu's switch.
+function ns.SetSpecIcons(on)
+    Cfg().specIcons = on and true or false
+    XF.SpecIconsChanged(nil)
+end
+
 -- Group Settings menu (person button): list look and sign-up options.
 XF.GROUP_MENU = {
     { title = EllesmereUI.L("Listing") },
@@ -2035,7 +2068,8 @@ XF.GROUP_MENU = {
     { key = "missingRoles",   label = EllesmereUI.L("Show Missing Roles"),
       tip = EllesmereUI.L("Empty slots in 5-player groups show the role the group still needs.") },
     { key = "specIcons",      label = EllesmereUI.L("Show Specialization"),
-      tip = EllesmereUI.L("Shows each member's specialization icon in place of the class icon.") },
+      tip = EllesmereUI.L("Shows each member's specialization icon in place of the game's class and role icons. Off, the game's own icons stay."),
+      onToggle = function(menu) XF.SpecIconsChanged(menu) end },
     { key = "leaderCrown",    label = EllesmereUI.L("Show Group Leader"),
       tip = EllesmereUI.L("Puts a small crown above the group leader's icon.") },
     { key = "classTooltip",   label = EllesmereUI.L("Members in Tooltip"),
@@ -2133,7 +2167,7 @@ function XF.SwitchItem(m, y, spec)
         end
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
         self:Paint()
-        if spec.onToggle then spec.onToggle() else XF.Redecorate() end
+        if spec.onToggle then spec.onToggle(m) else XF.Redecorate() end
     end)
     item:Paint()
     return item
@@ -2372,6 +2406,7 @@ end
 
 ns.GlyphButton = GlyphButton
 ns.GLYPH = XF.GLYPH
+ns.Redecorate = XF.Redecorate  -- the options page's list switches
 
 local function SquareEnter(self)
     local d = self.dungeon

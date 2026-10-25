@@ -93,6 +93,8 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 
     local hdr
     hdr, h = W:SectionHeader(parent, "CLASS RESOURCE BAR", y);  y = y - h
+    -- Move in Unlock Mode on the title; handed back so the page's preview eye sits after it.
+    local unlockJump = EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ERB_ClassResource", disabled = classOff, disabledTooltip = "Class Resource" })
 
     local _advTop = y  -- content top; also used by the Simple override overlay
     -- Guardian Ironfur + Prot Ignore Pain special bars stay global at runtime (stored on
@@ -1440,6 +1442,6 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
     ns.ERB_BlizzArtBlockRegions(artRegions)
 
     -- Header + row frames go back so the Simple page can wire its preview click-mappings (classSection/classEnableRow, and the Resource Text row for the count-text overlay).
-    return y, hdr, classEnableRow, classColorRow
+    return y, hdr, classEnableRow, classColorRow, unlockJump
 end
 --- [class resource end]

@@ -2281,18 +2281,22 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                       if not (ov and ov.foreverDruid) then return "default" end
                       return pdb.foreverFormBar and "both" or "alt"
                   end,
-                  setValue = function(v)
-                      local pdb = UNIT_DB_MAP["player"]()
-                      if v ~= "default" then
-                          if not pdb.powerTypeOverride then pdb.powerTypeOverride = {} end
-                          pdb.powerTypeOverride.foreverDruid = true
-                      elseif pdb.powerTypeOverride then
-                          pdb.powerTypeOverride.foreverDruid = nil
-                      end
-                      pdb.foreverFormBar = (v == "both") or nil
-                      ReloadAndUpdate()
-                      EllesmereUI:RefreshPage()
-                  end },
+                  -- The Form rows below exist only with Mana + Form Power: the page
+                  -- rebuilds when that choice comes or goes.
+                  setValue = EllesmereUI.DependentSetValue(
+                      function() return SVal("foreverFormBar", false) == true end,
+                      function(v)
+                          local pdb = UNIT_DB_MAP["player"]()
+                          if v ~= "default" then
+                              if not pdb.powerTypeOverride then pdb.powerTypeOverride = {} end
+                              pdb.powerTypeOverride.foreverDruid = true
+                          elseif pdb.powerTypeOverride then
+                              pdb.powerTypeOverride.foreverDruid = nil
+                          end
+                          pdb.foreverFormBar = (v == "both") or nil
+                          ReloadAndUpdate()
+                          EllesmereUI:RefreshPage()
+                      end) },
                 sparkCfg);  y = y - h
             -- The Form Power bar's own settings re-apply only that bar
             -- (EUI_UnitFrames_ForeverFormBar.lua), not the whole frame.
@@ -2313,7 +2317,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                 EllesmereUI.BuildInlineCog(powerTypeRow._leftRegion, {
                     icon = EllesmereUI.RESIZE_ICON,
                     disabled = NoFormBar,
-                    disabledTooltip = FORM_TIP,
+                    disabledTooltip = FORM_TIP, rawTooltip = true,
                     title = "Form Power Bar",
                     rows = {
                         { type="slider", label="X Offset", min=-50, max=50, step=1,
@@ -2325,109 +2329,105 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                     },
                 })
             end
-            -- Form Power Text + Form Text Position: the form bar's text, apart
-            -- from the power bar's (Mana) text.
-            local formTextRow
-            formTextRow, h = W:DualRow(parent, y,
-                { type="dropdown", text="Form Power Text", values=ppFmtValues, order=ppFmtOrder,
-                  disabled=NoFormBar, disabledTooltip=FORM_TIP,
-                  getValue=function() return FormVal("foreverFormTextFormat", "powerTextFormat", "perpp") end,
-                  setValue=function(v)
-                      local pos = FormVal("foreverFormTextPos", "powerPercentText", "none")
-                      if v ~= "none" and pos == "none" then SDB().foreverFormTextPos = "center" end
-                      if v == "none" then SDB().foreverFormTextPos = "none" end
-                      SetForm("foreverFormTextFormat", v)
-                      EllesmereUI:RefreshPage()
-                  end },
-                { type="dropdown", text="Form Text Position", values=ppTextValues, order=ppTextOrder,
-                  disabled=NoFormBar, disabledTooltip=FORM_TIP,
-                  getValue=function() return FormVal("foreverFormTextPos", "powerPercentText", "none") end,
-                  setValue=function(v) SetForm("foreverFormTextPos", v) end });  y = y - h
-            if not EllesmereUI._prebuilding then
-                EllesmereUI.BuildInlineCog(formTextRow._leftRegion, {
-                    disabled = function()
-                        if NoFormBar() then return true end
-                        local fmt = FormVal("foreverFormTextFormat", "powerTextFormat", "perpp")
-                        return fmt == "none" or fmt == "curpp" or fmt == "curmaxpp"
-                    end,
-                    disabledTooltip = "This option is only available for formats that display a percentage.",
-                    title = "Form Power Text",
-                    rows = {
-                        { type="toggle", label="Show %",
-                          get=function() return FormVal("foreverFormShowPercent", "powerShowPercent", true) ~= false end,
-                          set=function(v) SetForm("foreverFormShowPercent", v) end },
-                    },
-                })
-                EllesmereUI.BuildInlineCog(formTextRow._rightRegion, {
-                    icon = EllesmereUI.RESIZE_ICON,
-                    disabled = function()
-                        return NoFormBar() or FormVal("foreverFormTextPos", "powerPercentText", "none") == "none"
-                    end,
-                    disabledTooltip = "This option requires a text position other than none.",
-                    title = "Form Text Position",
-                    rows = {
-                        { type="slider", label="Size", min=6, max=100, step=1,
-                          get=function() return FormVal("foreverFormTextSize", "powerPercentSize", 9) end,
-                          set=function(v) SetForm("foreverFormTextSize", v) end },
-                        { type="slider", label="X Offset", min=-50, max=50, step=1,
-                          get=function() return FormVal("foreverFormTextX", "powerPercentX", 0) end,
-                          set=function(v) SetForm("foreverFormTextX", v) end },
-                        { type="slider", label="Y Offset", min=-50, max=50, step=1,
-                          get=function() return FormVal("foreverFormTextY", "powerPercentY", 0) end,
-                          set=function(v) SetForm("foreverFormTextY", v) end },
-                    },
-                })
-            end
-            -- Form Text Color: custom, or the form power's colour. Neither set
-            -- follows the power bar's Text Color.
-            local function FormPowerColored()
-                local pc = SVal("foreverFormTextPowerColor", nil)
-                if pc == nil and SVal("foreverFormTextColor", nil) == nil then
-                    pc = SVal("powerPercentTextPowerColor", false)
-                end
-                return pc and true or false
-            end
-            _, h = W:DualRow(parent, y,
-                { type="multiSwatch", text="Form Text Color",
-                  disabled=NoFormBar, disabledTooltip=FORM_TIP,
-                  swatches = {
-                    { tooltip = "Custom Text Color",
-                      hasAlpha = false,
-                      getValue = function()
-                          local c = SVal("foreverFormTextColor", nil)
-                          if c == nil and SVal("foreverFormTextPowerColor", nil) == nil then c = SGet("powerTextColor") end
-                          if c then return c.r, c.g, c.b end
-                          return 1, 1, 1
-                      end,
-                      setValue = function(r, g, b)
-                          SDB().foreverFormTextPowerColor = false
-                          SetForm("foreverFormTextColor", { r=r, g=g, b=b })
-                      end,
-                      onClick = function(self)
-                          if FormPowerColored() then
-                              SDB().foreverFormTextColor = nil
-                              SetForm("foreverFormTextPowerColor", false)
-                              EllesmereUI:RefreshPage()
-                              return
-                          end
-                          if self._eabOrigClick then self._eabOrigClick(self) end
-                      end,
-                      refreshAlpha = function() return FormPowerColored() and 0.3 or 1 end },
-                    { tooltip = "Power Colored Text",
-                      hasAlpha = false,
-                      getValue = function()
-                          local info = EllesmereUI.GetPowerColor("ENERGY")
-                          return info.r, info.g, info.b
-                      end,
-                      setValue = function() end,
-                      onClick = function()
-                          SDB().foreverFormTextColor = nil
-                          SetForm("foreverFormTextPowerColor", true)
+            -- Form Power Text (its colour swatches inline) + Form Text Position:
+            -- the form bar's text, apart from the power bar's (Mana) text. Built
+            -- only with Mana + Form Power (Power Type rebuilds the page).
+            if not NoFormBar() then
+                local formTextRow
+                formTextRow, h = W:DualRow(parent, y,
+                    { type="dropdown", text="Form Power Text", values=ppFmtValues, order=ppFmtOrder,
+                      getValue=function() return FormVal("foreverFormTextFormat", "powerTextFormat", "perpp") end,
+                      setValue=function(v)
+                          local pos = FormVal("foreverFormTextPos", "powerPercentText", "none")
+                          if v ~= "none" and pos == "none" then SDB().foreverFormTextPos = "center" end
+                          if v == "none" then SDB().foreverFormTextPos = "none" end
+                          SetForm("foreverFormTextFormat", v)
                           EllesmereUI:RefreshPage()
-                      end,
-                      refreshAlpha = function() return FormPowerColored() and 1 or 0.3 end },
-                  } },
-                EllesmereUI.BlankRowCfg());  y = y - h
+                      end },
+                    { type="dropdown", text="Form Text Position", values=ppTextValues, order=ppTextOrder,
+                      getValue=function() return FormVal("foreverFormTextPos", "powerPercentText", "none") end,
+                      setValue=function(v) SetForm("foreverFormTextPos", v) end });  y = y - h
+                if not EllesmereUI._prebuilding then
+                    -- Text colour: custom, or the form power's colour. Neither set
+                    -- follows the power bar's Text Color.
+                    local function FormPowerColored()
+                        local pc = SVal("foreverFormTextPowerColor", nil)
+                        if pc == nil and SVal("foreverFormTextColor", nil) == nil then
+                            pc = SVal("powerPercentTextPowerColor", false)
+                        end
+                        return pc and true or false
+                    end
+                    EllesmereUI.BuildInlineSwatches(formTextRow._leftRegion, {
+                        { tooltip = "Custom Text Color",
+                          hasAlpha = false,
+                          getValue = function()
+                              local c = SVal("foreverFormTextColor", nil)
+                              if c == nil and SVal("foreverFormTextPowerColor", nil) == nil then c = SGet("powerTextColor") end
+                              if c then return c.r, c.g, c.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function(r, g, b)
+                              SDB().foreverFormTextPowerColor = false
+                              SetForm("foreverFormTextColor", { r=r, g=g, b=b })
+                          end,
+                          onClick = function(self)
+                              if FormPowerColored() then
+                                  SDB().foreverFormTextColor = nil
+                                  SetForm("foreverFormTextPowerColor", false)
+                                  EllesmereUI:RefreshPage()
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return FormPowerColored() and 0.3 or 1 end },
+                        { tooltip = "Power Colored Text",
+                          hasAlpha = false,
+                          getValue = function()
+                              local info = EllesmereUI.GetPowerColor("ENERGY")
+                              return info.r, info.g, info.b
+                          end,
+                          setValue = function() end,
+                          onClick = function()
+                              SDB().foreverFormTextColor = nil
+                              SetForm("foreverFormTextPowerColor", true)
+                              EllesmereUI:RefreshPage()
+                          end,
+                          refreshAlpha = function() return FormPowerColored() and 1 or 0.3 end },
+                    })
+                    EllesmereUI.BuildInlineCog(formTextRow._leftRegion, {
+                        disabled = function()
+                            local fmt = FormVal("foreverFormTextFormat", "powerTextFormat", "perpp")
+                            return fmt == "none" or fmt == "curpp" or fmt == "curmaxpp"
+                        end,
+                        disabledTooltip = "This option is only available for formats that display a percentage.",
+                        title = "Form Power Text",
+                        rows = {
+                            { type="toggle", label="Show %",
+                              get=function() return FormVal("foreverFormShowPercent", "powerShowPercent", true) ~= false end,
+                              set=function(v) SetForm("foreverFormShowPercent", v) end },
+                        },
+                    })
+                    EllesmereUI.BuildInlineCog(formTextRow._rightRegion, {
+                        icon = EllesmereUI.RESIZE_ICON,
+                        disabled = function()
+                            return FormVal("foreverFormTextPos", "powerPercentText", "none") == "none"
+                        end,
+                        disabledTooltip = "This option requires a text position other than none.",
+                        title = "Form Text Position",
+                        rows = {
+                            { type="slider", label="Size", min=6, max=100, step=1,
+                              get=function() return FormVal("foreverFormTextSize", "powerPercentSize", 9) end,
+                              set=function(v) SetForm("foreverFormTextSize", v) end },
+                            { type="slider", label="X Offset", min=-50, max=50, step=1,
+                              get=function() return FormVal("foreverFormTextX", "powerPercentX", 0) end,
+                              set=function(v) SetForm("foreverFormTextX", v) end },
+                            { type="slider", label="Y Offset", min=-50, max=50, step=1,
+                              get=function() return FormVal("foreverFormTextY", "powerPercentY", 0) end,
+                              set=function(v) SetForm("foreverFormTextY", v) end },
+                        },
+                    })
+                end
+            end
         elseif EllesmereUI.ManaRegenSpark then
             _, h = W:DualRow(parent, y, sparkCfg, EllesmereUI.BlankRowCfg());  y = y - h
         end

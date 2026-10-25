@@ -109,7 +109,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function BuildCursorPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
-        local _, h, row
+        local _, h, row, hdr
 
         EllesmereUI:ClearContentHeader()
 
@@ -311,7 +311,13 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         --  GLOBAL COOLDOWN
         -----------------------------------------------------------------------
-        _, h = W:SectionHeader(parent, SECTION_GCD, y);  y = y - h
+        hdr, h = W:SectionHeader(parent, SECTION_GCD, y);  y = y - h
+        -- The circle has a mover only while enabled and detached from the
+        -- cursor, so the button names whichever of the two it still needs.
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ECL_GCD",
+            disabled = function() local g = GCD_DB(); return not (g.enabled and g.attached == false) end,
+            disabledTooltip = function() return GCD_DB().enabled and "Attach to Cursor" or "GCD Circle" end,
+            requireState = function() return GCD_DB().enabled and "disabled" or "enabled" end })
 
         -- Enable GCD Circle ---- Color (multiSwatch: custom left, class colored right)
         row, h = W:DualRow(parent, y,
@@ -469,7 +475,12 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         --  CAST BAR
         -----------------------------------------------------------------------
-        _, h = W:SectionHeader(parent, SECTION_CAST, y);  y = y - h
+        hdr, h = W:SectionHeader(parent, SECTION_CAST, y);  y = y - h
+        -- As the GCD circle: a mover only while enabled and detached.
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ECL_Cast",
+            disabled = function() local c = Cast_DB(); return not (c.enabled and c.attached == false) end,
+            disabledTooltip = function() return Cast_DB().enabled and "Attach to Cursor" or "Cast Bar Circle" end,
+            requireState = function() return Cast_DB().enabled and "disabled" or "enabled" end })
 
         -- Enable Cast Bar Circle ---- Color (multiSwatch: custom left, class colored right)
         row, h = W:DualRow(parent, y,

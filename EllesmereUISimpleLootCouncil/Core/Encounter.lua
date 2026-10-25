@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -402,31 +402,49 @@ end
 
 
 function Encounter:Current()
-    if active then return active.name, active.id end
-
     local log = Log()
-    local last = log[#log]
-    if last and last.endedAt and (Now() - last.endedAt) <= GRACE then
-        return last.name, last.id
+    local now = Now()
+    for i = #log, 1, -1 do
+        local entry = log[i]
+        if entry.success == true and entry.endedAt and (now - entry.endedAt) <= GRACE then
+            return entry.name, entry.id
+        end
     end
+    if active then return active.name, active.id end
     return nil
 end
 
 
 
-function Encounter:AtTime(when)
-    if not when then return nil end
-
+local function Covering(when, killsOnly)
     local log = Log()
+    local pull
     for i = #log, 1, -1 do
         local entry = log[i]
 
         local from = (entry.startedAt or 0) - 60
         local to = (entry.endedAt or entry.startedAt or 0) + GRACE
         if when >= from and when <= to then
-            return entry.name, entry.id
+            if entry.success == true then return entry end
+            if not killsOnly and not pull and entry == active then pull = entry end
         end
     end
+    return pull
+end
+
+function Encounter:AtTime(when)
+    if not when then return nil end
+    local entry = Covering(when, false)
+    if entry then return entry.name, entry.id end
+    return nil
+end
+
+
+
+function Encounter:KillAtTime(when)
+    if type(when) ~= "number" then return nil end
+    local entry = Covering(when, true)
+    if entry then return entry.name, entry.id, entry.startedAt end
     return nil
 end
 

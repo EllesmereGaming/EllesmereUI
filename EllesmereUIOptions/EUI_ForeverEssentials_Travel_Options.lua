@@ -25,7 +25,7 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
     local FT = EllesmereUI._FlightTimer
     local y = yOffset
-    local _, h
+    local _, h, hdr
     parent._showRowDivider = true
 
     EllesmereUI:SetContentHeader(HeaderBuilder)
@@ -53,7 +53,7 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
     end
 
     local function BorderOffsets(prefix, disabled)
-        local offsetX, offsetY = EllesmereUI.BorderOffsetRowCfgs{
+        return EllesmereUI.BorderOffsetCogRows{
             getTex = function() return FT.Get("borderTexture") end,
             getStep = function() return FT.Get("borderSize") end,
             getPx = function() return FT.Get("borderSizePx") end,
@@ -62,13 +62,9 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
             getY = function() return FT.Get(prefix .. "OffsetY") end,
             setY = function(v) FT.Cfg()[prefix .. "OffsetY"] = v end,
             apply = FT.ApplyStyle,
+            disabled = disabled,
+            disabledTooltip = disabled and "This option requires an enabled textured border." or nil,
         }
-        local function CogRow(cfg)
-            return { type = "slider", label = cfg.text, min = cfg.min, max = cfg.max, step = cfg.step,
-                get = cfg.getValue, set = cfg.setValue, disabled = disabled,
-                disabledTooltip = "This option requires an enabled textured border." }
-        end
-        return CogRow(offsetX), CogRow(offsetY)
     end
 
     local function SolidBorder()
@@ -79,7 +75,8 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
     ---------------------------------------------------------------------------
     --  GENERAL
     ---------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "FLIGHT TIMER", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "FLIGHT TIMER", y);  y = y - h
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_FlightTimer", disabled = off, disabledTooltip = "Flight Timer" })
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Enable Flight Timer",

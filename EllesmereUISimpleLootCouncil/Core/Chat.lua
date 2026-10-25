@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -14,7 +14,7 @@ local function Emit(isError, prefix, text)
     local override = addon.ChatSinkOverride
     if override then
         local fn = isError and override.Error or override.Print
-        if fn and pcall(fn, text) then return end
+        if fn and pcall(fn, prefix .. text) then return end
     end
     print(prefix .. text)
 end

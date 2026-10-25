@@ -232,7 +232,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
-        _, h = W:SectionHeader(parent, "BLIZZARD TOOLTIP", y);  y = y - h
+        local hdr
+        hdr, h = W:SectionHeader(parent, "BLIZZARD TOOLTIP", y);  y = y - h
 
         -- "Reskin Tooltip" (customTooltips) is the master for this section: its
         -- reskin-driven sub-settings gray out (and stop applying) when it is off.
@@ -243,6 +244,19 @@ initFrame:SetScript("OnEvent", function(self)
         local function ttReskinOff()
             return EllesmereUIDB and EllesmereUIDB.customTooltips == false
         end
+
+        -- The Move in Unlock Mode button on the tooltip's first section: its
+        -- mover exists only while the fixed anchor is live (reskin on, Anchor
+        -- to Cursor off), so the button greys out as the Growth Direction row does.
+        EllesmereUI.BuildSectionUnlockJump(hdr, {
+            key = "EUI_TooltipAnchor",
+            disabled = function()
+                return ttReskinOff() or (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor and true or false)
+            end,
+            disabledTooltip = function()
+                if ttReskinOff() then return "Reskin Tooltip" end
+                return "This option does not apply while Anchor to Cursor is enabled"
+            end })
 
         -- Show Health Strip works without the reskin as well; its cog restyles
         -- the reskinned bar, so the cog locks with the reskin off.
@@ -1909,6 +1923,100 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
+    --  Mail card content (retail): the Alt List beside Send Mail
+    --  (EllesmereUIBlizzardSkin_MailAlts.lua, ns.MailAlts), whatever the card's
+    --  style. Sort, cap and minimum level ride the toggle's cog; Shown
+    --  Characters lists every recorded character under its realm.
+    ---------------------------------------------------------------------------
+    local function BuildMailContent(parent, y)
+        local MA = ns.MailAlts
+        if not MA then return y end
+        local W = EllesmereUI.Widgets
+        local _, row, h
+        local REQ = "Show Alt List"
+        local function On() return EllesmereUIDB and EllesmereUIDB.mailAltList == true end
+        local function Off() return not On() end
+        local function Get(key, default)
+            local v = EllesmereUIDB and EllesmereUIDB[key]
+            if v == nil then return default end
+            return v
+        end
+        local function Set(key, v)
+            if not EllesmereUIDB then EllesmereUIDB = {} end
+            EllesmereUIDB[key] = v
+            MA.Refresh()
+        end
+        -- Every recorded character, a header per realm (rebuilt on each open).
+        local function Items()
+            local items, lastRealm = {}, nil
+            for _, e in ipairs(MA.Entries()) do
+                if e.realm ~= lastRealm then
+                    lastRealm = e.realm
+                    items[#items + 1] = { isHeader = true, label = e.realm }
+                end
+                local c = EllesmereUI.GetClassColor(e.class)
+                items[#items + 1] = {
+                    key = e.guid,
+                    label = EllesmereUI.HexColor(c.r, c.g, c.b) .. e.name .. "|r",
+                    tooltip = MA.Describe(e),
+                }
+            end
+            return items
+        end
+
+        _, h = WSCardSection(parent, "ALT LIST", y);  y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Alt List",
+              tooltip="Lists your alts beside Send Mail.",
+              getValue=On,
+              setValue=function(v)
+                  Set("mailAltList", v)
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="dropdown", text="Shown Characters",
+              tooltip="Untick a character to leave it off the list.",
+              disabled=Off, disabledTooltip=REQ,
+              values={ __placeholder="..." }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end, setValue=function() end }
+        ); y = y - h
+
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(row._leftRegion, {
+                title = "Alt List",
+                disabled = Off,
+                disabledTooltip = REQ,
+                rows = {
+                    { type="dropdown", label="Sort By",
+                      values={ recent="Last Played", level="Level", name="Name" },
+                      order={ "recent", "level", "name" },
+                      get=function() return Get("mailAltListSort", MA.DEFAULT_SORT) end,
+                      set=function(v) Set("mailAltListSort", v) end },
+                    { type="slider", label="Max Characters Shown", min=1, max=MA.MAX_ROWS, step=1,
+                      get=function() return Get("mailAltListMax", MA.DEFAULT_MAX) end,
+                      set=function(v) Set("mailAltListMax", v) end },
+                    { type="slider", label="Minimum Level", min=1, max=GetMaxLevelForLatestExpansion(), step=1,
+                      get=function() return Get("mailAltListMinLevel", MA.DEFAULT_MIN_LEVEL) end,
+                      set=function(v) Set("mailAltListMinLevel", v) end },
+                },
+            })
+            -- Shown Characters: the checkbox dropdown in place of the row's
+            -- placeholder; a long roster gets the search box.
+            local rgn = row._rightRegion
+            if rgn._control then rgn._control:Hide() end
+            local dd, refresh = EllesmereUI.BuildVisOptsCBDropdown(rgn, 220, rgn:GetFrameLevel() + 2, Items,
+                MA.IsShown, MA.SetShown, nil, 10, #MA.Entries() > 12, nil, nil,
+                { disabled = Off, disabledTooltip = REQ, countLabel = true })
+            EllesmereUI.PanelPP.Point(dd, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = dd
+            rgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(refresh)
+        end
+
+        return y
+    end
+
+    ---------------------------------------------------------------------------
     --  Blizzard Window Skins page: one expandable card per reskinned window.
     --  Card headers are custom chrome, but every sub-setting ROW is a standard
     --  W: widget built as a direct child of the page wrapper, so inline search
@@ -2226,6 +2334,8 @@ initFrame:SetScript("OnEvent", function(self)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.reskinMail = v
             end,
+            buildContent = not EllesmereUI.IS_FOREVER and BuildMailContent or nil,
+            searchText = not EllesmereUI.IS_FOREVER and { "Show Alt List", "Shown Characters" } or nil,
         },
         {
             key   = "catalyst",
@@ -2660,10 +2770,19 @@ initFrame:SetScript("OnEvent", function(self)
         -- window's title or description returns the card (style dropdown and
         -- all) as a result. Deep links are unaffected: they match the exact
         -- section names created inside buildContent, never this joined string.
-        local searchName = win.title .. " " .. (win.desc or "")
+        -- win.searchText: the labels of a card's own settings (the Mail card's
+        -- Alt List), each a locale key, found while the card is closed.
+        local extra, extraLoc = "", ""
+        if win.searchText then
+            for _, label in ipairs(win.searchText) do
+                extra = extra .. " " .. label
+                extraLoc = extraLoc .. " " .. L(label)
+            end
+        end
+        local searchName = win.title .. " " .. (win.desc or "") .. extra
         hdr._isSectionHeader = true
         hdr._sectionName = searchName
-        local searchNameLoc = L(win.title) .. " " .. L(win.desc or "")
+        local searchNameLoc = L(win.title) .. " " .. L(win.desc or "") .. extraLoc
         if searchNameLoc ~= searchName then hdr._sectionNameLoc = searchNameLoc end
 
         -- Global (sidebar) search: the card header never goes through
@@ -2680,6 +2799,8 @@ initFrame:SetScript("OnEvent", function(self)
             local descSearch = win.desc or ""
             local descLoc = L(win.desc or "")
             if descLoc ~= descSearch then descSearch = descSearch .. " " .. descLoc end
+            descSearch = descSearch .. extra
+            if extraLoc ~= extra then descSearch = descSearch .. extraLoc end
             EllesmereUI._RegisterSearchEntry(win.title,
                 titleLoc ~= win.title and titleLoc or nil,
                 descSearch,
@@ -3617,7 +3738,13 @@ initFrame:SetScript("OnEvent", function(self)
         local BS = EllesmereUI.BlizzStyle
         local edrStyle = BS.Active("dragonriding")
 
-        _, h = W:SectionHeader(parent, "GENERAL", y); y = y - h
+        -- The Move in Unlock Mode button on the bar's first section, built
+        -- whatever Enable Skyriding Bar says: its disabled state explains itself.
+        local hdr
+        hdr, h = W:SectionHeader(parent, "GENERAL", y); y = y - h
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EDR_Cluster",
+            disabled = function() return EDR_Cfg("enabled") ~= true end,
+            disabledTooltip = "Skyriding Bar" })
         y = BS.Note(parent, y, "dragonriding")
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Enable Skyriding Bar",
@@ -4129,6 +4256,9 @@ initFrame:SetScript("OnEvent", function(self)
                     "tooltipShowModifier", "tooltipGrowthDirection", "tooltipBgColor",
                     "tooltipBgOpacity", "showSpellID", "spellIDModifier", "showIconID",
                     "showItemID", "friendsListCard",
+                    "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
+                    -- Shown Characters (the roster itself is recorded data, not a setting)
+                    "mailAltHidden",
                 }) do EllesmereUIDB[k] = nil end
                 EllesmereUIDB.characterFramePos = nil
                 EllesmereUIDB.friendsFramePos = nil
@@ -4144,6 +4274,8 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._refreshInspectSlotLabels then EllesmereUI._refreshInspectSlotLabels() end
             -- WoW Forever's Friends List card (auto-accept and the tiles)
             if ns.FriendsCardRefresh then ns.FriendsCardRefresh() end
+            -- The Mail card's Alt List (retail)
+            if ns.MailAlts then ns.MailAlts.Refresh() end
         end,
     })
 
@@ -4154,6 +4286,10 @@ initFrame:SetScript("OnEvent", function(self)
     local origNav = EllesmereUI.NavigateToElementSettings
     if origNav then
         function EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName, preSelectFn, highlightText)
+            -- The original refuses in combat: no page state changes then.
+            if InCombatLockdown() then
+                return origNav(self, moduleName, pageName, sectionName, preSelectFn, highlightText)
+            end
             if moduleName == "EllesmereUIBlizzardSkin" and pageName == PAGE_WINDOWSKINS
                and (sectionName or highlightText) then
                 local changed = false

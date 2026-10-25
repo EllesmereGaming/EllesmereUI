@@ -371,6 +371,56 @@ local DB_DEFAULTS = {
             colInterrupts    = true,
             colDeaths        = true,
         },
+        -- Kick Tracker (Mythic+ Tools tab): who in the group kicked each enemy
+        -- and when their interrupt comes back (the kick engine), shown as an
+        -- icon with a cooldown on the kicked enemy's nameplate and as a bar
+        -- per member. Disabled by default; nothing registers until it is
+        -- enabled (zero cost off). Runtime in EUI_MythicTimer_KickEngine.lua /
+        -- _KickPlates.lua / _KickBars.lua over the parent's interrupt data
+        -- (EllesmereUI_KickData.lua).
+        kickTracker = {
+            enabled      = false,     -- off by default
+            -- Where to Show: checked = true. An unchecked default entry is
+            -- stored as false, never nil (a nil reads back as true at login).
+            whereToShow  = { dungeon_mythic = true, arena = true },
+            focusMarker  = 0,         -- Focus Announce: the raid marker (1-8) told to the party in a Mythic dungeon; 0 = none
+            -- announceText: the player's own Focus Announce line (Edit Announce Text), {marker} = the raid marker; unset = the default line
+            showPlates   = true,      -- the nameplate icon
+            aboveOverlap = true,      -- Show Above Overlapping Nameplates: the icons draw over every other nameplate (the plates' lift), never behind one
+            iconStyle    = "kick",    -- "kick" | "spec" | "class": the kicker's interrupt icon, spec icon or classicon
+            size         = 28,        -- icon size in px (16-48)
+            anchor       = "LEFT",    -- "LEFT" | "RIGHT" | "TOP" | "BOTTOM": side of the nameplate
+            offsetX      = -4,        -- EllesmereUI Nameplates: from the health bar (cast bar for BOTTOM) edge
+            offsetY      = 0,         -- EllesmereUI Nameplates: vertical offset
+            otherOffsetX = 0,         -- other nameplates: from the base nameplate edge
+            otherOffsetY = 0,         -- other nameplates: vertical offset
+            classBorder  = true,      -- border in the kicker's class color (black when off or hidden)
+            swipe        = true,      -- the cooldown swipe over the icon
+            desaturate   = false,     -- grey the icon while the kicker's interrupt is on cooldown
+            showTimer    = true,      -- the seconds left on the kicker's interrupt
+            timerSize    = 11,        -- timer text size (6-24)
+            timerPos     = "center",  -- "center" | "topleft" | "topright" | "bottomleft" | "bottomright"
+            timerX       = 0,         -- timer text offsets
+            timerY       = 0,
+            -- The bars: a row per group member with an interrupt.
+            showBars     = true,
+            barWidth     = 200,
+            barHeight    = 22,
+            barSpacing   = 2,
+            barGrowUp    = false,     -- false = rows stack downward
+            texture      = "none",    -- the rows' bar texture (the Textures page's row writes this key)
+            barBgMode    = "class",   -- "class" = a darkened class colour behind each row | "custom" = barBgColor
+            barBgColor   = { r = 0, g = 0, b = 0, a = 0.45 },
+            barBorderSize = 0,
+            barShowIcon  = true,      -- the interrupt's icon at the row's end
+            barIconOnRight = false,
+            barShowName  = true,
+            barNameSize  = 11,
+            barShowTimer = true,      -- seconds left while on cooldown
+            barTimerSize = 11,
+            barIncludeSelf = true,    -- your own row
+            barShowMarker = true,     -- the raid marker of the mob the member interrupted, beside their row
+        },
     },
 }
 
@@ -1180,12 +1230,32 @@ local function LocalizePreview()
     end
 end
 
-_G._EMT_Apply = function()
+-- The timer's own repaint: the timer's options rows (the Mythic+ Timer page,
+-- its rows on the Fonts and Textures pages) call this on every write.
+_G._EMT_ApplyTimer = function()
     -- Render before CENTER re-apply so height is known (placeholder is 200px).
     if _G._EMT_StandaloneRefresh then _G._EMT_StandaloneRefresh() end
     if _G._EMT_ApplyStandalonePosition then
         _G._EMT_ApplyStandalonePosition()
     end
+end
+
+-- The whole module: a profile switch or a Spec Override flip lands here, and
+-- every Mythic+ Tools feature re-reads its settings from the current profile.
+_G._EMT_Apply = function()
+    _G._EMT_ApplyTimer()
+    if ns.TSB_Refresh then ns.TSB_Refresh() end
+    if ns.TFB_Refresh then ns.TFB_Refresh() end
+    if ns.RS_Apply then ns.RS_Apply() end
+    if ns.RS_Refresh then ns.RS_Refresh() end
+    if ns.KT_Refresh then ns.KT_Refresh() end
+end
+
+-- Whether the Mythic+ timer window itself is on. The parent's incompatible
+-- addon check asks this before naming another Mythic+ timer addon: those only
+-- clash with the timer window, not with the rest of Mythic+ Tools.
+_G._EMT_IsTimerEnabled = function()
+    return (db and db.profile and db.profile.enabled) and true or false
 end
 
 -- Preset system removed. Users tweak settings directly.
@@ -1946,7 +2016,7 @@ local function RenderStandalone()
     f:SetWidth(p.frameWidth or 260)
 
     -- Scale ownership lives in ApplyStandalonePosition (called from
-    -- _EMT_Apply on slider changes). Don't SetScale here -- doing so on
+    -- _EMT_ApplyTimer on slider changes). Don't SetScale here -- doing so on
     -- every render can race the anchor and visually shift the frame.
     local alpha = p.standaloneAlpha or 0.85
     f:SetBackdropColor(0.05, 0.04, 0.08, alpha)
@@ -3351,6 +3421,7 @@ function EMT:OnEnable()
     if ns.TSB_OnEnable then ns.TSB_OnEnable(db) end
     if ns.TFB_OnEnable then ns.TFB_OnEnable(db) end
     if ns.RS_OnEnable then ns.RS_OnEnable(db) end
+    if ns.KT_OnEnable then ns.KT_OnEnable(db) end
     if not db or not db.profile.enabled then return end
 
     if EllesmereUI and EllesmereUI.RegisterUnlockModeListener then

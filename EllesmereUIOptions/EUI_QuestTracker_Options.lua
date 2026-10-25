@@ -599,7 +599,7 @@ initFrame:SetScript("OnEvent", function(self)
         kbRow, h = W:DualRow(parent, y,
             { type="label", text="" },
             { type="toggle", text="Wowhead Quest Links",
-                tooltip="Adds a copyable Wowhead link to quest log right-click menus.",
+                tooltip="Adds a copyable Wowhead link to the right-click menu of quests in the quest tracker and quest log.",
                 getValue=function() return Cfg("wowheadQuestLinks") == true end,
                 setValue=function(v)
                     Set("wowheadQuestLinks", v)

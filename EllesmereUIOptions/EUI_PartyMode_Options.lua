@@ -22,6 +22,8 @@ do
     local PP = EllesmereUI.PanelPP
 
     local PAGE_PARTY = "Party Mode"
+    local PAGE_AFK   = "AFK"
+    local PAGE_HOROSCOPE = "Should I Raid Tonight?"
 
     ---------------------------------------------------------------------------
     --  Build the Party Mode page
@@ -592,15 +594,152 @@ do
     end
 
     ---------------------------------------------------------------------------
+    --  Build the AFK page
+    ---------------------------------------------------------------------------
+    local function BuildAfkPage(pageName, parent, yOffset)
+        local W = EllesmereUI.Widgets
+        local y = yOffset
+        local _, h
+        parent._showRowDivider = true
+
+        -------------------------------------------------------------------
+        --  AFK SCREEN
+        -------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "AFK SCREEN", y);  y = y - h
+
+        local function AfkOff() return not (EllesmereUIDB and EllesmereUIDB.partyModeAfk) end
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Bouncing Logo When AFK",
+              tooltip="Dims the screen and bounces the EUI logo around it while you are AFK. Click anywhere to dismiss. Type /afk to preview.",
+              getValue=function() return not AfkOff() end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.partyModeAfk = v
+                  EllesmereUI_UpdateAfkScreen()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="slider", text="Logo Speed", min=50, max=1000, step=10,
+              disabled=AfkOff, disabledTooltip="Bouncing Logo When AFK",
+              getValue=function() return (EllesmereUIDB and EllesmereUIDB.partyModeAfkSpeed) or 150 end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.partyModeAfkSpeed = v
+              end }
+        );  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Spin Logo",
+              tooltip="Spins the logo while it bounces.",
+              disabled=AfkOff, disabledTooltip="Bouncing Logo When AFK",
+              getValue=function() return EllesmereUIDB and EllesmereUIDB.partyModeAfkSpin or false end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.partyModeAfkSpin = v
+                  EllesmereUI_UpdateAfkScreen()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="slider", text="Spin Speed", min=30, max=720, step=10,
+              tooltip="Degrees per second. 360 is one full turn a second.",
+              disabled=function() return AfkOff() or not EllesmereUIDB.partyModeAfkSpin end,
+              disabledTooltip="Spin Logo",
+              getValue=function() return (EllesmereUIDB and EllesmereUIDB.partyModeAfkSpinSpeed) or 180 end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.partyModeAfkSpinSpeed = v
+                  EllesmereUI_UpdateAfkScreen()
+              end }
+        );  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Horizontal Spin",
+              tooltip="Spins the logo around its upright axis, like a flipped coin.",
+              disabled=AfkOff, disabledTooltip="Bouncing Logo When AFK",
+              getValue=function() return EllesmereUIDB and EllesmereUIDB.partyModeAfkFlip or false end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.partyModeAfkFlip = v
+                  EllesmereUI_UpdateAfkScreen()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="slider", text="Horizontal Spin Speed", min=30, max=720, step=10,
+              tooltip="Degrees per second. 360 is one full turn a second.",
+              disabled=function() return AfkOff() or not EllesmereUIDB.partyModeAfkFlip end,
+              disabledTooltip="Horizontal Spin",
+              getValue=function() return (EllesmereUIDB and EllesmereUIDB.partyModeAfkFlipSpeed) or 180 end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.partyModeAfkFlipSpeed = v
+                  EllesmereUI_UpdateAfkScreen()
+              end }
+        );  y = y - h
+
+        local cornerRow
+        cornerRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Party Lights on Corner Hit",
+              tooltip="Starts Party Mode whenever the logo lands in a corner. Set how long it lasts with the cog.",
+              disabled=AfkOff, disabledTooltip="Bouncing Logo When AFK",
+              getValue=function() return EllesmereUIDB and EllesmereUIDB.partyModeAfkCorner or false end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.partyModeAfkCorner = v
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="slider", text="Corner Odds", min=5, max=50, step=5,
+              tooltip="How easily a bounce counts as a corner. Lower is rarer.",
+              disabled=function() return AfkOff() or not EllesmereUIDB.partyModeAfkCorner end,
+              disabledTooltip="Party Lights on Corner Hit",
+              getValue=function() return (EllesmereUIDB and EllesmereUIDB.partyModeAfkCornerSize) or 50 end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.partyModeAfkCornerSize = v
+              end }
+        );  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Logo Size", min=0.5, max=3.0, step=0.05,
+              tooltip="Scales the logo and its text. Applies the next time the AFK screen shows.",
+              disabled=AfkOff, disabledTooltip="Bouncing Logo When AFK",
+              getValue=function() return (EllesmereUIDB and EllesmereUIDB.partyModeAfkScale) or 1 end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.partyModeAfkScale = v
+              end },
+            EllesmereUI.BlankRowCfg()
+        );  y = y - h
+        if not EllesmereUI._prebuilding then
+            local function CornerOff() return AfkOff() or not EllesmereUIDB.partyModeAfkCorner end
+            EllesmereUI.BuildInlineCog(cornerRow._leftRegion, {
+                disabled = CornerOff, disabledTooltip = "Party Lights on Corner Hit",
+                title = "Corner Party",
+                rows = {
+                    { type="slider", label="Duration", min=1, max=15, step=1,
+                      tooltip="Seconds Party Mode runs after a corner hit.",
+                      get=function() return (EllesmereUIDB and EllesmereUIDB.partyModeAfkCornerSecs) or 15 end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.partyModeAfkCornerSecs = v
+                      end },
+                },
+            })
+        end
+
+        return math.abs(y)
+    end
+
+    ---------------------------------------------------------------------------
     --  Register the module
     ---------------------------------------------------------------------------
     EllesmereUI:RegisterModule("EllesmereUIPartyMode", {
         title       = "Party Mode",
         description = "Disco lights overlay for celebrations.",
-        pages       = { PAGE_PARTY },
+        pages       = { PAGE_PARTY, PAGE_HOROSCOPE, PAGE_AFK },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_PARTY then
                 return BuildPartyModePage(pageName, parent, yOffset)
+            elseif pageName == PAGE_AFK then
+                return BuildAfkPage(pageName, parent, yOffset)
+            elseif pageName == PAGE_HOROSCOPE then
+                return EllesmereUI._BuildRaidHoroscopePage(parent, yOffset)
             end
         end,
         resetScope  = "account",
@@ -630,7 +769,19 @@ do
                 EllesmereUIDB.partyModeRandomCooldown = nil
                 EllesmereUIDB.partyModeDimLights = nil
                 EllesmereUIDB.partyModeSoundKey = nil
+                EllesmereUIDB.partyModeAfk = nil
+                EllesmereUIDB.partyModeAfkSpeed = nil
+                EllesmereUIDB.partyModeAfkSpin = nil
+                EllesmereUIDB.partyModeAfkSpinSpeed = nil
+                EllesmereUIDB.partyModeAfkCorner = nil
+                EllesmereUIDB.partyModeAfkCornerSize = nil
+                EllesmereUIDB.partyModeAfkCornerSecs = nil
+                EllesmereUIDB.partyModeAfkScale = nil
+                EllesmereUIDB.partyModeAfkFlip = nil
+                EllesmereUIDB.partyModeAfkFlipSpeed = nil
+                EllesmereUIDB.raidHoroscope = nil
             end
+            EllesmereUI_UpdateAfkScreen()
             -- Stop random trigger timer
             EllesmereUI_StopRandomTrigger()
             -- Drop the Bloodlust and Level Up event listeners with their keys

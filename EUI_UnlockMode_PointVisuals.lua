@@ -26,7 +26,6 @@ end
 
 function EllesmereUI.SetPointAnchorColor(kind, r, g, b, a)
     if not defaults[kind] then return end
-    EllesmereUIDB = EllesmereUIDB or {}
     EllesmereUIDB.unlockPointColors = EllesmereUIDB.unlockPointColors or {}
     EllesmereUIDB.unlockPointColors[kind] = {r, g, b, a}
     if dots and kind ~= "line" then
@@ -36,7 +35,7 @@ end
 
 function visuals.SizeDot(art, size)
     local pp = EllesmereUI.PP
-    local px = ((pp and pp.perfect) or 1) / art:GetEffectiveScale()
+    local px = pp.perfect / art:GetEffectiveScale()
     if art.dotSize == size and art.pixelSize == px then return end
     art.dotSize, art.pixelSize = size, px
     art:SetSize(size, size)
@@ -98,7 +97,7 @@ local function ShowPoint(index, mover, point, alpha)
         marker.point, marker.mover = point, mover
     end
     local pp = EllesmereUI.PP
-    local size = visuals.idleSize * ((pp and pp.perfect) or 1) / marker:GetEffectiveScale()
+    local size = visuals.idleSize * pp.perfect / marker:GetEffectiveScale()
     visuals.SizeDot(marker, size)
     marker:SetAlpha(alpha)
     marker:Show()

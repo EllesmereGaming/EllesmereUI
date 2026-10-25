@@ -125,8 +125,8 @@ ns.ApplyBackground = function()
     local cfg = DB()
     local r, g, b, a = cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75
     for _, w in ipairs(_windows) do
-        if w.frame and w.frame._bg then ns.DMPaintWindowBg(w.frame._bg, r, g, b, a, true) end
-        if w.sourceFrame and w.sourceFrame._bg then ns.DMPaintWindowBg(w.sourceFrame._bg, r, g, b, a) end
+        if w.frame and w.frame._bg then ns.DMPaintWindowBg(w.frame._bg, r, g, b, a, true, cfg.bgTexture) end
+        if w.sourceFrame and w.sourceFrame._bg then ns.DMPaintWindowBg(w.sourceFrame._bg, r, g, b, a, nil, cfg.bgTexture) end
     end
     -- Under Classic WoW UI the header tint is shaded from the window colour.
     if ns.DMClassic() then ns.ApplyHeader() end
@@ -150,7 +150,7 @@ ns.ApplyWindowBorder = function()
     for _, w in ipairs(_windows) do
         local target = w.windowBorderTarget
         if target and w.frame and w.header then
-            ns.DMSetWindowBorderLayer(w, cfg)
+            local relayered = ns.DMSetWindowBorderLayer(w, cfg)
             target:ClearAllPoints()
             if includeHeader then
                 target:SetPoint("TOPLEFT", w.frame, "TOPLEFT", -offsetX, offsetY)
@@ -161,7 +161,8 @@ ns.ApplyWindowBorder = function()
             -- Offsets are represented by the target geometry itself, which also makes them work for the solid four-strip border implementation
             EUI.ApplyBorderStyle(target, size, r, g, b, a, texture, nil, nil, nil, nil, nil, nil, nil, px)
             if cfg.hdrBottomSeparator or w._headerSeparator then ns.DMApplyHeaderSeparator(w) end
-            ns.DMRefreshRowDecor(w)
+            -- The row decorations read no window border setting but its level.
+            if relayered then ns.DMRefreshRowDecor(w) end
         end
     end
     -- Border reach counts in size matching (each window's getMatchPad reads

@@ -207,6 +207,8 @@ local FOLDER_BLACKLIST = {
     EllesmereUILoadoutManager    = true,
     -- Its settings are look and search filters, not spec choices.
     EllesmereUIGroupFinder       = true,
+    -- Its settings live in a store of its own outside the profiles.
+    EllesmereUISimpleLootCouncil = true,
     -- Minimap + Chat + CooldownManager ARE override-eligible; their
     -- spell/engine-coupled settings are excluded per-path via
     -- SETTING_BLACKLIST below (CDM spell data itself lives OUTSIDE the profile
@@ -840,7 +842,7 @@ end
 -- fails leaves it set, and the files behind it return at their first lines.
 local _, EUI_NS = ...
 EUI_NS = EUI_NS.__euiCoreNS or EUI_NS  -- standalone builds: the core's own table (EllesmereUI.lua)
-EUI_NS._soInternals = {
+EUI_NS.NewInternals(EUI_NS, "_soInternals", {
     ACCENT_B = ACCENT_B, ACCENT_G = ACCENT_G, ACCENT_R = ACCENT_R,
     BlacklistedFKey = BlacklistedFKey, CLASS_COORDS = CLASS_COORDS, CLASS_ORDER = CLASS_ORDER,
     ConflictSpec = ConflictSpec, CurrentSpecID = CurrentSpecID, DBFor = DBFor,
@@ -864,15 +866,7 @@ EUI_NS._soInternals = {
     activeSpecSetters = {}, watchResyncSetters = {}, exitGroupEditSetters = {},
     sweepSetters = {}, teardownSetters = {}, panelShownSetters = {},
     enterDefaultViewSetters = {}, updateIndicatorSetters = {}, refreshCardsSetters = {},
-    broken = false,
-}
--- A read of a name this table lacks fails where it happens (a part file's
--- re-import, the loop below), not later as a nil upvalue inside a function.
-setmetatable(EUI_NS._soInternals, { __index = function(_, k)
-    error("EUI_NS._soInternals has no entry " .. tostring(k), 2)
-end })
--- Set<Name> hands a new value to every copy registered in <name>Setters.
-for setter, listName in pairs({
+}, {
     SetEditGroup = "editGroupSetters", SetDefaultView = "defaultViewSetters",
     SetEnterSnap = "enterSnapSetters", SetCombatFolders = "combatFoldersSetters",
     SetInTransition = "inTransitionSetters", SetActiveSpec = "activeSpecSetters",
@@ -881,10 +875,5 @@ for setter, listName in pairs({
     SetTeardownEditSession = "teardownSetters", SetPanelShown = "panelShownSetters",
     SetEnterDefaultView = "enterDefaultViewSetters",
     SetUpdateIndicator = "updateIndicatorSetters", SetRefreshCardsPopup = "refreshCardsSetters",
-}) do
-    local list = EUI_NS._soInternals[listName]
-    EUI_NS._soInternals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
-end
+}, "EUI_NS")
 SetCombatFolders = EUI_NS._soInternals.SetCombatFolders

@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -66,8 +66,7 @@ local function BuildColumns(contentWidth)
                 end
 
                 cell.Text:SetText(addon.Locale.Format(T["v%s"], row.version))
-                local same = addon.Version:Compare(row.version, addon.Version.OWN) == 0
-                cell.Text:SetTextColor(S.Unpack(same and S.color.good or S.color.bad))
+                cell.Text:SetTextColor(S.Unpack(row.behind and S.color.bad or S.color.good))
             end,
         },
     }

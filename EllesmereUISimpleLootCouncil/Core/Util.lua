@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -68,4 +68,18 @@ function addon.StoredDateText(text, short)
     local y, m, d = tostring(text):match("^(%d%d%d%d)/(%d%d)/(%d%d)$")
     if not y then return text end
     return ("%s/%s/%s"):format(d, m, short and y:sub(3) or y)
+end
+
+
+function addon.DayText(epoch)
+    return ("%s %d"):format(date("%b", epoch), tonumber(date("%d", epoch)) or 0)
+end
+
+
+function addon.WhenText(epoch)
+    local hour = tonumber(date("%H", epoch)) or 0
+    local twelve = hour % 12
+    if twelve == 0 then twelve = 12 end
+    return ("%s, %d:%s%s"):format(addon.DayText(epoch), twelve, date("%M", epoch),
+        hour < 12 and "am" or "pm")
 end

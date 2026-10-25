@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -77,14 +77,13 @@ addon.defaults = {
     },
 
 
-
-    boeRoute = {},
-
-
     timer = {
         enabled = false,
         duration = 120,
     },
+
+
+    autoStart = true,
 
 
     vote = {
@@ -92,11 +91,6 @@ addon.defaults = {
         multiVote = true,
         hideVotes = false,
     },
-
-
-
-    allowStartRequests = false,
-    councilMayStartRuns = false,
 
 
     shareCouncilBags = true,
@@ -127,6 +121,8 @@ addon.defaults = {
 
         guildGroupOnly = true,
 
+        never = false,
+
 
 
         ignore = {},
@@ -137,7 +133,6 @@ addon.defaults = {
 
     raidPrompt = {
         silence = false,
-        inGroups = false,
 
 
         neverLead = false,
@@ -203,13 +198,7 @@ addon.defaults = {
 
 
 
-    showMoreInfo = true,
-
-
     teamShowAlts = true,
-
-
-    sessionFrame = true,
 
 
     wishlistEnabled = true,
@@ -229,11 +218,6 @@ addon.defaults = {
     masterAutoLoot = true,
 
 
-    autoOpenQueue = true,
-
-    autoAddBags = false,
-
-
     specs = {},
 
 
@@ -249,6 +233,9 @@ addon.defaults = {
 
 
     mlCompact = false,
+
+
+    councilHiddenColumns = {},
 
 
     voterCompact = false,
@@ -392,22 +379,6 @@ addon.migrations = addon.Locale.Texts{
             if type(db.funnel) ~= "table" then return false end
             db.funnel.enabled = nil
             db.funnel.guildGroupOnly = false
-        end,
-    },
-    {
-        version = 8,
-        name = "BoE route reason as text",
-        func = function(db)
-
-            local rule = db.boeRoute
-            if type(rule) ~= "table" then return end
-            local index = rule.reason
-            rule.reason = nil
-            if type(index) ~= "number" or rule.reasonText ~= nil then return end
-            local entry = type(db.awardReasons) == "table" and db.awardReasons[index]
-            if type(entry) ~= "table" or type(entry.text) ~= "string" then return end
-            if entry.id == "BANK" or entry.text:lower() == "guild bank" then return end
-            rule.reasonText = entry.text
         end,
     },
     {

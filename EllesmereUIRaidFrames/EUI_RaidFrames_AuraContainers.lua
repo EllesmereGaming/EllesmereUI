@@ -321,17 +321,21 @@ end
 
 -- Shared by buff icons, debuff grids and their previews. Unset styles keep the
 -- original PP border path; explicit styles use AuraKit's unit-frame border inputs.
-function ns.RFC_AuraBorder(s, prefix)
+-- into: a table to fill instead of a new one, for a caller that applies it at once
+-- (the previews' tickers); a style keeps its own.
+function ns.RFC_AuraBorder(s, prefix, into)
     local size = s[prefix .. "Size"] or 1
     if size <= 0 then return nil end
     local color = s[prefix .. "Color"]
     local r, g, b = ColorParts(color, 0, 0, 0)
     local tex = s[prefix .. "Texture"]
-    return { r, g, b, color and color.a or 1, size = size, texture = tex,
-        edgePx = EllesmereUI.BorderPx(s[prefix .. "SizePx"], size, tex or "solid"),
-        offsetX = s[prefix .. "TextureOffset"], offsetY = s[prefix .. "TextureOffsetY"],
-        shiftX = s[prefix .. "TextureShiftX"], shiftY = s[prefix .. "TextureShiftY"],
-    }
+    local t = into or {}
+    t[1], t[2], t[3], t[4] = r, g, b, color and color.a or 1
+    t.size, t.texture = size, tex
+    t.edgePx = EllesmereUI.BorderPx(s[prefix .. "SizePx"], size, tex or "solid")
+    t.offsetX, t.offsetY = s[prefix .. "TextureOffset"], s[prefix .. "TextureOffsetY"]
+    t.shiftX, t.shiftY = s[prefix .. "TextureShiftX"], s[prefix .. "TextureShiftY"]
+    return t
 end
 
 function ns.RFC_AuraBorderFP(s, prefix)
@@ -362,8 +366,9 @@ function ns.RFC_ApplyAuraBorder(host, state, border, cooldownLevel)
     host:Show()
 end
 
+local pvBorder = {}  -- reused by every preview border (applied at once)
 function ns.RFC_PreviewAuraBorder(icon, host, s, prefix)
-    ns.RFC_ApplyAuraBorder(host, host, ns.RFC_AuraBorder(s, prefix),
+    ns.RFC_ApplyAuraBorder(host, host, ns.RFC_AuraBorder(s, prefix, pvBorder),
         (icon._cooldown or icon):GetFrameLevel())
 end
 
@@ -1632,7 +1637,9 @@ local function BmApplySquare(button, dd, style)
         button:SetFrameLevel(lvl)
         dd.bmLvl = lvl
     end
-    if ind.indBorderTexture or ind.indBorderSizePx or dd._secretBorderEdges then
+    -- Once the host was re-anchored for an explicit size (rfBorderSize) it stays on
+    -- this path, which keeps that size current; the legacy path below never resizes it.
+    if ind.indBorderTexture or ind.indBorderSizePx or dd._secretBorderEdges or dd.rfBorderSize then
         if dd.rfBorderSize ~= style.width then
             if not dd.rfBorderSize then
                 dd.borderHost:ClearAllPoints()

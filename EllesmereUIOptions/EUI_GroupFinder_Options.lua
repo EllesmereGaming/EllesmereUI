@@ -43,12 +43,26 @@ initFrame:SetScript("OnEvent", function(self)
         if EUI.ClearContentHeader then EUI:ClearContentHeader() end
         parent._showRowDivider = true
 
-        -- Off until enabled; toggling reloads.
+        -- Off until enabled; toggling reloads. Beside it the filled slots'
+        -- icons (the same setting as the window's Group Settings menu entry
+        -- Show Specialization), or the note while the competing filter is
+        -- loaded.
         local PGFLoaded = ns.Blocked
+        local function SpecIconsOn()
+            local v = ns.Cfg().specIcons
+            if v == nil then return true end
+            return v == true
+        end
         local pgfNote = PGFLoaded()
             and { type = "label", text = EUI.COLOR_CODES.ERROR
                     .. EllesmereUI.L("Premade Groups Filter is loaded. Disable it to use the Group Finder.") .. "|r" }
-            or EUI.BlankRowCfg()
+            or { type = "toggle", text = "Show Spec Icons",
+                 tooltip = "Draws each group's filled slots with EllesmereUI's icons: the member's specialization on a ring, with the leader's crown. Off, the game's own class and role icons stay at their own size (Role Icon Size goes to 100%; back on, to 125%). The same setting as Show Specialization in the window's Group Settings menu.",
+                 disabled = ModOff, disabledTooltip = "Group Finder",
+                 getValue = SpecIconsOn,
+                 setValue = function(v)
+                     if ns.SetSpecIcons then ns.SetSpecIcons(v) end
+                 end }
         _, h = W:SectionHeader(parent, "GROUP FINDER", y); y = y - h
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Enable Group Finder",

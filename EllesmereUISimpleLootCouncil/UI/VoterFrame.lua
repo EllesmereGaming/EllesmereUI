@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -336,19 +336,17 @@ local function EnsureNoteButton(e)
     end)
 
     e.noteButton.slcHoverIn = function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        S.TooltipSection(GameTooltip, T["Note"])
         local note = e.noteEdit:GetText() or ""
+        local body
         if note ~= "" then
-            for _, line in ipairs(addon.Locale.Wrap(note, NOTE_TOOLTIP_LETTERS)) do
-                GameTooltip:AddLine(line, 1, 1, 1, false)
-            end
+            body = table.concat(addon.Locale.Wrap(note, NOTE_TOOLTIP_LETTERS), "\n")
         else
-            GameTooltip:AddLine(T["Click to add a note"], 0.8, 0.8, 0.8)
+            body = S.Colorize(S.color.textMuted, T["Click to add a note"])
         end
-        GameTooltip:Show()
+        S.TextTooltip(self, S.Colorize(S.color.accent, addon.Locale.SectionTitle(T["Note"]))
+            .. "\n" .. body)
     end
-    e.noteButton.slcHoverOut = function() GameTooltip:Hide() end
+    e.noteButton.slcHoverOut = function() S.HideTextTooltip() end
     UpdateNoteButton(e)
     return e.noteButton
 end
@@ -356,7 +354,14 @@ end
 
 
 
+local REBIND_GUARD = 0.4
+
+local function JustRebound(e)
+    return e.boundAt ~= nil and GetTime() - e.boundAt < REBIND_GUARD
+end
+
 local function Respond(e, response)
+    if JustRebound(e) then return end
     e.flushNote()
     local note = e.noteEdit:GetText()
     if note == "" then note = nil end
@@ -399,7 +404,10 @@ local function LayoutRoll(e, group)
             { height = RESPONSE_BUTTON_H, primary = true })
 
 
-        e.rollButton:SetScript("OnClick", function() addon.Roll:Roll() end)
+        e.rollButton:SetScript("OnClick", function()
+            if JustRebound(e) then return end
+            addon.Roll:Roll()
+        end)
     end
 
     local responseStrip = EnsureResponseButtons(e, addon.Config:Responses())
@@ -543,7 +551,7 @@ end
 local function DetailText(group, me)
     local parts = {}
 
-    local ilvl = select(4, C_Item.GetItemInfo(group.link))
+    local ilvl = addon.Gear:ItemLevel(group.link)
     if ilvl then
         parts[#parts + 1] = addon.Locale.Format(T["Item Level %s"], ilvl)
     end
@@ -923,7 +931,10 @@ local function PaintWindow()
 
         local key = group.link or tostring(group.sessions[1])
         local sameItem = e.groupKey == key
-        if not sameItem and e.groupKey then e.flushNote() end
+        if not sameItem and e.groupKey then
+            e.flushNote()
+            e.boundAt = GetTime()
+        end
         e.groupKey = key
         e.noteSessions = group.sessions
         if not sameItem then

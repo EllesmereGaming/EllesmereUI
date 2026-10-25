@@ -132,7 +132,7 @@ ns.unlockParts.PointPicker = function(UM)
 
     local function Layout(set)
         local w, h = set:GetSize()
-        local px = ((UM.PP and UM.PP.perfect) or 1) / set:GetEffectiveScale()
+        local px = UM.PP.perfect / set:GetEffectiveScale()
         local hit = math.max(px, math.min(12 * px, w / 3, h / 3))
         local idle, hover = math.min(visuals.idleSize * px, hit), visuals.hoverSize * px
         for _, button in ipairs(set.buttons) do

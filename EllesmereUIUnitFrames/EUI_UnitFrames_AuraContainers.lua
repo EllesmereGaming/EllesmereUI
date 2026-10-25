@@ -3476,7 +3476,7 @@ end
 --
 -- Deliberately NOT a hook on EllesmereUI._applySavedPositions: that field is
 -- passed by reference into C_Timer.After by the action bars module
--- (EllesmereUIActionBars.lua), and replacing it there made that call raise.
+-- (EUI_ActionBars_Setup.lua), and replacing it there made that call raise.
 do
     local pending = false
     local function Settle()

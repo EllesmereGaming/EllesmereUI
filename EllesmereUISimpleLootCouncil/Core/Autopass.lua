@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -243,10 +243,10 @@ end
 
 
 function Autopass:ShouldPass(link)
-    if not addon.db.autopass then return false end
-    local should, reason = Autopass:Check(link)
-    if not should then return false end
-    return true, reason
+    if not addon.db.autopass then return false, nil, true end
+    local should, reason, judged = Autopass:Check(link)
+    if not should then return false, nil, judged end
+    return true, reason, judged
 end
 
 
@@ -340,6 +340,9 @@ local SLICE_MS = 3
 local job
 local driver
 
+local waited = setmetatable({}, { __mode = "k" })
+local WaitForItem
+
 
 
 local function ApplyItem(item, me, work)
@@ -349,8 +352,11 @@ local function ApplyItem(item, me, work)
     local mine = me and item.candidates and item.candidates[me]
     local answered = mine and DECIDED[mine.status] or false
     if item.awarded or item.removed or answered then return true end
-    local should, reason = Autopass:ShouldPass(item.link)
-    if not should then return true end
+    local should, reason, judged = Autopass:ShouldPass(item.link)
+    if not should then
+        if judged == false then WaitForItem(item, work.runId) end
+        return true
+    end
     if addon.Session:Respond(item.session, nil, Autopass.AUTO_PREFIX .. reason) then
         work.passed = work.passed + 1
         addon.Log:D("Autopass", item.session, item.link, reason)
@@ -413,6 +419,23 @@ local function Step()
     elseif driver then
         driver:Show()
     end
+end
+
+WaitForItem = function(item, runId)
+    local link = item.link
+    if type(link) ~= "string" or waited[item] == runId then return end
+    if not C_Item.GetItemInfoInstant(link) or C_Item.GetItemInfo(link) then return end
+    waited[item] = runId
+    addon.Log:D("Autopass", "waiting once for item data", link)
+    Item:CreateFromItemLink(link):ContinueOnItemLoad(function()
+        if not addon.db.autopass or addon.Session:GetRunId() ~= runId then return end
+        if job and job.runId == runId then
+            job.queue[#job.queue + 1] = item
+        else
+            job = { runId = runId, queue = { item }, passed = 0, frames = 0, worst = 0, ms = 0 }
+        end
+        Step()
+    end)
 end
 
 function Autopass:Apply(indices, runId)

@@ -216,7 +216,7 @@ end
 
 -- A row of action cards across the page (icon, title, a short description;
 -- the whole card is the click). cards[i] = { icon, title, desc, onClick,
--- accent, hero, iconSize, sizeAlso } -- accent { r, g, b } tints the icon
+-- accent, hero, iconSize, sizeAlso, pulse } -- accent { r, g, b } tints the icon
 -- (and a box's top edge), the theme accent when nil; iconSize (px) draws art
 -- that fills more of its canvas smaller, centred in the same slot (the text
 -- never moves). By default the cards are equal boxes side by side across
@@ -228,7 +228,9 @@ end
 -- the equal cards' boxed look. opts.footer (px, inline) leaves that much free
 -- under the line for the caller (a link). Returns the new y and the card
 -- buttons (in cards order); card:SetCardContent(icon, title, desc) swaps all
--- three in place.
+-- three in place. An equal card built with pulse = true also takes
+-- card:SetPulse(on): a breathing accent outline for an action that wants
+-- attention now, animated only while the card shows.
 local function BuildInlineRow(parent, y, cards, availW, fullW, footer)
     local PP = EllesmereUI.PanelPP
     local L  = EllesmereUI.L
@@ -442,6 +444,36 @@ function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
             descFs:SetText(L(cardDesc))
         end
         card:SetCardContent(spec.icon, spec.title, spec.desc)
+
+        -- The pulse outline is built with the card whenever it is asked for,
+        -- so a kept page hands it back in order; it stays hidden until
+        -- SetPulse turns it on, and its fade plays only while it shows.
+        local pulse
+        if spec.pulse then
+            pulse = CreateFrame("Frame", nil, card)
+            pulse:SetAllPoints(card)
+            pulse:SetFrameLevel(card:GetFrameLevel() + 3)
+            pulse:EnableMouse(false)
+            pulse:Hide()
+            PP.CreateBorder(pulse, ac.r, ac.g, ac.b, 1, 2, "OVERLAY", 7)
+            local breathe = pulse:CreateAnimationGroup()
+            breathe:SetLooping("BOUNCE")
+            local fade = breathe:CreateAnimation("Alpha")
+            fade:SetFromAlpha(1)
+            fade:SetToAlpha(0.2)
+            fade:SetDuration(0.9)
+            fade:SetSmoothing("IN_OUT")
+            pulse:SetScript("OnShow", function() breathe:Play() end)
+            pulse:SetScript("OnHide", function() breathe:Stop() end)
+        end
+        function card:SetPulse(on)
+            if not pulse then return end
+            if on then
+                local live = spec.accent or EllesmereUI.ELLESMERE_GREEN
+                PP.SetBorderColor(pulse, live.r, live.g, live.b, 1)
+            end
+            pulse:SetShown(on and true or false)
+        end
 
         -- The title's resting alpha is its text colour's (as BuildInlineRow's).
         card:SetScript("OnEnter", function()

@@ -91,6 +91,14 @@ end
 if EllesmereUI._unlockModeLoaded then return end
 EllesmereUI._unlockModeLoaded = true
 
+-- Overlap cycling in Unlock Mode: "disabled", or the wheel alone ("scroll",
+-- the default) or with Shift / Ctrl / Alt held ("shiftscroll" /
+-- "controlscroll" / "altscroll").
+function EllesmereUI.GetUnlockOverlapMethod()
+    local db = EllesmereUIDB
+    return (db and db.unlockOverlapMethod) or "scroll"
+end
+
 -------------------------------------------------------------------------------
 --  Anchor reapply stub (pre-EnsureLoaded): lets child addons (CDM) reposition
 --  anchored elements at login before the full body loads; deferred block replaces it.
@@ -652,9 +660,10 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
 
     -- Mythic+ Tools
     ["EMT_MythicTimer"]    = { module = "EllesmereUIMythicTimer",     page = "Mythic+ Timer",     sectionName = "DISPLAY",           highlightText = "Scale" },
-    ["EMT_TargetedSpellBars"] = { module = "EllesmereUIMythicTimer",  page = "Targeted Spell Bars", sectionName = "TARGETED SPELL BARS", highlightText = "Enable Targeted Spell Bars" },
+    ["EMT_TargetedSpellBars"] = { module = "EllesmereUIMythicTimer",  page = "Targeted Spell Bars", sectionName = "CAST BARS", highlightText = "Enable Cast Bars" },
     ["EMT_TargetCastBar"]  = { module = "EllesmereUIMythicTimer",     page = "Target/Focus Bars", sectionName = "TARGET CAST BAR",   highlightText = "Enable Target Cast Bar" },
     ["EMT_FocusCastBar"]   = { module = "EllesmereUIMythicTimer",     page = "Target/Focus Bars", sectionName = "FOCUS CAST BAR",    highlightText = "Enable Focus Cast Bar" },
+    ["EMT_KickBars"]       = { module = "EllesmereUIMythicTimer",     page = "Kick Tracker",      sectionName = "BARS",              highlightText = "Show Bars" },
 
     -- Dragon Riding HUD (Blizz UI Enhanced > Dragon Riding page)
     ["EDR_Cluster"]        = { module = "EllesmereUIBlizzardSkin",    page = "Dragon Riding",     sectionName = "GENERAL",           highlightText = "Enable Skyriding Bar" },
@@ -859,8 +868,10 @@ end
 
 local function ResumeAfterCombat()
     if not combatSuspended then return end
+    -- A pull again inside the resume delay: stay suspended, so the end of that
+    -- combat resumes the session (its own PLAYER_REGEN_ENABLED calls this again).
+    if InCombatLockdown() then return end
     combatSuspended = false
-    if InCombatLockdown() then return end  -- safety check
 
     -- Nothing can be edited while the session is hidden: whatever moved during
     -- the fight (bars rebuilding, anchored elements following them) is not a

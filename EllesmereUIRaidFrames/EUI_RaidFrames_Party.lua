@@ -189,7 +189,6 @@ ns._PARTY_PX_SIBLING = {
     borderSizePx       = "borderSize",
     hoverBorderSizePx  = "hoverBorderSize",
     targetBorderSizePx = "targetBorderSize",
-    debuffBorderSizePx = "debuffBorderSize",
     absorbGlowLine     = "absorbStyle",
 }
 

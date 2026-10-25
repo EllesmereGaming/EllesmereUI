@@ -1440,7 +1440,7 @@ local function QueueDragFinish(fn)
 end
 
 -- Slider core (track + fill + thumb + input + drag logic). Returns: trackFrame, valBox, RefreshSlider, thumb
-local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, inputFontSz, inputAlpha, minVal, maxVal, step, getValue, setValue, isMultiWidget, snapPoints)
+local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, inputFontSz, inputAlpha, minVal, maxVal, step, getValue, setValue, isMultiWidget, snapPoints, valueSnap)
     -- Spec Overrides auto-capture: see BuildToggleControl (slot read before the setter runs).
     do
         local _s = setValue
@@ -1509,10 +1509,15 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
     -- min is itself a multiple of the step, and a slider whose min is not --
     -- an odd-count one like min 1, step 2 -- landed on the evens with its own
     -- minimum unreachable. Identical for every slider whose min IS a multiple
-    -- of its step, which is all the rest of them.
+    -- of its step, which is all the rest of them. valueSnap (optional) then maps
+    -- a grid value onto the values the setting allows (a range with a gap, such
+    -- as 0 then 30 to 180): the drag, a typed value and the shown number all land
+    -- on an allowed value.
     local function SnapStep(v)
         local snapped = minVal + math.floor((v - minVal) / step + 0.5) * step
-        return math.max(minVal, math.min(maxVal, snapped))
+        snapped = math.max(minVal, math.min(maxVal, snapped))
+        if valueSnap then snapped = valueSnap(snapped) end
+        return snapped
     end
 
     local currentVal = getValue()
@@ -1739,7 +1744,15 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
         -- is swallowed.
         if EllesmereUI.PadCursorShown() and not IsMouseButtonDown(button) then
             padNudged = true
-            local v = SnapStep(currentVal + (button == "RightButton" and -step or step))
+            -- One step, or on through values a valueSnap maps back onto the
+            -- current one, to the next allowed value that way.
+            local dir = button == "RightButton" and -step or step
+            local probe, v = currentVal, currentVal
+            for _ = 1, 1000 do
+                probe = probe + dir
+                v = SnapStep(probe)
+                if v ~= currentVal or probe <= minVal or probe >= maxVal then break end
+            end
             if v ~= currentVal then
                 local g = PoolGen(trackFrame)
                 setValue(v)
@@ -1956,6 +1969,18 @@ function EllesmereUI.BorderOffsetRowCfgs(spec)
     end
     return Make("Border Width Offset", spec.getX, spec.setX, function(x) return x end),
            Make("Border Height Offset", spec.getY, spec.setY, function(_, y) return y end)
+end
+
+-- The same two offsets as rows of an inline cog's popup (BuildInlineCog rows);
+-- spec as above, its disabled / disabledTooltip carried onto both rows.
+function EllesmereUI.BorderOffsetCogRows(spec)
+    local function Row(cfg)
+        return { type = "slider", label = cfg.text, min = cfg.min, max = cfg.max, step = cfg.step,
+            get = cfg.getValue, set = cfg.setValue,
+            disabled = cfg.disabled, disabledTooltip = cfg.disabledTooltip }
+    end
+    local x, y = EllesmereUI.BorderOffsetRowCfgs(spec)
+    return Row(x), Row(y)
 end
 
 -------------------------------------------------------------------------------

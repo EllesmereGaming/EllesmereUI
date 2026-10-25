@@ -92,9 +92,7 @@ end
 
 -- Per-character identifier for legacy callers; no longer used for spec storage.
 function ns.GetCharKey()
-    local name = UnitName("player") or "Unknown"
-    local realm = GetRealmName() or "Unknown"
-    return name .. "-" .. realm
+    return EllesmereUI.CharKey("-", EllesmereUIDB and EllesmereUIDB.cdmCachedBarSizes) or "Unknown-Unknown"
 end
 
 local function EnsureSpec(profile, key)

@@ -380,7 +380,7 @@ initFrame:SetScript("OnEvent", function(self)
         _headerBaseH = baseH
         local want = baseH + ((_previewHintFS and _previewHintFS:IsShown()) and 35 or 0)
         local es = hdr:GetEffectiveScale()
-        local px = (es > 0) and ((EllesmereUI.PP and EllesmereUI.PP.perfect or 1) / es) or 1
+        local px = (es > 0) and (EllesmereUI.PP.perfect / es) or 1
         if math.abs(hdr:GetHeight() - want) < px * 0.5 then return end
         EllesmereUI:SetContentHeaderHeightSilent(want)
     end
@@ -796,9 +796,10 @@ initFrame:SetScript("OnEvent", function(self)
                 local CalcPG = _G._ERB_CalcPipGeometry
                 local pcScale = pc:GetEffectiveScale()
                 if pcScale <= 0 then pcScale = 1 end
-                local onePx = 1 / pcScale
+                -- One physical pixel in this frame's units, as CalcPipGeometry.
+                local onePx = EllesmereUI.PP.perfect / pcScale
                 local function PipSnap(val)
-                    return math.floor(val * pcScale + 0.5) / pcScale
+                    return math.floor(val / onePx + 0.5) * onePx
                 end
                 local totalW = PipSnap(sp.pipWidth)
                 local snappedPipH = PipSnap(sp.pipHeight)
@@ -822,9 +823,9 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Fallback while CalcPipGeometry is not loaded yet
                     local pipSp = (sp.pipSpacing > 0) and math.max(onePx, PipSnap(sp.pipSpacing)) or 0
                     local availW = totalW - (numPips - 1) * pipSp
-                    local baseW = math.floor(availW * pcScale / numPips) / pcScale
+                    local baseW = math.floor(availW / onePx / numPips) * onePx
                     local leftover = availW - baseW * numPips
-                    local extraCount = math.floor(leftover * pcScale + 0.5)
+                    local extraCount = math.floor(leftover / onePx + 0.5)
                     local x0 = 0
                     for i = 1, numPips do
                         pipX[i] = x0
@@ -1462,11 +1463,12 @@ initFrame:SetScript("OnEvent", function(self)
         -- Built for every spec (cheap, pooled); UpdatePreviewHeader shows what applies.
         _previewFrames.powerBar = PreviewBar.Build(container)
         _previewFrames.healthBar = PreviewBar.Build(container)
-        -- Arcane Soul: its section exists for Mages only, so does its element.
-        -- The element replays the live sequence (the eye hides only it); the
-        -- watcher keeps the on-screen sample running while this header shows.
+        -- Arcane Soul: its section exists for retail Mages only, so does its
+        -- element. The element replays the live sequence (the eye hides only
+        -- it); the watcher keeps the on-screen sample running while this
+        -- header shows.
         _previewFrames.arcaneSoul, _previewFrames.asDivider = nil, nil
-        if classFile == "MAGE" then
+        if classFile == "MAGE" and not EllesmereUI.IS_FOREVER then
             local asf = CreateFrame("Frame", nil, container)
             asf._fs = asf:CreateFontString(nil, "OVERLAY")
             asf._fs:SetPoint("CENTER", asf, "CENTER", 0, 0)
@@ -4084,8 +4086,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- Snap helper: round to the preview container's physical pixel grid
         local cScale = pf.container:GetEffectiveScale()
         if cScale <= 0 then cScale = 1 end
+        local onePx = EllesmereUI.PP.perfect / cScale
         local function Snap(val)
-            return math.floor(val * cScale + 0.5) / cScale
+            return math.floor(val / onePx + 0.5) * onePx
         end
 
         local w, h = Snap(cb.width), Snap(cb.height)
@@ -4098,7 +4101,7 @@ initFrame:SetScript("OnEvent", function(self)
         pf.container:SetSize(w + iconW, h)
 
         -- Scale down to fit when the cast bar is wider than the panel
-        local PAD = EllesmereUI.CONTENT_PAD or 10
+        local PAD = EllesmereUI.CONTENT_PAD
         local hdr = pf.container:GetParent()
         local availW = (hdr:GetWidth() - PAD * 2) / _castBarPreviewScale
         local fitScale = 1
@@ -4389,8 +4392,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- Snap helper: round to the preview container's physical pixel grid (use previewScale for initial snap; adjusted below if we scale-to-fit)
         local cScale = UIParent:GetEffectiveScale()
         if cScale <= 0 then cScale = 1 end
+        local onePx = EllesmereUI.PP.perfect / cScale
         local function Snap(val)
-            return math.floor(val * cScale + 0.5) / cScale
+            return math.floor(val / onePx + 0.5) * onePx
         end
 
         local w, h = Snap(cb.width), Snap(cb.height)
@@ -4398,7 +4402,7 @@ initFrame:SetScript("OnEvent", function(self)
         local iconW = hasIcon and Snap(h) or 0
 
         -- Scale down to fit when the cast bar is wider than the panel
-        local PAD = EllesmereUI.CONTENT_PAD or 10
+        local PAD = EllesmereUI.CONTENT_PAD
         local availW = (hdrW - PAD * 2) / previewScale
         local fitScale = 1
         if (w + iconW) > availW and (w + iconW) > 0 and availW > 0 then
@@ -4704,15 +4708,16 @@ initFrame:SetScript("OnEvent", function(self)
             -- Scale down to fit when the bar is wider than the panel; snap on
             -- the grid of that final scale.
             local rawW = g.width or 220
-            local PAD = EllesmereUI.CONTENT_PAD or 10
+            local PAD = EllesmereUI.CONTENT_PAD
             local availW = ((pf.hdrW or hdr:GetWidth()) - PAD * 2) / pf.scale
             local fitScale = 1
             if rawW > availW and rawW > 0 and availW > 0 then fitScale = availW / rawW end
             container:SetScale(pf.scale * fitScale)
             local cScale = container:GetEffectiveScale()
             if cScale <= 0 then cScale = 1 end
+            local onePx = EllesmereUI.PP.perfect / cScale
             local function Snap(val)
-                return math.floor(val * cScale + 0.5) / cScale
+                return math.floor(val / onePx + 0.5) * onePx
             end
             local w, h = Snap(rawW), Snap(g.height or 12)
             container:SetSize(w, h)
@@ -4740,7 +4745,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Texture + background (Textured Background included)
             local bar, bg = pf.bar, pf.bg
             -- The live fill inset inside a border: one physical pixel, on this grid.
-            local inset = bs > 0 and (1 / cScale) or 0
+            local inset = bs > 0 and onePx or 0
             bar:ClearAllPoints()
             bar:SetPoint("TOPLEFT", container, "TOPLEFT", inset, -inset)
             bar:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", -inset, inset)
@@ -4886,21 +4891,17 @@ initFrame:SetScript("OnEvent", function(self)
             local p = DB()
             local container = tp.container
             if not (p and container) then return end
-            -- The Call Totem Bar switched since the build (on this page, the
-            -- fast refresh rebuilds nothing; or elsewhere before a cache
-            -- restore): its group comes or goes with a rebuild.
-            if not building and #tp.groups ~= (CallTotemShown(p) and 2 or 1) then
-                EllesmereUI:RefreshPage(true)
-                return
-            end
             local hdr = container:GetParent()
 
             -- Group sizes in live units first: the fit scale (and with it the
             -- pixel grid) is known only once the whole stack is measured.
+            -- The Call Totem Bar group, built wherever its section is, shows
+            -- while that bar is on.
             local GAP = 10
             local totalW, totalH, shown = 0, 0, 0
             for gi, grp in ipairs(tp.groups) do
                 local t = p[TOTEM_GROUPS[gi].key]
+                if gi == 2 and not CallTotemShown(p) then t = nil end
                 grp.t = nil
                 if t then
                     local n = #grp.icons
@@ -4916,7 +4917,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- The header grows with the stack (a column, two groups) up to
             -- TOTEM_PREVIEW_MAXH; past that, or past the panel width, it scales down.
-            local PAD = EllesmereUI.CONTENT_PAD or 10
+            local PAD = EllesmereUI.CONTENT_PAD
             local availW = ((tp.hdrW or hdr:GetWidth()) - PAD * 2) / tp.scale
             local availH = (TOTEM_PREVIEW_MAXH - TOTEM_PREVIEW_VPAD) / tp.scale
             local fit = 1
@@ -4927,17 +4928,23 @@ initFrame:SetScript("OnEvent", function(self)
 
             local cScale = container:GetEffectiveScale()
             if cScale <= 0 then cScale = 1 end
+            local onePx = EllesmereUI.PP.perfect / cScale
             local function Snap(val)
-                return math.floor(val * cScale + 0.5) / cScale
+                return math.floor(val / onePx + 0.5) * onePx
             end
 
             local snapW, top = 0, 0
             for gi, grp in ipairs(tp.groups) do
                 local t = grp.t
-                if t then
+                grp.frame:SetShown(t ~= nil)
+                if not t then
+                    grp.on = false
+                    for _, hit in ipairs(grp.iconHits) do hit:Hide() end
+                    for _, hit in ipairs(grp.timerHits) do hit:Hide() end
+                else
                     local size = Snap(t.iconSize or 30)
                     -- A set gap keeps at least one physical pixel when the stack is fitted down.
-                    local spacing = (t.spacing or 2) > 0 and math.max(1 / cScale, Snap(t.spacing or 2)) or 0
+                    local spacing = (t.spacing or 2) > 0 and math.max(onePx, Snap(t.spacing or 2)) or 0
                     local vertical = t.orientation == "VERTICAL"
                     local n = #grp.icons
                     local len = n * size + (n - 1) * spacing
@@ -5018,8 +5025,9 @@ initFrame:SetScript("OnEvent", function(self)
             wipe(_hitOverlays)
             wipe(tp.groups)
             local overlayLevel = container:GetFrameLevel() + 20
-            -- The Call Totem Bar group is built only where it shows.
-            local nGroups = CallTotemShown(p) and 2 or 1
+            -- The Call Totem Bar group is built wherever its section is
+            -- (UpdateTotemPreview shows it while that bar is on).
+            local nGroups = ns.ERB_HasCallTotemSection() and 2 or 1
             for gi = 1, nGroups do
                 local def = TOTEM_GROUPS[gi]
                 local frame = CreateFrame("Frame", nil, container)

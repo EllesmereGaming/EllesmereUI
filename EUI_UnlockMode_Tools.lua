@@ -720,6 +720,56 @@ end
 -- file) can release a selected mover when a ghost is clicked.
 EllesmereUI._DeselectSelectedMover = DeselectMover
 
+-- Selection flash: a 2 px accent border over the mover pulsed three times
+-- when Unlock Mode opens at an element (the options rows' Move in Unlock Mode
+-- button), on one shared driver that is hidden and script-less while idle.
+-- It ends at alpha 0, so the selected state's white border and fill stay as
+-- SelectMover left them; a selection change, the mover hiding or the session
+-- closing ends it early. Accent rather than white: white would vanish over
+-- the selected border.
+local FLASH_PERIOD, FLASH_PULSES = 0.4, 3
+local FLASH_DUR = FLASH_PERIOD * FLASH_PULSES
+local flashFrame, flashM, flashT, flashR, flashG, flashB
+
+local function EndFlash()
+    if flashFrame then
+        flashFrame:SetScript("OnUpdate", nil)
+        flashFrame:Hide()
+    end
+    local m = flashM
+    flashM = nil
+    if not m then return end
+    m._selFlashBrd:SetColor(flashR, flashG, flashB, 0)
+    if m._selHl and m._selected then m._selHl:SetAlpha(0.10) end
+end
+
+local function FlashTick(self, dt)
+    local m = flashM
+    if not m or not UM.isUnlocked or not m._selected or not m:IsShown() then return EndFlash() end
+    flashT = flashT + dt
+    if flashT >= FLASH_DUR then return EndFlash() end
+    local p = sin(math.pi * flashT / FLASH_PERIOD)
+    p = p * p
+    m._selFlashBrd:SetColor(flashR, flashG, flashB, p)
+    if m._selHl then m._selHl:SetAlpha(0.10 + 0.25 * p) end
+end
+
+local function FlashSelectHighlight(m)
+    if not m or not m._brd or not m:IsShown() then return end
+    if flashM and flashM ~= m then EndFlash() end
+    if not m._selFlashBrd then
+        m._selFlashBrd = EllesmereUI.MakeBorder(m, 1, 1, 1, 0)
+        PP.SetBorderSize(m._selFlashBrd._frame, 2)
+    end
+    -- The mover is raised on select, so the border takes its level each flash.
+    m._selFlashBrd._frame:SetFrameLevel(m:GetFrameLevel() + 4)
+    flashR, flashG, flashB = GetAccent()
+    flashM, flashT = m, 0
+    if not flashFrame then flashFrame = CreateFrame("Frame") end
+    flashFrame:SetScript("OnUpdate", FlashTick)
+    flashFrame:Show()
+end
+
 -- Apply dark overlay state to all movers
 local function ApplyDarkOverlays()
     for _, m in pairs(movers) do
@@ -1014,6 +1064,18 @@ local function SetupArrowKeyFrame()
     UM.arrowKeyFrame:SetPropagateKeyboardInput(true)
     UM.arrowKeyFrame:Hide()
 
+    -- Keep scrolling passing through until the cycling modifier matches.
+    UM.arrowKeyFrame:SetScript("OnShow", function(self)
+        UM.UpdateMoverMouseWheel()
+    end)
+    UM.arrowKeyFrame:SetScript("OnHide", function(self)
+        self:UnregisterEvent("MODIFIER_STATE_CHANGED")
+        UM.UpdateMoverMouseWheel()
+    end)
+    UM.arrowKeyFrame:SetScript("OnEvent", function()
+        UM.UpdateMoverMouseWheel()
+    end)
+
     local ARROW_DIRS = {
         UP    = { 0,  1 },
         DOWN  = { 0, -1 },
@@ -1022,7 +1084,7 @@ local function SetupArrowKeyFrame()
     }
 
     UM.arrowKeyFrame:SetScript("OnKeyDown", function(self, key)
-        if not UM.isUnlocked then return end
+        if not UM.isUnlocked or InCombatLockdown() then return end
         local dir = ARROW_DIRS[key]
         if not dir then return end
         -- A selected fallback ghost answers the arrow keys with the exact
@@ -1136,6 +1198,8 @@ end
 local function SortMoverFrameLevels()
     if not UM.unlockFrame then return end
     local BASE = UM.unlockFrame:GetFrameLevel() + 20
+    -- A mover's border, labels, links and cog occupy levels through +12.
+    local STEP = 16
     local sorted = {}
     for key, m in pairs(movers) do
         local area = (m:GetWidth() or 100) * (m:GetHeight() or 100)
@@ -1144,11 +1208,34 @@ local function SortMoverFrameLevels()
     -- Largest area first -> lowest frame level
     table.sort(sorted, function(a, b) return a.area > b.area end)
     for i, entry in ipairs(sorted) do
-        local lvl = BASE + i
+        local lvl = BASE + i * STEP
         entry.mover._baseLevel = lvl
-        entry.mover._raisedLevel = lvl + #sorted + 5
+        entry.mover._raisedLevel = lvl + (#sorted + 1) * STEP
+        entry.mover._cycleLowered = nil
         entry.mover:SetFrameLevel(lvl)
+        if entry.mover._cogBtn then entry.mover._cogBtn:SetFrameLevel(lvl + 10) end
     end
+    -- Leave room above hovered movers (+100) and their point handles (+40).
+    UM.moverOverlayLevel = math.max(250, BASE + (2 * #sorted + 1) * STEP + 160)
+    if UM.moverOverlays then
+        -- Parents are registered first; update them before their child menus.
+        for _, frame in ipairs(UM.moverOverlays) do
+            frame:SetFrameLevel(UM.moverOverlayLevel + frame._moverOverlayOffset)
+        end
+    end
+    local confirm = _G.EUIConfirmDimmer
+    if confirm and confirm:IsShown() then confirm:SetFrameLevel(UM.moverOverlayLevel + 100) end
+end
+
+-- Menus and anchor ghosts follow the stack when late registrations re-sort it.
+function UM.SetMoverOverlayLevel(frame, offset)
+    offset = offset or 0
+    UM.moverOverlays = UM.moverOverlays or {}
+    if frame._moverOverlayOffset == nil then
+        UM.moverOverlays[#UM.moverOverlays + 1] = frame
+    end
+    frame._moverOverlayOffset = offset
+    frame:SetFrameLevel((UM.moverOverlayLevel or 250) + offset)
 end
 
 -------------------------------------------------------------------------------
@@ -1353,4 +1440,5 @@ UM.GetAccent, UM.CreateGrid, UM.ClearSnapHighlight, UM.ShowSnapHighlight = GetAc
 UM.HideAllGuidesAndHighlight, UM.ShowAlignmentGuides, UM.SnapPosition, UM.SelectMover = HideAllGuidesAndHighlight, ShowAlignmentGuides, SnapPosition, SelectMover
 UM.DeselectMover, UM.ApplyDarkOverlays, UM.SetupArrowKeyFrame, UM.GetActionBarVisualSize = DeselectMover, ApplyDarkOverlays, SetupArrowKeyFrame, GetActionBarVisualSize
 UM.SortMoverFrameLevels, UM.ShowBlizzOwnedOverlays, UM.HideBlizzOwnedOverlays = SortMoverFrameLevels, ShowBlizzOwnedOverlays, HideBlizzOwnedOverlays
+UM.FlashSelectHighlight = FlashSelectHighlight
 end

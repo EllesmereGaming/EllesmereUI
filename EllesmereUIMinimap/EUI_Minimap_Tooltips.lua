@@ -439,7 +439,7 @@ function ShowFriendsTooltip(anchor)
     if total == 0 then
         local row = EnsureFTTRow(1)
         row.name:SetFont(font, 10, "")
-        row.name:SetText(EllesmereUI.L("|cff888888No friends online|r"))
+        row.name:SetText(EllesmereUI.COLOR_CODES.DIM .. EllesmereUI.L("No friends online") .. "|r")
         row.zone:SetText("")
         tt:SetSize(FTT_PAD * 2 + 140, FTT_PAD + FTT_ROW_H + FTT_PAD)
         row.button:ClearAllPoints()
@@ -556,7 +556,7 @@ function ShowFriendsTooltip(anchor)
             rowIdx = rowIdx + 1
             local row = EnsureFTTRow(rowIdx)
             row.name:SetFont(font, 10, "")
-            row.name:SetText("|cff888888" .. EllesmereUI.Lf("...and %1$d more", #sec.list - maxRows) .. "|r")
+            row.name:SetText(EllesmereUI.COLOR_CODES.DIM .. EllesmereUI.Lf("...and %1$d more", #sec.list - maxRows) .. "|r")
             row.zone:SetText("")
             row.button._entry = nil
             FTTSetRowTarget(row.button, nil)

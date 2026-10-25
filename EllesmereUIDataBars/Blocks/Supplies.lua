@@ -357,6 +357,11 @@ ns.BlockFactories.supplies = function(blockCfg, slot, content, barCtx)
     button:SetScript("OnLeave", function() hovered = false; ns.Tip_Hide(button); Recolor() end)
     button:SetScript("OnClick", function(_, mouseButton)
         if mouseButton ~= "RightButton" then return end
+        -- The options never open in combat.
+        if InCombatLockdown() then
+            EllesmereUI.PrintError("Cannot open options during combat.")
+            return
+        end
         if not ns.OpenBlockSettings then EllesmereUI:EnsureLoaded() end
         if ns.OpenBlockSettings then ns.OpenBlockSettings(barCtx.id, blockCfg.id, "resources") end
     end)

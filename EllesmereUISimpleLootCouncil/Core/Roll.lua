@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -37,6 +37,17 @@ end
 
 
 local IsSecret = addon.IsSecret
+
+
+local SELF_REPORT_WINDOW = 4
+local selfRolls = setmetatable({}, { __mode = "k" })
+local heldReports = {}
+
+local function IsSelfReported(candidate)
+    local seq = candidate and selfRolls[candidate]
+    return seq ~= nil and candidate.roll ~= nil and candidate.rollBy == "player"
+        and (candidate.rollSeq or 0) == seq
+end
 
 
 
@@ -208,6 +219,7 @@ end
 local function ClearRolls(item)
     for _, candidate in pairs(item.candidates or {}) do
         candidate.roll, candidate.rollBy, candidate.rollSeq = nil, nil, nil
+        selfRolls[candidate] = nil
     end
 end
 
@@ -290,7 +302,25 @@ function Roll:ApplyAsk(payload, sender)
 end
 
 
-function Roll:ApplyRoll(session, name, value, round, sender, selfReport)
+local function HoldReport(item, session, name, value, round, asked, sender)
+    local key = tostring(session) .. "\001" .. name
+    if heldReports[key] then return end
+    local held = { value = value }
+    heldReports[key] = held
+    addon.Log:D("Roll", "self-reported roll held for the chat roll", session, name, value)
+    C_Timer.After(SELF_REPORT_WINDOW, function()
+        if heldReports[key] ~= held then return end
+        heldReports[key] = nil
+        if addon.Session:GetItem(session) ~= item or Roll.AskedAt(item, name) ~= asked
+            or not Roll.OwedBy(item, name) then
+            addon.Log:D("Roll", "self-reported roll superseded", session, name, value)
+            return
+        end
+        Roll:ApplyRoll(session, name, value, round, sender, true, true)
+    end)
+end
+
+function Roll:ApplyRoll(session, name, value, round, sender, selfReport, settled)
     if type(name) ~= "string" or not Roll.ValidValue(value) or not ValidRound(round) then
         Refuse("malformed_roll", sender, tostring(value))
         return
@@ -316,7 +346,8 @@ function Roll:ApplyRoll(session, name, value, round, sender, selfReport)
 
     local asked = Roll.AskedAt(item, name)
     if candidate.roll ~= nil and candidate.rollBy == "player"
-        and (candidate.rollSeq or 0) >= asked then
+        and (candidate.rollSeq or 0) >= asked
+        and (selfReport or not IsSelfReported(candidate)) then
         if candidate.roll ~= value then
             addon.Log:D("Roll", "second roll against one ask ignored",
                 tostring(name), value, "keeping", candidate.roll)
@@ -327,6 +358,11 @@ function Roll:ApplyRoll(session, name, value, round, sender, selfReport)
 
     if selfReport and asked == 0 then
         Refuse("unasked_roll", sender, "session", tostring(session))
+        return
+    end
+
+    if selfReport and not settled and addon.PlayerIsMasterLooter() then
+        HoldReport(item, session, name, value, round, asked, sender)
         return
     end
 
@@ -341,6 +377,7 @@ function Roll:ApplyRoll(session, name, value, round, sender, selfReport)
 
 
     candidate.rollSeq = asked
+    selfRolls[candidate] = selfReport and asked or nil
     addon.Log:I("Roll", "roll", session, tostring(name), value, "from",
         tostring(sender))
     if addon.Callbacks then addon.Callbacks:Fire("SessionChanged", session, "roll", name) end
@@ -565,18 +602,27 @@ end
 
 
 
-local function Outstanding(name)
+local function Outstanding(name, replaceable)
+    local provisional
     for _, item in ipairs(addon.Session:GetItems()) do
-        if not item.awarded and not item.removed and Roll.OwedBy(item, name) then
-            return item
+        if not item.awarded and not item.removed then
+            if Roll.OwedBy(item, name) then return item end
+            if replaceable and not provisional then
+                local candidate = item.candidates and item.candidates[name]
+                local asked = Roll.AskedAt(item, name)
+                if asked > 0 and IsSelfReported(candidate)
+                    and (candidate.rollSeq or 0) >= asked then
+                    provisional = item
+                end
+            end
         end
     end
-    return nil
+    return provisional
 end
 
 
 local function Attribute(name, value)
-    local item = Outstanding(name)
+    local item = Outstanding(name, true)
     if not item then return false end
     local round = Round(item)
     addon.Comms:Send("roll",
