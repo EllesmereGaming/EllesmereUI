@@ -620,6 +620,13 @@ do
         II.Paint(btn, rec, FRAME_KEY)
     end
 
+    -- ns.PinItemButton moved a slot to a new fixed level: its marks repaint at
+    -- that level (the core levels them off the button on every paint)
+    function ns.ItemIconsRepin(btn)
+        local rec = records[btn]
+        if rec and rec.link then II.Paint(btn, rec, FRAME_KEY) end
+    end
+
     -- Mark mode: a painted slot's Junk Marker verdict changed
     function ns.ItemIconsSetJunk(btn, isJunk)
         local rec = records[btn]

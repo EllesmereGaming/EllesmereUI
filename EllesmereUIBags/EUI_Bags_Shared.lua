@@ -85,6 +85,8 @@ local function PinItemButtonLevel(btn, level)
     btn:SetFrameLevel(level)
     if btn._textOverlay then btn._textOverlay:SetFrameLevel(level + 3) end
     if btn._warbankDim then btn._warbankDim:SetFrameLevel(level + 6) end
+    -- Item Icons' marks (+4, a fixed level as well) follow (EUI_Bags_Slots.lua)
+    if ns.ItemIconsRepin then ns.ItemIconsRepin(btn) end
 end
 
 function ns.PinItemButton(btn, window)
