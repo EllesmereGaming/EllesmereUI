@@ -86,6 +86,9 @@ initFrame:SetScript("OnEvent", function(self)
                 -- The game's mapFade from before stays, so Apply can give it back.
                 local mf = EllesmereUIDB.worldMapFade
                 EllesmereUIDB.worldMapFade = mf and mf.mapFadeWas ~= nil and { mapFadeWas = mf.mapFadeWas } or nil
+                -- Same for the game's showInGameNavigation.
+                local ng = EllesmereUIDB.inGameNavigation
+                EllesmereUIDB.inGameNavigation = ng and ng.navWas ~= nil and { navWas = ng.navWas } or nil
                 EllesmereUIDB.gatherSkill = nil
                 if EllesmereUIDB.unlockAnchors then
                     EllesmereUIDB.unlockAnchors.EUI_FlightTimer = nil
@@ -124,6 +127,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._Fishing then EllesmereUI._Fishing.Apply() end
             if EllesmereUI._MapTravel then EllesmereUI._MapTravel.Apply() end
             if EllesmereUI._MapFade then EllesmereUI._MapFade.Apply() end
+            if EllesmereUI._InGameNavigation then EllesmereUI._InGameNavigation.Apply() end
             if EllesmereUI._GatherSkill then EllesmereUI._GatherSkill.Apply() end
             EllesmereUI:InvalidatePageCache()
         end,
