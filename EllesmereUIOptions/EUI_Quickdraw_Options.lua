@@ -1168,6 +1168,17 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
+    -- Every emote the client knows, by token; see the Emotes block in
+    -- EUI_Quickdraw_Slots.lua for why the token and not the command text.
+    local function EmoteEntries()
+        local out = {}
+        for _, slot in ipairs(ns.EmoteSlots and ns.EmoteSlots() or {}) do
+            local icon, name = ns.SlotDisplay(slot)
+            out[#out + 1] = { icon = icon, name = name, slot = slot }
+        end
+        return out
+    end
+
     local function OutfitEntries()
         local out = {}
         for _, slot in ipairs(ns.OutfitSlots and ns.OutfitSlots() or {}) do
@@ -1222,6 +1233,7 @@ initFrame:SetScript("OnEvent", function(self)
         { key = "toy",       label = "Toys",         build = ToyEntries,
           keywordHint = true },
         { key = "macro",     label = "Macros",       build = MacroEntries },
+        { key = "emote",     label = "Emotes",       build = EmoteEntries },
         { key = "battlepet", label = "Battle Pets",  build = PetEntries },
         { key = "outfit",    label = "Outfits",      build = OutfitEntries,
           keepOrder = true },

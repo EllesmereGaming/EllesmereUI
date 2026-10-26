@@ -91,6 +91,19 @@ local function PaintCell(w, slot, placeholder, showLabels, showCooldowns, wantLa
     w.icon:SetShown(not placeholder)
     w.plus:SetShown(placeholder)
 
+    -- The name on the icon itself, whatever the label settings say: an emote's
+    -- icon is the same bubble for all of them, so the name is the only thing
+    -- that tells two entries apart without hovering each one. Every layout,
+    -- the fan included -- it sits inside the icon's own square, so it cannot
+    -- crowd a neighbour the way a label under the icon does.
+    local named = not placeholder and slot ~= nil and slot.kind == "emote"
+        and name ~= nil
+    if named then
+        w.iconName:SetTextHeight(max(7, floor((iconSize or 40) * 0.24)))
+        w.iconName:SetText(name)
+    end
+    w.iconName:SetShown(named)
+
     local labelled = showLabels and wantLabel and name ~= nil
     w.label:SetText((labelled and EllesmereUI.L(name)) or "")
     w.label:SetShown(labelled or false)

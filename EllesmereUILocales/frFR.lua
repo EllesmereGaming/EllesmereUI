@@ -1565,6 +1565,7 @@ L["EllesmereUI"]                = true   -- nom de l'addon
 L["Elyndra"]                    = true   -- ⚠ PNJ à vérifier
 L["Embertide"]                  = true   -- ⚠ zone/PNJ introuvable
 L["Emerald Coach's Whistle"]    = "Sifflet d'entraînement d'émeraude"
+L["Emotes"]                     = "Émotes"
 L["Empty Bar Color"]            = "Couleur de barre vide"
 L["Empty Bar Overlay"]          = "Superposition de barre vide"
 L["Empyrean Domain"]            = "Domaine Empyréen"
