@@ -7035,3 +7035,7 @@ L["Select a Talent"] = "Sélectionner un talent"
 L["Picked"] = "Choisi"
 L["Click: pick this talent"] = "Clic : choisir ce talent"
 L["Click the talent this reminder is for."] = "Cliquez sur le talent concerné par ce rappel."
+-- Show Waypoints in the World (EllesmereUIForeverEssentials_InGameNavigation.lua)
+L["Show Waypoints in the World"] = "Afficher les points de repère dans le monde"
+L["Shows the game's own waypoint marker in the world: an icon with the distance, and an arrow at the screen edge while the destination is out of sight. It goes away when you get close."] = "Affiche le marqueur de repère du jeu dans le monde : une icône avec la distance, et une flèche au bord de l'écran tant que la destination est hors de vue. Il disparaît quand vous vous en approchez."
+L["Close the world map first."] = "Fermez d'abord la carte du monde."
