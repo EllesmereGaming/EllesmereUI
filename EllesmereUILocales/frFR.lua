@@ -6767,3 +6767,9 @@ L["Ignored: right-click to show it again."] = "Masqué : clic droit pour le réa
 L["The cog shows the ignored ones."] = "La roue dentée affiche les personnages masqués."
 L["Click for the list's options."] = "Clic : les options de la liste."
 L["Last Played"] = "Joué en dernier"
+-- Barber Shop Presets (EllesmereUIQoL_BarberPresets.lua)
+L["Barber Shop Presets"] = "Préréglages du coiffeur"
+L["Adds a panel to the barber shop to save your current appearance as a named preset and apply it again later. Applying a preset only previews it; press Accept to buy the change."] = "Ajoute un panneau chez le coiffeur pour enregistrer votre apparence actuelle sous un nom et la réappliquer plus tard. Appliquer un préréglage n'en affiche qu'un aperçu ; appuyez sur Accepter pour payer le changement."
+L["Appearance Presets"] = "Préréglages d'apparence"
+L["Preset name"] = "Nom du préréglage"
+L["No presets for this look yet."] = "Pas encore de préréglage pour cette apparence."
