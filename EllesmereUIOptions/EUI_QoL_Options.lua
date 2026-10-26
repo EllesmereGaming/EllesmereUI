@@ -2498,7 +2498,16 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._applyBonusRollConfirmation then EllesmereUI._applyBonusRollConfirmation() end
                   EllesmereUI:RefreshPage()
               end },
-            EllesmereUI.BlankRowCfg()
+            { type="toggle", text=EllesmereUI.L("Barber Shop Presets"),
+              tooltip=EllesmereUI.L("Adds a panel to the barber shop to save your current appearance as a named preset and apply it again later. Applying a preset only previews it; press Accept to buy the change."),
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.barberPresetsEnabled == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.barberPresetsEnabled = v
+                  if EllesmereUI._applyBarberPresets then EllesmereUI._applyBarberPresets() end
+              end }
         );  y = y - h
         if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineCog(bonusRollRow._leftRegion, {
@@ -2539,7 +2548,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- No item upgrade system on WoW Forever: the Upgrader tab is not offered there
     -- (its resident file returns at load, so the page builder never exists either).
     if not EllesmereUI.IS_FOREVER then pages[#pages + 1] = PAGE_UPGCALC end
-    local searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "upgrade tooltips", "tooltip", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown" }
+    local searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "upgrade tooltips", "tooltip", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown", "barber", "barbershop", "appearance", "hairstyle" }
     -- Terms for features WoW Forever does not have (the Battle Res indicator,
     -- the Macro Factory) are dropped there, so a sidebar search for them does
     -- not list this module; retail keeps the full list.
@@ -2686,6 +2695,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.keystonePopup = nil
                 EllesmereUIDB.teleportPrompt = nil
                 EllesmereUIDB.waypointCmd = nil
+                -- Saved barber presets are the player's data; only the toggle resets.
+                EllesmereUIDB.barberPresetsEnabled = nil
             end
             EllesmereUIDB.autoLogging = nil
             if _G._EUI_ResetUpgradeCalc then _G._EUI_ResetUpgradeCalc() end
@@ -2694,6 +2705,7 @@ initFrame:SetScript("OnEvent", function(self)
             if _G._EUI_BattleRes_Reset then _G._EUI_BattleRes_Reset() end
             EllesmereUI._applyHideBlizzardPartyFrame()
             if EllesmereUI._applyBonusRollConfirmation then EllesmereUI._applyBonusRollConfirmation() end
+            if EllesmereUI._applyBarberPresets then EllesmereUI._applyBarberPresets() end
             if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
             if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
             if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
