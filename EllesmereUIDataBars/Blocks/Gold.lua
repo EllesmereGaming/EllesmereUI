@@ -347,7 +347,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
             charCount = #charList
             if charCount > 0 then
                 ns.Tip_AddLine(" ")
-                ns.Tip_AddLine(GetRealmName() or "?", 0.5, 0.78, 1)
+                ns.Tip_AddLine(EllesmereUI.RealmGroupName() or "?", 0.5, 0.78, 1)
                 -- Cap roster rows so many alts cannot push the total and hint rows off
                 -- screen. Sorted richest first, so the cap keeps the highest balances; the
                 -- live character always shows; the total still sums EVERY stored character.

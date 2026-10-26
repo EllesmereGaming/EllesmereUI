@@ -145,6 +145,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
     local MAX_H = 400  -- full picker scrolls past this; the per-spell menu has no scroll and sizes to its rows
 
     local menu = PoolKept(optState, removeOnly and "spSettings" or "spPicker", "Frame", UIParent)
+    -- Per-build state of the kept frame: the row a rebuild reopens, and a rebuild request.
+    menu._cseRow, menu._rebuildPending = nil, nil
     menu:SetFrameStrata("FULLSCREEN_DIALOG")
     menu:SetFrameLevel(300)
     menu:SetClampedToScreen(true)
@@ -1873,6 +1875,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         else
                             lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
                         end
+                        -- opts.onRefresh: runs whenever the row repaints (build, every pick, a bar apply, hover-out)
+                        if opts and opts.onRefresh then opts.onRefresh() end
                     end
                     UpdateLabelColor()
 
@@ -2508,6 +2512,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         menu._openSub = sub
                     end
 
+                    -- Opens this row's flyout from code (a rebuilt menu reopens the one it had open).
+                    row._showSub = ShowSub
                     row:SetScript("OnEnter", function()
                         if RowDisabled() then
                             if opts.disabledTooltip then
@@ -3408,7 +3414,10 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     -- cooldown, independent of the active overlay): the hide single-select
                     -- plus the "+ Glow" choices beside it (see the regular-spell row). The
                     -- strip's own-entry writes keep the spell entry, as every preset row's do.
-                    MakeSubnavRow("Cooldown State Effect", CD_STATE_ITEMS,
+                    -- Picking or clearing a glow (or a bar apply doing so) rebuilds the menu,
+                    -- which adds or drops the Glow Style row below.
+                    local hadGlowC = ns.CdStateGlowOf(cas) ~= nil
+                    menu._cseRow = MakeSubnavRow("Cooldown State Effect", CD_STATE_ITEMS,
                         function() return ns.CdStateHideOf(cas) end,
                         function(v)
                             ns.CdStateWriteHide(EnsureCAS(), v)
@@ -3433,11 +3442,16 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             end
                         end,
                         { itemState = AB.CdStateItemState(cas, nil, true),
+                          onRefresh = function()
+                              if (ns.CdStateGlowOf(cas) ~= nil) ~= hadGlowC then menu._rebuildPending = true end
+                          end,
                           apply = { keys = { "cdStateEffect", "cdStateLowerAlpha" },
                                     write = AB.CdHideWrite(cas),
                                     view = ns.CdStateHideOf } })
 
-                    -- Glow Style (preset/custom): mirror of the regular-spell row.
+                    -- Glow Style (preset/custom): mirror of the regular-spell row, shown only
+                    -- while a glow is picked in Cooldown State Effect.
+                    if hadGlowC then
                     MakeSubnavRow("Glow Style", CD_READY_STYLE_ITEMS,
                         function() return ns.CdReadyGlowStyle(ns.CdStateGlowOf(cas), cas) end,
                         function(v)
@@ -3469,12 +3483,12 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                 end)
                             end
                         end,
-                        { disabled = function() return ns.CdStateGlowOf(cas) == nil end,
-                          apply = { keys = { "cdStateGlowStyle", "cdStateGlowAlpha" },
+                        { apply = { keys = { "cdStateGlowStyle", "cdStateGlowAlpha" },
                                     write = function(t, v)
                                         t.cdStateGlowStyle = v
                                         t.cdStateGlowAlpha = (v == 8) and cas and cas.cdStateGlowAlpha or nil
                                     end } })
+                    end -- hadGlowC
 
                     -- Cooldown Saturation (preset/custom): mirror of the regular-spell row.
                     -- These icons are greyed by the Fake-Active engine rather than by Blizzard, so the runtime reads this key in PresetKeepsColor instead of the SetDesaturated hook -- same setting, same key name.
@@ -4090,6 +4104,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 -- (cdStateEffect) plus the "+ Glow" choices beside it (cdStateGlow, see
                 -- CD_STATE_ITEMS); each pick keeps the other half. Pairs that can never
                 -- show both grey out, and the glows lock while a Proc Glow is set.
+                -- Picking or clearing a glow (or a bar apply doing so) rebuilds the menu,
+                -- which adds or drops the Glow Style row below.
+                local hadGlow = ns.CdStateGlowOf(ss) ~= nil
                 local cdStateRow = MakeSubnavRow("Cooldown State Effect", CD_STATE_ITEMS,
                     function() return ns.CdStateHideOf(ss) end,
                     function(v)
@@ -4121,6 +4138,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     { itemState = AB.CdStateItemState(ss, function()
                           return (ss.procGlow and ss.procGlow > 0) and true or false
                       end),
+                      onRefresh = function()
+                          if (ns.CdStateGlowOf(ss) ~= nil) ~= hadGlow then menu._rebuildPending = true end
+                      end,
                       apply = { confirmRA = true,
                                 keys = { "cdStateEffect", "cdStateLowerAlpha" },
                                 write = AB.CdHideWrite(ss),
@@ -4145,6 +4165,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                     e.cdStateLowerAlpha = nil
                                 end,
                                 view = ns.CdStateHideOf } })
+                menu._cseRow = cdStateRow
                 if isCustomInjected and cdStateRow then
                     cdStateRow:SetAlpha(0.35)
                     cdStateRow:SetScript("OnEnter", function()
@@ -4155,8 +4176,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     end)
                 end
 
-                -- 4b. Glow Style: the style the CD Ready and On CD glows use.
-                if not isCustomInjected then
+                -- 4b. Glow Style: the style the CD Ready and On CD glows use, shown only
+                -- while a glow is picked in Cooldown State Effect.
+                if not isCustomInjected and hadGlow then
                     MakeSubnavRow("Glow Style", CD_READY_STYLE_ITEMS,
                         function() return ns.CdReadyGlowStyle(ns.CdStateGlowOf(ss), ss) end,
                         function(v)
@@ -4188,8 +4210,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                 end)
                             end
                         end,
-                        { disabled = function() return ns.CdStateGlowOf(ss) == nil end,
-                          apply = { keys = { "cdStateGlowStyle", "cdStateGlowAlpha" },
+                        { apply = { keys = { "cdStateGlowStyle", "cdStateGlowAlpha" },
                                     -- The Blackout opacity rides along with the Blackout value
                                     -- only: a spell that set its own opacity pushes it to the bar
                                     -- instead of rejoining the bar's (see payloadValue).
@@ -4588,6 +4609,17 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
         optState._spellPickerMenu = menu
         menu._openSub = nil  -- track open subnav for close checks
         menu:SetScript("OnUpdate", function(m)
+            -- A glow picked or cleared in Cooldown State Effect adds or drops the
+            -- Glow Style row: rebuild the menu here, outside the click that asked
+            -- for it, and reopen the Cooldown State Effect flyout where it was.
+            if m._rebuildPending then
+                m._rebuildPending = nil
+                m:Hide()
+                ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSelect, removeOnly)
+                local r = m._cseRow
+                if m:IsShown() and r and r._showSub then r._showSub() end
+                return
+            end
             local overMenu = m:IsMouseOver() or anchorFrame:IsMouseOver()
             -- A cog flyout (Duration/Charge-Stack) drives itself through this menu, so also
             -- treat "mouse over the flyout's open dropdown menu" as over-the-sub. Without this, picking a Position option whose list extends below the flyout reads as an outside click and closes the whole menu.
@@ -4691,9 +4723,29 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 title:SetText(EllesmereUI.L("Add Custom Spell"))
                 popup._title = title
 
+                -- Permanent red note under the title (user request 2026-10-23): a custom
+                -- spell lives outside Blizzard's Cooldown Manager, so its restrictions can
+                -- keep it from working fully. Each open grows the popup by the note's
+                -- wrapped height (_warnExtra: 6 above and 12 below it).
+                do
+                    local warn = popup:CreateFontString(nil, "OVERLAY")
+                    warn:SetFont(FONT_PATH, 10, GetCDMOptOutline())
+                    warn:SetWidth(POPUP_W - 32)
+                    warn:SetPoint("TOP", title, "BOTTOM", 0, -6)
+                    warn:SetJustifyH("CENTER")
+                    warn:SetTextColor(0.9, 0.3, 0.3, 1)
+                    warn:SetText(EllesmereUI.L("Use at your own risk: Blizzard restrictions can keep custom spells from working fully."))
+                    popup._warn = warn
+                    popup._warnExtra = function()
+                        local h = warn:GetStringHeight()
+                        if not h or h < 10 then h = 24 end
+                        return math.ceil(h) + 18
+                    end
+                end
+
                 local editBox = CreateFrame("EditBox", nil, popup)
                 editBox:SetSize(180, 28)
-                editBox:SetPoint("TOP", title, "BOTTOM", 0, -16)
+                editBox:SetPoint("TOP", popup._warn, "BOTTOM", 0, -12)
                 editBox:SetAutoFocus(true)
                 editBox:SetNumeric(true)
                 editBox:SetMaxLetters(7)
@@ -4877,10 +4929,10 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         return
                     end
                 end
-                -- A cooldown Blizzard's Cooldown Manager offers goes through the spell
-                -- list: as a custom spell its menu would write settings its icon never reads.
-                if not isCustomBuffPopup and ns.IsCDMTrackedCooldown and ns.IsCDMTrackedCooldown(sid) then
-                    SetStatus("Already in the spell list")
+                -- A spell the spell list offers goes through the list: as a custom
+                -- spell its menu would write settings its icon never reads.
+                if not isCustomBuffPopup and ns.IsCDMTrackedCooldown(sid) then
+                    SetStatus("Pick this spell from the spell list")
                     return
                 end
                 popup._dimmer:Hide()
@@ -4912,13 +4964,13 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
             if isCustomBuffPopup then
                 -- Aura-tracked (12.1): same compact shape as CD/utility --
                 -- no duration fields, no charges chrome.
-                popup:SetHeight(164)
+                popup._baseH = 164
                 popup._durLabel:Hide()
                 popup._durBox:Hide()
                 if popup._chargeWarn then popup._chargeWarn:Hide() end
                 if popup._forceCountCheck then popup._forceCountCheck:Hide() end
             else
-                popup:SetHeight(164)
+                popup._baseH = 164
                 popup._durLabel:Hide()
                 popup._durBox:Hide()
                 -- CD/utility: the old "cannot track charges" note is replaced by the opt-in "Show Charges" toggle, reset unchecked each open.
@@ -4929,6 +4981,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
             end
             ns.PadPopupOpen(popup._dimmer, popup, popup._cancelBtn)  -- controller cursor
             popup._dimmer:Show()
+            -- Sized once shown: the note's wrapped height reads right only on a shown frame.
+            popup:SetHeight(popup._baseH + popup._warnExtra())
             popup._editBox:SetFocus()
         end)
 

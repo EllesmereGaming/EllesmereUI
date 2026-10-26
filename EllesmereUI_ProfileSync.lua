@@ -19,8 +19,9 @@ EUI_NS = EUI_NS.__euiCoreNS or EUI_NS  -- standalone builds: the core's own tabl
 -------------------------------------------------------------------------------
 do
     -- Modules that should NOT get a sync icon (no per-profile settings; Loadout
-    -- Manager keeps a per-character store of its own)
-    local SYNC_EXEMPT = { EllesmereUIPartyMode = true, EllesmereUILoadoutManager = true }
+    -- Manager and Simple Loot Council keep stores of their own)
+    local SYNC_EXEMPT = { EllesmereUIPartyMode = true, EllesmereUILoadoutManager = true,
+        EllesmereUISimpleLootCouncil = true }
     EllesmereUI._syncExempt = SYNC_EXEMPT
 
     -- Modules with a sync icon but no per-profile data (always "synced"). BlizzardSkin hosts

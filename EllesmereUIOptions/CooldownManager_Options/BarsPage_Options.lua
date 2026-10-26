@@ -43,7 +43,7 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
     local BuildCDMLivePreview = ns.CDMO_BuildCDMLivePreview
     local W = EllesmereUI.Widgets
     local y = yOffset
-    local _, h
+    local _, h, hdr
 
     local p = DB()
     if not p or not p.cdmBars then return math.abs(yOffset) end
@@ -963,7 +963,9 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
     end
 
     if not isFocusKick then
-    _, h = W:SectionHeader(parent, "BAR LAYOUT", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "BAR LAYOUT", y);  y = y - h
+    -- The selected bar's mover (the key is read at the click).
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = function() return "CDM_" .. BD().key end })
 
     -- Row 1: (Sync) Visibility. Mouseover stays structurally absent for CDM bars
     -- (noMouseover), matching the old VIS_VALUES_CDM list.

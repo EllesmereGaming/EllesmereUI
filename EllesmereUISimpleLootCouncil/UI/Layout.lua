@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -345,16 +345,8 @@ end
 
 
 
-function L.Select(parent, x, width, y, opts)
-    local hasHelp = opts.tooltip ~= nil
-    local height = SettingHeight(hasHelp)
-    local row = L.Row(parent, x, width, y, height)
-    row:SetStripe(opts.stripe)
-
-    local select = S.SelectButton(row)
-    P.Point(select, "RIGHT", row, "RIGHT", -size.ROW_PAD, 0)
-    row:AdoptHover(select)
-    row.Control = select
+function L.SelectControl(parent, opts)
+    local select = S.SelectButton(parent)
     local text = select.Text
 
     local function TextFor(value)
@@ -373,13 +365,13 @@ function L.Select(parent, x, width, y, opts)
         end
         text:SetText(TextFor(opts.get and opts.get()))
         P.Size(select, math.max(select.MinWidth,
-            math.ceil(widest) + select.Chrome), size.CTRL_H)
+            math.ceil(widest) + select.Chrome), opts.height or size.CTRL_H)
     end
     Fit()
     P.AfterLayout(Fit)
     P.OnRescale(Fit)
 
-    function row:Sync()
+    function select:Sync()
         text:SetText(TextFor(opts.get and opts.get()))
     end
 
@@ -387,12 +379,28 @@ function L.Select(parent, x, width, y, opts)
         GameTooltip:Hide()
         S.ShowSelectMenu(self, opts.options, opts.get and opts.get(), function(value)
             if opts.set then opts.set(value) end
-            row:Sync()
+            self:Sync()
         end)
     end)
 
     local window = S.WindowOf(parent)
     if window then window:HookScript("OnHide", function() S.HideSelectMenu() end) end
+    return select
+end
+
+
+function L.Select(parent, x, width, y, opts)
+    local hasHelp = opts.tooltip ~= nil
+    local height = SettingHeight(hasHelp)
+    local row = L.Row(parent, x, width, y, height)
+    row:SetStripe(opts.stripe)
+
+    local select = L.SelectControl(row, opts)
+    P.Point(select, "RIGHT", row, "RIGHT", -size.ROW_PAD, 0)
+    row:AdoptHover(select)
+    row.Control = select
+
+    function row:Sync() select:Sync() end
 
     local label = BoundedLabel(row, select, opts.label, S.fontSetting)
     row.LabelText = label

@@ -95,6 +95,11 @@ local function CreateHUD(parent)
     local iconSz = 28
     local BANNER_VIS_H = 58
     local iconCenterY = -(BANNER_VIS_H / 2) + 1  -- -28px from top (centered + 1px up)
+    -- Toggle chains, centre-relative: the inner edges beside the logo and the
+    -- gaps between toggles (left chain, then the right chain's two). The element
+    -- filter lays the bar out again from these (UM.hudFrame._hudLayout).
+    local UP_LEFT, UP_RIGHT = -80 + iconSz / 2, 76 - iconSz / 2
+    local GAP_L, GAP_R1, GAP_R2 = 20, 7, 2
 
     -- Helper: shared hover/click behavior for icon+label wrapper buttons
     local function SetupToggleBtn(wrapper, iconTex, labelFS, getState, setState)
@@ -115,7 +120,7 @@ local function CreateHUD(parent)
     ---------------------------------------------------------------
     local gridBtn = CreateFrame("Button", nil, UM.hudFrame)
     -- Size will be set after label is created to encompass icon + gap + label
-    gridBtn:SetPoint("RIGHT", UM.hudFrame, "TOP", -80 + iconSz / 2, iconCenterY)
+    gridBtn:SetPoint("RIGHT", UM.hudFrame, "TOP", UP_LEFT, iconCenterY)
 
     local gridTex = gridBtn:CreateTexture(nil, "OVERLAY")
     gridTex:SetSize(iconSz, iconSz)
@@ -168,7 +173,7 @@ local function CreateHUD(parent)
     --  Dark Overlays toggle (left of grid): label LEFT of icon
     ---------------------------------------------------------------
     local darkOverlayBtn = CreateFrame("Button", nil, UM.hudFrame)
-    darkOverlayBtn:SetPoint("RIGHT", gridBtn, "LEFT", -20, 0)
+    darkOverlayBtn:SetPoint("RIGHT", gridBtn, "LEFT", -GAP_L, 0)
 
     local darkOverlayTex = darkOverlayBtn:CreateTexture(nil, "OVERLAY")
     darkOverlayTex:SetSize(iconSz, iconSz)
@@ -203,7 +208,7 @@ local function CreateHUD(parent)
     --  Flashlight toggle (left of grid): label LEFT of icon
     ---------------------------------------------------------------
     local flashBtn = CreateFrame("Button", nil, UM.hudFrame)
-    flashBtn:SetPoint("RIGHT", darkOverlayBtn, "LEFT", -20, 0)
+    flashBtn:SetPoint("RIGHT", darkOverlayBtn, "LEFT", -GAP_L, 0)
 
     local flashTex = flashBtn:CreateTexture(nil, "OVERLAY")
     flashTex:SetSize(iconSz, iconSz)
@@ -237,7 +242,7 @@ local function CreateHUD(parent)
     --  Magnet/Snap toggle (right of center): label RIGHT of icon
     ---------------------------------------------------------------
     local magnetBtn = CreateFrame("Button", nil, UM.hudFrame)
-    magnetBtn:SetPoint("LEFT", UM.hudFrame, "TOP", 76 - iconSz / 2, iconCenterY)
+    magnetBtn:SetPoint("LEFT", UM.hudFrame, "TOP", UP_RIGHT, iconCenterY)
 
     local magnetTex = magnetBtn:CreateTexture(nil, "OVERLAY")
     magnetTex:SetSize(iconSz, iconSz)
@@ -276,7 +281,7 @@ local function CreateHUD(parent)
     --  Coordinates toggle (right of snap): label RIGHT of icon
     ---------------------------------------------------------------
     local coordBtn = CreateFrame("Button", nil, UM.hudFrame)
-    coordBtn:SetPoint("LEFT", magnetBtn, "RIGHT", 7, 0)
+    coordBtn:SetPoint("LEFT", magnetBtn, "RIGHT", GAP_R1, 0)
 
     local coordTex = coordBtn:CreateTexture(nil, "OVERLAY")
     coordTex:SetSize(iconSz, iconSz)
@@ -323,7 +328,7 @@ local function CreateHUD(parent)
     --  Hover toggle (right of coords): label RIGHT of icon
     ---------------------------------------------------------------
     local hoverBtn = CreateFrame("Button", nil, UM.hudFrame)
-    hoverBtn:SetPoint("LEFT", coordBtn, "RIGHT", 2, 0)
+    hoverBtn:SetPoint("LEFT", coordBtn, "RIGHT", GAP_R2, 0)
 
     local hoverTex = hoverBtn:CreateTexture(nil, "OVERLAY")
     hoverTex:SetSize(iconSz, iconSz)
@@ -366,11 +371,10 @@ local function CreateHUD(parent)
     local CHAIN_GAP = 15  -- minimum clearance from the icon-toggle chain
 
     -- Outer edges of the left (grid/darkOverlay/flash) and right
-    -- (magnet/coord/hover) toggle chains, center-relative -- re-derives the
-    -- same offsets used to anchor them above, so keep these in sync with
-    -- those SetPoint calls if the chain spacing ever changes.
-    local flashLeftEdge = (-80 + iconSz / 2) - gridBtn:GetWidth() - 20 - darkOverlayBtn:GetWidth() - 20 - flashBtn:GetWidth()
-    local hoverRightEdge = (76 - iconSz / 2) + magnetBtn:GetWidth() + 7 + coordBtn:GetWidth() + 2 + hoverBtn:GetWidth()
+    -- (magnet/coord/hover) toggle chains, center-relative, from the same
+    -- numbers that anchor them above.
+    local flashLeftEdge = UP_LEFT - gridBtn:GetWidth() - GAP_L - darkOverlayBtn:GetWidth() - GAP_L - flashBtn:GetWidth()
+    local hoverRightEdge = UP_RIGHT + magnetBtn:GetWidth() + GAP_R1 + coordBtn:GetWidth() + GAP_R2 + hoverBtn:GetWidth()
 
     -- Exit button (left side, 85px from left edge by default)
     local exitBtn = CreateFrame("Button", nil, UM.hudFrame)
@@ -438,6 +442,10 @@ local function CreateHUD(parent)
         local NORMAL_A = 0.50
         local HOVER_A  = 0.90
         local FONT_SZ  = 26
+        local SCALE_BTN_SZ, SCALE_BTN_GAP = 30, 10  -- the - and + buttons, outside Exit / Save & Exit
+        -- The largest scale the screen fits (the element filter's screen fit), nil = none:
+        -- + greys where the next step would pass it.
+        local scaleCap
 
         -- Load saved banner scale
         local bannerUserScale = 1.0
@@ -455,6 +463,7 @@ local function CreateHUD(parent)
         local function RefreshScaleBtns()
             local atMin = bannerUserScale <= SCALE_MIN + 0.001
             local atMax = bannerUserScale >= SCALE_MAX - 0.001
+                or (scaleCap ~= nil and bannerUserScale + SCALE_STEP > scaleCap + 0.001)
             if atMin then
                 minusBtn._shadow:SetTextColor(DISABLED_R, DISABLED_G, DISABLED_B, NORMAL_A * 0.6)
                 minusBtn._label:SetTextColor(DISABLED_R, DISABLED_G, DISABLED_B, NORMAL_A)
@@ -496,7 +505,7 @@ local function CreateHUD(parent)
         -- Helper: create a text button with drop shadow
         local function MakeScaleBtn(text, anchorPoint, anchorTo, anchorRel, xOff, yOff)
             local btn = CreateFrame("Button", nil, UM.hudFrame)
-            btn:SetSize(30, 30)
+            btn:SetSize(SCALE_BTN_SZ, SCALE_BTN_SZ)
             btn:SetPoint(anchorPoint, anchorTo, anchorRel, xOff, yOff)
             btn:SetFrameLevel(UM.hudFrame:GetFrameLevel() + 3)
 
@@ -533,14 +542,14 @@ local function CreateHUD(parent)
         end
 
         -- Minus button (10px left of the Exit button, outer side)
-        minusBtn = MakeScaleBtn("\226\128\147", "RIGHT", exitBtn, "LEFT", -10, 0)
+        minusBtn = MakeScaleBtn("\226\128\147", "RIGHT", exitBtn, "LEFT", -SCALE_BTN_GAP, 0)
         minusBtn:SetScript("OnClick", function(self)
             if self._isDisabled then return end
             ApplyBannerScale(bannerUserScale - SCALE_STEP)
         end)
 
         -- Plus button (10px right of the Save & Exit button, outer side)
-        plusBtn = MakeScaleBtn("+", "LEFT", UM.hudFrame._saveBtn, "RIGHT", 10, 0)
+        plusBtn = MakeScaleBtn("+", "LEFT", UM.hudFrame._saveBtn, "RIGHT", SCALE_BTN_GAP, 0)
         plusBtn:SetScript("OnClick", function(self)
             if self._isDisabled then return end
             ApplyBannerScale(bannerUserScale + SCALE_STEP)
@@ -549,6 +558,13 @@ local function CreateHUD(parent)
         UM.hudFrame._minusBtn = minusBtn
         UM.hudFrame._plusBtn = plusBtn
         UM.hudFrame._applyBannerScale = ApplyBannerScale
+        UM.hudFrame._setScaleCap = function(cap) scaleCap = cap; RefreshScaleBtns() end
+        -- The bar's own numbers for the element filter's layout (EUI_UnlockMode_Filter.lua).
+        UM.hudFrame._hudLayout = {
+            upLeft = UP_LEFT, upRight = UP_RIGHT, gapL = GAP_L, gapR1 = GAP_R1, gapR2 = GAP_R2,
+            clear = CHAIN_GAP, scaleBtnReach = SCALE_BTN_GAP + SCALE_BTN_SZ,
+            scaleMin = SCALE_MIN, scaleMax = SCALE_MAX, scaleStep = SCALE_STEP,
+        }
 
         RefreshScaleBtns()
     end
@@ -1417,6 +1433,7 @@ function ns.RequestClose(save, afterFn)
     -- Has unsaved changes -> show confirm popup
     EllesmereUI:ShowConfirmPopup({
         title = "Unsaved Changes",
+        frameLevel = (UM.moverOverlayLevel or 250) + 100,
         message = "You have unsaved position changes.\nWhat would you like to do?",
         cancelText  = "Exit Without Saving",
         confirmText = "Save & Exit",
@@ -2143,6 +2160,25 @@ function ns.OpenUnlockMode()
     local panelRealScale = panel and panel:GetScale() or 1
     local elapsed = 0
     local fadeInSynced = false
+    local moversIn = false
+
+    -- Auto-select a mover if requested (the cog popup link, the options rows'
+    -- Move in Unlock Mode button), flashing it when the request asks: the
+    -- moment the movers have faded in, so the flash answers the click, and
+    -- again at the landing for a mover that was not built yet (the retry
+    -- ticker spawns late registrations). The request is kept until the mover
+    -- exists; the landing drops it after one more try.
+    local function TryAutoSelect()
+        local autoKey = EllesmereUI._unlockAutoSelectKey
+        if not autoKey then return end
+        local m = movers[autoKey]
+        if not m then return end
+        local autoFlash = EllesmereUI._unlockAutoSelectFlash
+        EllesmereUI._unlockAutoSelectKey = nil
+        EllesmereUI._unlockAutoSelectFlash = nil
+        SelectMover(m)
+        if autoFlash then UM.FlashSelectHighlight(m) end
+    end
 
     -- Grid glitch starts immediately and lasts 0.75s
     local GLITCH_DUR = 0.75
@@ -2340,11 +2376,13 @@ function ns.OpenUnlockMode()
 
             -- (Banner slides down during shackle phase, not here)
 
-            -- Movers fade in over 0.75s, delayed by 0.5s
+            -- Movers fade in over 0.75s, delayed by 0.5s. A mover selected
+            -- meanwhile (the auto-select, a click) keeps the alpha the
+            -- selection gave it.
             local MOVER_DELAY = 0.50
             local moverFadeT = glitchT - MOVER_DELAY
             for _, m in pairs(movers) do
-                if m:IsShown() then
+                if m:IsShown() and not m._selected then
                     if moverFadeT > 0 then
                         -- Re-sync once right as movers begin fading in so any
                         -- frames that were nil at initial sync are now ready.
@@ -2357,6 +2395,11 @@ function ns.OpenUnlockMode()
                         m:SetAlpha(0)
                     end
                 end
+            end
+            -- The movers are in: the requested mover is selected and flashed now.
+            if not moversIn and moverFadeT >= GLITCH_DUR then
+                moversIn = true
+                TryAutoSelect()
             end
             -- Blizzard-owned overlays fade in on the same curve
             for _, bov in pairs(_blizzOwnedOverlays) do
@@ -2559,14 +2602,14 @@ function ns.OpenUnlockMode()
             UM.unlockFrame._anchorLineFrame:Show()
         end
 
-        -- Auto-select a mover if requested (e.g. from cog popup link)
+        -- A requested mover not built when the movers faded in: one more try
+        -- after the retry ticker's first pass, then the request is dropped.
+        TryAutoSelect()
         if EllesmereUI._unlockAutoSelectKey then
-            local autoKey = EllesmereUI._unlockAutoSelectKey
-            EllesmereUI._unlockAutoSelectKey = nil
             C_Timer.After(0.6, function()
-                if movers[autoKey] then
-                    SelectMover(movers[autoKey])
-                end
+                TryAutoSelect()
+                EllesmereUI._unlockAutoSelectKey = nil
+                EllesmereUI._unlockAutoSelectFlash = nil
             end)
         end
 

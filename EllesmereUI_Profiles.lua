@@ -947,7 +947,7 @@ local function ResolveSpecProfile()
     local specProfiles = EllesmereUIDB.specProfiles
     if not specProfiles or not next(specProfiles) then return nil end
 
-    local charKey = UnitName("player") .. " - " .. GetRealmName()
+    local charKey = EllesmereUI.CharKey(" - ", EllesmereUIDB.lastSpecByChar)
     if not EllesmereUIDB.lastSpecByChar then
         EllesmereUIDB.lastSpecByChar = {}
     end
@@ -1379,6 +1379,7 @@ local REFRESH_ADDON_STEPS = {
         if _G._ECL_ApplyCastCircle then _G._ECL_ApplyCastCircle() end
         if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
         if EllesmereUI._applySelfCombatText then EllesmereUI._applySelfCombatText() end
+        if EllesmereUI._applyUpgradeTooltips then EllesmereUI._applyUpgradeTooltips() end
         if EllesmereUI._applyFPSDisplay then
             EllesmereUI._applyFPSDisplay()
         elseif EllesmereUI._applySecondaryStats then
@@ -2037,7 +2038,8 @@ end
 -- roles), charSheetCollapsedSections (transient UI state), characterFramePos /
 -- friendsFramePos (dragged panel positions, resolution- bound), tooltipFixedPos (stale
 -- account key; the live one is per-profile and rides the profile itself),
--- blizzWindowModernBG (dead key, read nowhere).
+-- blizzWindowModernBG (dead key, read nowhere), mailAltRoster / mailAltHidden (the
+-- player's own characters and which of them the Mail card's Alt List leaves out).
 -------------------------------------------------------------------------------
 local BLIZZ_SKIN_GLOBAL_KEYS = {}
 do
@@ -2124,9 +2126,10 @@ do
         -- Inspect card
         "inspectShowEnchants", "inspectEnchantNames", "inspectEnchantSize",
         "inspectShowItemLevel", "inspectShowUpgradeTrack",
-        -- LFG / Merchant cards
+        -- LFG / Merchant / Mail cards
         "lfgRememberRoles",
         "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel", "merchantBulkBuy",
+        "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
         -- Friends List card (WoW Forever: the friend tiles and auto-accept)
         "friendsListCard",
     })
@@ -2148,20 +2151,14 @@ end
 
 -- Apply an imported bundle: every allowlisted key takes the bundle's value,
 -- INCLUDING nil (absent = exporter default), so mixed old/new state can't
--- linger. Bundle keys this build doesn't know yet apply too (a newer exporter's keys
--- are inert on builds that never read them). Callers reload right after -- these
--- settings install at load, so no live re-apply is needed or attempted.
+-- linger. Keys outside the allowlist are ignored, so a string can never write
+-- other account data (saved profiles, click casting, the per-character
+-- records). Callers reload right after -- these settings install at load, so
+-- no live re-apply is needed or attempted.
 function EllesmereUI.ApplyBlizzSkinGlobals(bundle)
     if type(bundle) ~= "table" or not EllesmereUIDB then return end
-    local known = {}
     for _, k in ipairs(BLIZZ_SKIN_GLOBAL_KEYS) do
-        known[k] = true
         EllesmereUIDB[k] = DeepCopy(bundle[k])
-    end
-    for k, v in pairs(bundle) do
-        if not known[k] then
-            EllesmereUIDB[k] = DeepCopy(v)
-        end
     end
 end
 
@@ -2388,6 +2385,10 @@ end
 --    xpBarChars           XP bar session clock, XP rate and time this level
 --    questWatchChars      WoW Forever quest tools: quests each character's
 --                         filters and auto-track moved
+--    mailAltRoster        the Mail card's Alt List: every character recorded
+--    mailAltHidden        and the ones its Shown Characters leaves out
+--    raidHoroscope        Party Mode's Should I Raid Tonight?: each
+--                         character's birthday
 --  (The upgrade-calc and gold blobs are what PRIVATE_ADDON_KEYS strips from
 --  normal strings, at their current top-level homes. The three legacy gold
 --  keys stay listed: until Bags or DataBars loads and absorbs them they are
@@ -2413,6 +2414,10 @@ local FULL_EXPORT_EXCLUDED = {
     chatTellMuted         = true,
     groupFinderApps       = true,
     questWatchChars       = true,
+    cdmRepopulatePending  = true,
+    mailAltRoster         = true,
+    mailAltHidden         = true,
+    raidHoroscope         = true,
 }
 
 --- Builds a full-account export string, or nil.
@@ -4058,7 +4063,7 @@ do
                         specRetryTimer = nil
                         -- Record the spec so future events use the fast path
                         lastKnownSpecID = sid
-                        local ck = UnitName("player") .. " - " .. GetRealmName()
+                        local ck = EllesmereUI.CharKey(" - ")
                         lastKnownCharKey = ck
                         if not EllesmereUIDB then EllesmereUIDB = {} end
                         if not EllesmereUIDB.lastSpecByChar then
@@ -4110,7 +4115,7 @@ do
             specRetryTimer = nil
         end
 
-        local charKey = UnitName("player") .. " - " .. GetRealmName()
+        local charKey = EllesmereUI.CharKey(" - ")
         local isFirstLogin = (lastKnownSpecID == nil)
         -- charChanged is true when the active character is different from the
         -- last session (alt-swap). On a plain /reload the charKey stays the same.

@@ -223,6 +223,11 @@ ns.BlockFactories.currency = function(blockCfg, slot, content, barCtx)
         if mb == "LeftButton" then
             -- No currency picked yet: the Blizzard panel cannot assign one, so send the player to the picker instead of dead-ending there.
             if not D().currencyId then
+                -- The options never open in combat.
+                if InCombatLockdown() then
+                    EllesmereUI.PrintError("Cannot open options during combat.")
+                    return
+                end
                 -- Options surface is LoadOnDemand; load it so OpenBlockSettings exists.
                 if not ns.OpenBlockSettings then EllesmereUI:EnsureLoaded() end
                 if ns.OpenBlockSettings then

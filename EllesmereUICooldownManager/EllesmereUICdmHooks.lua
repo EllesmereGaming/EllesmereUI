@@ -588,7 +588,7 @@ local function IsCDMSettingsOpen()
 end
 
 -- Main-chunk locals the EUI_CDM_Hook*.lua files re-import by name.
-ns._NewInternals("_hookInternals", {
+EllesmereUI.NewInternals(ns, "_hookInternals", {
     _isDruid = _isDruid, FD = FD, GetViewerFrame = GetViewerFrame,
     hookFrameData = hookFrameData, IsCDMSettingsOpen = IsCDMSettingsOpen,
     VIEWER_NAMES = VIEWER_NAMES, VIEWER_TO_BAR = VIEWER_TO_BAR,

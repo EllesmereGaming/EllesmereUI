@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end 
+if EUI_CLIENT_BLOCKED then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -134,6 +134,8 @@ local size = {
 
     HEADER_H  = 35,
     CLOSE     = 20,
+    TAB_H     = 32,
+    TAB_HEADER_H = 38,
 
     CTRL_H    = 22,
     BTN_H     = 27,
@@ -232,7 +234,6 @@ end
 S.fontTitle        = MakeFont("EllesmereUISimpleLootCouncilFontTitle",         20.6, color.text)
 S.fontHeading       = MakeFont("EllesmereUISimpleLootCouncilFontHeading",       11,   color.textFaint)
 S.fontMicro         = MakeFont("EllesmereUISimpleLootCouncilFontMicro",         10,   color.textFaint)
-S.fontRaidTeamHeader = MakeFont("EllesmereUISimpleLootCouncilFontRaidTeamHeader", 14, color.textFaint)
 S.fontBody          = MakeFont("EllesmereUISimpleLootCouncilFontBody",          12,   color.text)
 S.fontSetting       = MakeFont("EllesmereUISimpleLootCouncilFontSetting",       13,   color.text)
 S.fontInput         = MakeFont("EllesmereUISimpleLootCouncilFontInput",         12,   color.text)
@@ -241,6 +242,7 @@ S.fontSmall         = MakeFont("EllesmereUISimpleLootCouncilFontSmall",         
 S.fontBadge         = MakeFont("EllesmereUISimpleLootCouncilFontBadge",         14,   color.textMuted)
 S.fontTag           = MakeFont("EllesmereUISimpleLootCouncilFontTag",           15,   color.textFaint)
 S.fontHint          = MakeFont("EllesmereUISimpleLootCouncilFontHint",          11,   color.textFaint)
+S.fontTab           = MakeFont("EllesmereUISimpleLootCouncilFontTab",           14,   color.textMuted)
 
 S.fontNotice        = MakeFont("EllesmereUISimpleLootCouncilFontNotice",        16,   color.bad)
 S.fontNum          = MakeFont("EllesmereUISimpleLootCouncilFontNum",           12,   color.text)
@@ -576,9 +578,17 @@ function S.Button(parent, text, opts)
         if enabled then if hovered then over() else rest() end end
     end
 
+    local reasonShown = false
+    local function hideReason()
+        if not reasonShown then return end
+        reasonShown = false
+        EUI.HideWidgetTooltip()
+    end
+
     function b:SetEnabled(on)
         enabled = on and true or false
         if enabled then
+            hideReason()
             if hovered then over() else rest() end
             b:EnableMouse(true)
         else
@@ -592,15 +602,18 @@ function S.Button(parent, text, opts)
 
     b:HookScript("OnEnter", function(self)
         if enabled or not self.slcReason then return end
-        EUI.ShowWidgetTooltip(self, self.slcReason, { force = true })
+        reasonShown = true
+        if self.slcTipUnder then
+            S.TextTooltip(self, self.slcReason, self.slcTipUnder, true)
+        else
+            EUI.ShowWidgetTooltip(self, self.slcReason, { force = true })
+        end
     end)
-    b:HookScript("OnLeave", function(self)
-        if not self.slcReason then return end
-        EUI.HideWidgetTooltip()
-    end)
+    b:HookScript("OnLeave", hideReason)
 
     function b:SetDisabledReason(reason)
         b.slcReason = reason
+        if reason == nil then hideReason() end
         if not enabled then b:EnableMouse(reason ~= nil) end
     end
 
@@ -1278,19 +1291,25 @@ end
 
 
 
-function S.TextTooltip(owner, text)
-    local edge = S.WindowOf(owner)
-    local ownerRight, edgeRight = owner:GetRight(), edge:GetRight()
+function S.TextTooltip(owner, text, under, force)
+    local anchor = under or owner
+    local edge = S.WindowOf(anchor)
+    local anchorRight, edgeRight = anchor:GetRight(), edge:GetRight()
     local opts
-    if type(ownerRight) == "number" and type(edgeRight) == "number" then
-        local dx = (edgeRight * edge:GetEffectiveScale() - ownerRight * owner:GetEffectiveScale())
+    if type(anchorRight) == "number" and type(edgeRight) == "number" then
+        local dx = (edgeRight * edge:GetEffectiveScale() - anchorRight * anchor:GetEffectiveScale())
             / UIParent:GetEffectiveScale()
-        opts = { anchorPoint = "LEFT", anchorTo = "RIGHT", anchorX = dx + 2 * P.Hairline(),
-            justify = "LEFT" }
+        if under then
+            opts = { anchorPoint = "TOPLEFT", anchorTo = "BOTTOMRIGHT", anchorX = dx + 2 * P.Hairline(),
+                anchorY = -2 * P.Hairline(), justify = "LEFT", force = force }
+        else
+            opts = { anchorPoint = "LEFT", anchorTo = "RIGHT", anchorX = dx + 2 * P.Hairline(),
+                justify = "LEFT", force = force }
+        end
     else
-        opts = { anchor = "right", justify = "LEFT" }
+        opts = { anchor = "right", justify = "LEFT", force = force }
     end
-    EUI.ShowWidgetTooltip(owner, text, opts)
+    EUI.ShowWidgetTooltip(anchor, text, opts)
 end
 
 function S.HideTextTooltip()
@@ -1338,7 +1357,37 @@ local function MenuOpts(opts)
     return out
 end
 
+local function MenuFlag(value)
+    if type(value) == "function" then value = value() end
+    return value and true or false
+end
+
+local function CheckboxMenu(anchor, items)
+    MenuUtil.CreateContextMenu(anchor, function(_, root)
+        for _, item in ipairs(items) do
+            if item == "-" then
+                root:CreateDivider()
+            elseif item.title then
+                root:CreateTitle(item.title)
+            elseif item.checkbox then
+                root:CreateCheckbox(item.text,
+                    function() return MenuFlag(item.checked) end,
+                    function() if item.onClick then item.onClick() end end)
+            else
+                local button = root:CreateButton(item.text,
+                    function() if item.onClick then item.onClick() end end)
+                if item.disabled then
+                    button:SetEnabled(function() return not MenuFlag(item.disabled) end)
+                end
+            end
+        end
+    end)
+end
+
 function S.ContextMenu(anchor, items, opts)
+    for _, item in ipairs(items) do
+        if type(item) == "table" and item.checkbox then return CheckboxMenu(anchor, items) end
+    end
     EUI.ShowContextMenu(anchor, MenuItems(items), MenuOpts(opts))
 end
 
@@ -1464,6 +1513,7 @@ local TITLE_INSET = 10
 
 function S.HeaderHeight(options)
     options = options or {}
+    if options.tabHeader then return 0 end
     if options.headerHeight then return options.headerHeight end
     local tagH = options.squareTag and TAG_SQUARE_H or TAG_H
     local _, titleFontH = S.fontTitle:GetFont()
@@ -1473,6 +1523,106 @@ function S.HeaderHeight(options)
 end
 
 local WINDOW_ALPHA = EUI.RESKIN.CTX_ALPHA
+
+
+
+local TAB_GAP, TAB_PAD, TAB_LINE = 6, 30, 14
+local TAB_HOVER = { 1, 1, 1, 0.86 }
+
+function S.TabBar(window, anchor, height)
+    local bar = CreateFrame("Frame", nil, window)
+    bar:SetFrameLevel(window:GetFrameLevel() + 1)
+    local edge = anchor == window and "TOP" or "BOTTOM"
+    P.Point(bar, "TOPLEFT", anchor, edge .. "LEFT", 0, 0)
+    P.Point(bar, "TOPRIGHT", anchor, edge .. "RIGHT", 0, 0)
+    P.Size(bar, nil, height)
+
+    local rule = S.FadeRule(bar)
+    rule:SetPoint("BOTTOMLEFT")
+    rule:SetPoint("BOTTOMRIGHT")
+
+    local tabs, order, selected = {}, {}, nil
+
+    local function Paint(tab)
+        local on = tab.slcKey == selected
+        tab.Label:SetTextColor(Unpack(on and color.text
+            or tab.slcHover and TAB_HOVER or color.textMuted))
+        tab.Underline:SetShown(on)
+    end
+
+    local function Measure(tab)
+        local width = tab.Label:GetStringWidth()
+        if type(width) ~= "number" or (issecretvalue and issecretvalue(width)) or width <= 0 then
+            width = 60
+        end
+        P.Size(tab, width + TAB_PAD, height)
+        P.Size(tab.Underline, width + TAB_LINE, 2)
+    end
+
+    local function Layout()
+        local x = size.PAD
+        for _, tab in ipairs(order) do
+            if tab:IsShown() then
+                Measure(tab)
+                tab:ClearAllPoints()
+                P.Point(tab, "BOTTOMLEFT", bar, "BOTTOMLEFT", x, 0)
+                x = x + tab:GetWidth() + TAB_GAP
+            end
+        end
+    end
+    P.OnRescale(Layout)
+
+    function bar:AddTab(key, text)
+        local tab = CreateFrame("Button", nil, bar)
+        tab:SetFrameLevel(bar:GetFrameLevel() + 2)
+        tab.slcKey = key
+
+        local label = S.Label(tab, S.fontTab, "CENTER")
+        label:SetPoint("CENTER", 0, 0)
+        label:SetText(text)
+        tab.Label = label
+
+        local underline = tab:CreateTexture(nil, "ARTWORK")
+        underline:SetColorTexture(Unpack(color.accent))
+        P.Point(underline, "BOTTOM", tab, "BOTTOM", 0, 0)
+        tab.Underline = underline
+        OnAccent(underline, function() underline:SetColorTexture(Unpack(color.accent)) end)
+
+        tab:SetScript("OnEnter", function(self)
+            self.slcHover = true
+            Paint(self)
+        end)
+        tab:SetScript("OnLeave", function(self)
+            self.slcHover = false
+            Paint(self)
+        end)
+        tab:SetScript("OnClick", function(self)
+            if self.slcKey ~= selected and bar.onSelect then bar.onSelect(self.slcKey) end
+        end)
+
+        tabs[key] = tab
+        order[#order + 1] = tab
+        Layout()
+        Paint(tab)
+        P.AfterLayout(Layout)
+        return tab
+    end
+
+    function bar:Select(key)
+        selected = key
+        for _, tab in ipairs(order) do Paint(tab) end
+    end
+
+    function bar:SetTabShown(key, shown)
+        local tab = tabs[key]
+        shown = shown and true or false
+        if not tab or tab:IsShown() == shown then return end
+        tab:SetShown(shown)
+        Layout()
+    end
+
+    return bar
+end
 
 
 
@@ -1496,25 +1646,38 @@ function S.Window(globalName, key, width, height, title, options)
     S.Border(edge, color.windowEdge, "OVERLAY")
     f.Edge = edge
 
+    local tabHeader = options.tabHeader and true or false
     local headerH = S.HeaderHeight(options)
-    f.HeaderHeight = headerH
+    local tabH = tabHeader and size.TAB_HEADER_H or (options.tabs and size.TAB_H or 0)
+    f.HeaderHeight = headerH + tabH
 
     local header = CreateFrame("Frame", nil, f)
     header:SetFrameLevel(f:GetFrameLevel() + 1)
     header:SetPoint("TOPLEFT")
     header:SetPoint("TOPRIGHT")
     P.Size(header, nil, headerH)
-    S.Fill(header, color.headerTop)
     f.Header = header
 
-    local separator = S.FadeRule(header)
-    separator:SetPoint("BOTTOMLEFT")
-    separator:SetPoint("BOTTOMRIGHT")
+    if tabH > 0 then f.Tabs = S.TabBar(f, tabHeader and f or header, tabH) end
+    local strip = tabHeader and f.Tabs or header
+
+    if tabHeader then
+        header:Hide()
+    else
+        S.Fill(header, color.headerTop)
+        local separator = S.FadeRule(header)
+        separator:SetPoint("BOTTOMLEFT")
+        separator:SetPoint("BOTTOMRIGHT")
+    end
 
     local close = S.Button(f, "", { width = size.CLOSE, height = size.CLOSE, glyph = "close" })
-    close:SetFrameLevel(header:GetFrameLevel() + 2)
-    local closeInset = (headerH - size.CLOSE) * 0.5
-    P.Point(close, "TOPRIGHT", f, "TOPRIGHT", -closeInset, -closeInset)
+    close:SetFrameLevel(strip:GetFrameLevel() + 2)
+    local closeInset = ((tabHeader and S.HeaderHeight() or headerH) - size.CLOSE) * 0.5
+    if tabHeader then
+        P.Point(close, "RIGHT", strip, "RIGHT", -closeInset, 0)
+    else
+        P.Point(close, "TOPRIGHT", f, "TOPRIGHT", -closeInset, -closeInset)
+    end
     close:SetScript("OnClick", function() f:Hide() end)
     f.Close = close
 
@@ -1523,62 +1686,65 @@ function S.Window(globalName, key, width, height, title, options)
     local badgeFont = options.badgeFont or S.fontSmall
     local _, badgeFontH = badgeFont:GetFont()
     badgeFontH = badgeFontH or 11
-    local badge = S.Label(header, badgeFont, "RIGHT")
+    local badge = S.Label(strip, badgeFont, "RIGHT")
     P.Point(badge, "RIGHT", close, "LEFT", -size.GAP, 0)
     P.Size(badge,
-        math.max(90, math.ceil(90 * badgeFontH / 11)),
+        not tabHeader and math.max(90, math.ceil(90 * badgeFontH / 11)) or nil,
         math.max(size.CLOSE, math.ceil(size.CLOSE * badgeFontH / 11)))
     f.Badge = badge
 
-
-    local mark = header:CreateTexture(nil, "ARTWORK")
-    P.Size(mark, 1, 1)
-    mark:SetColorTexture(0, 0, 0, 0)
-    P.Point(mark, "LEFT", header, "LEFT", TITLE_INSET - 1, 0)
-    f.Tick = mark
-
-    local titleText = S.Label(header, S.fontTitle, "LEFT")
-    P.Point(titleText, "LEFT", mark, "RIGHT", size.TITLE_GAP, 0)
-    f.Title = titleText
-
-    local tag
-    if options.squareTag then
-        tag = S.Button(header, "", {
-            height = TAG_SQUARE_H, width = options.tagWidth or 78,
-            font = S.fontHeading, labelPad = 6, fixedWidth = true,
-        })
-        tag:EnableMouse(false)
+    if tabHeader then
+        function f:SetTag() end
     else
-        tag = S.Chip(header, "", color.textMuted,
-            { height = TAG_H, font = S.fontTag, padding = 8, square = true })
-    end
-    P.Point(tag, "LEFT", titleText, "RIGHT", size.TAG_GAP, 0)
-    tag:Hide()
-    f.Tag = tag
+        local mark = header:CreateTexture(nil, "ARTWORK")
+        P.Size(mark, 1, 1)
+        mark:SetColorTexture(0, 0, 0, 0)
+        P.Point(mark, "LEFT", header, "LEFT", TITLE_INSET - 1, 0)
+        f.Tick = mark
 
+        local titleText = S.Label(header, S.fontTitle, "LEFT")
+        P.Point(titleText, "LEFT", mark, "RIGHT", size.TITLE_GAP, 0)
+        f.Title = titleText
 
-    local wordmark = options.logo and T["Simple Loot Council"] or nil
-    S.InstallWindowTitle(f, key, titleText, mark, badge, tag, options.squareTag,
-        wordmark or title)
-    if wordmark then
-        function f:ApplyLogo()
-            local text = T["Simple Loot Council"]
-            if S.PrideActive() and not text:find("[\128-\255]") then text = S.Rainbow(text) end
-            self.Title:SetText(text)
-            if self.ClampTitle then P.AfterLayout(self.ClampTitle) end
+        local tag
+        if options.squareTag then
+            tag = S.Button(header, "", {
+                height = TAG_SQUARE_H, width = options.tagWidth or 78,
+                font = S.fontHeading, labelPad = 6, fixedWidth = true,
+            })
+            tag:EnableMouse(false)
+        else
+            tag = S.Chip(header, "", color.textMuted,
+                { height = TAG_H, font = S.fontTag, padding = 8, square = true })
         end
-        f:ApplyLogo()
-        S.logoWindows[#S.logoWindows + 1] = f
+        P.Point(tag, "LEFT", titleText, "RIGHT", size.TAG_GAP, 0)
+        tag:Hide()
+        f.Tag = tag
+
+
+        local wordmark = options.logo and T["Simple Loot Council"] or nil
+        S.InstallWindowTitle(f, key, titleText, mark, badge, tag, options.squareTag,
+            wordmark or title)
+        if wordmark then
+            function f:ApplyLogo()
+                local text = T["Simple Loot Council"]
+                if S.PrideActive() and not text:find("[\128-\255]") then text = S.Rainbow(text) end
+                self.Title:SetText(text)
+                if self.ClampTitle then P.AfterLayout(self.ClampTitle) end
+            end
+            f:ApplyLogo()
+            S.logoWindows[#S.logoWindows + 1] = f
+        end
     end
 
     local content = CreateFrame("Frame", nil, f)
     content:SetFrameLevel(f:GetFrameLevel() + 1)
-    P.Point(content, "TOPLEFT", f, "TOPLEFT", size.PAD, -(headerH + size.PAD))
+    P.Point(content, "TOPLEFT", f, "TOPLEFT", size.PAD, -(headerH + tabH + size.PAD))
     P.Point(content, "BOTTOMRIGHT", f, "BOTTOMRIGHT", -size.PAD, size.PAD)
     content.slcWidth = width - size.PAD * 2
     f.Content = content
 
-    S.InstallWindowGeometry(f, key, header, close)
+    S.InstallWindowGeometry(f, key, strip, close)
 
 
 

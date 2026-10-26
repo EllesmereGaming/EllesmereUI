@@ -2639,14 +2639,17 @@ end
 ns.ShouldShowBar = ShouldShowBar
 
 -- Show When Missing: a step curve on the engine-side percent reveals a rule-hidden
--- bar below full. The curve result is secret, so it drives a wrapper the bar is
--- parented to (the bar's own alpha stays plain for its other readers, and the
--- Fade Out of Combat alpha still applies). Built on first use. Only resources
--- that rest at full count; rage and the like rest at empty.
-local MISSING_POWERS = { [PT.MANA] = true, [PT.ENERGY] = true }
+-- bar below full. The curve result can be secret (for health it always is), so it
+-- drives a wrapper the bar is parented to, and the bar's own alpha (Fade Out of
+-- Combat) still applies on top. A secret wrapper alpha makes the bar's own
+-- GetAlpha read secret too: never compare the Health or Power bar's alpha
+-- without issecretvalue (EllesmereUI.SetElementVisibility checks it). Built on
+-- first use. Only resources that rest at full count; rage and the like rest at
+-- empty.
+local MISSING_POWERS = { [PT.MANA] = true, [PT.ENERGY] = true, [PT.FOCUS] = true }
 
-function ns.ERB_MissingWanted(cfg, flag, powerType)
-    if not (cfg and flag) then return false end
+function ns.ERB_MissingWanted(cfg, powerType)
+    if not cfg then return false end
     if powerType then
         if not MISSING_POWERS[powerType] then return false end
         if powerType == PT.MANA then
@@ -2791,7 +2794,7 @@ local function UpdateVisibility()
         local vis = avail and ShouldShowBar(hp)
         ERB._moEligible.health = (vis == "mouseover")
         if grp then ns._erbGrpH = (vis == true) and not healthBar._erbMouseTrack end
-        local missing = avail and vis == false and hp.showWhenMissing and ns.ERB_MissingWanted(hp, true)
+        local missing = avail and vis == false and hp.showWhenMissing and ns.ERB_MissingWanted(hp)
         if missing or healthBar._missLive then ns.ERB_MissingApply(healthBar, missing) end
         if missing then vis = true end
         if vis == true then
@@ -2821,12 +2824,12 @@ local function UpdateVisibility()
         -- One toggle per resource the bar can show; Mana also covers the druid strip below.
         local barFlag
         if pt == PT.MANA then barFlag = pp.showManaWhenMissing else barFlag = pp and pp.showWhenMissing end
-        local missing = ruleHidden and barFlag and type(pt) == "number" and ns.ERB_MissingWanted(pp, true, pt)
+        local missing = ruleHidden and barFlag and type(pt) == "number" and ns.ERB_MissingWanted(pp, pt)
         if missing or primaryBar._missLive then ns.ERB_MissingApply(primaryBar, missing, pt) end
         if missing then vis = true end
         local strip = ruleHidden and (pp.showManaWhenMissing or missing) and ns.FDM_Host and ns.FDM_Host()
         local hostMode
-        if strip and pp.showManaWhenMissing and ns.ERB_MissingWanted(pp, true, PT.MANA) then
+        if strip and pp.showManaWhenMissing and ns.ERB_MissingWanted(pp, PT.MANA) then
             hostMode = "mana"
         elseif strip and missing then
             hostMode = "park"

@@ -3,10 +3,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUI_SharedHelpers.lua
 --  Frame data store, third-party skin registry, Edit Mode-safe anchoring and
 --  frame placers, Blizzard cast bar ownership and suppression, and small
---  shared helpers (Swiftmend, level colors, faction art). Loads right after
---  EllesmereUI_VisibilityRules.lua.
+--  shared helpers (Swiftmend, level colors, faction art, split-module guard
+--  tables). Loads right after EllesmereUI_VisibilityRules.lua.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
+local _, EUI_NS = ...
+EUI_NS = EUI_NS.__euiCoreNS or EUI_NS  -- standalone builds: the core's own table (EllesmereUI.lua)
 
 -------------------------------------------------------------------------------
 --  External weak-keyed lookup table for frame state (prevents tainting Blizzard
@@ -881,4 +883,64 @@ function EllesmereUI.SetFactionArt(tex, style, faction, badgeFile)
         local c = art.coords
         if c then tex:SetTexCoord(c[1], c[2], c[3], c[4]) else tex:SetTexCoord(0, 1, 0, 1) end
     end
+end
+
+-------------------------------------------------------------------------------
+--  Secret values (12.1): the one test every module uses, and the string reader
+--  that gives back a readable, non-empty string or nil. Hot paths import both
+--  as locals; no module keeps a copy.
+-------------------------------------------------------------------------------
+local issecretvalue = issecretvalue or function() return false end
+function EllesmereUI.IsSecret(v)
+    return v ~= nil and issecretvalue(v)
+end
+function EllesmereUI.PlainString(v)
+    -- The secrecy test comes first: comparing a secret string raises.
+    if type(v) == "string" and not issecretvalue(v) and v ~= "" then return v end
+    return nil
+end
+
+-------------------------------------------------------------------------------
+--  Guard table of a split module: the main file's names that its part files
+--  re-import. setters maps Set<Name> to a list in t; Set<Name>(v) hands v to
+--  every function in that list, and a function added to the list after a
+--  Set<Name> call gets the last value at once (registered as
+--  list[#list + 1] = fn: table.insert sets raw and skips that). broken starts
+--  false (a file chain that guards on t.last ignores it). Reading a name the
+--  table lacks raises at the reader; label names the owner in that message
+--  (default "ns"). The parent's own chain calls the private copy on EUI_NS, so
+--  the parent's namespace never passes through a public slot.
+-------------------------------------------------------------------------------
+do
+    local function NewFanOut(list)
+        local has, cur = false, nil
+        setmetatable(list, { __newindex = function(l, i, fn)
+            rawset(l, i, fn)
+            if has then fn(cur) end
+        end })
+        return function(v)
+            has, cur = true, v
+            for i = 1, #list do list[i](v) end
+        end
+    end
+
+    local function NewInternals(ns, field, t, setters, label)
+        local name = (label or "ns") .. "." .. field
+        if setters then
+            for setter, listName in pairs(setters) do
+                local list = t[listName]
+                if type(list) ~= "table" then
+                    error(name .. ": " .. setter .. " has no list " .. tostring(listName), 2)
+                end
+                t[setter] = NewFanOut(list)
+            end
+        end
+        t.broken = false
+        ns[field] = setmetatable(t, { __index = function(_, k)
+            error(name .. " has no entry " .. tostring(k), 2)
+        end })
+        return ns[field]
+    end
+    EUI_NS.NewInternals = NewInternals
+    EllesmereUI.NewInternals = NewInternals
 end

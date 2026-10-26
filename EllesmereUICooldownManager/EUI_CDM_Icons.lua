@@ -1052,7 +1052,7 @@ local function RefreshCDMIconAppearance(barKey)
             if m then cse, cseShift, cseUsable, cseForm = m.base, m.shift, m.usable, m.form end
             -- Stance Bar (EllesmereUICdmStanceBar.lua): one more hide reason. Alone,
             -- it runs as Hidden (On CD) with the cooldown never read.
-            local stance = ns.CdmStanceBarOf(csSs)
+            local stance = ns.CdmStanceBarOf(csSs, icon)
             local stanceOnly = false
             if stance and cse ~= "hiddenOnCD" and cse ~= "hiddenReady" and cse ~= "lowerAlphaOnCD" then
                 cse, stanceOnly = "hiddenOnCD", true

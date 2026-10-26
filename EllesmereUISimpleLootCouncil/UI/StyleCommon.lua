@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -350,7 +350,7 @@ end
 
 
 
-function S.SideTooltip(owner, edge)
+function S.SideTooltip(owner, edge, bottom)
     edge = edge or S.WindowOf(owner)
     local tip = GameTooltip
     local ownerRight, edgeRight = owner:GetRight(), edge:GetRight()
@@ -363,7 +363,8 @@ function S.SideTooltip(owner, edge)
 
     local dx = (edgeRight * edge:GetEffectiveScale() - ownerRight * owner:GetEffectiveScale())
         / tip:GetEffectiveScale()
-    tip:SetPoint("BOTTOMLEFT", owner, "TOPRIGHT", dx + 2 * addon.Pixel.Hairline(tip), 0)
+    tip:SetPoint("BOTTOMLEFT", owner, bottom and "BOTTOMRIGHT" or "TOPRIGHT",
+        dx + 2 * addon.Pixel.Hairline(tip), 0)
 end
 
 

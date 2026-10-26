@@ -101,7 +101,7 @@ initFrame:SetScript("OnEvent", function(self)
         local W  = EllesmereUI.Widgets
         local PP = EllesmereUI.PP
         local y  = yOffset
-        local h
+        local h, hdr
 
         if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
         parent._showRowDivider = true
@@ -113,7 +113,10 @@ initFrame:SetScript("OnEvent", function(self)
         local function ApplyIconBrd() if ns.ApplyIconBorder then ns.ApplyIconBorder() end end
 
         -- ── DISPLAY ─────────────────────────────────────────────────────
-        _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
+        hdr, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
+        -- Every setting here is shared by all the windows, so the one button
+        -- selects window 1, which always exists (its header button is New Window).
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EDM_Win1" })
         y = EllesmereUI.BlizzStyle.Note(parent, y, "damagemeters")
 
         -- Visibility (one control)
@@ -335,7 +338,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.BuildInlineCog(rrRow._leftRegion, {
                 title = "Player Bar Settings", rows = {
                     { type = "toggle", label = "Show Player Marker",
-                      tooltip = "Shows a white stripe on your own bar, including the pinned player bar.",
+                      tooltip = "Shows a white stripe on your own bar.",
                       get = function() return Cfg("showPlayerMarker") == true end,
                       set = function(v) Set("showPlayerMarker", v); Refresh() end },
                 },
@@ -456,9 +459,12 @@ initFrame:SetScript("OnEvent", function(self)
                 title = "Header Settings",
                 rows = {
                     { type = "toggle", label = "Bottom Separator",
-                      tooltip = "Uses the window border's style, size and color.",
+                      tooltip = "Draws a divider under the header in the window border's style.",
                       disabled = function() return Cfg("windowBorderIncludeHeader") == false or (Cfg("windowBorderSize") or 0) <= 0 end,
-                      disabledTooltip = "Include Headerbar and a Window Border Size above 0",
+                      disabledTooltip = function()
+                          if Cfg("windowBorderIncludeHeader") == false then return "Include Headerbar" end
+                          return "Border Size"
+                      end,
                       get = function() return Cfg("hdrBottomSeparator") == true end,
                       set = function(v) Set("hdrBottomSeparator", v); ApplyHdr() end },
                 },
@@ -748,7 +754,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI.GetBorderCompanion(Cfg("borderTexture"), "sepV") then
                 rows[#rows + 1] = EllesmereUI.BlizzStyle.Gate("damagemeters", {
                     type = "toggle", label = "Separator",
-                    tooltip = "Adds a vertical separator between each class icon and its bar.",
+                    tooltip = "Adds a divider between each icon and its bar.",
                     disabled = function() return (Cfg("borderSize") or 0) <= 0 end,
                     disabledTooltip = "Border Size",
                     get = function() return Cfg("iconSeparator") == true end,
@@ -876,10 +882,12 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     EllesmereUI.BlizzStyle.Gate("damagemeters", {
                         type = "toggle", label = "Separators",
-                        tooltip = "Replaces full bar borders with bottom separators using the Pixels border artwork.",
-                        disabled = function() return Cfg("borderFollowFill") or (Cfg("borderSize") or 0) <= 0
-                            or not EllesmereUI.GetBorderCompanion(Cfg("borderTexture"), "sepH") end,
-                        disabledTooltip = "Pixels or Pixels Textured border above size 0, with Border Follows Bar off",
+                        tooltip = "Replaces each bar's border with a divider under it.",
+                        -- Pixels and Pixels Textured only: no other style has divider art.
+                        hidden = function() return not EllesmereUI.GetBorderCompanion(Cfg("borderTexture"), "sepH") end,
+                        disabled = function() return Cfg("borderFollowFill") or (Cfg("borderSize") or 0) <= 0 end,
+                        disabledTooltip = function() return Cfg("borderFollowFill") and "Border Follows Bar" or "Border Size" end,
+                        requireState = function() return Cfg("borderFollowFill") and "disabled" or nil end,
                         get = function() return Cfg("barSeparators") == true end,
                         set = function(v) Set("barSeparators", v); ApplyBrd() end,
                     }),
@@ -1360,30 +1368,19 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(refreshRight)
             refreshRight()
 
-            local valueAnchor
-            do
-                rgn._lastInline = classSwatch
-                EllesmereUI.BuildInlineSwatches(rgn, {
-                    { tooltip = "Value Gradient: highest damage, healing or other tracked value is green; lowest is red. Threat windows use green for low threat and red for high threat.",
-                      getValue = function() return 1, 1, 1 end, setValue = function() end,
-                      refreshAlpha = function() return Cfg("rightTextUseThreatGradient") and 1 or 0.3 end,
-                      onClick = function()
-                          Set("rightTextUseThreatGradient", not Cfg("rightTextUseThreatGradient"))
-                          Refresh(); EllesmereUI:RefreshPage()
-                      end },
-                }, { size = 20 })
-                valueAnchor = rgn._lastInline
-                local low = valueAnchor:CreateTexture(nil, "ARTWORK", nil, 1)
-                low:SetPoint("TOPLEFT")
-                low:SetPoint("BOTTOMRIGHT", valueAnchor, "BOTTOM", 0, 0)
-                low:SetColorTexture(1, 1, 1, 1)
-                low:SetGradient("HORIZONTAL", CreateColor(0, 1, 0, 1), CreateColor(1, 1, 0, 1))
-                local high = valueAnchor:CreateTexture(nil, "ARTWORK", nil, 1)
-                high:SetPoint("TOPLEFT", valueAnchor, "TOP", 0, 0)
-                high:SetPoint("BOTTOMRIGHT")
-                high:SetColorTexture(1, 1, 1, 1)
-                high:SetGradient("HORIZONTAL", CreateColor(1, 1, 0, 1), CreateColor(1, 0, 0, 1))
-            end
+            -- Value gradient: a swatch showing its colour scale, toggled by a click.
+            rgn._lastInline = classSwatch
+            EllesmereUI.BuildInlineSwatches(rgn, {
+                { tooltip = "Colors each value on a green to red scale.",
+                  gradient = { { 0, 1, 0 }, { 1, 1, 0 }, { 1, 0, 0 } },
+                  getValue = function() return 1, 1, 1 end, setValue = function() end,
+                  refreshAlpha = function() return Cfg("rightTextUseThreatGradient") and 1 or 0.3 end,
+                  onClick = function()
+                      Set("rightTextUseThreatGradient", not Cfg("rightTextUseThreatGradient"))
+                      Refresh(); EllesmereUI:RefreshPage()
+                  end },
+            }, { size = 20 })
+            local valueAnchor = rgn._lastInline
 
             -- Inline cog: right text X/Y offsets (live via ns.ApplyBarTextOffsets)
             EllesmereUI.BuildInlineCog(rgn, {
@@ -1427,7 +1424,10 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- ── STANDALONE COMBAT TIMER ──────────────────────────────────
-        _, h = W:SectionHeader(parent, "STANDALONE COMBAT TIMER", y); y = y - h
+        hdr, h = W:SectionHeader(parent, "STANDALONE COMBAT TIMER", y); y = y - h
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EDM_CombatTimer",
+            disabled = function() return not Cfg("standaloneTimer") end,
+            disabledTooltip = "Standalone Combat Timer" })
 
         local function ApplySAT() if ns.ApplySATimer then ns.ApplySATimer() end end
 
@@ -1676,7 +1676,7 @@ initFrame:SetScript("OnEvent", function(self)
         local W = EllesmereUI.Widgets
         local PP = EllesmereUI.PP
         local y = yOffset
-        local _, h
+        local _, h, hdr
 
         parent._showRowDivider = true
 
@@ -1686,7 +1686,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- =====================================================================
         --  ICON HISTORY
         -- =====================================================================
-        _, h = W:SectionHeader(parent, "ICON HISTORY", y);  y = y - h
+        hdr, h = W:SectionHeader(parent, "ICON HISTORY", y);  y = y - h
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EDM_IconHistory", disabled = iconOff, disabledTooltip = "Icon History" })
 
         -- Row 1: Enable Icon History | "Hold Shift+Click..." label
         _, h = W:DualRow(parent, y,

@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -9,8 +9,6 @@ local T = addon.Locale.Text
 
 local SimC = {}
 addon.SimC = SimC
-
-local wrapped = setmetatable({}, { __mode = "k" })
 
 
 
@@ -86,7 +84,7 @@ function SimC.Line(itemString, equipLoc)
     if equipLoc == nil then
         return nil, T["item information is not cached yet"]
     end
-    if not slot then return nil, T["SimulationCraft cannot place this item type"] end
+    if not slot then return nil, T["SimC cannot place this item type"] end
 
     local fields = Fields(itemString)
     local itemID = fields and fields[1]
@@ -144,46 +142,17 @@ local function SessionLines()
     return lines
 end
 
-local function Wrap(simulationcraft)
-    if type(simulationcraft) ~= "table" then return false end
-    if wrapped[simulationcraft] then return true end
-    if type(simulationcraft.GetSimcProfile) ~= "function" then return false end
-
-    local original = simulationcraft.GetSimcProfile
-    simulationcraft.GetSimcProfile = function(self, ...)
-        local profile, err = original(self, ...)
-        if type(profile) ~= "string" then return profile, err end
-        if not (addon.Session:IsRunning() or #addon.Session:GetItems() > 0) then return profile, err end
-
-        local lines = SessionLines()
-        if #lines == 0 then return profile, err end
-        return profile .. "\n### SimpleLootCouncil: items in the current loot session\n"
-            .. table.concat(lines, "\n") .. "\n", err
+function SimC:ExportText()
+    if addon.IsForever then return nil, T["SimC export is not available on this client"] end
+    local items = addon.Session and addon.Session:GetItems()
+    if type(items) ~= "table" or #items == 0 then
+        return nil, T["there are no items in the current loot session"]
     end
-    wrapped[simulationcraft] = true
-    return true
+    local lines = SessionLines()
+    if #lines == 0 then return nil, T["there are no items in the current loot session"] end
+    return "### SimpleLootCouncil: items in the current loot session\n"
+        .. table.concat(lines, "\n") .. "\n"
 end
 
 function SimC:Init()
-
-    if addon.IsForever then return end
-
-
-
-    local ace
-    if type(LibStub) == "table" and type(LibStub.GetLibrary) == "function" then
-        ace = LibStub:GetLibrary("AceAddon-3.0", true)
-    end
-    local simulationcraft
-    if type(ace) == "table" and type(ace.GetAddon) == "function" then
-        local ok, found = pcall(ace.GetAddon, ace, "Simulationcraft", true)
-        if ok then simulationcraft = found end
-    end
-    if Wrap(simulationcraft) then
-        addon.Log:I("SimC", "Simulationcraft detected, current loot session export enabled")
-    elseif simulationcraft then
-        addon.Log:W("SimC", "Simulationcraft detected, profile hook failed")
-    else
-        addon.Log:I("SimC", "Simulationcraft not installed, current loot session export disabled")
-    end
 end

@@ -175,8 +175,34 @@ local ufTextWidths = {
     absorb      = 38,  -- "12.3 K"
     level       = 24,  -- "80" / "??"
 }
-local function EstimateUFTextWidth(content)
+-- customFmt: the slot's <prefix>CustomFormat, read for content "custom" only,
+-- estimated from the schema widths. Names count 0 like the Name content, except
+-- on the right slot (isRight), whose estimate cuts the left text: there a name
+-- keeps the schema's width so a long target name is not overlapped.
+local function NoNameWidth(key)
+    if key == "name" or key == "target" then return 0 end
+end
+local function EstimateUFTextWidth(content, customFmt, isRight)
+    if content == "custom" then
+        local TT, cat = EllesmereUI.TextTags, ns.UF_TextTags
+        local parsed = cat and TT.Parse(cat, customFmt)
+        if not parsed then return UF_TEXT_PADDING end
+        return TT.EstimateWidth(cat, parsed, not isRight and NoNameWidth or nil) + UF_TEXT_PADDING
+    end
     return (ufTextWidths[content] or 0) + UF_TEXT_PADDING
+end
+ns.UF_EstimateTextWidth = EstimateUFTextWidth
+
+-- Content that shows a power value, for the text bar's Power Colored mode: the
+-- power presets, or a custom format with a power tag (customFmt, read for
+-- "custom" only). The parse is cached, so the per-update call stays a lookup.
+function ns.UF_IsPowerContent(content, customFmt)
+    if content == "perpp" or content == "curpp" or content == "curmaxpp" or content == "curhp_curpp" or content == "perhp_perpp" then
+        return true
+    end
+    if content ~= "custom" then return false end
+    local parsed = ns.UF_TextTags and EllesmereUI.TextTags.Parse(ns.UF_TextTags, customFmt)
+    return parsed ~= nil and parsed.reads.pp == true
 end
 
 -- Apply class color to a FontString based on the unit.
@@ -307,9 +333,9 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     -- continuously from the power element's PostUpdateColor, so the color survives
     -- tag updates and power-type changes. The per-slot early-out (no power-color
     -- flag) keeps it ~free when unused.
-    local function ApplyBTBPowerColor(fs, contentKey, usePowerColor)
+    local function ApplyBTBPowerColor(fs, contentKey, usePowerColor, customFmt)
         if not fs or not usePowerColor then return end
-        if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curmaxpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
+        if ns.UF_IsPowerContent(contentKey, customFmt) then
             -- Secret-safe per-unit power color: player resolves via the clean
             -- string token; non-player units recover it from the clean integer
             -- power type instead of falling back to white.
@@ -319,9 +345,9 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         end
     end
     local function ApplyBTBPowerColors(s)
-        ApplyBTBPowerColor(leftFS, s.btbLeftContent or "none", s.btbLeftPowerColor)
-        ApplyBTBPowerColor(rightFS, s.btbRightContent or "none", s.btbRightPowerColor)
-        ApplyBTBPowerColor(centerFS, s.btbCenterContent or "none", s.btbCenterPowerColor)
+        ApplyBTBPowerColor(leftFS, s.btbLeftContent or "none", s.btbLeftPowerColor, s.btbLeftCustomFormat)
+        ApplyBTBPowerColor(rightFS, s.btbRightContent or "none", s.btbRightPowerColor, s.btbRightCustomFormat)
+        ApplyBTBPowerColor(centerFS, s.btbCenterContent or "none", s.btbCenterPowerColor, s.btbCenterCustomFormat)
     end
 
     local function ApplyBTBTextPositions(s)

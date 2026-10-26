@@ -519,6 +519,36 @@ end
 -------------------------------------------------------------------------------
 --  Float ghost refresh (file-scope, explicit args: no per-refresh closure).
 -------------------------------------------------------------------------------
+-- Float ghosts arm the geometry follower themselves -- the strip's motion
+-- catcher only covers the dock band, and the armed follower is what makes
+-- this window's panel (and the text frame anchored inside it) follow a native
+-- tab drag per-frame instead of freezing until the next deferred pass.
+-- Motion-only + full propagation: the tab beneath keeps its tooltip, clicks,
+-- and the drag itself. The propagation calls are blocked in combat on every
+-- frame, so a ghost first built in combat stays mouse-less (clicks and hover
+-- reach the tab; only the follower waits) until combat ends.
+local function ArmGhostMouse(g)
+    g._mouseArmed = true
+    if not g.SetMouseClickEnabled then return end
+    g:SetMouseClickEnabled(false)
+    g:SetMouseMotionEnabled(true)
+    if g.SetPropagateMouseClicks then g:SetPropagateMouseClicks(true) end
+    if g.SetPropagateMouseMotion then g:SetPropagateMouseMotion(true) end
+    g:SetScript("OnEnter", function()
+        if ECHAT.FollowArm then ECHAT.FollowArm() end
+        if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
+    end)
+    g:SetScript("OnLeave", function()
+        if ECHAT.FollowRelease then ECHAT.FollowRelease() end
+    end)
+end
+
+local function ArmPendingGhosts()
+    for _, g in pairs(floatGhosts) do
+        if not g._mouseArmed then ArmGhostMouse(g) end
+    end
+end
+
 local function RefreshFloatGhost(cf, height, fontPath, fontSize, padX, labelY, seen)
     local id = cf:GetID()
     local tab = _G[cf:GetName() .. "Tab"]
@@ -527,27 +557,14 @@ local function RefreshFloatGhost(cf, height, fontPath, fontSize, padX, labelY, s
     local g = floatGhosts[id]
     if not g then
         g = BuildGhost()
-        -- Float ghosts arm the geometry follower themselves -- the
-        -- strip's motion catcher only covers the dock band, and the
-        -- armed follower is what makes this window's panel (and the
-        -- text frame anchored inside it) follow a native tab drag
-        -- per-frame instead of freezing until the next deferred pass.
-        -- Motion-only + full propagation: the tab beneath keeps its
-        -- tooltip, clicks, and the drag itself.
-        if g.SetMouseClickEnabled then
-            g:SetMouseClickEnabled(false)
-            g:SetMouseMotionEnabled(true)
-            if g.SetPropagateMouseClicks then g:SetPropagateMouseClicks(true) end
-            if g.SetPropagateMouseMotion then g:SetPropagateMouseMotion(true) end
-            g:SetScript("OnEnter", function()
-                if ECHAT.FollowArm then ECHAT.FollowArm() end
-                if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
-            end)
-            g:SetScript("OnLeave", function()
-                if ECHAT.FollowRelease then ECHAT.FollowRelease() end
-            end)
-        end
         floatGhosts[id] = g
+    end
+    if not g._mouseArmed then
+        if InCombatLockdown() then
+            ns.CombatQueue.Defer(ArmPendingGhosts, ArmPendingGhosts)
+        else
+            ArmGhostMouse(g)
+        end
     end
     if g:GetParent() ~= d.bg then g:SetParent(d.bg) end
     local isTemp = cf.isTemporary and true or false

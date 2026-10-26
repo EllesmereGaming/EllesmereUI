@@ -32,6 +32,7 @@ local SHAMAN_SHIELDS, WARLOCK_PETS = I.SHAMAN_SHIELDS, I.WARLOCK_PETS
 local WEAPON_ENCHANT_CHOICES = I.WEAPON_ENCHANT_CHOICES
 local WEAPON_ENCHANT_ITEMS, _dismissedUntilLoad = I.WEAPON_ENCHANT_ITEMS, I._dismissedUntilLoad
 local defaults, GLOW_VIEW, combatIconPool = I.defaults, I.GLOW_VIEW, I.combatIconPool
+local receiverIconPool = I.receiverIconPool
 local GetStrata, HideCombatIcons = I.GetStrata, I.HideCombatIcons
 local HideCursorIcons, ICON_SIZE, iconPool = I.HideCursorIcons, I.ICON_SIZE, I.iconPool
 local HideAllIcons, RequestRefresh = I.HideAllIcons, I.RequestRefresh
@@ -262,6 +263,7 @@ function EABR:OnEnable()
         combatAnchor:SetFrameStrata(strata)
         for _, btn in pairs(iconPool) do btn:SetFrameStrata(strata) end
         for _, f in pairs(combatIconPool) do f:SetFrameStrata(strata) end
+        for _, f in pairs(receiverIconPool) do f:SetFrameStrata(strata) end
         if EABR._providerCastBtn and not InCombatLockdown() then
             EABR._providerCastBtn:SetFrameStrata(strata)
         end
@@ -614,6 +616,9 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
                 CacheInstanceInfo()
                 EABR.ReevaluateOwnOtherAuraTracking()
             end)
+        else
+            -- The minimap's trackers are read afresh after a loading screen.
+            EABR._fvTrackDirty = true
         end
         EABR.ScanEatingState()
         if not InCombatLockdown() then EABR.SyncProviderCastSpell() end
@@ -707,9 +712,15 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         EABR.ReevaluateOwnOtherAuraTracking()
     end
 
-    -- WoW Forever (its only registration): a new rank joins the custom spells'
-    -- rank families on the next pass (EABR.ForeverFamily).
-    if e == "LEARNED_SPELL_IN_SKILL_LINE" then EABR._fvFamDirty = true end
+    -- WoW Forever (its only registrations): a new rank joins the custom spells'
+    -- rank families on the next pass (EABR.ForeverFamily), and the minimap's
+    -- trackers are read again (EABR.FvTrackingState).
+    if e == "LEARNED_SPELL_IN_SKILL_LINE" then
+        EABR._fvFamDirty = true
+        EABR._fvTrackDirty = true
+    elseif e == "MINIMAP_UPDATE_TRACKING" then
+        EABR._fvTrackDirty = true
+    end
 
     -- All other events: just refresh
     RequestRefresh()
@@ -754,7 +765,8 @@ if EABR.FOREVER then
     -- the player's own aura changes, vehicles, the death states, the rested
     -- state's edges and newly learned spells (a rank joins the custom spells'
     -- families, a raid buff becomes castable). Raid Buffs adds its group
-    -- events itself (EABR.FvSyncGroupWatch).
+    -- events itself (EABR.FvSyncGroupWatch), the two trackers their minimap
+    -- event (EABR.FvSyncTrackingEvent).
     mainFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
     mainFrame:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
     mainFrame:RegisterEvent("ENCOUNTER_START")
@@ -769,6 +781,20 @@ if EABR.FOREVER then
     mainFrame:RegisterEvent("PLAYER_DEAD")
     mainFrame:RegisterEvent("PLAYER_ALIVE")
     mainFrame:RegisterEvent("PLAYER_UNGHOST")
+    -- Class trackers and Find Treasure have no aura edge: their minimap event
+    -- is listened to only while a reminder that reads them can show
+    -- (EABR.CollectForever; EABR.FvStandDown turns it off).
+    function EABR.FvSyncTrackingEvent(want)
+        if want == (EABR._fvTrackEv or false) then return end
+        EABR._fvTrackEv = want
+        if want then
+            -- Nothing was heard while it was off: the minimap is read afresh.
+            EABR._fvTrackDirty = true
+            mainFrame:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+        else
+            mainFrame:UnregisterEvent("MINIMAP_UPDATE_TRACKING")
+        end
+    end
 else
 mainFrame:RegisterEvent("ENCOUNTER_START")
 mainFrame:RegisterEvent("ENCOUNTER_END")

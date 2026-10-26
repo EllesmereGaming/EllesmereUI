@@ -272,6 +272,7 @@ EllesmereUI._addonKeyToFolder = {
     raidFrames   = "EllesmereUIRaidFrames",
     bags         = "EllesmereUIBags",
     quickdraw    = "EllesmereUIQuickdraw",
+    lootCouncil  = "EllesmereUISimpleLootCouncil",
 }
 EllesmereUI._moduleFontCache = {}
 EllesmereUI._moduleFontCacheVer = 0

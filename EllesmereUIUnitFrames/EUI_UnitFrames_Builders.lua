@@ -536,7 +536,7 @@ local function StyleFullFrame(frame, unit)
             PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
             -- Constrain width when opposing right text exists
             if rc ~= "none" then
-                local rightUsed = EstimateUFTextWidth(rc)
+                local rightUsed = EstimateUFTextWidth(rc, s.rightTextCustomFormat, true)
                 PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
                 PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
@@ -552,7 +552,7 @@ local function StyleFullFrame(frame, unit)
             PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
             -- Constrain width when opposing left text exists
             if lc ~= "none" then
-                local leftUsed = EstimateUFTextWidth(lc)
+                local leftUsed = EstimateUFTextWidth(lc, s.leftTextCustomFormat)
                 PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
                 PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
@@ -807,7 +807,7 @@ local function StyleFocusFrame(frame, unit)
             leftText:SetJustifyH("LEFT")
             PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
             if rc ~= "none" then
-                local rightUsed = EstimateUFTextWidth(rc)
+                local rightUsed = EstimateUFTextWidth(rc, s.rightTextCustomFormat, true)
                 PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
                 PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
@@ -822,7 +822,7 @@ local function StyleFocusFrame(frame, unit)
             rightText:SetJustifyH("RIGHT")
             PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
             if lc ~= "none" then
-                local leftUsed = EstimateUFTextWidth(lc)
+                local leftUsed = EstimateUFTextWidth(lc, s.leftTextCustomFormat)
                 PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
                 PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
@@ -1031,7 +1031,7 @@ local function StyleSimpleFrame(frame, unit)
             leftText:SetJustifyH("LEFT")
             PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
             if rc ~= "none" then
-                local rightUsed = EstimateUFTextWidth(rc)
+                local rightUsed = EstimateUFTextWidth(rc, s.rightTextCustomFormat, true)
                 PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
                 PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
@@ -1045,7 +1045,7 @@ local function StyleSimpleFrame(frame, unit)
             rightText:SetJustifyH("RIGHT")
             PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
             if lc ~= "none" then
-                local leftUsed = EstimateUFTextWidth(lc)
+                local leftUsed = EstimateUFTextWidth(lc, s.leftTextCustomFormat)
                 PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
                 PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
@@ -1263,7 +1263,7 @@ local function StyleBossFrame(frame, unit)
             leftText:SetJustifyH("LEFT")
             PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
             if rc ~= "none" then
-                local rightUsed = EstimateUFTextWidth(rc)
+                local rightUsed = EstimateUFTextWidth(rc, s.rightTextCustomFormat, true)
                 PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
             else
                 PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
@@ -1277,7 +1277,7 @@ local function StyleBossFrame(frame, unit)
             rightText:SetJustifyH("RIGHT")
             PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
             if lc ~= "none" then
-                local leftUsed = EstimateUFTextWidth(lc)
+                local leftUsed = EstimateUFTextWidth(lc, s.leftTextCustomFormat)
                 PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
             else
                 PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))

@@ -5,7 +5,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Multi-window support (up to 5). Zero Blizzard frame hooks. All settings live.
 -------------------------------------------------------------------------------
 local _, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS["EllesmereUIDamageMeters"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 local EUI = EllesmereUI
@@ -226,7 +226,7 @@ local function GetHeaderH() local c = DB(); local h = c.hdrHeight or 22; return 
 -- _curViewFrozenDur in GetCurrentViewDuration, State's only copy).
 -- broken: true while a part file loads; a file that fails leaves it set, and
 -- the files behind it return at their first lines.
-ns._dmInternals = {
+EllesmereUI.NewInternals(ns, "_dmInternals", {
     BAR_POOL_SIZE = BAR_POOL_SIZE, BAR_TEX = BAR_TEX, DB = DB, DM_TYPE_ICONS = DM_TYPE_ICONS,
     DM_TYPE_NAMES = DM_TYPE_NAMES, EnsureDB = EnsureDB, GetHeaderH = GetHeaderH,
     HOME_DEFAULTS = HOME_DEFAULTS, ICON_ALPHA = ICON_ALPHA, ICON_HOVER_ALPHA = ICON_HOVER_ALPHA,
@@ -240,10 +240,7 @@ ns._dmInternals = {
     startSharedTickerSetters = {}, sharedTickerSetters = {}, ttFrameSetters = {},
     activeRowSetters = {}, ttLastScaleSetters = {}, playerGUIDSetters = {},
     updateSATimerTextSetters = {}, saTimerSetters = {},
-    broken = false,
-}
--- Set<Name> hands a new value to every copy registered in <name>Setters.
-for setter, listName in pairs({
+}, {
     SetInCombat = "inCombatSetters", SetInEncounter = "inEncounterSetters",
     SetCombatEndTime = "combatEndTimeSetters",
     SetNeedsFinalRefresh = "needsFinalRefreshSetters",
@@ -253,14 +250,4 @@ for setter, listName in pairs({
     SetTTFrame = "ttFrameSetters", SetActiveRow = "activeRowSetters",
     SetTTLastScale = "ttLastScaleSetters", SetPlayerGUID = "playerGUIDSetters",
     SetUpdateSATimerText = "updateSATimerTextSetters", SetSATimer = "saTimerSetters",
-}) do
-    local list = ns._dmInternals[listName]
-    ns._dmInternals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
-end
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._dmInternals, { __index = function(_, k)
-    error("ns._dmInternals has no entry " .. tostring(k), 2)
-end })
+})

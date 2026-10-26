@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -14,8 +14,14 @@ local HistoryFrame = {}
 UI.HistoryFrame = HistoryFrame
 
 local S, Tbl, L, P
-local frame, table_, summaryText, searchBox, pasteFrame, pickerFrame
-local sourceButton, windowButton, mineCheck, originButton
+local frame, table_, summaryText, searchBox, pasteFrame
+local windowButton, mineCheck, originButton
+local historyPane, teamPane, tab, historyHeight
+
+local HISTORY_W = 1128
+
+local TABLE_ROWS = 15
+HistoryFrame.TABLE_ROWS = TABLE_ROWS
 
 local refilter = false
 
@@ -23,19 +29,11 @@ local refilter = false
 
 local filter = {
     search = "",
-    source = "all",
     days = 0,
     mineOnly = false,
 }
 
 
-
-local SOURCE_ORDER = { "all", "slc", "other" }
-local SOURCE_LABEL = addon.Locale.Texts{
-    all = T["All sources"],
-    slc = "SimpleLootCouncil",
-    other = T["Others"],
-}
 
 local WINDOW_ORDER = { 0, 30, 90, 365 }
 local WINDOW_LABEL = addon.Locale.Texts{ [0] = T["All time"], [30] = T["Last 30 days"], [90] = T["Last 90 days"],
@@ -47,35 +45,6 @@ local WINDOW_LABEL = addon.Locale.Texts{ [0] = T["All time"], [30] = T["Last 30 
 
 
 
-local function EntrySource(entry)
-    return entry.source or "slc"
-end
-
-
-
-local function SourceFilterKey(entry)
-    local source = EntrySource(entry)
-    if source == "slc" or source == "slc-csv" then return "slc" end
-    return "other"
-end
-
-
-
-local function SourceAbbrev(entry)
-    local source = EntrySource(entry)
-    if source == "slc" then return "SLC" end
-    if source == "slc-csv" then return "CSV" end
-    local registry = SimpleLootCouncil and SimpleLootCouncil.HistoryImport
-    return registry and registry:Abbrev(source) or "??"
-end
-
-
-local function SourceColor(source)
-    if source == "slc" then return S.color.accent end
-    local registry = SimpleLootCouncil and SimpleLootCouncil.HistoryImport
-    local tint = registry and registry:Tint(source)
-    return (tint and S.color[tint]) or S.color.textFaint
-end
 
 
 
@@ -94,12 +63,14 @@ local function DateKey(entry)
     if dateKeys[entry] then return dateKeys[entry] end
     local keys = {}
     local stored = type(entry.date) == "string" and entry.date or ""
-    local y, m, d = stored:match("^(%d%d%d%d)/(%d%d)/(%d%d)$")
-    if not y then
-        local digits = stored:gsub("%D", "")
-        if #digits >= 6 then keys[#keys + 1] = digits end
-        if type(entry.epoch) == "number" then
-            y, m, d = date("!%Y", entry.epoch), date("!%m", entry.epoch), date("!%d", entry.epoch)
+    local y, m, d
+    if type(entry.epoch) == "number" and entry.epoch > 0 then
+        y, m, d = date("%Y", entry.epoch), date("%m", entry.epoch), date("%d", entry.epoch)
+    else
+        y, m, d = stored:match("^(%d%d%d%d)/(%d%d)/(%d%d)$")
+        if not y then
+            local digits = stored:gsub("%D", "")
+            if #digits >= 6 then keys[#keys + 1] = digits end
         end
     end
     if y then
@@ -164,11 +135,6 @@ local function ResolveFilter()
 end
 
 local function Passes(entry)
-    if filter.source ~= "all"
-        and SourceFilterKey(entry) ~= filter.source then
-        return false
-    end
-
     if resolved.cutoff and (entry.epoch or 0) < resolved.cutoff then
         return false
     end
@@ -186,12 +152,15 @@ end
 
 
 
-local function ShortDate(entry)
-    if entry.date and entry.date ~= "" then
+local function ColourPart(value)
+    return type(value) == "number" and value >= 0 and value <= 1
+end
 
+local function ShortDate(entry)
+    if type(entry.epoch) == "number" and entry.epoch > 0 then return addon.WhenText(entry.epoch) end
+    if entry.date and entry.date ~= "" then
         return addon.StoredDateText(entry.date, true) .. " " .. tostring(entry.time or ""):sub(1, 5)
     end
-    if entry.epoch then return addon.DateText(entry.epoch, true, true) .. date("! %H:%M", entry.epoch) end
     return "?"
 end
 
@@ -201,13 +170,6 @@ local function BuildColumns()
             key = "when", title = T["When"], width = 124,
             value = function(e) return e.epoch or 0 end,
             text = function(e) return S.Colorize(S.color.textMuted, ShortDate(e)) end,
-        },
-        {
-            key = "source", title = T["Src"], width = 42,
-            value = function(e) return EntrySource(e) end,
-            text = function(e)
-                return S.Colorize(SourceColor(EntrySource(e)), SourceAbbrev(e))
-            end,
         },
         {
             key = "item", title = T["Item"], width = 248,
@@ -254,8 +216,10 @@ local function BuildColumns()
                 if addon.History.IsCoinLoot(e) then
                     return S.Colorize(S.color.accent, text)
                 end
-                if e.r then return ("|cff%02x%02x%02x%s|r")
-                    :format(e.r * 255, e.g * 255, e.b * 255, text) end
+                if ColourPart(e.r) and ColourPart(e.g) and ColourPart(e.b) then
+                    return ("|cff%02x%02x%02x%s|r")
+                        :format(e.r * 255, e.g * 255, e.b * 255, text)
+                end
                 return text
             end,
         },
@@ -375,7 +339,6 @@ end
 
 
 local function UpdateSummary()
-    local native, imported = addon.History:Count(), addon.HistoryImport:Count()
     local shown, total = #table_.filtered, #table_.data
 
     local text
@@ -383,16 +346,13 @@ local function UpdateSummary()
 
     if not addon.db.recordHistory then
         text = S.Colorize(S.color.accent, addon.Locale.Format(
-            T["%d shown of %d  (%d recorded, %d imported)  - Record award history is off"],
-            shown, total, native, imported))
+            T["%d shown of %d  - Record award history is off"], shown, total))
     elseif shown < total then
         text = S.Colorize(S.color.accent, addon.Locale.Format(
-            T["%d shown of %d  (%d recorded, %d imported)  - filtered"],
-            shown, total, native, imported))
+            T["%d shown of %d  - filtered"], shown, total))
     else
         text = S.Colorize(S.color.textMuted, addon.Locale.Format(
-            T["%d shown of %d  (%d recorded, %d imported)"],
-            shown, total, native, imported))
+            T["%d shown of %d"], shown, total))
     end
     summaryText:SetText(text)
 end
@@ -428,26 +388,27 @@ function HistoryFrame.DeleteButton(parent)
     wipe:SetScript("OnClick", function()
         local recorded = addon.History:Count()
         local imported = addon.HistoryImport:Count()
-        if recorded + imported == 0 then
+        local total = recorded + imported
+        if total == 0 then
             addon.Chat.Print(T["there is no history to delete."])
             return
         end
-        local awards = addon.Locale.Format(addon.Locale.Plural{
-            one = "%d recorded award", other = "%d recorded awards",
-        }, recorded, recorded)
-        local rows = addon.Locale.Format(addon.Locale.Plural{
-            one = "%d imported row", other = "%d imported rows",
-        }, imported, imported)
         S.Confirm({
             title = T["Delete loot history"],
-            body = addon.Locale.Format(T["This deletes %s and %s.\n\n"], awards, rows)
+            body = addon.Locale.Format(addon.Locale.Plural{
+                one = "This deletes %d award record.\n\n",
+                other = "This deletes %d award records.\n\n",
+            }, total, total)
                 .. HistoryFrame.HiddenByOriginSentence()
                 .. S.Colorize(S.color.bad,
                     T["Recorded awards cannot be recovered. Export a CSV first if needed."]),
             accept = T["Delete all"],
             onAccept = function()
-                local r, i = addon.History:Clear(), addon.HistoryImport:Clear()
-                addon.Chat.Print(addon.Locale.Format(T["deleted %d recorded and %d imported entries."], r, i))
+                local deleted = addon.History:Clear() + addon.HistoryImport:Clear()
+                addon.Chat.Print(addon.Locale.Format(addon.Locale.Plural{
+                    one = "deleted %d award record.",
+                    other = "deleted %d award records.",
+                }, deleted, deleted))
                 HistoryFrame:Reload()
             end,
             alternate = imported > 0 and T["Imports only"] or nil,
@@ -890,11 +851,20 @@ local function ShowPasteWindow()
         edit:SetScript("OnChar", function(_, char)
             if not pasteActive then
                 pasteActive = true
-                pasteQuiet, pasteSeen = 0, pasteN
+                pasteBuffer, pasteN = {}, 0
+                pasteQuiet, pasteSeen = 0, 0
                 pasteTicker:Show()
             end
             pasteN = pasteN + 1
             pasteBuffer[pasteN] = char
+        end)
+
+        edit:SetScript("OnTextChanged", function(self, userInput)
+            if userInput and not pasteActive and not pasteCancel and pasteN > 0
+                and (self:GetText() or "") == "" then
+                PasteReset()
+                status:SetText("")
+            end
         end)
 
 
@@ -917,6 +887,14 @@ local function ShowPasteWindow()
 
             if #text > 0 and text:sub(-1) ~= "\n" then
                 pasteBuffer[1] = text .. "\n"
+            end
+            local boxText = edit:GetText() or ""
+            if text:sub(1, #boxText) ~= boxText then
+                local head = text
+                if #head >= CAPTURE_BOX_BYTES then
+                    head = head:sub(1, CAPTURE_BOX_BYTES - 1):gsub("[\192-\255][\128-\191]*$", "")
+                end
+                edit:SetText(head)
             end
             ReportSize()
         end)
@@ -1010,226 +988,6 @@ end
 
 
 
-local PICKER_W = 520
-
-local function PickerRow(parent, x, width, y, source)
-    local row = L.Row(parent, x, width, y, S.size.SET_ROW_H)
-    row.sourceKey = source.key
-
-    local box = S.Checkbox(row, S.size.CTRL_H)
-    P.Point(box, "LEFT", row, "LEFT", S.size.ROW_PAD, 0)
-    row:AdoptHover(box)
-    row.Box = box
-
-
-
-    local label = S.Label(row, S.fontBody, "LEFT")
-    label:SetText(source.label)
-    P.Point(label, "TOPLEFT", box, "TOPRIGHT", S.size.GAP, 4)
-    P.Point(label, "RIGHT", row, "RIGHT", -S.size.ROW_PAD, 0)
-    row.LabelText = label
-
-    local count = S.Label(row, S.fontSmall, "LEFT")
-    P.Point(count, "TOPLEFT", label, "BOTTOMLEFT", 0, -3)
-    P.Point(count, "RIGHT", row, "RIGHT", -S.size.ROW_PAD, 0)
-    row.CountText = count
-
-
-    local function toggle()
-        box:SetChecked(not box:GetChecked())
-        if row.onToggle then row.onToggle() end
-    end
-    row:SetScript("OnMouseUp", toggle)
-    box:SetScript("OnClick", toggle)
-
-
-    local function show(self)
-        local detail = row.detail
-        if not detail or #detail == 0 then return end
-        S.SideTooltip(self)
-        S.TooltipSection(GameTooltip, source.label)
-        for _, pair in ipairs(detail) do
-            GameTooltip:AddDoubleLine(tostring(pair[1]), tostring(pair[2]),
-                0.64, 0.63, 0.60, 1, 1, 1)
-        end
-        GameTooltip:Show()
-    end
-    row:HookScript("OnEnter", show)
-    row:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    box:HookScript("OnEnter", function() show(row) end)
-    box:HookScript("OnLeave", function() GameTooltip:Hide() end)
-
-    return row, S.size.SET_ROW_H
-end
-
-local function BuildPicker()
-    local f = S.Window("SimpleLootCouncilHistoryPickerFrame", "historyPicker",
-        PICKER_W, 300, T["Import Other History"])
-
-    local content = f.Content
-    local cursor = L.Cursor(content)
-
-    f.Hint = cursor:Add(L.Paragraph, "", S.fontHint)
-    cursor:Gap(S.size.SECTION)
-
-
-    f.Rows = {}
-    f.rowsTop = cursor.y
-    for _, source in ipairs(addon.HistoryImport.SOURCES) do
-        local row = cursor:Add(PickerRow, source)
-        cursor:Gap(S.size.ITEM_GAP)
-        f.Rows[#f.Rows + 1] = row
-    end
-
-    f.Empty = cursor:Add(L.Paragraph, "", S.fontSmall)
-    cursor:Gap(S.size.SECTION)
-    f.Note = cursor:Add(L.Paragraph, "", S.fontSmall)
-    cursor:Gap(S.size.SECTION)
-    f.Buttons = cursor:Add(L.ButtonRow, {
-        { key = "Import", text = T["Import"], opts = { primary = true, width = 130 } },
-    })
-    f.Import = f.Buttons.Import
-
-
-    f.Import:SetDisabledReason(S.RequiresSentence(
-        T["Requires at least one source to be ticked."]))
-    function f:UpdateImport()
-        local any = false
-        for _, row in ipairs(f.Rows) do
-            if row:IsShown() and row.Box:GetChecked() then any = true end
-        end
-        f.Import:SetEnabled(any)
-    end
-    for _, row in ipairs(f.Rows) do row.onToggle = f.UpdateImport end
-
-    f.Import:SetScript("OnClick", function()
-        local selected = {}
-        for _, row in ipairs(f.Rows) do
-            if row:IsShown() and row.Box:GetChecked() then
-                selected[#selected + 1] = row.sourceKey
-            end
-        end
-        if #selected == 0 then return end
-
-        local results = addon.HistoryImport:FromSources(selected)
-        local lines, failed = {}, false
-        for _, result in ipairs(results) do
-            if result.stats then
-                lines[#lines + 1] = addon.Locale.Format(T["%s: %s"], result.label,
-                    addon.HistoryImport:Describe(result.stats))
-            else
-                failed = true
-                lines[#lines + 1] = addon.Locale.Format(T["%s: %s"], result.label,
-                    result.error or T["import failed"])
-            end
-        end
-
-        HistoryFrame:Reload()
-
-        summaryText:SetText(S.Colorize(failed and S.color.bad or S.color.good,
-            table.concat(lines, "; ")))
-        f:Hide()
-    end)
-
-
-    function f:Relayout(visible)
-        local rowBlock = visible * (S.size.SET_ROW_H + S.size.ITEM_GAP)
-        local y = f.rowsTop - rowBlock
-
-        local emptyH = 0
-        if f.Empty:IsShown() then
-            emptyH = math.ceil(f.Empty:GetStringHeight() or 14) + S.size.SECTION
-        end
-        P.Point(f.Empty, "TOPLEFT", content, "TOPLEFT", 0, y)
-        y = y - emptyH
-
-        P.Point(f.Note, "TOPLEFT", content, "TOPLEFT", 0, y)
-        y = y - math.ceil(f.Note:GetStringHeight() or 14) - S.size.SECTION
-
-        P.Point(f.Buttons, "TOPLEFT", content, "TOPLEFT", 0, y)
-        y = y - S.size.BTN_H
-
-        f:SetHeight(P.Snap(f.HeaderHeight + S.size.PAD - y + S.size.PAD))
-    end
-
-    return f
-end
-
-local function ShowImportPicker()
-    if not pickerFrame then pickerFrame = BuildPicker() end
-    local f = pickerFrame
-
-    local sources = addon.HistoryImport:GetAvailableSources()
-    local byKey = {}
-    for _, source in ipairs(sources) do byKey[source.key] = source end
-
-    f.Hint:SetText(#sources > 0
-        and T["Tick the histories to bring in. Rows already held, or older than the age limit, are skipped - so importing twice is safe. Closing this window imports nothing."]
-        or T["Another addon's history is read straight out of its saved data, so that addon has to be installed and enabled on this client. Enable it, /reload, and come back."])
-
-
-
-    local visible, previous = 0, nil
-    for _, row in ipairs(f.Rows) do
-        local source = byKey[row.sourceKey]
-        if source then
-            visible = visible + 1
-            row.detail = source.detail
-            local detail
-            if source.duplicate > 0 and source.tooOld > 0 then
-                detail = addon.Locale.Format(
-                    T["%d entries, %d to import, %d already held, %d too old"],
-                    source.entries, source.importable, source.duplicate, source.tooOld)
-            elseif source.duplicate > 0 then
-                detail = addon.Locale.Format(T["%d entries, %d to import, %d already held"],
-                    source.entries, source.importable, source.duplicate)
-            elseif source.tooOld > 0 then
-                detail = addon.Locale.Format(T["%d entries, %d to import, %d too old"],
-                    source.entries, source.importable, source.tooOld)
-            else
-                detail = addon.Locale.Format(T["%d entries, %d to import"],
-                    source.entries, source.importable)
-            end
-            row.CountText:SetText(S.Colorize(S.color.textMuted, detail))
-            row.Box:SetChecked(source.importable > 0)
-            row:ClearAllPoints()
-            if previous then
-                P.Point(row, "TOPLEFT", previous, "BOTTOMLEFT", 0, -S.size.ITEM_GAP)
-            else
-                P.Point(row, "TOPLEFT", f.Content, "TOPLEFT", 0, f.rowsTop)
-            end
-            previous = row
-            row:Show()
-        else
-            row:Hide()
-        end
-    end
-
-    if visible == 0 then
-        local names = {}
-        for _, source in ipairs(addon.HistoryImport.SOURCES) do
-            names[#names + 1] = source.label
-        end
-        f.Empty:SetText(S.Colorize(S.color.accent,
-            addon.Locale.Format(
-                T["No supported loot addon's history is loaded. Supported: %s."],
-                table.concat(names, ", "))))
-        f.Empty:Show()
-    else
-        f.Empty:SetText("")
-        f.Empty:Hide()
-    end
-
-    local days = addon.db.importMaxDays or 0
-    f.Note:SetText(S.Colorize(S.color.textFaint, days > 0
-        and addon.Locale.Format(T["Entries older than %d days are skipped."], days)
-        or T["No age limit is set."]))
-
-    f:Relayout(visible)
-    f:UpdateImport()
-    f:RestorePosition()
-    f:Show()
-end
 
 
 
@@ -1240,12 +998,19 @@ local SEARCH_DELAY = 0.2
 
 
 local function Build()
-    frame = S.Window("SimpleLootCouncilHistoryFrame", "history", 1170, 470, T["Loot history"])
+    frame = S.Window("SimpleLootCouncilHistoryFrame", "history", HISTORY_W, 470, T["Loot History"],
+        { tabs = true })
     frame:RestorePosition()
 
 
     local content = frame.Content
-    local cursor = L.Cursor(content)
+    historyPane = CreateFrame("Frame", nil, content)
+    historyPane:SetAllPoints(content)
+    historyPane.slcWidth = content.slcWidth
+    teamPane = CreateFrame("Frame", nil, content)
+    teamPane:SetAllPoints(content)
+    teamPane:Hide()
+    local cursor = L.Cursor(historyPane)
 
     local filterRow = cursor:Add(L.Row, S.size.BTN_H)
 
@@ -1274,7 +1039,7 @@ local function Build()
 
     local searchHint = S.Label(edit, S.fontHint, "LEFT")
     P.Point(searchHint, "LEFT", 0, 0)
-    searchHint:SetText(T["name, item, boss, or a date"])
+    searchHint:SetText(T["Name, item, boss, or a date"])
 
 
     edit:HookScript("OnTextChanged", function(self)
@@ -1286,29 +1051,19 @@ local function Build()
     end)
 
 
-    sourceButton = S.Button(filterRow, SOURCE_LABEL[filter.source])
-    P.Point(sourceButton, "LEFT", searchHolder, "RIGHT", S.size.GAP, 0)
-    sourceButton:SetScript("OnClick", function(self)
-        local index = 1
-        for i, key in ipairs(SOURCE_ORDER) do
-            if key == filter.source then index = i end
-        end
-        filter.source = SOURCE_ORDER[(index % #SOURCE_ORDER) + 1]
-        self:SetLabel(SOURCE_LABEL[filter.source])
-        HistoryFrame:Refresh()
-    end)
-
-    windowButton = S.Button(filterRow, WINDOW_LABEL[filter.days])
-    P.Point(windowButton, "LEFT", sourceButton, "RIGHT", S.size.GAP, 0)
-    windowButton:SetScript("OnClick", function(self)
-        local index = 1
-        for i, days in ipairs(WINDOW_ORDER) do
-            if days == filter.days then index = i end
-        end
-        filter.days = WINDOW_ORDER[(index % #WINDOW_ORDER) + 1]
-        self:SetLabel(WINDOW_LABEL[filter.days])
-        HistoryFrame:Refresh()
-    end)
+    local windowOptions = {}
+    for i, days in ipairs(WINDOW_ORDER) do
+        windowOptions[i] = { value = days, text = WINDOW_LABEL[days] }
+    end
+    windowButton = L.SelectControl(filterRow, {
+        options = windowOptions, height = S.size.BTN_H,
+        get = function() return filter.days end,
+        set = function(days)
+            filter.days = days
+            HistoryFrame:Refresh()
+        end,
+    })
+    P.Point(windowButton, "LEFT", searchHolder, "RIGHT", S.size.GAP, 0)
 
     mineCheck = S.Checkbox(filterRow, S.size.CTRL_H)
     P.Point(mineCheck, "LEFT", windowButton, "RIGHT", S.size.ROW_PAD, 0)
@@ -1331,7 +1086,7 @@ local function Build()
     cursor:Gap(S.size.SECTION)
 
     table_ = cursor:Add(function(parent, x, width, y)
-        local t = Tbl.Create(parent, BuildColumns(), 15)
+        local t = Tbl.Create(parent, BuildColumns(), TABLE_ROWS)
 
         t.fixedRows = true
         P.Point(t, "TOPLEFT", parent, "TOPLEFT", x, y)
@@ -1410,22 +1165,16 @@ local function Build()
             S.ContextMenu(self, items)
             return
         end
-        addon.ShowHistoryCSV(filter.source == "slc" and "slc" or nil)
+        addon.ShowHistoryCSV()
     end)
     exportButton:HookScript("OnEnter", function(self)
-        local scope = filter.source == "slc" and "slc" or nil
         S.AboveTooltip(self)
         S.TooltipSection(GameTooltip, T["Export CSV"])
-        local count = addon.History:CountForScope(scope)
-        GameTooltip:AddLine(scope and addon.Locale.Format(addon.Locale.Plural{
-            one = "%d row from this addon, imported rows excluded.",
-            other = "%d rows from this addon, imported rows excluded.",
-        }, count, count) or addon.Locale.Format(addon.Locale.Plural{
+        local count = addon.History:CountForScope()
+        GameTooltip:AddLine(addon.Locale.Format(addon.Locale.Plural{
             one = "%d row, every source together.",
             other = "%d rows, every source together.",
         }, count, count), 0.64, 0.63, 0.60, true)
-        GameTooltip:AddLine(T["Follows the Source filter - set it to \"SimpleLootCouncil\" to leave out rows imported from other addons."],
-            0.45, 0.44, 0.42, true)
         GameTooltip:AddLine(SEPARATOR_HINT[addon.History:Delimiter()]
             or SEPARATOR_HINT[","], 0.45, 0.44, 0.42, true)
         HistoryFrame.AddExportOriginLine(GameTooltip)
@@ -1436,63 +1185,31 @@ local function Build()
     local pasteButton = S.Button(footer, T["Import CSV"])
     P.Point(pasteButton, "RIGHT", exportButton, "LEFT", -S.size.GAP, 0)
     pasteButton:SetScript("OnClick", ShowPasteWindow)
-
-    local importButton = S.Button(footer, T["Import Other History"])
-    P.Point(importButton, "RIGHT", pasteButton, "LEFT", -S.size.GAP, 0)
+    P.Point(summaryText, "RIGHT", pasteButton, "LEFT", -S.size.GAP, 0)
 
 
-    local teamButton = S.Button(footer, T["Raid team"])
-    P.Point(teamButton, "RIGHT", importButton, "LEFT", -S.size.GAP, 0)
-
-
-    P.Point(summaryText, "RIGHT", teamButton, "LEFT", -S.size.GAP, 0)
-    teamButton:SetScript("OnClick", function()
-        addon.UI.RaidTeamFrame:Toggle()
-    end)
-    teamButton:HookScript("OnEnter", function(self)
-        S.AboveTooltip(self)
-        S.TooltipSection(GameTooltip, T["Raid team loot"])
-        GameTooltip:AddLine(T["The same awards grouped by raider, for the guild ranks you mark as your raid team."], 0.64, 0.63, 0.60, true)
-        GameTooltip:Show()
-    end)
-    teamButton:HookScript("OnLeave", function() GameTooltip:Hide() end)
-
-
-    frame:SetHeight(P.Snap(
-        frame.HeaderHeight + S.size.PAD + cursor:Consumed() + S.size.PAD))
-    importButton:SetScript("OnClick", ShowImportPicker)
-
-
-    importButton:HookScript("OnEnter", function(self)
-        S.AboveTooltip(self)
-        S.TooltipSection(GameTooltip, T["Import Other History"])
-        GameTooltip:AddLine(T["Bring in award history recorded by another loot addon on this client. Opens a window to choose which."],
-            0.64, 0.63, 0.60, true)
-        S.TooltipSection(GameTooltip, T["Supported Addons"])
-        for _, source in ipairs(addon.HistoryImport.SOURCES) do
-            local loaded = source.IsAvailable()
-            GameTooltip:AddDoubleLine(source.label, loaded and T["loaded"] or T["not loaded"],
-                0.64, 0.63, 0.60, loaded and 1 or 0.45, loaded and 1 or 0.44,
-                loaded and 1 or 0.42)
-        end
-        GameTooltip:Show()
-    end)
-    importButton:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    historyHeight = P.Snap(frame.HeaderHeight + S.size.PAD + cursor:Consumed() + S.size.PAD)
+    frame:SetHeight(historyHeight)
 
 
 
-    frame:HookScript("OnHide", function()
+    historyPane:HookScript("OnHide", function()
         Tbl.Release(table_)
         addon.Callbacks:Invalidate("history")
         addon.History:DropArchive("history")    end)
 
-    frame:HookScript("OnShow", function() addon.History:HoldArchive("history") end)
+    historyPane:HookScript("OnShow", function() addon.History:HoldArchive("history") end)
 
 
     addon.Callbacks:RegisterView("history", {
         paint = function() HistoryFrame:Reload() end,
-        frame = frame,
+        frame = historyPane,
+        shown = function() return historyPane:IsVisible() end,
     })
+
+    frame.Tabs:AddTab("history", T["All loot"])
+    frame.Tabs:AddTab("team", T["Raid team"])
+    frame.Tabs.onSelect = function(key) HistoryFrame:ShowTab(key) end
 
     addon.Log:D("UI", "history frame built")
 end
@@ -1527,14 +1244,45 @@ function HistoryFrame:Init()
     addon.Log:I("UI", "history frame ready")
 end
 
+function HistoryFrame:ShowTab(key)
+    if not frame then return end
+    local team = key == "team"
+    key = team and "team" or "history"
+    frame.Tabs:Select(key)
+    if tab == key then return end
+    tab = key
+
+    if team then UI.RaidTeamFrame:Attach(frame, teamPane) end
+    historyPane:SetShown(not team)
+    teamPane:SetShown(team)
+    frame:SetSizeFromBottomRight(HISTORY_W, historyHeight)
+end
+
+local function Open(key)
+    WhenBuilt(function()
+        addon.Callbacks:Invalidate("history")
+        HistoryFrame:ShowTab(key)
+        frame:Show()
+    end)
+end
+
+function HistoryFrame:Open()
+    Open("history")
+end
+
 function HistoryFrame:Toggle()
-    if frame and frame:IsShown() then
+    if frame and frame:IsShown() and tab ~= "team" then
         frame:Hide()
         return
     end
-    WhenBuilt(function()
+    Open("history")
+end
 
-        addon.Callbacks:Invalidate("history")
-        frame:Show()
-    end)
+
+function HistoryFrame:ToggleTeam()
+    if frame and frame:IsShown() and tab == "team" then
+        frame:Hide()
+        return
+    end
+    Open("team")
 end

@@ -70,8 +70,9 @@ I.inCombatSetters[#I.inCombatSetters + 1] = function(v) inCombat = v end
 --  token; the token maps to our button(s) and the same atlases go on our own
 --  overlay. Hooks are installed per icon from a CompactUnitFrame_SetUpFrame
 --  post-hook (once per icon object; nameplate compact frames are skipped for
---  good). Parity is total: same trigger, same CVar, same art. Zero work
---  between pings; overlays are built on first use.
+--  good). Parity is total: same trigger, same CVar, same art (an ability
+--  ping's kit has no frame art and lights nothing, see ns._PingKitArt). Zero
+--  work between pings; overlays are built on first use.
 --
 --  Blizzard's own icon never clears when the pinged person moves to another
 --  compact frame before the pin expires (the removed edge no longer matches
@@ -143,24 +144,41 @@ ns._RFPingHide = function(button)
     if d.pingFrame then d.pingFrame:Hide() end
 end
 
--- Atlas at native size, then scaled by the configured factor (each texture
--- keeps its own native proportions).
-ns._SetPingAtlas = function(tex, atlas, factor)
-    tex:SetAtlas(atlas, true)
-    if factor ~= 1 then
-        local w, h = tex:GetSize()
-        tex:SetSize(w * factor, h * factor)
+-- Frame art per texture kit, read once: both atlases with their native sizes,
+-- or false when the kit has no frame art. Ability pings carry such kits
+-- ("Available" / "Unavailable"): Blizzard's SetAtlas fails on them and its icon
+-- keeps the art it last had, so they light nothing here. Sizes always come
+-- from the atlas info, never from a texture's current size (a failed SetAtlas
+-- leaves that size as it was).
+ns._pingKitArt = {}
+ns._PingKitArt = function(kit)
+    local art = ns._pingKitArt[kit]
+    if art == nil then
+        local bg, icon = "Ping_Frame_BG_" .. kit, "Ping_Frame_" .. kit
+        local bgInfo, iconInfo = C_Texture.GetAtlasInfo(bg), C_Texture.GetAtlasInfo(icon)
+        art = bgInfo and iconInfo and {
+            bg = bg, bgW = bgInfo.width, bgH = bgInfo.height,
+            icon = icon, iconW = iconInfo.width, iconH = iconInfo.height,
+        } or false
+        ns._pingKitArt[kit] = art
     end
+    return art
 end
 
+-- Both atlases at their native size times the configured factor (each keeps
+-- its own proportions).
 ns._RFPingLight = function(button, kit)
+    local art = ns._PingKitArt(kit)
+    if not art then return end
     local d = GetFFD(button)
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
     if s.showPingMarker == false then return end
     local pf = ns._RFPingOverlay(button, d)
     local factor = pf._factor or 1
-    ns._SetPingAtlas(pf.bg, "Ping_Frame_BG_" .. kit, factor)
-    ns._SetPingAtlas(pf.icon, "Ping_Frame_" .. kit, factor)
+    pf.bg:SetAtlas(art.bg)
+    pf.bg:SetSize(art.bgW * factor, art.bgH * factor)
+    pf.icon:SetAtlas(art.icon)
+    pf.icon:SetSize(art.iconW * factor, art.iconH * factor)
     pf:Show()
     -- Expiry belt: a pin has a finite engine lifetime; if its removed edge can
     -- no longer reach this button (see header), the overlay still goes away.

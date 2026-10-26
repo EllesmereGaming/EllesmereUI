@@ -127,7 +127,7 @@ function ns.RFO_AuraBorderSettings(parent, y, W, get, set, apply, disabled, disp
                 end,
                 set=function(v) set("TextureShift" .. axis, v); apply() end }
         end
-        local left, right = EllesmereUI.BorderOffsetRowCfgs({ addonKey="unitframes",
+        local offX, offY = EllesmereUI.BorderOffsetCogRows({ addonKey="unitframes",
             getTex=function() return Val("Texture", "solid") end,
             getStep=function() return Val("Size", 1) end,
             getSizeKey=function() return Val("Size", 1) end,
@@ -136,10 +136,8 @@ function ns.RFO_AuraBorderSettings(parent, y, W, get, set, apply, disabled, disp
             setX=function(v) set("TextureOffset", v) end,
             getY=function() return get("TextureOffsetY") end,
             setY=function(v) set("TextureOffsetY", v) end, apply=apply })
-        for _, cfg in ipairs({ left, right }) do
-            rows[#rows + 1] = { type=cfg.type, label=cfg.text, min=cfg.min, max=cfg.max,
-                step=cfg.step, get=cfg.getValue, set=cfg.setValue }
-        end
+        rows[#rows + 1] = offX
+        rows[#rows + 1] = offY
         if dispel then
             rows[#rows + 1] = { type="toggle", label="Textured Dispel Ring",
                 get=function() return Val("DispelTextured", false) end,

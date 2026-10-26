@@ -67,6 +67,7 @@ end
 do
 ns._rotationGlowedIcons = {}
 local _rotMatched = {}  -- scratch for CDMIconsForSpell
+local _rotSpareSet = {} -- each pass fills this and swaps it with ns._rotationGlowedIcons
 ns._rotationHookInstalled = false
 ns._rotationInCombat = false
 
@@ -275,7 +276,8 @@ local function UpdateRotationHighlightsNow()
     if type(suggestedSpell) ~= "number"
         or (issecretvalue and issecretvalue(suggestedSpell)) then suggestedSpell = nil end
 
-    local newSet = {}
+    local newSet = _rotSpareSet
+    wipe(newSet)
     if suggestedSpell then
         for _, icon in ipairs(CDMIconsForSpell(suggestedSpell, _rotMatched)) do
             _rotShow(icon)
@@ -283,9 +285,11 @@ local function UpdateRotationHighlightsNow()
         end
     end
 
-    for icon in pairs(ns._rotationGlowedIcons) do
+    local oldSet = ns._rotationGlowedIcons
+    for icon in pairs(oldSet) do
         if not newSet[icon] then _rotHide(icon) end
     end
+    _rotSpareSet = oldSet
     ns._rotationGlowedIcons = newSet
 end
 

@@ -1,11 +1,10 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
 local addon = SimpleLootCouncil
-local T = addon.Locale.Text
 
 local Version = {}
 addon.Version = Version
@@ -46,6 +45,14 @@ end
 
 function Version:IsOlder(a, b) return Version:Compare(a, b) < 0 end
 
+local MAX_VERSION = 16
+
+local function ValidVersion(v)
+    if type(v) ~= "string" or addon.IsSecret(v) or #v > MAX_VERSION then return false end
+    return v:match("^[0-9]+%.[0-9]+%.[0-9]+$") ~= nil
+        or v:match("^[0-9]+%.[0-9]+%.[0-9]+%-[A-Za-z0-9%.]+$") ~= nil
+end
+
 
 
 
@@ -57,26 +64,11 @@ local seen = {}
 
 local highest = OWN
 
-
-
-local warned = false
-
 function Version:Record(fullName, version)
     if not fullName or type(version) ~= "string" or version == "" then return end
 
-    local previous = seen[fullName]
     seen[fullName] = { version = version, at = GetTime() }
-
-    if not previous or previous.version ~= version then
-        addon.Log:D("Version", fullName, version)
-    end
-
-    if Version:IsOlder(highest, version) then
-        highest = version
-        addon.Log:I("Version", "newest build seen is now", highest)
-    end
-
-    Version:WarnIfBehind()
+    if Version:IsOlder(highest, version) then highest = version end
     addon.Callbacks:Fire("VersionChanged")
 end
 
@@ -108,23 +100,17 @@ function Version:Survey()
     return rows
 end
 
-function Version:WarnIfBehind()
-    if warned then return end
-    if not Version:IsOlder(OWN, highest) then return end
-    warned = true
-    addon.Chat.Print(addon.Locale.Format(T["you are running %s and someone in your group is on %s. Older builds can silently drop fields from messages - update when you get a chance."], OWN, highest))
-    addon.Log:I("Version", "local build", OWN, "is behind", highest)
-end
-
 
 
 
 
 local function Announce()
-    local spec = addon.Specs and addon.Specs:OwnSpec()
-    addon.Comms:Send("hello", { v = OWN, s = spec })
-    local legacy = addon.Comms.LegacyAnnounce
-    if legacy then legacy(addon.Comms, OWN) end
+    if addon.Comms.InHomeGroup() then
+        local spec = addon.Specs and addon.Specs:OwnSpec()
+        addon.Comms:Send("hello", { v = OWN, s = spec })
+        local legacy = addon.Comms.LegacyAnnounce
+        if legacy then legacy(addon.Comms, OWN) end
+    end
     local me = addon.Player:GetFullName("player")
     if me then Version:Record(me, OWN) end
 end
@@ -156,12 +142,30 @@ local function Digest()
     return { e = entries }
 end
 
+local ML_POLL_COOLDOWN = 60
+local masterPoll = { at = -math.huge, was = false }
+
+local function PollAsNewMaster()
+    local isML = IsInGroup() and addon.PlayerIsMasterLooter() or false
+    local was = masterPoll.was
+    masterPoll.was = isML
+    if not isML or was or not addon.Comms.InHomeGroup() then return end
+    local now = GetTime()
+    if now - masterPoll.at < ML_POLL_COOLDOWN then return end
+    masterPoll.at = now
+    addon.Log:I("Version", "now the loot master - asking the group for versions")
+    Version:Poll()
+end
+
 local function OnRosterChanged(diff)
     addon.Callbacks:Fire("VersionChanged")
-    if not diff.inGroup then return end
+    if not diff.inGroup then
+        masterPoll.was = false
+        return
+    end
 
     if not diff.wasInGroup then Version:RequestAnnounce() end
-    if not next(diff.joined) then return end
+    if not next(diff.joined) or not addon.Comms.InHomeGroup() then return end
     local me = addon.Player:GetFullName("player")
     local leader = addon.GetGroupLeader()
     if not me or not leader or not addon.Player:IsSame(me, leader) then return end
@@ -190,6 +194,7 @@ local POLL_COOLDOWN = 30
 local lastPollAnswer, whisperedAt = -math.huge, {}
 
 local function AnswerPoll(sender)
+    if not addon.Comms.InHomeGroup() then return end
     local now = GetTime()
     if now - lastPollAnswer >= POLL_COOLDOWN then
         lastPollAnswer, whisperedAt = now, {}
@@ -208,7 +213,7 @@ function Version:Init()
     local function RecordHello(args, sender)
         if type(args) ~= "table" then return end
         local record = addon.Player:Get(sender)
-        if type(args.v) == "string" then
+        if ValidVersion(args.v) then
             Version:Record(record.fullName or sender, args.v)
         end
         if record.guid and addon.Specs then
@@ -229,7 +234,7 @@ function Version:Init()
             if type(entry) == "table" and type(entry.g) == "string" then
                 local record = addon.Player:Get(entry.g)
                 if record.guid then
-                    if type(entry.v) == "string" then
+                    if ValidVersion(entry.v) then
                         Version:Record(record.fullName, entry.v)
                     end
                     if addon.Specs then addon.Specs:Set(record.guid, entry.s, "digest") end
@@ -252,9 +257,17 @@ function Version:Init()
 
     addon.Callbacks:Register("RosterChanged", OnRosterChanged)
     addon.Callbacks:Register("LegacyPeer", function(sender, version)
+        if type(version) ~= "string" or #version > 32
+            or not version:match("^[A-Za-z0-9%.%-]+$") then
+            return
+        end
         local record = addon.Player:Get(sender)
         Version:Record(record.fullName or sender, version)
     end)
+
+    masterPoll.was = IsInGroup() and addon.PlayerIsMasterLooter() or false
+    addon.Callbacks:Register("LootMasterChanged", PollAsNewMaster)
+    addon.Callbacks:Register("SharedConfigChanged", PollAsNewMaster)
 
     Version:RequestAnnounce(1)
     local leader = IsInGroup() and addon.GetGroupLeader()
@@ -263,9 +276,12 @@ function Version:Init()
 
         C_Timer.After(2, function()
             local current = IsInGroup() and addon.GetGroupLeader()
-            if current and addon.Player:IsSame(current,
-                addon.Player:GetFullName("player")) then Version:Poll() end
+            if current and addon.Comms.InHomeGroup() and addon.Player:IsSame(current,
+                addon.Player:GetFullName("player")) then
+                masterPoll.at = GetTime()
+                Version:Poll()
+            end
         end)
     end
-    addon.Log:I("Version", "ready", OWN)
+    addon.Log:I("Version", "ready")
 end

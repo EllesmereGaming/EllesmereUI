@@ -7,19 +7,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Does NOT parse secret values works around restricted APIs.
 -------------------------------------------------------------------------------
 local _, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the loot roll placement uses the parent's frame placer)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the loot roll placement uses the parent's frame placer)
 EllesmereUI._ModuleNS["EllesmereUICooldownManager"] = ns  -- LOD options files read this module ns via the registry
-
--- ns[field] = t, the table a chain of split files re-imports main-chunk locals
--- from. broken: true while a part file loads; a file that fails leaves it set
--- and the files behind it return at their first lines. Reading a name the
--- table lacks fails where the part file loads, not later as a nil upvalue.
-function ns._NewInternals(field, t)
-    t.broken = false
-    ns[field] = setmetatable(t, { __index = function(_, k)
-        error("ns." .. field .. " has no entry " .. tostring(k), 2)
-    end })
-end
 
 -- CPU-attribution shell pool: the engine bills a handler's call tree to the addon
 -- whose context created the frame, so frames built later under the parent's dispatch
@@ -699,7 +688,10 @@ local DEFAULTS = {
 -- Main-chunk locals the EUI_CDM_*.lua files re-import by name.
 -- inCombatSetters: a file that reads _inCombat keeps its own local and adds a
 -- setter here; the event frame writes through SetInCombat, which runs them all.
-ns._NewInternals("_internals", {
+-- broken: true while a part file loads; a file that fails leaves it set and
+-- the files behind it return at their first lines (same for the Hooks and
+-- Buff Bars tables).
+EllesmereUI.NewInternals(ns, "_internals", {
     _bonusScanSeen = _bonusScanSeen, _cdmKeybindCache = _cdmKeybindCache,
     _cdmKeybindRank = _cdmKeybindRank, _cdmMouseState = _cdmMouseState,
     _cdmViewerNames = _cdmViewerNames, _ecmeFC = _ecmeFC, _getFD = _getFD,
@@ -710,8 +702,4 @@ ns._NewInternals("_internals", {
     IsPlaceholderRenderHidden = IsPlaceholderRenderHidden, RACE_RACIALS = RACE_RACIALS,
     ResolveActiveRacial = ResolveActiveRacial, SnapForScale = SnapForScale,
     inCombatSetters = { function(v) _inCombat = v end },
-    SetInCombat = function(v)
-        local list = ns._internals.inCombatSetters
-        for i = 1, #list do list[i](v) end
-    end,
-})
+}, { SetInCombat = "inCombatSetters" })

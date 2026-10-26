@@ -3,9 +3,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EUI_ActionBars_ButtonArt.lua
 --
 --  Button appearance: stripping the stock art, the classic button art, the
---  button borders and the shape masks. Loads right after the main file, reads
---  it through ns only, and hands its entry points to the files after it
---  through ns._internals (bottom of this file).
+--  button borders and the shape masks. Loads right after
+--  EUI_ActionBars_Setup.lua, reads the main file through ns only, and hands
+--  its entry points to the files after it through ns._internals (bottom of
+--  this file).
 -------------------------------------------------------------------------------
 local _, ns = ...
 

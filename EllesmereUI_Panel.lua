@@ -190,9 +190,7 @@ local UpdateSidebarHighlight, ClearContent
 -------------------------------------------------------------------------------
 --  Build Main Frame
 -------------------------------------------------------------------------------
-local function CreateMainFrame()
-    if mainFrame then return mainFrame end
-
+local function BuildFrame()
     -----------------------------------------------------------------------
     --  Root frame + scaling
     -----------------------------------------------------------------------
@@ -889,7 +887,9 @@ local function CreateMainFrame()
             mainFrame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", ml + dx, mb + dy)
         end
     end
+end
 
+local function BuildSidebar()
     -----------------------------------------------------------------------
     --  Sidebar
     -----------------------------------------------------------------------
@@ -2006,7 +2006,7 @@ local function CreateMainFrame()
 
     -- Build the sidebar in group order; positions are assigned once and re-stacked by
     -- RefreshSidebarStates. Group/roster references go through
-    -- the private EUI_NS model (one upvalue, CreateMainFrame is at the 60-upvalue cap);
+    -- the private EUI_NS model (one upvalue instead of one per name, keeps BuildSidebar well under the 60-upvalue cap);
     -- cumulative `_y` walks each row so group and child heights can differ.
     -- Outside addons' own groups and pages join the model first (see the Plugin API).
     EUI_NS.SyncExternal()
@@ -2039,7 +2039,7 @@ local function CreateMainFrame()
     -- cannot swap in one that is handed the private button table.
     local pairs = pairs
     -- Lock/unlock excluded modules during an override editing session: their settings cannot be
-    -- captured, so the row grays out and blocks clicks. Called from the session enter/exit paths in EllesmereUI_SpecOverrides.
+    -- captured, so the row grays out and blocks clicks. Called from the session enter/exit paths in EUI_SpecOverrides_Session.lua.
     EllesmereUI.RefreshSidebarOverrideLocks = function()
         local active = EllesmereUI.SpecOverrides_EditSessionActive
             and EllesmereUI.SpecOverrides_EditSessionActive() or false
@@ -2327,7 +2327,12 @@ local function CreateMainFrame()
     resUpdateFrame:SetScript("OnHide", function()
         if resTicker then resTicker:Cancel(); resTicker = nil end
     end)
+end
 
+-- The public header API below iterates private tables; a local pairs means setfenv on it
+-- cannot swap in one that is handed those tables.
+local function BuildContent()
+    local pairs = pairs
     -----------------------------------------------------------------------
     --  Right-side content region
     -----------------------------------------------------------------------
@@ -2932,6 +2937,10 @@ local function CreateMainFrame()
         InvalidateContentHeaderCache()
     end
 
+    return rightW, rightX
+end
+
+local function BuildFooter(rightW, rightX)
     -----------------------------------------------------------------------
     --  Footer  (Reset to Defaults + Reload UI | Done)
     -----------------------------------------------------------------------
@@ -3216,6 +3225,15 @@ local function CreateMainFrame()
             brd:SetColor(r, g, b, lerp(0.7, 1, progress))
         end })
     end
+end
+
+local function CreateMainFrame()
+    if mainFrame then return mainFrame end
+
+    BuildFrame()
+    BuildSidebar()
+    local rightW, rightX = BuildContent()
+    BuildFooter(rightW, rightX)
 
     return mainFrame
 end
@@ -3661,6 +3679,13 @@ function EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName
             end
         end
         return nil
+    end
+
+    -- Refused in combat like Show (see there), before the page selection below
+    -- runs, which has no combat check of its own.
+    if InCombatLockdown() then
+        EllesmereUI.PrintError("Cannot open options during combat.")
+        return
     end
 
     -- First-open split (see _SplitFirstOpen): Show() below returns without
@@ -4362,8 +4387,9 @@ end
 -------------------------------------------------------------------------------
 -- From here on the public functions iterate private tables (page cache, a
 -- module's page list): local iterators mean setfenv cannot swap in one that
--- is handed those tables. (Declared after CreateMainFrame, which is at the
--- upvalue cap.)
+-- is handed those tables. (Declared after CreateMainFrame and its Build*
+-- functions; BuildSidebar and BuildContent declare their own pairs, the others
+-- use none.)
 local pairs, ipairs = pairs, ipairs
 -- Page cache: maps "moduleName::pageName" -> { wrapper, totalH, headerBuilder }
 -- On revisit, we show the cached wrapper and refresh widget values instead of rebuilding.
@@ -5283,8 +5309,17 @@ function EllesmereUI:_SplitFirstOpen(afterFn)
     return true
 end
 
+-- The panel never opens in combat (it closes as combat starts). Callers check
+-- before they ask, but an open can still land after combat began: the
+-- first-open split and the Settings button run it a frame later, and a deep
+-- link (NavigateToElementSettings) can come from a click on a game frame.
+-- Pages built then would call widget methods that are blocked in combat.
 function EllesmereUI:Show()
     if self._openPending then return end
+    if InCombatLockdown() then
+        EllesmereUI.PrintError("Cannot open options during combat.")
+        return
+    end
     if self:_SplitFirstOpen(function() EllesmereUI:Show() end) then return end
     CreateMainFrame()
     RefreshSidebarStates()
@@ -5296,6 +5331,12 @@ end
 function EllesmereUI:Hide()   if mainFrame then mainFrame:Hide() end end
 function EllesmereUI:Toggle()
     if self._openPending then return end
+    -- Closing still works in combat; opening or unfolding the mini window does
+    -- not (see Show).
+    if InCombatLockdown() and not (mainFrame and mainFrame:IsShown() and not self._panelCollapsed) then
+        EllesmereUI.PrintError("Cannot open options during combat.")
+        return
+    end
     if self:_SplitFirstOpen(function() EllesmereUI:Toggle() end) then return end
     CreateMainFrame()
     if self._panelCollapsed then
@@ -5509,7 +5550,7 @@ end
 --  (a module can opt out of the latter with searchPrebuild = false).
 --  Developer guide: PLUGINS_API.md.
 -------------------------------------------------------------------------------
-EllesmereUI.PLUGIN_API_VERSION = 2
+EllesmereUI.PLUGIN_API_VERSION = 3
 
 do
     local PREFIX          = EUI_NS.PLUGIN_PREFIX

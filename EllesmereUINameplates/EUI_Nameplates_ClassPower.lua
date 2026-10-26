@@ -28,12 +28,9 @@ I.profileSetters[#I.profileSetters + 1] = function(v) p = v end
 
 -- Assigned below; Layout holds the forward declaration its own readers use.
 local GetClassPowerTopPush
--- Name and Cast keep a copy of classPowerType and add a setter here.
-I.classPowerTypeSetters = {}
-local function SetClassPowerType(v)
-    local list = I.classPowerTypeSetters
-    for i = 1, #list do list[i](v) end
-end
+-- Name and Cast keep a copy of classPowerType and add a setter to
+-- I.classPowerTypeSetters.
+local SetClassPowerType = I.SetClassPowerType
 
 -------------------------------------------------------------------------------
 --  Class Power Display (combo points, holy power, chi, etc.). Zero cost when disabled: no

@@ -402,9 +402,29 @@ local function ShowCustomSpellIDPopup(barKey, withDuration, onAdded, hideChargeW
         title:SetText(EllesmereUI.L("Add Custom Spell"))
         popup._title = title
 
+        -- Permanent red note under the title (user request 2026-10-23): a custom
+        -- spell lives outside Blizzard's Cooldown Manager, so its restrictions can
+        -- keep it from working fully. Each open grows the popup by the note's
+        -- wrapped height (_warnExtra: 6 above and 12 below it).
+        do
+            local warn = popup:CreateFontString(nil, "OVERLAY")
+            warn:SetFont(FONT_PATH, 10, GetCDMOptOutline())
+            warn:SetWidth(POPUP_W - 32)
+            warn:SetPoint("TOP", title, "BOTTOM", 0, -6)
+            warn:SetJustifyH("CENTER")
+            warn:SetTextColor(0.9, 0.3, 0.3, 1)
+            warn:SetText(EllesmereUI.L("Use at your own risk: Blizzard restrictions can keep custom spells from working fully."))
+            popup._warn = warn
+            popup._warnExtra = function()
+                local h = warn:GetStringHeight()
+                if not h or h < 10 then h = 24 end
+                return math.ceil(h) + 18
+            end
+        end
+
         local editBox = CreateFrame("EditBox", nil, popup)
         editBox:SetSize(180, 28)
-        editBox:SetPoint("TOP", title, "BOTTOM", 0, -16)
+        editBox:SetPoint("TOP", popup._warn, "BOTTOM", 0, -12)
         editBox:SetAutoFocus(true)
         editBox:SetNumeric(true)
         editBox:SetMaxLetters(7)
@@ -585,13 +605,13 @@ local function ShowCustomSpellIDPopup(barKey, withDuration, onAdded, hideChargeW
     popup._editBox:SetText("")
     popup._status:SetText("")
     if withDuration then
-        popup:SetHeight(220)
+        popup._baseH = 220
         popup._durLabel:Show()
         popup._durBox:Show()
         popup._durBox:SetText("")
         if popup._chargeWarn then popup._chargeWarn:Hide() end
     else
-        popup:SetHeight(164)
+        popup._baseH = 164
         popup._durLabel:Hide()
         popup._durBox:Hide()
         -- Buff contexts (aura-tracked) hide the CD-only charges note.
@@ -599,6 +619,8 @@ local function ShowCustomSpellIDPopup(barKey, withDuration, onAdded, hideChargeW
     end
     ns.PadPopupOpen(popup._dimmer, popup, popup._cancelBtn)  -- controller cursor
     popup._dimmer:Show()
+    -- Sized once shown: the note's wrapped height reads right only on a shown frame.
+    popup:SetHeight(popup._baseH + popup._warnExtra())
     popup._editBox:SetFocus()
 end
 

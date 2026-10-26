@@ -149,7 +149,7 @@ function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
 
     -- Art Style: 2D, 3D, or class art in one of seven sets (the flyout).
     local classVals = { modern = "Modern", arcade = "Arcade", glyph = "Glyph", legend = "Legend",
-        midnight = "Midnight", pixel = "Pixel", pixelsComic = "Pixels Comic", runic = "Runic" }
+        midnight = "Midnight", pixel = "Pixel", pixelsComic = "Comic", runic = "Runic" }
     local classOrder = { "modern", "arcade", "glyph", "legend", "midnight", "pixel", "pixelsComic", "runic" }
     local artValues = {
         ["3d"] = "3D Portrait",

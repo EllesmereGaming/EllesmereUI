@@ -4,7 +4,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  The central event dispatcher for the action bar buttons, the assist and
 --  charge cooldown helpers it drives, ForceButtonRefresh and bar dormancy.
---  Loads right after the main file and reads it through ns only.
+--  Loads right after EUI_ActionBars_Visibility.lua and reads the main file
+--  through ns only.
 -------------------------------------------------------------------------------
 local _, ns = ...
 
