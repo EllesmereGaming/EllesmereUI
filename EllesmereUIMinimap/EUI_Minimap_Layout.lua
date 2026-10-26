@@ -55,6 +55,11 @@ local MO_Evaluate
 -- The Great Vault and M+ Portal buttons, built in BuildCustomIndicators.
 local _greatVaultBtn = nil
 local _portalBtn = nil
+-- On WoW Forever the Teleport Menu button is opt-in: only an explicit false shows it.
+local function PortalsHidden(heb)
+    if EllesmereUI.IS_FOREVER then return heb.portals ~= false end
+    return heb.portals
+end
 
 local function BuildCustomIndicators(minimap)
     if _customIndicators.tracking then
@@ -230,10 +235,13 @@ local function BuildCustomIndicators(minimap)
     end -- not PadGamepadUI
 
     -- Great Vault + M+ Portal buttons: built once, anchored in LayoutIndicatorFrames.
-    -- Neither exists on WoW Forever (no vault, no keystone portals): the buttons are
-    -- never built there, every reader guards on nil, and the options drop their rows.
+    -- Neither exists on WoW Forever (no vault, no keystone portals): the vault is
+    -- never built there, every reader guards on nil, and the options drop its row.
+    -- The portal button becomes the Teleport Menu button when Forever Essentials is loaded.
     if not EllesmereUI.IS_FOREVER then
         _greatVaultBtn = CreateGreatVaultBtn(minimap)
+        _portalBtn = CreatePortalBtn(minimap)
+    elseif EllesmereUI._ForeverTeleport then
         _portalBtn = CreatePortalBtn(minimap)
     end
 end
@@ -354,7 +362,7 @@ local function MO_Refresh(p)
     if p and p.mouseoverExtraBtns then
         if _greatVaultBtn and not heb.greatVault then _moButtons[#_moButtons + 1] = _greatVaultBtn end
         if _customIndicators.friends and not heb.friendsOnline then _moButtons[#_moButtons + 1] = _customIndicators.friends end
-        if _portalBtn and not heb.portals then _moButtons[#_moButtons + 1] = _portalBtn end
+        if _portalBtn and not PortalsHidden(heb) then _moButtons[#_moButtons + 1] = _portalBtn end
         if flyoutToggle and not heb.groupButton then _moButtons[#_moButtons + 1] = flyoutToggle end
         -- Ungrouped addon buttons count as extra buttons for this setting too.
         for _, btn in ipairs(cachedAddonButtons) do
@@ -1063,7 +1071,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                 end
             elseif key == "portals" then
                 if _portalBtn then
-                    if heb.portals then
+                    if PortalsHidden(heb) then
                         _portalBtn:Hide()
                     else
                         SizePortalBtn(_portalBtn, showBg)
@@ -1104,7 +1112,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
     if ci.crafting then fmTargets[#fmTargets + 1] = ci.crafting end
     if flyoutToggle then fmTargets[#fmTargets + 1] = flyoutToggle end
     if _greatVaultBtn and not heb.greatVault then fmTargets[#fmTargets + 1] = _greatVaultBtn end
-    if _portalBtn and not heb.portals then fmTargets[#fmTargets + 1] = _portalBtn end
+    if _portalBtn and not PortalsHidden(heb) then fmTargets[#fmTargets + 1] = _portalBtn end
     if ci.friends and not heb.friendsOnline then fmTargets[#fmTargets + 1] = ci.friends end
     -- Include ungrouped addon buttons
     for _, btn in ipairs(cachedAddonButtons) do

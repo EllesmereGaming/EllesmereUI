@@ -5970,3 +5970,7 @@ L["Shift + Scroll"] = "Maj + Molette"
 L["Ctrl + Scroll"] = "Ctrl + Molette"
 L["Alt + Scroll"] = "Alt + Molette"
 L["Scroll with the chosen modifier to cycle overlapping frames in Unlock Mode."] = "Faites défiler avec le modificateur choisi pour passer d'un cadre superposé à l'autre en mode Déverrouillage."
+-- Teleport menu (EllesmereUIForeverEssentials_TeleportMenu.lua)
+L["Teleport Menu"] = "Menu de téléportation"
+L["Teleport Menu Scale"] = "Échelle du menu de téléportation"
+L["Scales the Teleport Menu the button opens."] = "Met à l'échelle le menu de téléportation ouvert par le bouton."
