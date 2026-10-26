@@ -6235,3 +6235,10 @@ L["Countdown to Soul"] = "Compte à rebours avant Âme des arcanes"
 L["Inside Soul"] = "Pendant Âme des arcanes"
 L["Last Barrage"] = "Dernier Barrage"
 L["This option requires Countdown Format to count GCDs inside Arcane Soul."] = "Cette option nécessite que le format du compte à rebours compte les GCD pendant Âme des arcanes."
+
+-- Barber Shop Presets (EllesmereUIQoL_BarberPresets.lua)
+L["Barber Shop Presets"] = "Préréglages du coiffeur"
+L["Adds a panel to the barber shop to save your current appearance as a named preset and apply it again later. Applying a preset only previews it; press Accept to buy the change."] = "Ajoute un panneau chez le coiffeur pour enregistrer votre apparence actuelle sous un nom et la réappliquer plus tard. Appliquer un préréglage n'en affiche qu'un aperçu ; appuyez sur Accepter pour payer le changement."
+L["Appearance Presets"] = "Préréglages d'apparence"
+L["Preset name"] = "Nom du préréglage"
+L["No presets for this look yet."] = "Pas encore de préréglage pour cette apparence."
