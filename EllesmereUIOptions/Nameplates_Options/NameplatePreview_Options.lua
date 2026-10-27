@@ -544,7 +544,7 @@ local function BuildNameplatePreview(parent, parentW)
     hpNumber:SetText(hpNumStr)
     hpNumber:Hide()
 
-    -- Standalone level FontString mirrors the live plate's levelText; the player's level stands in for the mob level. Plain text: its colour comes from the slot's Text Coloring mode (previewGlow.slotColor).
+    -- Standalone level mirrors the live plate; the player's level stands in for the mob level.
     local lvlText = healthTextFrame:CreateFontString(nil, "OVERLAY")
     SetPVFont(lvlText, FONT_PATH, 10, GetNPOptOutline())
     lvlText:SetPoint("CENTER", health, "CENTER", 0, 0)
@@ -1785,7 +1785,11 @@ local function BuildNameplatePreview(parent, parentW)
                 local fs = (element == "level") and lvlText or pf._totFS
                 if fs ~= lvlText then cr, cg, cb = pf._totSampleColor(slotKey, cr, cg, cb) end
                 SetPVFont(fs, fontPath, fontSize, npOutline)
-                if fs ~= lvlText then fs:SetText(pf._totSample(slotKey)) end
+                if fs == lvlText then
+                    fs:SetText(ns.GetSlotLevelText("player", slotKey, "rareelite"))
+                else
+                    fs:SetText(pf._totSample(slotKey))
+                end
                 fs:SetParent(healthTextFrame)
                 fs:SetPoint(point, health, anchor, xOff, yOff)
                 fs:SetTextColor(cr, cg, cb, 1)
@@ -1839,7 +1843,11 @@ local function BuildNameplatePreview(parent, parentW)
                 local fs = (element == "level") and lvlText or pf._totFS
                 if fs ~= lvlText then cr, cg, cb = pf._totSampleColor(slotKey, cr, cg, cb) end
                 SetPVFont(fs, fontPath, fontSize, npOutline)
-                if fs ~= lvlText then fs:SetText(pf._totSample(slotKey)) end
+                if fs == lvlText then
+                    fs:SetText(ns.GetSlotLevelText("player", slotKey, "rareelite"))
+                else
+                    fs:SetText(pf._totSample(slotKey))
+                end
                 fs:SetParent(topTextFrame)
                 fs:SetPoint("BOTTOM", health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)
                 fs:SetTextColor(cr, cg, cb, 1)
@@ -1915,7 +1923,7 @@ local function BuildNameplatePreview(parent, parentW)
                     if info.key ~= nameSlotKey then
                         local el = info.slot
                         if el ~= "none" and not ns.IsNameElement(el) then
-                            usedWidth = usedWidth + ns.EstimateHealthTextWidth(el)
+                            usedWidth = usedWidth + ns.EstimateHealthTextWidth(el, info.key)
                         end
                     end
                 end
@@ -2017,7 +2025,7 @@ local function BuildNameplatePreview(parent, parentW)
             or "enemyName",
             -- WoW Forever: the slot's Name Format, as live (nil function off Forever).
             ns.NP_FormatName and ns.NP_FormatName(EllesmereUI.L("Enemy Name Text"), pvNameSlotKey)
-                or EllesmereUI.L("Enemy Name Text"), "player", pvNameSlotKey)
+                or EllesmereUI.L("Enemy Name Text"), "player", pvNameSlotKey, "rareelite")
         ns.ReflowFontString(nameFS)
         if DBVal("hideEnemyNameWhileCasting") == true then nameFS:Hide() end
         LayoutPreviewNameRaidMarker()

@@ -144,6 +144,25 @@ local function BuildCoreTextColoring(parent, y, W)
             rgn._lastInline = NPCSwatch("enemyNameTappedColor", "tapped", EllesmereUI.L("Tapped Color"))
         end
 
+        local indicator, updateIndicator
+        if el == "level" or el == "levelName" or el == "nameLevel" then
+            local indicatorKey = slotKey .. "LevelIndicatorColor"
+            indicator, updateIndicator = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                function()
+                    local c = (DB() and DB()[indicatorKey]) or defaults[indicatorKey]
+                    return c.r, c.g, c.b
+                end,
+                function(r, g, b)
+                    DB()[indicatorKey] = { r = r, g = g, b = b }
+                    Apply()
+                end, nil, 20)
+            indicator:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(indicator, EllesmereUI.L("Elite / Rare Indicator Color"))
+            end)
+            indicator:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            rgn._lastInline = indicator
+        end
+
         -- Level | Name and Name | Level: the part colours on a cog left of the
         -- swatches. It becomes the leftmost item, which the label clamp keeps clear of.
         local cog
@@ -206,8 +225,13 @@ local function BuildCoreTextColoring(parent, y, W)
                     npcUpd[i]()
                 end
             end
+            if indicator then
+                indicator:ClearAllPoints()
+                PP.Point(indicator, "RIGHT", (npcOn and npc[#npc]) or (showCustom and custom) or rgn._control, "LEFT", -8, 0)
+                updateIndicator()
+            end
             if cog then
-                local left = (npcOn and npc[#npc]) or (showCustom and custom) or rgn._control
+                local left = indicator or (npcOn and npc[#npc]) or (showCustom and custom) or rgn._control
                 if left ~= cogLeftOf then
                     cogLeftOf = left
                     cog:ClearAllPoints()

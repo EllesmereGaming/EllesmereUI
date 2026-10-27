@@ -616,6 +616,7 @@ do
             mode = s .. "ColorMode", class = s .. "ClassColor", color = s .. "Color",
             nameOn = s .. "NameColorOn", name = s .. "NameColor",
             lvlOn = s .. "LevelColorOn", lvl = s .. "LevelColor", diff = s .. "LevelDiffOn",
+            indicator = s .. "LevelIndicators", indicatorColor = s .. "LevelIndicatorColor",
         }
         PARTS[s] = { ln = PLAIN.ln, nl = PLAIN.nl, diff = false }
     end
@@ -682,19 +683,28 @@ do
     -- marks a level part drawn in the difficulty colour. Run by NP_RefreshSlotClassFlags.
     function ns.NP_RefreshSlotNameParts()
         local db = p or defaults
+        ns._npLevelIndicators = false
         for i = 1, #textSlotKeys do
             local s = textSlotKeys[i]
             local k, f = SK[s], PARTS[s]
             local nm, lv = "%s", "%s"
+            local el = db[s] or defaults[s]
+            local combo = el == "levelName" or el == "nameLevel"
             if db[k.nameOn] == true then
                 nm = EllesmereUI.HexColor(ns.NP_SlotPartColor(s, "name", db)) .. "%s|r"
             end
-            if db[k.lvlOn] == true then
-                lv = EllesmereUI.HexColor(ns.NP_SlotPartColor(s, "level", db)) .. "%s|r"
-            end
+            f.levelColor = combo and db[k.lvlOn] == true
+                and EllesmereUI.HexColor(ns.NP_SlotPartColor(s, "level", db)) or nil
             f.ln = lv .. " | " .. nm
             f.nl = nm .. " | " .. lv
-            f.diff = ns.NP_SlotColorMode(s, db) ~= "level" and ns.NP_SlotLevelDiff(s, db)
+            f.diff = combo and ns.NP_SlotColorMode(s, db) ~= "level" and ns.NP_SlotLevelDiff(s, db)
+            f.indicator = (combo or el == "level") and db[k.indicator] == true
+            if f.indicator then
+                local c = db[k.indicatorColor] or defaults[k.indicatorColor]
+                local hex = EllesmereUI.HexColor(c.r, c.g, c.b)
+                f.plus, f.rare = hex .. "+|r", hex .. "R|r"
+                ns._npLevelIndicators = true
+            end
         end
     end
     -- r, g, b for a readable level: the skull's colour below 0, else the difficulty
@@ -724,21 +734,35 @@ do
         if color == "diff" then return EllesmereUI.ColorText(txt, LevelRGB(unit, lvl)) end
         return txt
     end
+    -- Keep each marker's colour escape outside the level's own colour.
+    -- classification is supplied only by the options preview.
+    function ns.GetSlotLevelText(unit, slotKey, classification)
+        local f = PARTS[slotKey] or PLAIN
+        local txt = ns.GetUnitLevelText(unit, f.diff and "diff")
+        if f.levelColor then txt = f.levelColor .. txt .. "|r" end
+        if not f.indicator then return txt end
+        classification = classification or UnitClassification(unit)
+        if issecretvalue and issecretvalue(classification) then return txt end
+        if classification == "elite" or classification == "rareelite" then txt = f.plus .. txt end
+        if classification == "rare" or classification == "rareelite" then txt = txt .. f.rare end
+        return txt
+    end
     -- Write a name-family element's text into a FontString (shared by runtime update and
     -- options preview). name may be SECRET: only ever passed as a %s display arg, never inspected.
     -- slotKey (nil = FindNameSlot's) picks the combo's materialized part colours; the rest
     -- of the text keeps the font string's colour.
-    function ns.SetNameElementText(fs, element, name, unit, slotKey)
+    function ns.SetNameElementText(fs, element, name, unit, slotKey, classification)
         if element == "levelName" or element == "nameLevel" then
-            local f = PARTS[slotKey or ns.FindNameSlot()] or PLAIN
-            local lvl = ns.GetUnitLevelText(unit, f.diff and "diff")
+            slotKey = slotKey or ns.FindNameSlot()
+            local f = PARTS[slotKey] or PLAIN
+            local lvl = ns.GetSlotLevelText(unit, slotKey, classification)
             if element == "levelName" then
                 fs:SetFormattedText(f.ln, lvl, name)
             else
                 fs:SetFormattedText(f.nl, name, lvl)
             end
         elseif element == "level" then
-            fs:SetFormattedText("%s", ns.GetUnitLevelText(unit))
+            fs:SetFormattedText("%s", ns.GetSlotLevelText(unit, slotKey, classification))
         else
             fs:SetText(name)
         end
@@ -779,8 +803,12 @@ local healthTextWidths = {
     level = 24,   -- standalone level: "70" / "??"
     targetOfTarget = 60,
 }
-local function EstimateHealthTextWidth(element)
-    return (healthTextWidths[element] or 0) + HEALTH_TEXT_PADDING
+local function EstimateHealthTextWidth(element, slotKey)
+    local width = (healthTextWidths[element] or 0) + HEALTH_TEXT_PADDING
+    if element == "level" and slotKey and p and p[slotKey .. "LevelIndicators"] == true then
+        width = width + 16
+    end
+    return width
 end
 ns.EstimateHealthTextWidth = EstimateHealthTextWidth
 

@@ -31,7 +31,7 @@ local ADD_ORDER = { "enemyName", "healthPercent", "level", "healthNumber", "targ
 -- from each position's default (MOVE_OFFSETS). Its Size and colour mode go
 -- along through MoveText too.
 local MOVE_RAW = { "Strata", "Color", "NameColorOn", "NameColor", "LevelColorOn", "LevelColor", "LevelDiffOn",
-                   "WidthPct", "Wrap", "PctDecimal", "NameFormat" }
+                   "LevelIndicators", "LevelIndicatorColor", "WidthPct", "Wrap", "PctDecimal", "NameFormat" }
 local MOVE_OFFSETS = { "XOffset", "YOffset" }
 
 -- The six text positions in ns.textSlotKeys order: the order of the Core Text
@@ -2890,6 +2890,15 @@ local function BuildDisplayLayout(parent, y, ctx)
             local slotEl = DBVal(slotKey)
             if slotEl == "targetOfTarget" or slotEl == "level" then
                 cogOpts.toggleLabel, cogOpts.toggleGet, cogOpts.toggleSet = nil, nil, nil
+            end
+            if slotEl == "level" or slotEl == "levelName" or slotEl == "nameLevel" then
+                local indicatorKey = slotKey .. "LevelIndicators"
+                cogOpts.toggle2Label = "Elite / Rare Indicators"
+                cogOpts.toggle2Get = function() return DBVal(indicatorKey) == true end
+                cogOpts.toggle2Set = function(v)
+                    DB()[indicatorKey] = v
+                    ns.RefreshAllSettings(); UpdatePreview()
+                end
             end
             -- WoW Forever: the name's format, while this slot shows a name or the
             -- Target of Target name. First and Last is stored as nil (the
