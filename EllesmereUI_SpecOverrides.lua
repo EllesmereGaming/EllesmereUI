@@ -202,6 +202,7 @@ local FOLDER_BLACKLIST = {
     EllesmereUIForeverEssentials = true,
     -- Each action menu picks its own specs (Assign to Spec) instead.
     EllesmereUIQuickdraw         = true,
+    EllesmereUIPetCare           = true,
     -- A per-character store outside the profiles; each assignment picks its
     -- own spec (Assign For) instead.
     EllesmereUILoadoutManager    = true,
@@ -234,6 +235,7 @@ local REFRESH_FNS = {
     EllesmereUIDamageMeters      = { "_EDM_Apply" },
     EllesmereUIDataBars          = { "_EDB_Apply" },
     EllesmereUIQuickdraw         = { "_EQD_Apply" },
+    EllesmereUIPetCare           = { "_EPC_Apply" },
     EllesmereUIAuraBuffReminders = { "_EABR_UpdateGroupAuraRegistration", "_EABR_ApplyAllIconBorders", "_EABR_RequestRefresh", "_EABR_ApplyUnlockPos" },
     -- Capture/apply-blacklisted (see FOLDER_BLACKLIST); insurance so a leaked
     -- key can never hit the unmapped-folder fallback's full RefreshAllAddons.

@@ -91,6 +91,7 @@ EUI_QoL_RaidTools_Options.lua
 EUI_UpgradeCalc_Options.lua
 EUI_QuestTracker_Options.lua
 EUI_Quickdraw_Options.lua
+EUI_PetCare_Options.lua
 EUI_RaidFrames_ManagerPages.lua
 RaidFrames_Options\FramesPages_Options.lua
 RaidFrames_Options\VisualBars_Options.lua

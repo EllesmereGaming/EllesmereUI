@@ -550,8 +550,11 @@ function GO.BuildPreview(parent, desc, opts)
     if isBar then
         tex:SetColorTexture(0.2, 0.2, 0.2, 1)
     else
-        tex:SetTexture((iconFn and iconFn()) or opts.icon or PREVIEW_ICON)
-        tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        if opts.atlas then tex:SetAtlas(opts.atlas)
+        else
+            tex:SetTexture((iconFn and iconFn()) or opts.icon or PREVIEW_ICON)
+            tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        end
     end
     -- 1px black edge (below the glow overlay, which sits one level higher).
     PP.CreateBorder(f, 0, 0, 0, 1, 1, "OVERLAY", 6)

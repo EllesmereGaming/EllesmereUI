@@ -688,6 +688,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIAuraBuffReminders", display = "AuraBuff Reminders",   search_name = "EllesmereUI AuraBuff Reminders"      },
     { folder = "EllesmereUIQoL",               display = "Quality of Life",      search_name = "EllesmereUI Quality of Life"         },
     { folder = "EllesmereUIForeverEssentials", display = "Forever Essentials",   search_name = "EllesmereUI Forever Essentials"      },
+    { folder = "EllesmereUIPetCare", display = "Pet Care", search_name = "EllesmereUI Pet Care" },
     { folder = "EllesmereUIBlizzardSkin",      display = "Blizzard Skins+",      search_name = "EllesmereUI Blizzard Skins+",      syncFolder = "EllesmereUIDragonRiding", syncDisplay = "Dragon Riding" },
     { folder = "EllesmereUIFriends",           display = "Friends List",         search_name = "EllesmereUI Friends List"            },
     { folder = "EllesmereUIMythicTimer",       display = "Mythic+ Tools",        search_name = "EllesmereUI Mythic+ Tools Timer"     },
@@ -728,6 +729,7 @@ EllesmereUI.ADDON_GROUPS = {
         members = {
             "EllesmereUIQoL",
             "EllesmereUIForeverEssentials",
+            "EllesmereUIPetCare",
             "EllesmereUISimpleLootCouncil",
             "EllesmereUIAuraBuffReminders",
             "EllesmereUIDataBars",
@@ -798,6 +800,7 @@ EllesmereUI.FOREVER_HIDDEN_ADDONS = {
 -- "## AllowLoadGameType: camelot") leave the same lists on every other client.
 EllesmereUI.FOREVER_ONLY_ADDONS = {
     EllesmereUIForeverEssentials = true,
+    EllesmereUIPetCare = true,
 }
 -- Modules held back from the current release on every client: they leave the
 -- same lists and the packager does not ship their folder (.pkgmeta ignore);
