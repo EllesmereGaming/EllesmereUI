@@ -743,10 +743,13 @@ local function DataBarKit(parent)
     -- Click Through | Text Size. While Never only the rows up to Visibility
     -- are built. Returns the new y and the Visibility row.
     function K.Section(y, barKey, sectionTitle, visLabel, lead)
-        local _, h
+        local _, h, hdr
         local function S() return EAB.db.profile.bars[barKey] end
 
-        _, h = W:SectionHeader(parent, sectionTitle, y);  y = y - h
+        hdr, h = W:SectionHeader(parent, sectionTitle, y);  y = y - h
+        -- The Move in Unlock Mode button on this bar's section: greyed while
+        -- Blizzard's bars are in use, since our bar (and its mover) is not built then.
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = barKey, disabled = _blizzDis, disabledTooltip = BLIZZ_DIS_TIP, rawTooltip = true })
         if lead then y = lead(y) end
         -- Custom Border, the opt-in for this bar's own border style, size and
         -- color, fills the Visibility row's free slot. Its rows below are built

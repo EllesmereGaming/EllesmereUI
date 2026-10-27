@@ -379,7 +379,8 @@ function ns.LayoutCastIcon(plate, castH)
 end
 
 -- How far the cast icon protrudes past the bar edge, plus that side ("left"/"right"). The
--- target arrow + side-slot core icons reserve this so they never land under the icon. Returns
+-- target arrows and the side-slot elements step out by it (ns.NP_SideIconPush,
+-- ns.NP_FullIconPush) so they never land under the icon. Returns
 -- 0 for left/normal and in-width-tucked icons. Optional `plate` matters only for the full-size
 -- icon (a cast-bar child rendered only during a cast): its reserve is gated on the cast bar
 -- being shown; a settings-only query (no plate) assumes the space is reserved.
@@ -403,6 +404,44 @@ function ns.GetCastIconReserve(plate)
         return GetCastBarHeight() * (GetCastIconScale() or 1), side
     end
     return 0, side
+end
+
+-- Whether an element beside the bars meets the full-size cast icon. The element spans y0..y1
+-- above the health bar's bottom; the icon runs from the health bar's top (barH) down to the
+-- cast bar's bottom (castBottom, from the health bar's bottom), both moved by its Y offset.
+-- The options preview passes its own bar measures.
+function ns.NP_MeetsFullIcon(y0, y1, barH, castBottom)
+    local iy = (p and p.castIconOffsetY) or defaults.castIconOffsetY or 0
+    return y0 < barH + iy and castBottom + iy < y1
+end
+
+-- The full-size cast icon's push on `side` for an element spanning y0..y1 above the health
+-- bar's bottom: the icon's width while it shows there (a cast is up) and the two meet, else 0,
+-- so an element its slot's Y offset moved clear of the icon stays put.
+function ns.NP_FullIconPush(plate, side, y0, y1)
+    if not ns.GetCastIconFullSize() then return 0 end
+    local res, iconSide = ns.GetCastIconReserve(plate)
+    if res <= 0 or iconSide ~= side then return 0 end
+    if ns.NP_MeetsFullIcon(y0, y1, GetHealthBarHeight(), plate._castDrop or -GetCastBarHeight()) then
+        return res
+    end
+    return 0
+end
+
+-- How far an icon in a side slot (raid marker, classification, faction; the target arrows
+-- too) steps out on `side`. It centres on the bar plus y and is sz tall. The normal-size cast
+-- icon's reserve always applies, the full-size icon's only where the two meet; plus Classic
+-- WoW UI's border reach or WoW Forever's level box (ns.NP_ClassicSide).
+function ns.NP_SideIconPush(plate, side, y, sz)
+    local push
+    if ns.GetCastIconFullSize() then
+        local mid = GetHealthBarHeight() / 2 + y
+        push = ns.NP_FullIconPush(plate, side, mid - sz / 2, mid + sz / 2)
+    else
+        local res, iconSide = ns.GetCastIconReserve(plate)
+        push = (iconSide == side) and res or 0
+    end
+    return push + ns.NP_ClassicSide(side)
 end
 local function GetKickTickEnabled()
     if p and p.kickTickEnabled ~= nil then return p.kickTickEnabled end
@@ -1423,84 +1462,123 @@ function ns.GetActiveCastLockout(plate)
     return lockout
 end
 
--- Position target arrows outside the side-slot elements (cast icon, raid marker,
--- classification, faction). A side holding an aura container is re-pointed at the
--- container's engine-sized edge by EUI_Nameplates_AuraContainers' ReanchorArrows.
+-- How far one side-slot icon pushes a target arrow out: 0 unless it meets the arrow's span (the
+-- icon centres on the bar plus y and is sz tall, the arrow ah tall), else its outer edge, past
+-- its own cast icon push (as its Update* placed it) and its slot's X offset.
+local function ArrowSideReach(plate, side, y, sz, xOff, ah)
+    if math.abs(y) >= (sz + ah) / 2 then return 0 end
+    local reach = GetSideAuraXOffset() + ns.NP_SideIconPush(plate, side, y, sz) + sz
+    if side == "left" then return reach - xOff end
+    return reach + xOff
+end
+
+-- Side guests: elements another module parks beside the bars (the Kick Tracker's icons). A
+-- guest provider answers (plate, side, a0, a1) with the outermost frame it has on that side of
+-- the plate whose vertical span meets a0..a1 (the arrows' span, above the bar's bottom) and
+-- that frame's centre height over the bar's centre in plate units, or nil. The arrows hug it
+-- as they hug a side aura row, and ahead of one: the two cannot be measured against each other.
+ns.NP_SideGuests = {}
+function ns.NP_AddSideGuest(fn)
+    local list = ns.NP_SideGuests
+    for i = 1, #list do
+        if list[i] == fn then return end
+    end
+    list[#list + 1] = fn
+end
+
+-- Restricted-tree rendering: inside the aspect-restricted nameplate subtree, SINGLE-POINT +
+-- SetSize regions render displaced from their anchor, while rects fully defined by anchors
+-- (fill, bg, hash line) render exactly. So an arrow pins TOP+BOTTOM to two corners (hash-line
+-- pattern): edges resolve engine-side, offsets stay small numbers, nothing here reads geometry
+-- ("Can't measure restricted regions"); the symmetric pair keeps the centring exact under
+-- pixel-mult rounding. A side guest the arrow meets is hugged at the middle of its outer edge,
+-- both points on it, half the arrow up and down (less the guest's own height over the bar's
+-- centre), so the arrow stays the bar's and exactly its own height. A side aura row the arrow
+-- meets is hugged at its engine-sized outer edge (aura counts are secret): rows are
+-- BOTTOM-anchored at the bar's bottom plus their slot's Y offset and grow outward, so the row's
+-- bottom outer corner is the one point whose two axes are both truthful, and the arrow centres
+-- on the bar from there. A row the full-size cast icon did not push out (it misses the icon)
+-- leaves the arrow to clear the icon too, one icon width further out. Otherwise the arrow's
+-- inner edge sits `extent` + 8 past the bar's edge.
+local function PlaceArrow(plate, arrow, side, extent, aw, ah)
+    local barH = GetHealthBarHeight()
+    local a0, a1 = (barH - ah) / 2, (barH + ah) / 2
+    local x = 8 + aw / 2
+    local guests = ns.NP_SideGuests
+    local guest, gy
+    for i = 1, #guests do
+        guest, gy = guests[i](plate, side, a0, a1)
+        if guest then break end
+    end
+    local row, ry, rh
+    if not guest and ns.NPC_SideRow then row, ry, rh = ns.NPC_SideRow(plate, side, a0, a1) end
+    arrow:ClearAllPoints()
+    if guest then
+        local edge = (side == "left") and "LEFT" or "RIGHT"
+        if side == "left" then x = -x end
+        gy = gy or 0
+        PP.Point(arrow, "TOP", guest, edge, x, ah / 2 - gy)
+        PP.Point(arrow, "BOTTOM", guest, edge, x, -ah / 2 - gy)
+    elseif row and ry < a1 and a0 < ry + rh then
+        local icon = ns.NP_FullIconPush(plate, side, a0, a1)
+        if icon > 0 and ns.NP_FullIconPush(plate, side, ry, ry + rh) == 0 then x = x + icon end
+        local cy = barH / 2 - ry
+        local corner = (side == "left") and "BOTTOMLEFT" or "BOTTOMRIGHT"
+        if side == "left" then x = -x end
+        PP.Point(arrow, "TOP", row, corner, x, cy + ah / 2)
+        PP.Point(arrow, "BOTTOM", row, corner, x, cy - ah / 2)
+    else
+        local dy = (ah - barH) / 2
+        x = x + extent
+        if side == "left" then
+            PP.Point(arrow, "TOP", plate.health, "TOPLEFT", -x, dy)
+            PP.Point(arrow, "BOTTOM", plate.health, "BOTTOMLEFT", -x, -dy)
+        else
+            PP.Point(arrow, "TOP", plate.health, "TOPRIGHT", x, dy)
+            PP.Point(arrow, "BOTTOM", plate.health, "BOTTOMRIGHT", x, -dy)
+        end
+    end
+    PP.Width(arrow, aw)
+end
+
+-- Position target arrows outside the side elements they meet: the cast icon, the side-slot
+-- icons (raid marker, classification, faction) and a side aura row. An element its slot's Y
+-- offset moved clear of the arrows (above or below them) is passed over.
 local function PositionArrowsOutsideAuras(plate)
     if not plate.leftArrow then return end
     if not plate.leftArrow:IsShown() then return end
-    local sideOff = GetSideAuraXOffset()
-    -- Track the furthest pixel extent on each side (accounts for per-slot X offsets)
-    local leftExtent, rightExtent = 0, 0
-    -- Cast spell icon: reserve on its side so the arrow + pushed side-slot core icons clear it.
-    -- Normal-size icons always reserve (steady across cast start/stop); passing plate gates the
-    -- full-size icon's large reserve on the cast bar being shown. Clean numbers, no secrets.
-    local iconRes, iconSide = ns.GetCastIconReserve(plate)
-    local leftPush = (iconRes > 0 and iconSide == "left") and iconRes or 0
-    local rightPush = (iconRes > 0 and iconSide == "right") and iconRes or 0
-    -- Classic WoW UI: the border art counts as part of the bar, so everything
-    -- beside the bar clears its reach (mostly the level plate on the right).
-    local classicL, classicR = ns.NP_ClassicBarReserve()
-    leftPush, rightPush = leftPush + classicL, rightPush + classicR
-    if leftPush > 0 then leftExtent = math.max(leftExtent, leftPush) end
-    if rightPush > 0 then rightExtent = math.max(rightExtent, rightPush) end
-    -- Account for raid marker in side slots
-    local rmPos = GetRaidMarkerPos()
-    if rmPos == "left" and plate.raidFrame and plate.raidFrame:IsShown() then
-        local rmSz = GetRaidMarkerSize()
-        local rxOff = select(1, GetAuraSlotOffsets("raidMarker"))
-        leftExtent = math.max(leftExtent, sideOff + leftPush + rmSz - rxOff)
-    elseif rmPos == "right" and plate.raidFrame and plate.raidFrame:IsShown() then
-        local rmSz = GetRaidMarkerSize()
-        local rxOff = select(1, GetAuraSlotOffsets("raidMarker"))
-        rightExtent = math.max(rightExtent, sideOff + rightPush + rmSz + rxOff)
-    end
-    -- Account for classification icon in side slots
-    local clSlot = GetClassificationSlot()
-    local clSz = GetRareEliteIconSize()
-    if clSlot == "left" and plate.classFrame and plate.classFrame:IsShown() then
-        local cxOff = select(1, GetAuraSlotOffsets("classification"))
-        leftExtent = math.max(leftExtent, sideOff + leftPush + clSz - cxOff)
-    elseif clSlot == "right" and plate.classFrame and plate.classFrame:IsShown() then
-        local cxOff = select(1, GetAuraSlotOffsets("classification"))
-        rightExtent = math.max(rightExtent, sideOff + rightPush + clSz + cxOff)
-    end
-    -- Account for the faction badge in side slots (its own, or Rare/Quest + Faction)
-    local fcSlot = ns.NP_GetFactionSlot()
-    if (fcSlot == "left" or fcSlot == "right") and plate.factionFrame and plate.factionFrame:IsShown() then
-        local fxOff = GetSlotOffsets(fcSlot)
-        local fcSz = ns.NP_GetFactionIconSize()
-        if fcSlot == "left" then
-            leftExtent = math.max(leftExtent, sideOff + leftPush + fcSz - fxOff)
-        else
-            rightExtent = math.max(rightExtent, sideOff + rightPush + fcSz + fxOff)
-        end
-    end
-    -- Restricted-tree rendering: inside the aspect-restricted nameplate subtree, SINGLE-POINT +
-    -- SetSize regions render displaced from their anchor, while rects fully defined by anchors
-    -- (fill, bg, hash line) render exactly. So both arrows pin TOP+BOTTOM to the health bar's
-    -- CORNERS (hash-line pattern): bar edges resolve engine-side, offsets stay small numbers,
-    -- nothing here reads geometry ("Can't measure restricted regions"). Result: inner edge
-    -- (extent + 8) from the bar edge, vertically centered, 16*scale tall; symmetric +/-dy pair
-    -- keeps centering exact under pixel-mult rounding.
     local st = ns.ResolveTargetArrowStyle(p)
     local sc = (p and p.targetArrowScale) or 1.0
     local aw = math.floor(((st and st.w) or 16) * sc + 0.5)
     local ah = math.floor(16 * sc + 0.5)
-    local dy = (ah - GetHealthBarHeight()) / 2
-    local lox = -(leftExtent + 8 + aw / 2)
-    local rox = (rightExtent + 8 + aw / 2)
-    -- Stashed for EUI_Nameplates_AuraContainers ReanchorArrows, which re-points arrows to
-    -- engine-sized aura container edges and needs these dimensions without re-deriving the style.
-    plate._arrowW, plate._arrowH = aw, ah
-    plate.leftArrow:ClearAllPoints()
-    plate.rightArrow:ClearAllPoints()
-    PP.Point(plate.leftArrow, "TOP", plate.health, "TOPLEFT", lox, dy)
-    PP.Point(plate.leftArrow, "BOTTOM", plate.health, "BOTTOMLEFT", lox, -dy)
-    PP.Width(plate.leftArrow, aw)
-    PP.Point(plate.rightArrow, "TOP", plate.health, "TOPRIGHT", rox, dy)
-    PP.Point(plate.rightArrow, "BOTTOM", plate.health, "BOTTOMRIGHT", rox, -dy)
-    PP.Width(plate.rightArrow, aw)
+    -- The cast icon (and Classic WoW UI's border), measured on the arrows' own span.
+    local leftExtent = ns.NP_SideIconPush(plate, "left", 0, ah)
+    local rightExtent = ns.NP_SideIconPush(plate, "right", 0, ah)
+    local rmPos = GetRaidMarkerPos()
+    if (rmPos == "left" or rmPos == "right") and plate.raidFrame and plate.raidFrame:IsShown() then
+        local rx, ry = GetAuraSlotOffsets("raidMarker")
+        local r = ArrowSideReach(plate, rmPos, ry, GetRaidMarkerSize(), rx, ah)
+        if rmPos == "left" then leftExtent = math.max(leftExtent, r) else rightExtent = math.max(rightExtent, r) end
+    end
+    local clSlot = GetClassificationSlot()
+    if (clSlot == "left" or clSlot == "right") and plate.classFrame and plate.classFrame:IsShown() then
+        local cx, cy = GetAuraSlotOffsets("classification")
+        local r = ArrowSideReach(plate, clSlot, cy, GetRareEliteIconSize(), cx, ah)
+        if clSlot == "left" then leftExtent = math.max(leftExtent, r) else rightExtent = math.max(rightExtent, r) end
+    end
+    -- The faction badge (its own, or Rare/Quest + Faction, stacked higher behind a showing
+    -- Rare/Quest icon as UpdateFaction places it).
+    local fcSlot = ns.NP_GetFactionSlot()
+    if (fcSlot == "left" or fcSlot == "right") and plate.factionFrame and plate.factionFrame:IsShown() then
+        local fx, fy = GetSlotOffsets(fcSlot)
+        if p and p.classificationIncludeFaction and plate.classFrame:IsShown() then
+            fy = fy + math.floor(GetRareEliteIconSize() * 0.6 + 0.5)
+        end
+        local r = ArrowSideReach(plate, fcSlot, fy, ns.NP_GetFactionIconSize(), fx, ah)
+        if fcSlot == "left" then leftExtent = math.max(leftExtent, r) else rightExtent = math.max(rightExtent, r) end
+    end
+    PlaceArrow(plate, plate.leftArrow, "left", leftExtent, aw, ah)
+    PlaceArrow(plate, plate.rightArrow, "right", rightExtent, aw, ah)
 end
 ns.PositionArrowsOutsideAuras = PositionArrowsOutsideAuras
 

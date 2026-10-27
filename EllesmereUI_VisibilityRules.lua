@@ -208,7 +208,7 @@ end
 -- skipMountAxis: the caller's secure state driver already carries [mounted]/[nomounted]
 -- clauses that self-update inside combat. Evaluating the mount axis here too would let
 -- Lua clobber the driver with a literal "hide" that cannot re-evaluate until combat ends
--- (see BuildVisibilityString in EllesmereUIActionBars.lua). Such callers pass true and
+-- (see BuildVisibilityString in EUI_ActionBars_VisibilityDrivers.lua). Such callers pass true and
 -- keep their own narrower mount check for the shapeshift forms [mounted] cannot see.
 function EllesmereUI.CheckVisibilityOptionsNonMacro(opts, skipMountAxis)
     if not opts then return false end

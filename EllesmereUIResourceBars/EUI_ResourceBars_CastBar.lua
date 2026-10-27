@@ -40,9 +40,12 @@ local ShowChannelTicks, HideChannelTicks
 
 BuildCastBar = function()
     local cb = ERB.db.profile.castBar
+    -- Embed in Player Portrait: Unit Frames calls back after each frame reload, which
+    -- can move, reshape or remove the portrait the icon sits on.
     local uf = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
-    if uf then
-        uf.UF_ResourceCastPortraitChanged = cb.enabled and cb.iconOnPortrait and ns.ERB_RefreshCastPortrait or nil
+    if uf and uf.UF_WatchPlayerPortrait then
+        uf.UF_WatchPlayerPortrait("ResourceBars",
+            (cb.enabled and cb.iconOnPortrait) and ns.ERB_RefreshCastPortrait or nil)
     end
     -- blizz = a stock style dictates the geometry (both stock styles);
     -- blizzKit = the 12.1 kit (atlas fill, background, pip and text box);
@@ -445,12 +448,13 @@ else
 end
     -- The fill was just repainted from the settings: a live cast re-resolves its
     -- cached settings on the next tick and re-reads the Out of Range Gray, and a
-    -- live uninterruptible cast takes its override colour back (or keeps the
-    -- configured paint with the option now off).
+    -- live uninterruptible cast or channel takes its override colour back (or
+    -- keeps the configured paint with the option now off).
     castBarFrame._rangeOut = nil
     castBarFrame._cstKey = nil
     castBarFrame._uninterrupt = nil
-    ns.ERB_CastUninterruptApply()
+    castBarFrame._channelPaint = nil
+    ns.ERB_CastOverrideApply()
 
     local spark = castBarFrame._spark
     -- Blizzard Style: the stock pip replaces the spark art (once; the swap is
@@ -621,7 +625,7 @@ end
 
 function ns.ERB_RefreshCastPortrait()
     BuildCastBar()
-    if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_CastBar") end
+    EllesmereUI.NotifyElementResized("ERB_CastBar")
 end
 
 -- Some set bonuses never register via IsPlayerSpell or a player aura.
@@ -1297,9 +1301,9 @@ function ns.ShowIdleCastBar()
     castBarFrame._nativeFill = nil
     castBarFrame._cstKey = nil
     if ns._rawFillDriver then ns._rawFillDriver:Hide() end
-    if castBarFrame._castUninterruptible then
+    if castBarFrame._castUninterruptible or castBarFrame._channelPaint then
         castBarFrame._castUninterruptible = nil
-        ns.ERB_CastUninterruptApply()
+        ns.ERB_CastOverrideApply(true)
     end
     if castBarFrame._rangeOut then ns.ERB_CastRangeTint(false) end
 
@@ -1371,7 +1375,7 @@ OnCastStart = function()
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     castBarFrame._nameText:SetText(ns.CastDisplayName(cb, name, spellID))
     ns.ERB_SetBlizzCastFill("cast")
-    ns.ERB_CastUninterruptStart(cb, notInterruptible)
+    ns.ERB_CastOverrideStart(cb, notInterruptible)
     if not ns.ApplyCastTimer("cast") then
         local castDur = endTimeMS - startTimeMS
         local initProgress = (castDur > 0) and ((GetTime() - startTimeMS / 1000) / (castDur / 1000)) or 0
@@ -1431,7 +1435,7 @@ OnChannelStart = function()
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     castBarFrame._nameText:SetText(ns.CastDisplayName(cb, name, spellID))
     ns.ERB_SetBlizzCastFill("channel")
-    ns.ERB_CastUninterruptStart(cb, notInterruptible)
+    ns.ERB_CastOverrideStart(cb, notInterruptible)
     if not ns.ApplyCastTimer("channel") then
         local chanDur = endTimeMS - startTimeMS
         local initProgress = (chanDur > 0) and ((endTimeMS / 1000 - GetTime()) / (chanDur / 1000)) or 1
@@ -1547,10 +1551,17 @@ ns.ERB_RestoreCastFill = function()
         castBarFrame._bar:GetStatusBarTexture():SetVertexColor(1, 1, 1, (cb.fillOpacity or 100) / 100)
         return
     end
-    -- An uninterruptible cast under the Uninterruptible Color Override: its solid colour.
+    -- An uninterruptible cast under the Uninterruptible Color Override: its solid
+    -- colour, ahead of the channel override.
     if castBarFrame._uninterrupt then
         castBarFrame._bar:GetStatusBarTexture():SetVertexColor(cb.uninterruptibleR or 0.5,
             cb.uninterruptibleG or 0.5, cb.uninterruptibleB or 0.5, (cb.fillOpacity or 100) / 100)
+        return
+    end
+    -- A channel under the Channel Color Override: its solid colour.
+    if castBarFrame._channelPaint then
+        castBarFrame._bar:GetStatusBarTexture():SetVertexColor(cb.channelR or 0.3,
+            cb.channelG or 0.8, cb.channelB or 0.3, (cb.fillOpacity or 100) / 100)
         return
     end
     local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, 1
@@ -1611,27 +1622,35 @@ ns.ERB_CastRangeTint = function(out)
     end
 end
 
--- Uninterruptible Color Override (castBar.uninterruptibleOverride; off by
--- default): a cast the player cannot be interrupted out of fills in its own
--- solid colour (over a gradient too, which comes back after). Read at each cast
--- start and on the interruptible flips of a live cast (a restricted answer
--- counts as interruptible); repaints only on a change. Out of Range Gray stays
--- on top; the empower stage colours wait. Not under Blizzard Style, whose fill
--- art is stock.
-ns.ERB_CastUninterruptApply = function()
+-- Fill colour overrides (both off by default), each a solid colour over the
+-- configured fill (over a gradient too, which comes back after):
+--   Channel Color Override (castBar.channelOverride): a channel, empowers
+--   excepted (their stage colours own them).
+--   Uninterruptible Color Override (castBar.uninterruptibleOverride): a cast
+--   the player cannot be interrupted out of, read at each start and on the
+--   interruptible flips of a live cast (a restricted answer counts as
+--   interruptible). It wins over the channel colour.
+-- Repaints only on a change. Out of Range Gray stays on top; the empower stage
+-- colours wait. Not under Blizzard Style, whose fill art is stock. idle = the
+-- bar just went idle: both overrides clear.
+ns.ERB_CastOverrideApply = function(idle)
     local cb = ERB.db.profile.castBar
-    local on = (cb.uninterruptibleOverride and castBarFrame._castUninterruptible
-        and not castBarFrame._blizzFill) and true or false
-    if (castBarFrame._uninterrupt or false) == on then return end
-    castBarFrame._uninterrupt = on or nil
+    local live = not idle and not castBarFrame._blizzFill
+    local un = (live and cb.uninterruptibleOverride and castBarFrame._castUninterruptible) and true or false
+    local ch = (live and cb.channelOverride and castBarFrame._channeling
+        and not castBarFrame._empowering) and true or false
+    if (castBarFrame._uninterrupt or false) == un and (castBarFrame._channelPaint or false) == ch then return end
+    castBarFrame._uninterrupt = un or nil
+    castBarFrame._channelPaint = ch or nil
     if not castBarFrame._rangeOut then ns.ERB_RestoreCastFill() end
 end
--- From the cast, channel and empower starts: one field test while the option
--- is off and no override is painted.
-ns.ERB_CastUninterruptStart = function(cb, notInterruptible)
-    if not (cb.uninterruptibleOverride or castBarFrame._uninterrupt) then return end
+-- From the cast, channel and empower starts: one field test while both options
+-- are off and no override is painted.
+ns.ERB_CastOverrideStart = function(cb, notInterruptible)
+    if not (cb.uninterruptibleOverride or cb.channelOverride
+            or castBarFrame._uninterrupt or castBarFrame._channelPaint) then return end
     castBarFrame._castUninterruptible = (not issecretvalue(notInterruptible) and notInterruptible) and true or false
-    ns.ERB_CastUninterruptApply()
+    ns.ERB_CastOverrideApply()
 end
 -- The flips are watched only while the option applies (the cast bar on, not
 -- Blizzard Style); BuildCastBar syncs it.
@@ -1645,7 +1664,7 @@ do
                     if not (castBarFrame and (castBarFrame._casting or castBarFrame._channeling
                             or castBarFrame._empowering)) then return end
                     castBarFrame._castUninterruptible = event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE"
-                    ns.ERB_CastUninterruptApply()
+                    ns.ERB_CastOverrideApply()
                 end)
             end
             watch:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTIBLE", "player")
@@ -1781,7 +1800,7 @@ OnEmpowerStart = function()
     HideLatencyOverlay()
     castBarFrame._nameText:SetText(ns.CastDisplayName(cb, name, spellID))
     ns.ERB_SetBlizzCastFill("cast")
-    ns.ERB_CastUninterruptStart(cb, notInterruptible)
+    ns.ERB_CastOverrideStart(cb, notInterruptible)
     if not ns.ApplyCastTimer("empower") then
         local empDur = endTimeMS - startTimeMS
         local empProgress = (empDur > 0) and ((GetTime() - startTimeMS / 1000) / (empDur / 1000)) or 0

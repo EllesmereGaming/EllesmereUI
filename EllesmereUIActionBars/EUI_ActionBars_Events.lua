@@ -4,7 +4,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  The central event dispatcher for the action bar buttons, the assist and
 --  charge cooldown helpers it drives, ForceButtonRefresh and bar dormancy.
---  Loads right after the main file and reads it through ns only.
+--  Loads right after EUI_ActionBars_Visibility.lua and reads the main file
+--  through ns only.
 -------------------------------------------------------------------------------
 local _, ns = ...
 
@@ -529,7 +530,7 @@ ns.IsNeverBar = function(info)
     local s = bars and bars[info.key]
     -- Hide Bar When Using Gamepad joins the set while a controller is connected
     -- (EAB._padHide only turns on out of combat, see EAB._PadSync).
-    local never = s and (s.alwaysHidden or s.enabled == false
+    local never = s and (EAB.VisibilityCompat.IsNever(s) or s.enabled == false
         or (EAB._padHide and s.gamepadHideBar == true)) or false
     -- Toggle override wins both ways: hiding an Always bar hard-disables its UI
     -- work; showing a Never bar wakes it. Action bindings stay live.

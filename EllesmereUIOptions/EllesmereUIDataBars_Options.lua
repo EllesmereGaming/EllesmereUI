@@ -1601,7 +1601,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function BuildDataBarsPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
-        local _, h
+        local _, h, hdr
         local row
 
         parent._showRowDivider = true
@@ -1804,7 +1804,13 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         --  BAR SETTINGS
         -------------------------------------------------------------------
-        _, h = W:SectionHeader(parent, "BAR SETTINGS", y);  y = y - h
+        hdr, h = W:SectionHeader(parent, "BAR SETTINGS", y);  y = y - h
+        -- The Move in Unlock Mode button on the selected bar's first section:
+        -- the key is read at the click, so it highlights the bar the selector shows.
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = function()
+            local c = SelectedBar()
+            return c and ("EDB_" .. c.id) or nil
+        end })
 
         -- Visibility | Visibility Options (renaming lives in the selector's
         -- inline edit; "Never" visibility fully disables the bar's work).
@@ -3789,6 +3795,11 @@ initFrame:SetScript("OnEvent", function(self)
     --  preview strip navigates through _edbNavigateFn directly.
     ---------------------------------------------------------------------------
     function ns.OpenBlockSettings(barId, blockId, settingKey)
+        -- The options never open in combat; nor does the scroll below run then.
+        if InCombatLockdown() then
+            EllesmereUI.PrintError("Cannot open options during combat.")
+            return
+        end
         local key = "block:" .. blockId .. ":" .. settingKey
         EllesmereUI:NavigateToElementSettings("EllesmereUIDataBars", PAGE_DATABARS, nil,
             function()

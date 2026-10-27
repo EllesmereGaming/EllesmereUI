@@ -263,7 +263,7 @@ local function SetupBlizzardMovableFrame(barKey)
 
     -- Apply visibility settings
     local s = EAB.db.profile.bars[barKey]
-    if s and s.alwaysHidden then holder:Hide() end
+    if s and EAB.VisibilityCompat.IsNever(s) then holder:Hide() end
 
     return holder
 end
@@ -688,7 +688,7 @@ local function RegisterExtraBarsWithUnlockMode()
                     if not s then return false end
                     local ov = EAB._visOverride and EAB._visOverride[bk]
                     if ov then return ov == "never" end
-                    return s.alwaysHidden
+                    return EAB.VisibilityCompat.IsNever(s)
                 end,
                 getFrame = function() return extraBarHolders[bk] end,
                 getSize = function()
@@ -759,7 +759,7 @@ local function SetupExtraBars()
                 local s = EAB.db.profile.bars[info.key]
                 if s then
                     local holder = extraBarHolders[info.key]
-                    if s.alwaysHidden and not info.blizzOwnedVisibility then
+                    if EAB.VisibilityCompat.IsNever(s) and not info.blizzOwnedVisibility then
                         blizzFrame:Hide()
                         if holder then holder:Hide() end
                     end

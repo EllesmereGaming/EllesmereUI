@@ -3,7 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EUI_ActionBars_Chrome.lua
 --
 --  Bar chrome and end caps for the action bars and the extra bars. Loads
---  right after the main file and reads it through ns only.
+--  right after EUI_ActionBars_Events.lua and reads the main file through ns
+--  only.
 -------------------------------------------------------------------------------
 local _, ns = ...
 -- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the

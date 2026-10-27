@@ -53,8 +53,12 @@ local function Parse(value)
 end
 
 -- The icon's Stance Bar setting (a resolved settings table), or nil for none.
-function ns.CdmStanceBarOf(settings)
+-- Given a frame we inject, nothing: its value lives in customActiveStates and the
+-- Fake-Active engine runs it (as ns.CdStateOf), so a bar-tier value never shows
+-- behind that menu's back.
+function ns.CdmStanceBarOf(settings, frame)
     if not ns._cdmAnyStanceBar or not settings then return nil end
+    if frame and ns.CdmIsInjectedFrame and ns.CdmIsInjectedFrame(frame) then return nil end
     local v = settings.stanceBarHide
     if type(v) ~= "string" or not Parse(v) then return nil end
     return v

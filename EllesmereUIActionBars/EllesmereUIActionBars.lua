@@ -8,7 +8,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  + _childupdate-eab-page with explicit action attrs.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local EAB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.EAB = EAB
@@ -383,6 +383,17 @@ function EAB.VisibilityCompat.Normalize(settings)
         return EAB.VisibilityCompat.ApplyMode(settings, "out_of_combat")
     end
     return EAB.VisibilityCompat.ApplyMode(settings, "always")
+end
+
+-- Effective Never for runtime gates: an applied Visibility override replaces the
+-- saved mode, so a Never bar with an Always override is NOT hidden, and
+-- an Always bar with a Never override is. Raw alwaysHidden/barVisibility reads stay
+-- correct only where the SHARED value is meant (sync copies, the setter itself).
+function EAB.VisibilityCompat.IsNever(s)
+    if not s then return false end
+    local ov = EllesmereUI.VisOverrideValue(s)
+    if ov then return ov == "never" end
+    return (s.alwaysHidden or s.barVisibility == "never") and true or false
 end
 
 function EAB.VisibilityCompat.Copy(dst, src, dstNoGroupModes)
@@ -838,8 +849,7 @@ local function ShouldQuickKeybindSurfaceBar(s)
     -- Surfaces bars hidden by transient runtime rules, but explicit "Never" wins.
     -- Hide Bar When Using Gamepad is not a Never: its verdict (EAB._padHide) is
     -- off while this mode is open, so a controller player can bind those bars.
-    local vis = s.barVisibility or "always"
-    return not s.alwaysHidden and vis ~= "never"
+    return not EAB.VisibilityCompat.IsNever(s)
 end
 
 local function FadeTo(frame, toAlpha, duration)
@@ -1022,7 +1032,7 @@ local STOCK_BAR_DISPOSAL = {
 -- The three ...Setters lists: a file that keeps one of these values registers
 -- a setter here; the place that assigns it writes through SetSecureRefsReady,
 -- SetPagingFrame or SetIsApplyingAll, built below, which runs them all.
-ns._internals = {
+EllesmereUI.NewInternals(ns, "_internals", {
     BAR_CONFIG = BAR_CONFIG, _fadeAlpha = _fadeAlpha, _quickKeybindState = _quickKeybindState,
     FormatHotkeyText = FormatHotkeyText, StopFade = StopFade, SafeEnableMouse = SafeEnableMouse,
     SafeEnableMouseMotionOnly = SafeEnableMouseMotionOnly,
@@ -1032,19 +1042,8 @@ ns._internals = {
     SHAPE_BTN_EXPAND = SHAPE_BTN_EXPAND, ALL_BARS = ALL_BARS, FadeTo = FadeTo, EXTRA_BARS = EXTRA_BARS,
     _dragState = _dragState,
     secureRefsReadySetters = {}, pagingFrameSetters = {}, isApplyingAllSetters = {},
-}
-for setter, listName in pairs({
+}, {
     SetSecureRefsReady = "secureRefsReadySetters",
     SetPagingFrame = "pagingFrameSetters",
     SetIsApplyingAll = "isApplyingAllSetters",
-}) do
-    local list = ns._internals[listName]
-    ns._internals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
-end
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._internals, { __index = function(_, k)
-    error("ns._internals has no entry " .. tostring(k), 2)
-end })
+})

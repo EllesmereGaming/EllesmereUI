@@ -2032,7 +2032,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function BuildRotationAssistIconPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
-        local _, h
+        local _, h, hdr
         parent._showRowDivider = true
         local function Settings() return DB().rotationAssistIcon end
         local function Apply()
@@ -2060,7 +2060,8 @@ initFrame:SetScript("OnEvent", function(self)
             ns.RefreshRotationAssistIcon()
         end
 
-        _, h = W:SectionHeader(parent, "ROTATION ASSIST ICON", y);  y = y - h
+        hdr, h = W:SectionHeader(parent, "ROTATION ASSIST ICON", y);  y = y - h
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ECME_RotationAssistIcon", disabled = IconOff, disabledTooltip = IconLockTip })
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Show Rotation Assist Icon",
               tooltip="Show Blizzard's current recommendation in a separate icon. Requires Assisted Highlight to be enabled in Blizzard's options. Press the spell's normal keybind; this display never casts spells. Blizzard supplies one recommendation, not a queue of future casts.",

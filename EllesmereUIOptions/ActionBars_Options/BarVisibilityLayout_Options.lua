@@ -28,7 +28,7 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
     local function RefreshPageCycle()
         ns.RefreshPagingCycleMacros()
     end
-    local _, h
+    local _, h, hdr
     local row
     -- Declared out here, not in the `do` block that builds it: the Toggle Action Bar
     -- keybind lives past that block's end and anchors into this row's right slot.
@@ -59,7 +59,10 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
     -----------------------------------------------------------------------
     --  VISIBILITY
     -----------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, SECTION_VISIBILITY, y);  y = y - h
+    hdr, h = W:SectionHeader(parent, SECTION_VISIBILITY, y);  y = y - h
+    -- The Move in Unlock Mode button on the selected bar's first section: the
+    -- key is read at the click, so it highlights the bar the selector shows.
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = SelectedKey })
 
     do
         local _visBlizzDis

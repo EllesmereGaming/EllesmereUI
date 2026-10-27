@@ -183,7 +183,7 @@ local function XPPreviewPaint(noRetry)
     -- The header's width now (a resized panel), else the one it was built at.
     local hdrW = parent:GetWidth()
     if not hdrW or hdrW <= 0 then hdrW = pv.hdrW end
-    local availW = hdrW - (EllesmereUI.CONTENT_PAD or 10) * 2
+    local availW = hdrW - EllesmereUI.CONTENT_PAD * 2
     -- Started from the last paint's overhang, so an unchanged layout styles
     -- once; a different one is styled again at its own scale, so its 1px
     -- lines snap to it (texts keep their frame-unit places across a rescale).
@@ -284,7 +284,7 @@ local function BuildXPBarPage(pageName, parent, yOffset)
     -- Row chrome (frames: never on the search pre-build's absorber rows).
     local chrome = not EllesmereUI._prebuilding
     local y = yOffset
-    local _, h
+    local _, h, hdr
 
     -- The preview header while the bar is ours and not Never (a style or
     -- Never flip rebuilds the page); no bar selector.
@@ -300,7 +300,10 @@ local function BuildXPBarPage(pageName, parent, yOffset)
     -------------------------------------------------------------------
     --  CORE
     -------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "CORE", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "CORE", y);  y = y - h
+    -- The Move in Unlock Mode button on the bar's first section: greyed while
+    -- Blizzard's bars are in use, since our bar (and its mover) is not built then.
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "XPBar", disabled = _blizzDis, disabledTooltip = BLIZZ_DIS_TIP, rawTooltip = true })
 
     -- XP Bar Style: the EllesmereUI bar, plain, in the profession frame art or
     -- in WoW Forever's border (Forever: the chat and Damage Meters border,

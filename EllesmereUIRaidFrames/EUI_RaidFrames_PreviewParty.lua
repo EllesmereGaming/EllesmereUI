@@ -627,10 +627,6 @@ end
 ns.ShowPartyPreview = ShowPartyPreview
 ns.HidePartyPreview = HidePartyPreview
 ns.partyPvActive = function() return ns._partyPvActive end
-ns.ResetPartyPreviewRandomization = function()
-    ns._partyPvRoles._randomized = nil
-    ns._partyPvInit = false
-end
 
 -- Guaranteed restore invariant. Ensures both real containers are parented to UIParent
 -- and their visibility recomputed whenever no preview should be active (e.g. the

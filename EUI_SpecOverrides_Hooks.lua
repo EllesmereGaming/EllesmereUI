@@ -46,8 +46,7 @@ end
 
 local evFrame = CreateFrame("Frame")
 evFrame:RegisterEvent("PLAYER_LOGIN")
-evFrame:RegisterEvent("PLAYER_LOGOUT")
-evFrame:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral by Ellesmere: moved unchanged by the file split; multi-event frame (login, logout, combat end)
+evFrame:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral by Ellesmere: moved unchanged by the file split; multi-event frame (login, combat end)
 evFrame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
         -- De-alias repair for stores that banked live TABLE references, which aliased
@@ -76,11 +75,6 @@ evFrame:SetScript("OnEvent", function(_, event)
             EllesmereUI._CondOv.PruneEntries()
             EllesmereUI._CondOv.PruneRedundant()
         end
-    elseif event == "PLAYER_LOGOUT" then
-        -- Keep the current spec's stored values in sync with live edits so a
-        -- shared profile opened on another character applies fresh data. Also
-        -- banks + restores an active Editing-as session.
-        EllesmereUI.SpecOverrides_HarvestCurrent()
     elseif event == "PLAYER_REGEN_ENABLED" then
         if _combatFolders then
             local fl = _combatFolders
@@ -88,6 +82,14 @@ evFrame:SetScript("OnEvent", function(_, event)
             RunRefreshers(fl)
         end
     end
+end)
+
+-- Logout: keep the current spec's stored values in sync with live edits so a
+-- shared profile opened on another character applies fresh data. Also banks +
+-- restores an active Editing-as session. Pre-logout, so the restored values
+-- land before Lite strips db.profile into the saved copy and before sync pushes.
+EllesmereUI.Lite.RegisterPreLogout(function()
+    EllesmereUI.SpecOverrides_HarvestCurrent()
 end)
 
 I.broken = false

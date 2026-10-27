@@ -633,7 +633,7 @@ local function CreateDMWindow(winIdx)
     frame._bg = frame:CreateTexture(nil, "BACKGROUND")
     frame._bg:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -GetHeaderH())
     frame._bg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-    ns.DMPaintWindowBg(frame._bg, cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75, true)
+    ns.DMPaintWindowBg(frame._bg, cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75, true, cfg.bgTexture)
 
     -- Header (inside the classic box's line; flush on every other look)
     local ci = ns.DMClassicInset()
@@ -1297,7 +1297,7 @@ local function CreateDMWindow(winIdx)
     W.sourceFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -ci, ci)
     W.sourceFrame:SetFrameLevel(frame:GetFrameLevel() + 20); W.sourceFrame:EnableMouse(true); W.sourceFrame:Hide()
     W.sourceFrame._bg = W.sourceFrame:CreateTexture(nil, "BACKGROUND"); W.sourceFrame._bg:SetAllPoints()
-    ns.DMPaintWindowBg(W.sourceFrame._bg, cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75)
+    ns.DMPaintWindowBg(W.sourceFrame._bg, cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75, nil, cfg.bgTexture)
 
     W.srcViewport = CreateFrame("ScrollFrame", nil, W.sourceFrame); W.srcViewport:SetAllPoints()
     W.srcContent = CreateFrame("Frame", nil, W.srcViewport); W.srcContent:SetSize(1, 1); W.srcViewport:SetScrollChild(W.srcContent)
@@ -1703,7 +1703,7 @@ local function CreateDMWindow(winIdx)
             ns.DMPaintValueGradient(bar, W, src, playerIdx)
             bar._valueGradientActive = true
         elseif bar._valueGradientActive then
-            bar._valueGradientActive = nil
+            bar._valueGradientActive, bar._gradT = nil, nil
             local color = c.rightTextUseClassColor and classFile and EUI.GetClassColor(classFile) or c.rightTextColor
             bar.amount:SetTextColor(color and color.r or 1, color and color.g or 1, color and color.b or 1)
         end
@@ -1812,7 +1812,7 @@ local function CreateDMWindow(winIdx)
                         end
                         -- false: never a classFilename, so the next visible pass always re-seats the fill cleared above
                         bar._cachedClass = false; bar._cachedSpecIcon = nil; bar._cachedColorClass = false
-                        bar._cachedRank = nil; bar._cachedThreatColor = nil
+                        bar._cachedRank = nil; bar._cachedThreatColor = nil; bar._gradT = nil
                     end
 
                     -- Per-tick content: only for visible bars
@@ -2898,8 +2898,8 @@ local function CreateDMWindow(winIdx)
         frame._bg:ClearAllPoints()
         frame._bg:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -hdrH)
         frame._bg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-        ns.DMPaintWindowBg(frame._bg, bgR, bgG, bgB, bgA, true)
-        ns.DMPaintWindowBg(W.sourceFrame._bg, bgR, bgG, bgB, bgA)
+        ns.DMPaintWindowBg(frame._bg, bgR, bgG, bgB, bgA, true, c.bgTexture)
+        ns.DMPaintWindowBg(W.sourceFrame._bg, bgR, bgG, bgB, bgA, nil, c.bgTexture)
         header:SetHeight(hdrH)
         local hc = c.hdrBgColor
         ns.DMPaintHeaderBg(header._hdrBg, hc and hc.r or 0x1B/255, hc and hc.g or 0x1B/255, hc and hc.b or 0x1B/255, c.hdrBgAlpha or 1)

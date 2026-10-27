@@ -38,7 +38,7 @@ end
 local function FilterKeeps(words, label)
     if not words then return true end
     if HasAllWords(words, label) then return true end
-    local shown = EllesmereUI.L and EllesmereUI.L(label)
+    local shown = EllesmereUI.L(label)
     return shown ~= label and HasAllWords(words, shown) or false
 end
 
@@ -50,14 +50,10 @@ local END_W, LOGO_L, LOGO_R = 59, 519, 622
 local FLAT_L1, FLAT_L2, FLAT_R1, FLAT_R2 = 100, 500, 650, 1050
 local BANNER_TEX = "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-banner-2.png"
 local FILTER_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\filter.png"
--- CreateHUD's own numbers (EUI_UnlockMode_Session.lua): the toggles' inner
--- edges beside the logo and their gaps, the clearance it keeps between Exit /
--- Save & Exit and the toggles, the - and + buttons outside those (10 + 30),
--- and the banner scale range.
-local UP_LEFT, UP_RIGHT, UP_GAP_L, UP_GAP_R1, UP_GAP_R2 = -66, 62, 20, 7, 2
-local CLEAR, SCALE_BTN = 15, 40
-local SCALE_MIN, SCALE_MAX, SCALE_STEP = 1.0, 1.5, 0.1
-local ICON_SZ, BOX_GAP, CHAIN_GAP = 28, 6, 20
+-- The bar's own numbers (toggle edges and gaps, the clearance before Exit /
+-- Save & Exit, the - and + reach, the scale range) come from CreateHUD
+-- (EUI_UnlockMode_Session.lua) as hud._hudLayout.
+local ICON_SZ, BOX_GAP = 28, 6
 local BOX_MIN, BOX_MAX = 100, 200
 local ALPHA_OFF, ALPHA_ON, ALPHA_HOVER = 0.30, 0.60, 0.9  -- as the bar's toggles
 
@@ -168,23 +164,24 @@ end
 -- When that does not fit: the box shrinks to BOX_MIN, then the banner only
 -- keeps CreateHUD's minimum clearance.
 local function Layout(hud, frame, V)
+    local L = hud._hudLayout
     local half = BANNER_W / 2
     local wS, wC, wH = hud._magnetBtn:GetWidth(), hud._coordBtn:GetWidth(), hud._hoverBtn:GetWidth()
-    local upL = -UP_LEFT + hud._gridBtn:GetWidth() + hud._darkOverlayBtn:GetWidth() + hud._flashBtn:GetWidth() + 2 * UP_GAP_L
-    local upR = UP_RIGHT + wS + UP_GAP_R1 + wC + UP_GAP_R2 + wH
-    local left = upL + wS + CHAIN_GAP
-    local fixed = UP_RIGHT + ICON_SZ + BOX_GAP + CHAIN_GAP + wC + CHAIN_GAP + wH
+    local upL = -L.upLeft + hud._gridBtn:GetWidth() + hud._darkOverlayBtn:GetWidth() + hud._flashBtn:GetWidth() + 2 * L.gapL
+    local upR = L.upRight + wS + L.gapR1 + wC + L.gapR2 + wH
+    local left = upL + wS + L.gapL
+    local fixed = L.upRight + ICON_SZ + BOX_GAP + L.gapL + wC + L.gapL + wH
     local exit, save = hud._exitBtn, hud._saveBtn
     local exitIn, saveIn = select(4, exit:GetPoint(1)), -select(4, save:GetPoint(1))
-    local function Outer(e) return math.max(half + e, half + e - math.min(exitIn, saveIn) + SCALE_BTN) end
+    local function Outer(e) return math.max(half + e, half + e - math.min(exitIn, saveIn) + L.scaleBtnReach) end
     local boxW = math.max(BOX_MIN, math.min(BOX_MAX, math.floor(left - fixed + 0.5)))
     local e = math.max(0, left - upL, fixed + boxW - upR)
     if V and Outer(math.ceil(e)) > V then
         boxW = BOX_MIN
         e = math.max(0, left - upL, fixed + boxW - upR)
         if Outer(math.ceil(e)) > V then
-            e = math.max(0, left + CLEAR + exitIn + exit:GetWidth() - half,
-                fixed + boxW + CLEAR + saveIn + save:GetWidth() - half)
+            e = math.max(0, left + L.clear + exitIn + exit:GetWidth() - half,
+                fixed + boxW + L.clear + saveIn + save:GetWidth() - half)
         end
     end
     e = math.ceil(e)
@@ -195,29 +192,21 @@ end
 
 -- Keeps the banner and its - and + on screen: a banner scale that no longer
 -- fits (a smaller screen) shows at the largest step that does, without saving
--- it, and + greys where the next step would not fit.
+-- it, and CreateHUD greys + where the next step would not fit (its scale cap).
 local function MakeFit(hud, frame)
-    local s0 = EllesmereUIDB and EllesmereUIDB.unlockBannerScale or SCALE_MIN
-    local base = hud:GetScale() / math.max(SCALE_MIN, math.min(SCALE_MAX, s0))  -- scale at 100%
-    local greyed = false
+    local L = hud._hudLayout
+    local s0 = EllesmereUIDB and EllesmereUIDB.unlockBannerScale or L.scaleMin
+    local base = hud:GetScale() / math.max(L.scaleMin, math.min(L.scaleMax, s0))  -- scale at 100%
     return function()
         local V = GetScreenWidth() / (2 * base)
         local fitMax = V / Layout(hud, frame, V)
         local s = hud:GetScale() / base
         local target = s
-        if s > math.max(SCALE_MIN, fitMax) + 0.001 then
-            target = math.max(SCALE_MIN, math.floor(fitMax / SCALE_STEP + 0.001) * SCALE_STEP)
+        if s > math.max(L.scaleMin, fitMax) + 0.001 then
+            target = math.max(L.scaleMin, math.floor(fitMax / L.scaleStep + 0.001) * L.scaleStep)
         end
-        -- CreateHUD's scale setter also resets +, which clears a grey of ours.
-        if target ~= s or greyed then hud._applyBannerScale(target, true) end
-        greyed = false
-        local plus = hud._plusBtn
-        if hud:GetScale() / base + SCALE_STEP > fitMax + 0.001 and not plus._isDisabled then
-            plus._isDisabled = true  -- as CreateHUD's RefreshScaleBtns at its maximum
-            plus._shadow:SetTextColor(0.35, 0.35, 0.35, 0.3)
-            plus._label:SetTextColor(0.35, 0.35, 0.35, 0.5)
-            greyed = true
-        end
+        hud._setScaleCap(fitMax)
+        if target ~= s then hud._applyBannerScale(target, true) end
     end
 end
 
@@ -227,13 +216,14 @@ end
 -- Hover Top Bar and Save & Exit.
 function UM.BuildFilter(hud, centerY)
     SliceBanner(hud)
+    local L = hud._hudLayout
     local FONT_PATH = UM.FONT_PATH
-    local BR, BG, BB = EllesmereUI.BORDER_R or 1, EllesmereUI.BORDER_G or 1, EllesmereUI.BORDER_B or 1
+    local BR, BG, BB = EllesmereUI.BORDER_R, EllesmereUI.BORDER_G, EllesmereUI.BORDER_B
 
     -- Snap Elements next to the logo's left side, its label outside like the other left toggles.
     local snap = hud._magnetBtn
     snap:ClearAllPoints()
-    snap:SetPoint("RIGHT", hud, "TOP", UP_LEFT, centerY)
+    snap:SetPoint("RIGHT", hud, "TOP", L.upLeft, centerY)
     snap._tex:ClearAllPoints()
     snap._tex:SetPoint("RIGHT", snap, "RIGHT", 0, 0)
     snap._label:ClearAllPoints()
@@ -241,12 +231,12 @@ function UM.BuildFilter(hud, centerY)
     snap._label:SetJustifyH("RIGHT")
     -- Grid, then Dark Overlays and Cursor Light hung off it, left of Snap Elements.
     hud._gridBtn:ClearAllPoints()
-    hud._gridBtn:SetPoint("RIGHT", snap, "LEFT", -CHAIN_GAP, 0)
+    hud._gridBtn:SetPoint("RIGHT", snap, "LEFT", -L.gapL, 0)
 
     -- Funnel icon next to the logo's right side: the box's focus button and tooltip anchor.
     local icon = CreateFrame("Button", nil, hud)
     icon:SetSize(ICON_SZ, ICON_SZ)
-    icon:SetPoint("LEFT", hud, "TOP", UP_RIGHT, centerY)
+    icon:SetPoint("LEFT", hud, "TOP", L.upRight, centerY)
     icon:SetFrameLevel(hud:GetFrameLevel() + 2)
     local iconTex = icon:CreateTexture(nil, "OVERLAY")
     iconTex:SetAllPoints()
@@ -260,19 +250,17 @@ function UM.BuildFilter(hud, centerY)
     frame:SetFrameLevel(hud:GetFrameLevel() + 2)
     -- Coordinates and Hover Top Bar right of the box, spaced as the left toggles.
     hud._coordBtn:ClearAllPoints()
-    hud._coordBtn:SetPoint("LEFT", frame, "RIGHT", CHAIN_GAP, 0)
+    hud._coordBtn:SetPoint("LEFT", frame, "RIGHT", L.gapL, 0)
     hud._hoverBtn:ClearAllPoints()
-    hud._hoverBtn:SetPoint("LEFT", hud._coordBtn, "RIGHT", CHAIN_GAP, 0)
+    hud._hoverBtn:SetPoint("LEFT", hud._coordBtn, "RIGHT", L.gapL, 0)
 
+    -- The fit only changes with the screen, so it runs as the bar shows.
     local Fit = MakeFit(hud, frame)
     Fit()
     hud:HookScript("OnShow", Fit)
-    hud._minusBtn:HookScript("OnClick", Fit)
-    hud._plusBtn:HookScript("OnClick", Fit)
     local bg = frame:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(EllesmereUI.SL_INPUT_R or 0.03, EllesmereUI.SL_INPUT_G or 0.023,
-        EllesmereUI.SL_INPUT_B or 0.018, 0.9)
+    bg:SetColorTexture(EllesmereUI.SL_INPUT_R, EllesmereUI.SL_INPUT_G, EllesmereUI.SL_INPUT_B, 0.9)
     local brd = EllesmereUI.MakeBorder(frame, BR, BG, BB, 0.20)
 
     local box = CreateFrame("EditBox", nil, frame)

@@ -161,7 +161,7 @@ local function RegisterWithUnlockMode()
                 -- a saved-Always bar toggled off does not.
                 local ov = EAB._visOverride and EAB._visOverride[info.key]
                 if ov then return ov == "never" end
-                return s.alwaysHidden or (EAB._padHide and s.gamepadHideBar == true)
+                return EAB.VisibilityCompat.IsNever(s) or (EAB._padHide and s.gamepadHideBar == true)
             end,
             getFrame = function() return barFrames[info.key] end,
             getSize = function()
@@ -404,7 +404,7 @@ local function RegisterWithUnlockMode()
                     if not s then return false end
                     local ov = EAB._visOverride and EAB._visOverride[bk]
                     if ov then return ov == "never" end
-                    return s.alwaysHidden or s.barVisibility == "never"
+                    return EAB.VisibilityCompat.IsNever(s)
                 end or nil,
                 getFrame = function() return blizzMovableHolders[bk] end,
                 getSize = function()

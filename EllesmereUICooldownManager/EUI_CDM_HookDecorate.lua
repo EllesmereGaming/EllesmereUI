@@ -1278,7 +1278,7 @@ local function DecorateFrame(frame, barData)
                 if m then cse, cseShift, cseUsable, cseForm = m.base, m.shift, m.usable, m.form end
                 -- Stance Bar (EllesmereUICdmStanceBar.lua): one more hide reason. Alone,
                 -- it runs as Hidden (On CD) with the cooldown never read.
-                local stance = ns.CdmStanceBarOf(ss2)
+                local stance = ns.CdmStanceBarOf(ss2, frame)
                 local stanceOnly = false
                 if stance and cse ~= "hiddenOnCD" and cse ~= "hiddenReady" and cse ~= "lowerAlphaOnCD" then
                     cse, stanceOnly = "hiddenOnCD", true

@@ -143,31 +143,6 @@ do
     }
 end
 
--- True when Blizzard's Cooldown Manager offers spellID (or a variant of it) as
--- a cooldown/utility icon for this spec, learned or not. Such a spell belongs
--- in the picker's spell list: added by Spell ID it is drawn from Blizzard's own
--- frame, which never reads the custom-spell settings its menu writes. Built per
--- call (the Add by Spell ID button only).
-function ns.IsCDMTrackedCooldown(spellID)
-    local gcs = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet
-    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-    if not (gcs and gci) or not _IsUsableSID(spellID) then return false end
-    local set = {}
-    for cat in pairs(ns.CDM_ICON_CD_CATS) do
-        local cdIDs = gcs(cat, true)
-        if cdIDs then
-            for _, cdID in ipairs(cdIDs) do
-                local info = gci(cdID)
-                if info then
-                    if _IsUsableSID(info.spellID) then set[info.spellID] = true end
-                    if _IsUsableSID(info.overrideSpellID) then set[info.overrideSpellID] = true end
-                end
-            end
-        end
-    end
-    return ResolveVariantValue(set, spellID) == true
-end
-
 -- Normalize a spell ID to its base (undo talent overrides), e.g. Voltaic
 -- Blaze (470057) -> Flame Shock (188389). Resident home for what used to be
 -- an options-file-local pair so every consumer (the keep/drop reconcile
@@ -619,6 +594,33 @@ function ns.EnumerateCDMSettingsCatalog(wantSet)
         end
     end
     return result
+end
+
+-- True when the picker's spell list for a CD/utility bar holds spellID (or a
+-- variant of it): a cooldown in Blizzard's Essential/Utility viewers or its
+-- settings catalog, talented or not (GetCDMSpellsForBar's own sources). Added
+-- by Spell ID, such a spell is drawn from Blizzard's frame, which never reads
+-- the custom-spell settings its menu writes. A spell set to Not Displayed is
+-- left out, as the list leaves it out: it has no Blizzard frame, so EUI draws
+-- its own and those settings work. Built per call (Add Custom Spell only).
+function ns.IsCDMTrackedCooldown(spellID)
+    if not _IsUsableSID(spellID) then return false end
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    local set = {}
+    local function Add(cdID, sid)
+        if _IsUsableSID(sid) then set[sid] = true end
+        local info = gci and _IsUsableSID(cdID) and gci(cdID)
+        if info then
+            if _IsUsableSID(info.spellID) then set[info.spellID] = true end
+            if _IsUsableSID(info.overrideSpellID) then set[info.overrideSpellID] = true end
+        end
+    end
+    for _, e in ipairs(EnumerateCDMViewerSpells(false)) do Add(e.cdID, e.sid) end
+    local catalog = ns.EnumerateCDMSettingsCatalog(ns.CDM_ICON_CD_CATS)
+    if catalog then
+        for _, ce in ipairs(catalog) do Add(ce.cdID, ce.sid) end
+    end
+    return ResolveVariantValue(set, spellID) == true
 end
 
 --- Returns array of { cdID, spellID, name, icon, cdmCat, cdmCatGroup, onEUIBar, isKnown },

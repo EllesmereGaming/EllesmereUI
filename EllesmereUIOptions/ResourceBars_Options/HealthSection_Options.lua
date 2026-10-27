@@ -26,6 +26,8 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
 
     local hdr
     hdr, h = W:SectionHeader(parent, "HEALTH BAR", y);  y = y - h
+    -- Move in Unlock Mode on the title; handed back so the page's preview eye sits after it.
+    local unlockJump = EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ERB_Health", disabled = healthOff, disabledTooltip = "Health Bar" })
     y = EllesmereUI.BlizzStyle.Note(parent, y, "resourcebars")
 
     local _advTop = y  -- content top; also used by the Simple override overlay
@@ -834,5 +836,5 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
     -- Simple page: cover these controls when the current spec overrides Health in Advanced, so edits here aren't silently ignored.
     if not ctx.advanced then ns.ERB_SimpleOverrideOverlay(parent, _advTop, y, "health") end
 
-    return y, hdr, healthEnableRow
+    return y, hdr, healthEnableRow, unlockJump
 end

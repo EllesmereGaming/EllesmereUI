@@ -99,7 +99,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function BuildPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
-        local _, h
+        local _, h, hdr
 
         EllesmereUI:ClearContentHeader()
 
@@ -112,7 +112,18 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- GENERAL
-        _, h = W:SectionHeader(parent, "GENERAL", y);  y = y - h
+        hdr, h = W:SectionHeader(parent, "GENERAL", y);  y = y - h
+        -- The Show as choice decides which shell has a mover: the Compact
+        -- Band, the Markers window alone, or the Group & Pull window (which
+        -- is also the One Window shell and the first of Two Windows).
+        EllesmereUI.BuildSectionUnlockJump(hdr, {
+            key = function()
+                local showAs = ShowAsVal()
+                if showAs == "compact" then return "EUI_RaidTools_Compact" end
+                if showAs == "markers" then return "EUI_RaidTools_Markers" end
+                return "EUI_RaidTools_Group"
+            end,
+            disabled = Disabled, disabledTooltip = "Show Raid Tools" })
 
         -- Row 1: Show Raid Tools mode | Toggle Raid Tools keybind.
         -- The mode dropdown IS the on/off switch: Never means nothing is

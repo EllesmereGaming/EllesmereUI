@@ -779,7 +779,7 @@ local function TileMythicTimer(parent, y, W, tile)
     local ns = NS(tile.folder)
     if not ns then return DisabledTile(parent, y, W, tile) end
     local function db() return _G._EMT_AceDB and _G._EMT_AceDB.profile end
-    local function MTApply() if _G._EMT_Apply then _G._EMT_Apply() end end
+    local function MTApply() if _G._EMT_ApplyTimer then _G._EMT_ApplyTimer() end end
     -- MT's registered tables live in module/options locals; own memoized
     -- core-set catalogue (registered once), separator dropped like MT's own.
     local cat = OwnBarCatalogue("mt", nil)
@@ -812,6 +812,7 @@ local function TileMythicTimer(parent, y, W, tile)
     local function tsb() local p = db(); return p and p.tsb end
     local function tfbT() local p = db(); return p and p.tfb and p.tfb.target end
     local function tfbF() local p = db(); return p and p.tfb and p.tfb.focus end
+    local function kt() local p = db(); return p and p.kickTracker end
     local _, h = W:DualRow(parent, y,
         texCfg("Timer Bar Texture", "barTexture"),
         texCfg("Timer Background Texture", "barBgTexture"));  y = y - h
@@ -819,10 +820,11 @@ local function TileMythicTimer(parent, y, W, tile)
         texCfg("Forces Bar Texture", "enemyBarTexture"),
         texCfg("Forces Background Texture", "enemyBarBgTexture"));  y = y - h
     _, h = W:DualRow(parent, y,
-        subTexCfg("Targeted Bars Texture", tsb, "TSB_Refresh"),
+        subTexCfg("Cast Bars Texture", tsb, "TSB_Refresh"),
         subTexCfg("Target Cast Bar Texture", tfbT, "TFB_Refresh"));  y = y - h
     _, h = W:DualRow(parent, y,
-        subTexCfg("Focus Cast Bar Texture", tfbF, "TFB_Refresh"), BLANK());  y = y - h
+        subTexCfg("Focus Cast Bar Texture", tfbF, "TFB_Refresh"),
+        subTexCfg("Kick Tracker Bar Texture", kt, "KT_Refresh"));  y = y - h
     return y
 end
 
@@ -994,6 +996,10 @@ end
 do
     local origNav = EllesmereUI.NavigateToElementSettings
     function EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName, preSelectFn, highlightText)
+        -- The original refuses in combat: no page state changes then.
+        if InCombatLockdown() then
+            return origNav(self, moduleName, pageName, sectionName, preSelectFn, highlightText)
+        end
         if moduleName == GLOBAL_KEY and pageName == PAGE_TEXTURES and (sectionName or highlightText) then
             local changed = false
             for _, tile in ipairs(BuildTileList()) do

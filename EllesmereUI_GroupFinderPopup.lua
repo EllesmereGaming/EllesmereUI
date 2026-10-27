@@ -27,7 +27,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Only the newest announcement stays live: the looks announcement
 --  (EllesmereUI_StyleLaunchPopup.lua) retired when this shipped, so users
 --  upgrading across several versions never see two intro popups back to back.
+--
+--  RETIRED 2026-10-23: superseded by the Kick Tracker announcement
+--  (EllesmereUI_KickTrackerPopup.lua); killed at the top so only the newest
+--  announcement fires. Everything below is inert -- loader, popup, reset
+--  command and DB stamping all dead; groupFinderIntroShown is no longer
+--  written for anyone. Delete the guard below to revive the popup.
 -------------------------------------------------------------------------------
+do return end
 
 local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI then return end

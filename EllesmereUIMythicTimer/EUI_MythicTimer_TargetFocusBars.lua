@@ -71,10 +71,14 @@ end
 --  Bar construction (lazy, once per unit). Structure mirrors the nameplate
 --  cast bar: fill + uninterruptible overlay + shield + spark + kick clip
 --  (positioner/marker/tick/ready-fill) + three text zones + icon.
+--
+--  The chrome (everything StyleBar and the static sample paint touch) is its
+--  own builder so the options header sample can be built on its column host
+--  without the kick machinery, the timer ticker or a slot in `bars`.
 --------------------------------------------------------------------------------
-local function BuildBar(which)
+local function BuildBarChrome(which, parent)
     local unit = which -- "target" / "focus" ARE the unit tokens
-    local holder = CreateFrame("Frame", nil, UIParent)
+    local holder = CreateFrame("Frame", nil, parent)
     holder:Hide()
 
     local bar = { which = which, unit = unit, frame = holder }
@@ -128,6 +132,34 @@ local function BuildBar(which)
     bar.shield:SetAllPoints()
     bar.shield:SetAtlas("nameplates-InterruptShield")
 
+    bar.textFrame = CreateFrame("Frame", nil, bar.sb)
+    bar.textFrame:SetAllPoints(bar.sb)
+    bar.textFrame:SetFrameLevel(bar.sb:GetFrameLevel() + 6)
+    -- Fonts applied at BUILD as well as in StyleBar: a bar can be built on a
+    -- disabled path (unlock getFrame, enable round-trip) and its teardown
+    -- SetText("") errors on a fontless FontString.
+    bar.name = bar.textFrame:CreateFontString(nil, "OVERLAY")
+    bar.name:SetJustifyH("LEFT")
+    bar.name:SetWordWrap(false)
+    bar.name:SetMaxLines(1)
+    SetFSFont(bar.name, 11)
+    bar.target = bar.textFrame:CreateFontString(nil, "OVERLAY")
+    bar.target:SetJustifyH("RIGHT")
+    bar.target:SetWordWrap(false)
+    bar.target:SetMaxLines(1)
+    SetFSFont(bar.target, 10)
+    bar.timer = bar.textFrame:CreateFontString(nil, "OVERLAY")
+    bar.timer:SetJustifyH("RIGHT")
+    bar.timer:SetWordWrap(false)
+    bar.timer:SetMaxLines(1)
+    SetFSFont(bar.timer, 11)
+
+    return bar
+end
+
+local function BuildBar(which)
+    local bar = BuildBarChrome(which, UIParent)
+
     -- Kick tick machinery, clipped so the tick never renders outside the bar
     -- when the kick CD exceeds the remaining cast.
     bar.kickClip = CreateFrame("Frame", nil, bar.sb)
@@ -169,28 +201,6 @@ local function BuildBar(which)
     bar.kickReadyFill:SetAlpha(0)
     bar.kickReadyFill:Hide()
 
-    bar.textFrame = CreateFrame("Frame", nil, bar.sb)
-    bar.textFrame:SetAllPoints(bar.sb)
-    bar.textFrame:SetFrameLevel(bar.sb:GetFrameLevel() + 6)
-    -- Fonts applied at BUILD as well as in StyleBar: a bar can be built on a
-    -- disabled path (unlock getFrame, enable round-trip) and its teardown
-    -- SetText("") errors on a fontless FontString.
-    bar.name = bar.textFrame:CreateFontString(nil, "OVERLAY")
-    bar.name:SetJustifyH("LEFT")
-    bar.name:SetWordWrap(false)
-    bar.name:SetMaxLines(1)
-    SetFSFont(bar.name, 11)
-    bar.target = bar.textFrame:CreateFontString(nil, "OVERLAY")
-    bar.target:SetJustifyH("RIGHT")
-    bar.target:SetWordWrap(false)
-    bar.target:SetMaxLines(1)
-    SetFSFont(bar.target, 10)
-    bar.timer = bar.textFrame:CreateFontString(nil, "OVERLAY")
-    bar.timer:SetJustifyH("RIGHT")
-    bar.timer:SetWordWrap(false)
-    bar.timer:SetMaxLines(1)
-    SetFSFont(bar.timer, 11)
-
     -- 10Hz cast timer text (engine-slept between fires; self-stops when the
     -- cast ends). Remaining time from the duration object only. bar.durKind
     -- (set by ArmFill, which already knows which getter applies) picks the
@@ -224,7 +234,7 @@ local function BuildBar(which)
         return true
     end
     if EllesmereUI.Tick and EllesmereUI.Tick.NewAnimTicker then
-        bar._timerTicker = EllesmereUI.Tick.NewAnimTicker(holder, bar._timerTick, 0.1)
+        bar._timerTicker = EllesmereUI.Tick.NewAnimTicker(bar.frame, bar._timerTick, 0.1)
     end
 
     bars[which] = bar
@@ -908,13 +918,13 @@ local function Deactivate()
 end
 
 --------------------------------------------------------------------------------
---  Preview: static sample cast (options eyeball / unlock placement). Plain
---  SetValue on a bar with no armed timer -- nothing reads units.
+--  Preview: static sample cast (unlock placement and the options header
+--  sample). Plain SetValue on a bar with no armed timer -- nothing reads
+--  units.
 --------------------------------------------------------------------------------
-local function ShowPreview(which)
-    local bar = bars[which] or BuildBar(which)
-    StyleBar(bar)
-    local tf = TF()
+-- The static content alone: icon, texts, colour, fill. Shared by the on-screen
+-- preview (the live bar) and the options header sample (a chrome-only bar).
+local function PaintSampleCast(bar, which, tf)
     bar.icon:SetTexture(134400)
     bar.name:SetText(which == "target" and "Crushing Blow" or "Dark Mending")
     local tc = tf and tf.targetColor
@@ -939,8 +949,42 @@ local function ShowPreview(which)
     bar.overlay:SetAlpha(0)
     bar.flash:Hide()
     bar.sb:SetValue(0.62)
+end
+
+local function ShowPreview(which)
+    local bar = bars[which] or BuildBar(which)
+    StyleBar(bar)
+    PaintSampleCast(bar, which, TF())
     ApplyBarPosition(bar)
     bar.frame:Show()
+end
+
+--------------------------------------------------------------------------------
+--  Options header sample: one chrome-only bar per unit, built ONCE on the
+--  header's column host and painted static on every call (no kick machinery,
+--  no ticker, no events; a plain SetValue fill). Never a slot in `bars`, so
+--  the cast lifecycle and the refresh pass never see it.
+--------------------------------------------------------------------------------
+local sampleBars = {}
+
+-- Hangs the sample at the host's TOPLEFT and returns its size (width, height
+-- in the host's units); nil before the settings exist.
+function ns.TFB_PaintSample(host, which)
+    local cfg = BarCfg(which)
+    local tf = TF()
+    if not (cfg and tf) then return nil end
+    local bar = sampleBars[which]
+    if not bar then
+        bar = BuildBarChrome(which, host)
+        sampleBars[which] = bar
+    end
+    bar.frame:SetParent(host)
+    bar.frame:ClearAllPoints()
+    bar.frame:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+    StyleBar(bar)
+    PaintSampleCast(bar, which, tf)
+    bar.frame:Show()
+    return cfg.width or 260, cfg.height or 22
 end
 
 function ns.TFB_SetPreview(which, on)

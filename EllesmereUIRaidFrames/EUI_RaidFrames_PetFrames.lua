@@ -525,7 +525,7 @@ PF.EnsureBuilt = function()
         hdr:SetAttribute("columnAnchorPoint", "LEFT")
         PF.container = hdr
         -- Switched on with a preview up: dim it like the other real frames.
-        if ns.previewActive() or ns._partyPvActive then ns._SetRealFramesPreviewHidden(true) end
+        if ns._raidPvActive or ns._partyPvActive then ns._SetRealFramesPreviewHidden(true) end
     end
     if not hdr[cap] then
         local hider = PF.hider

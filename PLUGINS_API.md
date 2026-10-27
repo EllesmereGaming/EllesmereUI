@@ -91,9 +91,9 @@ every other module that can't be overridden.
 
 ## Reference
 
-`EllesmereUI.PLUGIN_API_VERSION` is `2`. The API only ever grows; existing
+`EllesmereUI.PLUGIN_API_VERSION` is `3`. The API only ever grows; existing
 functions and fields will not change. Version 2 added
-`EllesmereUI.GetCDMIconsForSpell`.
+`EllesmereUI.GetCDMIconsForSpell`, version 3 `EllesmereUI.RequestCDMRepopulate`.
 
 ### `EllesmereUI.RegisterPlugin(id, spec)` -> `boolean`
 
@@ -159,27 +159,71 @@ page builders (see [Search](#search)).
 The Cooldown Manager icons currently showing `spellID`, on every CDM bar,
 including spells the player added that Blizzard's Cooldown Manager doesn't
 track. An icon matches when it holds the spell, its base spell or one of its
-overrides, the same way the rotation helper highlight finds its icon. Hidden
-icons are left out.
+overrides, the same way the rotation helper highlight finds its icon. Icons
+that are not shown are left out. A bar hidden by its visibility settings, or
+while the player is in a vehicle, fades its icons out instead of hiding them,
+so those icons are still returned.
 
 `out` is optional: pass a table of your own to have it wiped and filled
-instead of getting a new one (no allocation when you call it often). The
-function exists only while the Cooldown Manager module is loaded, so test for
-it first:
+instead of getting a new one. Each call walks every icon on every CDM bar, so
+call it when the spell you track changes, not every frame. The function
+exists only while the Cooldown Manager module is loaded, so test for it first:
 
 ```lua
 local icons = {}
 if EllesmereUI.GetCDMIconsForSpell then
     for _, icon in ipairs(EllesmereUI.GetCDMIconsForSpell(spellID, icons)) do
-        -- anchor your own overlay to icon
+        -- show your own overlay on icon
     end
 end
 ```
 
-The icons belong to EUI: anchor your own frames to them (an overlay, a glow
-from `EllesmereUI.Glows`), but don't reparent, hide, resize or hook them, and
-look them up again rather than keeping them, since bars reuse their icons
-when they rebuild.
+Some of these icons are EUI's own frames and some are Blizzard's Cooldown
+Manager frames that EUI shows on its bars, so treat every icon as read-only:
+
+- Draw on a frame of your own, created as a child of the icon
+  (`CreateFrame("Frame", nil, icon)`) so it moves, fades and hides with it.
+  Give it a frame level above the icon's, which carries its own cooldown,
+  border and glow layers.
+- Keep anything you track per icon in a table of your own, keyed by the
+  icon. Never write fields onto an icon: on Blizzard's frames that spreads
+  taint into Blizzard's code.
+- Don't reparent, hide, move, resize or hook an icon, and don't hand one to
+  code that does. Glow libraries usually store their state on the frame they
+  are given, so glow your own frame, never the icon.
+- Look the icons up again rather than keeping them: bars reuse their icons
+  for other spells when they rebuild, so hide your overlay on any icon the
+  latest call didn't return.
+
+### `EllesmereUI.RequestCDMRepopulate([specIDs])` -> `boolean`
+
+For profile installers that set up Blizzard's Cooldown Manager layouts. EUI's
+Cooldown Manager keeps its own arrangement of Blizzard's spells, so a Blizzard
+layout imported or switched to later is not mirrored onto EUI's bars by
+itself. This queues the work of the **Repopulate from Blizzard CDM** button:
+EUI's bars drop every spell that came from Blizzard's Cooldown Manager (the
+spells a player added in EUI, their racial, trinkets and presets stay) and
+are filled again from the active Blizzard layout.
+
+`specIDs` is optional: one spec ID or a list of them, as the game reports them
+(`C_SpecializationInfo.GetSpecializationInfo`); leave it out for every spec of
+the player's class. The request is kept for the current character only. Each
+requested spec is repopulated the next time it is active, once Blizzard's
+Cooldown Manager has finished building its icons after a login, reload or spec
+change, and never during combat (it waits for combat to end). Returns `true`
+once queued, `false` when nothing valid was given.
+
+Call it after your installer has written and activated its Blizzard layouts,
+right before your own `ReloadUI()`. The function exists only while the Cooldown
+Manager module is loaded, so test for it first:
+
+```lua
+-- after importing and activating the Blizzard Cooldown Manager layouts
+if EllesmereUI.RequestCDMRepopulate then
+    EllesmereUI.RequestCDMRepopulate()   -- every spec of this class
+end
+ReloadUI()
+```
 
 ## Building pages
 

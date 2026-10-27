@@ -66,7 +66,7 @@ local CLASS_LABELS = {
     Cancelable        = { "Cancelable",         "Shows only buffs that can be canceled" },
     Stealable         = { "Stealable",          "Shows only buffs you can spellsteal or purge" },
     BossAura          = { "Boss Debuffs",       "Shows only debuffs applied by bosses" },
-    RoleAura          = { "Role Debuffs",       "Shows only debuffs flagged for your role" },
+    RoleAura          = { "Boss Role Debuffs",  "Shows only debuffs from enemies that Blizzard labels as relevant to your role" },
     -- "Important" matches Raid Frames' wording for this isPriorityAura flag.
     PriorityAura      = { "Important",          "Shows only debuffs Blizzard flags as important" },
     NonPlayer         = { "Non-Player Auras",   "Shows only debuffs not caused by any player or player pet (this is what shows most pve debuffs, do not check this while All Debuffs is selected!" },
@@ -807,7 +807,7 @@ end
 -- writes through the Set<Name> function built below, which runs them all.
 -- broken: true while an EUI_PlayerAuraBars_*.lua file loads; a file that
 -- fails leaves it set, and the files behind it return at their first lines.
-ns._pabInternals = {
+EllesmereUI.NewInternals(ns, "_pabInternals", {
     BuffBarChain = BuffBarChain, BuildChain = BuildChain, ClassByKey = ClassByKey,
     ClassEnabled = ClassEnabled, DEBUFF_FILTER_ORDER = DEBUFF_FILTER_ORDER,
     DebuffSubtractFn = DebuffSubtractFn, ExpandFamily = ExpandFamily, MergeTypes = MergeTypes,
@@ -821,23 +821,10 @@ ns._pabInternals = {
     AKSetters = {}, buffsContainerSetters = {}, debuffsContainerSetters = {},
     buffsParentSetters = {}, debuffsParentSetters = {}, buffsSlotSigSetters = {},
     pabSuppressedSetters = {}, reloadAllSetters = {}, previewRefreshSetters = {},
-    broken = false,
-}
--- Set<Name> hands a new value to every copy registered in <name>Setters.
-for setter, listName in pairs({
+}, {
     SetAK = "AKSetters", SetBuffsContainer = "buffsContainerSetters",
     SetDebuffsContainer = "debuffsContainerSetters", SetBuffsParent = "buffsParentSetters",
     SetDebuffsParent = "debuffsParentSetters", SetBuffsSlotSig = "buffsSlotSigSetters",
     SetPabSuppressed = "pabSuppressedSetters", SetReloadAllCustomBars = "reloadAllSetters",
     SetMaybeRefreshPreview = "previewRefreshSetters",
-}) do
-    local list = ns._pabInternals[listName]
-    ns._pabInternals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
-end
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._pabInternals, { __index = function(_, k)
-    error("ns._pabInternals has no entry " .. tostring(k), 2)
-end })
+})

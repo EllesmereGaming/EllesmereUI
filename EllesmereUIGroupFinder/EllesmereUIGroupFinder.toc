@@ -5,7 +5,7 @@
 ## Group: EllesmereUI
 ## Notes: Premade Group search filters, listing, and application tools.
 ## Author: Ellesmere
-## Version: 9.6.2
+## Version: 9.6.9
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIGroupFinderDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga

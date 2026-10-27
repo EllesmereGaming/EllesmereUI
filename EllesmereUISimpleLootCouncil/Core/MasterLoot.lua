@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -41,7 +41,7 @@ function MasterLoot.SelfCandidate(slot)
     local listed = false
     for index = 1, MAX_CANDIDATES do
         local ok, name, second = pcall(GetMasterLootCandidate, slot, index)
-        if ok and type(name) == "string" and name ~= "" and not IsSecret(name, second) then
+        if ok and not IsSecret(name, second) and type(name) == "string" and name ~= "" then
             listed = true
             if addon.Player:IsSelf((addon.Player.UnitNameParts(name, second))) then
                 return index, true

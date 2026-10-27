@@ -3,13 +3,176 @@ local ns = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
 if not ns then return end
 
 local MOVE_KEYS = { "X", "Y", "WidthPct", "ClassColor", "ColorR", "ColorG", "ColorB",
-    "NameFormat", "TargetSep", "TargetPrefix", "TargetSepColor", "TargetSepClassColor" }
+    "NameFormat", "TargetSep", "TargetPrefix", "TargetSepColor", "TargetSepClassColor", "CustomFormat" }
+
+-- False for content a slot keeps to itself: "none", and "custom", whose format
+-- is stored per slot, so several slots may use it and none is picked for them.
+function ns.UF_IsUniqueContent(v)
+    return v ~= "none" and v ~= "custom"
+end
+
+-- Custom text popup for any text slot. prefix names the slot's keys
+-- (<prefix>CustomFormat, ClassColor, ColorR/G/B); db is the unit's settings;
+-- onSave runs after the format is stored and selects Custom for the slot.
+function ns.UFO_EditCustomText(prefix, db, unit, onSave, warning)
+    local key = prefix .. "CustomFormat"
+    local cur = db[key]
+    -- Stored with single pipes; the edit box holds a typed "|" doubled.
+    if type(cur) == "string" then cur = cur:gsub("|", "||") else cur = nil end
+    -- 120 letters for new input; a longer stored format (import) keeps its length.
+    local maxLen = math.max(120, cur and (strlenutf8 and strlenutf8(cur) or #cur) or 0)
+    -- The preview in the slot's text colour, as the unit preview shows it.
+    local color
+    -- Power Colored: the page's unit while it exists (boss1 for Boss),
+    -- else the player, as the unit preview shows it.
+    local function PowerColor()
+        local u = unit == "boss" and "boss1" or unit
+        local r, g, b = EllesmereUI.ResolveUnitPowerColor((u and UnitExists(u)) and u or "player")
+        return r and { r = r, g = g, b = b }
+    end
+    if prefix == "powerText" then
+        -- The power text's own keys: Power Colored, else powerTextColor.
+        local pc = db.powerPercentTextPowerColor and PowerColor()
+        color = pc or (not db.powerPercentTextPowerColor and db.powerTextColor) or { r = 1, g = 1, b = 1 }
+    elseif db[prefix .. "PowerColor"] then
+        -- The text bar's Power Colored. Fixed for the popup: the bar uses it
+        -- only while the format holds a power tag.
+        color = PowerColor()
+    elseif db[prefix .. "ClassColor"] then
+        if unit == "player" then
+            local _, cls = UnitClass("player")
+            color = cls and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[cls]
+        else
+            color = { r = 0.9, g = 0.3, b = 0.3 }
+        end
+    else
+        color = { r = db[prefix .. "ColorR"] or 1, g = db[prefix .. "ColorG"] or 1, b = db[prefix .. "ColorB"] or 1 }
+    end
+    -- Preview, suggestions, unknown-tag hint and tag help come from the engine's catalog.
+    local popupOpts = {
+        title = EllesmereUI.L("Custom Text"),
+        message = EllesmereUI.L("Tags in [brackets] show live values, other text stays as typed.") .. "\n"
+            .. EllesmereUI.L("Type [ for suggestions, the (i) lists every tag."),
+        messageSize = 10,
+        previewColor = color,
+        placeholder = "[name] - [hp:pct]%",
+        initialText = (not warning and cur) or "",
+        maxLetters = maxLen,
+        showCount = true,
+        warning = warning,
+        onConfirm = function(txt)
+            -- Stored with single pipes; the engine escapes them for display.
+            txt = tostring(txt or ""):gsub("||", "|"):gsub("^%s+", ""):gsub("%s+$", "")
+            -- Spaces only: show the popup again instead of closing unsaved.
+            if txt == "" then
+                ns.UFO_EditCustomText(prefix, db, unit, onSave, EllesmereUI.L("Enter at least one tag or character."))
+                return
+            end
+            db[key] = txt
+            onSave()
+        end,
+    }
+    EllesmereUI.TextTags.PopupOpts(ns.UF_TextTags, popupOpts, {
+        tagNotes = { hp = EllesmereUI.L("shows DEAD or OFFLINE") },
+    })
+    EllesmereUI:ShowInputPopup(popupOpts)
+end
+
+-- A copy of a slot's dropdown values whose Custom entry is an action that
+-- opens the popup (edit), marked with the white edit pencil at full alpha
+-- while getValue() is "custom". The menu reads the alpha when it is built,
+-- so a selection has to rebuild it (page rebuild or _invalidateMenu).
+local EDIT_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-edit.png"
+function ns.UFO_CustomTextValues(values, getValue, edit)
+    local v = CopyTable(values)
+    v.custom = { text = "Custom", action = edit }
+    local mo = v._menuOpts or {}
+    v._menuOpts = mo
+    local icon, iconColor = mo.icon, mo.iconColor
+    mo.icon = function(key)
+        if key == "custom" then return EDIT_ICON end
+        if icon then return icon(key) end
+    end
+    mo.iconSize = mo.iconSize or function() return 12 end
+    mo.iconClearScroll = true
+    mo.iconColor = function(key)
+        if key == "custom" then return 1, 1, 1, getValue() == "custom" and 1 or 0.75 end
+        if iconColor then return iconColor(key) end
+    end
+    return v
+end
+
+-- For a dropdown whose selection keeps the page: rebuilds the given regions'
+-- menus once the list has closed, for Custom's pencil to follow the selection.
+-- The widget refresh is the menu's own deferred one, which Custom's popup path
+-- never reaches: without it colour swatches and cogs keep the previous state.
+function ns.UFO_RefreshMenus(...)
+    local n, rgns = select("#", ...), { ... }
+    C_Timer.After(0, function()
+        for i = 1, n do
+            local dd = rgns[i] and rgns[i]._control
+            if dd and dd._invalidateMenu then dd._invalidateMenu() end
+        end
+        local rl = EllesmereUI._widgetRefreshList
+        if rl then for ri = 1, #rl do rl[ri]() end end
+    end)
+end
+
+-- The power text cog (Main and Boss): Show % for the preset formats in pctOff's
+-- complement; Custom writes its own %, so it keeps only the Name Format (WoW
+-- Forever, whose rows carry it), and only while the format shows a name.
+local PCT_TIP = "This option is only available for formats that display a percentage."
+function ns.UFO_PowerTextCog(get, set, pctOff, setShowPct)
+    local rows = ns.UF_NameFormatRows("powerText", "perpp", get, set, {
+        { type="toggle", label="Show %",
+          disabled=function() return get("powerTextFormat", "perpp") == "custom" end,
+          disabledTooltip=PCT_TIP,
+          get=function() return get("powerShowPercent", true) ~= false end,
+          set=setShowPct },
+    }, "powerTextFormat")
+    local hasName = #rows > 1
+    return {
+        title = "Power Text", rows = rows,
+        disabled = function()
+            local fmt = get("powerTextFormat", "perpp")
+            if fmt == "custom" then
+                return not (hasName and ns.UF_ContentShowsName(fmt, get("powerTextCustomFormat")))
+            end
+            return pctOff[fmt] == true
+        end,
+        disabledTooltip = function()
+            if hasName and get("powerTextFormat", "perpp") == "custom" then
+                return "This option only applies when the text shows a name."
+            end
+            return PCT_TIP
+        end,
+    }
+end
+
+-- The popup writes the format directly, so Spec Overrides needs an accessor:
+-- on a Custom slot, or one holding a format an override may switch back to.
+function ns.UFO_AddCustomFormatAccessor(rgn, label, prefix, content, getDB, apply)
+    local fk = prefix .. "CustomFormat"
+    if content ~= "custom" and type(getDB()[fk]) ~= "string" then return end
+    EllesmereUI.AddCaptureAccessor(rgn, {
+        type = "input", text = label .. " Custom Format",
+        getValue = function() return getDB()[fk] or "" end,
+        setValue = function(v)
+            getDB()[fk] = (v ~= "" and v) or nil
+            apply()
+        end,
+    })
+end
 
 -- Level coloring is shared by the unit, and edited from its level-text cogs.
 function ns.UF_CoreTextRows(prefix, contentDefault, get, set, rows)
     rows = ns.UF_NameFormatRows(prefix, contentDefault, get, set, rows)
     local content = get(prefix .. "Content", contentDefault)
-    if content ~= "level" and content ~= "levelname" and content ~= "namelevel" then return rows end
+    local parsed = content == "custom"
+        and EllesmereUI.TextTags.Parse(ns.UF_TextTags, get(prefix .. "CustomFormat"))
+    local hasLevel = content == "level" or content == "levelname" or content == "namelevel"
+        or (parsed and parsed.has.level)
+    if not hasLevel then return rows end
     rows[#rows + 1] = { type="toggle", label="Level Text: Difficulty Color",
         tooltip="Colors level text by difficulty, from grey (trivial) through green, yellow and orange to red (5+ levels above you).",
         get=function() return get("levelDifficultyColor", false) == true end,
@@ -37,11 +200,38 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
     local slots, order, values = opts.slots, {}, {}
     local byKey, cells, targets = {}, {}, {}
     local textValues = CopyTable(opts.values)
+    -- Remove in the house BAD red with the close X at the row's right edge: 12px,
+    -- at the list delete buttons' 0.75 alpha; both brighten on hover.
     textValues.none = "Remove"
+    textValues._menuOpts = {
+        icon = function(key)
+            if key == "none" then return "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png" end
+        end,
+        iconSize = function() return 12 end,
+        iconClearScroll = true,
+        iconColor = function() return 1, 0.35, 0.35, 0.75 end,
+        labelColor = function(key)
+            if key == "none" then return 1, 0.35, 0.35, 0.8 end
+        end,
+    }
+    local function Notify(key)
+        ns._ufTextNotify = { unit = opts.unit, key = key }
+    end
     for i = 1, #slots do
         local s = slots[i]
         order[i], values[s.key], byKey[s.key] = s.key, s.position, s
-        s.cfg.values = textValues
+        if textValues.custom then
+            -- Custom is an action entry: it opens the format popup, and a saved
+            -- format selects it for the slot (a selection rebuilds the page).
+            s.cfg.values = ns.UFO_CustomTextValues(textValues, s.cfg.getValue, function()
+                ns.UFO_EditCustomText(s.key, opts.db(), opts.unit, function()
+                    Notify(s.key)
+                    s.cfg.setValue("custom")
+                end)
+            end)
+        else
+            s.cfg.values = textValues
+        end
         if s.cfg.getValue() ~= "none" then cells[#cells + 1] = s end
     end
     local function Assigned(key)
@@ -57,7 +247,7 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
     local function Candidate()
         for i = 1, #opts.contentOrder do
             local v = opts.contentOrder[i]
-            if v ~= "none" and v ~= "---" then
+            if v ~= "---" and ns.UF_IsUniqueContent(v) then
                 local used = false
                 for j = 1, #slots do
                     if slots[j].cfg.getValue() == v then used = true; break end
@@ -65,9 +255,6 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
                 if not used then return v end
             end
         end
-    end
-    local function Notify(key)
-        ns._ufTextNotify = { unit = opts.unit, key = key }
     end
     local function Add(key)
         local v = Candidate()
@@ -87,9 +274,12 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
         local size = db[source .. "Size"] or db.textSize or 12
         for i = 1, #MOVE_KEYS do
             local suffix = MOVE_KEYS[i]
-            local v = db[source .. suffix]
-            if type(v) == "table" then v = CopyTable(v) end
-            db[dest .. suffix] = v
+            -- The format moves only with Custom; otherwise the destination keeps its own.
+            if suffix ~= "CustomFormat" or content == "custom" then
+                local v = db[source .. suffix]
+                if type(v) == "table" then v = CopyTable(v) end
+                db[dest .. suffix] = v
+            end
         end
         db[dest .. "Size"] = size
         if dest == "extraText" then
@@ -136,6 +326,9 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
             end,
             tooltip="Choose this text's slot position." })
         cell.decorate(rgn)
+        if cell.cfg.values and cell.cfg.values.custom then
+            ns.UFO_AddCustomFormatAccessor(rgn, cell.position, cell.key, cell.cfg.getValue(), opts.db, opts.apply)
+        end
         local pending = ns._ufTextNotify
         if pending and pending.unit == opts.unit and pending.key == cell.key then
             ns._ufTextNotify = nil

@@ -61,6 +61,7 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
 
     local _sec
     _sec, h = W:SectionHeader(parent, "LAYOUT", y);  y = y - h
+    EllesmereUI.BuildSectionUnlockJump(_sec, { key = "ERB_GCDBar", disabled = gcdOff, disabledTooltip = "GCD Bar" })
     local layoutSection = _sec
 
     local gStrataValues = EllesmereUI.FRAME_STRATA_LABELS

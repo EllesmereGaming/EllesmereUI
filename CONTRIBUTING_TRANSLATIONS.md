@@ -11,9 +11,10 @@ without breaking anything.
 
 - English **is** the key. There are no symbolic IDs: you translate
   `L["Enable"] = "..."`, not `L["OPTIONS_ENABLE"]`.
-- English clients never load the `EllesmereUILocales` addon at all. On a
-  non-English client it loads at startup, and only the file whose language
-  matches builds entries; every other file returns immediately.
+- English clients never load the `EllesmereUILocales` addon at all, unless
+  the EUI Options Language setting picks a translation. On a non-English
+  client it loads at startup and reads only the file for that client's
+  language (each file's TOC line names the client languages that read it).
 - Any key you leave out (or any string not yet wrapped) renders in English.
 
 ## Add or improve a language
@@ -31,9 +32,10 @@ without breaking anything.
    ```
 
 3. **Add a line in `EllesmereUILocales/EllesmereUILocales.toc`** next to the
-   other locales:
+   other locales, tagged with your code and English, so only clients in your
+   language (and English clients that pick it in EUI Options Language) read it:
    ```
-   frFR.lua
+   frFR.lua [AllowLoadTextLocale frFR, enUS, enGB]
    ```
 
 4. **Translate the right-hand side only.** Keep the English key exactly as it is:
@@ -42,6 +44,20 @@ without breaking anything.
    ```
 
 5. **Open a pull request.**
+
+## Simple Loot Council strings
+
+Simple Loot Council's own strings go in a separate file per language,
+`EllesmereUILocales/<code>_SLC.lua` (see `ptBR_SLC.lua`), which builds only
+while that module is enabled, so players who never use it don't carry its
+strings. Copy `ptBR_SLC.lua`'s header (it keeps the
+`EllesmereUI.LocaleModuleLoads` line), and add its line to the TOC under the
+other `_SLC` files with the same tag as your language's main file:
+```
+frFR_SLC.lua [AllowLoadTextLocale frFR, enUS, enGB]
+```
+The module's keys are listed in `EllesmereUISimpleLootCouncil/LocaleKeys.txt`.
+A word the rest of EllesmereUI also uses stays in your main file.
 
 ## Rules
 

@@ -368,6 +368,11 @@ ns.BlockFactories.ldb = function(blockCfg, slot, content, barCtx)
         -- No plugin picked yet: nothing to forward the click to, so send the
         -- player to the picker instead of dead-ending there.
         if not D().source then
+            -- The options never open in combat.
+            if InCombatLockdown() then
+                EllesmereUI.PrintError("Cannot open options during combat.")
+                return
+            end
             -- Options surface is LoadOnDemand; load it so OpenBlockSettings exists.
             if not ns.OpenBlockSettings then EllesmereUI:EnsureLoaded() end
             if ns.OpenBlockSettings then

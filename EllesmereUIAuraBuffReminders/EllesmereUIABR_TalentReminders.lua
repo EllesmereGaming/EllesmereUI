@@ -458,4 +458,3 @@ end)
 -------------------------------------------------------------------------------
 _G._EABR_TR_RequestRefresh = RequestRefresh
 _G._EABR_TR_HideIcons = HideIcons
-_G._EABR_TR_GetAnchor = function() return talentIconAnchor end

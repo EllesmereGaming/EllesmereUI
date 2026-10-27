@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Incredibly light performance, modern raid and party frames with endless flexibility.
 ## Author: Ellesmere
-## Version: 9.6.2
+## Version: 9.6.9
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIRaidFramesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga

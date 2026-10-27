@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Secret-value-safe absorb shields matching UnitFrames visuals.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI.HideFrame and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard raid and party frame suppression hides and scales through the parent's HideFrame and SetFrameScale)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.NewFrameData) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard raid and party frame suppression hides and scales through the parent's HideFrame and SetFrameScale)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 
 local ERF = EllesmereUI.Lite.NewAddon(ADDON_NAME)
@@ -1045,12 +1045,7 @@ end
 
 -- FFD: external weak-keyed lookup for state on header-managed buttons
 -- (SecureGroupHeader buttons are Blizzard-owned, never write custom keys)
-local FFD = setmetatable({}, { __mode = "k" })
-local function GetFFD(frame)
-    local d = FFD[frame]
-    if not d then d = {}; FFD[frame] = d end
-    return d
-end
+local FFD, GetFFD = EllesmereUI.NewFrameData()
 
 -------------------------------------------------------------------------------
 --  Physical pixel snapping. PP.Scale uses PanelPP.mult, which can be 1 even
@@ -1539,7 +1534,7 @@ ns._currentSizeTier = 20
 -- it writes through the Set<Name> function built below, which runs them all.
 -- broken: true while an EUI_RaidFrames_*.lua file loads; a file that fails
 -- leaves it set, and the files behind it return at their first lines.
-ns._internals = {
+EllesmereUI.NewInternals(ns, "_internals", {
     AbbreviateNumbers = AbbreviateNumbers, ABSORB_STYLE_ALPHA = ABSORB_STYLE_ALPHA,
     ABSORB_STYLE_TEX = ABSORB_STYLE_TEX, allButtons = allButtons, ApplyFont = ApplyFont,
     ApplyRoleIcon = ApplyRoleIcon, defaults = defaults, DISPEL_COLORS = DISPEL_COLORS,
@@ -1560,20 +1555,9 @@ ns._internals = {
     inCombatSetters = { function(v) inCombat = v end },
     readyCheckActiveSetters = {},
     framesVisibleSetters = {},
-    broken = false,
-}
--- Set<Name> hands a new value to every copy registered in <name>Setters.
-for setter, listName in pairs({ SetDB = "dbSetters", SetPP = "PPSetters",
-        SetContainerFrame = "containerFrameSetters", SetInCombat = "inCombatSetters",
-        SetReadyCheckActive = "readyCheckActiveSetters",
-        SetFramesVisible = "framesVisibleSetters" }) do
-    local list = ns._internals[listName]
-    ns._internals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
-end
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._internals, { __index = function(_, k)
-    error("ns._internals has no entry " .. tostring(k), 2)
-end })
+}, {
+    SetDB = "dbSetters", SetPP = "PPSetters",
+    SetContainerFrame = "containerFrameSetters", SetInCombat = "inCombatSetters",
+    SetReadyCheckActive = "readyCheckActiveSetters",
+    SetFramesVisible = "framesVisibleSetters",
+})

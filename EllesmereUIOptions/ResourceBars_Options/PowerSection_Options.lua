@@ -25,6 +25,8 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
 
     local hdr
     hdr, h = W:SectionHeader(parent, "POWER BAR", y);  y = y - h
+    -- Move in Unlock Mode on the title; handed back so the page's preview eye sits after it.
+    local unlockJump = EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ERB_Power", disabled = powerOff, disabledTooltip = powerDisTip })
 
     local _advTop = y  -- content top; also used by the Simple override overlay
     -- Row 1: Show Power Bar | Orientation
@@ -599,43 +601,63 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
         })
     end
 
-    -- Out of Combat Opacity & Visibility cog: Fade Out of Combat dims the Power bar to this alpha out of combat (100 = no fade; ns.ResolveBarAlpha in UpdateVisibility, which reacts to combat). Show When Energy / Mana Missing reveal a rule-hidden bar while that resource is below full (ns.ERB_MissingWanted, same pass); Mana also covers a shapeshifted druid's attached mana bar.
+    -- Out of Combat Opacity & Visibility cog: Fade Out of Combat dims the Power bar to this alpha out of combat (100 = no fade; ns.ResolveBarAlpha in UpdateVisibility, which reacts to combat). Show When Energy / Focus / Mana Missing reveal a rule-hidden bar while that resource is below full (ns.ERB_MissingWanted, same pass); Mana also covers a WoW Forever druid's Mana Bar while Shapeshifted.
     if not EllesmereUI._prebuilding then
         local rgn = powerBorderRow._leftRegion
+        local rows = {
+            { type = "toggle", label = "Fade Out of Combat",
+              get = function() local c = cfg(); return c and c.oocFadeEnabled == true end,
+              set = function(v)
+                  local c = cfg(); if not c then return end
+                  c.oocFadeEnabled = v; RefreshPower()
+              end },
+            { type = "slider", label = "Opacity",
+              min = 0, max = 100, step = 1,
+              disabled = function() local c = cfg(); return not (c and c.oocFadeEnabled) end,
+              get = function() local c = cfg(); return math.floor(((c and c.oocAlpha) or 0.5) * 100 + 0.5) end,
+              set = function(v)
+                  local c = cfg(); if not c then return end
+                  c.oocAlpha = v / 100; RefreshPower()
+              end },
+        }
+        -- Show When Missing rows for the resources the player's class shows on this bar:
+        -- energy and focus share one setting (a class has one of them), mana has its
+        -- own. WoW Forever hunters use mana.
+        local _, cls = UnitClass("player")
+        local fv = EllesmereUI.IS_FOREVER
+        local restLabel, restTip
+        if cls == "HUNTER" and not fv then
+            restLabel = "Show When Focus Missing"
+            restTip = "Shows the Power bar while your focus is below full, even when its Visibility setting hides it."
+        elseif cls == "ROGUE" or cls == "DRUID" or cls == "MONK" then
+            restLabel = "Show When Energy Missing"
+            restTip = "Shows the Power bar while your energy is below full, even when its Visibility setting hides it."
+        end
+        if restLabel then
+            rows[#rows + 1] = { type = "toggle", label = restLabel, tooltip = restTip,
+              get = function() local c = cfg(); return c and c.showWhenMissing == true end,
+              set = function(v)
+                  local c = cfg(); if not c then return end
+                  c.showWhenMissing = v; RefreshPower()
+              end }
+        end
+        if cls == "PALADIN" or cls == "PRIEST" or cls == "SHAMAN" or cls == "MAGE" or cls == "WARLOCK"
+            or cls == "DRUID" or cls == "MONK" or cls == "EVOKER" or (cls == "HUNTER" and fv) then
+            rows[#rows + 1] = { type = "toggle", label = "Show When Mana Missing",
+              tooltip = (fv and cls == "DRUID")
+                  and "Shows the Power bar, or your shapeshifted mana bar, while your mana is below full, even when its Visibility setting hides it."
+                  or "Shows the Power bar while your mana is below full, even when its Visibility setting hides it.",
+              get = function() local c = cfg(); return c and c.showManaWhenMissing == true end,
+              set = function(v)
+                  local c = cfg(); if not c then return end
+                  c.showManaWhenMissing = v; RefreshPower()
+              end }
+        end
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local c = cfg(); return c and not c.enabled end,
             disabledTooltip = powerDisTip,
-            title = "Out of Combat Opacity & Visibility",
-            rows = {
-                { type = "toggle", label = "Fade Out of Combat",
-                  get = function() local c = cfg(); return c and c.oocFadeEnabled == true end,
-                  set = function(v)
-                      local c = cfg(); if not c then return end
-                      c.oocFadeEnabled = v; RefreshPower()
-                  end },
-                { type = "slider", label = "Opacity",
-                  min = 0, max = 100, step = 1,
-                  disabled = function() local c = cfg(); return not (c and c.oocFadeEnabled) end,
-                  get = function() local c = cfg(); return math.floor(((c and c.oocAlpha) or 0.5) * 100 + 0.5) end,
-                  set = function(v)
-                      local c = cfg(); if not c then return end
-                      c.oocAlpha = v / 100; RefreshPower()
-                  end },
-                { type = "toggle", label = "Show When Energy Missing",
-                  tooltip = "Shows the Power bar while its energy is below full, even when its Visibility setting hides it. Resources that rest at empty, such as rage, are not affected.",
-                  get = function() local c = cfg(); return c and c.showWhenMissing == true end,
-                  set = function(v)
-                      local c = cfg(); if not c then return end
-                      c.showWhenMissing = v; RefreshPower()
-                  end },
-                { type = "toggle", label = "Show When Mana Missing",
-                  tooltip = "Shows the Power bar while it shows mana, or a shapeshifted druid's mana bar, while mana is below full, even when its Visibility setting hides it.",
-                  get = function() local c = cfg(); return c and c.showManaWhenMissing == true end,
-                  set = function(v)
-                      local c = cfg(); if not c then return end
-                      c.showManaWhenMissing = v; RefreshPower()
-                  end },
-            },
+            title = (#rows > 2) and "Out of Combat Opacity & Visibility" or "Out of Combat Opacity",
+            rows = rows,
         })
     end
 
@@ -820,5 +842,5 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
     -- Simple page: cover these controls when the current spec overrides Power in Advanced, so edits here aren't silently ignored.
     if not ctx.advanced then ns.ERB_SimpleOverrideOverlay(parent, _advTop, y, "primary") end
 
-    return y, hdr, powerEnableRow
+    return y, hdr, powerEnableRow, unlockJump
 end

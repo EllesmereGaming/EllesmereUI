@@ -35,7 +35,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     local db, floor, IsPreviewOff, MissingGlowDesc = env.db, env.floor, env.IsPreviewOff, env.MissingGlowDesc
     local optState, PP, ReloadAndUpdate, SGet = env.optState, env.PP, env.ReloadAndUpdate, env.SGet
     local SSet, SVal, SWrite = env.SSet, env.SVal, env.SWrite
-    local _, h
+    local _, h, hdr
     local row
     local _secY = y  -- section start tracker
     -------------------------------------------------------------------
@@ -1734,7 +1734,18 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     -------------------------------------------------------------------
     --  RANGE & TOOLTIP
     -------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
+    hdr, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
+    -- The Healer Mana Display's Move in Unlock Mode button, on the raid tab
+    -- only: both tabs build this section and the display's settings are
+    -- shared. Greyed while the mode is None, when the display has no mover.
+    if not optState._partyCtx then
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "RF_HealerMana",
+            disabled = function()
+                local hm = db.profile.healerMana
+                return not hm or (hm.mode or "none") == "none"
+            end,
+            disabledTooltip = "Healer Mana Display" })
+    end
 
     -- OOR Alpha | Show Raid Frames Tooltip (dropdown + cog). The dropdown is a pure VIEW over the legacy keys: with tooltipMode unset it derives the shown option from the showTooltip toggle plus the global "show in combat" flag, so behavior only changes once the user picks.
     -- Same derive as the runtime ns._ResolveTooltipMode.

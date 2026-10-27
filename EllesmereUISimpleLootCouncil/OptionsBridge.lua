@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end 
+if EUI_CLIENT_BLOCKED then return end if (select(2, ...)).slcInert then return end
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
@@ -26,7 +26,7 @@ function Options:Toggle()
         return
     end
     if InCombatLockdown() then
-        print(addon.Log.CHAT_PREFIX.accent .. T["the settings cannot open during combat."])
+        addon.Chat.Print(T["the settings cannot open during combat."])
         return
     end
     EllesmereUI:ShowModule(MODULE)
@@ -46,6 +46,7 @@ function Options:Init()
             EllesmereUI:RefreshPage()
         end,
     })
+    EllesmereUI:RegisterOnShow(function() addon.Callbacks:PaintNow("options") end)
 
     addon.Log:I("UI", "options ready (EllesmereUI page)")
 end

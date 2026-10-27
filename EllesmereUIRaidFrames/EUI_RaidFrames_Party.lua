@@ -189,7 +189,6 @@ ns._PARTY_PX_SIBLING = {
     borderSizePx       = "borderSize",
     hoverBorderSizePx  = "hoverBorderSize",
     targetBorderSizePx = "targetBorderSize",
-    debuffBorderSizePx = "debuffBorderSize",
     absorbGlowLine     = "absorbStyle",
 }
 
@@ -540,16 +539,6 @@ ns._UpdatePartyIndicatorScale = function()
     ns._partyBmScale = (s.partyAutoResizeTrackedBuffs ~= false) and scale or 1
     ns._partyIndicatorScale = s.partyAutoResizeIndicators and scale or 1
     if ns._RefreshProxyModes then ns._RefreshProxyModes() end
-end
-
-ns._IsPartyAllSynced = function()
-    if not db or not db.profile then return true end
-    local ss = db.profile.partySyncSections
-    if not ss then return true end
-    for _, sec in ipairs(ns._PARTY_SECTION_ORDER) do
-        if ss[sec] == false then return false end
-    end
-    return true
 end
 
 -- Create a single SecureGroupHeader for party frames (5 buttons max).

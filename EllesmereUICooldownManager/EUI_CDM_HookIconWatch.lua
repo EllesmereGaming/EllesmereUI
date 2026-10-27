@@ -1396,7 +1396,7 @@ do
                 ss = ResolveSpellSettings(frame, sid, false)
                 cse = ns.CdStateHideOf(ss, frame)
                 m = cse and ns.CD_STATE_HIDE[cse]
-                stance = ns.CdmStanceBarOf(ss)
+                stance = ns.CdmStanceBarOf(ss, frame)
             end
             if (m and (m.usable or m.form)) or stance then
                 watch[frame] = sid

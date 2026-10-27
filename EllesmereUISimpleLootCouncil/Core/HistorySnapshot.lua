@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -51,13 +51,9 @@ local function BuildCandidate(candidate, resolveResponse, awardedWinner, respons
         responseCode = responseCode,
         responseID = responseID,
         status = status ~= "RESPONDED" and status or nil,
-        note = candidate.note,
         roll = candidate.roll,
         rollBy = candidate.rollBy,
         diff = candidate.diff,
-        ilvl = candidate.ilvl,
-        gear1 = candidate.gear1,
-        gear2 = candidate.gear2,
         viaWhisper = candidate.viaWhisper or nil,
     }
     if responseID then
@@ -345,7 +341,7 @@ end
 function Snapshot:StartPacking(keys)
     packQueue, packAt, packDone = keys, 1, 0
     if not CreateFrame then return end
-    local driver = CreateFrame("Frame")
+    local driver = Snapshot.packDriver or CreateFrame("Frame")
     driver:SetScript("OnUpdate", function(self)
         if not Snapshot:PackStep(PACK_BUDGET) then self:SetScript("OnUpdate", nil) end
     end)
@@ -451,6 +447,10 @@ function Snapshot:Init()
 
     addon.Callbacks:Register("ItemAwarded", function(session, winner, item)
         if item and item.simulated then return end
+        if not addon.PlayerIsMasterLooter() then
+            local me = addon.Player and addon.Player:GetFullName("player")
+            if not (me and addon.Council and addon.Council:Contains(me)) then return end
+        end
         Snapshot:Capture(session, winner, item)
     end)
 

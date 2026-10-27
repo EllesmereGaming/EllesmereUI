@@ -12,11 +12,15 @@ local POINTS = {
 }
 PA.order = { "TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "CENTER", "RIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT" }
 
+-- The points' English names, built once. The picker translates them through
+-- literal L calls of its own, which is what the static key extractor reads.
+local LABELS = { TOPLEFT = "Top Left", TOP = "Top", TOPRIGHT = "Top Right", LEFT = "Left",
+    CENTER = "Center", RIGHT = "Right", BOTTOMLEFT = "Bottom Left", BOTTOM = "Bottom", BOTTOMRIGHT = "Bottom Right" }
+PA.LABELS = LABELS
+
 function PA.Description(info)
-    local labels = { TOPLEFT = "Top Left", TOP = "Top", TOPRIGHT = "Top Right", LEFT = "Left",
-        CENTER = "Center", RIGHT = "Right", BOTTOMLEFT = "Bottom Left", BOTTOM = "Bottom", BOTTOMRIGHT = "Bottom Right" }
-    return EllesmereUI.Lf("Point: %1$s to %2$s", EllesmereUI.L(labels[info.sourcePoint] or "?"),
-        EllesmereUI.L(labels[info.targetPoint] or "?"))
+    return EllesmereUI.Lf("Point: %1$s to %2$s", EllesmereUI.L(LABELS[info.sourcePoint] or "?"),
+        EllesmereUI.L(LABELS[info.targetPoint] or "?"))
 end
 
 local function Number(v)
@@ -55,7 +59,6 @@ function EllesmereUI.IsPointAnchored(key)
 end
 
 function EllesmereUI.SetPointAnchorHandles(enabled)
-    if not EllesmereUIDB then EllesmereUIDB = {} end
     EllesmereUIDB.unlockPointHandles = enabled and true or nil
     if not enabled and PA.cancelPicker then PA.cancelPicker() end
 end
@@ -170,10 +173,7 @@ function PA.Place(childKey, child, info, cx, cy, w, h)
     local pp = EllesmereUI.PP
     local scale = child:GetEffectiveScale()
     local ratio = UIParent:GetEffectiveScale() / scale
-    local bx, by = cx * ratio, cy * ratio
-    if pp and pp.SnapCenterForDim then
-        bx, by = pp.SnapCenterForDim(bx, w, scale), pp.SnapCenterForDim(by, h, scale)
-    end
+    local bx, by = pp.SnapCenterForDim(cx * ratio, w, scale), pp.SnapCenterForDim(cy * ratio, h, scale)
     local ex, ey = 0, 0
     if EllesmereUI._ExtraAnchorOffset then ex, ey = EllesmereUI._ExtraAnchorOffset(childKey) end
     bx, by = bx + ex, by + ey
@@ -192,7 +192,7 @@ function PA.Place(childKey, child, info, cx, cy, w, h)
     local ok, pt, rt, rpt, px, py = pcall(child.GetPoint, child, 1)
     local plain = ok and not (issecretvalue and (issecretvalue(pt) or issecretvalue(rt) or issecretvalue(rpt)
         or issecretvalue(px) or issecretvalue(py)))
-    local tolerance = ((pp and pp.perfect) or 1) / scale * 0.25
+    local tolerance = pp.perfect / scale * 0.25
     local same = plain and child:GetNumPoints() == 1 and pt == info.sourcePoint and rt == rel and rpt == rp
         and Number(px) and Number(py) and math.abs(px - x) <= tolerance and math.abs(py - y) <= tolerance
     if not plain and PA.followPins then

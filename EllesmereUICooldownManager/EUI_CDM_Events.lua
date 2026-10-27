@@ -186,6 +186,8 @@ local function ScheduleTalentRebuild()
 end
 
 local _rosterRebuildPending = false
+local _equipRebuildPending = false
+
 local function ScheduleRosterRebuild()
     -- Roster changes (promote, join, leave) don't change spells or bar
     -- routing. Only party frame anchoring needs a refresh. A full
@@ -321,9 +323,18 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         return
     end
     if event == "PLAYER_EQUIPMENT_CHANGED" then
-        if InCombatLockdown() then return end
-        BuildAllCDMBars()
-        if ns.QueueReanchor then ns.QueueReanchor() end
+        -- One rebuild per gear swap: an equipment set fires this once per slot, and
+        -- each rebuild is ~3.5 ms. Combat swaps need none (the trinket hook updates).
+        if InCombatLockdown() or _equipRebuildPending then return end
+        _equipRebuildPending = true
+        C_Timer.After(0, function()
+            -- Combat began before the flush (/equipset + opener): stay pending,
+            -- PLAYER_REGEN_ENABLED rebuilds.
+            if InCombatLockdown() then return end
+            _equipRebuildPending = false
+            BuildAllCDMBars()
+            if ns.QueueReanchor then ns.QueueReanchor() end
+        end)
         return
     end
     if event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_UPDATE_RESTING"
@@ -391,6 +402,11 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         -- Flush deferred roster reanchor that was blocked during combat
         if event == "PLAYER_REGEN_ENABLED" and _rosterRebuildPending then
             _rosterRebuildPending = false
+            if ns.QueueReanchor then ns.QueueReanchor() end
+        end
+        if event == "PLAYER_REGEN_ENABLED" and _equipRebuildPending then
+            _equipRebuildPending = false
+            BuildAllCDMBars()
             if ns.QueueReanchor then ns.QueueReanchor() end
         end
         return

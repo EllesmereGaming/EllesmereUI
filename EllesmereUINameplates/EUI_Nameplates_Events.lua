@@ -532,10 +532,8 @@ manager:SetScript("OnEvent", function(self, event, unit)
             plate:UpdateRaidIcon()
             if p and p.nameRaidMarkerEnabled == true then plate:RefreshNamePosition(true) end
             -- A marker appearing/clearing in a side slot changes the side extents the target
-            -- arrows sit outside of, so re-run arrow positioning (no-op without arrows), then
-            -- reanchor the container-bearing sides -- same order as the target-swap path.
+            -- arrows sit outside of, so re-run arrow positioning (no-op without arrows).
             ns.PositionArrowsOutsideAuras(plate)
-            if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(plate) end
         end
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
         for _, plate in pairs(ns.plates) do

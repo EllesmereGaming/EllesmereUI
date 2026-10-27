@@ -22,6 +22,8 @@ function ns.DMUsesRowSeparators(c)
         and not ns.DMBlizz() and (c.borderSize or 0) > 0 and EUI.GetBorderCompanion(c.borderTexture, "sepV") ~= nil)
 end
 
+-- Returns true when the window border moved to another level (the row
+-- decorations take their level from it).
 function ns.DMSetWindowBorderLayer(w, c)
     local level = w.header:GetFrameLevel() + 4
     if c.windowBorderBehind then level = math.max(0, w.frame:GetFrameLevel() - 1)
@@ -32,7 +34,9 @@ function ns.DMSetWindowBorderLayer(w, c)
             w._headerSeparator:SetFrameLevel(level + 2)
             w._headerSeparator.art:SetFrameLevel(level + 3)
         end
+        return true
     end
+    return false
 end
 
 function ns.DMRefreshRowDecor(window)
@@ -78,6 +82,10 @@ function ns.DMPaintValueGradient(bar, window, src, index)
         end
     end
     t = math.max(0, math.min(1, t)) * 2
+    -- Painted only when the colour moves; the row's other colour passes clear
+    -- the memo (a full rebuild, the pinned row's hand-back).
+    if bar._gradT == t then return end
+    bar._gradT = t
     bar.amount:SetTextColor(math.min(1, t), math.min(1, 2 - t), 0)
 end
 
@@ -97,24 +105,41 @@ local function NewTexture(host, sub, art)
     return tex
 end
 
+-- Parks a host (hidden, out of the UI-scale pass). Returns at once when it is
+-- parked already: the marker-only mode parks every other row's host each refresh.
 local function HideRowDecor(host)
-    host.active = false
+    if host.active == false and host.shownAs == false then return end
+    host.active, host.shownAs, host.placed = false, false, nil
     host:Hide()
     if host.iconHost then host.iconHost:Hide() end
     EUI.RegisterPxReapply(host, nil)
 end
 
+-- Follows the row. Re-anchors only when the scroll, the row metrics, the row
+-- count, the viewport height or the pin state moved since the last placement
+-- (host.placed); slot, icon and style changes clear it (ReapplyRowDecor).
 local function PositionRowDecor(host)
     local w, bar = host.window, host.bar
-    local visible = host.active and bar.row:IsShown() and w.viewport:IsShown()
-    host:SetShown(visible)
-    if host.iconHost then host.iconHost:SetShown(visible) end
+    local visible = (host.active and bar.row:IsShown() and w.viewport:IsShown()) and true or false
+    if host.shownAs ~= visible then
+        host.shownAs = visible
+        host:SetShown(visible)
+        if host.iconHost then host.iconHost:SetShown(visible) end
+    end
     if not visible then return end
     local es = host:GetEffectiveScale()
     local h, _, stride = ns._RowMetrics(host.style.cfg.barHeight or 18, host.style.cfg.barSpacing or 2, es)
     local scroll = host.slot > 0 and w.viewport:GetVerticalScroll() or 0
     local count, viewH = w.visibleCount or 0, w.viewport:GetHeight()
-    local pinBottom = host.slot > 0 and not w.stickyAtTop and w.stickyPlayer.row:IsShown()
+    local atTop = w.stickyAtTop == true
+    local pinBottom = host.slot > 0 and not atTop and w.stickyPlayer.row:IsShown()
+    if host.placed and host.pEs == es and host.pH == h and host.pStride == stride and host.pScroll == scroll
+        and host.pCount == count and host.pViewH == viewH and host.pAtTop == atTop
+        and host.pPinBottom == pinBottom then
+        return false
+    end
+    host.placed, host.pEs, host.pH, host.pStride, host.pScroll = true, es, h, stride, scroll
+    host.pCount, host.pViewH, host.pAtTop, host.pPinBottom = count, viewH, atTop, pinBottom
     local joinBottom = host.style.icons and pinBottom
         and host.slot == math.ceil((scroll + viewH) / stride) or false
     local joinChanged = host.joinBottom ~= joinBottom
@@ -194,6 +219,8 @@ local function PlaceRow(host)
             host.iconArt:SetFrameStrata(host.strata)
             host.iconArt:SetFrameLevel(host.level + 2)
             host.iconLine = NewTexture(host, 1, host.iconArt)
+            -- The new clip takes the host's shown state and anchors.
+            host.shownAs, host.placed = nil, nil
             PositionRowDecor(host)
         end
         local tex = host.iconLine
@@ -238,7 +265,9 @@ local function PlaceRow(host)
     end
 end
 
+-- A full re-placement (a new slot, icon or style, a pin flip, a new pixel grid).
 local function ReapplyRowDecor(host)
+    host.placed = nil
     PositionRowDecor(host)
     PlaceRow(host)
 end
@@ -256,7 +285,9 @@ function ns.DMSyncRowDecor(w)
     local c = ns.EDM.DB()
     local enabled = c.barSeparators or c.iconSeparator or c.showPlayerMarker
     for _, bar in ipairs(w.rowPool) do
-        if bar._decor then SyncRowDecor(bar._decor, enabled) end
+        -- A parked host has nothing to follow.
+        local host = bar._decor
+        if host and (host.active or not enabled) then SyncRowDecor(host, enabled) end
     end
     if w.stickyPlayer._decor then SyncRowDecor(w.stickyPlayer._decor, enabled) end
     w._decorSync = enabled or nil

@@ -225,14 +225,18 @@ local function ShowCopyPopup(text)
             if not popup:IsMouseOver() then dimmer:Hide() end
         end)
 
-        -- SetPropagateKeyboardInput is protected in combat: always pcall it.
-        popup:EnableKeyboard(true)
+        -- SetPropagateKeyboardInput is blocked in combat on every frame (a pcall
+        -- does not stop the block): the shared popup keyboard takes the keys out
+        -- of combat only, and in combat the popup stands aside (its focused edit
+        -- box still closes it on Escape).
+        EUI.PopupTakeKeys(popup, dimmer)
         popup:SetScript("OnKeyDown", function(self, key)
+            if InCombatLockdown() then return end
             if key == "ESCAPE" then
-                pcall(self.SetPropagateKeyboardInput, self, false)
+                self:SetPropagateKeyboardInput(false)
                 dimmer:Hide()
             else
-                pcall(self.SetPropagateKeyboardInput, self, true)
+                self:SetPropagateKeyboardInput(true)
             end
         end)
 

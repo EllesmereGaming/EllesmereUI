@@ -211,7 +211,7 @@ function EAB:FinishSetup()
                     local py = pos and pos.y or 0
                     tinsert(barFrameData, { key = key, w = frameW, h = frameH,
                         point = point, relPoint = relPoint, x = px, y = py,
-                        hidden = (s and (s.alwaysHidden or s.enabled == false)) and true or false })
+                        hidden = (s and (EAB.VisibilityCompat.IsNever(s) or s.enabled == false)) and true or false })
 
                     for i, btnData in pairs(btnLayout) do
                         local btn = buttons[i]
@@ -438,7 +438,7 @@ function EAB:FinishSetup()
                 if not info.isStance and not info.isPetBar then
                     local s = EAB.db.profile.bars[info.key]
                     local frame = barFrames[info.key]
-                    if s and frame and not s.alwaysHidden
+                    if s and frame and not EAB.VisibilityCompat.IsNever(s)
                        and not (EAB._padHide and s.gamepadHideBar == true) then
                         local vis = s.barVisibility or "always"
                         -- Any visibility option at all counts: a bar the player cannot
@@ -791,7 +791,7 @@ function EAB:FinishSetup()
                     for _, info in ipairs(BAR_CONFIG) do
                         local s = EAB.db.profile.bars[info.key]
                         if s and s.dragShow and s.enabled ~= false
-                           and (s.barVisibility == "never" or s.alwaysHidden)
+                           and EAB.VisibilityCompat.IsNever(s)
                            and not (EAB._visOverride and EAB._visOverride[info.key]) then
                             EAB._visOverride = EAB._visOverride or {}
                             EAB._visOverride[info.key] = "always"
@@ -1501,7 +1501,7 @@ function EAB:FinishSetup()
             -- Gamepad): RefreshRuntimeVisibility registered that string (an
             -- override keeps the [pet] term), and a plain rebuild here would
             -- stomp it on the reveal's own reconcile pass.
-            if petInfo and petFrame and petS and not petS.alwaysHidden
+            if petInfo and petFrame and petS and not EAB.VisibilityCompat.IsNever(petS)
                and not (self._visOverride and self._visOverride.PetBar)
                and not (self._padHide and petS.gamepadHideBar == true) then
                 RegisterAttributeDriver(petFrame, "state-visibility", BuildVisibilityString(petInfo, petS))

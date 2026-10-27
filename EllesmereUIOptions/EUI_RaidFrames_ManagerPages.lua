@@ -29,7 +29,7 @@ local POS_ORDER = EllesmereUI.POSITION_GRID_ORDER
 local GROW_VALUES = EllesmereUI.GROW_DIR_VALUES_FULL
 local GROW_ORDER = EllesmereUI.GROW_DIR_ORDER_FULL
 
-local CAT_VALUES = { boss = "Boss", role = "Role", priority = "Important",
+local CAT_VALUES = { boss = "Boss", role = "Boss Role", priority = "Important",
     cc = "Crowd Control", raid = "Raid", raidcombat = "Raid In Combat", dispel = "Dispellable",
     nonplayer = "Non-Player" }
 local CAT_ORDER = { "nonplayer", "priority", "boss", "role", "cc", "raid", "raidcombat", "dispel" }
@@ -127,7 +127,7 @@ function ns.RFO_AuraBorderSettings(parent, y, W, get, set, apply, disabled, disp
                 end,
                 set=function(v) set("TextureShift" .. axis, v); apply() end }
         end
-        local left, right = EllesmereUI.BorderOffsetRowCfgs({ addonKey="unitframes",
+        local offX, offY = EllesmereUI.BorderOffsetCogRows({ addonKey="unitframes",
             getTex=function() return Val("Texture", "solid") end,
             getStep=function() return Val("Size", 1) end,
             getSizeKey=function() return Val("Size", 1) end,
@@ -136,10 +136,8 @@ function ns.RFO_AuraBorderSettings(parent, y, W, get, set, apply, disabled, disp
             setX=function(v) set("TextureOffset", v) end,
             getY=function() return get("TextureOffsetY") end,
             setY=function(v) set("TextureOffsetY", v) end, apply=apply })
-        for _, cfg in ipairs({ left, right }) do
-            rows[#rows + 1] = { type=cfg.type, label=cfg.text, min=cfg.min, max=cfg.max,
-                step=cfg.step, get=cfg.getValue, set=cfg.setValue }
-        end
+        rows[#rows + 1] = offX
+        rows[#rows + 1] = offY
         if dispel then
             rows[#rows + 1] = { type="toggle", label="Textured Dispel Ring",
                 get=function() return Val("DispelTextured", false) end,
@@ -264,8 +262,8 @@ local TILE_FILTER_ITEMS = {
       tooltip = "Loss-of-control debuffs." },
     { key = "boss", label = "Boss Debuffs",
       tooltip = "Debuffs applied by boss encounters." },
-    { key = "role", label = "Role Debuffs",
-      tooltip = "Debuffs flagged as relevant to your role." },
+    { key = "role", label = "Boss Role Debuffs",
+      tooltip = "Debuffs from enemies that Blizzard labels as relevant to your role." },
     { key = "raid", label = "Raid",
       tooltip = "Blizzard's curated raid-frame debuff set." },
     { key = "raidcombat", label = "Raid In Combat",
@@ -333,8 +331,8 @@ local TILE_LANE_ITEMS = {
       tooltip = "Loss-of-control debuffs." },
     { key = "boss", label = "Boss Debuffs", dual = true,
       tooltip = "Debuffs applied by boss encounters." },
-    { key = "role", label = "Role Debuffs", dual = true,
-      tooltip = "Debuffs flagged as relevant to your role." },
+    { key = "role", label = "Boss Role Debuffs", dual = true,
+      tooltip = "Debuffs from enemies that Blizzard labels as relevant to your role." },
     { key = "raid", label = "Raid", dual = true,
       tooltip = "Blizzard's curated raid-frame debuff set." },
     { key = "raidcombat", label = "Raid In Combat", dual = true,
@@ -738,8 +736,8 @@ local function BuildBaseDetailDM(frame, fontPath)
               tooltip = "Loss-of-control debuffs. When shown, these lead the row and carry the CC glow." },
             { key = "boss", label = "Boss Debuffs", dual = true, showLockedFn = AllOn,
               tooltip = "Debuffs applied by boss encounters." },
-            { key = "role", label = "Role Debuffs", dual = true, showLockedFn = AllOn,
-              tooltip = "Debuffs flagged as relevant to your role." },
+            { key = "role", label = "Boss Role Debuffs", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs from enemies that Blizzard labels as relevant to your role." },
             { key = "raid", label = "Raid", dual = true, showLockedFn = AllOn,
               tooltip = "Blizzard's curated raid-frame debuff set." },
             { key = "raidcombat", label = "Raid In Combat", dual = true, showLockedFn = AllOn,

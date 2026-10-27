@@ -70,6 +70,10 @@ function EAB:OnInitialize()
         if EAB.db and EAB.db.profile and EAB.db.profile.barPositions then
             EllesmereUI._abBarPositions = EAB.db.profile.barPositions
         end
+        -- Toggle keys participate by the effective mode, which an override or a
+        -- profile swap can change. Before ApplyAll so a dropped toggle state is
+        -- already gone for its visibility pass (defers itself in combat).
+        EAB:RebuildVisToggleBindings()
         ApplyAll()
         -- Data bars: ApplyAll never lays them out, so a profile swap, an import
         -- or a spec override repaints their size, texture, text and Custom

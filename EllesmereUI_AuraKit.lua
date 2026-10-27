@@ -1107,6 +1107,24 @@ local function ApplyStyleToRegions(button, style)
         end
     end
 
+    -- Mouse-area insets (style.hitInsetX / hitInsetY, UI units per side). The
+    -- engine's aura buttons share one tooltip, and every button's OnLeave hides
+    -- it without checking who owns it (AuraButtonPrivateMixin:HideTooltip). Where
+    -- neighbouring buttons overlap (negative spacing) the cursor stands on both,
+    -- so the button it is leaving hides the tooltip the next one just showed:
+    -- tooltips that vanish when moving from one icon onto the next. Insetting
+    -- each mouse area by half the overlap keeps the areas apart while the icons
+    -- still overlap. Change-guarded, deferred to the restriction lift when denied.
+    local hitX, hitY = style.hitInsetX or 0, style.hitInsetY or 0
+    if (d.akHitX or 0) ~= hitX or (d.akHitY or 0) ~= hitY then
+        if button.SetHitRectInsets
+            and pcall(button.SetHitRectInsets, button, hitX, hitX, hitY, hitY) then
+            d.akHitX, d.akHitY = hitX, hitY
+        elseif d.styleKey and AK.AurasRestricted() then
+            deferredRestyles[d.styleKey] = true
+        end
+    end
+
     -- Weapon-enchant cells (stamped by AK.EnchantCellInit): the stock
     -- temp-enchant ring under Blizzard Style, re-fitted on every restyle.
     if d.enchantCell then AK.ApplyBlizzEnchantRing(button, d, style) end

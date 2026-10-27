@@ -1498,8 +1498,12 @@ local function BuffAlertApplyExtra(button, d, style)
     local entry = style.maEntry
     local label = (entry and (entry.customText or entry.spellName)) or "Active!"
     local r, g, b = ResolveAlertColor("textColor", "textColorUseClass")
-    local fp = (EllesmereUI.GetFontPath("qol")) or STANDARD_TEXT_FONT
-    d.maText:SetFont(fp, ma.textSize or 16, "OUTLINE")
+    -- same font, outline and size as the other alerts
+    local fp, outline = AlertFontPath(), AlertFontOutline()
+    local size = math.max(8, math.min(72, ma.textSize or 24))
+    if not d.maText:SetFont(fp, size, outline) then
+        d.maText:SetFont(FALLBACK_FONT, size, outline)
+    end
     d.maText:SetTextColor(r, g, b)
     d.maText:ClearAllPoints()
     if mode == "icon" then

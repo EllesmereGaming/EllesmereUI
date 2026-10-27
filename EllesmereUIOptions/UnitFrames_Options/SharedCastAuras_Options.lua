@@ -61,6 +61,13 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
         else UNIT_DB_MAP[optState.selectedUnit]().castbarHeight = v end
     end
 
+    -- The Move in Unlock Mode button on the cast bar's section: the selected
+    -- unit's own cast bar mover, whose Show Cast Bar toggle opens the section.
+    EllesmereUI.BuildSectionUnlockJump(sharedCastHeader, {
+        key = function() return optState.selectedUnit .. "Castbar" end,
+        disabled = function() return not GetCastbarEnabled(optState.selectedUnit) end,
+        disabledTooltip = "Show Cast Bar" })
+
     -- Player-only hint: this is the compact mini cast bar under the player frame;
     -- the full-size one belongs to Resource & Cast Bars, deep-linked here. The page
     -- fully rebuilds on unit change, so gating on selectedUnit re-evaluates per unit.

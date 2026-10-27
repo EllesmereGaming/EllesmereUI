@@ -2,8 +2,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_CDM_BuffBarStore.lua
 --
---  Per-spec unlock-link views and the bar list: add, remove and broadcast a
---  tracking bar across specs.
+--  Per-spec unlock-link views and the bar list: add, remove, reorder within a
+--  group and broadcast a tracking bar across specs.
 --  Reads the earlier Tracking Bars files through ns and ns._buffBarInternals.
 -------------------------------------------------------------------------------
 local _, ns = ...
@@ -364,6 +364,43 @@ function ns.RemoveTrackedBuffBar(idx)
     end
     if tbb.selectedBar > #tbb.bars then tbb.selectedBar = max(1, #tbb.bars) end
     ns.BuildTrackedBuffBars()
+end
+
+-- Move a grouped bar to place `pos` among its group's members (1 = first). The
+-- members trade the slots they already hold, so bars outside the group keep
+-- their indices and positions / unlock links stay with their slot: the group
+-- stays put and whatever is anchored to it stays anchored. Style is untouched.
+-- Returns the bar's new index.
+function ns.MoveTrackedBuffBarInGroup(idx, pos)
+    local tbb = ns.GetTrackedBuffBars()
+    local bars = tbb.bars
+    local cfg = bars[idx]
+    local gid = ns.TBBBarGroupID(cfg)
+    if gid == 0 then return idx end
+    local slots, members, from = {}, {}, nil
+    for j, c in ipairs(bars) do
+        if ns.TBBBarGroupID(c) == gid then
+            slots[#slots + 1] = j
+            members[#members + 1] = c
+            if j == idx then from = #slots end
+        end
+    end
+    pos = max(1, math.min(pos, #slots))
+    if pos == from then return idx end
+    local oldAnchor = ns.TBBGroupAnchorIndex(gid)
+    table.remove(members, from)
+    table.insert(members, pos, cfg)
+    for k, j in ipairs(slots) do bars[j] = members[k] end
+    -- A disabled member can hand the anchor role to another slot: carry the
+    -- group origin there, as the group mover's save does for every member.
+    local newAnchor = ns.TBBGroupAnchorIndex(gid)
+    local posDB = ns.GetTBBPositions()
+    local origin = oldAnchor and posDB[tostring(oldAnchor)]
+    if newAnchor and newAnchor ~= oldAnchor and origin then
+        posDB[tostring(newAnchor)] = { point = origin.point, relPoint = origin.relPoint, x = origin.x, y = origin.y }
+    end
+    ns.BuildTrackedBuffBars()
+    return slots[pos]
 end
 
 -- Stable identity for the broadcast toggle and the single source of truth for whether a
