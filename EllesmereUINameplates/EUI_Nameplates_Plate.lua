@@ -645,6 +645,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
     self.hpText:Hide()
     self.hpNumber:Hide()
     if self.levelText then self.levelText:Hide() end
+    self._levelSlotKey = nil
     if self.totText then self.totText:Hide() end
     -- Slot assignments may change element kinds: drop the value memo so the
     -- next UpdateHealthValues rewrites every slot's content.
@@ -718,7 +719,10 @@ function NameplateFrame:ApplyHealthTextAppearance()
             self:PlaceSlotText(fs, slot, txOff, tyOff)
             fs:SetJustifyH(slot.justify or slot.anchor)
             fs:SetTextColor(sr, sg, sb, 1)
-            if isLevel and self.unit then fs:SetText(ns.GetUnitLevelText(self.unit)) end
+            if isLevel then
+                self._levelSlotKey = slot.key
+                if self.unit then fs:SetText(ns.GetSlotLevelText(self.unit, slot.key)) end
+            end
             -- The bottom slots never truncate: no Width % or Wrap there.
             local lwpct = (not slot.bottom and p and p[slot.key .. "WidthPct"]) or 100
             fs:SetWidth(lwpct < 100 and (GetHealthBarWidth() * lwpct / 100) or 0)
@@ -773,7 +777,10 @@ function NameplateFrame:ApplyHealthTextAppearance()
         PP.Point(fs, "BOTTOM", self.health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)
         fs:SetJustifyH("CENTER")
         fs:SetTextColor(tr, tg, tb, 1)
-        if isLevel and self.unit then fs:SetText(ns.GetUnitLevelText(self.unit)) end
+        if isLevel then
+            self._levelSlotKey = "textSlotTop"
+            if self.unit then fs:SetText(ns.GetSlotLevelText(self.unit, "textSlotTop")) end
+        end
         local lwpct = (p and p.textSlotTopWidthPct) or 100
         fs:SetWidth(lwpct < 100 and (GetHealthBarWidth() * lwpct / 100) or 0)
         local lwrap = (p and p.textSlotTopWrap) and true or false

@@ -65,9 +65,9 @@ function NameplateFrame:UpdateName()
     end
     -- Standalone level renders on its own FontString and can share the plate with a
     -- name-family slot. Refreshed here (plate acquire/unit swap) so pooled reuse never stales.
-    -- Plain text: its colour is the slot's Text Coloring mode (font string colour).
+    -- Its base colour is the slot's Text Coloring mode; markers have their own colour.
     if self.levelText and self.levelText:IsShown() then
-        self.levelText:SetText(ns.GetUnitLevelText(unit))
+        self.levelText:SetText(ns.GetSlotLevelText(unit, self._levelSlotKey))
     end
     -- Classic WoW UI: the level in the vanilla border's plate.
     if self._classicLevel then ns.NP_UpdateClassicLevel(self) end
@@ -341,7 +341,7 @@ function NameplateFrame:UpdateNameWidth()
             if key ~= nameSlot then
                 local el = GetTextSlot(key)
                 if el ~= "none" and not ns.IsNameElement(el) then
-                    usedWidth = usedWidth + EstimateHealthTextWidth(el)
+                    usedWidth = usedWidth + EstimateHealthTextWidth(el, key)
                 end
             end
         end
