@@ -185,7 +185,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
               return out
           end,
           legacyKey = "visibility",
-          caps = { partyIncludesRaid = false, luaDragonriding = true },
+          caps = { partyIncludesRaid = false, luaDragonriding = true, noPetBattle = true },
           applyScalarFn = ApplyVisScalarAll,
           getOption = function(k)
               local p = DB(); if not p then return false end

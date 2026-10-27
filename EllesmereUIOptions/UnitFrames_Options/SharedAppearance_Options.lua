@@ -112,7 +112,10 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
     visRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
         { getStore = function() return UNIT_DB_MAP[optState.selectedUnit]() end,
           legacyKey = "barVisibility",
-          caps = { partyIncludesRaid = false, luaDragonriding = true },
+          -- Player, Target and Focus are already hidden in every pet battle.
+          caps = { partyIncludesRaid = false, luaDragonriding = true,
+                   noPetBattle = optState.selectedUnit == "player" or optState.selectedUnit == "target"
+                       or optState.selectedUnit == "focus" },
           refreshPageArg = true,
           -- Visibility is a RUNTIME axis and never touches enabledFrames: that
           -- key decides whether the frame is built at all, once, at login, so a

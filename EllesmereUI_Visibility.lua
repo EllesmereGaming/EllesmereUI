@@ -173,6 +173,11 @@ visFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
 -- other units' vehicle changes are irrelevant to these axes.
 visFrame:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
 visFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
+-- Pet Battle edges for the Pet Battle axis (WoW Forever has no pet battles).
+if not EUI.IS_FOREVER then
+    visFrame:RegisterEvent("PET_BATTLE_OPENING_START")
+    visFrame:RegisterEvent("PET_BATTLE_CLOSE")
+end
 -- Dragonriding edges: mount-capability changes fire PLAYER_CAN_GLIDE_CHANGED
 -- (repo-proven event); takeoff/landing while staying mounted fires
 -- PLAYER_IS_GLIDING_CHANGED, which is probed because nothing registered it before this

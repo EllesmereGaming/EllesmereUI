@@ -30,7 +30,9 @@ local CreateFrame = EllesmereUI._Pool.CreateFrame
 --                            store; the marker replaces the shared value, so it has to
 --                            reach exactly the stores that value does.
 --      caps                = { noMouseover, noGroupModes, noOverrideMouseover,
---                              luaDragonriding, lockedTooltips }
+--                              luaDragonriding, noPetBattle, lockedTooltips }
+--                            noPetBattle: the element already hides in every pet battle,
+--                            so the Pet Battle row is left out unless a lane on it is set
 --      applyScalarFn       = optional fn(store, mode) for scalar side effects
 --      getOption/setOption = optional fn(key)/fn(key, value) when option booleans live
 --                            outside getStore() (Resource Bars writes three stores)
@@ -113,6 +115,9 @@ EllesmereUI.VIS_ROW_ITEMS = {
     { key = "vehicle", label = "In Vehicle", axis = "opt",
       show = "visOnlyVehicle", hide = "visHideVehicle",
       tooltip = "While seated in a vehicle." },
+    { key = "petBattle", label = "Pet Battle", axis = "opt", forever = "never",
+      show = "visOnlyPetBattle", hide = "visHidePetBattle",
+      tooltip = "While you are in a pet battle." },
     { key = "partyMode", label = "Party Mode", axis = "opt",
       show = "visOnlyPartyMode", hide = "visHidePartyMode",
       tooltip = "While Party Mode is active. Party Mode can start in combat (Bloodlust); secure elements such as action bars then keep their current visibility until combat ends." },
@@ -196,12 +201,18 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
         if ForeverLaneOn(def, def.show) then return false end
         return not (def.forever == "always" and ForeverLaneOn(def, def.hide))
     end
+    -- caps.noPetBattle: a lane that arrived set (sync copy, import) keeps the row so it
+    -- can be cleared; Show would otherwise hide the element for good, unseen.
+    local function PetBattleRowHidden(def)
+        return not (ForeverLaneOn(def, def.show) or ForeverLaneOn(def, def.hide))
+    end
 
     for _, def in ipairs(EllesmereUI.VIS_ROW_ITEMS) do
         if def.isHeader then
             items[#items + 1] = def
         elseif not (def.key == "mouseover" and caps.noMouseover)
-            and not (def.forever and EllesmereUI.IS_FOREVER and ForeverRowHidden(def)) then
+            and not (def.forever and EllesmereUI.IS_FOREVER and ForeverRowHidden(def))
+            and not (def.key == "petBattle" and caps.noPetBattle and PetBattleRowHidden(def)) then
             local item = { key = def.key, label = def.label, tooltip = def.tooltip,
                            dual = def.axis and true or nil,
                            isModifier = def.modifier }

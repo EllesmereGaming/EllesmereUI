@@ -950,6 +950,15 @@ function EAB:FinishSetup()
     self:RegisterEvent("UNIT_EXITED_VEHICLE", function()
         self:UpdateHousingVisibility()
     end)
+    -- Pet Battle edges for the Pet Battle axis (WoW Forever has no pet battles).
+    if not EllesmereUI.IS_FOREVER then
+        self:RegisterEvent("PET_BATTLE_OPENING_START", function()
+            self:UpdateHousingVisibility()
+        end)
+        self:RegisterEvent("PET_BATTLE_CLOSE", function()
+            self:UpdateHousingVisibility()
+        end)
+    end
     self:RegisterEvent("UPDATE_SHAPESHIFT_FORM", function()
         self:UpdateHousingVisibility()
     end)

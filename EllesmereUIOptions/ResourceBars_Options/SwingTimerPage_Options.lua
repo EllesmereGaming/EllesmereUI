@@ -165,7 +165,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
     stShowRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
         { getStore = function() local p = DB(); return p and p.swingTimer end,
           legacyKey = "visibility",
-          caps = { partyIncludesRaid = false, luaDragonriding = true },
+          caps = { partyIncludesRaid = false, luaDragonriding = true, noPetBattle = true },
           disabledFn = stOff, disabledTooltip = ST_TIP,
           onChanged = function() RefreshST() end,
           onOptionChanged = function() RefreshST() end },

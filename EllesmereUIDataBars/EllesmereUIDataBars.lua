@@ -2589,6 +2589,10 @@ do
             if EllesmereUI._hasGlidingEvent then
                 visFrame:RegisterEvent("PLAYER_IS_GLIDING_CHANGED")
             end
+            if not EllesmereUI.IS_FOREVER then
+                visFrame:RegisterEvent("PET_BATTLE_OPENING_START")
+                visFrame:RegisterEvent("PET_BATTLE_CLOSE")
+            end
             _inCombat = InCombatLockdown() and true or false
         elseif visFrame then
             visFrame:UnregisterAllEvents()

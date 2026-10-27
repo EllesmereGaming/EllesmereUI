@@ -971,7 +971,7 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
     -- (noMouseover), matching the old VIS_VALUES_CDM list.
     local visRow, visH = EllesmereUI.BuildVisibilityRow(W, parent, y,
         { getStore = BD, legacyKey = "barVisibility",
-          caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
+          caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true, noPetBattle = true },
           -- The three built-in bars ship visHideHousing = true in DEFAULTS, so an
           -- explicit uncheck must persist false or DeepMergeDefaults re-fills it to
           -- true on next login. Harmless for other bars: they never go through that

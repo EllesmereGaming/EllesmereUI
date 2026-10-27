@@ -120,6 +120,7 @@ EllesmereUI.VIS_OPT_KEYS = {
     "visHideNoEnemy", "visHideWithEnemy",
     "visOnlyResting", "visHideResting",
     "visOnlyVehicle", "visHideVehicle",
+    "visOnlyPetBattle", "visHidePetBattle",
     "visOnlyPartyMode", "visHidePartyMode",
 }
 
@@ -155,6 +156,11 @@ function EllesmereUI.IsInDungeon()
     local _, iType = GetInstanceInfo()
     if iType ~= "party" then return false end
     return not (C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap())
+end
+
+-- Pet Battle axis probe. WoW Forever has no pet battles, so the missing API reads as none.
+function EllesmereUI.IsInPetBattle()
+    return (C_PetBattles and C_PetBattles.IsInBattle and C_PetBattles.IsInBattle()) and true or false
 end
 
 -- Runtime check: returns true if the element should be HIDDEN by visibility options.
@@ -300,6 +306,13 @@ function EllesmereUI.CheckVisibilityOptionsNonMacro(opts, skipMountAxis)
         if opts.visHideVehicle and inVehicle then return true end
     end
 
+    -- Pet Battle axis: Only Show in Pet Battle / Hide in Pet Battle share one probe.
+    if opts.visOnlyPetBattle or opts.visHidePetBattle then
+        local inPetBattle = EllesmereUI.IsInPetBattle()
+        if opts.visOnlyPetBattle and not inPetBattle then return true end
+        if opts.visHidePetBattle and inPetBattle then return true end
+    end
+
     -- Party Mode axis: Only Show during Party Mode / Hide during Party Mode.
     -- A plain true (not "mountaxis") on purpose: Party Mode can start or stop
     -- inside combat (Bloodlust, the celebration timer), where a secure driver
@@ -408,6 +421,11 @@ EllesmereUI.VIS_OPT_AXES = {
       probe = function() return IsResting() and true or false end },
     { show = "visOnlyVehicle", hide = "visHideVehicle", luaOnly = true, combatFlip = true,
       probe = function() return UnitInVehicle("player") and true or false end },
+    -- Not combatFlip, deliberately: wild battles run under combat lockdown, so the
+    -- "[nocombat] hide" escape hatch would reveal a Hide in Pet Battle element for the
+    -- whole battle. Secure action bars already carry a [petbattle] hide prefix.
+    { show = "visOnlyPetBattle", hide = "visHidePetBattle", luaOnly = true,
+      probe = function() return EllesmereUI.IsInPetBattle() end },
     -- Not combatFlip, deliberately: see the Party Mode axis in
     -- CheckVisibilityOptionsNonMacro -- a secure bar holds its pre-combat state
     -- and catches up when combat ends, instead of popping back mid-fight.

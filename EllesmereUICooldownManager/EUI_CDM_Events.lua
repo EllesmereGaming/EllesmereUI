@@ -99,6 +99,11 @@ end
 -- Vehicle edges for the In Vehicle axis (player-filtered; same reasoning).
 eventFrame:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
 eventFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
+-- Pet Battle edges for the Pet Battle axis (WoW Forever has no pet battles).
+if not EllesmereUI.IS_FOREVER then
+    eventFrame:RegisterEvent("PET_BATTLE_OPENING_START")
+    eventFrame:RegisterEvent("PET_BATTLE_CLOSE")
+end
 -- Dragonriding visibility modes: capability edge (mount/dismount/zone) plus
 -- the airborne edge (takeoff/landing while staying mounted; probed at load
 -- in EllesmereUI_Visibility.lua -- absent = the checklist items lock).
@@ -338,7 +343,8 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         return
     end
     if event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_UPDATE_RESTING"
-       or event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE" then
+       or event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE"
+       or event == "PET_BATTLE_OPENING_START" or event == "PET_BATTLE_CLOSE" then
         _CDMApplyVisibility()
         return
     end

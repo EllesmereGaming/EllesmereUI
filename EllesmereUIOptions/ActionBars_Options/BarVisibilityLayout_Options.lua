@@ -73,7 +73,7 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
 
         -- Pet Bar cannot express group modes: lock them with an explanation instead of offering silent no-ops.
         -- noOverrideMouseover: see the caps on the bar row above.
-        local visCaps = { partyIncludesRaid = false, noOverrideMouseover = true }
+        local visCaps = { partyIncludesRaid = false, noOverrideMouseover = true, noPetBattle = true }
         if SelectedKey() == "PetBar" then
             visCaps.noGroupModes = true
             visCaps.lockedTooltips = {

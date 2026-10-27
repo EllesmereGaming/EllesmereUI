@@ -95,7 +95,7 @@ local function DataBarKit(parent)
               -- override would silently behave like Always. Offered as locked rather
               -- than looking available and doing nothing.
               caps = { partyIncludesRaid = false, luaDragonriding = true,
-                       noOverrideMouseover = true },
+                       noOverrideMouseover = true, noPetBattle = true },
               applyScalarFn = function(s, mode) ApplyVisibilityKey(s, mode) end,
               disabledFn = disabledFn, disabledTooltip = disTip, rawTooltip = disTip and true or nil,
               onChanged = function()

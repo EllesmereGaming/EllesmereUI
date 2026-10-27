@@ -465,7 +465,8 @@ local function OnEvent(self, event, ...)
         end
     elseif event == "PLAYER_MOUNT_DISPLAY_CHANGED" or event == "PLAYER_CAN_GLIDE_CHANGED"
         or event == "PLAYER_IS_GLIDING_CHANGED" or event == "PLAYER_UPDATE_RESTING"
-        or event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE" then
+        or event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE"
+        or event == "PET_BATTLE_OPENING_START" or event == "PET_BATTLE_CLOSE" then
         UpdateVisibility()
     elseif event == "ZONE_CHANGED_NEW_AREA" then
         -- Re-check secondary max power: UnitPowerMax can change across zone
@@ -781,6 +782,11 @@ function ERB:OnEnable()
     -- Vehicle edges for the In Vehicle axis (player-filtered; same reasoning).
     eventFrame:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
     eventFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
+    -- Pet Battle edges for the Pet Battle axis (WoW Forever has no pet battles).
+    if not EllesmereUI.IS_FOREVER then
+        eventFrame:RegisterEvent("PET_BATTLE_OPENING_START")
+        eventFrame:RegisterEvent("PET_BATTLE_CLOSE")
+    end
     -- Airborne edge for the dragonriding visibility modes (probed at load
     -- in EllesmereUI_Visibility.lua; absent = the checklist items lock)
     if EllesmereUI._hasGlidingEvent then

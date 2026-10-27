@@ -1990,6 +1990,11 @@ local function InitializeFrames()
         -- Vehicle edges for the In Vehicle axis (player-filtered; same reasoning).
         frames._visFrame:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
         frames._visFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
+        -- Pet Battle edges for the Pet Battle axis (WoW Forever has no pet battles).
+        if not EllesmereUI.IS_FOREVER then
+            frames._visFrame:RegisterEvent("PET_BATTLE_OPENING_START")
+            frames._visFrame:RegisterEvent("PET_BATTLE_CLOSE")
+        end
         frames._visFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
         frames._visFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
         -- The focus-target mini mirrors the focus frame's alpha below, so a
